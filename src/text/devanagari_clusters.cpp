@@ -232,7 +232,4 @@ SfntStatus sfnt_indic_cluster_boundaries(SfntIndicProfile profile,ConstSlice<u32
         output[i]=static_cast<u8>(start);if(start){first=i;state.begin(profile,c,scalars[i],form);}}
     return SfntStatus::ok;
 }
-SfntStatus sfnt_devanagari_cluster_boundaries(ConstSlice<u32> scalars,Slice<u8> output,u64 work) noexcept {
-    return sfnt_indic_cluster_boundaries(SfntIndicProfile::devanagari,scalars,output,work);
-}
 }

@@ -1,6 +1,7 @@
 #include "maicord/text/tamil_shape_run.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/text/tamil_input.hpp"
+#include "maicord/text/indic_input.hpp"
+#include "indic_run_support.hpp"
 #include "maicord/text/indic_plan.hpp"
 #include "maicord/text/unicode.hpp"
 namespace maicord {namespace {
@@ -55,47 +56,40 @@ u32 cluster_end(ConstSlice<u32> text,u32 first) noexcept {
     }return at;
 }
 struct Policy {const SfntGdef* gdef;u32* groups;u32 units;u16 halant,space;SfntComponentForest* forest=nullptr;};
-SfntStatus role(const SfntComponentForest& forest,const SfntComponentGlyph& glyph,u8* output,u64 available,u64* used) noexcept {
-    return sfnt_component_first_metadata(forest,glyph.component,output,available,used);
-}
 SfntStatus prepare(void* opaque,u16 stage,SfntGlyphBuffer* buffer,SfntClusterMap*,SfntComponentForest* forest,
     const SfntGsubExecutionScratch&,u64 available,u64* used) noexcept {
-    *used=0;auto& p=*static_cast<Policy*>(opaque);
+    auto& p=*static_cast<Policy*>(opaque);use_shape::Metered work{available,used};
     if(stage!=0&&stage!=static_cast<u16>(SfntIndicStage::final_reorder))return SfntStatus::ok;
     const u32 count=sfnt_glyph_count(sfnt_glyph_buffer_view(*buffer));
-    const auto spend=[&](u64 cost) noexcept {if(cost>available-*used)return false;*used+=cost;return true;};
-    if(!spend(static_cast<u64>(count)*2))return SfntStatus::resource_limit;
+    if(!work.spend(static_cast<u64>(count)*2))return SfntStatus::resource_limit;
     auto status=sfnt_glyph_buffer_seek(buffer,count,static_cast<u64>(count)*2);if(status!=SfntStatus::ok)return status;
-    auto* glyphs=reinterpret_cast<SfntComponentGlyph*>(buffer->storage.data);
-    if(!stage){p.forest=forest;if(!spend(count))return SfntStatus::resource_limit;
+    Slice<SfntComponentGlyph> glyphs{reinterpret_cast<SfntComponentGlyph*>(buffer->storage.data),count};
+    if(!stage){p.forest=forest;if(!work.spend(count))return SfntStatus::resource_limit;
         for(u32 i=0;i<count;++i){const u32 node=glyphs[i].component;if(node>=forest->nodes.count)return SfntStatus::invalid_input;
             forest->nodes[node].reserved=static_cast<u16>(glyphs[i].glyph.reserved<<8);glyphs[i].glyph.reserved=0;}
         return SfntStatus::ok;
     }
     for(u32 first=0;first<count;){if(glyphs[first].source>=p.units)return SfntStatus::invalid_input;
         const u32 group=p.groups[glyphs[first].source];u32 end=first,base_at=nil,pre_at=nil,pre_count=0;
-        while(end<count){if(!spend(1))return SfntStatus::resource_limit;
+        while(end<count){if(!work.spend(1))return SfntStatus::resource_limit;
             if(glyphs[end].source>=p.units)return SfntStatus::invalid_input;if(p.groups[glyphs[end].source]!=group)break;
-            u8 value=0;u64 work=0;status=role(*forest,glyphs[end],&value,available-*used,&work);*used+=work;if(status!=SfntStatus::ok)return status;
+            u8 value=0;status=use_shape::first_role(*forest,glyphs[end],&value,work);if(status!=SfntStatus::ok)return status;
             if(value&base_role)base_at=end;if(value&pre_role){if(pre_at==nil)pre_at=end;if(end==pre_at+pre_count)++pre_count;}++end;}
         if(base_at!=nil&&pre_at!=nil&&pre_at<base_at){u32 before=pre_at;
-            for(u32 i=pre_at+pre_count;i<base_at;++i){u8 value=0;u64 work=0;status=role(*forest,glyphs[i],&value,available-*used,&work);*used+=work;if(status!=SfntStatus::ok)return status;
+            for(u32 i=pre_at+pre_count;i<base_at;++i){u8 value=0;status=use_shape::first_role(*forest,glyphs[i],&value,work);if(status!=SfntStatus::ok)return status;
                 if((value&halant_role)&&glyphs[i].glyph.glyph==p.halant){before=i+1;
-                    if(before<base_at){status=role(*forest,glyphs[before],&value,available-*used,&work);*used+=work;if(status!=SfntStatus::ok)return status;if(value&control_role)++before;}}}
-            if(before>pre_at+pre_count){if(!spend(static_cast<u64>(before-pre_at)*3))return SfntStatus::resource_limit;
-                // Rotate the whole pre-vowel group with three in-place reversals.
-                const auto reverse=[&](u32 low,u32 high) noexcept {while(low<high){--high;if(low>=high)break;const auto saved=glyphs[low];glyphs[low++]=glyphs[high];glyphs[high]=saved;}};
-                reverse(pre_at,pre_at+pre_count);reverse(pre_at+pre_count,before);reverse(pre_at,before);}}
+                    if(before<base_at){status=use_shape::first_role(*forest,glyphs[before],&value,work);if(status!=SfntStatus::ok)return status;if(value&control_role)++before;}}}
+            if(before>pre_at+pre_count){if(!work.spend(static_cast<u64>(before-pre_at)*3))return SfntStatus::resource_limit;
+                use_shape::rotate(glyphs,pre_at,pre_at+pre_count,before);}}
         first=end;
     }return SfntStatus::ok;
 }
-SfntStatus finish(void* opaque,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u64 work) noexcept {
+SfntStatus finish(void* opaque,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u64 available) noexcept {
     auto& p=*static_cast<Policy*>(opaque);if(!p.forest)return SfntStatus::invalid_input;
     if(zero.count<glyphs.count)return SfntStatus::output_too_small;
-    if(glyphs.count>work)return SfntStatus::resource_limit;work-=glyphs.count;
-    for(u32 i=0;i<glyphs.count;++i){auto& glyph=glyphs[i];u8 value=0;u64 used=0;
-        const auto status=role(*p.forest,glyph,&value,work,&used);work-=used;if(status!=SfntStatus::ok)return status;
-        const bool invisible=(value&control_role)&&glyph.component!=nil&&p.forest->nodes[glyph.component].count==1;
+    use_shape::Work work{available};if(!work.spend(glyphs.count))return SfntStatus::resource_limit;
+    for(u32 i=0;i<glyphs.count;++i){auto& glyph=glyphs[i];bool invisible=false;
+        const auto status=use_shape::control_glyph(*p.forest,glyph,control_role,&invisible,work);if(status!=SfntStatus::ok)return status;
         if(invisible)glyph.glyph.glyph=p.space;glyph.glyph.glyph_class=sfnt_gdef_glyph_class(*p.gdef,glyph.glyph.glyph);
         zero[i]=static_cast<u8>(invisible||glyph.glyph.glyph_class==SfntGlyphClass::mark);
     }return SfntStatus::ok;
@@ -127,8 +121,8 @@ SfntStatus sfnt_tamil_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,C
         if(!boundary(source))return SfntStatus::output_too_small;
         const bool circle=sign(initial)||(initial==0x200d&&(end>first+1||end==scalars.count));
         if(circle){status=append(0x25cc,source);if(status!=SfntStatus::ok)return status;}
-        SfntTamilInputScalar expanded[63];SfntTamilInputResult sizes{};
-        status=sfnt_tamil_expand_cluster({scalars.data+first,end-first},{expanded,62},&sizes,limits.stage_work);if(status!=SfntStatus::ok)return status;
+        SfntIndicInputScalar expanded[63];SfntIndicInputResult sizes{};
+        status=sfnt_indic_expand_cluster(SfntIndicProfile::tamil,{scalars.data+first,end-first},{expanded,62},&sizes,limits.stage_work);if(status!=SfntStatus::ok)return status;
         for(u32 i=0;i<sizes.scalar_count;++i){const auto entry=expanded[i];const u32 at=source+entry.source;
             // A consonant following an explicit virama retains its own source
             // group unless actual font substitution consumes it into a ligature.
@@ -149,7 +143,7 @@ SfntStatus sfnt_tamil_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,C
             const auto saved=mapped[i];mapped[i]=mapped[i-1];mapped[i-1]=saved;}
         // Expansion storage is dead after mapping; its bytes hold a stable linear
         // pre-vowel partition.
-        static_assert(sizeof(SfntTamilInputScalar)==sizeof(SfntClusterGlyph));u32 reordered=0;
+        static_assert(sizeof(SfntIndicInputScalar)==sizeof(SfntClusterGlyph));u32 reordered=0;
         for(u32 pass=0;pass<2;++pass)for(u32 i=begin;i<count;++i)if(((mapped[i].glyph.reserved&pre_role)!=0)==(pass==0))
             copy_bytes(expanded+reordered++,&mapped[i],sizeof(SfntClusterGlyph));
         copy_bytes(mapped+begin,expanded,static_cast<usize>(count-begin)*sizeof(SfntClusterGlyph));
@@ -157,25 +151,16 @@ SfntStatus sfnt_tamil_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,C
         source+=sizes.source_units;first=end;
     }
     Policy policy{&plan.gdef,groups,static_cast<u32>(units),halant,space};
-    const SfntShapeStagePolicy stages{&policy,prepare,static_cast<u16>(SfntIndicStage::count)};
+    const SfntShapeStagePolicy stages{&policy,prepare,static_cast<u16>(SfntIndicStage::count),true};
     const SfntShapeGlyphPolicy glyph_policy{&policy,finish,nullptr};
     status=sfnt_shape_run(plan,{mapped,count},static_cast<u32>(units),{storage.targets.data,starts},rtl,em,storage,result,limits,steps,{},glyph_policy,nullptr,&stages);
     if(status!=SfntStatus::ok||!trailing_spacing)return status;
     // A terminal matra may carry Indic tracking even if it has zero advance; only
     // a surviving control suppresses that slot. Decided from the live component
     // metadata and final cluster flags.
-    u64 work=limits.stage_work;
-    for(u32 first=0;first<result->glyph_count;){u32 end=first+1;
-        while(end<result->glyph_count&&!(storage.flags[end]&sfnt_position_cluster_start))++end;
-        const u32 length=end-first;if(static_cast<u64>(length)*2>work){status=SfntStatus::resource_limit;break;}work-=static_cast<u64>(length)*2;
-        for(u32 offset=0;offset<length;++offset){const u32 index=rtl?first+offset:end-1-offset;const auto& glyph=storage.glyphs[index];u8 metadata=0;u64 used=0;
-            status=role(*policy.forest,glyph,&metadata,work,&used);work-=used;if(status!=SfntStatus::ok)break;
-            if((metadata&control_role)&&glyph.component!=nil&&policy.forest->nodes[glyph.component].count==1)continue;
-            const u8 saved=storage.flags[index];storage.flags[index]&=static_cast<u8>(~sfnt_position_zero_advance);
-            status=sfnt_trailing_spacing({storage.placements.data+first,length},{storage.flags.data+first,length},trailing_spacing,length,rtl);
-            storage.flags[index]=saved;break;}
-        if(status!=SfntStatus::ok)break;first=end;
-    }
+    use_shape::Work work{limits.stage_work};
+    status=indic_trailing_spacing(storage,result->glyph_count,trailing_spacing,rtl,work,[&](u32 index,use_shape::Work& budget,bool* skipped) noexcept {
+        return use_shape::control_glyph(*policy.forest,storage.glyphs[index],control_role,skipped,budget);});
     if(status!=SfntStatus::ok)result->glyph_count=result->source_units=result->target_count=0;return status;
 }
 }

@@ -202,7 +202,7 @@ bool push_text(UiTextOutput* text, const UiGuildCardScene& s, const Utf8View& va
         return true;
     return ui_text_output_push(text, {value, s.owner, rectangle, s.panel, color, style, horizontal,
                                       wrap ? UiTextAlignment::start : UiTextAlignment::center,
-                                      wrap ? UiTextWrapping::wrap : UiTextWrapping::no_wrap, UiTextOverflow::ellipsis});
+                                      wrap ? TextWrapping::wrap : TextWrapping::no_wrap, TextOverflow::ellipsis});
 }
 Utf8View action_label(UiGuildCardAction action) noexcept {
     switch (action) {
@@ -446,8 +446,8 @@ bool ui_guild_card_text_output(const UiGuildCardScene& s, const Theme& theme, Ui
         const u32 bytes = acronym(s, initials);
         ok = !bytes || ui_text_output_push_owned(text, {{initials, bytes}, s.owner, at(s, s.icon), s.panel, strong,
                                                         text_style_bold, UiTextAlignment::center,
-                                                        UiTextAlignment::center, UiTextWrapping::no_wrap,
-                                                        UiTextOverflow::ellipsis});
+                                                        UiTextAlignment::center, TextWrapping::no_wrap,
+                                                        TextOverflow::ellipsis});
     }
     if (s.phase == UiGuildCardPhase::private_profile || s.phase == UiGuildCardPhase::failed) {
         const bool closed = s.phase == UiGuildCardPhase::private_profile;

@@ -28,10 +28,9 @@ struct Temporary {
 bool write(const wchar_t* path,ConstSlice<u8> bytes) noexcept {HANDLE h=CreateFileW(path,GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,0,nullptr);if(h==INVALID_HANDLE_VALUE)return false;DWORD n=0;const bool ok=WriteFile(h,bytes.data,bytes.count,&n,nullptr)&&n==bytes.count;CloseHandle(h);return ok;}
 bool views() noexcept {
     const ConstSlice<u8> font{font_catalog_probe_font,sizeof(font_catalog_probe_font)};
-    Temporary temp;CHECK(temp.open());CHECK(write(temp.paths[0],font));CatalogFixture fixture;u32 index=0;CHECK(fixture.add(temp.paths[0],&index));const auto& c=fixture.catalog;
-    CHECK(equal(native_font_catalog_path(c,0),wide(temp.paths[0]))&&equal(native_font_catalog_name(c,0),wide(L"Probe"))&&c.candidates[0].properties.weight==700);
-    CHECK(!native_font_catalog_settings(c,0).count&&!native_font_catalog_path(c,1).count&&!native_font_catalog_name(c,1).count&&!native_font_catalog_settings(c,1).count);
-    auto broken=c;broken.files.count=0;CHECK(!native_font_catalog_path(broken,0).count&&!native_font_catalog_name(broken,0).count);
+    Temporary temp;CHECK(temp.open());CHECK(write(temp.paths[0],font));CatalogFixture fixture;CHECK(fixture.add(temp.paths[0]));const auto& c=fixture.catalog;
+    CHECK(equal({reinterpret_cast<const u16*>(c.path),length(c.path)},wide(temp.paths[0]))&&!c.path[length(c.path)]&&equal(c.name,wide(L"Probe"))&&c.count==1&&c.properties[0].weight==700);
+    CHECK(!c.axis_count&&!native_font_catalog_settings(c,0).count&&!c.face_index);
     return true;
 }
 bool entries() noexcept {
@@ -39,24 +38,19 @@ bool entries() noexcept {
     u8 collection[16384]{};byte_store_be32(collection,sfnt_tag('t','t','c','f'));byte_store_be32(collection+4,0x10000);byte_store_be32(collection+8,10);u32 size=52;
     for(u32 i=0;i<10;++i){const u32 offset=size;CHECK(offset+font.count+4<sizeof(collection));byte_store_be32(collection+12+i*4,offset);copy_bytes(collection+offset,font.data,font.count);
         for(u32 j=0;j<byte_load_be16(font.data+4);++j){auto* field=collection+offset+12+j*16+8;byte_store_be32(field,byte_load_be32(field)+offset);}size=(offset+font.count+3)&~3u;}
-    CHECK(write(temp.paths[0],{collection,size}));CatalogFixture fixture;u32 index=0;CHECK(fixture.add(temp.paths[0],&index)&&fixture.catalog.count.candidates==10);auto& c=fixture.catalog;
+    CHECK(write(temp.paths[0],{collection,size}));CatalogFixture fixture,second;CHECK(fixture.add(temp.paths[0],0)&&second.add(temp.paths[0],1)&&second.catalog.face_index==1&&second.catalog.count==1);auto& c=fixture.catalog;
     NativeFontSession* session=nullptr;NativeFontHandle face{};
     struct Release {NativeFontSession*& session;NativeFontHandle& face;~Release() noexcept {if(session){if(face.slot)native_font_release(native_font_session_fonts(session),face);native_font_session_release(&session);}}} release{session,face};
     CHECK(native_font_session_create(&session)&&native_font_session_face(session,temp.paths[0],0,&face).ok());auto* fonts=native_font_session_fonts(session);
-    NativeFontCatalogEntry entry{};CHECK(native_font_catalog_entry(c,1,&entry).ok()&&entry.face_index==1&&entry.path.count&&entry.file&&!entry.settings.count);
-    CHECK(native_font_catalog_validate(entry,*fonts,face).native_error==ERROR_RETRY);
-    CHECK(native_font_catalog_validate({},*fonts,face).error==NativeFontError::invalid_input);
-    CHECK(native_font_catalog_entry(c,0,&entry).ok()&&native_font_catalog_validate(entry,*fonts,face).ok());
+    CHECK(native_font_catalog_validate(second.catalog,*fonts,face).native_error==ERROR_RETRY);
+    CHECK(native_font_catalog_validate(c,*fonts,{}).error==NativeFontError::invalid_input);
+    CHECK(native_font_catalog_validate(c,*fonts,face).ok());
     // Every part of the catalog version is required, even for an already live face.
-    for(u32 field=0;field<5;++field){auto wrong_file=*entry.file;auto wrong=entry;wrong.file=&wrong_file;
-        if(field==0)++wrong_file.bytes;else if(field==1)wrong_file.identity.VolumeSerialNumber^=1;
-        else if(field==2)wrong_file.identity.FileId.Identifier[0]^=1;
-        else if(field==3)wrong_file.last_write.dwLowDateTime^=1;else wrong_file.change_time.dwLowDateTime^=1;
+    for(u32 field=0;field<5;++field){auto wrong=c;
+        if(field==0)++wrong.stamp.bytes;else if(field==1)wrong.stamp.identity.VolumeSerialNumber^=1;
+        else if(field==2)wrong.stamp.identity.FileId.Identifier[0]^=1;
+        else if(field==3)wrong.stamp.write.dwLowDateTime^=1;else wrong.stamp.change.dwLowDateTime^=1;
         CHECK(native_font_catalog_validate(wrong,*fonts,face).native_error==ERROR_RETRY);}
-    const u32 saved=c.candidates[0].first_setting;c.candidates[0].first_setting=1;
-    CHECK(native_font_catalog_entry(c,0,&entry).error==NativeFontError::invalid_input&&!entry.file);
-    c.candidates[0].first_setting=saved;CHECK(native_font_catalog_entry(c,0,nullptr).error==NativeFontError::invalid_input);
-    CHECK(native_font_catalog_entry(c,10,&entry).error==NativeFontError::invalid_input);
     CHECK(native_font_release(fonts,face));face={};return true;
 }
 bool argument(const wchar_t** command,wchar_t* out,u32 available) noexcept {const wchar_t* p=*command;while(*p==L' '||*p==L'\t')++p;const bool quoted=*p==L'"';if(quoted)++p;u32 n=0;

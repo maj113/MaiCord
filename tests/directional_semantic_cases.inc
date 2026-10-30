@@ -24,11 +24,11 @@ inline bool directional_semantic_large_origin(DWriteTextSystem system) noexcept 
     static LargeOutput actual{},expected{};static char bytes[4005];static wchar_t wide[4096];
     for(u32 i=0;i<4000;++i)bytes[i]='A';bytes[4000]=' ';bytes[4001]='\xd7';bytes[4002]='\x90';bytes[4003]='\xd7';bytes[4004]='\x91';
     const Utf8View text{bytes,4005};const TextStyleSpan style{0,4005,text_style_link};const TextHitSpan hit{4001,4,19,0};
-    LargeOutput* outputs[]{&actual,&expected};for(auto* out:outputs){CHECK(shaped_text_initialize(&out->text,{out->glyphs,4096},{out->runs,4096},{out->clusters,4096}));CHECK(shaped_text_bind_hit_regions(&out->text,{out->hits,8}));}
+    LargeOutput* outputs[]{&actual,&expected};for(auto* out:outputs){CHECK(shaped_text_initialize(&out->text,{out->glyphs,4096},{out->runs,4096},{out->clusters,4096},{},{out->hits,8}));}
     struct Release {LargeOutput& actual;LargeOutput& expected;~Release() noexcept {shaped_text_reset(&actual.text);shaped_text_reset(&expected.text);}} release{actual,expected};
     auto native=system;native.factory=nullptr;native.format=nullptr;auto reference=system;reference.native_text=nullptr;
-    CHECK(text_shape_utf8_interactive(&native,text,{&style,1},{&hit,1},1000000,1000000,{wide,4096},&actual.text,TextWrapping::no_wrap).ok());
-    CHECK(actual.text.native_fonts());CHECK(text_shape_utf8_interactive(&reference,text,{&style,1},{&hit,1},1000000,1000000,{wide,4096},&expected.text,TextWrapping::no_wrap).ok());
+    CHECK(text_shape_utf8(&native,text,{&style,1},1000000,1000000,{wide,4096},&actual.text,TextWrapping::no_wrap,TextOverflow::clip,{&hit,1}).ok());
+    CHECK(actual.text.native_fonts());CHECK(text_shape_utf8(&reference,text,{&style,1},1000000,1000000,{wide,4096},&expected.text,TextWrapping::no_wrap,TextOverflow::clip,{&hit,1}).ok());
     CHECK(actual.text.glyph_count==expected.text.glyph_count&&actual.text.cluster_count==expected.text.cluster_count);
     CHECK(bytes_equal(actual.glyphs,expected.glyphs,actual.text.glyph_count*sizeof(TextGlyph))&&bytes_equal(actual.clusters,expected.clusters,actual.text.cluster_count*sizeof(u16)));
     CHECK(expected.text.hit_region_count==1&&expected.hits[0].left>1000000);
@@ -41,7 +41,7 @@ inline bool directional_semantic_options(DWriteTextSystem system) noexcept {
     auto detached=system;detached.factory=nullptr;detached.format=nullptr;
     // Populate a drawing-only cache first. Hit publication must add the line
     // geometry it needs, then safely reuse it for changed semantic identities.
-    CHECK(text_shape_utf8_styled(&detached,text,{&style,1},37,1000000,{utf16,256},&native_output.text).ok());
+    CHECK(text_shape_utf8(&detached,text,{&style,1},37,1000000,{utf16,256},&native_output.text).ok());
     CHECK(native_output.text.native_fonts());shaped_text_reset(&native_output.text);
     CHECK(semantic_compare(system,text,{&style,1},{&public_hit,1},true,37,TextWrapping::wrap,true));
     const u32 needed=native_output.text.hit_region_count,capacity=native_output.text.hit_region_capacity;

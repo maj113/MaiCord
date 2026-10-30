@@ -19,9 +19,7 @@ bool modifier(u32 scalar) noexcept {
     }
 }
 }
-bool sfnt_arabic_combining_mark(u32 scalar) noexcept {
-    return unicode_is_scalar(scalar) && bucket(scalar)<11;
-}
+bool sfnt_arabic_combining_mark(u32 scalar) noexcept {return bucket(scalar)<11;}
 SfntStatus sfnt_arabic_mark_order(ConstSlice<u32> scalars,Slice<u32> order,u64 work,bool reorder) noexcept {
     if((scalars.count && !scalars.data) || (order.count && !order.data))return SfntStatus::invalid_input;
     if(order.count<scalars.count)return SfntStatus::output_too_small;

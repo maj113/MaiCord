@@ -632,8 +632,8 @@ bool ui_profile_dialog_text_output(const UiProfileDialogScene& s, const Theme& t
                                           part.style,
                                           alignment,
                                           UiTextAlignment::center,
-                                          UiTextWrapping::no_wrap,
-                                          UiTextOverflow::ellipsis}))
+                                          TextWrapping::no_wrap,
+                                          TextOverflow::ellipsis}))
             return false;
     }
     return true;

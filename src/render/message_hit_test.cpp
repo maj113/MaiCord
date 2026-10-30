@@ -72,7 +72,7 @@ bool acquire_native(MessageHitTestCacheOwner& owner,const MessageTextCommand& co
         auto widths=message_take<float>(owner.storage,aligned?units+1:0);
         if(!clusters.data||!lines.data||!advances.data||(style_capacity&&!parts.data)||(run_capacity&&!runs.data)||(aligned&&!widths.data))return false;
         u32 required_runs=0;NativeParagraphHitStorage storage{clusters,lines,advances,&geometry->hits,parts,runs,&required_runs,widths};
-        const auto wrap=command.wrapping==UiTextWrapping::no_wrap?TextWrapping::no_wrap:TextWrapping::wrap;
+        const auto wrap=command.wrapping;
         const bool built=count?native_text_candidate_styled(system,shaped,styles,width,height,nullptr,&geometry->measure,wrap,TextOverflow::clip,{},&storage):
             native_text_candidate_hits(system,shaped,width,height,wrap,storage,&geometry->measure);
         if(!built){const u32 required=native_text_candidate_hit_style_capacity(system);

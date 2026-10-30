@@ -4,6 +4,7 @@
 #include "indic_cluster.hpp"
 #include "indic_forms.hpp"
 #include "use_shape_internal.hpp"
+#include "indic_run_support.hpp"
 namespace maicord {namespace {
 constexpr u32 nil=0xffffffffu;
 constexpr u8 halant_role=1,control_role=2,sign_role=4,post_role=8,spacing_role=16,pre_attachment_role=32,join_role=64,half_nukta_role=128;
@@ -13,24 +14,9 @@ struct Policy {
     SfntIndicProfile profile=SfntIndicProfile::devanagari;bool word_initial=false;u16 pref_glyph=0;
 };
 static_assert(sizeof(Policy)==104);
-using use_shape::Work;using use_shape::locate;using use_shape::move_before;
-SfntStatus role(const SfntComponentForest& forest,const SfntComponentGlyph& glyph,u8* value,Work& work) noexcept {
-    *value=0;if(glyph.component==nil)return SfntStatus::ok;u64 used=0;
-    const auto status=sfnt_component_first_metadata(forest,glyph.component,value,work.left,&used);work.spend(used);return status;
-}
-SfntStatus move_group_before(Slice<SfntComponentGlyph> glyphs,u32 from,u32 amount,u32 before,Slice<u8> scratch,Work& work) noexcept {
-    if(from>glyphs.count||amount>glyphs.count-from||before>glyphs.count)return SfntStatus::invalid_input;
-    if(before>=from&&before<=from+amount)return SfntStatus::ok;
-    const u32 target=before>from?before-amount:before;
-    const u32 bytes=amount*static_cast<u32>(sizeof(SfntComponentGlyph));if(scratch.count<bytes)return SfntStatus::output_too_small;
-    if(!scratch.data)return SfntStatus::invalid_input;
-    const u32 distance=target>from?target-from:from-target;if(!work.spend(static_cast<u64>(amount)*2+distance))return SfntStatus::resource_limit;
-    copy_bytes(scratch.data,glyphs.data+from,bytes);
-    if(target>from)for(u32 i=from;i<target;++i)glyphs[i]=glyphs[i+amount];else for(u32 i=from;i-->target;)glyphs[i+amount]=glyphs[i];
-    copy_bytes(glyphs.data+target,scratch.data,bytes);return SfntStatus::ok;
-}
-SfntStatus prepare(void* opaque,u16 stage,SfntGlyphBuffer* buffer,SfntClusterMap*,SfntComponentForest* forest,const SfntGsubExecutionScratch& scratch,u64 available,u64* used) noexcept {
-    auto& p=*static_cast<Policy*>(opaque);Work work{available};struct Report {Work& w;u64* out;~Report() noexcept {*out=w.used;}} report{work,used};
+using use_shape::Work;using use_shape::locate;using use_shape::move_before;using use_shape::first_role;
+SfntStatus prepare(void* opaque,u16 stage,SfntGlyphBuffer* buffer,SfntClusterMap*,SfntComponentForest* forest,const SfntGsubExecutionScratch&,u64 available,u64* used) noexcept {
+    auto& p=*static_cast<Policy*>(opaque);use_shape::Metered work{available,used};
     const bool initial=stage==12&&p.profile==SfntIndicProfile::bengali;
     const bool pref_boundary=(p.profile==SfntIndicProfile::telugu||p.profile==SfntIndicProfile::kannada||p.profile==SfntIndicProfile::malayalam)&&(stage==static_cast<u16>(SfntDevanagariStage::pre_base)||stage==static_cast<u16>(SfntDevanagariStage::below_base));
     if(stage!=0&&stage!=static_cast<u16>(SfntDevanagariStage::final_reorder)&&!initial&&!pref_boundary)return SfntStatus::ok;
@@ -112,10 +98,10 @@ SfntStatus prepare(void* opaque,u16 stage,SfntGlyphBuffer* buffer,SfntClusterMap
             if(owner==pre)glyphs[i].attachment=p.base;}
         u32 target=0;
         if(p.profile==SfntIndicProfile::malayalam){u32 matra=nil;status=locate(*forest,glyphs,p.initial.base,&matra,work);if(status!=SfntStatus::ok)return status;
-            if(matra!=nil){target=matra+1;while(target<base){u8 metadata=0;status=role(*forest,glyphs[target],&metadata,work);if(status!=SfntStatus::ok)return status;if(!(metadata&pre_attachment_role))break;++target;}}
-            if(direct_control)++target;}for(u32 i=0;i<base;++i){u8 metadata=0;status=role(*forest,glyphs[i],&metadata,work);if(status!=SfntStatus::ok)return status;
+            if(matra!=nil){target=matra+1;while(target<base){u8 metadata=0;status=first_role(*forest,glyphs[target],&metadata,work);if(status!=SfntStatus::ok)return status;if(!(metadata&pre_attachment_role))break;++target;}}
+            if(direct_control)++target;}for(u32 i=0;i<base;++i){u8 metadata=0;status=first_role(*forest,glyphs[i],&metadata,work);if(status!=SfntStatus::ok)return status;
             if((metadata&halant_role)&&glyphs[i].glyph.glyph==p.halant){target=i+1;
-                if(target<base){status=role(*forest,glyphs[target],&metadata,work);if(status!=SfntStatus::ok)return status;if(metadata&control_role)++target;}}}
+                if(target<base){status=first_role(*forest,glyphs[target],&metadata,work);if(status!=SfntStatus::ok)return status;if(metadata&control_role)++target;}}}
         // An already pre-base form must not move right across later halants.
         if(p.profile==SfntIndicProfile::malayalam&&target>pre)target=pre;
         status=move_before(glyphs,pre,target,work);if(status!=SfntStatus::ok)return status;}
@@ -124,14 +110,14 @@ SfntStatus prepare(void* opaque,u16 stage,SfntGlyphBuffer* buffer,SfntClusterMap
     // Contextual blwf can turn the selected base into a subjoined mark even
     // when the font's context-free pair query found no below form.
     if(p.profile==SfntIndicProfile::malayalam&&base!=nil&&sfnt_gdef_glyph_class(*p.gdef,glyphs[base].glyph.glyph)==SfntGlyphClass::mark){
-        for(u32 before=base;before--;){u8 metadata=0;status=role(*forest,glyphs[before],&metadata,work);if(status!=SfntStatus::ok)return status;
+        for(u32 before=base;before--;){u8 metadata=0;status=first_role(*forest,glyphs[before],&metadata,work);if(status!=SfntStatus::ok)return status;
             if(sfnt_gdef_glyph_class(*p.gdef,glyphs[before].glyph.glyph)!=SfntGlyphClass::mark&&!(metadata&(control_role|join_role))){base=before;break;}}}
     }
     if(p.profile!=SfntIndicProfile::telugu&&p.profile!=SfntIndicProfile::kannada&&base!=nil&&pre!=nil&&pre<base){u32 target=pre,attached=1;
-        while(pre+attached<base){u8 metadata=0;status=role(*forest,glyphs[pre+attached],&metadata,work);if(status!=SfntStatus::ok)return status;
+        while(pre+attached<base){u8 metadata=0;status=first_role(*forest,glyphs[pre+attached],&metadata,work);if(status!=SfntStatus::ok)return status;
             if(!(metadata&pre_attachment_role))break;++attached;}
         bool first_main=true;
-        for(u32 i=pre+attached;i<base;++i){u8 metadata=0;status=role(*forest,glyphs[i],&metadata,work);if(status!=SfntStatus::ok)return status;
+        for(u32 i=pre+attached;i<base;++i){u8 metadata=0;status=first_role(*forest,glyphs[i],&metadata,work);if(status!=SfntStatus::ok)return status;
             // A bare NBSP prefix leaves its mark-class dot before the left
             // vowel. A nominal base-class glyph has no such mark affinity.
             if(p.profile==SfntIndicProfile::malayalam&&p.scalars.count>1&&p.scalars[0]==0xa0&&p.scalars[1]==0xd4e&&
@@ -140,23 +126,25 @@ SfntStatus prepare(void* opaque,u16 stage,SfntGlyphBuffer* buffer,SfntClusterMap
                 (metadata&(half_nukta_role|sign_role))!=(half_nukta_role|sign_role)&&glyphs[i].glyph.glyph_class!=SfntGlyphClass::mark){
                 if(!(metadata&half_nukta_role)||(metadata&post_role))target=i+1;first_main=false;}
             if((metadata&halant_role)&&glyphs[i].glyph.glyph==p.halant){
-                if((p.profile==SfntIndicProfile::gujarati||p.profile==SfntIndicProfile::gurmukhi)&&i){status=role(*forest,glyphs[i-1],&metadata,work);if(status!=SfntStatus::ok)return status;if(metadata&half_nukta_role)continue;}
-                if(p.profile!=SfntIndicProfile::devanagari&&p.profile!=SfntIndicProfile::malayalam&&i+1<base){status=role(*forest,glyphs[i+1],&metadata,work);if(status!=SfntStatus::ok)return status;if(metadata&join_role)continue;}
+                if((p.profile==SfntIndicProfile::gujarati||p.profile==SfntIndicProfile::gurmukhi)&&i){status=first_role(*forest,glyphs[i-1],&metadata,work);if(status!=SfntStatus::ok)return status;if(metadata&half_nukta_role)continue;}
+                if(p.profile!=SfntIndicProfile::devanagari&&p.profile!=SfntIndicProfile::malayalam&&i+1<base){status=first_role(*forest,glyphs[i+1],&metadata,work);if(status!=SfntStatus::ok)return status;if(metadata&join_role)continue;}
                 target=i+1;
-                if(target<base){status=role(*forest,glyphs[target],&metadata,work);if(status!=SfntStatus::ok)return status;if(metadata&control_role)++target;}}}
+                if(target<base){status=first_role(*forest,glyphs[target],&metadata,work);if(status!=SfntStatus::ok)return status;if(metadata&control_role)++target;}}}
         if(p.profile==SfntIndicProfile::malayalam){u32 consonant=nil;status=locate(*forest,glyphs,p.pre,&consonant,work);if(status!=SfntStatus::ok)return status;
             if(consonant!=nil&&(consonant<target||direct_control))target=consonant;}
-        if(target>pre){status=move_group_before(glyphs,pre,attached,target,scratch.replacements,work);if(status!=SfntStatus::ok)return status;}}
+        if(target>pre+attached){if(!work.spend(static_cast<u64>(attached)*2+(target-attached-pre)))return SfntStatus::resource_limit;
+            // pre+attached<=base<count and target<=max(base,count-1), so the group and its destination are in range.
+            use_shape::rotate(glyphs,pre,pre+attached,target);}}
     status=locate(*forest,glyphs,p.reph,&reph,work);if(status!=SfntStatus::ok)return status;
     if(reph==nil||glyphs[reph].component==nil||(!p.initial.nominal_reph&&forest->nodes[glyphs[reph].component].count<2))return SfntStatus::ok;
     status=locate(*forest,glyphs,p.base,&base,work);if(status!=SfntStatus::ok)return status;
     u32 target=count;
-    for(u32 i=reph+1;i<count;++i){u8 metadata=0;status=role(*forest,glyphs[i],&metadata,work);if(status!=SfntStatus::ok)return status;
+    for(u32 i=reph+1;i<count;++i){u8 metadata=0;status=first_role(*forest,glyphs[i],&metadata,work);if(status!=SfntStatus::ok)return status;
         if(!p.initial.nominal_reph&&base!=nil&&i<base&&(metadata&halant_role)&&glyphs[i].glyph.glyph==p.halant){target=i+1;
-            if(target<count){status=role(*forest,glyphs[target],&metadata,work);if(status!=SfntStatus::ok)return status;if(metadata&control_role)++target;}break;}
+            if(target<count){status=first_role(*forest,glyphs[target],&metadata,work);if(status!=SfntStatus::ok)return status;if(metadata&control_role)++target;}break;}
         if((metadata&(post_role|sign_role))&&i>base){target=i;break;}}
     if(p.profile==SfntIndicProfile::malayalam&&base!=nil){target=base+1;u32 after=target;
-        while(after<count){u8 metadata=0;status=role(*forest,glyphs[after],&metadata,work);if(status!=SfntStatus::ok)return status;
+        while(after<count){u8 metadata=0;status=first_role(*forest,glyphs[after],&metadata,work);if(status!=SfntStatus::ok)return status;
             const bool halant_accent=(metadata&(sign_role|post_role|half_nukta_role))==(sign_role|post_role);
             if(!(metadata&(control_role|join_role))&&!halant_accent&&!((metadata&halant_role)&&glyphs[after].glyph.glyph==p.halant)){
                 // A post-base group's leading controls belong with that group.
@@ -173,8 +161,8 @@ SfntStatus prepare(void* opaque,u16 stage,SfntGlyphBuffer* buffer,SfntClusterMap
 SfntStatus finish(void* opaque,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u64 available) noexcept {
     auto& p=*static_cast<Policy*>(opaque);if(!p.forest)return SfntStatus::invalid_input;if(zero.count<glyphs.count)return SfntStatus::output_too_small;
     Work work{available};if(!work.spend(glyphs.count))return SfntStatus::resource_limit;
-    for(u32 i=0;i<glyphs.count;++i){auto& g=glyphs[i];u8 metadata=0;const auto status=role(*p.forest,g,&metadata,work);if(status!=SfntStatus::ok)return status;
-        const bool control=(metadata&control_role)&&g.component!=nil&&p.forest->nodes[g.component].count==1;
+    for(u32 i=0;i<glyphs.count;++i){auto& g=glyphs[i];u8 metadata=0;const auto status=first_role(*p.forest,g,&metadata,work);if(status!=SfntStatus::ok)return status;
+        const bool control=(metadata&control_role)&&p.forest->nodes[g.component].count==1;
         if(control)g.glyph.glyph=p.space;g.glyph.glyph_class=sfnt_gdef_glyph_class(*p.gdef,g.glyph.glyph);
         // Eligibility is dead after GSUB; the same byte then carries control
         // identity for run tracking once component scratch is reused.
@@ -222,7 +210,7 @@ SfntStatus indic_shape_cluster(SfntIndicProfile profile,const SfntShapePlan& pla
     for(u32 i=0;i<n;++i){mapped[i]=input[i];mapped[i].glyph.reserved=storage.flags[i];
         if(policy.initial.tail_sign==i+1){mapped[i].glyph.glyph=profile==SfntIndicProfile::kannada?policy.halant:input[n-1].glyph.glyph;mapped[i].glyph.glyph_class=profile==SfntIndicProfile::kannada?sfnt_gdef_glyph_class(plan.gdef,mapped[i].glyph.glyph):input[n-1].glyph.glyph_class;}
         if(policy.initial.tail_control==i+1){mapped[i].glyph.glyph=policy.space;mapped[i].glyph.glyph_class=sfnt_gdef_glyph_class(plan.gdef,policy.space);}}
-    const u32 boundary=0;const SfntShapeStagePolicy stages{&policy,prepare,static_cast<u16>(SfntDevanagariStage::count)};
+    const u32 boundary=0;const SfntShapeStagePolicy stages{&policy,prepare,static_cast<u16>(SfntDevanagariStage::count),true};
     const SfntShapeGlyphPolicy glyph_policy{&policy,finish,restore_cluster};
     status=sfnt_shape_run(plan,{mapped,n},units,{&boundary,1},rtl,em,storage,result,limits,steps,policy.order,glyph_policy,nullptr,&stages,defer_output);
     if(defer_output)return status;
@@ -231,18 +219,8 @@ SfntStatus indic_shape_cluster(SfntIndicProfile profile,const SfntShapePlan& pla
     // suppress the trailing slot; glyph width or GDEF mark class cannot tell
     // those cases apart. Component roles remain live until cluster return.
     Work work{limits.stage_work};
-    for(u32 at=0;at<result->glyph_count;++at){const u32 i=rtl?at:result->glyph_count-1-at;const auto& glyph=storage.glyphs[i];u8 metadata=0;
-        status=role(*policy.forest,glyph,&metadata,work);if(status!=SfntStatus::ok)break;
-        const bool control=(metadata&control_role)&&glyph.component!=nil&&policy.forest->nodes[glyph.component].count==1;
-        if(control)continue;
-        const u8 saved=storage.flags[i];storage.flags[i]&=static_cast<u8>(~sfnt_position_zero_advance);
-        status=sfnt_trailing_spacing({storage.placements.data,result->glyph_count},{storage.flags.data,result->glyph_count},trailing_spacing,limits.stage_work,rtl);
-        storage.flags[i]=saved;break;}
+    status=indic_trailing_spacing(storage,result->glyph_count,trailing_spacing,rtl,work,[&](u32 index,Work& budget,bool* skipped) noexcept {
+        return use_shape::control_glyph(*policy.forest,storage.glyphs[index],control_role,skipped,budget);});
     if(status!=SfntStatus::ok){result->glyph_count=result->source_units=result->target_count=0;}return status;
-}
-SfntStatus sfnt_devanagari_shape_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<SfntClusterGlyph> input,
-    ConstSlice<u32> scalars,ConstSlice<u8> forms,u32 units,float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,
-    ConstSlice<SfntLookupStep> steps,const SfntShapeLimits& limits,bool followed_by_text,float trailing_spacing,bool rtl) noexcept {
-    return indic_shape_cluster(SfntIndicProfile::devanagari,plan,cmap,input,scalars,forms,units,em,storage,result,steps,limits,followed_by_text,trailing_spacing,rtl,false);
 }
 }

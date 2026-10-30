@@ -98,9 +98,9 @@ struct Builder {
 };
 
 }
-SfntStatus sfnt_indic_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,SfntIndicProfile profile,bool independent,
+SfntStatus sfnt_indic_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,SfntIndicProfile profile,
     Slice<u16> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult* result,u64 work,bool ordered_presentation) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);(void)independent;
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
     const auto* info=sfnt_indic_script(profile);const u32 script=info?info->tag:0;
     if(ordered_presentation&&(profile!=SfntIndicProfile::malayalam||layout.kind!=SfntLayoutKind::substitution))return SfntStatus::invalid_input;
     if(!script||!layout.table.data||static_cast<u8>(layout.kind)>1||(scratch.count&&!scratch.data)||(output.count&&!output.data))return SfntStatus::invalid_input;

@@ -35,7 +35,7 @@ inline bool probe_empty_decorations(D3D11Renderer& renderer) noexcept {
     if(!native_text_format_create(system.native_text,{{reinterpret_cast<const u16*>(L"Segoe UI"),8},0,{400,5,0},14,56,true},&system.native_format))return false;
     stage=3;TextGlyph glyphs[256]{};TextRun runs[64]{};u16 clusters[256]{};TextDecoration decorations[256]{},filtered_decorations[256]{};
     ShapedText shaped{};wchar_t utf16[256]{};GlyphQuad actual[512]{},expected[512]{};
-    if(!shaped_text_initialize(&shaped,{glyphs,256},{runs,64},{clusters,256})||!shaped_text_bind_decorations(&shaped,{decorations,256}))return false;
+    if(!shaped_text_initialize(&shaped,{glyphs,256},{runs,64},{clusters,256},{decorations,256}))return false;
     struct ReleaseShape {ShapedText& value;~ReleaseShape() noexcept {shaped_text_reset(&value);}} release_shape{shaped};
     const Utf8View inputs[]{utf8_literal("AV \xd7\x90\xd7\x91\xd7\x92 XYZ"),
         utf8_literal("AV \xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7 XYZ"),utf8_literal("AV abcdefghijklmnopqrstuvwxyz")};
@@ -44,7 +44,7 @@ inline bool probe_empty_decorations(D3D11Renderer& renderer) noexcept {
     for(auto input:inputs)for(u32 style:styles)for(float width:widths){
         stage=4;current_case=cases;auto selected=system;
         const u32 first=style&text_style_code_block?3u:0u;const TextStyleSpan span{first,input.bytes-first,style};
-        if(!text_shape_utf8_styled(&selected,input,{&span,1},width,1000000,{utf16,256},&shaped,TextWrapping::no_wrap,TextOverflow::ellipsis).ok())return false;
+        if(!text_shape_utf8(&selected,input,{&span,1},width,1000000,{utf16,256},&shaped,TextWrapping::no_wrap,TextOverflow::ellipsis).ok())return false;
         stage=5;if(!shaped.native_fonts())return false;
         stage=6;auto filtered=shaped;filtered.decorations=filtered_decorations;filtered.decoration_count=0;
         for(u32 i=0;i<shaped.decoration_count;++i){const auto& d=shaped.decorations[i];

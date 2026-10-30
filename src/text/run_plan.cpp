@@ -102,6 +102,9 @@ SfntStatus prepare(const NativeFontInstance& instance,const NativeFontFace& nati
         if(font.gvar.table.data&&!p.hvar.store.table.data){plan.metric_context=const_cast<FontGeometryInstance*>(&instance.geometry);plan.advance=gvar_advance;}
         plan.cache_advances=p.variable;
         plan.position_instance={p.gdef_instance.store.table.data?&p.gdef_instance:nullptr,0,0,p.variable,VariationArithmetic::float_32};}
+    if(!p.variable&&p.nominal.ascii_count){auto table=take<u16>(state,p.nominal.ascii_count);if(!filled(table))return SfntStatus::resource_limit;
+        for(u32 i=0;i<table.count;++i){double value=0;status=p.plans[0].advance(p.plans[0].metric_context,static_cast<u16>(p.nominal.ascii_first+i),&value);if(status!=SfntStatus::ok)return status;table[i]=static_cast<u16>(value);}
+        p.nominal.ascii_advances=table.data;}
     for(u32 table=0;table<2;++table){
         status=sfnt_table(face,table?sfnt_tag('G','P','O','S'):sfnt_tag('G','S','U','B'),&bytes);
         if(status==SfntStatus::missing_table)continue;if(status!=SfntStatus::ok)return status;
@@ -168,7 +171,7 @@ NativeFontResult native_run_plan_acquire(NativeRunPlanStore* store,NativeFontIns
     auto* data=arena_allocate_zero<PlanData>(&state);if(!data)return failure(SfntStatus::resource_limit);data->kind=kind;
     SubstitutionScope substitutions{store->substitutions};
     if(bold){const auto& base=*reinterpret_cast<const PlanData*>(store->slots[parent.slot-1].state.base);
-        data->metrics=base.metrics;data->nominal=base.nominal;data->layout_metrics=base.layout_metrics;data->parent=parent;data->bold_font=&face->geometry.outline.truetype;
+        data->metrics=base.metrics;data->nominal=base.nominal;data->nominal.ascii_advances=nullptr;data->layout_metrics=base.layout_metrics;data->parent=parent;data->bold_font=&face->geometry.outline.truetype;
         for(u32 mode=0;mode<2;++mode){data->plans[mode]=base.plans[mode];data->plans[mode].metric_context=data;data->plans[mode].advance=bold_advance;data->plans[mode].cache_advances=true;}}
     else{arena_reset(scratch);const auto status=prepare(*font,*face,*data,state,*scratch,work,limit,store->substitutions);if(status!=SfntStatus::ok)return failure(status);}
     DWORD old=0;if(!VirtualProtect(state.base,state.committed,PAGE_READONLY,&old))return {NativeFontError::io,SfntStatus::ok,GetLastError()};

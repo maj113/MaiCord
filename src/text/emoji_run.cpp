@@ -5,8 +5,6 @@
 #include "maicord/text/base.hpp"
 #include "maicord/sys/simd.hpp"
 namespace maicord {namespace {
-template<class T> bool valid(Slice<T> s) noexcept {return !s.count||s.data;}
-template<class T> bool valid(ConstSlice<T> s) noexcept {return !s.count||s.data;}
 // A root cannot execute without a covered first glyph. A glyph uncovered by
 // every selected root bypasses substitution and positioning; an unknown result
 // or exhausted budget keeps full shaping. The four-entry cache of proven
@@ -60,8 +58,8 @@ SfntStatus native_emoji_plan_prepare(const NativeRunPlanStore& store,NativeRunPl
 }
 SfntStatus native_emoji_run(const NativeRunPlanStore& store,const NativeEmojiPlan& prepared,Utf8View text,float em,const NativeAsciiStorage& s,NativeAsciiResult* out,SfntShapeLimits limits,bool coverage,bool rtl,bool arabic) noexcept {
     if(!out)return SfntStatus::invalid_input;reset_value(out);u32 em_bits=0;copy_bytes(&em_bits,&em,4);const auto* parent=native_run_plan_get(store,prepared.run);
-    if(!parent||!prepared.cmap||!valid(prepared.substitution_roots)||!valid(prepared.positioning_roots)||(text.bytes&&!text.data)||!em_bits||em_bits>=0x7f800000u||em>65536||!valid(s.mapped)||!valid(s.glyphs)||!valid(s.placements)||!valid(s.character_glyphs)||
-       !valid(s.shaping.advances)||!valid(s.shaping.targets))return SfntStatus::invalid_input;
+    if(!parent||!prepared.cmap||!filled(prepared.substitution_roots)||!filled(prepared.positioning_roots)||(text.bytes&&!text.data)||!em_bits||em_bits>=0x7f800000u||em>65536||!filled(s.mapped)||!filled(s.glyphs)||!filled(s.placements)||!filled(s.character_glyphs)||
+       !filled(s.shaping.advances)||!filled(s.shaping.targets))return SfntStatus::invalid_input;
     if(text.bytes>limits.stage_work)return SfntStatus::resource_limit;u32 mapped=0,units=0,boundaries=0;bool controls=false,simple=true;u16 misses[4]{};u32 cached=0,next_miss=0;u64 proof_work=limits.stage_work;
     SfntShapePlan plan;native_profile_shape_plan(plan,*parent,prepared.positioning_program,prepared.substitution_roots,prepared.positioning_roots);plan.position_instance.round_variable_anchors=true;
     auto* provenance=reinterpret_cast<u8*>(s.shaping.advances.data);const u64 provenance_bytes=static_cast<u64>(s.shaping.advances.count)*sizeof(double);
@@ -85,7 +83,7 @@ SfntStatus native_emoji_run(const NativeRunPlanStore& store,const NativeEmojiPla
         units+=(cp>65535?2u:1u)+(variation?(next.codepoint>65535?2u:1u):0u);at+=scalar.width+(variation?next.width:0u);
     }
     if(units>s.character_glyphs.count)return SfntStatus::output_too_small;if(!mapped)return SfntStatus::ok;
-    if(simple){if(!valid(s.shaping.flags))return SfntStatus::invalid_input;if(mapped>s.glyphs.count||mapped>s.placements.count||mapped>s.shaping.flags.count)return SfntStatus::output_too_small;
+    if(simple){if(!filled(s.shaping.flags))return SfntStatus::invalid_input;if(mapped>s.glyphs.count||mapped>s.placements.count||mapped>s.shaping.flags.count)return SfntStatus::output_too_small;
         const auto scale=_mm_div_ss(_mm_set_ss(em),_mm_set_ss(static_cast<float>(plan.units_per_em)));u32 previous=0xffffffffu;float advance=0;
         for(u32 i=0;i<mapped;++i){const auto& g=s.mapped[i];if(previous!=g.glyph.glyph){double metric=0;const auto status=plan.advance(plan.metric_context,g.glyph.glyph,&metric);if(status!=SfntStatus::ok)return status;
                 advance=_mm_cvtss_f32(_mm_mul_ss(_mm_set_ss(static_cast<float>(metric)),scale));previous=g.glyph.glyph;}
@@ -94,8 +92,7 @@ SfntStatus native_emoji_run(const NativeRunPlanStore& store,const NativeEmojiPla
         }
         *out={mapped,units,1,0,0};return SfntStatus::ok;
     }
-    Controls policy{&plan.gdef,provenance,units,prepared.space_glyph,{{s.shaping.components.data,mapped},false,false},{{s.shaping.cluster_bits.data,sfnt_cluster_map_words(units)},units,0},arabic};
-    for(u32 n=units;n;){n=(n>>6)+((n&63)?1u:0u);++policy.clusters.levels;if(n==1)break;}
+    Controls policy{&plan.gdef,provenance,units,prepared.space_glyph,{{s.shaping.components.data,mapped},false,false},sfnt_cluster_map_frame(s.shaping.cluster_bits.data,units),arabic};
     SfntShapeRunResult result{};const auto status=sfnt_shape_run(plan,{s.mapped.data,mapped},units,{s.shaping.targets.data,boundaries},rtl,em,s.shaping,&result,limits,{}, {},controls?SfntShapeGlyphPolicy{&policy,finish_controls}:SfntShapeGlyphPolicy{});
     out->lookup_operations=result.lookup_operations;if(status!=SfntStatus::ok)return status;
     if(result.glyph_count>s.glyphs.count||result.glyph_count>s.placements.count)return SfntStatus::output_too_small;

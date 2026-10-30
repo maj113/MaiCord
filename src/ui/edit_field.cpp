@@ -50,6 +50,6 @@ bool ui_edit_field_text_output(UiTextOutput* text, UiWidgetReference owner, UiRe
                                       entered ? geometry->text : content, content, color, 0,
                                       UiTextAlignment::start,
                                       entered ? UiTextAlignment::start : UiTextAlignment::center,
-                                      UiTextWrapping::no_wrap, UiTextOverflow::clip});
+                                      TextWrapping::no_wrap, TextOverflow::clip});
 }
 } // namespace maicord

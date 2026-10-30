@@ -121,19 +121,11 @@ bool append_login_text_command(D3D11Renderer* renderer, const UiTextCommand& com
     const TextStyleSpan span{0, command.text.bytes, command.style_flags};
     const float maximum_width = maximum(ui_rect_width(command.rectangle), 1.0f);
     const float maximum_height = maximum(ui_rect_height(command.rectangle), 1.0f);
-    const TextWrapping wrapping =
-        command.wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap;
-    const TextOverflow overflow =
-        command.overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis : TextOverflow::clip;
     const TextShapeResult shaped =
-        command.style_flags == text_style_none
-            ? text_shape_utf8(&renderer->glyph_text.system, command.text, maximum_width, maximum_height,
-                              Slice<wchar_t>{renderer->glyph_text.utf16, kRendererGlyphCapacity},
-                              &renderer->glyph_text.title, wrapping, overflow)
-            : text_shape_utf8_styled(&renderer->glyph_text.system, command.text,
-                                     ConstSlice<TextStyleSpan>{&span, 1}, maximum_width, maximum_height,
-                                     Slice<wchar_t>{renderer->glyph_text.utf16, kRendererGlyphCapacity},
-                                     &renderer->glyph_text.title, wrapping, overflow);
+        text_shape_utf8(&renderer->glyph_text.system, command.text,
+                        {&span, command.style_flags == text_style_none ? 0u : 1u}, maximum_width,
+                        maximum_height, Slice<wchar_t>{renderer->glyph_text.utf16, kRendererGlyphCapacity},
+                        &renderer->glyph_text.title, command.wrapping, command.overflow);
     if (!shaped.ok()) {
         return false;
     }
@@ -165,41 +157,37 @@ bool append_login_text_command(D3D11Renderer* renderer, const UiTextCommand& com
     return appended;
 }
 
-bool rebuild_login_text_commands_once(D3D11Renderer* renderer, const RendererLoginView& view,
-                                      const Theme& theme, bool* atlas_invalidated) noexcept {
-    TextRasterScope raster_scope(*renderer);
-    renderer->glyph_text.title_quad_count = 0;
-    *atlas_invalidated = false;
-    UiTextCommand commands[kMaximumLoginTextCommands]{};
-    UiTextCommandStream stream{};
-    if (!ui_text_command_stream_initialize(&stream,
-                                           Slice<UiTextCommand>{commands, kMaximumLoginTextCommands}) ||
-        !login_text_presentation_build(*renderer->login_scene, view, theme, &stream)) {
-        return false;
-    }
-    for (u32 index = 0; index < stream.count; ++index) {
-        if (!append_login_text_command(renderer, stream.storage[index], atlas_invalidated) ||
-            *atlas_invalidated) {
+// Appends the login commands to a fresh title stream; a full atlas is reset and the
+// stream rebuilt, up to `attempts` times.
+bool append_login_commands(D3D11Renderer* renderer, const UiTextCommand* commands, u32 count,
+                           u32 attempts) noexcept {
+    for (u32 attempt = 0; attempt < attempts; ++attempt) {
+        bool invalidated = false;
+        bool valid = true;
+        TextRasterScope raster_scope(*renderer);
+        renderer->glyph_text.title_quad_count = 0;
+        for (u32 i = 0; valid && i < count; ++i)
+            valid = append_login_text_command(renderer, commands[i], &invalidated) && !invalidated;
+        if (valid)
+            return true;
+        if (!invalidated)
             return false;
-        }
+        d3d11_glyph_text_reset_atlas(&renderer->glyph_text);
     }
-    return renderer->glyph_text.title_quad_count != 0;
+    return false;
 }
 
 } // namespace
 
 bool d3d11_renderer_rebuild_login_text(D3D11Renderer* renderer, const RendererLoginView& view,
                                        const Theme& theme) noexcept {
-    bool invalidated = false;
-    if (rebuild_login_text_commands_once(renderer, view, theme, &invalidated)) {
-        return true;
-    }
-    if (!invalidated) {
-        return false;
-    }
-    d3d11_glyph_text_reset_atlas(&renderer->glyph_text);
-    invalidated = false;
-    return rebuild_login_text_commands_once(renderer, view, theme, &invalidated) && !invalidated;
+    UiTextCommand commands[kMaximumLoginTextCommands]{};
+    UiTextCommandStream stream{};
+    return ui_text_command_stream_initialize(&stream,
+                                             Slice<UiTextCommand>{commands, kMaximumLoginTextCommands}) &&
+           login_text_presentation_build(*renderer->login_scene, view, theme, &stream) &&
+           append_login_commands(renderer, stream.storage.data, stream.count, 2) &&
+           renderer->glyph_text.title_quad_count != 0;
 }
 
 bool d3d11_renderer_capture_login_form_text(D3D11Renderer* renderer, const LoginView& view,
@@ -237,21 +225,7 @@ bool d3d11_renderer_restore_login_form_base(D3D11Renderer* renderer) noexcept {
     const auto* owned = renderer ? renderer->login_form_text : nullptr;
     if (!owned || !owned->valid)
         return false;
-    for (u32 attempt = 0; attempt < 4; ++attempt) {
-        bool invalidated = false;
-        bool valid = true;
-        TextRasterScope raster_scope(*renderer);
-        renderer->glyph_text.title_quad_count = 0;
-        for (u32 i = 0; valid && i < owned->projection.count; ++i)
-            valid = append_login_text_command(renderer, owned->projection.storage[i], &invalidated) &&
-                    !invalidated;
-        if (valid)
-            return true;
-        if (!invalidated)
-            return false;
-        d3d11_glyph_text_reset_atlas(&renderer->glyph_text);
-    }
-    return false;
+    return append_login_commands(renderer, owned->projection.storage.data, owned->projection.count, 4);
 }
 
 namespace {
@@ -421,8 +395,8 @@ struct ContentTextRequest {
     u64 message_id;
     u32 message_revision, selection_anchor, selection_caret;
     UiTextAlignment horizontal_alignment, vertical_alignment;
-    UiTextWrapping wrapping;
-    UiTextOverflow overflow;
+    TextWrapping wrapping;
+    TextOverflow overflow;
     UiTextFace face;
     bool force_new_batch, selection_active, cluster_effect, plain_flags, publish_semantics;
 };
@@ -444,8 +418,8 @@ bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& requ
     const u32 message_revision = request.message_revision;
     const UiTextAlignment horizontal_alignment = request.horizontal_alignment,
                           vertical_alignment = request.vertical_alignment;
-    const UiTextWrapping wrapping = request.wrapping;
-    const UiTextOverflow overflow = request.overflow;
+    const TextWrapping wrapping = request.wrapping;
+    const TextOverflow overflow = request.overflow;
     const bool force_new_batch = request.force_new_batch;
     bool selection_active = request.selection_active;
     const u32 selection_anchor = request.selection_anchor, selection_caret = request.selection_caret;
@@ -504,7 +478,7 @@ bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& requ
         styles[0].flags == text_style_jumbo_emoji && !flag_projection.count && !semantics.count &&
         !selection_active && !cluster_effect && face == UiTextFace::normal &&
         horizontal_alignment == UiTextAlignment::center && vertical_alignment == UiTextAlignment::center &&
-        wrapping == UiTextWrapping::no_wrap;
+        wrapping == TextWrapping::no_wrap;
     const bool center_emoji_ink = picker_emoji || centered_jumbo_emoji;
     const bool cache_picker =
         picker_emoji && input.bytes <= 64 && styles.count == 1 && !styles[0].byte_offset &&
@@ -513,7 +487,7 @@ bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& requ
          styles[0].flags == text_style_picker_large_emoji) &&
         !flag_projection.count && !semantics.count && !selection_active && !cluster_effect &&
         face == UiTextFace::normal && horizontal_alignment == UiTextAlignment::center &&
-        vertical_alignment == UiTextAlignment::center && wrapping == UiTextWrapping::no_wrap;
+        vertical_alignment == UiTextAlignment::center && wrapping == TextWrapping::no_wrap;
     const u32 picker_cache_flags = cache_picker ? styles[0].flags | (static_cast<u32>(overflow) << 24) : 0;
     auto& glyph_owner = renderer->glyph_text;
     if (cache_picker && !renderer->picker_glyph_cache)
@@ -531,8 +505,7 @@ bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& requ
                     e.quads[i].placed(command_rectangle.left, command_rectangle.top, e.color);
             }
             if (!glyph_quad_clip_range(storage->quads, first, &storage->quad_count,
-                                       ui_rect_intersection(command_rectangle, clip))
-                     .ok() ||
+                                       ui_rect_intersection(command_rectangle, clip)) ||
                 !append_text_batch(storage, &clip, first, force_new_batch, batch_clip)) {
                 storage->quad_count = first;
                 storage->last_error = RendererTextBuildError::capacity;
@@ -542,7 +515,6 @@ bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& requ
             ++picker_cache->hits;
             return true;
         }
-        ++picker_cache->misses;
     }
     shaped_text_reset(&storage->scratch);
     constexpr Utf8View overflow_text = utf8_literal("…");
@@ -581,10 +553,6 @@ bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& requ
     } else {
         selection_active = false;
     }
-    const TextWrapping shape_wrapping =
-        wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap;
-    const TextOverflow shape_overflow =
-        overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis : TextOverflow::clip;
     // Effects rewrite glyph data; flags and truncated semantics are rare. They shape directly.
     ShapedTextCache* shape_cache = nullptr;
     // ANSI foregrounds are applied per glyph from the cluster map, which
@@ -607,8 +575,8 @@ bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& requ
                                                maximum_height,
                                                renderer->dpi,
                                                renderer->typography_revision,
-                                               static_cast<u8>(shape_wrapping),
-                                               static_cast<u8>(shape_overflow)};
+                                               static_cast<u8>(wrapping),
+                                               static_cast<u8>(overflow)};
     u64 cache_hash = 0;
     ShapedText cached{};
     bool from_cache = false;
@@ -617,28 +585,13 @@ bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& requ
         // A result that no longer fits takes the substitution path below.
         from_cache = cached.glyph_count <= room && cached.decoration_count <= room - cached.glyph_count;
     }
-    const auto shape_plain = [&](Utf8View text) noexcept {
-        return text_shape_utf8(&text_system, text, maximum_width, maximum_height,
+    const auto shape = [&](Utf8View text, ConstSlice<TextStyleSpan> spans, u32 hits) noexcept {
+        return text_shape_utf8(&text_system, text, spans, maximum_width, maximum_height,
                                Slice<wchar_t>{storage->utf16, storage->utf16_capacity}, &storage->scratch,
-                               shape_wrapping, shape_overflow);
-    };
-    const auto shape_styled = [&]() noexcept {
-        return styles.count == 0
-                   ? shape_plain(input)
-                   : text_shape_utf8_styled(&text_system, input, styles, maximum_width, maximum_height,
-                                            Slice<wchar_t>{storage->utf16, storage->utf16_capacity},
-                                            &storage->scratch, shape_wrapping, shape_overflow);
+                               wrapping, overflow, {storage->hit_spans, hits});
     };
     bool primary_shape = true;
-    TextShapeResult shaped =
-        from_cache ? TextShapeResult{}
-        : interactive_count != 0
-            ? text_shape_utf8_interactive(
-                  &text_system, input, styles,
-                  ConstSlice<TextHitSpan>{storage->hit_spans, interactive_count}, maximum_width,
-                  maximum_height, Slice<wchar_t>{storage->utf16, storage->utf16_capacity},
-                  &storage->scratch, shape_wrapping, shape_overflow)
-            : shape_styled();
+    TextShapeResult shaped = from_cache ? TextShapeResult{} : shape(input, styles, interactive_count);
     if (interactive_count != 0 && shaped.error == TextShapeError::output_too_small) {
         primary_shape = false;
         shaped_text_reset(&storage->scratch);
@@ -651,7 +604,7 @@ bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& requ
         semantic_count = 0;
         selection_active = false;
         saturating_increment(storage->semantic_truncations);
-        shaped = shape_styled();
+        shaped = shape(input, styles, 0);
     }
     if (shaped.error == TextShapeError::output_too_small) {
         primary_shape = false;
@@ -660,7 +613,7 @@ bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& requ
         if (storage->substitutions != 0xFFFF) {
             ++storage->substitutions;
         }
-        shaped = shape_plain(overflow_text);
+        shaped = shape(overflow_text, {}, 0);
         interactive_count = 0;
         semantic_count = 0;
         selection_active = false;
@@ -681,7 +634,7 @@ bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& requ
         if (!substituted && storage->substitutions != 0xFFFF) {
             ++storage->substitutions;
         }
-        shaped = shape_plain(overflow_text);
+        shaped = shape(overflow_text, {}, 0);
         interactive_count = 0;
         semantic_count = 0;
         selection_active = false;
@@ -766,12 +719,10 @@ bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& requ
             }
         }
         const UiRect bounds = ui_rect_intersection(command_rectangle, clip);
-        const GlyphQuadBoundsResult bounded =
-            glyph_quad_clip_range(storage->quads, first_quad, &storage->quad_count, bounds);
-        if (!bounded.ok()) {
+        if (!glyph_quad_clip_range(storage->quads, first_quad, &storage->quad_count, bounds)) {
             storage->quad_count = first_quad;
             storage->last_error = RendererTextBuildError::layout;
-            log_u64(LogLevel::error, "render", "emoji_quad_bounds_error", static_cast<u64>(bounded.error));
+            log_write(LogLevel::error, "render", "emoji_quad_bounds_error");
             shaped_text_reset(&storage->scratch);
             return false;
         }
@@ -1033,8 +984,8 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
             auto system = command_text_system(renderer, command.face);
             wchar_t scratch[4]{};
             const TextStyleSpan zero_style{0, 1, command.style_flags};
-            const auto zero = text_measure_utf8_styled(&system, utf8_literal("0"), {&zero_style, 1}, 256,
-                                                       64, {scratch, 4}, TextWrapping::no_wrap);
+            const auto zero = text_measure_utf8(&system, utf8_literal("0"), {&zero_style, 1}, 256,
+                                                64, {scratch, 4}, TextWrapping::no_wrap);
             u32 units = 0;
             utf8_utf16_position_for_byte_offset(command.text, command.text.bytes, &units);
             material.colors[7].alpha =
@@ -1237,7 +1188,7 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
         initials.color = theme.tokens.text.normal;
         initials.style_flags = kTextStyleSizeCodeXs;
         initials.horizontal_alignment = initials.vertical_alignment = UiTextAlignment::center;
-        initials.wrapping = UiTextWrapping::no_wrap;
+        initials.wrapping = TextWrapping::no_wrap;
         if (initials.text.bytes && ui_rect_has_area(initials.clip) &&
             !append_content_text_command(renderer, initials, theme, atlas_invalidated, false, batch_clip))
             return false;
@@ -2010,12 +1961,7 @@ u64 shell_scroll_key(const D3D11Renderer& renderer) noexcept {
     return hash | 1;
 }
 // The static shell (everything before the member rows) as one build left it.
-struct ShellStaticMarks {
-    u64 signature, key;
-    u32 count, quads, batches, semantics, hits, effects, inline_flags, last_batch_quads, serial;
-    bool animated, valid;
-};
-ShellStaticMarks shell_static_marks(const D3D11Renderer& renderer, const UiTextEmitter& emitter, u64 key,
+RendererTextShellStatic shell_static_marks(const D3D11Renderer& renderer, const UiTextEmitter& emitter, u64 key,
                                     u32 serial) noexcept {
     const RendererTextStorage& storage = *renderer.content_text;
     return {emitter.signature,
@@ -2031,15 +1977,6 @@ ShellStaticMarks shell_static_marks(const D3D11Renderer& renderer, const UiTextE
             serial,
             renderer.text_effect_animated,
             true};
-}
-ShellStaticMarks shell_static_marks(const RendererTextShellPrefix& prefix) noexcept {
-    return {prefix.static_signature,    prefix.static_key,
-            prefix.static_count,        prefix.static_quads,
-            prefix.static_batches,      prefix.static_semantics,
-            prefix.static_hits,         prefix.static_effects,
-            prefix.static_inline_flags, prefix.static_last_batch_quads,
-            prefix.static_serial,       prefix.static_animated,
-            prefix.static_valid};
 }
 
 // While a scroll runs, message rows within this distance of the viewport are
@@ -2170,9 +2107,9 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
     if (shell_retained) {
         shell.signature = retained_shell.projection_signature;
         shell.count = retained_shell.projection_count;
-        static_signature = retained_shell.static_signature;
-        static_count = retained_shell.static_count;
-        static_known = retained_shell.static_valid;
+        static_signature = retained_shell.static_marks.signature;
+        static_count = retained_shell.static_marks.count;
+        static_known = retained_shell.static_marks.valid;
     } else if (shell_moved) {
         // Only the member list scrolled: confirm the static shell by its
         // signature so its glyphs can stay; the rows are rastered below.
@@ -2256,8 +2193,8 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
             static_known
                 ? content_text_retention_key(*renderer, theme, static_signature, 0, false).shell_signature
                 : 0;
-        const ShellStaticMarks previous_static = shell_static_marks(shell_prefix);
-        ShellStaticMarks static_marks = previous_static;
+        const RendererTextShellStatic previous_static = shell_prefix.static_marks;
+        RendererTextShellStatic static_marks = previous_static;
         const bool shell_storage_current =
             shell_prefix.storage == storage && shell_prefix.build_serial == storage->rebuilds;
         const bool shell_reuse =
@@ -2370,19 +2307,7 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
                                                shell_prefix.reuses,
                                                renderer->text_effect_animated,
                                                shell_prefix.scroll_hint};
-        shell_prefix.static_signature = static_marks.signature;
-        shell_prefix.static_key = static_marks.key;
-        shell_prefix.static_count = static_marks.count;
-        shell_prefix.static_quads = static_marks.quads;
-        shell_prefix.static_batches = static_marks.batches;
-        shell_prefix.static_semantics = static_marks.semantics;
-        shell_prefix.static_hits = static_marks.hits;
-        shell_prefix.static_effects = static_marks.effects;
-        shell_prefix.static_inline_flags = static_marks.inline_flags;
-        shell_prefix.static_last_batch_quads = static_marks.last_batch_quads;
-        shell_prefix.static_serial = static_marks.serial;
-        shell_prefix.static_animated = static_marks.animated;
-        shell_prefix.static_valid = static_marks.valid;
+        shell_prefix.static_marks = static_marks;
         const u32 full_quad_capacity = storage->quad_capacity;
         const u32 full_batch_capacity = storage->batch_capacity;
         const u32 popup_quad_reserve = reservation.quads;
@@ -2564,8 +2489,22 @@ constexpr u32 kInteractionTextSourceOffsets[]{
     offsetof(D3D11Renderer, interaction_text_guild_card_revision),
     offsetof(D3D11Renderer, interaction_text_media_picker_revision),
     offsetof(D3D11Renderer, interaction_text_expression_card_revision),
+    offsetof(D3D11Renderer, interaction_text_friends_revision),
+    offsetof(D3D11Renderer, interaction_text_friends_requests_revision),
+    offsetof(D3D11Renderer, interaction_text_profile_revision),
+    offsetof(D3D11Renderer, interaction_text_image_viewer_revision),
+    offsetof(D3D11Renderer, interaction_text_action_bar_revision),
+    offsetof(D3D11Renderer, interaction_text_popup_revision),
+    offsetof(D3D11Renderer, interaction_text_reaction_viewer_revision),
+    offsetof(D3D11Renderer, interaction_text_form_revision),
 };
 constexpr u32 kInteractionTextSourceCount = sizeof(kInteractionTextSourceOffsets) / sizeof(u32);
+// Sources 0 to 24 apply on every page; 25 to 32 are friends, friends requests, profile, image viewer,
+// action bar, popup, reaction viewer and form.
+constexpr u32 kInteractionTextProfileSource = 27, kInteractionTextActionBarSource = 29,
+              kInteractionTextPopupSource = 30, kInteractionTextFormSource = 32;
+constexpr u64 kInteractionTextStaticSources = (1ull << 25) - 1,
+              kInteractionTextAllSources = (1ull << kInteractionTextSourceCount) - 1;
 // Sources 5 to 9 are 64-bit fields; the rest are 32-bit.
 constexpr u32 kInteractionTextWideSources = 0x3E0u;
 static_assert(sizeof(D3D11Renderer::interaction_text_thread_browser_publication) == sizeof(u64) &&
@@ -2575,7 +2514,9 @@ static_assert(sizeof(D3D11Renderer::interaction_text_thread_browser_publication)
               sizeof(D3D11Renderer::interaction_text_poll_voters_revision) == sizeof(u64) &&
               sizeof(D3D11Renderer::interaction_text_media_picker_revision) == sizeof(u32));
 
-void interaction_text_source_values(const D3D11Renderer& renderer, u64* values) noexcept {
+// Fills the revision of every interaction text source and returns the mask of the sources that
+// apply: the settings page tracks only the popup, profile overlay and form of the page-dependent ones.
+u64 interaction_text_source_values(const D3D11Renderer& renderer, u64* values) noexcept {
     const bool thread_browser = d3d11_renderer_thread_browser_visible(renderer);
     values[0] = renderer.forum_form && renderer.forum_form->scene ? renderer.forum_form->scene->revision : 0;
     values[1] = renderer_theme_editor_visible(renderer) ? renderer.theme_editor_scene->revision : 0;
@@ -2602,81 +2543,56 @@ void interaction_text_source_values(const D3D11Renderer& renderer, u64* values) 
     values[22] = d3d11_renderer_guild_card_visible(renderer) ? renderer.guild_card_scene->revision : 0;
     values[23] = d3d11_renderer_media_picker_visible(renderer) ? renderer.media_picker_scene->revision : 0;
     values[24] = d3d11_renderer_expression_card_visible(renderer) ? renderer.expression_card_scene->revision : 0;
+    values[kInteractionTextFormSource] =
+        renderer.text_form && renderer.text_form->scene ? renderer.text_form->scene->revision : 0;
+    if (renderer_settings_page_visible(renderer)) {
+        const auto* popup = d3d11_renderer_settings_popup(renderer);
+        values[kInteractionTextPopupSource] = popup ? popup->revision : 0;
+        values[kInteractionTextProfileSource] = d3d11_renderer_settings_overlay_revision(renderer);
+        return kInteractionTextStaticSources | 1ull << kInteractionTextProfileSource |
+               1ull << kInteractionTextPopupSource | 1ull << kInteractionTextFormSource;
+    }
+    values[25] = renderer.friends_scene ? renderer.friends_scene->revision : 0;
+    values[26] = renderer.friends_requests_scene ? renderer.friends_requests_scene->revision : 0;
+    values[kInteractionTextProfileSource] = renderer.profile_scene ? renderer.profile_scene->revision : 0;
+    values[28] = renderer.image_viewer ? renderer.image_viewer->revision : 0;
+    values[kInteractionTextActionBarSource] =
+        renderer.message_action_bar ? renderer.message_action_bar->revision : 0;
+    values[kInteractionTextPopupSource] = renderer.popup_scene ? renderer.popup_scene->revision : 0;
+    values[31] = renderer.reaction_viewer ? renderer.reaction_viewer->revision : 0;
+    return kInteractionTextAllSources;
 }
 } // namespace
 
 void d3d11_renderer_commit_interaction_text_state(D3D11Renderer* renderer) noexcept {
     u64 values[kInteractionTextSourceCount];
-    interaction_text_source_values(*renderer, values);
+    const u64 used = interaction_text_source_values(*renderer, values);
     for (u32 i = 0; i < kInteractionTextSourceCount; ++i) {
+        if (!(used >> i & 1u))
+            continue;
         u8* field = reinterpret_cast<u8*>(renderer) + kInteractionTextSourceOffsets[i];
         if (kInteractionTextWideSources >> i & 1u)
             *reinterpret_cast<u64*>(field) = values[i];
         else
             *reinterpret_cast<u32*>(field) = static_cast<u32>(values[i]);
     }
-    if (renderer_settings_page_visible(*renderer)) {
-        const auto* popup = d3d11_renderer_settings_popup(*renderer);
-        renderer->interaction_text_popup_revision = popup ? popup->revision : 0;
-        renderer->interaction_text_profile_revision = d3d11_renderer_settings_overlay_revision(*renderer);
-        renderer->interaction_text_form_revision =
-            renderer->text_form && renderer->text_form->scene ? renderer->text_form->scene->revision : 0;
-        return;
-    }
-    renderer->interaction_text_friends_revision =
-        renderer->friends_scene ? renderer->friends_scene->revision : 0;
-    renderer->interaction_text_friends_requests_revision =
-        renderer->friends_requests_scene ? renderer->friends_requests_scene->revision : 0;
-    renderer->interaction_text_profile_revision =
-        renderer->profile_scene ? renderer->profile_scene->revision : 0;
-    renderer->interaction_text_image_viewer_revision =
-        renderer->image_viewer ? renderer->image_viewer->revision : 0;
-    renderer->interaction_text_action_bar_revision =
-        renderer->message_action_bar ? renderer->message_action_bar->revision : 0;
-    renderer->interaction_text_popup_revision = renderer->popup_scene ? renderer->popup_scene->revision : 0;
-    renderer->interaction_text_reaction_viewer_revision =
-        renderer->reaction_viewer ? renderer->reaction_viewer->revision : 0;
-    renderer->interaction_text_form_revision =
-        renderer->text_form && renderer->text_form->scene ? renderer->text_form->scene->revision : 0;
 }
 
 bool d3d11_renderer_interaction_text_state_current(const D3D11Renderer& renderer) noexcept {
     u64 values[kInteractionTextSourceCount];
-    interaction_text_source_values(renderer, values);
+    u64 used = interaction_text_source_values(renderer, values);
+    // Friends and the thread browser hide the action bar.
+    if (d3d11_renderer_active(renderer.friends_scene) || d3d11_renderer_thread_browser_visible(renderer))
+        used &= ~(1ull << kInteractionTextActionBarSource);
     for (u32 i = 0; i < kInteractionTextSourceCount; ++i) {
+        if (!(used >> i & 1u))
+            continue;
         const u8* field = reinterpret_cast<const u8*>(&renderer) + kInteractionTextSourceOffsets[i];
         if ((kInteractionTextWideSources >> i & 1u ? *reinterpret_cast<const u64*>(field)
                                                     : *reinterpret_cast<const u32*>(field)) != values[i])
             return false;
     }
-    if (renderer_settings_page_visible(renderer)) {
-        const auto* popup = d3d11_renderer_settings_popup(renderer);
-        return renderer.interaction_text_popup_revision == (popup ? popup->revision : 0) &&
-               renderer.interaction_text_profile_revision == d3d11_renderer_settings_overlay_revision(renderer) &&
-               renderer.interaction_text_form_revision == (renderer.text_form && renderer.text_form->scene
-                                                               ? renderer.text_form->scene->revision
-                                                               : 0);
-    }
-    if (renderer.interaction_text_friends_revision !=
-        (renderer.friends_scene ? renderer.friends_scene->revision : 0))
-        return false;
-    if (renderer.interaction_text_friends_requests_revision !=
-        (renderer.friends_requests_scene ? renderer.friends_requests_scene->revision : 0))
-        return false;
-    return renderer.interaction_text_profile_revision ==
-               (renderer.profile_scene ? renderer.profile_scene->revision : 0) &&
-           renderer.interaction_text_image_viewer_revision ==
-               (renderer.image_viewer ? renderer.image_viewer->revision : 0) &&
-           (d3d11_renderer_active(renderer.friends_scene) ||
-            d3d11_renderer_thread_browser_visible(renderer) ||
-            renderer.interaction_text_action_bar_revision ==
-                (renderer.message_action_bar ? renderer.message_action_bar->revision : 0)) &&
-           renderer.interaction_text_popup_revision ==
-               (renderer.popup_scene ? renderer.popup_scene->revision : 0) &&
-           renderer.interaction_text_reaction_viewer_revision ==
-               (renderer.reaction_viewer ? renderer.reaction_viewer->revision : 0) &&
-           renderer.interaction_text_form_revision ==
-               (renderer.text_form && renderer.text_form->scene ? renderer.text_form->scene->revision : 0);
+    return true;
 }
 
 bool renderer_project_accessible_text(D3D11Renderer* renderer, const Theme& theme, UiTextConsumeFunction consume,
@@ -2757,12 +2673,12 @@ bool renderer_prepare_typography(D3D11Renderer* renderer, const UiThemeTypograph
     // Prepare the actual shaping/measurement path before the snapshot can publish.
     wchar_t scratch[64]{};
     if (ready) {
-        const auto body = text_measure_utf8_styled(&system, utf8_literal("Typography 012"), {}, 4096, 4096,
-                                                   {scratch, 64}, TextWrapping::no_wrap);
+        const auto body = text_measure_utf8(&system, utf8_literal("Typography 012"), {}, 4096, 4096,
+                                            {scratch, 64}, TextWrapping::no_wrap);
         const TextStyleSpan code_style{0, 14, text_style_monospace};
         const auto code =
-            text_measure_utf8_styled(&system, utf8_literal("Typography 012"), {&code_style, 1}, 4096, 4096,
-                                     {scratch, 64}, TextWrapping::no_wrap);
+            text_measure_utf8(&system, utf8_literal("Typography 012"), {&code_style, 1}, 4096, 4096,
+                              {scratch, 64}, TextWrapping::no_wrap);
         ready = body.ok() && code.ok();
     }
     if (!ready) {

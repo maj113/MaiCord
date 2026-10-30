@@ -1,6 +1,7 @@
 #include "maicord/text/font_axes.hpp"
 #include "maicord/core/memory.hpp"
 #include "sfnt_read.hpp"
+#include "floor_value.hpp"
 
 namespace maicord {
 namespace {
@@ -94,11 +95,7 @@ SfntStatus font_axis_mappings_open(const SfntFace& face,u16 count,Slice<AxisSegm
 
 #pragma float_control(precise,on,push)
 namespace {
-double rounded(double value) noexcept {
-    const double shifted=value+.5;const i64 integer=static_cast<i64>(shifted);
-    return static_cast<double>(integer)-(static_cast<double>(integer)>shifted?1:0);
-}
-double quantized(double value) noexcept {return rounded(value*65536.0)/65536.0;}
+double quantized(double value) noexcept {return round_value(value*65536.0)/65536.0;}
 double remap(const AxisSegmentMap& map,double value) noexcept {
     if(!map.enabled)return value;
     // Validated sorted maps allow logarithmic lookup without a copied index.
@@ -138,7 +135,7 @@ SfntStatus font_axis_coordinates(const FontAxes& axes,const FontAxisMappings& ma
         if(mappings.axes.count)value=remap(mappings.axes[i],value);
         value=quantized(value);if(value < -1)value=-1;if(value>1)value=1;
         normalized[i]=value;
-        if(conditions.count)conditions[i]=static_cast<i16>(rounded(value*16384.0));
+        if(conditions.count)conditions[i]=static_cast<i16>(round_value(value*16384.0));
     }
     return SfntStatus::ok;
 }

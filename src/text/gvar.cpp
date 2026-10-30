@@ -2,18 +2,18 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/text/truetype_outline.hpp"
 #include "sfnt_read.hpp"
+#include "floor_value.hpp"
 namespace maicord {namespace {
 using namespace sfnt_read;
 struct Reader {ConstSlice<u8> bytes;u32 at=0;bool take(u32 n,ConstSlice<u8>* out) noexcept {if(!span(bytes,at,n))return false;*out={bytes.data+at,n};at+=n;return true;}bool byte(u8* v) noexcept {if(!span(bytes,at,1))return false;*v=bytes[at++];return true;}};
-u32 location(const SfntGvar& f,u32 glyph) noexcept {return f.offset_stride==4?r32(f.offsets,glyph*4):r16(f.offsets,glyph*2)*2u;}
+inline u32 location(const SfntGvar& f,u32 glyph) noexcept {return f.offset_stride==4?r32(f.offsets,glyph*4):r16(f.offsets,glyph*2)*2u;}
 #pragma float_control(precise,on,push)
 // Peaks, supports and the F2DOT14-rounded coordinate compare as integers; each
 // ratio is one exact-integer division, bit-identical to dividing the scaled values.
 SfntStatus region(ConstSlice<u8> peak,ConstSlice<u8> start,ConstSlice<u8> end,ConstSlice<double> coords,double* out,u32& work) noexcept {
     if(!spend(work,coords.count))return SfntStatus::resource_limit;double scalar=1;
     const auto unit=[](i32 v) noexcept {return v>=-16384 && v<=16384;};
-    for(u32 i=0;i<coords.count;++i){const i32 p=static_cast<i16>(r16(peak,i*2));const double shifted=coords[i]*16384+.5;const i32 rounded=static_cast<i32>(shifted);
-        const i32 c=rounded-(rounded>shifted?1:0);if(!unit(p))return SfntStatus::malformed;
+    for(u32 i=0;i<coords.count;++i){const i32 p=static_cast<i16>(r16(peak,i*2));const i32 c=static_cast<i32>(round_value(coords[i]*16384));if(!unit(p))return SfntStatus::malformed;
         if(start.count){const i32 a=static_cast<i16>(r16(start,i*2)),b=static_cast<i16>(r16(end,i*2));
             if(!unit(a) || !unit(b))return SfntStatus::malformed;
             if(a>p || p>b || (a<0 && b>0 && p!=0) || p==0)continue;
@@ -26,7 +26,7 @@ struct Tuples {
     Reader headers{},serialized{};
     u32 count=0;
     bool shared=false;
-    SfntStatus open(u16 glyph) noexcept {
+    __declspec(noinline) SfntStatus open(u16 glyph) noexcept {
         const auto& f=instance.font;const u32 first=location(f,glyph),end=location(f,glyph+1);
         if(first>end || end>f.table.count-f.data_offset)return SfntStatus::malformed;if(first==end)return SfntStatus::ok;
         const ConstSlice<u8> data{f.table.data+f.data_offset+first,end-first};if(!span(data,0,4))return SfntStatus::truncated;
@@ -59,9 +59,11 @@ SfntStatus point_list(Reader& r,u32 total,Slice<u32> storage,PointList* out,u32&
 SfntStatus deltas(Reader& r,u32 count,Slice<i32> storage,u32& work) noexcept {
     if(storage.count<count || (count && !storage.data))return SfntStatus::output_too_small;if(!spend(work,count))return SfntStatus::resource_limit;
     u32 at=0;while(at<count){u8 control=0;if(!r.byte(&control))return SfntStatus::truncated;const u32 n=(control&63u)+1,width=control&128?0:control&64?2:1;if(n>count-at)return SfntStatus::malformed;ConstSlice<u8> data{};if(width && !r.take(n*width,&data))return SfntStatus::truncated;
+        // Runs hold at most 64 values: the vectorized body and its alias checks only add size.
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
         for(u32 i=0;i<n;++i)storage[at++]=!width?0:width==2?static_cast<i16>(r16(data,i*2)):static_cast<signed char>(data[i]);}return SfntStatus::ok;
 }
-double inferred(double target,double a,double b,double da,double db) noexcept {
+inline double inferred(double target,double a,double b,double da,double db) noexcept {
     if(a==b)return da==db?da:0;if(a>b){const double c=a;a=b;b=c;const double d=da;da=db;db=d;}
     if(target<=a)return da;if(target>=b)return db;return da+(db-da)*((target-a)/(b-a));
 }
@@ -120,7 +122,6 @@ SfntStatus phantoms(const SfntGvarInstance& instance,u16 glyph,u32 points,double
         for(u32 id=0;id<2;++id)output[id]+=values[id]*scale;
     }return SfntStatus::ok;
 }
-double rounded(double value) noexcept {const double shifted=value+.5;const i64 integer=static_cast<i64>(shifted);return static_cast<double>(integer-(integer>shifted?1:0));}
 struct Advance {double x,y;};
 SfntStatus glyph_advance(const SfntTrueType& font,const SfntGvarInstance& instance,u16 glyph,Slice<u16> chain,u32 depth,Advance* output,u32& work) noexcept {
     if(depth==chain.count||!spend(work,depth+1))return SfntStatus::resource_limit;
@@ -145,7 +146,7 @@ SfntStatus glyph_advance(const SfntTrueType& font,const SfntGvarInstance& instan
         }
     }
     double values[2]{};status=phantoms(instance,glyph,points,values,work);if(status!=SfntStatus::ok)return status;
-    *output={metrics.advance+rounded(values[1])-rounded(values[0]),0};return SfntStatus::ok;
+    *output={metrics.advance+round_value(values[1])-round_value(values[0]),0};return SfntStatus::ok;
 }
 #pragma float_control(pop)
 }
@@ -167,22 +168,20 @@ SfntStatus sfnt_gvar_instance_prepare(const SfntGvar& font,ConstSlice<double> co
     *output={font,coordinates,{storage.data,font.shared_count}};return SfntStatus::ok;
 }
 SfntStatus sfnt_gvar_design_advance(const SfntTrueType& font,const SfntGvarInstance& instance,u16 glyph,u16* output,u32 work,u32* used) noexcept {
-    WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;*output=0;const auto& g=instance.font;
-    if(!g.table.data||g.glyph_count!=font.metrics.glyph_count||instance.coordinates.count!=g.axis_count||instance.shared_scalars.count!=g.shared_count||
-       (g.axis_count&&!instance.coordinates.data)||(g.shared_count&&!instance.shared_scalars.data)||(font.loca_stride!=2&&font.loca_stride!=4)||
-       !font.loca.data||(font.glyf.count&&!font.glyf.data)||font.loca.count/font.loca_stride<=font.metrics.glyph_count)return SfntStatus::invalid_input;
-    if(glyph>=g.glyph_count)return SfntStatus::glyph_out_of_range;
+    WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;*output=0;
+    // font and instance come from the same geometry: matching glyph counts, a validated loca and prepared scalars.
+    if(glyph>=instance.font.glyph_count)return SfntStatus::glyph_out_of_range;
     u16 chain[64];Advance advance{};const auto status=glyph_advance(font,instance,glyph,{chain,64},0,&advance,work);if(status!=SfntStatus::ok)return status;
-    if(!(advance.x>=-9.e15&&advance.x<=9.e15))return SfntStatus::malformed;*output=static_cast<u16>(static_cast<i64>(rounded(advance.x)));return SfntStatus::ok;
+    if(!(advance.x>=-9.e15&&advance.x<=9.e15))return SfntStatus::malformed;*output=static_cast<u16>(static_cast<i64>(round_value(advance.x)));return SfntStatus::ok;
 }
+// Ends are the decoder's absolute contour ends (ascending, the last one closing the points) or empty
+// for composites; scratch and output are caller storage, so only data-dependent limits are checked.
 SfntStatus sfnt_gvar_deltas(const SfntGvarInstance& instance,u16 glyph,const ConstSlice<SfntOutlinePoint>& points,const ConstSlice<u32>& ends,bool composite,const SfntGvarScratch& scratch,const Slice<SfntGvarDelta>& output,u32 work,u32* used,u32 origin) noexcept {
     WorkReport report{work,work,used};const auto& font=instance.font;
-    if(!font.table.data || instance.coordinates.count!=font.axis_count || instance.shared_scalars.count!=font.shared_count || (instance.coordinates.count && !instance.coordinates.data) || (instance.shared_scalars.count && !instance.shared_scalars.data) || (!composite && points.count && !points.data) || (ends.count && !ends.data) || points.count>65536 || (composite && ends.count))return SfntStatus::invalid_input;
+    if(!font.table.data)return SfntStatus::invalid_input;
     if(glyph>=font.glyph_count)return SfntStatus::glyph_out_of_range;const u32 total=points.count+4;
     if(output.count<total || !output.data)return SfntStatus::output_too_small;
     if(!spend(work,ends.count) || !spend(work,total))return SfntStatus::resource_limit;
-    u32 previous=0;for(u32 i=0;i<ends.count;++i){if(ends[i]<origin || ends[i]-origin>=points.count || (i && ends[i]<=previous))return SfntStatus::invalid_input;previous=ends[i];}
-    if(!composite && (points.count?(ends.count==0 || previous-origin+1!=points.count):ends.count!=0))return SfntStatus::invalid_input;
     for(u32 i=0;i<total;++i)reset_value(&output[i]);Tuples tuples{instance};auto status=tuples.open(glyph);if(status!=SfntStatus::ok)return status;
     PointList shared{{},total,true};
     if(tuples.shared){const auto s=point_list(tuples.serialized,total,scratch.shared_points,&shared,work);if(s!=SfntStatus::ok)return s;}

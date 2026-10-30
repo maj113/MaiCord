@@ -60,7 +60,7 @@ bool command_valid(const UiTextCommand& command) noexcept {
         ui_rect_valid_or_empty(command.rectangle) && ui_rect_valid_or_empty(command.clip) &&
         command.horizontal_alignment <= UiTextAlignment::end &&
         command.vertical_alignment <= UiTextAlignment::end &&
-        command.wrapping <= UiTextWrapping::no_wrap && command.overflow <= UiTextOverflow::ellipsis;
+        command.wrapping <= TextWrapping::no_wrap && command.overflow <= TextOverflow::ellipsis;
 }
 bool command_visible(const UiTextCommand& command) noexcept {
     return command.text.bytes &&

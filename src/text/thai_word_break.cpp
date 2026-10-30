@@ -1,6 +1,5 @@
 #include "maicord/text/detail/thai_lexical.hpp"
 #include "maicord/text/detail/thai_syllable.hpp"
-#include "maicord/text/unicode.hpp"
 
 namespace maicord {namespace {
 // Maximal matching: a Thai run is divided into lexicon words and, where no
@@ -10,9 +9,9 @@ namespace maicord {namespace {
 // and committed up to its middle, far beyond the longest word or syllable.
 constexpr u32 window=256;
 
-bool thai_context(u32 cp) noexcept {
-    return cp-0xe01u<91&&unicode_properties(cp)->line_break()==UnicodeLineBreak::sa;
-}
+// Thai letters and marks: the Line_Break=SA scalars of the Thai block (pinned
+// by MaiCordUnicodeTests).
+bool thai_context(u32 cp) noexcept {return cp-0xe01u<58||cp-0xe40u<15;}
 bool consonant(u32 cp) noexcept {return cp-0xe01u<46;}
 // PAIYANNOI and MAIYAMOK belong to the preceding word.
 bool attaching(u32 cp) noexcept {return cp==0xe2f||cp==0xe46;}

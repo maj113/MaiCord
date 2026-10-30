@@ -42,9 +42,9 @@ bool units() noexcept {
     CHECK(sfnt_sinhala_cluster_boundaries({long_input,4},{reinterpret_cast<u8*>(long_input),4})==SfntStatus::invalid_input);
     CHECK(sfnt_sinhala_cluster_boundaries({}, {},0)==SfntStatus::ok);
     const u32 original[]{0x1f600,0xd9a,0xdda,0xddc,0xddd,0xdde,0xd85};
-    const SfntSinhalaInputScalar expanded[]{{0x1f600,0},{0xd9a,2},{0xdd9,3},{0xdca,3},{0xdd9,4},{0xdcf,4},
+    const SfntIndicInputScalar expanded[]{{0x1f600,0},{0xd9a,2},{0xdd9,3},{0xdca,3},{0xdd9,4},{0xdcf,4},
         {0xdd9,5},{0xddd,5},{0xdd9,6},{0xddf,6},{0xd85,7}};
-    SfntSinhalaInputScalar actual[16];SfntSinhalaInputResult result{};
+    SfntIndicInputScalar actual[16];SfntIndicInputResult result{};
     for(u64 budget=0;budget<=21;++budget){for(auto& v:actual)v={0xffffffffu,0xffffffffu};
         const auto status=sfnt_sinhala_expand_cluster({original,7},{actual,16},&result,budget);
         CHECK(status==(budget<21?SfntStatus::resource_limit:SfntStatus::ok));
@@ -64,7 +64,7 @@ bool units() noexcept {
     const bool committed=VirtualAlloc(memory,page,MEM_COMMIT,PAGE_READWRITE)&&VirtualAlloc(memory+page*2,page,MEM_COMMIT,PAGE_READWRITE);
     bool good=false;
     if(committed){auto* input=reinterpret_cast<u32*>(memory+page-sizeof(original));copy_bytes(input,original,sizeof(original));
-        auto* target=reinterpret_cast<SfntSinhalaInputScalar*>(memory+page*3-sizeof(expanded));
+        auto* target=reinterpret_cast<SfntIndicInputScalar*>(memory+page*3-sizeof(expanded));
         good=sfnt_sinhala_expand_cluster({input,7},{target,11},&result)==SfntStatus::ok&&bytes_equal(target,expanded,sizeof(expanded));
         good=good&&sfnt_sinhala_cluster_boundaries({input,7},{memory+page*3-7,7})==SfntStatus::ok;
     }

@@ -1,3 +1,4 @@
+#include "compact_run.hpp"
 #include "maicord/text/arabic_run.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/text/latin_run.hpp"
@@ -23,7 +24,7 @@ SfntStatus native_arabic_run(const NativeArabicPlanStore& store,NativeArabicPlan
     for(u32 byte=0;byte<text.bytes;){const auto decoded=utf8_decode_one(text.data+byte,text.bytes-byte);
         if(!decoded.valid)return SfntStatus::invalid_input;
         if(count>=scalar_capacity || count>=mapped_capacity)return SfntStatus::output_too_small;
-        bool boundary=false;if(!unicode_grapheme_next(&graphemes,decoded.codepoint,&boundary))return SfntStatus::invalid_input;
+        const bool boundary=unicode_grapheme_boundary(graphemes,decoded.codepoint);
         if(boundary){if(starts==storage.targets.count)return SfntStatus::output_too_small;storage.targets[starts++]=units;}
         const u32 mapped_scalar=rtl?unicode_bidi_mirror(decoded.codepoint):decoded.codepoint;
         u16 glyph=0;const auto status=sfnt_cmap_glyph(*plan.cmap,mapped_scalar,0,&glyph);if(status!=SfntStatus::ok)return status;
@@ -38,16 +39,7 @@ SfntStatus native_arabic_run(const NativeArabicPlanStore& store,NativeArabicPlan
 }
 SfntStatus native_arabic_run(const NativeArabicPlanStore& store,NativeArabicPlanHandle handle,Utf8View text,bool independent,bool rtl,float em,
     const NativeAsciiStorage& s,NativeAsciiResult* out,SfntShapeLimits limits) noexcept {
-    if(!out)return SfntStatus::invalid_input;reset_value(out);
-    if((s.glyphs.count&&!s.glyphs.data)||(s.placements.count&&!s.placements.data)||(s.character_glyphs.count&&!s.character_glyphs.data))return SfntStatus::invalid_input;
-    SfntShapeRunResult result{};const auto status=native_arabic_run(store,handle,text,independent,rtl,em,s.shaping,&result,limits);if(status!=SfntStatus::ok)return status;
-    if(result.glyph_count>s.glyphs.count||result.glyph_count>s.placements.count||result.source_units>s.character_glyphs.count)return SfntStatus::output_too_small;
-    // Validate before compacting the aliased glyph prefix.
-    for(u32 i=0;i<result.glyph_count;++i)if(!s.shaping.glyphs[i].glyph.glyph)return SfntStatus::unsupported_sequence;
-    if(s.character_glyphs.data!=s.shaping.character_glyphs.data)copy_bytes(s.character_glyphs.data,s.shaping.character_glyphs.data,static_cast<usize>(result.source_units)*sizeof(u32));
-    if(s.placements.data!=s.shaping.placements.data)copy_bytes(s.placements.data,s.shaping.placements.data,static_cast<usize>(result.glyph_count)*sizeof(SfntPlacement));
-    for(u32 i=0;i<result.glyph_count;++i)s.glyphs[i]=s.shaping.glyphs[i].glyph.glyph;
-    *out={result.glyph_count,result.source_units,0,1,result.lookup_operations};return SfntStatus::ok;
+    return compact_run(s,out,[&](const SfntShapeStorage& shaping,SfntShapeRunResult* shaped) noexcept {return native_arabic_run(store,handle,text,independent,rtl,em,shaping,shaped,limits);});
 }
 
 }

@@ -28,9 +28,11 @@ SfntStatus sfnt_gvar_instance_prepare(const SfntGvar& font,ConstSlice<double> co
 // Views must belong to the same font. No partial output on failure.
 SfntStatus sfnt_gvar_design_advance(const SfntTrueType&,const SfntGvarInstance&,u16 glyph,u16* output,u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
 // Simple points use original design coordinates; contour ends are local unless
-// point_origin gives their offset in a parent's point arena. For composites
-// points.data may be null and points.count is the component count (components
-// are not interpolated). Four phantom deltas follow the point deltas.
+// point_origin gives their offset in a parent's point arena. They must be the
+// glyph decoder's ends: ascending, with the last closing the points. For
+// composites points.data may be null, points.count is the component count and
+// ends are empty (components are not interpolated). Four phantom deltas follow
+// the point deltas.
 // Arithmetic follows Windows: normalized coordinates use F2DOT14 and each
 // inferred tuple contribution truncates toward zero, while explicit deltas stay
 // fractional until the outline resolver rounds the final point.

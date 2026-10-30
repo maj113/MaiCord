@@ -190,8 +190,7 @@ SfntStatus sfnt_arabic_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,
         storage.flags[i]=(flags&sfnt_position_zero_advance)?1:0;
     }
     if(!neutral){reverse_prefix(storage.glyphs.data,0,count);reverse_prefix(storage.positions.data,0,count);reverse_prefix(storage.flags.data,0,count);}
-    SfntClusterMap clusters{{storage.cluster_bits.data,sfnt_cluster_map_words(units)},units,0};
-    for(u32 n=units;n;){n=(n>>6)+((n&63)?1u:0u);++clusters.levels;if(n==1)break;}
+    const auto clusters=sfnt_cluster_map_frame(storage.cluster_bits.data,units);
     const SfntGlyphView glyphs{reinterpret_cast<const SfntGsubGlyph*>(storage.glyphs.data),nullptr,count,0,sizeof(SfntComponentGlyph)};
     status=sfnt_cluster_map_export(clusters,glyphs,storage.character_glyphs,{},limits.stage_work);
     if(status==SfntStatus::ok)status=sfnt_position_flags_from_clusters(clusters,glyphs,{storage.flags.data,count},{storage.flags.data,count},limits.stage_work);

@@ -83,7 +83,6 @@ struct AlphabeticProfile {AlphabeticProfile* next;NativeAlphabeticPlan plan;};
 struct IndicProfile {IndicProfile* next;NativeIndicPlan plan;};
 struct ClusterProfile {ClusterProfile* next;NativeClusterPlan plan;};
 struct IndicFormProfile {IndicFormProfile* next;NativeIndicFormPlan plan;};
-struct DevanagariProfile {DevanagariProfile* next;NativeDevanagariPlan plan;};
 // Glyphs immediately follow this header in the catalog arena. The cache owns
 // one native font reference and shares the immutable base-format identity.
 struct NativeOmissionSign {NativeOmissionSign* next;const NativeFormat* format;NativeFontRunHandle font;float width,baseline;u32 glyphs;};
@@ -114,7 +113,6 @@ struct NativeTextContext {
     // overflow records never move it.
     NativeFormat first_format;u16 first_family[64];
     AlphabeticProfile* alphabetic_profiles;
-    DevanagariProfile* devanagari_profiles;
     IndicProfile* indic_profiles;
     ClusterProfile* cluster_profiles[4];
     IndicFormProfile* form_profiles;
@@ -135,7 +133,7 @@ constexpr usize binding_region_bytes=(sizeof(NativeTextContext)+sizeof(Binding)*
 constexpr usize context_reserved_bytes=binding_region_bytes+plan_region_bytes+arabic_region_bytes;
 static_assert(sizeof(NativeTextContext)%alignof(Binding)==0);
 constexpr usize page_bytes(usize bytes) noexcept {return (bytes+4095u)&~usize{4095};}
-static_assert(sizeof(NativeTextCatalogScope)==112&&sizeof(NativeTextContext)==2560);
+static_assert(sizeof(NativeTextCatalogScope)==112&&sizeof(NativeTextContext)==2552);
 static_assert(binding_region_bytes==16384&&context_reserved_bytes==40960);
 static_assert(page_bytes(sizeof(NativeTextContext))==4096&&
     page_bytes(sizeof(NativeTextContext)+sizeof(Binding)*32)==4096&&
@@ -337,26 +335,6 @@ const NativeAlphabeticPlan* alphabetic_profile(NativeTextContext& owner,const Bi
     p->plan.allow_missing=allow_missing;p->next=owner.alphabetic_profiles;owner.alphabetic_profiles=p;return &p->plan;
 }
 NativeAsciiLineStorage storage(Arena&,u32,u32,bool,bool) noexcept;
-const NativeDevanagariPlan* devanagari_profile(NativeTextContext& owner,const Binding& selected) noexcept {
-    for(auto* p=owner.devanagari_profiles;p;p=p->next)if(p->plan.run.slot==selected.plan.slot&&p->plan.run.generation==selected.plan.generation)return p->plan.cmap?&p->plan:nullptr;
-    auto& arena=owner.catalogs.storage;const auto mark=arena_mark(&arena),temporary=arena_mark(&owner.scratch);
-    auto* p=arena_allocate<DevanagariProfile>(&arena);const auto probe=storage(owner.scratch,64,128,false,false);
-    const auto status=p?native_devanagari_plan_prepare(owner.store,selected.plan,&arena,&owner.scratch,probe.run.shaping,&p->plan):SfntStatus::resource_limit;
-    arena_rewind(&owner.scratch,temporary);
-    if(status!=SfntStatus::ok){++owner.prepare_failed;
-        // A neutral fallback span can repeatedly return to a face without dev2.
-        // Cache that absence per parent generation; capacity/work failures
-        // stay retryable and are not cached.
-        if(p&&status==SfntStatus::unsupported_sequence){p->plan.run=selected.plan;p->next=owner.devanagari_profiles;owner.devanagari_profiles=p;}
-        else arena_rewind(&arena,mark);return nullptr;}
-    p->next=owner.devanagari_profiles;owner.devanagari_profiles=p;return &p->plan;
-}
-SfntStatus devanagari_run(NativeTextContext& owner,const Binding& binding,Utf8View text,float em,const NativeAsciiStorage& s,NativeAsciiResult* out,float spacing=0,bool rtl=false) noexcept {
-    const auto* profile=devanagari_profile(owner,binding);if(!profile)return SfntStatus::unsupported_sequence;
-    const auto status=native_devanagari_run(owner.store,*profile,text,em,{s.shaping,s.glyphs,s.placements,s.character_glyphs},out,{},spacing,rtl);
-    if(status!=SfntStatus::ok)return status;
-    for(u32 i=0;i<out->glyph_count;++i)if(!s.glyphs[i]){reset_value(out);return SfntStatus::unsupported_sequence;}return SfntStatus::ok;
-}
 const NativeIndicPlan* indic_profile(NativeTextContext& owner,const Binding& selected,SfntIndicProfile script) noexcept {
     for(auto* p=owner.indic_profiles;p;p=p->next)if(p->plan.run.slot==selected.plan.slot&&p->plan.run.generation==selected.plan.generation&&p->plan.profile==script)return p->plan.cmap?&p->plan:nullptr;
     auto& arena=owner.catalogs.storage;const auto mark=arena_mark(&arena);auto* p=arena_allocate<IndicProfile>(&arena);
@@ -407,11 +385,17 @@ SfntStatus form_run(SfntIndicProfile script,NativeTextContext& owner,const Bindi
     const auto* profile=form_profile(owner,binding,script);if(!profile)return SfntStatus::unsupported_sequence;
     return indic_owned_run(script,owner.store,*profile,text,em,s,out,{},rtl,spacing);
 }
+SfntStatus devanagari_run(NativeTextContext& owner,const Binding& binding,Utf8View text,float em,const NativeAsciiStorage& s,NativeAsciiResult* out,float spacing=0,bool rtl=false) noexcept {
+    const auto* profile=form_profile(owner,binding,SfntIndicProfile::devanagari);if(!profile)return SfntStatus::unsupported_sequence;
+    const auto status=native_devanagari_run(owner.store,*profile,text,em,{s.shaping,s.glyphs,s.placements,s.character_glyphs},out,{},spacing,rtl);
+    if(status!=SfntStatus::ok)return status;
+    for(u32 i=0;i<out->glyph_count;++i)if(!s.glyphs[i]){reset_value(out);return SfntStatus::unsupported_sequence;}return SfntStatus::ok;
+}
 bool prepare_script_profile(NativeTextContext& owner,Binding& selected,u16 script,bool independent) noexcept {
     if(form_script(script))return selected.font_flags!=emoji_font_flag&&form_profile(owner,selected,form_script_profile(script))!=nullptr;
     if(script>=sinhala_script&&script<=tibetan_script&&!(script%16))return selected.font_flags!=emoji_font_flag&&cluster_profile(owner,cluster_script(script),selected,independent)!=nullptr;
     if(script==tamil_script)return selected.font_flags!=emoji_font_flag&&indic_profile(owner,selected,SfntIndicProfile::tamil)!=nullptr;
-    if(script==devanagari_script)return selected.font_flags!=emoji_font_flag&&devanagari_profile(owner,selected)!=nullptr;
+    if(script==devanagari_script)return selected.font_flags!=emoji_font_flag&&form_profile(owner,selected,SfntIndicProfile::devanagari)!=nullptr;
     if(script!=arabic_script)return !script||alphabetic_profile(owner,selected,script,independent)!=nullptr;
     if(selected.font_flags==emoji_font_flag)return false;
     if(!owner.arabic_store.slots.count){
@@ -542,9 +526,9 @@ bool paragraph(NativeTextContext& owner,const Binding& binding,const TextSystem&
         NativeAsciiParagraphStorage s{};s.glyphs=source.run.glyphs;s.placements=source.run.placements;s.source_glyphs=source.run.character_glyphs;
         s.clusters=take<NativeParagraphCluster>(owner.scratch,line.cluster_count);auto runs=take<NativeParagraphRun>(owner.scratch,line.run.source_units);if(!s.clusters.data||!runs.data)return false;
         u32 first=0;for(u32 i=0;i<line.cluster_count;++i){const auto& c=source.clusters[i];const u32 g=source.run.character_glyphs[first],end=c.source_end==line.run.source_units?line.run.glyph_count:source.run.character_glyphs[c.source_end];
-            const u32 flags=latin?0u:(text.data[first]==' '?native_paragraph_space:0)|(i&&native_ascii_break_after(text,first)?native_paragraph_break_before:0);
-            s.clusters[i]={first,c.source_end,g,end-g,c.width,flags};first=c.source_end;}
-        if(latin&&native_latin_paragraph_boundaries(text,{s.clusters.data,line.cluster_count},boundary_storage(runs))!=SfntStatus::ok){++owner.execute_failed;return false;}
+            s.clusters[i]={first,c.source_end,g,end-g,c.width,0};first=c.source_end;}
+        if(!latin)native_ascii_paragraph_flags(text,{s.clusters.data,line.cluster_count});
+        else if(native_latin_paragraph_boundaries(text,{s.clusters.data,line.cluster_count},boundary_storage(runs))!=SfntStatus::ok){++owner.execute_failed;return false;}
         owner.paragraph_storage=s;owner.paragraph_shape={line.run.source_units,line.run.glyph_count,line.cluster_count,line.vertical};owner.paragraph_runs=runs;owner.last_paragraph=true;owner.last_styled=false;owner.last_valid=true;
     }
     else{
@@ -913,7 +897,7 @@ struct ShapeRequest {Utf8View text;ConstSlice<TextStyleSpan> styles;ConstSlice<T
 __declspec(noinline) bool shape_request_attempt(const TextSystem& current,ShapedText* out,void* context) noexcept {
     const auto& r=*static_cast<const ShapeRequest*>(context);
     // Each once helper already guards its nested calls against recovery.
-    const bool trimmed=native_text_candidate_prefers_multiline(current,r.text,r.styles,r.wrapping);
+    const bool trimmed=prefers_multiline(current,r.text,r.styles,r.wrapping);
     if(trimmed&&native_text_candidate_trimmed_once(current,r.text,r.styles,r.width,r.height,out,r.wrapping,r.hits))return true;
     if(!r.styles.count&&!r.hits.count){if(native_text_candidate_line_once(current,r.text,r.width,r.height,out,nullptr,r.wrapping,TextOverflow::ellipsis))return true;}
     else if(native_text_candidate_styled_once(current,r.text,r.styles,r.width,r.height,out,nullptr,r.wrapping,TextOverflow::ellipsis,r.hits,nullptr))return true;
@@ -936,10 +920,6 @@ bool native_text_candidate_styled(const TextSystem& system,Utf8View text,ConstSl
 bool native_text_candidate_hits(const TextSystem& system,Utf8View text,float width,float height,TextWrapping wrapping,NativeParagraphHitStorage hits,TextMeasureResult* measure) noexcept {
     if(native_text_candidate_hits_once(system,text,width,height,wrapping,hits,measure))return true;
     return retry_stale(system,nullptr,[&](const TextSystem& s,ShapedText*) noexcept {return native_text_candidate_hits_once(s,text,width,height,wrapping,hits,measure);});
-}
-bool native_text_candidate_trimmed(const TextSystem& system,Utf8View text,ConstSlice<TextStyleSpan> styles,float width,float height,ShapedText* output,TextWrapping wrapping,ConstSlice<TextHitRange> hits) noexcept {
-    if(native_text_candidate_trimmed_once(system,text,styles,width,height,output,wrapping,hits))return true;
-    return retry_stale(system,output,[&](const TextSystem& s,ShapedText* out) noexcept {return native_text_candidate_trimmed_once(s,text,styles,width,height,out,wrapping,hits);});
 }
 bool native_text_prepare_trim_plan(const TextSystem& system,Utf8View text,ConstSlice<TextStyleSpan> styles,float width,float height,TextWrapping wrapping,Slice<NativeParagraphLineFit> fit,NativeParagraphLayout* output) noexcept {
     if(native_text_prepare_trim_plan_once(system,text,styles,width,height,wrapping,fit,output))return true;

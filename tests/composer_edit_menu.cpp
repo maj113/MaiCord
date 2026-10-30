@@ -111,8 +111,9 @@ void test_composer_edit_menu(void (*check)(bool, const char*) noexcept) noexcept
     using namespace app_detail;
     PopupItem items[kTextEditMenuItems]{};
     TextEditMenuState capabilities{true, true, true, true, true, true, true, false};
-    check(text_edit_menu_build(capabilities, {items, kTextEditMenuItems}) && items[3].shortcut == 4 &&
-        (items[2].flags & popup_item_separator_before), "shared edit menu supplies command hints and groups");
+    text_edit_menu_build(capabilities, {items, kTextEditMenuItems});
+    check(items[3].shortcut == 4 && (items[2].flags & popup_item_separator_before),
+        "shared edit menu supplies command hints and groups");
     capabilities.composing = true;
     check(!text_edit_command_enabled(TextEditCommand::paste, capabilities) &&
         !text_edit_command_enabled(TextEditCommand::undo, capabilities) &&

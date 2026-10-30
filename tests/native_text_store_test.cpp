@@ -357,7 +357,7 @@ bool run() noexcept {
                 f.scale = scale;
                 f.layout.selections = f.selections;
                 f.layout.selection_capacity = 48;
-                CHECK(text_system_initialize(&f.system, L"Segoe UI", 16, L"en-US").ok());
+                CHECK(text_system_initialize(&f.system, L"Segoe UI", 16).ok());
                 CHECK(secure_edit_initialize(&f.edit, 4096, false, {0, true}) &&
                       secure_edit_enable_history(&f.edit, 8192));
                 const auto assigned = secure_edit_assign(&f.edit, sample);

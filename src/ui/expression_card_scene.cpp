@@ -165,8 +165,8 @@ bool push(UiTextOutput* text, const UiExpressionCardScene& s, Utf8View value, Ui
     if (!value.bytes || !ui_rect_has_area(rectangle))
         return true;
     return ui_text_output_push(text, {value, s.owner, rectangle, s.panel, color, style, horizontal,
-                                      UiTextAlignment::center, wrap ? UiTextWrapping::wrap : UiTextWrapping::no_wrap,
-                                      UiTextOverflow::ellipsis, UiTextFace::normal, {}, styles});
+                                      UiTextAlignment::center, wrap ? TextWrapping::wrap : TextWrapping::no_wrap,
+                                      TextOverflow::ellipsis, UiTextFace::normal, {}, styles});
 }
 } // namespace
 

@@ -29,7 +29,13 @@ bool sfnt_glyph_view_valid(const SfntGlyphView& view) noexcept;
 // Existing records occupy the first count slots. An unused byte tail is allowed.
 // These views are borrowed; every seek/edit invalidates previously acquired views.
 SfntStatus sfnt_glyph_buffer_open(Slice<u8> storage,u32 record_size,u32 count,SfntGlyphBuffer* output) noexcept;
-SfntGlyphView sfnt_glyph_buffer_view(const SfntGlyphBuffer& buffer) noexcept;
+// Open, seek and replace keep storage.data null only with zero capacity, where
+// gap_end is zero too.
+inline SfntGlyphView sfnt_glyph_buffer_view(const SfntGlyphBuffer& buffer) noexcept {
+    const u8* data=buffer.storage.data;
+    return {reinterpret_cast<const SfntGsubGlyph*>(data),reinterpret_cast<const SfntGsubGlyph*>(data+static_cast<usize>(buffer.gap_end)*buffer.record_size),
+        buffer.gap_begin,buffer.capacity-buffer.gap_end,buffer.record_size};
+}
 SfntStatus sfnt_glyph_buffer_seek(SfntGlyphBuffer* buffer,u32 position,u64 work_limit=1000000) noexcept;
 // Consumed logical positions are strictly increasing and start at start. Empty
 // consumed inserts at that boundary; empty replacements delete. Both inputs must

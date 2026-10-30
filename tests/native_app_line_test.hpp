@@ -216,7 +216,7 @@ inline bool reference_shape_measure(DWriteTextSystem& reference,Utf8View input,C
     // Caller controls cover font/em/style/typography/wrapping cells and cut
     // boundaries; additional controls are spread across the entire matrix.
     control=control||((reference_measure_controls+reference_measure_reuses)&255u)==0;
-    if(control){++reference_measure_controls;const auto measured=text_measure_utf8_styled(&reference,input,styles,width,height,scratch,wrapping);
+    if(control){++reference_measure_controls;const auto measured=text_measure_utf8(&reference,input,styles,width,height,scratch,wrapping);
         CHECK(measured.ok()&&bytes_equal(&measured.width,&output->width,12)&&measured.utf16_units==output->utf16_units&&measured.line_count==output->line_count);
         *output=measured;
     }else ++reference_measure_reuses;
@@ -364,27 +364,27 @@ inline bool same_visual_runs(Output& a,Output& b) noexcept {
 inline bool compare(DWriteTextSystem system,Utf8View input,bool require_native,float width=1000000,float height=1000000,TextWrapping wrapping=TextWrapping::wrap,TextOverflow overflow=TextOverflow::clip) noexcept {
     ++cases;shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);
     if(require_native){CHECK(native_text_candidate_line(system,input,width,height,&native_output.text,nullptr,wrapping,overflow));CHECK(draw_source(system,native_output.text));++native_cases;shaped_text_reset(&native_output.text);}
-    const auto a=text_shape_utf8(&system,input,width,height,{utf16,256},&native_output.text,wrapping,overflow);
+    const auto a=text_shape_utf8(&system,input,{},width,height,{utf16,256},&native_output.text,wrapping,overflow);
     auto reference=system;reference.native_text=nullptr;
-    const auto b=text_shape_utf8(&reference,input,width,height,{utf16,256},&reference_output.text,wrapping,overflow);
+    const auto b=text_shape_utf8(&reference,input,{},width,height,{utf16,256},&reference_output.text,wrapping,overflow);
     CHECK(a.ok()&&b.ok()&&a.utf16_units==b.utf16_units&&same(native_output,reference_output));
-    const auto am=text_measure_utf8_styled(&system,input,{},width,height,{utf16,256},wrapping);
+    const auto am=text_measure_utf8(&system,input,{},width,height,{utf16,256},wrapping);
     TextMeasureResult bm{};
     if(overflow==TextOverflow::clip){
         CHECK(reference_shape_measure(reference,input,{},width,height,{utf16,256},wrapping,input.bytes<=1,&bm));
     }else{
         // Measurement does not apply the shaping request's ellipsis trimming.
-        bm=text_measure_utf8_styled(&reference,input,{},width,height,{utf16,256},wrapping);
+        bm=text_measure_utf8(&reference,input,{},width,height,{utf16,256},wrapping);
     }
     CHECK(am.ok()&&bm.ok()&&bytes_equal(&am.width,&bm.width,12)&&am.utf16_units==bm.utf16_units&&am.line_count==bm.line_count);
     return true;
 }
 inline bool inspect_style_layout(DWriteTextSystem system,Utf8View text,ConstSlice<TextStyleSpan> styles,float width,TextWrapping wrapping) noexcept {
     if(IsDebuggerPresent())__debugbreak();
-    Output snapshot{};CHECK(shaped_text_initialize(&snapshot.text,{snapshot.glyphs,1024},{snapshot.runs,256},{snapshot.clusters,256})&&shaped_text_bind_decorations(&snapshot.text,{snapshot.decorations,256}));
+    Output snapshot{};CHECK(shaped_text_initialize(&snapshot.text,{snapshot.glyphs,1024},{snapshot.runs,256},{snapshot.clusters,256},{snapshot.decorations,256}));
     struct SnapshotRelease {ShapedText& text;~SnapshotRelease() noexcept {shaped_text_reset(&text);}} snapshot_release{snapshot.text};
     auto reference=system;reference.native_text=nullptr;
-    CHECK(text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&snapshot.text,wrapping).ok());
+    CHECK(text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&snapshot.text,wrapping).ok());
     IDWriteTextLayout* layout=nullptr;CHECK(SUCCEEDED(owner.factory->CreateTextLayout(utf16,snapshot.text.cluster_count,system.format,width,1000000,&layout)));
     struct Release {IDWriteTextLayout*& p;~Release() noexcept {com_release(p);}} release{layout};
     CHECK(SUCCEEDED(layout->SetWordWrapping(wrapping==TextWrapping::wrap?DWRITE_WORD_WRAPPING_WRAP:DWRITE_WORD_WRAPPING_NO_WRAP))&&SUCCEEDED(text_apply_layout_styles(system,layout,text,styles)));

@@ -14,16 +14,16 @@ bool native_fallback_binding_corpus() noexcept {
         for(u32 sample=0;sample<sizeof(texts)/sizeof(texts[0]);++sample)for(u32 flag:flags)for(float width:widths)for(u32 nowrap=0;nowrap<2;++nowrap){
             const auto text=texts[sample];const TextStyleSpan style{0,sample==3?3u:text.bytes,flag};const ConstSlice<TextStyleSpan> styles{&style,flag?1u:0u};
             const auto wrap=nowrap?TextWrapping::no_wrap:TextWrapping::wrap;++cases;
-            if(!text_shape_utf8_styled(&system,text,styles,width,1000000,{utf16,256},&native_output.text,wrap).ok()||!native_output.text.native_fonts()){
+            if(!text_shape_utf8(&system,text,styles,width,1000000,{utf16,256},&native_output.text,wrap).ok()||!native_output.text.native_fonts()){
                 print("fallback refused sample/flag/em/width/nowrap=");number(sample);print("/");number(flag);print("/");real(em);print("/");real(width);print("/");number(nowrap);print("\n");return false;}
             ++native_cases;
-            CHECK(text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrap).ok());
+            CHECK(text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrap).ok());
             if(!same(native_output,reference_output,true)){print("fallback mismatch sample/flag/em/width/nowrap=");number(sample);print("/");number(flag);print("/");real(em);print("/");real(width);print("/");number(nowrap);print("\n");
                 const ShapedText* results[]{&native_output.text,&reference_output.text};for(u32 side=0;side<2;++side)for(u32 r=0;r<results[side]->run_count;++r){const auto& run=results[side]->runs[r];IDWriteFontFace* face=nullptr;
                     CHECK(native_run_reference(owner.factory,*results[side],run,&face));IDWriteFontFace3* named=nullptr;CHECK(SUCCEEDED(face->QueryInterface(__uuidof(IDWriteFontFace3),reinterpret_cast<void**>(&named))));
                     print(side?"reference run=":"native run=");number(run.text_position);print("/");number(run.text_length);print(" weight=");number(named->GetWeight());print("\n");com_release(named);com_release(face);}
                 return false;}
-            const auto a=text_measure_utf8_styled(&system,text,styles,width,1000000,{utf16,256},wrap),b=text_measure_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},wrap);
+            const auto a=text_measure_utf8(&system,text,styles,width,1000000,{utf16,256},wrap),b=text_measure_utf8(&reference,text,styles,width,1000000,{utf16,256},wrap);
             CHECK(a.ok()&&b.ok()&&bytes_equal(&a.width,&b.width,12)&&a.line_count==b.line_count);
             auto hit_system=system;hit_system.factory=owner.factory;hit_system.format=format;CHECK(compare_hits(hit_system,text,width,wrap,styles));
             if(!flag&&width==1000000&&!nowrap)for(u32 r=0;r<native_output.text.run_count;++r){auto draw=native_output.text;draw.runs+=r;draw.run_count=1;CHECK(draw_source(hit_system,draw));}

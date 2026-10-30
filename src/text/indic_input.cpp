@@ -1,4 +1,4 @@
-#include "maicord/text/tamil_input.hpp"
+#include "maicord/text/indic_input.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/text/unicode.hpp"
 namespace maicord {namespace {
@@ -42,8 +42,5 @@ SfntStatus sfnt_indic_expand_cluster(SfntIndicProfile profile,ConstSlice<u32> in
         source+=scalar>0xffff?2u:1u;
     }
     *result=sizes;return SfntStatus::ok;
-}
-SfntStatus sfnt_tamil_expand_cluster(ConstSlice<u32> input,Slice<SfntTamilInputScalar> output,SfntTamilInputResult* result,u64 work) noexcept {
-    return sfnt_indic_expand_cluster(SfntIndicProfile::tamil,input,output,result,work);
 }
 }

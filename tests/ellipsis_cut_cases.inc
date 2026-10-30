@@ -28,7 +28,7 @@ bool native_ellipsis_cut_corpus(DWriteTextSystem system) noexcept {
     CHECK(SUCCEEDED(system.factory->CreateEllipsisTrimmingSign(system.format,&sign)));
     struct ReleaseSign {IDWriteInlineObject*& p;~ReleaseSign() noexcept {com_release(p);}} release_sign{sign};
     DWRITE_INLINE_OBJECT_METRICS sign_metrics{};CHECK(SUCCEEDED(sign->GetMetrics(&sign_metrics)));
-    CHECK(text_shape_utf8_styled(&reference,utf8_literal("\xe2\x80\xa6"),{},1000000,1000000,{utf16,256},&native_output.text).ok());
+    CHECK(text_shape_utf8(&reference,utf8_literal("\xe2\x80\xa6"),{},1000000,1000000,{utf16,256},&native_output.text).ok());
     CHECK(native_output.text.run_count==1);
     u32 sample=0;
     for(auto text:samples){
@@ -52,7 +52,7 @@ bool native_ellipsis_cut_corpus(DWriteTextSystem system) noexcept {
         for(u32 w=0;w<width_count;++w){++cases;const float width=widths[w];CHECK(SUCCEEDED(layout->SetMaxWidth(width)));
             DWRITE_LINE_METRICS line{};u32 actual=0;CHECK(SUCCEEDED(layout->GetLineMetrics(&line,1,&actual))&&actual==1);
             NativeLineTrimCut cut{};CHECK(native_line_trim_cut({clusters,count},whole_metrics.width,whole_metrics.widthIncludingTrailingWhitespace,width,sign_metrics.width,false,{tabs,tab_count},&cut)==SfntStatus::ok);
-            CHECK(text_shape_utf8_styled(&reference,text,{},width,1000000,{utf16,256},&reference_output.text,TextWrapping::no_wrap,TextOverflow::ellipsis).ok());
+            CHECK(text_shape_utf8(&reference,text,{},width,1000000,{utf16,256},&reference_output.text,TextWrapping::no_wrap,TextOverflow::ellipsis).ok());
             const auto& drawn=reference_output.text;u32 visible=0;CHECK(drawn.run_count);
             const auto& last=drawn.runs[drawn.run_count-1];const auto& sign_shape=native_output.text;
             const bool has_sign=last.text_position==0&&last.text_length==1&&last.glyph_count==sign_shape.glyph_count&&
@@ -61,7 +61,7 @@ bool native_ellipsis_cut_corpus(DWriteTextSystem system) noexcept {
             const u32 selected=cut.clusters?clusters[cut.clusters-1].source_end:0;
             if(ellipsis_line_profiles){
                 const float heights[]{1.f,1000000.f};for(float height:heights){
-                    const auto result=text_shape_utf8_styled(&native,text,{},width,height,{utf16,256},&trimmed.text,TextWrapping::no_wrap,TextOverflow::ellipsis);
+                    const auto result=text_shape_utf8(&native,text,{},width,height,{utf16,256},&trimmed.text,TextWrapping::no_wrap,TextOverflow::ellipsis);
                     if(!result.ok()||!trimmed.text.native_fonts()||!same(trimmed,reference_output,true)){
                         print("native ellipsis sample/width/em/error=");number(sample);print("/");real(width);print("/");real(system.em_size);print("/");number(static_cast<u32>(result.error));print("\n");return false;}
                 }

@@ -124,8 +124,8 @@ inline bool message_interaction_layout(const MessageScene& scene, const MessageT
                    flags,
                    UiTextAlignment::start,
                    UiTextAlignment::center,
-                   UiTextWrapping::no_wrap,
-                   UiTextOverflow::ellipsis};
+                   TextWrapping::no_wrap,
+                   TextOverflow::ellipsis};
     };
     const u8 hover = scene.header_hover_message_id == record->id ? scene.header_hover_target : u8{0};
     out->chip_hovered = hover == static_cast<u8>(MessageInteractionTarget::command);

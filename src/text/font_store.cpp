@@ -4,10 +4,9 @@
 #include "font_path_stat.hpp"
 #include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
-static_assert(sizeof(NativeFontFileId)==sizeof(FILE_ID_INFO));
 bool valid(const NativeFontStore& s) noexcept {return s.files.data && s.files.count && s.faces.data && s.faces.count;}
 NativeFontFaceSlot* slot(const NativeFontStore& s,NativeFontHandle h) noexcept {
-    if(!valid(s)||!h.slot||h.slot>s.faces.count||!h.generation)return nullptr;
+    if(!h.slot||h.slot>s.faces.count||!h.generation)return nullptr;
     auto& f=s.faces[h.slot-1];return f.references&&f.generation==h.generation?&f:nullptr;
 }
 void close(NativeFontFileSlot& f) noexcept {
@@ -26,14 +25,14 @@ NativeFontResult native_font_acquire(NativeFontStore* store,const wchar_t* path,
     // table spans refer to these same bytes until the last face is released.
     opened.file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
     if(opened.file==INVALID_HANDLE_VALUE)return result(NativeFontError::io,SfntStatus::ok,thread_last_error());
-    LARGE_INTEGER size{};NativeFontFileStamp stamp{};
-    if(font_path_stat::read_handle(opened.file,&stamp)){size.QuadPart=static_cast<i64>(stamp.bytes);copy_bytes(&opened.identity,&stamp.identity,sizeof(opened.identity));}
-    else{
+    NativeFontFileStamp stamp{};
+    if(!font_path_stat::read_handle(opened.file,&stamp)){LARGE_INTEGER length{};
         if(GetFileType(opened.file)!=FILE_TYPE_DISK)return result(NativeFontError::io,SfntStatus::ok,ERROR_FILE_INVALID);
-        if(!GetFileSizeEx(opened.file,&size)||!GetFileInformationByHandleEx(opened.file,FileIdInfo,&opened.identity,sizeof(opened.identity)))
+        if(!GetFileSizeEx(opened.file,&length)||!GetFileInformationByHandleEx(opened.file,FileIdInfo,&stamp.identity,sizeof(stamp.identity)))
             return result(NativeFontError::io,SfntStatus::ok,thread_last_error());
-    }
-    if(size.QuadPart<=0 || size.QuadPart>0xffffffffll)return result(NativeFontError::font,SfntStatus::unsupported);
+        stamp.bytes=static_cast<u64>(length.QuadPart);} // A negative size fails the limit below.
+    if(!stamp.bytes || stamp.bytes>0xffffffffull)return result(NativeFontError::font,SfntStatus::unsupported);
+    opened.identity=stamp.identity;
     u32 file_index=store->files.count,free_file=store->files.count,free_face=store->faces.count;
     for(u32 i=0;i<store->files.count;++i){const auto& f=store->files[i];
         if(!f.faces){if(free_file==store->files.count)free_file=i;continue;}
@@ -58,15 +57,14 @@ NativeFontResult native_font_acquire(NativeFontStore* store,const wchar_t* path,
         const auto* data=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));
         const u32 error=data?0:thread_last_error();CloseHandle(mapping);
         if(!data)return result(NativeFontError::io,SfntStatus::ok,error);
-        opened.bytes={data,static_cast<u32>(size.QuadPart)};bytes=opened.bytes;
+        opened.bytes={data,static_cast<u32>(stamp.bytes)};bytes=opened.bytes;
     }else bytes=store->files[file_index].bytes;
-    SfntFace face{};NativeFontFace prepared{};auto status=sfnt_open(bytes,index,&face);
-    if(status==SfntStatus::ok)status=font_geometry_open(face,&prepared.geometry);
-    if(status==SfntStatus::ok)status=sfnt_cmap_open(face,&prepared.cmap);
-    if(status!=SfntStatus::ok)return result(NativeFontError::font,status);
+    auto& target=store->faces[free_face];SfntFace face{};auto status=sfnt_open(bytes,index,&face); // The slot's face is zero; failure clears it again.
+    if(status==SfntStatus::ok)status=font_geometry_open(face,&target.face.geometry);
+    if(status==SfntStatus::ok)status=sfnt_cmap_open(face,&target.face.cmap);
+    if(status!=SfntStatus::ok){reset_value(&target.face);return result(NativeFontError::font,status);}
     if(new_file){file_index=free_file;store->files[file_index]=opened;reset_value(&opened);}
-    auto& target=store->faces[free_face];target.face=prepared;target.file_slot=file_index;target.references=1;++target.generation;
-    ++store->files[file_index].faces;*output={free_face+1,target.generation};return result(NativeFontError::none);
+    target.file_slot=file_index;target.references=1;++target.generation;++store->files[file_index].faces;*output={free_face+1,target.generation};return result(NativeFontError::none);
 }
 bool native_font_retain(NativeFontStore* s,NativeFontHandle h) noexcept {
     if(!s)return false;auto* f=slot(*s,h);if(!f||f->references==0xffffffffu)return false;++f->references;return true;

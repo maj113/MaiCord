@@ -280,8 +280,8 @@ bool ui_toast_text_output(const UiToastScene& s, const Theme& theme, UiTextOutpu
                                         text_style_none,
                                         UiTextAlignment::start,
                                         UiTextAlignment::center,
-                                        UiTextWrapping::wrap,
-                                        UiTextOverflow::ellipsis});
+                                        TextWrapping::wrap,
+                                        TextOverflow::ellipsis});
 }
 
 void ui_toast_clear(UiToastScene* s) noexcept {

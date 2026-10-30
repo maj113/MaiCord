@@ -165,7 +165,7 @@ inline bool row_ink(const Fixture& f, const D3D11Renderer& renderer,
             secondary = &text;
     }
     if (!primary || !secondary || primary->rectangle.bottom > secondary->rectangle.top ||
-        primary->wrapping != UiTextWrapping::no_wrap || secondary->wrapping != UiTextWrapping::no_wrap)
+        primary->wrapping != TextWrapping::no_wrap || secondary->wrapping != TextWrapping::no_wrap)
         return require(false, 1005 + index * 10);
     const UiTextCommand* lines[]{primary, secondary};
     u32 line_index{};

@@ -1,11 +1,18 @@
-bool native_text_candidate_prefers_multiline(const TextSystem& system,Utf8View text,ConstSlice<TextStyleSpan> styles,TextWrapping wrapping) noexcept {
-    if(!system.native_text)return false;const auto& owner=*system.native_text;
+namespace {
+// True when the retained shape for this text, styles and format took the
+// multi-line truncation (ellipsis) builder before, so it is tried first. A
+// dimension change can still fall back to the fitting/single-line path. Its
+// only caller (shape_request_attempt, from text_shape_utf8) has a usable
+// native context, non-empty validated text and non-null styles.
+bool prefers_multiline(const TextSystem& system,Utf8View text,ConstSlice<TextStyleSpan> styles,TextWrapping wrapping) noexcept {
+    const auto& owner=*system.native_text;
     if(!owner.last_valid||!owner.prefer_multiline||owner.last_independent!=system.independent_letters||owner.last_tracking!=system.tracking||
-       owner.last_text.count!=text.bytes||!text.data||!bytes_equal(owner.last_text.data,text.data,text.bytes))return false;
+       owner.last_text.count!=text.bytes||!bytes_equal(owner.last_text.data,text.data,text.bytes))return false;
     if(owner.last_styled){if(owner.last_style_em!=system.em_size||owner.last_fixed_weight!=system.fixed_weight||owner.last_styles.count!=styles.count||
-        (styles.count&&(!styles.data||!bytes_equal(owner.last_styles.data,styles.data,styles.count*sizeof(TextStyleSpan)))))return false;}
+        !bytes_equal(owner.last_styles.data,styles.data,styles.count*sizeof(TextStyleSpan)))return false;}
     else if(styles.count)return false;
     return resolve_format(system,wrapping)==owner.last_format;
+}
 }
 bool native_text_candidate_trimmed_once(const TextSystem& system,Utf8View text,ConstSlice<TextStyleSpan> styles,float width,float height,
     ShapedText* output,TextWrapping wrapping,ConstSlice<TextHitRange> hits) noexcept {

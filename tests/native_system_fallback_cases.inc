@@ -13,11 +13,11 @@ bool native_system_fallback_corpus(DWriteTextSystem system,bool private_font,boo
             const TextStyleSpan style{0,sample==5&&flag==text_style_link?1u:text.bytes,flag};const ConstSlice<TextStyleSpan> styles{&style,flag?1u:0u};
             const auto diagnostic=[&]() noexcept {print("system fallback sample/flag/em/width/nowrap/independent=");number(sample);print("/");number(flag);print("/");real(system.em_size);print("/");real(width);print("/");number(nowrap);print("/");number(independent);print("\n");};
             ++cases;
-            if(!text_shape_utf8_styled(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrap).ok()||!native_output.text.native_fonts()){diagnostic();CHECK(false);}++native_cases;
-            CHECK(text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrap).ok());
+            if(!text_shape_utf8(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrap).ok()||!native_output.text.native_fonts()){diagnostic();CHECK(false);}++native_cases;
+            CHECK(text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrap).ok());
             if(!same(native_output,reference_output,true)){diagnostic();CHECK(inspect_style_layout(system,text,styles,width,wrap));
                 const ShapedText* values[]{&native_output.text,&reference_output.text};for(u32 side=0;side<2;++side){print(side?"reference partitions=":"native partitions=");for(u32 r=0;r<values[side]->run_count;++r){const auto& run=values[side]->runs[r];print("[");number(run.first_glyph);print(",");number(run.glyph_count);print(",");real(run.baseline_x);print("] ");}print("\n");}return false;}
-            const auto a=text_measure_utf8_styled(&native,text,styles,width,1000000,{utf16,256},wrap),b=text_measure_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},wrap);
+            const auto a=text_measure_utf8(&native,text,styles,width,1000000,{utf16,256},wrap),b=text_measure_utf8(&reference,text,styles,width,1000000,{utf16,256},wrap);
             CHECK(a.ok()&&b.ok()&&bytes_equal(&a.width,&b.width,12)&&a.line_count==b.line_count);
             if(!compare_hits(system,text,width,wrap,styles)){diagnostic();return false;}
             if(!flag&&w==1000000&&!nowrap&&!independent)CHECK(draw_source(system,native_output.text));

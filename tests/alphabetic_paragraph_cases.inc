@@ -22,8 +22,8 @@ bool native_alphabetic_paragraph_corpus() noexcept {
                     native.tracking=reference.tracking=spacing;native.independent_letters=reference.independent_letters=independent!=0;
                     const auto wrapping=nowrap?TextWrapping::no_wrap:TextWrapping::wrap;const auto overflow=trimmed?TextOverflow::ellipsis:TextOverflow::clip;
                     const float height=trimmed?em*2:1000000;
-                    const auto a=text_shape_utf8(&native,text,width,height,{utf16,256},&native_output.text,wrapping,overflow);
-                    const auto b=text_shape_utf8(&reference,text,width,height,{utf16,256},&reference_output.text,wrapping,overflow);
+                    const auto a=text_shape_utf8(&native,text,{},width,height,{utf16,256},&native_output.text,wrapping,overflow);
+                    const auto b=text_shape_utf8(&reference,text,{},width,height,{utf16,256},&reference_output.text,wrapping,overflow);
                     if(!a.ok()||!b.ok()||!native_output.text.native_fonts()||!same(native_output,reference_output,true)){
                         print("Alphabetic sample/variant/em/spacing/independent/width/nowrap/trimmed=");number(sample_index);print("/");number(variant);print("/");real(em);print("/");real(spacing);print("/");number(independent);print("/");real(width);print("/");number(nowrap);print("/");number(trimmed);print("\n");return false;}
                     ++cases;++native_cases;

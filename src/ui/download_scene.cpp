@@ -176,7 +176,7 @@ bool emit(UiTextOutput* out, const UiDownloadScene& s, UiWidgetHandle owner, con
     if (!value.bytes || !ui_rect_has_area(r)) return true;
     return ui_text_output_push(out,{value,{&s.widgets,owner},r,s.panel,color,flags,
         static_cast<UiTextAlignment>(mode >> 2),UiTextAlignment::center,
-        mode & ui_text_wrap ? UiTextWrapping::wrap : UiTextWrapping::no_wrap,UiTextOverflow::ellipsis,UiTextFace::normal});
+        mode & ui_text_wrap ? TextWrapping::wrap : TextWrapping::no_wrap,TextOverflow::ellipsis,UiTextFace::normal});
 }
 } // namespace
 

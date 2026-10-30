@@ -26,10 +26,10 @@ struct PickerGlyphCache {
         Quad quads[4]; // Centered in the cell, before clipping, relative to its origin.
     } entries[256];
     u16 cursor,lookup_start;
-    u32 hits,misses,probes;
+    u32 hits,probes;
 };
 static_assert(sizeof(PickerGlyphCache::Entry) == 264);
-// Cursors and counters add exactly 16 bytes after the entries.
+// Cursors and counters take 12 bytes, padded to the entries' alignment.
 static_assert(sizeof(PickerGlyphCache) == sizeof(PickerGlyphCache::Entry) * 256 + 16);
 inline bool picker_glyph_cache_matches(const PickerGlyphCache::Entry& e,
                                        const D3D11GlyphTextOwner& owner,const TextSystem& system,

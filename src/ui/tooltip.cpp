@@ -469,8 +469,8 @@ bool ui_tooltip_text_output(const UiTooltipScene& scene, const Theme& theme,
                                       text_style_jumbo_emoji,
                                       UiTextAlignment::center,
                                       UiTextAlignment::center,
-                                      UiTextWrapping::no_wrap,
-                                      UiTextOverflow::clip}))
+                                      TextWrapping::no_wrap,
+                                      TextOverflow::clip}))
         return false;
     const float lead = leading(scene);
     // Plain labels keep the single subtext style; bold runs travel with the text.
@@ -488,8 +488,8 @@ bool ui_tooltip_text_output(const UiTooltipScene& scene, const Theme& theme,
                                             text_style_subtext,
                                             lead > 0 ? UiTextAlignment::start : UiTextAlignment::center,
                                             UiTextAlignment::center,
-                                            UiTextWrapping::wrap,
-                                            UiTextOverflow::ellipsis,
+                                            TextWrapping::wrap,
+                                            TextOverflow::ellipsis,
                                             UiTextFace::normal,
                                             {},
                                             styles});
@@ -509,8 +509,8 @@ bool ui_tooltip_text_output(const UiTooltipScene& scene, const Theme& theme,
                                         text_style_subtext,
                                         inline_lead ? UiTextAlignment::start : align,
                                         UiTextAlignment::center,
-                                        UiTextWrapping::no_wrap,
-                                        UiTextOverflow::ellipsis,
+                                        TextWrapping::no_wrap,
+                                        TextOverflow::ellipsis,
                                         UiTextFace::normal,
                                         {},
                                         styles}) &&
@@ -522,8 +522,8 @@ bool ui_tooltip_text_output(const UiTooltipScene& scene, const Theme& theme,
                                         text_style_subtext,
                                         align,
                                         UiTextAlignment::center,
-                                        UiTextWrapping::no_wrap,
-                                        UiTextOverflow::ellipsis});
+                                        TextWrapping::no_wrap,
+                                        TextOverflow::ellipsis});
 }
 bool ui_tooltip_emoji(const UiTooltipScene& scene, UiRect* square) noexcept {
     if (!square || !has_emoji(scene) || !ui_tooltip_visible(scene))

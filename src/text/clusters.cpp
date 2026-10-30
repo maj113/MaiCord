@@ -29,17 +29,18 @@ u64 erase_mask(u32 word,u32 first,u32 last) noexcept {
     return ~below(lo)&(hi==63?~u64{0}:below(hi+1));
 }
 }
-u32 sfnt_cluster_map_words(u32 count) noexcept {
-    u32 result=0;while(count){count=word_count(count);result+=count;if(count==1)break;}return result;
+SfntClusterMap sfnt_cluster_map_frame(u64* storage,u32 text_count) noexcept {
+    SfntClusterMap map{{storage,0},text_count,0};
+    for(u32 count=text_count;count;){count=word_count(count);map.storage.count+=count;++map.levels;if(count==1)break;}
+    return map;
 }
+u32 sfnt_cluster_map_words(u32 count) noexcept {return sfnt_cluster_map_frame(nullptr,count).storage.count;}
 SfntStatus sfnt_cluster_map_open(u32 text_count,ConstSlice<u32> starts,Slice<u64> storage,SfntClusterMap* output,u64 work) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);const u32 words=sfnt_cluster_map_words(text_count);
+    if(!output)return SfntStatus::invalid_input;reset_value(output);SfntClusterMap result=sfnt_cluster_map_frame(storage.data,text_count);const u32 words=result.storage.count;
     if((starts.count && !starts.data) || (storage.count && (!storage.data || (reinterpret_cast<usize>(storage.data)&7))))return SfntStatus::invalid_input;
     if(words>storage.count)return SfntStatus::output_too_small;
     if(static_cast<u64>(words)*3+starts.count>work)return SfntStatus::resource_limit;
     for(u32 i=0;i<starts.count;++i)if(starts.data[i]>=text_count || (i?starts.data[i]<=starts.data[i-1]:starts.data[i]!=0))return SfntStatus::invalid_input;
-    SfntClusterMap result{};result.storage={storage.data,words};result.text_count=text_count;u32 count=text_count;
-    while(count){count=word_count(count);++result.levels;if(count==1)break;}
     clear_bytes(storage.data,words*sizeof(u64));
     if(text_count){if(starts.count){for(u32 i=0;i<starts.count;++i)storage.data[starts.data[i]>>6]|=u64{1}<<(starts.data[i]&63);}
         else {const u32 leaves=word_count(text_count);for(u32 i=0;i<leaves;++i)storage.data[i]=~u64{0};if(text_count&63)storage.data[leaves-1]=below(text_count&63);}

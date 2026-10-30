@@ -40,7 +40,9 @@ SfntStatus tt_outline_requirements(const SfntFace& face,TtOutlineRequirements* o
 // execution diagnostic and the instance's recovery flag stay separate from
 // instruction control. Other program errors, unsupported opcodes and resource
 // exhaustion still fail. Reuses geometry validated by font_geometry_open.
-SfntStatus tt_outline_prepare(const FontGeometry& geometry,TtInterpreter buffers,
+// buffers is the preparation workspace and is consumed in place: its counts and
+// state change, and the caller must not reuse it.
+SfntStatus tt_outline_prepare(const FontGeometry& geometry,TtInterpreter* buffers,
     TtOutlineInstance* output,TtExecution* execution,u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
 // Reset root-glyph mutable state; component programs share it until root end.
 SfntStatus tt_outline_begin(TtOutlineContext* context,const SfntTrueType& font,u32* work) noexcept;

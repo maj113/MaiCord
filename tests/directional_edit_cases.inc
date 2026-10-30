@@ -38,7 +38,7 @@ bool directional_edit() noexcept {
                 if(!same_edit(layouts[0],layouts[1])){print("retained directional sample/options/flag/width/anchor/caret=");number(sample);print("/");number(options);print("/");number(flag);print("/");real(width);print("/");number(a);print("/");number(p);print("\n");return false;}
             }
             const auto builds=layouts[0].builds;CHECK(text_edit_layout_measure(layouts,input,candidate)&&layouts[0].builds==builds);
-            CHECK(text_measure_utf8_styled(&owner,utf8_literal("Other cached paragraph"),{},95,1000,{utf16,256}).ok()&&same_edit(layouts[0],layouts[1]));
+            CHECK(text_measure_utf8(&owner,utf8_literal("Other cached paragraph"),{},95,1000,{utf16,256}).ok()&&same_edit(layouts[0],layouts[1]));
             CHECK(text_edit_layout_scroll(layouts,-33)&&text_edit_layout_scroll(layouts+1,-33)&&same_edit(layouts[0],layouts[1]));
             CHECK(text_edit_layout_scroll(layouts,21)&&text_edit_layout_scroll(layouts+1,21)&&same_edit(layouts[0],layouts[1]));
         }

@@ -59,8 +59,8 @@ struct MessageTextCommand {
     bool themed_styles;
     UiTextAlignment horizontal_alignment;
     UiTextAlignment vertical_alignment;
-    UiTextWrapping wrapping;
-    UiTextOverflow overflow;
+    TextWrapping wrapping;
+    TextOverflow overflow;
     // Logical selector of the owning field; stable across rich-store compaction
     // (never a storage offset).
     u16 source_id;

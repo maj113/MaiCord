@@ -32,7 +32,7 @@ struct TextRole {
     u32 flags;
     Ink ink;
     UiTextAlignment horizontal, vertical;
-    UiTextWrapping wrapping;
+    TextWrapping wrapping;
 };
 
 enum class Role : u8 {
@@ -67,8 +67,8 @@ constexpr u32 kHeadingStyle = text_style_heading_1 | text_style_bold;
 constexpr u32 kLabelStyle = text_style_subtext | text_style_bold;
 constexpr UiTextAlignment kStart = UiTextAlignment::start;
 constexpr UiTextAlignment kCenter = UiTextAlignment::center;
-constexpr UiTextWrapping kLine = UiTextWrapping::no_wrap;
-constexpr UiTextWrapping kWrap = UiTextWrapping::wrap;
+constexpr TextWrapping kLine = TextWrapping::no_wrap;
+constexpr TextWrapping kWrap = TextWrapping::wrap;
 
 constexpr TextRole kRoles[]{
     {kHeadingStyle, Ink::primary, kCenter, kStart, kLine},                   // heading
@@ -121,7 +121,7 @@ bool append_command(const Writer& out, LoginElement element, const Utf8View& tex
                        out.stream,
                        UiTextCommand{text, UiWidgetReference{&scene.widgets, scene.elements[static_cast<u32>(element)]},
                                      node->content_rectangle, node->clip_rectangle, color, style.flags,
-                                     style.horizontal, style.vertical, style.wrapping, UiTextOverflow::clip});
+                                     style.horizontal, style.vertical, style.wrapping, TextOverflow::clip});
 }
 
 Utf8View auth_cooldown_copy(const LoginView& view) noexcept {
@@ -296,8 +296,8 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
                                       text_style_none,
                                       UiTextAlignment::center,
                                       UiTextAlignment::center,
-                                      UiTextWrapping::no_wrap,
-                                      UiTextOverflow::clip};
+                                      TextWrapping::no_wrap,
+                                      TextOverflow::clip};
             if (!ui_text_command_stream_push(stream, digit))
                 return false;
         }

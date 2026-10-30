@@ -7,15 +7,10 @@ void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+
 #define CHECK(x) do{++checks;if(!(x)){print("FAIL line=");number(__LINE__);print("\n");return false;}}while(0)
 bool guards() noexcept {
     const NativeFallbackRange ranges[]{{0,0,3},{100,3,0},{101,1,2},{0x10ffff,0,1}};
-    const u16 tokens[]{2,0,1};NativeFallbackCascade c{};u32 token=0,used=99;
+    const u16 tokens[]{2,0,1};NativeFallbackCascade c{};
     CHECK(native_fallback_cascade_open({ranges,4},{tokens,3},3,&c)==SfntStatus::ok);
     const u32 points[]{0,99,100,101,0x10fffe,0x10ffff},expected_ranges[]{0,0,1,2,2,3};
-    for(u32 i=0;i<6;++i){CHECK(native_fallback_cascade_find(c,points[i],&token,100,&used)==SfntStatus::ok&&token==expected_ranges[i]);
-        const u32 needed=used;for(u32 limit=0;limit<needed;++limit)CHECK(native_fallback_cascade_find(c,points[i],&token,limit,&used)==SfntStatus::resource_limit&&used==limit&&token==native_fallback_missing);
-        CHECK(native_fallback_cascade_find(c,points[i],&token,needed,&used)==SfntStatus::ok&&token==expected_ranges[i]&&used==needed);}
-    CHECK(native_fallback_cascade_find(c,0,nullptr)==SfntStatus::invalid_input);
-    const u32 invalid[]{0xd800,0xdfff,0x110000,0xffffffffu};
-    for(u32 scalar:invalid)CHECK(native_fallback_cascade_find(c,scalar,&token,100,&used)==SfntStatus::invalid_input&&token==native_fallback_missing&&!used);
+    for(u32 i=0;i<6;++i)CHECK(native_fallback_cascade_find(c,points[i])==expected_ranges[i]);
     CHECK(native_fallback_cascade_open({ranges,4},{tokens,3},3,&c,6)==SfntStatus::resource_limit&&!c.ranges.count);
     CHECK(native_fallback_cascade_open({nullptr,1},{},3,&c)==SfntStatus::invalid_input);
     CHECK(native_fallback_cascade_open({},{nullptr,1},3,&c)==SfntStatus::invalid_input);
@@ -28,7 +23,7 @@ bool guards() noexcept {
     CHECK(native_fallback_cascade_open({reversed,3},{tokens,3},3,&c)==SfntStatus::invalid_input);
     CHECK(native_fallback_cascade_open({duplicate,2},{tokens,3},3,&c)==SfntStatus::invalid_input);
     CHECK(native_fallback_cascade_open({},{},0,&c,0)==SfntStatus::ok);
-    CHECK(native_fallback_cascade_find(c,0,&token,0,&used)==SfntStatus::ok&&token==native_fallback_missing&&!used);
+    CHECK(native_fallback_cascade_find(c,0)==native_fallback_missing);
     const u16 end=65535;const NativeFallbackRange one{0,0,1};
     CHECK(native_fallback_cascade_open({&one,1},{&end,1},65536,&c)==SfntStatus::ok);
     Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;
@@ -39,8 +34,8 @@ bool guards() noexcept {
     copy_bytes(guarded,ranges,sizeof(ranges));copy_bytes(guarded_tokens,tokens,sizeof(tokens));
     CHECK(VirtualProtect(memory,page,PAGE_READONLY,&old)&&VirtualProtect(memory+page*2,page,PAGE_READONLY,&old));
     CHECK(native_fallback_cascade_open({guarded,4},{guarded_tokens,3},3,&c)==SfntStatus::ok);
-    for(u32 scalar=0;scalar<102;++scalar)CHECK(native_fallback_cascade_find(c,scalar,&token)==SfntStatus::ok&&token==(scalar<100?0u:scalar-99));
-    CHECK(native_fallback_cascade_find(c,0x10ffff,&token)==SfntStatus::ok&&token==3);
+    for(u32 scalar=0;scalar<102;++scalar)CHECK(native_fallback_cascade_find(c,scalar)==(scalar<100?0u:scalar-99));
+    CHECK(native_fallback_cascade_find(c,0x10ffff)==3);
     return true;
 }
 }}

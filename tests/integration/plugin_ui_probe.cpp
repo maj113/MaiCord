@@ -40,8 +40,8 @@ bool extra_geometry(PopupScene& popup, u32 first) noexcept {
             const auto& value = commands[command];
             if (value.owner.handle.slot != popup.rows[first + index].label.slot) continue;
             const Color expected = index == 2 ? kDefaultTheme.text_secondary : kDefaultTheme.text_primary;
-            found = utf8_equal(value.text, kExtraLabels[index]) && value.overflow == UiTextOverflow::ellipsis &&
-                value.wrapping == UiTextWrapping::no_wrap && value.color.red == expected.red &&
+            found = utf8_equal(value.text, kExtraLabels[index]) && value.overflow == TextOverflow::ellipsis &&
+                value.wrapping == TextWrapping::no_wrap && value.color.red == expected.red &&
                 value.color.green == expected.green && value.color.blue == expected.blue &&
                 value.rectangle.left >= layout.row->rectangle.left && value.rectangle.right <= layout.row->rectangle.right;
         }

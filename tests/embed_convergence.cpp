@@ -40,7 +40,7 @@ Fixture fixture;
 TextSystem text_system;
 wchar_t scratch_text[8192];
 bool measure(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* output) noexcept {
-    auto result = text_measure_utf8_styled(
+    auto result = text_measure_utf8(
         &text_system, request.text, request.styles, request.constraint.width, request.constraint.height,
         {scratch_text, 8192}, request.no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap);
     *output = {{result.width_including_trailing_whitespace, result.height}, 0, result.line_count};
@@ -64,7 +64,7 @@ void test_embed_convergence(void (*check)(bool, const char*) noexcept) noexcept 
                             ui_text_flow_required_height(flow) == intrinsic_height;
     }
     check(translated_extent, "media_flow_measurement_is_independent_of_viewport_origin");
-    if (!text_system_initialize(&text_system, L"Segoe UI", 16, L"en-US").ok()) {
+    if (!text_system_initialize(&text_system, L"Segoe UI", 16).ok()) {
         check(false, "embed_native_text_system");
         return;
     }

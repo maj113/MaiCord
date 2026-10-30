@@ -167,7 +167,7 @@ bool text_contract(const D3D11Renderer& renderer, const ReadStateFixture& f, boo
                 !check(command.color.red == 1 && command.color.green == 1 && command.color.blue == 1 && command.color.alpha == 1 &&
                     command.style_flags == (text_style_bold | text_style_subtext) &&
                     command.horizontal_alignment == UiTextAlignment::center && command.vertical_alignment == UiTextAlignment::center &&
-                    command.wrapping == UiTextWrapping::no_wrap && ui_rect_equal(command.rectangle, expected_rectangle),
+                    command.wrapping == TextWrapping::no_wrap && ui_rect_equal(command.rectangle, expected_rectangle),
                     "native_numeric_badge_style_or_geometry_incorrect")) return false;
             ++badges;
             capped += static_cast<u32>(utf8_equal(command.text, utf8_literal("1k+")));

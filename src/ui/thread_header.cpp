@@ -103,7 +103,7 @@ bool text(const UiThreadHeader& h, UiWidgetHandle owner, Utf8View label, UiRect 
     if (!label.bytes || !ui_rect_has_area(r)) return true;
     UiTextCommand command{label, {h.manager, owner}, r, ui_rect_intersection(r, h.geometry.clip), color,
         style_flags, center ? UiTextAlignment::center : UiTextAlignment::start,
-        UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::ellipsis, UiTextFace::normal, {}};
+        UiTextAlignment::center, TextWrapping::no_wrap, TextOverflow::ellipsis, UiTextFace::normal, {}};
     return ui_text_output_push(out, command);
 }
 Color button_fill(const UiThreadHeader& h, UiWidgetHandle w, const Theme& theme, bool accent) noexcept {

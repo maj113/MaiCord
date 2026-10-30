@@ -223,7 +223,7 @@ bool settle(ApplicationTextForm* form) noexcept {
 }
 bool geometry(void* opaque, SecureTextStoreGeometry* output) noexcept {
     auto* form = static_cast<ApplicationTextForm*>(opaque);
-    if (form != g_app.text_form || !output || !g_app.window)
+    if (form != g_app.text_form || !g_app.window)
         return false;
     const auto* field = text_form_node(form->scene, TextFormElement::edit);
     if (!field)
@@ -242,7 +242,7 @@ bool geometry(void* opaque, SecureTextStoreGeometry* output) noexcept {
 }
 bool point_geometry(void* opaque, POINT point, bool round, u32* position, bool* inside) noexcept {
     auto* form = static_cast<ApplicationTextForm*>(opaque);
-    if (!form || form != g_app.text_form || !g_app.renderer.dpi || !form->surface.layout.active ||
+    if (form != g_app.text_form || !g_app.renderer.dpi || !form->surface.layout.active ||
         form->surface.layout.text_signature !=
             text_edit_signature(
                 {reinterpret_cast<const char*>(form->edit.storage.data), form->edit.storage.bytes}) ||
@@ -945,9 +945,7 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
                 // Double click: word; a third press within the double-click
                 // time/distance: line. An IME composition keeps its selection.
                 const u8 clicks = application_click_count(&form->scene, x, y, message == WM_LBUTTONDBLCLK);
-                SecureTextComposition composition{};
-                const bool composing =
-                    secure_text_store_composition(form->store, &composition) && composition.active;
+                const bool composing = secure_text_store_composing(form->store);
                 if (!composing) {
                     pointer_position(form, x, y, clicks == 1 && (wparam & MK_SHIFT) != 0);
                     if (clicks == 2)

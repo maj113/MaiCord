@@ -1,8 +1,6 @@
 #pragma once
 #include "maicord/text/indic_input.hpp"
 namespace maicord {
-using SfntSinhalaInputScalar=SfntIndicInputScalar;
-using SfntSinhalaInputResult=SfntIndicInputResult;
 // Horizontal Sinhala preparation. Writes one byte per original scalar (1=start,
 // 0=continuation), before expansion. Uses Unicode 17 properties and the Windows
 // USE policy; clusters hold at most 31 original scalars, with no font-dependent
@@ -15,6 +13,6 @@ SfntStatus sfnt_sinhala_cluster_boundaries(ConstSlice<u32>,Slice<u8>,u64 work_li
 // DDD -> DD9 DDD, DDE -> DD9 DDF; DDD's second component is a post-base glyph
 // input, not a further expansion. Three work units per input scalar. A sizing
 // failure reports both required counts; other failures clear them.
-SfntStatus sfnt_sinhala_expand_cluster(ConstSlice<u32>,Slice<SfntSinhalaInputScalar>,
-    SfntSinhalaInputResult*,u64 work_limit=1000000) noexcept;
+SfntStatus sfnt_sinhala_expand_cluster(ConstSlice<u32>,Slice<SfntIndicInputScalar>,
+    SfntIndicInputResult*,u64 work_limit=1000000) noexcept;
 }

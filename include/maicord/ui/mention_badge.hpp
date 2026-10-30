@@ -38,6 +38,6 @@ inline bool ui_mention_badge_text_output(u32 count, const UiWidgetManager& manag
         {label, {&manager, owner}, rectangle, clip, {1, 1, 1, 1},
          text_style_subtext | text_style_bold,
          UiTextAlignment::center, UiTextAlignment::center,
-         UiTextWrapping::no_wrap, UiTextOverflow::clip});
+         TextWrapping::no_wrap, TextOverflow::clip});
 }
 } // namespace maicord

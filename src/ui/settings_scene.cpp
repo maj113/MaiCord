@@ -1217,7 +1217,7 @@ void synchronize_input(UiSettingsScene& scene) noexcept {
 }
 bool text(UiTextOutput* stream, const UiSettingsScene& scene, UiWidgetHandle handle, const Utf8View& label, const UiRect& rectangle,
           const Color& color, u32 style = text_style_none, UiTextAlignment alignment = UiTextAlignment::start,
-          UiTextWrapping wrapping = UiTextWrapping::no_wrap,
+          TextWrapping wrapping = TextWrapping::no_wrap,
           UiTextAlignment vertical = UiTextAlignment::center) noexcept {
     const auto* node = ui_widget_manager_layout_node(scene.widgets, handle);
     if (!node)
@@ -1234,13 +1234,13 @@ bool text(UiTextOutput* stream, const UiSettingsScene& scene, UiWidgetHandle han
                                         alignment,
                                         vertical,
                                         wrapping,
-                                        UiTextOverflow::ellipsis});
+                                        TextOverflow::ellipsis});
 }
 // A wrapped, top-aligned description.
 bool describe(UiTextOutput* stream, const UiSettingsScene& scene, UiWidgetHandle handle, const Utf8View& label,
               const UiRect& rectangle, const Color& color) noexcept {
     return text(stream, scene, handle, label, rectangle, color, text_description, UiTextAlignment::start,
-                UiTextWrapping::wrap, UiTextAlignment::start);
+                TextWrapping::wrap, UiTextAlignment::start);
 }
 // The control's state as seen by option `index`: hovered only when the pointer is on that option.
 UiControlState hover_option(const UiSettingsScene& scene, UiControlState state, u32 index) noexcept {
@@ -3129,7 +3129,7 @@ bool row_text(const UiSettingsScene& scene, const UiSettingsTokens& t, UiTextOut
                                swatch.bottom + ui_swatch_label_height()};
             if (!text(stream, scene, handle, c.choices[i], label,
                       ui_settings_color_alpha(c.selected_choice == i ? tc.text_strong : tc.text_subtle, dim),
-                      text_description, UiTextAlignment::center, UiTextWrapping::wrap, UiTextAlignment::start))
+                      text_description, UiTextAlignment::center, TextWrapping::wrap, UiTextAlignment::start))
                 return false;
         }
         return true;
@@ -3174,8 +3174,8 @@ bool row_text(const UiSettingsScene& scene, const UiSettingsTokens& t, UiTextOut
                      UiTextAlignment::start,
                      c.kind == UiSettingsControlKind::multiline || measured ? UiTextAlignment::start
                                                                             : UiTextAlignment::center,
-                     c.kind == UiSettingsControlKind::multiline ? UiTextWrapping::wrap : UiTextWrapping::no_wrap,
-                     UiTextOverflow::clip});
+                     c.kind == UiSettingsControlKind::multiline ? TextWrapping::wrap : TextWrapping::no_wrap,
+                     TextOverflow::clip});
     }
     default:
         return true;
@@ -3237,8 +3237,8 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
                                               text_label,
                                               UiTextAlignment::start,
                                               measured ? UiTextAlignment::start : UiTextAlignment::center,
-                                              UiTextWrapping::no_wrap,
-                                              UiTextOverflow::clip}))
+                                              TextWrapping::no_wrap,
+                                              TextOverflow::clip}))
                 return false;
         }
     }
@@ -3276,8 +3276,8 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
                                           text_label,
                                           UiTextAlignment::start,
                                           UiTextAlignment::center,
-                                          UiTextWrapping::no_wrap,
-                                          UiTextOverflow::ellipsis}))
+                                          TextWrapping::no_wrap,
+                                          TextOverflow::ellipsis}))
             return false;
     }
     if (scene.footer.visible) {

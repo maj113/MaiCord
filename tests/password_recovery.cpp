@@ -98,7 +98,7 @@ void test_password_recovery(void (*check)(bool, const char*) noexcept) noexcept 
             ui_rect_width(subtitle) == ui_rect_width(form->content_rectangle) && ui_rect_width(heading) >= 288 &&
             heading.bottom <= subtitle.top && ui_rect_height(subtitle) >= 44 && subtitle.bottom <= next.top &&
             ui_rect_equal(stream.storage[0].rectangle, heading) && ui_rect_equal(stream.storage[1].rectangle, subtitle) &&
-            stream.storage[1].wrapping == UiTextWrapping::wrap,
+            stream.storage[1].wrapping == TextWrapping::wrap,
             "recovery heading uses the content width and a wrapped two-line subtitle stays before Back or the identifier label");
     }
     const LoginStatus availability[]{LoginStatus::idle, LoginStatus::profile_save_failed, LoginStatus::idle};

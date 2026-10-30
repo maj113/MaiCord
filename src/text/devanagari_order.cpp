@@ -1,16 +1,20 @@
 #include "maicord/text/devanagari_order.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/text/devanagari_clusters.hpp"
+#include "maicord/text/indic_clusters.hpp"
 #include "devanagari_character.hpp"
 #include "indic_cluster.hpp"
 #include "indic_forms.hpp"
 namespace maicord {namespace {
 using C=DevanagariCategory;
-bool base_character(C category) noexcept {return category==C::consonant||category==C::vowel||category==C::placeholder;}
+// Category order: consonant, vowel, placeholder are the base characters; pre, above, below, post are the vowel signs.
+inline bool base_character(C category) noexcept {return category>=C::consonant&&category<=C::placeholder;}
+inline bool matra(C category) noexcept {return category>=C::pre&&category<=C::post;}
+inline bool non_pre_matra(C category) noexcept {return category>=C::above&&category<=C::post;}
 void move_order(Slice<u32> order,u32 from,u32 to) noexcept {
     const u32 saved=order[from];if(from<to)for(u32 i=from;i<to;++i)order[i]=order[i+1];
     else for(u32 i=from;i>to;--i)order[i]=order[i-1];order[to]=saved;
 }
+void move_group(Slice<u32> order,u32 from,u32 count,u32 to) noexcept {for(u32 j=0;j<count;++j)move_order(order,from+j,to+j);}
 u32 consonant_prefix(ConstSlice<u32> order,const C* categories,u32 at) noexcept {
     u32 first=at;while(first){const auto c=categories[order[first-1]];
         if(c!=C::nukta&&c!=C::joiner&&c!=C::nonjoiner)break;--first;}
@@ -29,8 +33,9 @@ SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,
     if(static_cast<u64>(n)*64>work)return SfntStatus::resource_limit;
     if(byte_ranges_overlap_or_wrap(scalars.data,static_cast<u64>(n)*4,order.data,static_cast<u64>(n)*4)||byte_ranges_overlap_or_wrap(scalars.data,static_cast<u64>(n)*4,masks.data,n)||
        byte_ranges_overlap_or_wrap(forms.data,n,order.data,static_cast<u64>(n)*4)||byte_ranges_overlap_or_wrap(forms.data,n,masks.data,n)||byte_ranges_overlap_or_wrap(order.data,static_cast<u64>(n)*4,masks.data,n))return SfntStatus::invalid_input;
-    u8 boundaries[indic_cluster_capacity]{};if(profile==SfntIndicProfile::devanagari){const auto status=sfnt_devanagari_cluster_boundaries(scalars,{boundaries,indic_cluster_capacity},work);if(status!=SfntStatus::ok)return status;}
+    u8 boundaries[indic_cluster_capacity]{};if(profile==SfntIndicProfile::devanagari){const auto status=sfnt_indic_cluster_boundaries(profile,scalars,{boundaries,indic_cluster_capacity},work);if(status!=SfntStatus::ok)return status;}
     C categories[indic_cluster_capacity]{};u8 combining[indic_cluster_capacity]{};bool nukta=false,any_matra=false;
+    const auto joiner_like=[&](u32 at) noexcept {return categories[at]==C::joiner||scalars[at]==0xa0;};
     for(u32 i=0;i<n;++i){if(!unicode_is_scalar(scalars[i]))return SfntStatus::invalid_input;
         if(i&&boundaries[i])return SfntStatus::unsupported_sequence;categories[i]=indic_category(profile,scalars[i]);combining[i]=unicode_properties(scalars[i])->combining_class();nukta|=categories[i]==C::nukta;
         if(odia&&scalars[i]==0xb55)categories[i]=C::vedic;
@@ -38,7 +43,7 @@ SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,
         // Gujarati nukta signs use shaping order even where Unicode CCC is zero.
         if(profile==SfntIndicProfile::gujarati&&categories[i]==C::nukta)combining[i]=7;
         if(gurmukhi&&i&&categories[i-1]==C::medial&&categories[i]==C::halant)combining[i]=0;
-        any_matra|=categories[i]==C::pre||categories[i]==C::above||categories[i]==C::below||categories[i]==C::post||(odia&&scalars[i]==0xb55);}
+        any_matra|=matra(categories[i])||(odia&&scalars[i]==0xb55);}
     SfntDevanagariOrderResult value{nil,nil,0,false};
     const bool ra=n&&(bengali?(scalars[0]==0x9b0||scalars[0]==0x9f0):scalars[0]==block+0x30u);
     if(n>=3&&ra&&categories[1]==C::halant&&(forms[0]&sfnt_deva_reph)&&categories[2]!=C::joiner&&categories[2]!=C::nonjoiner&&categories[2]!=C::nukta&&(profile==SfntIndicProfile::devanagari||scalars[2]!=0xa0)){
@@ -62,9 +67,9 @@ SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,
         // after RRA/LLA/LLLA, a default-position consonant starts a main group.
         if(malayalam&&(forms[i]&indic_default_position)&&i>=2&&categories[i-1]==C::halant&&
             (scalars[i-2]==0xd31||scalars[i-2]==0xd33||scalars[i-2]==0xd34))break;
-        if(kannada&&i+2<n&&categories[i+1]==C::halant&&(categories[i+2]==C::joiner||scalars[i+2]==0xa0)){explicit_half=true;break;}
+        if(kannada&&i+2<n&&categories[i+1]==C::halant&&(joiner_like(i+2))){explicit_half=true;break;}
         if(southern){u32 before=i;while(before&&categories[before-1]==C::nukta)--before;
-            if(before&&((kannada&&(categories[before-1]==C::joiner||scalars[before-1]==0xa0))||
+            if(before&&((kannada&&(joiner_like(before-1)))||
                 (malayalam&&scalars[before-1]==0xa0))){u32 halant=before-1;
                 while(halant&&categories[halant-1]==C::nukta)--halant;
                 if(halant&&categories[halant-1]==C::halant)break;}
@@ -74,10 +79,10 @@ SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,
         below_seen|=(forms[i]&sfnt_deva_below)!=0;
         if(southern&&(forms[i]&sfnt_deva_pre)&&i!=pre_consonant&&!(forms[i]&(sfnt_deva_below|sfnt_deva_post)))break;
         if(i==first_base||(i&&(categories[i-1]==C::joiner||(southern&&categories[i-1]==C::nonjoiner))&&(!odia||i<2||categories[i-2]==C::halant)&&(!southern||(categories[first_base]==C::vowel&&!kannada_vowel_chain)||i<2||categories[i-2]==C::halant))||!(forms[i]&(sfnt_deva_below|sfnt_deva_post|sfnt_deva_pre)))break;}
-    if(kannada&&!explicit_half&&ra&&n>=3&&(forms[0]&sfnt_deva_reph)&&categories[1]==C::halant&&(categories[2]==C::joiner||scalars[2]==0xa0)&&
+    if(kannada&&!explicit_half&&ra&&n>=3&&(forms[0]&sfnt_deva_reph)&&categories[1]==C::halant&&(joiner_like(2))&&
         !(value.base!=nil&&value.base+1<n&&categories[value.base+1]==C::nukta))value.base=first_base;
     if(kannada&&ra&&(forms[0]&sfnt_deva_reph)&&n>4&&categories[1]==C::nonjoiner&&categories[2]==C::halant&&
-        (categories[3]==C::joiner||scalars[3]==0xa0))value.base=first_base;
+        (joiner_like(3)))value.base=first_base;
     if(n)value.needs_dotted_circle=(malayalam&&scalars[0]==0xd4e&&value.base==nil)||categories[0]==C::joiner||(value.base==nil&&categories[0]>=C::nukta&&categories[0]!=C::nonjoiner&&categories[0]!=C::medial);
     // A dot reph after only joiners/NBSP has no main consonant; the broken
     // cluster keeps that prefix, then supplies its base. A real leading dotted
@@ -128,9 +133,9 @@ SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,
     // the halant; this uses the otherwise unused tail-sign slot and keeps source ownership.
     if(kannada&&value.base!=nil&&categories[value.base]!=C::vowel){u32 control=value.base+1;
         while(control+1<n&&(categories[control+1]==C::nukta||categories[control+1]==C::halant||
-            categories[control+1]==C::nonjoiner||categories[control+1]==C::joiner||scalars[control+1]==0xa0)){
+            categories[control+1]==C::nonjoiner||joiner_like(control+1))){
             if(categories[control]==C::halant){++control;break;}++control;}
-        if(control+1<n&&(categories[control]==C::joiner||scalars[control]==0xa0)&&categories[control+1]==C::consonant&&(forms[control+1]&sfnt_deva_below)){
+        if(control+1<n&&(joiner_like(control))&&categories[control+1]==C::consonant&&(forms[control+1]&sfnt_deva_below)){
             const u32 halant=control-1;categories[control]=C::joiner;
             if(categories[halant]!=C::halant){value.tail_sign=static_cast<u8>(halant+1);categories[halant]=C::halant;masks[halant]|=sfnt_deva_below;}
             u32 from=0,to=0;for(u32 at=0;at<n;++at){if(order[at]==halant)from=at;if(order[at]==control)to=at;}
@@ -152,8 +157,8 @@ SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,
         for(u32 at=0;at<n;++at){const auto c=categories[order[at]];
             if(at+1<n&&(c==C::bindu||c==C::visarga))earlier=true;
             // A later vowel ends the overline group attached to a left vowel.
-            if(value.pre_matra!=nil&&(c==C::above||c==C::below||c==C::post))first=nil;
-            if(c==C::pre||c==C::above||c==C::below||c==C::post)seen=true;
+            if(value.pre_matra!=nil&&non_pre_matra(c))first=nil;
+            if(matra(c))seen=true;
             if(first==nil&&scalars[order[at]]==0xb55&&seen)first=at;}
         if(!seen)for(u32 at=0;at<n;++at)if(scalars[order[at]]==0xb55){first=at;break;}
         if(!earlier&&first!=nil){const u32 slot=first+(n-1-first+3)/4,saved=order[slot];
@@ -165,14 +170,13 @@ SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,
     if(odia){u32 leading=0,end=0;bool seen=false,attached=false;
         for(u32 at=0;at<n;++at){const u32 original=order[at];const auto c=categories[original];
             if(c==C::bindu){end=at+1;break;}
-            if(c==C::pre||c==C::above||c==C::below||c==C::post){seen=true;end=at+1;attached=false;}
+            if(matra(c)){seen=true;end=at+1;attached=false;}
             else if(scalars[original]==0xb55){attached=!seen;if(attached)leading|=1u<<original;else if(end==at)end=at+1;}
             else if(c==C::nukta){if(attached)leading|=1u<<original;else if(end==at)end=at+1;}
             else if(c==C::halant&&!seen&&at+1<n&&scalars[order[at+1]]==0xb55){leading|=1u<<original;attached=false;}
             else{attached=false;if(c==C::visarga)break;}}
         u32 target=0;
-        for(u32 at=0;at<end;++at)if(!(leading&(1u<<order[at]))){const u32 saved=order[at];
-            for(u32 from=at;from>target;--from)order[from]=order[from-1];order[target++]=saved;}
+        for(u32 at=0;at<end;++at)if(!(leading&(1u<<order[at])))move_order(order,at,target++);
         for(u32 i=0;i<n;++i)if(scalars[i]==0xb55&&value.tail_sign!=i+1)
             categories[i]=value.pre_matra!=nil&&(leading&(1u<<i))?C::vedic:C::nukta;
     }
@@ -182,22 +186,22 @@ SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,
     // canonically ordered matra (a quarter-tail offset for Odia). The replaced
     // slot keeps its source identity; the control slot moves after the remaining matras.
     if(any_matra&&n&&categories[n-1]==C::nonjoiner){bool sign=false,vedic=false;u32 first=nil;
-        for(u32 i=0;i<n;++i){const auto c=categories[order[i]];if(first==nil&&(c==C::pre||c==C::above||c==C::below||c==C::post||(odia&&scalars[order[i]]==0xb55)))first=i;
+        for(u32 i=0;i<n;++i){const auto c=categories[order[i]];if(first==nil&&(matra(c)||(odia&&scalars[order[i]]==0xb55)))first=i;
             if(first!=nil){sign|=c==C::bindu||c==C::visarga;vedic|=c==C::vedic;}}
         if(sign&&!vedic&&first+1<n){const u32 at=first+((odia||southern)?(n-1-first+3)/4:1),saved=order[at];value.tail_control=static_cast<u8>(saved+1);categories[saved]=C::nonjoiner;
-            u32 end=at+1;while(end<n){const auto c=categories[order[end]];if(c!=C::pre&&c!=C::above&&c!=C::below&&c!=C::post&&c!=C::nukta)break;++end;}
+            u32 end=at+1;while(end<n){const auto c=categories[order[end]];if(!matra(c)&&c!=C::nukta)break;++end;}
             if((bengali||gurmukhi)&&end<n&&categories[order[end]]==C::bindu)++end;
             const bool overline=odia&&scalars[order[first]]==0xb55;
-            for(u32 i=at;i+1<end;++i)order[i]=order[i+1];order[end-1]=saved;
+            move_order(order,at,end-1);
             if(overline)move_order(order,n-1,first);}}
     // A halant inside the matra tail follows all of that tail's vowel signs.
     bool matra_tail=false,below_tail=false;
-    for(u32 i=0;i<n;++i){const auto c=categories[order[i]];matra_tail|=c==C::above||c==C::below||c==C::post||((bengali||gurmukhi||odia||malayalam)&&c==C::pre);
+    for(u32 i=0;i<n;++i){const auto c=categories[order[i]];matra_tail|=non_pre_matra(c)||((bengali||gurmukhi||odia||malayalam)&&c==C::pre);
         if(odia&&c==C::halant)for(u32 before=0;before<order[i];++before)matra_tail|=scalars[before]==0xb55;
         below_tail|=c==C::below;
         if(bengali&&matra_tail&&c==C::halant&&i+1<n&&categories[order[i+1]]==C::below){u32 target=i+1;
             for(u32 at=target+1;at<n;++at){const auto next=categories[order[at]];if(next!=C::pre&&next!=C::post&&next!=C::below)break;
-                if(next==C::post){const u32 saved=order[at];for(u32 from=at;from>target;--from)order[from]=order[from-1];order[target++]=saved;}}continue;}
+                if(next==C::post)move_order(order,at,target++);}continue;}
         if((southern&&!malayalam)||!matra_tail||c!=C::halant||((bengali||odia)&&below_tail))continue;u32 attached=1;
         if(odia&&i+1<n&&scalars[order[i+1]]==0xb55)
             while(i+attached<n&&(scalars[order[i+attached]]==0xb55||categories[order[i+attached]]==C::nukta))++attached;
@@ -205,12 +209,12 @@ SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,
         while(end<n){const auto next=categories[order[end]];
             if(odia&&next==C::below)break;
             if(odia&&scalars[order[end]]==0xb55){++end;continue;}
-            if(bengali?(next!=C::pre&&next!=C::post&&next!=C::nukta&&next!=C::bindu):(next!=C::pre&&next!=C::above&&next!=C::below&&next!=C::post&&next!=C::nukta&&(!(gurmukhi||odia)||next!=C::bindu)))break;++end;}
-        for(u32 part=0;part<attached;++part){const u32 saved=order[i];for(u32 j=i;j+1<end;++j)order[j]=order[j+1];order[end-1]=saved;}i=end-1;}
+            if(bengali?(next!=C::pre&&next!=C::post&&next!=C::nukta&&next!=C::bindu):(!matra(next)&&next!=C::nukta&&(!(gurmukhi||odia)||next!=C::bindu)))break;++end;}
+        for(u32 part=0;part<attached;++part)move_order(order,i,end-1);i=end-1;}
     // Halant reordering can expose further vowels after the synthetic
     // tail-control slot. Finish that slot's placement in the resulting tail.
     if(malayalam&&value.tail_control)for(u32 at=0;at<n;++at)if(order[at]+1==value.tail_control){u32 end=at+1;
-        while(end<n){const auto c=categories[order[end]];if(c!=C::pre&&c!=C::above&&c!=C::below&&c!=C::post&&c!=C::nukta)break;++end;}
+        while(end<n){const auto c=categories[order[end]];if(!matra(c)&&c!=C::nukta)break;++end;}
         move_order(order,at,end-1);break;}
     // Non-joiners preceding the end of a modifier/Vedic tail appear before
     // that tail in the glyph stream, while retaining their logical source.
@@ -236,8 +240,8 @@ SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,
         // than six before-subscript pieces. A halant ends the group; Kannada
         // after-subscript pieces do too. Eligible source slots go in one bitset.
         for(u32 at=0;at<=n;++at){const auto c=at<n?categories[order[at]]:C::other;
-            if(at<n&&(c==C::above||c==C::below||c==C::post)&&before_subscript(scalars[order[at]])){pending|=1u<<order[at];++parts;}
-            if((c!=C::above&&c!=C::below&&c!=C::post&&c!=C::nukta)||(kannada&&at<n&&after_subscript(scalars[order[at]]))){if(parts<=6)movable|=pending;pending=parts=0;}}
+            if(at<n&&non_pre_matra(c)&&before_subscript(scalars[order[at]])){pending|=1u<<order[at];++parts;}
+            if((!non_pre_matra(c)&&c!=C::nukta)||(kannada&&at<n&&after_subscript(scalars[order[at]]))){if(parts<=6)movable|=pending;pending=parts=0;}}
         for(u32 at=0;at<n;++at){const u32 original=order[at],scalar=scalars[original];
             if(original<=value.base)continue;
             if(target==nil&&after_subscript(scalar))target=at;
@@ -250,16 +254,16 @@ SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,
             const bool vowel=(movable&(1u<<original))!=0;
             if(target==nil||!vowel)continue;u32 attached=1;
             while(at+attached<n&&categories[order[at+attached]]==C::nukta)++attached;
-            for(u32 j=0;j<attached;++j)move_order(order,at+j,target+j);
+            move_group(order,at,attached,target);
             target+=attached;at+=attached-1;}}
     if(southern){bool seen=false,after=false;
         for(u32 at=0;at<n;++at){const u32 scalar=scalars[order[at]];const auto c=categories[order[at]];
-            if(c==C::above||c==C::below||c==C::post){seen=true;after=after_subscript(scalar);}
+            if(non_pre_matra(c)){seen=true;after=after_subscript(scalar);}
             if(seen&&base_character(c))after=true;
             if(!seen||c!=C::halant)continue;u32 end=at+1;
             while(end<n){const u32 next=scalars[order[end]];const auto category=categories[order[end]];
                 if(category!=C::nukta&&after!=after_subscript(next))break;
-                if(category!=C::above&&category!=C::below&&category!=C::post&&category!=C::nukta)break;++end;}
+                if(!non_pre_matra(category)&&category!=C::nukta)break;++end;}
             move_order(order,at,end-1);at=end-1;}}
     if(odia&&value.base!=nil){u32 target=nil;
         for(u32 at=0;at<n;++at){const u32 original=order[at];const auto c=categories[original];
@@ -275,7 +279,7 @@ SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,
             if(target!=nil&&scalars[original]==0xa0&&target&&categories[order[target-1]]==C::joiner)--target;
             if(target==nil||(c!=C::above&&c!=C::bindu))continue;
             u32 attached=1;while(at+attached<n&&categories[order[at+attached]]==C::nukta)++attached;
-            for(u32 j=0;j<attached;++j){const u32 saved=order[at+j];for(u32 from=at+j;from>target+j;--from)order[from]=order[from-1];order[target+j]=saved;}
+            move_group(order,at,attached,target);
             target+=attached;at+=attached-1;}}
     // Odia lower vowels follow subscript consonants, but precede a right-side
     // consonant group. Keep that group's halant/nukta prefix intact for GSUB.
@@ -291,8 +295,7 @@ SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,
                     if(categories[value.base]==C::vowel&&(!before||categories[before-1]!=C::halant))continue;
                 }
                 target=consonant_prefix({order.data,n},categories,at);}
-            if(target!=nil&&categories[original]==C::below){const u32 saved=original;
-                for(u32 from=at;from>target;--from)order[from]=order[from-1];order[target++]=saved;}}}
+            if(target!=nil&&categories[original]==C::below)move_order(order,at,target++);}}
     u32 matra_start=value.reph_end;
     // In a prefixed dot-reph group, a full main consonant precedes the
     // placeholder base. Its surviving halant/controls stay in that group;
@@ -315,13 +318,12 @@ SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,
     if(bengali||odia||malayalam){u32 target=matra_start;
         for(u32 at=target;at<n;++at)if(categories[order[at]]==C::pre){u32 attached=1;
             while(at+attached<n&&categories[order[at+attached]]==C::nukta)++attached;
-            for(u32 j=0;j<attached;++j){const u32 saved=order[at+j];u32 from=at+j;while(from>target+j){order[from]=order[from-1];--from;}order[target+j]=saved;}
+            move_group(order,at,attached,target);
             target+=attached;at+=attached-1;}}
     else if(value.pre_matra!=nil){u32 at=0;while(at<n&&order[at]!=value.pre_matra)++at;
         u32 attached=1;while(at+attached<n&&categories[order[at+attached]]==C::nukta)++attached;
         const u32 target=value.reph_end;
-        if(at>=target&&at<n)for(u32 j=0;j<attached;++j){const u32 saved=order[at+j];u32 from=at+j;
-            while(from>target+j){order[from]=order[from-1];--from;}order[target+j]=saved;}}
+        if(at>=target&&at<n)move_group(order,at,attached,target);}
     // Explicit halant + ZWJ requests a half form even when signs follow it or
     // when nukta ordering has moved the halant next to that joiner.
     for(u32 i=1;i<n;++i)if(categories[order[i]]==C::joiner){u32 halant=i-1;if(!any_matra&&halant&&categories[order[halant]]==C::bindu)--halant;

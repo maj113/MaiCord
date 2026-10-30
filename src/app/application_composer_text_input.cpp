@@ -196,7 +196,7 @@ void project(ApplicationComposerTextInput* input) noexcept {
     ++scene.composition_revision;
 }
 bool geometry(void* opaque, SecureTextStoreGeometry* output) noexcept {
-    if (!output || !current_owner(static_cast<ApplicationComposerTextInput*>(opaque)) || !current_layout())
+    if (!current_owner(static_cast<ApplicationComposerTextInput*>(opaque)) || !current_layout())
         return false;
     const auto bounds = edit_bounds();
     if (!ui_rect_has_area(bounds) || !g_app.renderer.dpi)
@@ -241,8 +241,7 @@ void changed(void* context) noexcept {
     application_request_frame();
 }
 bool point_geometry(void* opaque, POINT point, bool round, u32* position, bool* inside) noexcept {
-    if (!position || !inside || !current_owner(static_cast<ApplicationComposerTextInput*>(opaque)) ||
-        !current_layout())
+    if (!current_owner(static_cast<ApplicationComposerTextInput*>(opaque)) || !current_layout())
         return false;
     const auto& scene = g_app.message_composer_scene;
     const auto& layout = edit_layout();
@@ -266,7 +265,7 @@ bool range_geometry(void* opaque, u32 first, u32 last, RECT* output, bool* clipp
     const auto& scene = g_app.message_composer_scene;
     const auto& layout = edit_layout();
     const auto bounds = edit_bounds();
-    if (!output || !clipped || !layout.active || !ui_rect_has_area(bounds))
+    if (!layout.active || !ui_rect_has_area(bounds))
         return false;
     const bool plain = plain_edit();
     u32 begin = 0, end = 0;
@@ -445,10 +444,7 @@ void application_composer_text_input_notify_layout() noexcept {
 }
 bool application_composer_text_input_composing() noexcept {
     auto* input = g_app.composer_text_input;
-    if (!current_owner(input))
-        return false;
-    SecureTextComposition composition{};
-    return secure_text_store_composition(input->store, &composition) && composition.active;
+    return current_owner(input) && secure_text_store_composing(input->store);
 }
 bool application_composer_text_input_filter(const MSG& message) noexcept {
     if (application_downloads_filter(message))

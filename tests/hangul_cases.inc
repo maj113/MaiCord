@@ -11,8 +11,8 @@ bool native_hangul_corpus(DWriteTextSystem system) noexcept {
     for(u32 sample=0;sample<sizeof(samples)/sizeof(samples[0]);++sample)for(u32 mode=0;mode<2;++mode)for(u32 flag:flags)for(float width:widths)for(u32 nowrap=0;nowrap<2;++nowrap){
         ++cases;native.independent_letters=reference.independent_letters=mode!=0;const auto text=samples[sample];const TextStyleSpan style{0,text.bytes,flag};
         const ConstSlice<TextStyleSpan> styles{&style,flag?1u:0u};const auto wrap=nowrap?TextWrapping::no_wrap:TextWrapping::wrap;
-        const auto expected=text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrap);
-        const auto actual=text_shape_utf8_styled(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrap);
+        const auto expected=text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrap);
+        const auto actual=text_shape_utf8(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrap);
         if(!expected.ok()||!actual.ok()||!native_output.text.native_fonts()||!same(native_output,reference_output,true)||!same_visual_runs(native_output,reference_output)){
             const ShapedText* outputs[]{&native_output.text,&reference_output.text};for(u32 side=0;side<2;++side){const auto& value=*outputs[side];print(side?"reference Hangul glyphs\n":"native Hangul glyphs\n");
                 for(u32 g=0;g<value.glyph_count;++g){number(value.glyphs[g].index);print("/");real(value.glyphs[g].advance);print(" ");}print("\n");

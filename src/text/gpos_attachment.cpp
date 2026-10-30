@@ -6,7 +6,7 @@
 namespace maicord {namespace {
 using layout_read::WorkReport;using layout_read::r16;using layout_read::tail;
 bool span(const ConstSlice<u8>& b,u32 at,u64 count) noexcept {return at<=b.count && count<=b.count-at && (!count || b.data);}
-ConstSlice<u8> slice(const ConstSlice<u8>& b,u32 at) noexcept {return {b.data+at,b.count-at};}
+inline ConstSlice<u8> slice(const ConstSlice<u8>& b,u32 at) noexcept {return {b.data+at,b.count-at};}
 SfntStatus cover(ConstSlice<u8> parent,u16 at,u32 minimum,u32 limit,u32 count,SfntCoverage* out,u32* work) noexcept {
     ConstSlice<u8> bytes{};auto s=tail(parent,at,minimum,&bytes);if(s!=SfntStatus::ok)return s;if(!span(bytes,0,4))return SfntStatus::truncated;
     if(!spend(work,r16(bytes,2)))return SfntStatus::resource_limit;s=sfnt_coverage_open(bytes,limit,out);if(s!=SfntStatus::ok)return s;return out->covered_count==count?SfntStatus::ok:SfntStatus::malformed;
@@ -15,7 +15,7 @@ SfntStatus anchor(ConstSlice<u8> parent,u16 at,u32 minimum,bool nullable,u32* wo
     if(!spend(work))return SfntStatus::resource_limit;if(!at)return nullable?SfntStatus::ok:SfntStatus::malformed;
     ConstSlice<u8> bytes{};auto s=tail(parent,at,minimum,&bytes);if(s!=SfntStatus::ok)return s;SfntAnchor a{};u32 used=0;s=sfnt_anchor_open(bytes,&a,*work,&used);*work-=used;return s;
 }
-SfntAnchor anchor_view(ConstSlice<u8> parent,u32 field) noexcept {const u16 at=r16(parent,field);return at?SfntAnchor{slice(parent,at)}:SfntAnchor{};}
+inline SfntAnchor anchor_view(const ConstSlice<u8>& parent,u32 field) noexcept {const u16 at=r16(parent,field);return at?SfntAnchor{slice(parent,at)}:SfntAnchor{};}
 SfntStatus matrix(ConstSlice<u8> parent,u32 rows,u32 classes,u32* work) noexcept {
     const u64 count=static_cast<u64>(rows)*classes,end=2+2*count;if(!span(parent,0,end))return SfntStatus::truncated;
     return spend(work,static_cast<u32>(count))?SfntStatus::ok:SfntStatus::resource_limit;

@@ -413,24 +413,24 @@ bool ui_unread_banner_text_output(const UiUnreadBannerScene& scene, const Theme&
         if (!ui_text_output_push(output, {{scene.notice_title, scene.notice_title_bytes}, scene.text_owner,
                                           scene.notice_title_rect, clip, ui_theme_color_alpha(theme.text_primary, level),
                                           text_style_bold, UiTextAlignment::start, UiTextAlignment::center,
-                                          UiTextWrapping::no_wrap, UiTextOverflow::ellipsis}) ||
+                                          TextWrapping::no_wrap, TextOverflow::ellipsis}) ||
             (scene.notice_text_bytes &&
              !ui_text_output_push(output, {{scene.notice_text, scene.notice_text_bytes}, scene.text_owner,
                                            scene.notice_text_rect, clip, ui_theme_color_alpha(theme.text_secondary, level),
                                            text_style_subtext, UiTextAlignment::start, UiTextAlignment::start,
-                                           UiTextWrapping::wrap, UiTextOverflow::ellipsis})) ||
+                                           TextWrapping::wrap, TextOverflow::ellipsis})) ||
             (scene.notice_primary_bytes &&
              !ui_text_output_push(output, {{scene.notice_primary, scene.notice_primary_bytes}, scene.text_owner,
                                            scene.notice_primary_rect, clip, primary_text,
                                            text_style_subtext | text_style_bold, UiTextAlignment::center,
-                                           UiTextAlignment::center, UiTextWrapping::no_wrap,
-                                           UiTextOverflow::ellipsis})) ||
+                                           UiTextAlignment::center, TextWrapping::no_wrap,
+                                           TextOverflow::ellipsis})) ||
             (scene.notice_secondary_bytes &&
              !ui_text_output_push(output, {{scene.notice_secondary, scene.notice_secondary_bytes}, scene.text_owner,
                                            scene.notice_secondary_rect, clip, secondary_text,
                                            text_style_subtext | text_style_bold, UiTextAlignment::center,
-                                           UiTextAlignment::center, UiTextWrapping::no_wrap,
-                                           UiTextOverflow::ellipsis})))
+                                           UiTextAlignment::center, TextWrapping::no_wrap,
+                                           TextOverflow::ellipsis})))
             return false;
     }
     if (scene.banner_motion.value > 0 && scene.label_bytes) {
@@ -439,13 +439,13 @@ bool ui_unread_banner_text_output(const UiUnreadBannerScene& scene, const Theme&
         const auto action = scene.banner_action;
         if (!ui_text_output_push(output, {{scene.label, scene.label_bytes}, scene.text_owner, scene.banner_label,
                                           scene.viewport, text, text_style_subtext | text_style_bold,
-                                          UiTextAlignment::start, UiTextAlignment::center, UiTextWrapping::no_wrap,
-                                          UiTextOverflow::ellipsis}) ||
+                                          UiTextAlignment::start, UiTextAlignment::center, TextWrapping::no_wrap,
+                                          TextOverflow::ellipsis}) ||
             !ui_text_output_push(output, {kMarkRead, scene.text_owner,
                                           {action.left, action.top, action.right - 16 - st.icon, action.bottom},
                                           scene.viewport, text, text_style_subtext | text_style_bold,
-                                          UiTextAlignment::end, UiTextAlignment::center, UiTextWrapping::no_wrap,
-                                          UiTextOverflow::ellipsis}))
+                                          UiTextAlignment::end, UiTextAlignment::center, TextWrapping::no_wrap,
+                                          TextOverflow::ellipsis}))
             return false;
     }
     if (scene.pill_motion.value > 0) {
@@ -456,13 +456,13 @@ bool ui_unread_banner_text_output(const UiUnreadBannerScene& scene, const Theme&
                                             {r.left + 16, r.top, r.right - action - 8, r.bottom}, scene.viewport,
                                             ui_theme_color_alpha(theme.text_secondary, level), text_style_subtext,
                                             UiTextAlignment::start, UiTextAlignment::center,
-                                            UiTextWrapping::no_wrap, UiTextOverflow::ellipsis}) &&
+                                            TextWrapping::no_wrap, TextOverflow::ellipsis}) &&
                ui_text_output_push(output, {kJumpPresent, scene.text_owner,
                                             {r.right - action, r.top, r.right - 18 - st.icon, r.bottom},
                                             scene.viewport, ui_theme_color_alpha(theme.text_primary, level),
                                             text_style_subtext | text_style_bold, UiTextAlignment::end,
-                                            UiTextAlignment::center, UiTextWrapping::no_wrap,
-                                            UiTextOverflow::ellipsis});
+                                            UiTextAlignment::center, TextWrapping::no_wrap,
+                                            TextOverflow::ellipsis});
     }
     return true;
 }

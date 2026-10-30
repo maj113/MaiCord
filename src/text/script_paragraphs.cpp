@@ -15,7 +15,7 @@ SfntStatus native_script_paragraph_run(const NativeRunPlanStore& store,const voi
         const auto& p=*static_cast<Source*>(opaque);NativeAsciiLineResult line{};
         if(storage.clusters.count&&!storage.clusters.data)return SfntStatus::invalid_input;
         const auto status=p.run(p.store,p.plan,input,size,storage.run,&line.run,p.spacing,p.rtl);if(status!=SfntStatus::ok)return status;
-        const auto geometry=native_unicode_line_geometry(p.metrics,input,size,storage,&line,true);
+        const auto geometry=native_unicode_line_geometry(p.metrics,input,size,storage,&line,NativeLineText::paragraph);
         if(geometry==SfntStatus::ok)*result=line;return geometry;
     };
     return native_script_paragraph_shape(*metrics,text,em,s,boundaries,output,{&source,shape});
@@ -35,10 +35,10 @@ SfntStatus native_cluster_paragraph_shape(NativeClusterScript script,const Nativ
             const auto& call=*static_cast<const Call*>(opaque);
             return native_cluster_run(call.script,store,*call.plan,input,size,storage,result,{},rtl,spacing);});
 }
-SfntStatus native_devanagari_paragraph_shape(const NativeRunPlanStore& store,const NativeDevanagariPlan& plan,
+SfntStatus native_devanagari_paragraph_shape(const NativeRunPlanStore& store,const NativeIndicFormPlan& plan,
     Utf8View text,float em,const NativeAsciiParagraphStorage& s,NativeLatinBoundaryStorage boundaries,NativeParagraphShape* output,float trailing_spacing,bool rtl) noexcept {
-    return script_paragraph_shape(store,plan,plan.run,text,em,s,boundaries,output,trailing_spacing,rtl,
-        [](const NativeRunPlanStore& store,const NativeDevanagariPlan& plan,Utf8View input,float size,const NativeAsciiStorage& run,NativeAsciiResult* result,float spacing,bool rtl) noexcept {
+    return script_paragraph_shape(store,plan,plan.indic.run,text,em,s,boundaries,output,trailing_spacing,rtl,
+        [](const NativeRunPlanStore& store,const NativeIndicFormPlan& plan,Utf8View input,float size,const NativeAsciiStorage& run,NativeAsciiResult* result,float spacing,bool rtl) noexcept {
             const auto status=native_devanagari_run(store,plan,input,size,{run.shaping,run.glyphs,run.placements,run.character_glyphs},result,{},spacing,rtl);
             if(status!=SfntStatus::ok)return status;
             for(u32 i=0;i<result->glyph_count;++i)if(!run.glyphs[i])return SfntStatus::unsupported_sequence;

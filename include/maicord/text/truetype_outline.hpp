@@ -34,11 +34,10 @@ struct SfntOutlineScratch {
     bool require_instructions=false;
 };
 // COLR mode uses scaled implied points, isolated contours and a rounded 2/3
-// constant. Composite/large glyphs keep text semantics, matching the fallback
-// boundary of the simple color path.
-// colr_commands emits the same commands as colr, but leaves bounds empty. Use
-// only when the caller derives bounds from its transformed/flattened geometry.
-enum class SfntOutlineMode : u8 { text, colr, colr_commands };
+// constant, and leaves bounds empty: use only when the caller derives bounds
+// from its transformed/flattened geometry. Composite/large glyphs keep text
+// semantics, matching the fallback boundary of the simple color path.
+enum class SfntOutlineMode : u8 { text, colr };
 struct SfntOutlineVariation {
     const SfntGvarInstance* instance;
     SfntGvarScratch scratch;

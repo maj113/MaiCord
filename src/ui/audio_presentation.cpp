@@ -187,8 +187,8 @@ bool ui_audio_controls_text_output(const UiAudioControlsProjection& projection, 
         if (!ui_text_output_push_owned(output,
                                        {label, owner, control.bounds, visible, control.foreground,
                                         control.text_style, UiTextAlignment::start, UiTextAlignment::center,
-                                        compact_time_lines ? UiTextWrapping::wrap : UiTextWrapping::no_wrap,
-                                        UiTextOverflow::ellipsis}))
+                                        compact_time_lines ? TextWrapping::wrap : TextWrapping::no_wrap,
+                                        TextOverflow::ellipsis}))
             return false;
     }
     return true;

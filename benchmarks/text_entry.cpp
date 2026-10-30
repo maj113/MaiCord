@@ -187,8 +187,8 @@ bool benchmark_text_entry(Clock clock, void (*write)(const char*, u64, const cha
     checksum = 0;
     for (u32 i = 0; valid && i < 10000; ++i) {
         ui_text_command_stream_reset(&stream);
-        valid = text_edit_menu_build({false, false, (i & 1) != 0, true, true, true, true, false}, {items, 7}) &&
-            popup_scene_open(&menu, PopupKind::context_menu, 7, {items, 7}, {790, 590, 791, 591}, {0, 0, 800, 600}, 260).ok() &&
+        text_edit_menu_build({false, false, (i & 1) != 0, true, true, true, true, false}, {items, 7});
+        valid = popup_scene_open(&menu, PopupKind::context_menu, 7, {items, 7}, {790, 590, 791, 591}, {0, 0, 800, 600}, 260).ok() &&
             popup_text_presentation_build_output(menu, kDefaultTheme, &output) && stream.count == 14;
         checksum += popup_scene_selected_action(menu);
         popup_scene_close(&menu);

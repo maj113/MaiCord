@@ -790,8 +790,8 @@ bool ui_theme_editor_text_output(const UiThemeEditorScene& s, const Theme& theme
                      ? UiTextAlignment::start
                      : UiTextAlignment::center,
                  UiTextAlignment::center,
-                 UiTextWrapping::no_wrap,
-                 UiTextOverflow::ellipsis,
+                 TextWrapping::no_wrap,
+                 TextOverflow::ellipsis,
                  UiTextFace::normal,
                  {},
                  {}}))
@@ -812,8 +812,8 @@ bool ui_theme_editor_text_output(const UiThemeEditorScene& s, const Theme& theme
                                               0,
                                               UiTextAlignment::end,
                                               UiTextAlignment::center,
-                                              UiTextWrapping::no_wrap,
-                                              UiTextOverflow::clip,
+                                              TextWrapping::no_wrap,
+                                              TextOverflow::clip,
                                               UiTextFace::normal,
                                               {},
                                               {}}))

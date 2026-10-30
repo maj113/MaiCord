@@ -7,13 +7,21 @@ bool unicode(u16 platform,u16 encoding) noexcept {return (platform==0&&encoding<
 bool span(const ConstSlice<u8>& table,u32 storage,u32 offset,u32 length) noexcept {
     return storage<=table.count&&offset<=table.count-storage&&length<=table.count-storage-offset;
 }
-bool tag_is(ConstSlice<u8> tag,const char* text,u32 length) noexcept {
-    if(tag.count!=length*2)return false;
-    for(u32 i=0;i<length;++i){const u16 c=word(tag,i*2);if((c>='A'&&c<='Z'?c+32:c)!=static_cast<u8>(text[i]))return false;}
-    return true;
+// Rank of a version-1 language tag, ASCII case-insensitive: en-US, then other English.
+u32 tag_rank(ConstSlice<u8> tag) noexcept {
+    if(tag.count<4||(word(tag,0)|32)!='e'||(word(tag,2)|32)!='n'||(tag.count!=4&&(tag.count<6||word(tag,4)!='-')))return 3;
+    return tag.count==10&&(word(tag,6)|32)=='u'&&(word(tag,8)|32)=='s'?0:1;
 }
-bool english_tag(ConstSlice<u8> tag) noexcept {
-    return tag.count>=4&&(word(tag,0)|32)=='e'&&(word(tag,2)|32)=='n'&&(tag.count==4||(tag.count>=6&&word(tag,4)=='-'));
+// The index must be below names.records.
+SfntName record_at(const SfntNames& names,u32 index) noexcept {
+    const u32 at=6+index*12;const u16 language=word(names.table,at+4);
+    SfntName name{{names.table.data+names.storage+word(names.table,at+10),word(names.table,at+8)}, {},
+        word(names.table,at),word(names.table,at+2),language,word(names.table,at+6)};
+    if(names.version&&language>=0x8000&&static_cast<u32>(language-0x8000)<names.language_tags){
+        const u32 tag=6+static_cast<u32>(names.records)*12+2+static_cast<u32>(language-0x8000)*4;
+        name.language_tag={names.table.data+names.storage+word(names.table,tag+2),word(names.table,tag)};
+    }
+    return name;
 }
 }
 SfntStatus sfnt_names_open(ConstSlice<u8> table,SfntNames* output) noexcept {
@@ -35,14 +43,7 @@ SfntStatus sfnt_names_open(ConstSlice<u8> table,SfntNames* output) noexcept {
 SfntStatus sfnt_name_record(const SfntNames& names,u32 index,SfntName* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!names.table.data||index>=names.records)return SfntStatus::invalid_input;
-    const u32 at=6+index*12;const u16 language=word(names.table,at+4);
-    SfntName name{{names.table.data+names.storage+word(names.table,at+10),word(names.table,at+8)}, {},
-        word(names.table,at),word(names.table,at+2),language,word(names.table,at+6)};
-    if(names.version&&language>=0x8000&&static_cast<u32>(language-0x8000)<names.language_tags){
-        const u32 tag=6+static_cast<u32>(names.records)*12+2+static_cast<u32>(language-0x8000)*4;
-        name.language_tag={names.table.data+names.storage+word(names.table,tag+2),word(names.table,tag)};
-    }
-    *output=name;return SfntStatus::ok;
+    *output=record_at(names,index);return SfntStatus::ok;
 }
 SfntStatus sfnt_name_english(const SfntNames& names,u16 id,SfntName* output,bool* found) noexcept {
     if(output)reset_value(output);if(found)*found=false;if(!output||!found||!names.table.data)return SfntStatus::invalid_input;
@@ -51,11 +52,11 @@ SfntStatus sfnt_name_english(const SfntNames& names,u16 id,SfntName* output,bool
         // Opening already validated every record span. Unrelated IDs need no
         // descriptor or language-tag view, including absent requested names.
         if(word(names.table,6+i*12+6)!=id)continue;
-        SfntName name{};const auto status=sfnt_name_record(names,i,&name);if(status!=SfntStatus::ok)return status;
-        if(name.id!=id||!unicode(name.platform,name.encoding))continue;
+        const auto name=record_at(names,i);
+        if(!unicode(name.platform,name.encoding))continue;
         u32 language=3;
         if(name.language>=0x8000){if(!names.version||!name.language_tag.data)continue;
-            if(tag_is(name.language_tag,"en-us",5))language=0;else if(english_tag(name.language_tag))language=1;
+            language=tag_rank(name.language_tag);
         }else if(name.platform==3){if(name.language==0x409)language=0;else if((name.language&0x3ff)==9)language=1;}
         else if(!name.language)language=2;
         const u32 rank=language*2+(name.platform==3?0:1);

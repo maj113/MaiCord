@@ -18,15 +18,14 @@ bool native_request_recovery() noexcept {
     struct Release {DWriteTextSystem& s;~Release() noexcept {shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);text_system_release(&s);}} release{system};
     CHECK(native_font_session_create(&system.native_fonts)&&native_text_context_initialize(&system.native_text,system.native_fonts));system.em_size=16;
     Output* outputs[]{&native_output,&reference_output};for(auto* out:outputs){
-        CHECK(shaped_text_initialize(&out->text,{out->glyphs,1024},{out->runs,256},{out->clusters,256}));
-        CHECK(shaped_text_bind_decorations(&out->text,{out->decorations,256}));CHECK(shaped_text_bind_hit_regions(&out->text,{out->hits,4096}));
+        CHECK(shaped_text_initialize(&out->text,{out->glyphs,1024},{out->runs,256},{out->clusters,256},{out->decorations,256},{out->hits,4096}));
     }
     u32 scope=0;CHECK(native_text_register_font_path(system.native_text,files.file,&scope));
     const u16 missing[]{'N','o','-','M','a','i','C','o','r','d','-','F','a','m','i','l','y'},family[]{'C','o','m','p','a','g','n','o','n'};
     CHECK(native_text_format_create(system.native_text,{{missing,17},scope,{400,5,0},16,64,true},&system.native_format));
     auto alias=system;const u64 identity=native_text_format_identity(alias);
     const auto text=utf8_literal("AV office words that wrap across several lines");
-    CHECK(text_shape_utf8(&system,text,1000,1000,{utf16,256},&reference_output.text).ok());
+    CHECK(text_shape_utf8(&system,text,{},1000,1000,{utf16,256},&reference_output.text).ok());
     const auto old_run=reference_output.text.runs[0].native_face;auto* fonts=system.native_fonts;
     CHECK(MoveFileExW(files.live,files.retired,0)&&CreateDirectoryW(files.live,nullptr)&&CopyFileW(L"assets/fonts/Compagnon.otf",files.file,TRUE));
     CHECK(native_text_format_create(system.native_text,{{family,9},scope,{600,5,0},16,64,true},&system.native_format));
@@ -36,7 +35,7 @@ bool native_request_recovery() noexcept {
         u64 samples[7][2]{};
         for(u32 i=0;i<7;++i){LARGE_INTEGER first{},last{};ULONG64 before=0,after=0;
             CHECK(QueryThreadCycleTime(GetCurrentThread(),&before)&&QueryPerformanceCounter(&first));
-            const auto result=text_shape_utf8_styled(&system,text,mode==1?ConstSlice<TextStyleSpan>{&style,1}:ConstSlice<TextStyleSpan>{},60,20,{utf16,256},&native_output.text,TextWrapping::wrap,mode==2?TextOverflow::clip:TextOverflow::ellipsis);
+            const auto result=text_shape_utf8(&system,text,mode==1?ConstSlice<TextStyleSpan>{&style,1}:ConstSlice<TextStyleSpan>{},60,20,{utf16,256},&native_output.text,TextWrapping::wrap,mode==2?TextOverflow::clip:TextOverflow::ellipsis);
             CHECK(QueryPerformanceCounter(&last)&&QueryThreadCycleTime(GetCurrentThread(),&after));
             CHECK(!result.ok()&&result.error==TextShapeError::unsupported&&!native_output.text.native_fonts()&&!native_output.text.run_count);
             CHECK(native_text_format_identity(alias)==identity&&native_font_run_get(*native_font_session_runs(fonts),old_run));
@@ -47,7 +46,7 @@ bool native_request_recovery() noexcept {
     }
     request_recovery_marker(4);
     CHECK(native_text_format_create(system.native_text,{{family,9},scope,{400,5,0},16,64,true},&system.native_format));
-    CHECK(text_shape_utf8(&system,text,60,20,{utf16,256},&native_output.text,TextWrapping::wrap,TextOverflow::ellipsis).ok());
+    CHECK(text_shape_utf8(&system,text,{},60,20,{utf16,256},&native_output.text,TextWrapping::wrap,TextOverflow::ellipsis).ok());
     CHECK(native_text_format_identity(alias)!=identity&&system.native_fonts==fonts&&native_font_run_get(*native_font_session_runs(fonts),old_run)&&native_output.text.run_count);
     request_recovery_marker(5);
     print("PASS public request recovery: plain/styled ellipsis, clip, repeated rejection, later commit, retained old run\n");return true;

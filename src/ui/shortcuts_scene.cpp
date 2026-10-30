@@ -114,11 +114,11 @@ UiRect absolute(const UiShortcutsScene& s, u32 index) noexcept {
 }
 bool emit(UiTextOutput* out, const UiShortcutsScene& s, UiWidgetHandle owner, Utf8View value, UiRect r, UiRect clip,
           Color color, u32 flags = 0, UiTextAlignment alignment = UiTextAlignment::start,
-          UiTextWrapping wrapping = UiTextWrapping::no_wrap) noexcept {
+          TextWrapping wrapping = TextWrapping::no_wrap) noexcept {
     if (!value.bytes || !ui_rect_has_area(r))
         return true;
     return ui_text_output_push(out, {value, {&s.widgets, owner}, r, clip, color, flags, alignment,
-                                     UiTextAlignment::center, wrapping, UiTextOverflow::ellipsis,
+                                     UiTextAlignment::center, wrapping, TextOverflow::ellipsis,
                                      UiTextFace::normal});
 }
 // Key caps right-aligned in a row: chord 0, a separator, chord 1.
@@ -336,7 +336,7 @@ bool ui_shortcuts_scene_text_output(const UiShortcutsScene& s, const Theme& t, U
         const bool tall = ui_rect_height(r) > kRowHeight + .5f;
         if (!emit(out, s, s.root, row.label, {r.left, r.top + (tall ? 4.f : 0.f), label_right, r.bottom - (tall ? 4.f : 0.f)},
                   s.body, t.text_primary, 0, UiTextAlignment::start,
-                  tall ? UiTextWrapping::wrap : UiTextWrapping::no_wrap) ||
+                  tall ? TextWrapping::wrap : TextWrapping::no_wrap) ||
             !each_cap(row, r, [&](Utf8View key, UiRect cap) noexcept {
                 return key.bytes ? emit(out, s, s.root, key, {cap.left, cap.top, cap.right, cap.bottom - 2}, s.body,
                                         t.text_primary, text_style_bold | text_style_subtext, UiTextAlignment::center)

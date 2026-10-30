@@ -1247,7 +1247,7 @@ bool ui_call_scene_text_output(const UiCallScene& s, const Theme& theme, UiTextO
                 ok = ui_text_output_push_owned(text, {initials, s.owner, a, ui_rect_intersection(clip, a),
                                                       theme.tokens.text.on_accent, size | text_style_bold,
                                                       UiTextAlignment::center, UiTextAlignment::center,
-                                                      UiTextWrapping::no_wrap, UiTextOverflow::clip});
+                                                      TextWrapping::no_wrap, TextOverflow::clip});
         }
         const auto live = live_badge(tile, *p);
         if (ok && ui_rect_has_area(live))

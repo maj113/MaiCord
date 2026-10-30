@@ -4,7 +4,7 @@ bool thai_project_native_clusters(ConstSlice<u32> scalars,Slice<u8> boundaries) 
     CHECK(units<=256);if(!owner.native_format)CHECK(native_text_format_capture(&owner));
     auto detached=owner;detached.factory=nullptr;detached.format=nullptr;
     shaped_text_reset(&native_output.text);
-    const auto result=text_shape_utf8(&detached,{bytes,count},1000000,1000000,{utf16,256},&native_output.text);
+    const auto result=text_shape_utf8(&detached,{bytes,count},{},1000000,1000000,{utf16,256},&native_output.text);
     if(!result.ok()){
         print("thai_native_shape error=");number(static_cast<u32>(result.error));
         print(" native_error=");number(static_cast<u32>(result.native_error));print(" units=");number(result.utf16_units);print("\n");

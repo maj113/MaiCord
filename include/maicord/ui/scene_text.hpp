@@ -23,7 +23,7 @@ __declspec(noinline) inline bool ui_scene_text(UiTextOutput* out, const UiWidget
            ui_text_output_push(out, {value, {&widgets, owner}, rectangle, clip, color, flags,
                                      static_cast<UiTextAlignment>(mode >> 2),
                                      wrap ? UiTextAlignment::start : UiTextAlignment::center,
-                                     wrap ? UiTextWrapping::wrap : UiTextWrapping::no_wrap, UiTextOverflow::ellipsis,
+                                     wrap ? TextWrapping::wrap : TextWrapping::no_wrap, TextOverflow::ellipsis,
                                      UiTextFace::normal});
 }
 
@@ -37,8 +37,8 @@ __declspec(noinline) inline bool ui_scene_label(UiTextOutput* out, const UiWidge
         return true;
     return ui_text_output_push(out, {value, {&widgets, owner}, rectangle, clip, color, flags,
                                      static_cast<UiTextAlignment>(mode >> 2), UiTextAlignment::center,
-                                     mode & ui_text_wrap ? UiTextWrapping::wrap : UiTextWrapping::no_wrap,
-                                     UiTextOverflow::ellipsis, UiTextFace::normal});
+                                     mode & ui_text_wrap ? TextWrapping::wrap : TextWrapping::no_wrap,
+                                     TextOverflow::ellipsis, UiTextFace::normal});
 }
 
 } // namespace maicord

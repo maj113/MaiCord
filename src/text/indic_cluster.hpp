@@ -33,7 +33,21 @@ SfntStatus indic_utf8_run(SfntIndicProfile,const SfntShapePlan&,const SfntCmap&,
 // circle. Views are borrowed and disjoint. Errors precede any array write and
 // zero the result. Work reserves 64 units per scalar.
 SfntStatus indic_initial_order(SfntIndicProfile,ConstSlice<u32>,ConstSlice<u8>,Slice<u32>,Slice<u8>,SfntDevanagariOrderResult*,u64,bool inserted_circle=false) noexcept;
+// Single-cluster execution (Devanagari and the form-driven profiles). Input is
+// nominally mapped with ascending cluster-local source indices; form bits align
+// with original scalars and all views belong to one font. Scalars/forms must not
+// change during initial stage preparation or alias mutable shape storage.
+// Permutation and masks reuse character-map/flags (targets for non-Devanagari);
+// mapped input with masks reuses substitution replacement scratch until copied.
+// No allocation. Failed attempts set no output lengths. Orphan marks get a
+// virtual circle with the same original source position; caller storage must fit
+// that extra glyph/component. followed_by_text gives a singleton ZWJ its
+// next-cluster context: Windows adds the circle only at the end of the analyzed
+// text. rtl selects directional positioning; input stays in logical order.
+// Nonnegative trailing_spacing follows reading order and is applied after
+// positioning, while component provenance is live: marks can accept spacing,
+// surviving controls cannot.
 SfntStatus indic_shape_cluster(SfntIndicProfile,const SfntShapePlan&,const SfntCmap&,ConstSlice<SfntClusterGlyph>,
     ConstSlice<u32>,ConstSlice<u8>,u32,float,const SfntShapeStorage&,SfntShapeRunResult*,ConstSlice<SfntLookupStep>,
-    const SfntShapeLimits&,bool,float,bool,bool,bool=false) noexcept;
+    const SfntShapeLimits& limits={},bool followed_by_text=false,float trailing_spacing=0,bool rtl=false,bool word_initial=false,bool defer_output=false) noexcept;
 }

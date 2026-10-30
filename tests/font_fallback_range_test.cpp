@@ -22,23 +22,17 @@ bool routing_guards() noexcept {
         {"a\xcd\x8f\xef\xb8\x8f\xef\xb8\x8f" "x",9,4,0,1},
         {"a\xf3\xa0\x84\x80" "x",5,3,0,0},{"?\xef\xb8\x8f\xef\xb8\x8f" "a",1,1,native_fallback_missing,0},
         {"\xef\xb8\x8f\xe1\xa0\x8b",6,2,0,0} };
-    NativeFallbackRangeResult result{};u32 used=0;
+    NativeFallbackRangeResult result{};
     for(const auto& c:cases){const u32 n=c_string_length(c.text);RoutingMock mock{};
-        CHECK(native_font_fallback_routed_range({c.text,n},route_index,font_index,routed_coverage,&mock,&result,100,&used)==SfntStatus::ok);
+        CHECK(native_font_fallback_routed_range({c.text,n},route_index,font_index,routed_coverage,&mock,&result)==SfntStatus::ok);
         CHECK(result.bytes==c.bytes&&result.units==c.units&&result.choice.font==c.font&&!result.choice.policy&&mock.font.probes==c.probes);
-        const u32 required=used;for(u32 budget=0;budget<required;++budget){mock={};CHECK(native_font_fallback_routed_range({c.text,n},route_index,font_index,routed_coverage,&mock,&result,budget,&used)==SfntStatus::resource_limit&&empty(result)&&used==budget);}
     }
-    RoutingMock mock{};CHECK(native_font_fallback_routed_range({},route_index,font_index,routed_coverage,&mock,&result,0,&used)==SfntStatus::ok&&empty(result)&&!used&&!mock.routes&&!mock.font.selects);
-    CHECK(native_font_fallback_routed_range({nullptr,1},route_index,font_index,routed_coverage,&mock,&result)==SfntStatus::invalid_input&&empty(result));
-    CHECK(native_font_fallback_routed_range({"a",1},nullptr,font_index,routed_coverage,&mock,&result)==SfntStatus::invalid_input&&empty(result));
-    CHECK(native_font_fallback_routed_range({"a",1},route_index,nullptr,routed_coverage,&mock,&result)==SfntStatus::invalid_input&&empty(result));
-    CHECK(native_font_fallback_routed_range({"a",1},route_index,font_index,nullptr,&mock,&result)==SfntStatus::invalid_input&&empty(result));
-    CHECK(native_font_fallback_routed_range({"a",1},route_index,font_index,routed_coverage,&mock,nullptr)==SfntStatus::invalid_input);
-    mock.fail_route=true;CHECK(native_font_fallback_routed_range({"a",1},route_index,font_index,routed_coverage,&mock,&result)==SfntStatus::truncated&&empty(result));
-    mock={};mock.font.fail=1;CHECK(native_font_fallback_routed_range({"a",1},route_index,font_index,routed_coverage,&mock,&result)==SfntStatus::malformed&&empty(result));
-    mock={};mock.font.fail=2;CHECK(native_font_fallback_routed_range({"a\xcd\x8f",3},route_index,font_index,routed_coverage,&mock,&result)==SfntStatus::truncated&&empty(result));
+    RoutingMock mock{};CHECK(native_font_fallback_routed_range({},route_index,font_index,routed_coverage,&mock,&result)==SfntStatus::ok&&empty(result)&&!mock.routes&&!mock.font.selects);
+    mock.fail_route=true;CHECK(native_font_fallback_routed_range({"a",1},route_index,font_index,routed_coverage,&mock,&result)==SfntStatus::truncated);
+    mock={};mock.font.fail=1;CHECK(native_font_fallback_routed_range({"a",1},route_index,font_index,routed_coverage,&mock,&result)==SfntStatus::malformed);
+    mock={};mock.font.fail=2;CHECK(native_font_fallback_routed_range({"a\xcd\x8f",3},route_index,font_index,routed_coverage,&mock,&result)==SfntStatus::truncated);
     mock={};mock.font.cover=false;CHECK(native_font_fallback_routed_range({"b\xcd\x8f",3},route_index,font_index,routed_coverage,&mock,&result)==SfntStatus::ok&&result.bytes==1&&mock.font.probes==1);
-    const char invalid[]{'a',static_cast<char>(0xc0),static_cast<char>(0xaf)};mock={};CHECK(native_font_fallback_routed_range({invalid,3},route_index,font_index,routed_coverage,&mock,&result)==SfntStatus::invalid_input&&empty(result));return true;
+    const char invalid[]{'a',static_cast<char>(0xc0),static_cast<char>(0xaf)};mock={};CHECK(native_font_fallback_routed_range({invalid,3},route_index,font_index,routed_coverage,&mock,&result)==SfntStatus::invalid_input);return true;
 }
 #include "font_fallback_map_cases.inc"
 bool guards() noexcept {
@@ -50,21 +44,16 @@ bool guards() noexcept {
         {"b\xef\xb8\x8f" "a",4,2,1,2,0},{"?\xef\xb8\x8f" "a",1,1,native_fallback_missing,2,0},
         {"b\xe2\x80\x8d\xcc\x81" "a",6,3,1,2,2},{"aaaa",4,4,0,4,0},
         {"b\xf0\x93\x90\xb0" "a",1,1,1,2,0},{"\xf0\x93\x90\xb0" "b",5,3,0,1,1} };
-    NativeFallbackRangeResult result{};u32 used=0;
+    NativeFallbackRangeResult result{};
     for(const auto& c:cases){const u32 n=c_string_length(c.text);Mock mock{};
-        CHECK(native_font_fallback_range({c.text,n},select,coverage,&mock,&result,100,&used)==SfntStatus::ok);
+        CHECK(native_font_fallback_range({c.text,n},select,coverage,&mock,&result)==SfntStatus::ok);
         CHECK(result.bytes==c.bytes&&result.units==c.units&&result.choice.font==c.font&&!result.choice.policy&&mock.selects==c.selects&&mock.probes==c.probes);
-        const u32 required=used;for(u32 budget=0;budget<required;++budget){mock={};CHECK(native_font_fallback_range({c.text,n},select,coverage,&mock,&result,budget,&used)==SfntStatus::resource_limit&&empty(result)&&used==budget);}
     }
-    Mock mock{};CHECK(native_font_fallback_range({},select,coverage,&mock,&result,0,&used)==SfntStatus::ok&&empty(result)&&!used&&!mock.selects);
-    CHECK(native_font_fallback_range({nullptr,1},select,coverage,&mock,&result)==SfntStatus::invalid_input&&empty(result));
-    CHECK(native_font_fallback_range({"a",1},nullptr,coverage,&mock,&result)==SfntStatus::invalid_input&&empty(result));
-    CHECK(native_font_fallback_range({"a",1},select,nullptr,&mock,&result)==SfntStatus::invalid_input&&empty(result));
-    CHECK(native_font_fallback_range({"a",1},select,coverage,&mock,nullptr)==SfntStatus::invalid_input);
-    mock.fail=1;CHECK(native_font_fallback_range({"a",1},select,coverage,&mock,&result)==SfntStatus::malformed&&empty(result));
-    mock.fail=2;CHECK(native_font_fallback_range({"b\xcc\x81",3},select,coverage,&mock,&result)==SfntStatus::truncated&&empty(result));
+    Mock mock{};CHECK(native_font_fallback_range({},select,coverage,&mock,&result)==SfntStatus::ok&&empty(result)&&!mock.selects);
+    mock.fail=1;CHECK(native_font_fallback_range({"a",1},select,coverage,&mock,&result)==SfntStatus::malformed);
+    mock.fail=2;CHECK(native_font_fallback_range({"b\xcc\x81",3},select,coverage,&mock,&result)==SfntStatus::truncated);
     mock={0,0,0,false};CHECK(native_font_fallback_range({"b\xcc\x81",3},select,coverage,&mock,&result)==SfntStatus::ok&&result.bytes==1&&result.choice.font==1&&mock.probes==1);
-    const char invalid[]{'a',static_cast<char>(0xc0),static_cast<char>(0xaf)};mock={};CHECK(native_font_fallback_range({invalid,3},select,coverage,&mock,&result)==SfntStatus::invalid_input&&empty(result));
+    const char invalid[]{'a',static_cast<char>(0xc0),static_cast<char>(0xaf)};mock={};CHECK(native_font_fallback_range({invalid,3},select,coverage,&mock,&result)==SfntStatus::invalid_input);
     const u32 invalid_scalars[]{0xd800,0xdfff,0x110000,0xffffffffu};for(u32 cp:invalid_scalars)CHECK(native_font_fallback_class(cp)==native_fallback_invalid);
     Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));CHECK(memory);
     struct Cleanup {u8* p;~Cleanup() noexcept{VirtualFree(p,0,MEM_RELEASE);}} cleanup{memory};DWORD old=0;

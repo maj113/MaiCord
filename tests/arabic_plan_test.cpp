@@ -164,7 +164,7 @@ bool corpus(ConstSlice<u8> corpus_bytes,bool force_arabic=false) noexcept {
         }
         (void)generic;
         u32 scalars[128],starts[128],start_count=0;SfntClusterGlyph input[128];UnicodeGraphemeState graphemes{};bool arabic=force_arabic;
-        for(u32 i=0;i<n;++i){scalars[i]=byte_load_le32(scalar_bytes.data+i*4);u16 glyph=0;if(sfnt_cmap_glyph(cmap,scalars[i],0,&glyph)!=SfntStatus::ok)return fail(c,8);input[i]={{glyph,sfnt_gdef_glyph_class(gdef,glyph),0},i};bool boundary=false;if(!unicode_grapheme_next(&graphemes,scalars[i],&boundary))return fail(c,8);if(boundary)starts[start_count++]=i;}
+        for(u32 i=0;i<n;++i){scalars[i]=byte_load_le32(scalar_bytes.data+i*4);u16 glyph=0;if(sfnt_cmap_glyph(cmap,scalars[i],0,&glyph)!=SfntStatus::ok)return fail(c,8);input[i]={{glyph,sfnt_gdef_glyph_class(gdef,glyph),0},i};if(unicode_grapheme_boundary(graphemes,scalars[i]))starts[start_count++]=i;}
         // This corpus consists of homogeneous Arabic runs or isolated Common/
         // Inherited marks. Resolve that distinction from native Unicode data,
         // never from a reference script ID or expected output.

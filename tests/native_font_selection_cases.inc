@@ -8,14 +8,14 @@ bool native_font_selection_cases() noexcept {
     const auto base=query(L"Segoe UI");NativeTextFontRange range{};NativeFontSelection source{};
     CHECK(!catalogs.files&&!catalogs.storage.committed);
     CHECK(native_text_catalog_range(&catalogs,base,session,&scratch,utf8_literal("ABC"),&range)&&range.bytes==3);
-    CHECK(catalogs.files&&!catalogs.files->next&&catalogs.files->catalog.count.files==1);
-    const auto selected=range.match.candidate;auto* first=catalogs.files;const auto saved=first->catalog.candidates[selected];
+    CHECK(catalogs.files&&!catalogs.files->next&&catalogs.files->catalog.count);
+    const auto selected=range.match.candidate;auto* first=catalogs.files;const auto saved=first->catalog.properties[selected];
     CHECK(native_text_catalog_select_face(&catalogs,0,selected,0,session,&scratch,&instance,&source));
     const auto* held=native_font_instance_get(*native_font_session_instances(session),instance);CHECK(held);
     const auto* face=native_font_get(*native_font_session_fonts(session),held->face);CHECK(face);u16 glyph=0;
     CHECK(sfnt_cmap_glyph(face->cmap,'A',0,&glyph)==SfntStatus::ok&&glyph);
-    const auto path=native_font_catalog_path(first->catalog,0);u32 scope=0;
-    CHECK(native_text_catalog_register_path(&catalogs,reinterpret_cast<const wchar_t*>(path.data),&scope)&&scope);
+    u32 scope=0;
+    CHECK(native_text_catalog_register_path(&catalogs,first->catalog.path,&scope)&&scope);
     auto private_query=base;private_query.scope=scope;
     CHECK(native_text_catalog_range(&catalogs,private_query,session,&scratch,utf8_literal("ABC"),&range)&&range.scope==scope);
     const Utf8View samples[]{utf8_literal("日本語"),utf8_literal("한국어"),utf8_literal("नमस्ते"),utf8_literal("ภาษาไทย"),utf8_literal("אב")};
@@ -26,7 +26,7 @@ bool native_font_selection_cases() noexcept {
             if(!pass)candidates[i]=range.match.candidate;else CHECK(range.match.candidate==candidates[i]);
         }if(!pass){builds=catalogs.builds;offset=catalogs.storage.offset;}else CHECK(catalogs.builds==builds&&catalogs.storage.offset==offset);
     }
-    CHECK(bytes_equal(&saved,&first->catalog.candidates[selected],sizeof(saved)));
+    CHECK(bytes_equal(&saved,&first->catalog.properties[selected],sizeof(saved)));
     CHECK(native_text_catalog_range(&catalogs,private_query,session,&scratch,utf8_literal("ABC"),&range)&&range.scope==scope);
     auto variable=query(L"Bahnschrift");
     for(u32 weight=400;weight<=600;weight+=200){variable.properties.weight=static_cast<u16>(weight);NativeFontInstanceHandle value{};u32 simulations=99;

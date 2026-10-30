@@ -71,8 +71,8 @@ bool ui_badge_text_output(const UiBadgeWidget& b, const UiWidgetManager& manager
                                       b.style,
                                       UiTextAlignment::start,
                                       UiTextAlignment::center,
-                                      UiTextWrapping::no_wrap,
-                                      UiTextOverflow::ellipsis});
+                                      TextWrapping::no_wrap,
+                                      TextOverflow::ellipsis});
 }
 bool ui_badge_text(const UiBadgeWidget& b, const UiWidgetManager& manager, const Theme& theme,
                    UiTextCommandStream* text) noexcept {

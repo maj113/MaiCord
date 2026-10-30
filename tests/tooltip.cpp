@@ -169,8 +169,8 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
               ui_rect_equal(commands[0].rectangle, square) &&
               commands[0].horizontal_alignment == UiTextAlignment::center &&
               commands[0].vertical_alignment == UiTextAlignment::center &&
-              commands[0].wrapping == UiTextWrapping::no_wrap &&
-              commands[0].overflow == UiTextOverflow::clip &&
+              commands[0].wrapping == TextWrapping::no_wrap &&
+              commands[0].overflow == TextOverflow::clip &&
               square.top + square.bottom == scene.rectangle.top + scene.rectangle.bottom &&
               commands[1].horizontal_alignment == UiTextAlignment::start &&
               commands[1].rectangle.left == square.right + 12 && commands[1].styles.count == 2 &&

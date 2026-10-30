@@ -4,9 +4,6 @@
 #if defined(MAICORD_FONT_FAMILY)
 #include "maicord/text/font_family.hpp"
 #endif
-#if defined(MAICORD_FONT_FAMILY)
-#include "font_family_reference.inc"
-#endif
 namespace maicord {namespace {
 #if defined(MAICORD_FONT_FAMILY)
 #include "generated/font_family_fixture.inc"
@@ -129,19 +126,10 @@ bool family_word_boundaries() noexcept {
         for(u32 i=0;i<2;++i){auto* record=data+name+6+i*12;w16(record,3);w16(record+2,1);w16(record+4,0x409);w16(record+6,static_cast<u16>(i+1));w16(record+8,static_cast<u16>((i?7:length)*2));w16(record+10,static_cast<u16>(i?length*2:0));}
         for(u32 i=0;i<length;++i)w16(data+name+30+i*2,static_cast<u16>(i<prefix?'X':item.suffix[i-prefix]));
         constexpr char regular[]="Regular";for(u32 i=0;i<7;++i)w16(data+name+30+(length+i)*2,regular[i]);
-        SfntFace face{};CHECK(sfnt_open({data,bytes},0,&face)==SfntStatus::ok);u16 output[96]{};NativeFontFamily family{};u32 spent=0;
-        CHECK(native_font_family(face,{output,96},&family,1000000,&spent)==SfntStatus::ok&&spent>0);
+        SfntFace face{};CHECK(sfnt_open({data,bytes},0,&face)==SfntStatus::ok);u16 output[96]{};NativeFontFamily family{};
+        CHECK(native_font_family(face,{output,96},&family)==SfntStatus::ok);
         CHECK(family.units==prefix+retained&&bytes_equal(&family.properties,&item.properties,4));
         for(u32 i=0;i<family.units;++i)CHECK(output[i]==static_cast<u16>(i<prefix?'X':item.retained[i-prefix]));
-        const u32 expected_work=spent;
-        for(u32 budget=0;budget<=expected_work+1;++budget){
-            u16 actual[96]{},expected[96]{};NativeFontFamily a{},b{};u32 aw=0,bw=0;
-            const auto as=native_font_family(face,{actual,96},&a,budget,&aw);
-            const auto bs=family_reference::reference_font_family(face,{expected,96},&b,budget,&bw);
-            CHECK(as==bs&&aw==bw&&a.units==b.units&&bytes_equal(&a.properties,&b.properties,4)&&bytes_equal(actual,expected,sizeof(actual)));
-        }
-        CHECK(native_font_family(face,{output,96},&family,expected_work-1,&spent)==SfntStatus::resource_limit&&!family.units&&spent<=expected_work-1);
-        CHECK(native_font_family(face,{output,96},&family,expected_work+1,&spent)==SfntStatus::ok&&family.units==prefix+retained&&spent==expected_work&&bytes_equal(&family.properties,&item.properties,4));
     }return true;
 }
 bool family_fixture() noexcept {
@@ -157,7 +145,7 @@ bool family_fixture() noexcept {
         CHECK(family.units==units&&bytes_equal(name,expected_name,units*2)&&bytes_equal(&family.properties,&expected,4));
         NativeFontCandidate candidate{};CHECK(native_font_candidate(candidates,0,&candidate)==SfntStatus::ok&&bytes_equal(&candidate.properties,&expected,4));
         CHECK(native_font_family(face,{},&family)==SfntStatus::output_too_small&&!family.units);
-        CHECK(native_font_family(face,{name,2048},&family,0)==SfntStatus::resource_limit&&!family.units);
+        CHECK(native_font_family(face,{name,units?units-1:0},&family)==SfntStatus::output_too_small&&!family.units);
         CHECK(native_font_family_candidates(face,{guarded,256},&family,&candidates)==SfntStatus::ok&&family.units==units&&bytes_equal(guarded,expected_name,units*2));
     }CHECK(reader.at==reader.size);return true;
 }
@@ -177,7 +165,7 @@ bool family_audit(const wchar_t* path) noexcept {
     }
     for(u32 q=0;q<queries;++q){NativeFontProperties request{},expected_properties{};u32 expected_file=0,simulations=0,axes=0;
         CHECK(reader.take(&request,4)&&reader.word(&expected_file)&&reader.take(&expected_properties,4)&&reader.word(&simulations)&&reader.word(&axes));
-        NativeFontMatch match{};CHECK(native_font_match({candidates,count},request,&match)==SfntStatus::ok);
+        const auto match=native_font_match({candidates,count},request);
         if(candidate_files[match.index]!=expected_file||match.simulations!=simulations||!bytes_equal(&match.properties,&expected_properties,4)){print("query=");number(q);print(" actual_file=");number(candidate_files[match.index]);print(" expected_file=");number(expected_file);print("\n");}
         CHECK(candidate_files[match.index]==expected_file&&match.simulations==simulations&&bytes_equal(&match.properties,&expected_properties,4));
         FontAxisSetting settings[2];u32 settings_count=0;CHECK(native_font_candidate_settings(sources[candidate_files[match.index]],candidate_indices[match.index],{settings,2},&settings_count)==SfntStatus::ok&&settings_count==axes);

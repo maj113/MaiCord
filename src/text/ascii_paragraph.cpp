@@ -1,4 +1,4 @@
-#include "maicord/text/ascii_paragraph.hpp"
+#include "unicode_line_geometry.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/text/detail/paragraph_layout.hpp"
 #include "maicord/text/unicode.hpp"
@@ -6,15 +6,14 @@
 namespace maicord {namespace {
 using B=UnicodeLineBreak;
 B kind(char c) noexcept {return unicode_properties(static_cast<u8>(c))->line_break();}
-bool opportunity(Utf8View text,u32 at) noexcept {
-    if(!at)return false;if(at==text.bytes)return true;
-    const auto a=kind(text.data[at-1]),b=kind(text.data[at]);
+// LB rules for ASCII between a and b; visible is the class of the last
+// non-space character before them (xx when none).
+constexpr bool allowed(B a,B b,B visible) noexcept {
     if(a==B::cr&&b==B::lf)return false;if(a==B::cr||a==B::lf)return true;
     if(b==B::sp||b==B::cr||b==B::lf)return false;
     if(b==B::cl||b==B::cp||b==B::ex||b==B::is||b==B::sy)return false;
-    u32 previous=at;while(previous&&text.data[previous-1]==' ')--previous;
-    if(previous&&kind(text.data[previous-1])==B::op)return false;
-    if(previous&&kind(text.data[previous-1])==B::qu&&b==B::op)return false;
+    if(visible==B::op)return false;
+    if(visible==B::qu&&b==B::op)return false;
     if(a==B::sp)return true;
     if(a==B::qu||b==B::qu||b==B::hy||b==B::ba)return false;
     if((a==B::al&&b==B::nu)||(a==B::nu&&b==B::al))return false;
@@ -25,12 +24,32 @@ bool opportunity(Utf8View text,u32 at) noexcept {
     if((a==B::al&&b==B::al)||(a==B::is&&b==B::al)||((a==B::al||a==B::nu)&&b==B::op)||(a==B::cp&&(b==B::al||b==B::nu)))return false;
     return true;
 }
+// The classes of printable ASCII, TAB, CR and LF, and the rules above over all
+// their pairs: one row of break bits per class a before the pair, indexed by b.
+constexpr B classes[16]={B::al,B::nu,B::sp,B::op,B::cp,B::cl,B::ex,B::is,B::sy,B::qu,B::hy,B::ba,B::pr,B::po,B::cr,B::lf};
+constexpr u32 space_id=2,no_visible=16;
+struct Rules {u16 after[16],after_space[17];u8 id[static_cast<u32>(B::zwj)+1];};
+constexpr Rules make_rules() noexcept {
+    Rules r{};
+    for(u32 a=0;a<16;++a)for(u32 b=0;b<16;++b)r.after[a]|=static_cast<u16>(allowed(classes[a],classes[b],classes[a])<<b);
+    for(u32 v=0;v<17;++v)for(u32 b=0;b<16;++b)r.after_space[v]|=static_cast<u16>(allowed(B::sp,classes[b],v<16?classes[v]:B::xx)<<b);
+    for(u32 c=0;c<16;++c)r.id[static_cast<u32>(classes[c])]=static_cast<u8>(c);
+    return r;
+}
+constexpr Rules rules=make_rules();
 float tab(float pen,float stop) noexcept {
     const float q=pen/stop;if(!(q>=0)||q>1000000)return -1;
     return static_cast<float>(static_cast<u32>(q)+1)*stop;
 }
 }
-bool native_ascii_break_after(Utf8View text,u32 at) noexcept {return (!text.bytes||text.data)&&at<=text.bytes&&opportunity(text,at);}
+void native_ascii_paragraph_flags(Utf8View text,Slice<NativeParagraphCluster> clusters) noexcept {
+    u32 next=0,previous=0,visible=no_visible;
+    for(u32 at=0;at<text.bytes&&next<clusters.count;++at){const u32 b=rules.id[static_cast<u32>(kind(text.data[at]))];
+        if(clusters[next].source_first==at){auto& c=clusters[next++];
+            const u32 row=previous==space_id?rules.after_space[visible]:rules.after[previous];
+            c.flags|=(b==space_id?native_paragraph_space:0)|(at&&(row>>b&1)?native_paragraph_break_before:0);}
+        previous=b;if(b!=space_id)visible=b;}
+}
 SfntStatus native_line_trim_cut(ConstSlice<NativeParagraphCluster> clusters,float width,float extent,
     float box,float sign_width,bool force,ConstSlice<float> tabs,NativeLineTrimCut* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);
@@ -68,28 +87,23 @@ SfntStatus native_ascii_paragraph_shape(const NativeRunPlanStore& store,NativeRu
     const NativeAsciiParagraphStorage& s,NativeParagraphShape* output,float trailing_spacing) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(input.bytes>65535)return SfntStatus::resource_limit;
-    if((input.bytes&&!input.data)||input.bytes>s.source_glyphs.count||(input.bytes&&!s.source_glyphs.data))return SfntStatus::invalid_input;
+    if((input.bytes&&!input.data)||(s.source_glyphs.count&&!s.source_glyphs.data)||(s.clusters.count&&!s.clusters.data)||
+       (s.glyphs.count&&!s.glyphs.data)||(s.placements.count&&!s.placements.data))return SfntStatus::invalid_input;
     for(u32 i=0;i<input.bytes;++i){const u8 c=static_cast<u8>(input.data[i]);if((c<32&&c!=9&&c!=10&&c!=13)||c>126)return SfntStatus::unsupported_sequence;}
-    NativeParagraphShape shaped{};shaped.source_units=input.bytes;const auto* metrics=native_run_plan_metrics(store,plan);if(!metrics)return SfntStatus::invalid_input;
+    NativeParagraphShape shaped{};const auto* metrics=native_run_plan_metrics(store,plan);if(!metrics)return SfntStatus::invalid_input;
     auto status=sfnt_single_font_line(*metrics,em,&shaped.vertical);if(status!=SfntStatus::ok)return status;
     for(u32 at=0;at<input.bytes;){
         if(input.data[at]=='\r'||input.data[at]=='\n'||input.data[at]=='\t'){
             const u32 count=input.data[at]=='\r'&&at+1<input.bytes&&input.data[at+1]=='\n'?2u:1u;
-            if(shaped.cluster_count==s.clusters.count||!s.clusters.data)return SfntStatus::output_too_small;
-            s.clusters[shaped.cluster_count++]={at,at+count,shaped.glyph_count,0,0,input.data[at]=='\t'?native_paragraph_tab:native_paragraph_newline};
-            for(u32 i=0;i<count;++i)s.source_glyphs[at+i]=0xffffffffu;at+=count;continue;
+            status=native_paragraph_append_control(s,shaped,count,input.data[at]=='\t'?native_paragraph_tab:native_paragraph_newline);if(status!=SfntStatus::ok)return status;
+            at+=count;continue;
         }
         u32 end=at;while(end<input.bytes&&input.data[end]>=32)++end;
         NativeAsciiLineResult line{};status=native_ascii_line(store,plan,{input.data+at,end-at},independent,em,s.work,&line,{},trailing_spacing);if(status!=SfntStatus::ok)return status;
-        if(!(line.geometry_flags&native_line_ordered_x))return SfntStatus::unsupported_sequence;
-        if(line.run.glyph_count>s.glyphs.count-shaped.glyph_count||line.run.glyph_count>s.placements.count-shaped.glyph_count||!s.glyphs.data||!s.placements.data||line.cluster_count>s.clusters.count-shaped.cluster_count||!s.clusters.data)return SfntStatus::output_too_small;
-        for(u32 i=0;i<line.run.glyph_count;++i){s.glyphs[shaped.glyph_count+i]=s.work.run.glyphs[i];s.placements[shaped.glyph_count+i]=s.work.run.placements[i];}
-        for(u32 i=0;i<end-at;++i)s.source_glyphs[at+i]=shaped.glyph_count+s.work.run.character_glyphs[i];
-        u32 first=0;for(u32 i=0;i<line.cluster_count;++i){const auto& cluster=s.work.clusters[i];const u32 g=s.work.run.character_glyphs[first],ge=cluster.source_end==end-at?line.run.glyph_count:s.work.run.character_glyphs[cluster.source_end];
-            s.clusters[shaped.cluster_count++]={at+first,at+cluster.source_end,shaped.glyph_count+g,ge-g,cluster.width,input.data[at+first]==' '?native_paragraph_space:0};first=cluster.source_end;}
-        shaped.glyph_count+=line.run.glyph_count;at=end;
+        status=native_paragraph_append_line(s,line,shaped);if(status!=SfntStatus::ok)return status;
+        at=end;
     }
-    for(u32 i=1;i<shaped.cluster_count;++i)if(opportunity(input,s.clusters[i].source_first))s.clusters[i].flags|=native_paragraph_break_before;
+    native_ascii_paragraph_flags(input,{s.clusters.data,shaped.cluster_count});
     *output=shaped;return SfntStatus::ok;
 }
 namespace {

@@ -23,11 +23,8 @@ struct ShapedTextCacheRequest {
 struct ShapedTextCacheStats {
     u32 hits;
     u32 misses;
-    u32 inserts;
     u32 promotions;
     u32 flips;
-    u32 rejected;
-    u32 clears;
 };
 
 inline constexpr u32 kShapedTextCacheEntries = 512;

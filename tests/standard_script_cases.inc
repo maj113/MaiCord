@@ -17,8 +17,8 @@ bool native_standard_script_corpus(DWriteTextSystem system) noexcept {
     for(u32 sample=0;sample<samples.count;++sample)for(u32 partial=0;partial<((extended_standard_profiles?(sample==3||sample==7):(sample==4||sample==9))?2u:1u);++partial)for(u32 mode=0;mode<2;++mode)for(u32 flag:flags)for(float width:widths)for(u32 nowrap=0;nowrap<2;++nowrap){
         ++cases;native.independent_letters=reference.independent_letters=mode!=0;const auto text=samples[sample];const TextStyleSpan style{0,partial?static_cast<u32>(utf8_decode_one(text.data,text.bytes).width):text.bytes,flag};
         const ConstSlice<TextStyleSpan> styles{&style,flag?1u:0u};const auto wrap=nowrap?TextWrapping::no_wrap:TextWrapping::wrap;
-        const auto expected=text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrap);
-        const auto actual=text_shape_utf8_styled(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrap);
+        const auto expected=text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrap);
+        const auto actual=text_shape_utf8(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrap);
         if(!expected.ok()||!actual.ok()||!native_output.text.native_fonts()||!same(native_output,reference_output,true)||!same_visual_runs(native_output,reference_output)){
             print("standard script sample/partial/mode/flag/width/nowrap/em/error=");number(sample);print("/");number(partial);print("/");number(mode);print("/");number(flag);print("/");real(width);print("/");number(nowrap);print("/");real(system.em_size);print("/");number(static_cast<u32>(actual.error));print("\n");return false;}
         ++native_cases;if(!mode)CHECK(compare_hits(system,text,width,wrap,styles,true));

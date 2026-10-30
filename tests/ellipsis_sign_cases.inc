@@ -15,8 +15,8 @@ bool native_ellipsis_sign_corpus(DWriteTextSystem system) noexcept {
     for(u32 flag:styles)for(u32 mode=0;mode<2;++mode)for(float tracking:tracking_values) {
         ++cases;reference.independent_letters=mode!=0;reference.tracking=tracking;
         const TextStyleSpan span{0,source.bytes,flag};
-        const auto a=text_shape_utf8_styled(&native,sign,{},1000000,1000000,{utf16,256},&native_output.text);
-        const auto b=text_shape_utf8_styled(&reference,source,{&span,flag?1u:0u},1,1000000,{utf16,256},
+        const auto a=text_shape_utf8(&native,sign,{},1000000,1000000,{utf16,256},&native_output.text);
+        const auto b=text_shape_utf8(&reference,source,{&span,flag?1u:0u},1,1000000,{utf16,256},
             &reference_output.text,TextWrapping::no_wrap,TextOverflow::ellipsis);
         if(!a.ok()||!native_output.text.native_fonts()||!b.ok()||!reference_output.text.run_count){
             print("ellipsis source errors=");number(static_cast<u32>(a.error));print("/");number(static_cast<u32>(b.error));print(" native=");number(native_output.text.native_fonts()!=nullptr);print(" reference runs=");number(reference_output.text.run_count);print("\n");return false;}

@@ -20,13 +20,13 @@ bool native_devanagari_memory_benchmark(bool verify_only=false) noexcept {
             for(u32 mode=0;mode<4;++mode)for(float width:widths){native.independent_letters=reference.independent_letters=(mode&1)!=0;
                 native.tracking=reference.tracking=(mode&2)?.03f:0;++cases;
                 const TextStyleSpan style{112+word.bytes*(repeat/2),word.bytes*(repeat/2),text_style_bold};
-                CHECK(text_shape_utf8_styled(&native,text,{&style,1},width,1000000,{memory[0].wide,limit},&native_output.text).ok()&&native_output.text.native_fonts());
-                CHECK(text_shape_utf8_styled(&reference,text,{&style,1},width,1000000,{memory[1].wide,limit},&reference_output.text).ok());
+                CHECK(text_shape_utf8(&native,text,{&style,1},width,1000000,{memory[0].wide,limit},&native_output.text).ok()&&native_output.text.native_fonts());
+                CHECK(text_shape_utf8(&reference,text,{&style,1},width,1000000,{memory[1].wide,limit},&reference_output.text).ok());
                 CHECK(same(native_output,reference_output,true));++native_cases;}
             continue;}
         for(u32 variant=0;variant<2;++variant){utf8_encode(0x915+variant,memory[0].input+tail);
-            CHECK(text_shape_utf8(&native,text,240,1000000,{memory[0].wide,limit},&native_output.text).ok()&&native_output.text.native_fonts());
-            CHECK(text_shape_utf8(&reference,text,240,1000000,{memory[1].wide,limit},&reference_output.text).ok());CHECK(same(native_output,reference_output,true));}
+            CHECK(text_shape_utf8(&native,text,{},240,1000000,{memory[0].wide,limit},&native_output.text).ok()&&native_output.text.native_fonts());
+            CHECK(text_shape_utf8(&reference,text,{},240,1000000,{memory[1].wide,limit},&reference_output.text).ok());CHECK(same(native_output,reference_output,true));}
         const auto storage=native_text_candidate_storage_counts(system);
         print("{\"kind\":\"deva_storage\",\"bytes\":");number(bytes);print(",\"units\":");number(native_output.text.cluster_count);
         print(",\"committed\":");number(storage.committed);print(",\"peak\":");number(storage.peak);print(",\"retries\":");number(storage.retries);print("}\n");
@@ -35,10 +35,10 @@ bool native_devanagari_memory_benchmark(bool verify_only=false) noexcept {
             print(",\"frequency\":");number(frequency.QuadPart);print(",\"batches\":[");
             for(u32 batch=0;batch<5;++batch){u64 ticks[2]{},cycles[2]{};
                 for(u32 order=0;order<2;++order){const u32 side=order^(batch&1);auto& active=side?reference:native;auto& output=side?reference_output:native_output;
-                    utf8_encode(0x915,memory[0].input+tail);CHECK(text_shape_utf8(&active,text,240,1000000,{memory[side].wide,limit},&output.text).ok());
+                    utf8_encode(0x915,memory[0].input+tail);CHECK(text_shape_utf8(&active,text,{},240,1000000,{memory[side].wide,limit},&output.text).ok());
                     LARGE_INTEGER first{},last{};ULONG64 before=0,after=0;CHECK(QueryThreadCycleTime(GetCurrentThread(),&before)&&QueryPerformanceCounter(&first));
                     for(u32 i=0;i<iterations;++i){if(mode)utf8_encode(0x915+((i+1)&1),memory[0].input+tail);
-                        CHECK(text_shape_utf8(&active,text,240,1000000,{memory[side].wide,limit},&output.text).ok()&&(side||output.text.native_fonts()));}
+                        CHECK(text_shape_utf8(&active,text,{},240,1000000,{memory[side].wide,limit},&output.text).ok()&&(side||output.text.native_fonts()));}
                     CHECK(QueryPerformanceCounter(&last)&&QueryThreadCycleTime(GetCurrentThread(),&after));ticks[side]=last.QuadPart-first.QuadPart;cycles[side]=after-before;
                 }
                 if(batch)print(",");print("[");number(ticks[0]);print(",");number(ticks[1]);print(",");number(cycles[0]);print(",");number(cycles[1]);print("]");

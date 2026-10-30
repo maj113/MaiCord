@@ -3,11 +3,12 @@
 #include "maicord/core/memory.hpp"
 
 namespace maicord {namespace {
-bool aligned(const void* p) noexcept {return (reinterpret_cast<usize>(p)&(alignof(SfntGsubGlyph)-1))==0;}
+inline bool aligned(const void* p) noexcept {return (reinterpret_cast<usize>(p)&(alignof(SfntGsubGlyph)-1))==0;}
 bool valid(const SfntGlyphBuffer& b) noexcept {return b.record_size>=sizeof(SfntGsubGlyph) && b.record_size%alignof(SfntGsubGlyph)==0 && (!b.storage.count || (b.storage.data && aligned(b.storage.data))) && b.capacity==b.storage.count/b.record_size && b.gap_begin<=b.gap_end && b.gap_end<=b.capacity;}
-u32 count(const SfntGlyphBuffer& b) noexcept {return b.capacity-(b.gap_end-b.gap_begin);}
-u32 distance(const SfntGlyphBuffer& b,u32 at) noexcept {return b.gap_begin==b.gap_end?0u:at>b.gap_begin?at-b.gap_begin:b.gap_begin-at;}
-u8* slot(const SfntGlyphBuffer& b,u32 index) noexcept {return b.storage.data?b.storage.data+static_cast<usize>(index)*b.record_size:nullptr;}
+inline u32 count(const SfntGlyphBuffer& b) noexcept {return b.capacity-(b.gap_end-b.gap_begin);}
+inline u32 distance(const SfntGlyphBuffer& b,u32 at) noexcept {return b.gap_begin==b.gap_end?0u:at>b.gap_begin?at-b.gap_begin:b.gap_begin-at;}
+// Null storage has zero capacity, so every index reaching it is zero.
+inline u8* slot(const SfntGlyphBuffer& b,u32 index) noexcept {return b.storage.data+static_cast<usize>(index)*b.record_size;}
 void seek(SfntGlyphBuffer& b,u32 at) noexcept {
     if(b.gap_begin==b.gap_end){b.gap_begin=b.gap_end=at;return;}
     if(at<b.gap_begin){const u32 n=b.gap_begin-at;copy_bytes(slot(b,b.gap_end-n),slot(b,at),n*b.record_size);b.gap_end-=n;b.gap_begin=at;}
@@ -23,7 +24,6 @@ SfntStatus sfnt_glyph_buffer_open(Slice<u8> storage,u32 record_size,u32 initial_
     if(!output)return SfntStatus::invalid_input;reset_value(output);if(record_size<sizeof(SfntGsubGlyph) || record_size%alignof(SfntGsubGlyph) || (storage.count && (!storage.data || !aligned(storage.data))))return SfntStatus::invalid_input;
     const u32 capacity=storage.count/record_size;if(initial_count>capacity)return SfntStatus::output_too_small;*output={storage,record_size,capacity,initial_count,capacity};return SfntStatus::ok;
 }
-SfntGlyphView sfnt_glyph_buffer_view(const SfntGlyphBuffer& b) noexcept {return {reinterpret_cast<const SfntGsubGlyph*>(b.storage.data),reinterpret_cast<const SfntGsubGlyph*>(slot(b,b.gap_end)),b.gap_begin,b.capacity-b.gap_end,b.record_size};}
 SfntStatus sfnt_glyph_buffer_seek(SfntGlyphBuffer* b,u32 at,u64 work) noexcept {
     if(!b || !valid(*b) || at>count(*b))return SfntStatus::invalid_input;if(distance(*b,at)>work)return SfntStatus::resource_limit;seek(*b,at);return SfntStatus::ok;
 }

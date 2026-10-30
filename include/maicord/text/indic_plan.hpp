@@ -31,7 +31,7 @@ using SfntIndicForm=SfntDevanagariForm;
 // Scratch: lookup_count u16 cells. Output: four bytes per scheduled lookup.
 // Views are borrowed and disjoint. Work is shared across selection, counting and
 // emission. Short output reports capacity; any failure leaves output untouched.
-SfntStatus sfnt_indic_lookup_plan(const SfntLayout&,const SfntFeatureSubstitutions&,SfntIndicProfile,bool independent,
+SfntStatus sfnt_indic_lookup_plan(const SfntLayout&,const SfntFeatureSubstitutions&,SfntIndicProfile,
     Slice<u16> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult*,u64 work_limit=1000000,bool ordered_presentation=false) noexcept;
 // Malayalam's no-post-form fallback schedules presentation features in feature
 // order, merging calt/rclt last and keeping font lookup order in each group.

@@ -12,11 +12,10 @@ inline bool picker_glyph_cache_lookup_probe(PickerGlyphCache& cache) noexcept {
         PickerGlyphCache::Entry entries[3];
         u8 bytes[256];
         u16 cursor, lookup_start;
-        u32 hits, misses, probes;
+        u32 hits, probes;
         explicit Restore(PickerGlyphCache& value) noexcept
             : cache(value), entries{value.entries[0], value.entries[7], value.entries[255]},
-              cursor(value.cursor), lookup_start(value.lookup_start), hits(value.hits),
-              misses(value.misses), probes(value.probes) {
+              cursor(value.cursor), lookup_start(value.lookup_start), hits(value.hits), probes(value.probes) {
             for (u32 i=0;i<256;++i) {
                 bytes[i]=cache.entries[i].bytes;
                 cache.entries[i].bytes=0;
@@ -26,7 +25,7 @@ inline bool picker_glyph_cache_lookup_probe(PickerGlyphCache& cache) noexcept {
             for (u32 i=0;i<256;++i) cache.entries[i].bytes=bytes[i];
             cache.entries[0]=entries[0];cache.entries[7]=entries[1];cache.entries[255]=entries[2];
             cache.cursor=cursor;cache.lookup_start=lookup_start;
-            cache.hits=hits;cache.misses=misses;cache.probes=probes;
+            cache.hits=hits;cache.probes=probes;
         }
     } restore(cache);
     D3D11GlyphTextOwner owner{};

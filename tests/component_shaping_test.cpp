@@ -63,8 +63,8 @@ bool coordinated(const SfntCmap& cmap,const SfntHorizontalMetrics& metrics,const
     for(u32 i=0;i<gp.lookup_indices.count/2;++i)gp_roots[i]=byte_load_be16(gp.lookup_indices.data+i*2);
     for(u32 i=0;i<input_count;++i){const u32 scalar=byte_load_le32(scalars.data+i*4);u16 glyph=0;
         if(sfnt_cmap_glyph(cmap,scalar,0,&glyph)!=SfntStatus::ok)return false;
-        input[i]={{glyph,sfnt_gdef_glyph_class(gdef,glyph),0},source};bool boundary=false;
-        if(!unicode_grapheme_next(&graphemes,scalar,&boundary))return false;if(boundary)starts[start_count++]=source;
+        input[i]={{glyph,sfnt_gdef_glyph_class(gdef,glyph),0},source};
+        if(unicode_grapheme_boundary(graphemes,scalar))starts[start_count++]=source;
         source+=scalar>65535?2:1;
     }
     if(source!=units)return false;
@@ -148,7 +148,7 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
         position_program=compact;
         for(u32 split=0;split<=input_count;++split){u32 starts[64],start_count=0,source=0;UnicodeGraphemeState graphemes{};u64 bitmap[8];u32 character_map[128],targets[64];SfntMarkAssociation associations[64];u8 flags[64];double nominal[64],prefix[64];SfntPosition state[64];SfntPlacement output[64];
             for(u32 i=0;i<input_count;++i){const u32 scalar=byte_load_le32(scalars.data+i*4);u16 id=0;if(sfnt_cmap_glyph(cmap,scalar,0,&id)!=SfntStatus::ok)return false;const auto cls=sfnt_gdef_glyph_class(gdef,id);glyphs[i]={{id,cls,0},source,0,0};
-                bool boundary=false;if(!unicode_grapheme_next(&graphemes,scalar,&boundary))return false;if(boundary)starts[start_count++]=source;source+=scalar>65535?2:1;}
+                if(unicode_grapheme_boundary(graphemes,scalar))starts[start_count++]=source;source+=scalar>65535?2:1;}
             if(source!=units)return false;SfntClusterMap clusters{};SfntComponentForest forest{};SfntGlyphBuffer buffer{};
             if(sfnt_cluster_map_open(units,{starts,start_count},{bitmap,8},&clusters)!=SfntStatus::ok || sfnt_components_open({glyphs,input_count},{nodes,64},&forest)!=SfntStatus::ok || sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),sizeof(glyphs)},sizeof(SfntComponentGlyph),input_count,&buffer)!=SfntStatus::ok || sfnt_glyph_buffer_seek(&buffer,split)!=SfntStatus::ok)return false;
             if(!commit_tested && gs_feature.lookup_indices.count){const u16 first=byte_load_be16(gs_feature.lookup_indices.data);if(program.lookups.data[first].type==4){if(!commit_units(program,first,&buffer,&clusters,&forest))return error(f,split,utf8_literal("commit units"));commit_tested=true;}}

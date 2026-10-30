@@ -96,7 +96,7 @@ bool application_composer_edit_menu_open(UiRect anchor, u32 spell_offset) noexce
     const u32 spelling = g_app.message_composer_scene.model != &composer ? 0 :
         composer_spellcheck_menu_build(&g_app.composer_spellcheck, message_composer_text(composer), composer.text_revision,
             spell_offset == kComposerEditMenuAtCaret ? composer.caret : spell_offset, {items, kComposerSpellcheckMenuItems});
-    if (!text_edit_menu_build(state(), {items + spelling, kTextEditMenuItems})) return false;
+    text_edit_menu_build(state(), {items + spelling, kTextEditMenuItems});
     if (spelling) items[spelling].flags |= popup_item_separator_before;
     if (!popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, composer.document_identity,
             {items, spelling + kTextEditMenuItems}, anchor, application_viewport_dips(), 260.0f).ok()) return false;

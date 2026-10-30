@@ -5,7 +5,7 @@ bool outline(void* context,u16 glyph,GlyphOutline* output) noexcept {
     auto& self=*static_cast<NativePaintContext*>(context);
     if(self.is_tt) {
         SfntOutlineScratch scratch{{self.points,65536},{self.ends,32768},{self.active,64},0,0,1000000};
-        return sfnt_truetype_outline(self.tt,glyph,&scratch,output,SfntOutlineMode::colr_commands)==SfntStatus::ok;
+        return sfnt_truetype_outline(self.tt,glyph,&scratch,output,SfntOutlineMode::colr)==SfntStatus::ok;
     }
     return cff_outline(self.cff,glyph,output)==SfntStatus::ok;
 }

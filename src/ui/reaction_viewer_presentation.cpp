@@ -21,7 +21,7 @@ bool text_command(const ReactionViewer& viewer, UiTextOutput* text, Utf8View val
         return true;
     return ui_text_output_push(text, UiTextCommand{value, viewer.text_owner, rectangle, clip, color, style,
                                                    horizontal, UiTextAlignment::center,
-                                                   UiTextWrapping::no_wrap, UiTextOverflow::ellipsis});
+                                                   TextWrapping::no_wrap, TextOverflow::ellipsis});
 }
 
 } // namespace

@@ -1,5 +1,5 @@
 bool native_output_capacity_corpus() noexcept {
-    DWriteTextSystem native{};CHECK(text_system_initialize(static_cast<TextSystem*>(&native),L"Segoe UI",16,L"en-US").ok());
+    DWriteTextSystem native{};CHECK(text_system_initialize(static_cast<TextSystem*>(&native),L"Segoe UI",16).ok());
     struct Release {DWriteTextSystem& s;~Release() noexcept {shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);oracle_faces_release();text_system_release(&s);}} release{native};
     auto reference=owner;reference.native_text=nullptr;
     const Utf8View samples[]{utf8_literal("AV office abc"),utf8_literal("A 😀 אב\nA 😀 אב"),utf8_literal("one\ntwo\nthree")};
@@ -9,14 +9,14 @@ bool native_output_capacity_corpus() noexcept {
         if(mode==0)native_output.text.glyph_capacity=reference_output.text.glyph_capacity=1;
         if(mode==1)native_output.text.run_capacity=reference_output.text.run_capacity=1;
         if(mode==2)native_output.text.cluster_capacity=reference_output.text.cluster_capacity=1;
-        const auto a=text_shape_utf8(&native,text,45,1000,{utf16,256},&native_output.text);
-        const auto b=text_shape_utf8(&reference,text,45,1000,{utf16,256},&reference_output.text);
+        const auto a=text_shape_utf8(&native,text,{},45,1000,{utf16,256},&native_output.text);
+        const auto b=text_shape_utf8(&reference,text,{},45,1000,{utf16,256},&reference_output.text);
         CHECK(a.error==TextShapeError::output_too_small&&b.error==TextShapeError::output_too_small);
         CHECK(!native_output.text.glyph_count&&!native_output.text.run_count&&!native_output.text.native_fonts());
         native_output.text.glyph_capacity=glyph_capacity;native_output.text.run_capacity=run_capacity;native_output.text.cluster_capacity=cluster_capacity;
         reference_output.text.glyph_capacity=glyph_capacity;reference_output.text.run_capacity=run_capacity;reference_output.text.cluster_capacity=cluster_capacity;
-        CHECK(text_shape_utf8(&native,text,45,1000,{utf16,256},&native_output.text).ok());
-        CHECK(text_shape_utf8(&reference,text,45,1000,{utf16,256},&reference_output.text).ok()&&same(native_output,reference_output));
+        CHECK(text_shape_utf8(&native,text,{},45,1000,{utf16,256},&native_output.text).ok());
+        CHECK(text_shape_utf8(&reference,text,{},45,1000,{utf16,256},&reference_output.text).ok()&&same(native_output,reference_output));
         CHECK(!native_text_candidate_take_output_failure(native));
         shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);++cases;++native_cases;
     }
@@ -24,31 +24,28 @@ bool native_output_capacity_corpus() noexcept {
 }
 bool native_bootstrap_corpus() noexcept {
     const DWriteTextSystem empty{};DWriteTextSystem invalid{};
-    CHECK(text_system_initialize(static_cast<TextSystem*>(nullptr),L"Segoe UI",16,L"en-US").error==TextShapeError::invalid_input);
-    const wchar_t* bad_locales[]{L"",L"en",L"en-GB",L"fr-FR"};
-    for(const auto* locale:bad_locales){CHECK(text_system_initialize(static_cast<TextSystem*>(&invalid),L"Segoe UI",16,locale).error==TextShapeError::invalid_input);
-        CHECK(bytes_equal(&invalid,&empty,sizeof(empty)));}
+    CHECK(text_system_initialize(static_cast<TextSystem*>(nullptr),L"Segoe UI",16).error==TextShapeError::invalid_input);
     wchar_t long_name[257];for(u32 i=0;i<256;++i)long_name[i]=L'A';long_name[256]=0;
-    CHECK(text_system_initialize(static_cast<TextSystem*>(&invalid),long_name,16,L"en-US").error==TextShapeError::invalid_input);
-    CHECK(text_system_initialize(static_cast<TextSystem*>(&invalid),L"Segoe UI",250001,L"en-US").error==TextShapeError::invalid_input);
+    CHECK(text_system_initialize(static_cast<TextSystem*>(&invalid),long_name,16).error==TextShapeError::invalid_input);
+    CHECK(text_system_initialize(static_cast<TextSystem*>(&invalid),L"Segoe UI",250001).error==TextShapeError::invalid_input);
     CHECK(bytes_equal(&invalid,&empty,sizeof(empty)));text_system_release(&invalid);text_system_release(&invalid);
     const wchar_t* families[]{L"Segoe UI",L"Georgia",L"Consolas"};const float sizes[]{16,17.5f};
     // Oracle keys borrow session addresses; expire them before a fresh session can reuse an address.
     for(const auto* family:families)for(float em:sizes){DWriteTextSystem system{};IDWriteTextFormat* format=nullptr;
         struct Release {DWriteTextSystem& s;IDWriteTextFormat*& f;~Release() noexcept {oracle_faces_release();text_system_release(&s);com_release(f);}} release{system,format};
-        CHECK(text_system_initialize(static_cast<TextSystem*>(&system),family,em,L"en-US").ok());
+        CHECK(text_system_initialize(static_cast<TextSystem*>(&system),family,em).ok());
         CHECK(!system.factory&&!system.format&&!system.emoji_font_policy&&system.native_fonts&&system.native_text&&system.native_format&&system.em_size==em);
         CHECK(SUCCEEDED(owner.factory->CreateTextFormat(family,nullptr,DWRITE_FONT_WEIGHT_NORMAL,DWRITE_FONT_STYLE_NORMAL,DWRITE_FONT_STRETCH_NORMAL,em,L"en-US",&format)));
         auto reference=owner;reference.native_text=nullptr;reference.format=format;reference.em_size=em;
         const auto text=utf8_literal("AV office\tTo \xf0\x9f\x98\x80");
-        CHECK(text_shape_utf8(&system,text,95,1000,{utf16,256},&native_output.text).ok()&&native_output.text.native_fonts());
-        CHECK(text_shape_utf8(&reference,text,95,1000,{utf16,256},&reference_output.text).ok()&&same(native_output,reference_output));
+        CHECK(text_shape_utf8(&system,text,{},95,1000,{utf16,256},&native_output.text).ok()&&native_output.text.native_fonts());
+        CHECK(text_shape_utf8(&reference,text,{},95,1000,{utf16,256},&reference_output.text).ok()&&same(native_output,reference_output));
         shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);++cases;++native_cases;
     }
     return true;
 }
 bool native_emoji_size_corpus() noexcept {
-    DWriteTextSystem native{};CHECK(text_system_initialize(static_cast<TextSystem*>(&native),L"Segoe UI",16,L"en-US").ok());
+    DWriteTextSystem native{};CHECK(text_system_initialize(static_cast<TextSystem*>(&native),L"Segoe UI",16).ok());
     struct Release {DWriteTextSystem& s;~Release() noexcept {shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);oracle_faces_release();text_system_release(&s);}} release{native};
     const Utf8View samples[]{utf8_literal("💯"),utf8_literal("😀"),utf8_literal("👨‍👩‍👧‍👦"),utf8_literal("👩🏽‍🚀"),utf8_literal("🇸🇮"),utf8_literal("1️⃣"),utf8_literal("❤️"),utf8_literal("🏳️‍🌈"),utf8_literal("©️"),utf8_literal("A 😀 V"),utf8_literal("אב 😀"),utf8_literal("😀\n💯")};
     const u32 flags[]{text_style_picker_emoji,text_style_jumbo_emoji,text_style_picker_emoji|text_style_jumbo_emoji,text_style_picker_emoji|text_style_bold|text_style_italic,text_style_jumbo_emoji|text_style_underline};
@@ -62,21 +59,21 @@ bool native_emoji_size_corpus() noexcept {
         native.em_size=em;reference.em_size=em;reference.format=format;
         for(auto text:samples)for(u32 flag:flags)for(float width:widths)for(u32 nowrap=0;nowrap<2;++nowrap){
             ++cases;const TextStyleSpan style{0,text.bytes,flag};const auto wrap=nowrap?TextWrapping::no_wrap:TextWrapping::wrap;
-            CHECK(text_shape_utf8_styled(&native,text,{&style,1},width,1000,{utf16,256},&native_output.text,wrap).ok());
-            CHECK(text_shape_utf8_styled(&reference,text,{&style,1},width,1000,{utf16,256},&reference_output.text,wrap).ok());
+            CHECK(text_shape_utf8(&native,text,{&style,1},width,1000,{utf16,256},&native_output.text,wrap).ok());
+            CHECK(text_shape_utf8(&reference,text,{&style,1},width,1000,{utf16,256},&reference_output.text,wrap).ok());
             CHECK(native_output.text.native_fonts()&&same(native_output,reference_output));++native_cases;
-            const auto a=text_measure_utf8_styled(&native,text,{&style,1},width,1000,{utf16,256},wrap),b=text_measure_utf8_styled(&reference,text,{&style,1},width,1000,{utf16,256},wrap);
+            const auto a=text_measure_utf8(&native,text,{&style,1},width,1000,{utf16,256},wrap),b=text_measure_utf8(&reference,text,{&style,1},width,1000,{utf16,256},wrap);
             CHECK(a.ok()&&b.ok()&&bytes_equal(&a.width,&b.width,12)&&a.line_count==b.line_count);
             const TextHitSpan hit{0,text.bytes,65535,0};
-            CHECK(text_shape_utf8_interactive(&native,text,{&style,1},{&hit,1},width,1000,{utf16,256},&native_output.text,wrap).ok());
-            CHECK(text_shape_utf8_interactive(&reference,text,{&style,1},{&hit,1},width,1000,{utf16,256},&reference_output.text,wrap).ok()&&same(native_output,reference_output));
+            CHECK(text_shape_utf8(&native,text,{&style,1},width,1000,{utf16,256},&native_output.text,wrap,TextOverflow::clip,{&hit,1}).ok());
+            CHECK(text_shape_utf8(&reference,text,{&style,1},width,1000,{utf16,256},&reference_output.text,wrap,TextOverflow::clip,{&hit,1}).ok()&&same(native_output,reference_output));
             shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);
         }
     }
     return true;
 }
 bool native_custom_emoji_corpus() noexcept {
-    DWriteTextSystem native{};CHECK(text_system_initialize(static_cast<TextSystem*>(&native),L"Segoe UI",16,L"en-US").ok());
+    DWriteTextSystem native{};CHECK(text_system_initialize(static_cast<TextSystem*>(&native),L"Segoe UI",16).ok());
     struct Release {DWriteTextSystem& s;~Release() noexcept {shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);oracle_faces_release();text_system_release(&s);}} release{native};
     auto reference=owner;reference.native_text=nullptr;
     const Utf8View samples[]{utf8_literal("A ￼ B"),utf8_literal("אב ￼ גד"),utf8_literal("😀 ￼\nV")};
@@ -86,10 +83,10 @@ bool native_custom_emoji_corpus() noexcept {
         for(u32 flag:flags)for(float width:widths)for(u32 nowrap=0;nowrap<2;++nowrap){
             ++cases;const TextStyleSpan style{first,3,flag};const auto wrap=nowrap?TextWrapping::no_wrap:TextWrapping::wrap;
             const TextHitSpan hit{first,3,65535,0};
-            CHECK(text_shape_utf8_interactive(&native,text,{&style,1},{&hit,1},width,1000,{utf16,256},&native_output.text,wrap).ok());
-            CHECK(text_shape_utf8_interactive(&reference,text,{&style,1},{&hit,1},width,1000,{utf16,256},&reference_output.text,wrap).ok());
+            CHECK(text_shape_utf8(&native,text,{&style,1},width,1000,{utf16,256},&native_output.text,wrap,TextOverflow::clip,{&hit,1}).ok());
+            CHECK(text_shape_utf8(&reference,text,{&style,1},width,1000,{utf16,256},&reference_output.text,wrap,TextOverflow::clip,{&hit,1}).ok());
             CHECK(native_output.text.native_fonts()&&same(native_output,reference_output));++native_cases;
-            const auto a=text_measure_utf8_styled(&native,text,{&style,1},width,1000,{utf16,256},wrap),b=text_measure_utf8_styled(&reference,text,{&style,1},width,1000,{utf16,256},wrap);
+            const auto a=text_measure_utf8(&native,text,{&style,1},width,1000,{utf16,256},wrap),b=text_measure_utf8(&reference,text,{&style,1},width,1000,{utf16,256},wrap);
             CHECK(a.ok()&&b.ok()&&bytes_equal(&a.width,&b.width,12)&&a.line_count==b.line_count);
             shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);
         }
@@ -120,14 +117,14 @@ bool native_format_corpus() noexcept {
         text_edit_layout_invalidate(layouts+1);
         for(const auto text:texts)for(u32 flag:flags)for(float width:widths)for(u32 nowrap=0;nowrap<2;++nowrap){
             ++cases;const TextStyleSpan style{0,flag==text_style_link?1u:text.bytes,flag};const ConstSlice<TextStyleSpan> styles{&style,flag?1u:0u};const auto wrap=nowrap?TextWrapping::no_wrap:TextWrapping::wrap;
-            CHECK(text_shape_utf8_styled(&system,text,styles,width,1000000,{utf16,256},&native_output.text,wrap).ok());
+            CHECK(text_shape_utf8(&system,text,styles,width,1000000,{utf16,256},&native_output.text,wrap).ok());
             CHECK(native_output.text.native_fonts());++native_cases;
-            CHECK(text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrap).ok());CHECK(same(native_output,reference_output));
-            const auto a=text_measure_utf8_styled(&system,text,styles,width,1000000,{utf16,256},wrap),b=text_measure_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},wrap);
+            CHECK(text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrap).ok());CHECK(same(native_output,reference_output));
+            const auto a=text_measure_utf8(&system,text,styles,width,1000000,{utf16,256},wrap),b=text_measure_utf8(&reference,text,styles,width,1000000,{utf16,256},wrap);
             CHECK(a.ok()&&b.ok()&&bytes_equal(&a.width,&b.width,12)&&a.line_count==b.line_count);
             const TextHitSpan hit{0,text.bytes,65535,0};
-            CHECK(text_shape_utf8_interactive(&system,text,styles,{&hit,1},width,1000000,{utf16,256},&native_output.text,wrap).ok()&&native_output.text.native_fonts());
-            CHECK(text_shape_utf8_interactive(&reference,text,styles,{&hit,1},width,1000000,{utf16,256},&reference_output.text,wrap).ok());CHECK(same(native_output,reference_output));
+            CHECK(text_shape_utf8(&system,text,styles,width,1000000,{utf16,256},&native_output.text,wrap,TextOverflow::clip,{&hit,1}).ok()&&native_output.text.native_fonts());
+            CHECK(text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrap,TextOverflow::clip,{&hit,1}).ok());CHECK(same(native_output,reference_output));
             const u32 units=native_output.text.cluster_count;
             // Persistent owners alternate format handles while legacy pointers
             // on the native side remain null. Include caret-only cache reuse.
@@ -159,6 +156,6 @@ bool native_format_corpus() noexcept {
         CHECK(text_edit_layout_measure(layouts+3,input,reference)&&same_edit(layouts[2],layouts[3]));
     }
     auto unavailable=owner;CHECK(native_text_format_capture(&unavailable));unavailable.factory=nullptr;unavailable.format=nullptr;
-    CHECK(text_shape_utf8(&unavailable,utf8_literal("a\xf0\x9f\x98\x80"),100,100,{utf16,256},&native_output.text).ok());
+    CHECK(text_shape_utf8(&unavailable,utf8_literal("a\xf0\x9f\x98\x80"),{},100,100,{utf16,256},&native_output.text).ok());
     CHECK(native_output.text.native_fonts()&&native_output.text.run_count==2&&native_output.text.cluster_count==3);return true;
 }

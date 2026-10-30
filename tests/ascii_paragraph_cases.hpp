@@ -12,7 +12,7 @@ bool latin_boundary_cases() noexcept {
         storage.run.character_glyphs={map,6};storage.run.placements={placements,4};
         const auto collect=[&](bool paragraph,NativeAsciiLineResult& result,u32 capacity=4) noexcept {
             result={};result.run={4,6,1,0,0};storage.clusters={paragraph?compact:complete,capacity};
-            return native_unicode_line_geometry(metrics,text,10,storage,&result,paragraph);
+            return native_unicode_line_geometry(metrics,text,10,storage,&result,paragraph?NativeLineText::paragraph:NativeLineText::unicode);
         };
         NativeAsciiLineResult full{},part{};
         CHECK(collect(false,full)==SfntStatus::ok&&collect(true,part)==SfntStatus::ok);
@@ -177,7 +177,9 @@ bool styled_paragraph_cases() noexcept {
 }
 bool paragraph_cases() noexcept {
     NativeParagraphShape shape{6,3,5,{10,7}};
-    const Utf8View input=utf8_literal("ab \t\r\n");
+    NativeParagraphCluster flagged[6]{};for(u32 i=0;i<6;++i)flagged[i]={i,i+1,0,0,0,0};
+    native_ascii_paragraph_flags(utf8_literal("ab \t\r\n"),{flagged,6});
+    CHECK(!flagged[0].flags&&!flagged[1].flags&&flagged[2].flags==native_paragraph_space&&flagged[3].flags==native_paragraph_break_before&&!flagged[4].flags&&!flagged[5].flags);
     NativeParagraphCluster clusters[]{
         {0,1,0,1,4,0},{1,2,1,1,4,0},{2,3,2,1,2,native_paragraph_space},
         {3,4,3,0,0,native_paragraph_tab|native_paragraph_break_before},{4,6,3,0,0,native_paragraph_newline}};
@@ -202,7 +204,6 @@ bool paragraph_cases() noexcept {
     const NativeParagraphShape empty{0,0,0,{10,7}};
     CHECK(native_prepared_paragraph_layout(empty,{},{},100,16,true,{},&out)==SfntStatus::ok&&out.line_count==1&&!out.run_count&&out.height==10);
     CHECK(native_prepared_paragraph_layout(empty,{},{},100,16,true,{},nullptr)==SfntStatus::invalid_input);
-    CHECK(!native_ascii_break_after({nullptr,2},1)&&!native_ascii_break_after(input,7));
     return true;
 }
 bool ordered_paragraph_cases() noexcept {

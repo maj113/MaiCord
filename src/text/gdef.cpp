@@ -1,20 +1,15 @@
 #include "maicord/text/gdef.hpp"
 #include "maicord/core/memory.hpp"
 #include "coverage_index.hpp"
-#include "sfnt_read.hpp"
+#include "layout_read.hpp"
 
 namespace maicord {namespace {
-using namespace sfnt_read;
-SfntStatus tail(const ConstSlice<u8>& view,u32 at,u32 minimum,ConstSlice<u8>* out,bool optional=true) noexcept {
-    const ConstSlice<u8> bytes=view; // *out is cleared first
-    reset_value(out);if(!at)return optional?SfntStatus::missing_table:SfntStatus::malformed;
-    if(at<minimum)return SfntStatus::malformed;
-    if(!span(bytes,at,2))return SfntStatus::truncated;
-    *out={bytes.data+at,bytes.count-at};return SfntStatus::ok;
-}
+using namespace layout_read;
 SfntStatus mark_sets(const SfntGdef& gdef,ConstSlice<u8>* table,u16* count) noexcept {
     reset_value(table);*count=0;if(!gdef.table.data || gdef.minor_version<2)return SfntStatus::missing_table;
-    const auto status=tail(gdef.table,r16(gdef.table,12),gdef.minor_version==3?18:14,table);if(status!=SfntStatus::ok)return status;
+    // The offset was checked against the header and the table size when opened.
+    const u32 offset=r16(gdef.table,12);if(!offset)return SfntStatus::missing_table;
+    *table=rest(gdef.table,offset);
     if(!span(*table,0,4))return SfntStatus::truncated;if(r16(*table,0)!=1)return SfntStatus::unsupported;
     const u16 n=r16(*table,2);if(!span(*table,4,static_cast<u32>(n)*4))return SfntStatus::truncated;*count=n;return SfntStatus::ok;
 }
@@ -29,10 +24,10 @@ SfntStatus sfnt_gdef_open(ConstSlice<u8> bytes,u32 glyph_limit,SfntGdef* output)
     for(u32 at=4;at<12+(minor>=2?2u:0u);at+=2){const auto status=check(r16(bytes,at));if(status!=SfntStatus::ok)return status;}
     if(minor==3){const auto status=check(byte_load_be32(bytes.data+14));if(status!=SfntStatus::ok)return status;}
     SfntGdef result{bytes,{},{},glyph_limit,minor};
-    for(u32 at=4;at<=10;at+=6)if(r16(bytes,at)) {
-        ConstSlice<u8> data{};auto status=tail(bytes,r16(bytes,at),header,&data);if(status!=SfntStatus::ok)return status;
+    for(u32 at=4;at<=10;at+=6)if(const u32 offset=r16(bytes,at)) {
+        // Already checked above: past the header with room for a format.
         auto* classes=at==4?&result.glyph_classes:&result.mark_classes;
-        status=sfnt_class_def_open(data,glyph_limit,classes);if(status!=SfntStatus::ok)return status;
+        const auto status=sfnt_class_def_open(rest(bytes,offset),glyph_limit,classes);if(status!=SfntStatus::ok)return status;
         if(at==4 && classes->max_class>4)return SfntStatus::malformed;
     }
     *output=result;return SfntStatus::ok;
@@ -40,7 +35,7 @@ SfntStatus sfnt_gdef_open(ConstSlice<u8> bytes,u32 glyph_limit,SfntGdef* output)
 SfntGlyphClass sfnt_gdef_glyph_class(const SfntGdef& gdef,u16 glyph) noexcept {return static_cast<SfntGlyphClass>(sfnt_class_value(gdef.glyph_classes,glyph));}
 SfntStatus sfnt_gdef_mark_set(const SfntGdef& gdef,u16 index,SfntCoverage* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);ConstSlice<u8> table{};u16 count=0;auto status=mark_sets(gdef,&table,&count);if(status!=SfntStatus::ok)return status;
-    if(index>=count)return SfntStatus::glyph_out_of_range;ConstSlice<u8> data{};status=tail(table,byte_load_be32(table.data+4+static_cast<u32>(index)*4),4+static_cast<u32>(count)*4,&data,false);if(status!=SfntStatus::ok)return status;
+    if(index>=count)return SfntStatus::glyph_out_of_range;ConstSlice<u8> data{};status=tail(table,byte_load_be32(table.data+4+static_cast<u32>(index)*4),4+static_cast<u32>(count)*4,&data);if(status!=SfntStatus::ok)return status;
     return sfnt_coverage_open(data,gdef.glyph_limit,output);
 }
 SfntStatus sfnt_gdef_variation_store(const SfntGdef& gdef,ItemVariationStore* output,u32 work_limit) noexcept {

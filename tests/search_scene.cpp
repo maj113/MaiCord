@@ -191,7 +191,7 @@ void search_filter_choices(void (*check)(bool, const char*) noexcept) noexcept {
             continue;
         text_clipped = text_clipped &&
                        ui_rect_equal(ui_rect_intersection(command.clip, scene.chooser), command.clip) &&
-                       command.wrapping == UiTextWrapping::no_wrap;
+                       command.wrapping == TextWrapping::no_wrap;
     }
     check(text_clipped, "search choice: themed label and detail glyph commands retain exact chooser clips "
                         "and ellipsis policy");
@@ -989,7 +989,7 @@ void test_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
         if (commands[i].owner.handle.generation &&
             scene.targets[commands[i].owner.handle.slot].action == UiSearchAction::result &&
             commands[i].text.data == scene.visible[0].body.data)
-            wrapped_excerpt |= commands[i].wrapping == UiTextWrapping::wrap &&
+            wrapped_excerpt |= commands[i].wrapping == TextWrapping::wrap &&
                                commands[i].rectangle.bottom - commands[i].rectangle.top == 48 &&
                                commands[i].clip.top >= scene.body.top &&
                                commands[i].clip.bottom <= scene.body.bottom;

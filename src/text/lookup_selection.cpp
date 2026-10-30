@@ -2,7 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "context_lookups.hpp"
 namespace maicord {namespace {
-template<class T> bool valid(Slice<T> s) noexcept {return !s.count||s.data;}
+template<class T> inline bool valid(Slice<T> s) noexcept {return !s.count||s.data;}
 struct Selection {Slice<u64> bits;Slice<u16> queue;u32 count;u16 limit;};
 SfntStatus select_lookup(void* context,u16 index) noexcept {
     auto& s=*static_cast<Selection*>(context);if(index>=s.limit)return SfntStatus::invalid_input;

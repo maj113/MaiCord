@@ -20,7 +20,7 @@ bool push_text(UiTextOutput* text, const UiCallScene& s, const Utf8View& value, 
     if (!value.bytes || !ui_rect_intersects(rectangle, clip))
         return true;
     return ui_text_output_push(text, {value, s.owner, rectangle, clip, color, style, horizontal,
-                                      UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::ellipsis});
+                                      UiTextAlignment::center, TextWrapping::no_wrap, TextOverflow::ellipsis});
 }
 namespace {
 constexpr float kPad = 12, kAvatar = 40, kAvatarStep = 48, kRowAvatar = 28, kInviteWidth = 72, kButtonHeight = 32,

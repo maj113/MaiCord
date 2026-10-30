@@ -38,7 +38,6 @@ constexpr Feature khmer_positioning[]{
     {sfnt_tag('a','b','v','m'),0},{sfnt_tag('m','k','m','k'),0}
 };
 static_assert(sizeof(substitution)/sizeof(Feature)<=32&&sizeof(khmer_substitution)/sizeof(Feature)<=32);
-bool spend(u64& work,u64 count) noexcept {if(count>work)return false;work-=count;return true;}
 enum class Profile:u8 {sinhala,khmer,myanmar,tibetan};
 // Share execution for the six-stage profiles. Only Khmer needs a different
 // membership representation; script/language policy runs once before scheduling.
@@ -51,7 +50,7 @@ struct Builder {
             static_cast<u32>(minimum<u64>(work,0xffffffffu)),&used);
         work-=used;if(status!=SfntStatus::ok)return status;
         const auto indices=feature.lookup_indices;
-        if(!spend(work,indices.count/2))return SfntStatus::resource_limit;
+        if(!spend(&work,indices.count/2))return SfntStatus::resource_limit;
         for(u32 i=0;i<indices.count/2;++i)scratch[byte_load_be16(indices.data+i*2)]|=stages;
         return SfntStatus::ok;
     }
@@ -64,7 +63,7 @@ struct Builder {
             // requiring a language. Legacy mymr alone does not enable GPOS.
             bool enabled=false;
             for(u32 i=0;i<layout.script_count;++i){
-                if(!spend(work,1))return SfntStatus::resource_limit;
+                if(!spend(&work,1))return SfntStatus::resource_limit;
                 const u32 tag=byte_load_be32(layout.scripts.data+2+i*6);
                 if(tag==sfnt_tag('m','y','m','2')||tag==sfnt_tag('l','a','t','n')||tag==sfnt_tag('D','F','L','T')){enabled=true;break;}
             }
@@ -78,7 +77,7 @@ struct Builder {
         if(status!=SfntStatus::ok)return status;
         result.language_found=true;result.language_tag=selection.language_tag;
         if(scratch.count<layout.lookup_count)return SfntStatus::output_too_small;
-        if(!spend(work,layout.lookup_count))return SfntStatus::resource_limit;
+        if(!spend(&work,layout.lookup_count))return SfntStatus::resource_limit;
         for(u32 i=0;i<layout.lookup_count;++i)scratch[i]=0;
         const bool gsub=layout.kind==SfntLayoutKind::substitution;
         const auto features=khmer?(gsub?ConstSlice<Feature>{khmer_substitution,sizeof(khmer_substitution)/sizeof(Feature)}:
@@ -91,11 +90,11 @@ struct Builder {
         }
         u32 seen=0;
         for(u32 i=0;i<language.feature_indices.count/2;++i){
-            if(!spend(work,1))return SfntStatus::resource_limit;
+            if(!spend(&work,1))return SfntStatus::resource_limit;
             const u16 index=byte_load_be16(language.feature_indices.data+i*2);
             const u32 tag=byte_load_be32(layout.features.data+2+static_cast<u32>(index)*6);
             for(u32 f=0;f<features.count;++f){
-                if(!spend(work,1))return SfntStatus::resource_limit;
+                if(!spend(&work,1))return SfntStatus::resource_limit;
                 if(features[f].tag!=tag)continue;
                 const u32 bit=1u<<f;const u8 stage=features[f].stage;
                 if(seen&bit)break;seen|=bit;
@@ -110,12 +109,12 @@ struct Builder {
         // Khmer's bit 2 is a conditional presentation membership; bit 1
         // dominates it when the same lookup is also enabled unconditionally.
         const auto members=[&](u8 stage) noexcept ->u8 {return khmer&&stage==1?6:static_cast<u8>(1u<<stage);};
-        if(!spend(work,scan))return SfntStatus::resource_limit;
+        if(!spend(&work,scan))return SfntStatus::resource_limit;
         for(u8 stage=0;stage<stage_count;++stage)if(stages&(1u<<stage))
             for(u32 i=0;i<layout.lookup_count;++i)if(scratch[i]&members(stage))++result.lookup_count;
         if(output.count<result.lookup_count)return SfntStatus::output_too_small;
         // Reserve the entire write phase before touching caller output.
-        if(!spend(work,scan+result.lookup_count))return SfntStatus::resource_limit;
+        if(!spend(&work,scan+result.lookup_count))return SfntStatus::resource_limit;
         u32 at=0;
         for(u8 stage=0;stage<stage_count;++stage)if(stages&(1u<<stage))
             for(u32 i=0;i<layout.lookup_count;++i)if(scratch[i]&members(stage))

@@ -16,6 +16,12 @@ float positive_zero(float value) noexcept {
     const __m128 packed=_mm_set_ss(value);
     return _mm_cvtss_f32(_mm_andnot_ps(_mm_cmpeq_ss(packed,_mm_setzero_ps()),packed));
 }
+// Round to nearest with ties away from zero, as the Windows 16.16 transform does.
+inline double rounded(double value) noexcept { return static_cast<double>(static_cast<i64>(value + (value < 0 ? -.5 : .5))); }
+inline bool rounded_fixed(double value, double* result) noexcept {
+    if (!(value >= -9.e18 && value <= 9.e18)) return false;
+    *result = rounded(value); return true;
+}
 
 struct VirtualMachine {
     const CffFont& font;
@@ -35,77 +41,37 @@ struct VirtualMachine {
     u16 base_code = 0, accent_code = 0;
     bool open = false, drawn = false, ever_drawn = false;
     bool width_seen = false, ended = false, composite = false;
-    bool flex_points = false;
     double oblique_scale = 0;
-
-    bool flex_coordinate(double value, double* result) const noexcept {
-        // Windows' unhinted flex path round-trips output controls through a 16.16
-        // inverse transform; ordinary cubics do not. The charstring current point
-        // stays unchanged, otherwise error drifts between flexes.
-        *result = value;
-        if (!design_scale) return true;
-        const double scaled = value * design_scale;
-        if (!(scaled >= -9.e18 && scaled <= 9.e18)) return false;
-        const double inverse_scale = static_cast<double>(static_cast<i64>(4294967296.0 / design_scale + .5));
-        const double transformed = static_cast<double>(static_cast<i64>(scaled + (scaled < 0 ? -.5 : .5)));
-        const double restored = transformed * inverse_scale / 65536.0;
-        if (!(restored >= -9.e18 && restored <= 9.e18)) return false;
-        *result = static_cast<i64>(restored + (restored < 0 ? -.5 : .5)) / 65536.0;
-        return true;
-    }
-    // Flex round-trips through the complete fixed-point transform and inverse.
-    // The shear couples x to y; independent scalar inverses lose low bits at
-    // nonintegral FontMatrix scales. Products round before they are added.
-    bool flex_oblique(double* a,double* b) const noexcept {
-        const auto rounded=[](double value) noexcept {return static_cast<double>(static_cast<i64>(value+(value<0?-.5:.5)));};
-        const double ax=*a*design_scale,by=*b*design_scale,skew=*b*oblique_scale;
-        if(!(ax>=-9.e18&&ax<=9.e18&&by>=-9.e18&&by<=9.e18&&skew>=-9.e18&&skew<=9.e18))return false;
-        const double transformed_x=rounded(ax)+rounded(skew),transformed_y=rounded(by);
-        const double inverse=rounded(4294967296.0/design_scale);
-        const double inverse_skew=rounded(-oblique_scale*4294967296.0/(design_scale*design_scale));
-        const double rx=transformed_x*inverse/65536.0,ry=transformed_y*inverse/65536.0,rs=transformed_y*inverse_skew/65536.0;
-        if(!(rx>=-9.e18&&rx<=9.e18&&ry>=-9.e18&&ry<=9.e18&&rs>=-9.e18&&rs<=9.e18))return false;
-        *a=(rounded(rx)+rounded(rs))/65536.0;*b=rounded(ry)/65536.0;return true;
-    }
 
     bool append(GlyphPathCommandKind kind, double x1 = 0, double y1 = 0,
                   double x2 = 0, double y2 = 0, double x3 = 0, double y3 = 0) noexcept {
         if (out.count == out.capacity) return false;
-        GlyphPathCommand command{}; command.kind = kind;
         const double points[]{x1,y1,x2,y2,x3,y3};
         float coordinates[6]{};
         const u32 size = kind == GlyphPathCommandKind::cubic ? 3u :
                          kind == GlyphPathCommandKind::end_closed ? 0u : 1u;
         for (u32 i = 0; i < size; ++i) {
             double a = points[i*2] + translate_x, b = points[i*2+1] + translate_y;
-            double metric_a=a,metric_b=b;
-            if (flex_points && kind == GlyphPathCommandKind::cubic){
-                if(metrics&&oblique_scale&&(!flex_coordinate(a,&metric_a)||!flex_coordinate(b,&metric_b)))return false;
-                if(oblique_scale){if(!flex_oblique(&a,&b))return false;}
-                else if(!flex_coordinate(a,&a)||!flex_coordinate(b,&b))return false;
-            }
-            float tx = static_cast<float>(a) * static_cast<float>(matrix[0]) +
-                             static_cast<float>(b) * static_cast<float>(matrix[2]) + static_cast<float>(matrix[4]);
-            float ty = -(static_cast<float>(a) * static_cast<float>(matrix[1]) +
-                              static_cast<float>(b) * static_cast<float>(matrix[3]) + static_cast<float>(matrix[5]));
+            float tx, ty;
             double design_x = 0, design_y = 0;
             if (design_scale) {
-                const double ax=a*design_scale, by=b*design_scale;
-                if (!(ax>=-9.e18 && ax<=9.e18 && by>=-9.e18 && by<=9.e18)) return false;
-                double rx=static_cast<i64>(ax+(ax<0?-.5:.5))/65536.0;
-                const double ry=static_cast<i64>(by+(by<0?-.5:.5))/65536.0;
+                double fx=0,fy=0;
+                if (!rounded_fixed(a*design_scale,&fx) || !rounded_fixed(b*design_scale,&fy)) return false;
+                double rx=fx/65536.0;
+                const double ry=fy/65536.0;
                 design_x=rx; design_y=ry;
-                if(metrics&&oblique_scale&&flex_points&&kind==GlyphPathCommandKind::cubic){
-                    const double mx=metric_a*design_scale,my=metric_b*design_scale;
-                    if(!(mx>=-9.e18&&mx<=9.e18&&my>=-9.e18&&my<=9.e18))return false;
-                    design_x=static_cast<i64>(mx+(mx<0?-.5:.5))/65536.0;design_y=static_cast<i64>(my+(my<0?-.5:.5))/65536.0;
-                }
-                if(oblique_scale){const double shift=b*oblique_scale;if(!(shift>=-9.e18&&shift<=9.e18))return false;rx+=static_cast<i64>(shift+(shift<0?-.5:.5))/65536.0;}
+                if(oblique_scale){double shift=0;if(!rounded_fixed(b*oblique_scale,&shift))return false;rx+=shift/65536.0;}
                 tx=static_cast<float>(rx)*em_scale;
                 ty=-static_cast<float>(ry)*em_scale;
-            } else if (metrics) {
-                design_x=(a*matrix[0]+b*matrix[2]+matrix[4])*font.units_per_em;
-                design_y=(a*matrix[1]+b*matrix[3]+matrix[5])*font.units_per_em;
+            } else {
+                tx = static_cast<float>(a) * static_cast<float>(matrix[0]) +
+                     static_cast<float>(b) * static_cast<float>(matrix[2]) + static_cast<float>(matrix[4]);
+                ty = -(static_cast<float>(a) * static_cast<float>(matrix[1]) +
+                       static_cast<float>(b) * static_cast<float>(matrix[3]) + static_cast<float>(matrix[5]));
+                if (metrics) {
+                    design_x=(a*matrix[0]+b*matrix[2]+matrix[4])*font.units_per_em;
+                    design_y=(a*matrix[1]+b*matrix[3]+matrix[5])*font.units_per_em;
+                }
             }
             if (!bounded(tx) || !bounded(ty)) return false;
             const float px = positive_zero(tx);
@@ -132,6 +98,7 @@ struct VirtualMachine {
                 out.minimum_y = minimum(out.minimum_y, py); out.maximum_y = maximum(out.maximum_y, py);
             }
         }
+        GlyphPathCommand command{}; command.kind = kind;
         command.x1=coordinates[0]; command.y1=coordinates[1]; command.x2=coordinates[2];
         command.y2=coordinates[3]; command.x3=coordinates[4]; command.y3=coordinates[5];
         out.commands[out.count++] = command;
@@ -223,10 +190,11 @@ struct VirtualMachine {
                 static_cast<u32>(size) > count-2) return SfntStatus::malformed;
             count -= 2;
             if (size) {
+                // Element i moves to (i+shift)%size: three reversals rotate the window in place.
                 shift %= size; if (shift < 0) shift += size;
-                double temporary[48];
-                for (i32 i = 0; i < size; ++i) temporary[(i+shift)%size] = stack[count-size+i];
-                for (i32 i = 0; i < size; ++i) stack[count-size+i] = temporary[i];
+                double* items = stack + count - size;
+                const auto reverse = [](double* p, i32 n) noexcept {for (i32 i = 0, j = n - 1; i < j; ++i, --j) {const double t = p[i]; p[i] = p[j]; p[j] = t;}};
+                reverse(items, size); reverse(items, shift); reverse(items + shift, size - shift);
             }
             break;
         }
@@ -256,7 +224,6 @@ struct VirtualMachine {
     SfntStatus flex(u8 op) noexcept {
         const double* s = stack;
         bool ok = false;
-        flex_points = true;
         if (op == 34 && count == 7) {
             ok = curve(s[0],0,s[1],s[2],s[3],0) && curve(s[4],0,s[5],-s[2],s[6],0);
         } else if (op == 35 && count == 13) {
@@ -268,7 +235,6 @@ struct VirtualMachine {
             ok = curve(s[0],s[1],s[2],s[3],s[4],s[5]) &&
                  curve(s[6],s[7],s[8],s[9],absolute_value<double>(dx)>absolute_value<double>(dy)?s[10]:-dx,absolute_value<double>(dx)>absolute_value<double>(dy)?-dy:s[10]);
         } else return SfntStatus::malformed;
-        flex_points = false;
         count = 0;
         return ok ? SfntStatus::ok : geometry_error();
     }

@@ -49,7 +49,7 @@ bool recovery_geometry(const LoginScene& scene, const LoginView& view, u32* stag
         heading |= utf8_equal(command.text, utf8_literal("Password recovery"));
         back_text |= utf8_equal(command.text, utf8_literal("Back to sign in"));
         if (command.owner.handle.slot == scene.elements[static_cast<u32>(LoginElement::status_message)].slot && command.text.bytes)
-            status = command.wrapping == UiTextWrapping::wrap && ui_rect_width(command.rectangle) > 240;
+            status = command.wrapping == TextWrapping::wrap && ui_rect_width(command.rectangle) > 240;
     }
     *stage = base + 8;
     if (!heading || !back_text || !status) {

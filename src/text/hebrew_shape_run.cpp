@@ -77,7 +77,7 @@ SfntStatus sfnt_hebrew_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,
             while(control_end<input.count){const u32 next=scalars[control_end];if(!control(next)&&!mark(next))break;
                 controls|=control(next);++control_end;}}
         const bool broken=(mark(cp)!=0&&(!holam||first!=0))||(control(cp)&&broken_context);
-        const u32 embedded=embedded_mark(cp);broken_context=broken;u64 used=mark(embedded)|(cp==0xfb1f?mark(0x5bc):0);u32 end=first+1,accents=0,vowels=embedded-0x5b0u<9?1u:0u;
+        const u32 embedded=embedded_mark(cp);u64 used=mark(embedded)|(cp==0xfb1f?mark(0x5bc):0);u32 end=first+1,accents=0,vowels=embedded-0x5b0u<9?1u:0u;
         while(end<input.count){const u32 next=scalars[end];if(control(next)&&!broken){controls=true;++end;continue;}
             const bool masora=next==0x5af&&(cp==0x5be||cp==0x5c0||cp==0x5c3||cp==0x5f3||cp==0x5f4||cp==0xfb29);
             const u64 bit=mark(next);if((!letter&&!masora)||!bit||(used&conflicts(next))||((next==0x5c1||next==0x5c2)&&cp!=0x5e9))break;

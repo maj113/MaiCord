@@ -26,8 +26,8 @@ SfntStatus sfnt_context_open(ConstSlice<u8> bytes,SfntContextKind kind,u32 glyph
 // input_count is set, to the required scratch capacity. feature_mask restricts the
 // full input span (including ignored glyphs) as in GSUB basic matching; backtrack
 // and lookahead need no eligibility bits. A non-sentinel first_coverage_index is the
-// already queried first-input coverage index for this context and glyph, which
-// executors pass to avoid repeating the lookup; other callers omit it.
+// already queried first-input coverage index for this context and glyph, so a
+// caller that has it avoids repeating the lookup; other callers omit it.
 SfntStatus sfnt_context_match_view(const SfntContext& context,const SfntGdef& gdef,const SfntLookupFilter& filter,
                              SfntGlyphView glyphs,u32 start,u32 input_end,Slice<u32> positions,
                              SfntContextMatch* output,u32 work_limit=1000000,u32* work_used=nullptr,u8 feature_mask=0,u32 first_coverage_index=sfnt_not_covered) noexcept;

@@ -22,16 +22,16 @@ bool native_tracking_corpus(DWriteTextSystem system) noexcept {
         // native-only declines explicit; spacing must preserve all acceptances.
         for(float amount:tracking){system.tracking=amount;auto reference=system;reference.native_text=nullptr;
             auto native=system;native.factory=nullptr;native.format=nullptr;++cases;
-            const auto a=text_shape_utf8_styled(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrapping);
+            const auto a=text_shape_utf8(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrapping);
             if(!iteration++)baseline_native=a.ok();
             if(!a.ok()){CHECK(!ascii&&!baseline_native&&a.error==TextShapeError::unsupported&&!native_output.text.native_fonts());continue;}
             CHECK(a.ok()&&native_output.text.native_fonts());++native_cases;
-            CHECK(text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrapping).ok());CHECK(tracking_compare());
-            const auto am=text_measure_utf8_styled(&native,text,styles,width,1000000,{utf16,256},wrapping),bm=text_measure_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},wrapping);
+            CHECK(text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrapping).ok());CHECK(tracking_compare());
+            const auto am=text_measure_utf8(&native,text,styles,width,1000000,{utf16,256},wrapping),bm=text_measure_utf8(&reference,text,styles,width,1000000,{utf16,256},wrapping);
             CHECK(am.ok()&&bm.ok()&&bytes_equal(&am.width,&bm.width,12)&&am.line_count==bm.line_count);
             const TextHitSpan hit{0,text.bytes,65535,0};
-            CHECK(text_shape_utf8_interactive(&native,text,styles,{&hit,1},width,1000000,{utf16,256},&native_output.text,wrapping).ok()&&native_output.text.native_fonts());
-            CHECK(text_shape_utf8_interactive(&reference,text,styles,{&hit,1},width,1000000,{utf16,256},&reference_output.text,wrapping).ok());CHECK(same(native_output,reference_output));
+            CHECK(text_shape_utf8(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrapping,TextOverflow::clip,{&hit,1}).ok()&&native_output.text.native_fonts());
+            CHECK(text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrapping,TextOverflow::clip,{&hit,1}).ok());CHECK(same(native_output,reference_output));
         }
     }
     // Exercise line reuse and line-to-paragraph promotion without an intervening
@@ -47,13 +47,13 @@ bool native_tracking_corpus(DWriteTextSystem system) noexcept {
     for(u32 independent=0;independent<2;++independent)for(float amount:amounts)for(u32 prefix=0;prefix<2;++prefix){
         system.independent_letters=independent!=0;system.tracking=amount;auto reference=system;reference.native_text=nullptr;
         const Utf8View measured_text{threshold_text.data,prefix?5u:threshold_text.bytes};const TextStyleSpan measure_style{1,measured_text.bytes-1,text_style_heading_1};
-        const auto measured=text_measure_utf8_styled(&reference,measured_text,{&measure_style,1},1000000,1000000,{utf16,256},TextWrapping::no_wrap);
+        const auto measured=text_measure_utf8(&reference,measured_text,{&measure_style,1},1000000,1000000,{utf16,256},TextWrapping::no_wrap);
         u32 width_bits=0;copy_bytes(&width_bits,&measured.width,4);CHECK(measured.ok()&&width_bits>1&&width_bits<0x7f7fffffu);
         const TextStyleSpan style{1,threshold_text.bytes-1,text_style_heading_1};
         for(i32 delta=-1;delta<=1;++delta){const u32 bits=static_cast<u32>(static_cast<i64>(width_bits)+delta);float width=0;copy_bytes(&width,&bits,4);
             auto native=system;native.factory=nullptr;native.format=nullptr;++cases;
-            CHECK(text_shape_utf8_styled(&native,threshold_text,{&style,1},width,1000000,{utf16,256},&native_output.text).ok()&&native_output.text.native_fonts());++native_cases;
-            CHECK(text_shape_utf8_styled(&reference,threshold_text,{&style,1},width,1000000,{utf16,256},&reference_output.text).ok());CHECK(tracking_compare());
+            CHECK(text_shape_utf8(&native,threshold_text,{&style,1},width,1000000,{utf16,256},&native_output.text).ok()&&native_output.text.native_fonts());++native_cases;
+            CHECK(text_shape_utf8(&reference,threshold_text,{&style,1},width,1000000,{utf16,256},&reference_output.text).ok());CHECK(tracking_compare());
         }
     }
     return true;

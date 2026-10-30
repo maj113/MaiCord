@@ -25,8 +25,8 @@ bool historic_corpus(DWriteTextSystem system,bool samples) noexcept {
         const float widths[]{40,120,1000000};const u32 flags[]{0,text_style_bold,text_style_italic};
         for(float width:widths)for(u32 flag:flags){TextStyleSpan style{0,text.bytes,flag};const ConstSlice<TextStyleSpan> styles{&style,flag?1u:0u};
             shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);
-            CHECK(text_shape_utf8_styled(&native,text,styles,width,1000000,{utf16,256},&native_output.text).ok());
-            CHECK(text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text).ok());
+            CHECK(text_shape_utf8(&native,text,styles,width,1000000,{utf16,256},&native_output.text).ok());
+            CHECK(text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text).ok());
             CHECK(native_output.text.native_fonts());
             if(!same(native_output,reference_output,true,true)){
                 print("historic width/style=");real(width);print("/");number(flag);print("\n");
@@ -59,7 +59,7 @@ bool historic_corpus(DWriteTextSystem system,bool samples) noexcept {
 bool old_turkic_name() noexcept {
     auto system=owner;CHECK(native_text_format_capture(&system));system.factory=nullptr;system.format=nullptr;
     const auto text=utf8_literal("pouty Shigi ᶻ 𝗓 𐰁");shaped_text_reset(&native_output.text);
-    CHECK(text_shape_utf8(&system,text,1000000,1000000,{utf16,256},&native_output.text).ok()&&native_output.text.native_fonts());
+    CHECK(text_shape_utf8(&system,text,{},1000000,1000000,{utf16,256},&native_output.text).ok()&&native_output.text.native_fonts());
     const auto& shaped=native_output.text;const u32 position=shaped.cluster_count-2;u32 found=0;
     for(u32 i=0;i<shaped.run_count;++i){const auto& run=shaped.runs[i];if(position<run.text_position||position>=run.text_position+run.text_length)continue;
         ++found;CHECK((run.bidi_level&1)&&run.glyph_count==1);IDWriteFontFace* face=nullptr;CHECK(native_run_reference(owner.factory,shaped,run,&face));

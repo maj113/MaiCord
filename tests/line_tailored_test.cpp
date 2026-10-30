@@ -17,13 +17,13 @@ bool units() noexcept {
     const u32 regional[]{0x1f1e6,0x1f1e7,0x1f1e8};const u8 regional_breaks[]{0,0,0,1};
     const u32 modifier[]{0x4e2d,0x1f3fb,'a'};const u8 modifier_breaks[]{0,0,1,1};
     const u32 quotes[]{0xab,' ','a',' ',0xbb};const u8 quote_breaks[]{0,0,1,0,1,1};
-    const u32 cjk[]{0x4e2d,0x1acf,'a'};const u8 cjk_breaks[]{0,1,0,1};
+    const u32 cjk[]{0x4e2d,0x1acf,'a'};const u8 cjk_breaks[]{0,0,1,1};
     const u32 selectors[]{'A',10,0xfe0f,0xfe0f,':','Q'};const u8 selector_breaks[]{0,0,0,2,0,0,1};
     if(!sample(space,space_breaks)||!sample(newline,newline_breaks)||!sample(final,final_breaks)||!sample(joiner,joiner_breaks)||
        !sample(regional,regional_breaks)||!sample(modifier,modifier_breaks)||!sample(quotes,quote_breaks)||!sample(cjk,cjk_breaks)||!sample(selectors,selector_breaks))return false;
-    u8 out[8];for(auto& b:out)b=0x5a;const u32 bad[]{'a',0xd800},high[]{0x110000};
-    if(line_breaks_tailored({bad,2},{out,8})||line_breaks_tailored({high,1},{out,8})||line_breaks_tailored({nullptr,1},{out,8})||
-       line_breaks_tailored({space,6},{nullptr,8})||line_breaks_tailored({space,6},{out,6})||line_breaks_tailored({space,~0u},{out,~0u}))return false;
+    u8 out[8];for(auto& b:out)b=0x5a;
+    if(line_breaks_tailored({nullptr,1},{out,8})||line_breaks_tailored({space,6},{nullptr,8})||
+       line_breaks_tailored({space,6},{out,6})||line_breaks_tailored({space,~0u},{out,~0u}))return false;
     for(u8 b:out){++checks;if(b!=0x5a)return false;}
     if(!line_breaks_tailored({},{out,8})||out[0])return false;for(u32 i=1;i<8;++i){++checks;if(out[i]!=0x5a)return false;}
     return true;

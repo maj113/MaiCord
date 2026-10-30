@@ -8,7 +8,7 @@ bool inspect_style_clusters() noexcept {
         for(u32 sample=0;sample<9;++sample){const auto text=texts[sample];u32 offsets[32],count=0;
             for(u32 at=0;at<text.bytes;){offsets[count++]=at;const auto cp=utf8_decode_one(text.data+at,text.bytes-at);CHECK(cp.valid);at+=cp.width;}offsets[count]=text.bytes;
             for(u32 first=0;first<count;++first)for(u32 last=first+1;last<=count;++last)for(u32 flag=0;flag<10;++flag){++cases;const TextStyleSpan style{offsets[first],offsets[last]-offsets[first],flags[flag]};
-                CHECK(text_shape_utf8_styled(&reference,text,{&style,1},1000000,1000000,{utf16,256},&reference_output.text).ok());
+                CHECK(text_shape_utf8(&reference,text,{&style,1},1000000,1000000,{utf16,256},&reference_output.text).ok());
                 auto system=reference;system.native_text=owner.native_text;shaped_text_reset(&native_output.text);
                     const bool native=native_text_candidate_styled(system,text,{&style,1},1000000,1000000,&native_output.text,nullptr,TextWrapping::wrap);
                     // Some selected styles lack a ZWJ cmap entry; Windows then
@@ -17,9 +17,9 @@ bool inspect_style_clusters() noexcept {
                     const bool required=family==0&&sample!=6&&(sample!=5||(first!=2&&last!=2));
                     const auto diagnose=[&]() noexcept {print("cluster style family/sample/first/last/flag=");number(family);print("/");number(sample);print("/");number(first);print("/");number(last);print("/");number(flag);print("\n");};
                     if(required&&!native){diagnose();CHECK(false);}if(native)++native_cases;
-                    CHECK(text_shape_utf8_styled(&system,text,{&style,1},1000000,1000000,{utf16,256},&native_output.text).ok());
+                    CHECK(text_shape_utf8(&system,text,{&style,1},1000000,1000000,{utf16,256},&native_output.text).ok());
                     if(!same(native_output,reference_output)){diagnose();CHECK(false);}
-                    const auto a=text_measure_utf8_styled(&system,text,{&style,1},1000000,1000000,{utf16,256});TextMeasureResult b{};
+                    const auto a=text_measure_utf8(&system,text,{&style,1},1000000,1000000,{utf16,256});TextMeasureResult b{};
                     CHECK(reference_shape_measure(reference,text,{&style,1},1000000,1000000,{utf16,256},TextWrapping::wrap,first==0||last==count,&b));
                 CHECK(a.ok()&&b.ok()&&bytes_equal(&a.width,&b.width,12)&&a.line_count==b.line_count);
             }
@@ -44,10 +44,10 @@ bool style_cluster_corpus(DWriteTextSystem system,bool required_font) noexcept {
             shaped_text_reset(&native_output.text);const bool native=native_text_candidate_styled(system,text,{&style,1},width,1000000,&native_output.text,nullptr,wrap);
             const bool required=required_font&&sample<10&&sample!=6&&(sample!=5||(first!=2&&last!=2));
             if(required&&!native){diagnose();CHECK(false);}if(native)++native_cases;
-            CHECK(text_shape_utf8_styled(&system,text,{&style,1},width,1000000,{utf16,256},&native_output.text,wrap).ok());
-            CHECK(text_shape_utf8_styled(&reference,text,{&style,1},width,1000000,{utf16,256},&reference_output.text,wrap).ok());
+            CHECK(text_shape_utf8(&system,text,{&style,1},width,1000000,{utf16,256},&native_output.text,wrap).ok());
+            CHECK(text_shape_utf8(&reference,text,{&style,1},width,1000000,{utf16,256},&reference_output.text,wrap).ok());
             if(!same(native_output,reference_output)){diagnose();CHECK(inspect_style_layout(system,text,{&style,1},width,wrap));CHECK(false);}
-            const auto a=text_measure_utf8_styled(&system,text,{&style,1},width,1000000,{utf16,256},wrap);TextMeasureResult b{};
+            const auto a=text_measure_utf8(&system,text,{&style,1},width,1000000,{utf16,256},wrap);TextMeasureResult b{};
             CHECK(reference_shape_measure(reference,text,{&style,1},width,1000000,{utf16,256},wrap,first==0||last==count,&b));
             if(!a.ok()||!b.ok()||!bytes_equal(&a.width,&b.width,12)||a.line_count!=b.line_count){diagnose();CHECK(false);}
             if(native&&!system.independent_letters){NativeParagraphHits editor_hits{};SfntFontLineParts parts[3];NativeParagraphHitStorage storage{{hit_clusters,256},{hit_lines,257},{hit_advances,1280},&editor_hits,{parts,3}};TextMeasureResult measured{};
@@ -87,9 +87,9 @@ bool style_continuity_corpus(DWriteTextSystem system) noexcept {
             shaped_text_reset(&native_output.text);const bool native=native_text_candidate_styled(system,text,{spans,count},width,1000000,&native_output.text,nullptr,wrap);
             const auto diagnose=[&]() noexcept {print("continuity sample/first/last/flag/split/width/nowrap/em=");number(sample);print("/");number(first);print("/");number(last);print("/");number(flag);print("/");number(split);print("/");real(width);print("/");number(nowrap);print("/");real(system.format->GetFontSize());print("\n");};
             if(!native){diagnose();CHECK(false);}++native_cases;auto reference=system;reference.native_text=nullptr;
-            CHECK(text_shape_utf8_styled(&reference,text,{spans,count},width,1000000,{utf16,256},&reference_output.text,wrap).ok());
+            CHECK(text_shape_utf8(&reference,text,{spans,count},width,1000000,{utf16,256},&reference_output.text,wrap).ok());
             if(!same(native_output,reference_output)){diagnose();CHECK(inspect_style_layout(system,text,{spans,count},width,wrap));CHECK(false);}
-            const auto a=text_measure_utf8_styled(&system,text,{spans,count},width,1000000,{utf16,256},wrap);TextMeasureResult b{};
+            const auto a=text_measure_utf8(&system,text,{spans,count},width,1000000,{utf16,256},wrap);TextMeasureResult b{};
             CHECK(reference_shape_measure(reference,text,{spans,count},width,1000000,{utf16,256},wrap,first==0||last==text.bytes,&b));
             if(!a.ok()||!b.ok()||!bytes_equal(&a.width,&b.width,12)||a.line_count!=b.line_count){diagnose();CHECK(false);}
         }

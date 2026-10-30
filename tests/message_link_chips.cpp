@@ -375,7 +375,7 @@ void test_chip_cells(Check check) noexcept {
     // Shaped like the chat (Segoe UI 16, hidden default-ignorables): the icon
     // cell is one em wide and wraps together with its label.
     static TextSystem system;
-    if (!text_system_initialize(&system, L"Segoe UI", 16, L"en-US").ok()) {
+    if (!text_system_initialize(&system, L"Segoe UI", 16).ok()) {
         check(false, "chip_cells_text_system");
         return;
     }
@@ -393,11 +393,9 @@ void test_chip_cells(Check check) noexcept {
     const TextHitSpan hits[]{{cell, 3, 0, 0}, {chevron, 3, 1, 0}, {message, 3, 2, 0}};
     const auto shape = [&](float width) noexcept {
         ShapedText output{};
-        const bool ok = shaped_text_initialize(&output, {glyphs, 256}, {runs, 64}, {clusters, 256}) &&
-                        shaped_text_bind_hit_regions(&output, {regions, 16}) &&
-                        shaped_text_bind_decorations(&output, {decorations, 16}) &&
-                        text_shape_utf8_interactive(&system, text, {styles, 1}, {hits, 3}, width, 1000, {utf16, 256},
-                                                    &output)
+        const bool ok = shaped_text_initialize(&output, {glyphs, 256}, {runs, 64}, {clusters, 256}, {decorations, 16}, {regions, 16}) &&
+                        text_shape_utf8(&system, text, {styles, 1}, width, 1000, {utf16, 256},
+                                        &output, TextWrapping::wrap, TextOverflow::clip, {hits, 3})
                             .ok() &&
                         output.hit_region_count == 3;
         const u32 lines = output.line_count;

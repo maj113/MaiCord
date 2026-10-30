@@ -20,7 +20,7 @@ bool directional_scripts(NativeTextContext& owner,Utf8View text,u8* scripts,u8* 
     auto classes=take<NativeScriptClass>(owner.scratch,count);if(!classes.data)return false;
     if(native_script_resolve({scalars.data,count},classes)!=NativeScriptStatus::ok)return false;
     if(old_hangul){UnicodeGraphemeState state{};u32 first=0;bool old=false;
-        for(u32 i=0;i<=count;++i){bool boundary=i==count;if(i<count&&!unicode_grapheme_next(&state,scalars[i],&boundary))return false;
+        for(u32 i=0;i<=count;++i){const bool boundary=i==count||unicode_grapheme_boundary(state,scalars[i]);
             if(boundary){if(old)for(u32 j=first;j<i;++j)if(scalars[j]-0xac00u>=11172)classes[j].flags|=128;first=i;old=false;}
             if(i<count)old|=old_hangul_jamo(scalars[i]);}}
     if(plain_ltr){for(u32 i=0;i<count;++i)levels[i]=0;}
@@ -472,7 +472,7 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
         const auto* instance=classify&&!selected?native_font_instance_get(*owner.store.instances,owner.store.slots[span.binding()->plan.slot-1].instance):nullptr;
         const auto* font=instance?native_font_get(*owner.store.instances->fonts,instance->face):nullptr;bool plain=font!=nullptr&&(continuity[i]&~7u)<128;
         while(at<span.end_byte){const auto cp=utf8_decode_one(text.data+at,text.bytes-at);if(!cp.valid||cp.width>span.end_byte-at)return false;
-            if(editor||classify||emoji){bool boundary=false;if(!unicode_grapheme_next(&graphemes,cp.codepoint,&boundary))return false;
+            if(editor||classify||emoji){const bool boundary=unicode_grapheme_boundary(graphemes,cp.codepoint);
                 if(at==span.first_byte){continuity[i]|=boundary?2:0;
                     // The explicit font override separates a standalone skin
                     // modifier from a preceding ordinary-font grapheme.
@@ -698,7 +698,7 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
                                                               group_boundaries, &part, tracking, group_rtl);
                     break;
                 case devanagari_script:
-                    if (const auto* plan = devanagari_profile(owner, *r.binding()))
+                    if (const auto* plan = form_profile(owner, *r.binding(), SfntIndicProfile::devanagari))
                         status =
                             native_devanagari_paragraph_shape(owner.store, *plan, input, r.em, segment,
                                                               group_boundaries, &part, tracking, group_rtl);

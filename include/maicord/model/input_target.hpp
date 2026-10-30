@@ -27,12 +27,8 @@ struct TextInputTarget {
     explicit operator bool() const noexcept { return context && operations; }
     bool operator==(const TextInputTarget&) const = default;
 };
-inline bool text_input_ready(const TextInputTarget& t) noexcept {
-    if (!t) return false;
-    const auto& o = *t.operations;
-    return o.ready && o.revision && o.length && o.selection && o.select && o.copy && o.replace &&
-        o.cancel && o.begin_group && o.end_group && o.ready(t);
-}
+// Every operations table sets all ten members; ready also rejects stale identities.
+inline bool text_input_ready(const TextInputTarget& t) noexcept { return t && t.operations->ready(t); }
 inline u32 text_input_revision(const TextInputTarget& t) noexcept { return text_input_ready(t) ? t.operations->revision(t) : 0; }
 inline TextInputResult text_input_length(const TextInputTarget& t, u32* n) noexcept { return text_input_ready(t) ? t.operations->length(t, n) : TextInputResult::invalid_input; }
 inline TextInputResult text_input_selection(const TextInputTarget& t, TextInputSelection* s) noexcept { return text_input_ready(t) ? t.operations->selection(t, s) : TextInputResult::invalid_input; }

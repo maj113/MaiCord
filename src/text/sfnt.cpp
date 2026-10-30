@@ -117,11 +117,10 @@ SfntStatus sfnt_horizontal_metrics(const SfntHorizontalMetrics& metrics, u16 gly
     if (!metrics.table.data || !metrics.long_metrics ||
         metrics.long_metrics > metrics.glyph_count) return SfntStatus::invalid_input;
     if (glyph >= metrics.glyph_count) return SfntStatus::glyph_out_of_range;
+    // sfnt_horizontal_metrics_open checked hmtx holds every long metric and tail entry.
     const u32 advance = minimum<u32>(glyph, metrics.long_metrics - 1u) * 4u;
     const u32 bearing = glyph < metrics.long_metrics ? glyph * 4u + 2u
         : metrics.long_metrics * 4u + (glyph - metrics.long_metrics) * 2u;
-    if (!span(metrics.table, advance, 2) || !span(metrics.table, bearing, 2))
-        return SfntStatus::truncated;
     *output = {r16(metrics.table, advance), static_cast<i16>(r16(metrics.table, bearing))};
     return SfntStatus::ok;
 }

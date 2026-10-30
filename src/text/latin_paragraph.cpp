@@ -71,23 +71,14 @@ SfntStatus native_script_paragraph_shape(const SfntFontLayoutMetrics& metrics,Ut
         if(control(cp.codepoint)||nonvisual(cp.codepoint)){
             simple=false;
             const u32 count=cp.codepoint==13&&at+1<input.bytes&&input.data[at+1]=='\n'?2u:1u;
-            if(shaped.cluster_count==s.clusters.count||count>s.source_glyphs.count-shaped.source_units)return SfntStatus::output_too_small;
-            const u32 flags=nonvisual(cp.codepoint)?native_paragraph_nonvisual:cp.codepoint==9?native_paragraph_tab:native_paragraph_newline;
-            s.clusters[shaped.cluster_count++]={shaped.source_units,shaped.source_units+count,shaped.glyph_count,0,0,flags};
-            for(u32 i=0;i<count;++i)s.source_glyphs[shaped.source_units+i]=0xffffffffu;
-            shaped.source_units+=count;at+=cp.width+(count-1);continue;
+            status=native_paragraph_append_control(s,shaped,count,nonvisual(cp.codepoint)?native_paragraph_nonvisual:cp.codepoint==9?native_paragraph_tab:native_paragraph_newline);if(status!=SfntStatus::ok)return status;
+            at+=cp.width+(count-1);continue;
         }
         u32 end=at+cp.width;while(end<input.bytes){const auto next=utf8_decode_one(input.data+end,input.bytes-end);if(!next.valid)return SfntStatus::invalid_input;if(control(next.codepoint)||nonvisual(next.codepoint))break;end+=next.width;}
         NativeAsciiLineResult line{};status=source.shape(source.context,{input.data+at,end-at},em,s.work,&line);if(status!=SfntStatus::ok)return status;
         simple=simple&&line.run.nominal_ranges!=0;
-        if(!(line.geometry_flags&native_line_ordered_x))return SfntStatus::unsupported_sequence;
-        if(line.run.glyph_count>s.glyphs.count-shaped.glyph_count||line.run.glyph_count>s.placements.count-shaped.glyph_count||
-           line.run.source_units>s.source_glyphs.count-shaped.source_units||line.cluster_count>s.clusters.count-shaped.cluster_count)return SfntStatus::output_too_small;
-        for(u32 i=0;i<line.run.glyph_count;++i){s.glyphs[shaped.glyph_count+i]=s.work.run.glyphs[i];s.placements[shaped.glyph_count+i]=s.work.run.placements[i];}
-        for(u32 i=0;i<line.run.source_units;++i)s.source_glyphs[shaped.source_units+i]=shaped.glyph_count+s.work.run.character_glyphs[i];
-        u32 first=0;for(u32 i=0;i<line.cluster_count;++i){const auto& c=s.work.clusters[i];const u32 g=s.work.run.character_glyphs[first],ge=c.source_end==line.run.source_units?line.run.glyph_count:s.work.run.character_glyphs[c.source_end];
-            s.clusters[shaped.cluster_count++]={shaped.source_units+first,shaped.source_units+c.source_end,shaped.glyph_count+g,ge-g,c.width,0};first=c.source_end;}
-        shaped.source_units+=line.run.source_units;shaped.glyph_count+=line.run.glyph_count;at=end;
+        status=native_paragraph_append_line(s,line,shaped);if(status!=SfntStatus::ok)return status;
+        at=end;
     }
     if(!boundaries.deferred){status=native_latin_paragraph_boundaries(input,{s.clusters.data,shaped.cluster_count},boundaries);if(status!=SfntStatus::ok)return status;}
     *output=shaped;if(nominal)*nominal=simple;return SfntStatus::ok;

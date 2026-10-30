@@ -1250,7 +1250,7 @@ int run() noexcept {
         return 43;
     }
     TextSystem composer_text_system{};
-    if (!text_system_initialize(&composer_text_system, L"Segoe UI", 14.0f, L"en-us").ok()) {
+    if (!text_system_initialize(&composer_text_system, L"Segoe UI", 14.0f).ok()) {
         return 43;
     }
     TextEditLayoutOwner composer_layout_owner{};

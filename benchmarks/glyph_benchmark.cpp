@@ -110,6 +110,68 @@ bool run_full_occupancy(const Clock& clock, bool indexed) noexcept {
     return true;
 }
 
+// Shapes one glyph and decodes its outline through the renderer's outline owner.
+bool decode_outline(TextSystem* text_system, ShapedText* shaped, GlyphOutline* outline, Utf8View text) noexcept {
+    const TextShapeResult shaped_result =
+        text_shape_utf8(text_system, text, {}, 64.0f, 64.0f, Slice<wchar_t>{g_utf16, 16}, shaped);
+    NativeGlyphOutlines* outlines = nullptr;
+    const bool decoded = shaped_result.ok() && shaped->run_count == 1 && shaped->native_fonts() &&
+                         shaped->glyph_count == 1 &&
+                         native_glyph_outline(&outlines, 1, shaped->glyphs[0].index, outline, shaped->native_fonts(),
+                                              shaped->runs[0].native_face);
+    native_glyph_outlines_release(&outlines);
+    return decoded;
+}
+
+// Times kDispatchIterations single-glyph batches on the CPU and the GPU. Returns 0 or a run() exit code.
+int time_batches(ID3D11Device* device, ID3D11DeviceContext* context, GlyphAtlasGpu* gpu, const GlyphOutline& outline,
+                 const GlyphRasterBounds& bounds, const GlyphAtlasAllocation& allocation, float pixels_per_em,
+                 u16 padding, u64* cpu_us, u64* gpu_us) noexcept {
+    D3D11_QUERY_DESC disjoint_description{D3D11_QUERY_TIMESTAMP_DISJOINT, 0};
+    D3D11_QUERY_DESC timestamp_description{D3D11_QUERY_TIMESTAMP, 0};
+    ID3D11Query* disjoint_query = nullptr;
+    ID3D11Query* begin_query = nullptr;
+    ID3D11Query* end_query = nullptr;
+    HRESULT result = device->CreateQuery(&disjoint_description, &disjoint_query);
+    if (SUCCEEDED(result)) {
+        result = device->CreateQuery(&timestamp_description, &begin_query);
+    }
+    if (SUCCEEDED(result)) {
+        result = device->CreateQuery(&timestamp_description, &end_query);
+    }
+    bool timed = SUCCEEDED(result);
+    if (timed) {
+        const Clock clock = clock_initialize();
+        const i64 cpu_begin = clock_now();
+        context->Begin(disjoint_query);
+        context->End(begin_query);
+        bool dispatch_ok = true;
+        for (u32 iteration = 0; iteration < kDispatchIterations; ++iteration) {
+            GlyphRasterBatch batch(gpu, context);
+            dispatch_ok = dispatch_ok && batch.add(outline, bounds, allocation, pixels_per_em, padding).ok() &&
+                          batch.finish();
+        }
+        context->End(end_query);
+        context->End(disjoint_query);
+        *cpu_us = clock_microseconds(clock, cpu_begin, clock_now());
+        context->Flush();
+        D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint{};
+        u64 gpu_begin = 0;
+        u64 gpu_end = 0;
+        timed = dispatch_ok && wait_query(context, disjoint_query, &disjoint, sizeof(disjoint)) &&
+                wait_query(context, begin_query, &gpu_begin, sizeof(gpu_begin)) &&
+                wait_query(context, end_query, &gpu_end, sizeof(gpu_end)) && !disjoint.Disjoint &&
+                disjoint.Frequency != 0 && gpu_end >= gpu_begin;
+        if (timed) {
+            *gpu_us = gpu_timestamp_microseconds(gpu_end - gpu_begin, disjoint.Frequency);
+        }
+    }
+    com_release(end_query);
+    com_release(begin_query);
+    com_release(disjoint_query);
+    return timed ? 0 : 7;
+}
+
 int run() noexcept {
     if (!run_full_occupancy(clock_initialize(), false) || !run_full_occupancy(clock_initialize(), true)) {
         return 11;
@@ -133,7 +195,7 @@ int run() noexcept {
     GlyphOutline outline{};
     GlyphAtlasAllocator allocator{};
     GlyphAtlasGpu gpu{};
-    if (!text_system_initialize(&text_system, L"Segoe UI", 16.0f, L"en-us").ok() ||
+    if (!text_system_initialize(&text_system, L"Segoe UI", 16.0f).ok() ||
         !shaped_text_initialize(&shaped, Slice<TextGlyph>{g_glyphs, 16}, Slice<TextRun>{g_runs, 4},
                                 Slice<u16>{g_clusters, 16}) ||
         !glyph_outline_initialize(&outline, Slice<GlyphPathCommand>{g_path_commands, 512}) ||
@@ -148,14 +210,7 @@ int run() noexcept {
         return 2;
     }
 
-    const TextShapeResult shaped_result = text_shape_utf8(&text_system, utf8_literal("A"), 64.0f, 64.0f,
-                                                          Slice<wchar_t>{g_utf16, 16}, &shaped);
-    // The renderer's outline owner binds the run's font instance and scratch.
-    NativeGlyphOutlines* outlines = nullptr;
-    if (!shaped_result.ok() || shaped.run_count != 1 || !shaped.native_fonts() || shaped.glyph_count != 1 ||
-        !native_glyph_outline(&outlines, 1, shaped.glyphs[0].index, &outline, shaped.native_fonts(),
-                              shaped.runs[0].native_face)) {
-        native_glyph_outlines_release(&outlines);
+    if (!decode_outline(&text_system, &shaped, &outline, utf8_literal("A"))) {
         glyph_atlas_gpu_release(&gpu);
         shaped_text_reset(&shaped);
         text_system_release(&text_system);
@@ -163,7 +218,6 @@ int run() noexcept {
         com_release(device);
         return 3;
     }
-    native_glyph_outlines_release(&outlines);
 
     GlyphRasterBounds bounds{};
     if (!glyph_raster_bounds(outline, 32.0f, 1, &bounds)) {
@@ -175,47 +229,31 @@ int run() noexcept {
         return 5;
     }
 
-    D3D11_QUERY_DESC disjoint_description{D3D11_QUERY_TIMESTAMP_DISJOINT, 0};
-    D3D11_QUERY_DESC timestamp_description{D3D11_QUERY_TIMESTAMP, 0};
-    ID3D11Query* disjoint_query = nullptr;
-    ID3D11Query* begin_query = nullptr;
-    ID3D11Query* end_query = nullptr;
-    result = device->CreateQuery(&disjoint_description, &disjoint_query);
-    if (SUCCEEDED(result)) {
-        result = device->CreateQuery(&timestamp_description, &begin_query);
+    u64 cpu_us = 0, gpu_us = 0;
+    if (const int status = time_batches(device, context, &gpu, outline, bounds, allocation, 32.0f,
+                                        allocator.padding, &cpu_us, &gpu_us)) {
+        return status;
     }
-    if (SUCCEEDED(result)) {
-        result = device->CreateQuery(&timestamp_description, &end_query);
+    const u32 glyph_commands = outline.count;
+    // A large raster, where per-pixel work rather than dispatch latency dominates.
+    shaped_text_reset(&shaped);
+    if (!decode_outline(&text_system, &shaped, &outline, utf8_literal("g"))) {
+        return 3;
     }
-    if (FAILED(result)) {
-        return 6;
+    GlyphRasterBounds large_bounds{};
+    if (!glyph_raster_bounds(outline, 160.0f, 1, &large_bounds)) {
+        return 4;
     }
-
-    const Clock clock = clock_initialize();
-    const i64 cpu_begin = clock_now();
-    context->Begin(disjoint_query);
-    context->End(begin_query);
-    bool dispatch_ok = true;
-    for (u32 iteration = 0; iteration < kDispatchIterations; ++iteration) {
-        GlyphRasterBatch batch(&gpu, context);
-        dispatch_ok = dispatch_ok && batch.add(outline, bounds, allocation, 32.0f, allocator.padding).ok() &&
-                      batch.finish();
+    const GlyphAtlasAllocation large_allocation =
+        glyph_atlas_allocate(&allocator, 2, large_bounds.width, large_bounds.height);
+    u64 large_cpu_us = 0, large_gpu_us = 0;
+    if (!large_allocation.ok()) {
+        return 5;
     }
-    context->End(end_query);
-    context->End(disjoint_query);
-    const u64 cpu_us = clock_microseconds(clock, cpu_begin, clock_now());
-    context->Flush();
-    D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint{};
-    u64 gpu_begin = 0;
-    u64 gpu_end = 0;
-    const bool timed = dispatch_ok && wait_query(context, disjoint_query, &disjoint, sizeof(disjoint)) &&
-                       wait_query(context, begin_query, &gpu_begin, sizeof(gpu_begin)) &&
-                       wait_query(context, end_query, &gpu_end, sizeof(gpu_end)) && !disjoint.Disjoint &&
-                       disjoint.Frequency != 0 && gpu_end >= gpu_begin;
-    if (!timed) {
-        return 7;
+    if (const int status = time_batches(device, context, &gpu, outline, large_bounds, large_allocation, 160.0f,
+                                        allocator.padding, &large_cpu_us, &large_gpu_us)) {
+        return status;
     }
-    const u64 gpu_us = gpu_timestamp_microseconds(gpu_end - gpu_begin, disjoint.Frequency);
 
     D3D11_TEXTURE2D_DESC staging_description{};
     staging_description.Width = gpu.width;
@@ -251,7 +289,7 @@ int run() noexcept {
     }
     context->Unmap(staging, 0);
 
-    write_value("glyph_commands", outline.count);
+    write_value("glyph_commands", glyph_commands);
     write_value("glyph_width", bounds.width);
     write_value("glyph_height", bounds.height);
     write_value("glyph_covered_pixels", covered_pixels);
@@ -260,13 +298,14 @@ int run() noexcept {
     write_value("glyph_dispatch_count", gpu.dispatch_count);
     write_value("glyph_dispatch_cpu_batch_us", cpu_us);
     write_value("glyph_dispatch_gpu_batch_us", gpu_us);
+    write_value("glyph_large_width", large_bounds.width);
+    write_value("glyph_large_height", large_bounds.height);
+    write_value("glyph_large_dispatch_cpu_batch_us", large_cpu_us);
+    write_value("glyph_large_dispatch_gpu_batch_us", large_gpu_us);
 
     const bool valid_output = coverage_sum != 0 && covered_pixels != 0 && partial_pixels != 0 &&
-                              gpu.dispatch_count == kDispatchIterations;
+                              gpu.dispatch_count == 2 * kDispatchIterations;
     com_release(staging);
-    com_release(end_query);
-    com_release(begin_query);
-    com_release(disjoint_query);
     glyph_atlas_gpu_release(&gpu);
     shaped_text_reset(&shaped);
     text_system_release(&text_system);

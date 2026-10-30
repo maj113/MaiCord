@@ -52,7 +52,8 @@ bool acquire(const wchar_t* path,NativeRunPlanHandle* out,u32 weight=0) noexcept
     CHECK(native_font_stats(font_store).files==1&&instances[instance.slot-1].references==1);
     const auto nominal=native_run_plan_nominal(store,*out);CHECK(nominal.ascii_count<=95);
     for(u32 i=0;i<nominal.ascii_count;++i){u16 glyph=0;const auto* selected=native_font_get(font_store,face);
-        CHECK(selected&&sfnt_cmap_glyph(selected->cmap,32+i,0,&glyph)==SfntStatus::ok&&glyph==static_cast<u32>(nominal.ascii_first)+i&&glyph&&glyph<nominal.glyph_limit);}
+        CHECK(selected&&sfnt_cmap_glyph(selected->cmap,32+i,0,&glyph)==SfntStatus::ok&&glyph==static_cast<u32>(nominal.ascii_first)+i&&glyph&&glyph<nominal.glyph_limit);
+        double advance=0;CHECK(normal->advance(normal->metric_context,glyph,&advance)==SfntStatus::ok&&(normal->cache_advances?!nominal.ascii_advances:nominal.ascii_advances&&nominal.ascii_advances[i]==advance));}
     return true;
 }
 bool shape(NativeRunPlanHandle handle,bool independent,bool rtl,u32 expected_glyph,const u32* expected_placement) noexcept {

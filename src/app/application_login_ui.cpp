@@ -35,7 +35,7 @@ bool mfa_edit_status(RendererLoginStatus status) noexcept {
 bool text_store_geometry(void*, SecureTextStoreGeometry* geometry) noexcept {
     Application& application = g_app;
     const SecureEdit* edit = application_active_login_edit();
-    if (!geometry || !edit || !application.window || !application.renderer_ready ||
+    if (!edit || !application.window || !application.renderer_ready ||
         application.renderer.dpi == 0) {
         return false;
     }
@@ -96,7 +96,6 @@ bool text_store_range(void*, u32 first, u32 last, RECT* output, bool* clipped) n
     POINT origin{};
     if (!edit || !g_app.renderer_ready || !application_content_to_screen(&origin)) return false;
     if (IsIconic(g_app.window)) {
-        if (!output || !clipped) return false;
         reset_value(output); *clipped = true; return true;
     }
     const LoginElement element = edit == &g_app.login.login ?

@@ -123,13 +123,13 @@ bool ui_composer_voice_bar_text(const UiComposerVoiceView& view, UiRect bar, UiR
     }
     if (!ui_text_output_push_owned(output, {{time, bytes}, owner, g.time, ui_rect_intersection(clip, g.time),
                                             theme.text_primary, text_style_subtext, UiTextAlignment::start,
-                                            UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::clip}))
+                                            UiTextAlignment::center, TextWrapping::no_wrap, TextOverflow::clip}))
         return false;
     return !view.status.bytes || !ui_rect_has_area(g.status) ||
            ui_text_output_push(output, {view.status, owner, g.status, ui_rect_intersection(clip, g.status),
                                         view.error ? theme.tokens.text.danger : ui_background_muted_text_color(theme),
                                         text_style_subtext, UiTextAlignment::end, UiTextAlignment::center,
-                                        UiTextWrapping::no_wrap, UiTextOverflow::ellipsis});
+                                        TextWrapping::no_wrap, TextOverflow::ellipsis});
 }
 
 } // namespace maicord

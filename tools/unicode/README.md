@@ -38,7 +38,10 @@ into another root. The report records input hashes, enum labels and bit
 positions, layout candidates, generated-file hashes and counts.
 
 The stored properties are `FIELDS` and `FLAGS` in the script; Script_Extensions
-contributes only Arabic membership and East_Asian_Width only F/W/H membership.
+contributes only Arabic membership. The first record word holds the fields the
+per-scalar text passes read (bidi class, general category, line and grapheme
+break, joining type, flags), the second script, combining class and the Indic
+categories.
 Records sit behind a three-level page index (shared pages, direct IDs for uniform
 spans, a 128-entry ASCII index); `compact_pages.py` overlaps pages, identical
 unassigned planes share one plane's top-index blocks, and reconstruction is
@@ -63,12 +66,12 @@ Expected values come from the [flat XML dataset](https://www.unicode.org/Public/
 compares every code point, all stored fields and flags, both derived predicates
 and mirror and bracket values exactly, and rejects non-contiguous coverage,
 truncation and trailing data. `<native.bin>` is `MCUCDS2` plus NUL, then per code
-point eleven field bytes in schema order, three little-endian uint32 (flags,
+point ten field bytes in schema order, three little-endian uint32 (flags,
 mirror, paired bracket) and one bracket-type byte.
 
 ## Grapheme clusters
 
-`unicode_grapheme_next` implements the default extended rules of
+`unicode_grapheme_boundary` implements the default extended rules of
 [UAX #29 revision 47](https://www.unicode.org/reports/tr29/tr29-47.html): three
 bytes of state, one pass, no allocation or backward scan. Keep the state across
 chunks and reset it at the start of text. The caller supplies decoded scalar
@@ -163,9 +166,10 @@ candidates, their Windows observations must agree.
 `line_breaks_tailored` (`include/maicord/text/detail/line_break_tailored.hpp`)
 is the en-US line-break tailoring message layout uses, matching the platform
 text stack: Unicode 17 / UAX #14 revision 55 with the platform's class
-remappings. It takes validated scalar input and writes `count + 1` caller-owned
-bytes (0 prohibited, 1 allowed, 2 mandatory), in one linear pass with constant
-additional state; invalid input leaves the output untouched. It is not a
+remappings. It takes scalar values as a UTF decoder yields them and writes
+`count + 1` caller-owned bytes (0 prohibited, 1 allowed, 2 mandatory), in one
+linear pass with constant additional state; null input or short output leaves
+the output untouched. It is not a
 dictionary segmenter.
 
 ```powershell
@@ -194,15 +198,11 @@ validates the complete UTF-16 capture, adjacent-condition precedence, endpoints,
 native and default counters and surrogate interiors; dictionary differences are
 listed, not hidden.
 
-- `line_tailoring_data.py` derives `src/text/generated/line_tailoring_data.inc` from
-  the pinned Unicode 16 and 17 line-break properties and Unicode 17 age data:
-  characters first assigned in 17.0 keep their 16.0 class where it differs under
-  this profile. Arguments: `--ucd`, `--previous` (the Unicode 16 property file),
-  `--output`, `--report`, `--probes`.
 - `line_windows_corpus.py --root <probe-root> --ucd <UCD.zip>` writes the observed
   Windows boundaries to `<root>/native-corpus.bin` (`MCWINLB1`). Dictionary cases
   are excluded and listed; any other case where candidate and Windows differ is
-  rejected.
+  rejected, so the observations must come from a Windows build whose line-break
+  data is Unicode 17.
 - `MaiCordLineTailoredTests` runs unit and stress checks and, given a corpus path,
   replays it. It imports only KERNEL32.dll.
 

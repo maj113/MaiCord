@@ -155,9 +155,9 @@ void test_forum_post_scene(void (*check)(bool, const char*) noexcept) noexcept {
         for (u32 i = 0; ok && i < text.count; ++i) {
             const auto& command = text.storage[i];
             if (command.owner.handle.slot == scene.elements[static_cast<u32>(ForumPostElement::title)].slot)
-                title_single = command.wrapping == UiTextWrapping::no_wrap;
+                title_single = command.wrapping == TextWrapping::no_wrap;
             if (command.owner.handle.slot == scene.elements[static_cast<u32>(ForumPostElement::body)].slot)
-                body_multi = command.wrapping == UiTextWrapping::wrap;
+                body_multi = command.wrapping == TextWrapping::wrap;
         }
         check(ok && title_single && body_multi,
               "forum_scene_unicode_two_fields_dark_light_singleline_title_multiline_body");

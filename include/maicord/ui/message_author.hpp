@@ -123,7 +123,7 @@ inline bool message_author_layout(const MessageScene& scene, const MessageTextCo
         out->name_prefix = {decoration.name_prefix, command.owner,
                             {bounds.left, bounds.top, bounds.left + prefix_width, bounds.bottom}, command.clip, color,
                             text_style_subtext, UiTextAlignment::start, UiTextAlignment::center,
-                            UiTextWrapping::no_wrap, UiTextOverflow::ellipsis};
+                            TextWrapping::no_wrap, TextOverflow::ellipsis};
         bounds.left += prefix_width + 4;
     }
     bounds.right =
@@ -137,8 +137,8 @@ inline bool message_author_layout(const MessageScene& scene, const MessageTextCo
                  text_style_bold,
                  UiTextAlignment::start,
                  UiTextAlignment::center,
-                 UiTextWrapping::no_wrap,
-                 UiTextOverflow::ellipsis,
+                 TextWrapping::no_wrap,
+                 TextOverflow::ellipsis,
                  face,
                  styled && hovered && hovered->message_id == record->id
                      ? profile_name_effect(styled->name, true, scene.widgets.hover_started_ms)
@@ -160,8 +160,8 @@ inline bool message_author_layout(const MessageScene& scene, const MessageTextCo
         const UiRect suffix{bounds.right + 4, bounds.top, minimum(command.rectangle.right, bounds.right + 4 + suffix_width),
                             bounds.bottom};
         out->name_suffix = {decoration.name_suffix, command.owner, suffix, command.clip, color, text_style_subtext,
-                            UiTextAlignment::start, UiTextAlignment::center, UiTextWrapping::no_wrap,
-                            UiTextOverflow::ellipsis};
+                            UiTextAlignment::start, UiTextAlignment::center, TextWrapping::no_wrap,
+                            TextOverflow::ellipsis};
         tail_left = suffix.right + 8;
     }
     if (badge_width) {
@@ -224,8 +224,8 @@ inline bool message_author_layout(const MessageScene& scene, const MessageTextCo
                 tail.flags,
                 UiTextAlignment::start,
                 UiTextAlignment::center,
-                UiTextWrapping::no_wrap,
-                UiTextOverflow::ellipsis};
+                TextWrapping::no_wrap,
+                TextOverflow::ellipsis};
     }
     return true;
 }

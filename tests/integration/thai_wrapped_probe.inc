@@ -114,8 +114,8 @@ bool probe_script_wrapped(WrappedProbeScript script) noexcept {
             for(u32 i=0;valid&&i<stream.count;++i){
                 const auto& command=commands[i];if(command.owner.handle.slot!=scene.bio_widget.slot)continue;
                 found=true;auto selected=renderer_text_system(&renderer,command.face);
-                valid=command.wrapping==UiTextWrapping::wrap&&command.style_flags==0&&
-                    text_shape_utf8_styled(&selected,command.text,command.styles,ui_rect_width(command.rectangle),ui_rect_height(command.rectangle),
+                valid=command.wrapping==TextWrapping::wrap&&command.style_flags==0&&
+                    text_shape_utf8(&selected,command.text,command.styles,ui_rect_width(command.rectangle),ui_rect_height(command.rectangle),
                         {utf16,1024},&shaped,TextWrapping::wrap,TextOverflow::ellipsis).ok()&&shaped.line_count>1;
                 valid=valid&&shaped.native_fonts();
                 log_u64(LogLevel::info,tag,"case",sample*6+mode*2+scale);

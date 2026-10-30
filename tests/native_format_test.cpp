@@ -202,13 +202,10 @@ bool stale_scope_signal(NativeFontSession* session,const wchar_t* path,u32 scope
     CHECK(scope_index||catalogs.files);NativeFontSelection selected{};
     CHECK(native_text_catalog_select_query(&catalogs,query,session,&scratch,&retained,&selected)&&retained.slot&&!catalogs.stale_scopes);
     const auto* held=native_font_instance_get(*native_font_session_instances(session),retained);CHECK(held);
-    auto& catalog=scope_index?catalogs.scopes[scope_index].catalog:catalogs.files->catalog;const auto original=catalog.files;
-    auto* files=arena_allocate<NativeFontCatalogFile>(&copies,catalog.count.files);CHECK(files);
-    copy_bytes(files,original.data,catalog.count.files*sizeof(*files));
-    const u32 file=catalog.faces[catalog.candidates[range.match.candidate].face].file;
-    auto* changed=reinterpret_cast<u8*>(&files[file].change_time);*changed^=1;
-    CHECK(native_font_coverage_reset(&catalogs.coverage));catalog.files={files,catalog.count.files};
-    struct Restore {NativeFontCatalog& c;Slice<NativeFontCatalogFile> original;~Restore() noexcept {c.files=original;}} restore{catalog,original};
+    auto& catalog=scope_index?catalogs.scopes[scope_index].catalog:catalogs.files->catalog;
+    auto* changed=reinterpret_cast<u8*>(&catalog.stamp.change);const u8 original=*changed;*changed^=1;
+    CHECK(native_font_coverage_reset(&catalogs.coverage));
+    struct Restore {u8* changed;u8 original;~Restore() noexcept {*changed=original;}} restore{changed,original};
     const u32 candidate=range.match.candidate;const u32 bit=1u<<scope_index;NativeFontInstanceHandle rejected{};
     stale_marker(&catalogs,scope_index,0);
     CHECK(!native_text_catalog_select_query(&catalogs,query,session,&scratch,&rejected,&selected)&&!rejected.slot&&!selected.face.slot&&catalogs.stale_scopes==bit);
@@ -224,7 +221,7 @@ bool stale_scope_signal(NativeFontSession* session,const wchar_t* path,u32 scope
     catalogs.stale_scopes=0;
     CHECK(!native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("\xff"),&range)&&!catalogs.stale_scopes);
     CHECK(!native_text_catalog_select_face(&catalogs,scope_index,candidate,4,session,&scratch,&rejected,&selected)&&!catalogs.stale_scopes);
-    catalog.files=original;
+    *changed=original;
     CHECK(native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("A"),&range)&&!catalogs.stale_scopes);
     catalogs.stale_scopes=bit;
     CHECK(native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("A"),&range)&&catalogs.stale_scopes==bit);

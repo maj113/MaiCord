@@ -12,10 +12,11 @@ struct NativeRunPlanSlot {
     u32 references,generation;
 };
 struct NativeRunPlanStore {NativeFontInstanceStore* instances;Slice<NativeRunPlanSlot> slots;Arena* substitutions=nullptr;};
-// The optional affine cmap prefix covers [U+0020, U+0020 + ascii_count).
-// Both fields fit in the tail padding; the borrowed result stays 24 bytes.
-struct NativeNominalPlan {ConstSlice<u64> participation;u32 glyph_limit;u16 ascii_first,ascii_count;};
-static_assert(sizeof(NativeNominalPlan)==24);
+// The optional affine cmap prefix covers [U+0020, U+0020 + ascii_count). For a
+// plan whose advances are not cached (static font, no simulation) ascii_advances
+// holds that prefix's advances in font units, else it is null.
+struct NativeNominalPlan {ConstSlice<u64> participation;const u16* ascii_advances;u32 glyph_limit;u16 ascii_first,ascii_count;};
+static_assert(sizeof(NativeNominalPlan)==32);
 // Text plans prepare Latin/en-US roots and nominal participation. Emoji plans
 // prepare Common roots for native_emoji_run only. Both typography modes share GSUB
 // (payloads loaded lazily), reachable GPOS lookups and the metric context. Script

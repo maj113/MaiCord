@@ -177,7 +177,7 @@ void popup_identity_case(void (*check)(bool, const char*) noexcept) noexcept {
 }
 void geometry_cases(void (*check)(bool, const char*) noexcept) noexcept {
     TextSystem system{};
-    const bool initialized = text_system_initialize(&system, L"Segoe UI", 16, L"en-us").ok();
+    const bool initialized = text_system_initialize(&system, L"Segoe UI", 16).ok();
     check(initialized, "flag geometry initializes configured text owner");
     if (!initialized) return;
     const auto catalog = unicode_emoji_catalog();
@@ -233,7 +233,7 @@ void geometry_cases(void (*check)(bool, const char*) noexcept) noexcept {
 // caret still steps over it as one position.
 void escape_geometry_case(void (*check)(bool, const char*) noexcept) noexcept {
     TextSystem system{};
-    if (!text_system_initialize(&system, L"Segoe UI", 16, L"en-us").ok()) {
+    if (!text_system_initialize(&system, L"Segoe UI", 16).ok()) {
         check(false, "composer escape geometry initializes configured text owner");
         return;
     }

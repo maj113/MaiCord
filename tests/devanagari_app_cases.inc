@@ -6,8 +6,8 @@ bool native_bidi_format_controls(DWriteTextSystem system) noexcept {
         for(u32 i=0;i<length;++i){bytes+=utf8_encode(controls[value%9],source+bytes);value/=9;}
         if(context){const auto suffix=utf8_literal(" हिन्दी אב");copy_bytes(source+bytes,suffix.data,suffix.bytes);bytes+=suffix.bytes;}
         const Utf8View text{source,bytes};const float width=context?37.f:1000000.f;++cases;
-        CHECK(text_shape_utf8(&reference,text,width,1000000,{utf16,256},&reference_output.text).ok());
-        CHECK(text_shape_utf8(&native,text,width,1000000,{utf16,256},&native_output.text).ok()&&native_output.text.native_fonts());
+        CHECK(text_shape_utf8(&reference,text,{},width,1000000,{utf16,256},&reference_output.text).ok());
+        CHECK(text_shape_utf8(&native,text,{},width,1000000,{utf16,256},&native_output.text).ok()&&native_output.text.native_fonts());
         if(!same(native_output,reference_output,true)||!compare_hits(system,text,width,TextWrapping::wrap,{},true,devanagari_tracking)){
             print("bidi-format length/word/context=");number(length);print("/");number(word);print("/");number(context);print("\n");return false;}++native_cases;
     }return true;
@@ -130,8 +130,8 @@ bool native_devanagari_corpus(DWriteTextSystem system) noexcept {
         ++cases;native.independent_letters=reference.independent_letters=mode!=0;const auto text=samples[sample];
         const TextStyleSpan style{0,partial?static_cast<u32>(utf8_decode_one(text.data,text.bytes).width):text.bytes,flag};const ConstSlice<TextStyleSpan> styles{&style,flag?1u:0u};
         const auto wrap=width==37?TextWrapping::wrap:TextWrapping::no_wrap;
-        const auto expected=text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrap);
-        const auto actual=text_shape_utf8_styled(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrap);
+        const auto expected=text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrap);
+        const auto actual=text_shape_utf8(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrap);
         if(!expected.ok()||!actual.ok()||!native_output.text.native_fonts()||!same(native_output,reference_output,true)){
             const Output* outputs[]{&native_output,&reference_output};for(u32 side=0;side<2;++side){const auto& t=outputs[side]->text;
                 for(u32 i=0;i<t.run_count;++i){const auto& r=t.runs[i];print(side?"ref shape run=":"native shape run=");number(r.text_position);print("/");number(r.text_length);print("/");number(r.glyph_count);print(" level=");number(r.bidi_level);print(" x=");real(r.baseline_x);print(" advances=");

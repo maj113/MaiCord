@@ -33,9 +33,9 @@ bool label(UiTextOutput* output, const Utf8View& text, const UiRect& bounds, con
     return ui_text_output_push_owned(output, {text, owner, bounds, clip, color, flags,
                                               static_cast<UiTextAlignment>((placement >> 2) & 3u),
                                               static_cast<UiTextAlignment>((placement >> 4) & 3u),
-                                              placement & label_nowrap ? UiTextWrapping::no_wrap
-                                                                       : UiTextWrapping::wrap,
-                                              UiTextOverflow::ellipsis});
+                                              placement & label_nowrap ? TextWrapping::no_wrap
+                                                                       : TextWrapping::wrap,
+                                              TextOverflow::ellipsis});
 }
 // The prompt line: a status replaces it; the prompt is hidden when closed.
 Utf8View instruction(const UiPollProjection& projection, const UiPollStyle& style) noexcept {

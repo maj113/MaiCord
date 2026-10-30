@@ -3,7 +3,6 @@
 #pragma once
 #include "maicord/text/base.hpp"
 namespace maicord {
-inline constexpr u32 unicode_data_version = 0x00110000;
 enum class UnicodeBidiClass : u8 {
     al,
     an,
@@ -254,27 +253,6 @@ enum class UnicodeGraphemeBreak : u8 {
     xx,
     zwj
 };
-enum class UnicodeWordBreak : u8 {
-    cr,
-    dq,
-    ex,
-    extend,
-    fo,
-    hl,
-    ka,
-    le,
-    lf,
-    mb,
-    ml,
-    mn,
-    nl,
-    nu,
-    ri,
-    sq,
-    wsegspace,
-    xx,
-    zwj
-};
 enum class UnicodeLineBreak : u8 {
     ai,
     ak,
@@ -405,29 +383,23 @@ enum class UnicodeFlag : u32 {
     extended_pictographic=1u<<4,
     variation_selector=1u<<5,
     arabic_script_extension=1u<<6,
-    east_asian_line_break=1u<<7,
 };
 struct UnicodeProperties {
     u32 words[2];
 private:
-    template<u32 At,u32 Width> constexpr u32 value() const noexcept {
-        u32 v=words[At/32]>>(At%32);
-        if constexpr(At%32+Width>32)v|=words[At/32+1]<<(32-At%32);
-        return v&((1u<<Width)-1);
-    }
+    template<u32 At,u32 Width> constexpr u32 value() const noexcept {return (words[At/32]>>(At%32))&((1u<<Width)-1);}
 public:
     constexpr UnicodeBidiClass bidi_class() const noexcept {return static_cast<UnicodeBidiClass>(value<0,5>());}
     constexpr UnicodeGeneralCategory general_category() const noexcept {return static_cast<UnicodeGeneralCategory>(value<5,5>());}
-    constexpr UnicodeScript script() const noexcept {return static_cast<UnicodeScript>(value<10,8>());}
-    constexpr u8 combining_class() const noexcept {return static_cast<u8>(value<18,8>());}
-    constexpr UnicodeGraphemeBreak grapheme_break() const noexcept {return static_cast<UnicodeGraphemeBreak>(value<32,4>());}
-    constexpr UnicodeWordBreak word_break() const noexcept {return static_cast<UnicodeWordBreak>(value<36,5>());}
-    constexpr UnicodeLineBreak line_break() const noexcept {return static_cast<UnicodeLineBreak>(value<26,6>());}
-    constexpr UnicodeJoiningType joining_type() const noexcept {return static_cast<UnicodeJoiningType>(value<41,3>());}
-    constexpr UnicodeIndicConjunctBreak indic_conjunct_break() const noexcept {return static_cast<UnicodeIndicConjunctBreak>(value<44,2>());}
-    constexpr UnicodeIndicSyllabicCategory indic_syllabic_category() const noexcept {return static_cast<UnicodeIndicSyllabicCategory>(value<46,6>());}
-    constexpr UnicodeIndicPositionalCategory indic_positional_category() const noexcept {return static_cast<UnicodeIndicPositionalCategory>(value<52,4>());}
-    constexpr u32 flags() const noexcept {return value<56,8>();}
+    constexpr UnicodeScript script() const noexcept {return static_cast<UnicodeScript>(value<32,8>());}
+    constexpr u8 combining_class() const noexcept {return static_cast<u8>(value<40,8>());}
+    constexpr UnicodeGraphemeBreak grapheme_break() const noexcept {return static_cast<UnicodeGraphemeBreak>(value<16,4>());}
+    constexpr UnicodeLineBreak line_break() const noexcept {return static_cast<UnicodeLineBreak>(value<10,6>());}
+    constexpr UnicodeJoiningType joining_type() const noexcept {return static_cast<UnicodeJoiningType>(value<22,3>());}
+    constexpr UnicodeIndicConjunctBreak indic_conjunct_break() const noexcept {return static_cast<UnicodeIndicConjunctBreak>(value<20,2>());}
+    constexpr UnicodeIndicSyllabicCategory indic_syllabic_category() const noexcept {return static_cast<UnicodeIndicSyllabicCategory>(value<48,6>());}
+    constexpr UnicodeIndicPositionalCategory indic_positional_category() const noexcept {return static_cast<UnicodeIndicPositionalCategory>(value<54,4>());}
+    constexpr u32 flags() const noexcept {return value<25,7>();}
     constexpr bool has(UnicodeFlag flag) const noexcept {return (flags()&static_cast<u32>(flag))!=0;}
 };
 static_assert(sizeof(UnicodeProperties)==8);

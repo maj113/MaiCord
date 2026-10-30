@@ -889,14 +889,14 @@ bool ui_video_scene_text_output(const UiVideoScene& scene, const Theme& theme, U
     if (scene.track_title_bytes) {
         const UiRect title{scene.preview.left + 8, scene.preview.top, scene.preview.right - 8, scene.preview.top + kUiVideoControlBarHeight};
         Color color = kDefaultTheme.text_primary; color.alpha *= scene.controls_transition.value;
-        if (!ui_text_output_push(text, {{scene.track_title, scene.track_title_bytes}, text_owner, title, ui_rect_overlap(title, scene.clip), color, text_style_subtext, UiTextAlignment::start, UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::ellipsis})) return false;
+        if (!ui_text_output_push(text, {{scene.track_title, scene.track_title_bytes}, text_owner, title, ui_rect_overlap(title, scene.clip), color, text_style_subtext, UiTextAlignment::start, UiTextAlignment::center, TextWrapping::no_wrap, TextOverflow::ellipsis})) return false;
     }
     if (const auto bubble = ui_video_scene_hover_bubble(scene); ui_rect_has_area(bubble)) {
         Color color = kDefaultTheme.text_primary;
         color.alpha *= scene.controls_transition.value;
         if (!ui_text_output_push(text, {{scene.hover_time, scene.hover_time_bytes}, text_owner, bubble, scene.clip,
                                         color, text_style_subtext, UiTextAlignment::center, UiTextAlignment::center,
-                                        UiTextWrapping::no_wrap, UiTextOverflow::ellipsis}))
+                                        TextWrapping::no_wrap, TextOverflow::ellipsis}))
             return false;
     }
     for (const auto& control : scene.projection.controls) {
@@ -917,8 +917,8 @@ bool ui_video_scene_text_output(const UiVideoScene& scene, const Theme& theme, U
         if (!ui_text_output_push(text, {label, text_owner, label_bounds, ui_rect_overlap(label_bounds, clip), color, control.text_style,
                                         control.id == UiVideoControl::track ? UiTextAlignment::center
                                                                                    : UiTextAlignment::start,
-                                        UiTextAlignment::center, UiTextWrapping::no_wrap,
-                                        UiTextOverflow::ellipsis}))
+                                        UiTextAlignment::center, TextWrapping::no_wrap,
+                                        TextOverflow::ellipsis}))
             return false;
     }
     return true;

@@ -3,6 +3,13 @@
 #include "maicord/sys/simd.hpp"
 
 namespace maicord {
+// Advance of a glyph in font units; the plan's ASCII table (static fonts only)
+// answers the affine cmap prefix without the metric callback.
+inline SfntStatus nominal_advance(const NativeNominalPlan& nominal,const SfntShapePlan& plan,u16 glyph,double* advance) noexcept {
+    const u32 index=static_cast<u32>(glyph)-nominal.ascii_first;
+    if(nominal.ascii_advances&&index<nominal.ascii_count){*advance=nominal.ascii_advances[index];return SfntStatus::ok;}
+    return plan.advance(plan.metric_context,glyph,advance);
+}
 inline SfntStatus nominal_placements(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph> mapped,
     Slice<u16> glyphs,Slice<SfntPlacement> placements,Slice<u32> scratch,__m128 scale) noexcept {
     if(plan.cache_advances&&mapped.count>=8&&scratch.data&&scratch.count>=32){

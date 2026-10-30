@@ -1,5 +1,4 @@
-// Recovery is cold, so it is compiled for size.
-#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+// Included inside the adapter's minsize region: recovery is cold.
 bool native_text_context_rebuild(const TextSystem& system,NativeTextRebuild attempt,void* context) noexcept {
     auto* owner=system.native_text;if(!owner||!attempt||owner->catalogs.operation_depth)return false;
     // Renderer font IDs and externally retained runs belong to this stable
@@ -77,4 +76,3 @@ template<class Attempt> bool retry_stale(const TextSystem& system,ShapedText* ou
     },&attempt);
 }
 }
-#pragma clang attribute pop

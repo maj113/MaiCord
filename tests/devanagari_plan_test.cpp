@@ -9,14 +9,12 @@
 #include "maicord/text/devanagari_plan.hpp"
 #include "maicord/text/indic_plan.hpp"
 #include "maicord/text/indic_clusters.hpp"
-#include "maicord/text/tamil_input.hpp"
+#include "maicord/text/indic_input.hpp"
 #include "maicord/text/tamil_shape_run.hpp"
 #include "maicord/text/detail/indic_form.hpp"
 #include "maicord/text/tamil_run.hpp"
 #include "maicord/text/devanagari_forms.hpp"
-#include "maicord/text/devanagari_clusters.hpp"
 #include "maicord/text/devanagari_order.hpp"
-#include "maicord/text/devanagari_shape_cluster.hpp"
 #include "maicord/text/devanagari_run.hpp"
 #include "maicord/text/devanagari_run_plan.hpp"
 #include "maicord/core/utf.hpp"
@@ -136,30 +134,30 @@ bool form_units() noexcept {
 bool cluster_units() noexcept {
     u32 corpus[256]{};u8 corpus_output[256]{};u32 start=0,count=0,cases=0;
     for(u32 i=0;i<sizeof(deva_cluster_fixture)/sizeof(u32);++i){const u32 entry=deva_cluster_fixture[i];CHECK(count<256);corpus[count++]=entry&0x1fffffu;
-        if(entry&0x40000000u){CHECK(sfnt_devanagari_cluster_boundaries({corpus,count},{corpus_output,count})==SfntStatus::ok);
+        if(entry&0x40000000u){CHECK(sfnt_indic_cluster_boundaries(SfntIndicProfile::devanagari,{corpus,count},{corpus_output,count})==SfntStatus::ok);
             for(u32 j=0;j<count;++j)if(corpus_output[j]!=(deva_cluster_fixture[start+j]>>31)){print("cluster fixture case ");number(cases);print("\n");CHECK(false);}
             ++cases;count=0;start=i+1;}}
     CHECK(!count&&cases==deva_cluster_fixture_cases);
     const u32 scalars[]{0x915,0x94d,0x200c,0x915,0x93f,0x941,0x940,0x915,0x951,0x952,0x951};
     const u8 expected[]{1,0,0,1,0,0,0,1,0,0,1};u8 output[11]{};
-    CHECK(sfnt_devanagari_cluster_boundaries({scalars,11},{output,11})==SfntStatus::ok&&bytes_equal(output,expected,11));
+    CHECK(sfnt_indic_cluster_boundaries(SfntIndicProfile::devanagari,{scalars,11},{output,11})==SfntStatus::ok&&bytes_equal(output,expected,11));
     for(u64 work=0;work<44;++work){for(auto& b:output)b=255;
-        CHECK(sfnt_devanagari_cluster_boundaries({scalars,11},{output,11},work)==SfntStatus::resource_limit);
+        CHECK(sfnt_indic_cluster_boundaries(SfntIndicProfile::devanagari,{scalars,11},{output,11},work)==SfntStatus::resource_limit);
         for(auto b:output)CHECK(b==255);}
-    CHECK(sfnt_devanagari_cluster_boundaries({scalars,11},{output,11},44)==SfntStatus::ok);
+    CHECK(sfnt_indic_cluster_boundaries(SfntIndicProfile::devanagari,{scalars,11},{output,11},44)==SfntStatus::ok);
     for(auto& b:output)b=255;const u32 invalid[]{0x915,0xd800};
-    CHECK(sfnt_devanagari_cluster_boundaries({invalid,2},{output,11})==SfntStatus::invalid_input);
-    CHECK(sfnt_devanagari_cluster_boundaries({scalars,11},{output,10})==SfntStatus::output_too_small);
+    CHECK(sfnt_indic_cluster_boundaries(SfntIndicProfile::devanagari,{invalid,2},{output,11})==SfntStatus::invalid_input);
+    CHECK(sfnt_indic_cluster_boundaries(SfntIndicProfile::devanagari,{scalars,11},{output,10})==SfntStatus::output_too_small);
     for(auto b:output)CHECK(b==255);
-    CHECK(sfnt_devanagari_cluster_boundaries({}, {})==SfntStatus::ok);
+    CHECK(sfnt_indic_cluster_boundaries(SfntIndicProfile::devanagari,{}, {})==SfntStatus::ok);
     const u32 vowel_matras[]{0x905,0x93e,0x906,0x947,0x90f,0x947,0x905,0x940};const u8 vowel_expected[]{1,1,1,1,1,1,1,0};
-    CHECK(sfnt_devanagari_cluster_boundaries({vowel_matras,8},{output,11})==SfntStatus::ok&&bytes_equal(output,vowel_expected,8));
-    CHECK(sfnt_devanagari_cluster_boundaries({scalars,11},{reinterpret_cast<u8*>(const_cast<u32*>(scalars)),11})==SfntStatus::invalid_input);
+    CHECK(sfnt_indic_cluster_boundaries(SfntIndicProfile::devanagari,{vowel_matras,8},{output,11})==SfntStatus::ok&&bytes_equal(output,vowel_expected,8));
+    CHECK(sfnt_indic_cluster_boundaries(SfntIndicProfile::devanagari,{scalars,11},{reinterpret_cast<u8*>(const_cast<u32*>(scalars)),11})==SfntStatus::invalid_input);
     // Larger than the Windows observer's input capacity: exercise the same
     // verified period without retaining a per-character auxiliary buffer.
     static u32 long_input[32768];static u8 long_output[32768];
     for(u32 i=0;i<32768;++i)long_input[i]=i%2?0x94du:0x915u;
-    CHECK(sfnt_devanagari_cluster_boundaries({long_input,32768},{long_output,32768},32768*4)==SfntStatus::ok);
+    CHECK(sfnt_indic_cluster_boundaries(SfntIndicProfile::devanagari,{long_input,32768},{long_output,32768},32768*4)==SfntStatus::ok);
     for(u32 i=0;i<32768;++i)CHECK(long_output[i]==(i%10==0));
     return true;
 }
@@ -183,21 +181,21 @@ bool cluster_shape_units() noexcept {
     const u32 scalars[]{0x930,0x94d,0x915,0x93f};const u8 forms[]{sfnt_deva_reph,0,0,0};
     const SfntClusterGlyph input[]{{{1,SfntGlyphClass::base,0},0},{{2,SfntGlyphClass::mark,0},1},{{8,SfntGlyphClass::base,0},2},{{3,SfntGlyphClass::base,0},3}};
     const SfntLookupStep step{0,sfnt_deva_reph,static_cast<u8>(SfntDevanagariStage::reph)};SfntShapeRunResult result{};
-    const auto shape=[&](u64 work=1000000) noexcept {return sfnt_devanagari_shape_cluster(plan,cmap,{input,4},{scalars,4},{forms,4},4,1000,storage,&result,{&step,1},{work,100000,1000000});};
+    const auto shape=[&](u64 work=1000000) noexcept {return indic_shape_cluster(SfntIndicProfile::devanagari,plan,cmap,{input,4},{scalars,4},{forms,4},4,1000,storage,&result,{&step,1},{work,100000,1000000});};
     CHECK(shape()==SfntStatus::ok&&result.glyph_count==3&&glyphs[0].glyph.glyph==3&&glyphs[1].glyph.glyph==8&&glyphs[2].glyph.glyph==4);
     CHECK(placement[0].advance==100&&placement[1].advance==100&&placement[2].advance==0);for(u32 i=0;i<4;++i)CHECK(!characters[i]);
     CHECK(nodes[glyphs[2].component].count==2);const u64 full=result.lookup_operations;
     for(u64 work=0;work<=full;++work){const auto status=shape(work);CHECK(result.lookup_operations<=work);
         CHECK(status==(work==full?SfntStatus::ok:SfntStatus::resource_limit));if(status!=SfntStatus::ok)CHECK(!result.glyph_count&&!result.source_units);}
     const u32 orphan_scalar=0x93f;const u8 orphan_form=0;const SfntClusterGlyph orphan{{3,SfntGlyphClass::base,0},0};
-    CHECK(sfnt_devanagari_shape_cluster(plan,cmap,{&orphan,1},{&orphan_scalar,1},{&orphan_form,1},1,1000,storage,&result,{&step,1})==SfntStatus::ok);
+    CHECK(indic_shape_cluster(SfntIndicProfile::devanagari,plan,cmap,{&orphan,1},{&orphan_scalar,1},{&orphan_form,1},1,1000,storage,&result,{&step,1})==SfntStatus::ok);
     CHECK(result.glyph_count==2&&glyphs[0].glyph.glyph==3&&glyphs[1].glyph.glyph==6&&!characters[0]);
     const u32 joiner_scalar=0x200d;const SfntClusterGlyph joiner{{5,SfntGlyphClass::base,0},0};
-    CHECK(sfnt_devanagari_shape_cluster(plan,cmap,{&joiner,1},{&joiner_scalar,1},{&orphan_form,1},1,1000,storage,&result,{&step,1},{},true)==SfntStatus::ok);
+    CHECK(indic_shape_cluster(SfntIndicProfile::devanagari,plan,cmap,{&joiner,1},{&joiner_scalar,1},{&orphan_form,1},1,1000,storage,&result,{&step,1},{},true)==SfntStatus::ok);
     CHECK(result.glyph_count==1&&glyphs[0].glyph.glyph==5&&placement[0].advance==0);
     const u32 grouped_scalars[]{0x926,0x94d,0x915,0x93f,0x93c};const u8 grouped_forms[5]{};
     const SfntClusterGlyph grouped_input[]{{{10,SfntGlyphClass::base,0},0},{{2,SfntGlyphClass::mark,0},1},{{8,SfntGlyphClass::base,0},2},{{3,SfntGlyphClass::base,0},3},{{9,SfntGlyphClass::mark,0},4}};
-    const auto group_shape=[&](u64 work=1000000) noexcept {return sfnt_devanagari_shape_cluster(plan,cmap,{grouped_input,5},{grouped_scalars,5},{grouped_forms,5},5,1000,storage,&result,{&step,1},{work,100000,1000000});};
+    const auto group_shape=[&](u64 work=1000000) noexcept {return indic_shape_cluster(SfntIndicProfile::devanagari,plan,cmap,{grouped_input,5},{grouped_scalars,5},{grouped_forms,5},5,1000,storage,&result,{&step,1},{work,100000,1000000});};
     CHECK(group_shape()==SfntStatus::ok&&result.glyph_count==5);
     const u16 grouped_glyphs[]{10,2,3,9,8};for(u32 i=0;i<5;++i)CHECK(glyphs[i].glyph.glyph==grouped_glyphs[i]&&!characters[i]);
     const u64 group_work=result.lookup_operations;
@@ -292,7 +290,7 @@ bool cluster_shape_units() noexcept {
         CHECK(memo_case({collision_text,36},17.5f,7));
         CHECK(memo_case({collision_text,36},17.5f,0,true));
     }
-    storage.glyphs.count=1;CHECK(sfnt_devanagari_shape_cluster(plan,cmap,{&orphan,1},{&orphan_scalar,1},{&orphan_form,1},1,1000,storage,&result,{&step,1})==SfntStatus::output_too_small);
+    storage.glyphs.count=1;CHECK(indic_shape_cluster(SfntIndicProfile::devanagari,plan,cmap,{&orphan,1},{&orphan_scalar,1},{&orphan_form,1},1,1000,storage,&result,{&step,1})==SfntStatus::output_too_small);
     CHECK(!result.glyph_count&&!result.source_units);return true;
 }
 bool units() noexcept {
@@ -316,23 +314,22 @@ bool units() noexcept {
     const ConstSlice<u8> fixtures[]{{deva_plan_fixture,sizeof(deva_plan_fixture)},{deva_required_fixture,sizeof(deva_required_fixture)}};
     u16 scratch[8]{};SfntLookupStep steps[64]{},saved[64]{};
     for(u32 required=0;required<2;++required){SfntLayout layout{};CHECK(sfnt_layout_open(fixtures[required],SfntLayoutKind::substitution,&layout)==SfntStatus::ok);
-        SfntLookupPlanResult full{};CHECK(sfnt_indic_lookup_plan(layout,{},SfntIndicProfile::devanagari,false,{scratch,8},{steps,64},&full)==SfntStatus::ok);
+        SfntLookupPlanResult full{};CHECK(sfnt_indic_lookup_plan(layout,{},SfntIndicProfile::devanagari,{scratch,8},{steps,64},&full)==SfntStatus::ok);
         CHECK(full.script_tag==sfnt_tag('d','e','v','2')&&full.language_found&&!full.language_tag&&full.lookup_count==(required?19u:7u));
         if(!required)CHECK(bytes_equal(steps,expected,sizeof(expected)));
         else{u32 at=0;for(u32 stage=0;stage<13;++stage){if(stage==11)continue;
             for(const auto& wanted:expected)if(wanted.stage==stage){CHECK(at<full.lookup_count&&bytes_equal(&steps[at],&wanted,sizeof(wanted)));++at;}
             CHECK(at<full.lookup_count&&steps[at].lookup==7&&steps[at].stage==stage);++at;}CHECK(at==full.lookup_count);}
         copy_bytes(saved,steps,full.lookup_count*sizeof(SfntLookupStep));SfntLookupPlanResult result{};
-        CHECK(sfnt_indic_lookup_plan(layout,{},SfntIndicProfile::devanagari,true,{scratch,8},{steps,64},&result)==SfntStatus::ok&&result.lookup_count==full.lookup_count&&bytes_equal(steps,saved,full.lookup_count*sizeof(SfntLookupStep)));
         for(u64 budget=0;budget<=full.operations;++budget){for(auto& entry:steps)entry={65535,255,255};
-            const auto status=sfnt_indic_lookup_plan(layout,{},SfntIndicProfile::devanagari,false,{scratch,8},{steps,64},&result,budget);
+            const auto status=sfnt_indic_lookup_plan(layout,{},SfntIndicProfile::devanagari,{scratch,8},{steps,64},&result,budget);
             CHECK(result.operations<=budget&&status==(budget==full.operations?SfntStatus::ok:SfntStatus::resource_limit));
             if(status!=SfntStatus::ok)for(const auto& entry:steps)CHECK(entry.lookup==65535&&entry.feature_mask==255&&entry.stage==255);
         }
         for(auto& entry:steps)entry={65535,255,255};
-        CHECK(sfnt_indic_lookup_plan(layout,{},SfntIndicProfile::devanagari,false,{scratch,8},{steps,full.lookup_count-1},&result)==SfntStatus::output_too_small&&result.lookup_count==full.lookup_count);
+        CHECK(sfnt_indic_lookup_plan(layout,{},SfntIndicProfile::devanagari,{scratch,8},{steps,full.lookup_count-1},&result)==SfntStatus::output_too_small&&result.lookup_count==full.lookup_count);
         for(const auto& entry:steps)CHECK(entry.lookup==65535&&entry.feature_mask==255&&entry.stage==255);
-        CHECK(sfnt_indic_lookup_plan(layout,{},SfntIndicProfile::devanagari,false,{scratch,7},{steps,64},&result)==SfntStatus::output_too_small);
+        CHECK(sfnt_indic_lookup_plan(layout,{},SfntIndicProfile::devanagari,{scratch,7},{steps,64},&result)==SfntStatus::output_too_small);
         CHECK(sfnt_indic_form_lookup_plan(layout,{},SfntIndicProfile::devanagari,sfnt_deva_half,{scratch,8},{steps,64},&result)==SfntStatus::ok);
         CHECK(result.lookup_count==2&&steps[0].lookup==2&&steps[1].lookup==6&&!steps[0].feature_mask&&!steps[0].stage);
         const u64 form_work=result.operations;
@@ -345,7 +342,7 @@ bool units() noexcept {
     u8 legacy[sizeof(deva_plan_fixture)];copy_bytes(legacy,deva_plan_fixture,sizeof(legacy));
     byte_store_be32(legacy+byte_load_be16(legacy+4)+2,sfnt_tag('d','e','v','a'));SfntLayout layout{};SfntLookupPlanResult result{};
     CHECK(sfnt_layout_open({legacy,sizeof(legacy)},SfntLayoutKind::substitution,&layout)==SfntStatus::ok);
-    CHECK(sfnt_indic_lookup_plan(layout,{},SfntIndicProfile::devanagari,false,{scratch,8},{steps,64},&result)==SfntStatus::ok&&!result.language_found&&!result.lookup_count);
+    CHECK(sfnt_indic_lookup_plan(layout,{},SfntIndicProfile::devanagari,{scratch,8},{steps,64},&result)==SfntStatus::ok&&!result.language_found&&!result.lookup_count);
     // Required half is absent from the optional FeatureIndex array. Its form
     // classification must still include it; unrelated required tags stay out.
     copy_bytes(legacy,deva_plan_fixture,sizeof(legacy));const u32 script_list=byte_load_be16(legacy+4);
@@ -366,7 +363,7 @@ struct TextOutput {u16 glyphs[1024];SfntPlacement placements[1024];u32 clusters[
 struct OwnedProfile {
     NativeFontFileSlot files[1]{};NativeFontFaceSlot faces[1]{};NativeFontInstanceSlot instances[1]{};NativeRunPlanSlot plans[1]{};
     NativeFontStore fonts{{files,1},{faces,1}};NativeFontInstanceStore instance_store{&fonts,{instances,1}};NativeRunPlanStore store{&instance_store,{plans,1}};
-    NativeFontHandle face{};NativeFontInstanceHandle instance{};NativeRunPlanHandle run{};NativeDevanagariPlan profile{};NativeIndicPlan indic{};bool tamil=false;Arena scratch{};
+    NativeFontHandle face{};NativeFontInstanceHandle instance{};NativeRunPlanHandle run{};NativeIndicFormPlan profile{};NativeIndicPlan indic{};bool tamil=false;Arena scratch{};
     ~OwnedProfile() noexcept {if(run.slot)native_run_plan_release(&store,run);if(instance.slot)native_font_instance_release(&instance_store,instance);
         if(face.slot)native_font_release(&fonts,face);arena_release(&scratch);}
     bool prepare_parent(const wchar_t* path,u32 index) noexcept {
@@ -421,20 +418,20 @@ struct OwnedProfile {
         // an unrelated arena prefix or silently retain another parent reference.
         arena_reset(&scratch);auto* sentinel=arena_allocate<u32>(&scratch);CHECK(sentinel);*sentinel=0x12345678;
         const auto before_state=arena_mark(&state),before_scratch=arena_mark(&scratch);const u32 references=plans[0].references;
-        const auto unchanged=[&]() noexcept {return state.offset==before_state.offset&&scratch.offset==before_scratch.offset&&*sentinel==0x12345678&&plans[0].references==references&&!profile.run.slot&&!profile.cmap&&!profile.substitutions.count&&!profile.positioning.count;};
-        CHECK(native_devanagari_plan_prepare(store,run,&state,&scratch,probe,&profile,{1000000,100000,0})==SfntStatus::resource_limit&&unchanged());
-        CHECK(native_devanagari_plan_prepare(store,run,&state,&scratch,probe,&profile,{1,100000,1000000})==SfntStatus::resource_limit&&unchanged());
+        const auto unchanged=[&]() noexcept {return state.offset==before_state.offset&&scratch.offset==before_scratch.offset&&*sentinel==0x12345678&&plans[0].references==references&&!profile.indic.run.slot&&!profile.indic.cmap&&!profile.indic.substitution_count&&!profile.indic.positioning_count;};
+        CHECK(native_indic_plan_prepare(store,run,SfntIndicProfile::devanagari,&state,&scratch,probe,&profile.indic,{profile.forms,128},{1000000,100000,0})==SfntStatus::resource_limit&&unchanged());
+        CHECK(native_indic_plan_prepare(store,run,SfntIndicProfile::devanagari,&state,&scratch,probe,&profile.indic,{profile.forms,128},{1,100000,1000000})==SfntStatus::resource_limit&&unchanged());
         auto short_probe=probe;short_probe.glyphs.count=1;
-        CHECK(native_devanagari_plan_prepare(store,run,&state,&scratch,short_probe,&profile)==SfntStatus::output_too_small&&unchanged());
-        CHECK(native_devanagari_plan_prepare(store,run,&state,&state,probe,&profile)==SfntStatus::invalid_input&&unchanged());
+        CHECK(native_indic_plan_prepare(store,run,SfntIndicProfile::devanagari,&state,&scratch,short_probe,&profile.indic,{profile.forms,128})==SfntStatus::output_too_small&&unchanged());
+        CHECK(native_indic_plan_prepare(store,run,SfntIndicProfile::devanagari,&state,&state,probe,&profile.indic,{profile.forms,128})==SfntStatus::invalid_input&&unchanged());
         Arena tiny{};CHECK(arena_initialize(&tiny,4096,4096,4096));struct Release {Arena* arena;~Release() noexcept {arena_release(arena);}} release{&tiny};
         CHECK(arena_allocate(&tiny,4095,1));const auto tiny_mark=arena_mark(&tiny);
-        CHECK(native_devanagari_plan_prepare(store,run,&tiny,&scratch,probe,&profile)==SfntStatus::resource_limit&&unchanged()&&tiny.offset==tiny_mark.offset);
-        CHECK(native_devanagari_plan_prepare(store,run,&state,&tiny,probe,&profile)==SfntStatus::output_too_small&&unchanged()&&tiny.offset==tiny_mark.offset);
-        CHECK(native_devanagari_plan_prepare(store,run,&state,&scratch,probe,&profile)==SfntStatus::ok);
+        CHECK(native_indic_plan_prepare(store,run,SfntIndicProfile::devanagari,&tiny,&scratch,probe,&profile.indic,{profile.forms,128})==SfntStatus::resource_limit&&unchanged()&&tiny.offset==tiny_mark.offset);
+        CHECK(native_indic_plan_prepare(store,run,SfntIndicProfile::devanagari,&state,&tiny,probe,&profile.indic,{profile.forms,128})==SfntStatus::output_too_small&&unchanged()&&tiny.offset==tiny_mark.offset);
+        CHECK(native_indic_plan_prepare(store,run,SfntIndicProfile::devanagari,&state,&scratch,probe,&profile.indic,{profile.forms,128})==SfntStatus::ok);
         CHECK(scratch.offset==before_scratch.offset&&*sentinel==0x12345678&&plans[0].references==references);
-        CHECK(profile_positioning_storage(store,run,profile.substitutions,profile.positioning,state,before_state.offset,profile.positioning_program));
-        auto stale=profile;++stale.run.generation;NativeAsciiResult result{};
+        CHECK(profile_positioning_storage(store,run,profile.indic.substitutions(),profile.indic.positioning(),state,before_state.offset,profile.indic.positioning_program));
+        auto stale=profile;++stale.indic.run.generation;NativeAsciiResult result{};
         CHECK(native_devanagari_run(store,stale,{},1000,{},&result)==SfntStatus::invalid_input&&!result.glyph_count&&!result.source_units);
         return true;
     }
@@ -471,7 +468,7 @@ bool font_case(ConstSlice<u8> bytes,u32 index,Arena& arena,const wchar_t* path,b
     for(u32 kind=0;kind<2;++kind){SfntLayout layout{};SfntLookupPlanResult result{};SfntLookupStep selected[4096];
         CHECK(sfnt_table(face,kind?sfnt_tag('G','P','O','S'):sfnt_tag('G','S','U','B'),&data)==SfntStatus::ok);
         CHECK(sfnt_layout_open(data,kind?SfntLayoutKind::positioning:SfntLayoutKind::substitution,&layout)==SfntStatus::ok);
-        CHECK(sfnt_indic_lookup_plan(layout,{},profile,false,{scratch,4096},{selected,4096},&result)==SfntStatus::ok&&result.language_found);
+        CHECK(sfnt_indic_lookup_plan(layout,{},profile,{scratch,4096},{selected,4096},&result)==SfntStatus::ok&&result.language_found);
         if(!quiet){print("{\"face\":");number(index);print(",\"kind\":");number(kind);print(",\"steps\":[");
         for(u32 i=0;i<result.lookup_count;++i){if(i)print(",");print("[");number(selected[i].lookup);print(",");number(selected[i].feature_mask);print(",");number(selected[i].stage);print("]");}print("]}\n");}
         if(!kind){substitution_layout=layout;count=result.lookup_count;copy_bytes(steps,selected,count*sizeof(SfntLookupStep));SfntGsubProgramRequirements n{};
@@ -514,7 +511,7 @@ bool font_case(ConstSlice<u8> bytes,u32 index,Arena& arena,const wchar_t* path,b
         if(!quiet)print("]}\n");}
     indic_form_defaults(profile,font_forms);
     if(profile==SfntIndicProfile::malayalam&&(font_forms[0x2f]&indic_default_position)){SfntLookupPlanResult reordered{};
-        CHECK(sfnt_indic_lookup_plan(substitution_layout,{},profile,false,{scratch,4096},{steps,4096},&reordered,1000000,true)==SfntStatus::ok);count=reordered.lookup_count;}
+        CHECK(sfnt_indic_lookup_plan(substitution_layout,{},profile,{scratch,4096},{steps,4096},&reordered,1000000,true)==SfntStatus::ok);count=reordered.lookup_count;}
     if(gujarati||bengali){OwnedProfile owned;CHECK(owned.prepare_parent(path,index));NativeIndicFormPlan prepared{};
         CHECK(native_indic_plan_prepare(owned.store,owned.run,profile,&arena,&owned.scratch,storage,&prepared.indic,{prepared.forms,128})==SfntStatus::ok);
         CHECK(bytes_equal(prepared.forms,font_forms,128));
@@ -522,11 +519,11 @@ bool font_case(ConstSlice<u8> bytes,u32 index,Arena& arena,const wchar_t* path,b
     if(bengali_profile||gujarati_profile||gurmukhi_profile||odia_profile||telugu_profile||kannada_profile||malayalam_profile)return bengali_owned_plan(path,index,arena,storage,{steps,count},{roots,root_count},font_forms,profile);
     OwnedProfile owned;CHECK(owned.prepare(path,index,arena,storage));
     if(benchmark){CHECK(memo_benchmark(storage,owned));return owned.close();}
-    CHECK(owned.profile.substitutions.count==count&&bytes_equal(owned.profile.substitutions.data,steps,count*sizeof(SfntLookupStep)));
-    CHECK(owned.profile.positioning.count==root_count&&bytes_equal(owned.profile.positioning.data,roots,root_count*sizeof(u16)));
+    CHECK(owned.profile.indic.substitution_count==count&&bytes_equal(owned.profile.indic.substitution_steps,steps,count*sizeof(SfntLookupStep)));
+    CHECK(owned.profile.indic.positioning_count==root_count&&bytes_equal(owned.profile.indic.positioning_roots,roots,root_count*sizeof(u16)));
     CHECK(bytes_equal(owned.profile.forms,font_forms,128));
     if(profile_only){print("PASS Devanagari profile face=");number(index);print(" root_bytes=");number(count*sizeof(SfntLookupStep)+root_count*sizeof(u16));
-        print(" profile_bytes=");number(sizeof(NativeDevanagariPlan));print("\n");return owned.close();}
+        print(" profile_bytes=");number(sizeof(NativeIndicFormPlan));print("\n");return owned.close();}
     for(u32 sample=0;sample<sizeof(deva_shape_samples)/sizeof(deva_shape_samples[0]);++sample){
         u32 scalars[256]{},length=0;const auto* text=deva_shape_samples[sample];while(text[length]){CHECK(length<256);scalars[length]=text[length];++length;}
         TextOutput output{};const auto shaped=shape_text({scalars,length},storage,output,owned);

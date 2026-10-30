@@ -102,7 +102,7 @@ void test_message_components(void (*check)(bool, const char*) noexcept) noexcept
         for (u32 i = 0; i < f.presentation.command_count; ++i)
             if (f.commands[i].measurement_kind == MessageTextMeasurementKind::reply)
                 header = utf8_equal(f.commands[i].text, utf8_literal("Display used vote localized")) &&
-                    f.commands[i].styles.count == 2 && f.commands[i].wrapping == UiTextWrapping::no_wrap;
+                    f.commands[i].styles.count == 2 && f.commands[i].wrapping == TextWrapping::no_wrap;
         check(ok && header && row && !row->grouped && row->measured_reply_height > 0,
               "interaction_header_is_retained_single_line_styled_and_measured");
         if (!ok) break;

@@ -26,10 +26,8 @@ bool vectors() noexcept {
 }
 bool contracts() noexcept {
     u8 output[16];for(auto& b:output)b=0xa5;
-    const u32 valid[]{0x628,0x628},invalid[]{0x628,0xd800},high[]{0x110000};
-    if(arabic_joining_forms({invalid,2},{output,16})!=S::invalid_input ||
-       arabic_joining_forms({high,1},{output,16})!=S::invalid_input ||
-       arabic_joining_forms({nullptr,1},{output,16})!=S::invalid_input ||
+    const u32 valid[]{0x628,0x628};
+    if(arabic_joining_forms({nullptr,1},{output,16})!=S::invalid_input ||
        arabic_joining_forms({valid,2},{nullptr,16})!=S::invalid_input ||
        arabic_joining_forms({valid,2},{output,16},0)!=S::invalid_input ||
        arabic_joining_forms({valid,2},{output,1})!=S::output_too_small ||

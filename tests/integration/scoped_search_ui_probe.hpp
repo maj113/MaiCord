@@ -40,7 +40,7 @@ inline bool text_ink(const UiSearchScene& scene, const D3D11Renderer& renderer,
         const auto& command = commands[i];
         if (utf8_equal(command.text, expected) &&
             (!require_wrap ||
-             (command.wrapping == UiTextWrapping::wrap && ui_rect_height(command.clip) > 40)) &&
+             (command.wrapping == TextWrapping::wrap && ui_rect_height(command.clip) > 40)) &&
             channel_overview_probe_detail::ink(readback, image,
                                                ui_rect_intersection(command.rectangle, command.clip),
                                                static_cast<float>(renderer.dpi) / 96.f, command.color, 6))

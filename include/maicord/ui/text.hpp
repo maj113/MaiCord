@@ -18,16 +18,6 @@ enum class TextShapeError : u8 {
     unsupported,
 };
 
-enum class TextWrapping : u8 {
-    wrap,
-    no_wrap,
-};
-
-enum class TextOverflow : u8 {
-    clip,
-    ellipsis,
-};
-
 struct TextShapeResult {
     HRESULT native_error;
     u32 utf16_units;
@@ -179,17 +169,16 @@ static_assert(sizeof(TextHitRegion) == 20);
 TextShapeResult validate_text_input(Utf8View input, Slice<wchar_t> output) noexcept;
 // Converts byte-addressed hit spans into UTF-16 ranges; false for an invalid span.
 bool resolve_text_hits(Utf8View input, ConstSlice<TextHitSpan> hits, TextHitRange* resolved) noexcept;
-bool shaped_text_initialize(ShapedText* text, Slice<TextGlyph> glyphs, Slice<TextRun> runs,
-                            Slice<u16> clusters) noexcept;
-bool shaped_text_bind_decorations(ShapedText* text, Slice<TextDecoration> decorations) noexcept;
-bool shaped_text_bind_hit_regions(ShapedText* text, Slice<TextHitRegion> hit_regions) noexcept;
+// Binds caller-owned output storage. Decorations and hit regions are optional;
+// a shape that needs storage it lacks fails.
+bool shaped_text_initialize(ShapedText* text, Slice<TextGlyph> glyphs, Slice<TextRun> runs, Slice<u16> clusters,
+                            Slice<TextDecoration> decorations = {}, Slice<TextHitRegion> hit_regions = {}) noexcept;
 // Reads runs, run_count and owner_flags; resets all output counts and extents.
 void shaped_text_reset(ShapedText* text) noexcept;
 
-// Creates a native font session, text context and the family's format. Only
-// en-US is supported; other locales are rejected.
-TextShapeResult text_system_initialize(TextSystem* system, const wchar_t* family_name, float em_size,
-                                       const wchar_t* locale_name) noexcept;
+// Creates a native font session, text context and the family's en-US format
+// (the only locale the native layout implements).
+TextShapeResult text_system_initialize(TextSystem* system, const wchar_t* family_name, float em_size) noexcept;
 void text_system_release(TextSystem* system) noexcept;
 
 bool glyph_outline_initialize(GlyphOutline* outline, Slice<GlyphPathCommand> commands) noexcept;
@@ -244,24 +233,15 @@ private:
 };
 
 // Layout/shaping is a cache-build operation, never a paint-path operation.
-// All retained glyph/run/cluster output is caller-owned and bounded.
-TextShapeResult text_shape_utf8(TextSystem* system, Utf8View input, float maximum_width,
-                                float maximum_height, Slice<wchar_t> utf16_scratch, ShapedText* output,
-                                TextWrapping wrapping = TextWrapping::wrap,
-                                TextOverflow overflow = TextOverflow::clip) noexcept;
-TextShapeResult text_shape_utf8_styled(TextSystem* system, Utf8View input, ConstSlice<TextStyleSpan> styles,
-                                       float maximum_width, float maximum_height,
-                                       Slice<wchar_t> utf16_scratch, ShapedText* output,
-                                       TextWrapping wrapping = TextWrapping::wrap,
-                                       TextOverflow overflow = TextOverflow::clip) noexcept;
-TextShapeResult text_shape_utf8_interactive(TextSystem* system, Utf8View input,
-                                            ConstSlice<TextStyleSpan> styles, ConstSlice<TextHitSpan> hits,
-                                            float maximum_width, float maximum_height,
-                                            Slice<wchar_t> utf16_scratch, ShapedText* output,
-                                            TextWrapping wrapping = TextWrapping::wrap,
-                                            TextOverflow overflow = TextOverflow::clip) noexcept;
-TextMeasureResult text_measure_utf8_styled(TextSystem* system, Utf8View input,
-                                           ConstSlice<TextStyleSpan> styles, float maximum_width,
-                                           float maximum_height, Slice<wchar_t> utf16_scratch,
-                                           TextWrapping wrapping = TextWrapping::wrap) noexcept;
+// All retained glyph/run/cluster output is caller-owned and bounded. Plain
+// text passes empty styles; hit spans (at most kTextHitSpanMaximum) request
+// hit regions.
+TextShapeResult text_shape_utf8(TextSystem* system, Utf8View input, ConstSlice<TextStyleSpan> styles,
+                                float maximum_width, float maximum_height, Slice<wchar_t> utf16_scratch,
+                                ShapedText* output, TextWrapping wrapping = TextWrapping::wrap,
+                                TextOverflow overflow = TextOverflow::clip,
+                                ConstSlice<TextHitSpan> hits = {}) noexcept;
+TextMeasureResult text_measure_utf8(TextSystem* system, Utf8View input, ConstSlice<TextStyleSpan> styles,
+                                    float maximum_width, float maximum_height, Slice<wchar_t> utf16_scratch,
+                                    TextWrapping wrapping = TextWrapping::wrap) noexcept;
 } // namespace maicord

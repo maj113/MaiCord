@@ -176,7 +176,7 @@ void test_text_form(void (*check)(bool, const char*) noexcept) noexcept {
         for (u32 i = 0; i < name_text.count; ++i)
             if (name_text.storage[i].owner.handle.slot ==
                 scene.elements[static_cast<u32>(TextFormElement::edit)].slot)
-                name_no_wrap = name_text.storage[i].wrapping == UiTextWrapping::no_wrap;
+                name_no_wrap = name_text.storage[i].wrapping == TextWrapping::no_wrap;
     }
     check(name_field && ui_rect_height(name_field->rectangle) == 44.f && name_no_wrap &&
               ui_layout_engine_validate(scene.widgets.layout, {diagnostics, 32}).clean(),
@@ -250,8 +250,8 @@ void test_text_form(void (*check)(bool, const char*) noexcept) noexcept {
                     const auto& command = text.storage[i];
                     if (command.owner.handle.slot ==
                         actions.elements[static_cast<u32>(TextFormElement::accept)].slot)
-                        no_wrap_disabled = command.wrapping == UiTextWrapping::no_wrap &&
-                                           command.overflow == UiTextOverflow::ellipsis &&
+                        no_wrap_disabled = command.wrapping == TextWrapping::no_wrap &&
+                                           command.overflow == TextOverflow::ellipsis &&
                                            command.color.alpha > 0 && command.color.alpha <= .5f;
                 }
             }

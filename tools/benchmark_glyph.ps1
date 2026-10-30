@@ -20,7 +20,7 @@ Invoke-BenchmarkTarget -Target 'MaiCordGlyphBenchmark' -Label 'MaiCord glyph ben
             if ($line -match '^([a-z_]+)=(\d+)$') { $values[$Matches[1]] = [uint64]$Matches[2] }
         }
         $required = @('atlas_full_resident_lookup_ns', 'atlas_full_missing_lookup_ns', 'atlas_full_churn_allocate_ns',
-            'glyph_dispatch_cpu_batch_us', 'glyph_dispatch_gpu_batch_us')
+            'glyph_dispatch_cpu_batch_us', 'glyph_dispatch_gpu_batch_us', 'glyph_large_dispatch_gpu_batch_us')
         foreach ($name in $required) {
             if (-not $values.ContainsKey($name)) { throw "MaiCord glyph benchmark output lacks $name." }
         }
@@ -28,6 +28,7 @@ Invoke-BenchmarkTarget -Target 'MaiCordGlyphBenchmark' -Label 'MaiCord glyph ben
             Sample = $sample
             CpuBatchUs = $values['glyph_dispatch_cpu_batch_us']
             GpuBatchUs = $values['glyph_dispatch_gpu_batch_us']
+            LargeGpuBatchUs = $values['glyph_large_dispatch_gpu_batch_us']
             ResidentLookupNs = $values['atlas_full_resident_lookup_ns']
             MissingLookupNs = $values['atlas_full_missing_lookup_ns']
             ChurnAllocateNs = $values['atlas_full_churn_allocate_ns']
@@ -43,6 +44,7 @@ Invoke-BenchmarkTarget -Target 'MaiCordGlyphBenchmark' -Label 'MaiCord glyph ben
         Samples = $Samples
         CpuNanosecondsPerDispatchMedian = [math]::Round((Get-Median 'CpuBatchUs') * 1000 / 256, 1)
         GpuNanosecondsPerDispatchMedian = [math]::Round((Get-Median 'GpuBatchUs') * 1000 / 256, 1)
+        LargeGlyphGpuNanosecondsPerDispatchMedian = [math]::Round((Get-Median 'LargeGpuBatchUs') * 1000 / 256, 1)
         FullAtlasResidentLookupNsMedian = Get-Median 'ResidentLookupNs'
         FullAtlasMissingLookupNsMedian = Get-Median 'MissingLookupNs'
         FullAtlasChurnAllocateNsMedian = Get-Median 'ChurnAllocateNs'

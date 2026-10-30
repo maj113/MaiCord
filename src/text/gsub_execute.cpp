@@ -2,10 +2,11 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/text/base.hpp"
 #include "gsub_validated.hpp"
+#include "context_lookups.hpp"
 #include "maicord/sys/intrin.hpp"
 
 namespace maicord {namespace {
-template<class T> bool valid(Slice<T> s) noexcept {return !s.count || s.data;}
+template<class T> inline bool valid(Slice<T> s) noexcept {return !s.count || s.data;}
 SfntStatus inspect(const SfntLookup& lookup,ConstSlice<u8> bytes,SfntContextRequirements* req) noexcept {
     reset_value(req);if(lookup.type<=4)return SfntStatus::ok;
     if(lookup.type==5 || lookup.type==6)return sfnt_context_requirements(bytes,lookup.type==5?SfntContextKind::sequence:SfntContextKind::chained,req);
@@ -110,7 +111,8 @@ struct Executor {
             u64 charged=0;const auto status=sfnt_cluster_map_plan(*clusters,lo,hi,&merge,work,&charged);work-=charged;if(status!=SfntStatus::ok)return status;
             if(!spend(&work,merge.commit_work))return SfntStatus::resource_limit;
         }
-        for(u16 i=0;i<match.output_count;++i){u16 glyph=0;const auto s=sfnt_gsub_replacement(match,i,&glyph);if(s!=SfntStatus::ok)return s;
+        // A matched record has output_count replacements, or one single glyph.
+        for(u16 i=0;i<match.output_count;++i){const u16 glyph=match.replacements.data?byte_load_be16(match.replacements.data+i*2):match.single;
             if(glyph>=program.glyph_limit)return SfntStatus::invalid_input;
             const SfntGsubGlyph replacement{glyph,source.glyph_class,source.reserved};u8* record=scratch.replacements.data+static_cast<u32>(i)*stride;
             if(components)copy_bytes(record,&sfnt_glyph_at(sfnt_glyph_buffer_view(buffer),first),stride);
@@ -182,7 +184,7 @@ struct Executor {
                         previous_index=sfnt_coverage_index(coverage,first);
                     previous_coverage=&coverage;if(previous_index==sfnt_not_covered)continue;
                 }
-                SfntContextMatch context{};s=sfnt_context_match_view(sub.context,program.gdef,lookup.filter,view,at,end,scratch.consumed,&context,allowance,&charged,mask,previous_index);work-=charged;
+                SfntContextMatch context{};u32 left=allowance;s=context_match(sub.context,program.gdef,lookup.filter,view,at,end,scratch.consumed,&context,&left,mask,previous_index);work-=allowance-left;
                 if(s!=SfntStatus::ok)return s;if(!context.matched)continue;
                 // A parent's ignored trailing glyphs remain inside the nested
                 // input range, up to the next nonignored glyph or inherited end.
@@ -204,25 +206,29 @@ struct Executor {
         const bool reverse=root.type==8;u32 at=reverse?result.input_end:start;
         // Only a match (with its nested actions) can edit the buffer.
         auto view=sfnt_glyph_buffer_view(buffer);
-        while(reverse?at>start:at<result.input_end){const u32 current=reverse?--at:at;bool matched=false;u32 resume=current+1;
-            // An excluded or ignored glyph costs the same single unit as a rejected attempt.
-            const auto& glyph=sfnt_glyph_at(view,current);
-            if(sfnt_lookup_bounds_exclude(root.bounds,glyph.glyph)||(root.filter.flags&&sfnt_lookup_ignores(program.gdef,root.filter,glyph.glyph,glyph.glyph_class))){
-                if(!spend(&work))return SfntStatus::resource_limit;if(!reverse)at=resume;continue;}
-            auto s=attempt(root,view,current,result.input_end,&matched,&resume);if(s!=SfntStatus::ok)return s;
+        for(;;){
+            // A glyph the root provably cannot start at costs the single unit of a rejected attempt.
+            u64 left=work;const u32 end=result.input_end,back=reverse?1u:0u;
+            for(;reverse?at>start:at<end;at=reverse?at-1:at+1){const auto& g=sfnt_glyph_at(view,at-back);
+                if(!sfnt_lookup_bounds_exclude(root.bounds,g.glyph)&&!(root.filter.flags&&sfnt_lookup_ignores(program.gdef,root.filter,g.glyph,g.glyph_class)))break;
+                if(!left){work=0;return SfntStatus::resource_limit;}--left;}
+            work=left;if(reverse?at<=start:at>=end)return SfntStatus::ok;
+            const u32 current=reverse?--at:at;bool matched=false;u32 resume=current+1;
+            auto s=attempt(root,view,current,end,&matched,&resume);if(s!=SfntStatus::ok)return s;
             while(depth){auto& frame=scratch.frames.data[depth-1];
                 if(frame.next_action==frame.actions.count/4){resume=frame.input_end;used=frame.positions;--depth;continue;}
-                if(!spend(&work))return SfntStatus::resource_limit;SfntSequenceAction action{};s=sfnt_context_action({frame.actions,0,0,true},frame.next_action++,&action);if(s!=SfntStatus::ok)return s;
-                if(action.sequence_index>=frame.count)continue;const u32 position=scratch.positions.data[frame.positions+action.sequence_index];
+                // Open validated the action record; next_action is below its count.
+                if(!spend(&work))return SfntStatus::resource_limit;const u8* action=frame.actions.data+frame.next_action++*4;
+                const u16 sequence_index=byte_load_be16(action);if(sequence_index>=frame.count)continue;const u32 position=scratch.positions.data[frame.positions+sequence_index];
                 // Source membership was preserved during rebasing, including
                 // newly emitted glyphs. Do not refilter it by destination class.
                 if(position>=frame.input_end)continue;
-                const SfntGsubExecutableLookup* child=nullptr;s=sfnt_gsub_lookup_prepare(program,action.lookup_index,&child);if(s!=SfntStatus::ok)return s;
+                const SfntGsubExecutableLookup* child=nullptr;s=sfnt_gsub_lookup_prepare(program,byte_load_be16(action+2),&child);if(s!=SfntStatus::ok)return s;
                 u32 ignored=0;bool nested=false;s=attempt(*child,sfnt_glyph_buffer_view(buffer),position,frame.input_end,&nested,&ignored);if(s!=SfntStatus::ok)return s;
             }
             if(matched)view=sfnt_glyph_buffer_view(buffer);
             if(!reverse)at=resume;
-        }return SfntStatus::ok;
+        }
     }
 };
 }
@@ -246,7 +252,8 @@ SfntStatus sfnt_gsub_prepare_lookup(const SfntLayout& layout,u16 index,const Sfn
     if(s==SfntStatus::ok)*output=result;return s;
 }
 SfntStatus sfnt_gsub_execute_lookup(const SfntGsubProgram& program,u16 lookup,SfntGlyphBuffer* buffer,u32 start,u32 end,u32 alternate,SfntGsubExecutionScratch scratch,SfntGsubExecutionLimits limits,SfntGsubExecutionResult* output,SfntClusterMap* clusters,SfntComponentForest* components,u8 mask) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!buffer || lookup>=program.lookups.count || !sfnt_gsub_directory_valid(program) || (components && (!clusters || components->sealed)) || buffer->record_size!=(components?sizeof(SfntComponentGlyph):clusters?sizeof(SfntClusterGlyph):sizeof(SfntGsubGlyph)) || !valid(scratch.frames) || !valid(scratch.positions) || !valid(scratch.rebased) || !valid(scratch.consumed) || !valid(scratch.replacements) || !valid(scratch.component_journal) || scratch.positions.count>0x3fffffffu || scratch.rebased.count>0x3fffffffu || scratch.consumed.count>0x3fffffffu)return SfntStatus::invalid_input;
+    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!buffer || (components && (!clusters || components->sealed)) || buffer->record_size!=(components?sizeof(SfntComponentGlyph):clusters?sizeof(SfntClusterGlyph):sizeof(SfntGsubGlyph)) || !valid(scratch.frames) || !valid(scratch.positions) || !valid(scratch.rebased) || !valid(scratch.consumed) || !valid(scratch.replacements) || !valid(scratch.component_journal) || scratch.positions.count>0x3fffffffu || scratch.rebased.count>0x3fffffffu || scratch.consumed.count>0x3fffffffu)return SfntStatus::invalid_input;
+    // Preparation rejects an index or directory it cannot resolve.
     const SfntGsubExecutableLookup* root=nullptr;const auto prepared=sfnt_gsub_lookup_prepare(program,lookup,&root);if(prepared!=SfntStatus::ok)return prepared;
     const auto s=sfnt_glyph_buffer_seek(buffer,buffer->gap_begin,0);if(s!=SfntStatus::ok)return s;
     const auto view=sfnt_glyph_buffer_view(*buffer);if(start>end || end>sfnt_glyph_count(view))return SfntStatus::invalid_input;

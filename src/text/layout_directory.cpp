@@ -39,7 +39,7 @@ SfntStatus sfnt_layout_find_script(const SfntLayout& l,u32 tag,u16* index) noexc
 SfntStatus sfnt_layout_script(const SfntLayout& l,u16 index,u32* tag,SfntScript* output,u32 work,u32* work_used) noexcept {
     u32 ignored=0;if(!work_used)work_used=&ignored;*work_used=0;
     if(!tag || !output)return SfntStatus::invalid_input;*tag=0;reset_value(output);if(index>=l.script_count)return SfntStatus::invalid_input;
-    ConstSlice<u8> table{};auto s=tail(l.scripts,r16(l.scripts,6+static_cast<u32>(index)*6),2+static_cast<u32>(l.script_count)*6,&table);if(s!=SfntStatus::ok)return s;
+    const ConstSlice<u8> table=rest(l.scripts,r16(l.scripts,6+static_cast<u32>(index)*6));SfntStatus s; // Offset validated by sfnt_layout_open.
     if(!span(table,0,4))return SfntStatus::truncated;const u16 count=r16(table,2);if(static_cast<u32>(count)+1>work)return SfntStatus::resource_limit;*work_used=static_cast<u32>(count)+1;s=tags(table,4,count,true);if(s!=SfntStatus::ok)return s;
     // Windows accepts a DFLT script without DefaultLangSys. Keep that absent
     // language distinct from malformed offsets, just as for other scripts.
@@ -53,7 +53,7 @@ SfntStatus sfnt_script_language(const SfntScript& script,u16 feature_limit,u32 i
     if(!tag || !output)return SfntStatus::invalid_input;*tag=0;reset_value(output);output->required_feature=0xffff;
     if(!script.table.data || (index!=sfnt_default_language && index>=script.language_count))return SfntStatus::invalid_input;
     const u32 offset=index==sfnt_default_language?r16(script.table,0):r16(script.table,8+index*6);if(!offset)return SfntStatus::missing_table;
-    ConstSlice<u8> table{};const auto s=tail(script.table,offset,4+static_cast<u32>(script.language_count)*6,&table);if(s!=SfntStatus::ok)return s;
+    const auto table=rest(script.table,offset); // validated when the script was prepared
     if(!span(table,0,6))return SfntStatus::truncated;if(r16(table,0))return SfntStatus::unsupported;
     const u16 required=r16(table,2),count=r16(table,4);if(required!=0xffff && required>=feature_limit)return SfntStatus::malformed;
     if(!span(table,6,static_cast<u32>(count)*2))return SfntStatus::truncated;
@@ -85,23 +85,22 @@ SfntStatus sfnt_layout_select_language(const SfntLayout& layout,ConstSlice<u32> 
 SfntStatus sfnt_layout_feature(const SfntLayout& l,u16 index,const SfntFeatureSubstitutions& substitutions,u32* tag,SfntFeature* output,u32 work,u32* work_used) noexcept {
     u32 ignored=0;if(!work_used)work_used=&ignored;*work_used=0;
     if(!tag || !output)return SfntStatus::invalid_input;*tag=0;reset_value(output);if(index>=l.feature_count)return SfntStatus::invalid_input;
-    ConstSlice<u8> table{};SfntStatus s=SfntStatus::missing_table;
+    ConstSlice<u8> table{};SfntStatus s=SfntStatus::ok;
     if(work<17)return SfntStatus::resource_limit;work-=17;*work_used=17; // At most 16 binary-search steps plus the feature header.
     u32 low=0,high=substitutions.count;while(low<high){const u32 mid=low+(high-low)/2;if(r16(substitutions.table,6+mid*6)<index)low=mid+1;else high=mid;}
     if(low<substitutions.count && r16(substitutions.table,6+low*6)==index)s=tail(substitutions.table,r32(substitutions.table,8+low*6),6+static_cast<u32>(substitutions.count)*6,&table);
-    else s=tail(l.features,r16(l.features,6+static_cast<u32>(index)*6),2+static_cast<u32>(l.feature_count)*6,&table);
+    else table=rest(l.features,r16(l.features,6+static_cast<u32>(index)*6)); // validated when the layout opened
     if(s!=SfntStatus::ok)return s;s=feature_open(table,l.lookup_count,output,work,work_used);if(s==SfntStatus::ok)*tag=r32(l.features,2+static_cast<u32>(index)*6);return s;
 }
 SfntStatus sfnt_lookup_subtable(const SfntLookup& lookup,u16 index,ConstSlice<u8>* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);if(index>=lookup.subtable_count)return SfntStatus::invalid_input;
-    ConstSlice<u8> data{};auto s=tail(lookup.table,r16(lookup.table,6+static_cast<u32>(index)*2),6+static_cast<u32>(lookup.subtable_count)*2+((lookup.flags&16)?2u:0u),&data);if(s!=SfntStatus::ok)return s;
-    if(lookup.type!=lookup.source_type){if(!span(data,0,8))return SfntStatus::truncated;s=tail(data,r32(data,4),8,output);return s;}
-    *output=data;return SfntStatus::ok;
+    const auto data=rest(lookup.table,r16(lookup.table,6+static_cast<u32>(index)*2)); // Offsets validated by sfnt_layout_lookup.
+    *output=lookup.type!=lookup.source_type?rest(data,r32(data,4)):data;return SfntStatus::ok;
 }
 SfntStatus sfnt_layout_lookup(const SfntLayout& l,u16 index,SfntLookup* output,u32 work,u32* work_used) noexcept {
     u32 ignored=0;if(!work_used)work_used=&ignored;*work_used=0;
     if(!output)return SfntStatus::invalid_input;reset_value(output);if(index>=l.lookup_count)return SfntStatus::invalid_input;
-    ConstSlice<u8> table{};auto s=tail(l.lookups,r16(l.lookups,2+static_cast<u32>(index)*2),2+static_cast<u32>(l.lookup_count)*2,&table);if(s!=SfntStatus::ok)return s;
+    const ConstSlice<u8> table=rest(l.lookups,r16(l.lookups,2+static_cast<u32>(index)*2));SfntStatus s; // Offset validated by sfnt_layout_open.
     if(!span(table,0,6))return SfntStatus::truncated;const u16 type=r16(table,0),flags=r16(table,2),count=r16(table,4);const u16 max_type=l.kind==SfntLayoutKind::substitution?8:9,extension=l.kind==SfntLayoutKind::substitution?7:9;
     if(!type || type>max_type || (flags&0xe0))return SfntStatus::unsupported;
     const u32 end=6+static_cast<u32>(count)*2+((flags&16)?2u:0u);if(!span(table,0,end))return SfntStatus::truncated;

@@ -21,10 +21,10 @@ inline bool probe_cjk_pixels(D3D11Renderer& renderer,const wchar_t* options,
     if(bytes<=0)return false;const Utf8View text{encoded,static_cast<u32>(bytes)};
     auto& owner=renderer.glyph_text;auto* context=renderer.graphics.context;
     text_system_release(&owner.system);
-    if(!text_system_initialize(&owner.system,family,14,L"en-US").ok())return false;
+    if(!text_system_initialize(&owner.system,family,14).ok())return false;
     const u32 first=values[0]?utf8_decode_one(text.data,text.bytes).width:0;
     const TextStyleSpan style{first,text.bytes-first,values[1]};
-    if(!text_shape_utf8_styled(&owner.system,text,{&style,1},static_cast<float>(values[2]),1000000,
+    if(!text_shape_utf8(&owner.system,text,{&style,1},static_cast<float>(values[2]),1000000,
         {owner.utf16,kRendererGlyphCapacity},&owner.title,values[3]?TextWrapping::no_wrap:TextWrapping::wrap).ok())return false;
     GlyphDrawBatch batch{{0,0,1200,970},0,0};RendererTextStorage content{};
     content.quads=owner.title_quads;content.quad_capacity=kRendererGlyphCapacity;content.batches=&batch;content.batch_count=1;

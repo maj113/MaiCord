@@ -15,8 +15,8 @@ bool native_common_punctuation_corpus(DWriteTextSystem system) noexcept {
         ++cases;native.independent_letters=reference.independent_letters=mode!=0;
         const u32 first=pattern?utf8_decode_one(text.data,text.bytes).width:0;
         const TextStyleSpan span{first,text.bytes-first,flag};const ConstSlice<TextStyleSpan> styles{&span,flag&&span.byte_count?1u:0u};
-        const auto a=text_shape_utf8_styled(&native,text,styles,width,1000000,{utf16,256},&native_output.text);
-        const auto b=text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text);
+        const auto a=text_shape_utf8(&native,text,styles,width,1000000,{utf16,256},&native_output.text);
+        const auto b=text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text);
         if(!a.ok()||!native_output.text.native_fonts()||!b.ok()||!same(native_output,reference_output,true)){
             print("Common punctuation sample/mode/pattern/flag/width/em/errors=");number(sample);print("/");number(mode);print("/");number(pattern);print("/");number(flag);print("/");real(width);print("/");real(system.em_size);print("/");number(static_cast<u32>(a.error));print("/");number(static_cast<u32>(b.error));print("\n");return false;}
         ++native_cases;

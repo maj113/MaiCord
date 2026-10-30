@@ -1288,7 +1288,7 @@ bool rebuild(UiSearchScene& s) noexcept {
     return true;
 }
 bool text(UiTextOutput* out, const UiSearchScene& s, UiWidgetHandle owner, const Utf8View& value, const UiRect& r,
-          const Color& color, u32 flags, UiTextWrapping wrap, UiTextAlignment alignment,
+          const Color& color, u32 flags, TextWrapping wrap, UiTextAlignment alignment,
           bool chooser_text) noexcept {
     if (!value.bytes || !ui_rect_has_area(r))
         return true;
@@ -1318,16 +1318,16 @@ bool text(UiTextOutput* out, const UiSearchScene& s, UiWidgetHandle owner, const
               color,
               flags,
               alignment,
-              wrap == UiTextWrapping::wrap ? UiTextAlignment::start : UiTextAlignment::center,
+              wrap == TextWrapping::wrap ? UiTextAlignment::start : UiTextAlignment::center,
               wrap,
-              UiTextOverflow::ellipsis,
+              TextOverflow::ellipsis,
               UiTextFace::normal,
               {},
               {}});
 }
 bool line(UiTextOutput* out, const UiSearchScene& s, UiWidgetHandle owner, const Utf8View& value, const UiRect& r,
           const Color& color, u32 flags, UiTextAlignment alignment = UiTextAlignment::start) noexcept {
-    return text(out, s, owner, value, r, color, flags, UiTextWrapping::no_wrap, alignment, false);
+    return text(out, s, owner, value, r, color, flags, TextWrapping::no_wrap, alignment, false);
 }
 bool centered(UiTextOutput* out, const UiSearchScene& s, UiWidgetHandle owner, const Utf8View& value, const UiRect& r,
               const Color& color, u32 flags = text_style_subtext) noexcept {
@@ -2358,7 +2358,7 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
                 !line(out, s, s.rows[i], row.detail, header.timestamp,
                       theme.text_secondary, text_style_subtext) ||
                 !text(out, s, s.rows[i], row.body, ui_rect_edges(r, ui_start(52), ui_start(36), ui_end(-12), ui_end(-12)),
-                      row.hit ? theme.text_primary : theme.text_secondary, 0, UiTextWrapping::wrap,
+                      row.hit ? theme.text_primary : theme.text_secondary, 0, TextWrapping::wrap,
                       UiTextAlignment::start, false))
                 return false;
         }
@@ -2375,12 +2375,12 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
                     right = s.chooser.right - metrics.menu_padding;
         const float top = s.chooser.top + metrics.menu_padding;
         if (!text(out, s, s.root, heading, {left, top, right, top + choice_heading_height(s)},
-                  theme.text_primary, text_style_bold, UiTextWrapping::no_wrap, UiTextAlignment::start,
+                  theme.text_primary, text_style_bold, TextWrapping::no_wrap, UiTextAlignment::start,
                   true))
             return false;
         const float bottom = s.chooser.bottom - metrics.menu_padding;
         if (!text(out, s, s.root, hint, {left, maximum(top, bottom - choice_hint_height(s)), right, bottom},
-                  theme.text_secondary, text_style_subtext, UiTextWrapping::wrap, UiTextAlignment::start,
+                  theme.text_secondary, text_style_subtext, TextWrapping::wrap, UiTextAlignment::start,
                   true))
             return false;
     } else {
@@ -2392,7 +2392,7 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
         if (chooser_open(s) && recent_shown(s) &&
             !text(out, s, s.root, utf8_literal("Recent searches"),
                   {s.chooser.left + 12, recent_top(s), s.chooser.right - 76, recent_top(s) + 28},
-                  theme.text_secondary, text_style_subtext | text_style_bold, UiTextWrapping::no_wrap,
+                  theme.text_secondary, text_style_subtext | text_style_bold, TextWrapping::no_wrap,
                   UiTextAlignment::start, true))
             return false;
     }

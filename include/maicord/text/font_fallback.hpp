@@ -1,6 +1,5 @@
 #pragma once
 #include "maicord/text/sfnt.hpp"
-#include "maicord/text/font_match.hpp"
 namespace maicord {
 // Ordered scalar routing, separate from family matching, availability and layout
 // itemization. No platform fallback table is embedded here. A caller prepares an
@@ -8,17 +7,6 @@ namespace maicord {
 struct NativeFallbackRange {u32 first;u16 offset,count;};
 struct NativeFallbackCascade {ConstSlice<NativeFallbackRange> ranges;ConstSlice<u16> tokens;u32 token_count;};
 constexpr u32 native_fallback_missing=0xffffffffu;
-// Fallback preference order over a resolved physical/named-instance family.
-// Stores only source indices (four bytes per candidate); properties, axes and
-// coverage remain in the catalog. Projects required simulations, ranks geometric
-// distance, then breaks ties by simulation flags and ascending original weight;
-// equal candidates keep source order. The caller checks selected-face compatibility
-// against the family's coverage. The unused tail ordering of the Windows
-// enumeration is not reproduced.
-// Inputs, output and count are disjoint. Errors clear count; output scratch may
-// change. Budget counts projections and insertion comparisons.
-SfntStatus native_font_fallback_order(ConstSlice<NativeFontProperties>,NativeFontProperties,
-    Slice<u32> order,u32* count,u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
 // Callback sets covered on success. An unavailable family is successful false;
 // malformed font data, IO and capacity failures must remain errors, not misses.
 // The callback manages any lazily loaded font mapping/cache. No callback output is kept.
@@ -39,11 +27,14 @@ constexpr SfntStatus native_fallback_cascade_open(ConstSlice<NativeFallbackRange
            r.offset>tokens.count||r.count>tokens.count-r.offset)return SfntStatus::invalid_input;}
     *output={ranges,tokens,token_count};return SfntStatus::ok;
 }
-// Find the interval independently of coverage. Its index is a stable
-// routing ID for this cascade, even when adjacent intervals share a token
-// list. Bind that initial list before mapping a text prefix. Empty policy returns
-// missing; invalid input/errors clear output. Work counts binary comparisons.
-SfntStatus native_fallback_cascade_find(const NativeFallbackCascade&,u32 scalar,u32* range_index,
-    u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
+// The interval holding a valid Unicode scalar, independently of coverage. Its
+// index is a stable routing ID for this cascade, even when adjacent intervals
+// share a token list. Bind that initial list before mapping a text prefix. An
+// empty policy returns native_fallback_missing.
+inline u32 native_fallback_cascade_find(const NativeFallbackCascade& cascade,u32 scalar) noexcept {
+    u32 lo=0,hi=cascade.ranges.count;
+    while(lo<hi){const u32 mid=lo+(hi-lo)/2;if(cascade.ranges[mid].first<=scalar)lo=mid+1;else hi=mid;}
+    return lo-1;
+}
 static_assert(sizeof(NativeFallbackRange)==8&&sizeof(NativeFallbackCascade)==40);
 }

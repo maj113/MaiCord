@@ -11,9 +11,9 @@ enum class ArabicJoiningForm : u8 {none=0,isolated=1,final=2,medial=4,initial=8}
 // join-causing ones still affect their neighbours. No normalization or control
 // removal.
 // Writes one byte at i*stride; other bytes are untouched, so existing glyph
-// metadata can hold the forms. The output span must not overlap scalars. Invalid
-// input, short storage and insufficient work (2*scalar_count units) leave output
-// unchanged.
+// metadata can hold the forms. The output span must not overlap scalars.
+// Invalid arguments, short storage and insufficient work (2*scalar_count units)
+// leave output unchanged. The scalars must be valid Unicode scalar values.
 // reverse scans the joining context backward for forced-LTR Arabic while keeping
 // output indexed by original scalar; ZWJ then also carries form eligibility
 // before the later control-suppression pass.

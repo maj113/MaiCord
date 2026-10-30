@@ -28,8 +28,6 @@ struct UiClickTracker {
 // `system_double_click` is true for WM_LBUTTONDBLCLK.
 inline u8 ui_click_tracker_press(UiClickTracker* tracker, const void* owner, float x, float y, u32 time_ms,
                                  UiClickPolicy policy, bool system_double_click) noexcept {
-    if (!tracker)
-        return system_double_click ? 2 : 1;
     const float dx = x > tracker->x ? x - tracker->x : tracker->x - x;
     const float dy = y > tracker->y ? y - tracker->y : tracker->y - y;
     const bool triple = !system_double_click && tracker->count == 2 && tracker->owner == owner &&
@@ -45,8 +43,7 @@ inline u8 ui_click_tracker_press(UiClickTracker* tracker, const void* owner, flo
 
 // Keyboard input, focus loss and presses elsewhere end a click sequence.
 inline void ui_click_tracker_reset(UiClickTracker* tracker) noexcept {
-    if (tracker)
-        reset_value<UiClickTracker>(tracker);
+    reset_value<UiClickTracker>(tracker);
 }
 
 enum class UiTextSelectionUnit : u8 { character, word, line };
@@ -68,7 +65,7 @@ struct UiTextPointerSelection {
 // on a triple click; multi-line text selects the line/paragraph.
 inline bool ui_text_unit_range(Utf8View text, u32 position, UiTextSelectionUnit unit, bool single_line,
                                u32* first, u32* last) noexcept {
-    if (!first || !last || position > text.bytes)
+    if (position > text.bytes)
         return false;
     if (unit == UiTextSelectionUnit::word)
         return utf8_word_range_near(text, position, first, last);
@@ -89,7 +86,7 @@ inline bool ui_text_unit_range(Utf8View text, u32 position, UiTextSelectionUnit 
 inline bool ui_text_pointer_press(Utf8View text, u32 position, u8 clicks, bool single_line, bool shift,
                                   u32 current_anchor, bool composing, UiTextPointerSelection* state,
                                   u32* anchor, u32* caret) noexcept {
-    if (composing || !state || !anchor || !caret || position > text.bytes || current_anchor > text.bytes)
+    if (composing || position > text.bytes || current_anchor > text.bytes)
         return false;
     const auto unit = ui_text_selection_unit(clicks);
     if (unit == UiTextSelectionUnit::character) {
@@ -112,7 +109,7 @@ inline bool ui_text_pointer_press(Utf8View text, u32 position, u8 clicks, bool s
 // keep the originally selected unit; they never shrink inside it.
 inline bool ui_text_pointer_drag(Utf8View text, const UiTextPointerSelection& state, u32 position,
                                  bool single_line, bool composing, u32* anchor, u32* caret) noexcept {
-    if (composing || !anchor || !caret || position > text.bytes || state.origin_first > state.origin_last ||
+    if (composing || position > text.bytes || state.origin_first > state.origin_last ||
         state.origin_last > text.bytes)
         return false;
     if (state.unit == UiTextSelectionUnit::character) {

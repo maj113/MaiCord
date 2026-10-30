@@ -10,9 +10,43 @@
 #include "maicord/text/detail/indic_form.hpp"
 #include "compact_run.hpp"
 #include "script_paragraph.hpp"
+#include "indic_run_support.hpp"
 // Generic Indic runs: per-cluster input preparation, run coordination, owned
 // plans and paragraphs, shared by every profile except Devanagari and Tamil.
 namespace maicord {
+SfntStatus indic_for_each_cluster_raw(SfntIndicProfile profile,Utf8View text,ConstSlice<u8> forms,u64 work,void* context,
+    SfntStatus (*cluster)(void*,const u32*,u32,bool) noexcept) noexcept {
+    if(profile!=SfntIndicProfile::telugu&&profile!=SfntIndicProfile::kannada&&profile!=SfntIndicProfile::malayalam)forms={};
+    u32 window[32];u8 starts[32];u32 read=0,pending=0;
+    while(read<text.bytes||pending){
+        while(read<text.bytes&&pending<32){const auto scalar=utf8_decode_one(text.data+read,text.bytes-read);
+            if(!scalar.valid)return SfntStatus::invalid_input;window[pending++]=scalar.codepoint;read+=scalar.width;}
+        auto status=sfnt_indic_cluster_boundaries(profile,{window,pending},{starts,32},work,forms);if(status!=SfntStatus::ok)return status;
+        u32 first=0;
+        while(first<pending){u32 end=first+1;while(end<pending&&!starts[end])++end;
+            if(end==pending&&read<text.bytes)break;
+            status=cluster(context,window+first,end-first,end<pending||read<text.bytes);if(status!=SfntStatus::ok)return status;first=end;}
+        pending-=first;for(u32 i=0;i<pending;++i)window[i]=window[first+i];
+    }
+    return SfntStatus::ok;
+}
+SfntStatus indic_trailing_spacing_raw(const SfntShapeStorage& storage,u32 count,float spacing,bool rtl,use_shape::Work& work,void* context,
+    SfntStatus (*skip)(void*,u32,use_shape::Work&,bool*) noexcept) noexcept {
+    for(u32 first=0;first<count;){
+        u32 end=first+1;while(end<count&&!(storage.flags[end]&sfnt_position_cluster_start))++end;
+        const u32 length=end-first;if(!work.spend(static_cast<u64>(length)*2))return SfntStatus::resource_limit;
+        for(u32 offset=0;offset<length;++offset){
+            const u32 index=rtl?first+offset:end-1-offset;bool skipped=false;
+            auto status=skip(context,index,work,&skipped);if(status!=SfntStatus::ok)return status;
+            if(skipped)continue;
+            const u8 saved=storage.flags[index];storage.flags[index]&=static_cast<u8>(~sfnt_position_zero_advance);
+            status=sfnt_trailing_spacing({storage.placements.data+first,length},{storage.flags.data+first,length},spacing,length,rtl);
+            storage.flags[index]=saved;if(status!=SfntStatus::ok)return status;break;
+        }
+        first=end;
+    }
+    return SfntStatus::ok;
+}
 SfntStatus indic_scalar_cluster(SfntIndicProfile profile,const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,ConstSlice<u8> font_forms,
     float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,const SfntShapeLimits& limits,
     bool word_initial,bool followed_by_text,float trailing_spacing,bool rtl,bool defer_output) noexcept {
@@ -76,50 +110,33 @@ SfntStatus indic_utf8_run(SfntIndicProfile profile,const SfntShapePlan& plan,con
     u32 count=0,units=0,targets=0;SfntGlyphSummary glyph_bounds{},mark_bounds{};
     const bool position_bounds=plan.positioning_roots.count>1;
     u32 previous=0;bool have_previous=false;
-    for(u32 first=0;first<source_size;){u32 decoded_scalars[32]{},byte_offsets[33]{};
-        u32 window=0;const u32* scalars=decoded_scalars;
-        for(u32 at=first;at<source_size&&window<32;){const auto decoded=utf8_decode_one(text.data+at,source_size-at);
-            if(!decoded.valid)return SfntStatus::invalid_input;decoded_scalars[window++]=decoded.codepoint;at+=decoded.width;byte_offsets[window]=at-first;}
-        u8 boundaries[32]{};
-        auto status=sfnt_indic_cluster_boundaries(profile,{scalars,window},{boundaries,32},limits.stage_work,(profile==SfntIndicProfile::telugu||profile==SfntIndicProfile::kannada||profile==SfntIndicProfile::malayalam)?forms:ConstSlice<u8>{});
+    const auto walked=indic_for_each_cluster(profile,text,forms,limits.stage_work,[&](const u32* scalars,u32 length,bool followed) noexcept {
+        const SfntShapeStorage local=unused_storage(storage,count,units,targets);
+        // Component trees are dead after export; reuse that scratch per cluster.
+        auto remaining=limits;remaining.lookup_operations-=result->lookup_operations;SfntShapeRunResult shaped{};
+        const bool initial=profile==SfntIndicProfile::bengali&&(!have_previous||!word_character(previous));
+        const auto status=indic_scalar_cluster(profile,cluster_plan,cmap,{scalars,length},forms,em,local,&shaped,steps,remaining,initial,
+            followed,0,rtl,true);
+        result->lookup_operations+=shaped.lookup_operations;result->substitution_edits+=shaped.substitution_edits;
         if(status!=SfntStatus::ok)return status;
-        // Consume every complete cluster in this window. Only the last can need more
-        // input; the scanner's 31-scalar cap guarantees progress in a full 32-scalar
-        // window. A scalar is decoded/scanned at most twice.
-        for(u32 at=0;at<window;){u32 length=1;while(at+length<window&&!boundaries[at+length])++length;
-            const u32 consumed=byte_offsets[at+length]-byte_offsets[at];
-            if(at+length==window&&first+consumed<source_size)break;
-            const SfntShapeStorage local=unused_storage(storage,count,units,targets);
-            // Component trees are dead after export; reuse that scratch per cluster.
-            auto remaining=limits;remaining.lookup_operations-=result->lookup_operations;SfntShapeRunResult shaped{};
-            const bool initial=profile==SfntIndicProfile::bengali&&(!have_previous||!word_character(previous));
-            status=indic_scalar_cluster(profile,cluster_plan,cmap,{scalars+at,length},forms,em,local,&shaped,steps,remaining,initial,
-                first+consumed<source_size,0,rtl,true);
-            result->lookup_operations+=shaped.lookup_operations;result->substitution_edits+=shaped.substitution_edits;
-            if(status!=SfntStatus::ok)return status;
-            if(static_cast<u64>(shaped.glyph_count)+shaped.source_units+shaped.target_count>limits.stage_work)return SfntStatus::resource_limit;
-            for(u32 i=0;i<shaped.source_units;++i)local.character_glyphs[i]=count;
-            for(u32 i=0;i<shaped.glyph_count;++i){auto& glyph=local.glyphs[i];glyph.source+=units;
-                if(position_bounds){sfnt_glyph_summary_add(glyph_bounds,glyph.glyph.glyph);if(glyph.glyph.glyph_class==SfntGlyphClass::mark)sfnt_glyph_summary_add(mark_bounds,glyph.glyph.glyph);}
-                if(local.associations[i].target!=0xffffffffu)local.associations[i].target+=targets;}
-            for(u32 i=0;i<shaped.target_count;++i)local.targets[i]+=count;
-            count+=shaped.glyph_count;units+=shaped.source_units;targets+=shaped.target_count;previous=scalars[at+length-1];have_previous=true;first+=consumed;at+=length;
-        }
-    }
+        if(static_cast<u64>(shaped.glyph_count)+shaped.source_units+shaped.target_count>limits.stage_work)return SfntStatus::resource_limit;
+        for(u32 i=0;i<shaped.source_units;++i)local.character_glyphs[i]=count;
+        for(u32 i=0;i<shaped.glyph_count;++i){auto& glyph=local.glyphs[i];glyph.source+=units;
+            if(position_bounds){sfnt_glyph_summary_add(glyph_bounds,glyph.glyph.glyph);if(glyph.glyph.glyph_class==SfntGlyphClass::mark)sfnt_glyph_summary_add(mark_bounds,glyph.glyph.glyph);}
+            if(local.associations[i].target!=0xffffffffu)local.associations[i].target+=targets;}
+        for(u32 i=0;i<shaped.target_count;++i)local.targets[i]+=count;
+        count+=shaped.glyph_count;units+=shaped.source_units;targets+=shaped.target_count;previous=scalars[length-1];have_previous=true;
+        return SfntStatus::ok;});
+    if(walked!=SfntStatus::ok)return walked;
     if(!count)return SfntStatus::ok;
     const SfntGlyphView glyphs{reinterpret_cast<const SfntGsubGlyph*>(storage.glyphs.data),nullptr,count,0,sizeof(SfntComponentGlyph)};
     u64 work=limits.lookup_operations-result->lookup_operations;
     cluster_plan.positioning_roots=plan.positioning_roots;
     auto status=shape_position_prepared(cluster_plan,glyphs,glyph_bounds,mark_bounds,targets,em,rtl,storage,result,limits,work,false);
-    if(status==SfntStatus::ok&&trailing_spacing){u64 remaining=limits.stage_work;
-        for(u32 first=0;first<count;){u32 end=first+1;while(end<count&&!(storage.flags[end]&sfnt_position_cluster_start))++end;
-            const u32 length=end-first;if(static_cast<u64>(length)*2>remaining)return SfntStatus::resource_limit;remaining-=static_cast<u64>(length)*2;
-            for(u32 offset=0;offset<length;++offset){const u32 index=rtl?first+offset:end-1-offset;
-                if(storage.glyphs[index].glyph.reserved&1)continue;
-                const u8 saved=storage.flags[index];storage.flags[index]&=static_cast<u8>(~sfnt_position_zero_advance);
-                status=sfnt_trailing_spacing({storage.placements.data+first,length},{storage.flags.data+first,length},trailing_spacing,length,rtl);
-                storage.flags[index]=saved;break;}
-            if(status!=SfntStatus::ok)return status;first=end;}}
+    if(status==SfntStatus::ok&&trailing_spacing){use_shape::Work budget{limits.stage_work};
+        status=indic_trailing_spacing(storage,count,trailing_spacing,rtl,budget,[&](u32 index,use_shape::Work&,bool* skipped) noexcept {
+            *skipped=(storage.glyphs[index].glyph.reserved&1)!=0;return SfntStatus::ok;});
+        if(status!=SfntStatus::ok)return status;}
     if(status==SfntStatus::ok){result->glyph_count=count;result->source_units=units;result->target_count=targets;}return status;
 }
 SfntStatus indic_owned_run(SfntIndicProfile profile,const NativeRunPlanStore& store,const NativeIndicFormPlan& prepared,Utf8View text,float em,

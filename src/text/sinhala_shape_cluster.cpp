@@ -1,6 +1,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/text/sinhala_input.hpp"
 #include "use_character.hpp"
+#include "gsub_validated.hpp"
 #include "use_shape_internal.hpp"
 namespace maicord {namespace {
 constexpr u32 nil=0xffffffffu;
@@ -61,13 +62,12 @@ SfntStatus reorder(Policy& p,Slice<SfntComponentGlyph> glyphs,Work& w) noexcept 
         if(!(glyphs[i].glyph.reserved&pre_role)||glyphs[i].component==nil)continue;
         const u32 amount=minimum<u32>(p.pre_count,glyphs.count-i);
         if(!w.spend(static_cast<u64>(i+amount-start)*3))return SfntStatus::resource_limit;
-        const auto reverse=[&](u32 first,u32 last) noexcept {while(first<last&&first<--last){const auto saved=glyphs[first];glyphs[first++]=glyphs[last];glyphs[last]=saved;}};
-        reverse(start,i);reverse(i,i+amount);reverse(start,i+amount);break;
+        rotate(glyphs,start,i,i+amount);break;
     }
     return SfntStatus::ok;
 }
 SfntStatus finish(void* context,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u64 work) noexcept {
-    auto& p=*static_cast<Policy*>(context);if(!p.forest)return SfntStatus::invalid_input;
+    auto& p=*static_cast<Policy*>(context);if(!p.control_ids&&!p.forest)return SfntStatus::invalid_input;
     if(zero.count<glyphs.count)return SfntStatus::output_too_small;Work w{work};
     for(u32 i=0;i<glyphs.count;++i){u8 r=0;auto status=role(glyphs[i],&r,w);if(status!=SfntStatus::ok)return status;
         auto& g=glyphs[i].glyph;
@@ -79,16 +79,14 @@ SfntStatus finish(void* context,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,
     }return SfntStatus::ok;
 }
 SfntStatus map_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
-    const SfntSinhalaInputScalar* expanded,const SfntSinhalaInputResult& sizes,bool rtl,SfntClusterGlyph* mapped,u32& count) noexcept {
+    const SfntIndicInputScalar* expanded,const SfntIndicInputResult& sizes,bool rtl,SfntClusterGlyph* mapped,u32& count) noexcept {
     SfntStatus status=SfntStatus::ok;
     count=0;
     auto map=[&](u32 scalar,u32 source,u8 role,u32 selector=0) noexcept {
-        const u32 mapped_scalar=rtl?unicode_bidi_mirror(scalar):scalar;
-        u16 glyph=0;auto s=sfnt_cmap_glyph(cmap,mapped_scalar,selector,&glyph);
-        if(selector&&s==SfntStatus::unsupported_sequence)s=sfnt_cmap_glyph(cmap,mapped_scalar,0,&glyph);
-        if(s!=SfntStatus::ok)return s;
-        if(!glyph&&unicode_properties(scalar)->general_category()==UnicodeGeneralCategory::cn)role|=control_role;
-        mapped[count++]={{glyph,sfnt_gdef_glyph_class(plan.gdef,glyph),role},source};return SfntStatus::ok;
+        auto& record=mapped[count];
+        const auto s=map_glyph(plan,cmap,scalar,selector,rtl,role,source,&record);if(s!=SfntStatus::ok)return s;
+        if(!record.glyph.glyph&&unicode_properties(scalar)->general_category()==UnicodeGeneralCategory::cn)record.glyph.reserved|=control_role;
+        ++count;return SfntStatus::ok;
     };
     if(input.count){const auto* p=unicode_properties(input[0]);const auto gc=p->general_category();
         if((gc==UnicodeGeneralCategory::mn||gc==UnicodeGeneralCategory::mc)&&!p->has(UnicodeFlag::default_ignorable_code_point)){
@@ -105,16 +103,49 @@ SfntStatus map_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice
     return SfntStatus::ok;
 }
 
+SfntStatus seek(Work& w,SfntGlyphBuffer& value,u32 at) noexcept {
+    const u64 cost=(at>value.gap_begin?at-value.gap_begin:value.gap_begin-at)+1ull;
+    if(!w.spend(cost))return SfntStatus::resource_limit;return sfnt_glyph_buffer_seek(&value,at,cost);
+}
+// Seeks buffer to end, then opens local over glyphs [first,end) and the existing
+// gap, so lookups cannot see or edit beyond that cluster group.
+SfntStatus open_group(Work& w,SfntGlyphBuffer& buffer,u32 first,u32 end,SfntGlyphBuffer& local) noexcept {
+    const auto status=seek(w,buffer,end);if(status!=SfntStatus::ok)return status;
+    return sfnt_glyph_buffer_open({buffer.storage.data+first*sizeof(SfntComponentGlyph),
+        (buffer.gap_end-first)*static_cast<u32>(sizeof(SfntComponentGlyph))},sizeof(SfntComponentGlyph),end-first,&local);
+}
+// Runs the early lookup steps of one phase on a group's local view. The first
+// lookup on a view validates it in full; later ones continue from that: the
+// reorders between phases only permute valid records.
+SfntStatus run_early(Work& w,const SfntShapePlan& plan,ConstSlice<SfntLookupStep> early,u32& step,u32 phase,SfntGlyphBuffer& local,bool& validated,
+    const SfntGsubExecutionScratch& scratch,u32 match_work,SfntClusterMap* clusters,SfntComponentForest* forest,u64& edits) noexcept {
+    while(step<early.count&&early[step].stage==phase){
+        const u32 count=sfnt_glyph_count(sfnt_glyph_buffer_view(local));
+        if(plan.refresh_substitution_classes){if(!w.spend(count))return SfntStatus::resource_limit;
+            auto* values=reinterpret_cast<SfntComponentGlyph*>(local.storage.data);
+            for(u32 i=0;i<count;++i)values[i].glyph.glyph_class=sfnt_gdef_glyph_class(plan.gdef,values[i].glyph.glyph);}
+        SfntGsubExecutionResult execution{};const u16 lookup=early[step++].lookup;SfntStatus status;
+        if(validated){const SfntGsubExecutableLookup* root=nullptr;status=sfnt_gsub_lookup_prepare(*plan.substitutions,lookup,&root);
+            if(status==SfntStatus::ok)status=sfnt_gsub_execute_validated_lookup(*plan.substitutions,*root,&local,0,count,0,scratch,{w.left,match_work},&execution,clusters,forest,0);}
+        else status=sfnt_gsub_execute_lookup(*plan.substitutions,lookup,&local,0,count,0,scratch,{w.left,match_work},&execution,clusters,forest);
+        validated=true;
+        if(!w.spend(execution.operations))return SfntStatus::invalid_input;edits+=execution.edits;
+        if(status!=SfntStatus::ok)return status;
+        status=seek(w,local,sfnt_glyph_count(sfnt_glyph_buffer_view(local)));if(status!=SfntStatus::ok)return status;
+    }
+    return SfntStatus::ok;
+}
 struct RunPolicy {
     Policy cluster;const SfntShapePlan* plan;ConstSlice<SfntLookupStep> early;
-    Slice<u32> groups,boundaries;SfntShapeLimits limits;u64 edits=0;u32 boundary_count=0;
+    Slice<u32> groups,boundaries;SfntShapeLimits limits;u64 edits=0;u32 boundary_count=0;bool reorder=false;
 };
 static_assert(sizeof(RunPolicy)==144);
 SfntStatus run_prepare(void* context,u16 stage,SfntGlyphBuffer* buffer,SfntClusterMap* clusters,
     SfntComponentForest* forest,const SfntGsubExecutionScratch& scratch,u64 available,u64* used) noexcept {
     *used=0;if(stage)return SfntStatus::ok;
     auto& run=*static_cast<RunPolicy*>(context);auto& p=run.cluster;p.forest=forest;forest->preserve_forms=false;
-    Work w{available};struct Report {Work& w;u64* out;~Report() noexcept {*out=w.used;}} report{w,used};
+    if(!run.reorder&&!run.early.count)return SfntStatus::ok;
+    Metered w{available,used};
     SfntStatus status=SfntStatus::ok;
     for(u32 first=0;first<sfnt_glyph_count(sfnt_glyph_buffer_view(*buffer));){
         const auto view=sfnt_glyph_buffer_view(*buffer);const u32 total=sfnt_glyph_count(view);
@@ -127,7 +158,7 @@ SfntStatus run_prepare(void* context,u16 stage,SfntGlyphBuffer* buffer,SfntClust
             if(!(r&cgj_role))pre=(r&pre_role)!=0;if(pre)++p.pre_count;}
         SfntGlyphBuffer local{};
         status=open_group(w,*buffer,first,end,local);if(status!=SfntStatus::ok)return status;
-        u32 step=0;
+        u32 step=0;bool validated=false;
         for(u16 phase=0;phase<=4;++phase){
             Slice<SfntComponentGlyph> current{reinterpret_cast<SfntComponentGlyph*>(local.storage.data),sfnt_glyph_count(sfnt_glyph_buffer_view(local))};
             if(phase==1&&p.has_reph)status=snapshot(p,current,w);
@@ -136,7 +167,7 @@ SfntStatus run_prepare(void* context,u16 stage,SfntGlyphBuffer* buffer,SfntClust
             else if(phase==3&&p.has_pref)status=changed(p,current,p.pref,w);
             else if(phase==4&&(p.reph_formed||p.pref!=nil||p.pre_count))status=reorder(p,current,w);
             if(status!=SfntStatus::ok)return status;
-            status=run_early(w,*run.plan,run.early,step,phase,local,scratch,run.limits.match_work,clusters,forest,run.edits);if(status!=SfntStatus::ok)return status;
+            status=run_early(w,*run.plan,run.early,step,phase,local,validated,scratch,run.limits.match_work,clusters,forest,run.edits);if(status!=SfntStatus::ok)return status;
         }
         buffer->gap_begin=first+local.gap_begin;buffer->gap_end=first+local.gap_end;
         first=buffer->gap_begin;
@@ -152,30 +183,6 @@ SfntStatus run_restore(void* context,SfntClusterMap* clusters,const SfntComponen
 }
 
 }
-SfntStatus use_shape::seek(Work& w,SfntGlyphBuffer& value,u32 at) noexcept {
-    const u64 cost=(at>value.gap_begin?at-value.gap_begin:value.gap_begin-at)+1ull;
-    if(!w.spend(cost))return SfntStatus::resource_limit;return sfnt_glyph_buffer_seek(&value,at,cost);
-}
-SfntStatus use_shape::open_group(Work& w,SfntGlyphBuffer& buffer,u32 first,u32 end,SfntGlyphBuffer& local) noexcept {
-    const auto status=seek(w,buffer,end);if(status!=SfntStatus::ok)return status;
-    return sfnt_glyph_buffer_open({buffer.storage.data+first*sizeof(SfntComponentGlyph),
-        (buffer.gap_end-first)*static_cast<u32>(sizeof(SfntComponentGlyph))},sizeof(SfntComponentGlyph),end-first,&local);
-}
-SfntStatus use_shape::run_early(Work& w,const SfntShapePlan& plan,ConstSlice<SfntLookupStep> early,u32& step,u32 phase,SfntGlyphBuffer& local,
-    const SfntGsubExecutionScratch& scratch,u32 match_work,SfntClusterMap* clusters,SfntComponentForest* forest,u64& edits) noexcept {
-    while(step<early.count&&(phase==0xffffu||early[step].stage==phase)){
-        const u32 count=sfnt_glyph_count(sfnt_glyph_buffer_view(local));
-        if(plan.refresh_substitution_classes){if(!w.spend(count))return SfntStatus::resource_limit;
-            auto* values=reinterpret_cast<SfntComponentGlyph*>(local.storage.data);
-            for(u32 i=0;i<count;++i)values[i].glyph.glyph_class=sfnt_gdef_glyph_class(plan.gdef,values[i].glyph.glyph);}
-        SfntGsubExecutionResult execution{};
-        auto status=sfnt_gsub_execute_lookup(*plan.substitutions,early[step++].lookup,&local,0,count,0,scratch,{w.left,match_work},&execution,clusters,forest);
-        if(!w.spend(execution.operations))return SfntStatus::invalid_input;edits+=execution.edits;
-        if(status!=SfntStatus::ok)return status;
-        status=seek(w,local,sfnt_glyph_count(sfnt_glyph_buffer_view(local)));if(status!=SfntStatus::ok)return status;
-    }
-    return SfntStatus::ok;
-}
 SfntStatus use_shape::locate(const SfntComponentForest& forest,const Slice<SfntComponentGlyph>& glyphs,u32 node,u32* index,Work& w) noexcept {
     *index=0xffffffffu;if(node==0xffffffffu)return SfntStatus::ok;u32 root=0,ordinal=0;u64 used=0;
     const auto status=sfnt_component_location(forest,node,&root,&ordinal,w.left,&used);w.spend(used);
@@ -190,6 +197,10 @@ SfntStatus use_shape::move_before(const Slice<SfntComponentGlyph>& view,u32 from
     if(!w.spend((from>to?from-to:to-from)+1))return SfntStatus::resource_limit;
     const auto saved=glyphs[from];if(from<to)for(u32 i=from;i<to;++i)glyphs[i]=glyphs[i+1];
     else for(u32 i=from;i>to;--i)glyphs[i]=glyphs[i-1];glyphs[to]=saved;return SfntStatus::ok;
+}
+void use_shape::rotate(Slice<SfntComponentGlyph> glyphs,u32 first,u32 mid,u32 last) noexcept {
+    const auto reverse=[&](u32 low,u32 high) noexcept {while(low<high&&low<--high){const auto saved=glyphs[low];glyphs[low++]=glyphs[high];glyphs[high]=saved;}};
+    reverse(first,mid);reverse(mid,last);reverse(first,last);
 }
 SfntStatus use_shape::admit_run(const SfntShapePlan& plan,ConstSlice<u32> input,ConstSlice<SfntLookupStep> steps,const SfntShapeStorage& storage,
     const SfntShapeLimits& limits,u32* early) noexcept {
@@ -219,7 +230,7 @@ SfntStatus sfnt_sinhala_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap
         const u32 origin=first;
         for(u32 at=0;at<window;){u32 length=1;while(at+length<window&&!boundaries[at+length])++length;
             if(at+length==window&&origin+window<input.count)break;
-            const ConstSlice<u32> cluster{input.data+origin+at,length};SfntSinhalaInputScalar expanded[62];SfntSinhalaInputResult sizes{};
+            const ConstSlice<u32> cluster{input.data+origin+at,length};SfntIndicInputScalar expanded[62];SfntIndicInputResult sizes{};
             status=sfnt_sinhala_expand_cluster(cluster,{expanded,62},&sizes,limits.stage_work);if(status!=SfntStatus::ok)return status;
             SfntClusterGlyph local[63];u32 amount=0;status=map_cluster(plan,cmap,cluster,expanded,sizes,rtl,local,amount);if(status!=SfntStatus::ok)return status;
             if(static_cast<u64>(count)+amount>capacity||starts>=storage.targets.count)return SfntStatus::output_too_small;
@@ -229,23 +240,7 @@ SfntStatus sfnt_sinhala_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap
             units+=sizes.source_units;at+=length;first=origin+at;
         }
     }
-    return use_shape::run(plan,cmap,{mapped,count},units,starts,early,0xdca,em,storage,result,steps,limits,rtl);
-}
-SfntStatus use_shape::finish_group_run(void* context,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u64 work) noexcept {
-    const auto& p=*static_cast<GroupRun*>(context);
-    if(zero.count<glyphs.count)return SfntStatus::output_too_small;
-    if(glyphs.count>work)return SfntStatus::resource_limit;
-    for(u32 i=0;i<glyphs.count;++i){auto& g=glyphs[i].glyph;
-        // Only the nominal IDs count, even when another scalar maps to one; a
-        // substitution to a different ID stays visible.
-        const bool invisible=g.glyph==p.invisible[0]||g.glyph==p.invisible[1]||g.glyph==p.invisible[2]||g.glyph==p.invisible[3];
-        if(invisible)g.glyph=p.space;g.glyph_class=sfnt_gdef_glyph_class(*p.gdef,g.glyph);g.reserved=static_cast<u8>(invisible);
-        zero[i]=static_cast<u8>(invisible||g.glyph_class==SfntGlyphClass::mark);
-    }return SfntStatus::ok;
-}
-SfntStatus use_shape::restore_group_run(void* context,SfntClusterMap* clusters,const SfntComponentForest& forest,Slice<SfntComponentGlyph> glyphs,u64 work) noexcept {
-    auto& p=*static_cast<GroupRun*>(context);
-    return restore_groups(p.groups,p.boundaries,p.boundary_count,clusters,forest,glyphs,work);
+    return use_shape::run(use_shape::Script::sinhala,plan,cmap,{mapped,count},units,starts,early,em,storage,result,steps,limits,rtl);
 }
 SfntStatus use_shape::restore_groups(Slice<u32> groups,Slice<u32> boundaries,u32 boundary_count,SfntClusterMap* clusters,
     const SfntComponentForest& forest,Slice<SfntComponentGlyph> glyphs,u64 work) noexcept {
@@ -272,19 +267,32 @@ SfntStatus use_shape::restore_groups(Slice<u32> groups,Slice<u32> boundaries,u32
     if(!w.spend(cost))return SfntStatus::resource_limit;
     return sfnt_cluster_map_open(groups.count,{boundaries.data,count},clusters->storage,clusters,cost);
 }
-SfntStatus use_shape::run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<SfntClusterGlyph> mapped,u32 units,u32 starts,
-    u32 early,u32 halant_scalar,float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,
-    const SfntShapeLimits& limits,bool rtl,const u16* control_glyphs) noexcept {
+SfntStatus use_shape::run(Script script,const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<SfntClusterGlyph> mapped,u32 units,u32 starts,
+    u32 early,float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,
+    const SfntShapeLimits& limits,bool rtl) noexcept {
     RunPolicy policy{{&plan.gdef,{reinterpret_cast<Snapshot*>(storage.positions.data),storage.positions.count}},&plan,
         {steps.data,early},{storage.character_glyphs.data,units},storage.targets,limits};policy.boundary_count=starts;
-    for(u32 i=0;i<early;++i){policy.cluster.has_reph|=steps[i].stage==1;policy.cluster.has_pref|=steps[i].stage==2;}
+    auto& p=policy.cluster;const bool khmer=script==Script::khmer;
+    policy.reorder=script==Script::sinhala||script==Script::tibetan;
+    for(u32 i=0;policy.reorder&&i<early;++i){p.has_reph|=steps[i].stage==1;p.has_pref|=steps[i].stage==2;}
     auto status=SfntStatus::ok;
-    if(halant_scalar){status=sfnt_cmap_glyph(cmap,halant_scalar,0,&policy.cluster.halant);if(status!=SfntStatus::ok)return status;}
-    if(control_glyphs){copy_bytes(policy.cluster.controls,control_glyphs,sizeof(policy.cluster.controls));policy.cluster.control_ids=true;}
-    status=sfnt_cmap_glyph(cmap,0x20,0,&policy.cluster.space);if(status!=SfntStatus::ok)return status;
-    const SfntShapeStagePolicy stages{&policy,run_prepare,7};
+    if(script==Script::sinhala)status=sfnt_cmap_glyph(cmap,0xdca,0,&p.halant);
+    else{
+        // Only the nominal IDs count, even when another scalar maps to one; a
+        // substitution to a different ID stays visible.
+        for(u32 i=0;i<4&&status==SfntStatus::ok;++i)status=sfnt_cmap_glyph(cmap,(khmer?0x200bu:0x200cu)+(khmer&&i==3?0:i),0,p.controls+i);
+        p.control_ids=true;
+    }
+    if(status!=SfntStatus::ok)return status;
+    status=sfnt_cmap_glyph(cmap,0x20,0,&p.space);if(status!=SfntStatus::ok)return status;
     const SfntShapeGlyphPolicy glyph_policy{&policy,run_finish,run_restore};
-    auto resolved=plan;resolved.retain_zero_positioning=true;
+    auto resolved=plan;
+    if(khmer){
+        resolved.retain_zero_positioning=false;resolved.compensate_consecutive_zeroes=true;
+        return sfnt_shape_run(resolved,mapped,units,{storage.targets.data,starts},rtl,em,storage,result,limits,steps,{},glyph_policy);
+    }
+    const SfntShapeStagePolicy stages{&policy,run_prepare,7};
+    resolved.retain_zero_positioning=true;
     status=sfnt_shape_run(resolved,mapped,units,{storage.targets.data,starts},rtl,em,storage,result,limits,
         {steps.data?steps.data+early:nullptr,steps.count-early},{},glyph_policy,nullptr,&stages);
     result->substitution_edits+=policy.edits;return status;

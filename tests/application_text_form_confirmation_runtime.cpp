@@ -611,6 +611,10 @@ bool secure_text_store_composition(const SecureTextStore&, SecureTextComposition
     ++confirmation_runtime_test::seen.store_calls;
     return false;
 }
+bool secure_text_store_composing(const SecureTextStore&) noexcept {
+    ++confirmation_runtime_test::seen.store_calls;
+    return false;
+}
 bool secure_text_store_filter_message(SecureTextStore*, const MSG&) noexcept {
     ++confirmation_runtime_test::seen.store_calls;
     return false;

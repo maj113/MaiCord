@@ -11,15 +11,15 @@ bool emoji_dispatch_case(DWriteTextSystem system,DWriteTextSystem reference,Utf8
         const float width=scenario.width;const auto wrap=scenario.wrap;
         ++cases;system.tracking=reference.tracking=mode&1?.03f:0;system.independent_letters=reference.independent_letters=(mode&2)!=0;
         const TextStyleSpan style{0,text.bytes,flags[f]};const ConstSlice<TextStyleSpan> styles{&style,flags[f]?1u:0u};
-        CHECK(text_shape_utf8_styled(&system,text,styles,width,1000000,{utf16,256},&native_output.text,wrap).ok());
+        CHECK(text_shape_utf8(&system,text,styles,width,1000000,{utf16,256},&native_output.text,wrap).ok());
         CHECK((native_output.text.native_fonts()!=nullptr)==required);if(required)++native_cases;
-        CHECK(text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrap).ok());CHECK(same(native_output,reference_output,mixed));
-        const auto a=text_measure_utf8_styled(&system,text,styles,width,1000000,{utf16,256},wrap);TextMeasureResult b{};
+        CHECK(text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrap).ok());CHECK(same(native_output,reference_output,mixed));
+        const auto a=text_measure_utf8(&system,text,styles,width,1000000,{utf16,256},wrap);TextMeasureResult b{};
         CHECK(reference_shape_measure(reference,text,styles,width,1000000,{utf16,256},wrap,width==8||(mode==3&&wrap==TextWrapping::no_wrap),&b));
         CHECK(a.ok()&&b.ok()&&bytes_equal(&a.width,&b.width,12)&&a.line_count==b.line_count&&a.utf16_units==b.utf16_units);
         const TextHitSpan hit{0,text.bytes,65535,0};
-        CHECK(text_shape_utf8_interactive(&system,text,styles,{&hit,1},width,1000000,{utf16,256},&native_output.text,wrap).ok()&&((native_output.text.native_fonts()!=nullptr)==required));
-        CHECK(text_shape_utf8_interactive(&reference,text,styles,{&hit,1},width,1000000,{utf16,256},&reference_output.text,wrap).ok());CHECK(same(native_output,reference_output,mixed));
+        CHECK(text_shape_utf8(&system,text,styles,width,1000000,{utf16,256},&native_output.text,wrap,TextOverflow::clip,{&hit,1}).ok()&&((native_output.text.native_fonts()!=nullptr)==required));
+        CHECK(text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrap,TextOverflow::clip,{&hit,1}).ok());CHECK(same(native_output,reference_output,mixed));
         {const u32 units=native_output.text.cluster_count;
             // The app's editor resets tracking/independent typography before
             // shaping. Require native geometry for every drawing-mode input.
@@ -42,10 +42,10 @@ bool emoji_dispatch_cuts(DWriteTextSystem system,DWriteTextSystem reference,Utf8
             const TextStyleSpan style{at,tail?text.bytes-at:cp.width,flag};const ConstSlice<TextStyleSpan> styles{&style,1};
             shaped_text_reset(&native_output.text);const bool native=native_text_candidate_styled(system,text,styles,width,1000000,&native_output.text,nullptr,TextWrapping::wrap);
             if(!mixed&&text_style_font_size(system.em_size,flag)==system.em_size)CHECK(native);if(native)++native_cases;
-            else{++emoji_draw_declines;CHECK(text_shape_utf8_styled(&observed,text,styles,width,1000000,{utf16,256},&native_output.text).ok());}
-            CHECK(text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text).ok());
+            else{++emoji_draw_declines;CHECK(text_shape_utf8(&observed,text,styles,width,1000000,{utf16,256},&native_output.text).ok());}
+            CHECK(text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text).ok());
             if(!same(native_output,reference_output)){print("emoji cut byte/flag/tail/width=");number(at);print("/");number(flag);print("/");number(tail);print("/");real(width);print("\n");return false;}
-            const auto a=text_measure_utf8_styled(&observed,text,styles,width,1000000,{utf16,256});TextMeasureResult b{};
+            const auto a=text_measure_utf8(&observed,text,styles,width,1000000,{utf16,256});TextMeasureResult b{};
             CHECK(reference_shape_measure(reference,text,styles,width,1000000,{utf16,256},TextWrapping::wrap,at==0||at+cp.width==text.bytes,&b));
             CHECK(a.ok()&&b.ok()&&bytes_equal(&a.width,&b.width,12)&&a.line_count==b.line_count);
             NativeParagraphHits geometry{};SfntFontLineParts parts[513];TextMeasureResult measured{};

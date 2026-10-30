@@ -19,13 +19,13 @@ bool styled_paragraph_benchmark(bool telugu,bool kannada,bool arabic) noexcept {
     auto reference=owner;reference.native_text=nullptr;
     for(u32 sample=0;sample<2;++sample)for(u32 style=0;style<2;++style){shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);
         CHECK(native_text_candidate_styled(owner,samples[sample],{spans[style],2},120,1000,&native_output.text,nullptr,TextWrapping::wrap));
-        CHECK(text_shape_utf8_styled(&reference,samples[sample],{spans[style],2},120,1000,{utf16,256},&reference_output.text).ok()&&same(native_output,reference_output));}
+        CHECK(text_shape_utf8(&reference,samples[sample],{spans[style],2},120,1000,{utf16,256},&reference_output.text).ok()&&same(native_output,reference_output));}
     for(u32 mode=0;mode<4;++mode){u64 cycles[10][2]{};print(arabic?"{\"kind\":\"arabic_paragraph_benchmark\",\"mode\":" : kannada?"{\"kind\":\"kannada_paragraph_benchmark\",\"mode\":" : telugu?"{\"kind\":\"telugu_paragraph_benchmark\",\"mode\":" : "{\"kind\":\"odia_paragraph_benchmark\",\"mode\":");number(mode);print(",\"frequency\":");number(frequency.QuadPart);print(",\"iterations\":128,\"batches\":[");
         for(u32 batch=0;batch<batches;++batch){u64 ticks[2]{};
             for(u32 order=0;order<2;++order){const u32 legacy=order^(batch&1);auto system=owner;if(legacy)system.native_text=nullptr;else{system.factory=nullptr;system.format=nullptr;}auto* out=legacy?&reference_output.text:&native_output.text;
-                CHECK(text_shape_utf8_styled(&system,samples[0],{spans[0],2},120,1000,{utf16,256},out).ok());const auto before=native_text_candidate_counts(owner);LARGE_INTEGER start{},end{};ULONG64 cycle_start=0,cycle_end=0;CHECK(QueryThreadCycleTime(GetCurrentThread(),&cycle_start));CHECK(QueryPerformanceCounter(&start));
+                CHECK(text_shape_utf8(&system,samples[0],{spans[0],2},120,1000,{utf16,256},out).ok());const auto before=native_text_candidate_counts(owner);LARGE_INTEGER start{},end{};ULONG64 cycle_start=0,cycle_end=0;CHECK(QueryThreadCycleTime(GetCurrentThread(),&cycle_start));CHECK(QueryPerformanceCounter(&start));
                 for(u32 i=0;i<128;++i){const float width=mode==3?120.f+static_cast<float>(i%32):120.f;
-                    CHECK(text_shape_utf8_styled(&system,samples[mode==1?(i&1):0],{spans[mode==2?(i&1):0],2},width,1000,{utf16,256},out).ok());}
+                    CHECK(text_shape_utf8(&system,samples[mode==1?(i&1):0],{spans[mode==2?(i&1):0],2},width,1000,{utf16,256},out).ok());}
                 CHECK(QueryPerformanceCounter(&end));CHECK(QueryThreadCycleTime(GetCurrentThread(),&cycle_end)&&cycle_end>=cycle_start);cycles[batch][legacy]=cycle_end-cycle_start;ticks[legacy]=end.QuadPart-start.QuadPart;const auto after=native_text_candidate_counts(owner);
                 CHECK(after.paragraphs_shaped-before.paragraphs_shaped==(legacy?0u:128u));
             }

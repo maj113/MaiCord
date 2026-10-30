@@ -28,6 +28,16 @@ enum class UiTextFace : u8 {
     count
 };
 
+enum class TextWrapping : u8 {
+    wrap,
+    no_wrap,
+};
+
+enum class TextOverflow : u8 {
+    clip,
+    ellipsis,
+};
+
 // Em size of quick-reaction glyphs, the same in the 44-DIP context targets and
 // the 28-DIP hover targets. Independent of the target extent so layout, rather
 // than font size, owns centering.

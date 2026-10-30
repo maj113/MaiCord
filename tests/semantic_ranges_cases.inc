@@ -9,8 +9,8 @@ inline bool semantic_compare(DWriteTextSystem system,Utf8View input,ConstSlice<T
             print("rejected hit first/count=");number(ranges[i].first_unit);print("/");number(ranges[i].unit_count);print("\n");break;}}shaped_text_reset(&native_output.text);}
     CHECK(!required||native);if(native)++native_cases;shaped_text_reset(&native_output.text);
     auto reference=system;reference.native_text=nullptr;
-    CHECK(text_shape_utf8_interactive(&candidate,input,styles,hits,width,1000000,{utf16,256},&native_output.text,wrap).ok());
-    CHECK(text_shape_utf8_interactive(&reference,input,styles,hits,width,1000000,{utf16,256},&reference_output.text,wrap).ok());
+    CHECK(text_shape_utf8(&candidate,input,styles,width,1000000,{utf16,256},&native_output.text,wrap,TextOverflow::clip,hits).ok());
+    CHECK(text_shape_utf8(&reference,input,styles,width,1000000,{utf16,256},&reference_output.text,wrap,TextOverflow::clip,hits).ok());
     CHECK(!native||native_output.text.native_fonts());
     if(!same(native_output,reference_output,detached,detached)){
         const auto& native_text=native_output.text;
@@ -52,8 +52,7 @@ inline bool semantic_long_range() noexcept {
     static TextGlyph glyphs[1024];static TextRun runs[1024];static u16 clusters[1024];
     static TextHitRegion regions[1024];static DWRITE_HIT_TEST_METRICS expected[1024];
     static wchar_t wide[1024];static char bytes[1024];ShapedText output{};
-    CHECK(shaped_text_initialize(&output,{glyphs,1024},{runs,1024},{clusters,1024}));
-    CHECK(shaped_text_bind_hit_regions(&output,{regions,1024}));
+    CHECK(shaped_text_initialize(&output,{glyphs,1024},{runs,1024},{clusters,1024},{},{regions,1024}));
     struct Release {ShapedText& text;~Release() noexcept {shaped_text_reset(&text);}} release{output};
     const u32 lengths[]{255,256,257,400};for(u32 lines:lengths){
         const u32 units=lines*2-1;for(u32 i=0;i<units;++i){bytes[i]=i&1?'\n':'a';wide[i]=static_cast<wchar_t>(bytes[i]);}
@@ -85,7 +84,7 @@ inline bool semantic_options() noexcept {
     const TextStyleSpan style{3,6,text_style_link};const TextHitSpan hit{0,text.bytes,65535,0};
     // A preceding draw with no requested geometry must not reuse an absent
     // line table. Then changing only hit ranges must reuse the prepared shape.
-    CHECK(text_shape_utf8_styled(&owner,text,{&style,1},37,1000000,{utf16,256},&native_output.text).ok());
+    CHECK(text_shape_utf8(&owner,text,{&style,1},37,1000000,{utf16,256},&native_output.text).ok());
     CHECK(semantic_compare(owner,text,{&style,1},{&hit,1},true,37,TextWrapping::wrap));
     shaped_text_reset(&native_output.text);u32 units=0;CHECK(utf8_utf16_position_for_byte_offset(text,text.bytes,&units));const TextHitRange range{0,units,65535,0};
     const u32 capacity=native_output.text.hit_region_capacity;native_output.text.hit_region_capacity=1;
@@ -94,7 +93,7 @@ inline bool semantic_options() noexcept {
     native_output.text.hit_region_capacity=capacity;
     CHECK(semantic_compare(owner,text,{&style,1},{&hit,1},true,37,TextWrapping::wrap));
     const TextHitSpan bads[]{{0,0,0,0},{text.bytes,1,0,0},{11,1,0,0}};
-    for(const auto& bad:bads){const auto result=text_shape_utf8_interactive(&owner,text,{&style,1},{&bad,1},37,1000000,{utf16,256},&native_output.text);
+    for(const auto& bad:bads){const auto result=text_shape_utf8(&owner,text,{&style,1},37,1000000,{utf16,256},&native_output.text,TextWrapping::wrap,TextOverflow::clip,{&bad,1});
         CHECK(result.error==TextShapeError::invalid_input&&!native_output.text.native_fonts()&&!native_output.text.run_count&&!native_output.text.hit_region_count);}
     CHECK(semantic_compare(owner,text,{&style,1},{&hit,1},true,37,TextWrapping::wrap));return true;
 }

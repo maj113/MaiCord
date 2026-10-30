@@ -89,7 +89,7 @@ u64 shape_per_second(TextSystem* system, ShapedText* shaped, Utf8View input,
     u64 checksum = 0;
     for (u32 iteration = 0; iteration < kTextBenchmarkIterations; ++iteration) {
         const TextShapeResult result = text_shape_utf8(
-            system, input, 640.0f, 200.0f, Slice<wchar_t>{g_utf16, 512}, shaped);
+            system, input, {}, 640.0f, 200.0f, Slice<wchar_t>{g_utf16, 512}, shaped);
         if (!result.ok()) {
             return 0;
         }
@@ -107,7 +107,7 @@ u64 measure_per_second(TextSystem* system, Utf8View input, const Clock& clock) n
     const i64 begin = clock_now();
     u64 checksum = 0;
     for (u32 iteration = 0; iteration < kTextBenchmarkIterations; ++iteration) {
-        const TextMeasureResult result = text_measure_utf8_styled(
+        const TextMeasureResult result = text_measure_utf8(
             system, input, {}, 640.0f, 200.0f, Slice<wchar_t>{g_utf16, 512});
         if (!result.ok()) {
             return 0;
@@ -128,7 +128,7 @@ u64 alternating_shape_cycles(TextSystem* system, ShapedText* shaped, Utf8View fi
     u64 checksum = 0;
     QueryThreadCycleTime(GetCurrentThread(), &begin);
     for (u32 iteration = 0; iteration < iterations; ++iteration) {
-        const TextShapeResult result = text_shape_utf8(system, (iteration & 1) ? second : first, 640.0f,
+        const TextShapeResult result = text_shape_utf8(system, (iteration & 1) ? second : first, {}, 640.0f,
                                                        200.0f, Slice<wchar_t>{g_utf16, 512}, shaped);
         if (!result.ok() || shaped->glyph_count == 0) {
             return 0;
@@ -159,7 +159,7 @@ u64 styled_shape_per_second(TextSystem* system, ShapedText* shaped,
     u64 checksum = 0;
     for (u32 iteration = 0; iteration < kTextBenchmarkIterations;
          ++iteration) {
-        const TextShapeResult result = text_shape_utf8_styled(
+        const TextShapeResult result = text_shape_utf8(
             system, input, ConstSlice<TextStyleSpan>{styles, 9}, 640.0f,
             200.0f, Slice<wchar_t>{g_utf16, 512}, shaped);
         if (!result.ok()) {
@@ -194,10 +194,10 @@ u64 interactive_shape_per_second(TextSystem* system, ShapedText* shaped,
     u64 checksum = 0;
     for (u32 iteration = 0; iteration < kTextBenchmarkIterations;
          ++iteration) {
-        const TextShapeResult result = text_shape_utf8_interactive(
-            system, input, ConstSlice<TextStyleSpan>{styles, 6},
-            ConstSlice<TextHitSpan>{hits, 6}, 320.0f, 200.0f,
-            Slice<wchar_t>{g_utf16, 512}, shaped);
+        const TextShapeResult result = text_shape_utf8(
+            system, input, ConstSlice<TextStyleSpan>{styles, 6}, 320.0f, 200.0f,
+            Slice<wchar_t>{g_utf16, 512}, shaped, TextWrapping::wrap, TextOverflow::clip,
+            ConstSlice<TextHitSpan>{hits, 6});
         if (!result.ok() || shaped->hit_region_count < 6) {
             return 0;
         }
@@ -214,16 +214,14 @@ u64 interactive_shape_per_second(TextSystem* system, ShapedText* shaped,
 
 int run() noexcept {
     TextSystem system{};
-    if (!text_system_initialize(&system, L"Segoe UI", 14.0f, L"en-us").ok()) {
+    if (!text_system_initialize(&system, L"Segoe UI", 14.0f).ok()) {
         return 1;
     }
     ShapedText shaped{};
     if (!shaped_text_initialize(&shaped, Slice<TextGlyph>{g_glyphs, 512},
-                                Slice<TextRun>{g_runs, 64}, Slice<u16>{g_clusters, 512}) ||
-        !shaped_text_bind_decorations(
-            &shaped, Slice<TextDecoration>{g_decorations, 128}) ||
-        !shaped_text_bind_hit_regions(
-            &shaped, Slice<TextHitRegion>{g_hit_regions, 128})) {
+                                Slice<TextRun>{g_runs, 64}, Slice<u16>{g_clusters, 512},
+                                Slice<TextDecoration>{g_decorations, 128},
+                                Slice<TextHitRegion>{g_hit_regions, 128})) {
         text_system_release(&system);
         return 2;
     }
@@ -251,6 +249,10 @@ int run() noexcept {
     const Pair pairs[] = {
         {"cycles_latin", utf8_literal("Caf\xc3\xa9, fianc\xc3\xa9" "e, na\xc3\xafve, r\xc3\xa9sum\xc3\xa9. AV To office."),
          utf8_literal("R\xc3\xa9sum\xc3\xa9, caf\xc3\xa9, na\xc3\xafve, fianc\xc3\xa9" "e. To AV office.")},
+        {"cycles_ascii", utf8_literal("hey, did you see the new build? it fixed the startup crash on my office laptop."),
+         utf8_literal("lol yeah, the office build is fine now - thanks for the quick fix, really appreciated it!")},
+        {"cycles_ascii_wrap", utf8_literal("hey, did you see the new build? it fixed the startup crash on my office laptop. I tried it on three machines and the same thing happened every time, so I think the fix is real, but we should wait a day before telling everyone, just in case something else shows up in the logs tomorrow morning."),
+         utf8_literal("lol yeah, the office build is fine now - thanks for the quick fix, really appreciated it! I will let the team know after lunch and then post the notes in the channel so nobody tries the old installer again, which broke twice last week for people who had cached the download link in their bookmarks.")},
         {"cycles_arabic",
          utf8_literal("\xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7 \xd8\xa8\xd8\xa7\xd9\x84\xd8\xac\xd9\x85\xd9\x8a\xd8\xb9 "
                       "\xd9\x81\xd9\x8a \xd8\xa7\xd9\x84\xd9\x82\xd9\x86\xd8\xa7\xd8\xa9"),
@@ -288,7 +290,7 @@ int run() noexcept {
     message_hit_command.measurement_kind = MessageTextMeasurementKind::content;
     message_hit_command.horizontal_alignment = UiTextAlignment::start;
     message_hit_command.vertical_alignment = UiTextAlignment::start;
-    message_hit_command.wrapping = UiTextWrapping::wrap;
+    message_hit_command.wrapping = TextWrapping::wrap;
     MessageTextPresentation message_hit_presentation{};
     message_hit_presentation.commands = Slice<MessageTextCommand>{&message_hit_command, 1};
     message_hit_presentation.command_count = 1;

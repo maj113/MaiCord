@@ -9,6 +9,9 @@ struct SfntClusterMap {Slice<u64> storage;u32 text_count,levels;};
 struct SfntClusterMerge {u32 first,last;u64 commit_work;};
 static_assert(sizeof(SfntClusterGlyph)==8 && sizeof(SfntClusterMap)==24 && sizeof(SfntClusterMerge)==16);
 u32 sfnt_cluster_map_words(u32 text_count) noexcept;
+// The word count and level count a map over text_count units needs, framed on
+// storage without touching its bits: for callers whose pass already wrote them.
+SfntClusterMap sfnt_cluster_map_frame(u64* storage,u32 text_count) noexcept;
 // Empty boundaries means one initial cluster per source unit; otherwise supply
 // sorted unique starts including zero for nonempty text (the end is implicit).
 // Units are caller-defined (normally UTF-16). Storage is borrowed, aligned and

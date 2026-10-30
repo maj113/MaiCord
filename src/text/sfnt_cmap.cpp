@@ -120,17 +120,12 @@ SfntStatus validate_uvs(ConstSlice<u8> table, u16 glyphs) noexcept {
     return SfntStatus::ok;
 }
 
-u32 base_rank(u16 platform, u16 encoding, u16 format) noexcept {
-    if (!((platform == 0 && encoding != 5) ||
-          (platform == 3 && (encoding == 1 || encoding == 10)))) return 0;
-    // Full repertoire mappings take precedence over BMP; last-resort format 13
-    // is selected only when no ordinary mapping is available.
-    const u32 rank = format == 12 ? 60 : format == 10 ? 50 : format == 4 ? 40 :
-                     format == 6 ? 30 : format == 0 ? 20 : format == 13 ? 10 : 0;
-    return rank ? rank + (platform == 3 ? 1u : 0u) : 0;
-}
+// Rank by subtable format, indexed by format 0..14: full repertoire mappings
+// take precedence over BMP, and last-resort format 13 is selected only when no
+// ordinary mapping is available. Zero marks formats that never carry a base map.
+constexpr u8 format_rank[]{2, 0, 0, 0, 4, 0, 3, 0, 0, 0, 5, 0, 6, 1, 0};
 
-SfntStatus nominal(const SfntCmap& cmap, u32 scalar, u16* out) noexcept {
+__declspec(noinline) SfntStatus nominal(const SfntCmap& cmap, u32 scalar, u16* out) noexcept {
     const u8* p = cmap.base.data;
     u32 glyph = 0;
     if (cmap.format == 0) {
@@ -180,60 +175,8 @@ SfntStatus nominal(const SfntCmap& cmap, u32 scalar, u16* out) noexcept {
     return SfntStatus::ok;
 }
 
-} // namespace
-
-SfntStatus sfnt_cmap_open(const SfntFace& face, SfntCmap* cmap) noexcept {
-    if (!cmap) return SfntStatus::invalid_input;
-    reset_value(cmap);
-    SfntCmap result{};
-    auto status = sfnt_glyph_count(face, &result.glyph_count);
-    if (status != SfntStatus::ok) return status;
-    ConstSlice<u8> table{};
-    status = sfnt_table(face, sfnt_tag('c', 'm', 'a', 'p'), &table);
-    if (status != SfntStatus::ok) return status;
-    if (table.count < 4) return SfntStatus::truncated;
-    if (be16(table.data)) return SfntStatus::unsupported;
-    const u32 count = be16(table.data + 2);
-    if (count > (table.count - 4u) / 8u) return SfntStatus::truncated;
-    u32 selected_rank = 0;
-    for (u32 i = 0; i < count; ++i) {
-        const u8* record = table.data + 4 + i * 8;
-        const u16 platform = be16(record), encoding = be16(record + 2);
-        if (platform != 0 && !(platform == 3 && (encoding == 1 || encoding == 10))) continue;
-        const u32 offset = be32(record + 4);
-        if (offset < 4 + count * 8) return SfntStatus::malformed;
-        ConstSlice<u8> candidate{};
-        status = subtable(table, offset, &candidate);
-        if (status == SfntStatus::unsupported) continue;
-        if (status != SfntStatus::ok) return status;
-        const u16 format = be16(candidate.data);
-        if (platform == 0 && encoding == 5 && format == 14) {
-            if (result.variations.data) return SfntStatus::malformed;
-            status = validate_uvs(candidate, result.glyph_count);
-            if (status != SfntStatus::ok) return status;
-            result.variations = candidate;
-        } else {
-            const u32 rank = base_rank(platform, encoding, format);
-            if (!rank || rank <= selected_rank) continue;
-            selected_rank = rank;
-            result.base = candidate;
-            result.format = format;
-        }
-    }
-    if (!result.base.data) return SfntStatus::unsupported;
-    status = validate_base(result.base, result.glyph_count);
-    if (status != SfntStatus::ok) return status;
-    *cmap = result;
-    return SfntStatus::ok;
-}
-
-SfntStatus sfnt_cmap_glyph(const SfntCmap& cmap, u32 scalar, u32 selector,
-                            u16* glyph) noexcept {
-    if (!glyph) return SfntStatus::invalid_input;
-    *glyph = 0;
-    if (!cmap.base.data || !cmap.glyph_count || !scalar_valid(scalar) ||
-        (selector && !selector_valid(selector))) return SfntStatus::invalid_input;
-    if (!selector) return nominal(cmap, scalar, glyph);
+// Kept out of line so the common nominal lookup needs no frame.
+__declspec(noinline) SfntStatus variation(const SfntCmap& cmap, u32 scalar, u32 selector, u16* glyph) noexcept {
     if (!cmap.variations.data) return SfntStatus::unsupported_sequence;
     const u8* p = cmap.variations.data;
     u32 low = 0, high = be32(p + 6);
@@ -272,6 +215,65 @@ SfntStatus sfnt_cmap_glyph(const SfntCmap& cmap, u32 scalar, u32 selector,
         }
     }
     return SfntStatus::unsupported_sequence;
+}
+
+} // namespace
+
+SfntStatus sfnt_cmap_open(const SfntFace& face, SfntCmap* cmap) noexcept {
+    if (!cmap) return SfntStatus::invalid_input;
+    reset_value(cmap);
+    SfntCmap result{};
+    auto status = sfnt_glyph_count(face, &result.glyph_count);
+    if (status != SfntStatus::ok) return status;
+    ConstSlice<u8> table{};
+    status = sfnt_table(face, sfnt_tag('c', 'm', 'a', 'p'), &table);
+    if (status != SfntStatus::ok) return status;
+    if (table.count < 4) return SfntStatus::truncated;
+    if (be16(table.data)) return SfntStatus::unsupported;
+    const u32 count = be16(table.data + 2);
+    if (count > (table.count - 4u) / 8u) return SfntStatus::truncated;
+    u32 selected_rank = 0;
+    for (u32 i = 0; i < count; ++i) {
+        const u8* record = table.data + 4 + i * 8;
+        const u16 platform = be16(record), encoding = be16(record + 2);
+        if (platform != 0 && !(platform == 3 && (encoding == 1 || encoding == 10))) continue;
+        const u32 offset = be32(record + 4);
+        if (offset < 4 + count * 8) return SfntStatus::malformed;
+        ConstSlice<u8> candidate{};
+        status = subtable(table, offset, &candidate);
+        if (status == SfntStatus::unsupported) continue;
+        if (status != SfntStatus::ok) return status;
+        const u16 format = be16(candidate.data);
+        if (platform == 0 && encoding == 5) {
+            if (format != 14) continue;
+            if (result.variations.data) return SfntStatus::malformed;
+            status = validate_uvs(candidate, result.glyph_count);
+            if (status != SfntStatus::ok) return status;
+            result.variations = candidate;
+            continue;
+        }
+        // A Windows mapping wins a tie with the Unicode platform.
+        const u32 kind = format_rank[format], rank = kind * 2 + (platform == 3 ? 1u : 0u);
+        if (!kind || rank <= selected_rank) continue;
+        selected_rank = rank;
+        result.base = candidate;
+        result.format = format;
+    }
+    if (!result.base.data) return SfntStatus::unsupported;
+    status = validate_base(result.base, result.glyph_count);
+    if (status != SfntStatus::ok) return status;
+    *cmap = result;
+    return SfntStatus::ok;
+}
+
+SfntStatus sfnt_cmap_glyph(const SfntCmap& cmap, u32 scalar, u32 selector,
+                            u16* glyph) noexcept {
+    if (!glyph) return SfntStatus::invalid_input;
+    *glyph = 0;
+    if (!cmap.base.data || !cmap.glyph_count || !scalar_valid(scalar) ||
+        (selector && !selector_valid(selector))) return SfntStatus::invalid_input;
+    if (!selector) return nominal(cmap, scalar, glyph);
+    return variation(cmap, scalar, selector, glyph);
 }
 
 } // namespace maicord

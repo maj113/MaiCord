@@ -153,18 +153,29 @@ GlyphAtlasGpuResult GlyphRasterBatch::add(const GlyphOutline& outline,const Glyp
         cursor|(static_cast<u32>(allocation_padding)<<16),pixels_per_em,bounds.left/pixels_per_em,bounds.top/pixels_per_em};
     copy_bytes(jobs[count++],&constants,sizeof(constants));cursor+=outline.count;
     groups_x=maximum(groups_x,(width+7)/8);groups_y=maximum(groups_y,(height+7)/8);
+    large=large||width>=glyph_raster_culling_extent||height>=glyph_raster_culling_extent;
+    stroked=stroked||stroke_half_width>0.0f;
     return gpu_error(GlyphAtlasGpuError::none);
 }
 void GlyphRasterBatch::cancel() noexcept {
     if(mapped)context->Unmap(owner->command_buffer,0);
-    mapped=nullptr;count=cursor=groups_x=groups_y=0;
+    mapped=nullptr;count=cursor=groups_x=groups_y=0;large=stroked=false;
 }
 bool GlyphRasterBatch::finish() noexcept {
     if(failed){cancel();return false;}
     if(!count)return true;
     auto* gpu=owner;copy_bytes(mapped,jobs,count*sizeof(GlyphRasterJob));
     context->Unmap(gpu->command_buffer,0);mapped=nullptr;
-    context->CSSetShader(gpu->raster_shader,nullptr,0);
+    ID3D11ComputeShader* shader=gpu->raster_shader;
+    if(large&&!stroked){
+        if(!gpu->culled_shader){
+            ID3D11Device* device=nullptr;context->GetDevice(&device);
+            if(device)shader_create_compute(device,ShaderId::glyph_culled_compute,&gpu->culled_shader);
+            com_release(device);
+        }
+        if(gpu->culled_shader)shader=gpu->culled_shader; // Creation failure keeps the plain shader.
+    }
+    context->CSSetShader(shader,nullptr,0);
     context->CSSetShaderResources(0,1,&gpu->command_view);
     context->CSSetUnorderedAccessViews(0,1,&gpu->texture_uav,nullptr);
     context->Dispatch(groups_x,groups_y,count);
@@ -174,7 +185,7 @@ bool GlyphRasterBatch::finish() noexcept {
     context->CSSetShader(nullptr,nullptr,0);
     ++gpu->dispatch_count;gpu->raster_count+=count;gpu->dispatched_commands+=cursor;
     for(u32 i=0;i<count;++i)gpu->dispatched_pixels+=static_cast<u64>(jobs[i][1]&65535)*(jobs[i][1]>>16);
-    count=cursor=groups_x=groups_y=0;return true;
+    count=cursor=groups_x=groups_y=0;large=stroked=false;return true;
 }
 
 void glyph_atlas_gpu_release(GlyphAtlasGpu* gpu) noexcept {
@@ -182,6 +193,7 @@ void glyph_atlas_gpu_release(GlyphAtlasGpu* gpu) noexcept {
         return;
     }
     com_release(gpu->raster_shader);
+    com_release(gpu->culled_shader);
     com_release(gpu->command_view);
     com_release(gpu->command_buffer);
     com_release(gpu->texture_uav);

@@ -688,8 +688,8 @@ bool text(UiTextOutput* stream, const UiFriendsScene& s, UiWidgetHandle h, const
                                         style,
                                         align,
                                         UiTextAlignment::center,
-                                        UiTextWrapping::no_wrap,
-                                        UiTextOverflow::ellipsis});
+                                        TextWrapping::no_wrap,
+                                        TextOverflow::ellipsis});
 }
 } // namespace
 bool ui_friends_scene_update(UiFriendsScene* scene, const UiFriendsSource* source, UiFriendsTab tab,
@@ -1257,8 +1257,8 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
                  text_style_subtext,
                  UiTextAlignment::start,
                  UiTextAlignment::center,
-                 UiTextWrapping::wrap,
-                 UiTextOverflow::clip}))
+                 TextWrapping::wrap,
+                 TextOverflow::clip}))
             return false;
     } else if (!text(stream, s, s.status_widget, status_label(s), status->content_rectangle,
                      theme.text_secondary, text_style_subtext))
@@ -1276,7 +1276,7 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
     if (s.active_visible && !s.active_collapsed) {
         const auto& r = s.active_rect;
         const auto line = [&](Utf8View label, UiRect area, Color color, u32 style,
-                              UiTextWrapping wrapping = UiTextWrapping::no_wrap) noexcept {
+                              TextWrapping wrapping = TextWrapping::no_wrap) noexcept {
             if (!label.bytes)
                 return true;
             return ui_text_output_push(stream, {label,
@@ -1288,8 +1288,8 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
                                                 UiTextAlignment::start,
                                                 UiTextAlignment::center,
                                                 wrapping,
-                                                wrapping == UiTextWrapping::wrap ? UiTextOverflow::clip
-                                                                                 : UiTextOverflow::ellipsis});
+                                                wrapping == TextWrapping::wrap ? TextOverflow::clip
+                                                                                 : TextOverflow::ellipsis});
         };
         const auto toggle = active_toggle_rect(s);
         if (!line(utf8_literal("Active now"), {r.left + active_padding, r.top + 12, toggle.left - 8, r.top + 44},
@@ -1303,7 +1303,7 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
             if (!line(utf8_literal("It's quiet for now"), title, theme.text_primary, text_style_bold) ||
                 !line(utf8_literal("When a friend starts an activity, like playing a game or hanging out in voice, "
                                    "it shows here."),
-                      body, theme.text_secondary, text_style_subtext, UiTextWrapping::wrap))
+                      body, theme.text_secondary, text_style_subtext, TextWrapping::wrap))
                 return false;
         }
         for (u32 i = 0; i < cards; ++i) {

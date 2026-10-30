@@ -138,7 +138,7 @@ bool measure_text(TextFormScene* scene, TextFormElement element, UiSize constrai
 bool measure_label(void* opaque, const UiLayoutMeasureRequest& request, UiSize* size,
                    float* baseline) noexcept {
     auto* scene = static_cast<TextFormScene*>(opaque);
-    if (!scene || !scene->measure || request.key == 0 || request.key > kTextFormElements)
+    if (!scene->measure || request.key == 0 || request.key > kTextFormElements)
         return false;
     const auto element = static_cast<TextFormElement>(request.key - 1);
     const auto text = label(scene->content, element);
@@ -285,8 +285,7 @@ bool group_index(TextFormElement element, u32 first, u32 count, u32* at) noexcep
     const u32 value = index(element);
     if (value < first || value >= first + count)
         return false;
-    if (at)
-        *at = value - first;
+    *at = value - first;
     return true;
 }
 } // namespace
@@ -315,7 +314,7 @@ UiRect text_form_option_box(const TextFormScene& scene) noexcept {
 }
 
 bool text_form_bind_measure_revision(TextFormScene* scene, u16 revision) noexcept {
-    if (!scene || !revision || scene->measure_revision == revision)
+    if (!revision || scene->measure_revision == revision)
         return false;
     scene->measure_revision = revision;
     scene->layout_signature = 0;
@@ -323,8 +322,6 @@ bool text_form_bind_measure_revision(TextFormScene* scene, u16 revision) noexcep
 }
 
 bool text_form_bind_theme_styles(TextFormScene* scene, const UiResolvedThemeStyles* styles) noexcept {
-    if (!scene)
-        return false;
     const u32 revision = styles && styles->ready ? styles->geometry_revision : 0;
     if (scene->theme_styles == styles && scene->theme_geometry_revision == revision)
         return false;
@@ -336,7 +333,7 @@ bool text_form_bind_theme_styles(TextFormScene* scene, const UiResolvedThemeStyl
 
 bool text_form_update(TextFormScene* scene, const TextFormContent& content, UiRect viewport,
                       UiTextMeasureCache* measure) noexcept {
-    if (!scene || !measure || !measure->backend || !ui_rect_valid(viewport) ||
+    if (!measure || !measure->backend || !ui_rect_valid(viewport) ||
         ui_rect_width(viewport) < 96 || ui_rect_height(viewport) < 64 || !content.title.bytes ||
         (!content.confirmation_only && !content.label.bytes && !content.choices.count) || !content.cancel.bytes ||
         !content.accept.bytes || content.choices.count > kTextFormChoices ||
@@ -509,8 +506,6 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, UiRe
 }
 
 void text_form_release(TextFormScene* scene) noexcept {
-    if (!scene)
-        return;
     ui_fixed_widget_storage_release(&scene->storage);
     reset_value(scene);
 }
@@ -542,7 +537,7 @@ TextFormElement text_form_focused(const TextFormScene& scene) noexcept {
     return TextFormElement::count;
 }
 bool text_form_focus(TextFormScene* scene, TextFormElement element) noexcept {
-    if (!scene || !scene->active || !control(element) || !(scene->built & (1u << index(element))) ||
+    if (!scene->active || !control(element) || !(scene->built & (1u << index(element))) ||
         (element == TextFormElement::edit && editor_collapsed(scene->content)) ||
         (scene->content.confirmation_only && element == TextFormElement::edit) ||
         !ui_widget_manager_focus(&scene->widgets, scene->elements[index(element)]))
@@ -554,7 +549,7 @@ bool text_form_focus(TextFormScene* scene, TextFormElement element) noexcept {
     return valid;
 }
 bool text_form_move_focus(TextFormScene* scene, bool reverse) noexcept {
-    if (!scene || !scene->active)
+    if (!scene->active)
         return false;
     const auto target = ui_widget_manager_move_focus(&scene->widgets, reverse);
     const auto revision = scene->widgets.layout.revision;
@@ -564,7 +559,7 @@ bool text_form_move_focus(TextFormScene* scene, bool reverse) noexcept {
     return valid;
 }
 bool text_form_scroll(TextFormScene* scene, float delta) noexcept {
-    if (!scene || !scene->active || !ui_coordinate_valid(delta))
+    if (!scene->active || !ui_coordinate_valid(delta))
         return false;
     UiWidgetScrollGeometry geometry{};
     const auto handle = scene->elements[index(TextFormElement::panel)];
@@ -593,6 +588,8 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
     bool valid =
         fill(paint, scene.viewport, theme.tokens.overlay.scrim) &&
         ui_surface_paint(paint, panel->rectangle, theme, UiElevation::dialog, theme.scale.radius_lg);
+    const auto focus = text_form_focused(scene);
+    const auto& metrics = ui_theme_metrics(scene.theme_styles);
     for (u32 slot = 0; slot < kTextFormElements; ++slot) {
         const auto element = static_cast<TextFormElement>(slot);
         if (!control(element) || !(scene.built & (1u << slot)) ||
@@ -615,9 +612,8 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
             valid = false;
             break;
         }
-        const bool focused = text_form_focused(scene) == element;
+        const bool focused = focus == element;
         const bool outlined = focused && scene.content.focus_visible;
-        const auto& metrics = ui_theme_metrics(scene.theme_styles);
         if (element == TextFormElement::edit) {
             // An error keeps its outline while focused, like settings fields.
             const bool error = scene.content.error;
@@ -746,9 +742,9 @@ bool text_form_text_output(const TextFormScene& scene, const TextFormEditGeometr
                          button ? UiTextAlignment::center : UiTextAlignment::start,
                          UiTextAlignment::start,
                          button || (element == TextFormElement::edit && scene.content.single_line)
-                             ? UiTextWrapping::no_wrap
-                             : UiTextWrapping::wrap,
-                         button ? UiTextOverflow::ellipsis : UiTextOverflow::clip}))
+                             ? TextWrapping::no_wrap
+                             : TextWrapping::wrap,
+                         button ? TextOverflow::ellipsis : TextOverflow::clip}))
             return false;
     }
     return true;

@@ -6,11 +6,11 @@
 namespace maicord {namespace {
 struct Point {double x,y;};
 struct IntegerPoint {i64 v[2];};
-Point point(const SfntOutlinePoint& p) noexcept {return {static_cast<double>(p.x)*2,static_cast<double>(p.y)*2};}
-Point middle(Point a,Point b) noexcept {return {(a.x+b.x)*.5,(a.y+b.y)*.5};}
+inline Point point(const SfntOutlinePoint& p) noexcept {return {static_cast<double>(p.x)*2,static_cast<double>(p.y)*2};}
+inline Point middle(Point a,Point b) noexcept {return {(a.x+b.x)*.5,(a.y+b.y)*.5};}
 using tt_math::floor_div;
 using namespace sfnt_read;
-IntegerPoint integer_point(const SfntOutlinePoint& p) noexcept {return {{static_cast<i64>(p.x)*2,static_cast<i64>(p.y)*2}};}
+inline IntegerPoint integer_point(const SfntOutlinePoint& p) noexcept {return {{static_cast<i64>(p.x)*2,static_cast<i64>(p.y)*2}};}
 IntegerPoint extremum(ConstSlice<SfntOutlinePoint> points,u32 first,u32 end,u32 i,u32 direction) noexcept {
     const auto b=integer_point(points[i]);if(points[i].flags&1)return b;
     const auto& previous=points[i==first?end:i-1];const auto& following=points[i==end?first:i+1];
@@ -39,10 +39,11 @@ struct Ray {
         else{p.y+=direction==2?1:-1;q={p.x-1,direction==2?-32768.0:32767.0};}
         d={q.x-p.x,q.y-p.y};length=d.x*d.x+d.y*d.y;lx=minimum<double>(p.x,q.x);hx=maximum<double>(p.x,q.x);ly=minimum<double>(p.y,q.y);hy=maximum<double>(p.y,q.y);
     }
-    double side(Point a) const noexcept {return d.x*(a.y-p.y)-d.y*(a.x-p.x);}
+    // Bold classification is rare: the ray helpers stay out of line to keep the probe code small.
+    __declspec(noinline) double side(Point a) const noexcept {return d.x*(a.y-p.y)-d.y*(a.x-p.x);}
     // A probe starting on another contour does not cross that contour there.
     bool contains_projection(Point a) const noexcept {const double v=(a.x-p.x)*d.x+(a.y-p.y)*d.y;return v>0&&v<=length;}
-    bool excluded(Point a,Point b,Point c) const noexcept {return maximum<double>(maximum<double>(a.x,b.x),c.x)<lx||minimum<double>(minimum<double>(a.x,b.x),c.x)>hx||maximum<double>(maximum<double>(a.y,b.y),c.y)<ly||minimum<double>(minimum<double>(a.y,b.y),c.y)>hy;}
+    __declspec(noinline) bool excluded(Point a,Point b,Point c) const noexcept {return maximum<double>(maximum<double>(a.x,b.x),c.x)<lx||minimum<double>(minimum<double>(a.x,b.x),c.x)>hx||maximum<double>(maximum<double>(a.y,b.y),c.y)<ly||minimum<double>(minimum<double>(a.y,b.y),c.y)>hy;}
     u32 line(Point a,Point b) const noexcept {
         if(excluded(a,b,b))return 0;const double sa=side(a),sb=side(b);if(!((sa<=0&&sb>0)||(sb<=0&&sa>0)))return 0;
         // Windows rounds the edge parameter to 16.16 before testing the ray's
@@ -55,7 +56,7 @@ struct Ray {
         const i64 extent=static_cast<i64>(horizontal?d.x:d.y)*65536;
         return extent>0?(offset>0&&offset<=extent):(offset<0&&offset>=extent);
     }
-    u32 curve(Point a,Point control,Point b) const noexcept {
+    __declspec(noinline) u32 curve(Point a,Point control,Point b) const noexcept {
         if(excluded(a,control,b))return 0;const double sa=side(a),sb=side(b),sc=side(control),aa=sa-2*sc+sb,bb=2*(sc-sa);double roots[2]{};u32 count=0;
         if(!aa){if(!bb)return 0;roots[count++]=-sa/bb;}
         else{const double discriminant=bb*bb-4*aa*sa;if(discriminant<=0)return 0;
@@ -84,18 +85,19 @@ bool crossings(ConstSlice<SfntOutlinePoint> points,u32 first,u32 end,const Ray& 
         }
     }if(!spend(work))return false;*count+=ray.line(current,start);return true;
 }
-SfntStatus classify(ConstSlice<SfntOutlinePoint> points,ConstSlice<u32> ends,Slice<u8> directions,SfntOutlinePoint* marked,u32 origin,u32 work,u32* used) noexcept {
+}
+SfntStatus tt_mark_contour_directions(Slice<SfntOutlinePoint> marked,ConstSlice<u32> ends,u32 origin,u32 work,u32* used) noexcept {
     WorkReport report{work,work,used};
-    if(origin>points.count||(points.count&&!points.data)||(ends.count&&!ends.data)||(!(points.count-origin))!=(!ends.count))return SfntStatus::invalid_input;
-    if(points.count-origin>65535||ends.count>32767)return SfntStatus::unsupported;
-    if(!marked&&(directions.count<ends.count||(ends.count&&!directions.data)))return SfntStatus::output_too_small;
-    u32 first=origin;for(u32 c=0;c<ends.count;++c){if(!spend(work))return SfntStatus::resource_limit;if(ends[c]<first||ends[c]>=points.count)return SfntStatus::invalid_input;first=ends[c]+1;}
-    if(first!=points.count)return SfntStatus::invalid_input;
-    for(u32 i=origin;i<points.count;++i){if(!spend(work))return SfntStatus::resource_limit;const auto& p=points[i];
+    const ConstSlice<SfntOutlinePoint> points{marked.data,marked.count};
+    // Ends come from one simple glyph: increasing, in range, covering the points after origin.
+    if(points.count-origin>65535)return SfntStatus::unsupported;
+    if(!spend(work,ends.count))return SfntStatus::resource_limit;
+    if(!spend(work,points.count-origin))return SfntStatus::resource_limit;
+    for(u32 i=origin;i<points.count;++i){const auto& p=points[i];
         if(!(p.x>=-32768&&p.x<=32767&&p.y>=-32768&&p.y<=32767))return SfntStatus::unsupported;
         if(static_cast<float>(static_cast<i32>(p.x))!=p.x||static_cast<float>(static_cast<i32>(p.y))!=p.y)return SfntStatus::unsupported;
     }
-    first=origin;for(u32 c=0;c<ends.count;++c){const u32 end=ends[c];auto& direction=marked?marked[first].reserved[0]:directions[c];direction=0;if(end-first<2){first=end+1;continue;}
+    u32 first=origin;for(u32 c=0;c<ends.count;++c){const u32 end=ends[c];auto& direction=marked[first].reserved[0];direction=0;if(end-first<2){first=end+1;continue;}
         u32 indices[4]{first,first,first,first};
         for(u32 i=first+1;i<=end;++i){if(!spend(work))return SfntStatus::resource_limit;const auto a=integer_point(points[i]);
             for(u32 d=0;d<4;++d){const u32 axis=d/2,other=1-axis,j=indices[d];const auto b=integer_point(points[j]);
@@ -111,13 +113,6 @@ SfntStatus classify(ConstSlice<SfntOutlinePoint> points,ConstSlice<u32> ends,Sli
             if(k==1&&votes[0]==votes[1]){direction=votes[1];break;}if(k==2)direction=votes[2];
         }first=end+1;
     }return SfntStatus::ok;
-}
-}
-SfntStatus tt_contour_directions(ConstSlice<SfntOutlinePoint> points,ConstSlice<u32> ends,Slice<u8> directions,u32 work,u32* used) noexcept {
-    return classify(points,ends,directions,nullptr,0,work,used);
-}
-SfntStatus tt_mark_contour_directions(Slice<SfntOutlinePoint> points,ConstSlice<u32> ends,u32 origin,u32 work,u32* used) noexcept {
-    return classify({points.data,points.count},ends,{},points.data,origin,work,used);
 }
 }
 #pragma float_control(pop)

@@ -53,7 +53,7 @@ SfntStatus native_indic_plan_prepare(const NativeRunPlanStore& store,NativeRunPl
         const bool ordered_presentation=malayalam_forms&&(form_bits[0x2f]&indic_default_position);
         ConstSlice<SfntLookupStep> steps{};ConstSlice<u16> roots{};
         status=native_plan_steps(kind,*state,*scratch,[&](Slice<SfntLookupStep> out,SfntLookupPlanResult* result) noexcept {
-            return sfnt_indic_lookup_plan(layout,variations,profile,false,mask,out,result,limits.stage_work,ordered_presentation);},
+            return sfnt_indic_lookup_plan(layout,variations,profile,mask,out,result,limits.stage_work,ordered_presentation);},
             steps,roots,nullptr,!kind);
         if(status!=SfntStatus::ok)return status;
         if(kind){plan.positioning_roots=roots.data;plan.positioning_count=static_cast<u16>(roots.count);continue;}

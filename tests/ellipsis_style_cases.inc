@@ -15,15 +15,15 @@ bool native_ellipsis_style_corpus(DWriteTextSystem system) noexcept {
         const TextStyleSpan style{part?3u:0u,text.bytes-(part?3u:0u),flag};const ConstSlice<TextStyleSpan> styles{&style,flag?1u:0u};
         const u32 first=pattern==2?3u:pattern==3?text.bytes-1:pattern==4?1u:0u,length=pattern==1||pattern==3?1u:pattern==4?2u:text.bytes-first;
         const TextHitSpan hit{first,length,65535,0};
-        const auto b=ellipsis_hit_profiles?text_shape_utf8_interactive(&reference,text,styles,{&hit,1},width,1000000,{utf16,256},&reference_output.text,TextWrapping::no_wrap,TextOverflow::ellipsis):
-            text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,TextWrapping::no_wrap,TextOverflow::ellipsis);
-        const auto a=ellipsis_hit_profiles?text_shape_utf8_interactive(&native,text,styles,{&hit,1},width,1000000,{utf16,256},&native_output.text,TextWrapping::no_wrap,TextOverflow::ellipsis):
-            text_shape_utf8_styled(&native,text,styles,width,1000000,{utf16,256},&native_output.text,TextWrapping::no_wrap,TextOverflow::ellipsis);
+        const auto b=ellipsis_hit_profiles?text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,TextWrapping::no_wrap,TextOverflow::ellipsis,{&hit,1}):
+            text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,TextWrapping::no_wrap,TextOverflow::ellipsis);
+        const auto a=ellipsis_hit_profiles?text_shape_utf8(&native,text,styles,width,1000000,{utf16,256},&native_output.text,TextWrapping::no_wrap,TextOverflow::ellipsis,{&hit,1}):
+            text_shape_utf8(&native,text,styles,width,1000000,{utf16,256},&native_output.text,TextWrapping::no_wrap,TextOverflow::ellipsis);
         if(!a.ok()||!b.ok()||!native_output.text.native_fonts()||!same(native_output,reference_output,true)){
             if(ellipsis_hit_profiles){print("ellipsis hit pattern=");number(pattern);print("\n");}
             if(sample==0&&flag==text_style_monospace&&mode==0){print("reference trimmed mono decorations=");for(u32 d=0;d<reference_output.text.decoration_count;++d){const auto& r=reference_output.text.decorations[d];print("[");real(r.left);print(",");real(r.top);print(",");real(r.right);print(",");real(r.bottom);print("]");}print("\n");}
             if(a.ok()&&b.ok()){const auto prepared=native_text_candidate_prepared_clusters(native);print("native style cluster flags=");for(u32 c=0;c<prepared.count;++c){number(prepared[c].source_first);print(":");number(prepared[c].flags);print(" ");}print("\n");CHECK(inspect_style_layout(reference,text,styles,1000000,TextWrapping::no_wrap));
-                const auto whole=text_measure_utf8_styled(&native,text,styles,1000000,1000000,{utf16,256},TextWrapping::no_wrap);
+                const auto whole=text_measure_utf8(&native,text,styles,1000000,1000000,{utf16,256},TextWrapping::no_wrap);
                 print("native whole width/extent=");real(whole.width);print("/");real(whole.width_including_trailing_whitespace);print("\n");}
             print("styled ellipsis sample/flag/part/mode/width/em/errors=");number(sample);print("/");number(flag);print("/");number(part);print("/");number(mode);print("/");real(width);print("/");real(system.em_size);print("/");number(static_cast<u32>(a.error));print("/");number(static_cast<u32>(b.error));print("\n");++differences;continue;}
         ++native_cases;

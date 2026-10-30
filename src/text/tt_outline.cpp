@@ -13,26 +13,31 @@ TtGraphicsState glyph_state(TtGraphicsState state) noexcept {
     state.projection_x=state.freedom_x=state.dual_x=16384;state.projection_y=state.freedom_y=state.dual_y=0;
     state.rp[0]=state.rp[1]=state.rp[2]=0;state.zp[0]=state.zp[1]=state.zp[2]=1;state.loop=1;return state;
 }
+// maxp and cvt declare the sizes of the instruction machine's arrays.
+SfntStatus declared_sizes(const SfntFace& face,ConstSlice<u8>* maxp,ConstSlice<u8>* cvt) noexcept {
+    auto status=sfnt_table(face,sfnt_tag('m','a','x','p'),maxp);if(status!=SfntStatus::ok)return status;
+    status=optional(face,sfnt_tag('c','v','t',' '),cvt);if(status!=SfntStatus::ok)return status;
+    if(maxp->count<32)return SfntStatus::truncated;
+    return byte_load_be32(maxp->data)!=0x10000 || cvt->count%2?SfntStatus::malformed:SfntStatus::ok;
+}
 }
 SfntStatus tt_outline_requirements(const SfntFace& face,TtOutlineRequirements* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);ConstSlice<u8> maxp{},cvt{};
-    auto status=sfnt_table(face,sfnt_tag('m','a','x','p'),&maxp);if(status!=SfntStatus::ok)return status;
-    status=optional(face,sfnt_tag('c','v','t',' '),&cvt);if(status!=SfntStatus::ok)return status;
-    if(maxp.count<32)return SfntStatus::truncated;if(byte_load_be32(maxp.data)!=0x10000 || cvt.count%2)return SfntStatus::malformed;
+    const auto status=declared_sizes(face,&maxp,&cvt);if(status!=SfntStatus::ok)return status;
     *output={byte_load_be16(maxp.data+24),byte_load_be16(maxp.data+18),cvt.count/2,byte_load_be16(maxp.data+20),byte_load_be16(maxp.data+16)};return SfntStatus::ok;
 }
-SfntStatus tt_outline_prepare(const FontGeometry& geometry,TtInterpreter s,TtOutlineInstance* output,TtExecution* execution,u32 work,u32* used) noexcept {
+SfntStatus tt_outline_prepare(const FontGeometry& geometry,TtInterpreter* buffers,TtOutlineInstance* output,TtExecution* execution,u32 work,u32* used) noexcept {
     WorkReport report{work,work,used};
-    if(output)reset_value(output);if(execution)reset_value(execution);if(!output || !execution)return SfntStatus::invalid_input;TtOutlineInstance result{};
+    if(output)reset_value(output);if(execution)reset_value(execution);if(!buffers || !output || !execution)return SfntStatus::invalid_input;TtOutlineInstance result{};
+    auto& s=*buffers;
     if(!geometry.face.file.data)return SfntStatus::invalid_input;
     if(geometry.kind!=FontGeometryKind::truetype)return SfntStatus::unsupported;
     const auto& face=geometry.face;result.font=geometry.outline.truetype;auto status=SfntStatus::ok;
     ConstSlice<u8> maxp{},cvt{},fpgm{},prep{},os2{},vertical{},cvar{};
-    if((status=sfnt_table(face,sfnt_tag('m','a','x','p'),&maxp))!=SfntStatus::ok || (status=optional(face,sfnt_tag('c','v','t',' '),&cvt))!=SfntStatus::ok ||
+    if((status=declared_sizes(face,&maxp,&cvt))!=SfntStatus::ok ||
        (status=optional(face,sfnt_tag('f','p','g','m'),&fpgm))!=SfntStatus::ok || (status=optional(face,sfnt_tag('p','r','e','p'),&prep))!=SfntStatus::ok ||
        (status=optional(face,sfnt_tag('v','m','t','x'),&vertical))!=SfntStatus::ok || (status=optional(face,sfnt_tag('c','v','a','r'),&cvar))!=SfntStatus::ok || (status=sfnt_table(face,sfnt_tag('O','S','/','2'),&os2))!=SfntStatus::ok)return status;
-    if(cvar.data)return SfntStatus::unsupported;if(maxp.count<32 || os2.count<74)return SfntStatus::truncated;
-    if(byte_load_be32(maxp.data)!=0x10000 || cvt.count%2)return SfntStatus::malformed;
+    if(cvar.data)return SfntStatus::unsupported;if(os2.count<74)return SfntStatus::truncated;
     if(byte_load_be16(maxp.data+22))return SfntStatus::unsupported;
     const u32 twilight=byte_load_be16(maxp.data+16),storage=byte_load_be16(maxp.data+18),functions=byte_load_be16(maxp.data+20),stack=byte_load_be16(maxp.data+24),values=cvt.count/2;
     if(!room(s.stack,stack)||!room(s.storage,storage)||!room(s.cvt,values)||!room(s.functions,functions)||!room(s.twilight,twilight))return SfntStatus::output_too_small;
@@ -70,14 +75,16 @@ SfntStatus tt_outline_begin(TtOutlineContext* context,const SfntTrueType& font,u
     for(u32 i=0;i<instance.storage.count;++i)s.storage[i]=instance.storage[i];for(u32 i=0;i<instance.cvt.count;++i)s.cvt[i]=instance.cvt[i];for(u32 i=0;i<instance.twilight.count;++i)s.twilight[i]=instance.twilight[i];return SfntStatus::ok;
 }
 SfntStatus tt_outline_apply(TtOutlineContext* context,u16 glyph,ConstSlice<u8> program,Slice<SfntOutlinePoint> points,ConstSlice<u32> contours,u32 point_origin,float* origin,float vertical_offset,u32* work) noexcept {
-    if(!program.count)return SfntStatus::ok;if(!context||!context->instance||!origin||!work)return SfntStatus::invalid_input;const auto& instance=*context->instance;
+    // Only the glyph decoder calls this, with a context that tt_outline_begin already validated.
+    if(!program.count)return SfntStatus::ok;const auto& instance=*context->instance;
     if(instance.reject_glyph_programs)return SfntStatus::unsupported;
     if(instance.graphics.instruction_control&1)return SfntStatus::ok;auto s=context->scratch;
     if(points.count>0xfffffffb || !room(s.glyph,points.count+4)||!room(context->contour_ends,contours.count))return SfntStatus::output_too_small;
     if(!charge(work,static_cast<u64>(points.count)*2+contours.count+4))return SfntStatus::resource_limit;
     s.glyph.count=points.count+4;s.cvt.count=instance.cvt.count;s.storage.count=instance.storage.count;s.twilight.count=instance.twilight.count;s.functions=instance.functions;s.stack.count=instance.stack_capacity;s.stack_count=0;s.units_per_em=instance.font.metrics.units_per_em;s.graphics=glyph_state(instance.graphics);
     for(u32 i=0;i<points.count;++i){i32 x=0,y=0;if(!fixed(points[i].x,&x)||!fixed(points[i].y,&y))return SfntStatus::unsupported;s.glyph[i]={x,y,x,y,0,static_cast<u8>(points[i].flags&1),0};}
-    for(u32 i=0;i<contours.count;++i){if(contours[i]<point_origin || contours[i]-point_origin>=points.count)return SfntStatus::malformed;context->contour_ends[i]=contours[i]-point_origin;}
+    // The decoder's contour ends are absolute and lie inside [point_origin, point_origin+points.count).
+    for(u32 i=0;i<contours.count;++i)context->contour_ends[i]=contours[i]-point_origin;
     s.contour_ends={context->contour_ends.data,contours.count};SfntGlyphMetrics metrics{};auto status=sfnt_horizontal_metrics(instance.font.metrics,glyph,&metrics);if(status!=SfntStatus::ok)return status;
     i32 left=0;if(!fixed(-*origin,&left))return SfntStatus::unsupported;const i64 right=static_cast<i64>(left)+metrics.advance*64,center=static_cast<i64>(left)+(metrics.advance/2)*64;
     if(right>2147483647 || center>2147483647)return SfntStatus::malformed;

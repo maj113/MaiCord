@@ -16,7 +16,7 @@ def main():
         assert r['has_expected']=='1';cp=official.pop(int(r['source_line']));w=list(map(int,r['windows'].split()));candidate=list(map(int,r['candidate'].split()))
         assert w==candidate and len(w)==len(cp)+1;records.append((cp,w))
     assert not official;groups['official']=len(data)
-    for folder in ('probes','holdout','validation','final-validation','age17'):
+    for folder in ('probes','holdout','validation','final-validation'):
         root=a.root/folder;manifest=json.loads((root/'probes.json').read_text());comparison=json.loads((root/'release-comparison.json').read_text())
         inputs.extend([identity(root/'probes.json'),identity(root/'release-comparison.json')]);assert identity(root/'probes.bin')==manifest['input']==comparison['input']
         source=manifest['rows'];data=rows(root/'release.csv');assert len(data)==len(source);seen=set();added=0

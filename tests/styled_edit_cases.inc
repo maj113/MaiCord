@@ -9,11 +9,11 @@ bool styled_edit() noexcept {
         const auto before=native_text_candidate_counts(owner);const auto builds=layouts[0].builds;
         CHECK(text_edit_layout_measure(layouts,input,owner)&&layouts[0].builds==builds&&native_text_candidate_counts(owner).paragraphs_measured==before.paragraphs_measured);
         if(input.text.bytes<=256){
-            CHECK(text_shape_utf8_styled(&owner,input.text,input.styles,input.width,input.maximum_layout_height,{utf16,256},&native_output.text,(input.options&text_edit_layout_wrap)?TextWrapping::wrap:TextWrapping::no_wrap).ok());
-            CHECK(text_shape_utf8_styled(&reference,input.text,input.styles,input.width,input.maximum_layout_height,{utf16,256},&reference_output.text,(input.options&text_edit_layout_wrap)?TextWrapping::wrap:TextWrapping::no_wrap).ok());
+            CHECK(text_shape_utf8(&owner,input.text,input.styles,input.width,input.maximum_layout_height,{utf16,256},&native_output.text,(input.options&text_edit_layout_wrap)?TextWrapping::wrap:TextWrapping::no_wrap).ok());
+            CHECK(text_shape_utf8(&reference,input.text,input.styles,input.width,input.maximum_layout_height,{utf16,256},&reference_output.text,(input.options&text_edit_layout_wrap)?TextWrapping::wrap:TextWrapping::no_wrap).ok());
             CHECK(same(native_output,reference_output));}
         // Retained metrics must survive unrelated use of the shared shape cache.
-        CHECK(text_measure_utf8_styled(&owner,utf8_literal("Other cached paragraph"),{},95,1000,{utf16,256}).ok());
+        CHECK(text_measure_utf8(&owner,utf8_literal("Other cached paragraph"),{},95,1000,{utf16,256}).ok());
         CHECK(same_edit(layouts[0],layouts[1]));return true;
     };
     const float widths[]{13.f,95.f,1000.f};

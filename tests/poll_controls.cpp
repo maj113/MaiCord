@@ -352,7 +352,7 @@ void card_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept 
     bool wrap{}, count{}, percent{};
     for (u32 i = 0; i < text.count; ++i) {
         wrap = wrap || (utf8_equal(commands[i].text, f.state.question) &&
-                        commands[i].wrapping == UiTextWrapping::wrap);
+                        commands[i].wrapping == TextWrapping::wrap);
         count = count || utf8_equal(commands[i].text, ui_poll_count_label(scene.projection, 0));
         percent = percent || utf8_equal(commands[i].text, utf8_literal("75%"));
     }

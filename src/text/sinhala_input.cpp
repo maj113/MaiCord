@@ -90,14 +90,14 @@ SfntStatus sfnt_sinhala_cluster_boundaries(ConstSlice<u32> input,Slice<u8> outpu
     for(u32 i=0;i<input.count;++i){const auto c=sinhala_category(input[i]);output[i]=state.next(input[i],c,previous_selector)?1:0;previous_selector=c==C::selector;}
     return SfntStatus::ok;
 }
-SfntStatus sfnt_sinhala_expand_cluster(ConstSlice<u32> input,Slice<SfntSinhalaInputScalar> output,SfntSinhalaInputResult* result,u64 work) noexcept {
+SfntStatus sfnt_sinhala_expand_cluster(ConstSlice<u32> input,Slice<SfntIndicInputScalar> output,SfntIndicInputResult* result,u64 work) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
-    if((input.count&&!input.data)||(output.count&&!output.data)||byte_ranges_overlap_or_wrap(input.data,static_cast<u64>(input.count)*4,output.data,static_cast<u64>(output.count)*sizeof(SfntSinhalaInputScalar)))return SfntStatus::invalid_input;
+    if((input.count&&!input.data)||(output.count&&!output.data)||byte_ranges_overlap_or_wrap(input.data,static_cast<u64>(input.count)*4,output.data,static_cast<u64>(output.count)*sizeof(SfntIndicInputScalar)))return SfntStatus::invalid_input;
     if(static_cast<u64>(input.count)*3>work)return SfntStatus::resource_limit;
     u64 count=input.count,units=0;
     for(u32 i=0;i<input.count;++i){const u32 scalar=input[i];if(!unicode_is_scalar(scalar))return SfntStatus::invalid_input;count+=split(scalar)?1u:0u;units+=scalar>0xffff?2u:1u;}
     if(count>0xffffffffu||units>0xffffffffu)return SfntStatus::resource_limit;
-    const SfntSinhalaInputResult sizes{static_cast<u32>(count),static_cast<u32>(units)};
+    const SfntIndicInputResult sizes{static_cast<u32>(count),static_cast<u32>(units)};
     if(count>output.count){*result=sizes;return SfntStatus::output_too_small;}
     u32 at=0,source=0;
     for(u32 i=0;i<input.count;++i){const u32 scalar=input[i];

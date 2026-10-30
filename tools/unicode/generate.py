@@ -18,7 +18,6 @@ FIELDS = [
     ('sc', 'Script', 'script', 'Scripts.txt', 'Zzzz'),
     ('ccc', None, 'combining_class', 'extracted/DerivedCombiningClass.txt', '0'),
     ('GCB', 'GraphemeBreak', 'grapheme_break', 'auxiliary/GraphemeBreakProperty.txt', 'XX'),
-    ('WB', 'WordBreak', 'word_break', 'auxiliary/WordBreakProperty.txt', 'XX'),
     ('lb', 'LineBreak', 'line_break', 'LineBreak.txt', 'XX'),
     ('jt', 'JoiningType', 'joining_type', 'extracted/DerivedJoiningType.txt', 'U'),
     ('InCB', 'IndicConjunctBreak', 'indic_conjunct_break', 'DerivedCoreProperties.txt', 'None'),
@@ -27,8 +26,8 @@ FIELDS = [
 ]
 FLAGS = ['Default_Ignorable_Code_Point', 'White_Space', 'Bidi_Mirrored',
          'Emoji', 'Extended_Pictographic', 'Variation_Selector',
-         'Arabic_Script_Extension', 'East_Asian_Line_Break']
-FLAG_XML = ['DI', 'WSpace', 'Bidi_M', 'Emoji', 'ExtPict', 'VS', 'scx', 'ea']
+         'Arabic_Script_Extension']
+FLAG_XML = ['DI', 'WSpace', 'Bidi_M', 'Emoji', 'ExtPict', 'VS', 'scx']
 
 
 def fields(line):
@@ -138,7 +137,7 @@ def main():
                 if value:
                     aliases.setdefault(key, {})[value] = canonical
         columns, enumerations = [], {}
-        for key, enum, getter, filename, default in [*FIELDS, ('ea', None, None, 'EastAsianWidth.txt', 'N')]:
+        for key, enum, getter, filename, default in FIELDS:
             if key == 'ccc':
                 values = bytearray(LIMIT)
                 number = lambda value: int(aliases[key].get(value, value))
@@ -180,10 +179,7 @@ def main():
                 translation = bytes(new_labels.index(v) if i in used else 0 for i, v in enumerate(labels))
                 values = values.translate(translation + bytes(256 - len(translation)))
                 enumerations[key] = new_labels
-            if key == 'ea':
-                east_asian = values
-            else:
-                columns.append(values)
+            columns.append(values)
         flags = array('I', [0]) * LIMIT
         flag_bits = {name: 1 << i for i, name in enumerate(FLAGS)}
         for filename in ['DerivedCoreProperties.txt', 'PropList.txt', 'emoji/emoji-data.txt']:
@@ -208,22 +204,22 @@ def main():
             parts = fields(line); lo, end = bounds(parts[0])
             member = any(aliases['sc'].get(v, v) == 'Arab' for v in parts[1].split())
             arabic[lo:end] = bytes([member]) * (end - lo)
-        east_values = {enumerations['ea'].index(v) for v in ('F', 'W', 'H')}
         for cp in range(LIMIT):
             if arabic[cp]:
                 flags[cp] |= flag_bits['Arabic_Script_Extension']
-            if east_asian[cp] in east_values:
-                flags[cp] |= flag_bits['East_Asian_Line_Break']
         columns.append(flags)
         widths = [max(1, max(column).bit_length()) for column in columns]
-        # Pack line breaks before GCB/WB so no field crosses a machine word.
-        # Keep FIELDS in the native dump/schema order used by verify_xml.py.
+        # The first word holds every field the per-scalar text passes read
+        # (bidi class, general category, line and grapheme break, joining type,
+        # flags); script, combining class and the Indic categories fill the
+        # second. No field crosses a word. Keep FIELDS in the native dump/schema
+        # order used by verify_xml.py.
         offsets, bits = [0] * len(widths), 0
-        for i in (0, 1, 2, 3, 6, 4, 5, 7, 8, 9, 10, 11):
+        for i in (0, 1, 5, 4, 7, 6, 10, 2, 3, 8, 9):
+            if bits // 32 != (bits + widths[i] - 1) // 32:
+                raise ValueError(f'Field {i} crosses a 32-bit word')
             offsets[i] = bits; bits += widths[i]
         words = (bits + 31) // 32
-        if bits != 64:
-            raise ValueError(f'Expected 64-bit runtime properties, got {bits}')
         records, ids, record_ids = [], array('H'), {}
         for cp in range(LIMIT):
             value = sum(int(column[cp]) << at for column, at in zip(columns, offsets))
@@ -293,13 +289,12 @@ def main():
     mirrors.sort(); brackets.sort()
     notice = '// Generated from Unicode 17.0.0; do not edit. Unicode License v3.\n// Copyright (c) 1991-2025 Unicode, Inc. See assets/licenses/Unicode-3.0.txt.\n'
     header = notice + '#pragma once\n#include "maicord/text/base.hpp"\nnamespace maicord {\n'
-    header += 'inline constexpr u32 unicode_data_version = 0x00110000;\n'
     for key, enum, *_ in FIELDS:
         if enum:
             header += 'enum class Unicode' + enum + ' : u8 {\n    ' + ',\n    '.join(v.lower() for v in enumerations[key]) + '\n};\n'
     header += 'enum class UnicodeFlag : u32 {\n' + '\n'.join(f'    {name.lower()}=1u<<{i},' for i, name in enumerate(FLAGS)) + '\n};\n'
     header += f'struct UnicodeProperties {{\n    u32 words[{words}];\n'
-    header += 'private:\n    template<u32 At,u32 Width> constexpr u32 value() const noexcept {\n        u32 v=words[At/32]>>(At%32);\n        if constexpr(At%32+Width>32)v|=words[At/32+1]<<(32-At%32);\n        return v&((1u<<Width)-1);\n    }\n'
+    header += 'private:\n    template<u32 At,u32 Width> constexpr u32 value() const noexcept {return (words[At/32]>>(At%32))&((1u<<Width)-1);}\n'
     header += 'public:\n'
     for i, (key, enum, getter, *_) in enumerate(FIELDS):
         kind = 'Unicode' + enum if enum else 'u8'
@@ -317,10 +312,10 @@ def main():
     hpath = args.repo / 'include/maicord/text/generated/unicode_data.hpp'
     dpath = args.repo / 'src/text/generated/unicode_data.inc'
     hpath.parent.mkdir(parents=True, exist_ok=True); dpath.parent.mkdir(parents=True, exist_ok=True)
-    hpath.write_text(header, encoding='utf-8'); dpath.write_text(data, encoding='utf-8')
+    hpath.write_text(header, encoding='utf-8', newline='\n'); dpath.write_text(data, encoding='utf-8', newline='\n')
     gpath = args.repo / 'tests/generated/grapheme_break_test.inc'
     gpath.parent.mkdir(parents=True, exist_ok=True)
-    gpath.write_text(notice + f'static constexpr u32 grapheme_vector_count={grapheme_count};\n' + cpp_array('u32','grapheme_vectors',graphemes), encoding='utf-8')
+    gpath.write_text(notice + f'static constexpr u32 grapheme_vector_count={grapheme_count};\n' + cpp_array('u32','grapheme_vectors',graphemes), encoding='utf-8', newline='\n')
     auxiliary_bytes = 128 + len(mirrors)*4
     report = {'unicode_version': '17.0.0', 'ucd_sha256': digest(args.ucd.read_bytes()), 'sources': used_sources,
               'fields': [{'ucd': k, 'getter': g, 'enum': e, 'values': enumerations.get(k), 'offset': offsets[i], 'width': widths[i]}

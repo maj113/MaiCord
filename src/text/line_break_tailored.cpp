@@ -1,15 +1,6 @@
 #include "maicord/text/detail/line_break_tailored.hpp"
 namespace maicord {namespace {
 using B=UnicodeLineBreak;
-struct LineClassOverride {u32 first;u16 count;B kind;};
-static_assert(sizeof(LineClassOverride)==8);
-#include "generated/line_tailoring_data.inc"
-inline B compatibility_class(u32 cp,B current) noexcept {
-    constexpr u32 count=sizeof(line_class_overrides)/sizeof(line_class_overrides[0]);
-    if(cp<line_class_overrides[0].first||cp>=line_class_overrides[count-1].first+line_class_overrides[count-1].count)return current;
-    u32 first=0,last=count;while(first<last){const u32 middle=first+(last-first)/2;if(line_class_overrides[middle].first<=cp)first=middle+1;else last=middle;}
-    if(first){const auto& r=line_class_overrides[first-1];if(cp-r.first<r.count)return r.kind;}return current;
-}
 constexpr B none=static_cast<B>(255);constexpr u8 ignored=128,selector=64;
 inline B type(u8 tag) noexcept {return static_cast<B>(tag&63);}
 inline bool hard(B b) noexcept {return b==B::bk||b==B::cr||b==B::lf||b==B::nl;}
@@ -20,11 +11,10 @@ inline bool ideograph(B b) noexcept {return b==B::id||b==B::eb||b==B::em;}
 }
 bool line_breaks_tailored(ConstSlice<u32> text,Slice<u8> out) noexcept {
     if((text.count&&!text.data)||!out.data||out.count<=text.count)return false;
-    for(u32 i=0;i<text.count;++i)if(!unicode_is_scalar(text[i]))return false;
     // One pass: every rule looks only backward, so each class is resolved and
     // its boundary decided before the next scalar is read.
     u8 base=255;bool previous_selector=false;B previous=none,before=none,nonspace=none;
-    for(u32 i=0;i<text.count;++i){const auto& p=*unicode_properties(text[i]);B b=compatibility_class(text[i],p.line_break());u8 tag=0;
+    for(u32 i=0;i<text.count;++i){const auto& p=*unicode_properties(text[i]);B b=p.line_break();u8 tag=0;
         // CGJ and ZWJ retain glue behavior across following combining marks.
         // Emoji modifiers instead inherit the preceding base through CM.
         if(text[i]==0x34f)b=B::gl;

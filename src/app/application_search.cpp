@@ -733,8 +733,8 @@ bool measure_rows(ApplicationSearch& s) noexcept {
         UiSearchRow row{};
         if (!resolve(&s, i, &row))
             return false;
-        const auto measured = text_measure_utf8_styled(&system, row.body, {}, width, 464.f, {scratch, 1024},
-                                                       TextWrapping::wrap);
+        const auto measured = text_measure_utf8(&system, row.body, {}, width, 464.f, {scratch, 1024},
+                                                TextWrapping::wrap);
         bank.body_heights[i] = measured.ok() ? maximum(24.f, minimum(464.f, measured.height + 2.f)) : 48.f;
     }
     bank.measured_width = width;

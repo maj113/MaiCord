@@ -11,8 +11,8 @@ bool native_bidi_style_range_probe(bool check=false) noexcept {
         for(u32 at=0;at<texts[i].bytes;){offsets[count++]=at;at+=utf8_decode_one(texts[i].data+at,texts[i].bytes-at).width;}offsets[count]=texts[i].bytes;
         for(u32 end=0;end<=count;++end){if(!check){print("range_case=");number(i);print(" style_end=");number(end);print("\n");}
             const TextStyleSpan style{0,offsets[end],text_style_quote};const ConstSlice<TextStyleSpan> styles{&style,end?1u:0u};
-            CHECK(text_shape_utf8_styled(&reference,texts[i],styles,1,1000000,{utf16,256},&reference_output.text).ok());
-            if(check){++cases;CHECK(text_shape_utf8_styled(&native,texts[i],styles,1,1000000,{utf16,256},&native_output.text).ok()&&native_output.text.native_fonts());++native_cases;
+            CHECK(text_shape_utf8(&reference,texts[i],styles,1,1000000,{utf16,256},&reference_output.text).ok());
+            if(check){++cases;CHECK(text_shape_utf8(&native,texts[i],styles,1,1000000,{utf16,256},&native_output.text).ok()&&native_output.text.native_fonts());++native_cases;
                 if(!same(native_output,reference_output)){print("range_case/style_end=");number(i);print("/");number(end);print("\n");return false;}}
             else CHECK(inspect_style_layout(owner,texts[i],styles,1,TextWrapping::wrap));
         }
@@ -21,8 +21,8 @@ bool native_bidi_style_range_probe(bool check=false) noexcept {
         const u32 flags[]{text_style_underline,text_style_monospace|text_style_code_block};
         for(const auto text:controls)for(u32 flag:flags)for(u32 nowrap=0;nowrap<2;++nowrap){++cases;
             const TextStyleSpan span{0,text.bytes,flag};const ConstSlice<TextStyleSpan> styles{&span,1};const auto wrapping=nowrap?TextWrapping::no_wrap:TextWrapping::wrap;
-            CHECK(text_shape_utf8_styled(&reference,text,styles,1,1000000,{utf16,256},&reference_output.text,wrapping).ok());
-            CHECK(text_shape_utf8_styled(&native,text,styles,1,1000000,{utf16,256},&native_output.text,wrapping).ok()&&native_output.text.native_fonts());++native_cases;CHECK(same(native_output,reference_output));}
+            CHECK(text_shape_utf8(&reference,text,styles,1,1000000,{utf16,256},&reference_output.text,wrapping).ok());
+            CHECK(text_shape_utf8(&native,text,styles,1,1000000,{utf16,256},&native_output.text,wrapping).ok()&&native_output.text.native_fonts());++native_cases;CHECK(same(native_output,reference_output));}
     }return true;
 }
 bool native_bidi_styles_corpus(DWriteTextSystem system) noexcept {
@@ -102,14 +102,14 @@ bool native_bidi_styles_corpus(DWriteTextSystem system) noexcept {
                 const auto wrapping=scenario.nowrap?TextWrapping::no_wrap:TextWrapping::wrap;const float width=requested==1000000?requested:requested*system.em_size/16;
                 const auto diagnostic=[&]() noexcept {print("Bidi style sample/pattern/flag/em/mode/nowrap/width=");number(sample);print("/");number(pattern);print("/");number(flag);print("/");real(system.em_size);print("/");number(mode);print("/");number(nowrap);print("/");real(width);print("\n");};
                 ++cases;shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);
-                CHECK(text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrapping).ok());
-                if(!text_shape_utf8_styled(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrapping).ok()||!native_output.text.native_fonts()){
+                CHECK(text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrapping).ok());
+                if(!text_shape_utf8(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrapping).ok()||!native_output.text.native_fonts()){
                     diagnostic();CHECK(inspect_style_layout(system,text,styles,width,wrapping));CHECK(false);}++native_cases;
                 // Symbol items may partition an otherwise identical draw run.
                 // Compare every glyph's exact absolute origin, physical face,
                 // size, paint and direction; retain strict layout/hit checks.
                 if(!same(native_output,reference_output,symbol_profiles,symbol_profiles||bidi_emoji_profiles||sample>=16)){diagnostic();CHECK(inspect_style_layout(system,text,styles,width,wrapping));if(bidi_emoji_profiles||symbol_profiles)CHECK(inspect_style_layout(system,text,styles,1000000,wrapping));return false;}
-                const auto a=text_measure_utf8_styled(&native,text,styles,width,1000000,{utf16,256},wrapping);TextMeasureResult b{};
+                const auto a=text_measure_utf8(&native,text,styles,width,1000000,{utf16,256},wrapping);TextMeasureResult b{};
                 CHECK(reference_shape_measure(reference,text,styles,width,1000000,{utf16,256},wrapping,sample==0||sample+1==texts.count,&b));
                 CHECK(a.ok()&&b.ok()&&bytes_equal(&a.width,&b.width,12)&&a.line_count==b.line_count&&a.utf16_units==b.utf16_units);
                 return true;

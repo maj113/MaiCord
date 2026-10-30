@@ -1,6 +1,7 @@
 #include "maicord/ui/secure_text_store.hpp"
 #include "maicord/core/memory.hpp"
 
+#include "maicord/core/win32_process.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/gdi.hpp"
 #include "maicord/sys/tsf.hpp"
@@ -24,18 +25,6 @@ inline constexpr GUID kDisplayAttributeProperty{0x34b45670,
                                                 0x7526,
                                                 0x11d2,
                                                 {0xa1, 0x47, 0x00, 0x10, 0x5a, 0x27, 0x99, 0xb5}};
-
-bool guid_equal(REFGUID left, REFGUID right) noexcept {
-    if (left.Data1 != right.Data1 || left.Data2 != right.Data2 || left.Data3 != right.Data3) {
-        return false;
-    }
-    for (u32 index = 0; index < 8; ++index) {
-        if (left.Data4[index] != right.Data4[index]) {
-            return false;
-        }
-    }
-    return true;
-}
 
 HRESULT edit_result_hresult(TextInputResult result) noexcept {
     switch (result) {
@@ -101,22 +90,18 @@ TextCompositionAttribute composition_attribute(TF_DA_ATTR_INFO attribute) noexce
     }
 }
 
-u32 composition_rgb(const TF_DA_COLOR& color, bool* present) noexcept {
-    if (!present) {
-        return 0;
-    }
+bool composition_rgb(const TF_DA_COLOR& color, u32* rgb) noexcept {
     COLORREF native = 0;
     if (color.type == TF_CT_COLORREF) {
         native = color.cr;
     } else if (color.type == TF_CT_SYSCOLOR && color.nIndex >= 0) {
         native = GetSysColor(color.nIndex);
     } else {
-        *present = false;
-        return 0;
+        return false;
     }
-    *present = true;
-    return (static_cast<u32>(GetRValue(native)) << 16) |
-           (static_cast<u32>(GetGValue(native)) << 8) | static_cast<u32>(GetBValue(native));
+    *rgb = (static_cast<u32>(GetRValue(native)) << 16) | (static_cast<u32>(GetGValue(native)) << 8) |
+           static_cast<u32>(GetBValue(native));
+    return true;
 }
 
 TextCompositionSpan default_composition_span(u32 start, u32 end) noexcept {
@@ -129,6 +114,11 @@ TextCompositionSpan default_composition_span(u32 start, u32 end) noexcept {
                                TextCompositionAttribute::input,
                                text_composition_color_none,
                                false};
+}
+
+// Composition revisions skip zero when they wrap.
+u32 next_revision(u32 revision) noexcept {
+    return revision == ~0u ? 1 : revision + 1;
 }
 
 class SecureTextStoreImplementation;
@@ -203,13 +193,13 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
             return E_POINTER;
         }
         *output = nullptr;
-        if (guid_equal(riid, __uuidof(IUnknown)) || guid_equal(riid, __uuidof(ITextStoreACP))) {
+        if (riid == __uuidof(IUnknown) || riid == __uuidof(ITextStoreACP)) {
             *output = static_cast<ITextStoreACP*>(this);
-        } else if (guid_equal(riid, __uuidof(ITfInputScope))) {
+        } else if (riid == __uuidof(ITfInputScope)) {
             *output = static_cast<ITfInputScope*>(this);
-        } else if (guid_equal(riid, __uuidof(ITfContextOwnerCompositionSink))) {
+        } else if (riid == __uuidof(ITfContextOwnerCompositionSink)) {
             *output = static_cast<ITfContextOwnerCompositionSink*>(this);
-        } else if (guid_equal(riid, __uuidof(ITfTextEditSink))) {
+        } else if (riid == __uuidof(ITfTextEditSink)) {
             *output = static_cast<ITfTextEditSink*>(this);
         } else {
             return E_NOINTERFACE;
@@ -226,7 +216,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         const LONG remaining = InterlockedDecrement(&references);
         if (remaining == 0) {
             this->~SecureTextStoreImplementation();
-            VirtualFree(this, 0, MEM_RELEASE);
+            HeapFree(process_heap(), 0, this);
         }
         return static_cast<ULONG>(remaining);
     }
@@ -249,7 +239,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
             identity->Release();
             return CONNECT_E_ADVISELIMIT;
         }
-        if (!guid_equal(riid, __uuidof(ITextStoreACPSink))) {
+        if (riid != __uuidof(ITextStoreACPSink)) {
             identity->Release();
             return E_INVALIDARG;
         }
@@ -633,7 +623,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         if (!has_read_lock()) {
             return TS_E_NOLOCK;
         }
-        if (!position_valid(start) || !position_valid(end)) {
+        if (!position_valid(end)) {
             return TS_E_INVALIDPOS;
         }
         if (config.range_geometry) {
@@ -674,7 +664,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
             return E_INVALIDARG;
         }
         *window = config.window;
-        return config.window ? S_OK : E_FAIL;
+        return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE GetInputScopes(InputScope** scopes, UINT* count) override {
@@ -785,7 +775,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         CallbackScope callback(this);
         if (!cleanup_active && !deferred_operations && composition.active && view == composition_view) {
             const auto target = edit;
-            const u32 ended_revision = composition.revision == ~0u ? 1 : composition.revision + 1;
+            const u32 ended_revision = next_revision(composition.revision);
             clear_composition();
             if (!cleanup_active && !deferred_operations && edit == target &&
                 !composition.active && composition.revision == ended_revision) notify_composition_change();
@@ -815,7 +805,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         if (collected && context == read_context && composition_view == read_view && edit == target &&
             !deferred_operations && text_edit_sink_cookie == advised_cookie && composition.revision == revision &&
             composition.active && !same_composition(next)) {
-            next.revision = revision == ~0u ? 1 : revision + 1;
+            next.revision = next_revision(revision);
             copy_value(&composition, next);
             notify_composition_change();
         }
@@ -860,7 +850,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
     }
 
     bool attach(bool draining = false) noexcept {
-        if (!edit || !config.window || !IsWindow(config.window)) return false;
+        if (!edit || !IsWindow(config.window)) return false;
         if (!draining && (unsafe_teardown() || deferred_queued)) { queue_deferred(deferred_reset | deferred_attach); return true; }
         if (thread_manager) {
             return true;
@@ -911,7 +901,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         CallbackScope cleanup(this, true);
         if (!destroy_context(true)) { queue_deferred(deferred_reset | deferred_detach); return false; }
         if (deferred_queued) return true;
-        if (focus_associated && thread_manager && config.window) {
+        if (focus_associated && thread_manager) {
             ITfDocumentMgr* replaced = nullptr;
             if (SUCCEEDED(
                     thread_manager->AssociateFocus(config.window, previous_document_manager, &replaced))) {
@@ -984,19 +974,22 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
             text_input_selection(edit, &selection) != TextInputResult::unchanged) {
             return;
         }
-        const bool text_changed = text_input_revision(edit) != observed_revision || length != observed_length;
+        const u32 revision = text_input_revision(edit);
+        const bool text_changed = revision != observed_revision || length != observed_length;
         const bool selection_changed =
             selection.anchor != observed_selection.anchor || selection.caret != observed_selection.caret;
+        const TS_TEXTCHANGE change{0, static_cast<LONG>(observed_length), static_cast<LONG>(length)};
+        // Record the state first: edits a text service makes while it is notified
+        // refresh the observation themselves and must not be overwritten.
+        observed_revision = revision;
+        observed_length = length;
+        observed_selection = selection;
         if (text_changed) {
-            const TS_TEXTCHANGE change{0, static_cast<LONG>(observed_length), static_cast<LONG>(length)};
             notify_text_change(change);
         }
         if (selection_changed) {
             notify_selection_change();
         }
-        observed_revision = text_input_revision(edit);
-        observed_length = length;
-        observed_selection = selection;
     }
 
     void notify_layout() noexcept {
@@ -1009,14 +1002,6 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         }
     }
 
-    bool copy_composition(SecureTextComposition* output) const noexcept {
-        if (!output) {
-            return false;
-        }
-        copy_value(output, composition);
-        return true;
-    }
-
   private:
     HRESULT last_session_result = E_FAIL;
 
@@ -1025,7 +1010,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         composition_view = nullptr;
         const bool ends_group = history_group_owned;
         history_group_owned = false;
-        const u32 revision = composition.revision == ~0u ? 1 : composition.revision + 1;
+        const u32 revision = next_revision(composition.revision);
         reset_value<SecureTextComposition>(&composition);
         composition.revision = revision;
         if (ends_group) text_input_end_group(edit);
@@ -1107,17 +1092,13 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         span->line_style = composition_line_style(native.lsStyle);
         span->attribute = composition_attribute(native.bAttr);
         span->bold_line = native.fBoldLine != FALSE;
-        bool present = false;
-        span->text_rgb = composition_rgb(native.crText, &present);
-        if (present) {
+        if (composition_rgb(native.crText, &span->text_rgb)) {
             span->color_flags |= text_composition_color_text;
         }
-        span->background_rgb = composition_rgb(native.crBk, &present);
-        if (present) {
+        if (composition_rgb(native.crBk, &span->background_rgb)) {
             span->color_flags |= text_composition_color_background;
         }
-        span->line_rgb = composition_rgb(native.crLine, &present);
-        if (present) {
+        if (composition_rgb(native.crLine, &span->line_rgb)) {
             span->color_flags |= text_composition_color_line;
         }
         return true;
@@ -1176,18 +1157,12 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
     }
 
     bool same_composition(const SecureTextComposition& next) const noexcept {
-        if (composition.active != next.active || composition.complete != next.complete ||
-            composition.start != next.start || composition.end != next.end ||
-            composition.span_count != next.span_count) return false;
-        for (u32 index = 0; index < next.span_count; ++index) {
-            const auto& a = composition.spans[index];
-            const auto& b = next.spans[index];
-            if (a.start != b.start || a.end != b.end || a.text_rgb != b.text_rgb ||
-                a.background_rgb != b.background_rgb || a.line_rgb != b.line_rgb ||
-                a.line_style != b.line_style || a.attribute != b.attribute ||
-                a.color_flags != b.color_flags || a.bold_line != b.bold_line) return false;
-        }
-        return true;
+        // TextCompositionSpan has no padding, so equal fields are equal bytes.
+        static_assert(sizeof(TextCompositionSpan) == 5 * sizeof(u32) + 4);
+        return composition.active == next.active && composition.complete == next.complete &&
+               composition.start == next.start && composition.end == next.end &&
+               composition.span_count == next.span_count &&
+               bytes_equal(composition.spans, next.spans, next.span_count * sizeof(TextCompositionSpan));
     }
 
     bool build_composition(ITfRange* range, ITfContext* read_context, const TextInputTarget& target,
@@ -1195,7 +1170,6 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         u32 start = 0;
         u32 end = 0;
         if (!range_extent(range, &start, &end, target)) return false;
-        reset_value(next);
         next->start = start;
         next->end = end;
         next->active = true;
@@ -1216,7 +1190,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         const bool collected = build_composition(range, read_context, target, read_cookie, &next);
         const bool current = context == read_context && edit == target && !deferred_operations && composition.revision == revision;
         if (collected && current && !same_composition(next)) {
-            next.revision = revision == ~0u ? 1 : revision + 1;
+            next.revision = next_revision(revision);
             copy_value(&composition, next);
             *changed = true;
         }
@@ -1409,12 +1383,8 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
     }
 };
 
-// Four COM interface pointers plus the composition-view/sink cookie; the
-// implementation must stay within one committed page.
-static_assert(sizeof(SecureTextStoreImplementation) == 1464);
-
 SecureTextStoreImplementation* implementation(SecureTextStore* store) noexcept {
-    return store ? static_cast<SecureTextStoreImplementation*>(store->implementation) : nullptr;
+    return static_cast<SecureTextStoreImplementation*>(store->implementation);
 }
 
 const SecureTextStoreImplementation* implementation(const SecureTextStore& store) noexcept {
@@ -1446,11 +1416,10 @@ bool secure_text_store_process_deferred() noexcept {
 }
 
 bool secure_text_store_initialize(SecureTextStore* store, SecureTextStoreConfig config) noexcept {
-    if (!store || store->implementation || !config.window) {
+    if (store->implementation || !config.window) {
         return false;
     }
-    void* memory = VirtualAlloc(nullptr, sizeof(SecureTextStoreImplementation),
-                                MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    void* memory = HeapAlloc(process_heap(), 0, sizeof(SecureTextStoreImplementation));
     if (!memory) {
         return false;
     }
@@ -1530,7 +1499,16 @@ void secure_text_store_notify_layout(SecureTextStore* store) noexcept {
 bool secure_text_store_composition(const SecureTextStore& store,
                                    SecureTextComposition* composition) noexcept {
     const auto* value = implementation(store);
-    return value && value->copy_composition(composition);
+    if (!value) {
+        return false;
+    }
+    copy_value(composition, value->composition);
+    return true;
+}
+
+bool secure_text_store_composing(const SecureTextStore& store) noexcept {
+    const auto* value = implementation(store);
+    return value && value->composition.active;
 }
 
 bool secure_text_store_filter_message(SecureTextStore* store, const MSG& message) noexcept {

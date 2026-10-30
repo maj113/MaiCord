@@ -102,29 +102,30 @@ bool prepare_native(TextEditLayoutOwner* owner,const TextEditLayoutInput& input,
 u64 style_signature(ConstSlice<TextStyleSpan> styles) noexcept {
     return hash64_counted_bytes(kHash64Seed, styles.data, styles.count * sizeof(TextStyleSpan));
 }
-bool cache_matches(const TextEditLayoutOwner& owner, const TextEditLayoutInput& input,
-                   const TextSystem& text_system) noexcept {
-    return owner.active && owner.format == native_text_format_identity(text_system) &&
-           owner.text_signature == input.text_signature && owner.style_signature == style_signature(input.styles) && owner.text_bytes == input.text.bytes &&
+bool cache_matches(const TextEditLayoutOwner& owner, const TextEditLayoutInput& input, u64 format, u64 styles,
+                   float em_size) noexcept {
+    return owner.active && owner.format == format &&
+           owner.text_signature == input.text_signature && owner.style_signature == styles && owner.text_bytes == input.text.bytes &&
            owner.anchor == input.anchor_utf16 && owner.caret_offset == input.caret_utf16 &&
            owner.viewport_left == input.origin_x && owner.viewport_top == input.viewport_top &&
            owner.width == input.width && owner.height == input.height &&
            owner.maximum_layout_height == input.maximum_layout_height &&
-           owner.options == input.options && owner.em_size == text_system.em_size;
+           owner.options == input.options && owner.em_size == em_size;
 }
 
-bool measure_large_selection(TextEditLayoutOwner* owner, const TextEditLayoutInput& input, float origin_y,
-                             u32 first, u32 last) noexcept {
+bool measure_large_selection(const TextEditLayoutOwner& layout, const TextEditLayoutInput& input, float origin_y,
+                             u32 first, u32 last, TextEditMetric* selections, u32 capacity,
+                             u32* selection_count) noexcept {
     // The public edit projection is viewport bounded. Subdivide oversized
     // ranges instead of retaining thousands of off-screen boxes.
     // At most log2(16K UTF-16 units) right halves are pending at once.
     struct Range { u32 first, last; } pending[16];
     u32 pending_count = 0;
     TextEditMetric batch[kTextEditSelectionCapacity];
-    owner->selection_count = 0;
+    u32 count = 0;
     for (;;) {
         u32 actual = 0;
-        const SfntStatus status = range_metrics(*owner,first,last-first,owner->origin_x,origin_y,
+        const SfntStatus status = range_metrics(layout,first,last-first,layout.origin_x,origin_y,
             batch, kTextEditSelectionCapacity, &actual);
         if (status == SfntStatus::output_too_small && actual > kTextEditSelectionCapacity) {
             const u32 middle = first + (last - first) / 2;
@@ -146,8 +147,8 @@ bool measure_large_selection(TextEditLayoutOwner* owner, const TextEditLayoutInp
             // Adjacent bidi runs or a split inside a shaping cluster can share
             // one visual interval. Merge only touching/overlapping rectangles
             // on the same line; gaps in a bidi selection remain unpainted.
-            for (u32 j = 0; j < owner->selection_count;) {
-                const auto prior = owner->selections[j];
+            for (u32 j = 0; j < count;) {
+                const auto prior = selections[j];
                 if (metric.top == prior.top && metric.height == prior.height &&
                     metric.left <= prior.left + prior.width && prior.left <= metric.left + metric.width) {
                     const float merged_right = maximum(metric.left + metric.width, prior.left + prior.width);
@@ -156,25 +157,41 @@ bool measure_large_selection(TextEditLayoutOwner* owner, const TextEditLayoutInp
                     const u32 end = maximum<u32>(metric.source_first + metric.source_count, prior.source_first + prior.source_count);
                     metric.source_first = minimum(metric.source_first, prior.source_first);
                     metric.source_count = static_cast<u16>(end - metric.source_first);
-                    owner->selections[j] = owner->selections[--owner->selection_count];
+                    selections[j] = selections[--count];
                     j = 0;
                 } else ++j;
             }
-            if (owner->selection_count == owner->selection_capacity) return false;
-            owner->selections[owner->selection_count++] = metric;
+            if (count == capacity) return false;
+            selections[count++] = metric;
         }
-        if (!pending_count) return true;
+        if (!pending_count) {
+            *selection_count = count;
+            return true;
+        }
         const auto range = pending[--pending_count];
         first = range.first;
         last = range.last;
     }
 }
 
-void commit_key(TextEditLayoutOwner* owner, const TextEditLayoutInput& input,
-                const TextSystem& text_system, float origin_y) noexcept {
-    owner->format = native_text_format_identity(text_system);
+// Selection rectangles of [first, last) for a layout drawn at `origin_y`, clipped to its viewport.
+bool range_geometry_at(const TextEditLayoutOwner& owner, float origin_y, u32 first, u32 last,
+                       Slice<TextEditMetric> output, u32* count) noexcept {
+    if (!count || !owner.active || first > last || last > owner.utf16_units ||
+        !output.data || !output.count || output.count > kTextEditSelectionCapacity) return false;
+    if (first == last) { *count = 0; return true; }
+    if (!owner.geometry) return false;
+    TextEditLayoutInput input{};
+    input.origin_x = owner.viewport_left; input.viewport_top = owner.viewport_top;
+    input.width = owner.width; input.height = owner.height;
+    return measure_large_selection(owner, input, origin_y, first, last, output.data, output.count, count);
+}
+
+void commit_key(TextEditLayoutOwner* owner, const TextEditLayoutInput& input, u64 format, u64 styles,
+                float em_size, float origin_y) noexcept {
+    owner->format = format;
     owner->text_signature = input.text_signature;
-    owner->style_signature = style_signature(input.styles);
+    owner->style_signature = styles;
     owner->text_bytes = input.text.bytes;
     owner->anchor = input.anchor_utf16;
     owner->caret_offset = input.caret_utf16;
@@ -184,7 +201,7 @@ void commit_key(TextEditLayoutOwner* owner, const TextEditLayoutInput& input,
     owner->width = input.width;
     owner->height = input.height;
     owner->maximum_layout_height = input.maximum_layout_height;
-    owner->em_size = text_system.em_size;
+    owner->em_size = em_size;
     owner->options = input.options;
     owner->active = true;
     saturating_increment(owner->builds);
@@ -199,7 +216,8 @@ u64 text_edit_signature(Utf8View text) noexcept {
 bool text_edit_layout_measure(TextEditLayoutOwner* owner,
                               const TextEditLayoutInput& input,
                               const TextSystem& text_system) noexcept {
-    if (!owner || !native_text_format_identity(text_system) ||
+    const u64 format = native_text_format_identity(text_system);
+    if (!owner || !format ||
         !owner->selections || owner->selection_capacity == 0 ||
         owner->selection_capacity > kTextEditSelectionCapacity ||
         (!input.text.data && input.text.bytes != 0) ||
@@ -213,7 +231,8 @@ bool text_edit_layout_measure(TextEditLayoutOwner* owner,
         }
         return false;
     }
-    if (cache_matches(*owner, input, text_system)) {
+    const u64 styles = style_signature(input.styles);
+    if (cache_matches(*owner, input, format, styles, text_system.em_size)) {
         saturating_increment(owner->hits);
         return true;
     }
@@ -223,8 +242,8 @@ bool text_edit_layout_measure(TextEditLayoutOwner* owner,
     const bool manual_scroll = owner->manual_scroll && owner->text_signature == input.text_signature &&
         owner->anchor == input.anchor_utf16 && owner->caret_offset == input.caret_utf16;
     // A caret/selection/viewport-origin change does not change text shaping.
-    const bool retain_layout = owner->active && owner->geometry && owner->format == native_text_format_identity(text_system) &&
-        owner->text_signature == input.text_signature && owner->style_signature == style_signature(input.styles) && owner->text_bytes == input.text.bytes &&
+    const bool retain_layout = owner->active && owner->geometry && owner->format == format &&
+        owner->text_signature == input.text_signature && owner->style_signature == styles && owner->text_bytes == input.text.bytes &&
         owner->width == input.width && owner->maximum_layout_height == input.maximum_layout_height &&
         owner->em_size == text_system.em_size && ((owner->options ^ input.options) & text_edit_layout_wrap) == 0;
     u32 units = retain_layout ? owner->utf16_units : 0;
@@ -246,7 +265,7 @@ bool text_edit_layout_measure(TextEditLayoutOwner* owner,
         owner->caret.width = 1.0f;
         owner->caret.height = caret_height;
         owner->layout_height = caret_height;
-        commit_key(owner, input, text_system, origin_y);
+        commit_key(owner, input, format, styles, text_system.em_size, origin_y);
         return true;
     }
 
@@ -317,7 +336,9 @@ bool text_edit_layout_measure(TextEditLayoutOwner* owner,
                                                 owner->origin_x, origin_y, owner->selections,
                                                 owner->selection_capacity, &actual);
         const bool oversized = status == SfntStatus::output_too_small && actual > owner->selection_capacity;
-        if (!oversized || !measure_large_selection(owner, input, origin_y, selection_first, selection_last)) {
+        if (!oversized || !measure_large_selection(*owner, input, origin_y, selection_first, selection_last,
+                                                   owner->selections, owner->selection_capacity,
+                                                   &owner->selection_count)) {
             if (status != SfntStatus::ok || actual > owner->selection_capacity) {
                 owner->geometry = false;
                 saturating_increment(owner->rejected);
@@ -327,7 +348,7 @@ bool text_edit_layout_measure(TextEditLayoutOwner* owner,
         }
     }
     owner->utf16_units = units;
-    commit_key(owner, input, text_system, origin_y);
+    commit_key(owner, input, format, styles, text_system.em_size, origin_y);
     return true;
 }
 
@@ -459,19 +480,7 @@ bool text_edit_layout_move_vertical(const TextEditLayoutOwner& owner, bool down,
 
 bool text_edit_layout_range_geometry(const TextEditLayoutOwner& owner, u32 first, u32 last,
     Slice<TextEditMetric> output, u32* count) noexcept {
-    if (!count || !owner.active || first > last || last > owner.utf16_units ||
-        !output.data || !output.count || output.count > kTextEditSelectionCapacity) return false;
-    if (first == last) { *count = 0; return true; }
-    if (!owner.geometry) return false;
-    auto projection = owner;
-    projection.selections = output.data;
-    projection.selection_capacity = output.count;
-    TextEditLayoutInput input{};
-    input.origin_x = owner.viewport_left; input.viewport_top = owner.viewport_top;
-    input.width = owner.width; input.height = owner.height;
-    if (!measure_large_selection(&projection, input, owner.origin_y, first, last)) return false;
-    *count = projection.selection_count;
-    return true;
+    return range_geometry_at(owner, owner.origin_y, first, last, output, count);
 }
 
 bool text_edit_layout_position_geometry(const TextEditLayoutOwner& owner,u32 position,TextEditMetric* metric) noexcept {
@@ -493,12 +502,10 @@ bool text_edit_layout_scroll(TextEditLayoutOwner* owner, float delta) noexcept {
     if (!owner || !owner->active || !ui_coordinate_valid(delta)) return false;
     const float next = minimum(maximum(0.0f, owner->scroll_y + delta), maximum(0.0f, owner->layout_height - owner->height));
     if (next == owner->scroll_y) return true;
-    auto projection = *owner;
     const float offset = owner->scroll_y - next;
-    projection.origin_y += offset;
     TextEditMetric metrics[kTextEditSelectionCapacity];
     u32 count = 0;
-    if (!text_edit_layout_range_geometry(projection, minimum(owner->anchor, owner->caret_offset),
+    if (!range_geometry_at(*owner, owner->origin_y + offset, minimum(owner->anchor, owner->caret_offset),
         maximum(owner->anchor, owner->caret_offset), {metrics, owner->selection_capacity}, &count)) return false;
     owner->scroll_y = next; owner->origin_y += offset; owner->caret.top += offset;
     owner->manual_scroll = true;

@@ -37,13 +37,13 @@ bool native_hebrew_corpus(DWriteTextSystem system) noexcept {
             const TextStyleSpan style{0,text.bytes,flag};const ConstSlice<TextStyleSpan> styles{&style,flag?1u:0u};
             const auto diagnostic=[&]() noexcept {print("Hebrew sample/em/independent/nowrap/flag/width=");number(sample);print("/");real(system.em_size);print("/");number(mode);print("/");number(nowrap);print("/");number(flag);print("/");real(width);print("\n");};
             ++cases;shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);
-            CHECK(text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrapping).ok());
-            if(!text_shape_utf8_styled(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrapping).ok()||!native_output.text.native_fonts()){diagnostic();CHECK(inspect_style_layout(system,text,styles,width,wrapping));CHECK(false);}++native_cases;
+            CHECK(text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrapping).ok());
+            if(!text_shape_utf8(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrapping).ok()||!native_output.text.native_fonts()){diagnostic();CHECK(inspect_style_layout(system,text,styles,width,wrapping));CHECK(false);}++native_cases;
             if(!same(native_output,reference_output,false,true)){diagnostic();
                 const ShapedText* values[]{&native_output.text,&reference_output.text};
                 for(u32 v=0;v<2;++v){print(v?"ref glyphs=":"native glyphs=");for(u32 g=0;g<values[v]->glyph_count;++g){number(values[v]->glyphs[g].index);print(" ");}print("\n");}
                 CHECK(inspect_style_layout(system,text,styles,width,wrapping));return false;}
-            const auto a=text_measure_utf8_styled(&native,text,styles,width,1000000,{utf16,256},wrapping),b=text_measure_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},wrapping);
+            const auto a=text_measure_utf8(&native,text,styles,width,1000000,{utf16,256},wrapping),b=text_measure_utf8(&reference,text,styles,width,1000000,{utf16,256},wrapping);
             CHECK(a.ok()&&b.ok()&&bytes_equal(&a.width,&b.width,12)&&a.line_count==b.line_count&&a.utf16_units==b.utf16_units);
             if(!nowrap&&!mode)CHECK(draw_source(system,native_output.text));
         }

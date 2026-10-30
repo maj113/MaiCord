@@ -328,8 +328,8 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
                                                 text_style_subtext,
                                                 UiTextAlignment::end,
                                                 UiTextAlignment::center,
-                                                UiTextWrapping::no_wrap,
-                                                UiTextOverflow::ellipsis}))
+                                                TextWrapping::no_wrap,
+                                                TextOverflow::ellipsis}))
                     return false;
                 const float right = maximum(label_rectangle.left, app.left - 16.0f);
                 label_rectangle.right = minimum(label_rectangle.right, right);
@@ -357,8 +357,8 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
                                                 text_style_none,
                                                 UiTextAlignment::start,
                                                 UiTextAlignment::center,
-                                                UiTextWrapping::no_wrap,
-                                                UiTextOverflow::ellipsis}))
+                                                TextWrapping::no_wrap,
+                                                TextOverflow::ellipsis}))
                     return false;
             }
         }
@@ -402,8 +402,8 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
                          ? UiTextAlignment::start
                          : UiTextAlignment::end,
                      UiTextAlignment::center,
-                     UiTextWrapping::no_wrap,
-                     UiTextOverflow::ellipsis}))
+                     TextWrapping::no_wrap,
+                     TextOverflow::ellipsis}))
                 return false;
         }
         if (hint.bytes) {
@@ -423,8 +423,8 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
                                       text_style_none,
                                       UiTextAlignment::end,
                                       UiTextAlignment::center,
-                                      UiTextWrapping::no_wrap,
-                                      UiTextOverflow::ellipsis}))
+                                      TextWrapping::no_wrap,
+                                      TextOverflow::ellipsis}))
                 return false;
         }
         if ((item.flags & popup_item_command_category) &&
@@ -439,7 +439,7 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
                           command_header ? text_style_bold :
                           (item.flags & popup_item_emoji) != 0 ? text_style_picker_emoji : text_style_none,
                           centered ? UiTextAlignment::center : UiTextAlignment::start,
-                          UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::ellipsis})) {
+                          UiTextAlignment::center, TextWrapping::no_wrap, TextOverflow::ellipsis})) {
             return false;
         }
     }
@@ -460,8 +460,8 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
                                         text_style_subtext,
                                         UiTextAlignment::start,
                                         UiTextAlignment::center,
-                                        UiTextWrapping::no_wrap,
-                                        UiTextOverflow::ellipsis}))
+                                        TextWrapping::no_wrap,
+                                        TextOverflow::ellipsis}))
             return false;
     }
     return true;

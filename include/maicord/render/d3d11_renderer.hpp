@@ -166,6 +166,11 @@ struct RendererInlineMediaStorage {
 // A build whose shell projection and glyph inputs are unchanged keeps the
 // shell's quads (shell_*) and rewrites only messages and overlays; one whose
 // messages are also unchanged keeps both and rewrites the overlays.
+struct RendererTextShellStatic {
+    u64 signature, key;
+    u32 count, quads, batches, semantics, hits, effects, inline_flags, last_batch_quads, serial;
+    bool animated, valid;
+};
 struct RendererTextShellPrefix {
     RendererTextStorage* storage;
     u64 signature;
@@ -186,10 +191,7 @@ struct RendererTextShellPrefix {
     // signature and count, its glyph key with the inputs the projection does
     // not hash, stream marks with the last batch's own quad count, and the
     // rebuild that rastered it) stays when only the members change.
-    u64 static_signature, static_key;
-    u32 static_count, static_quads, static_batches, static_semantics, static_hits, static_effects,
-        static_inline_flags, static_last_batch_quads, static_serial;
-    bool static_animated, static_valid;
+    RendererTextShellStatic static_marks;
 };
 static_assert(sizeof(RendererTextShellPrefix) == 152);
 struct RendererTextPrefix {
@@ -644,7 +646,7 @@ struct D3D11Renderer {
     RendererLoginStatus login_status;
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
-static_assert(sizeof(D3D11Renderer) == 120624);
+static_assert(sizeof(D3D11Renderer) == 120640);
 
 // Starts hardware device and draw-pipeline creation on a worker at process
 // entry; the next renderer_initialize adopts them. Main thread only.

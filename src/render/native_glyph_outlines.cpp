@@ -21,13 +21,13 @@ struct NativeColorState {
     Arena scalars,stops;
     NativeFontInstanceHandle binding;
     NativeColorOutline* outlines;
-    u64 builds,outline_hits;
+    u64 builds;
     bool outline_cache_attempted;
 };
 static_assert(sizeof(NativeColorState)<=4096); // Traversal links and font state fit one committed page.
 struct NativeGlyphOutlines {
     NativeFontInstanceHandle bindings[capacity];NativeFontSession* fonts;Arena scratch;
-    u64 decodes,retries,failures,native_bindings,instruction_requests,instruction_preparations;
+    u64 decodes,failures;
     u32 oblique_faces[(capacity+31)/32],bold_faces[(capacity+31)/32],prepared_faces[(capacity+31)/32];
     NativeColorState* color;
 };
@@ -40,10 +40,9 @@ bool bind(NativeGlyphOutlines& o,u32 index,NativeFontRunHandle run,bool instruct
     bool oblique=false,bold=false;NativeFontResult result{};NativeFontInstanceHandle prepared{};
     result=native_font_run_prepare(native_font_session_runs(o.fonts),run,&o.scratch,&prepared,&oblique,&bold,instructions);
     if(!result.ok())return failed(o,12,result.native_error?result.native_error:static_cast<u32>(result.font_status));
-    if(!o.bindings[index].slot)++o.native_bindings;
     if(o.bindings[index].slot)native_font_instance_release(native_font_session_instances(o.fonts),o.bindings[index]);
     o.bindings[index]=prepared;
-    if(instructions){o.prepared_faces[index/32]|=1u<<(index%32);++o.instruction_preparations;}
+    if(instructions)o.prepared_faces[index/32]|=1u<<(index%32);
     if(oblique)o.oblique_faces[index/32]|=1u<<(index%32);
     if(bold)o.bold_faces[index/32]|=1u<<(index%32);
     return true;
@@ -62,7 +61,7 @@ SfntStatus decode(NativeGlyphOutlines& o,const NativeFontInstance& instance,u16 
     }
     if(mode==SfntOutlineMode::colr && instance.geometry.font->kind==FontGeometryKind::truetype && !instance.geometry.font->gvar.table.data) {
         scratch.truetype.work_limit=1000000;
-        return sfnt_truetype_outline(instance.geometry.font->outline.truetype,glyph,&scratch.truetype,output,SfntOutlineMode::colr_commands,nullptr,scratch.instructions);
+        return sfnt_truetype_outline(instance.geometry.font->outline.truetype,glyph,&scratch.truetype,output,SfntOutlineMode::colr,nullptr,scratch.instructions);
     }
     return font_geometry_outline(instance.geometry,glyph,&scratch,output,1000000,nullptr,oblique,bold);
 }
@@ -96,10 +95,10 @@ bool outline_impl(NativeGlyphOutlines** pointer,u16 face_id,u16 glyph,GlyphOutli
     for(u32 attempt=0;attempt<3;++attempt){
         status=decode(o,*instance,glyph,output,points,contours,mode,oblique,bold);
         if(status==SfntStatus::instructions_required&&!(o.prepared_faces[index/32]&(1u<<(index%32)))){
-            ++o.instruction_requests;if(!bind(o,index,run,true))return false;
+            if(!bind(o,index,run,true))return false;
             instance=native_font_instance_get(*native_font_session_instances(o.fonts),o.bindings[index]);if(!instance)return failed(o,13,0);
         }else if(status==SfntStatus::output_too_small&&(points<maximum_points||contours<maximum_contours)){
-            ++o.retries;points=maximum_points;contours=maximum_contours;
+            points=maximum_points;contours=maximum_contours;
         }else break;
     }
     return status==SfntStatus::ok?true:failed(o,15,static_cast<u32>(status));
@@ -143,7 +142,7 @@ bool native_color_glyph_build(NativeGlyphOutlines** pointer,u16 face_id,u16 glyp
         auto* cached=color.outlines?color.outlines+slot:nullptr;
         if(cached&&cached->key==key&&cached->instance.slot==instance.slot&&cached->instance.generation==instance.generation&&cached->outline.count<=output->capacity){
             auto* commands=output->commands;const u32 output_capacity=output->capacity;*output=cached->outline;output->commands=commands;output->capacity=output_capacity;
-            copy_bytes(commands,cached->commands,output->count*sizeof(GlyphPathCommand));++color.outline_hits;return true;
+            copy_bytes(commands,cached->commands,output->count*sizeof(GlyphPathCommand));return true;
         }
         if(!outline_impl(c.owner,c.face_id,glyph,output,SfntOutlineMode::colr,c.fonts,c.run))return false;
         if(output->count>32)return true;
@@ -173,14 +172,8 @@ bool native_color_glyph_build(NativeGlyphOutlines** pointer,u16 face_id,u16 glyp
 }
 void native_glyph_outlines_release(NativeGlyphOutlines** pointer) noexcept {
     if(!pointer||!*pointer)return;auto* o=*pointer;
-    log_u64(LogLevel::info,"render","native_outline_decodes",o->decodes);log_u64(LogLevel::info,"render","native_outline_retries",o->retries);log_u64(LogLevel::info,"render","native_outline_failures",o->failures);
-    log_u64(LogLevel::info,"render","native_outline_scratch_commit",o->scratch.committed);
-    log_u64(LogLevel::info,"render","native_outline_run_bindings",o->native_bindings);
-    log_u64(LogLevel::info,"render","native_instruction_requests",o->instruction_requests);
-    log_u64(LogLevel::info,"render","native_instruction_preparations",o->instruction_preparations);
+    log_u64(LogLevel::info,"render","native_outline_decodes",o->decodes);log_u64(LogLevel::info,"render","native_outline_failures",o->failures);
     if(o->color){auto* c=o->color;log_u64(LogLevel::info,"render","native_colr_builds",c->builds);
-        log_u64(LogLevel::info,"render","native_colr_outline_hits",c->outline_hits);
-        log_u64(LogLevel::info,"render","native_colr_stop_commit",c->stops.committed);
         if(c->outlines)VirtualFree(c->outlines,0,MEM_RELEASE);
         arena_release(&c->scalars);arena_release(&c->stops);VirtualFree(c,0,MEM_RELEASE);}
     for(auto h:o->bindings)if(h.slot)native_font_instance_release(native_font_session_instances(o->fonts),h);

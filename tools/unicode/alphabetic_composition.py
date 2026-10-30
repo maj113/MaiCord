@@ -38,7 +38,7 @@ def main():
     pairs=sorted(canonical+WINDOWS_PAIRS+GREEK_PAIRS);assert len({(x,y) for x,y,z in pairs})==len(pairs)
     assert all(0<=v<=65535 for row in pairs for v in row)
     text,table_bytes=render(pairs)
-    out=a.repo/'src/text/generated/alphabetic_composition_data.inc';out.write_text(text)
+    out=a.repo/'src/text/generated/alphabetic_composition_data.inc';out.write_text(text,encoding='utf-8',newline='\n')
     a.report.write_text(json.dumps(dict(ucd=dict(path=str(a.ucd),sha256=PIN),canonical=canonical,omitted=omitted,windows_pairs=WINDOWS_PAIRS+GREEK_PAIRS,pairs=pairs,bytes=table_bytes,generated_sha256=hashlib.sha256(out.read_bytes()).hexdigest()),indent=2))
     print(len(pairs),'pairs;',table_bytes,'bytes')
 if __name__=='__main__':main()

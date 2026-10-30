@@ -13,7 +13,7 @@ void test_application_login_geometry(void (*check)(bool, const char*) noexcept) 
         TextSystem text{}; SecureEdit edit{}; TextEditLayoutOwner layout{};
         TextEditMetric selections[kTextEditSelectionCapacity]{};
         layout.selections = selections; layout.selection_capacity = kTextEditSelectionCapacity;
-        const bool ready = text_system_initialize(&text, L"Segoe UI", 16, L"en-US").ok() &&
+        const bool ready = text_system_initialize(&text, L"Segoe UI", 16).ok() &&
             secure_edit_initialize(&edit, 512, false);
         check(ready, "login ACP geometry text provider initialization");
         if (ready) {

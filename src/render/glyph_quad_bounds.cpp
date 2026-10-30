@@ -30,7 +30,7 @@ bool valid_quad(const GlyphQuad& quad) noexcept {
 } // namespace
 
 bool glyph_quad_center_range(GlyphQuad* quads, u32 first, u32 count, UiRect owner) noexcept {
-    if (!quads || first > count || !valid_clip(owner)) return false;
+    if (!valid_clip(owner)) return false;
     if (first == count) return true;
     UiRect ink{quads[first].left, quads[first].top, quads[first].right, quads[first].bottom};
     for (u32 index = first; index < count; ++index) {
@@ -51,26 +51,18 @@ bool glyph_quad_center_range(GlyphQuad* quads, u32 first, u32 count, UiRect owne
     return true;
 }
 
-GlyphQuadBoundsResult glyph_quad_clip_range(
-    GlyphQuad* quads, u32 first, u32* count, UiRect clip) noexcept {
-    if (!quads || !count || first > *count) {
-        return GlyphQuadBoundsResult{0, 0, 0,
-                                     GlyphQuadBoundsError::invalid_input};
-    }
+bool glyph_quad_clip_range(GlyphQuad* quads, u32 first, u32* count, UiRect clip) noexcept {
     if (!valid_clip(clip)) {
-        return GlyphQuadBoundsResult{0, 0, 0,
-                                     GlyphQuadBoundsError::invalid_clip};
+        return false;
     }
     const u32 original_count = *count;
     for (u32 index = first; index < original_count; ++index) {
         if (!valid_quad(quads[index])) {
-            return GlyphQuadBoundsResult{0, 0, 0,
-                                         GlyphQuadBoundsError::invalid_quad};
+            return false;
         }
     }
 
     u32 write = first;
-    u32 clipped = 0;
     for (u32 index = first; index < original_count; ++index) {
         const GlyphQuad& source = quads[index];
         const UiRect intersection{
@@ -93,15 +85,13 @@ GlyphQuadBoundsResult glyph_quad_clip_range(
                 source.v0 + (intersection.top - source.top) * inverse_height * v_extent,
                 source.u0 + (intersection.right - source.left) * inverse_width * u_extent,
                 source.v0 + (intersection.bottom - source.top) * inverse_height * v_extent, source.color};
-            ++clipped;
         } else if (write != index) {
             quads[write] = source;
         }
         ++write;
     }
     *count = write;
-    return GlyphQuadBoundsResult{write - first, original_count - write, clipped,
-                                 GlyphQuadBoundsError::none};
+    return true;
 }
 
 } // namespace maicord

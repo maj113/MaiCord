@@ -261,7 +261,7 @@ bool current_layout(ApplicationForumFormField* field) noexcept {
 }
 bool geometry(void* context, SecureTextStoreGeometry* output) noexcept {
     auto* field = static_cast<ApplicationForumFormField*>(context);
-    if (!output || !current_layout(field))
+    if (!current_layout(field))
         return false;
     const auto* node = forum_post_node(field->owner->scene,
                                        field->index ? ForumPostElement::body : ForumPostElement::title);
@@ -287,7 +287,7 @@ bool point_geometry(void* context, POINT point, bool round, u32* position, bool*
 }
 bool range_geometry(void* context, u32 first, u32 last, RECT* rectangle, bool* clipped) noexcept {
     auto* field = static_cast<ApplicationForumFormField*>(context);
-    if (!rectangle || !clipped || !current_layout(field))
+    if (!current_layout(field))
         return false;
     TextEditMetric metrics[kTextEditSelectionCapacity]{};
     u32 count = 0;
@@ -950,8 +950,7 @@ bool application_forum_form_window_message(UINT message, WPARAM wparam, LPARAM l
                 // Double click: word; third press: line. A composition keeps its selection.
                 auto& field = f->fields[index];
                 const u8 clicks = application_click_count(&field, x, y, message == WM_LBUTTONDBLCLK);
-                SecureTextComposition composition{};
-                const bool composing = secure_text_store_composition(field.store, &composition) && composition.active;
+                const bool composing = secure_text_store_composing(field.store);
                 if (!composing) {
                     pointer(f, static_cast<u32>(index), x, y, clicks == 1 && (wparam & MK_SHIFT) != 0);
                     if (clicks == 2)

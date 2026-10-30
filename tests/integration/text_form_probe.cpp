@@ -74,7 +74,7 @@ bool text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache) noexcep
         ~ReleaseOracle() noexcept {com_release(layout);text_system_release(&system);}} release_oracle{oracle, oracle_layout};
     const u32 oracle_units = static_cast<u32>(MultiByteToWideChar(CP_UTF8, 0, long_text, sizeof(long_text), oracle_text, sizeof(long_text)));
     if(valid)stage=__LINE__;valid = valid && oracle_units == surface.layout.utf16_units &&
-        text_system_initialize(&oracle, L"Segoe UI", renderer.glyph_text.system.em_size, L"en-US").ok() &&
+        text_system_initialize(&oracle, L"Segoe UI", renderer.glyph_text.system.em_size).ok() &&
         SUCCEEDED(oracle.factory->CreateTextLayout(oracle_text, oracle_units, oracle.format, surface.layout.width,
                                                    surface.layout.maximum_layout_height, &oracle_layout)) &&
         SUCCEEDED(oracle_layout->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP)) &&

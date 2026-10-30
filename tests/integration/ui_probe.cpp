@@ -7424,7 +7424,7 @@ bool probe_profile_card() noexcept {
     valid = valid &&
             shaped_text_initialize(&hebrew_output, {hebrew_glyphs, 128}, {hebrew_runs, 16},
                                    {hebrew_clusters, 128}) &&
-            text_shape_utf8(&hebrew_system, hebrew_bio, 10000, 10000, {hebrew_utf16, 128}, &hebrew_output)
+            text_shape_utf8(&hebrew_system, hebrew_bio, {}, 10000, 10000, {hebrew_utf16, 128}, &hebrew_output)
                 .ok() &&
             hebrew_output.native_fonts();
     shaped_text_reset(&hebrew_output);
@@ -7449,7 +7449,7 @@ bool probe_profile_card() noexcept {
     valid = valid &&
             shaped_text_initialize(&wrapped_output, {wrapped_glyphs, 512}, {wrapped_runs, 128},
                                    {wrapped_clusters, 512}) &&
-            text_shape_utf8(&hebrew_system, {data->bio.data, data->bio.bytes}, 180, 10000,
+            text_shape_utf8(&hebrew_system, {data->bio.data, data->bio.bytes}, {}, 180, 10000,
                             {wrapped_utf16, 512}, &wrapped_output)
                 .ok() &&
             wrapped_output.native_fonts() && wrapped_output.line_count > 1;
@@ -7477,8 +7477,8 @@ bool probe_profile_card() noexcept {
     TextDecoration bio_decorations[128];
     TextHitRegion bio_hits[256];
     valid = valid && ui_text_command_stream_initialize(&mixed_stream, {mixed_commands, 320}) &&
-            shaped_text_bind_decorations(&wrapped_output, {bio_decorations, 128}) &&
-            shaped_text_bind_hit_regions(&wrapped_output, {bio_hits, 256});
+            shaped_text_initialize(&wrapped_output, {wrapped_glyphs, 512}, {wrapped_runs, 128},
+                                   {wrapped_clusters, 512}, {bio_decorations, 128}, {bio_hits, 256});
     const auto native_bio_command = [&](bool expect_height_trim = false) noexcept {
         ui_text_command_stream_reset(&mixed_stream);
         if (!profile_scene_text_output(scene, kDefaultTheme, &mixed_stream_output, nullptr))
@@ -7496,13 +7496,9 @@ bool probe_profile_card() noexcept {
             }
             const bool native =
                 command.face == UiTextFace::normal && !command.effect.kind && !command.style_flags &&
-                text_shape_utf8_interactive(
-                    &hebrew_system, command.text, command.styles, {hits, scene.bio_semantic_count},
-                    ui_rect_width(command.rectangle), ui_rect_height(command.rectangle),
-                    {wrapped_utf16, 512}, &wrapped_output,
-                    command.wrapping == UiTextWrapping::wrap ? TextWrapping::wrap : TextWrapping::no_wrap,
-                    command.overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis
-                                                                 : TextOverflow::clip)
+                text_shape_utf8(&hebrew_system, command.text, command.styles, ui_rect_width(command.rectangle),
+                                ui_rect_height(command.rectangle), {wrapped_utf16, 512}, &wrapped_output,
+                                command.wrapping, command.overflow, {hits, scene.bio_semantic_count})
                     .ok() &&
                 wrapped_output.native_fonts() && wrapped_output.line_count > 1 &&
                 (!expect_height_trim || wrapped_output.glyph_count < 16) &&
@@ -8785,9 +8781,8 @@ bool probe_popup_overlays() noexcept {
         return false;
     log_write(LogLevel::info, "probe", "attachment_spoiler_menu_hardware_passed");
     PopupItem edit_items[kTextEditMenuItems]{};
-    if (!text_edit_menu_build({false, false, true, true, true, true, true, false},
-                              {edit_items, kTextEditMenuItems}) ||
-        !popup_scene_open(
+    text_edit_menu_build({false, false, true, true, true, true, true, false}, {edit_items, kTextEditMenuItems});
+    if (!popup_scene_open(
              &g_probe.popup_scene, PopupKind::context_menu, 80, {edit_items, kTextEditMenuItems},
              {viewport.right - 24, viewport.bottom - 24, viewport.right - 23, viewport.bottom - 23},
              viewport, 260)

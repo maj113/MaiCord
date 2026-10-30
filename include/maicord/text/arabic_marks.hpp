@@ -2,7 +2,8 @@
 #include "maicord/text/sfnt.hpp"
 
 namespace maicord {
-// True for a scalar that takes part in the Arabic combining sequence.
+// True for a scalar that takes part in the Arabic combining sequence; the
+// argument must be a Unicode scalar value.
 // This is a script profile property, not the Unicode general Mark category.
 bool sfnt_arabic_combining_mark(u32 scalar) noexcept;
 // Windows-compatible Arabic mark-order profile, applied before GSUB. Writes a

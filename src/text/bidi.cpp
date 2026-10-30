@@ -14,10 +14,15 @@ B strong(B type) noexcept {return type==B::en || type==B::an?B::r:type;}
 bool space(B type) noexcept {return type==B::ws || isolate(type) || type==B::pdi;}
 B analysis_type(B type,bool tailored) noexcept {return tailored && (isolate(type) || type==B::pdi)?B::bn:type;}
 
-void match_isolates(Slice<UnicodeBidiCell> cells,bool tailored) noexcept {
+// Validates each cell, then resets its working fields and links isolate
+// initiators to their terminators. A failure leaves the working fields unusable.
+UnicodeBidiStatus match_isolates(Slice<UnicodeBidiCell> cells,bool tailored) noexcept {
     u32 top=none;
     for(u32 i=0;i<cells.count;++i) {
-        auto& cell=cells[i];const B type=analysis_type(cell.original,tailored);
+        auto& cell=cells[i];
+        if(!unicode_is_scalar(cell.scalar) || static_cast<u8>(cell.original)>static_cast<u8>(B::ws))return UnicodeBidiStatus::invalid_input;
+        if(cell.original==B::b && i+1!=cells.count)return UnicodeBidiStatus::malformed_paragraph;
+        const B type=analysis_type(cell.original,tailored);
         cell.link=none;cell.next=none;cell.resolved=type;cell.explicit_level=0;cell.level=unicode_bidi_removed;
         if(isolate(type)){cell.link=top;top=i;}
         else if(type==B::pdi && top!=none) {
@@ -25,6 +30,7 @@ void match_isolates(Slice<UnicodeBidiCell> cells,bool tailored) noexcept {
         }
     }
     while(top!=none){const u32 previous=cells[top].link;cells[top].link=none;top=previous;}
+    return UnicodeBidiStatus::ok;
 }
 u8 first_direction(ConstSlice<UnicodeBidiCell> cells,u32 first,u32 end,u8 fallback,bool tailored) noexcept {
     for(u32 i=first;i<end;++i) {
@@ -206,11 +212,7 @@ UnicodeBidiStatus bidi_resolve_with_brackets(Slice<UnicodeBidiCell> cells,Unicod
     if(!paragraph)return UnicodeBidiStatus::invalid_input;reset_value(paragraph);
     if(!resolve_brackets || static_cast<u8>(policy)>3 || (cells.count && !cells.data) || (scratch.count && !scratch.data))return UnicodeBidiStatus::invalid_input;
     if(scratch.count<cells.count)return UnicodeBidiStatus::output_too_small;
-    for(u32 i=0;i<cells.count;++i) {
-        if(!unicode_is_scalar(cells[i].scalar) || static_cast<u8>(cells[i].original)>static_cast<u8>(B::ws))return UnicodeBidiStatus::invalid_input;
-        if(cells[i].original==B::b && i+1!=cells.count)return UnicodeBidiStatus::malformed_paragraph;
-    }
-    match_isolates(cells,tailored);
+    if(const auto status=match_isolates(cells,tailored);status!=UnicodeBidiStatus::ok)return status;
     const u8 base=policy==UnicodeParagraphDirection::ltr?0:policy==UnicodeParagraphDirection::rtl?1:
         first_direction({cells.data,cells.count},0,cells.count,policy==UnicodeParagraphDirection::auto_rtl?1:0,tailored);
     explicit_levels(cells,base,tailored);

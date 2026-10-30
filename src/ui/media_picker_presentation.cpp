@@ -24,7 +24,7 @@ bool active_widget(const UiMediaPickerScene& scene, UiWidgetHandle widget) noexc
 bool text(UiTextOutput* output, const UiMediaPickerScene& scene, UiWidgetHandle owner, const Utf8View& value,
           const UiRect& rectangle, const UiRect& region, const Color& color, u32 flags = 0,
           UiTextAlignment alignment = UiTextAlignment::start,
-          UiTextOverflow overflow = UiTextOverflow::ellipsis) noexcept {
+          TextOverflow overflow = TextOverflow::ellipsis) noexcept {
     const auto clip = ui_rect_intersection(rectangle, region);
     if (!value.bytes || !ui_rect_has_area(clip))
         return true;
@@ -37,7 +37,7 @@ bool text(UiTextOutput* output, const UiMediaPickerScene& scene, UiWidgetHandle 
                                         flags,
                                         alignment,
                                         UiTextAlignment::center,
-                                        UiTextWrapping::no_wrap,
+                                        TextWrapping::no_wrap,
                                         overflow,
                                         UiTextFace::normal,
                                         {},
@@ -324,7 +324,7 @@ bool ui_media_picker_scene_text_output(const UiMediaPickerScene& scene, const Th
                                     : ui_media_picker_section_glyph(section.visual);
         if (!text(output, scene, slot.widget, value, slot.rectangle, scene.rail, theme.text_primary,
                   initials ? text_style_bold : text_style_picker_emoji, UiTextAlignment::center,
-                  UiTextOverflow::clip))
+                  TextOverflow::clip))
             return false;
     }
     const auto grid = grid_region(scene);
@@ -343,7 +343,7 @@ bool ui_media_picker_scene_text_output(const UiMediaPickerScene& scene, const Th
                    !cell.item.regional_flag) {
             if (!text(output, scene, cell.widget, cell.item.glyph, cell.rectangle,
                       grid, theme.text_primary, glyph_style,
-                      UiTextAlignment::center, UiTextOverflow::clip))
+                      UiTextAlignment::center, TextOverflow::clip))
                 return false;
         } else if (cell.item.kind == UiMediaPickerItemKind::category &&
                    !text(output, scene, cell.widget, cell.item.label,
@@ -371,7 +371,7 @@ bool ui_media_picker_scene_text_output(const UiMediaPickerScene& scene, const Th
             const float top = (scene.footer.top + scene.footer.bottom - m.footer_art) * .5f;
             if (!text(output, scene, scene.root, cell->item.glyph, {left, top, left + m.footer_art, top + m.footer_art},
                       scene.footer, theme.text_primary, text_style_picker_emoji, UiTextAlignment::center,
-                      UiTextOverflow::clip))
+                      TextOverflow::clip))
                 return false;
         }
         const auto title = ui_media_picker_scene_footer_title(scene);

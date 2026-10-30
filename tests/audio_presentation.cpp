@@ -123,8 +123,8 @@ void test_audio_presentation(void (*check)(bool, const char*) noexcept) noexcept
     ready = ready && ui_audio_scene_text_output(scene, &output);
     check(ready && text.count == 2 && ui_rect_height(scene.projection.geometry.bounds) == 112 &&
               waveform_geometry(paint, scene.projection, 24, true) &&
-              commands[0].wrapping == UiTextWrapping::no_wrap &&
-              commands[1].wrapping == UiTextWrapping::no_wrap,
+              commands[0].wrapping == TextWrapping::no_wrap &&
+              commands[1].wrapping == TextWrapping::no_wrap,
           "audio paint: Light ordinary recording retains original filename and one-line duration with "
           "aligned 112DIP card");
 
@@ -169,9 +169,9 @@ void test_audio_presentation(void (*check)(bool, const char*) noexcept) noexcept
     ready = ready && ui_audio_scene_text_output(scene, &output);
     check(ready && scene.projection.geometry.compact && text.count == 2 &&
               utf8_equal(commands[0].text, utf8_literal("1:00:00\n2:00:00")) &&
-              commands[0].wrapping == UiTextWrapping::wrap &&
+              commands[0].wrapping == TextWrapping::wrap &&
               ui_rect_height(commands[0].rectangle) == kDefaultUiAudioControlsStyle.target &&
-              commands[1].wrapping == UiTextWrapping::no_wrap,
+              commands[1].wrapping == TextWrapping::no_wrap,
           "audio text: compact hour timestamps wrap explicit elapsed and duration lines while filename "
           "stays no-wrap");
     ready =
@@ -181,8 +181,8 @@ void test_audio_presentation(void (*check)(bool, const char*) noexcept) noexcept
     ready = ready && ui_audio_scene_text_output(scene, &output);
     check(ready && !scene.projection.geometry.compact && text.count == 2 &&
               utf8_equal(commands[0].text, utf8_literal("1:00:00 / 2:00:00")) &&
-              commands[0].wrapping == UiTextWrapping::no_wrap &&
-              commands[1].wrapping == UiTextWrapping::no_wrap,
+              commands[0].wrapping == TextWrapping::no_wrap &&
+              commands[1].wrapping == TextWrapping::no_wrap,
           "audio text: wide hour timestamp remains one line with a separate no-wrap filename");
     ui_widget_manager_reset(&owner.manager);
     check(!ui_audio_scene_paint(scene, kLightTheme, &paint) &&

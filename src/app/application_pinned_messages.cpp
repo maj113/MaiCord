@@ -165,7 +165,7 @@ bool measure_rows(ApplicationPinnedMessages& value) noexcept {
         value.measured_dpi == g_app.renderer.dpi) return false;
     wchar_t scratch[kPinnedMessageExcerptBytes];
     for (u32 index = 0; index < value.controller.page.count; ++index) {
-        const auto measured = text_measure_utf8_styled(&system, row_body(value.controller.rows[index]), {},
+        const auto measured = text_measure_utf8(&system, row_body(value.controller.rows[index]), {},
             width, 144.f, {scratch, kPinnedMessageExcerptBytes}, TextWrapping::wrap);
         value.body_heights[index] = measured.ok() ? maximum(24.f, minimum(144.f, measured.height + 2.f)) : 48.f;
     }

@@ -41,7 +41,7 @@ UiTextCommand sample() noexcept {
     const auto* home = ui_scene_resolve(f.shell, ui_scene_find(f.shell, UiSemantic::home_button));
     return {utf8_literal("sample"), {&f.shell.widgets, home->widget}, home->rectangle, home->rectangle,
         kDefaultTheme.text_primary, text_style_bold, UiTextAlignment::center, UiTextAlignment::end,
-        UiTextWrapping::no_wrap, UiTextOverflow::ellipsis, UiTextFace::normal, {}, {f.styles, 2}};
+        TextWrapping::no_wrap, TextOverflow::ellipsis, UiTextFace::normal, {}, {f.styles, 2}};
 }
 bool transient_projection(UiTextOutput* output) noexcept {
     for (u32 index = 0; index < 3; ++index) {
@@ -118,8 +118,8 @@ void test_text_emitter(void (*check)(bool, const char*) noexcept) noexcept {
                     auto changed = base;
                     changed.horizontal_alignment = static_cast<UiTextAlignment>(horizontal);
                     changed.vertical_alignment = static_cast<UiTextAlignment>(vertical);
-                    changed.wrapping = static_cast<UiTextWrapping>(wrap);
-                    changed.overflow = static_cast<UiTextOverflow>(overflow);
+                    changed.wrapping = static_cast<TextWrapping>(wrap);
+                    changed.overflow = static_cast<TextOverflow>(overflow);
                     const auto hash = signature_of(changed);
                     complete_signature &= hash != 0;
                     for (u32 i = 0; i < layout_count; ++i) complete_signature &= layouts[i] != hash;

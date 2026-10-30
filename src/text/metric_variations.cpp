@@ -1,6 +1,7 @@
 #include "maicord/text/metric_variations.hpp"
 #include "maicord/core/memory.hpp"
 #include "sfnt_read.hpp"
+#include "floor_value.hpp"
 namespace maicord {namespace {
 using namespace sfnt_read;
 }
@@ -39,13 +40,12 @@ SfntStatus sfnt_hvar_advance_delta(const SfntHvar& view,ConstSlice<double> scala
 SfntStatus sfnt_hvar_design_advance(const SfntHvar& view,ConstSlice<double> scalars,const SfntHorizontalMetrics& metrics,u16 glyph,u16* output) noexcept {
     if(!output)return SfntStatus::invalid_input;*output=0;SfntGlyphMetrics base{};
     auto s=sfnt_horizontal_metrics(metrics,glyph,&base);if(s!=SfntStatus::ok)return s;
-    if(!metrics.long_metrics)return SfntStatus::invalid_input;
     // The Windows design-metric path applies the last long metric's
     // HVAR entry to the compressed hmtx tail, including an explicit index map.
     double delta=0;s=sfnt_hvar_advance_delta(view,scalars,static_cast<u16>(minimum(static_cast<u32>(glyph),static_cast<u32>(metrics.long_metrics-1))),&delta);if(s!=SfntStatus::ok)return s;
-    const double value=base.advance+delta+.5;
+    const double value=base.advance+delta;
     if(!(value>=-9.e15 && value<=9.e15))return SfntStatus::malformed;
-    const i64 integer=static_cast<i64>(value);*output=static_cast<u16>(integer-(static_cast<double>(integer)>value?1:0));return SfntStatus::ok;
+    *output=static_cast<u16>(static_cast<i64>(round_value(value)));return SfntStatus::ok;
 }
 #pragma float_control(pop)
 SfntStatus sfnt_mvar_delta(const SfntMvar& view,ConstSlice<double> scalars,u32 tag,double* output) noexcept {

@@ -20,8 +20,8 @@ bool native_thai_corpus(DWriteTextSystem system) noexcept {
         ++cases;native.independent_letters=reference.independent_letters=mode!=0;const auto text=samples[sample];const TextStyleSpan style{0,partial?static_cast<u32>(utf8_decode_one(text.data,text.bytes).width):text.bytes,flag};
         const ConstSlice<TextStyleSpan> styles{&style,flag?1u:0u};
         const auto wrapping=thai_shape_only?TextWrapping::no_wrap:TextWrapping::wrap;
-        const auto expected=text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrapping);
-        const auto actual=text_shape_utf8_styled(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrapping);
+        const auto expected=text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrapping);
+        const auto actual=text_shape_utf8(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrapping);
         const bool compared=thai_shape_only||width>=1000000||!own_breaks(sample);
         if(!expected.ok()||!actual.ok()||!native_output.text.native_fonts()||(compared&&!same(native_output,reference_output,true))){
             for(u32 side=0;side<2;++side){const auto& o=side?reference_output.text:native_output.text;print(side?"reference glyphs=":"native glyphs=");for(u32 g=0;g<o.glyph_count;++g){number(o.glyphs[g].index);print(" ");}print("\n");}

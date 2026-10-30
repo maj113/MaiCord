@@ -21,12 +21,10 @@ SfntStatus map_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice
             if(selector_cursor<input.count&&selector(tibetan_category(input[selector_cursor])))variation=input[selector_cursor++];
             history->put(count,variation);}
         else variation=history->get(count);
-        const u32 code=rtl?unicode_bidi_mirror(scalar):scalar;u16 glyph=0;
-        auto s=sfnt_cmap_glyph(cmap,code,variation,&glyph);
-        if(variation&&s==SfntStatus::unsupported_sequence)s=sfnt_cmap_glyph(cmap,code,0,&glyph);
-        if(s!=SfntStatus::ok)return s;
-        if(!glyph&&unicode_properties(scalar)->general_category()==UnicodeGeneralCategory::cn)role|=control_role;
-        mapped[count++]={{glyph,sfnt_gdef_glyph_class(plan.gdef,glyph),role},source};return SfntStatus::ok;
+        auto& record=mapped[count];
+        const auto s=map_glyph(plan,cmap,scalar,variation,rtl,role,source,&record);if(s!=SfntStatus::ok)return s;
+        if(!record.glyph.glyph&&unicode_properties(scalar)->general_category()==UnicodeGeneralCategory::cn)record.glyph.reserved|=control_role;
+        ++count;return SfntStatus::ok;
     };
     if(input.count){const auto first=tibetan_category(input[0]);
         if((first==C::subjoined||(first>=C::cons_above&&first<=C::split)||first==C::defective)&&
@@ -70,7 +68,6 @@ SfntStatus sfnt_tibetan_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap
             count+=amount;units+=source_units;at+=length;first=origin+at;
         }
     }
-    u16 controls[4];for(u32 i=0;i<4;++i){const auto status=sfnt_cmap_glyph(cmap,0x200c+i,0,controls+i);if(status!=SfntStatus::ok)return status;}
-    return use_shape::run(plan,cmap,{mapped,count},units,starts,early,0,em,storage,result,steps,limits,rtl,controls);
+    return use_shape::run(use_shape::Script::tibetan,plan,cmap,{mapped,count},units,starts,early,em,storage,result,steps,limits,rtl);
 }
 }

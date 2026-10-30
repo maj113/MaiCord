@@ -1,7 +1,7 @@
 bool retained_editor_capacity(u32 sample) noexcept {
     const Utf8View seeds[]{utf8_literal("office AV text "),utf8_literal("한글 日本語 "),utf8_literal("abc אבג xyz "),
         utf8_literal("hello 😀 world "),utf8_literal("ภาษาไทย สวัสดีครับ "),utf8_literal("\n")};
-    CHECK(sample<6);DWriteTextSystem native{};CHECK(text_system_initialize(static_cast<TextSystem*>(&native),L"Segoe UI",16,L"en-US").ok());
+    CHECK(sample<6);DWriteTextSystem native{};CHECK(text_system_initialize(static_cast<TextSystem*>(&native),L"Segoe UI",16).ok());
     struct TextRelease {DWriteTextSystem& s;~TextRelease() noexcept {text_system_release(&s);}} text_release{native};
     CHECK(!native.factory&&!native.format&&!native.emoji_font_policy);
     auto reference=owner;reference.native_text=nullptr;

@@ -1482,12 +1482,11 @@ HRESULT text_compatibility_objects_initialize(DWriteTextSystem* system,const wch
     return result;
 }
 
-TextShapeResult text_system_initialize(DWriteTextSystem* system, const wchar_t* family_name, float em_size,
-                                       const wchar_t* locale_name) noexcept {
-    if (!system || !family_name || !family_name[0] || !locale_name || !layout_extent_valid(em_size))
+TextShapeResult text_system_initialize(DWriteTextSystem* system, const wchar_t* family_name, float em_size) noexcept {
+    if (!system || !family_name || !family_name[0] || !layout_extent_valid(em_size))
         return shape_result(TextShapeError::invalid_input, E_INVALIDARG);
     *system = DWriteTextSystem{};
-    HRESULT result = text_compatibility_objects_initialize(system, family_name, em_size, locale_name);
+    HRESULT result = text_compatibility_objects_initialize(system, family_name, em_size, L"en-us");
     if (SUCCEEDED(result) && !native_font_session_create(&system->native_fonts))
         result = E_OUTOFMEMORY;
     if (SUCCEEDED(result) && !native_text_context_initialize(&system->native_text, system->native_fonts))
@@ -1510,42 +1509,27 @@ void text_system_release(DWriteTextSystem* system) noexcept {
     text_system_release(static_cast<TextSystem*>(system));
 }
 
-TextShapeResult text_shape_utf8_interactive(DWriteTextSystem* system, Utf8View input,
-                                            ConstSlice<TextStyleSpan> styles, ConstSlice<TextHitSpan> hits,
-                                            float maximum_width, float maximum_height,
-                                            Slice<wchar_t> utf16_scratch, ShapedText* output,
-                                            TextWrapping wrapping, TextOverflow overflow) noexcept {
+TextShapeResult text_shape_utf8(DWriteTextSystem* system, Utf8View input, ConstSlice<TextStyleSpan> styles,
+                                float maximum_width, float maximum_height, Slice<wchar_t> utf16_scratch,
+                                ShapedText* output, TextWrapping wrapping, TextOverflow overflow,
+                                ConstSlice<TextHitSpan> hits) noexcept {
     if (system && system->native_text) {
         TextSystem native = native_view(*system);
-        const auto result = text_shape_utf8_interactive(&native, input, styles, hits, maximum_width, maximum_height,
-                                                        utf16_scratch, output, wrapping, overflow);
+        const auto result = text_shape_utf8(&native, input, styles, maximum_width, maximum_height, utf16_scratch,
+                                            output, wrapping, overflow, hits);
         if (result.ok() || !system->factory || !system->format)
             return result;
     }
     return reference_shape(system, input, styles, hits, maximum_width, maximum_height, utf16_scratch, output,
                            wrapping, overflow);
 }
-TextShapeResult text_shape_utf8(DWriteTextSystem* system, Utf8View input, float maximum_width,
-                                float maximum_height, Slice<wchar_t> utf16_scratch, ShapedText* output,
-                                TextWrapping wrapping, TextOverflow overflow) noexcept {
-    return text_shape_utf8_interactive(system, input, {}, {}, maximum_width, maximum_height, utf16_scratch, output,
-                                       wrapping, overflow);
-}
-TextShapeResult text_shape_utf8_styled(DWriteTextSystem* system, Utf8View input, ConstSlice<TextStyleSpan> styles,
-                                       float maximum_width, float maximum_height,
-                                       Slice<wchar_t> utf16_scratch, ShapedText* output,
-                                       TextWrapping wrapping, TextOverflow overflow) noexcept {
-    return text_shape_utf8_interactive(system, input, styles, {}, maximum_width, maximum_height, utf16_scratch,
-                                       output, wrapping, overflow);
-}
-TextMeasureResult text_measure_utf8_styled(DWriteTextSystem* system, Utf8View input,
-                                           ConstSlice<TextStyleSpan> styles, float maximum_width,
-                                           float maximum_height, Slice<wchar_t> utf16_scratch,
-                                           TextWrapping wrapping) noexcept {
+TextMeasureResult text_measure_utf8(DWriteTextSystem* system, Utf8View input, ConstSlice<TextStyleSpan> styles,
+                                    float maximum_width, float maximum_height, Slice<wchar_t> utf16_scratch,
+                                    TextWrapping wrapping) noexcept {
     if (system && system->native_text) {
         TextSystem native = native_view(*system);
-        const auto result = text_measure_utf8_styled(&native, input, styles, maximum_width, maximum_height,
-                                                     utf16_scratch, wrapping);
+        const auto result = text_measure_utf8(&native, input, styles, maximum_width, maximum_height,
+                                              utf16_scratch, wrapping);
         if (result.ok() || !system->factory || !system->format)
             return result;
     }
@@ -1588,20 +1572,6 @@ bool native_text_candidate_styled(const DWriteTextSystem& system, Utf8View text,
 bool native_text_candidate_hits(const DWriteTextSystem& system, Utf8View text, float width, float height,
                                 TextWrapping wrapping, NativeParagraphHitStorage storage, TextMeasureResult* measure) noexcept {
     return native_text_candidate_hits(native_view(system), text, width, height, wrapping, storage, measure);
-}
-bool native_text_candidate_ellipsis(const DWriteTextSystem& system, Utf8View text, ConstSlice<TextStyleSpan> styles,
-                                    float width, float height, ShapedText* output, TextWrapping wrapping,
-                                    ConstSlice<TextHitRange> hits) noexcept {
-    return native_text_candidate_ellipsis(native_view(system), text, styles, width, height, output, wrapping, hits);
-}
-bool native_text_candidate_trimmed(const DWriteTextSystem& system, Utf8View text, ConstSlice<TextStyleSpan> styles,
-                                   float width, float height, ShapedText* output, TextWrapping wrapping,
-                                   ConstSlice<TextHitRange> hits) noexcept {
-    return native_text_candidate_trimmed(native_view(system), text, styles, width, height, output, wrapping, hits);
-}
-bool native_text_candidate_prefers_multiline(const DWriteTextSystem& system, Utf8View text,
-                                             ConstSlice<TextStyleSpan> styles, TextWrapping wrapping) noexcept {
-    return native_text_candidate_prefers_multiline(native_view(system), text, styles, wrapping);
 }
 u64 native_text_format_identity(const DWriteTextSystem& system) noexcept {
     return native_text_format_identity(native_view(system));

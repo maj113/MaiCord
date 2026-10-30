@@ -15,7 +15,7 @@ SfntStatus native_arabic_paragraph_shape(const NativeArabicPlanStore& store,Nati
         auto status=native_arabic_run(c.store,c.handle,text,c.independent,c.rtl,size,storage.run,&line.run);
         if(status!=SfntStatus::ok)return status;
         status=sfnt_trailing_spacing({storage.run.placements.data,line.run.glyph_count},{storage.run.shaping.flags.data,line.run.glyph_count},c.spacing,1000000,c.rtl);
-        if(status!=SfntStatus::ok)return status;const auto geometry=native_unicode_line_geometry(c.metrics,text,size,storage,&line,true);
+        if(status!=SfntStatus::ok)return status;const auto geometry=native_unicode_line_geometry(c.metrics,text,size,storage,&line,NativeLineText::paragraph);
         if(geometry==SfntStatus::ok)*result=line;return geometry;
     };
     return native_script_paragraph_shape(*metrics,input,em,s,boundaries,output,{&source,shape});

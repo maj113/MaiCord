@@ -18,8 +18,8 @@ bool native_font_range_replay_cases() noexcept {
         for(u32 i=0;i<tail;++i){saved[i]=storage[0].input[bytes-tail+i];storage[0].input[bytes-tail+i]='a';}
         const Utf8View text{storage[0].input,bytes};
         for(float width:widths){++cases;
-            CHECK(text_shape_utf8(&native,text,width,1000000,{storage[0].utf16,4096},&native_output.text).ok()&&native_output.text.native_fonts());
-            CHECK(text_shape_utf8(&reference,text,width,1000000,{storage[1].utf16,4096},&reference_output.text).ok());
+            CHECK(text_shape_utf8(&native,text,{},width,1000000,{storage[0].utf16,4096},&native_output.text).ok()&&native_output.text.native_fonts());
+            CHECK(text_shape_utf8(&reference,text,{},width,1000000,{storage[1].utf16,4096},&reference_output.text).ok());
             CHECK(same(native_output,reference_output,true)&&same_visual_runs(native_output,reference_output));++native_cases;}
         for(u32 i=0;i<tail;++i)storage[0].input[bytes-tail+i]=saved[i];
     }

@@ -73,12 +73,6 @@ ConstSlice<NativeParagraphCluster> native_text_candidate_prepared_clusters(const
 // shaping, otherwise measurement is returned.
 bool native_text_candidate_line(const TextSystem&,Utf8View,float maximum_width,
     float maximum_height,ShapedText* output,TextMeasureResult* measure,TextWrapping wrapping=TextWrapping::wrap,TextOverflow overflow=TextOverflow::clip) noexcept;
-// True when the retained shape for this text, styles and format took the
-// multi-line truncation (ellipsis) builder before, so it is tried first. A
-// dimension change can still fall back to the fitting/single-line path.
-bool native_text_candidate_prefers_multiline(const TextSystem&,Utf8View,ConstSlice<TextStyleSpan>,TextWrapping) noexcept;
-bool native_text_candidate_trimmed(const TextSystem&,Utf8View,ConstSlice<TextStyleSpan>,float width,float height,
-    ShapedText*,TextWrapping,ConstSlice<TextHitRange> hits={}) noexcept;
 // A retained hit request (non-null retained) uses the editor's font-property-only
 // run policy and caller-owned, disjoint hit and style-metric buffers. It needs
 // measurement output and no ShapedText output; the geometry keeps no font object.

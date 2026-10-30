@@ -141,10 +141,10 @@ bool capture(u32 id,u32 profile,u32 style,bool independent,float width,float hei
     failure_stage=4;if(profile>=static_cast<u32>(UiTextFace::techno)&&!renderer.native_text_faces[profile])return false;
     shaped_text_reset(&shaped);const TextStyleSpan span{0,input.bytes,style};
     const auto before=native_text_candidate_counts(system);
-    const auto result=text_shape_utf8_styled(&system,input,style?ConstSlice<TextStyleSpan>{&span,1}:ConstSlice<TextStyleSpan>{},width,height,{utf16,capacity},&shaped);
+    const auto result=text_shape_utf8(&system,input,style?ConstSlice<TextStyleSpan>{&span,1}:ConstSlice<TextStyleSpan>{},width,height,{utf16,capacity},&shaped);
     const auto after=native_text_candidate_counts(system);
     if(after.arabic_shaped>before.arabic_shaped){
-        const auto measured=text_measure_utf8_styled(&system,input,{},width,height,{utf16,capacity});
+        const auto measured=text_measure_utf8(&system,input,{},width,height,{utf16,capacity});
         const auto measured_counts=native_text_candidate_counts(system);
         if(!measured.ok() || measured_counts.arabic_measured!=after.arabic_measured+1 ||
            !bytes_equal(&measured.width,&shaped.width,4) || !bytes_equal(&measured.width_including_trailing_whitespace,&shaped.width_including_trailing_whitespace,4) ||
@@ -186,11 +186,11 @@ bool run() noexcept {
     ok=bytes&&ReadFile(file,bytes,static_cast<DWORD>(size.QuadPart),&received,nullptr)&&received==size.QuadPart;CloseHandle(file);
     if(ok)ok=bytes_equal(bytes,"MCTEXTB1",8);
     IDWriteTextAnalyzer* base=nullptr;
-    if(ok)ok=text_system_initialize(&renderer.glyph_text.system,L"Segoe UI",16,L"en-US").ok();
-    if(ok)ok=text_system_initialize(&oracle,L"Segoe UI",16,L"en-US").ok();
+    if(ok)ok=text_system_initialize(&renderer.glyph_text.system,L"Segoe UI",16).ok();
+    if(ok)ok=text_system_initialize(&oracle,L"Segoe UI",16).ok();
     if(ok)ok=SUCCEEDED(oracle.factory->CreateTextAnalyzer(&base))&&SUCCEEDED(base->QueryInterface(__uuidof(IDWriteTextAnalyzer1),reinterpret_cast<void**>(&analyzer)));
     com_release(base);
-    if(ok)ok=shaped_text_initialize(&shaped,{glyphs,capacity*4},{runs,capacity},{clusters,capacity})&&shaped_text_bind_decorations(&shaped,{decorations,capacity})&&native_font_session_create(&native_fonts)&&arena_initialize(&native_scratch,4*1024*1024,0,4096);
+    if(ok)ok=shaped_text_initialize(&shaped,{glyphs,capacity*4},{runs,capacity},{clusters,capacity},{decorations,capacity})&&native_font_session_create(&native_fonts)&&arena_initialize(&native_scratch,4*1024*1024,0,4096);
     Reader reader{bytes,static_cast<u32>(size.QuadPart),8};u32 count=0;if(ok)ok=reader.word(&count)&&count&&count<=100000;
     for(u32 i=0;i<count&&ok;++i){u32 id=0,profile=0,style=0,independent=0,wb=0,hb=0,length=0;Utf8View input{};float width=0,height=0;
         ok=reader.word(&id)&&reader.word(&profile)&&reader.word(&style)&&reader.word(&independent)&&reader.word(&wb)&&reader.word(&hb)&&reader.word(&length)&&reader.take(length,&input)&&length&&length<=capacity&&independent<=1;

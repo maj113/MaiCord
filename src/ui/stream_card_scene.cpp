@@ -62,7 +62,7 @@ bool push_text(UiTextOutput* text, const UiStreamCardScene& s, Utf8View value, U
     if (!value.bytes)
         return true;
     return ui_text_output_push(text, {value, s.owner, rectangle, s.panel, color, style, horizontal,
-                                      UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::ellipsis});
+                                      UiTextAlignment::center, TextWrapping::no_wrap, TextOverflow::ellipsis});
 }
 } // namespace
 
@@ -215,7 +215,7 @@ bool ui_stream_card_text_output(const UiStreamCardScene& s, const Theme& theme, 
         ok = ui_text_output_push_owned(text, {{line, bytes}, s.owner, channel_line(s), s.panel,
                                               ui_theme_color_alpha(theme.tokens.text.muted, a), text_style_subtext,
                                               UiTextAlignment::start, UiTextAlignment::center,
-                                              UiTextWrapping::no_wrap, UiTextOverflow::ellipsis});
+                                              TextWrapping::no_wrap, TextOverflow::ellipsis});
     }
     const auto b = s.button;
     return ok && push_text(text, s, s.watching ? utf8_literal("Open stream") : utf8_literal("Watch stream"),

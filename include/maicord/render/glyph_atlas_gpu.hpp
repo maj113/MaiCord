@@ -22,6 +22,7 @@ struct GlyphAtlasGpu {
     ID3D11Buffer* command_buffer;
     ID3D11ShaderResourceView* command_view;
     ID3D11ComputeShader* raster_shader;
+    ID3D11ComputeShader* culled_shader; // Created with the first large raster.
     u64 dispatched_pixels;
     u64 dispatched_commands;
     u32 raster_count;
@@ -32,7 +33,7 @@ struct GlyphAtlasGpu {
     u16 width;
     u16 height;
 };
-static_assert(sizeof(GlyphAtlasGpu)==88);
+static_assert(sizeof(GlyphAtlasGpu)==96);
 
 enum class GlyphAtlasGpuError : u8 {
     none,
@@ -54,13 +55,18 @@ struct GlyphAtlasGpuResult {
 
 constexpr u32 glyph_raster_batch_limit=8;
 constexpr u32 glyph_raster_header_bytes=glyph_raster_batch_limit*sizeof(GlyphPathCommand);
+// Rasters at least this wide or tall use the tile-culling shader: below it the
+// dispatch, not the per-pixel command loop, dominates.
+constexpr u32 glyph_raster_culling_extent=64;
 // Finish before atlas reads; canceled jobs require caller cache invalidation.
 struct GlyphRasterBatch {
     GlyphAtlasGpu* owner;ID3D11DeviceContext* context;
     u8* mapped=nullptr;
     u32 jobs[glyph_raster_batch_limit][7];
     u32 count=0,cursor=0,groups_x=0,groups_y=0;
-    bool failed=false;
+    // `large`: some job reaches glyph_raster_culling_extent. `stroked`: some job strokes; the
+    // culling shader serves only unstroked text, whose output the reference probe pins exactly.
+    bool failed=false,large=false,stroked=false;
     GlyphRasterBatch(GlyphAtlasGpu* gpu,ID3D11DeviceContext* value) noexcept:owner(gpu),context(value){}
     GlyphRasterBatch(const GlyphRasterBatch&)=delete;
     GlyphRasterBatch& operator=(const GlyphRasterBatch&)=delete;

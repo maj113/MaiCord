@@ -37,8 +37,8 @@ struct TextLook {
     u32 style_flags = text_style_none;
     UiTextAlignment horizontal = UiTextAlignment::start;
     UiTextAlignment vertical = UiTextAlignment::center;
-    UiTextWrapping wrapping = UiTextWrapping::no_wrap;
-    UiTextOverflow overflow = UiTextOverflow::ellipsis;
+    TextWrapping wrapping = TextWrapping::no_wrap;
+    TextOverflow overflow = TextOverflow::ellipsis;
     bool owned = false;
     UiTextFace face = UiTextFace::normal;
     const UiTextEffect* effect = &no_effect;
@@ -46,24 +46,24 @@ struct TextLook {
 
 constexpr TextLook kLookLine{};
 constexpr TextLook kLookLineOwned{.owned = true};
-constexpr TextLook kLookClipped{.overflow = UiTextOverflow::clip};
-constexpr TextLook kLookCentered{.horizontal = UiTextAlignment::center, .overflow = UiTextOverflow::clip};
+constexpr TextLook kLookClipped{.overflow = TextOverflow::clip};
+constexpr TextLook kLookCentered{.horizontal = UiTextAlignment::center, .overflow = TextOverflow::clip};
 constexpr TextLook kLookSub{.style_flags = text_style_subtext};
 constexpr TextLook kLookSubOwned{.style_flags = text_style_subtext, .owned = true};
 constexpr TextLook kLookBold{.style_flags = text_style_bold};
 constexpr TextLook kLookCode{.style_flags = kTextStyleSizeCodeSm, .owned = true};
 constexpr TextLook kLookTimer{.style_flags = text_style_subtext,
                               .horizontal = UiTextAlignment::end,
-                              .overflow = UiTextOverflow::clip,
+                              .overflow = TextOverflow::clip,
                               .owned = true};
 constexpr TextLook kLookBadge{.style_flags = text_style_subtext | text_style_bold,
                               .horizontal = UiTextAlignment::center,
-                              .overflow = UiTextOverflow::clip};
+                              .overflow = TextOverflow::clip};
 constexpr TextLook kLookMention{.style_flags = text_style_bold | kTextStyleSizeCodeSm,
-                                .overflow = UiTextOverflow::clip};
+                                .overflow = TextOverflow::clip};
 constexpr TextLook kLookDraft{.vertical = UiTextAlignment::start,
-                              .wrapping = UiTextWrapping::wrap,
-                              .overflow = UiTextOverflow::clip};
+                              .wrapping = TextWrapping::wrap,
+                              .overflow = TextOverflow::clip};
 constexpr TextLook kLookTop{.vertical = UiTextAlignment::start};
 constexpr TextLook kLookGroup{.style_flags = text_style_subtext | text_style_bold};
 

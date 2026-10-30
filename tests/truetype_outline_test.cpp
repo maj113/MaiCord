@@ -111,10 +111,10 @@ bool capacity_cases() noexcept {
     put16(offsets,8);if(sfnt_truetype_outline_capacity(font,0))return false;
     fixture();if(open(&font)!=SfntStatus::ok)return false;
     for(u16 id=0;id<8;++id){const u32 bound=sfnt_truetype_outline_capacity(font,id);if(!bound)continue;
-        auto work=scratch();auto full=outline();if(sfnt_truetype_outline(font,id,&work,&full,SfntOutlineMode::colr_commands)!=SfntStatus::ok||full.count>bound)return false;
+        auto work=scratch();auto full=outline();if(sfnt_truetype_outline(font,id,&work,&full,SfntOutlineMode::colr)!=SfntStatus::ok||full.count>bound)return false;
         GlyphPathCommand expected[256];copy_bytes(expected,commands,full.count*sizeof(GlyphPathCommand));const u32 count=full.count;
         auto compact=outline();compact.capacity=minimum<u32>(bound,256);work=scratch();
-        if(sfnt_truetype_outline(font,id,&work,&compact,SfntOutlineMode::colr_commands)!=SfntStatus::ok||compact.count!=count||!bytes_equal(expected,commands,count*sizeof(GlyphPathCommand)))return false;
+        if(sfnt_truetype_outline(font,id,&work,&compact,SfntOutlineMode::colr)!=SfntStatus::ok||compact.count!=count||!bytes_equal(expected,commands,count*sizeof(GlyphPathCommand)))return false;
     }
     return true;
 }
@@ -156,23 +156,18 @@ bool valid_cases() noexcept {
 
 bool color_commands_cases() noexcept {
     fixture();SfntTrueType font{};if(open(&font)!=SfntStatus::ok)return false;
-    GlyphPathCommand expected[256];
     for(u16 glyph=0;glyph<8;++glyph){
         auto s=scratch();auto out=outline();
-        if(sfnt_truetype_outline(font,glyph,&s,&out,SfntOutlineMode::colr)!=SfntStatus::ok)return false;
-        const u32 count=out.count;copy_bytes(expected,commands,count*sizeof(GlyphPathCommand));
-        if(sfnt_truetype_outline(font,glyph,&s,&out,SfntOutlineMode::colr_commands)!=SfntStatus::ok||
-           out.count!=count||out.has_bounds||out.minimum_x||out.minimum_y||out.maximum_x||out.maximum_y||
-           out.fill_rule!=GlyphFillRule::winding||!bytes_equal(expected,commands,count*sizeof(GlyphPathCommand)))return false;
+        if(sfnt_truetype_outline(font,glyph,&s,&out,SfntOutlineMode::colr)!=SfntStatus::ok||
+           out.has_bounds||out.minimum_x||out.minimum_y||out.maximum_x||out.maximum_y||out.fill_rule!=GlyphFillRule::winding)return false;
+        const u32 count=out.count;
         for(u32 capacity=0;capacity<count;++capacity){out.capacity=capacity;
-            if(sfnt_truetype_outline(font,glyph,&s,&out,SfntOutlineMode::colr_commands)!=SfntStatus::output_too_small||
+            if(sfnt_truetype_outline(font,glyph,&s,&out,SfntOutlineMode::colr)!=SfntStatus::output_too_small||
                out.count||out.has_bounds||!out.rejected||s.point_count||s.contour_count)return false;}
         for(u32 work=0;work<16;++work){
             s=scratch();s.work_limit=work;out=outline();
             const auto status=sfnt_truetype_outline(font,glyph,&s,&out,SfntOutlineMode::colr);
-            s=scratch();s.work_limit=work;
-            if(sfnt_truetype_outline(font,glyph,&s,&out,SfntOutlineMode::colr_commands)!=status||out.has_bounds||
-               (status!=SfntStatus::ok&&(out.count||s.point_count||s.contour_count)))return false;
+            if(out.has_bounds||(status!=SfntStatus::ok&&(out.count||s.point_count||s.contour_count)))return false;
         }
     }
     return true;
@@ -371,9 +366,8 @@ bool guarded_mutations() noexcept {
         if (sfnt_open({input,size},0,&face) != SfntStatus::ok || sfnt_truetype_open(face,&font) != SfntStatus::ok) continue;
         auto s = scratch(); auto out = outline();
         sfnt_truetype_outline(font, static_cast<u16>(iteration % 8), &s, &out);
-        sfnt_truetype_outline(font, static_cast<u16>(iteration % 8), &s, &out,SfntOutlineMode::colr);
         const u16 glyph=static_cast<u16>(iteration%8);const u32 bound=sfnt_truetype_outline_capacity(font,glyph);
-        const auto status=sfnt_truetype_outline(font,glyph,&s,&out,SfntOutlineMode::colr_commands);
+        const auto status=sfnt_truetype_outline(font,glyph,&s,&out,SfntOutlineMode::colr);
         if(status==SfntStatus::ok&&bound&&out.count>bound){bounded=false;break;}
         s.require_instructions=true;sfnt_truetype_outline(font,glyph,&s,&out);
     }

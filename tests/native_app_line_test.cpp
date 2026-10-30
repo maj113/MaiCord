@@ -23,7 +23,7 @@ bool input_validation() noexcept {
         if(memory)VirtualFree(memory,0,MEM_RELEASE);
     }} release{native,guarded};
     DWORD old=0;CHECK(guarded&&VirtualProtect(guarded+4096,4096,PAGE_NOACCESS,&old));
-    CHECK(text_system_initialize(static_cast<TextSystem*>(&native),L"Segoe UI",16,L"en-US").ok());
+    CHECK(text_system_initialize(static_cast<TextSystem*>(&native),L"Segoe UI",16).ok());
     auto reference=owner;reference.native_text=nullptr;
     DWriteTextSystem systems[]{native,owner,reference};u32 tested=0;
     const Utf8View samples[]{utf8_literal("A"),utf8_literal("\xc2\x80"),utf8_literal("\xdf\xbf"),
@@ -34,12 +34,10 @@ bool input_validation() noexcept {
         utf8_literal("\xff"),utf8_literal("A\xe2\x82"),utf8_literal("A\0B")};
     for(u32 side=0;side<3;++side){auto& system=systems[side];
         const auto check=[&](Utf8View input,Slice<wchar_t> scratch,TextShapeError error,u32 units) noexcept {
-            const auto a=text_shape_utf8(&system,input,10000,10000,scratch,&native_output.text);
-            const auto b=text_shape_utf8_styled(&system,input,{},10000,10000,scratch,&native_output.text);
-            const auto c=text_shape_utf8_interactive(&system,input,{},{},10000,10000,scratch,&native_output.text);
-            const auto d=text_measure_utf8_styled(&system,input,{},10000,10000,scratch);
-            CHECK(a.error==error&&b.error==error&&c.error==error&&d.error==error);
-            CHECK(a.utf16_units==units&&b.utf16_units==units&&c.utf16_units==units&&d.utf16_units==units);
+            const auto a=text_shape_utf8(&system,input,{},10000,10000,scratch,&native_output.text);
+            const auto d=text_measure_utf8(&system,input,{},10000,10000,scratch);
+            CHECK(a.error==error&&d.error==error);
+            CHECK(a.utf16_units==units&&d.utf16_units==units);
             ++tested;return true;
         };
         for(auto sample:samples)for(u32 bytes=0;bytes<=sample.bytes;++bytes){
@@ -122,9 +120,9 @@ bool corpus(IDWriteFontCollection* collection,const wchar_t* family,u32 weight) 
                 for(float width:widths)for(u32 nowrap=0;nowrap<2;++nowrap){++matrix_seen;++cases;const auto wrap=nowrap?TextWrapping::no_wrap:TextWrapping::wrap;auto reference=system;reference.native_text=nullptr;
                     shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);
                     const bool native=native_text_candidate_styled(system,text,{spans,count},width,1000000,&native_output.text,nullptr,wrap);CHECK(!require_native||native);if(native){++native_cases;CHECK(draw_source(system,native_output.text));}shaped_text_reset(&native_output.text);
-                    CHECK(text_shape_utf8_styled(&system,text,{spans,count},width,1000000,{utf16,256},&native_output.text,wrap).ok());
-                    CHECK(text_shape_utf8_styled(&reference,text,{spans,count},width,1000000,{utf16,256},&reference_output.text,wrap).ok());
-                    const auto a=text_measure_utf8_styled(&system,text,{spans,count},width,1000000,{utf16,256},wrap);
+                    CHECK(text_shape_utf8(&system,text,{spans,count},width,1000000,{utf16,256},&native_output.text,wrap).ok());
+                    CHECK(text_shape_utf8(&reference,text,{spans,count},width,1000000,{utf16,256},&reference_output.text,wrap).ok());
+                    const auto a=text_measure_utf8(&system,text,{spans,count},width,1000000,{utf16,256},wrap);
                     TextMeasureResult b{};
                     // The first and last samples independently measure every
                     // font, style, placement, width and wrapping combination.
@@ -156,7 +154,7 @@ bool corpus(IDWriteFontCollection* collection,const wchar_t* family,u32 weight) 
             const float actual=width==1000000?width:width*(size/16);CHECK(compare(system,text,true,actual,1));}}continue;}
         for(u32 mode=0;mode<2;++mode){system.independent_letters=mode!=0;for(const auto text:texts){
             auto reference=system;reference.native_text=nullptr;shaped_text_reset(&reference_output.text);
-            CHECK(text_shape_utf8(&reference,text,1000000,1000000,{utf16,256},&reference_output.text).ok());
+            CHECK(text_shape_utf8(&reference,text,{},1000000,1000000,{utf16,256},&reference_output.text).ok());
             bool simulated=false;for(u32 i=0;i<reference_output.text.run_count;++i)simulated|=reference_run_face(reference_output.text.runs[i])->GetSimulations()!=DWRITE_FONT_SIMULATIONS_NONE;
             if(simulated){CHECK(!native_text_candidate_line(system,text,1000000,1000000,&native_output.text,nullptr));++simulated_cases;}
             CHECK(compare(system,text,!simulated));
@@ -191,7 +189,7 @@ bool custom(const wchar_t* path,u32 weight) noexcept {
     CHECK(!native_text_register_collection(owner.native_text,nullptr,path));
     CHECK(!native_text_register_collection(owner.native_text,collection,L""));
     auto reference=system;reference.native_text=nullptr;shaped_text_reset(&reference_output.text);
-    CHECK(text_shape_utf8(&reference,utf8_literal("AV"),1000,1000,{utf16,256},&reference_output.text).ok());
+    CHECK(text_shape_utf8(&reference,utf8_literal("AV"),{},1000,1000,{utf16,256},&reference_output.text).ok());
     if(reference_output.text.run_count==1&&reference_run_face(reference_output.text.runs[0])->GetSimulations()==DWRITE_FONT_SIMULATIONS_NONE){
         CHECK(native_text_candidate_line(system,utf8_literal("AV"),1000,1000,&native_output.text,nullptr));CHECK(same(native_output,reference_output));}
     shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);
@@ -279,7 +277,7 @@ bool matrix_batch(const wchar_t* arguments, bool single_profile = false) noexcep
 }
 bool shared_oblique_binding() noexcept {
     shaped_text_reset(&reference_output.text);auto system=owner;system.native_text=nullptr;
-    CHECK(text_shape_utf8(&system,utf8_literal("AV"),1000,1000,{utf16,256},&reference_output.text).ok());
+    CHECK(text_shape_utf8(&system,utf8_literal("AV"),{},1000,1000,{utf16,256},&reference_output.text).ok());
     CHECK(reference_output.text.run_count==1);auto* selected=reference_run_face(reference_output.text.runs[0]);
     IDWriteFontFace5* base=nullptr;IDWriteFontResource* resource=nullptr;IDWriteFontFace5* oblique=nullptr;Arena scratch{};NativeFontInstanceHandle plain{},styled{},rejected{};
     struct Release {IDWriteFontFace5*& b;IDWriteFontResource*& r;IDWriteFontFace5*& o;Arena& a;NativeFontInstanceHandle& p;NativeFontInstanceHandle& s;
@@ -312,7 +310,7 @@ bool retained_run_lifetime() noexcept {
     struct Release {DWriteTextSystem& t;NativeFontSession*& s;NativeFontInstanceHandle& a;NativeFontInstanceHandle& b;IDWriteFontFace*& f;Arena& scratch;
         ~Release() noexcept {shaped_text_reset(&native_output.text);text_system_release(&t);if(s){auto* store=native_font_session_instances(s);if(a.slot)native_font_instance_release(store,a);if(b.slot)native_font_instance_release(store,b);native_font_session_release(&s);}com_release(f);arena_release(&scratch);}}
         release{transient,observer,outlined,bridged,reference,scratch};
-    shaped_text_reset(&native_output.text);CHECK(text_system_initialize(&transient,L"Segoe UI",16,L"en-US").ok());
+    shaped_text_reset(&native_output.text);CHECK(text_system_initialize(&transient,L"Segoe UI",16).ok());
     CHECK(native_text_candidate_line(transient,utf8_literal("AV  "),1000,1000,&native_output.text,nullptr));
     CHECK(native_output.text.run_count==2&&native_output.text.runs[0].native_font&&native_output.text.runs[1].native_font);
     const auto handle=native_output.text.runs[0].native_face;observer=transient.native_fonts;CHECK(native_font_session_retain(observer));
@@ -340,7 +338,7 @@ bool inspect_paragraphs(bool compare_native=false) noexcept {
         struct Release {IDWriteTextFormat*& f;~Release() noexcept {com_release(f);}} release{format};
         auto system=owner;system.native_text=nullptr;system.format=format;system.native_format=0;
         for(u32 sample=0;sample<sizeof(texts)/sizeof(texts[0]);++sample)for(float width:widths)for(float height:heights){
-            shaped_text_reset(&reference_output.text);const auto result=text_shape_utf8(&system,texts[sample],width,height,{utf16,256},&reference_output.text);CHECK(result.ok());const auto& out=reference_output.text;
+            shaped_text_reset(&reference_output.text);const auto result=text_shape_utf8(&system,texts[sample],{},width,height,{utf16,256},&reference_output.text);CHECK(result.ok());const auto& out=reference_output.text;
             print("{\"family\":");number(family);print(",\"sample\":");number(sample);print(",\"width\":");real(width);print(",\"height\":");real(height);print(",\"metrics\":[");real(out.width);print(",");real(out.width_including_trailing_whitespace);print(",");real(out.height);print(",");number(out.line_count);print("],\"glyphs\":[");
             for(u32 i=0;i<out.glyph_count;++i){if(i)print(",");print("[");number(out.glyphs[i].index);print(",");real(out.glyphs[i].advance);print("]");}print("],\"clusters\":[");for(u32 i=0;i<out.cluster_count;++i){if(i)print(",");number(out.clusters[i]);}
             print("],\"runs\":[");for(u32 i=0;i<out.run_count;++i){if(i)print(",");const auto& r=out.runs[i];print("[");number(r.text_position);print(",");number(r.text_length);print(",");number(r.first_glyph);print(",");number(r.glyph_count);print(",");real(r.baseline_x);print(",");real(r.baseline_y);print("]");}
@@ -350,12 +348,16 @@ bool inspect_paragraphs(bool compare_native=false) noexcept {
         }
     }return true;
 }
+bool native_break(const char* bytes,u32 count,u32 at) noexcept {
+    NativeParagraphCluster clusters[80]{};for(u32 i=0;i<count;++i)clusters[i]={i,i+1,0,0,0,0};
+    native_ascii_paragraph_flags({bytes,count},{clusters,count});return (clusters[at].flags&native_paragraph_break_before)!=0;
+}
 bool break_tests() noexcept {
     IDWriteTextAnalyzer* analyzer=nullptr;CHECK(SUCCEEDED(owner.factory->CreateTextAnalyzer(&analyzer)));struct Release {IDWriteTextAnalyzer*& p;~Release() noexcept {com_release(p);}} release{analyzer};AsciiBreakReference reference{};u32 differences=0,total=0;
     for(u32 a=32;a<127;++a)for(u32 b=32;b<127;++b)for(u32 context=0;context<4;++context){char bytes[5];u32 count=0;
         if(context==1){bytes[count++]='(';bytes[count++]=' ';}else if(context==2)bytes[count++]='0';else if(context==3){bytes[count++]='\'';bytes[count++]=' ';}
         bytes[count++]=static_cast<char>(a);bytes[count++]=static_cast<char>(b);if(context==2)bytes[count++]='0';
-        CHECK(reference.analyze(analyzer,{bytes,count}));for(u32 at=1;at<count;++at){++total;const bool native=native_ascii_break_after({bytes,count},at),expected=reference.after(at);
+        CHECK(reference.analyze(analyzer,{bytes,count}));for(u32 at=1;at<count;++at){++total;const bool native=native_break(bytes,count,at),expected=reference.after(at);
             if(native!=expected){++differences;print("{\"bytes\":[");for(u32 i=0;i<count;++i){if(i)print(",");number(static_cast<u8>(bytes[i]));}print("],\"at\":");number(at);print(",\"native\":");number(native);print(",\"reference\":");number(expected);print("}\n");}}
     }print("break_boundaries=");number(total);print(" differences=");number(differences);print("\n");return differences==0;
 }
@@ -367,7 +369,7 @@ bool paragraph_fuzz() noexcept {
     for(u32 sample=0;sample<4000;++sample){char bytes[80];const u32 count=1+random()%79;for(u32 i=0;i<count;++i)bytes[i]=alphabet[random()%(sizeof(alphabet)-1)];
         for(float width:widths)if(!compare(owner,{bytes,count},true,width,1)){
             print("fuzz sample=");number(sample);print(" width=");real(width);print(" bytes=[");for(u32 i=0;i<count;++i){if(i)print(",");number(static_cast<u8>(bytes[i]));}print("]\n");CHECK(breaks.analyze(analyzer,{bytes,count}));
-            for(u32 at=1;at<count;++at)if(breaks.after(at)!=native_ascii_break_after({bytes,count},at)){print("break difference at=");number(at);print(" ref=");number(breaks.after(at));print(" native=");number(native_ascii_break_after({bytes,count},at));print("\n");}return false;}
+            for(u32 at=1;at<count;++at)if(breaks.after(at)!=native_break(bytes,count,at)){print("break difference at=");number(at);print(" ref=");number(breaks.after(at));print(" native=");number(native_break(bytes,count,at));print("\n");}return false;}
     }return true;
 }
 #include "styled_paragraph_benchmark.inc"
@@ -426,8 +428,8 @@ bool run() noexcept {
     if(!contexts_check[contexts_match]&&!p[contexts_match])return native_font_context_layouts();
     static const wchar_t storage_option[]=L"--script-storage-check";u32 storage_match=0;while(storage_option[storage_match]&&p[storage_match]==storage_option[storage_match])++storage_match;
     if(!storage_option[storage_match]&&!p[storage_match])return native_script_storage_cases();
-    CHECK(text_system_initialize(&owner,L"Segoe UI",16,L"en-US").ok());
-    Output* outputs[]{&native_output,&reference_output};for(auto* out:outputs){CHECK(shaped_text_initialize(&out->text,{out->glyphs,1024},{out->runs,256},{out->clusters,256}));CHECK(shaped_text_bind_decorations(&out->text,{out->decorations,256}));CHECK(shaped_text_bind_hit_regions(&out->text,{out->hits,4096}));}
+    CHECK(text_system_initialize(&owner,L"Segoe UI",16).ok());
+    Output* outputs[]{&native_output,&reference_output};for(auto* out:outputs){CHECK(shaped_text_initialize(&out->text,{out->glyphs,1024},{out->runs,256},{out->clusters,256},{out->decorations,256},{out->hits,4096}));}
     static const wchar_t matrix_batch_option[]=L"--matrix-batch";
     u32 matrix_batch_match = 0;
     while (matrix_batch_option[matrix_batch_match] &&

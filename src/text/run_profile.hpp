@@ -6,7 +6,6 @@ namespace maicord {
 struct ArenaScope {Arena* arena;ArenaMark mark;bool keep=false;~ArenaScope() noexcept {if(!keep)arena_rewind(arena,mark);}};
 template<class T> Slice<T> take(Arena& arena,u32 count) noexcept {return {arena_allocate<T>(&arena,count),count};}
 template<class T> Slice<T> take(Arena* arena,u32 count) noexcept {return {arena_allocate<T>(arena,count),count};}
-template<class T> bool filled(Slice<T> values) noexcept {return !values.count||values.data;}
 // The parent plan, instance and face behind a run, once the state and scratch
 // arenas are known to be usable and distinct.
 struct NativePlanSource {const SfntShapePlan* parent;const NativeFontInstance* instance;const NativeFontFace* font;};

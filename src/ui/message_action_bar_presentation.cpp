@@ -81,7 +81,7 @@ bool message_action_bar_text_presentation_build_output(const MessageActionBar& b
         if (!ui_text_output_push(text, UiTextCommand{item.glyph, bar.owner, item.rectangle, visible,
                                                      theme.text_primary, text_style_picker_emoji,
                                                      UiTextAlignment::center, UiTextAlignment::center,
-                                                     UiTextWrapping::no_wrap, UiTextOverflow::clip})) {
+                                                     TextWrapping::no_wrap, TextOverflow::clip})) {
             return false;
         }
     }

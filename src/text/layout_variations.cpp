@@ -4,7 +4,7 @@
 #include "maicord/text/base.hpp"
 
 namespace maicord {namespace {
-using layout_read::r16;using layout_read::r32;using layout_read::span;using layout_read::tail;
+using layout_read::WorkReport;using layout_read::r16;using layout_read::r32;using layout_read::span;using layout_read::tail;
 SfntStatus matches(ConstSlice<u8> table,ConstSlice<i16> coordinates,bool* match,u32* work) noexcept {
     *match=false;const u16 count=r16(table,0);const u32 end=2+static_cast<u32>(count)*4;
     if(!span(table,0,end))return SfntStatus::truncated;
@@ -28,7 +28,7 @@ SfntStatus substitutions_open(ConstSlice<u8> table,u16 feature_limit,SfntFeature
 }
 }
 SfntStatus sfnt_layout_variation_select(const SfntLayout& l,ConstSlice<i16> coordinates,SfntFeatureSubstitutions* output,u32* record_index,u32 work,u32* work_used) noexcept {
-    struct Report {u32 initial;const u32& left;u32* used;~Report() noexcept {if(used)*used=initial-left;}} report{work,work,work_used};
+    WorkReport report{work,work,work_used};
     if(!output || !record_index)return SfntStatus::invalid_input;reset_value(output);*record_index=sfnt_no_variation_record;
     if(coordinates.count>65535 || (coordinates.count && !coordinates.data))return SfntStatus::invalid_input;
     if(coordinates.count>work)return SfntStatus::resource_limit;work-=coordinates.count;

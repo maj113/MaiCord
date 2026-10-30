@@ -356,8 +356,8 @@ void test_menu_row(void (*check)(bool, const char*) noexcept) noexcept {
         popup_scene_release(&complete);
     }
     PopupItem edit[kTextEditMenuItems]{};
-    decorated =
-        text_edit_menu_build({true, true, true, true, true, true, true, false}, {edit, kTextEditMenuItems});
+    text_edit_menu_build({true, true, true, true, true, true, true, false}, {edit, kTextEditMenuItems});
+    decorated = true;
     for (const auto& item : edit)
         decorated = decorated && item.presentation.icon_plus_one && !item.presentation.trailing_icon;
     check(decorated, "menu row: shared edit menu carries original symbols alongside command shortcuts");

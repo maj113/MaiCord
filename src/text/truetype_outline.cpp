@@ -4,19 +4,15 @@
 #include "maicord/text/tt_bold_points.hpp"
 #include "maicord/text/tt_outline.hpp"
 #include "sfnt_read.hpp"
+#include "floor_value.hpp"
 
 namespace maicord {
 namespace {
 
 using namespace sfnt_read;
-#pragma float_control(precise,on,push)
-float varied_coordinate(double value) noexcept {
-    // gvar coordinates round to integral design units, with positive half
-    // ties. Static component transforms keep their 1/64 grid.
-    const double shifted=value+.5;const i64 i=static_cast<i64>(shifted);
-    return static_cast<float>(i-(static_cast<double>(i)>shifted?1:0));
-}
-#pragma float_control(pop)
+// gvar coordinates round to integral design units, with positive half ties.
+// Static component transforms keep their 1/64 grid.
+float varied_coordinate(double value) noexcept {return static_cast<float>(round_value(value));}
 
 float component_product(float coordinate, float factor) noexcept {
     // The unhinted Windows scaler resolves component coordinates on a 1/64
@@ -32,8 +28,9 @@ u32 location(const SfntTrueType& font, u32 glyph) noexcept { return loca_offset(
 struct Reader {
     ConstSlice<u8> data;
     u32 at;
+    // at never passes data.count: it starts inside the record and only advances by a fitting take.
     bool take(u32 count, const u8** out) noexcept {
-        if (at > data.count || count > data.count - at) return false;
+        if (count > data.count - at) return false;
         *out = data.data + at; at += count; return true;
     }
 };
@@ -128,10 +125,10 @@ struct Decoder {
         return SfntStatus::ok;
     }
 
-    SfntStatus glyph(u16 id, u32 depth, float* metric_origin,float vertical_offset=0,float* metric_origin_y=nullptr) noexcept {
+    SfntStatus glyph(u16 id, u32 depth, float* metric_origin,float vertical_offset,float* metric_origin_y) noexcept {
         struct Restore {u32& count;u32 saved;~Restore() noexcept {count=saved;}} restore{delta_count,delta_count};
         *metric_origin = 0;
-        if(metric_origin_y)*metric_origin_y=0;
+        *metric_origin_y=0;
         if (id >= font.metrics.glyph_count) return SfntStatus::glyph_out_of_range;
         if (depth >= scratch.active_glyphs.count || depth >= 64 || !work)
             return SfntStatus::resource_limit;
@@ -214,12 +211,14 @@ struct Decoder {
                     u32 first_point=child_first;for(u32 c=child_first_contour;c<scratch.contour_count;++c){scratch.points[first_point].reserved[0]^=1;first_point=scratch.contour_ends[c]+1;}}
             }
             if(flags&0x200u){*metric_origin=variation?component_product(child_origin,xx)+component_product(child_origin_y,yx):child_origin;
-                if(variation&&metric_origin_y)*metric_origin_y=component_product(child_origin,xy_matrix)+component_product(child_origin_y,yy);}
+                if(variation)*metric_origin_y=component_product(child_origin,xy_matrix)+component_product(child_origin_y,yy);}
             const u32 child_points = scratch.point_count - child_first;
             if (child_points > work / 2u) return SfntStatus::resource_limit;
             work -= child_points * 2u;
-            // Child transforms are resolved before parent point attachments.
-            for (u32 i = child_first; i < scratch.point_count; ++i) {
+            // Child transforms are resolved before parent point attachments. Every point is a
+            // multiple of 1/64 here, which component_product reproduces exactly: the identity
+            // (no transform words) leaves the child unchanged.
+            if (values) for (u32 i = child_first; i < scratch.point_count; ++i) {
                 auto& point = scratch.points.data[i];
                 const float x = point.x, y = point.y;
                 point.x = component_product(x, xx) + component_product(y, yx);
@@ -288,11 +287,11 @@ struct Writer {
 };
 
 #pragma float_control(precise, on, push)
-SfntOutlinePoint middle(SfntOutlinePoint a, SfntOutlinePoint b) noexcept {
+inline SfntOutlinePoint middle(SfntOutlinePoint a, SfntOutlinePoint b) noexcept {
     return {(a.x + b.x) * .5f, (a.y + b.y) * .5f, 1, {0, 0, 0}};
 }
 
-SfntOutlinePoint normalized(SfntOutlinePoint point, float origin, float scale) noexcept {
+inline SfntOutlinePoint normalized(SfntOutlinePoint point, float origin, float scale) noexcept {
     point.x = (point.x + origin) * scale;
     point.y = point.y == 0.f ? 0.f : -point.y * scale;
     return point;
@@ -444,10 +443,10 @@ SfntStatus sfnt_truetype_outline(const SfntTrueType& font, u16 glyph,
         // contours. It applies only to simple glyphs within 2048 points and
         // contours; composites use the text order.
         const u32 begin=location(font,glyph),end=location(font,glyph+1);
-        const bool color=(mode==SfntOutlineMode::colr||mode==SfntOutlineMode::colr_commands) && end-begin>=10 && s16(font.glyf.data+begin)>=0 &&
+        const bool color=mode==SfntOutlineMode::colr && end-begin>=10 && s16(font.glyf.data+begin)>=0 &&
             scratch->point_count<=2048 && scratch->contour_count<=2048;
         if(color)for(u32 i=0;i<scratch->point_count;++i)scratch->points[i]=normalized(scratch->points[i],origin,scale);
-        status = emit(*scratch, *output, origin, scale,color,mode!=SfntOutlineMode::colr_commands);
+        status = emit(*scratch, *output, origin, scale,color,mode==SfntOutlineMode::text);
     }
     if (status != SfntStatus::ok) {
         reset(output); output->rejected = 1;

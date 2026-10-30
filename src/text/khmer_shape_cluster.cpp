@@ -38,11 +38,8 @@ SfntStatus map_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice
     count=0;bool seen_ro=false,cfar=false;u32 pending=nil;
     const auto map=[&](u32 scalar,u32 source,u8 role,u32 selector=0) noexcept {
         if(count>=mapped.count)return SfntStatus::output_too_small;
-        u16 glyph=0;const u32 resolved=rtl?unicode_bidi_mirror(scalar):scalar;
-        auto status=sfnt_cmap_glyph(cmap,resolved,selector,&glyph);
-        if(selector&&status==SfntStatus::unsupported_sequence)status=sfnt_cmap_glyph(cmap,resolved,0,&glyph);
-        if(status!=SfntStatus::ok)return status;
-        mapped[count++]={{glyph,sfnt_gdef_glyph_class(plan.gdef,glyph),role},source};return SfntStatus::ok;
+        const auto status=use_shape::map_glyph(plan,cmap,scalar,selector,rtl,role,source,&mapped[count]);
+        if(status==SfntStatus::ok)++count;return status;
     };
     if(input.count){const auto c=khmer_category(input[0]);
         if(c>=C::coeng&&c<=C::final){const auto status=map(0x25cc,source_base,0);if(status!=SfntStatus::ok)return status;}}
@@ -86,13 +83,6 @@ SfntStatus sfnt_khmer_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,C
         if(status!=SfntStatus::ok)return status;u64 cost=0;status=reorder({mapped+count,amount},reorder_work,&cost);reorder_work-=cost;
         if(status!=SfntStatus::ok)return status;count+=amount;first=end;units=end_units;pieces=end_pieces;
     }
-    use_shape::GroupRun policy{&plan.gdef,0,{},{storage.character_glyphs.data,units},storage.targets,starts};
-    status=sfnt_cmap_glyph(cmap,0x20,0,&policy.space);if(status!=SfntStatus::ok)return status;
-    // Postprocessing treats the font's ZWSP/ZWNJ/ZWJ glyphs as invisible.
-    for(u32 i=0;i<3;++i){status=sfnt_cmap_glyph(cmap,0x200b+i,0,&policy.invisible[i]);if(status!=SfntStatus::ok)return status;}
-    policy.invisible[3]=policy.invisible[0];
-    auto resolved=plan;resolved.retain_zero_positioning=false;resolved.compensate_consecutive_zeroes=true;
-    return sfnt_shape_run(resolved,{mapped,count},units,{storage.targets.data,starts},rtl,em,storage,result,limits,steps,{},
-        {&policy,use_shape::finish_group_run,use_shape::restore_group_run});
+    return use_shape::run(use_shape::Script::khmer,plan,cmap,{mapped,count},units,starts,0,em,storage,result,steps,limits,rtl);
 }
 }

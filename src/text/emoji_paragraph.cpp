@@ -1,4 +1,5 @@
 #include "maicord/text/emoji_paragraph.hpp"
+#include "unicode_line_geometry.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/text/visibility.hpp"
 #include "maicord/text/unicode.hpp"
@@ -20,24 +21,16 @@ SfntStatus native_emoji_paragraph_shape(const NativeRunPlanStore& store,const Na
             const bool selector=next.valid&&unicode_properties(next.codepoint)->has(UnicodeFlag::variation_selector);
             if(selector){consumed+=next.width;units+=next.codepoint>0xffff?2u:1u;}
             const bool pair=cp.codepoint==13&&at+consumed<input.bytes&&input.data[at+consumed]=='\n';
-            if(shaped.cluster_count==s.clusters.count||units>s.source_glyphs.count-shaped.source_units)return SfntStatus::output_too_small;
             const bool newline=cp.codepoint-10u<4||cp.codepoint==0x85||cp.codepoint==0x2028||cp.codepoint==0x2029;
             const u32 flags=cp.codepoint==9?native_paragraph_tab:pair?native_paragraph_crlf_prefix:newline?native_paragraph_newline|(selector?native_paragraph_atomic_newline:0):native_paragraph_nonvisual;
-            s.clusters[shaped.cluster_count++]={shaped.source_units,shaped.source_units+units,shaped.glyph_count,0,0,flags};
-            for(u32 i=0;i<units;++i)s.source_glyphs[shaped.source_units+i]=0xffffffffu;
-            shaped.source_units+=units;at+=consumed;continue;
+            status=native_paragraph_append_control(s,shaped,units,flags);if(status!=SfntStatus::ok)return status;
+            at+=consumed;continue;
         }
         u32 end=at+cp.width;while(end<input.bytes){const auto next=utf8_decode_one(input.data+end,input.bytes-end);if(!next.valid)return SfntStatus::invalid_input;
             if(native_text_nonvisual(next.codepoint))break;end+=next.width;}
         NativeAsciiLineResult line{};status=native_emoji_line(store,plan,{input.data+at,end-at},em,s.work,&line,{},coverage,rtl,arabic,true);if(status!=SfntStatus::ok)return status;
-        if(!(line.geometry_flags&native_line_ordered_x))return SfntStatus::unsupported_sequence;
-        if(line.run.glyph_count>s.glyphs.count-shaped.glyph_count||line.run.glyph_count>s.placements.count-shaped.glyph_count||
-           line.run.source_units>s.source_glyphs.count-shaped.source_units||line.cluster_count>s.clusters.count-shaped.cluster_count)return SfntStatus::output_too_small;
-        for(u32 i=0;i<line.run.glyph_count;++i){s.glyphs[shaped.glyph_count+i]=s.work.run.glyphs[i];s.placements[shaped.glyph_count+i]=s.work.run.placements[i];}
-        for(u32 i=0;i<line.run.source_units;++i)s.source_glyphs[shaped.source_units+i]=shaped.glyph_count+s.work.run.character_glyphs[i];
-        u32 first=0;for(u32 i=0;i<line.cluster_count;++i){const auto& c=s.work.clusters[i];const u32 g=s.work.run.character_glyphs[first],ge=c.source_end==line.run.source_units?line.run.glyph_count:s.work.run.character_glyphs[c.source_end];
-            s.clusters[shaped.cluster_count++]={shaped.source_units+first,shaped.source_units+c.source_end,shaped.glyph_count+g,ge-g,c.width,0};first=c.source_end;}
-        shaped.source_units+=line.run.source_units;shaped.glyph_count+=line.run.glyph_count;at=end;
+        status=native_paragraph_append_line(s,line,shaped);if(status!=SfntStatus::ok)return status;
+        at=end;
     }
     if(!boundaries.deferred){status=native_latin_paragraph_boundaries(input,{s.clusters.data,shaped.cluster_count},boundaries);if(status!=SfntStatus::ok)return status;}
     *output=shaped;return SfntStatus::ok;

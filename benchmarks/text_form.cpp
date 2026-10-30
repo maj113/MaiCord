@@ -9,7 +9,7 @@ namespace {
 struct MeasureContext { TextSystem text; wchar_t scratch[2048]; };
 bool measure(void* opaque, const UiTextMeasureRequest& request, UiTextMeasureValue* value) noexcept {
     auto* context = static_cast<MeasureContext*>(opaque);
-    const auto measured = text_measure_utf8_styled(&context->text, request.text, request.styles,
+    const auto measured = text_measure_utf8(&context->text, request.text, request.styles,
         request.constraint.width, request.constraint.height, {context->scratch, 2048}, TextWrapping::wrap);
     if (!measured.ok()) return false;
     *value = {{measured.width_including_trailing_whitespace, measured.height}, 0, measured.line_count};
@@ -18,7 +18,7 @@ bool measure(void* opaque, const UiTextMeasureRequest& request, UiTextMeasureVal
 }
 bool benchmark_text_form(Clock clock, void (*write)(const char*, u64, const char*) noexcept) noexcept {
     MeasureContext context{};
-    if (!text_system_initialize(&context.text, L"Segoe UI", 14, L"en-us").ok()) return false;
+    if (!text_system_initialize(&context.text, L"Segoe UI", 14).ok()) return false;
     TextFormScene scene{};
     TextFormSurface surface{};
     UiTextMeasureRecord records[32]{};

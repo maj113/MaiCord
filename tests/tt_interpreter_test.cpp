@@ -141,9 +141,7 @@ bool errors() noexcept {
     const Case list[]{{{truncated,sizeof(truncated)},SfntStatus::truncated},{{underflow,1},SfntStatus::malformed},{{unknown,1},SfntStatus::unsupported},{{bad_function,sizeof(bad_function)},SfntStatus::malformed},{{bad_point,sizeof(bad_point)},SfntStatus::malformed},{{bad_store,sizeof(bad_store)},SfntStatus::malformed},{{bad_if,sizeof(bad_if)},SfntStatus::malformed},{{bad_definition,sizeof(bad_definition)},SfntStatus::malformed},{{divide_zero,sizeof(divide_zero)},SfntStatus::malformed}};
     for(const auto& c:list){auto s=fresh();TtExecution r{};if(tt_execute(&s,c.code,TtPhase::font,&r)!=c.expected)return fail(static_cast<u32>(invalid),20);++invalid;}
     auto s=fresh();TtExecution r{};const u8 push[]{0xb0,1};s.stack.count=0;if(tt_execute(&s,{push,2},TtPhase::glyph,&r)!=SfntStatus::output_too_small)return fail(0,21);++invalid;
-    s=fresh();s.functions[0]={{nullptr,1},true};if(tt_execute(&s,{bad_function,sizeof(bad_function)},TtPhase::glyph,&r)!=SfntStatus::malformed)return fail(0,22);++invalid;
-    s=fresh();s.stack={nullptr,1};if(tt_execute(&s,{},TtPhase::glyph,&r)!=SfntStatus::invalid_input)return fail(0,23);++invalid;
-    if(tt_execute(nullptr,{},TtPhase::glyph,&r)!=SfntStatus::invalid_input || tt_execute(&s,{},TtPhase::glyph,nullptr)!=SfntStatus::invalid_input)return fail(0,24);invalid+=2;
+    s=fresh();if(tt_execute(nullptr,{},TtPhase::glyph,&r)!=SfntStatus::invalid_input || tt_execute(&s,{},TtPhase::glyph,nullptr)!=SfntStatus::invalid_input)return fail(0,24);invalid+=2;
     return true;
 }
 int run() noexcept {

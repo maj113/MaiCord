@@ -82,7 +82,7 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
     u32 count=0,units=0,boundary_count=0;bool controls=false,tones=false,synthetic_bases=false;UnicodeGraphemeState graphemes{};
     for(u32 at=0;at<text.bytes;){const auto cp=utf8_decode_one(text.data+at,text.bytes-at);if(!cp.valid)return SfntStatus::invalid_input;
         if(count>=capacity||count>=s.mapped.count)return SfntStatus::output_too_small;
-        bool boundary=false;if(!unicode_grapheme_next(&graphemes,cp.codepoint,&boundary))return SfntStatus::invalid_input;
+        bool boundary=unicode_grapheme_boundary(graphemes,cp.codepoint);
         // The generic fallback provider does not apply Khmer conjunct joining.
         // This changes shaping groups only, not editor graphemes.
         if(khmer_fallback&&cp.codepoint>=0x1780&&cp.codepoint<=0x17b3)boundary=true;
@@ -144,7 +144,7 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
             if(cp.codepoint==0xe3a){s.mapped[count].glyph.reserved=8;thai_below=true;}else if(cp.codepoint==0xe38||cp.codepoint==0xe39)s.mapped[count].glyph.reserved=16;}
         s.mapped[count].glyph.glyph=variation?static_cast<u16>(next.codepoint>65535?next.codepoint-0xe0000:next.codepoint):0;++count;
         units+=(cp.codepoint>65535?2u:1u)+(variation?(next.codepoint>65535?2u:1u):0u);at+=cp.width+(variation?next.width:0u);
-        if(variation&&!unicode_grapheme_next(&graphemes,next.codepoint,&boundary))return SfntStatus::invalid_input;
+        if(variation)unicode_grapheme_boundary(graphemes,next.codepoint);
         if(cp.codepoint>=0xad&&!(jamo&&(cp.codepoint==0x115f||cp.codepoint==0x1160)))controls|=unicode_properties(cp.codepoint)->has(UnicodeFlag::default_ignorable_code_point);
         tones|=korean&&(cp.codepoint==0x302e||cp.codepoint==0x302f);
     }
@@ -192,7 +192,7 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
         if(plan->cache_advances){const auto status=nominal_placements(*plan,{s.mapped.data,written},s.glyphs,s.placements,s.shaping.targets,scale);if(status!=SfntStatus::ok)return status;
             for(u32 i=0;i<written;++i){const auto& g=s.mapped[i];
                 const u32 end=i+1<written?s.mapped[i+1].source:units;for(u32 source=g.source;source<end;++source)s.character_glyphs[source]=i;}
-        }else for(u32 i=0;i<written;++i){const auto& g=s.mapped[i];double advance=0;const auto status=plan->advance(plan->metric_context,g.glyph.glyph,&advance);if(status!=SfntStatus::ok)return status;
+        }else for(u32 i=0;i<written;++i){const auto& g=s.mapped[i];double advance=0;const auto status=nominal_advance(nominal,*plan,g.glyph.glyph,&advance);if(status!=SfntStatus::ok)return status;
             s.glyphs[i]=g.glyph.glyph;s.placements[i]={_mm_cvtss_f32(_mm_mul_ss(_mm_set_ss(static_cast<float>(advance)),scale)),0,0};
             const u32 end=i+1<written?s.mapped[i+1].source:units;for(u32 source=g.source;source<end;++source)s.character_glyphs[source]=i;}
         *out={written,units,1,0,0};return SfntStatus::ok;

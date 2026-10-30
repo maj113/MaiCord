@@ -107,29 +107,29 @@ bool tamil_shape_units() noexcept {
 bool tamil_input_units() noexcept {
     CHECK(tamil_shape_units());
     const u32 input[]{0xb95,0xbca,0xbcb,0xbcc,0xb94,0xb92,0xbd7,0x1f600,0xbca};
-    const SfntTamilInputScalar expected[]{{0xb95,0},{0xbc6,1},{0xbbe,1},{0xbc7,2},{0xbbe,2},
+    const SfntIndicInputScalar expected[]{{0xb95,0},{0xbc6,1},{0xbbe,1},{0xbc7,2},{0xbbe,2},
         {0xbc6,3},{0xbd7,3},{0xb94,4},{0xb92,5},{0xbd7,6},{0x1f600,7},{0xbc6,9},{0xbbe,9}};
-    SfntTamilInputScalar output[13]{};SfntTamilInputResult result{};
-    CHECK(sfnt_tamil_expand_cluster({input,9},{output,13},&result,27)==SfntStatus::ok);
+    SfntIndicInputScalar output[13]{};SfntIndicInputResult result{};
+    CHECK(sfnt_indic_expand_cluster(SfntIndicProfile::tamil,{input,9},{output,13},&result,27)==SfntStatus::ok);
     CHECK(result.scalar_count==13&&result.source_units==10&&bytes_equal(output,expected,sizeof(expected)));
     for(u64 work=0;work<27;++work){for(auto& value:output)value={0xffffffffu,0xffffffffu};
-        CHECK(sfnt_tamil_expand_cluster({input,9},{output,13},&result,work)==SfntStatus::resource_limit);
+        CHECK(sfnt_indic_expand_cluster(SfntIndicProfile::tamil,{input,9},{output,13},&result,work)==SfntStatus::resource_limit);
         CHECK(!result.scalar_count&&!result.source_units);
         for(auto value:output)CHECK(value.scalar==0xffffffffu&&value.source==0xffffffffu);}
-    CHECK(sfnt_tamil_expand_cluster({input,9},{output,12},&result)==SfntStatus::output_too_small);
+    CHECK(sfnt_indic_expand_cluster(SfntIndicProfile::tamil,{input,9},{output,12},&result)==SfntStatus::output_too_small);
     CHECK(result.scalar_count==13&&result.source_units==10);
     for(auto value:output)CHECK(value.scalar==0xffffffffu&&value.source==0xffffffffu);
     const u32 invalid[]{0xbca,0xd800},overflow[]{0xbca,0x110000};
-    CHECK(sfnt_tamil_expand_cluster({invalid,2},{output,13},&result)==SfntStatus::invalid_input);
-    CHECK(sfnt_tamil_expand_cluster({overflow,2},{output,13},&result)==SfntStatus::invalid_input);
+    CHECK(sfnt_indic_expand_cluster(SfntIndicProfile::tamil,{invalid,2},{output,13},&result)==SfntStatus::invalid_input);
+    CHECK(sfnt_indic_expand_cluster(SfntIndicProfile::tamil,{overflow,2},{output,13},&result)==SfntStatus::invalid_input);
     for(auto value:output)CHECK(value.scalar==0xffffffffu&&value.source==0xffffffffu);
     CHECK(!result.scalar_count&&!result.source_units);
-    CHECK(sfnt_tamil_expand_cluster({nullptr,1},{output,13},&result)==SfntStatus::invalid_input);
-    CHECK(sfnt_tamil_expand_cluster({input,9},{nullptr,13},&result)==SfntStatus::invalid_input);
-    CHECK(sfnt_tamil_expand_cluster({input,9},{output,13},nullptr)==SfntStatus::invalid_input);
-    CHECK(sfnt_tamil_expand_cluster({reinterpret_cast<const u32*>(output),1},{output,13},&result)==SfntStatus::invalid_input);
-    CHECK(sfnt_tamil_expand_cluster({},{},&result,0)==SfntStatus::ok&&!result.scalar_count&&!result.source_units);
+    CHECK(sfnt_indic_expand_cluster(SfntIndicProfile::tamil,{nullptr,1},{output,13},&result)==SfntStatus::invalid_input);
+    CHECK(sfnt_indic_expand_cluster(SfntIndicProfile::tamil,{input,9},{nullptr,13},&result)==SfntStatus::invalid_input);
+    CHECK(sfnt_indic_expand_cluster(SfntIndicProfile::tamil,{input,9},{output,13},nullptr)==SfntStatus::invalid_input);
+    CHECK(sfnt_indic_expand_cluster(SfntIndicProfile::tamil,{reinterpret_cast<const u32*>(output),1},{output,13},&result)==SfntStatus::invalid_input);
+    CHECK(sfnt_indic_expand_cluster(SfntIndicProfile::tamil,{},{},&result,0)==SfntStatus::ok&&!result.scalar_count&&!result.source_units);
     // A sizing pass shares the same validity/work contract without a temporary.
-    CHECK(sfnt_tamil_expand_cluster({input,9},{},&result,27)==SfntStatus::output_too_small&&result.scalar_count==13);
+    CHECK(sfnt_indic_expand_cluster(SfntIndicProfile::tamil,{input,9},{},&result,27)==SfntStatus::output_too_small&&result.scalar_count==13);
     print("PASS Tamil split-vowel input, source provenance, capacity and work limits\n");return true;
 }

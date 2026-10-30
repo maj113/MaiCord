@@ -2,11 +2,11 @@
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
 #include "variation_delta.hpp"
+#include "floor_value.hpp"
 
 namespace maicord {
 namespace {
 #pragma float_control(precise,on,push)
-double floor_value(double value) noexcept {const i64 n=static_cast<i64>(value);return static_cast<double>(n)-(static_cast<double>(n)>value?1:0);}
 double ceil_value(double value) noexcept {const i64 n=static_cast<i64>(value);return static_cast<double>(n)+(static_cast<double>(n)<value?1:0);}
 SfntStatus adjustment(const ColrVariationInstance& instance,VariationDeltaBlock& block,u32 base,u32 field,double* value) noexcept {
     *value=0;
@@ -21,7 +21,7 @@ SfntStatus adjustment(const ColrVariationInstance& instance,VariationDeltaBlock&
     if(status!=SfntStatus::ok)return status;
     const auto computed=item_variation_delta_cached(instance.instance,index,value,&block,
         instance.mode==ColrVariationMode::quantized?VariationArithmetic::float_32:VariationArithmetic::wide);
-    if(computed==SfntStatus::ok && instance.mode==ColrVariationMode::quantized)*value=floor_value(*value+.5);
+    if(computed==SfntStatus::ok && instance.mode==ColrVariationMode::quantized)*value=round_value(*value);
     return computed;
 }
 bool before(const ColrResolvedColorStop& a,const ColrResolvedColorStop& b) noexcept {

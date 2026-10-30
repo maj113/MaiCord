@@ -45,14 +45,14 @@ u32 decoration_line_end(const NativeTextContext& owner,const NativeParagraphLine
 struct DecorationGraphemeCursor {UnicodeGraphemeState state{};u32 byte=0,source=0;};
 u8 decoration_terminal_boundary(const NativeTextContext& owner,u32 source,DecorationGraphemeCursor& cursor) noexcept {
     if(source<cursor.source)cursor={};
-    while(cursor.source<source){const auto cp=utf8_decode_one(owner.last_text.data+cursor.byte,owner.last_text.count-cursor.byte);bool boundary=false;
-        if(!cp.valid||!unicode_grapheme_next(&cursor.state,cp.codepoint,&boundary))return false;cursor.byte+=cp.width;cursor.source+=cp.codepoint>65535?2u:1u;}
+    while(cursor.source<source){const auto cp=utf8_decode_one(owner.last_text.data+cursor.byte,owner.last_text.count-cursor.byte);
+        if(!cp.valid)return false;unicode_grapheme_boundary(cursor.state,cp.codepoint);cursor.byte+=cp.width;cursor.source+=cp.codepoint>65535?2u:1u;}
     if(cursor.source!=source)return false;bool control=false;
     if(cursor.byte){u32 first=cursor.byte-1;while(first&&(static_cast<u8>(owner.last_text[first])&0xc0)==0x80)--first;
         const auto previous=utf8_decode_one(owner.last_text.data+first,cursor.byte-first);if(!previous.valid)return false;control=previous.codepoint==0x200c||previous.codepoint==0x200d||previous.codepoint==0x34f;}
     if(cursor.byte==owner.last_text.count)return control?2:1;
-    const auto cp=utf8_decode_one(owner.last_text.data+cursor.byte,owner.last_text.count-cursor.byte);auto state=cursor.state;bool boundary=false;
-    return cp.valid&&unicode_grapheme_next(&state,cp.codepoint,&boundary)&&boundary?static_cast<u8>(control?2:1):0;
+    const auto cp=utf8_decode_one(owner.last_text.data+cursor.byte,owner.last_text.count-cursor.byte);auto state=cursor.state;
+    return cp.valid&&unicode_grapheme_boundary(state,cp.codepoint)?static_cast<u8>(control?2:1):0;
 }
 struct NativeStyledRangeSink {
     void* context;bool (*emit)(void*,const NativeParagraphLine&,float,float) noexcept;

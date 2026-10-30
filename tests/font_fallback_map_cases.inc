@@ -24,26 +24,17 @@ bool mapping_guards() noexcept {
     const Case cases[]{{"a\xee\x80\x80",1,0},{"xa",1,2},{"x\xcc\x81",1,2},{"x\xe2\x80\x8d",2,2},
         {"x\xef\xb8\x8f",2,2},{"\xcd\x8f" "b",2,2},{"\xef\xb8\x8f" "x",1,0},
         {"\xef\xa4\x80" "a",1,2},{"xxx",3,2},{"\xcd\x8f" "ab",1,2}};
-    NativeFallbackRangeResult result{};u32 used=0;
+    NativeFallbackRangeResult result{};
     for(const auto& c:cases){const u32 bytes=c_string_length(c.text);MapMock m{};
-        CHECK(native_font_fallback_map({c.text,bytes},map_base,map_route,map_fallback,map_cover,&m,&result,100,&used)==SfntStatus::ok);
+        CHECK(native_font_fallback_map({c.text,bytes},map_base,map_route,map_fallback,map_cover,&m,&result)==SfntStatus::ok);
         CHECK(result.units==c.units&&result.choice.font==c.font&&result.choice.policy==(c.font<2?native_fallback_missing:0));
         if(c.font<2)CHECK(!m.route_calls&&!m.fallback_calls);
-        const u32 required=used;for(u32 limit=0;limit<required;++limit){m={};CHECK(native_font_fallback_map({c.text,bytes},map_base,map_route,map_fallback,map_cover,&m,&result,limit,&used)==SfntStatus::resource_limit&&used==limit&&empty(result));}
-        m={};CHECK(native_font_fallback_map({c.text,bytes},map_base,map_route,map_fallback,map_cover,&m,&result,required,&used)==SfntStatus::ok&&used==required);
     }
     MapMock m{};CHECK(native_font_fallback_map({"a",1},map_base,map_route,map_fallback,map_cover,&m,&result)==SfntStatus::ok&&m.base_calls==1&&!m.route_calls&&!m.fallback_calls);
     m={};CHECK(native_font_fallback_map({"x",1},map_base,map_route,map_fallback,map_cover,&m,&result)==SfntStatus::ok&&m.base_calls==1&&m.route_calls==1&&m.fallback_calls==1);
-    m={};CHECK(native_font_fallback_map({},map_base,map_route,map_fallback,map_cover,&m,&result,0,&used)==SfntStatus::ok&&empty(result)&&!used&&!m.base_calls&&!m.route_calls&&!m.fallback_calls);
-    CHECK(native_font_fallback_map({nullptr,1},map_base,map_route,map_fallback,map_cover,&m,&result)==SfntStatus::invalid_input&&empty(result));
-    CHECK(native_font_fallback_map({"a",1},map_base,nullptr,map_fallback,map_cover,&m,&result)==SfntStatus::invalid_input&&empty(result));
-    CHECK(native_font_fallback_map({"a",1},map_base,map_route,nullptr,map_cover,&m,&result)==SfntStatus::invalid_input&&empty(result));
-    CHECK(native_font_fallback_map({"a",1},map_base,map_route,map_fallback,nullptr,&m,&result)==SfntStatus::invalid_input&&empty(result));
-    CHECK(native_font_fallback_map({"a",1},map_base,map_route,map_fallback,map_cover,&m,nullptr)==SfntStatus::invalid_input);
     const SfntStatus errors[]{SfntStatus::malformed,SfntStatus::truncated,SfntStatus::unsupported,SfntStatus::invalid_input};
-    for(u32 fail=1;fail<=4;++fail){m={};m.fail=fail;CHECK(native_font_fallback_map({"x\xe2\x80\x8d",4},map_base,map_route,map_fallback,map_cover,&m,&result)==errors[fail-1]&&empty(result));}
+    for(u32 fail=1;fail<=4;++fail){m={};m.fail=fail;CHECK(native_font_fallback_map({"x\xe2\x80\x8d",4},map_base,map_route,map_fallback,map_cover,&m,&result)==errors[fail-1]);}
     m={};m.absent=true;CHECK(native_font_fallback_map({"a",1},map_base,map_route,map_fallback,map_cover,&m,&result)==SfntStatus::ok&&result.choice.font==3);
-    m={};CHECK(native_font_fallback_map({"a",1},nullptr,map_route,map_fallback,map_cover,&m,&result)==SfntStatus::ok&&result.choice.font==3&&!m.base_calls);
-    const char invalid[]{'x',static_cast<char>(0xc0),static_cast<char>(0xaf)};m={};CHECK(native_font_fallback_map({invalid,3},map_base,map_route,map_fallback,map_cover,&m,&result)==SfntStatus::invalid_input&&empty(result));
+    const char invalid[]{'x',static_cast<char>(0xc0),static_cast<char>(0xaf)};m={};CHECK(native_font_fallback_map({invalid,3},map_base,map_route,map_fallback,map_cover,&m,&result)==SfntStatus::invalid_input);
     return true;
 }

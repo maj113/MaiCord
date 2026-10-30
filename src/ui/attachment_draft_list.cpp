@@ -305,8 +305,8 @@ bool ui_attachment_draft_list_text(const UiAttachmentDraftList& list, const Them
                                       text_style_none,
                                       button ? UiTextAlignment::center : UiTextAlignment::start,
                                       UiTextAlignment::start,
-                                      p == status ? UiTextWrapping::wrap : UiTextWrapping::no_wrap,
-                                      p == status ? UiTextOverflow::clip : UiTextOverflow::ellipsis}))
+                                      p == status ? TextWrapping::wrap : TextWrapping::no_wrap,
+                                      p == status ? TextOverflow::clip : TextOverflow::ellipsis}))
                 return false;
         }
     return true;

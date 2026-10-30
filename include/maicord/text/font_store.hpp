@@ -4,12 +4,10 @@
 namespace maicord {
 struct NativeFontHandle {u32 slot,generation;};
 struct NativeFontFace {FontGeometry geometry;SfntCmap cmap;};
-// FILE_ID_INFO layout: volume serial number, then the 128-bit file ID.
-struct NativeFontFileId {u64 volume;u8 file[16];};
 struct NativeFontFileSlot {
     HANDLE file;
     ConstSlice<u8> bytes;
-    NativeFontFileId identity;
+    Win32FileIdInfo identity;
     u32 faces;
 };
 struct NativeFontFaceSlot {

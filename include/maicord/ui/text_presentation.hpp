@@ -3,26 +3,14 @@
 #include "maicord/core/slice.hpp"
 #include "maicord/core/arena.hpp"
 #include "maicord/ui/theme.hpp"
+#include "maicord/ui/text_style.hpp"
 #include "maicord/ui/widget_manager.hpp"
 
 namespace maicord {
-struct TextStyleSpan;
-enum class UiTextFace : u8;
-
 enum class UiTextAlignment : u8 {
     start,
     center,
     end,
-};
-
-enum class UiTextWrapping : u8 {
-    wrap,
-    no_wrap,
-};
-
-enum class UiTextOverflow : u8 {
-    clip,
-    ellipsis,
 };
 
 struct UiTextEffect {
@@ -41,8 +29,8 @@ struct UiTextCommand {
     u32 style_flags;
     UiTextAlignment horizontal_alignment;
     UiTextAlignment vertical_alignment;
-    UiTextWrapping wrapping;
-    UiTextOverflow overflow;
+    TextWrapping wrapping;
+    TextOverflow overflow;
     UiTextFace face;
     UiTextEffect effect;
     ConstSlice<TextStyleSpan> styles;

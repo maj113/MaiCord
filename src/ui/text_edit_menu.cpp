@@ -21,17 +21,15 @@ bool text_edit_command_enabled(TextEditCommand command, TextEditMenuState state)
         return false;
     }
 }
-bool text_edit_menu_build(TextEditMenuState state, Slice<PopupItem> items) noexcept {
-    if (!items.data || items.count < kTextEditMenuItems)
-        return false;
-    const Utf8View labels[] = {utf8_literal("Undo"),      utf8_literal("Redo"),  utf8_literal("Cut"),
-                               utf8_literal("Copy"),      utf8_literal("Paste"), utf8_literal("Delete"),
-                               utf8_literal("Select all")};
-    const u16 shortcuts[] = {popup_shortcut_undo,      popup_shortcut_redo,  popup_shortcut_cut,
-                             popup_shortcut_copy,      popup_shortcut_paste, popup_shortcut_delete,
-                             popup_shortcut_select_all};
-    const UiIcon icons[]{UiIcon::undo,  UiIcon::redo,  UiIcon::cut,       UiIcon::copy,
-                         UiIcon::paste, UiIcon::trash, UiIcon::select_all};
+void text_edit_menu_build(TextEditMenuState state, Slice<PopupItem> items) noexcept {
+    static constexpr Utf8View labels[] = {utf8_literal("Undo"), utf8_literal("Redo"), utf8_literal("Cut"),
+                                          utf8_literal("Copy"), utf8_literal("Paste"), utf8_literal("Delete"),
+                                          utf8_literal("Select all")};
+    static constexpr u16 shortcuts[] = {popup_shortcut_undo, popup_shortcut_redo, popup_shortcut_cut,
+                                        popup_shortcut_copy, popup_shortcut_paste, popup_shortcut_delete,
+                                        popup_shortcut_select_all};
+    static constexpr UiIcon icons[]{UiIcon::undo, UiIcon::redo, UiIcon::cut, UiIcon::copy,
+                                    UiIcon::paste, UiIcon::trash, UiIcon::select_all};
     for (u32 index = 0; index < kTextEditMenuItems; ++index) {
         const auto command = static_cast<TextEditCommand>(index + 1);
         u16 flags = text_edit_command_enabled(command, state) ? popup_item_enabled : 0;
@@ -41,6 +39,5 @@ bool text_edit_menu_build(TextEditMenuState state, Slice<PopupItem> items) noexc
         items[index].presentation =
             ui_menu_row_presentation(icons[index]);
     }
-    return true;
 }
 } // namespace maicord

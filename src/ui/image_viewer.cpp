@@ -584,8 +584,8 @@ bool ui_image_viewer_text_output(const UiImageViewer& v, const Theme&, UiTextOut
         if (ui_rect_has_area(row) &&
             !ui_text_output_push(text, {Utf8View{v.counter, v.counter_bytes}, v.owner, row, v.viewport,
                                         ui_theme_color_alpha(kDefaultTheme.text_secondary, alpha), text_style_none,
-                                        UiTextAlignment::start, UiTextAlignment::center, UiTextWrapping::no_wrap,
-                                        UiTextOverflow::ellipsis}))
+                                        UiTextAlignment::start, UiTextAlignment::center, TextWrapping::no_wrap,
+                                        TextOverflow::ellipsis}))
             return false;
     }
     if (v.caption_bytes) {
@@ -593,8 +593,8 @@ bool ui_image_viewer_text_output(const UiImageViewer& v, const Theme&, UiTextOut
         const UiRect band{v.body.left, v.body.bottom, v.body.right, v.viewport.bottom};
         if (!ui_text_output_push(text, {Utf8View{v.caption, v.caption_bytes}, v.owner, band, v.viewport,
                                         ui_theme_color_alpha(kDefaultTheme.text_primary, alpha), text_style_subtext,
-                                        UiTextAlignment::center, UiTextAlignment::center, UiTextWrapping::no_wrap,
-                                        UiTextOverflow::ellipsis}))
+                                        UiTextAlignment::center, UiTextAlignment::center, TextWrapping::no_wrap,
+                                        TextOverflow::ellipsis}))
             return false;
     }
     if (!v.video && v.media == UiImageViewerMedia::failed) {
@@ -603,7 +603,7 @@ bool ui_image_viewer_text_output(const UiImageViewer& v, const Theme&, UiTextOut
         if (!ui_text_output_push(text, {utf8_literal("This image couldn't be loaded."), v.owner, line, v.viewport,
                                         ui_theme_color_alpha(kDefaultTheme.text_secondary, v.reveal),
                                         text_style_subtext, UiTextAlignment::center, UiTextAlignment::center,
-                                        UiTextWrapping::no_wrap, UiTextOverflow::ellipsis}))
+                                        TextWrapping::no_wrap, TextOverflow::ellipsis}))
             return false;
     }
     return true;

@@ -55,7 +55,10 @@ i32 stack[256],prep_storage[128],prep_cvt[128],storage[128],cvt[128];TtFunction 
 SfntOutlinePoint points[512];u32 ends[128];u16 active[64];GlyphPathCommand commands[1024];
 u64 fonts=0,outlines=0,command_checks=0,bound_checks=0,budgets=0,invalid=0,vertical_checks=0;
 u8 changed_font[4096];bool rejected_program_checked=false;
-TtInterpreter preparation() noexcept {TtInterpreter s{};s.stack={stack,256};s.storage={prep_storage,128};s.cvt={prep_cvt,128};s.functions={functions,128};s.frames={frames,32};s.twilight={prep_twilight,64};return s;}
+SfntStatus prepare(const FontGeometry& geometry,TtOutlineInstance* output,TtExecution* execution,u32 work=1000000,u32* used=nullptr) noexcept {
+    TtInterpreter s{};s.stack={stack,256};s.storage={prep_storage,128};s.cvt={prep_cvt,128};s.functions={functions,128};s.frames={frames,32};s.twilight={prep_twilight,64};
+    return tt_outline_prepare(geometry,&s,output,execution,work,used);
+}
 TtOutlineContext context(const TtOutlineInstance* instance) noexcept {TtOutlineContext c{};c.instance=instance;c.scratch.stack={stack,256};c.scratch.storage={storage,128};c.scratch.cvt={cvt,128};c.scratch.frames={frames,32};c.scratch.twilight={twilight,64};c.scratch.glyph={vm_points,512};c.contour_ends={vm_ends,128};return c;}
 SfntStatus decode_outline(const FontGeometryInstance& instance,u16 glyph,FontGeometryScratch* scratch,GlyphOutline* output,u32 work=1000000) noexcept {
     return font_geometry_outline(instance,glyph,scratch,output,work,nullptr,simulate_oblique,simulate_bold);
@@ -72,7 +75,7 @@ bool vertical_policy(SfntFace face,const Expected (&expected)[4],bool reject) no
     }
     if(!inserted){byte_store_be32(directory+count,tag);byte_store_be32(directory+count+12,1);count+=16;}
     face.directory={directory,count};TtOutlineInstance prepared{};TtExecution execution{};FontGeometry font{};FontGeometryInstance instance{};
-    if(font_geometry_open(face,&font)!=SfntStatus::ok || tt_outline_prepare(font,preparation(),&prepared,&execution)!=SfntStatus::ok || prepared.reject_glyph_programs!=reject || font_geometry_instance(font,{}, {},&instance)!=SfntStatus::ok)return false;
+    if(font_geometry_open(face,&font)!=SfntStatus::ok || prepare(font,&prepared,&execution)!=SfntStatus::ok || prepared.reject_glyph_programs!=reject || font_geometry_instance(font,{}, {},&instance)!=SfntStatus::ok)return false;
     auto ctx=context(&prepared);FontGeometryScratch scratch{{{points,512},{ends,128},{active,64},0,0,1000000},{},{},&ctx};GlyphOutline output{};output.commands=commands;output.capacity=1024;
     for(const auto& e:expected){
         scratch.instructions=nullptr;scratch.truetype.require_instructions=true;
@@ -93,8 +96,8 @@ bool corpus(ConstSlice<u8> fixture) noexcept {
     for(u32 f=0;f<count;++f){u32 size=0,n=0;ConstSlice<u8> bytes{};SfntFace face{};FontGeometry font{};FontGeometryInstance instance{};
         if(!r.word(&size)||!r.word(&n)||n!=4||!r.take(size,&bytes)||sfnt_open(bytes,0,&face)!=SfntStatus::ok || font_geometry_open(face,&font)!=SfntStatus::ok || font_geometry_instance(font,{}, {},&instance)!=SfntStatus::ok)return fail(f,1);
         Expected expected[4]{};for(auto& e:expected){if(!r.word(&e.id)||!r.word(&e.count)||!r.word(&e.fill)||!r.word(&e.has_bounds)||e.count>1024)return fail(f,2);for(auto& b:e.bounds)if(!r.word(&b))return false;if(!r.take(e.count*28,&e.commands))return fail(f,3);}
-        TtOutlineInstance prepared{};TtExecution execution{};u32 used=0;if(tt_outline_prepare(font,preparation(),&prepared,&execution,1000000,&used)!=SfntStatus::ok)return fail(f,4);const u32 full=used;
-        for(u32 work=0;work<=full;++work){const auto s=tt_outline_prepare(font,preparation(),&prepared,&execution,work,&used);++budgets;if(used>work || s!=(work<full?SfntStatus::resource_limit:SfntStatus::ok) || (s!=SfntStatus::ok && prepared.font.glyf.data))return fail(f,5);}
+        TtOutlineInstance prepared{};TtExecution execution{};u32 used=0;if(prepare(font,&prepared,&execution,1000000,&used)!=SfntStatus::ok)return fail(f,4);const u32 full=used;
+        for(u32 work=0;work<=full;++work){const auto s=prepare(font,&prepared,&execution,work,&used);++budgets;if(used>work || s!=(work<full?SfntStatus::resource_limit:SfntStatus::ok) || (s!=SfntStatus::ok && prepared.font.glyf.data))return fail(f,5);}
         const bool recovered=execution.missing_function;
         if(prepared.prep_recovered_missing_function!=recovered || (recovered&&!(prepared.graphics.instruction_control&1)))return fail(f,16);
         auto ctx=context(&prepared);FontGeometryScratch scratch{{{points,512},{ends,128},{active,64},0,0,1000000},{},{},&ctx};GlyphOutline output{};output.commands=commands;output.capacity=1024;
@@ -122,7 +125,7 @@ bool corpus(ConstSlice<u8> fixture) noexcept {
             if(byte_load_be16(glyph+at)){
                 if(bytes.count>sizeof(changed_font))return fail(f,13);copy_bytes(changed_font,bytes.data,bytes.count);changed_font[static_cast<u32>(glyph-bytes.data)+at+2]=0x83;
                 SfntFace changed_face{};FontGeometry changed_geometry{};FontGeometryInstance changed_instance{};TtOutlineInstance changed_prepared{};
-                if(sfnt_open({changed_font,bytes.count},0,&changed_face)!=SfntStatus::ok || font_geometry_open(changed_face,&changed_geometry)!=SfntStatus::ok || font_geometry_instance(changed_geometry,{}, {},&changed_instance)!=SfntStatus::ok || tt_outline_prepare(changed_geometry,preparation(),&changed_prepared,&execution)!=SfntStatus::ok)return fail(f,14);
+                if(sfnt_open({changed_font,bytes.count},0,&changed_face)!=SfntStatus::ok || font_geometry_open(changed_face,&changed_geometry)!=SfntStatus::ok || font_geometry_instance(changed_geometry,{}, {},&changed_instance)!=SfntStatus::ok || prepare(changed_geometry,&changed_prepared,&execution)!=SfntStatus::ok)return fail(f,14);
                 ctx=context(&changed_prepared);
                 if(decode_outline(changed_instance,0,&scratch,&output)!=SfntStatus::unsupported || output.count || scratch.truetype.point_count || scratch.truetype.contour_count || ctx.execution.opcode!=0x83)return fail(f,15);
                 ++invalid;rejected_program_checked=true;

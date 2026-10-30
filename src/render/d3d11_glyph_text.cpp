@@ -106,6 +106,10 @@ bool d3d11_glyph_text_gpu_footprint(const D3D11GlyphTextOwner& owner,
 }
 namespace {
 constexpr u16 color_face_flag = 2;
+// Initialization creates (or adopts) a square kRendererGlyphAtlasExtent atlas, and a power-of-two
+// extent makes this product equal to the division by the extent.
+static_assert((kRendererGlyphAtlasExtent & (kRendererGlyphAtlasExtent - 1)) == 0);
+constexpr float kAtlasTexel = 1.0f / kRendererGlyphAtlasExtent;
 
 struct GlyphTextStorage {
     wchar_t utf16[kRendererGlyphCapacity];
@@ -454,10 +458,10 @@ bool append_color_glyph_run(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* con
              y + bounds.top / pixel_scale,
              x + bounds.right / pixel_scale,
              y + bounds.bottom / pixel_scale,
-             2.f + static_cast<float>(allocation.x) / owner->gpu.width,
-             static_cast<float>(allocation.y) / owner->gpu.height,
-             2.f + static_cast<float>(allocation.x + allocation.width) / owner->gpu.width,
-             static_cast<float>(allocation.y + allocation.height) / owner->gpu.height,
+             2.f + static_cast<float>(allocation.x) * kAtlasTexel,
+             static_cast<float>(allocation.y) * kAtlasTexel,
+             2.f + static_cast<float>(allocation.x + allocation.width) * kAtlasTexel,
+             static_cast<float>(allocation.y + allocation.height) * kAtlasTexel,
              {1, 1, 1, foreground.alpha}};
         advance += glyph.advance;
     }
@@ -690,10 +694,10 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
             quad.top = baseline_y + static_cast<float>(bounds.top) * inverse_scale;
             quad.right = baseline_x + static_cast<float>(bounds.right) * inverse_scale;
             quad.bottom = baseline_y + static_cast<float>(bounds.bottom) * inverse_scale;
-            quad.u0 = static_cast<float>(allocation.x) / owner->gpu.width;
-            quad.v0 = static_cast<float>(allocation.y) / owner->gpu.height;
-            quad.u1 = static_cast<float>(allocation.x + allocation.width) / owner->gpu.width;
-            quad.v1 = static_cast<float>(allocation.y + allocation.height) / owner->gpu.height;
+            quad.u0 = static_cast<float>(allocation.x) * kAtlasTexel;
+            quad.v0 = static_cast<float>(allocation.y) * kAtlasTexel;
+            quad.u1 = static_cast<float>(allocation.x + allocation.width) * kAtlasTexel;
+            quad.v1 = static_cast<float>(allocation.y + allocation.height) * kAtlasTexel;
             quad.color = foreground;
             if (ansi_glyphs && glyph.reserved != kAnsiColorNone) {
                 if (glyph.reserved != ansi_code) {
@@ -727,7 +731,11 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
             }
             return false;
         };
-        const bool prepared = glyph_effect_prepare(*request.text, request.source, colored, &effect);
+        // Shaper output always satisfies the preparation limits: its glyph and
+        // cluster counts are bounded by the renderer's storage capacities,
+        // which stay below the 16-bit ordinal range.
+        if (!glyph_effect_prepare(*request.text, request.source, colored, &effect))
+            return false;
         for (u32 i = first_quad; i < *request.count; ++i) {
             auto& quad = request.output[i];
             // Decorations have negative u; color atlas tiles start at u=2.
@@ -735,9 +743,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
                 continue;
             u32 glyph = 0;
             copy_bytes(&glyph, &quad.color.green, sizeof(glyph));
-            quad.color.green = static_cast<float>(
-                prepared ? request.text->glyphs[glyph].reserved
-                         : glyph_effect_ordinal(*request.text, request.source, glyph, colored, &effect));
+            quad.color.green = static_cast<float>(request.text->glyphs[glyph].reserved);
         }
     }
     for (u32 index = 0; index < request.text->decoration_count; ++index) {
@@ -767,7 +773,7 @@ bool d3d11_glyph_text_rebuild_title(D3D11GlyphTextOwner* owner, ID3D11DeviceCont
     // Login/content normally replaces the bootstrap title before the first draw.
     // Keep its shape and atlas entries absent until a caller actually needs them.
     if (owner->title.run_count == 0 &&
-        !text_shape_utf8(&owner->system, utf8_literal("MaiCord - GPU text"), 600.0f, 64.0f,
+        !text_shape_utf8(&owner->system, utf8_literal("MaiCord - GPU text"), {}, 600.0f, 64.0f,
                          Slice<wchar_t>{owner->utf16, kRendererGlyphCapacity}, &owner->title)
              .ok()) {
         return false;
@@ -810,7 +816,7 @@ D3D11GlyphTextInitializeResult d3d11_glyph_text_initialize(D3D11GlyphTextOwner* 
         d3d11_glyph_text_release(owner);
         return initialize_result(D3D11GlyphTextInitializeError::shaped_storage, E_OUTOFMEMORY);
     }
-    const TextShapeResult system = text_system_initialize(&owner->system, L"Segoe UI", 16.0f, L"en-us");
+    const TextShapeResult system = text_system_initialize(&owner->system, L"Segoe UI", 16.0f);
     if (!system.ok()) {
         d3d11_glyph_text_release(owner);
         return initialize_result(D3D11GlyphTextInitializeError::text_system, system.native_error);

@@ -2739,8 +2739,8 @@ bool profile_scene_text_output(const ProfileScene& s, const Theme& theme, UiText
                        : p.media == ProfileMediaKind::activity_clock ? UiTextAlignment::end
                                                                      : UiTextAlignment::start,
                        p.wrap ? UiTextAlignment::start : UiTextAlignment::center,
-                       p.wrap ? UiTextWrapping::wrap : UiTextWrapping::no_wrap,
-                       UiTextOverflow::ellipsis,
+                       p.wrap ? TextWrapping::wrap : TextWrapping::no_wrap,
+                       TextOverflow::ellipsis,
                        style ? profile_name_face(style->name.font_id) : UiTextFace::normal,
                        // The always-shown panel animates its name only under the pointer.
                        style ? profile_name_effect(style->name, !panel(s) || s.hovered,

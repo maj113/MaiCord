@@ -1,7 +1,7 @@
 """QA capture of the actual MaiCord profile/style/emoji/fallback layout boundary.
 
 Uses only synthetic public-script samples, never user messages. The C++ probe
-calls renderer_text_system and text_shape_utf8_styled. It creates no graphics
+calls renderer_text_system and text_shape_utf8. It creates no graphics
 device/window. The resulting font inventory describes this host and corpus;
 it is neither a native fallback implementation nor an exhaustive Unicode test.
 """

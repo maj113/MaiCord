@@ -665,8 +665,8 @@ bool forum_post_text_output(const ForumPostScene& s, const TextFormEditGeometry 
                  text_style_none,
                  action ? UiTextAlignment::center : UiTextAlignment::start,
                  UiTextAlignment::start,
-                 action || e == ForumPostElement::title ? UiTextWrapping::no_wrap : UiTextWrapping::wrap,
-                 action ? UiTextOverflow::ellipsis : UiTextOverflow::clip}))
+                 action || e == ForumPostElement::title ? TextWrapping::no_wrap : TextWrapping::wrap,
+                 action ? TextOverflow::ellipsis : TextOverflow::clip}))
             return false;
     }
     return ui_attachment_draft_list_text(s.attachment_list, theme, output);

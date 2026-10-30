@@ -8,7 +8,7 @@ using namespace sfnt_read;
 NativeFontResult result(NativeFontError error,SfntStatus font=SfntStatus::ok,u32 native=0) noexcept {return {error,font,native};}
 bool valid(const NativeFontInstanceStore& s) noexcept {return s.fonts&&s.slots.data&&s.slots.count;}
 NativeFontInstanceSlot* slot(const NativeFontInstanceStore& s,NativeFontInstanceHandle h) noexcept {
-    if(!valid(s)||!h.slot||h.slot>s.slots.count||!h.generation)return nullptr;
+    if(!h.slot||h.slot>s.slots.count||!h.generation)return nullptr;
     auto& p=s.slots[h.slot-1];return p.references&&p.generation==h.generation?&p:nullptr;
 }
 template<class T> usize bytes(u32 n) noexcept {return (static_cast<usize>(n)*sizeof(T)+7)&~usize{7};}
@@ -32,7 +32,7 @@ NativeFontResult native_font_instance_acquire(NativeFontInstanceStore* store,Nat
         if(!p.references){if(free_slot==store->slots.count&&p.generation!=0xffffffffu)free_slot=i;continue;}
         if(p.instance.face.slot!=handle.slot||p.instance.face.generation!=handle.generation||static_cast<bool>(p.instance.instructions)!=instructions)continue;
         bool equal=true;const auto* variation=p.instance.geometry.variation;
-        if(axes){if(!spend(work,axes))return result(NativeFontError::font,SfntStatus::resource_limit);for(u32 a=0;a<axes;++a)if(variation->coordinates[a]!=scratch.coordinates[a])equal=false;}
+        if(axes){if(!spend(work,axes))return result(NativeFontError::font,SfntStatus::resource_limit);for(u32 a=0;equal&&a<axes;++a)equal=variation->coordinates[a]==scratch.coordinates[a];}
         if(!equal)continue;if(p.references==0xffffffffu)return result(NativeFontError::capacity);
         ++p.references;*output={i+1,p.generation};return result(NativeFontError::none);
     }
@@ -42,8 +42,7 @@ NativeFontResult native_font_instance_acquire(NativeFontInstanceStore* store,Nat
     if(instructions){status=tt_outline_requirements(geometry.face,&requirements);if(status!=SfntStatus::ok)return result(NativeFontError::font,status);
         required+=bytes<TtOutlineInstance>(1)+bytes<i32>(requirements.storage)+bytes<i32>(requirements.cvt)+bytes<TtFunction>(requirements.functions)+bytes<TtPoint>(requirements.twilight);
         if(static_cast<u64>(requirements.storage)+requirements.cvt+requirements.functions+requirements.twilight>work)return result(NativeFontError::font,SfntStatus::resource_limit);}
-    usize page=0;if(required){Win32SystemInfo info{};GetSystemInfo(info.native());page=info.dwPageSize;
-        if(!page||(page&(page-1)))return result(NativeFontError::invalid_input);required=(required+page-1)&~(page-1);}
+    required=(required+4095)&~usize{4095}; // Pages are 4 KiB on every supported target.
     if(required>state_limit)return result(NativeFontError::font,SfntStatus::resource_limit);
     Arena state{};struct Cleanup {Arena& a;~Cleanup() noexcept {arena_release(&a);}} cleanup{state};
     if(required&&!arena_initialize(&state,required,required,4096))return result(NativeFontError::capacity,SfntStatus::ok,thread_last_error());
@@ -58,16 +57,14 @@ NativeFontResult native_font_instance_acquire(NativeFontInstanceStore* store,Nat
     }
     if(instructions){auto* prepared=arena_allocate<TtOutlineInstance>(&state);const auto retained_end=arena_mark(&state);TtInterpreter buffers{};buffers.stack=scratch.stack;buffers.frames=scratch.frames;
         buffers.storage=array<i32>(state,requirements.storage);buffers.cvt=array<i32>(state,requirements.cvt);buffers.functions=array<TtFunction>(state,requirements.functions);buffers.twilight=array<TtPoint>(state,requirements.twilight);
-        if(!prepared)return result(NativeFontError::capacity);TtExecution execution{};status=tt_outline_prepare(geometry,buffers,prepared,&execution,work,&child);work-=child;
+        if(!prepared)return result(NativeFontError::capacity);TtExecution execution{};status=tt_outline_prepare(geometry,&buffers,prepared,&execution,work,&child);work-=child;
         if(status!=SfntStatus::ok)return result(NativeFontError::font,status);
         if(prepared->graphics.instruction_control&1){
             // Disabled glyph programs cannot consume preparation arrays. Keep
             // the small profile header and any preceding variation state, and
             // decommit whole unused pages without allocating/copying again.
             reset_value(&prepared->storage);reset_value(&prepared->cvt);reset_value(&prepared->functions);reset_value(&prepared->twilight);prepared->stack_capacity=0;
-            if(!arena_rewind(&state,retained_end))return result(NativeFontError::invalid_input);
-            const usize committed=(state.offset+page-1)&~(page-1);
-            if(committed<state.committed){if(!VirtualFree(state.base+committed,state.committed-committed,MEM_DECOMMIT))return result(NativeFontError::io,SfntStatus::ok,thread_last_error());state.committed=committed;}
+            if(!arena_trim(&state,retained_end.offset))return result(NativeFontError::io,SfntStatus::ok,thread_last_error());
         }
         instance.instructions=prepared;
     }

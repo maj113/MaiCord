@@ -83,6 +83,10 @@ struct SfntShapeStagePolicy {
     void* context;
     SfntStatus (*prepare)(void*,u16,SfntGlyphBuffer*,SfntClusterMap*,SfntComponentForest*,const SfntGsubExecutionScratch&,u64,u64*) noexcept;
     u16 count; // 1..256; stage IDs use a one-byte representation.
+    // True when the callback only reorders valid records or changes component
+    // metadata and eligibility bits, never glyph IDs, classes or source indices:
+    // later roots then keep the validated lookup entry.
+    bool keeps_records=false;
 };
 static_assert(sizeof(SfntShapeStagePolicy)==24);
 

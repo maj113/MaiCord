@@ -167,10 +167,7 @@ bool clear_spans(ComposerSpellcheck* s) noexcept {
 
 bool composer_spellcheck_tick(ComposerSpellcheck* s, const ComposerSpellcheckDocument& document, bool enabled,
                               u64 now_ms) noexcept {
-    if (!s)
-        return false;
-    if (!enabled || !s->backend.check || s->unavailable || !document.model ||
-        (!document.text.data && document.text.bytes)) {
+    if (!enabled || !s->backend.check || s->unavailable || !document.model) {
         s->due_at_ms = 0;
         s->refresh = false;
         s->observed = false;
@@ -218,7 +215,7 @@ bool composer_spellcheck_tick(ComposerSpellcheck* s, const ComposerSpellcheckDoc
 
 static bool word_at(const ComposerSpellcheck& s, Utf8View text, u32 offset, SpellToken* word,
                     bool retain_marks) noexcept {
-    if (!word || !s.span_count)
+    if (!s.span_count)
         return false;
     auto tokenizer = spell_tokenizer(text);
     Utf16Cursor units{text, 0, 0};
@@ -243,13 +240,10 @@ static bool word_at(const ComposerSpellcheck& s, Utf8View text, u32 offset, Spel
 
 u32 composer_spellcheck_menu_build(ComposerSpellcheck* s, Utf8View text, u32 text_revision, u32 offset,
                                    Slice<PopupItem> items) noexcept {
-    if (!s)
-        return 0;
     s->menu_word = false;
     s->suggestion_count = 0;
     SpellToken word{};
-    if (!items.data || items.count < kComposerSpellcheckMenuItems ||
-        !word_at(*s, text, offset, &word, text_revision == s->span_text_revision))
+    if (!word_at(*s, text, offset, &word, text_revision == s->span_text_revision))
         return 0;
     const Utf8View value{text.data + word.first, word.last - word.first};
     if (s->backend.suggest)
@@ -276,7 +270,7 @@ u32 composer_spellcheck_menu_build(ComposerSpellcheck* s, Utf8View text, u32 tex
 
 ComposerSpellcheckActivation composer_spellcheck_menu_activate(ComposerSpellcheck* s, Utf8View text,
                                                                u32 text_revision, u32 action) noexcept {
-    if (!s || !composer_spellcheck_menu_action(action) || !s->menu_word || s->menu_text_revision != text_revision ||
+    if (!composer_spellcheck_menu_action(action) || !s->menu_word || s->menu_text_revision != text_revision ||
         s->menu_last > text.bytes || s->menu_first >= s->menu_last)
         return {};
     s->menu_word = false;

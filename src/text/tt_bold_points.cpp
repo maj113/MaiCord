@@ -2,16 +2,17 @@
 #include "tt_math.hpp"
 namespace maicord {namespace {
 struct Point {i64 x,y;};
-bool same(Point a,Point b) noexcept {return a.x==b.x&&a.y==b.y;}
-Point add(Point a,Point b) noexcept {return {a.x+b.x,a.y+b.y};}
-Point sub(Point a,Point b) noexcept {return {a.x-b.x,a.y-b.y};}
+inline bool same(Point a,Point b) noexcept {return a.x==b.x&&a.y==b.y;}
+inline Point add(Point a,Point b) noexcept {return {a.x+b.x,a.y+b.y};}
+inline Point sub(Point a,Point b) noexcept {return {a.x-b.x,a.y-b.y};}
 using tt_math::floor_div;
 using tt_math::multiply_divide;
-bool read(const SfntOutlinePoint& p,Point* out) noexcept {
+// Design points arrive as exact 26.6 values; exact() rejects anything else before load() is used.
+inline Point load(const SfntOutlinePoint& p) noexcept {return {static_cast<i64>(static_cast<double>(p.x)*64),static_cast<i64>(static_cast<double>(p.y)*64)};}
+inline bool exact(const SfntOutlinePoint& p) noexcept {
     const double x=static_cast<double>(p.x)*64,y=static_cast<double>(p.y)*64;
-    if(!(x>=-2147483648.0&&x<=2147483647.0&&y>=-2147483648.0&&y<=2147483647.0))return false;
-    out->x=static_cast<i64>(x);out->y=static_cast<i64>(y);
-    return x==static_cast<double>(out->x)&&y==static_cast<double>(out->y);
+    return x>=-2147483648.0&&x<=2147483647.0&&y>=-2147483648.0&&y<=2147483647.0&&
+        x==static_cast<double>(static_cast<i64>(x))&&y==static_cast<double>(static_cast<i64>(y));
 }
 bool meeting(Point a0,Point a1,Point b0,Point b1,Point* out) noexcept {
     const auto a=sub(a1,a0),b=sub(b1,b0);i64 n=0,d=0,t=0;
@@ -32,33 +33,30 @@ bool meeting(Point a0,Point a1,Point b0,Point b1,Point* out) noexcept {
 }
 struct Widen {
     i64 strength,xn,xp,yn,yp,sign;
-    Point offset(Point v) const noexcept {
+    __declspec(noinline) Point offset(Point v) const noexcept {
         if(strength==1)return {xn+(-sign*v.y>0?xp:0),yn};
         i16 nx=0,ny=0;tt_math::normalized_vector(-sign*v.y,sign*v.x,&nx,&ny);
         const i64 x=floor_div(nx,256),y=floor_div(ny,256);
         return {xn+floor_div(x*(x>=0?xp:xn)+32,64),yn+floor_div(y*(y>=0?yp:yn)+32,64)};
     }
 };
-SfntStatus widen(Slice<SfntOutlinePoint> points,ConstSlice<u32> ends,
-    ConstSlice<u8> directions,bool marked,u16 units,bool fractional_halves,u32 work_limit,u32* work_used) noexcept {
-    if(work_used)*work_used=0;
-    if(units<16||units>16384||(points.count&&!points.data)||(ends.count&&!ends.data)||
-        (!marked&&((directions.count&&!directions.data)||ends.count!=directions.count))||(!points.count)!=(!ends.count))return SfntStatus::invalid_input;
+}
+// Points hold contour directions in reserved[0] of each contour's first point; ends are the
+// decoder's absolute, ascending, exhaustive contour ends. The unit size is validated by the
+// metrics table (16..16384).
+SfntStatus tt_bold_marked_points(Slice<SfntOutlinePoint> points,ConstSlice<u32> ends,u16 units,bool fractional_halves,u32 work_limit,u32* work_used) noexcept {
     const u64 cost=static_cast<u64>(points.count)*3+ends.count;
-    if(cost>work_limit)return SfntStatus::resource_limit;
-    if(work_used)*work_used=static_cast<u32>(cost);
-    u32 start=0;
-    for(u32 c=0;c<ends.count;++c){if(ends[c]<start||ends[c]>=points.count)return SfntStatus::invalid_input;if((marked?points[start].reserved[0]:directions[c])>1)return SfntStatus::invalid_input;start=ends[c]+1;}
-    if(start!=points.count)return SfntStatus::invalid_input;
-    for(u32 i=0;i<points.count;++i){Point p{};if(!read(points[i],&p))return SfntStatus::malformed;}
+    if(cost>work_limit){*work_used=0;return SfntStatus::resource_limit;}
+    *work_used=static_cast<u32>(cost);
+    for(u32 i=0;i<points.count;++i)if(!exact(points[i]))return SfntStatus::malformed;
     const i64 s=(units+49)/50,xn=fractional_halves?s*32:(s/2)*64,yp=fractional_halves?(s-1)*32:((s-1)/2)*64;
-    Widen w{s,xn,s*64-xn,(s-1)*64-yp,yp,1};start=0;
-    for(u32 c=0;c<ends.count;++c){const u32 end=ends[c];w.sign=(marked?points[start].reserved[0]:directions[c])?-1:1;
+    Widen w{s,xn,s*64-xn,(s-1)*64-yp,yp,1};u32 start=0;
+    for(u32 c=0;c<ends.count;++c){const u32 end=ends[c];w.sign=points[start].reserved[0]?-1:1;
         if(end-start<2){start=end+1;continue;}
-        Point first{},previous{};read(points[start],&first);read(points[end],&previous);
-        for(u32 i=start;i<=end;){Point p{};read(points[i],&p);u32 last=i;
-            while(last<end){Point q{};read(points[last+1],&q);if(!same(p,q))break;++last;}
-            Point next=first;if(last<end)read(points[last+1],&next);
+        const Point first=load(points[start]);Point previous=load(points[end]);
+        for(u32 i=start;i<=end;){const Point p=load(points[i]);u32 last=i;
+            while(last<end&&same(p,load(points[last+1])))++last;
+            const Point next=last<end?load(points[last+1]):first;
             const Point a=w.offset(sub(p,previous)),b=w.offset(sub(next,p));Point delta=a;
             if(!same(a,b)){Point hit{};const Point center{w.xn,w.yn};
                 if(!meeting(add(previous,s==1?center:a),add(p,a),add(p,b),add(next,s==1?center:b),&hit))return SfntStatus::malformed;
@@ -72,12 +70,5 @@ SfntStatus widen(Slice<SfntOutlinePoint> points,ConstSlice<u32> ends,
             previous=p;i=last+1;
         }start=end+1;
     }return SfntStatus::ok;
-}
-}
-SfntStatus tt_bold_points(Slice<SfntOutlinePoint> points,ConstSlice<u32> ends,ConstSlice<u8> directions,u16 units,bool fractional,u32 work,u32* used) noexcept {
-    return widen(points,ends,directions,false,units,fractional,work,used);
-}
-SfntStatus tt_bold_marked_points(Slice<SfntOutlinePoint> points,ConstSlice<u32> ends,u16 units,bool fractional,u32 work,u32* used) noexcept {
-    return widen(points,ends,{},true,units,fractional,work,used);
 }
 }

@@ -8,7 +8,7 @@ bool directional_edit_cuts() noexcept {
     const u32 base_count=sizeof(directional_editor_samples)/sizeof(directional_editor_samples[0]),sample_count=base_count+sizeof(directional_cut_holdouts)/sizeof(directional_cut_holdouts[0]);
     for(u32 sample=0;sample<sample_count;++sample){const auto text=sample<base_count?directional_editor_samples[sample]:directional_cut_holdouts[sample-base_count];u32 units=0,starts[256],ends[256],cuts=0;
         CHECK(utf8_utf16_position_for_byte_offset(text,text.bytes,&units));UnicodeGraphemeState graphemes{};
-        for(u32 byte=0;byte<text.bytes;){const auto cp=utf8_decode_one(text.data+byte,text.bytes-byte);bool boundary=false;CHECK(cp.valid&&unicode_grapheme_next(&graphemes,cp.codepoint,&boundary));
+        for(u32 byte=0;byte<text.bytes;){const auto cp=utf8_decode_one(text.data+byte,text.bytes-byte);CHECK(cp.valid);const bool boundary=unicode_grapheme_boundary(graphemes,cp.codepoint);
             if(!boundary){starts[cuts]=byte;ends[cuts++]=byte+cp.width;}byte+=cp.width;}
         for(u32 cut=0;cut<cuts;++cut)for(u32 pattern=0;pattern<2;++pattern)for(u32 flag:flags)for(float width:widths)for(u32 options=0;options<8;++options){
             const TextStyleSpan style{starts[cut],(pattern?ends[cut]:text.bytes)-starts[cut],flag};
@@ -23,7 +23,7 @@ bool directional_edit_cuts() noexcept {
                 if(!same_edit(layouts[0],layouts[1])){print("retained cluster cut sample/byte/pattern/flag/width/options/anchor/caret=");number(sample);print("/");number(starts[cut]);print("/");number(pattern);print("/");number(flag);print("/");real(width);print("/");number(options);print("/");number(a);print("/");number(p);print("\n");return false;}
             }
             const auto builds=layouts[0].builds;CHECK(text_edit_layout_measure(layouts,input,candidate)&&layouts[0].builds==builds);
-            CHECK(text_measure_utf8_styled(&owner,utf8_literal("Other cached paragraph"),{},95,1000,{utf16,256}).ok()&&same_edit(layouts[0],layouts[1]));
+            CHECK(text_measure_utf8(&owner,utf8_literal("Other cached paragraph"),{},95,1000,{utf16,256}).ok()&&same_edit(layouts[0],layouts[1]));
             CHECK(text_edit_layout_scroll(layouts,-33)&&text_edit_layout_scroll(layouts+1,-33)&&same_edit(layouts[0],layouts[1]));
             CHECK(text_edit_layout_scroll(layouts,21)&&text_edit_layout_scroll(layouts+1,21)&&same_edit(layouts[0],layouts[1]));
         }

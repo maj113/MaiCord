@@ -31,34 +31,22 @@ struct DWriteTextSystem : TextSystem {
     IDWriteTextFormat* captured_format{};
 };
 
-// DirectWrite objects plus a native session/context; native_format is left
-// for capture (native_text_format_capture).
-TextShapeResult text_system_initialize(DWriteTextSystem* system, const wchar_t* family_name, float em_size,
-                                       const wchar_t* locale_name) noexcept;
+// DirectWrite objects (en-US) plus a native session/context; native_format is
+// left for capture (native_text_format_capture).
+TextShapeResult text_system_initialize(DWriteTextSystem* system, const wchar_t* family_name, float em_size) noexcept;
 void text_system_release(DWriteTextSystem* system) noexcept;
 // Exact DirectWrite object-creation phase of the initializer. Requires an
 // empty owner; failure can leave partial objects for the caller to release.
 HRESULT text_compatibility_objects_initialize(DWriteTextSystem*, const wchar_t*, float, const wchar_t*) noexcept;
 
-TextShapeResult text_shape_utf8(DWriteTextSystem* system, Utf8View input, float maximum_width,
-                                float maximum_height, Slice<wchar_t> utf16_scratch, ShapedText* output,
-                                TextWrapping wrapping = TextWrapping::wrap,
-                                TextOverflow overflow = TextOverflow::clip) noexcept;
-TextShapeResult text_shape_utf8_styled(DWriteTextSystem* system, Utf8View input, ConstSlice<TextStyleSpan> styles,
-                                       float maximum_width, float maximum_height,
-                                       Slice<wchar_t> utf16_scratch, ShapedText* output,
-                                       TextWrapping wrapping = TextWrapping::wrap,
-                                       TextOverflow overflow = TextOverflow::clip) noexcept;
-TextShapeResult text_shape_utf8_interactive(DWriteTextSystem* system, Utf8View input,
-                                            ConstSlice<TextStyleSpan> styles, ConstSlice<TextHitSpan> hits,
-                                            float maximum_width, float maximum_height,
-                                            Slice<wchar_t> utf16_scratch, ShapedText* output,
-                                            TextWrapping wrapping = TextWrapping::wrap,
-                                            TextOverflow overflow = TextOverflow::clip) noexcept;
-TextMeasureResult text_measure_utf8_styled(DWriteTextSystem* system, Utf8View input,
-                                           ConstSlice<TextStyleSpan> styles, float maximum_width,
-                                           float maximum_height, Slice<wchar_t> utf16_scratch,
-                                           TextWrapping wrapping = TextWrapping::wrap) noexcept;
+TextShapeResult text_shape_utf8(DWriteTextSystem* system, Utf8View input, ConstSlice<TextStyleSpan> styles,
+                                float maximum_width, float maximum_height, Slice<wchar_t> utf16_scratch,
+                                ShapedText* output, TextWrapping wrapping = TextWrapping::wrap,
+                                TextOverflow overflow = TextOverflow::clip,
+                                ConstSlice<TextHitSpan> hits = {}) noexcept;
+TextMeasureResult text_measure_utf8(DWriteTextSystem* system, Utf8View input, ConstSlice<TextStyleSpan> styles,
+                                    float maximum_width, float maximum_height, Slice<wchar_t> utf16_scratch,
+                                    TextWrapping wrapping = TextWrapping::wrap) noexcept;
 
 // The native system the shipping path sees for this reference system.
 TextSystem native_view(const DWriteTextSystem& system) noexcept;
@@ -71,11 +59,6 @@ bool native_text_candidate_styled(const DWriteTextSystem&, Utf8View, ConstSlice<
                                   ConstSlice<TextHitRange> hits = {}, NativeParagraphHitStorage* retained = nullptr) noexcept;
 bool native_text_candidate_hits(const DWriteTextSystem&, Utf8View, float width, float height, TextWrapping,
                                 NativeParagraphHitStorage, TextMeasureResult*) noexcept;
-bool native_text_candidate_ellipsis(const DWriteTextSystem&, Utf8View, ConstSlice<TextStyleSpan>, float width, float height,
-                                    ShapedText*, TextWrapping, ConstSlice<TextHitRange>) noexcept;
-bool native_text_candidate_trimmed(const DWriteTextSystem&, Utf8View, ConstSlice<TextStyleSpan>, float width, float height,
-                                   ShapedText*, TextWrapping, ConstSlice<TextHitRange> hits = {}) noexcept;
-bool native_text_candidate_prefers_multiline(const DWriteTextSystem&, Utf8View, ConstSlice<TextStyleSpan>, TextWrapping) noexcept;
 u64 native_text_format_identity(const DWriteTextSystem&) noexcept;
 bool text_edit_layout_measure(TextEditLayoutOwner* owner, const TextEditLayoutInput& input,
                               const DWriteTextSystem& text_system) noexcept;

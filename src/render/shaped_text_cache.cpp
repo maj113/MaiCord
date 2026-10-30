@@ -185,7 +185,6 @@ void shaped_text_cache_clear(ShapedTextCache* cache) noexcept {
         return;
     clear_generation(cache->generations[0]);
     clear_generation(cache->generations[1]);
-    saturating_increment(cache->stats.clears);
 }
 
 void shaped_text_cache_destroy(ShapedTextCache** cache) noexcept {
@@ -198,8 +197,8 @@ void shaped_text_cache_destroy(ShapedTextCache** cache) noexcept {
 
 bool shaped_text_cache_find(ShapedTextCache* cache, const ShapedTextCacheRequest& request, u64* hash,
                             ShapedText* view) noexcept {
-    if (!cache || !request.system || !hash || !view || (!request.text.data && request.text.bytes))
-        return false;
+    // Callers pass a live cache and system, and readable text (non-null data
+    // whenever bytes is nonzero).
     *hash = request_hash(request);
     ShapedTextGeneration& current = cache->generations[cache->current];
     if (ShapedTextCacheEntry* entry = find_in(current, request, *hash)) {
@@ -233,7 +232,7 @@ bool shaped_text_cache_find(ShapedTextCache* cache, const ShapedTextCacheRequest
 
 bool shaped_text_cache_insert(ShapedTextCache* cache, const ShapedTextCacheRequest& request, u64 hash,
                               ShapedText* shaped) noexcept {
-    if (!cache || !request.system || !shaped || request.styles.count > 0xFFFFu || request.hits.count > 0xFFFFu)
+    if (request.styles.count > 0xFFFFu || request.hits.count > 0xFFFFu)
         return false;
     const u32 style_bytes = request.styles.count * static_cast<u32>(sizeof(TextStyleSpan));
     const u32 hit_bytes = request.hits.count * static_cast<u32>(sizeof(TextHitSpan));
@@ -245,7 +244,6 @@ bool shaped_text_cache_insert(ShapedTextCache* cache, const ShapedTextCacheReque
         saturating_increment(cache->stats.flips);
         if (!fits(cache->generations[cache->current], key_count, shaped->glyph_count, shaped->run_count,
                   shaped->decoration_count, shaped->hit_region_count)) {
-            saturating_increment(cache->stats.rejected);
             return false;
         }
     }
@@ -271,7 +269,6 @@ bool shaped_text_cache_insert(ShapedTextCache* cache, const ShapedTextCacheReque
     // The cache now owns the run and session references.
     shaped->run_count = 0;
     shaped->set_native_fonts(nullptr);
-    saturating_increment(cache->stats.inserts);
     return true;
 }
 

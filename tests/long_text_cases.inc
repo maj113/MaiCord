@@ -37,8 +37,8 @@ bool native_long_text_cases(bool editor=false) noexcept {
                     if(!same_hit(nm,m)||nx!=x){print("long caret position/trailing/native/reference=");number(position);print("/");number(trailing);print("/");real(nx);print("/");real(x);print("\n");CHECK(false);}}
                 ++native_cases;continue;
             }
-            CHECK(text_shape_utf8_styled(&native,text,styles,width,1000000,{storage[0].utf16,limit},&native_output.text).ok()&&native_output.text.native_fonts());
-            CHECK(text_shape_utf8_styled(&reference,text,styles,width,1000000,{storage[1].utf16,limit},&reference_output.text).ok());
+            CHECK(text_shape_utf8(&native,text,styles,width,1000000,{storage[0].utf16,limit},&native_output.text).ok()&&native_output.text.native_fonts());
+            CHECK(text_shape_utf8(&reference,text,styles,width,1000000,{storage[1].utf16,limit},&reference_output.text).ok());
             CHECK(same(native_output,reference_output,true));++native_cases;
         }
     }

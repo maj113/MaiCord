@@ -805,8 +805,7 @@ bool application_login_submit_phone_verify() noexcept {
     auto& login = g_app.login;
     if (phone_request_blocked())
         return true;
-    SecureTextComposition composition{};
-    if (secure_text_store_composition(login.text_store, &composition) && composition.active) return true;
+    if (secure_text_store_composing(login.text_store)) return true;
     const Utf8View code{reinterpret_cast<const char*>(login.mfa.storage.data), login.mfa.storage.bytes};
     if (!login.mfa.storage.locked || !login_phone_code_valid(code))
         return present(LoginStatus::recovery_phone_input_invalid, LoginControl::phone_code);
@@ -846,8 +845,7 @@ bool application_login_run_phone_verify(u64 posted_epoch, u32 posted_revision) n
     const auto& login = g_app.login;
     if (!login.visible || posted_epoch != login.application_auth_epoch || posted_revision != login.mfa.revision ||
         !login_phone_editable(login.status)) return true;
-    SecureTextComposition composition{};
-    if (secure_text_store_composition(login.text_store, &composition) && composition.active) return true;
+    if (secure_text_store_composing(login.text_store)) return true;
     const Utf8View code{reinterpret_cast<const char*>(login.mfa.storage.data), login.mfa.storage.bytes};
     return !login_phone_code_valid(code) || application_login_submit_phone_verify();
 }

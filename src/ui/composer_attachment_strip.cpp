@@ -506,7 +506,7 @@ bool ui_composer_attachment_strip_text(const UiComposerAttachmentStripView& view
         if (name.bytes && ui_rect_has_area(name_clip) &&
             !ui_text_output_push(output, {name, view.owner, geometry.name, name_clip, theme.text_primary,
                                           text_style_subtext, UiTextAlignment::start, UiTextAlignment::center,
-                                          UiTextWrapping::no_wrap, UiTextOverflow::ellipsis}))
+                                          TextWrapping::no_wrap, TextOverflow::ellipsis}))
             return false;
         char status[24];
         const u32 status_bytes = status_text(tile, {status, 24});
@@ -516,8 +516,8 @@ bool ui_composer_attachment_strip_text(const UiComposerAttachmentStripView& view
                 output, {{status, status_bytes}, view.owner, geometry.size, size_clip,
                          tile.phase == UiComposerAttachmentPhase::failed ? theme.tokens.text.danger
                                                                          : ui_background_muted_text_color(theme),
-                         text_style_subtext, UiTextAlignment::end, UiTextAlignment::center, UiTextWrapping::no_wrap,
-                         UiTextOverflow::clip}))
+                         text_style_subtext, UiTextAlignment::end, UiTextAlignment::center, TextWrapping::no_wrap,
+                         TextOverflow::clip}))
             return false;
         UiComposerAttachmentTag tags[kUiComposerAttachmentTags];
         char duration[16];
@@ -530,7 +530,7 @@ bool ui_composer_attachment_strip_text(const UiComposerAttachmentStripView& view
             if (!ui_text_output_push_owned(output, {tags[t].text, view.owner, tags[t].rectangle, clip,
                                                     theme.tokens.text.on_accent, text_style_subtext | text_style_bold,
                                                     UiTextAlignment::center, UiTextAlignment::center,
-                                                    UiTextWrapping::no_wrap, UiTextOverflow::clip}))
+                                                    TextWrapping::no_wrap, TextOverflow::clip}))
                 return false;
         }
     }

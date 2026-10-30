@@ -30,7 +30,6 @@ u16 native_glyphs[4096];
 DWRITE_GLYPH_METRICS native_metrics[4096];
 SfntOutlinePoint outline_points[65536];
 u32 contour_ends[32768];
-u8 orientation_flags[32768];
 u16 active_glyphs[64];
 GlyphPathCommand candidate_commands[131072], reference_commands[131072];
 u64 outlines_compared = 0, outline_failures = 0, outline_differences = 0;
@@ -426,7 +425,7 @@ bool compare_face(const SfntFace& face, IDWriteFontFace* reference,
     if(outline_status==SfntStatus::ok && execute_instructions && !cff_face){
         TtInterpreter prepared{};prepared.stack={tt_stack,4096};prepared.storage={tt_prepared_storage,4096};prepared.cvt={tt_prepared_cvt,8192};prepared.functions={tt_functions,4096};prepared.frames={tt_frames,64};prepared.twilight={tt_prepared_twilight,4096};
         if(owned_instance){if(!owned_instance->instructions)outline_status=SfntStatus::invalid_input;}
-        else outline_status=tt_outline_prepare(geometry,prepared,&tt_instance,&tt_context.execution);
+        else outline_status=tt_outline_prepare(geometry,&prepared,&tt_instance,&tt_context.execution);
         metric("instruction_prepare_status",static_cast<u32>(outline_status));metric("instruction_prepare_opcode",tt_context.execution.opcode);
         if(outline_status!=SfntStatus::ok){metric("instruction_prepare_offset",tt_context.execution.byte_offset);metric("instruction_prepare_depth",tt_context.execution.call_depth);metric("instruction_prepare_stack",tt_context.execution.stack_count);}
         if(outline_status==SfntStatus::ok)metric("instruction_control",owned_instance?owned_instance->instructions->graphics.instruction_control:tt_instance.graphics.instruction_control);
@@ -479,9 +478,9 @@ bool compare_face(const SfntFace& face, IDWriteFontFace* reference,
             }
             ++outlines_compared;
             if(points_dump&&!cff_face){
-                u32 orientation_work=0;const auto orientation_status=tt_contour_directions({scratch.truetype.points.data,scratch.truetype.point_count},{scratch.truetype.contour_ends.data,scratch.truetype.contour_count},{orientation_flags,32768},1000000,&orientation_work);
+                u32 orientation_work=0;const auto orientation_status=tt_mark_contour_directions({scratch.truetype.points.data,scratch.truetype.point_count},{scratch.truetype.contour_ends.data,scratch.truetype.contour_count},0,1000000,&orientation_work);
                 write("native_contour_directions=");number(i);write(",");number(static_cast<u32>(orientation_status));write(",");number(orientation_work);write(",");number(scratch.truetype.contour_count);
-                if(orientation_status==SfntStatus::ok)for(u32 j=0;j<scratch.truetype.contour_count;++j){write(",");number(orientation_flags[j]);}write("\r\n");
+                if(orientation_status==SfntStatus::ok)for(u32 j=0;j<scratch.truetype.contour_count;++j){write(",");number(scratch.truetype.points[j?scratch.truetype.contour_ends[j-1]+1:0].reserved[0]);}write("\r\n");
                 write("native_points=");number(i);write(",");number(metrics.units_per_em);write(",");number(scratch.truetype.point_count);write(",");number(scratch.truetype.contour_count);
                 for(u32 j=0;j<scratch.truetype.contour_count;++j){write(",");number(scratch.truetype.contour_ends[j]);}
                 for(u32 j=0;j<scratch.truetype.point_count;++j){const auto& p=scratch.truetype.points[j];const float coordinates[]{p.x,p.y};

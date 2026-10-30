@@ -17,19 +17,19 @@ bool native_height_overflow_corpus(DWriteTextSystem system) noexcept {
     auto native=system,reference=system;native.factory=nullptr;native.format=nullptr;reference.native_text=nullptr;
     u32 sample=0;for(auto text:texts){for(u32 mode=0;mode<2;++mode)for(u32 pattern=0;pattern<2;++pattern)for(u32 flag:flags)for(float height:heights){
         ++cases;native.independent_letters=reference.independent_letters=mode!=0;const u32 first=pattern?utf8_decode_one(text.data,text.bytes).width:0u;const TextStyleSpan span{first,text.bytes-first,flag};const ConstSlice<TextStyleSpan> styles{&span,flag&&span.byte_count?1u:0u};
-        const auto a=text_shape_utf8_styled(&native,text,styles,1000000,height,{utf16,256},&native_output.text,TextWrapping::wrap,TextOverflow::ellipsis);
-        const auto b=text_shape_utf8_styled(&reference,text,styles,1000000,height,{utf16,256},&reference_output.text,TextWrapping::wrap,TextOverflow::ellipsis);
+        const auto a=text_shape_utf8(&native,text,styles,1000000,height,{utf16,256},&native_output.text,TextWrapping::wrap,TextOverflow::ellipsis);
+        const auto b=text_shape_utf8(&reference,text,styles,1000000,height,{utf16,256},&reference_output.text,TextWrapping::wrap,TextOverflow::ellipsis);
         if(!a.ok()||!native_output.text.native_fonts()||!b.ok()||!same(native_output,reference_output,true)){
             print("height overflow sample/pattern/flag/height/em/mode/errors=");number(sample);print("/");number(pattern);print("/");number(flag);print("/");real(height);print("/");real(system.em_size);print("/");number(mode);print("/");number(static_cast<u32>(a.error));print("/");number(static_cast<u32>(b.error));print("\n");return false;}
         ++native_cases;
     }++sample;}
     const auto text=utf8_literal("a\nb\nc");const auto glyph_capacity=native_output.text.glyph_capacity,run_capacity=native_output.text.run_capacity;
     native_output.text.glyph_capacity=1;native_output.text.run_capacity=2;
-    const auto result=text_shape_utf8_styled(&native,text,{},1000000,1,{utf16,256},&native_output.text,TextWrapping::wrap,TextOverflow::ellipsis);
+    const auto result=text_shape_utf8(&native,text,{},1000000,1,{utf16,256},&native_output.text,TextWrapping::wrap,TextOverflow::ellipsis);
     native_output.text.glyph_capacity=glyph_capacity;native_output.text.run_capacity=run_capacity;
     CHECK(result.ok()&&native_output.text.native_fonts()&&native_output.text.glyph_count==1&&native_output.text.line_count==3&&native_output.text.clusters[2]==0xffffu);
     // Reflow the same retained shape back to ordinary unclipped publication.
-    CHECK(text_shape_utf8_styled(&native,text,{},1000000,1,{utf16,256},&native_output.text,TextWrapping::wrap,TextOverflow::clip).ok());
+    CHECK(text_shape_utf8(&native,text,{},1000000,1,{utf16,256},&native_output.text,TextWrapping::wrap,TextOverflow::clip).ok());
     CHECK(native_output.text.native_fonts()&&native_output.text.glyph_count==3&&native_output.text.line_count==3);
     return true;
 }

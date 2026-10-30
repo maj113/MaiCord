@@ -78,10 +78,10 @@ bool native_multiline_trim_corpus(DWriteTextSystem system) noexcept {
         const TextStyleSpan span{part?3u:0u,text.bytes-(part?3u:0u),flag};const ConstSlice<TextStyleSpan> styles{&span,flag?1u:0u};const auto wrapping=wrap?TextWrapping::wrap:TextWrapping::no_wrap;
         const u32 first_hit=pattern==2?3u:pattern==3?text.bytes-1:pattern==4?1u:0u,length=pattern==1||pattern==3?1u:pattern==4?2u:text.bytes-first_hit;
         const TextHitSpan hit{first_hit,length,65535,0};
-        const auto b=multiline_hit_profiles?text_shape_utf8_interactive(&reference,text,styles,{&hit,1},width,height,{utf16,256},&reference_output.text,wrapping,TextOverflow::ellipsis):
-            text_shape_utf8_styled(&reference,text,styles,width,height,{utf16,256},&reference_output.text,wrapping,TextOverflow::ellipsis);CHECK(b.ok());
-        const auto a=multiline_hit_profiles?text_shape_utf8_interactive(&native,text,styles,{&hit,1},width,height,{utf16,256},&native_output.text,wrapping,TextOverflow::ellipsis):
-            text_shape_utf8_styled(&native,text,styles,width,height,{utf16,256},&native_output.text,wrapping,TextOverflow::ellipsis);
+        const auto b=multiline_hit_profiles?text_shape_utf8(&reference,text,styles,width,height,{utf16,256},&reference_output.text,wrapping,TextOverflow::ellipsis,{&hit,1}):
+            text_shape_utf8(&reference,text,styles,width,height,{utf16,256},&reference_output.text,wrapping,TextOverflow::ellipsis);CHECK(b.ok());
+        const auto a=multiline_hit_profiles?text_shape_utf8(&native,text,styles,width,height,{utf16,256},&native_output.text,wrapping,TextOverflow::ellipsis,{&hit,1}):
+            text_shape_utf8(&native,text,styles,width,height,{utf16,256},&native_output.text,wrapping,TextOverflow::ellipsis);
         const bool available=a.ok()&&native_output.text.native_fonts();const bool exact=available&&same(native_output,reference_output,true)&&same_multiline_controls(native_output,reference_output);
         if(!available)++unavailable;else if(!exact)++differences;else ++native_cases;
         auto plan_system=system;plan_system.independent_letters=mode!=0;
@@ -91,14 +91,14 @@ bool native_multiline_trim_corpus(DWriteTextSystem system) noexcept {
     if(!multiline_plan_profiles){
         const auto text=texts[0];native.independent_letters=reference.independent_letters=false;
         const TextStyleSpan underline{0,text.bytes,text_style_underline};
-        CHECK(text_shape_utf8_styled(&reference,text,{&underline,1},system.em_size*5,1000000,{utf16,256},&reference_output.text,TextWrapping::no_wrap,TextOverflow::ellipsis).ok());
+        CHECK(text_shape_utf8(&reference,text,{&underline,1},system.em_size*5,1000000,{utf16,256},&reference_output.text,TextWrapping::no_wrap,TextOverflow::ellipsis).ok());
         const u32 glyphs=native_output.text.glyph_capacity,runs=native_output.text.run_capacity,decorations=native_output.text.decoration_capacity;
         native_output.text.glyph_capacity=reference_output.text.glyph_count;native_output.text.run_capacity=reference_output.text.run_count;native_output.text.decoration_capacity=reference_output.text.decoration_count;
-        const auto exact_fit=text_shape_utf8_styled(&native,text,{&underline,1},system.em_size*5,1000000,{utf16,256},&native_output.text,TextWrapping::no_wrap,TextOverflow::ellipsis);
+        const auto exact_fit=text_shape_utf8(&native,text,{&underline,1},system.em_size*5,1000000,{utf16,256},&native_output.text,TextWrapping::no_wrap,TextOverflow::ellipsis);
         native_output.text.glyph_capacity=glyphs;native_output.text.run_capacity=runs;native_output.text.decoration_capacity=decorations;
         CHECK(exact_fit.ok()&&native_output.text.native_fonts()&&same(native_output,reference_output,true)&&same_multiline_controls(native_output,reference_output));
-        CHECK(text_shape_utf8_styled(&native,text,{&underline,1},1000000,1000000,{utf16,256},&native_output.text,TextWrapping::wrap,TextOverflow::clip).ok());
-        CHECK(text_shape_utf8_styled(&reference,text,{&underline,1},1000000,1000000,{utf16,256},&reference_output.text,TextWrapping::wrap,TextOverflow::clip).ok());
+        CHECK(text_shape_utf8(&native,text,{&underline,1},1000000,1000000,{utf16,256},&native_output.text,TextWrapping::wrap,TextOverflow::clip).ok());
+        CHECK(text_shape_utf8(&reference,text,{&underline,1},1000000,1000000,{utf16,256},&reference_output.text,TextWrapping::wrap,TextOverflow::clip).ok());
         CHECK(native_output.text.native_fonts()&&same(native_output,reference_output,true)&&same_multiline_controls(native_output,reference_output));
     }
     if(multiline_plan_profiles){

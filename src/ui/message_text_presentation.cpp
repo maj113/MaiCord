@@ -655,53 +655,53 @@ struct CommandLook {
     bool themed{};
     UiTextAlignment horizontal{};
     UiTextAlignment vertical{};
-    UiTextWrapping wrapping = UiTextWrapping::wrap;
+    TextWrapping wrapping = TextWrapping::wrap;
     u8 slot{};
-    UiTextOverflow overflow{};
+    TextOverflow overflow{};
     u16 source_id{};
 };
 
-constexpr CommandLook kLookStart{.wrapping = UiTextWrapping::no_wrap, .overflow = UiTextOverflow::ellipsis};
+constexpr CommandLook kLookStart{.wrapping = TextWrapping::no_wrap, .overflow = TextOverflow::ellipsis};
 constexpr CommandLook kLookStartThemed{.themed = true,
-                                       .wrapping = UiTextWrapping::no_wrap,
-                                       .overflow = UiTextOverflow::ellipsis};
-constexpr CommandLook kLookStamp{.themed = true, .wrapping = UiTextWrapping::no_wrap, .slot = 1};
+                                       .wrapping = TextWrapping::no_wrap,
+                                       .overflow = TextOverflow::ellipsis};
+constexpr CommandLook kLookStamp{.themed = true, .wrapping = TextWrapping::no_wrap, .slot = 1};
 constexpr CommandLook kLookMiddle{.vertical = UiTextAlignment::center,
-                                  .wrapping = UiTextWrapping::no_wrap,
-                                  .overflow = UiTextOverflow::ellipsis};
+                                  .wrapping = TextWrapping::no_wrap,
+                                  .overflow = TextOverflow::ellipsis};
 constexpr CommandLook kLookMiddleThemed{.themed = true,
                                         .vertical = UiTextAlignment::center,
-                                        .wrapping = UiTextWrapping::no_wrap,
-                                        .overflow = UiTextOverflow::ellipsis};
+                                        .wrapping = TextWrapping::no_wrap,
+                                        .overflow = TextOverflow::ellipsis};
 constexpr CommandLook kLookMiddleSecond{.vertical = UiTextAlignment::center,
-                                        .wrapping = UiTextWrapping::no_wrap,
+                                        .wrapping = TextWrapping::no_wrap,
                                         .slot = 1,
-                                        .overflow = UiTextOverflow::ellipsis};
-constexpr CommandLook kLookMiddleClipped{.vertical = UiTextAlignment::center, .wrapping = UiTextWrapping::no_wrap};
+                                        .overflow = TextOverflow::ellipsis};
+constexpr CommandLook kLookMiddleClipped{.vertical = UiTextAlignment::center, .wrapping = TextWrapping::no_wrap};
 constexpr CommandLook kLookMiddleWrapped{.vertical = UiTextAlignment::center};
 constexpr CommandLook kLookNotice{.kind = MessageTextMeasurementKind::notice,
                                   .vertical = UiTextAlignment::center,
-                                  .wrapping = UiTextWrapping::no_wrap,
-                                  .overflow = UiTextOverflow::ellipsis};
+                                  .wrapping = TextWrapping::no_wrap,
+                                  .overflow = TextOverflow::ellipsis};
 constexpr CommandLook kLookNoticeCentered{.kind = MessageTextMeasurementKind::notice,
                                           .horizontal = UiTextAlignment::center,
                                           .vertical = UiTextAlignment::center,
-                                          .wrapping = UiTextWrapping::no_wrap,
-                                          .overflow = UiTextOverflow::ellipsis};
+                                          .wrapping = TextWrapping::no_wrap,
+                                          .overflow = TextOverflow::ellipsis};
 constexpr CommandLook kLookNoticeLink{.kind = MessageTextMeasurementKind::notice,
                                       .themed = true,
                                       .vertical = UiTextAlignment::center,
-                                      .wrapping = UiTextWrapping::no_wrap,
+                                      .wrapping = TextWrapping::no_wrap,
                                       .slot = 1,
-                                      .overflow = UiTextOverflow::ellipsis};
+                                      .overflow = TextOverflow::ellipsis};
 constexpr CommandLook kLookEnd{.horizontal = UiTextAlignment::end,
                                .vertical = UiTextAlignment::center,
-                               .wrapping = UiTextWrapping::no_wrap,
-                               .overflow = UiTextOverflow::ellipsis};
+                               .wrapping = TextWrapping::no_wrap,
+                               .overflow = TextOverflow::ellipsis};
 constexpr CommandLook kLookAttachmentName{.kind = MessageTextMeasurementKind::attachment,
                                           .minimum_height = 20.0f,
-                                          .wrapping = UiTextWrapping::no_wrap,
-                                          .overflow = UiTextOverflow::ellipsis};
+                                          .wrapping = TextWrapping::no_wrap,
+                                          .overflow = TextOverflow::ellipsis};
 constexpr CommandLook kLookBlock{};
 constexpr Color kNoRoleColor{};
 constexpr ConstSlice<TextStyleSpan> kNoStyles{};
@@ -1309,7 +1309,7 @@ RetainedReplySummary retain_interaction_header(MessageTextPresentation* presenta
 bool append_reply_line(MessageTextPresentation* presentation, const Utf8View& text,
                        const ConstSlice<TextStyleSpan>& styles, UiTextFlowLayout* flow, const Color& color,
                        const Color& inline_role_color, const UiWidgetReference& owner, const MessageRecord& record,
-                       u16 measurement_index, UiTextOverflow overflow,
+                       u16 measurement_index, TextOverflow overflow,
                        float right_inset = 0.0f, float left_inset = kMessageReplyTextInset,
                        ConstSlice<MessageMarkdownSemantic> semantics = {}) noexcept {
     if (!presentation || !flow || text.bytes == 0) {
@@ -1330,7 +1330,7 @@ bool append_reply_line(MessageTextPresentation* presentation, const Utf8View& te
                          .minimum_height = 16.0f,
                          .gap_after = 6.0f,
                          .themed = styles.count != 0,
-                         .wrapping = UiTextWrapping::no_wrap,
+                         .wrapping = TextWrapping::no_wrap,
                          .overflow = overflow},
                         inline_role_color)) {
         return false;
@@ -2261,9 +2261,9 @@ bool append_plugin_accessories(MessageTextPresentation* presentation, const UiPl
                             {.kind = MessageTextMeasurementKind::notice,
                              .themed = link,
                              .vertical = UiTextAlignment::center,
-                             .wrapping = UiTextWrapping::no_wrap,
+                             .wrapping = TextWrapping::no_wrap,
                              .slot = static_cast<u8>(8u + index),
-                             .overflow = UiTextOverflow::ellipsis,
+                             .overflow = TextOverflow::ellipsis,
                              .source_id = kUiPluginRenderGeneratedSource}))
             return !ui_rect_has_area(clip);
         auto& command = presentation->commands[before];
@@ -2395,9 +2395,9 @@ bool append_card_line(MessageTextPresentation* presentation, Utf8View text, u32 
                           {.kind = MessageTextMeasurementKind::notice,
                            .horizontal = alignment,
                            .vertical = UiTextAlignment::center,
-                           .wrapping = UiTextWrapping::no_wrap,
+                           .wrapping = TextWrapping::no_wrap,
                            .slot = slot,
-                           .overflow = UiTextOverflow::ellipsis});
+                           .overflow = TextOverflow::ellipsis});
 }
 
 // Invite cards: header, server name, counts and the Join action, from the
@@ -3246,7 +3246,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         if (summary.text.bytes == 0 ||
             !append_reply_line(presentation, summary.text, summary.styles, &flow, theme.text_primary,
                                reply_name_color, owner, *record, measurement_index,
-                               UiTextOverflow::ellipsis,
+                               TextOverflow::ellipsis,
                                reply_icon != MessageReplyIcon::none ? kMessageReplyIconGap + kMessageReplyIcon
                                                                     : 0.0f,
                                message_reply_leading_small(leading) ? kMessageReplyLeadingIconInset
@@ -3731,9 +3731,9 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                                  .themed = styles.count != 0,
                                  .horizontal = alignment,
                                  .vertical = UiTextAlignment::center,
-                                 .wrapping = UiTextWrapping::no_wrap,
+                                 .wrapping = TextWrapping::no_wrap,
                                  .slot = static_cast<u8>(index),
-                                 .overflow = UiTextOverflow::ellipsis}))
+                                 .overflow = TextOverflow::ellipsis}))
                 return false;
             measured_items.heights[slot] = fixed_height;
             if (kind == MessageComponentKind::button) {
@@ -3812,7 +3812,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                 measurement_index,
                 {.kind = MessageTextMeasurementKind::reaction,
                  .vertical = UiTextAlignment::center,
-                 .wrapping = UiTextWrapping::no_wrap,
+                 .wrapping = TextWrapping::no_wrap,
                  .slot = static_cast<u8>(index)})) {
             return false;
         }
@@ -4136,7 +4136,7 @@ bool message_text_presentation_measure(MessageTextPresentation* presentation, Ui
                 backend_revision},
             command.text, command.styles,
             UiSize{ui_rect_width(command.rectangle), ui_rect_height(command.rectangle)},
-            command.wrapping == UiTextWrapping::no_wrap};
+            command.wrapping == TextWrapping::no_wrap};
         UiTextMeasureValue value{};
         if (!ui_text_measure_cache_measure(cache, request, &value).ok()) {
             presentation->last_error = MessageTextPresentationError::measurement;

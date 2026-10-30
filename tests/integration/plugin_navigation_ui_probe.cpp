@@ -79,8 +79,8 @@ bool geometry(PopupScene& popup, u32 placement, u32 native_count, UiRect viewpor
             if (value.owner.manager != &popup.widgets || value.owner.handle.slot != popup.rows[native_count + index].label.slot)
                 continue;
             const auto expected = index == 2 ? kDefaultTheme.text_secondary : kDefaultTheme.text_primary;
-            found = utf8_equal(value.text, kLabels[placement][index]) && value.wrapping == UiTextWrapping::no_wrap &&
-                value.overflow == UiTextOverflow::ellipsis && value.color.red == expected.red &&
+            found = utf8_equal(value.text, kLabels[placement][index]) && value.wrapping == TextWrapping::no_wrap &&
+                value.overflow == TextOverflow::ellipsis && value.color.red == expected.red &&
                 value.color.green == expected.green && value.color.blue == expected.blue &&
                 value.rectangle.left >= layout.row->rectangle.left && value.rectangle.right <= layout.row->rectangle.right;
         }

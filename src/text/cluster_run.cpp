@@ -14,6 +14,13 @@
 #include "lookup_plan_finish.hpp"
 #include "use_shape_internal.hpp"
 namespace maicord {
+SfntStatus use_shape::map_glyph(const SfntShapePlan& plan,const SfntCmap& cmap,u32 scalar,u32 selector,bool rtl,u8 role,u32 source,SfntClusterGlyph* out) noexcept {
+    const u32 code=rtl?unicode_bidi_mirror(scalar):scalar;u16 glyph=0;
+    auto status=sfnt_cmap_glyph(cmap,code,selector,&glyph);
+    if(selector&&status==SfntStatus::unsupported_sequence)status=sfnt_cmap_glyph(cmap,code,0,&glyph);
+    if(status!=SfntStatus::ok)return status;
+    *out={{glyph,sfnt_gdef_glyph_class(plan.gdef,glyph),role},source};return SfntStatus::ok;
+}
 // Non-admitted fonts keep nominal mapping, without USE expansion or circles.
 // Tibetan overrides only its mark, selector and control-source rules.
 SfntStatus use_shape::nominal_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,float em,
@@ -24,23 +31,21 @@ SfntStatus use_shape::nominal_run(const SfntShapePlan& plan,const SfntCmap& cmap
     auto* mapped=reinterpret_cast<SfntClusterGlyph*>(storage.positions.data);UnicodeGraphemeState state{};u32 count=0,units=0,starts=0;
     const auto selector=[&](u32 scalar) noexcept {return tibetan?(scalar-0xfe00<16||scalar-0xe0100<240):
         unicode_properties(scalar)->has(UnicodeFlag::variation_selector);};
-    for(u32 i=0;i<input.count;++i){const u32 scalar=input[i];bool boundary=false;
-        if(!unicode_grapheme_next(&state,scalar,&boundary))return SfntStatus::invalid_input;
+    for(u32 i=0;i<input.count;++i){const u32 scalar=input[i];bool boundary=unicode_grapheme_boundary(state,scalar);
         const auto* properties=unicode_properties(scalar);const auto category=properties->general_category();
         if(tibetan&&i&&(category==UnicodeGeneralCategory::mn||category==UnicodeGeneralCategory::mc||category==UnicodeGeneralCategory::me||scalar==0x200d))boundary=false;
         if(scalar==0x200c)boundary=true;
         if(boundary){if(starts==storage.targets.count)return SfntStatus::output_too_small;storage.targets[starts++]=units;}
         const bool variation=(!tibetan||!selector(scalar))&&i+1<input.count&&selector(input[i+1]);
-        const u32 selected=variation?input[i+1]:0;u16 glyph=0;const u32 cp=rtl?unicode_bidi_mirror(scalar):scalar;
-        auto status=sfnt_cmap_glyph(cmap,cp,selected,&glyph);
-        if(selected&&status==SfntStatus::unsupported_sequence)status=sfnt_cmap_glyph(cmap,cp,0,&glyph);
-        if(status!=SfntStatus::ok)return status;if(count==capacity)return SfntStatus::output_too_small;
+        const u32 selected=variation?input[i+1]:0;
         const bool invisible=tibetan?(scalar==0x34f||scalar==0x61c||scalar==0xfeff||
             (scalar>=0x180b&&scalar<=0x180e)||(scalar>=0x200b&&scalar<=0x200f)):
             properties->has(UnicodeFlag::default_ignorable_code_point);
-        mapped[count++]={{glyph,sfnt_gdef_glyph_class(plan.gdef,glyph),static_cast<u8>(invisible)},units};
+        SfntClusterGlyph record;auto status=map_glyph(plan,cmap,scalar,selected,rtl,static_cast<u8>(invisible),units,&record);
+        if(status!=SfntStatus::ok)return status;if(count==capacity)return SfntStatus::output_too_small;
+        mapped[count++]=record;
         units+=scalar>0xffff?2u:1u;
-        if(variation){if(!unicode_grapheme_next(&state,selected,&boundary))return SfntStatus::invalid_input;units+=selected>0xffff?2u:1u;++i;}
+        if(variation){unicode_grapheme_boundary(state,selected);units+=selected>0xffff?2u:1u;++i;}
     }
     struct Policy {const SfntGdef* gdef;SfntComponentForest* forest;u16 space;} policy{&plan.gdef,nullptr,0};
     auto status=sfnt_cmap_glyph(cmap,0x20,0,&policy.space);if(status!=SfntStatus::ok)return status;

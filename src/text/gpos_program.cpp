@@ -5,7 +5,7 @@
 #include "context_lookups.hpp"
 #include "lookup_selection.hpp"
 namespace maicord {namespace {
-template<class T> bool valid(Slice<T> s) noexcept {return !s.count || s.data;}
+template<class T> inline bool valid(Slice<T> s) noexcept {return !s.count || s.data;}
 SfntStatus require_children(const SfntGposExecutableLookup& lookup,u16 count,ConstSlice<u64> selected,u32& work) noexcept {
     if(!selected.count||lookup.type<7)return SfntStatus::ok;
     for(u32 i=0;i<lookup.tables.context.count;++i){u32 used=0;const auto status=sfnt_context_visit_lookups(lookup.tables.context[i].table,
@@ -137,10 +137,11 @@ struct Executor {
             if(first==last||byte_load_be16(lookup.tables.context[first].coverages[0].records)!=key)return SfntStatus::ok;
             last=first+1;
         }
-        for(u32 i=first;i<last;++i){if(!spend(&work))return SfntStatus::resource_limit;SfntContextMatch match{};u32 charged=0;
+        for(u32 i=first;i<last;++i){if(!spend(&work))return SfntStatus::resource_limit;SfntContextMatch match{};
             u32 first_coverage_index=shared_index;
             if(lookup.bounds.ready&&first_coverage_index==sfnt_not_covered){first_coverage_index=sfnt_coverage_index(sfnt_context_first_coverage(lookup.tables.context[i]),glyph.glyph);if(first_coverage_index==sfnt_not_covered)continue;}
-            s=sfnt_context_match_view(lookup.tables.context.data[i],program.gdef,lookup.filter,glyphs,at,end,{scratch.positions.data?scratch.positions.data+used:nullptr,scratch.positions.count-used},&match,static_cast<u32>(minimum<u64>(work,match_work)),&charged,0,first_coverage_index);work-=charged;
+            const u32 allowance=static_cast<u32>(minimum<u64>(work,match_work));u32 left=allowance;
+            s=context_match(lookup.tables.context.data[i],program.gdef,lookup.filter,glyphs,at,end,{scratch.positions.data?scratch.positions.data+used:nullptr,scratch.positions.count-used},&match,&left,0,first_coverage_index);work-=allowance-left;
             if(s!=SfntStatus::ok)return s;if(!match.matched)continue;++result.matches;
             u32 nested_end=match.last_input+1;
             while(nested_end<end){if(!spend(&work))return SfntStatus::resource_limit;const auto& g=sfnt_glyph_at(glyphs,nested_end);if(!sfnt_lookup_ignores(program.gdef,lookup.filter,g.glyph,g.glyph_class))break;++nested_end;}
@@ -153,9 +154,11 @@ struct Executor {
         const auto* root=sfnt_gpos_lookup(program,index);
         for(u32 at=start;at<end;){u32 resume=at+1;auto s=attempt(root,at,end,false,&resume);if(s!=SfntStatus::ok)return s;
             while(depth){auto& frame=scratch.frames.data[depth-1];if(frame.next_action==frame.actions.count/4){used=frame.positions;--depth;continue;}
-                if(!spend(&work))return SfntStatus::resource_limit;SfntSequenceAction action{};s=sfnt_context_action({frame.actions,0,0,true},frame.next_action++,&action);if(s!=SfntStatus::ok)return s;
-                if(action.sequence_index>=frame.count)return SfntStatus::invalid_input;const u32 position=scratch.positions.data[frame.positions+action.sequence_index];u32 ignored=0;++result.actions;
-                s=attempt(action.lookup_index<program.lookups.count?sfnt_gpos_lookup(program,action.lookup_index):nullptr,position,frame.input_end,true,&ignored);if(s!=SfntStatus::ok)return s;
+                // Open validated each action: its sequence index is below the
+                // matched input count. GPOS never edits, so that count holds.
+                if(!spend(&work))return SfntStatus::resource_limit;const u8* action=frame.actions.data+frame.next_action++*4;
+                const u32 position=scratch.positions.data[frame.positions+byte_load_be16(action)];u32 ignored=0;++result.actions;const u16 index=byte_load_be16(action+2);
+                s=attempt(index<program.lookups.count?sfnt_gpos_lookup(program,index):nullptr,position,frame.input_end,true,&ignored);if(s!=SfntStatus::ok)return s;
             }
             at=resume;
         }return flush();

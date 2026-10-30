@@ -40,7 +40,7 @@ inline bool probe_glyph_cache(D3D11Renderer& renderer,bool (*capture)(const wcha
         if(shape){
             LARGE_INTEGER start{},end{};ULONG64 cycles=0,ended=0;
             if(first_shape&&(!QueryThreadCycleTime(GetCurrentThread(),&cycles)||!QueryPerformanceCounter(&start)))return fail(__LINE__);
-            if(!text_shape_utf8(&owner.system,text,800,600,{owner.utf16,kRendererGlyphCapacity},&owner.title).ok())return fail(__LINE__);
+            if(!text_shape_utf8(&owner.system,text,{},800,600,{owner.utf16,kRendererGlyphCapacity},&owner.title).ok())return fail(__LINE__);
             if(first_shape){if(!QueryPerformanceCounter(&end)||!QueryThreadCycleTime(GetCurrentThread(),&ended))return fail(__LINE__);
                 cold_ticks[0]=end.QuadPart-start.QuadPart;cold_cycles[0]=ended-cycles;
                 if(!QueryThreadCycleTime(GetCurrentThread(),&cycles)||!QueryPerformanceCounter(&start))return fail(__LINE__);}

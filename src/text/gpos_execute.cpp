@@ -4,8 +4,8 @@
 #include "maicord/text/base.hpp"
 #include "maicord/sys/simd.hpp"
 namespace maicord {namespace {
-bool valid(const SfntPosition& p) noexcept {return is_finite(p.advance)&&is_finite(p.advance_offset)&&is_finite(p.ascender_offset);}
-bool spend(SfntPositionExecution* result,u64* remaining,u64 cost=1) noexcept {if(cost>*remaining)return false;*remaining-=cost;result->operations+=cost;return true;}
+inline bool valid(const SfntPosition& p) noexcept {return is_finite(p.advance)&&is_finite(p.advance_offset)&&is_finite(p.ascender_offset);}
+inline bool spend(SfntPositionExecution* result,u64* remaining,u64 cost=1) noexcept {if(cost>*remaining)return false;*remaining-=cost;result->operations+=cost;return true;}
 SfntStatus resolve(const SfntValueRecord& record,const SfntPositionInstance& instance,SfntPositionAdjustment* out,SfntPositionExecution* result,u64* work) noexcept {
     if(!spend(result,work,9))return SfntStatus::resource_limit;
     if(!record.format){reset_value(out);return SfntStatus::ok;}
@@ -20,10 +20,10 @@ SfntStatus resolve(const SfntValueRecord& record,const SfntPositionInstance& ins
         if(!spend(result,work,static_cast<u64>(data.region_count)+1))return SfntStatus::resource_limit;}
     return sfnt_position_value_resolve(value,instance,out);
 }
-SfntPosition adjusted(const SfntPosition& p,const SfntPositionAdjustment& v,bool rtl) noexcept {
+inline SfntPosition adjusted(const SfntPosition& p,const SfntPositionAdjustment& v,bool rtl) noexcept {
     return {p.advance+v.design[2],p.advance_offset+(rtl?v.design[2]-v.design[0]:v.design[0]),p.ascender_offset+v.design[1]};
 }
-float scaled(double value,__m128 scale) noexcept {
+inline float scaled(double value,__m128 scale) noexcept {
     const __m128 v=_mm_mul_ss(_mm_set_ss(static_cast<float>(value)),scale);
     return _mm_cvtss_f32(_mm_andnot_ps(_mm_cmpeq_ss(v,_mm_setzero_ps()),v));
 }

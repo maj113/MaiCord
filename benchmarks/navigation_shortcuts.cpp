@@ -35,7 +35,8 @@ bool benchmark_navigation_shortcuts(Clock clock, void (*write)(const char*, u64,
     begin = clock_now();
     for (u32 i = 0; i < target_iterations; ++i) {
         const auto target = navigation_focus_target(view, false, 2000 + i % (count - 1), UiListMove::next);
-        if (!target.id || target.guild || !channels[target.index].selectable) return false;
+        // Focus also visits category rows, which are not selectable.
+        if (!target.id || target.guild) return false;
         checksum += target.id;
     }
     const u64 focus_us = clock_microseconds(clock, begin, clock_now());

@@ -20,10 +20,8 @@ bool cases() noexcept {
     if(!unicode_properties(0x628)->has(UnicodeFlag::arabic_script_extension) ||
        !unicode_properties(0x640)->has(UnicodeFlag::arabic_script_extension) ||
        latin->has(UnicodeFlag::arabic_script_extension))return false;
-    if(!unicode_properties(0x30fc)->has(UnicodeFlag::east_asian_line_break) ||
-       !unicode_properties(0xff66)->has(UnicodeFlag::east_asian_line_break) ||
-       !unicode_properties(0x3000)->has(UnicodeFlag::east_asian_line_break) ||
-       unicode_properties(0xa1)->has(UnicodeFlag::east_asian_line_break) || latin->has(UnicodeFlag::east_asian_line_break))return false;
+    // Thai word breaking takes the Line_Break=SA scalars of the Thai block to be exactly these ranges.
+    for(u32 cp=0xe01;cp<=0xe5b;++cp)if((unicode_properties(cp)->line_break()==UnicodeLineBreak::sa)!=(cp-0xe01u<58||cp-0xe40u<15))return false;
     if(unicode_properties(0xd800)->general_category()!=UnicodeGeneralCategory::cs || unicode_is_scalar(0xd800) || unicode_is_scalar(0xdfff) ||
        !unicode_is_scalar(0x10ffff) || unicode_properties(0x10ffff)->general_category()!=UnicodeGeneralCategory::cn ||
        unicode_properties(0x110000) || unicode_properties(~0u) || unicode_is_scalar(~0u))return false;
@@ -63,7 +61,7 @@ bool dump(const wchar_t* path) noexcept {
     for(u32 cp=0;cp<0x110000 && ok;++cp) {
         const auto& p=*unicode_properties(cp);const auto bracket=unicode_bidi_bracket(cp);
         const u8 fields[]{static_cast<u8>(p.bidi_class()),static_cast<u8>(p.general_category()),static_cast<u8>(p.script()),p.combining_class(),
-            static_cast<u8>(p.grapheme_break()),static_cast<u8>(p.word_break()),static_cast<u8>(p.line_break()),static_cast<u8>(p.joining_type()),
+            static_cast<u8>(p.grapheme_break()),static_cast<u8>(p.line_break()),static_cast<u8>(p.joining_type()),
             static_cast<u8>(p.indic_conjunct_break()),static_cast<u8>(p.indic_syllabic_category()),
             static_cast<u8>(p.indic_positional_category())};
         const u32 numbers[]{p.flags(),unicode_bidi_mirror(cp),bracket.paired};

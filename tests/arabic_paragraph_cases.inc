@@ -32,12 +32,12 @@ bool native_arabic_paragraph_corpus(DWriteTextSystem system,bool editor) noexcep
         const TextStyleSpan span{first,text.bytes-first,flag};const ConstSlice<TextStyleSpan> styles{&span,flag?1u:0u};
         native.independent_letters=reference.independent_letters=independent!=0;const auto wrapping=nowrap?TextWrapping::no_wrap:TextWrapping::wrap;
         if(editor){if(!compare_hits(system,text,width,wrapping,styles,true)){print("Arabic hit sample/pattern/flag/width/nowrap=");number(sample);print("/");number(pattern);print("/");number(flag);print("/");real(width);print("/");number(nowrap);print("\n");return false;}continue;}
-        ++cases;const auto a=text_shape_utf8_styled(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrapping);
-        const auto b=text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrapping);
+        ++cases;const auto a=text_shape_utf8(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrapping);
+        const auto b=text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrapping);
         if(!a.ok()||!native_output.text.native_fonts()||!b.ok()||!same(native_output,reference_output,true)){
             print("Arabic paragraph sample/pattern/flags/width/independent/nowrap=");number(sample);print("/");number(pattern);print("/");number(flag);print("/");real(width);print("/");number(independent);print("/");number(nowrap);print(" errors=");number(static_cast<u32>(a.error));print("/");number(static_cast<u32>(b.error));print("\n");return false;
         }++native_cases;
-        const auto am=text_measure_utf8_styled(&native,text,styles,width,1000000,{utf16,256},wrapping),bm=text_measure_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},wrapping);
+        const auto am=text_measure_utf8(&native,text,styles,width,1000000,{utf16,256},wrapping),bm=text_measure_utf8(&reference,text,styles,width,1000000,{utf16,256},wrapping);
         CHECK(am.ok()&&bm.ok()&&bytes_equal(&am.width,&bm.width,12)&&am.line_count==bm.line_count);
 
     }++sample;}return true;

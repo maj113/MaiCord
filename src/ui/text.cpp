@@ -13,17 +13,19 @@
 
 namespace maicord {
 namespace {
-bool usable_text_system(const TextSystem* system) noexcept {
+// The build inlines only functions marked inline (/Ob1); these sit on every
+// shape and measure call.
+inline bool usable_text_system(const TextSystem* system) noexcept {
     return system && system->native_text && system->native_format;
 }
 
-TextShapeResult shape_result(TextShapeError error, HRESULT native_error = S_OK, u32 utf16_units = 0,
-                             const ShapedText* output = nullptr) noexcept {
+inline TextShapeResult shape_result(TextShapeError error, HRESULT native_error = S_OK, u32 utf16_units = 0,
+                                    const ShapedText* output = nullptr) noexcept {
     return TextShapeResult{native_error, utf16_units, output ? output->glyph_count : 0,
                            output ? output->run_count : 0, error};
 }
 
-bool layout_extent_valid(float value) noexcept {
+inline bool layout_extent_valid(float value) noexcept {
     return value == value && value > 0.0f && value <= 1'048'576.0f;
 }
 
@@ -113,8 +115,8 @@ bool resolve_text_hits(Utf8View input, ConstSlice<TextHitSpan> hits, TextHitRang
     return true;
 }
 
-bool shaped_text_initialize(ShapedText* text, Slice<TextGlyph> glyphs, Slice<TextRun> runs,
-                            Slice<u16> clusters) noexcept {
+bool shaped_text_initialize(ShapedText* text, Slice<TextGlyph> glyphs, Slice<TextRun> runs, Slice<u16> clusters,
+                            Slice<TextDecoration> decorations, Slice<TextHitRegion> hit_regions) noexcept {
     if (!text || !glyphs.data || glyphs.count == 0 || glyphs.count > 0xFFFFu || !runs.data ||
         runs.count == 0 || !clusters.data || clusters.count == 0) {
         return false;
@@ -123,29 +125,13 @@ bool shaped_text_initialize(ShapedText* text, Slice<TextGlyph> glyphs, Slice<Tex
     text->glyphs = glyphs.data;
     text->runs = runs.data;
     text->clusters = clusters.data;
+    text->decorations = decorations.data;
+    text->hit_regions = hit_regions.data;
     text->glyph_capacity = glyphs.count;
     text->run_capacity = runs.count;
     text->cluster_capacity = clusters.count;
-    return true;
-}
-
-bool shaped_text_bind_decorations(ShapedText* text, Slice<TextDecoration> decorations) noexcept {
-    if (!text || !text->glyphs || !decorations.data || decorations.count == 0) {
-        return false;
-    }
-    text->decorations = decorations.data;
     text->decoration_capacity = decorations.count;
-    text->decoration_count = 0;
-    return true;
-}
-
-bool shaped_text_bind_hit_regions(ShapedText* text, Slice<TextHitRegion> hit_regions) noexcept {
-    if (!text || !text->glyphs || !hit_regions.data || hit_regions.count == 0) {
-        return false;
-    }
-    text->hit_regions = hit_regions.data;
     text->hit_region_capacity = hit_regions.count;
-    text->hit_region_count = 0;
     return true;
 }
 
@@ -169,17 +155,13 @@ void shaped_text_reset(ShapedText* text) noexcept {
     text->line_count = 0;
 }
 
-TextShapeResult text_system_initialize(TextSystem* system, const wchar_t* family_name, float em_size,
-                                       const wchar_t* locale_name) noexcept {
-    if (!system || !family_name || !family_name[0] || !locale_name || !layout_extent_valid(em_size)) {
+TextShapeResult text_system_initialize(TextSystem* system, const wchar_t* family_name, float em_size) noexcept {
+    if (!system || !family_name || !family_name[0] || !layout_extent_valid(em_size)) {
         return shape_result(TextShapeError::invalid_input, E_INVALIDARG);
     }
     reset_value<TextSystem>(system);
     u32 units=0;while(units<256&&family_name[units])++units;
-    // Only en-US is supported; other locales are rejected.
-    static constexpr wchar_t locale[]=L"en-us";u32 i=0;
-    while(locale[i]&&locale_name[i]&&(locale_name[i]|32)==locale[i])++i;
-    if(!units||units==256||locale[i]||locale_name[i]||em_size>250000)
+    if(units==256||em_size>250000)
         return shape_result(TextShapeError::invalid_input,E_INVALIDARG);
     if(!native_font_session_create(&system->native_fonts)||
        !native_text_context_initialize(&system->native_text,system->native_fonts)||
@@ -316,7 +298,7 @@ bool native_substitute_clusters(char* out,u32 begin,u32 end) noexcept {
     UnicodeGraphemeState state{};bool changed=false,shown=false;
     for(u32 at=begin;at<end;){
         const auto cp=utf8_decode_one(out+at,end-at);if(!cp.valid||!cp.width)return changed;
-        bool boundary=true;(void)unicode_grapheme_next(&state,cp.codepoint,&boundary);
+        const bool boundary=unicode_grapheme_boundary(state,cp.codepoint);
         if(boundary)shown=false;
         if(native_fallback_scalar(cp.codepoint)&&cp.width>1){
             const char* source=shown?native_invisible(cp.width):native_missing_glyph(cp.width);shown=true;
@@ -408,7 +390,7 @@ bool TextNativeFallback::narrow(const TextSystem& system,char* out,u32 begin,u32
         UnicodeGraphemeState state{};
         for(u32 at=begin;at<end;){
             const auto cp=utf8_decode_one(out+at,end-at);if(!cp.valid||!cp.width)break;
-            bool boundary=true;(void)unicode_grapheme_next(&state,cp.codepoint,&boundary);
+            const bool boundary=unicode_grapheme_boundary(state,cp.codepoint);
             if(boundary&&at>begin){const u32 d=at>middle?at-middle:middle-at;if(d<best){best=d;split=at;}}
             at+=cp.width;
         }
@@ -423,7 +405,7 @@ bool TextNativeFallback::narrow(const TextSystem& system,char* out,u32 begin,u32
 namespace {
 // Spans must be ordered, disjoint and in bounds, starting and ending on scalar
 // boundaries of the already validated UTF-8 (never on a continuation byte).
-bool styles_valid(Utf8View input, ConstSlice<TextStyleSpan> styles) noexcept {
+inline bool styles_valid(Utf8View input, ConstSlice<TextStyleSpan> styles) noexcept {
     u32 previous_end = 0;
     for (u32 i = 0; i < styles.count; ++i) {
         const auto& style = styles[i];
@@ -437,26 +419,112 @@ bool styles_valid(Utf8View input, ConstSlice<TextStyleSpan> styles) noexcept {
     }
     return true;
 }
-TextShapeResult text_shape_utf8_internal(TextSystem* system, Utf8View source,
-                                         ConstSlice<TextStyleSpan> sized_styles, ConstSlice<TextHitSpan> hits,
-                                         float maximum_width, float maximum_height,
-                                         Slice<wchar_t> utf16_scratch, ShapedText* output,
-                                         TextWrapping wrapping, TextOverflow overflow) noexcept {
+struct LayoutRequest {
+    TextSystem* system;
+    ConstSlice<TextStyleSpan> styles;
+    ConstSlice<TextHitRange> hits;
+    float width, height;
+    ShapedText* output;
+    TextMeasureResult* measure;
+    TextWrapping wrapping;
+    TextOverflow overflow;
+    u32 utf16_units;
+};
+
+// The output-capacity flag only matters to shaping; measurement never sets it.
+__forceinline bool native_layout(const LayoutRequest& r, Utf8View text) noexcept {
+    if (r.output)
+        (void)native_text_candidate_take_output_failure(*r.system);
+    if (r.overflow == TextOverflow::ellipsis)
+        return native_text_candidate_ellipsis(*r.system, text, r.styles, r.width, r.height, r.output, r.wrapping,
+                                              r.hits);
+    return !r.styles.count && !r.hits.count
+               ? native_text_candidate_line(*r.system, text, r.width, r.height, r.output, r.measure, r.wrapping,
+                                            r.overflow)
+               : native_text_candidate_styled(*r.system, text, r.styles, r.width, r.height, r.output, r.measure,
+                                              r.wrapping, r.overflow, r.hits);
+}
+
+// Units no run covers keep the 0xFFFF cluster.
+void clear_clusters(ShapedText* output, u32 utf16_units) noexcept {
+    output->cluster_count = utf16_units;
+    for (u32 index = 0; index < utf16_units; ++index)
+        output->clusters[index] = 0xFFFF;
+}
+
+// The fallback stages (and their 1.5 KB of substitute state) live in their own
+// frame, so the first attempt, which nearly always succeeds, does not carry it.
+__declspec(noinline) TextShapeResult layout_fallback(const LayoutRequest& r, Utf8View input) noexcept {
+    bool exhausted = native_text_candidate_take_output_failure(*r.system) && r.output;
+    TextNativeFallback fallback;
+    for (u32 stage = 0; stage < TextNativeFallback::stages && !exhausted; ++stage) {
+        if (!fallback.build(*r.system, input, stage))
+            continue;
+        if (r.output) {
+            shaped_text_reset(r.output);
+            clear_clusters(r.output, r.utf16_units);
+        } else {
+            reset_value(r.measure);
+        }
+        if (native_layout(r, fallback.text)) {
+            log_native_fallback(stage + 1, input.bytes);
+            return shape_result(TextShapeError::none, S_OK, r.utf16_units, r.output);
+        }
+        exhausted = native_text_candidate_take_output_failure(*r.system) && r.output;
+    }
+    shaped_text_reset(r.output);
+    return shape_result(exhausted ? TextShapeError::output_too_small : TextShapeError::unsupported,
+                        exhausted ? HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) : E_NOTIMPL, r.utf16_units);
+}
+
+// Sized spans fold into this many inline records; longer sized lists (rare,
+// and shaped at a cost far above an allocation) fold into the process heap.
+constexpr u32 kInlineFoldedSpans = 32;
+struct FoldedSpans {
+    TextStyleSpan local[kInlineFoldedSpans];
+    TextStyleSpan* heap{};
+    ~FoldedSpans() noexcept {
+        if (heap)
+            HeapFree(process_heap(), 0, heap);
+    }
+};
+
+// The one front end of shaping (output) and measurement (measure): both see
+// the same hidden ignorables, folded styles and fallback substitutes, so
+// measured and drawn text agree. Forced inline into both entries: through a
+// shared call, measurement ran about 10% slower in the text benchmark.
+__forceinline TextShapeResult text_layout_utf8(TextSystem* system, Utf8View source,
+                                               ConstSlice<TextStyleSpan> sized_styles, ConstSlice<TextHitSpan> hits,
+                                               float maximum_width, float maximum_height,
+                                               Slice<wchar_t> utf16_scratch, ShapedText* output,
+                                               TextMeasureResult* measure, TextWrapping wrapping,
+                                               TextOverflow overflow) noexcept {
     const TextShapingView shaping(source);
     const Utf8View input = shaping.text;
-    TextStyleSpan folded[kTextStyleSpanMaximum];
-    const auto folding = text_fold_style_sizes(sized_styles, {folded, kTextStyleSpanMaximum});
-    if (!folding.valid)
-        return shape_result(TextShapeError::invalid_input, E_INVALIDARG);
+    FoldedSpans folded;
+    Slice<TextStyleSpan> fold_scratch{folded.local, kInlineFoldedSpans};
+    if (sized_styles.count > kInlineFoldedSpans && sized_styles.count <= kTextStyleSpanMaximum) {
+        bool sized = false;
+        for (u32 i = 0; i < sized_styles.count && !sized; ++i)
+            sized = sized_styles[i].size != 0;
+        if (sized) {
+            folded.heap = static_cast<TextStyleSpan*>(
+                HeapAlloc(process_heap(), 0, sized_styles.count * sizeof(TextStyleSpan)));
+            if (!folded.heap)
+                return shape_result(TextShapeError::unsupported, E_OUTOFMEMORY);
+            fold_scratch = {folded.heap, sized_styles.count};
+        }
+    }
+    const auto folding = text_fold_style_sizes(sized_styles, fold_scratch);
     const ConstSlice<TextStyleSpan> styles = folding.styles;
-    if (!usable_text_system(system) || !output || !output->glyphs || !output->runs ||
-        !output->clusters || !layout_extent_valid(maximum_width) || !layout_extent_valid(maximum_height) ||
-        (!styles.data && styles.count != 0) || styles.count > kTextStyleSpanMaximum ||
+    if (!folding.valid || !usable_text_system(system) || !layout_extent_valid(maximum_width) ||
+        !layout_extent_valid(maximum_height) || styles.count > kTextStyleSpanMaximum ||
         (!hits.data && hits.count != 0) || hits.count > kTextHitSpanMaximum ||
-        wrapping > TextWrapping::no_wrap || overflow > TextOverflow::ellipsis) {
+        (output && (!output->glyphs || !output->runs || !output->clusters))) {
         return shape_result(TextShapeError::invalid_input, E_INVALIDARG);
     }
-    shaped_text_reset(output);
+    if (output)
+        shaped_text_reset(output);
     const TextShapeResult validated = validate_text_input(input, utf16_scratch);
     if (!validated.ok()) {
         return validated;
@@ -464,115 +532,50 @@ TextShapeResult text_shape_utf8_internal(TextSystem* system, Utf8View source,
     const u32 utf16_units = validated.utf16_units;
     if (!styles_valid(input, styles))
         return shape_result(TextShapeError::invalid_input, E_INVALIDARG, utf16_units);
-    if (utf16_units > output->cluster_capacity) {
+    if (output && utf16_units > output->cluster_capacity) {
         return shape_result(TextShapeError::output_too_small, HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER),
                             utf16_units);
     }
-    output->cluster_count = utf16_units;
-    for (u32 index = 0; index < utf16_units; ++index) {
-        output->clusters[index] = 0xFFFF;
-    }
+    if (output)
+        clear_clusters(output, utf16_units);
     if (utf16_units == 0) {
         return shape_result(TextShapeError::none);
     }
     TextHitRange resolved_hits[kTextHitSpanMaximum];
-    if (!resolve_text_hits(input, hits, resolved_hits)) {
+    if (hits.count && !resolve_text_hits(input, hits, resolved_hits)) {
         shaped_text_reset(output);
         return shape_result(TextShapeError::invalid_input, E_INVALIDARG, utf16_units);
     }
-    const auto native_shape=[&](Utf8View text) noexcept {
-        (void)native_text_candidate_take_output_failure(*system);
-        return overflow==TextOverflow::ellipsis?
-            native_text_candidate_ellipsis(*system,text,styles,maximum_width,maximum_height,output,wrapping,{resolved_hits,hits.count}):
-            !styles.count&&!hits.count?
-            native_text_candidate_line(*system,text,maximum_width,maximum_height,output,nullptr,wrapping,overflow):
-            native_text_candidate_styled(*system,text,styles,maximum_width,maximum_height,output,nullptr,wrapping,overflow,{resolved_hits,hits.count});
-    };
-    if(native_shape(input))
-        return shape_result(TextShapeError::none,S_OK,utf16_units,output);
-    bool exhausted=native_text_candidate_take_output_failure(*system);
-    TextNativeFallback fallback;
-    for(u32 stage=0;stage<TextNativeFallback::stages&&!exhausted;++stage){
-        if(!fallback.build(*system,input,stage))continue;
-        shaped_text_reset(output);output->cluster_count=utf16_units;
-        for(u32 index=0;index<utf16_units;++index)output->clusters[index]=0xFFFF;
-        if(native_shape(fallback.text)){log_native_fallback(stage+1,input.bytes);return shape_result(TextShapeError::none,S_OK,utf16_units,output);}
-        exhausted=native_text_candidate_take_output_failure(*system);
-    }
-    shaped_text_reset(output);
-    return shape_result(exhausted?TextShapeError::output_too_small:TextShapeError::unsupported,exhausted?HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER):E_NOTIMPL,utf16_units);
-}
-
-TextMeasureResult measure_result(TextShapeError error, HRESULT native_error, u32 utf16_units = 0) noexcept {
-    return TextMeasureResult{native_error, 0.0f, 0.0f, 0.0f, utf16_units, 0, error};
+    // Without hits the array stays unreferenced, so measurement's frame drops it.
+    const LayoutRequest request{system, styles,
+                                hits.count ? ConstSlice<TextHitRange>{resolved_hits, hits.count}
+                                           : ConstSlice<TextHitRange>{},
+                                maximum_width, maximum_height, output, measure, wrapping, overflow, utf16_units};
+    if (native_layout(request, input))
+        return shape_result(TextShapeError::none, S_OK, utf16_units, output);
+    return layout_fallback(request, input);
 }
 } // namespace
 
-TextShapeResult text_shape_utf8(TextSystem* system, Utf8View input, float maximum_width,
-                                float maximum_height, Slice<wchar_t> utf16_scratch, ShapedText* output,
-                                TextWrapping wrapping, TextOverflow overflow) noexcept {
-    return text_shape_utf8_internal(system, input, ConstSlice<TextStyleSpan>{}, ConstSlice<TextHitSpan>{},
-                                    maximum_width, maximum_height, utf16_scratch, output, wrapping,
-                                    overflow);
+TextShapeResult text_shape_utf8(TextSystem* system, Utf8View input, ConstSlice<TextStyleSpan> styles,
+                                float maximum_width, float maximum_height, Slice<wchar_t> utf16_scratch,
+                                ShapedText* output, TextWrapping wrapping, TextOverflow overflow,
+                                ConstSlice<TextHitSpan> hits) noexcept {
+    if (!output)
+        return shape_result(TextShapeError::invalid_input, E_INVALIDARG);
+    return text_layout_utf8(system, input, styles, hits, maximum_width, maximum_height, utf16_scratch, output,
+                            nullptr, wrapping, overflow);
 }
 
-TextShapeResult text_shape_utf8_styled(TextSystem* system, Utf8View input, ConstSlice<TextStyleSpan> styles,
-                                       float maximum_width, float maximum_height,
-                                       Slice<wchar_t> utf16_scratch, ShapedText* output,
-                                       TextWrapping wrapping, TextOverflow overflow) noexcept {
-    return text_shape_utf8_internal(system, input, styles, ConstSlice<TextHitSpan>{}, maximum_width,
-                                    maximum_height, utf16_scratch, output, wrapping, overflow);
-}
-
-TextShapeResult text_shape_utf8_interactive(TextSystem* system, Utf8View input,
-                                            ConstSlice<TextStyleSpan> styles, ConstSlice<TextHitSpan> hits,
-                                            float maximum_width, float maximum_height,
-                                            Slice<wchar_t> utf16_scratch, ShapedText* output,
-                                            TextWrapping wrapping, TextOverflow overflow) noexcept {
-    return text_shape_utf8_internal(system, input, styles, hits, maximum_width, maximum_height,
-                                    utf16_scratch, output, wrapping, overflow);
-}
-
-TextMeasureResult text_measure_utf8_styled(TextSystem* system, Utf8View source,
-                                           ConstSlice<TextStyleSpan> sized_styles, float maximum_width,
-                                           float maximum_height, Slice<wchar_t> utf16_scratch,
-                                           TextWrapping wrapping) noexcept {
-    const TextShapingView shaping(source);
-    const Utf8View input = shaping.text;
-    TextStyleSpan folded[kTextStyleSpanMaximum];
-    const auto folding = text_fold_style_sizes(sized_styles, {folded, kTextStyleSpanMaximum});
-    if (!folding.valid)
-        return measure_result(TextShapeError::invalid_input, E_INVALIDARG);
-    const ConstSlice<TextStyleSpan> styles = folding.styles;
-    if (!usable_text_system(system) || !layout_extent_valid(maximum_width) ||
-        !layout_extent_valid(maximum_height) || (!styles.data && styles.count != 0) ||
-        styles.count > kTextStyleSpanMaximum || wrapping > TextWrapping::no_wrap) {
-        return measure_result(TextShapeError::invalid_input, E_INVALIDARG);
-    }
-    const TextShapeResult validated = validate_text_input(input, utf16_scratch);
-    if (!validated.ok()) {
-        return measure_result(validated.error, validated.native_error, validated.utf16_units);
-    }
-    const u32 utf16_units = validated.utf16_units;
-    if (!styles_valid(input, styles))
-        return measure_result(TextShapeError::invalid_input, E_INVALIDARG, utf16_units);
-    if (utf16_units == 0) {
-        return measure_result(TextShapeError::none, S_OK);
-    }
-    TextMeasureResult native_measure{};
-    const auto native_measured=[&](Utf8View text) noexcept {
-        return styles.count?native_text_candidate_styled(*system,text,styles,maximum_width,maximum_height,nullptr,&native_measure,wrapping):
-            native_text_candidate_line(*system,text,maximum_width,maximum_height,nullptr,&native_measure,wrapping);
-    };
-    if(native_measured(input))return native_measure;
-    // The same substitutes shaping uses, so measured and drawn text agree.
-    TextNativeFallback fallback;
-    for(u32 stage=0;stage<TextNativeFallback::stages;++stage){
-        if(!fallback.build(*system,input,stage))continue;
-        reset_value(&native_measure);
-        if(native_measured(fallback.text)){log_native_fallback(stage+1,input.bytes);return native_measure;}
-    }
-    (void)native_text_candidate_take_output_failure(*system);
-    return measure_result(TextShapeError::unsupported,E_NOTIMPL,utf16_units);
+TextMeasureResult text_measure_utf8(TextSystem* system, Utf8View input, ConstSlice<TextStyleSpan> styles,
+                                    float maximum_width, float maximum_height, Slice<wchar_t> utf16_scratch,
+                                    TextWrapping wrapping) noexcept {
+    TextMeasureResult measured{};
+    const TextShapeResult result = text_layout_utf8(system, input, styles, {}, maximum_width, maximum_height,
+                                                    utf16_scratch, nullptr, &measured, wrapping,
+                                                    TextOverflow::clip);
+    return result.ok() ? measured
+                       : TextMeasureResult{result.native_error, 0.0f, 0.0f, 0.0f, result.utf16_units, 0,
+                                           result.error};
 }
 } // namespace maicord

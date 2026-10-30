@@ -7,7 +7,7 @@ constexpr u32 nil=0xffffffffu;
 // journaled marks nodes already saved by the current edit; it never outlives one.
 constexpr u8 alias=1,known=2,cached=4,owner=8,journaled=16;
 u32 parent(const SfntComponentNode& n) noexcept {return n.flags&owner?nil:n.parent;}
-const SfntComponentGlyph& record(SfntGlyphView v,u32 i) noexcept {return *reinterpret_cast<const SfntComponentGlyph*>(&sfnt_glyph_at(v,i));}
+const SfntComponentGlyph& record(const SfntGlyphView& v,u32 i) noexcept {return *reinterpret_cast<const SfntComponentGlyph*>(&sfnt_glyph_at(v,i));}
 struct Tree {
     SfntComponentForest& forest;Slice<SfntComponentUndo> journal;u32 used=0;u64 work;SfntStatus status=SfntStatus::ok;
     bool charge() noexcept {if(status!=SfntStatus::ok)return false;if(!spend(work)){status=SfntStatus::resource_limit;return false;}return true;}

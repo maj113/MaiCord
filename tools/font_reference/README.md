@@ -763,7 +763,7 @@ built-in checks) and asserts that `dwrite.dll` is not loaded.
 
 `MaiCordAppTextBoundary` (`app_text_boundary.cpp`) observes MaiCord's real
 profile, style, emoji and fallback path (`renderer_text_system`,
-`text_shape_utf8_styled`) without a window or graphics device. It uses synthetic
+`text_shape_utf8`) without a window or graphics device. It uses synthetic
 public-script samples only, never user messages. The font inventory describes the
 host and the corpus; it is neither a native fallback implementation nor an
 exhaustive Unicode test.

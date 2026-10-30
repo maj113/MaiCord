@@ -38,14 +38,13 @@ def main():
             parts = [v.strip() for v in data.split(';')]
             for value in parts[1:]:
                 aliases.setdefault(parts[0], {})[value] = parts[1]
-    covered = script_members = 0
+    covered = 0
     description = None
     with zipfile.ZipFile(args.xml) as archive, args.native.open('rb') as native:
         magic = native.read(8)
-        if magic not in (b'MCUCD17\0', b'MCUCDS1\0', b'MCUCDS2\0'):
+        if magic != b'MCUCDS2\0':
             raise ValueError('Invalid native dump header')
-        full_extensions = magic != b'MCUCDS2\0'
-        header = struct.Struct(f'<{len(schema["fields"])}B3I' + ('BB' if full_extensions else 'B'))
+        header = struct.Struct(f'<{len(schema["fields"])}B3IB')
         with archive.open('ucd.nounihan.flat.xml') as xml:
             for _, element in ET.iterparse(xml, events=('end',)):
                 tag = element.tag.rsplit('}', 1)[-1]
@@ -74,8 +73,6 @@ def main():
                     key = flag['xml']
                     if key == 'scx':
                         enabled = any(aliases['sc'].get(v, v) == 'Arab' for v in values[key].split())
-                    elif key == 'ea':
-                        enabled = aliases['ea'].get(values[key], values[key]) in ('F', 'W', 'H')
                     else:
                         value = values[key]
                         if value not in ('Y', 'N'):
@@ -83,8 +80,6 @@ def main():
                         enabled = value == 'Y'
                     if enabled:
                         flag_bits |= 1 << flag['bit']
-                scripts = tuple(sorted(int.from_bytes(aliases['sc'].get(v, v).encode('ascii'), 'big')
-                                       for v in values['scx'].split()))
                 bracket_type = {'n': 0, 'o': 1, 'c': 2}[values['bpt']]
                 for cp in range(first, last + 1):
                     raw = native.read(header.size)
@@ -94,25 +89,18 @@ def main():
                     mirror = cp if values['bmg'] in ('', '#') else int(values['bmg'], 16)
                     bracket = cp if values['bpb'] in ('', '#') else int(values['bpb'], 16)
                     expected_row = tuple(expected) + (flag_bits, mirror, bracket, bracket_type)
-                    if full_extensions:
-                        expected_row += (len(scripts),)
                     if actual != expected_row:
-                        names = [f['ucd'] for f in schema['fields']] + ['flags', 'bmg', 'bpb', 'bpt'] + (['scx_count'] if full_extensions else [])
+                        names = [f['ucd'] for f in schema['fields']] + ['flags', 'bmg', 'bpb', 'bpt']
                         differences = {name: {'native': a, 'xml': b} for name, a, b in zip(names, actual, expected_row) if a != b}
                         raise ValueError(f'U+{cp:04X}: {differences}')
-                    if full_extensions:
-                        raw = native.read(len(scripts) * 4)
-                        if len(raw) != len(scripts) * 4 or struct.unpack('<' + 'I' * len(scripts), raw) != scripts:
-                            raise ValueError(f'Script_Extensions mismatch at U+{cp:04X}')
-                        script_members += len(scripts)
                 covered = last + 1
                 element.clear()
         if description != 'Unicode 17.0.0' or covered != LIMIT or native.read(1):
             raise ValueError('Version, coverage or trailing native data mismatch')
     report = {'matches': True, 'unicode_version': '17.0.0', 'code_points': covered,
               'scalar_values': covered - 2048, 'enumerated_fields_per_code_point': len(schema['fields']),
-              'binary_flags_per_code_point': len(schema['flags']), 'script_extension_members': script_members,
-              'derived_predicate_checks': 0 if full_extensions else covered * 2,
+              'binary_flags_per_code_point': len(schema['flags']),
+              'derived_predicate_checks': covered * 2,
               'mirror_and_bracket_mapping_checks': covered * 3,
               'identities': {str(path): hashlib.sha256(path.read_bytes()).hexdigest()
                              for path in [args.xml, args.ucd, args.schema, args.native]}}

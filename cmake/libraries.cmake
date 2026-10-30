@@ -310,8 +310,7 @@ maicord_library(maicord_font
     src/text/gpos_attachment.cpp src/text/gpos.cpp src/text/clusters.cpp src/text/components.cpp
     src/text/shape_run.cpp src/text/run_plan.cpp src/text/font_names.cpp src/text/font_match.cpp
     src/text/font_candidates.cpp src/text/font_family.cpp src/text/font_catalog.cpp
-    src/text/font_handle_stat.cpp src/text/font_fallback.cpp src/text/font_fallback_order.cpp
-    src/text/font_fallback_catalog.cpp src/text/font_catalog_coverage.cpp src/text/font_fallback_range.cpp
+    src/text/font_handle_stat.cpp src/text/font_catalog_coverage.cpp src/text/font_fallback_range.cpp
     src/text/font_fallback_route.cpp src/text/font_fallback_map.cpp
     src/text/font_run.cpp src/text/arabic_run_plan.cpp src/text/arabic_run.cpp
     src/text/arabic_paragraph.cpp src/text/gsub_execute.cpp src/text/glyph_buffer.cpp src/text/context.cpp
@@ -337,10 +336,7 @@ maicord_library(maicord_text
     LIBS maicord_core maicord_font maicord_ui advapi32 gdi32)
 # The native layout adapter is compiled for size by a minsize attribute region
 # in its source, which leaves retained-layout publication and the single-line
-# entry optimized for speed; compact only the explicitly scoped cold catalog
-# discovery/publication.
-set_property(SOURCE src/ui/native_text_catalog.cpp APPEND PROPERTY
-    COMPILE_DEFINITIONS MAICORD_COMPACT_CATALOG_SETUP=1)
+# entry optimized for speed.
 
 maicord_library(maicord_render_core
     src/render/animation_frame_cache.cpp src/render/glyph_atlas.cpp src/render/glyph_quad_bounds.cpp
@@ -487,7 +483,7 @@ maicord_library(maicord_atlas_gpu
     src/render/media_atlas_gpu_dispatch.cpp src/render/media_atlas_gpu_operations.cpp
     src/render/media_atlas_gpu_validation.cpp src/render/media_atlas_gpu_vp8.cpp "${MAICORD_VP8_IDCT_HEADER}"
     "${MAICORD_COLR_WIDE_HEADER}" "${MAICORD_COLR_COMPUTE_HEADER}" "${MAICORD_COLR_LAYERS_HEADER}"
-    "${MAICORD_GLYPH_COMPUTE_HEADER}" "${MAICORD_PNG_COMPUTE_HEADER}" "${MAICORD_VP8_RECONSTRUCT_HEADER}"
+    "${MAICORD_GLYPH_COMPUTE_HEADER}" "${MAICORD_GLYPH_CULLED_COMPUTE_HEADER}" "${MAICORD_PNG_COMPUTE_HEADER}" "${MAICORD_VP8_RECONSTRUCT_HEADER}"
     "${MAICORD_VP8_FILTER_HEADER}" "${MAICORD_VP8_ATLAS_HEADER}" "${MAICORD_JPEG_IDCT_HEADER}"
     "${MAICORD_JPEG_ATLAS_HEADER}"
     LIBS maicord_core maicord_render_core maicord_text maicord_shader_bytecode d3d11

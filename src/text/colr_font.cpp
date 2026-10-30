@@ -9,16 +9,28 @@ SfntStatus records(ConstSlice<u8> bytes,u32 offset,u32 count,u32 stride,ConstSli
     if(!offset || offset>bytes.count || count>(bytes.count-offset)/stride)return SfntStatus::truncated;
     *output=view(bytes,offset,count*stride);return SfntStatus::ok;
 }
+// A 32-bit count at an offset, followed by that many records.
+SfntStatus counted(ConstSlice<u8> bytes,u32 at,u32 stride,ConstSlice<u8>* output) noexcept {
+    if(!span(bytes,at,4))return SfntStatus::truncated;
+    return records(bytes,at+4,r32(bytes,at),stride,output);
+}
+// Base glyph records are six bytes each, strictly ascending by in-range glyph.
+bool ordered(ConstSlice<u8> bases,u32 glyphs) noexcept {
+    for(u32 i=0;i<bases.count/6;++i) {
+        const u32 glyph=r16(bases,i*6);
+        if(glyph>=glyphs || (i && glyph<=r16(bases,i*6-6)))return false;
+    }
+    return true;
+}
 u32 find_glyph(ConstSlice<u8> records,u32 stride,u16 glyph) noexcept {
     u32 low=0,high=records.count/stride;
     while(low<high) {const u32 mid=low+(high-low)/2;if(r16(records,mid*stride)<glyph)low=mid+1;else high=mid;}
     return low;
 }
 }
-
 SfntStatus colr_open(const SfntFace& face,ColrFont* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;
-    reset_value(output);ColrFont result{};
+    if(!output)return SfntStatus::invalid_input;reset_value(output);ColrFont& result=*output;
+    const auto opened=[&]() noexcept { // Fills the zeroed output; cleared again on failure below.
     auto status=sfnt_table(face,sfnt_tag('C','O','L','R'),&result.table);
     if(status!=SfntStatus::ok)return status;
     status=cpal_open(face,&result.palette);if(status!=SfntStatus::ok)return status;
@@ -31,26 +43,16 @@ SfntStatus colr_open(const SfntFace& face,ColrFont* output) noexcept {
     const u32 bases=r16(t,2),layers=r16(t,12);
     status=records(t,r32(t,4),bases,6,&result.bases_v0);if(status!=SfntStatus::ok)return status;
     status=records(t,r32(t,8),layers,4,&result.layers_v0);if(status!=SfntStatus::ok)return status;
-    for(u32 i=0;i<bases;++i) {
-        const u32 at=i*6,glyph=r16(result.bases_v0,at);
-        if(glyph>=result.glyph_count || (i && glyph<=r16(result.bases_v0,at-6)))return SfntStatus::malformed;
-    }
+    if(!ordered(result.bases_v0,result.glyph_count))return SfntStatus::malformed;
     if(result.version) {
         result.base_list=r32(t,14);result.layer_list=r32(t,18);result.clip_list=r32(t,22);
         result.variation_map=r32(t,26);result.variation_store=r32(t,30);
         if(result.base_list) {
-            if(!span(t,result.base_list,4))return SfntStatus::truncated;
-            const u32 count=r32(t,result.base_list);
-            status=records(t,result.base_list+4,count,6,&result.bases_v1);if(status!=SfntStatus::ok)return status;
-            for(u32 i=0;i<count;++i) {
-                const u32 at=i*6,glyph=r16(result.bases_v1,at);
-                if(glyph>=result.glyph_count || (i && glyph<=r16(result.bases_v1,at-6)))return SfntStatus::malformed;
-            }
+            status=counted(t,result.base_list,6,&result.bases_v1);if(status!=SfntStatus::ok)return status;
+            if(!ordered(result.bases_v1,result.glyph_count))return SfntStatus::malformed;
         }
         if(result.layer_list) {
-            if(!span(t,result.layer_list,4))return SfntStatus::truncated;
-            const u32 count=r32(t,result.layer_list);
-            status=records(t,result.layer_list+4,count,4,&result.layers_v1);if(status!=SfntStatus::ok)return status;
+            status=counted(t,result.layer_list,4,&result.layers_v1);if(status!=SfntStatus::ok)return status;
         }
         if(result.clip_list) {
             if(!span(t,result.clip_list,5))return SfntStatus::truncated;
@@ -67,7 +69,10 @@ SfntStatus colr_open(const SfntFace& face,ColrFont* output) noexcept {
         if((result.variation_map && !span(t,result.variation_map,4)) ||
            (result.variation_store && !span(t,result.variation_store,8)))return SfntStatus::truncated;
     }
-    *output=result;return SfntStatus::ok;
+    return SfntStatus::ok;
+    }();
+    if(opened!=SfntStatus::ok)reset_value(output);
+    return opened;
 }
 SfntStatus colr_base_paint(const ColrFont& font,u16 glyph,u32* offset) noexcept {
     if(!offset)return SfntStatus::invalid_input;*offset=0;

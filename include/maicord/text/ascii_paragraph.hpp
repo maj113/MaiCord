@@ -56,9 +56,10 @@ struct NativeAsciiParagraphStorage {
     Slice<u16> glyphs;Slice<SfntPlacement> placements;Slice<u32> source_glyphs;
     Slice<NativeParagraphCluster> clusters;
 };
-// Whether a line break is allowed after the first `at` source units; input must
-// contain only printable ASCII, TAB, CR or LF. at==0 never breaks; the end always does.
-bool native_ascii_break_after(Utf8View,u32 at) noexcept;
+// Sets native_paragraph_space and native_paragraph_break_before on the clusters
+// of printable ASCII, TAB, CR or LF text (clusters start at their source_first;
+// the first cluster and the end of text never get break_before).
+void native_ascii_paragraph_flags(Utf8View,Slice<NativeParagraphCluster>) noexcept;
 // Single-font ASCII paragraph frontend. Printable ranges are shaped once;
 // tabs and CR/LF are nondrawing clusters. Input/font policy otherwise follows
 // native_ascii_run. All buffers are caller-owned/disjoint and may change on error.

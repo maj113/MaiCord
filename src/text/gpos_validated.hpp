@@ -3,7 +3,7 @@
 namespace maicord {
 // Prepared single/pair subtable match at start<end of a validated view. Charges
 // *work; output is written only on a match.
-SfntStatus gpos_subtable_match(const SfntGposSubtable&,const SfntGdef&,const SfntLookupFilter&,SfntGlyphView,
+SfntStatus gpos_subtable_match(const SfntGposSubtable&,const SfntGdef&,const SfntLookupFilter&,const SfntGlyphView&,
     u32 start,u32 end,SfntGposMatch*,u32* work) noexcept;
 // Internal continuation within one shaping operation, after a successful public
 // program lookup validated every run field. The program, glyphs, metrics, flags

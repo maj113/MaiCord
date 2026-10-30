@@ -20,7 +20,7 @@ bool directional_editor_hit_corpus(DWriteTextSystem system,bool cuts) noexcept {
     for(u32 sample=0;sample<sample_count;++sample){const auto text=sample<base_count?texts[sample]:directional_cut_holdouts[sample-base_count];u32 offsets[256],scalars=0;
         for(u32 byte=0;byte<text.bytes;){offsets[scalars++]=byte;const auto cp=utf8_decode_one(text.data+byte,text.bytes-byte);CHECK(cp.valid);byte+=cp.width;}offsets[scalars]=text.bytes;
         u32 middle=offsets[scalars/2];UnicodeGraphemeState graphemes{};
-        for(u32 byte=0;!cuts&&byte<text.bytes;){const auto cp=utf8_decode_one(text.data+byte,text.bytes-byte);bool boundary=false;CHECK(unicode_grapheme_next(&graphemes,cp.codepoint,&boundary));
+        for(u32 byte=0;!cuts&&byte<text.bytes;){const auto cp=utf8_decode_one(text.data+byte,text.bytes-byte);CHECK(cp.valid);const bool boundary=unicode_grapheme_boundary(graphemes,cp.codepoint);
             if(byte>=middle&&boundary){middle=byte;break;}byte+=cp.width;if(byte==text.bytes)middle=byte;}
         const auto execute=[&](u32 first,u32 end,u32 flag,const Scenario& scenario) noexcept {
             const TextStyleSpan style{first,end-first,flag};const float width=scenario.width==1000000?scenario.width:scenario.width*system.em_size/16;

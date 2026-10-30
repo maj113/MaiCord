@@ -40,9 +40,9 @@ bool alphabetic_corpus(DWriteTextSystem system,bool required) noexcept {
                 // fallback changes the clusters; keep that transition explicit.
                 bool fallback=false;if(flag&text_style_italic)for(u32 at=0;at<text.bytes;){const auto cp=utf8_decode_one(text.data+at,text.bytes-at);fallback|=cp.codepoint==0x200c||cp.codepoint==0x200d||cp.codepoint==0x34f;at+=cp.width;}
                 if(required&&!fallback&&!native){print("alphabetic declined sample/mode/flag=");number(sample);print("/");number(mode);print("/");number(flag);print("\n");return false;}
-                if(native)++native_cases;else CHECK(text_shape_utf8_styled(&system,text,styles,width,1000000,{utf16,256},&native_output.text,wrap).ok());
-                CHECK(text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrap).ok());
-                const auto a=text_measure_utf8_styled(&system,text,styles,width,1000000,{utf16,256},wrap),b=text_measure_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},wrap);
+                if(native)++native_cases;else CHECK(text_shape_utf8(&system,text,styles,width,1000000,{utf16,256},&native_output.text,wrap).ok());
+                CHECK(text_shape_utf8(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrap).ok());
+                const auto a=text_measure_utf8(&system,text,styles,width,1000000,{utf16,256},wrap),b=text_measure_utf8(&reference,text,styles,width,1000000,{utf16,256},wrap);
                 if(!same(native_output,reference_output,true,true)||!a.ok()||!b.ok()||!bytes_equal(&a.width,&b.width,12)||a.line_count!=b.line_count){
                     print("alphabetic sample/mode/flag/em/width/nowrap=");number(sample);print("/");number(mode);print("/");number(flag);print("/");real(em);print("/");real(width);print("/");number(nowrap);print("\n");return false;}
                 if(native&&!mode&&!compare_hits(system,text,width,wrap,styles)){print("alphabetic hit sample/flag/em/width/nowrap=");number(sample);print("/");number(flag);print("/");real(em);print("/");real(width);print("/");number(nowrap);print("\n");return false;}

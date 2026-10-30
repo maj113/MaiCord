@@ -9,7 +9,7 @@ bool native_mixed_emoji_capacity() noexcept {
     struct Release {DWriteEditLayoutOwner* p;~Release() noexcept {text_edit_layout_release(p);text_edit_layout_release(p+1);}} release{layouts};
     const u32 carets[]{0,1228,2458};const u32 flags[]{0,text_style_underline|text_style_link};
     for(u32 flag:flags){const TextStyleSpan style{0,text.bytes,flag};const ConstSlice<TextStyleSpan> styles{&style,flag?1u:0u};
-        const auto a=text_measure_utf8_styled(&system,text,styles,1000000,1000000,{wide,4096}),b=text_measure_utf8_styled(&reference,text,styles,1000000,1000000,{wide,4096});
+        const auto a=text_measure_utf8(&system,text,styles,1000000,1000000,{wide,4096}),b=text_measure_utf8(&reference,text,styles,1000000,1000000,{wide,4096});
         CHECK(a.ok()&&b.ok()&&bytes_equal(&a.width,&b.width,12)&&a.line_count==1&&a.utf16_units==2458);
         for(u32 caret:carets){++cases;const TextEditLayoutInput input{text,text_edit_signature(text),0,caret,0,0,1000000,40,1000000,0,styles};
             CHECK(text_edit_layout_measure(layouts,input,system)&&layouts[0].geometry);++native_cases;

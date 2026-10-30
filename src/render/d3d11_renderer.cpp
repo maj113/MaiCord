@@ -687,18 +687,10 @@ bool renderer_bind_text_storage(D3D11Renderer* renderer, RendererTextStorage* st
     if (!shaped_text_initialize(&storage->scratch,
                                 Slice<TextGlyph>{storage->glyphs, storage->glyph_capacity},
                                 Slice<TextRun>{storage->runs, storage->run_capacity},
-                                Slice<u16>{storage->clusters, storage->cluster_capacity})) {
-        return false;
-    }
-    if (!shaped_text_bind_decorations(
-            &storage->scratch, Slice<TextDecoration>{storage->decorations, storage->decoration_capacity})) {
-        shaped_text_reset(&storage->scratch);
-        return false;
-    }
-    if (!shaped_text_bind_hit_regions(
-            &storage->scratch,
-            Slice<TextHitRegion>{storage->hit_region_scratch, storage->hit_region_scratch_capacity})) {
-        shaped_text_reset(&storage->scratch);
+                                Slice<u16>{storage->clusters, storage->cluster_capacity},
+                                Slice<TextDecoration>{storage->decorations, storage->decoration_capacity},
+                                Slice<TextHitRegion>{storage->hit_region_scratch,
+                                                     storage->hit_region_scratch_capacity})) {
         return false;
     }
     if (renderer->pipeline.glyph_instance_capacity < storage->quad_capacity &&
@@ -760,16 +752,16 @@ bool renderer_text_measure_backend(void* context, const UiTextMeasureRequest& re
         return false;
     }
     auto system = renderer_text_system(renderer, request.face);
-    TextMeasureResult measured = text_measure_utf8_styled(
+    TextMeasureResult measured = text_measure_utf8(
         &system, request.text, request.styles, request.constraint.width, request.constraint.height,
         Slice<wchar_t>{storage->utf16, storage->utf16_capacity},
         request.no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap);
     if (measured.error == TextShapeError::output_too_small) {
-        measured = text_measure_utf8_styled(&system, utf8_literal("…"),
-                                            ConstSlice<TextStyleSpan>{}, request.constraint.width,
-                                            request.constraint.height,
-                                            Slice<wchar_t>{storage->utf16, storage->utf16_capacity},
-                                            request.no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap);
+        measured = text_measure_utf8(&system, utf8_literal("…"),
+                                     ConstSlice<TextStyleSpan>{}, request.constraint.width,
+                                     request.constraint.height,
+                                     Slice<wchar_t>{storage->utf16, storage->utf16_capacity},
+                                     request.no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap);
     }
     if (!measured.ok()) {
         storage->last_shape_error = measured.error;

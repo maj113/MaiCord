@@ -193,8 +193,6 @@ bool shortcode(const Text& t, u32 at, u32* end) noexcept {
 } // namespace
 
 bool spell_tokenizer_next(SpellTokenizer* tokenizer, SpellToken* token) noexcept {
-    if (!tokenizer || !token || (!tokenizer->text.data && tokenizer->text.bytes))
-        return false;
     const Text t{tokenizer->text.data, tokenizer->text.bytes};
     u32 cursor = tokenizer->cursor;
     while (cursor < t.bytes) {

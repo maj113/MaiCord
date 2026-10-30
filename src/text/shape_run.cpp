@@ -5,10 +5,6 @@
 #include "maicord/text/base.hpp"
 
 namespace maicord {
-namespace {
-template<class T> bool valid(Slice<T> s) noexcept {return !s.count||s.data;}
-template<class T> bool valid(ConstSlice<T> s) noexcept {return !s.count||s.data;}
-}
 SfntStatus shape_position_prepared(const SfntShapePlan& plan,SfntGlyphView glyphs,const SfntGlyphSummary& glyph_bounds,const SfntGlyphSummary& mark_bounds,
     u32 targets,float em,bool rtl,const SfntShapeStorage& s,SfntShapeRunResult* result,SfntShapeLimits limits,u64& work,bool defer_output) noexcept {
     const u32 count=sfnt_glyph_count(glyphs);SfntStatus status=SfntStatus::ok;
@@ -39,10 +35,10 @@ SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph>
     SfntShapeRunResult* result,SfntShapeLimits limits,ConstSlice<SfntLookupStep> steps,ConstSlice<u32> input_order,SfntShapeGlyphPolicy policy,const SfntShapeInputPolicy* initial,const SfntShapeStagePolicy* stages,bool defer_output) noexcept {
     if(!result)return SfntStatus::invalid_input;
     reset_value(result);
-    if(!valid(input)||!valid(boundaries)||!valid(steps)||!valid(input_order)||!valid(plan.substitution_roots)||!valid(plan.positioning_roots)||
-       !valid(s.glyphs)||!valid(s.components)||!valid(s.cluster_bits)||!valid(s.character_glyphs)||
-       !valid(s.targets)||!valid(s.associations)||!valid(s.advances)||!valid(s.flags)||
-       !valid(s.positions)||!valid(s.placements)||!plan.advance||!plan.units_per_em||
+    if(!filled(input)||!filled(boundaries)||!filled(steps)||!filled(input_order)||!filled(plan.substitution_roots)||!filled(plan.positioning_roots)||
+       !filled(s.glyphs)||!filled(s.components)||!filled(s.cluster_bits)||!filled(s.character_glyphs)||
+       !filled(s.targets)||!filled(s.associations)||!filled(s.advances)||!filled(s.flags)||
+       !filled(s.positions)||!filled(s.placements)||!plan.advance||!plan.units_per_em||
        !(em>0)||em>65536||(!input.count!=!units)||
        ((plan.substitution_roots.count||steps.count)&&!plan.substitutions)||(plan.positioning_roots.count&&!plan.positioning)||
        (steps.count&&plan.substitution_roots.count)||(input_order.count && input_order.count!=input.count))
@@ -88,7 +84,7 @@ SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph>
         }
         // A script callback may change glyph IDs, order or component metadata
         // without a GSUB edit. Invalidate the first-root/bounds shortcut too.
-        bounds_current=false;validated=false;refresh=plan.refresh_substitution_classes;
+        bounds_current=false;validated=validated&&stages->keeps_records;refresh=plan.refresh_substitution_classes;
         return SfntStatus::ok;
     };
     for(u32 index=0;index<roots;++index){const u16 root=steps.count?steps[index].lookup:plan.substitution_roots[index];

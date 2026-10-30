@@ -1,18 +1,18 @@
 bool system_file(NativeTextCatalogs& owner,const wchar_t* path,u32 index,const NativeTextFontQuery& query,bool exact,Arena& scratch,NativeSystemFontFile** output,bool* fresh) noexcept {
     *output=nullptr;
-    for(auto* file=owner.files;file;file=file->next){const auto saved=native_font_catalog_path(file->catalog,0);
-        if(file->catalog.faces[0].index==index&&CompareStringOrdinal(path,-1,reinterpret_cast<const wchar_t*>(saved.data),saved.count,TRUE)==CSTR_EQUAL){
+    for(auto* file=owner.files;file;file=file->next){
+        if(file->catalog.face_index==index&&CompareStringOrdinal(path,-1,file->catalog.path,-1,TRUE)==CSTR_EQUAL){
             if(contains_family(file->catalog,query,exact))*output=file;return true;
         }
     }
     const auto mark=arena_mark(&owner.storage);auto* file=arena_allocate_zero<NativeSystemFontFile>(&owner.storage);
     if(!file)return catalog_failed(owner,0,{NativeFontError::capacity,SfntStatus::output_too_small,0});
     const auto result=load_face(owner,path,index,false,query,exact,scratch,&file->catalog);
-    if(!result.ok()||!file->catalog.count.candidates){arena_rewind(&owner.storage,mark);
+    if(!result.ok()||!file->catalog.count){arena_rewind(&owner.storage,mark);
         if(result.error==NativeFontError::font&&result.font_status==SfntStatus::unsupported){++owner.unsupported;return true;}
         return result.ok()||catalog_failed(owner,0,result);
     }
-    file->next=owner.files;file->first_candidate=owner.next_candidate;owner.next_candidate+=file->catalog.count.candidates;owner.files=file;*output=file;*fresh=true;return true;
+    file->next=owner.files;file->first_candidate=owner.next_candidate;owner.next_candidate+=file->catalog.count;owner.files=file;*output=file;*fresh=true;return true;
 }
 bool system_family_file(NativeTextCatalogs& owner,const NativeTextFontQuery& query,Arena& scratch,const NativeFontCatalog** output,u32* base,bool* fresh) noexcept {
     *output=nullptr;*base=0;
@@ -33,7 +33,7 @@ bool system_family_file(NativeTextCatalogs& owner,const NativeTextFontQuery& que
     for(u32 attempt=0;attempt<(alias?2u:1u);++attempt){const bool exact=alias&&!attempt;
         description.lfWeight=query.properties.weight==600&&!exact?700:query.properties.weight;
         if(exact)copy_bytes(description.lfFaceName+query.family.count,suffix.data,suffix.count*2);else description.lfFaceName[query.family.count]=0;
-        SystemFontLocator::File located{};u32 index=0;if(!locator.find(description,located,&index,exact))continue;
+        SystemFontLocator::File located;u32 index=0;if(!locator.find(description,located,&index,exact))continue;
         NativeSystemFontFile* file=nullptr;if(!system_file(owner,located.path,index,query,exact&&query.properties.weight==600,scratch,&file,fresh))return false;
         if(file){*output=&file->catalog;*base=file->first_candidate;return true;}
     }return true;
