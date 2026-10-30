@@ -993,8 +993,7 @@ UserAuthCoordinatorResult user_auth_coordinator_submit_password(
         return fail(coordinator, UserAuthCoordinatorError::state);
     }
     const UserAuthWriteResult written = user_auth_write_password_request(
-        UserAuthPasswordRequest{secure_utf8(*input.login), secure_utf8(*input.password),
-                                kUserAuthDefaultLoginSource, input.undelete},
+        UserAuthPasswordRequest{secure_utf8(*input.login), secure_utf8(*input.password), input.undelete},
         Slice<u8>{secret(runtime, kScratchOffset), runtime->request_capacity});
     if (!written.ok()) {
         secure_clear_bytes(secret(runtime, kScratchOffset), runtime->request_capacity);
@@ -1204,7 +1203,6 @@ UserAuthCoordinatorResult user_auth_coordinator_submit_mfa(UserAuthCoordinator* 
         UserAuthMfaRequest{
             secure_utf8(*prepared_code),
             Utf8View{reinterpret_cast<const char*>(secret(runtime, kTicketOffset)), runtime->ticket_bytes},
-            kUserAuthDefaultLoginSource,
             Utf8View{reinterpret_cast<const char*>(secret(runtime, kLoginInstanceOffset)),
                      runtime->login_instance_bytes},
             input.type},

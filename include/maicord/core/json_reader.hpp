@@ -94,9 +94,12 @@ JsonReadResult json_visit_value_array(const JsonValue& value, const ConstSlice<u
 
 // Nested visitors borrow the immutable index of the complete document. They do
 // not rescan, copy/rebase offsets, allocate, or overwrite an active parent's index.
+// The index must come from a scan of exactly `input`. `hint` only speeds up the search for a value's
+// first structural; any value is valid and visits keep it current.
 struct JsonIndexedDocument {
     Utf8View input;
     ConstSlice<u32> structurals;
+    mutable u32 hint{};
 };
 JsonReadResult json_visit_indexed_object(const JsonIndexedDocument& document, const JsonValue& value,
     u32 maximum_depth, JsonMemberVisitor visitor, void* context) noexcept;

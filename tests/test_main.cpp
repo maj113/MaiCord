@@ -5565,6 +5565,8 @@ void test_remote_auth_handshake() noexcept {
         return;
     }
 
+    // The first heartbeat lands uniformly within one interval; half of it here.
+    handshake.first_heartbeat_fraction = 0x80000000u;
     u32 structurals[128]{};
     char command[kRemoteAuthMaximumCommandBytes]{};
     char data[512]{};
@@ -5575,14 +5577,14 @@ void test_remote_auth_handshake() noexcept {
         Slice<char>{data, sizeof(data)}, &event);
     expect(handled.ok() && handshake.phase == RemoteAuthHandshakePhase::awaiting_nonce &&
                event.kind == RemoteAuthHandshakeEventKind::send_command && event.command_bytes > 400 &&
-               event.next_wake_at_ms == 2000,
+               event.next_wake_at_ms == 1500,
            "remote_auth_handshake_hello_init");
 
-    handled = remote_auth_handshake_tick(&handshake, 1999, Slice<char>{command, sizeof(command)}, &event);
+    handled = remote_auth_handshake_tick(&handshake, 1499, Slice<char>{command, sizeof(command)}, &event);
     expect(handled.ok() && event.kind == RemoteAuthHandshakeEventKind::none &&
-               event.next_wake_at_ms == 2000,
+               event.next_wake_at_ms == 1500,
            "remote_auth_handshake_wait_deadline");
-    handled = remote_auth_handshake_tick(&handshake, 2000, Slice<char>{command, sizeof(command)}, &event);
+    handled = remote_auth_handshake_tick(&handshake, 1500, Slice<char>{command, sizeof(command)}, &event);
     expect(handled.ok() && event.kind == RemoteAuthHandshakeEventKind::send_command &&
                handshake.heartbeat_unacknowledged,
            "remote_auth_handshake_heartbeat");
@@ -20176,13 +20178,13 @@ void test_gateway_message_events() noexcept {
 
     char rich_owned_payload[32 * 1024]{};
     ConstSlice<u8> packed_rich_payload{};
+    // The standalone decode above rescanned the shared index; the route needs the frame's own.
+    expect(gateway_decode_envelope(rich_payload, Slice<u32>{rich_structurals, 2'048}, 32, &envelope).ok(),
+           "gateway_envelope_index_rebuilt_for_route");
     const GatewayClientDispatchRouteResult rich_routed = gateway_client_route_dispatch(
         envelope, Slice<u32>{rich_structurals, 2'048}, 32, Slice<char>{rich_text, 32 * 1024},
         Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, 11, &routed_event, &packed_rich_payload);
     bool rich_payload_copied = rich_routed.ok() && packed_rich_payload.count <= sizeof(rich_owned_payload);
-    // The standalone decode above rescanned the shared index; the route needs the frame's own.
-    expect(gateway_decode_envelope(rich_payload, Slice<u32>{rich_structurals, 2'048}, 32, &envelope).ok(),
-           "gateway_envelope_index_rebuilt_for_route");
     if (rich_payload_copied) {
         for (u32 byte = 0; byte < packed_rich_payload.count; ++byte) {
             rich_owned_payload[byte] = static_cast<char>(packed_rich_payload[byte]);
@@ -21314,10 +21316,6 @@ void test_gateway_lifecycle() noexcept {
     expect(gateway_classify_close(4007) == GatewayCloseDisposition::reidentify &&
                gateway_classify_close(4009) == GatewayCloseDisposition::reidentify,
            "gateway_close_new_session_codes");
-    expect(gateway_classify_close(4004) == GatewayCloseDisposition::stop &&
-               gateway_classify_close(4010) == GatewayCloseDisposition::stop &&
-               gateway_classify_close(4011) == GatewayCloseDisposition::stop &&
-               gateway_classify_close(4012) == GatewayCloseDisposition::stop &&
     expect(gateway_classify_close(1000) == GatewayCloseDisposition::resume &&
                gateway_classify_close(1001) == GatewayCloseDisposition::resume &&
                gateway_classify_close(1006) == GatewayCloseDisposition::resume,
@@ -21325,6 +21323,10 @@ void test_gateway_lifecycle() noexcept {
     expect(!gateway_resume_expired(0, 1'000'000) && !gateway_resume_expired(1'000, 181'000) &&
                gateway_resume_expired(1'000, 181'001) && !gateway_resume_expired(5'000, 1'000),
            "gateway_resume_expires_after_three_minutes");
+    expect(gateway_classify_close(4004) == GatewayCloseDisposition::stop &&
+               gateway_classify_close(4010) == GatewayCloseDisposition::stop &&
+               gateway_classify_close(4011) == GatewayCloseDisposition::stop &&
+               gateway_classify_close(4012) == GatewayCloseDisposition::stop &&
                gateway_classify_close(4013) == GatewayCloseDisposition::stop &&
                gateway_classify_close(4014) == GatewayCloseDisposition::stop,
            "gateway_close_fatal_codes");
@@ -21580,10 +21582,9 @@ void test_login_mfa_policy() noexcept {
 
 void test_user_auth_protocol() noexcept {
     u8 output[2048]{};
-    const UserAuthPasswordRequest password{utf8_literal("mai\"\n@example.test"), utf8_literal("p\\\tword"),
-                                           kUserAuthDefaultLoginSource, false};
+    const UserAuthPasswordRequest password{utf8_literal("mai\"\n@example.test"), utf8_literal("p\\\tword"), false};
     const ConstSlice<u8> expected_password = byte_literal(
-        R"({"login":"mai\"\n@example.test","password":"p\\\tword","undelete":false,"login_source":"The default username password Login"})");
+        R"({"login":"mai\"\n@example.test","password":"p\\\tword","undelete":false})");
     UserAuthWriteResult written =
         user_auth_write_password_request(password, Slice<u8>{output, expected_password.count});
     expect(written.ok() && written.bytes == expected_password.count &&
@@ -21617,10 +21618,10 @@ void test_user_auth_protocol() noexcept {
         "user_auth_password_input_bounds");
 
     const UserAuthMfaRequest mfa{utf8_literal("012 345"), utf8_literal("ticket\"value"),
-                                 utf8_literal("MFA Login"), utf8_literal("instance-7"),
+                                 utf8_literal("instance-7"),
                                  UserAuthMfaType::totp};
     const ConstSlice<u8> expected_mfa = byte_literal(
-        R"({"code":"012 345","ticket":"ticket\"value","login_source":"MFA Login","login_instance_id":"instance-7"})");
+        R"({"code":"012 345","ticket":"ticket\"value","login_instance_id":"instance-7"})");
     written = user_auth_write_mfa_request(mfa, Slice<u8>{output, static_cast<u32>(sizeof(output))});
     expect(written.ok() && written.bytes == expected_mfa.count &&
                bytes_equal(ConstSlice<u8>{output, written.bytes}, expected_mfa) &&

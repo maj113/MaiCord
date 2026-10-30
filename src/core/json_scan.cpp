@@ -107,6 +107,17 @@ __forceinline u32 lowest_bit(u64 bits) noexcept {
     return static_cast<u32>(index);
 }
 
+// Eight offsets from the lowest set bits of *bits. An empty mask stores 63 + base: the high bit
+// keeps the scan input nonzero, so there is no branch for "no bit left".
+__forceinline void store_eight(u32* out, u64* bits, u32 base) noexcept {
+    u64 rest = *bits;
+    for (u32 k = 0; k < 8; ++k) {
+        out[k] = base + lowest_bit(rest | 1ull << 63);
+        rest &= rest - 1;
+    }
+    *bits = rest;
+}
+
 // valid: bytes of this chunk that belong to the input (all for whole chunks).
 __forceinline ChunkResult scan_chunk(const char* chunk, u64 valid, u32 base, ScanState* state, Slice<u32> output,
                                      u32* error_offset) noexcept {
@@ -118,7 +129,19 @@ __forceinline ChunkResult scan_chunk(const char* chunk, u64 valid, u32 base, Sca
     u64 emitted = quotes | (masks.structurals & ~inside & valid);
     const u32 pending = static_cast<u32>(__popcnt64(emitted));
     u32* out = output.data + state->count;
-    if (pending <= output.count - state->count) {
+    const u32 room = output.count - state->count;
+    if (room >= 64) {
+        // Whole blocks of eight stores, past `pending` when it is not a multiple: with 64 slots free they
+        // stay inside the output, and the next chunk (or nothing) overwrites them.
+        state->count += pending;
+        store_eight(out, &emitted, base);
+        if (pending > 8) {
+            store_eight(out + 8, &emitted, base);
+            for (u32 i = 16; i < pending; i += 8) store_eight(out + i, &emitted, base);
+        }
+        return ChunkResult::ok;
+    }
+    if (pending <= room) {
         state->count += pending;
         while (emitted) {
             *out++ = base + lowest_bit(emitted);
@@ -126,7 +149,7 @@ __forceinline ChunkResult scan_chunk(const char* chunk, u64 valid, u32 base, Sca
         }
         return ChunkResult::ok;
     }
-    for (u32 room = output.count - state->count; room; --room) {
+    for (u32 left = room; left; --left) {
         *out++ = base + lowest_bit(emitted);
         emitted &= emitted - 1;
     }

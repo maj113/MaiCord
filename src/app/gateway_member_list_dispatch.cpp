@@ -854,9 +854,9 @@ GatewayClientDispatchRouteResult gateway_client_route_member_list_dispatch(
     if (!*handled) {
         return result(GatewayClientDispatchRouteError::none);
     }
-    // The envelope's index serves the whole route (nothing before it scans); a hand-built envelope is
-    // scanned here instead.
-    const bool indexed = envelope.document.structurals.data &&
+    // The envelope's index serves the whole route, except for GUILD_MEMBER_UPDATE: the state route scans
+    // its data before it declines a member other than the user. A hand-built envelope is scanned here too.
+    const bool indexed = event_index != 1 && envelope.document.structurals.data &&
                          envelope.document.structurals.data == structural_scratch.data;
     JsonIndexedDocument scanned{};
     if (!indexed) {

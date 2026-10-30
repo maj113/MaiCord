@@ -85,6 +85,9 @@ struct RemoteAuthHandshake {
     u64 expires_at_ms;
     u64 next_heartbeat_at_ms;
     u32 heartbeat_interval_ms;
+    // Fraction (of 2^32) of the first interval to wait before the first heartbeat, drawn at
+    // initialize like the official client's randomised first beat.
+    u32 first_heartbeat_fraction;
     char fingerprint[kRemoteAuthFingerprintEncodedBytes];
     RemoteAuthHandshakePhase phase;
     bool heartbeat_unacknowledged;

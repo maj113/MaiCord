@@ -93,7 +93,7 @@ base = 0x140000000
 for line in open(sys.argv[1], encoding='latin-1'):
     m = re.match(r'\s*Preferred load address is ([0-9a-fA-F]+)', line)
     if m: base = int(m.group(1), 16)
-    m = re.match(r'\s*[0-9a-fA-F]{4}:[0-9a-fA-F]{8}\s+(\S+)\s+([0-9a-fA-F]{16})\s+f\b', line)
+    m = re.match(r'\s*0001:[0-9a-fA-F]{8}\s+(\S+)\s+([0-9a-fA-F]{16})\b', line)
     if m and int(m.group(2), 16) >= base: symbols.append((int(m.group(2), 16) - base, m.group(1)))
 symbols.sort()
 starts = [rva for rva, _ in symbols]

@@ -325,10 +325,12 @@ bool huffman_weights(const u8* source, u32 size, u8* weights, u32* count, u32* c
 
 bool build_huffman(ZstdStreamDecoder* d, u8* weights, u32 count) noexcept {
     u32 total = 0;
+    u32 ranks[kHuffmanMaximumBits + 1] = {};
     for (u32 i = 0; i < count; ++i) {
         if (weights[i] > kHuffmanMaximumBits)
             return false;
         total += weights[i] ? 1u << (weights[i] - 1) : 0;
+        ++ranks[weights[i]];
     }
     if (!total || count > 255)
         return false;
@@ -339,16 +341,24 @@ bool build_huffman(ZstdStreamDecoder* d, u8* weights, u32 count) noexcept {
     if (rest & (rest - 1))
         return false;
     weights[count++] = static_cast<u8>(highbit(rest) + 1);
+    ++ranks[weights[count - 1]];
+    // Entries run by weight, symbols ascending within one: each weight owns a span of the table. The spans
+    // add up to total + rest = 1 << bits entries, so none is left unfilled.
+    u32 span[kHuffmanMaximumBits + 1];
     u32 next = 0;
-    for (u32 w = 1; w <= bits; ++w)
-        for (u32 s = 0; s < count; ++s)
-            if (weights[s] == w) {
-                const ZstdHuffmanEntry entry{static_cast<u8>(s), static_cast<u8>(bits + 1 - w)};
-                for (u32 k = 0; k < 1u << (w - 1); ++k)
-                    d->huffman[next++] = entry;
-            }
-    if (next != 1u << bits)
-        return false;
+    for (u32 w = 1; w <= bits; ++w) {
+        span[w] = next;
+        next += ranks[w] << (w - 1);
+    }
+    for (u32 s = 0; s < count; ++s) {
+        const u32 w = weights[s];
+        if (!w)
+            continue;
+        const ZstdHuffmanEntry entry{static_cast<u8>(s), static_cast<u8>(bits + 1 - w)};
+        for (u32 k = 0, n = 1u << (w - 1); k < n; ++k)
+            d->huffman[span[w] + k] = entry;
+        span[w] += 1u << (w - 1);
+    }
     d->huffman_bits = static_cast<u8>(bits);
     return true;
 }

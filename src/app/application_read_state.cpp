@@ -80,12 +80,14 @@ bool account_live() noexcept {
            !g_app.account.stop_failed && !g_app.login.visible && g_app.plugin_account_scope_serial &&
            g_app.account.status.profile_id && g_app.account_ui->chat_state.self_user_id;
 }
-bool scoped(const ApplicationReadState& o) noexcept {
-    return account_live() && o.account_ui == g_app.account_ui &&
-           o.account_instance == g_app.account.instance &&
+// The owner was created for the account instance, profile and (given) user now in the app.
+bool actor_matches(const ApplicationReadState& o, u64 user_id) noexcept {
+    return o.account_ui == g_app.account_ui && o.account_instance == g_app.account.instance &&
            o.account_serial == g_app.plugin_account_scope_serial &&
-           o.profile_id == g_app.account.status.profile_id &&
-           o.user_id == g_app.account_ui->chat_state.self_user_id &&
+           o.profile_id == g_app.account.status.profile_id && user_id == g_app.account_ui->chat_state.self_user_id;
+}
+bool scoped(const ApplicationReadState& o) noexcept {
+    return account_live() && actor_matches(o, o.user_id) &&
            o.read_generation == g_app.account_ui->read_state_store.generation;
 }
 const ChannelRecord* readable(u64 id, bool unread = false) noexcept {
@@ -397,6 +399,15 @@ void manual_failed(ApplicationReadState& o, const ReadActionSource& source, u16 
     response.status_code = status;
     manual_failed(o, source, response);
 }
+// A queued ACK cannot be sent: drop it and tell whoever owns its action (the manual notice, a scoped plan).
+void abandon(ApplicationReadState& o, u64 channel_id, const ReadActionSource* captured, bool manual,
+             u16 status) noexcept {
+    read_ack_controller_cancel(&o.queue, channel_id);
+    if (manual && captured)
+        manual_failed(o, *captured, status);
+    if (captured && captured->scoped)
+        application_scoped_read_individual_result(channel_id, captured->serial, false, false);
+}
 bool queue_manual(ApplicationReadState& o, ReadActionSource source) noexcept {
     if (!source_current(o, source) || o.action_serial == ~u64{0} || !action_capacity(o, source.channel_id))
         return false;
@@ -482,11 +493,7 @@ void application_read_state_ready() noexcept {
         return;
     auto& owner = *g_app.read_state;
     const auto& ui = *g_app.account_ui;
-    const bool same_actor = owner.account_ui == g_app.account_ui &&
-                            owner.account_instance == g_app.account.instance &&
-                            owner.account_serial == g_app.plugin_account_scope_serial &&
-                            owner.profile_id == g_app.account.status.profile_id &&
-                            owner.user_id == ui.chat_state.self_user_id;
+    const bool same_actor = actor_matches(owner, owner.user_id);
     if (same_actor && owner.read_generation == ui.read_state_store.generation)
         return;
     read_ack_controller_reset(&owner.queue);
@@ -667,11 +674,7 @@ bool application_read_state_submit(u64 request_id, u64 now_ms) noexcept {
     const bool manual = intent.kind == ReadAckKind::manual;
     if (!channel || (manual && (!captured || !captured->manual || captured->cursor != intent.message_id ||
                                 !source_current(owner, *captured)))) {
-        if (manual && captured)
-            manual_failed(owner, *captured, 403);
-        if (captured && captured->scoped)
-            application_scoped_read_individual_result(intent.channel_id, captured->serial, false, false);
-        read_ack_controller_cancel(&owner.queue, intent.channel_id);
+        abandon(owner, intent.channel_id, captured, manual, 403);
         prune_action(owner, intent.channel_id);
         return false;
     }
@@ -690,11 +693,7 @@ bool application_read_state_submit(u64 request_id, u64 now_ms) noexcept {
     }
     const ApplicationReadEchoProof proof{intent.channel_id, intent.message_id, captured->serial};
     if (!application_read_state_echo_prepare({&proof, 1})) {
-        if (manual)
-            manual_failed(owner, *captured, 507);
-        if (captured->scoped)
-            application_scoped_read_individual_result(intent.channel_id, captured->serial, false, false);
-        read_ack_controller_cancel(&owner.queue, intent.channel_id);
+        abandon(owner, intent.channel_id, captured, manual, 507);
         return false;
     }
     // Flags ride along only when they changed (the intent's flags_known), as in the client.
@@ -715,11 +714,7 @@ bool application_read_state_submit(u64 request_id, u64 now_ms) noexcept {
         body_request, {g_app.account_ui->response_shape_scratch.response, kMessageAckMaximumBodyBytes});
     if (!body.ok()) {
         log_write(LogLevel::warning, "read", "ack_body_capacity_or_encoding");
-        read_ack_controller_cancel(&owner.queue, intent.channel_id);
-        if (manual)
-            manual_failed(owner, *captured, 400);
-        if (captured->scoped)
-            application_scoped_read_individual_result(intent.channel_id, captured->serial, false, false);
+        abandon(owner, intent.channel_id, captured, manual, 400);
         return false;
     }
     const auto submitted = g_app.account.api.message_ack(
@@ -729,12 +724,7 @@ bool application_read_state_submit(u64 request_id, u64 now_ms) noexcept {
         owner.submit_retry_at_ms = deadline_after(now_ms, 100);
         if (submitted.error != RestClientSubmitError::busy) {
             log_u64(LogLevel::warning, "read", "ack_submit_error", static_cast<u64>(submitted.error));
-            read_ack_controller_cancel(&owner.queue, intent.channel_id);
-            if (manual)
-                manual_failed(owner, *captured, 400);
-            if (captured->scoped)
-                application_scoped_read_individual_result(intent.channel_id, captured->serial, false,
-                                                          false);
+            abandon(owner, intent.channel_id, captured, manual, 400);
         }
         return false;
     }
@@ -757,12 +747,7 @@ bool application_read_state_response(const RestClientResponse& response, const u
         return true;
     // A same-actor response may arrive after READY canceled its queued request.
     // Apply its server-confirmed minimum before changing that epoch.
-    const bool same_actor =
-        g_app.read_state->account_ui == g_app.account_ui &&
-        g_app.read_state->account_instance == g_app.account.instance &&
-        g_app.read_state->account_serial == g_app.plugin_account_scope_serial &&
-        g_app.read_state->profile_id == g_app.account.status.profile_id &&
-        g_app.read_state->submitted_user_id == g_app.account_ui->chat_state.self_user_id;
+    const bool same_actor = actor_matches(*g_app.read_state, g_app.read_state->submitted_user_id);
     const u64 late_floor =
         same_actor && response.request_id == g_app.read_state->ticket.request_id &&
                 response.transport_ok() && response.status_code == 429

@@ -151,10 +151,10 @@ void test_user_settings_proto(void (*check)(bool, const char*) noexcept) noexcep
               store->data_version == 42 && store->session_hash_bytes == 7,
           "user settings: full snapshot loads groups, data version and session hash");
     store->live = true;
-    check(user_settings_store_set(store, compact, user_settings_number(1), 100) && store->due_ms == 1100 &&
-              !user_settings_store_due(*store, 1099) && user_settings_store_due(*store, 1100) &&
+    check(user_settings_store_set(store, compact, user_settings_number(1), 100) && store->due_ms == 100 &&
+              !user_settings_store_due(*store, 99) && user_settings_store_due(*store, 100) &&
               user_settings_store_read(*store, compact, &v) && v.number == 1,
-          "user settings: optimistic edit applies immediately and batches for one second");
+          "user settings: optimistic edit applies immediately and is due at once");
     check(user_settings_store_set(store, compact, user_settings_number(0), 200) && !store->dirty_count &&
               !store->due_ms,
           "user settings: reverting to the server value cancels the pending edit");
@@ -189,7 +189,7 @@ void test_user_settings_proto(void (*check)(bool, const char*) noexcept) noexcep
     check(completion.rolled_back && user_settings_store_read(*store, compact, &v) && v.number == 0 &&
               user_settings_store_read(*store, hour_cycle, &v) && v.number == 2 &&
               user_settings_store_read(*store, emoticons, &v) && v.number == 1 && store->dirty_count == 1 &&
-              store->due_ms == 1600,
+              store->due_ms == 600,
           "user settings: a failed PATCH rolls back in-flight edits but keeps newer pending ones");
     const u32 again = user_settings_store_begin(store, {patch, sizeof(patch)}, &required);
     completion = user_settings_store_complete(store, UserSettingsOutcome::rate_limited, {}, 5000);
@@ -318,6 +318,18 @@ void test_user_settings_guild_lists(void (*check)(bool, const char*) noexcept) n
               user_settings_store_contains(*store, restricted, a) &&
               !user_settings_store_set(store, restricted, user_settings_member(0, true), 50),
           "user settings: toggling an ID back cancels its pending edit");
+    constexpr UserSettingsField toggle{6, 17, 0, UserSettingsKind::boolean};
+    check(store->due_ms == 10 + kUserSettingsFrequentMilliseconds && user_settings_store_set(store, toggle, user_settings_number(1), 60) &&
+              store->due_ms == 60 && user_settings_store_due(*store, 60) &&
+              user_settings_store_set(store, restricted, user_settings_member(77, true), 70) && store->due_ms == 60,
+          "user settings: list edits wait for the frequent class; a setting edit pulls the write forward");
+    store->rate_limited = true;
+    store->due_ms = 9000;
+    check(user_settings_store_set(store, toggle, user_settings_number(0), 80) &&
+              user_settings_store_set(store, toggle, user_settings_number(1), 90) && store->due_ms == 9000,
+          "user settings: a pending 429 retry time is not pulled forward by new edits");
+    store->rate_limited = false;
+    store->due_ms = 60;
     u8 patch[512]{};
     u32 required = 0;
     const u32 sent = user_settings_store_begin(store, {patch, sizeof(patch)}, &required);

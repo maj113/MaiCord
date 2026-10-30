@@ -376,8 +376,6 @@ u32 guild_admin_image_bytes(const GuildAdminRequest& request) noexcept;
 // are not 32 lowercase hex characters are skipped; zero bytes when none is
 // left or the output is short.
 u32 guild_admin_write_md5_header(Utf8View banner_md5, Utf8View splash_md5, Slice<u8> output) noexcept;
-// Lowercase hex of a 16-byte digest into output[0..32).
-void guild_admin_md5_hex(const u8 (&digest)[16], char (&output)[32]) noexcept;
 // ISO 8601 UTC with an explicit offset (YYYY-MM-DDTHH:MM:SS+00:00).
 u32 guild_admin_format_timestamp(u64 unix_seconds, Slice<char> output) noexcept;
 // Date.prototype.toISOString's form, YYYY-MM-DDTHH:MM:SS.mmmZ (24 bytes), as

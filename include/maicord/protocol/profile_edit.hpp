@@ -49,10 +49,11 @@ enum UserPatchField : u8 {
     user_patch_avatar_decoration = 1u << 2,
 };
 // avatar: a data URI, empty sends null. avatar_description rides along a new
-// avatar. A zero decoration sku sends null.
+// avatar, and avatar_md5 (32 lowercase hex, or empty) is the MD5 of the picked original file,
+// sent as X-Discord-Original-MD5. A zero decoration sku sends null.
 struct UserPatch {
     u8 fields;
-    Utf8View avatar, avatar_description, global_name;
+    Utf8View avatar, avatar_description, avatar_md5, global_name;
     u64 avatar_decoration_sku;
 };
 enum MemberEditField : u8 {
@@ -62,7 +63,7 @@ enum MemberEditField : u8 {
 };
 struct MemberEditPatch {
     u8 fields;
-    Utf8View nick, avatar, avatar_description;
+    Utf8View nick, avatar, avatar_description, avatar_md5;
     u64 avatar_decoration_sku;
 };
 enum ProfilePatchField : u8 {
@@ -84,7 +85,7 @@ struct ProfilePatch {
     ProfileThemePatch theme;
     bool accent_none;
     u8 collectible_count;
-    Utf8View banner, bio, pronouns;
+    Utf8View banner, banner_md5, bio, pronouns;
     u32 accent_color;
     u32 theme_colors[2];
     u64 collectibles[kProfileEditCollectibleMaximum];
@@ -116,6 +117,10 @@ ProfileEditWriteResult profile_edit_write_target(const ProfileEditRequest&, Slic
 // byte); zero for bodyless requests.
 u32 profile_edit_body_capacity(const ProfileEditRequest&) noexcept;
 ProfileEditWriteResult profile_edit_write_body(const ProfileEditRequest&, Slice<u8> output) noexcept;
+// The X-Discord-Original-MD5 value of a request carrying a new image with its original's MD5:
+// `user_default_profile_avatar="<md5>"` (or the per-server avatar and the banner keys, as the
+// official client names them); zero bytes when there is none.
+u32 profile_edit_write_md5(const ProfileEditRequest&, Slice<u8> output) noexcept;
 
 // The editable values a GET profile answers with (user and, with a server,
 // its member and member profile). Text is copied and bounded.

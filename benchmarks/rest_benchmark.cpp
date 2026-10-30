@@ -112,15 +112,16 @@ int run() noexcept {
     begin = clock_now();
     for (u32 iteration = 0; iteration < kSchedulerIterations;
          ++iteration) {
-        RestRateAcquireResult acquired =
-            rest_rate_acquire(&scheduler, route, iteration + 1);
+        // Each iteration starts after the one-second window of the last one.
+        const u64 now_ms = (iteration + 1) * 2000ull;
+        RestRateAcquireResult acquired = rest_rate_acquire(&scheduler, route, now_ms);
         if (!acquired.acquired_request()) {
             return 7;
         }
         const RestRateObservation observed =
             rest_rate_observe(
                 &scheduler, &acquired.lease, scheduler_head, nullptr,
-                iteration + 1, 1'000'000 + iteration);
+                now_ms, 1'000'000 + iteration);
         if (!observed.ok()) {
             return 8;
         }

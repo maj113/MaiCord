@@ -13,8 +13,8 @@ u32 failures;
 // The last request the transport saw; large bodies only record their size.
 struct Capture {
     RestRouteKey route;
-    u32 submissions, large_submissions, target_bytes, body_bytes, timeout_ms;
-    u8 target[kRestClientMaximumTargetBytes], body[4096];
+    u32 submissions, large_submissions, target_bytes, body_bytes, timeout_ms, header_bytes;
+    u8 target[kRestClientMaximumTargetBytes], body[4096], headers[256];
     bool json, large;
 } capture;
 
@@ -239,6 +239,46 @@ void test_transport() noexcept {
           "profile edit transport: loads are bodyless GETs");
     check(!account_profile_edit_submit(&details, &request, 0).ok(),
           "profile edit transport: a request id is required");
+
+    // A new image carries the MD5 of the picked original file, as the official client reports it.
+    constexpr auto md5 = utf8_literal("0123456789abcdef0123456789abcdef");
+    UserPatch picked{};
+    picked.fields = user_patch_avatar;
+    picked.avatar = kAvatarUri;
+    picked.avatar_md5 = md5;
+    auto picked_request = user_request(&picked);
+    capture = {};
+    check(account_profile_edit_submit(&details, &picked_request, 8).ok() &&
+              same(capture.headers, capture.header_bytes,
+                   utf8_literal("X-Discord-Original-MD5: user_default_profile_avatar=\"0123456789abcdef0123456789abcdef\"\r\n")),
+          "profile edit transport: a new avatar reports its original's MD5 header");
+    picked.avatar_md5 = {};
+    capture = {};
+    check(account_profile_edit_submit(&details, &picked_request, 9).ok() && !capture.header_bytes,
+          "profile edit transport: no MD5 means no header");
+    u8 value[96];
+    ProfilePatch banner{};
+    banner.fields = profile_patch_banner;
+    banner.banner = kBannerUri;
+    banner.banner_md5 = md5;
+    MemberEditPatch member_avatar{};
+    member_avatar.fields = member_edit_avatar;
+    member_avatar.avatar = kAvatarUri;
+    member_avatar.avatar_md5 = md5;
+    const auto banner_value = profile_edit_write_md5(profile_request(&banner), {value, sizeof(value)});
+    const bool banner_ok = same(value, banner_value, utf8_literal("user_default_profile_banner=\"0123456789abcdef0123456789abcdef\""));
+    const auto guild_banner_value = profile_edit_write_md5(profile_request(&banner, 10), {value, sizeof(value)});
+    const bool guild_banner_ok =
+        same(value, guild_banner_value, utf8_literal("user_guild_profile_banner=\"0123456789abcdef0123456789abcdef\""));
+    const auto member_value = profile_edit_write_md5(member_request(&member_avatar), {value, sizeof(value)});
+    check(banner_ok && guild_banner_ok &&
+              same(value, member_value, utf8_literal("user_guild_profile_avatar=\"0123456789abcdef0123456789abcdef\"")),
+          "profile edit: MD5 keys follow the image: default and per-server avatar and banner");
+    banner.banner_md5 = utf8_literal("0123456789ABCDEF0123456789abcdef");
+    check(!profile_edit_request_valid(profile_request(&banner)), "profile edit: an MD5 must be 32 lowercase hex digits");
+    banner.banner_md5 = md5;
+    banner.banner = {};
+    check(!profile_edit_request_valid(profile_request(&banner)), "profile edit: an MD5 needs its image");
 }
 
 ProfileEditorDraft draft_from(const ProfileEditorBase& base) noexcept {
@@ -456,6 +496,8 @@ static RestClientSubmitResult submit_stub(RestClient*,
     c.body_bytes = request.body.count;
     copy_bytes(c.target, request.target.data, request.target.count);
     copy_bytes(c.body, request.body.data, request.body.count);
+    c.header_bytes = request.extra_headers.count <= sizeof(c.headers) ? request.extra_headers.count : 0;
+    copy_bytes(c.headers, request.extra_headers.data, c.header_bytes);
     return {RestClientSubmitError::none};
 }
 static RestClientSubmitResult submit_large_stub(RestClient*,

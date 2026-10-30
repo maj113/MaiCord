@@ -447,7 +447,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
         tests/engineering_regressions.cpp tests/deflate_matches.cpp tests/deflate_differential.cpp
         tests/deflate_reference.cpp tests/shaped_text_cache.cpp src/render/shaped_text_cache.cpp
         tests/animation_modal_pause.cpp tests/mailbox_release_race.cpp tests/mailbox_acquire_release.cpp
-        tests/responsiveness.cpp tests/gateway_ready_users.cpp tests/json_string_decode.cpp
+        tests/responsiveness.cpp tests/gateway_ready_users.cpp tests/json_string_decode.cpp tests/json_reader_visit.cpp
         tests/resolver_publication.cpp tests/media_worker_publication.cpp tests/png_crc.cpp tests/frame_rate.cpp
         tests/layout_anchors.cpp tests/widget_input.cpp tests/text_form.cpp tests/application_forum_form.cpp
         tests/secure_edit_history.cpp tests/text_composition_history.cpp tests/text_input_runs.cpp

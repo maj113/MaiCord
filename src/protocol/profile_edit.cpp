@@ -1,4 +1,5 @@
 #include "maicord/protocol/profile_edit.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
 #include "json_fields.hpp"
@@ -22,8 +23,18 @@ bool image_valid(Utf8View value) noexcept {
     return !value.bytes || (data_uri(value) && utf8_validate(value).valid);
 }
 // An optional image whose description needs it.
-bool avatar_valid(Utf8View avatar, Utf8View description) noexcept {
-    return image_valid(avatar) && (!description.bytes || avatar.bytes) &&
+bool md5_valid(Utf8View md5, Utf8View image) noexcept {
+    if (!md5.bytes)
+        return true;
+    if (md5.bytes != 32 || !image.bytes)
+        return false;
+    for (u32 i = 0; i < 32; ++i)
+        if (!ascii_is_lower_hex_digit(md5.data[i]))
+            return false;
+    return true;
+}
+bool avatar_valid(Utf8View avatar, Utf8View description, Utf8View md5) noexcept {
+    return image_valid(avatar) && md5_valid(md5, avatar) && (!description.bytes || avatar.bytes) &&
            text_within(description, kProfileEditDescriptionBytes, kProfileEditDescriptionBytes);
 }
 bool user_valid(const UserPatch& p) noexcept {
@@ -35,7 +46,7 @@ bool user_valid(const UserPatch& p) noexcept {
         return false;
     if (!(p.fields & user_patch_avatar_decoration) && p.avatar_decoration_sku)
         return false;
-    return avatar_valid(p.avatar, p.avatar_description) &&
+    return avatar_valid(p.avatar, p.avatar_description, p.avatar_md5) &&
            text_within(p.global_name, kProfileEditDisplayNameCodepoints, kProfileEditDisplayNameCodepoints * 4);
 }
 bool member_valid(const MemberEditPatch& p) noexcept {
@@ -47,7 +58,7 @@ bool member_valid(const MemberEditPatch& p) noexcept {
         return false;
     if (!(p.fields & member_edit_avatar_decoration) && p.avatar_decoration_sku)
         return false;
-    return avatar_valid(p.avatar, p.avatar_description) &&
+    return avatar_valid(p.avatar, p.avatar_description, p.avatar_md5) &&
            text_within(p.nick, kProfileEditNicknameCodepoints, kProfileEditNicknameCodepoints * 4);
 }
 bool profile_valid(const ProfilePatch& p, bool member) noexcept {
@@ -67,7 +78,7 @@ bool profile_valid(const ProfilePatch& p, bool member) noexcept {
         if (!p.collectibles[i])
             return false;
     // The server enforces the bio limit (an experiment raises it to 300).
-    return image_valid(p.banner) && text_within(p.bio, kProfileBioMaximumCodepoints, kProfileBioMaximumUtf8Bytes) &&
+    return image_valid(p.banner) && md5_valid(p.banner_md5, p.banner) && text_within(p.bio, kProfileBioMaximumCodepoints, kProfileBioMaximumUtf8Bytes) &&
            text_within(p.pronouns, kProfileEditPronounsCodepoints, kProfileEditPronounsCodepoints * 4);
 }
 void escaped(Utf8View value, u32* bytes) noexcept {
@@ -303,6 +314,30 @@ ProfileEditWriteResult profile_edit_write_target(const ProfileEditRequest& r, Sl
         break;
     }
     return ok ? ProfileEditWriteResult{w.used, true} : ProfileEditWriteResult{};
+}
+
+u32 profile_edit_write_md5(const ProfileEditRequest& r, Slice<u8> output) noexcept {
+    const bool member = member_operation(r.operation);
+    Utf8View md5{};
+    const char* key = nullptr;
+    if (r.user && (r.user->fields & user_patch_avatar)) {
+        md5 = r.user->avatar_md5;
+        key = "user_default_profile_avatar";
+    } else if (r.member && (r.member->fields & member_edit_avatar)) {
+        md5 = r.member->avatar_md5;
+        key = "user_guild_profile_avatar";
+    } else if (r.profile && (r.profile->fields & profile_patch_banner)) {
+        md5 = r.profile->banner_md5;
+        key = member ? "user_guild_profile_banner" : "user_default_profile_banner";
+    }
+    if (!md5.bytes)
+        return 0;
+    ProtocolWriter w{output, 0};
+    return protocol_writer_append_c_string(&w, key) && protocol_writer_append_literal(&w, "=\"") &&
+                   protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(md5.data), 32) &&
+                   protocol_writer_append_byte(&w, '"')
+               ? w.used
+               : 0;
 }
 
 u32 profile_edit_body_capacity(const ProfileEditRequest& r) noexcept {

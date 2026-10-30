@@ -196,6 +196,11 @@ bool connected() noexcept {
 }
 void queue(Op, u64) noexcept {
 }
+bool request_read(bool&, bool&, Op) noexcept {
+    return false;
+}
+void retry_read(bool&, bool&, Op) noexcept {
+}
 TextFormOwnerKey form_key(u64, u64) noexcept {
     return {};
 }

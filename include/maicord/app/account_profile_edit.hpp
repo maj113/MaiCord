@@ -21,7 +21,9 @@ struct ProfileImageRequest {
     ProfileImageInfo* info;
     Slice<u8> data_uri;
     u32 data_uri_bytes;
-    u32 reserved;
+    // A crop also reports the MD5 of the original file (the X-Discord-Original-MD5 value).
+    bool has_original_md5;
+    char original_md5[32];
 };
 bool account_profile_image(ProfileImageRequest* request) noexcept;
 // The caller's data URI bank: the URI rides in one large PATCH body with a

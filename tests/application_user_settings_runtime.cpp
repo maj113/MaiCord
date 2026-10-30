@@ -255,10 +255,10 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
     char formatted[32];
     const auto time = format_timestamp_local(1'790'856'000, 't', 1'790'856'000, {formatted, 32});
     check(time.ok && time.bytes == 5 && formatted[2] == ':', "user settings runtime: 24-hour clock formats HH:mm");
-    check(!application_user_settings_pending(now + 500) && application_user_settings_pending(now + 2000) &&
+    check(application_user_settings_pending(now) && application_user_settings_pending(now + 2000) &&
               application_user_settings_submit(900, now + 2000) &&
               captured.operation == AccountSettingsOperation::settings_patch && !captured.required_data_version,
-          "user settings runtime: the batch is submitted after one second as one settings PATCH");
+          "user settings runtime: a setting edit is submitted at once as one settings PATCH");
     u8 target[kAccountSettingsMaximumTargetBytes];
     Utf8View path{};
     Utf8View json = body_of(body, kUserSettingsPatchBytes, target, sizeof(target), &path);

@@ -1648,14 +1648,6 @@ u32 guild_admin_write_md5_header(Utf8View banner_md5, Utf8View splash_md5, Slice
     return ok && any ? w.used : 0;
 }
 
-void guild_admin_md5_hex(const u8 (&digest)[16], char (&output)[32]) noexcept {
-    static constexpr char digits[] = "0123456789abcdef";
-    for (u32 i = 0; i < 16; ++i) {
-        output[i * 2] = digits[digest[i] >> 4];
-        output[i * 2 + 1] = digits[digest[i] & 15];
-    }
-}
-
 GuildAdminResult guild_admin_write_reason(const GuildAdminRequest& r, Slice<u8> output) noexcept {
     if (!byte_range_valid({output.data, output.count}))
         return {0, 0, GuildAdminError::input};

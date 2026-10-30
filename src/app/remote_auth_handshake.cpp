@@ -2,6 +2,7 @@
 
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/platform/random.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/base64url.hpp"
 #include "maicord/protocol/remote_auth.hpp"
@@ -74,6 +75,8 @@ RemoteAuthHandshakeResult remote_auth_handshake_initialize(RemoteAuthHandshake* 
         reset_value<RemoteAuthHandshake>(handshake);
         return result(RemoteAuthHandshakeError::crypto, 0, RemoteAuthError::none, initialized.error);
     }
+    if (!secure_random_u32(&handshake->first_heartbeat_fraction).ok())
+        handshake->first_heartbeat_fraction = ~0u;
     u8 fingerprint[kRemoteAuthSha256Bytes]{};
     const RemoteAuthCryptoResult fingerprinted = remote_auth_crypto_fingerprint(
         handshake->crypto, Slice<u8>{fingerprint, static_cast<u32>(sizeof(fingerprint))});
@@ -169,7 +172,8 @@ RemoteAuthHandshakeResult remote_auth_handshake_handle(RemoteAuthHandshake* hand
         }
         handshake->expires_at_ms = deadline_after(now_ms, packet.timeout_ms);
         handshake->heartbeat_interval_ms = packet.heartbeat_interval_ms;
-        handshake->next_heartbeat_at_ms = deadline_after(now_ms, packet.heartbeat_interval_ms);
+        handshake->next_heartbeat_at_ms = deadline_after(
+            now_ms, static_cast<u32>((static_cast<u64>(packet.heartbeat_interval_ms) * handshake->first_heartbeat_fraction) >> 32));
         handshake->heartbeat_unacknowledged = false;
         handshake->phase = RemoteAuthHandshakePhase::awaiting_nonce;
         event->kind = RemoteAuthHandshakeEventKind::send_command;

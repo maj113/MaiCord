@@ -1,5 +1,6 @@
 #include "maicord/app/account_profile_edit.hpp"
 
+#include "maicord/app/original_md5.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
@@ -26,6 +27,17 @@ RestClientSubmitResult account_profile_edit_submit(RestClient* rest, const Profi
                                          request_id,
                                          kRestClientDefaultTimeoutMs,
                                          false});
+    // X-Discord-Original-MD5 of a new avatar or banner, as the official client reports it.
+    u8 md5_value[80];
+    u8 headers[128];
+    const u32 md5_bytes = profile_edit_write_md5(*request, {md5_value, sizeof(md5_value)});
+    u32 header_bytes = 0;
+    if (md5_bytes) {
+        header_bytes = rest_append_extra_header({headers, sizeof(headers)}, 0, utf8_literal("X-Discord-Original-MD5"),
+                                                {md5_value, md5_bytes});
+        if (header_bytes == ~0u)
+            return {RestClientSubmitError::invalid_input};
+    }
     if (capacity > kRestClientMaximumLargeRequestBodyBytes + 6 * 1024)
         return {RestClientSubmitError::body_capacity};
     // Demand-backed body bank; cleared before release (bodies hold the
@@ -35,12 +47,13 @@ RestClientSubmitResult account_profile_edit_submit(RestClient* rest, const Profi
         return {RestClientSubmitError::memory};
     const auto written = profile_edit_write_body(*request, {body, capacity});
     const bool large = written.ok && written.bytes > kRestClientMaximumRequestBodyBytes;
-    const RestClientRequest submit{{target, path.bytes},
+    RestClientRequest submit{{target, path.bytes},
                                    {body, written.ok ? written.bytes : 0},
                                    profile_edit_route(*request),
                                    request_id,
                                    large ? kLargeTimeoutMs : kRestClientDefaultTimeoutMs,
                                    true};
+    submit.extra_headers = {headers, header_bytes};
     const auto result = !written.ok || written.bytes > kRestClientMaximumLargeRequestBodyBytes
                             ? RestClientSubmitResult{RestClientSubmitError::body_capacity}
                         : large ? rest_client_submit_large(rest, submit)
@@ -61,6 +74,7 @@ bool account_profile_image(ProfileImageRequest* request) noexcept {
     GuildImageBuffer buffer{};
     *request->info = profile_image_crop(request->source, request->crop, &buffer);
     bool ok = request->info->error == ProfileImageError::none && buffer.data;
+    request->has_original_md5 = ok && original_md5_hex(request->source, request->original_md5);
     if (ok) {
         const auto kind = request->info->output_kind;
         const u32 needed = guild_image_data_uri_bytes(kind, buffer.bytes);

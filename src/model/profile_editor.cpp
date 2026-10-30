@@ -146,11 +146,13 @@ bool profile_editor_patches(ProfileEditorTab tab, const ProfileEditorBase& base,
         return false;
     const Utf8View avatar = new_avatar ? draft.avatar_uri : Utf8View{};
     const Utf8View description = new_avatar ? draft.avatar_description : Utf8View{};
+    const Utf8View md5 = new_avatar ? draft.avatar_md5 : Utf8View{};
     if (tab == ProfileEditorTab::main) {
         if (changed & profile_editor_avatar) {
             user->fields |= user_patch_avatar;
             user->avatar = avatar;
             user->avatar_description = description;
+            user->avatar_md5 = md5;
         }
         if (changed & profile_editor_name) {
             user->fields |= user_patch_global_name;
@@ -169,6 +171,7 @@ bool profile_editor_patches(ProfileEditorTab tab, const ProfileEditorBase& base,
             member->fields |= member_edit_avatar;
             member->avatar = avatar;
             member->avatar_description = description;
+            member->avatar_md5 = md5;
         }
         if (changed & profile_editor_decoration) {
             member->fields |= member_edit_avatar_decoration;
@@ -178,6 +181,7 @@ bool profile_editor_patches(ProfileEditorTab tab, const ProfileEditorBase& base,
     if (changed & profile_editor_banner) {
         profile->fields |= profile_patch_banner;
         profile->banner = new_banner ? draft.banner_uri : Utf8View{};
+        profile->banner_md5 = new_banner ? draft.banner_md5 : Utf8View{};
     }
     if (changed & profile_editor_bio) {
         profile->fields |= profile_patch_bio;

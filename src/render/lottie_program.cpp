@@ -1196,9 +1196,9 @@ struct Document {
         return true;
     }
 };
-static_assert(offsetof(Document, leaf_records) == 96);
-static_assert(offsetof(Document, leaf_pool) == 2144);
-static_assert(sizeof(Document) == 747632);
+static_assert(offsetof(Document, leaf_records) == 104);
+static_assert(offsetof(Document, leaf_pool) == 2152);
+static_assert(sizeof(Document) == 747640);
 class OutlineSink final : public ID2D1SimplifiedGeometrySink {
     GlyphOutline* out;
     void push(GlyphPathCommand command) noexcept {

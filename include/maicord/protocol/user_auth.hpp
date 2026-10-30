@@ -7,7 +7,6 @@ struct RestUserRequestHeaders;
 
 inline constexpr u32 kUserAuthMaximumLoginBytes = 512;
 inline constexpr u32 kUserAuthMaximumPasswordBytes = 1024;
-inline constexpr u32 kUserAuthMaximumSourceBytes = 96;
 inline constexpr u32 kUserAuthMaximumTicketBytes = 4096;
 inline constexpr u32 kUserAuthMaximumCodeBytes = 256;
 inline constexpr u32 kUserAuthMaximumWebauthnCredentialBytes = 16 * 1024;
@@ -20,7 +19,6 @@ inline constexpr u32 kUserAuthBrowserExchangeMaximumResponseBytes = 32 * 1024;
 inline constexpr u32 kUserAuthBrowserExchangeMaximumTokenBytes = 2 * 1024;
 
 inline constexpr Utf8View kUserAuthLoginTarget = utf8_literal("/api/v9/auth/login");
-inline constexpr Utf8View kUserAuthDefaultLoginSource = utf8_literal("The default username password Login");
 inline constexpr Utf8View kUserAuthMfaSmsSendTarget = utf8_literal("/api/v9/auth/mfa/sms/send");
 inline constexpr Utf8View kUserAuthRemoteAuthTicketTarget = utf8_literal("/api/v9/users/@me/remote-auth/login");
 
@@ -44,7 +42,6 @@ struct UserAuthWriteResult {
 struct UserAuthPasswordRequest {
     Utf8View login;
     Utf8View password;
-    Utf8View login_source;
     bool undelete;
 };
 
@@ -75,7 +72,6 @@ enum class UserAuthOperation : u8 {
 struct UserAuthMfaRequest {
     Utf8View code;
     Utf8View ticket;
-    Utf8View login_source;
     Utf8View login_instance_id;
     UserAuthMfaType type;
 };

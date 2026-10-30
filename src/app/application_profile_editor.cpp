@@ -100,6 +100,9 @@ struct Picked {
     u32 description_bytes;
     u8* uri;
     u32 uri_bytes;
+    // MD5 of the original file the URI was cropped from (X-Discord-Original-MD5).
+    bool has_md5;
+    char md5[32];
     u32 path_units;
     // Last: moves copy only the used part of the path.
     wchar_t path[kNativeFilePickerMaximumPathUnits + 1];
@@ -303,6 +306,7 @@ void release_uri(Picked& picked) noexcept {
     }
     picked.uri = nullptr;
     picked.uri_bytes = 0;
+    picked.has_md5 = false;
 }
 void retire_preview(Picked& picked) noexcept {
     if (picked.admitted && picked.instance == g_app.account.instance && g_app.account.api.media_local_preview) {
@@ -380,6 +384,10 @@ ProfileEditorDraft current_draft() noexcept {
     d.avatar_uri = {reinterpret_cast<const char*>(owner->avatar.uri), owner->avatar.uri_bytes};
     d.avatar_description = {owner->avatar.description, owner->avatar.description_bytes};
     d.banner_uri = {reinterpret_cast<const char*>(owner->banner.uri), owner->banner.uri_bytes};
+    if (owner->avatar.has_md5)
+        d.avatar_md5 = {owner->avatar.md5, 32};
+    if (owner->banner.has_md5)
+        d.banner_md5 = {owner->banner.md5, 32};
     return d;
 }
 u16 changes() noexcept {
@@ -1167,6 +1175,9 @@ bool prepare_uri(Picked& picked) noexcept {
     }
     picked.uri = uri;
     picked.uri_bytes = request.data_uri_bytes;
+    picked.has_md5 = request.has_original_md5;
+    if (picked.has_md5)
+        copy_bytes(picked.md5, request.original_md5, 32);
     return true;
 }
 

@@ -208,4 +208,9 @@ bool thread_creation_ui_adapter_retire(u8 reason) noexcept {
         return application_thread_creation_synchronize() && application_text_form_synchronize();
     }, &reason);
 }
+namespace app_detail {
+// The probe has no slowmode state: thread creation is never throttled.
+bool application_thread_create_cooldown_active(u64) noexcept { return false; }
+void application_thread_create_note_created(u64) noexcept {}
+} // namespace app_detail
 } // namespace maicord

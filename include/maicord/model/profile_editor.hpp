@@ -50,6 +50,8 @@ struct ProfileEditorDraft {
     Utf8View name, pronouns, bio;
     ProfileImageEdit avatar, banner;
     Utf8View avatar_uri, avatar_description, banner_uri;
+    // MD5 (lowercase hex) of the picked original files, or empty.
+    Utf8View avatar_md5, banner_md5;
     bool decoration_set, effect_set, theme_set, accent_set;
     u64 decoration_sku, effect_sku;
     // theme_set with theme_reset: guild "Reset Theme" ([null,null]); main: null.

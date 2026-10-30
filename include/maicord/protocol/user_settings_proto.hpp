@@ -37,7 +37,11 @@ inline constexpr u32 kUserSettingsSessionHashField = 1000;
 inline constexpr u32 kUserSettingsSessionHashBytes = 64;
 // Hand-off marker (varint 1) for a partial USER_SETTINGS_PROTO_UPDATE.
 inline constexpr u32 kUserSettingsPartialField = 1001;
-inline constexpr u64 kUserSettingsBatchMilliseconds = 1000;
+// Save delay per edit class, as the official client schedules proto writes: a user action on a
+// setting goes out at once (INFREQUENT_USER_ACTION, 0 s); per-server lists, toggled in runs,
+// wait 10 s (FREQUENT_USER_ACTION). A shorter class pulls a pending write forward.
+inline constexpr u64 kUserSettingsImmediateMilliseconds = 0;
+inline constexpr u64 kUserSettingsFrequentMilliseconds = 10'000;
 // The REST request body limit (64 KiB) bounds the base64 partial message.
 inline constexpr u32 kUserSettingsPatchBytes = 64 * 1024;
 inline constexpr u32 kUserSettingsPartialMaximumBytes = 47 * 1024;
@@ -135,6 +139,8 @@ struct UserSettingsStore {
     bool loaded, live, inflight_active, refetch;
     // An offline edit pinned offline_data_version (which may be 0).
     bool offline_pinned;
+    // The pending write waits for a 429 retry time; new edits do not pull it forward.
+    bool rate_limited;
 };
 enum class UserSettingsOutcome : u8 { saved, out_of_date, rate_limited, invalid_data, failed };
 struct UserSettingsCompletion {
@@ -150,8 +156,8 @@ bool user_settings_store_read(const UserSettingsStore&, UserSettingsField, UserS
 // Edits are keyed by field and ID, so toggles of different IDs batch together.
 bool user_settings_store_contains(const UserSettingsStore&, UserSettingsField, u64 id) noexcept;
 ConstSlice<u8> user_settings_store_server_group(const UserSettingsStore&, u32 group) noexcept;
-// Records an edit. The batch is due kUserSettingsBatchMilliseconds after its
-// first edit. Edits while offline pin the data version for conflict checks.
+// Records an edit. The batch is due after the edit's delay class (the shortest wins) unless a
+// rate-limit retry is pending. Edits while offline pin the data version for conflict checks.
 bool user_settings_store_set(UserSettingsStore*, UserSettingsField, const UserSettingsValue&, u64 now_ms) noexcept;
 bool user_settings_store_due(const UserSettingsStore&, u64 now_ms) noexcept;
 // Serializes the dirty groups into a partial message and moves the edits in

@@ -487,7 +487,7 @@ void user_settings_store_reset(UserSettingsStore* store) noexcept {
     store->dirty_count = store->inflight_count = store->offline_data_version = 0;
     store->session_hash_bytes = 0;
     store->due_ms = 0;
-    store->loaded = store->live = store->inflight_active = store->refetch = store->offline_pinned = false;
+    store->loaded = store->live = store->inflight_active = store->refetch = store->offline_pinned = store->rate_limited = false;
     store->revision = revision;
 }
 
@@ -623,8 +623,11 @@ bool user_settings_store_set(UserSettingsStore* store, UserSettingsField field, 
         ++store->dirty_count;
     }
     store->dirty[index] = {field, value};
-    if (!store->due_ms)
-        store->due_ms = now_ms + kUserSettingsBatchMilliseconds;
+    // 0 means no write is pending.
+    const u64 at = maximum<u64>(1, now_ms + (field.kind == K::id_member ? kUserSettingsFrequentMilliseconds
+                                                                       : kUserSettingsImmediateMilliseconds));
+    if (!store->due_ms || (at < store->due_ms && !store->rate_limited))
+        store->due_ms = at;
     if (!store->live && !store->offline_pinned) {
         store->offline_data_version = store->data_version;
         store->offline_pinned = true;
@@ -673,6 +676,7 @@ u32 user_settings_store_begin(UserSettingsStore* store, Slice<u8> partial, u32* 
     clear_bytes(store->dirty, sizeof(store->dirty));
     store->dirty_count = 0;
     store->due_ms = 0;
+    store->rate_limited = false;
     store->inflight_active = true;
     *version = store->offline_data_version;
     if (required)
@@ -699,6 +703,7 @@ UserSettingsCompletion user_settings_store_complete(UserSettingsStore* store, Us
         copy_bytes(store->dirty, merged, sizeof(merged));
         store->dirty_count = count;
         store->due_ms = retry_at_ms ? retry_at_ms : 1;
+        store->rate_limited = true;
         result.retry = true;
     } else {
         const bool snapshot = (outcome == UserSettingsOutcome::saved || outcome == UserSettingsOutcome::out_of_date) &&
