@@ -29,7 +29,87 @@ bool walk_embed_media_strings(MessageRichEmbedMedia* media, StringVisitor visito
     return visit_all(visitor, context, &media->url, &media->proxy_url, &media->content_type, &media->description);
 }
 
-bool walk_strings(MessageRichRecord* record, u32 fields, StringVisitor visitor, void* context) noexcept {
+// Item arrays live in fixed-size side blocks: per array kind, a small class and a class holding the
+// protocol maximum. Blocks recycle through a per-class free list; nothing moves, so item pointers
+// stay valid until their record's array is replaced. Kinds follow the record's member order.
+enum ArrayKind : u32 { kind_reaction, kind_attachment, kind_embed, kind_field, kind_sticker, kind_component };
+constexpr u32 kItemBytes[kMessageRichSideKinds] = {
+    sizeof(MessageRichReaction), sizeof(MessageRichAttachment), sizeof(MessageRichEmbed),
+    sizeof(MessageRichEmbedField), sizeof(MessageRichSticker), sizeof(MessageRichComponent)};
+constexpr u32 kSmallItems[kMessageRichSideKinds] = {4, 2, 1, 4, kGatewayMessageStickerMaximum, 4};
+constexpr u32 kLargeItems[kMessageRichSideKinds] = {
+    kGatewayMessageReactionMaximum, kGatewayMessageAttachmentMaximum, kGatewayMessageEmbedMaximum,
+    kGatewayMessageEmbedFieldMaximum, kGatewayMessageStickerMaximum, kGatewayMessageComponentMaximum};
+// The event field that replaces each kind; fields belong to the embeds they follow.
+constexpr u32 kKindFields[kMessageRichSideKinds] = {
+    gateway_message_field_reactions, gateway_message_field_attachments, gateway_message_field_embeds,
+    gateway_message_field_embeds,    gateway_message_field_sticker_items, gateway_message_field_components};
+constexpr u32 kSideMagic = 0x53524D43u;
+
+// The record keeps its six array pointers and six counts contiguously, in kind order.
+constexpr u32 kPointerBytes = sizeof(void*);
+static_assert(__builtin_offsetof(MessageRichRecord, components) - __builtin_offsetof(MessageRichRecord, reactions) ==
+              5 * kPointerBytes);
+static_assert(__builtin_offsetof(MessageRichRecord, component_count) -
+                  __builtin_offsetof(MessageRichRecord, reaction_count) == 5);
+
+// Shared zero items that an empty array points at; never written.
+alignas(8) MessageRichReaction g_no_reactions[kGatewayMessageReactionMaximum];
+alignas(8) MessageRichAttachment g_no_attachments[kGatewayMessageAttachmentMaximum];
+alignas(8) MessageRichEmbed g_no_embeds[kGatewayMessageEmbedMaximum];
+alignas(8) MessageRichEmbedField g_no_fields[kGatewayMessageEmbedFieldMaximum];
+alignas(8) MessageRichSticker g_no_stickers[kGatewayMessageStickerMaximum];
+alignas(8) MessageRichComponent g_no_components[kGatewayMessageComponentMaximum];
+void* const kNoItems[kMessageRichSideKinds] = {g_no_reactions, g_no_attachments, g_no_embeds,
+                                               g_no_fields,    g_no_stickers,    g_no_components};
+
+void* block_of(const MessageRichRecord& record, u32 kind) noexcept {
+    void* block;
+    copy_bytes(&block, reinterpret_cast<const u8*>(&record.reactions) + kind * kPointerBytes, kPointerBytes);
+    return block;
+}
+void set_block(MessageRichRecord* record, u32 kind, void* block) noexcept {
+    copy_bytes(reinterpret_cast<u8*>(&record->reactions) + kind * kPointerBytes, &block, kPointerBytes);
+}
+u32 count_of(const MessageRichRecord& record, u32 kind) noexcept {
+    return (&record.reaction_count)[kind];
+}
+
+// The strings of one array item, in storage order; `item` points at an item of `kind`.
+bool walk_item(u32 kind, void* item, StringVisitor visitor, void* context) noexcept {
+    switch (kind) {
+    case kind_reaction:
+        return visitor(context, &static_cast<MessageRichReaction*>(item)->name);
+    case kind_attachment: {
+        auto* value = static_cast<MessageRichAttachment*>(item);
+        return visit_all(visitor, context, &value->filename, &value->title, &value->description,
+                         &value->content_type, &value->url, &value->waveform);
+    }
+    case kind_embed: {
+        auto* value = static_cast<MessageRichEmbed*>(item);
+        return visit_all(visitor, context, &value->title, &value->description, &value->url, &value->author_name,
+                         &value->footer_text, &value->author_url, &value->author_icon, &value->footer_icon,
+                         &value->provider_name, &value->provider_url) &&
+               walk_embed_media_strings(&value->image, visitor, context) &&
+               walk_embed_media_strings(&value->thumbnail, visitor, context) &&
+               walk_embed_media_strings(&value->video, visitor, context);
+    }
+    case kind_field: {
+        auto* value = static_cast<MessageRichEmbedField*>(item);
+        return visit_all(visitor, context, &value->name, &value->value);
+    }
+    case kind_sticker:
+        return visitor(context, &static_cast<MessageRichSticker*>(item)->name);
+    default: {
+        auto* value = static_cast<MessageRichComponent*>(item);
+        return visit_all(visitor, context, &value->label, &value->content, &value->custom_id, &value->url,
+                         &value->emoji_name);
+    }
+    }
+}
+
+// The strings outside the item arrays: interaction, thread, target, snapshot or reference.
+bool walk_head_strings(MessageRichRecord* record, u32 fields, StringVisitor visitor, void* context) noexcept {
     if ((fields & gateway_message_field_interaction) != 0 &&
         !visit_all(visitor, context, &record->interaction.user_name, &record->interaction.user_avatar_hash,
                    &record->interaction.command_name))
@@ -41,55 +121,177 @@ bool walk_strings(MessageRichRecord* record, u32 fields, StringVisitor visitor, 
     if (record->forwarded_snapshot_child && (fields & gateway_message_field_message_snapshots) &&
         !visitor(context, &record->snapshot.content))
         return false;
-    if (!record->forwarded_snapshot_child && (fields & kReferenceFields) != 0 &&
-        !visit_all(visitor, context, &record->reference.author_name, &record->reference.author_avatar_hash,
-                   &record->reference.content))
+    return record->forwarded_snapshot_child || (fields & kReferenceFields) == 0 ||
+           visit_all(visitor, context, &record->reference.author_name, &record->reference.author_avatar_hash,
+                     &record->reference.content);
+}
+
+bool walk_strings(MessageRichRecord* record, u32 fields, StringVisitor visitor, void* context) noexcept {
+    if (!walk_head_strings(record, fields, visitor, context))
         return false;
-    if ((fields & gateway_message_field_reactions) != 0) {
-        for (u32 index = 0; index < record->reaction_count; ++index) {
-            if (!visitor(context, &record->reactions[index].name))
+    #pragma clang loop unroll(disable)
+    for (u32 kind = 0; kind < kMessageRichSideKinds; ++kind) {
+        if (!(fields & kKindFields[kind]))
+            continue;
+        u8* item = static_cast<u8*>(block_of(*record, kind));
+        for (u32 index = 0, count = count_of(*record, kind); index < count; ++index, item += kItemBytes[kind])
+            if (!walk_item(kind, item, visitor, context))
                 return false;
-        }
     }
-    if ((fields & gateway_message_field_attachments) != 0) {
-        for (u32 index = 0; index < record->attachment_count; ++index) {
-            MessageRichAttachment& item = record->attachments[index];
-            if (!visit_all(visitor, context, &item.filename, &item.title, &item.description, &item.content_type,
-                           &item.url, &item.waveform))
-                return false;
-        }
+    return true;
+}
+
+bool slab_owns(const MessageRichSlab& slab, const void* block) noexcept {
+    const u8* base = slab.storage.arena.base;
+    return base && static_cast<const u8*>(block) >= base &&
+           static_cast<const u8*>(block) < base + usize{slab.storage.reserved_capacity} * slab.block_bytes;
+}
+
+// A zeroed block, or null when the slab cannot commit more.
+void* slab_take(MessageRichSlab* slab) noexcept {
+    u8* base = stable_storage_data<u8>(slab->storage);
+    u32 index = slab->top;
+    if (slab->free_head) {
+        index = slab->free_head - 1;
+        copy_bytes(&slab->free_head, base + usize{index} * slab->block_bytes, sizeof(u32));
+    } else if (index >= slab->storage.reserved_capacity || !stable_storage_reserve(&slab->storage, index + 1)) {
+        return nullptr;
+    } else {
+        ++slab->top;
     }
-    if ((fields & gateway_message_field_embeds) != 0) {
-        for (u32 index = 0; index < record->embed_count; ++index) {
-            MessageRichEmbed& item = record->embeds[index];
-            if (!visit_all(visitor, context, &item.title, &item.description, &item.url, &item.author_name,
-                           &item.footer_text, &item.author_url, &item.author_icon, &item.footer_icon,
-                           &item.provider_name, &item.provider_url) ||
-                !walk_embed_media_strings(&item.image, visitor, context) ||
-                !walk_embed_media_strings(&item.thumbnail, visitor, context) ||
-                !walk_embed_media_strings(&item.video, visitor, context))
-                return false;
-        }
-        for (u32 index = 0; index < record->embed_field_count; ++index) {
-            if (!visit_all(visitor, context, &record->embed_fields[index].name, &record->embed_fields[index].value))
-                return false;
-        }
-    }
-    if ((fields & gateway_message_field_sticker_items) != 0) {
-        for (u32 index = 0; index < record->sticker_count; ++index) {
-            if (!visitor(context, &record->stickers[index].name))
-                return false;
-        }
-    }
-    if ((fields & gateway_message_field_components) != 0) {
-        for (u32 index = 0; index < record->component_count; ++index) {
-            MessageRichComponent& item = record->components[index];
-            if (!visit_all(visitor, context, &item.label, &item.content, &item.custom_id, &item.url,
-                           &item.emoji_name))
-                return false;
+    u8* block = base + usize{index} * slab->block_bytes;
+    clear_bytes(block, slab->block_bytes);
+    return block;
+}
+
+void slab_give(MessageRichSlab* slab, void* block) noexcept {
+    const u32 index = static_cast<u32>((static_cast<u8*>(block) - stable_storage_data<u8>(slab->storage)) /
+                                       slab->block_bytes);
+    copy_bytes(block, &slab->free_head, sizeof(u32));
+    slab->free_head = index + 1;
+}
+
+// How many items a block holds; zero for the shared empty items and foreign pointers.
+u32 block_items(const MessageRichSide& side, u32 kind, const void* block) noexcept {
+    return slab_owns(side.slabs[kind][0], block)   ? kSmallItems[kind]
+           : slab_owns(side.slabs[kind][1], block) ? kLargeItems[kind]
+                                                   : 0;
+}
+
+void release_block(MessageRichSide* side, u32 kind, void* block) noexcept {
+    if (slab_owns(side->slabs[kind][0], block))
+        slab_give(&side->slabs[kind][0], block);
+    else if (slab_owns(side->slabs[kind][1], block))
+        slab_give(&side->slabs[kind][1], block);
+}
+
+// A block for `count` items: `current` when it already fits, the shared empty items for none, else a
+// fresh zeroed block (*fresh) in the smallest fitting class. Null when none can be committed.
+void* fit_block(MessageRichSide* side, u32 kind, void* current, u32 count, bool* fresh) noexcept {
+    *fresh = false;
+    if (count == 0)
+        return kNoItems[kind];
+    if (count <= block_items(*side, kind, current))
+        return current;
+    void* block = slab_take(&side->slabs[kind][count <= kSmallItems[kind] ? 0 : 1]);
+    *fresh = block != nullptr;
+    return block;
+}
+
+// Blocks for every array a record update replaces, taken before the record changes.
+struct ArrayPlan {
+    void* block[kMessageRichSideKinds];
+    bool replace[kMessageRichSideKinds];
+    bool fresh[kMessageRichSideKinds];
+};
+
+void discard_plan(MessageRichSide* side, const ArrayPlan& plan) noexcept {
+    #pragma clang loop unroll(disable)
+    for (u32 kind = 0; kind < kMessageRichSideKinds; ++kind)
+        if (plan.replace[kind] && plan.fresh[kind])
+            release_block(side, kind, plan.block[kind]);
+}
+
+bool plan_arrays(MessageRichSide* side, const MessageRichRecord& record, const GatewayMessageEvent& input,
+                 u32 fields, ArrayPlan* plan) noexcept {
+    const u32 counts[kMessageRichSideKinds] = {input.reactions.count,  input.attachments.count,
+                                               input.embeds.count,     input.embed_fields.count,
+                                               input.stickers.count,   input.components.count};
+    #pragma clang loop unroll(disable)
+    for (u32 kind = 0; kind < kMessageRichSideKinds; ++kind) {
+        plan->replace[kind] = (fields & kKindFields[kind]) != 0;
+        if (!plan->replace[kind])
+            continue;
+        plan->block[kind] = fit_block(side, kind, block_of(record, kind), counts[kind], &plan->fresh[kind]);
+        if (!plan->block[kind]) {
+            plan->replace[kind] = false;
+            discard_plan(side, *plan);
+            return false;
         }
     }
     return true;
+}
+
+void commit_plan(MessageRichSide* side, MessageRichRecord* record, const ArrayPlan& plan) noexcept {
+    #pragma clang loop unroll(disable)
+    for (u32 kind = 0; kind < kMessageRichSideKinds; ++kind) {
+        void* const previous = block_of(*record, kind);
+        if (!plan.replace[kind] || previous == plan.block[kind])
+            continue;
+        set_block(record, kind, plan.block[kind]);
+        release_block(side, kind, previous);
+    }
+}
+
+// Returns every block of a record to its slab and points the arrays back at the empty items.
+void release_arrays(MessageRichSide* side, MessageRichRecord* record) noexcept {
+    #pragma clang loop unroll(disable)
+    for (u32 kind = 0; kind < kMessageRichSideKinds; ++kind) {
+        release_block(side, kind, block_of(*record, kind));
+        set_block(record, kind, kNoItems[kind]);
+    }
+}
+
+void reset_slot(MessageRichStore* store, MessageRichRecord* record, u16 generation) noexcept {
+    release_arrays(&store->side, record);
+    message_rich_record_clear(record);
+    record->generation = generation;
+}
+
+void side_release(MessageRichSide* side) noexcept {
+    if (side->initialized == kSideMagic)
+        for (auto& pair : side->slabs)
+            for (auto& slab : pair)
+                stable_storage_release(&slab.storage);
+    reset_value(side);
+}
+
+// One block per live record per kind, plus one while a record changes class.
+bool side_initialize(MessageRichSide* side, u32 records) noexcept {
+    reset_value(side);
+    side->initialized = kSideMagic;
+    #pragma clang loop unroll(disable)
+    for (u32 kind = 0; kind < kMessageRichSideKinds; ++kind) {
+#pragma clang loop unroll(disable)
+        for (u32 large = 0; large < 2; ++large) {
+            if (large && kSmallItems[kind] == kLargeItems[kind])
+                continue;
+            MessageRichSlab& slab = side->slabs[kind][large];
+            slab.block_bytes = (large ? kLargeItems[kind] : kSmallItems[kind]) * kItemBytes[kind];
+            if (!stable_storage_initialize(&slab.storage, records + 1, 0, slab.block_bytes, 8)) {
+                side_release(side);
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+// Every block is free again; committed pages stay for reuse.
+void side_clear(MessageRichSide* side) noexcept {
+    for (auto& pair : side->slabs)
+        for (auto& slab : pair)
+            slab.free_head = slab.top = 0;
 }
 
 u32 bank_capacity(const MessageRichStore& store) noexcept {
@@ -623,8 +825,7 @@ bool erase_snapshot_slot(MessageRichStore* store, u16 slot) noexcept {
         wasted > ~0u - store->text_wasted)
         return false;
     const u16 generation = store->records[slot].generation;
-    reset_value(&store->records[slot]);
-    store->records[slot].generation = static_cast<u16>(generation == 0xFFFFu ? 1u : generation + 1u);
+    reset_slot(store, &store->records[slot], static_cast<u16>(generation == 0xFFFFu ? 1u : generation + 1u));
     store->text_wasted += static_cast<u32>(wasted);
     --store->snapshot_count;
     return true;
@@ -645,8 +846,7 @@ bool erase_slot(MessageRichStore* store, u32 order_index, u16 slot) noexcept {
         return false;
     store->text_wasted += static_cast<u32>(bytes);
     const u16 generation = store->records[slot].generation;
-    reset_value<MessageRichRecord>(&store->records[slot]);
-    store->records[slot].generation = generation == 0xFFFFu ? 1u : static_cast<u16>(generation + 1u);
+    reset_slot(store, &store->records[slot], generation == 0xFFFFu ? u16{1} : static_cast<u16>(generation + 1u));
     for (u32 index = order_index + 1; index < store->count; ++index) {
         store->order[index - 1] = store->order[index];
     }
@@ -655,15 +855,25 @@ bool erase_slot(MessageRichStore* store, u32 order_index, u16 slot) noexcept {
     return true;
 }
 
+// `keep_side` reuses the store's live side slabs (reset); otherwise they are created, replacing any
+// the same store object held before.
 bool initialize_store(MessageRichStore* store, MessageRichRecord* records, StableStorage* record_storage,
                       u32 capacity, u32 record_extent, Slice<u16> order, Slice<u8> text,
-                      u32 physical_capacity, bool sparse_text = false) noexcept {
+                      u32 physical_capacity, bool sparse_text = false, bool keep_side = false) noexcept {
     if (!store || !records || capacity == 0 || physical_capacity > 0xFFFFu ||
         capacity > physical_capacity || record_extent > physical_capacity || !order.data ||
         order.count < capacity || !text.data || text.count < 2 || (text.count & 1u) != 0) {
         return false;
     }
+    MessageRichSide side = store->side;
+    if (!keep_side)
+        side_release(&side);
     reset_value<MessageRichStore>(store);
+    store->side = side;
+    if (keep_side)
+        side_clear(&store->side);
+    else if (!side_initialize(&store->side, physical_capacity))
+        return false;
     store->records = records;
     store->record_storage = record_storage;
     store->order = order.data;
@@ -674,7 +884,7 @@ bool initialize_store(MessageRichStore* store, MessageRichRecord* records, Stabl
     store->text_capacity = text.count;
     store->sparse_text = sparse_text;
     for (u32 index = 0; index < record_extent; ++index) {
-        reset_value<MessageRichRecord>(&records[index]);
+        message_rich_record_clear(&records[index]);
         records[index].generation = 1;
     }
     for (u32 index = 0; index < capacity; ++index) {
@@ -698,7 +908,7 @@ bool extend_records(MessageRichStore* store) noexcept {
     store->records = stable_storage_data<MessageRichRecord>(*store->record_storage);
     store->record_extent = store->record_storage->capacity;
     for (u32 index = previous_extent; index < store->record_extent; ++index) {
-        reset_value<MessageRichRecord>(&store->records[index]);
+        message_rich_record_clear(&store->records[index]);
         store->records[index].generation = 1;
     }
     return true;
@@ -735,10 +945,18 @@ void message_rich_store_release(MessageRichStore* store) noexcept {
     if (!store) {
         return;
     }
+    side_release(&store->side);
     if (store->record_storage) {
         stable_storage_release(store->record_storage);
     }
     reset_value<MessageRichStore>(store);
+}
+
+void message_rich_record_clear(MessageRichRecord* record) noexcept {
+    reset_value<MessageRichRecord>(record);
+    #pragma clang loop unroll(disable)
+    for (u32 kind = 0; kind < kMessageRichSideKinds; ++kind)
+        set_block(record, kind, kNoItems[kind]);
 }
 
 namespace {
@@ -903,6 +1121,11 @@ static MessageRichStoreResult apply_body(MessageRichStore* store, u64 message_id
     const u32 previous_compactions = store->compactions;
     if (desired_bytes > capacity - store->text_used && !compact_excluding(store, slot, search.found, fields))
         return reject(MessageRichStoreError::corrupt_state);
+    // Blocks for the replaced arrays come first, so running out of side storage rejects the update
+    // before the record changes.
+    ArrayPlan plan{};
+    if (!plan_arrays(&store->side, store->records[slot], input, fields, &plan))
+        return reject(MessageRichStoreError::record_capacity);
     MessageRichRecord* record = &store->records[slot];
     if (!search.found) {
         // A free slot is zero except for its generation (erase_slot,
@@ -922,11 +1145,14 @@ static MessageRichStoreResult apply_body(MessageRichStore* store, u64 message_id
         result.inserted = true;
     } else if (fields != 0 && store->compactions == previous_compactions) {
         u64 wasted = 0;
-        if (!walk_strings(record, fields, count_wasted, &wasted) || wasted > ~0u - store->text_wasted)
+        if (!walk_strings(record, fields, count_wasted, &wasted) || wasted > ~0u - store->text_wasted) {
+            discard_plan(&store->side, plan);
             return reject(MessageRichStoreError::corrupt_state);
+        }
         store->text_wasted += static_cast<u32>(wasted);
     }
     clear_replaced(record, fields);
+    commit_plan(&store->side, record, plan);
     record->truncations &= ~replaced_truncation_mask(fields);
     bool storage_truncated = desired_bytes > capacity - store->text_used;
     copy_input(store, record, input, fields, &storage_truncated);
@@ -1171,6 +1397,16 @@ MessageRichStoreResult message_rich_store_mutate_reaction(
                 (mutation.name.bytes > capacity - store->text_used &&
                  !compact_excluding(store, search.slot, false, 0)))
                 return reject(MessageRichStoreError::corrupt_state);
+            bool fresh = false;
+            void* const grown = fit_block(&store->side, kind_reaction, record->reactions,
+                                          record->reaction_count + 1u, &fresh);
+            if (!grown)
+                return reject(MessageRichStoreError::record_capacity);
+            if (fresh) {
+                copy_bytes(grown, record->reactions, record->reaction_count * static_cast<u32>(sizeof(MessageRichReaction)));
+                release_block(&store->side, kind_reaction, record->reactions);
+                record->reactions = static_cast<MessageRichReaction*>(grown);
+            }
             MessageRichReaction& item = record->reactions[match];
             reset_value<MessageRichReaction>(&item);
             item.emoji_id = mutation.emoji_id;
@@ -1227,6 +1463,10 @@ MessageRichStoreResult message_rich_store_mutate_reaction(
             drop(match);
     }
 
+    if (record->reaction_count == 0) {
+        release_block(&store->side, kind_reaction, record->reactions);
+        record->reactions = static_cast<MessageRichReaction*>(kNoItems[kind_reaction]);
+    }
     record->truncations &= ~gateway_message_rich_truncated_reactions;
     if (truncated)
         record->truncations |= gateway_message_rich_truncated_text;
@@ -1340,7 +1580,7 @@ bool message_rich_store_reset(MessageRichStore* store) noexcept {
     const bool sparse_text = store->sparse_text;
     return initialize_store(store, records, record_storage, capacity, record_extent,
                             Slice<u16>{order, capacity}, Slice<u8>{text, text_capacity},
-                            store->record_capacity, sparse_text);
+                            store->record_capacity, sparse_text, true);
 }
 
 namespace {
@@ -1353,8 +1593,7 @@ struct PackedRichHeader {
 // Head and tail are copied verbatim, so fields added outside the bounded
 // arrays are carried without changing the snapshot format.
 inline constexpr u32 kRichHead = __builtin_offsetof(MessageRichRecord, reactions);
-inline constexpr u32 kRichTailBegin = __builtin_offsetof(MessageRichRecord, components) +
-                                      sizeof(MessageRichComponent) * kGatewayMessageComponentMaximum;
+inline constexpr u32 kRichTailBegin = __builtin_offsetof(MessageRichRecord, generation);
 inline constexpr u32 kRichTail = sizeof(MessageRichRecord) - kRichTailBegin;
 inline constexpr u32 kPackedRichMinimum = sizeof(PackedRichHeader) + kRichHead + kRichTail;
 
@@ -1391,18 +1630,30 @@ bool pack_string(void* opaque, MessageRichString* value) noexcept {
     return true;
 }
 
-template <typename T> u8* write_items(u8* cursor, const T* items, u32 count) noexcept {
-    copy_bytes(cursor, items, count * static_cast<u32>(sizeof(T)));
-    return cursor + count * sizeof(T);
+// Appends the record's items of every kind, each through a local copy that carries relative string offsets.
+bool write_items(const MessageRichRecord& source, u8** cursor, PackStringContext* strings) noexcept {
+    alignas(8) u8 item[sizeof(MessageRichEmbed)];
+    #pragma clang loop unroll(disable)
+    for (u32 kind = 0; kind < kMessageRichSideKinds; ++kind) {
+        const u8* from = static_cast<const u8*>(block_of(source, kind));
+        for (u32 index = 0, count = count_of(source, kind); index < count; ++index, from += kItemBytes[kind]) {
+            copy_bytes(item, from, kItemBytes[kind]);
+            if (!walk_item(kind, item, pack_string, strings))
+                return false;
+            copy_bytes(*cursor, item, kItemBytes[kind]);
+            *cursor += kItemBytes[kind];
+        }
+    }
+    return true;
 }
 
-template <typename T> const u8* read_items(const u8* cursor, T* items, u32 count) noexcept {
-    copy_bytes(items, cursor, count * static_cast<u32>(sizeof(T)));
-    return cursor + count * sizeof(T);
+const u8* read_items(const u8* cursor, void* items, u32 bytes) noexcept {
+    copy_bytes(items, cursor, bytes);
+    return cursor + bytes;
 }
 
-// A null output only sizes the record. The stack copy receives relative
-// offsets; only the parts walk_strings and the format read are copied.
+// A null output only sizes the record. Items go through local copies that carry relative string
+// offsets; the head and tail come from a stack copy.
 bool pack_record(const MessageRichStore& store, const MessageRichRecord& source, u8* output, u32 capacity,
                  u32* written) noexcept {
     const u32 fixed = packed_fixed_bytes(source);
@@ -1420,37 +1671,24 @@ bool pack_record(const MessageRichStore& store, const MessageRichRecord& source,
     copy_bytes(&copy, &source, kRichHead);
     copy_bytes(reinterpret_cast<u8*>(&copy) + kRichTailBegin, reinterpret_cast<const u8*>(&source) + kRichTailBegin,
                kRichTail);
-    copy_bytes(copy.reactions, source.reactions, source.reaction_count * static_cast<u32>(sizeof(MessageRichReaction)));
-    copy_bytes(copy.attachments, source.attachments,
-               source.attachment_count * static_cast<u32>(sizeof(MessageRichAttachment)));
-    copy_bytes(copy.embeds, source.embeds, source.embed_count * static_cast<u32>(sizeof(MessageRichEmbed)));
-    copy_bytes(copy.embed_fields, source.embed_fields,
-               source.embed_field_count * static_cast<u32>(sizeof(MessageRichEmbedField)));
-    copy_bytes(copy.stickers, source.stickers, source.sticker_count * static_cast<u32>(sizeof(MessageRichSticker)));
-    copy_bytes(copy.components, source.components,
-               source.component_count * static_cast<u32>(sizeof(MessageRichComponent)));
     // Slot and revision bindings are reassigned by unpack.
     copy.message_revision = 0;
     copy.generation = 0;
     copy.forwarded_snapshot_slot = 0;
     PackStringContext strings{&store, output + fixed, capacity - fixed, 0};
-    if (!walk_strings(&copy, kRichFields, pack_string, &strings) || strings.cursor > ~0u - fixed)
+    u8* cursor = output + sizeof(PackedRichHeader);
+    if (!walk_head_strings(&copy, kRichFields, pack_string, &strings))
         return false;
-    *written = fixed + strings.cursor;
-    const PackedRichHeader header{*written, strings.cursor};
-    u8* cursor = output;
-    copy_bytes(cursor, &header, sizeof(header));
-    cursor += sizeof(header);
     copy_bytes(cursor, &copy, kRichHead);
     cursor += kRichHead;
     copy_bytes(cursor, reinterpret_cast<const u8*>(&copy) + kRichTailBegin, kRichTail);
     cursor += kRichTail;
-    cursor = write_items(cursor, copy.reactions, copy.reaction_count);
-    cursor = write_items(cursor, copy.attachments, copy.attachment_count);
-    cursor = write_items(cursor, copy.embeds, copy.embed_count);
-    cursor = write_items(cursor, copy.embed_fields, copy.embed_field_count);
-    cursor = write_items(cursor, copy.stickers, copy.sticker_count);
-    write_items(cursor, copy.components, copy.component_count);
+    if (!write_items(source, &cursor, &strings) ||
+        strings.cursor > ~0u - fixed)
+        return false;
+    *written = fixed + strings.cursor;
+    const PackedRichHeader header{*written, strings.cursor};
+    copy_bytes(output, &header, sizeof(header));
     return true;
 }
 
@@ -1469,15 +1707,17 @@ bool unpack_string(void* opaque, MessageRichString* value) noexcept {
     return true;
 }
 
-bool parse_record(ConstSlice<u8> input, MessageRichRecord* record, ConstSlice<u8>* strings,
-                  u32* consumed) noexcept {
+// Copies the head and tail into `record`, then takes a side block per counted array and reads the
+// items into it. On failure the caller resets the slot, which returns any blocks taken.
+bool parse_record(MessageRichStore* store, ConstSlice<u8> input, MessageRichRecord* record,
+                  ConstSlice<u8>* strings, u32* consumed) noexcept {
     PackedRichHeader header{};
     if (!input.data || input.count < kPackedRichMinimum)
         return false;
     copy_bytes(&header, input.data, sizeof(header));
     if (header.bytes < kPackedRichMinimum || header.bytes > input.count || header.string_bytes > header.bytes)
         return false;
-    // The slot is free, hence zero beyond what the head and tail copies set.
+    // The slot is free, hence cleared beyond what the head and tail copies set.
     const u8* cursor = input.data + sizeof(header);
     copy_bytes(record, cursor, kRichHead);
     cursor += kRichHead;
@@ -1498,12 +1738,16 @@ bool parse_record(ConstSlice<u8> input, MessageRichRecord* record, ConstSlice<u8
         record->component_count > kGatewayMessageComponentMaximum ||
         packed_fixed_bytes(*record) + header.string_bytes != header.bytes)
         return false;
-    cursor = read_items(cursor, record->reactions, record->reaction_count);
-    cursor = read_items(cursor, record->attachments, record->attachment_count);
-    cursor = read_items(cursor, record->embeds, record->embed_count);
-    cursor = read_items(cursor, record->embed_fields, record->embed_field_count);
-    cursor = read_items(cursor, record->stickers, record->sticker_count);
-    cursor = read_items(cursor, record->components, record->component_count);
+    #pragma clang loop unroll(disable)
+    for (u32 kind = 0; kind < kMessageRichSideKinds; ++kind) {
+        const u32 count = count_of(*record, kind);
+        bool fresh = false;
+        void* block = fit_block(&store->side, kind, block_of(*record, kind), count, &fresh);
+        if (!block)
+            return false;
+        set_block(record, kind, block);
+        cursor = read_items(cursor, block, count * kItemBytes[kind]);
+    }
     *strings = ConstSlice<u8>{cursor, header.string_bytes};
     *consumed = header.bytes;
     return true;
@@ -1596,8 +1840,7 @@ bool message_rich_store_unpack(MessageRichStore* store, u64 message_id, u32 mess
         for (u32 index = 0; index < count; ++index) {
             MessageRichRecord& record = store->records[slots[index]];
             const u16 generation = record.generation;
-            reset_value<MessageRichRecord>(&record);
-            record.generation = generation == 0 ? 1 : generation;
+            reset_slot(store, &record, generation == 0 ? u16{1} : generation);
         }
         return false;
     };
@@ -1610,7 +1853,7 @@ bool message_rich_store_unpack(MessageRichStore* store, u64 message_id, u32 mess
         ConstSlice<u8> strings{};
         u32 consumed = 0;
         UnpackStringContext context{headers[index].string_bytes, destination};
-        if (!parse_record({packed.data + cursor, packed.count - cursor}, &record, &strings, &consumed) ||
+        if (!parse_record(store, {packed.data + cursor, packed.count - cursor}, &record, &strings, &consumed) ||
             record.has_forwarded_snapshot != (index == 0 && has_child) ||
             record.forwarded_snapshot_child != (index != 0) ||
             !walk_strings(&record, kRichFields, unpack_string, &context)) {

@@ -1,10 +1,10 @@
 #pragma once
 
+#include "maicord/core/stable_storage.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/message_reaction.hpp"
 
 namespace maicord {
-struct StableStorage;
 enum class MediaAttachmentFormat : u32;
 
 struct MessageRichString {
@@ -247,12 +247,16 @@ struct MessageRichRecord {
         MessageRichSnapshot snapshot; // valid only for a tagged snapshot child
     };
     MessageRichInteraction interaction;
-    MessageRichReaction reactions[kGatewayMessageReactionMaximum];
-    MessageRichAttachment attachments[kGatewayMessageAttachmentMaximum];
-    MessageRichEmbed embeds[kGatewayMessageEmbedMaximum];
-    MessageRichEmbedField embed_fields[kGatewayMessageEmbedFieldMaximum];
-    MessageRichSticker stickers[kGatewayMessageStickerMaximum];
-    MessageRichComponent components[kGatewayMessageComponentMaximum];
+    // Item arrays: blocks owned by the store's side slabs (see MessageRichSide),
+    // valid for indexes below the matching count and until the next store
+    // mutation. An empty array points at shared zero items, never null in a
+    // store-owned record.
+    MessageRichReaction* reactions;
+    MessageRichAttachment* attachments;
+    MessageRichEmbed* embeds;
+    MessageRichEmbedField* embed_fields;
+    MessageRichSticker* stickers;
+    MessageRichComponent* components;
     u16 generation;
     u8 reaction_count;
     u8 attachment_count;
@@ -276,7 +280,11 @@ constexpr bool message_rich_record_voice(const MessageRichRecord& record) noexce
     return record.voice_message;
 }
 
-static_assert(sizeof(MessageRichRecord) == 8'448);
+static_assert(sizeof(MessageRichRecord) == 264);
+
+// Zeroes a record and points its arrays at the shared empty items. Store slots
+// that are not in use are exactly a cleared record plus their generation.
+void message_rich_record_clear(MessageRichRecord* record) noexcept;
 
 inline bool message_rich_has_interaction(const MessageRichRecord& rich) noexcept {
     return rich.interaction.user_id != 0 && rich.interaction.command_name.bytes != 0;
@@ -298,7 +306,22 @@ inline u64 message_rich_header_user(const MessageRichRecord& rich) noexcept {
                : rich.interaction.user_id;
 }
 
+// Fixed-size blocks for the item arrays, in two classes each (a few items, or
+// the protocol maximum), so a record pays only for the arrays it fills.
+inline constexpr u32 kMessageRichSideKinds = 6;
+struct MessageRichSlab {
+    StableStorage storage;
+    u32 block_bytes;
+    u32 free_head; // block index + 1, linked through the first word of each free block
+    u32 top;       // blocks handed out so far
+};
+struct MessageRichSide {
+    MessageRichSlab slabs[kMessageRichSideKinds][2]; // [kind][0] small class, [1] large class
+    u32 initialized;
+};
+
 struct MessageRichStore {
+    MessageRichSide side;
     MessageRichRecord* records;
     StableStorage* record_storage;
     u16* order;

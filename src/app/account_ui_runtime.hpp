@@ -360,7 +360,7 @@ static_assert(kAccountUiFixedBytes ==
                   4'096 * (sizeof(ChannelRecord) + sizeof(u16) + sizeof(CustomEmojiRecord)) - 256 * 1024 -
                   16'384 * sizeof(u64) + sizeof(AccountDemandCommit) + (sizeof(ChatStateStore) - 288) +
                   sizeof(GuildMemberRoleOverflow) + (sizeof(VoiceStateStore) - 32) - 2'048 * sizeof(VoiceState) +
-                  (sizeof(GuildMemberStore) - 39'600));
+                  (sizeof(GuildMemberStore) - 39'600) + sizeof(MessageRichSide));
 
 inline bool application_history_decode_storage_initialize(AccountUiRuntime& ui) noexcept {
     return stable_storage_initialize(&ui.history_decode_storage,

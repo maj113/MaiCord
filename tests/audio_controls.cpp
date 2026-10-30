@@ -186,6 +186,8 @@ void rich_layout(void (*check)(bool, const char*) noexcept) noexcept {
     store.text_capacity = sizeof(text);
     store.text_used = filename.bytes + mime.bytes;
     MessageRichRecord rich{};
+    MessageRichAttachment fixture_attachments[1]{};
+    rich.attachments = fixture_attachments;
     rich.attachment_count = 1;
     auto& attachment = rich.attachments[0];
     attachment.id = 17;

@@ -65,6 +65,8 @@ bool pool_reserve(MessageSnapshotCache* cache, u32 used) noexcept {
 
 void release_memory(MessageSnapshotCache* cache) noexcept {
     arena_release(&cache->pool);
+    if (cache->scratch)
+        message_rich_store_release(&cache->scratch->rich);
     arena_release(&cache->scratch_arena);
     cache->scratch = nullptr;
     cache->used = 0;
@@ -183,6 +185,8 @@ MessageSnapshotScratch* scratch(MessageSnapshotCache* cache) noexcept {
         !message_rich_store_initialize(&value->rich, {value->rich_records, 2}, {value->rich_order, 2},
                                        {value->rich_text, 2 * kMessageSnapshotRichBankBytes}) ||
         !message_timeline_bind_rich_store(&value->timeline, &value->rich)) {
+        if (value)
+            message_rich_store_release(&value->rich);
         arena_release(&cache->scratch_arena);
         return nullptr;
     }

@@ -739,6 +739,10 @@ ChatStateStoreError chat_state_store_preflight_channel(const ChatStateStore& sto
                : ChatStateStoreError::name_capacity;
 }
 
+// IDs of the batch seen so far, in an open-addressed table at most half full (zero marks a free slot;
+// IDs are nonzero once admitted). Preflights run on the application thread only.
+static u64 g_batch_ids[2 * kChatStateChannelBatchMaximum];
+
 ChatStateStoreError chat_state_store_preflight_channel_batch(const ChatStateStore& store,
                                                                    u32 channel_count,
                                                                    ChannelInputRead read_channel,
@@ -746,8 +750,12 @@ ChatStateStoreError chat_state_store_preflight_channel_batch(const ChatStateStor
     NamePreflight budget{};
     if (!read_channel || !preflight_names(store, &budget))
         return ChatStateStoreError::invalid_input;
-    if (channel_count > store.channel_capacity)
+    if (channel_count > store.channel_capacity || channel_count > kChatStateChannelBatchMaximum)
         return ChatStateStoreError::channel_capacity;
+    u32 table = 2;
+    while (table < 2 * channel_count)
+        table *= 2;
+    clear_bytes(g_batch_ids, table * static_cast<u32>(sizeof(u64)));
     u32 new_channels = 0;
     for (u32 index = 0; index < channel_count; ++index) {
         ChannelInput input{};
@@ -756,11 +764,12 @@ ChatStateStoreError chat_state_store_preflight_channel_batch(const ChatStateStor
         const auto admission = chat_state_store_preflight_channel(store, input);
         if (admission != ChatStateStoreError::none)
             return admission;
-        for (u32 previous = 0; previous < index; ++previous) {
-            ChannelInput prior{};
-            if (!read_channel(context, previous, &prior) || prior.id == input.id)
-                return ChatStateStoreError::invalid_input;
-        }
+        u32 at = static_cast<u32>((input.id * 0x9E3779B97F4A7C15ull) >> 40) & (table - 1);
+        while (g_batch_ids[at] != 0 && g_batch_ids[at] != input.id)
+            at = (at + 1) & (table - 1);
+        if (g_batch_ids[at] != 0)
+            return ChatStateStoreError::invalid_input;
+        g_batch_ids[at] = input.id;
         const auto* old = chat_state_store_find_channel(store, input.id);
         if (!old && ++new_channels > store.channel_capacity - store.channel_count)
             return ChatStateStoreError::channel_capacity;

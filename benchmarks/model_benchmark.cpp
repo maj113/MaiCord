@@ -38,30 +38,41 @@ inline constexpr u32 kMemberCount = 400;
 inline constexpr u32 kMemberIterations = 200'000;
 inline constexpr u32 kRichLookupIterations = 5'000'000;
 
-MessageRecord g_records[kMessageItems];
-u32 g_order[kMessageItems];
-u8 g_text[kTextCapacity];
-GuildRecord g_guilds[kStateGuilds];
-ChannelRecord g_channels[kStateChannels];
-u16 g_guild_order[kStateGuilds];
-u16 g_channel_order[kStateChannels];
-u8 g_state_names[kStateNames];
-GuildRecord g_permission_guilds[1];
-ChannelRecord g_permission_channels[kPermissionChannels];
-RoleRecord g_permission_roles[kPermissionRoles];
-PermissionOverwriteRecord g_permission_overwrites[kPermissionOverwrites];
-u16 g_permission_guild_order[1];
-u16 g_permission_channel_order[kPermissionChannels];
-u8 g_permission_names[32 * 1024];
-MessageRichRecord g_rich_records[kRichItems];
-u16 g_rich_order[kRichItems];
-u8 g_rich_text[kRichTextCapacity];
-UserRecord g_users[kUserCount];
-u32 g_user_order[kUserCount];
-u8 g_user_names[32 * 1024];
-GuildMemberRecord g_members[512];
-u32 g_member_order[512];
+alignas(4096) MessageRecord g_records[kMessageItems];
+alignas(4096) u32 g_order[kMessageItems];
+alignas(4096) u8 g_text[kTextCapacity];
+alignas(4096) GuildRecord g_guilds[kStateGuilds];
+alignas(4096) ChannelRecord g_channels[kStateChannels];
+alignas(4096) u16 g_guild_order[kStateGuilds];
+alignas(4096) u16 g_channel_order[kStateChannels];
+alignas(4096) u8 g_state_names[kStateNames];
+alignas(4096) GuildRecord g_permission_guilds[1];
+alignas(4096) ChannelRecord g_permission_channels[kPermissionChannels];
+alignas(4096) RoleRecord g_permission_roles[kPermissionRoles];
+alignas(4096) PermissionOverwriteRecord g_permission_overwrites[kPermissionOverwrites];
+alignas(4096) u16 g_permission_guild_order[1];
+alignas(4096) u16 g_permission_channel_order[kPermissionChannels];
+alignas(4096) u8 g_permission_names[32 * 1024];
+alignas(4096) MessageRichRecord g_rich_records[kRichItems];
+alignas(4096) u16 g_rich_order[kRichItems];
+alignas(4096) u8 g_rich_text[kRichTextCapacity];
+alignas(4096) UserRecord g_users[kUserCount];
+alignas(4096) u32 g_user_order[kUserCount];
+alignas(4096) u8 g_user_names[32 * 1024];
+alignas(4096) GuildMemberRecord g_members[512];
+alignas(4096) u32 g_member_order[512];
+alignas(4096) GuildRecord g_batch_guilds[4];
+alignas(4096) u16 g_batch_guild_order[4];
+alignas(4096) ChannelRecord g_batch_channels[8192];
+alignas(4096) u16 g_batch_channel_order[8192];
+alignas(4096) u8 g_batch_names[1 << 20];
 volatile u64 g_model_checksum = 0;
+
+bool batch_input(const void*, u32 index, ChannelInput* output) noexcept {
+    *output = ChannelInput{5'000'000ull + index, 9, 0, utf8_literal("thread"), 0, 0, 11};
+    output->thread_archived_known = true;
+    return true;
+}
 
 int run() noexcept {
     MessageStore store{};
@@ -449,11 +460,29 @@ int run() noexcept {
         checksum += members.clock;
     }
     const u64 member_upsert_us = clock_microseconds(clock, begin, clock_now());
+    ChatStateStore batch_state{};
+    constexpr u32 kBatchChannels = 2'048;
+    constexpr u32 kBatchIterations = 20;
+    if (!chat_state_store_initialize(&batch_state, Slice<GuildRecord>{g_batch_guilds, 4}, Slice<u16>{g_batch_guild_order, 4},
+                                     Slice<ChannelRecord>{g_batch_channels, 8192},
+                                     Slice<u16>{g_batch_channel_order, 8192},
+                                     Slice<u8>{g_batch_names, sizeof(g_batch_names)}) ||
+        !chat_state_store_upsert_guild(&batch_state, GuildInput{9, utf8_literal("g"), GuildMutationKind::create, 1}).ok()) {
+        return 16;
+    }
+    begin = clock_now();
+    for (u32 iteration = 0; iteration < kBatchIterations; ++iteration) {
+        if (chat_state_store_preflight_channel_batch(batch_state, kBatchChannels, batch_input, nullptr) !=
+            ChatStateStoreError::none) {
+            return 16;
+        }
+    }
+    const u64 batch_us = clock_microseconds(clock, begin, clock_now());
     g_model_checksum = checksum;
     if (append_us == 0 || lookup_us == 0 || ordered_us == 0 || update_us == 0 || state_append_us == 0 ||
         state_lookup_us == 0 || state_update_us == 0 || permission_us == 0 ||
         activity_us == 0 || rich_update_us == 0 || rich_lookup_us == 0 || rich_reaction_us == 0 ||
-        user_unchanged_us == 0 || user_changed_us == 0 || member_upsert_us == 0 ||
+        user_unchanged_us == 0 || user_changed_us == 0 || member_upsert_us == 0 || batch_us == 0 ||
         g_model_checksum == 0) {
         return 13;
     }
@@ -472,6 +501,7 @@ int run() noexcept {
     write_ops("user_upsert_unchanged", per_second(kUserUpsertIterations, user_unchanged_us));
     write_ops("user_upsert_changed", per_second(kUserUpsertIterations / 4, user_changed_us));
     write_ops("member_upsert_listed", per_second(kMemberIterations, member_upsert_us));
+    write_ops("channel_batch_preflight", per_second(kBatchIterations, batch_us));
     return 0;
 }
 

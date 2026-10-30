@@ -6334,6 +6334,8 @@ bool probe_settings_scene() noexcept {
         reaction_store.text_used = reaction_name.bytes;
         reaction_record[0].occupied = true;
         reaction_record[0].message_id = 1;
+        static MessageRichReaction reaction_items[1];
+        reaction_record[0].reactions = reaction_items;
         reaction_record[0].reaction_count = 1;
         reaction_record[0].reactions[0] = {19, {0, 6, 0}, 1, 1};
         if (!reaction_viewer_open(&hidden_reactions, 0, 1, 1, reaction_store, reaction_record[0],

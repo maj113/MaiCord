@@ -468,7 +468,10 @@ void test_components(Check check) noexcept {
           "components_button_colors_follow_tokens");
     // V2 messages stack top-level components 8 apart, legacy rows 6.
     static MessageRichRecord variant{};
+    static MessageRichComponent variant_components[kGatewayMessageComponentMaximum];
     copy_value(&variant, *rich);
+    copy_bytes(variant_components, rich->components, rich->component_count * static_cast<u32>(sizeof(MessageRichComponent)));
+    variant.components = variant_components;
     variant.components_v2 = false;
     check(rich->components_v2 && message_component_root_gap(rich) == kMessageComponentGap &&
               message_component_root_gap(&variant) == kMessageComponentLegacyRootGap &&

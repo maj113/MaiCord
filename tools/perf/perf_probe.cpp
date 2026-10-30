@@ -2381,6 +2381,45 @@ void report_account_ui_fields() noexcept {
         g_fields.kv("resident_kb", resident / 1024);
         g_fields.s("\n");
     }
+    const MessageRichStore& rich = g_app.account_ui->message_rich_store;
+    u32 live = 0, children = 0;
+    u64 reactions = 0, attachments = 0, embeds = 0, fields = 0, stickers = 0, components = 0;
+    u32 reaction_max = 0, attachment_max = 0, embed_max = 0, field_max = 0, component_max = 0;
+    for (u32 slot = 0; rich.records && slot < rich.record_extent; ++slot) {
+        const MessageRichRecord& record = rich.records[slot];
+        if (!record.occupied)
+            continue;
+        ++live;
+        children += record.forwarded_snapshot_child;
+        reactions += record.reaction_count;
+        attachments += record.attachment_count;
+        embeds += record.embed_count;
+        fields += record.embed_field_count;
+        stickers += record.sticker_count;
+        components += record.component_count;
+        reaction_max = maximum<u32>(reaction_max, record.reaction_count);
+        attachment_max = maximum<u32>(attachment_max, record.attachment_count);
+        embed_max = maximum<u32>(embed_max, record.embed_count);
+        field_max = maximum<u32>(field_max, record.embed_field_count);
+        component_max = maximum<u32>(component_max, record.component_count);
+    }
+    g_fields.s("rich_store");
+    g_fields.kv("live", live);
+    g_fields.kv("children", children);
+    g_fields.kv("extent", rich.record_extent);
+    g_fields.kv("record_bytes", sizeof(MessageRichRecord));
+    g_fields.kv("reactions", reactions);
+    g_fields.kv("reaction_max", reaction_max);
+    g_fields.kv("attachments", attachments);
+    g_fields.kv("attachment_max", attachment_max);
+    g_fields.kv("embeds", embeds);
+    g_fields.kv("embed_max", embed_max);
+    g_fields.kv("embed_fields", fields);
+    g_fields.kv("field_max", field_max);
+    g_fields.kv("stickers", stickers);
+    g_fields.kv("components", components);
+    g_fields.kv("component_max", component_max);
+    g_fields.s("\n");
 }
 
 void write_stdout(const char* text, u32 bytes) noexcept {

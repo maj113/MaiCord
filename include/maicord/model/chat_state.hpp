@@ -604,6 +604,9 @@ bool chat_state_store_set_self_timeout(ChatStateStore* store, u64 guild_id, u64 
 using RoleInputRead = bool (*)(const void* context, u32 index, RoleInput* output) noexcept;
 using ChannelInputRead = bool (*)(const void* context, u32 index,
                                          ChannelInput* output) noexcept;
+// A batch holds at most this many channels (the Gateway's thread list cap); a larger one is
+// rejected with channel_capacity. Duplicate IDs are invalid_input, found with a hash set, not a rescan.
+inline constexpr u32 kChatStateChannelBatchMaximum = 4096;
 ChatStateStoreError chat_state_store_preflight_channel_batch(const ChatStateStore& store,
                                                                    u32 channel_count,
                                                                    ChannelInputRead read_channel,

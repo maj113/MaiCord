@@ -103,9 +103,12 @@ void check_reaction_mutations(void (*check)(bool, const char*) noexcept) noexcep
         filled = filled && mutate(1, id, utf8_literal("e"), normal, Kind::add, false).ok();
     result = mutate(1, 99, utf8_literal("e"), normal, Kind::add, false);
     rich = message_rich_store_find(store, 70);
+    bool grown_intact = rich != nullptr;
+    for (u32 id = 1; grown_intact && id <= kGatewayMessageReactionMaximum; ++id)
+        grown_intact = rich->reactions[id - 1].emoji_id == id && rich->reactions[id - 1].count == 1;
     check(filled && rich && rich->reaction_count == kGatewayMessageReactionMaximum &&
-              result.error == MessageRichStoreError::record_capacity,
-          "rich reactions: a full record rejects another entry");
+              result.error == MessageRichStoreError::record_capacity && grown_intact,
+          "rich reactions: a full record rejects another entry and keeps its entries across the class growth");
     mutate(1, 0, {}, normal, Kind::remove_all, false);
 
     // Names churn through a 96-byte bank: compaction keeps every live name intact.
@@ -126,8 +129,65 @@ void check_reaction_mutations(void (*check)(bool, const char*) noexcept) noexcep
 }
 } // namespace
 
+// Item arrays live in recycled fixed-size side blocks: a record takes the smallest class that fits,
+// returns the block when the array empties or the record goes, and nothing leaks across churn.
+void check_side_blocks(void (*check)(bool, const char*) noexcept) noexcept {
+    static MessageRichRecord records[4];
+    static u16 order[4];
+    static u8 text[2048];
+    MessageRichStore store{};
+    if (!message_rich_store_initialize(&store, {records, 4}, {order, 4}, {text, sizeof(text)})) {
+        check(false, "rich side blocks: the store initializes");
+        return;
+    }
+    GatewayMessageAttachment attachments[3]{};
+    for (u32 index = 0; index < 3; ++index) {
+        attachments[index].id = 10 + index;
+        attachments[index].filename = utf8_literal("a.bin");
+        attachments[index].url = utf8_literal("https://example.com/a.bin");
+    }
+    GatewayMessageEvent event{};
+    event.id = 70;
+    event.fields = gateway_message_field_attachments;
+    const auto apply = [&](u32 revision, u32 count) noexcept {
+        event.attachments = {attachments, count};
+        return message_rich_store_apply(&store, 70, revision, event);
+    };
+    constexpr u32 kAttachmentKind = 1; // MessageRichSide slab row of the attachment array
+    const MessageRichSlab& small = store.side.slabs[kAttachmentKind][0];
+    const MessageRichSlab& large = store.side.slabs[kAttachmentKind][1];
+
+    auto result = apply(1, 2);
+    const MessageRichRecord* rich = message_rich_store_find(store, 70);
+    check(result.ok() && rich && rich->attachment_count == 2 && rich->attachments[1].id == 11 && small.top == 1 &&
+              large.top == 0,
+          "rich side blocks: two attachments take one small block");
+    const MessageRichAttachment* const small_block = rich->attachments;
+    result = apply(2, 1);
+    check(result.ok() && rich->attachment_count == 1 && rich->attachments == small_block && small.top == 1,
+          "rich side blocks: a smaller replacement reuses the block in place");
+    result = apply(3, 3);
+    check(result.ok() && rich->attachment_count == 3 && rich->attachments[2].id == 12 && rich->attachments != small_block &&
+              large.top == 1 && small.free_head != 0,
+          "rich side blocks: a third attachment moves to the large class and frees the small block");
+    result = apply(4, 0);
+    check(result.ok() && !result.record && !message_rich_store_find(store, 70) && large.free_head != 0,
+          "rich side blocks: emptying the array frees its block with the record");
+    bool churn = true;
+    for (u32 round = 0; round < 12 && churn; ++round)
+        churn = apply(5 + 2 * round, 2).ok() && message_rich_store_delete(&store, 70);
+    check(churn && small.top == 1 && large.top == 1,
+          "rich side blocks: apply and delete churn recycles blocks without growing the slabs");
+    check(apply(40, 2).ok() && message_rich_store_reset(&store) && !message_rich_store_find(store, 70) &&
+              small.top == 0 && large.top == 0,
+          "rich side blocks: reset returns every block");
+    message_rich_store_release(&store);
+    check(!store.side.initialized, "rich side blocks: release frees the slabs");
+}
+
 void test_message_rich_store_sparse(void (*check)(bool, const char*) noexcept) noexcept {
     check_reaction_mutations(check);
+    check_side_blocks(check);
     StableStorage records{};
     MessageRichStore store{};
     u16 order[2]{7, 9};
@@ -382,7 +442,7 @@ void test_message_rich_store_sparse(void (*check)(bool, const char*) noexcept) n
             const MessageRichRecord& slot = owner.records[index];
             if (slot.occupied)
                 continue;
-            reset_value<MessageRichRecord>(&expected);
+            message_rich_record_clear(&expected);
             expected.generation = slot.generation;
             if (slot.generation == 0 || !bytes_equal(&slot, &expected, sizeof(slot)))
                 return false;

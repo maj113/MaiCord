@@ -206,6 +206,13 @@ void test_thread_authority_model(void (*check)(bool, const char*) noexcept) noex
                   ChatStateStoreError::invalid_input &&
               state.channel_count == before_channels,
           "whole thread sync preflight rejects duplicate identities without mutation");
+    const ChannelInput distant_duplicate[] = {batch[0], batch[1], batch[0]};
+    check(chat_state_store_preflight_channel_batch(state, 3, read_batch, distant_duplicate) ==
+              ChatStateStoreError::invalid_input,
+          "whole thread sync preflight finds a duplicate identity far from its first occurrence");
+    check(chat_state_store_preflight_channel_batch(state, kChatStateChannelBatchMaximum + 1, read_batch, batch) ==
+              ChatStateStoreError::channel_capacity,
+          "whole thread sync preflight rejects a batch past the gateway's thread list cap");
     check(chat_state_store_preflight_channel_batch(state, 2, read_batch, batch) ==
               ChatStateStoreError::none,
           "whole thread sync preflight admits exact remaining capacity");
