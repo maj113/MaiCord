@@ -3,6 +3,7 @@
 #include "maicord/app/message_event_pump.hpp"
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/core/memory.hpp"
+#include "gateway_message_scratch.hpp"
 
 namespace maicord {
 namespace {
@@ -111,7 +112,7 @@ bool route(Utf8View source, GatewayClientEvent* event, ConstSlice<u8>* payload) 
     if (!gateway_decode_envelope(source, {f.structurals, 4096}, 32, &envelope).ok())
         return false;
     return gateway_client_route_dispatch(envelope, {f.structurals, 4096}, 32,
-                                         {f.payload, sizeof(f.payload)}, {}, 1, event, payload)
+                                         {f.payload, sizeof(f.payload)}, {}, 1, event, payload, gateway_test_message_scratch())
         .ok();
 }
 bool contains(ConstSlice<u64> ids, u64 id) noexcept {

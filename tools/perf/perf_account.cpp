@@ -32,6 +32,7 @@
 #include "maicord/app/account_video_playback.hpp"
 #include "maicord/app/captcha_bridge.hpp"
 #include "maicord/app/gateway_client.hpp"
+#include "maicord/app/message_event_scratch.hpp"
 #include "maicord/app/remote_auth_client.hpp"
 #include "maicord/app/rest_client.hpp"
 #include "maicord/app/user_auth_coordinator.hpp"
@@ -658,10 +659,11 @@ bool route_and_publish(Module& m, Scratch& scratch, const char* name, Utf8View d
     GatewayClientEvent event{};
     ConstSlice<u8> payload{};
     u64 bulk[kGatewayBulkDeleteMaximumIds]{};
+    static GatewayMessageDecodeScratch message_scratch;
     const auto routed = gateway_client_route_dispatch(
         envelope, {scratch.structurals, kScratchStructurals}, 64,
         {scratch.route, kGatewayClientDispatchPayloadCapacity}, {bulk, kGatewayBulkDeleteMaximumIds},
-        kPerfSelfUserId, &event, &payload);
+        kPerfSelfUserId, &event, &payload, &message_scratch);
     if (!routed.ok())
         return false;
     event.timestamp_ms = GetTickCount64();

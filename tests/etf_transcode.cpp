@@ -1,6 +1,7 @@
 // ETF on the user Gateway: received terms transcode to the JSON the dispatch
 // layer reads (erlpack's value model), and JSON commands encode as the desktop
 // client's erlpack packs them. Synthetic payloads only.
+#include "maicord/core/json_scan.hpp"
 #include "maicord/protocol/etf.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -85,11 +86,37 @@ struct Term {
 };
 
 u8 json[8192];
+u8 indexed_json[8192];
+u32 written_index[4096];
+u32 scanned_index[4096];
+// The structural index written while transcoding is the scanner's on the same JSON, and a too small index
+// reports ~0u without touching the JSON.
+bool index_agrees(const Term& term, u32 json_bytes) noexcept {
+    const ConstSlice<u8> etf{term.data, term.used};
+    const JsonScanResult scan = json_scan_structurals_avx1({reinterpret_cast<const char*>(json), json_bytes},
+                                                           {scanned_index, 4096});
+    u32 count = 0;
+    Slice<u8> output{indexed_json, sizeof(indexed_json)};
+    const auto indexed = etf_to_json_indexed(etf, &output, sizeof(indexed_json), nullptr, nullptr,
+                                             {written_index, 4096}, &count);
+    if (!scan.ok() || !indexed.ok() || indexed.bytes != json_bytes || count != scan.count ||
+        !bytes_equal(indexed_json, json, json_bytes) || !bytes_equal(written_index, scanned_index, count * 4))
+        return false;
+    if (count) {
+        u32 too_few = 0;
+        output = {indexed_json, sizeof(indexed_json)};
+        const auto short_index = etf_to_json_indexed(etf, &output, sizeof(indexed_json), nullptr, nullptr,
+                                                     {written_index, count - 1}, &too_few);
+        if (!short_index.ok() || short_index.bytes != json_bytes || too_few != ~0u)
+            return false;
+    }
+    return true;
+}
 bool transcodes(const Term& term, const char* expected) noexcept {
     Slice<u8> output{json, sizeof(json)};
     const auto result = etf_to_json({term.data, term.used}, &output, sizeof(json), nullptr, nullptr);
     const u32 n = c_string_length(expected);
-    return result.ok() && result.bytes == n && bytes_equal(json, expected, n);
+    return result.ok() && result.bytes == n && bytes_equal(json, expected, n) && index_agrees(term, n);
 }
 EtfError transcode_error(const Term& term) noexcept {
     Slice<u8> output{json, sizeof(json)};

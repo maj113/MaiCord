@@ -420,11 +420,28 @@ GatewayCommandWriteResult gateway_write_guild_subscriptions_bulk(
             other_bytes += sizeof("[,]") - 1 + decimal_digits(range.first) + decimal_digits(range.last);
         }
     }
+    // The users whose presence and member updates the client follows in the guild: bounded, distinct, nonzero.
+    if (subscription.member_count > kGatewayGuildSubscriptionMaximumMembers ||
+        (subscription.member_count && !subscription.members_present))
+        return {0, GatewayCommandError::invalid_input};
+    u32 members_bytes = 0;
+    for (u32 i = 0; i < subscription.member_count; ++i) {
+        if (!subscription.members[i])
+            return {0, GatewayCommandError::invalid_input};
+        for (u32 earlier = 0; earlier < i; ++earlier)
+            if (subscription.members[earlier] == subscription.members[i])
+                return {0, GatewayCommandError::invalid_input};
+        members_bytes += decimal_digits(subscription.members[i]) + 3;
+    }
     u32 field_bytes = 0, field_count = 0;
     if (!subscription.omit_features) {
         field_bytes += sizeof("\"typing\":,\"activities\":,\"threads\":") - 1 +
                        (subscription.typing ? 4u : 5u) + (subscription.activities ? 4u : 5u) +
                        (subscription.threads ? 4u : 5u);
+        ++field_count;
+    }
+    if (subscription.members_present) {
+        field_bytes += sizeof("\"members\":[]") - 1 + (members_bytes ? members_bytes - 1 : 0);
         ++field_count;
     }
     if (!subscription.omit_channel_ranges) {
@@ -481,6 +498,20 @@ GatewayCommandWriteResult gateway_write_guild_subscriptions_bulk(
         write_boolean(output.data, &offset, subscription.activities);
         write_literal(output.data, &offset, ",\"threads\":");
         write_boolean(output.data, &offset, subscription.threads);
+        comma = true;
+    }
+    if (subscription.members_present) {
+        if (comma)
+            write_literal(output.data, &offset, ",");
+        write_literal(output.data, &offset, "\"members\":[");
+        for (u32 i = 0; i < subscription.member_count; ++i) {
+            if (i)
+                write_literal(output.data, &offset, ",");
+            write_literal(output.data, &offset, "\"");
+            number(subscription.members[i]);
+            write_literal(output.data, &offset, "\"");
+        }
+        write_literal(output.data, &offset, "]");
         comma = true;
     }
     if (!subscription.omit_channel_ranges) {

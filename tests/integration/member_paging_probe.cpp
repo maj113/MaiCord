@@ -87,7 +87,7 @@ bool member_paging_probe(D3D11Renderer& renderer, UiTextMeasureCache& measure,
     u32 member_order[2]{};
     GuildMemberStore members{};
     members.records = member_records; members.order = member_order;
-    members.capacity = 2; members.count = 1; members.revision = 1;
+    members.capacity = 2; members.slot_extent = 2; members.count = 1; members.revision = 1;
     member_records[0].guild_id = 90001; member_records[0].list_id = 90002;
     member_records[0].user_id = 90003; member_records[0].generation = 1;
     member_records[0].list_index = 50001; member_records[0].occupied = true;

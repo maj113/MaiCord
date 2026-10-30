@@ -256,7 +256,7 @@ bool read_presence(void*, u64 user_id, u64 guild_id, mc_presence_info* info) noe
     u32 status = member_status ? member_status : friend_known ? status_value(relationship->presence) : 0;
     if (!status && !guild_id) {
         // Without a server, any resident member row carries the global status.
-        for (u32 i = 0; i < ui.guild_member_store.capacity && !status; ++i) {
+        for (u32 i = 0; i < ui.guild_member_store.slot_extent && !status; ++i) {
             const auto& row = ui.guild_member_store.records[i];
             if (row.occupied && row.user_id == user_id) status = status_value(row.status);
         }
@@ -446,7 +446,7 @@ bool read_list(void*, u32 list, u64 scope, u32 cursor, Slice<u64> ids, u32* coun
     case MC_LIST_MEMBERS: {
         if (!scope || !chat_state_store_find_guild(chat, scope)) return false;
         const auto& members = ui.guild_member_store;
-        page(cursor, members.records ? members.capacity : 0, ids, count, next, [&](u32 i) noexcept {
+        page(cursor, members.records ? members.slot_extent : 0, ids, count, next, [&](u32 i) noexcept {
             const auto& row = members.records[i];
             return row.occupied && row.guild_id == scope ? row.user_id : 0;
         });

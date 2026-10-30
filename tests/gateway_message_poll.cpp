@@ -4,6 +4,7 @@
 #include "maicord/protocol/writer.hpp"
 #include "maicord/app/gateway_client.hpp"
 #include "../src/app/gateway_dispatch_common.hpp"
+#include "gateway_message_scratch.hpp"
 
 namespace maicord {
 namespace {
@@ -551,7 +552,7 @@ void test_gateway_message_poll(void (*check)(bool, const char*) noexcept) noexce
                                 {f.structurals, 2048}, 32, &envelope)
             .ok() &&
         gateway_client_route_dispatch(envelope, {f.message_structurals, 2048}, 32,
-                                      {f.mailbox, sizeof(f.mailbox)}, {f.roles, 100}, 11, &event, &payload)
+                                      {f.mailbox, sizeof(f.mailbox)}, {f.roles, 100}, 11, &event, &payload, gateway_test_message_scratch())
             .ok();
     for (auto& byte : f.generated)
         byte = '!';
@@ -588,7 +589,7 @@ void test_gateway_message_poll(void (*check)(bool, const char*) noexcept) noexce
                                 {f.structurals, 2048}, 32, &envelope)
             .ok() &&
         gateway_client_route_dispatch(envelope, {f.message_structurals, 2048}, 32,
-                                      {f.mailbox, sizeof(f.mailbox)}, {f.roles, 100}, 11, &event, &payload)
+                                      {f.mailbox, sizeof(f.mailbox)}, {f.roles, 100}, 11, &event, &payload, gateway_test_message_scratch())
             .ok();
     check(routed && event.dispatch_kind == GatewayClientDispatchKind::message_poll_vote_remove &&
               gateway_client_event_as_message_poll_vote(event, payload, &vote) && !vote.add &&

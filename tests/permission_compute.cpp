@@ -124,6 +124,17 @@ void test_vectors() noexcept {
               permission_compute(guild, self, {}, {0, true}) == base,
           "permission compute: the two-factor gate strips elevated bits for everyone including the owner, "
           "only when the guild requires it and the member lacks it");
+    // The documented set (Discord developer docs "*" permissions): eleven bits, with webhook, expression and
+    // creator-analytics management gated and timeouts (MODERATE_MEMBERS) not.
+    check(__builtin_popcountll(kPermissionElevatedMask) == 11 &&
+              (kPermissionElevatedMask & (kPermissionManageWebhooks | kPermissionManageExpressions |
+                                          kPermissionViewCreatorMonetizationAnalytics)) ==
+                  (kPermissionManageWebhooks | kPermissionManageExpressions |
+                   kPermissionViewCreatorMonetizationAnalytics) &&
+              !(kPermissionElevatedMask & kPermissionModerateMembers) &&
+              permission_compute(strict, owner, {}, {0, true}) == (kPermissionAll & ~kPermissionElevatedMask) &&
+              (permission_compute(strict, owner, {}, {0, true}) & kPermissionModerateMembers),
+          "permission compute: the two-factor gate matches the documented set and keeps timeout moderation");
     check(permission_has(kPermissionAdministrator, kPermissionBanMembers) &&
               !permission_has(kPermissionKickMembers, kPermissionKickMembers | kPermissionBanMembers) &&
               !(kPermissionKnownMask & (1ull << 47)) && (kPermissionKnownMask & kPermissionManageOfficialMessages),

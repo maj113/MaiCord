@@ -181,7 +181,7 @@ u32 test_member_viewport_ranges_and_sparse_scene() noexcept {
     GuildMemberRecord members_storage[1]{};
     u32 member_order[1]{};
     GuildMemberStore members{};
-    members.records = members_storage; members.order = member_order; members.capacity = 1;
+    members.records = members_storage; members.order = member_order; members.capacity = 1; members.slot_extent = 1;
     UserRecord users_storage[1]{};
     u32 user_order[1]{};
     u8 names[1]{};

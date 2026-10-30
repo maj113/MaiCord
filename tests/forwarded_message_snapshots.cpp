@@ -3,6 +3,7 @@
 #include "maicord/protocol/writer.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/model/user_profile.hpp"
+#include "gateway_message_scratch.hpp"
 
 namespace maicord {
 namespace {
@@ -96,7 +97,7 @@ void test_forwarded_message_snapshots(void (*check)(bool, const char*) noexcept)
                                     {fixture.structurals, 4096}, 32, &envelope)
                 .ok() &&
             gateway_client_route_dispatch(envelope, {fixture.structurals, 4096}, 32, {mailbox, 16384},
-                                          {ids, 100}, 7, &routed, &payload)
+                                          {ids, 100}, 7, &routed, &payload, gateway_test_message_scratch())
                 .ok();
         for (auto& byte : envelope_text)
             byte = 0xa5;

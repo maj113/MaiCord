@@ -1,5 +1,6 @@
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/model/message_reconcile.hpp"
+#include "gateway_message_scratch.hpp"
 
 namespace maicord {
 namespace {
@@ -63,7 +64,7 @@ void test_message_forward_source_flags(void (*check)(bool, const char*) noexcept
     rich.poll = {{answers, kGatewayMessagePollMaximumAnswers}, {counts, kGatewayMessagePollMaximumAnswers}};
     const bool transported = gateway_decode_envelope(envelope_text, {fixture.structurals, 256}, 16, &envelope).ok() &&
         gateway_client_route_dispatch(envelope, {fixture.structurals, 256}, 16, {fixture.mailbox, 2048}, {ids, 2}, 1,
-            &routed, &payload).ok() && gateway_client_event_as_message(routed, payload, rich, &event);
+            &routed, &payload, gateway_test_message_scratch()).ok() && gateway_client_event_as_message(routed, payload, rich, &event);
     check(transported && event.forwarding_features == (gateway_message_forwarding_poll | gateway_message_forwarding_activity) &&
         (event.fields & gateway_message_field_call),
         "forward source: pointer-free mailbox preserves typed poll and object policy in unchanged mutation layout");

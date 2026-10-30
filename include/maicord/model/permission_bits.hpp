@@ -49,6 +49,7 @@ inline constexpr PermissionSet kPermissionUseExternalStickers = 1ull << 37;
 inline constexpr PermissionSet kPermissionSendMessagesInThreads = 1ull << 38;
 inline constexpr PermissionSet kPermissionUseActivities = 1ull << 39;
 inline constexpr PermissionSet kPermissionModerateMembers = 1ull << 40;
+inline constexpr PermissionSet kPermissionViewCreatorMonetizationAnalytics = 1ull << 41;
 inline constexpr PermissionSet kPermissionUseSoundboard = 1ull << 42;
 inline constexpr PermissionSet kPermissionCreateExpressions = 1ull << 43;
 inline constexpr PermissionSet kPermissionCreateEvents = 1ull << 44;
@@ -65,11 +66,13 @@ inline constexpr PermissionSet kPermissionAll = ~PermissionSet{0};
 // Every currently assigned bit; editors must preserve unknown bits they read.
 inline constexpr PermissionSet kPermissionKnownMask = ((1ull << 54) - 1) & ~(1ull << 47);
 // Stripped when the guild requires two-factor moderation and the acting
-// account has not enabled it. Applies to the owner as well.
+// account has not enabled it. Applies to the owner as well. The set is the
+// documented two-factor list (Discord's developer docs and Userdoccers mark the
+// same eleven bits); MODERATE_MEMBERS is not part of it.
 inline constexpr PermissionSet kPermissionElevatedMask =
     kPermissionKickMembers | kPermissionBanMembers | kPermissionAdministrator | kPermissionManageChannels |
-    kPermissionManageGuild | kPermissionManageRoles | kPermissionManageMessages | kPermissionManageThreads |
-    kPermissionModerateMembers;
+    kPermissionManageGuild | kPermissionManageRoles | kPermissionManageWebhooks | kPermissionManageExpressions |
+    kPermissionManageMessages | kPermissionManageThreads | kPermissionViewCreatorMonetizationAnalytics;
 // What a timed-out non-administrator member keeps in every channel.
 inline constexpr PermissionSet kPermissionTimeoutAllowedMask =
     kPermissionViewChannel | kPermissionReadMessageHistory;

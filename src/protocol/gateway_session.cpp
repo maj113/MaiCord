@@ -96,12 +96,16 @@ void consume_compressed(GatewaySession* session, u32 bytes) noexcept {
     }
 }
 
+// indexed: the number of entries of the message's structural index already in session->structural_scratch
+// (valid JSON written by the ETF transcoder), or ~0u to scan and validate the message.
 void process_gateway_message(GatewaySession* session, Utf8View message, u32 heartbeat_jitter,
-                             u64 now_ms, GatewaySessionEvent* out) noexcept {
+                             u64 now_ms, GatewaySessionEvent* out, u32 indexed) noexcept {
     clear_bytes(out, sizeof(*out));
     GatewaySessionEvent& result = *out;
     GatewayDecodeResult decoded =
-        gateway_decode_envelope(message, session->structural_scratch, 64, &result.envelope);
+        indexed != ~0u ? gateway_decode_envelope_indexed(
+                             message, {session->structural_scratch.data, indexed}, 64, &result.envelope)
+                       : gateway_decode_envelope(message, session->structural_scratch, 64, &result.envelope);
     // The frame (or one zstd-stream message) has already been consumed.
     // Rescan the pinned JSON bytes only; never ask the transport to replay it.
     while (!decoded.ok() && decoded.error == GatewayDecodeError::scan_failed &&
@@ -235,8 +239,10 @@ void process_zstd_message(GatewaySession* session, u32 heartbeat_jitter, u64 now
         return;
     }
     consume_compressed(session, compressed_bytes);
-    const EtfResult json = etf_to_json(etf, &session->message_storage, session->maximum_decoded_message_bytes,
-                                       session->grow_output ? grow_session_output : nullptr, session);
+    u32 indexed = 0;
+    const EtfResult json = etf_to_json_indexed(etf, &session->message_storage, session->maximum_decoded_message_bytes,
+                                               session->grow_output ? grow_session_output : nullptr, session,
+                                               session->structural_scratch, &indexed);
     if (!json.ok()) {
         session_error(out, GatewaySessionError::etf);
         out->etf_error = json.error;
@@ -244,7 +250,7 @@ void process_zstd_message(GatewaySession* session, u32 heartbeat_jitter, u64 now
     }
     process_gateway_message(session,
                             Utf8View{reinterpret_cast<const char*>(session->message_storage.data), json.bytes},
-                            heartbeat_jitter, now_ms, out);
+                            heartbeat_jitter, now_ms, out, indexed);
 }
 
 } // namespace
@@ -431,7 +437,7 @@ void gateway_session_next(GatewaySessionEvent* out, GatewaySession* session, u32
 
         process_gateway_message(
             session, Utf8View{reinterpret_cast<const char*>(message.data), message.count}, heartbeat_jitter,
-            now_ms, out);
+            now_ms, out, ~0u);
         session->message_bytes = 0;
         return;
     }

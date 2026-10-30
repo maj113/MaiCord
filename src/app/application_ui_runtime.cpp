@@ -430,7 +430,7 @@ bool application_initialize_account_ui(Application& application) noexcept {
         !guild_member_store_initialize(
             &runtime->guild_member_store,
             Slice<GuildMemberRecord>{runtime->guild_member_record_storage, kGuildMemberCapacity},
-            Slice<u32>{runtime->guild_member_order_storage, kGuildMemberCapacity}) ||
+            Slice<u32>{runtime->guild_member_order_storage, kGuildMemberCapacity}, true) ||
         !guild_member_store_enable_role_overflow(&runtime->guild_member_store, kGuildMemberCapacity) ||
         !stable_storage_initialize(&runtime->thread_member_banks[0], kThreadMemberMaximumIds, 0,
                                    sizeof(u64), alignof(u64)) ||

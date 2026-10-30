@@ -5,6 +5,7 @@
 #include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/core/memory.hpp"
+#include "gateway_message_scratch.hpp"
 
 namespace maicord {
 namespace {
@@ -88,7 +89,7 @@ void test_embed_convergence(void (*check)(bool, const char*) noexcept) noexcept 
     bool ok =
         gateway_decode_envelope(payload, {structurals, 1024}, 32, &envelope).ok() &&
         gateway_client_route_dispatch(envelope, {structurals, 1024}, 32, {packed_text, sizeof(packed_text)},
-                                      {ids, 100}, &routed, &packed)
+                                      {ids, 100}, &routed, &packed, gateway_test_message_scratch())
             .ok() &&
         gateway_client_event_as_message(routed, packed, scratch, &message);
     ok = ok && message_store_initialize(&f.store, {f.record, 8}, {f.order, 8}, {f.text, sizeof(f.text)}) &&

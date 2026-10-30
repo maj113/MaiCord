@@ -1,4 +1,5 @@
 #include "application_downloads_inactive.hpp"
+#include "gateway_message_scratch.hpp"
 #include "maicord/app/account_paths.hpp"
 #include "maicord/ui/message_author.hpp"
 #include "../tools/font_reference/native_run_reference.hpp"
@@ -7389,6 +7390,7 @@ void test_member_list_subscription_scope() noexcept {
     members.records = member_records;
     members.order = member_order;
     members.capacity = 2;
+    members.slot_extent = 2;
     members.count = 2;
     members.revision = 1;
     member_records[0].guild_id = 7;
@@ -7485,6 +7487,7 @@ void test_member_list_scene() noexcept {
     members.records = member_records;
     members.order = member_order;
     members.capacity = source_count;
+    members.slot_extent = source_count;
     members.count = source_count;
     members.revision = 1;
     MemberListView projection{};
@@ -9956,7 +9959,7 @@ void test_message_timeline() noexcept {
         gateway_client_route_dispatch(rich_route_envelope, Slice<u32>{rich_route_structurals, 1'024}, 32,
                                       Slice<char>{rich_route_payload_storage, 8 * 1024},
                                       Slice<u64>{rich_route_ids, kGatewayBulkDeleteMaximumIds},
-                                      &rich_route_event, &rich_route_payload)
+                                      &rich_route_event, &rich_route_payload, gateway_test_message_scratch())
             .ok();
     const MessageTimelineApplyResult rich_timeline_created =
         rich_route_ready ? message_timeline_apply(&rich_timeline, rich_route_event, rich_route_payload,
@@ -9984,7 +9987,7 @@ void test_message_timeline() noexcept {
         gateway_client_route_dispatch(rich_route_envelope, Slice<u32>{rich_route_structurals, 1'024}, 32,
                                       Slice<char>{rich_route_payload_storage, 8 * 1024},
                                       Slice<u64>{rich_route_ids, kGatewayBulkDeleteMaximumIds},
-                                      &rich_route_event, &rich_route_payload)
+                                      &rich_route_event, &rich_route_payload, gateway_test_message_scratch())
             .ok() &&
         message_timeline_apply(&rich_timeline, rich_route_event, rich_route_payload,
                                Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds})
@@ -17844,7 +17847,7 @@ void test_gateway_member_list_update() noexcept {
                                 &sync_envelope).ok() &&
         gateway_client_route_dispatch(sync_envelope, Slice<u32>{sync_scratch, 32'768}, 64,
             Slice<char>{sync_payload, kMessageEventPumpPayloadCapacity},
-            Slice<u64>{sync_ids, kGatewayBulkDeleteMaximumIds}, 0, &sync_event, &sync_output).ok();
+            Slice<u64>{sync_ids, kGatewayBulkDeleteMaximumIds}, 0, &sync_event, &sync_output, gateway_test_message_scratch()).ok();
     expect(sync_routed && sync_event.member_list.list_id == kMemberListEveryone &&
         sync_event.member_list.member_count == 5000 && sync_event.member_list.member_record_count == 100 &&
         sync_event.member_list.record_count == 101,
@@ -17910,7 +17913,7 @@ void test_gateway_member_list_update() noexcept {
             ? gateway_client_route_dispatch(envelope, Slice<u32>{route_scratch, 4096}, 32,
                                             Slice<char>{payload_storage, kMessageEventPumpPayloadCapacity},
                                             Slice<u64>{ids, kGatewayBulkDeleteMaximumIds}, 0, &event,
-                                            &payload)
+                                            &payload, gateway_test_message_scratch())
             : GatewayClientDispatchRouteResult{};
     expect(decoded.ok() && routed.ok() &&
                event.dispatch_kind == GatewayClientDispatchKind::guild_member_list_update &&
@@ -18312,7 +18315,7 @@ void test_thread_authority_gateway() noexcept {
         envelope.data = {json,0,JsonValueKind::object};
         event = {}; event.kind = GatewayClientEventKind::dispatch;
         return gateway_client_route_dispatch(envelope, {structurals,2048}, 32, {bytes,8192},
-            {bulk,kGatewayBulkDeleteMaximumIds}, 99, &event, &payload).ok();
+            {bulk,kGatewayBulkDeleteMaximumIds}, 99, &event, &payload, gateway_test_message_scratch()).ok();
     };
     const auto apply = [&]() noexcept { return message_event_pump_consume(&pump,event,payload).ok(); };
     expect(route(utf8_literal("GUILD_CREATE"), utf8_literal(R"({"id":"7","owner_id":"999","name":"native","roles":[{"id":"7","permissions":"274877975552"}],"members":[{"user":{"id":"99"},"roles":[]}],"channels":[{"id":"10","type":0,"name":"parent","permission_overwrites":[]}],"threads":[{"id":"20","parent_id":"10","type":12,"name":"private","thread_metadata":{"archived":false,"locked":true},"member":{"join_timestamp":"2026-10-05T12:00:00Z","flags":0}},{"id":"21","parent_id":"10","type":11,"name":"public","thread_metadata":{"archived":true,"locked":true}},{"id":"23","parent_id":"10","type":12,"name":"archived","thread_metadata":{"archived":true,"locked":false},"member":{"join_timestamp":"2026-10-05T12:00:00Z","flags":0}}]})")) && apply() &&
@@ -18593,7 +18596,7 @@ void test_chat_state() noexcept {
         &envelope);
     const GatewayClientDispatchRouteResult guild_routed = gateway_client_route_dispatch(
         envelope, Slice<u32>{scratch, 512}, 32, Slice<char>{payload_storage, 4'096},
-        Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, 1, &event, &payload);
+        Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, 1, &event, &payload, gateway_test_message_scratch());
     u32 cursor = 0;
     u32 channel_index = 0;
     GatewayClientStateMutation first_channel{};
@@ -18640,7 +18643,7 @@ void test_chat_state() noexcept {
         &envelope);
     const GatewayClientDispatchRouteResult emoji_update_routed = gateway_client_route_dispatch(
         envelope, Slice<u32>{scratch, 512}, 32, Slice<char>{payload_storage, 4'096},
-        Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, 1, &event, &payload);
+        Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, 1, &event, &payload, gateway_test_message_scratch());
     const ChatStateApplyResult emoji_update_applied =
         chat_state_apply_gateway_event(&store, event, payload, Slice<u64>{guild_ids, 4});
     const CustomEmojiRecord* fresh_emoji = chat_state_store_find_emoji(store, 503);
@@ -18676,7 +18679,7 @@ void test_chat_state() noexcept {
         &envelope);
     const GatewayClientDispatchRouteResult invalid_emoji_routed = gateway_client_route_dispatch(
         envelope, Slice<u32>{scratch, 512}, 32, Slice<char>{payload_storage, 4'096},
-        Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, 1, &event, &payload);
+        Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, 1, &event, &payload, gateway_test_message_scratch());
     expect(invalid_emoji_envelope.ok() && !invalid_emoji_routed.ok() && store.emoji_count == 2 &&
                chat_state_store_find_emoji(store, 503) && !chat_state_store_find_emoji(store, 505),
            "chat_state_emoji_malformed_update_is_atomic");
@@ -18687,7 +18690,7 @@ void test_chat_state() noexcept {
         &envelope);
     const GatewayClientDispatchRouteResult channel_routed = gateway_client_route_dispatch(
         envelope, Slice<u32>{scratch, 512}, 32, Slice<char>{payload_storage, 4'096},
-        Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, &event, &payload);
+        Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, &event, &payload, gateway_test_message_scratch());
     const ChatStateApplyResult channel_applied =
         chat_state_apply_gateway_event(&store, event, payload, Slice<u64>{guild_ids, 4});
     expect(channel_envelope.ok() && channel_routed.ok() && channel_applied.ok() &&
@@ -19091,7 +19094,7 @@ void test_chat_state() noexcept {
         &envelope);
     const GatewayClientDispatchRouteResult delete_routed = gateway_client_route_dispatch(
         envelope, Slice<u32>{scratch, 512}, 32, Slice<char>{payload_storage, 4'096},
-        Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, &event, &payload);
+        Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, &event, &payload, gateway_test_message_scratch());
     const ChatStateApplyResult delete_applied =
         chat_state_apply_gateway_event(&store, event, payload, Slice<u64>{guild_ids, 4});
     expect(delete_envelope.ok() && delete_routed.ok() && delete_applied.ok() && store.channel_count == 4 &&
@@ -19104,7 +19107,7 @@ void test_chat_state() noexcept {
                    .ok() &&
                gateway_client_route_dispatch(
                    envelope, Slice<u32>{scratch, 512}, 32, Slice<char>{payload_storage, 4'096},
-                   Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, &event, &payload)
+                   Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, &event, &payload, gateway_test_message_scratch())
                    .ok() &&
                chat_state_apply_gateway_event(&store, event, payload, Slice<u64>{guild_ids, 4}).ok() &&
                store.guild_count == 2 && store.channel_count == 4 && store.selected_channel_id == 0,
@@ -19142,7 +19145,7 @@ void test_channel_permissions() noexcept {
         return decode_gateway(json, &envelope).ok() &&
                gateway_client_route_dispatch(
                    envelope, Slice<u32>{scratch, 2'048}, 32, Slice<char>{payload_storage, 16'384},
-                   Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, 1, &event, &payload)
+                   Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, 1, &event, &payload, gateway_test_message_scratch())
                    .ok();
     };
     const auto apply_event = [&]() noexcept {
@@ -19172,7 +19175,7 @@ void test_channel_permissions() noexcept {
         permission_guild_decoded &&
         gateway_client_route_dispatch(
             envelope, Slice<u32>{scratch, 2'048}, 32, Slice<char>{payload_storage, 16'384},
-            Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, 1, &event, &payload)
+            Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, 1, &event, &payload, gateway_test_message_scratch())
             .ok();
     GatewayClientEvent permission_body_event{};
     ConstSlice<u8> permission_body{};
@@ -19671,7 +19674,7 @@ void test_activity_and_actions() noexcept {
             .ok() &&
         gateway_client_route_dispatch(
             envelope, Slice<u32>{structural_scratch, 512}, 16, Slice<char>{state_payload, 512},
-            Slice<u64>{route_ids, kGatewayBulkDeleteMaximumIds}, 42, &routed, &routed_payload)
+            Slice<u64>{route_ids, kGatewayBulkDeleteMaximumIds}, 42, &routed, &routed_payload, gateway_test_message_scratch())
             .ok() &&
         (routed.state.fields & gateway_client_state_field_last_message_id) != 0 &&
         routed.state.last_message_id == 700 &&
@@ -19689,7 +19692,7 @@ void test_activity_and_actions() noexcept {
             .ok() &&
         gateway_client_route_dispatch(
             envelope, Slice<u32>{structural_scratch, 512}, 16, Slice<char>{state_payload, 512},
-            Slice<u64>{route_ids, kGatewayBulkDeleteMaximumIds}, 42, &routed, &routed_payload)
+            Slice<u64>{route_ids, kGatewayBulkDeleteMaximumIds}, 42, &routed, &routed_payload, gateway_test_message_scratch())
             .ok() &&
         (routed.state.fields & gateway_client_state_field_last_message_id) != 0 &&
         routed.state.last_message_id == 0 &&
@@ -19774,7 +19777,7 @@ void test_gateway_message_events() noexcept {
     ConstSlice<u8> routed_payload{};
     const GatewayClientDispatchRouteResult routed_create = gateway_client_route_dispatch(
         envelope, Slice<u32>{scratch, 256}, 16, Slice<char>{routed_content, 64},
-        Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload);
+        Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload, gateway_test_message_scratch());
     GatewayMessageEvent routed_message{};
     Utf8View routed_author_name{};
     Utf8View routed_avatar_hash{};
@@ -19799,14 +19802,14 @@ void test_gateway_message_events() noexcept {
     const GatewayClientDispatchRouteResult aliased_route = gateway_client_route_dispatch(
         envelope, Slice<u32>{scratch, 256}, 16,
         Slice<char>{const_cast<char*>(envelope.data.source.data), envelope.data.source.bytes},
-        Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload);
+        Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload, gateway_test_message_scratch());
     expect(!aliased_route.ok() && aliased_route.error == GatewayClientDispatchRouteError::invalid_input,
            "gateway_client_route_rejects_source_output_aliasing");
 
     u32 tiny_route_scratch[1]{};
     const GatewayClientDispatchRouteResult overflow_route = gateway_client_route_dispatch(
         envelope, Slice<u32>{tiny_route_scratch, 1}, 16, Slice<char>{routed_content, 64},
-        Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload);
+        Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload, gateway_test_message_scratch());
     expect(!overflow_route.ok() && overflow_route.error == GatewayClientDispatchRouteError::decode &&
                overflow_route.event_error == GatewayEventDecodeError::scan_failed &&
                overflow_route.scan_error == JsonScanError::output_overflow &&
@@ -19823,7 +19826,7 @@ void test_gateway_message_events() noexcept {
                 .ok() &&
             gateway_client_route_dispatch(
                 reaction_envelope, Slice<u32>{scratch, 256}, 16, Slice<char>{routed_content, 64},
-                Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload)
+                Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload, gateway_test_message_scratch())
                 .ok() &&
             routed_event.dispatch_kind == GatewayClientDispatchKind::message_reaction_add &&
             routed_event.dispatch_payload_bytes == 4 &&
@@ -19841,7 +19844,7 @@ void test_gateway_message_events() noexcept {
                 .ok() &&
             gateway_client_route_dispatch(
                 reaction_envelope, Slice<u32>{scratch, 256}, 16, Slice<char>{routed_content, 64},
-                Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload)
+                Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload, gateway_test_message_scratch())
                 .ok() &&
             routed_event.dispatch_kind == GatewayClientDispatchKind::message_reaction_remove_all &&
             routed_payload.count == 0 &&
@@ -19857,7 +19860,7 @@ void test_gateway_message_events() noexcept {
                 .ok() &&
             gateway_client_route_dispatch(
                 reaction_envelope, Slice<u32>{scratch, 256}, 16, Slice<char>{routed_content, 64},
-                Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload)
+                Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload, gateway_test_message_scratch())
                     .event_error == GatewayEventDecodeError::missing_required_field,
         "gateway_client_rejects_reaction_remove_without_user");
 
@@ -19871,7 +19874,7 @@ void test_gateway_message_events() noexcept {
         expect(decode_gateway(deleted_custom_reactions[index], &reaction_envelope).ok() &&
             gateway_client_route_dispatch(reaction_envelope, {scratch, 256}, 16,
                 {routed_content, 64}, {routed_ids, kGatewayBulkDeleteMaximumIds},
-                &routed_event, &routed_payload).ok() &&
+                &routed_event, &routed_payload, gateway_test_message_scratch()).ok() &&
             routed_payload.count == 0 && routed_event.reaction.name_bytes == 0 &&
             gateway_client_event_as_message_reaction(routed_event, routed_payload, &routed_reaction) &&
             routed_reaction.emoji_id == 123 && routed_reaction.name.bytes == 0 &&
@@ -19912,7 +19915,7 @@ void test_gateway_message_events() noexcept {
         expect(decode_gateway(invalid, &reaction_envelope).ok() &&
             !gateway_client_route_dispatch(reaction_envelope, {scratch, 256}, 16,
                 {routed_content, 64}, {routed_ids, kGatewayBulkDeleteMaximumIds},
-                &routed_event, &routed_payload).ok(),
+                &routed_event, &routed_payload, gateway_test_message_scratch()).ok(),
             "gateway_deleted_custom_null_name_does_not_weaken_identity_type_or_required_fields");
     }
 
@@ -19925,7 +19928,7 @@ void test_gateway_message_events() noexcept {
                 .ok() &&
             gateway_client_route_dispatch(
                 reaction_envelope, Slice<u32>{scratch, 256}, 16, Slice<char>{routed_content, 64},
-                Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload)
+                Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload, gateway_test_message_scratch())
                 .ok() &&
             routed_event.dispatch_kind == GatewayClientDispatchKind::typing_start &&
             routed_payload.count == 0 &&
@@ -19989,7 +19992,7 @@ void test_gateway_message_events() noexcept {
     expect(
         gateway_client_route_dispatch(
             envelope, Slice<u32>{scratch, 256}, 16, Slice<char>{routed_content, 64},
-            Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, 42, &routed_event, &routed_payload)
+            Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, 42, &routed_event, &routed_payload, gateway_test_message_scratch())
                 .ok() &&
             routed_event.dispatch_kind == GatewayClientDispatchKind::message_create &&
             routed_event.message.content_bytes == 4 && routed_event.message.transient_bytes == 13 &&
@@ -20051,7 +20054,7 @@ void test_gateway_message_events() noexcept {
            "gateway_message_update_absent_vs_empty");
     expect(gateway_client_route_dispatch(
                envelope, Slice<u32>{scratch, 256}, 8, Slice<char>{routed_content, 64},
-               Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload)
+               Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload, gateway_test_message_scratch())
                    .ok() &&
                routed_event.dispatch_kind == GatewayClientDispatchKind::message_update &&
                routed_event.dispatch_payload_bytes == 0 &&
@@ -20183,7 +20186,7 @@ void test_gateway_message_events() noexcept {
            "gateway_envelope_index_rebuilt_for_route");
     const GatewayClientDispatchRouteResult rich_routed = gateway_client_route_dispatch(
         envelope, Slice<u32>{rich_structurals, 2'048}, 32, Slice<char>{rich_text, 32 * 1024},
-        Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, 11, &routed_event, &packed_rich_payload);
+        Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, 11, &routed_event, &packed_rich_payload, gateway_test_message_scratch());
     bool rich_payload_copied = rich_routed.ok() && packed_rich_payload.count <= sizeof(rich_owned_payload);
     if (rich_payload_copied) {
         for (u32 byte = 0; byte < packed_rich_payload.count; ++byte) {
@@ -20277,7 +20280,7 @@ void test_gateway_message_events() noexcept {
             {rich_structurals, 2'048}, 32, &envelope).ok() &&
             gateway_client_route_dispatch(envelope, {rich_structurals, 2'048}, 32,
                 {rich_text, 32 * 1024}, {routed_ids, kGatewayBulkDeleteMaximumIds},
-                11, &routed_event, &packed_rich_payload).ok() &&
+                11, &routed_event, &packed_rich_payload, gateway_test_message_scratch()).ok() &&
             packed_rich_payload.count <= sizeof(rich_owned_payload);
         if (snapshot_ok) {
             for (u32 byte = 0; byte < packed_rich_payload.count; ++byte) {
@@ -20328,7 +20331,7 @@ void test_gateway_message_events() noexcept {
             &envelope).ok() && !gateway_client_route_dispatch(envelope,
                 {rich_structurals, 2'048}, 32, {rich_text, 32 * 1024},
                 {routed_ids, kGatewayBulkDeleteMaximumIds}, 11,
-                &routed_event, &packed_rich_payload).ok(),
+                &routed_event, &packed_rich_payload, gateway_test_message_scratch()).ok(),
             "gateway_full_snapshot_null_custom_does_not_allow_empty_missing_or_malformed_identity");
     }
 
@@ -20374,7 +20377,7 @@ void test_gateway_message_events() noexcept {
         "gateway_message_bulk_delete_typed_decode");
     expect(gateway_client_route_dispatch(
                envelope, Slice<u32>{scratch, 256}, 8, Slice<char>{routed_content, 64},
-               Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload)
+               Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload, gateway_test_message_scratch())
                    .ok() &&
                routed_event.dispatch_kind == GatewayClientDispatchKind::message_bulk_delete &&
                routed_event.dispatch_payload_bytes == 3 * sizeof(u64),
@@ -20413,7 +20416,7 @@ void test_gateway_message_events() noexcept {
                 .ok() &&
             gateway_client_route_dispatch(
                 envelope, Slice<u32>{scratch, 256}, 8, Slice<char>{routed_content, 64},
-                Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload)
+                Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, &routed_event, &routed_payload, gateway_test_message_scratch())
                 .ok() &&
             routed_event.dispatch_kind == GatewayClientDispatchKind::unknown &&
             routed_event.event_name_bytes == 12 && routed_payload.count == 0,
@@ -22439,6 +22442,16 @@ void test_gateway_commands() noexcept {
     const GatewayCommandWriteResult properties_measured =
         gateway_write_user_properties(user_identify.properties, {});
     const GatewayCommandWriteResult properties_written = gateway_write_user_properties(
+    // The client's capabilities minus AUTH_TOKEN_REFRESH (bit 8): READY's replacement auth_token cannot yet be
+    // adopted by every holder of the token, and no installation_id is sent (a server-issued analytics ID the
+    // client keeps in local storage).
+    bool installation_absent = true;
+    for (u32 index = 0; index + 15 <= user_identified.bytes; ++index)
+        installation_absent = installation_absent && !bytes_equal(ConstSlice<u8>{output + index, 15},
+                                                                  ConstSlice<u8>{reinterpret_cast<const u8*>("installation_id"), 15});
+    expect(kGatewayUserCapabilitiesDefault == 1'734'397 && (kGatewayUserCapabilitiesDefault & (1u << 8)) == 0 &&
+               installation_absent,
+           "gateway_user_identify_capabilities_and_properties_pinned");
         user_identify.properties, Slice<u8>{output, expected_user_properties.count});
     expect(properties_measured.ok() && properties_measured.bytes == expected_user_properties.count &&
                properties_written.ok() && properties_written.bytes == expected_user_properties.count &&

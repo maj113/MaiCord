@@ -1379,8 +1379,8 @@ bool gateway_client_channel_cursor_record(ConstSlice<u8> payload, u32 index,
 // Deterministic worker-side routing boundary. It decodes supported message
 // mutations while the Gateway envelope views are still valid. Returned payload
 // bytes point into content_scratch or bulk_ids and must be copied before reuse.
-// message_scratch (message_event_scratch.hpp) is the worker's storage for decoding a message; without it the
-// decode uses the stack.
+// message_scratch (message_event_scratch.hpp) is the storage MESSAGE_CREATE/UPDATE decode into; a message
+// dispatch routed without one fails as invalid input, every other event needs none.
 struct GatewayMessageDecodeScratch;
 GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
@@ -1388,10 +1388,10 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     ConstSlice<u8>* payload, GatewayMessageDecodeScratch* message_scratch = nullptr) noexcept;
 inline GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
-    Slice<char> content_scratch, Slice<u64> bulk_ids, GatewayClientEvent* event,
-    ConstSlice<u8>* payload) noexcept {
+    Slice<char> content_scratch, Slice<u64> bulk_ids, GatewayClientEvent* event, ConstSlice<u8>* payload,
+    GatewayMessageDecodeScratch* message_scratch = nullptr) noexcept {
     return gateway_client_route_dispatch(envelope, structural_scratch, maximum_depth, content_scratch,
-                                         bulk_ids, 0, event, payload);
+                                         bulk_ids, 0, event, payload, message_scratch);
 }
 // The pointer-free marker queued in place of a dispatch its route rejected:
 // error metadata, the recovery kind its event family needs, and for the

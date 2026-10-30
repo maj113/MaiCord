@@ -3,6 +3,7 @@
 // across frames or not), ETF transcoded for the JSON dispatch layer, and a
 // decode error that ends the session. Synthetic payloads only.
 #include "maicord/protocol/gateway_session.hpp"
+#include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
 #include "test_output.hpp"
 
@@ -72,10 +73,10 @@ u8 storage[512 * 1024];
 ZstdStreamDecoder decoder;
 GatewaySession session;
 
-bool open() noexcept {
+bool open(u32 index_capacity = 1024) noexcept {
     const auto key = bytes_of("dGhlIHNhbXBsZSBub25jZQ==");
     CHECK(gateway_session_initialize(&session, {input, sizeof(input)}, {message, sizeof(message)},
-                                     {structurals, 1024}, key, 8192, 8192, false, false, 0));
+                                     {structurals, index_capacity}, key, 8192, 8192, false, false, 0));
     CHECK(zstd_stream_initialize(&decoder, {storage, sizeof(storage)}, sizeof(storage), nullptr, nullptr));
     CHECK(gateway_session_enable_zstd_etf(&session, &decoder, {compressed, sizeof(compressed)}));
     CHECK(gateway_session_push(&session, bytes_of("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
@@ -109,6 +110,11 @@ bool messages() noexcept {
                             "\"since\":1759800000000,\"flags\":null,\"ok\":true}";
     CHECK(event.envelope.data.source.bytes == sizeof(expected) - 1 &&
           bytes_equal(event.envelope.data.source.data, expected, sizeof(expected) - 1));
+    // The structural index written while transcoding is the scanner's, and the envelope holds it.
+    u32 scanned[1024];
+    const auto scan = json_scan_structurals_avx1(event.envelope.document.input, {scanned, 1024});
+    CHECK(scan.ok() && scan.count == event.envelope.document.structurals.count &&
+          bytes_equal(scanned, event.envelope.document.structurals.data, scan.count * 4));
     // A heartbeat ACK, and a ping between messages, use the same context.
     n = server_frame(WebSocketOpcode::ping, true, bytes_of("p"), frames);
     n += server_frame(WebSocketOpcode::binary, true, {kMessage2, sizeof(kMessage2)}, frames + n);
@@ -151,6 +157,14 @@ bool failures() noexcept {
     // Only one transport compression per session.
     CHECK(open());
     CHECK(!gateway_session_enable_zstd_etf(&session, &decoder, {compressed, sizeof(compressed)}));
+    // An index too small for the message: the decode scans, overflows and reports it.
+    CHECK(open(3));
+    n = server_frame(WebSocketOpcode::binary, true, {kMessage0, sizeof(kMessage0)}, frames);
+    CHECK(gateway_session_push(&session, {frames, n}));
+    event = gateway_session_next(&session, 0, 1000);
+    CHECK(event.kind == GatewaySessionEventKind::error && event.error == GatewaySessionError::gateway_decode &&
+          event.gateway_error == GatewayDecodeError::scan_failed &&
+          event.scan_error == JsonScanError::output_overflow);
     return true;
 }
 

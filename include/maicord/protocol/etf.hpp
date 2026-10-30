@@ -48,6 +48,14 @@ using EtfGrowOutput = bool (*)(void* context, u32 required_bytes, Slice<u8>* out
 EtfResult etf_to_json(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum_output, EtfGrowOutput grow,
                       void* context) noexcept;
 
+// As etf_to_json, and writes the JSON's structural index to `index` as json_scan_structurals_avx1 would
+// produce it, since every structural byte is written here. *index_count is the number of entries, or ~0u when
+// `index` was too small (or on error); the JSON is complete either way. Needs no index: pass an empty slice.
+// The text is valid JSON by construction (strings escaped, invalid UTF-8 replaced, numbers canonical), so a
+// reader may take it as validated, within the depth the transcoder allows (kEtfMaximumDepth).
+EtfResult etf_to_json_indexed(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum_output, EtfGrowOutput grow,
+                              void* context, Slice<u32> index, u32* index_count) noexcept;
+
 // Encodes one JSON command as the desktop client's erlpack does: strings and
 // map keys as binaries, null/true/false as small atoms, 0-255 as small
 // integers, other int32 as integers, 2^31-2^32 as small bigs, other integers

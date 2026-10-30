@@ -6,6 +6,7 @@
 #include "maicord/ui/message_component_layout.hpp"
 #include "maicord/ui/message_presentation.hpp"
 #include "maicord/ui/typing_indicator.hpp"
+#include "gateway_message_scratch.hpp"
 
 namespace maicord {
 namespace {
@@ -58,7 +59,7 @@ void test_message_components(void (*check)(bool, const char*) noexcept) noexcept
     GatewayMessageEvent message{};
     bool ok = gateway_decode_envelope(payload, {structurals, 1024}, 32, &envelope).ok() &&
         gateway_client_route_dispatch(envelope, {structurals, 1024}, 32, {packed_text, sizeof(packed_text)},
-            {ids, 100}, &routed, &packed).ok() &&
+            {ids, 100}, &routed, &packed, gateway_test_message_scratch()).ok() &&
         gateway_client_event_as_message(routed, packed, scratch, &message);
     check(ok && message.interaction.user_id == 11 && message.interaction.id == 20 &&
         utf8_equal(message.interaction.command_name, utf8_literal("vote localized")) &&
@@ -160,7 +161,7 @@ void test_message_component_buttons(void (*check)(bool, const char*) noexcept) n
     GatewayMessageEvent message{};
     bool ok = gateway_decode_envelope(payload, {structurals, 1024}, 32, &envelope).ok() &&
         gateway_client_route_dispatch(envelope, {structurals, 1024}, 32, {packed_text, sizeof(packed_text)},
-            {ids, 100}, &routed, &packed).ok() &&
+            {ids, 100}, &routed, &packed, gateway_test_message_scratch()).ok() &&
         gateway_client_event_as_message(routed, packed, scratch, &message) && message.components.count == 3 &&
         message_store_initialize(&f.store, {f.record, 1}, {f.order, 1}, {f.text, sizeof(f.text)}) &&
         message_reconcile_create(&f.store, message).ok() &&

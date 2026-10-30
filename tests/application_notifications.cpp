@@ -7,6 +7,7 @@
 #include "maicord/protocol/writer.hpp"
 #include "../src/app/account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "gateway_message_scratch.hpp"
 
 #if !defined(MAICORD_NOTIFICATION_FIXTURE)
 #error This integration fixture requires the nonemitting notification sink.
@@ -191,7 +192,7 @@ bool dispatch(Utf8View name, Utf8View json, u64 sequence = 20) noexcept {
     envelope.sequence = sequence;
     GatewayClientEvent event{}; ConstSlice<u8> payload{};
     if (!gateway_client_route_dispatch(envelope, {f.records, 4096}, 64,
-            {f.payload, sizeof(f.payload)}, {f.bulk_ids, kGatewayBulkDeleteMaximumIds}, 1, &event, &payload).ok()) return false;
+            {f.payload, sizeof(f.payload)}, {f.bulk_ids, kGatewayBulkDeleteMaximumIds}, 1, &event, &payload, gateway_test_message_scratch()).ok()) return false;
     return publish(nullptr, event, payload);
 }
 bool lifecycle(GatewayClientEventKind kind) noexcept {

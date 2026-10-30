@@ -5,6 +5,7 @@
 #include "maicord/app/read_ack_controller.hpp"
 #include "maicord/model/permission_bits.hpp"
 #include "maicord/model/user_store.hpp"
+#include "gateway_message_scratch.hpp"
 
 namespace maicord {
 namespace read_pump_probe {
@@ -149,7 +150,7 @@ void cursor_cases(void (*check)(bool, const char*) noexcept) noexcept {
         envelope.sequence = sequence; envelope.has_sequence = true;
         GatewayClientEvent event{}; ConstSlice<u8> payload{};
         const auto routed = gateway_client_route_dispatch(envelope, {structurals, 256}, 64,
-            {storage, sizeof(storage)}, {}, &event, &payload);
+            {storage, sizeof(storage)}, {}, &event, &payload, gateway_test_message_scratch());
         check(routed.ok(), "channel cursor pump: production route normalizes fixture");
         return message_event_pump_consume(&f.pump, event, payload);
     };

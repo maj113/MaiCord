@@ -23,6 +23,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/dwrite.hpp"
 #include "test_output.hpp"
+#include "gateway_message_scratch.hpp"
 
 namespace maicord {
 namespace {
@@ -478,7 +479,7 @@ bool decode_message(Utf8View payload, GatewayMessageEvent* message) noexcept {
     scratch.stickers = {stickers, 3};
     return gateway_decode_envelope(payload, {structurals, 4096}, 32, &envelope).ok() &&
            gateway_client_route_dispatch(envelope, {structurals, 4096}, 32,
-               {packed_text, sizeof(packed_text)}, {ids, 256}, &routed, &packed).ok() &&
+               {packed_text, sizeof(packed_text)}, {ids, 256}, &routed, &packed, gateway_test_message_scratch()).ok() &&
            gateway_client_event_as_message(routed, packed, scratch, message);
 }
 

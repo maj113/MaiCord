@@ -117,6 +117,9 @@ struct GuildMemberStore {
     GuildMemberRecord* records;
     u32* order;
     u32 capacity;
+    // Every occupied slot lies below this high-water mark, so scans stop here
+    // and never touch (or fault in) the unused tail of a zeroed record array.
+    u32 slot_extent;
     u32 count;
     u32 clock;
     u32 revision;
@@ -157,9 +160,11 @@ struct GuildMemberStoreResult {
     }
 };
 
+// `zeroed` is for zero-filled (freshly committed) arrays: it leaves their
+// contents unchanged, so record pages are touched only as slots fill.
 bool guild_member_store_initialize(GuildMemberStore* store,
                                            Slice<GuildMemberRecord> records,
-                                           Slice<u32> order) noexcept;
+                                           Slice<u32> order, bool zeroed = false) noexcept;
 // Keeps complete role lists past the inline 16 for up to `members_with_maximum`
 // members holding every role; address space is reserved on first use. Without
 // it such members keep their display data but not their role IDs.

@@ -473,6 +473,75 @@ bool visit_summary_group(void* opaque, u32, JsonValue value) noexcept {
     return true;
 }
 
+// Writes an appearance record (at most 1 KiB) behind the used bytes; false when it does not fit or is oversized.
+bool append_appearance(PayloadWriter* writer, const UserAppearance& appearance, u32* bytes) noexcept {
+    const u32 free_bytes = static_cast<u32>(writer->output.count) - writer->used;
+    *bytes = user_appearance_write(appearance,
+                                   {reinterpret_cast<u8*>(writer->output.data) + writer->used,
+                                    minimum(free_bytes, 1024u)});
+    if (appearance.fields && !*bytes) {
+        writer->overflow = free_bytes < 1024u;
+        return false;
+    }
+    writer->used += *bytes;
+    return true;
+}
+
+// Out of line: the decoded activity set (3.5 KB) would otherwise join every member item's stack frame. Appends
+// a member's rich presence behind its appearance record. A quarter of the payload stays free so rich presence
+// never crowds out the rest of a list update; true when the activities are known (possibly none), and then
+// *member_extra_bytes includes them.
+__declspec(noinline) bool append_activity_tail(PayloadWriter* writer, const JsonIndexedDocument& document,
+                                               JsonValue presence, u64 user_id, u32 room, u32 appearance_bytes,
+                                               u32* member_extra_bytes) noexcept {
+    UserActivitySet activities;
+    bool listed = false;
+    if (!user_activities_decode(document, presence, user_id, &activities, &listed))
+        return false;
+    const u32 free_bytes = static_cast<u32>(writer->output.count) - writer->used;
+    const u32 tail = activities.count
+                         ? user_activities_write(activities,
+                                                 {reinterpret_cast<u8*>(writer->output.data) + writer->used,
+                                                  minimum(free_bytes, kUserActivityRecordMaximumBytes)})
+                         : 0;
+    const bool known = !activities.count ||
+                       (tail && room > appearance_bytes + tail + static_cast<u32>(writer->output.count) / 4);
+    if (known) {
+        writer->used += tail;
+        *member_extra_bytes = appearance_bytes + tail;
+    }
+    return known;
+}
+
+// Decodes a member's global and guild appearance (and its presence activities) and writes both records behind
+// the used bytes, then the rich presence tail. Out of line: the two appearance structures stay out of the
+// frame of every member item.
+__declspec(noinline) bool append_member_appearances(
+    PayloadWriter* writer, const JsonIndexedDocument& document, JsonValue user_value, JsonValue member_value,
+    JsonValue presence, bool has_presence, u64 user_id, u32 room, u32* user_bytes, u32* member_bytes,
+    bool* activities_known, GatewayEventDecodeError* error) noexcept {
+    UserAppearance global_appearance{}, guild_appearance{};
+    writer->decode_detail = decode_detail(MemberDecodeStage::user_appearance);
+    if (!user_appearance_decode(document, user_value, user_id, 0, &global_appearance))
+        return reject(error);
+    writer->decode_detail = decode_detail(MemberDecodeStage::member_appearance);
+    if (!user_appearance_decode(document, member_value, user_id, 1, &guild_appearance))
+        return reject(error);
+    writer->decode_detail = decode_detail(MemberDecodeStage::activities);
+    if (has_presence && !activity_decode(document, presence, &guild_appearance))
+        return reject(error);
+    writer->decode_detail = decode_detail(MemberDecodeStage::serialization);
+    if (!append_appearance(writer, global_appearance, user_bytes) ||
+        !append_appearance(writer, guild_appearance, member_bytes))
+        return reject(error, writer->overflow ? GatewayEventDecodeError::message_content_capacity
+                                              : GatewayEventDecodeError::invalid_data);
+    // Rich presence rides behind the member appearance while the payload keeps
+    // room for the rest of the list; without the flag the activities are unknown.
+    *activities_known = has_presence && (guild_appearance.fields & appearance_activity) &&
+                        append_activity_tail(writer, document, presence, user_id, room, *member_bytes, member_bytes);
+    return true;
+}
+
 bool append_member_item(PayloadWriter* writer, JsonValue value, u32 list_index,
                         GatewayClientMemberListOperation operation, const JsonIndexedDocument& document,
                         u32 maximum_depth, GatewayEventDecodeError* error, bool direct = false,
@@ -560,47 +629,12 @@ bool append_member_item(PayloadWriter* writer, JsonValue value, u32 list_index,
         writer->records == kMemberListMaximumRecords) {
         return reject(error);
     }
-    UserAppearance global_appearance{}, guild_appearance{};
-    writer->decode_detail = decode_detail(MemberDecodeStage::user_appearance);
-    if (!user_appearance_decode(document, member.user, user.id, 0, &global_appearance))
-        return reject(error);
-    writer->decode_detail = decode_detail(MemberDecodeStage::member_appearance);
-    if (!user_appearance_decode(document, item.member, user.id, 1, &guild_appearance))
-        return reject(error);
-    writer->decode_detail = decode_detail(MemberDecodeStage::activities);
-    if (has_presence && !activity_decode(document, member.presence, &guild_appearance))
-        return reject(error);
     writer->decode_detail = decode_detail(MemberDecodeStage::serialization);
-    u8 user_extra[1024], member_extra[1024 + kUserActivityRecordMaximumBytes];
-    const u32 user_extra_bytes =
-        user_appearance_write(global_appearance, {user_extra, sizeof(user_extra)});
-    u32 member_extra_bytes =
-        user_appearance_write(guild_appearance, {member_extra, 1024});
-    if ((global_appearance.fields && !user_extra_bytes) || (guild_appearance.fields && !member_extra_bytes))
-        return reject(error);
-    // Rich presence rides behind the member appearance while the payload keeps
-    // room for the rest of the list; without the flag the activities are unknown.
-    bool activities_known = false;
-    if (has_presence && (guild_appearance.fields & appearance_activity)) {
-        UserActivitySet activities;
-        bool listed = false;
-        if (user_activities_decode(document, member.presence, user.id, &activities, &listed)) {
-            const u32 tail = activities.count ? user_activities_write(activities, {member_extra + member_extra_bytes,
-                                                                                   kUserActivityRecordMaximumBytes})
-                                              : 0;
-            // A quarter of the payload stays free so rich presence never
-            // crowds out the rest of a list update.
-            const u32 room = static_cast<u32>(writer->output.count) - writer->used;
-            activities_known = !activities.count ||
-                               (tail && room > member_extra_bytes + tail + static_cast<u32>(writer->output.count) / 4);
-            if (activities_known)
-                member_extra_bytes += tail;
-        }
-    }
+    // The record is written in place, behind a header patched once the appearance bytes are known.
+    const u32 start = writer->used;
+    const u32 room = static_cast<u32>(writer->output.count) - start;
     GatewayClientMemberListMutation mutation{};
     mutation.user_id = user.id;
-    mutation.user_appearance_bytes = static_cast<u16>(user_extra_bytes);
-    mutation.member_appearance_bytes = static_cast<u16>(member_extra_bytes);
     mutation.index = list_index;
     mutation.role_count = static_cast<u16>(role_context.count);
     if (!member.roles_seen)
@@ -611,8 +645,6 @@ bool append_member_item(PayloadWriter* writer, JsonValue value, u32 list_index,
         if (!user.avatar_seen)
             mutation.hydration_flags |= gateway_member_avatar_omitted;
     }
-    if (activities_known)
-        mutation.hydration_flags |= gateway_member_activities_known;
     if (member.timeout_seen) {
         mutation.hydration_flags |= gateway_member_timeout_known;
         mutation.communication_disabled_until = member.timeout_until;
@@ -640,11 +672,21 @@ bool append_member_item(PayloadWriter* writer, JsonValue value, u32 list_index,
     if ((nickname_bytes != 0 && !gateway_append_json_string(writer, member.nickname, nickname_bytes)) ||
         !gateway_append_json_string(writer, display, display_bytes) ||
         (avatar_hash_bytes != 0 && !gateway_append_json_string(writer, user.avatar_hash, avatar_hash_bytes)) ||
-        !gateway_append_json_string(writer, user.username, username_bytes) ||
-        !gateway_payload_append(writer, user_extra, user_extra_bytes) ||
-        !gateway_payload_append(writer, member_extra, member_extra_bytes)) {
+        !gateway_append_json_string(writer, user.username, username_bytes)) {
         return reject(error, GatewayEventDecodeError::message_content_capacity);
     }
+    u32 member_extra_bytes = 0;
+    u32 user_extra_bytes = 0;
+    bool activities_known = false;
+    if (!append_member_appearances(writer, document, member.user, item.member, member.presence, has_presence,
+                                   user.id, room, &user_extra_bytes, &member_extra_bytes, &activities_known,
+                                   error))
+        return false;
+    if (activities_known)
+        mutation.hydration_flags |= gateway_member_activities_known;
+    mutation.user_appearance_bytes = static_cast<u16>(user_extra_bytes);
+    mutation.member_appearance_bytes = static_cast<u16>(member_extra_bytes);
+    copy_bytes(writer->output.data + start, &mutation, sizeof(mutation));
     ++writer->records;
     ++writer->members;
     return true;

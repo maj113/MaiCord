@@ -80,6 +80,30 @@ void test_thread_subscriptions(void (*check)(bool, const char*) noexcept) noexce
     check(invalid_unchanged(bad), "explicit channel range cannot exceed 100 positions");
     bad = normal(7, 70); bad.range_last = 1000;
     check(invalid_unchanged(bad), "legacy scalar channel range cannot exceed 1000 positions");
+    auto followed = thread(7, 0); followed.thread_member_lists_present = false;
+    followed.members_present = true; followed.member_count = 2; followed.members[0] = 20; followed.members[1] = 31;
+    check(exact(followed, utf8_literal("{\"op\":37,\"d\":{\"subscriptions\":{\"7\":{\"members\":[\"20\",\"31\"]}}}}")),
+        "followed users travel as a members-only op 37 frame of string snowflakes");
+    followed.member_count = 0;
+    check(exact(followed, utf8_literal("{\"op\":37,\"d\":{\"subscriptions\":{\"7\":{\"members\":[]}}}}")),
+        "an empty members list unsubscribes the guild's followed users");
+    auto beside = normal(7, 70); beside.members_present = true; beside.member_count = 1; beside.members[0] = 20;
+    check(exact(beside, utf8_literal("{\"op\":37,\"d\":{\"subscriptions\":{\"7\":{\"typing\":true,\"activities\":true,\"threads\":true,\"members\":[\"20\"],\"channels\":{\"70\":[[0,99]]}}}}}")),
+        "followed users sit between the feature flags and the channel ranges");
+    bad = followed; bad.member_count = 1; bad.members[0] = 0;
+    check(invalid_unchanged(bad), "a followed user needs an ID");
+    bad = followed; bad.member_count = 2; bad.members[0] = bad.members[1] = 20;
+    check(invalid_unchanged(bad), "followed users are distinct");
+    bad = followed; bad.member_count = kGatewayGuildSubscriptionMaximumMembers + 1;
+    check(invalid_unchanged(bad), "at most 50 users are followed");
+    bad = followed; bad.members_present = false; bad.member_count = 1; bad.members[0] = 20;
+    check(invalid_unchanged(bad), "followed users need the explicit members field");
+    bad = followed; bad.members_present = false;
+    check(invalid_unchanged(bad), "a members-only frame without members changes nothing");
+    followed.member_count = kGatewayGuildSubscriptionMaximumMembers;
+    for (u32 i = 0; i < followed.member_count; ++i) followed.members[i] = ~0ull - i;
+    check(gateway_write_guild_subscriptions_bulk(followed, {output, sizeof(output)}).ok(),
+        "fifty maximum-width followed users fit one command");
     bad = normal(7, 70); bad.range_first = 100; bad.range_last = 99;
     check(invalid_unchanged(bad), "descending channel range rejects without unsigned subtraction overflow");
     bad = thread(0, 71);

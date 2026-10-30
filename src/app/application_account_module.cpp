@@ -320,6 +320,47 @@ static u16 g_author_user_pin_epoch;
 // The people whose pins were last applied (authors, voice users, list rows).
 static u64 g_author_people;
 
+// The guild whose users the gateway is following for this view, and how many (the members key of op 37).
+static u64 g_followed_guild;
+static u64 g_followed_digest;
+static u32 g_followed_count;
+
+// Follows the people shown (authors, voice participants, list rows) in the selected guild so their presence
+// and member updates keep arriving, as the official client does for the users it displays, and releases the
+// guild followed before. The wire list is the first 50 distinct users other than the current one.
+static void follow_visible_members(const AccountUiRuntime& ui, u64 guild_id, const u64* ids, u32 count) noexcept {
+    u64 wanted[kGatewayGuildSubscriptionMaximumMembers];
+    u32 wanted_count = 0;
+    for (u32 i = 0; guild_id && i < count && wanted_count < kGatewayGuildSubscriptionMaximumMembers; ++i) {
+        bool duplicate = ids[i] == 0 || ids[i] == ui.chat_state.self_user_id;
+        for (u32 j = 0; j < wanted_count && !duplicate; ++j)
+            duplicate = wanted[j] == ids[i];
+        if (!duplicate)
+            wanted[wanted_count++] = ids[i];
+    }
+    const u64 digest = hash64_bytes(hash64_mix(kHash64Seed, guild_id), wanted,
+                                    wanted_count * static_cast<u32>(sizeof(wanted[0])));
+    if (!g_app.account.api.guild_subscribe || (guild_id == g_followed_guild && digest == g_followed_digest))
+        return;
+    const auto send = [&](u64 guild, const u64* users, u32 users_count) noexcept {
+        GatewayGuildSubscription frame{};
+        frame.guild_id = guild;
+        frame.omit_channel_ranges = frame.omit_features = frame.members_present = true;
+        frame.member_count = users_count;
+        for (u32 i = 0; i < users_count; ++i)
+            frame.members[i] = users[i];
+        return g_app.account.api.guild_subscribe(g_app.account.instance, &frame);
+    };
+    if (g_followed_guild && g_followed_guild != guild_id && g_followed_count)
+        send(g_followed_guild, nullptr, 0);
+    if (wanted_count ? !send(guild_id, wanted, wanted_count)
+                     : (guild_id == g_followed_guild && g_followed_count && !send(guild_id, nullptr, 0)))
+        return;
+    g_followed_guild = guild_id;
+    g_followed_digest = digest;
+    g_followed_count = wanted_count;
+}
+
 // The pin and request work, with the large ID scratch. Kept out of line so the per-frame caller
 // returns on an unchanged interest without a stack probe.
 __declspec(noinline) static void apply_visible_author_interest(AccountUiRuntime& ui, const ChannelRecord* selected,
@@ -373,6 +414,7 @@ __declspec(noinline) static void apply_visible_author_interest(AccountUiRuntime&
             owner.user_pin_revision == ui.user_store.revision && (!owner.next_at_ms || owner.next_at_ms > now_ms))
             break;
         g_author_people = people;
+        follow_visible_members(ui, selected ? selected->guild_id : 0, ids, count);
         u64 missing[kVisibleAuthorMaximum]{};
         u32 missing_count = 0;
         // Rebuild only finite resident interest, retaining positional range pins.
@@ -521,6 +563,7 @@ GatewayClientPopResult application_pop_account_gateway(void* source, GatewayClie
     if (event->kind == GatewayClientEventKind::ready) {
         if (g_app.account_ui)
             reset_value(&g_app.account_ui->author_hydration);
+        g_followed_guild = g_followed_count = 0;
         thread_member_list_subscription_complete(&g_app.thread_member_list_subscription);
         if (g_app.account_ui && g_app.account_ui->member_list.authoritative &&
             g_app.account_ui->member_list.count)

@@ -1,4 +1,5 @@
 #include "application_downloads_inactive.hpp"
+#include "gateway_message_scratch.hpp"
 #include "application_poll_inactive.hpp"
 #include "application_member_moderation_inactive.hpp"
 #include "application_guild_invite_inactive.hpp"
@@ -1492,7 +1493,7 @@ void test_poll_gateway_receipts() noexcept {
     GatewayEnvelope envelope{}; ConstSlice<u8> payload{};
     const bool routed = gateway_decode_envelope(create, {structurals, 1024}, 32, &envelope).ok() &&
         gateway_client_route_dispatch(envelope, {object_structurals, 1024}, 32, {mailbox, sizeof(mailbox)},
-            {bulk, kGatewayBulkDeleteMaximumIds}, 42, &poll_follow_event, &payload).ok();
+            {bulk, kGatewayBulkDeleteMaximumIds}, 42, &poll_follow_event, &payload, gateway_test_message_scratch()).ok();
     check(routed && payload.count <= sizeof(poll_follow_payload), "poll create uses real Gateway mailbox encoding");
     if (routed && payload.count <= sizeof(poll_follow_payload)) {
         CopyMemory(poll_follow_payload, payload.data, payload.count); poll_follow_bytes = payload.count;
@@ -1508,7 +1509,7 @@ void test_poll_gateway_receipts() noexcept {
             if (!gateway_decode_envelope(body, {structurals, 1024}, 32, &envelope).ok() ||
                 !gateway_client_route_dispatch(envelope, {object_structurals, 1024}, 32,
                     {mailbox, sizeof(mailbox)}, {bulk, kGatewayBulkDeleteMaximumIds}, 42,
-                    &poll_follow_event, &encoded).ok() || encoded.count > sizeof(poll_follow_payload)) return false;
+                    &poll_follow_event, &encoded, gateway_test_message_scratch()).ok() || encoded.count > sizeof(poll_follow_payload)) return false;
             CopyMemory(poll_follow_payload, encoded.data, encoded.count);
             poll_follow_bytes = encoded.count; poll_follow_ready = true;
             return true;

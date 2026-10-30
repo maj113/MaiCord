@@ -219,6 +219,10 @@ struct GatewayClientRuntime {
     u32 subscription_revision;
     u32 sent_subscription_revision;
     u32 active_subscription_revision;
+    // The members-only op 37 frame, under subscription_lock.
+    GatewayGuildSubscription desired_members;
+    u32 members_revision;
+    u32 sent_members_revision;
     GatewayClientIdentity identity;
     u64 rate_deadline_ms;
     u64 member_deadline_ms;
@@ -1176,6 +1180,7 @@ bool begin_resolution(GatewayClient* client, GatewayClientRuntime* runtime, Netw
     runtime->send_purpose = SendPurpose::none;
     runtime->sent_subscription_revision = 0;
     runtime->active_subscription_revision = 0;
+    runtime->sent_members_revision = 0;
     gateway_subscription_thread_owner_reset_connection(&runtime->thread_subscription_owner);
     AcquireSRWLockExclusive(&runtime->subscription_lock);
     gateway_self_status_reset_connection(&runtime->self_status);
@@ -1719,6 +1724,29 @@ OutboundDrive drive_guild_subscription(GatewayClientRuntime* runtime, u64 now_ms
     return result;
 }
 
+// The members key of op 37: the users followed in the guild (see gateway_client_subscribe_guild_members).
+OutboundDrive drive_member_subscription(GatewayClientRuntime* runtime, u64 now_ms) noexcept {
+    if (runtime->send_purpose != SendPurpose::none ||
+        runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready) {
+        return OutboundDrive::idle;
+    }
+    GatewayGuildSubscription subscription{};
+    AcquireSRWLockShared(&runtime->subscription_lock);
+    copy_value(&subscription, runtime->desired_members);
+    const u32 revision = runtime->members_revision;
+    ReleaseSRWLockShared(&runtime->subscription_lock);
+    if (revision == 0 || revision == runtime->sent_members_revision)
+        return OutboundDrive::idle;
+    if (!acquire_send(runtime, now_ms))
+        return OutboundDrive::rate_limited;
+    const GatewayCommandWriteResult command = gateway_write_guild_subscriptions_bulk(
+        subscription, Slice<u8>{runtime->gateway_payload, sizeof(runtime->gateway_payload)});
+    const auto result = send_control_command(runtime, command, SendPurpose::guild_members);
+    if (result == OutboundDrive::sending)
+        runtime->sent_members_revision = revision;
+    return result;
+}
+
 OutboundDrive drive_voice_output(GatewayClient* client, GatewayClientRuntime* runtime,
                                  u64 now_ms) noexcept {
     if (runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready)
@@ -1922,7 +1950,10 @@ OutboundDrive drive_application_output(GatewayClient* client, GatewayClientRunti
     if (members != OutboundDrive::idle)
         return members;
     const auto subscription = drive_guild_subscription(runtime, now_ms);
-    return subscription == OutboundDrive::idle ? drive_channel_info(runtime, now_ms) : subscription;
+    if (subscription != OutboundDrive::idle)
+        return subscription;
+    const auto followed = drive_member_subscription(runtime, now_ms);
+    return followed == OutboundDrive::idle ? drive_channel_info(runtime, now_ms) : followed;
 }
 
 enum class PlaintextDrive : u8 {
@@ -2237,6 +2268,7 @@ __declspec(noinline) PlaintextDrive process_ready(GatewayClient* client, Gateway
         ++runtime->self_status.revision_serial;
     }
     runtime->sent_subscription_revision = 0;
+    runtime->sent_members_revision = 0;
     runtime->active_subscription_revision = 0;
     ReleaseSRWLockExclusive(&runtime->subscription_lock);
     gateway_reconnect_reset(&runtime->reconnect_backoff);
@@ -3303,12 +3335,17 @@ bool gateway_client_subscribe_guild_members(GatewayClient* client,
     if (!valid.ok()) {
         return false;
     }
+    // A members-only frame (the users followed in a guild) is independent of the viewport frame it travels
+    // beside: each is last-write-wins in its own slot, so neither can overwrite the other before it is sent.
+    const bool members_only = subscription.members_present && subscription.omit_channel_ranges &&
+                              subscription.omit_features && !subscription.thread_member_lists_present;
     AcquireSRWLockExclusive(&runtime->subscription_lock);
-    copy_value(&runtime->desired_subscription, subscription);
-    ++runtime->subscription_revision;
-    if (runtime->subscription_revision == 0) {
-        runtime->subscription_revision = 1;
-        runtime->sent_subscription_revision = 0;
+    copy_value(members_only ? &runtime->desired_members : &runtime->desired_subscription, subscription);
+    u32& revision = members_only ? runtime->members_revision : runtime->subscription_revision;
+    u32& sent = members_only ? runtime->sent_members_revision : runtime->sent_subscription_revision;
+    if (++revision == 0) {
+        revision = 1;
+        sent = 0;
     }
     ReleaseSRWLockExclusive(&runtime->subscription_lock);
     // A concurrent already-pending post also guarantees a worker wake and the
@@ -3401,8 +3438,7 @@ RestClientSubmitResult submit_self_settings_locked(GatewayClientRuntime* runtime
                                           RestMajorParameter::none},
                                          request_id,
                                          kRestClientDefaultTimeoutMs,
-                                         update,
-                                         false};
+                                         update};
 #if defined(MAICORD_GATEWAY_SELF_STATUS_TEST)
     const auto submitted = self_status_test_submit ? self_status_test_submit(rest_request)
                                                    : rest_client_submit(rest, rest_request);

@@ -86,26 +86,13 @@ bool visit_gateway_member(void* opaque, JsonString name, JsonValue value) noexce
     }
 }
 
-} // namespace
-
-GatewayDecodeResult gateway_decode_envelope(Utf8View input, Slice<u32> structural_scratch,
-                                            u32 maximum_depth, GatewayEnvelope* output) noexcept {
-    if (!output) {
-        return GatewayDecodeResult{0, GatewayDecodeError::invalid_json, JsonScanError::none,
-                                   JsonReadError::invalid_input};
-    }
-    reset_value<GatewayEnvelope>(output);
-
-    const JsonScanResult scan = json_scan_structurals_avx1(input, structural_scratch);
-    if (!scan.ok()) {
-        return GatewayDecodeResult{scan.error_offset, GatewayDecodeError::scan_failed, scan.error,
-                                   JsonReadError::none};
-    }
-
+GatewayDecodeResult read_envelope(Utf8View input, ConstSlice<u32> structurals, u32 maximum_depth, bool validated,
+                                  GatewayEnvelope* output) noexcept {
     GatewayVisitorContext context{};
-    const ConstSlice<u32> structurals{structural_scratch.data, scan.count};
     const JsonReadResult read =
-        json_visit_root_object(input, structurals, maximum_depth, visit_gateway_member, &context);
+        validated ? json_visit_value_object(JsonValue{input, 0, JsonValueKind::object, true}, structurals,
+                                            maximum_depth, visit_gateway_member, &context)
+                  : json_visit_root_object(input, structurals, maximum_depth, visit_gateway_member, &context);
     if (!read.ok()) {
         if (read.error == JsonReadError::visitor_rejected && context.error != GatewayDecodeError::none) {
             return GatewayDecodeResult{context.error_offset, context.error, JsonScanError::none,
@@ -127,6 +114,34 @@ GatewayDecodeResult gateway_decode_envelope(Utf8View input, Slice<u32> structura
     output->document = JsonIndexedDocument{input, structurals};
     return GatewayDecodeResult{input.bytes, GatewayDecodeError::none, JsonScanError::none,
                                JsonReadError::none};
+}
+
+} // namespace
+
+GatewayDecodeResult gateway_decode_envelope(Utf8View input, Slice<u32> structural_scratch,
+                                            u32 maximum_depth, GatewayEnvelope* output) noexcept {
+    if (!output) {
+        return GatewayDecodeResult{0, GatewayDecodeError::invalid_json, JsonScanError::none,
+                                   JsonReadError::invalid_input};
+    }
+    reset_value<GatewayEnvelope>(output);
+
+    const JsonScanResult scan = json_scan_structurals_avx1(input, structural_scratch);
+    if (!scan.ok()) {
+        return GatewayDecodeResult{scan.error_offset, GatewayDecodeError::scan_failed, scan.error,
+                                   JsonReadError::none};
+    }
+    return read_envelope(input, {structural_scratch.data, scan.count}, maximum_depth, false, output);
+}
+
+GatewayDecodeResult gateway_decode_envelope_indexed(Utf8View input, ConstSlice<u32> structurals,
+                                                    u32 maximum_depth, GatewayEnvelope* output) noexcept {
+    if (!output) {
+        return GatewayDecodeResult{0, GatewayDecodeError::invalid_json, JsonScanError::none,
+                                   JsonReadError::invalid_input};
+    }
+    reset_value<GatewayEnvelope>(output);
+    return read_envelope(input, structurals, maximum_depth, true, output);
 }
 
 } // namespace maicord

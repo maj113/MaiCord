@@ -46,12 +46,12 @@ bool nickname_equal(const GuildMemberRecord& record, Utf8View nickname) noexcept
 }
 
 u32 empty_slot(const GuildMemberStore& store) noexcept {
-    for (u32 slot = 0; slot < store.capacity; ++slot) {
+    for (u32 slot = 0; slot < store.slot_extent; ++slot) {
         if (!store.records[slot].occupied) {
             return slot;
         }
     }
-    return store.capacity;
+    return store.slot_extent;
 }
 
 // How much the list on screen needs the row at `index`: 2 inside the visible
@@ -77,7 +77,7 @@ u32 least_recent_slot(const GuildMemberStore& store) noexcept {
     u32 result = store.capacity;
     bool result_pinned = true;
     u32 oldest = ~0u;
-    for (u32 slot = 0; slot < store.capacity; ++slot) {
+    for (u32 slot = 0; slot < store.slot_extent; ++slot) {
         const auto& record = store.records[slot];
         if (!record.occupied)
             continue;
@@ -123,7 +123,7 @@ void overflow_compact(GuildMemberStore* store) noexcept {
     auto& o = store->role_overflow;
     u32 slots[kGuildMemberRoleOverflowMembers];
     u32 count = 0;
-    for (u32 slot = 0; slot < store->capacity; ++slot)
+    for (u32 slot = 0; slot < store->slot_extent; ++slot)
         if (store->records[slot].occupied && store->records[slot].role_overflow)
             slots[count++] = slot;
     const GuildMemberRecord* records = store->records;
@@ -417,7 +417,7 @@ bool guild_member_store_observe_role(GuildMemberStore* store, const ChatStateSto
     const bool color_only = previous && current && previous->color && current->color &&
                             previous->position == current->position && previous->hoist == current->hoist;
     bool refresh = false;
-    for (u32 index = 0; index < store->capacity; ++index) {
+    for (u32 index = 0; index < store->slot_extent; ++index) {
         auto& record = store->records[index];
         if (!record.occupied || record.guild_id != guild_id || !record.roles_known || !record.role_count)
             continue;
@@ -439,7 +439,7 @@ bool guild_member_store_observe_role(GuildMemberStore* store, const ChatStateSto
 
 bool guild_member_store_initialize(GuildMemberStore* store,
                                            Slice<GuildMemberRecord> records,
-                                           Slice<u32> order) noexcept {
+                                           Slice<u32> order, bool zeroed) noexcept {
     if (!store || !records.data || records.count == 0 || records.count > 1'000'000u || !order.data ||
         order.count != records.count) {
         return false;
@@ -448,6 +448,9 @@ bool guild_member_store_initialize(GuildMemberStore* store,
     store->records = records.data;
     store->order = order.data;
     store->capacity = records.count;
+    if (zeroed)
+        return true;
+    store->slot_extent = records.count;
     for (u32 index = 0; index < records.count; ++index) {
         reset_value<GuildMemberRecord>(&records[index]);
         order[index] = ~0u;
@@ -466,7 +469,7 @@ bool guild_member_store_enable_role_overflow(GuildMemberStore* store, u32 member
 void guild_member_store_release(GuildMemberStore* store) noexcept {
     if (!store)
         return;
-    for (u32 slot = 0; store->records && slot < store->capacity; ++slot) {
+    for (u32 slot = 0; store->records && slot < store->slot_extent; ++slot) {
         auto& record = store->records[slot];
         if (record.role_overflow) {
             record.role_overflow = 0;
@@ -481,7 +484,7 @@ void guild_member_store_reset_lists(GuildMemberStore* store) noexcept {
     if (!store || !store->records || !store->order)
         return;
     bool changed = store->pin_count != 0 || store->visible.guild_id != 0;
-    for (u32 slot = 0; slot < store->capacity; ++slot) {
+    for (u32 slot = 0; slot < store->slot_extent; ++slot) {
         auto& member = store->records[slot];
         changed |= member.visible_pinned;
         member.visible_pinned = false;
@@ -512,7 +515,7 @@ void guild_member_store_retire_role_authority(GuildMemberStore* store) noexcept 
     if (!store || !store->records)
         return;
     bool changed = false;
-    for (u32 i = 0; i < store->capacity; ++i) {
+    for (u32 i = 0; i < store->slot_extent; ++i) {
         auto& member = store->records[i];
         if (!member.occupied || !member.roles_known)
             continue;
@@ -591,7 +594,7 @@ GuildMemberStoreResult guild_member_store_upsert(
         record.list_id != resolved_list_id;
     if (resolved_list_index != ~0u && list_index != ~0u && resolved_list_index == list_index &&
         resolved_list_id == list_id) {
-        for (u32 other = 0; other < store->capacity; ++other) {
+        for (u32 other = 0; other < store->slot_extent; ++other) {
             auto& previous = store->records[other];
             if (other == slot || !previous.occupied || previous.guild_id != guild_id ||
                 previous.list_id != list_id || previous.list_index != list_index)
@@ -620,6 +623,7 @@ GuildMemberStoreResult guild_member_store_upsert(
         record.user_id = user_id;
         record.generation = generation;
         record.occupied = true;
+        store->slot_extent = maximum(store->slot_extent, slot + 1);
     }
     if (nickname_changed)
         store_nickname(record, nickname);
@@ -848,7 +852,7 @@ u32 guild_member_store_refresh_visible_users(const GuildMemberStore& members,
     if (!members.records || !users)
         return 0;
     u32 count = 0;
-    for (u32 slot = 0; slot < members.capacity; ++slot) {
+    for (u32 slot = 0; slot < members.slot_extent; ++slot) {
         const auto& member = members.records[slot];
         if (member.occupied &&
             guild_member_store_visible_index(members, member.guild_id, member.list_id,
@@ -878,7 +882,7 @@ void guild_member_store_clear_user_pins(GuildMemberStore* store) noexcept {
     if (!store || !store->records)
         return;
     ++store->user_pin_epoch;
-    for (u32 slot = 0; slot < store->capacity; ++slot)
+    for (u32 slot = 0; slot < store->slot_extent; ++slot)
         store->records[slot].visible_pinned = false;
 }
 bool guild_member_store_pin_user(GuildMemberStore* store, u64 guild_id,

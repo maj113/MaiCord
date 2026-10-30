@@ -761,7 +761,7 @@ void open_target_menu(UiRect anchor) noexcept {
     const auto& members = g_app.account_ui->guild_member_store;
     const auto& users = g_app.account_ui->user_store;
     bool separated = false;
-    for (u32 i = 0; i < members.capacity && count < kPopupCapacity; ++i) {
+    for (u32 i = 0; i < members.slot_extent && count < kPopupCapacity; ++i) {
         const auto& m = members.records[i];
         if (!m.occupied || m.guild_id != p.identity.guild_id ||
             permission_overwrite_draft_find(p.overwrite_draft, m.user_id) != ~0u)

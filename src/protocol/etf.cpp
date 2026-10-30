@@ -42,6 +42,17 @@ struct Writer {
     u32 maximum;
     EtfGrowOutput grow;
     void* context;
+    // The structural index being filled (see etf_to_json_indexed): marks counts every structural written,
+    // whether or not it fit.
+    u32* index;
+    u32 index_capacity;
+    u32 marks;
+
+    __forceinline void mark(u32 at) noexcept {
+        if (marks < index_capacity)
+            index[marks] = at;
+        ++marks;
+    }
 
     __declspec(noinline) u8* reserve_slow(u32 bytes) noexcept {
         if (bytes > maximum - used)
@@ -58,10 +69,12 @@ struct Writer {
     __forceinline u8* reserve(u32 bytes) noexcept {
         return out->count - used >= bytes ? out->data + used : reserve_slow(bytes);
     }
+    // Every single byte written this way is structural: a quote, comma, colon or bracket.
     __forceinline bool byte(u8 value) noexcept {
         u8* at = reserve(1);
         if (!at)
             return false;
+        mark(used);
         *at = value;
         ++used;
         return true;
@@ -242,6 +255,8 @@ __forceinline bool write_string(Writer* w, const u8* s, u32 n, bool latin1, u32 
             at[0] = '"';
             _mm_storeu_si128(reinterpret_cast<__m128i*>(at + 1), v);
             at[1 + n] = '"';
+            w->mark(w->used);
+            w->mark(w->used + 1 + n);
             w->used += n + 2;
             return true;
         }
@@ -525,6 +540,9 @@ bool write_key(Reader* r, Writer* w, EtfError* error, Quoting* quoting) noexcept
                 _mm_storeu_si128(reinterpret_cast<__m128i*>(at + 1), v);
                 at[1 + n] = '"';
                 at[2 + n] = ':';
+                w->mark(w->used);
+                w->mark(w->used + 1 + n);
+                w->mark(w->used + 2 + n);
                 w->used += n + 3;
                 *quoting = key_quoting(text, n);
                 r->at += 2 + n;
@@ -546,7 +564,7 @@ bool write_key(Reader* r, Writer* w, EtfError* error, Quoting* quoting) noexcept
         *quoting = key_quoting(text, n);
         // erlpack turns nil into null, which names the property "null".
         if (atom_value(text, n) == AtomValue::null)
-            written = w->bytes("\"null\"", 6);
+            written = write_string(w, reinterpret_cast<const u8*>("null"), 4, false, 0);
         else
             written = write_string(w, text, n, tag == kAtom || tag == kSmallAtom,
                                    static_cast<u32>(r->data + r->size - text));
@@ -603,12 +621,19 @@ bool write_key(Reader* r, Writer* w, EtfError* error, Quoting* quoting) noexcept
 
 EtfResult etf_to_json(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum_output, EtfGrowOutput grow,
                       void* context) noexcept {
-    if (!etf.data || !etf.count || !output || (!output->data && output->count))
+    u32 marks = 0;
+    return etf_to_json_indexed(etf, output, maximum_output, grow, context, {}, &marks);
+}
+
+EtfResult etf_to_json_indexed(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum_output, EtfGrowOutput grow,
+                              void* context, Slice<u32> index, u32* index_count) noexcept {
+    *index_count = ~0u;
+    if (!etf.data || !etf.count || !output || (!output->data && output->count) || (!index.data && index.count))
         return {0, 0, EtfError::invalid_input};
     if (etf[0] != kVersion)
         return {0, 0, EtfError::bad_version};
     Reader r{etf.data, etf.count, 1};
-    Writer w{output, 0, maximum_output, grow, context};
+    Writer w{output, 0, maximum_output, grow, context, index.data, index.count, 0};
     Frame stack[kEtfMaximumDepth];
     u32 depth = 0;
     bool started = false;
@@ -731,6 +756,8 @@ EtfResult etf_to_json(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum_output,
             break;
         }
         case kNil:
+            w.mark(w.used);
+            w.mark(w.used + 1);
             ok = w.bytes("[]", 2);
             break;
         case kString: {
@@ -778,6 +805,7 @@ EtfResult etf_to_json(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum_output,
     }
     if (r.at != r.size)
         return failed(EtfError::trailing_data);
+    *index_count = w.marks <= index.count ? w.marks : ~0u;
     return {w.used, 0, EtfError::none};
 }
 

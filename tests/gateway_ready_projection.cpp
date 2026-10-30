@@ -8,6 +8,7 @@
 #include "maicord/protocol/gateway_runtime.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/protocol/gateway_session.hpp"
+#include "gateway_message_scratch.hpp"
 
 namespace maicord {
 namespace ready_projection_probe {
@@ -238,7 +239,7 @@ void indexed_channel_records(void (*check)(bool, const char*) noexcept) noexcept
         envelope.opcode = 0; envelope.has_event_name = true;
         GatewayClientEvent event{}; ConstSlice<u8> copied{};
         const auto routed = gateway_client_route_dispatch(envelope, {records, 16384}, 64,
-            {payload, sizeof(payload)}, {}, 1, &event, &copied);
+            {payload, sizeof(payload)}, {}, 1, &event, &copied, gateway_test_message_scratch());
         u32 cursor = 0, index = 0, overwrites = 0;
         bool exact = scan.ok() && read.ok() && routed.ok() && event.state.record_count == 2 && event.state.overwrite_count == 400;
         for (u32 channel = 0; exact && channel < 2; ++channel) {
@@ -393,7 +394,7 @@ void huge_community_guild(void (*check)(bool, const char*) noexcept) noexcept {
     envelope.opcode = 0; envelope.has_event_name = true;
     GatewayClientEvent event{}; ConstSlice<u8> copied{};
     const auto old_capacity = gateway_client_route_dispatch(envelope, {huge_records, 1u << 18}, 64,
-        {huge_payload, 128 * 1024}, {}, 1, &event, &copied);
+        {huge_payload, 128 * 1024}, {}, 1, &event, &copied, gateway_test_message_scratch());
     // The record that crosses the limit may be a channel header or one of its
     // overwrites (then json_read_error=17 visitor_rejected at that overwrite).
     check(scan.ok() && read.ok() && !old_capacity.ok() && old_capacity.detail == 6 &&
@@ -405,7 +406,7 @@ void huge_community_guild(void (*check)(bool, const char*) noexcept) noexcept {
     check(old_capacity.payload_overflow, "the channel-list overflow is reported as retryable with more room");
     const bool reserved = reserved_bytes_initialize(&huge_large, kGatewayClientGuildRecordCapacity);
     const auto full = gateway_client_route_dispatch_large(envelope, {huge_records, 1u << 18}, 64,
-        {huge_payload, kGatewayClientDispatchPayloadCapacity}, {}, 1, {acquire_huge, nullptr}, &event, &copied);
+        {huge_payload, kGatewayClientDispatchPayloadCapacity}, {}, 1, {acquire_huge, nullptr}, &event, &copied, gateway_test_message_scratch());
     check(reserved && full.ok() && event.dispatch_kind == GatewayClientDispatchKind::guild_create &&
         event.state.id == kHugeGuild && event.state.record_count == 502 && event.state.overwrite_count == 4000 &&
         event.state.role_count == 251 && event.state.emojis_known && event.state.emoji_count == 525 &&
@@ -429,7 +430,7 @@ void huge_community_guild(void (*check)(bool, const char*) noexcept) noexcept {
     GatewayEnvelope small = envelope;
     small.data = {small_text, 0, JsonValueKind::object};
     check(gateway_client_route_dispatch_large(small, {huge_records, 1u << 18}, 64,
-              {huge_payload, kGatewayClientDispatchPayloadCapacity}, {}, 1, {acquire_huge, nullptr}, &event, &copied).ok() &&
+              {huge_payload, kGatewayClientDispatchPayloadCapacity}, {}, 1, {acquire_huge, nullptr}, &event, &copied, gateway_test_message_scratch()).ok() &&
           !huge_acquires && !huge_large.committed && copied.data == reinterpret_cast<const u8*>(huge_payload),
         "an ordinary guild record stays in the ordinary scratch");
 
@@ -470,7 +471,7 @@ void tolerant_guild_records(void (*check)(bool, const char*) noexcept) noexcept 
     envelope.opcode = 0; envelope.has_event_name = true;
     GatewayClientEvent event{}; ConstSlice<u8> copied{};
     const auto routed = gateway_client_route_dispatch(envelope, {records, 16384}, 64, {payload, sizeof(payload)}, {}, 1,
-        &event, &copied);
+        &event, &copied, gateway_test_message_scratch());
     u32 cursor = 0, index = 0;
     GatewayClientStateMutation first{}, second{}; Utf8View name{}; ConstSlice<u8> permissions{}, none{};
     GatewayClientPermissionOverwriteMutation role{}, member{};
@@ -1049,7 +1050,7 @@ void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) no
     envelope.event_name={utf8_literal("USER_GUILD_SETTINGS_UPDATE"),0,false};
     const auto entry_text=utf8_literal(R"({"guild_id":"8","version":5,"hide_muted_channels":true,"channel_overrides":[{"channel_id":"20","message_notifications":1}]})");
     envelope.data={entry_text,0,JsonValueKind::object};GatewayClientEvent setting{};ConstSlice<u8>setting_payload{};
-    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&setting,&setting_payload).ok()&&
+    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&setting,&setting_payload, gateway_test_message_scratch()).ok()&&
         setting.dispatch_kind==GatewayClientDispatchKind::notification_settings_entry&&setting.notification.version==5,"live full notification entry projection");
     MessageNotificationGuildSetting guild_setting{};MessageNotificationOverride channel_setting{};
     check(gateway_client_notification_entry(setting,setting_payload,&guild_setting)&&gateway_client_notification_override_at(setting,setting_payload,0,&channel_setting)&&
@@ -1059,7 +1060,7 @@ void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) no
     const auto message_text=utf8_literal(R"({"id":"99","channel_id":"20","type":19,"author":{"id":"2","username":"peer","public_flags":1048576,"bot":true},"content":"hi","timestamp":"2026-10-02T00:00:00Z","activity_instance":{},"application_id":"7"})");
     envelope.event_name={utf8_literal("MESSAGE_CREATE"),0,false};envelope.data={message_text,0,JsonValueKind::object};
     GatewayClientEvent message{};ConstSlice<u8>message_payload{};
-    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&message,&message_payload).ok()&&
+    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&message,&message_payload, gateway_test_message_scratch()).ok()&&
         message.message.type==19&&message.message.author_public_flags==1048576&&(message.message.fields&gateway_message_field_author_policy),"message policy metadata occupies existing header padding");
     GatewayMessageEvent decoded_message{};
     check(gateway_client_event_as_message(message,message_payload,&decoded_message)&&decoded_message.type==19&&decoded_message.author_public_flags==1048576&&
@@ -1071,7 +1072,7 @@ void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) no
         "activity instance without interaction returns a known absent interaction user");
     const auto self_activity=utf8_literal(R"({"id":"100","channel_id":"20","type":20,"author":{"id":"2","username":"peer"},"content":"hi","timestamp":"2026-10-02T00:00:00Z","activity_instance":{},"interaction":{"id":"900","type":2,"name":"play","user":{"id":"1","username":"self"}}})");
     envelope.data={self_activity,0,JsonValueKind::object};
-    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&message,&message_payload).ok()&&
+    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&message,&message_payload, gateway_test_message_scratch()).ok()&&
         gateway_client_event_message_interaction_user(message,message_payload,&interaction_user)&&interaction_user==1,
         "bounded scalar header identifies self activity even before off-channel rich storage admission");
     GatewayClientEvent malformed_message=message;malformed_message.message.rich_payload_bytes--;
@@ -1089,23 +1090,23 @@ void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) no
         "interaction scalar rejects nonzero reserved header bytes");
     const auto metadata_message=utf8_literal(R"({"id":"101","channel_id":"20","type":20,"author":{"id":"2","username":"peer"},"content":"hi","timestamp":"2026-10-02T00:00:00Z","interaction_metadata":{"user":{"id":"3"}}})");
     envelope.data={metadata_message,0,JsonValueKind::object};
-    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&message,&message_payload).ok()&&
+    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&message,&message_payload, gateway_test_message_scratch()).ok()&&
         (message.message.fields&gateway_message_field_interaction_metadata)&&(message.message.mention_flags&gateway_client_message_interaction_metadata_present)&&
         gateway_client_event_as_message(message,message_payload,&decoded_message)&&decoded_message.interaction_metadata_present,
         "present unsupported modern interaction metadata stays typed distinct from legacy own activity");
     const auto metadata_patch=utf8_literal(R"({"id":"101","channel_id":"20","content":"patch"})");
     envelope.event_name={utf8_literal("MESSAGE_UPDATE"),0,false};envelope.data={metadata_patch,0,JsonValueKind::object};
-    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&message,&message_payload).ok()&&
+    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&message,&message_payload, gateway_test_message_scratch()).ok()&&
         !(message.message.fields&gateway_message_field_interaction_metadata),
         "omitted modern interaction metadata patch preserves missing field knowledge");
     const auto metadata_clear=utf8_literal(R"({"id":"101","channel_id":"20","interaction_metadata":null})");envelope.data={metadata_clear,0,JsonValueKind::object};
-    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&message,&message_payload).ok()&&
+    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&message,&message_payload, gateway_test_message_scratch()).ok()&&
         (message.message.fields&gateway_message_field_interaction_metadata)&&!(message.message.mention_flags&gateway_client_message_interaction_metadata_present),
         "explicit null modern interaction metadata patch clears presence without a fabricated user");
     const auto thread_text=utf8_literal(R"({"guild_id":"8","id":"30","added_members":[{"id":"30","user_id":"1","flags":4},{"id":"30","user_id":"3","flags":2}],"removed_member_ids":["4"]})");
     envelope.event_name={utf8_literal("THREAD_MEMBERS_UPDATE"),0,false};envelope.data={thread_text,0,JsonValueKind::object};
     GatewayClientEvent thread_event{};ConstSlice<u8>thread_payload{};
-    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&thread_event,&thread_payload).ok()&&thread_event.notification_payload_bytes,
+    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&thread_event,&thread_payload, gateway_test_message_scratch()).ok()&&thread_event.notification_payload_bytes,
         "thread delta carries separate self-notification metadata");
     GatewayClientEvent ordinary{};ConstSlice<u8>ordinary_payload{};
     GatewayClientNotificationSidecar side{};ConstSlice<u8>side_rows{};GatewayClientNotificationThreadRecord self_thread{};
@@ -1122,7 +1123,7 @@ void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) no
     const auto guild_meta=utf8_literal(R"({"id":"8","name":"guild","owner_id":"99","roles":[],"default_message_notifications":1,"channels":[{"id":"40","type":18,"application_id":"7"}]})");
     envelope.event_name={utf8_literal("GUILD_UPDATE"),0,false};envelope.data={guild_meta,0,JsonValueKind::object};
     GatewayClientEvent guild_event{};ConstSlice<u8>guild_payload{};
-    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload).ok()&&
+    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload, gateway_test_message_scratch()).ok()&&
         gateway_client_notification_trim(guild_event,guild_payload,&ordinary,&ordinary_payload)&&
         gateway_client_notification_sidecar({guild_payload.data+ordinary_payload.count,guild_event.notification_payload_bytes},&side,&side_rows)&&
         (side.flags&gateway_notification_guild_default_mentions)&&gateway_client_notification_thread_at(side_rows,0,&self_thread)&&
@@ -1130,7 +1131,7 @@ void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) no
         "nested manageable guild channel metadata uses scoped row without self-thread admission");
     const auto age_guild=utf8_literal(R"({"id":"8","name":"age","owner_id":"99","roles":[],"channels":[{"id":"40","type":0},{"id":"41","type":0,"nsfw":true},{"id":"42","type":18,"application_id":"7"}]})");
     envelope.event_name={utf8_literal("READY_GUILD"),0,false};envelope.data={age_guild,0,JsonValueKind::object};
-    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload).ok()&&
+    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload, gateway_test_message_scratch()).ok()&&
         gateway_client_notification_trim(guild_event,guild_payload,&ordinary,&ordinary_payload)&&
         gateway_client_notification_sidecar({guild_payload.data+ordinary_payload.count,guild_event.notification_payload_bytes},&side,&side_rows)&&
         (side.flags&gateway_notification_channel_age_baseline_complete)&&(side.known_gates&notification_gate_age_access)&&
@@ -1138,69 +1139,69 @@ void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) no
         self_thread.thread.thread_id==41&&self_thread.flags==gateway_notification_channel_metadata&&(self_thread.gates&notification_gate_age_access),
         "full guild validates clear age defaults and sparse sensitive or manageable rows only");
     const u32 ordinary_age_bytes=ordinary_payload.count;
-    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,static_cast<u32>(ordinary_age_bytes+sizeof(GatewayClientNotificationSidecar))},{},1,&guild_event,&guild_payload).ok()&&
+    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,static_cast<u32>(ordinary_age_bytes+sizeof(GatewayClientNotificationSidecar))},{},1,&guild_event,&guild_payload, gateway_test_message_scratch()).ok()&&
         gateway_client_notification_trim(guild_event,guild_payload,&ordinary,&ordinary_payload)&&
         gateway_client_notification_sidecar({guild_payload.data+ordinary_payload.count,guild_event.notification_payload_bytes},&side,&side_rows)&&
         (side.flags&gateway_notification_incomplete)&&!(side.flags&gateway_notification_channel_age_baseline_complete)&&side.thread_count==0&&side.known_gates==0,
         "sparse age row capacity failure publishes incomplete scope and no false known clear baseline");
-    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,ordinary_age_bytes},{},1,&guild_event,&guild_payload).ok()&&
+    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,ordinary_age_bytes},{},1,&guild_event,&guild_payload, gateway_test_message_scratch()).ok()&&
         guild_event.notification_payload_bytes==kGatewayNotificationMetadataIncomplete&&
         gateway_client_notification_trim(guild_event,guild_payload,&ordinary,&ordinary_payload)&&
         ordinary.notification_payload_bytes==0&&ordinary_payload.count==guild_payload.count,
         "header capacity failure marks copied policy incomplete while preserving valid ordinary body");
     const auto age_patch=utf8_literal(R"({"id":"8","name":"guild","owner_id":"99","roles":[],"nsfw_level":0})");
     envelope.event_name={utf8_literal("GUILD_UPDATE"),0,false};envelope.data={age_patch,0,JsonValueKind::object};
-    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload).ok()&&
+    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload, gateway_test_message_scratch()).ok()&&
         gateway_client_notification_trim(guild_event,guild_payload,&ordinary,&ordinary_payload)&&
         gateway_client_notification_sidecar({guild_payload.data+ordinary_payload.count,guild_event.notification_payload_bytes},&side,&side_rows)&&
         !(side.flags&gateway_notification_channel_age_baseline_complete)&&!(side.known_gates&notification_gate_age_access),
         "sparse guild patch cannot invent complete channel age authority or clear other candidate");
     const auto sensitive_guild=utf8_literal(R"({"id":"8","name":"guild","owner_id":"99","roles":[],"owner_configured_content_level":3})");envelope.data={sensitive_guild,0,JsonValueKind::object};
-    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload).ok()&&
+    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload, gateway_test_message_scratch()).ok()&&
         gateway_client_notification_trim(guild_event,guild_payload,&ordinary,&ordinary_payload)&&
         gateway_client_notification_sidecar({guild_payload.data+ordinary_payload.count,guild_event.notification_payload_bytes},&side,&side_rows)&&
         (side.known_gates&notification_gate_age_access)&&(side.gates&notification_gate_age_access),
         "sensitive guild candidate suppresses without inferring consent or experiment choice");
     const auto malformed_age=utf8_literal(R"({"id":"8","name":"guild","owner_id":"99","roles":[],"channels":[{"id":"41","type":0,"nsfw":7}]})");envelope.data={malformed_age,0,JsonValueKind::object};
-    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload).ok()&&
+    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload, gateway_test_message_scratch()).ok()&&
         gateway_client_notification_trim(guild_event,guild_payload,&ordinary,&ordinary_payload)&&
         gateway_client_notification_sidecar({guild_payload.data+ordinary_payload.count,guild_event.notification_payload_bytes},&side,&side_rows)&&
         (side.flags&gateway_notification_incomplete)&&!(side.flags&gateway_notification_channel_age_baseline_complete)&&side.thread_count==0,
         "malformed channel age collection publishes scoped incomplete rather than false age baseline");
     const auto dm_clear=utf8_literal(R"({"id":"60","type":1,"recipients":[]})");
     envelope.event_name={utf8_literal("CHANNEL_CREATE"),0,false};envelope.data={dm_clear,0,JsonValueKind::object};
-    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload).ok()&&
+    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload, gateway_test_message_scratch()).ok()&&
         gateway_client_notification_trim(guild_event,guild_payload,&ordinary,&ordinary_payload)&&
         gateway_client_notification_sidecar({guild_payload.data+ordinary_payload.count,guild_event.notification_payload_bytes},&side,&side_rows)&&
         (side.known_gates&notification_gate_age_access)&&!(side.gates&notification_gate_age_access),
         "full private channel supplies known clear age default without inventing patch state");
     const auto age_channel_patch=utf8_literal(R"({"id":"41","guild_id":"8","type":0,"nsfw":true})");
     envelope.event_name={utf8_literal("CHANNEL_UPDATE"),0,false};envelope.data={age_channel_patch,0,JsonValueKind::object};
-    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload).ok()&&
+    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload, gateway_test_message_scratch()).ok()&&
         gateway_client_notification_trim(guild_event,guild_payload,&ordinary,&ordinary_payload)&&
         gateway_client_notification_sidecar({guild_payload.data+ordinary_payload.count,guild_event.notification_payload_bytes},&side,&side_rows)&&
         (side.known_gates&notification_gate_age_access)&&(side.gates&notification_gate_age_access),
         "explicit channel sensitivity patch suppresses until native age consent authority exists");
     const auto restricted_update=utf8_literal(R"({"id":"1","restricted_schedule":{"rules":[{"enabled":true}]}})");
     envelope.event_name={utf8_literal("USER_UPDATE"),0,false};envelope.data={restricted_update,0,JsonValueKind::object};
-    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload).ok()&&
+    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload, gateway_test_message_scratch()).ok()&&
         gateway_client_notification_trim(guild_event,guild_payload,&ordinary,&ordinary_payload)&&
         gateway_client_notification_sidecar({guild_payload.data+ordinary_payload.count,guild_event.notification_payload_bytes},&side,&side_rows)&&
         side.channel_id==0&&side.guild_id==0&&(side.flags&gateway_notification_incomplete)&&!(side.known_gates&notification_gate_restricted_hours),
         "unsupported self restricted schedule invalidates global knowledge rather than writing a user-ID channel scope");
     envelope.event_name={utf8_literal("USER_SETTINGS_PROTO_UPDATE"),0,false};
     const auto invalid_global=utf8_literal(R"({"partial":false,"settings":{"type":1,"proto":"AB=="}})");envelope.data={invalid_global,0,JsonValueKind::object};
-    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload).ok()&&
+    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload, gateway_test_message_scratch()).ok()&&
         guild_event.dispatch_kind==GatewayClientDispatchKind::notification_global&&(guild_event.notification.flags&gateway_notification_incomplete)&&
         guild_event.dispatch_payload_bytes==0&&guild_payload.count==0,
         "invalid global proto invalidates only global authority without poisoning implicit guild defaults");
     const auto duplicate_global=utf8_literal(R"({"partial":true,"partial":false,"settings":{"type":1,"proto":""}})");envelope.data={duplicate_global,0,JsonValueKind::object};
-    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload).ok()&&
+    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload, gateway_test_message_scratch()).ok()&&
         guild_event.dispatch_kind==GatewayClientDispatchKind::notification_global&&(guild_event.notification.flags&gateway_notification_incomplete)&&!guild_payload.count,
         "known global event with invalid JSON fields retains typed global incomplete classification");
     envelope.event_name={utf8_literal("NOTIFICATION_SETTINGS_UPDATE"),0,false};
     const auto invalid_account=utf8_literal(R"({"flags":"invalid"})");envelope.data={invalid_account,0,JsonValueKind::object};
-    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload).ok()&&
+    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,sizeof(payload)},{},1,&guild_event,&guild_payload, gateway_test_message_scratch()).ok()&&
         guild_event.dispatch_kind==GatewayClientDispatchKind::notification_global&&(guild_event.notification.flags&gateway_notification_incomplete)&&!guild_payload.count,
         "invalid account notification flags stay separate from guild or thread policy authority");
 }

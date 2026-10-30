@@ -36,6 +36,7 @@ struct GatewayMemberSubscriptionRange {
 // The five most recent channels of a guild stay subscribed and are all written
 // in every frame, most recent first.
 inline constexpr u32 kGatewayGuildSubscriptionMaximumChannels = 5;
+inline constexpr u32 kGatewayGuildSubscriptionMaximumMembers = 50;
 struct GatewayChannelSubscription {
     u64 channel_id;
     GatewayMemberSubscriptionRange ranges[kGatewayMemberSubscriptionMaximumRanges];
@@ -65,6 +66,11 @@ struct GatewayGuildSubscription {
     // first; each keeps at least one range.
     GatewayChannelSubscription channels[kGatewayGuildSubscriptionMaximumChannels - 1];
     u32 channel_count;
+    // A present list replaces the users the client follows in the guild (their presence and member updates
+    // arrive without a member list range); empty unsubscribes. At most 50, the client's own bound.
+    bool members_present;
+    u32 member_count;
+    u64 members[kGatewayGuildSubscriptionMaximumMembers];
 };
 
 // Auth-token refresh (bit 8) stays disabled until a replacement can be adopted

@@ -1265,16 +1265,6 @@ __declspec(noinline) GatewayClientDispatchRouteResult route_message_create_updat
         return route_error(GatewayClientDispatchRouteError::payload_capacity);
     return route_error(GatewayClientDispatchRouteError::none);
 }
-
-// The same without the worker's scratch (tests): its ~36 KB of arrays live on this frame instead of the route's.
-__declspec(noinline) GatewayClientDispatchRouteResult route_message_on_stack(
-    const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
-    Slice<char> content_scratch, Slice<u64> bulk_ids, u64 self_user_id, bool create, GatewayClientEvent* event,
-    ConstSlice<u8>* payload) noexcept {
-    GatewayMessageDecodeScratch scratch;
-    return route_message_create_update(envelope, structural_scratch, maximum_depth, content_scratch, bulk_ids,
-                                       self_user_id, create, event, payload, &scratch);
-}
 } // namespace
 
 GatewayClientDispatchRouteResult gateway_client_route_dispatch(
@@ -1501,12 +1491,12 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
         event->typing = GatewayClientTypingStartEvent{typing.channel_id, typing.guild_id, typing.user_id,
                                                       typing.timestamp_seconds};
     } else if (late == 2 || late == 3) {
+        // Messages decode into the caller's scratch; without one the route cannot decode them.
         const GatewayClientDispatchRouteResult routed_message =
             message_scratch
                 ? route_message_create_update(envelope, structural_scratch, maximum_depth, content_scratch,
                                               bulk_ids, self_user_id, late == 2, event, payload, message_scratch)
-                : route_message_on_stack(envelope, structural_scratch, maximum_depth, content_scratch, bulk_ids,
-                                         self_user_id, late == 2, event, payload);
+                : route_error(GatewayClientDispatchRouteError::invalid_input);
         if (!routed_message.ok())
             return routed_message;
     } else if (late == 4 || late == 5) {

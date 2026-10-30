@@ -13,6 +13,7 @@
 #include "maicord/core/memory.hpp"
 #include "test_output.hpp"
 #include "maicord/ui/navigation_view.hpp"
+#include "gateway_message_scratch.hpp"
 
 // Message content wave: system rows, received spoilers and explicit media,
 // components and interactions, modals, ephemeral rows and invite cards.
@@ -305,7 +306,7 @@ bool decode_create(Utf8View payload, GatewayMessageEvent* message, u64 self_user
     scratch.attachments = {f.attachments, kGatewayMessageAttachmentMaximum};
     return gateway_decode_envelope(payload, {f.structurals, 4096}, 32, &envelope).ok() &&
            gateway_client_route_dispatch(envelope, {f.structurals, 4096}, 32, {f.packed_text, sizeof(f.packed_text)},
-                                         {f.ids, 100}, self_user, &routed, &packed)
+                                         {f.ids, 100}, self_user, &routed, &packed, gateway_test_message_scratch())
                .ok() &&
            gateway_client_event_as_message(routed, packed, scratch, message) &&
            gateway_client_event_message_system_target(routed, packed, message, &f.users[0]);

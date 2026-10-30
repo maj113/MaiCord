@@ -6,6 +6,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "gateway_message_scratch.hpp"
 
 namespace maicord {
 namespace {
@@ -16,7 +17,7 @@ bool route(Utf8View json, GatewayClientEvent* event, Slice<u8> output = {}, u32*
     GatewayEnvelope envelope{};
     ConstSlice<u8> payload{};
     const bool valid = gateway_decode_envelope(json, {scratch, 512}, 32, &envelope).ok() &&
-        gateway_client_route_dispatch(envelope, {scratch, 512}, 32, {text, 512}, {ids, 8}, event, &payload).ok() &&
+        gateway_client_route_dispatch(envelope, {scratch, 512}, 32, {text, 512}, {ids, 8}, event, &payload, gateway_test_message_scratch()).ok() &&
         event->dispatch_kind == GatewayClientDispatchKind::presence_update;
     if(!valid)return false;
     if(bytes){if(payload.count>output.count)return false;copy_bytes(output.data,payload.data,payload.count);*bytes=payload.count;}

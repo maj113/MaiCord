@@ -6,6 +6,7 @@
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/guild_member_store.hpp"
+#include "gateway_message_scratch.hpp"
 
 namespace maicord::message_pinned_state_test {
 static_assert(sizeof(MessageRecord) == 64);
@@ -53,7 +54,7 @@ bool route(Utf8View json, GatewayClientEvent* event, ConstSlice<u8>* payload) no
     return gateway_decode_envelope(json, {fixture.structurals, 2048}, 32, &envelope).ok() &&
            gateway_client_route_dispatch(
                envelope, {fixture.structurals, 2048}, 32, {fixture.packed, sizeof(fixture.packed)},
-               {fixture.bulk_ids, kGatewayBulkDeleteMaximumIds}, 42, event, payload)
+               {fixture.bulk_ids, kGatewayBulkDeleteMaximumIds}, 42, event, payload, gateway_test_message_scratch())
                .ok();
 }
 bool apply(Utf8View json) noexcept {
