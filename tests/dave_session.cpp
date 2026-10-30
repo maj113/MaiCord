@@ -89,7 +89,7 @@ void sealer(Check check, KdfSha256Workspace& kdf) noexcept {
         if (vector.generation > 255)
             continue;
         DaveFrameSealer frames{};
-        matched = matched && dave_frame_sealer_initialize(&frames, {seed, 16}).ok();
+        dave_frame_sealer_initialize(&frames, seed);
         frames.truncated_nonce = (vector.generation << 24) + vector.counter - 1;
         const u32 size = test_unhex(vector.wire, expected);
         const auto sealed = dave_frame_seal(frames, kdf, {body, 32}, {output, sizeof(output)});
@@ -100,7 +100,7 @@ void sealer(Check check, KdfSha256Workspace& kdf) noexcept {
     }
     check(matched && checked >= 10, "DAVE sealer reproduces oracle frames across ratchet generations");
     DaveFrameSealer frames{};
-    dave_frame_sealer_initialize(&frames, {seed, 16});
+    dave_frame_sealer_initialize(&frames, seed);
     copy_bytes(wire, body, 32);
     const auto first = dave_frame_seal(frames, kdf, {wire, 32}, {wire, sizeof(wire)});
     test_unhex(epoch_vectors[0].wire, expected);
@@ -510,7 +510,7 @@ void session(Check check, KdfSha256Workspace& kdf) noexcept {
     batch_bytes = batch({proposal_a, remove_carol}, {}, f->batch);
     check(dave_session_proposals(&alice.session, {f->batch, batch_bytes}, {both, 2}, &output,
                                  &commit_bytes) == MlsStatus::ok &&
-              output.count == commit_bytes && alice.session.group.local.commit.has_path,
+              output.count == commit_bytes && alice.session.group.staged.has_path,
           "a Remove forces a path Commit without a Welcome");
     copy_bytes(f->saved, output.data, output.count);
     const ConstSlice<u8> commit3{f->saved, commit_bytes};

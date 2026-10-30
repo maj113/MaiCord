@@ -52,6 +52,12 @@ maicord_program(MaiCordGcm64Benchmark ENTRY maicord_gcm64_benchmark_entry SOURCE
 maicord_program(MaiCordVoiceCryptoBenchmark ENTRY maicord_voice_crypto_benchmark_entry
     SOURCES benchmarks/voice_crypto_benchmark.cpp
     LIBS maicord_core maicord_platform kernel32 bcrypt crypt32)
+# DAVE frame path: seal, sender open (audio and clear-range video) and per-sender memory.
+maicord_program(MaiCordDaveFrameBenchmark ENTRY maicord_dave_frame_benchmark_entry
+    SOURCES benchmarks/dave_frame_benchmark.cpp src/app/dave_frame_crypto.cpp src/app/dave_key_derivation.cpp
+        src/app/dave_receive_epoch.cpp src/app/dave_receive_sender.cpp src/app/mls_exporter.cpp
+    LIBS maicord_core maicord_protocol maicord_platform kernel32 bcrypt crypt32
+    LINK_OPTIONS "/MAP:${CMAKE_CURRENT_BINARY_DIR}/MaiCordDaveFrameBenchmark.map")
 maicord_program(MaiCordAttachmentUploadBenchmark ENTRY maicord_attachment_upload_benchmark_entry
     SOURCES benchmarks/attachment_upload.cpp benchmarks/local_attachment.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_message_runtime kernel32 ws2_32)

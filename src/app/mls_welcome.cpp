@@ -27,16 +27,16 @@ MlsStatus welcome_path_secret(const MlsTreeKemPrivate& state, u32 joiner, const 
 
 MlsStatus mls_welcome_write(KdfSha256Workspace& kdf, const MlsLocalCommit& local,
                             ConstSlice<MlsProposal> proposals, ConstSlice<u32> joiners,
-                            const P256Key& signing, ConstSlice<u8> external_sender,
-                            Slice<u8> group_info_scratch, Slice<u8> output, u32* written) noexcept {
+                            const P256Key& signing, Slice<u8> group_info_scratch, Slice<u8> output,
+                            u32* written) noexcept {
     if (!written)
         return MlsStatus::invalid_argument;
     *written = 0;
     const auto& successor = local.successor;
-    const bool has_path = local.commit.has_path;
-    if (!local.initialized || !successor.initialized || !external_sender.data || !group_info_scratch.data ||
-        !output.data || !proposals.data || !proposals.count || !joiners.data || !joiners.count ||
-        joiners.count != successor.joiner_count || local.commit.sender_leaf >= successor.tree.leaf_count ||
+    const bool has_path = local.has_path;
+    if (!local.initialized || !successor.initialized || !group_info_scratch.data || !output.data ||
+        !proposals.data || !proposals.count || !joiners.data || !joiners.count ||
+        joiners.count != successor.joiner_count || local.sender_leaf >= successor.tree.leaf_count ||
         !successor.context.epoch)
         return MlsStatus::invalid_argument;
     u32 offset = 0, add = 0;
@@ -45,7 +45,7 @@ MlsStatus mls_welcome_write(KdfSha256Workspace& kdf, const MlsLocalCommit& local
         const u8* reference = nullptr;
         bool has = false;
         if (const auto status =
-                mls_commit_reference_next(local.commit.references, &offset, &reference, &has);
+                mls_commit_reference_next(local.references, &offset, &reference, &has);
             status != MlsStatus::ok)
             return status;
         const auto& proposal = proposals[i];
@@ -73,17 +73,16 @@ MlsStatus mls_welcome_write(KdfSha256Workspace& kdf, const MlsLocalCommit& local
         const u8* reference = nullptr;
         bool has = false;
         if (const auto status =
-                mls_commit_reference_next(local.commit.references, &offset, &reference, &has);
+                mls_commit_reference_next(local.references, &offset, &reference, &has);
             status != MlsStatus::ok)
             return status;
         if (has || add != joiners.count || !first_reference)
             return MlsStatus::malformed;
     }
-    MlsGroupInfo info{};
     u32 info_bytes = 0;
-    if (const auto status = mls_group_info_write(
-            kdf, successor.context, successor.tree, successor.epoch.confirmation_tag,
-            local.commit.sender_leaf, signing, external_sender, group_info_scratch, &info_bytes, &info);
+    if (const auto status =
+            mls_group_info_write(kdf, successor.context, successor.tree, successor.epoch.confirmation_tag,
+                                 local.sender_leaf, signing, group_info_scratch, &info_bytes);
         status != MlsStatus::ok)
         return status;
     MlsWipe info_wipe{group_info_scratch.data, info_bytes};
@@ -158,11 +157,6 @@ MlsStatus mls_welcome_write(KdfSha256Workspace& kdf, const MlsLocalCommit& local
     if (status == MlsStatus::ok)
         status = writer.status;
     if (status == MlsStatus::ok && writer.used != info_offset)
-        status = MlsStatus::malformed;
-    MlsWelcomeView parsed{};
-    if (status == MlsStatus::ok &&
-        (!mls_welcome_decode({output.data, static_cast<u32>(required)}, &parsed).ok() ||
-         parsed.encrypted_group_info.data != output.data + info_offset))
         status = MlsStatus::malformed;
     if (status != MlsStatus::ok) {
         secure_clear_bytes(output.data, static_cast<u32>(required));

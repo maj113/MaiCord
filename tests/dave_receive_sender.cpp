@@ -20,7 +20,7 @@ u32 wire(Check check, u32 epoch, u32 counter, u8* output) noexcept {
     return 0;
 }
 void correct(Check check, const DaveSenderOpenResult& result, u32 epoch, const u8* output) noexcept {
-    bool matched = result.ok() && result.bytes == 48 && result.epoch.ok();
+    bool matched = result.ok() && result.bytes == 48 && result.epoch == DaveEpochError::none;
     for (u32 i = 0; i != 48 && matched; ++i)
         matched = output[i] == static_cast<u8>(i * 17 + epoch * 7 + 9);
     check(matched, "DAVE sender authenticates/reconstructs independent mixed-clear epoch fixture");

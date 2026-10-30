@@ -35,7 +35,7 @@ void annex_b(u8* body, u32 size, u8 seed, ConstSlice<DaveClearRange> ranges) noe
 // Seals body with clear ranges exactly as a DAVE sender lays out the frame:
 // ciphertext in the gaps, 8-byte tag, ULEB nonce and ranges, size, 0xFAFA.
 // Returns the wire size, or zero; the computed tag is returned in tag_out.
-u32 seal(const DaveFrameKey& key, u32 nonce, ConstSlice<u8> body, ConstSlice<DaveClearRange> ranges, u8* frame,
+u32 seal(const AesGcm64Key& key, u32 nonce, ConstSlice<u8> body, ConstSlice<DaveClearRange> ranges, u8* frame,
          u8* cipher, u8* tag_out) noexcept {
     u8 aad[1024], iv[12]{};
     u32 aad_bytes = 0, cipher_bytes = 0, at = 0;
@@ -52,7 +52,7 @@ u32 seal(const DaveFrameKey& key, u32 nonce, ConstSlice<u8> body, ConstSlice<Dav
     for (u32 i = 0; i != 4; ++i)
         iv[8 + i] = static_cast<u8>(nonce >> (8 * i));
     // In place over the gathered plaintext; the frame receives the result below.
-    if (!aes_gcm64_encrypt(key.cipher, {iv, 12}, {aad, aad_bytes}, {cipher, cipher_bytes}, {cipher, cipher_bytes},
+    if (!aes_gcm64_encrypt(key, {iv, 12}, {aad, aad_bytes}, {cipher, cipher_bytes}, {cipher, cipher_bytes},
                            {tag_out, kDaveFrameTagBytes})
              .ok())
         return 0;
@@ -94,8 +94,8 @@ void oracle_frames(Check check, const Buffers& b) noexcept {
         u8 secret[16], oracle_tag[8], tag[8];
         test_unhex(vector.key, secret);
         test_unhex(vector.tag, oracle_tag);
-        DaveFrameKey key{};
-        if (!dave_frame_key_initialize(&key, vector.generation, {secret, 16}).ok()) {
+        AesGcm64Key key{};
+        if (!aes_gcm64_initialize(&key, {secret, 16}).ok()) {
             check(false, "DAVE video fixture key initialization");
             continue;
         }
@@ -112,31 +112,34 @@ void oracle_frames(Check check, const Buffers& b) noexcept {
         check(same, "DAVE video: footer ranges parse at megabyte offsets, up to the 255-byte supplemental limit");
         DaveReplay replay{};
         memset(b.output, 0xa5, vector.size + 16);
-        const auto opened = dave_frame_open(view, key, &replay, {b.scratch, kLargest}, {b.output, kLargest});
-        check(opened.ok() && opened.bytes == vector.size && bytes_equal(b.output, b.body, vector.size) &&
-                  b.output[vector.size] == 0xa5 && replay.initialized,
+        DaveFrameCounter counter{};
+        const bool counted = dave_frame_counter(vector.generation, view.nonce, &counter) &&
+                             dave_replay_can_accept(replay, counter.value);
+        const auto opened = counted ? dave_frame_open(view, key, replay, counter.value, b.scratch, b.output)
+                                    : AeadError::invalid_input;
+        check(opened == AeadError::none && view.body_bytes == vector.size &&
+                  bytes_equal(b.output, b.body, vector.size) && b.output[vector.size] == 0xa5 &&
+                  replay.initialized,
               "DAVE video: a large frame authenticates and reconstructs the exact Annex B body");
-        check(dave_frame_open(view, key, &replay, {b.scratch, kLargest}, {b.output, kLargest}).error ==
-                  DaveOpenError::replay_rejected,
-              "DAVE video: a repeated large frame is a replay");
+        check(!dave_replay_can_accept(replay, counter.value), "DAVE video: a repeated large frame is a replay");
         // Ciphertext and clear-header tampering both fail authentication and
         // leave the received frame intact for a retry with an older epoch.
         const u32 middle = vector.size / 2 + 100; // Ciphertext in every fixture.
         DaveReplay fresh{};
         b.frame[middle] ^= 0x20;
-        const auto tampered = dave_frame_open(view, key, &fresh, {b.scratch, kLargest}, {b.output, kLargest});
+        const auto tampered = dave_frame_open(view, key, fresh, counter.value, b.scratch, b.output);
         b.frame[middle] ^= 0x20;
         b.frame[ranges[0].offset + ranges[0].bytes - 1] ^= 1;
-        const auto header = dave_frame_open(view, key, &fresh, {b.scratch, kLargest}, {b.output, kLargest});
+        const auto header = dave_frame_open(view, key, fresh, counter.value, b.scratch, b.output);
         b.frame[ranges[0].offset + ranges[0].bytes - 1] ^= 1;
-        check(tampered.error == DaveOpenError::authentication_failed &&
-                  header.error == DaveOpenError::authentication_failed && !fresh.initialized,
+        check(tampered == AeadError::authentication_failed && header == AeadError::authentication_failed &&
+                  !fresh.initialized,
               "DAVE video: modified ciphertext or a modified NAL header fails without consuming replay");
         // In place over the received frame with body-sized scratch.
-        const auto in_place = dave_frame_open(view, key, &fresh, {b.scratch, vector.size}, {b.frame, vector.size});
-        check(in_place.ok() && bytes_equal(b.frame, b.body, vector.size),
+        const auto in_place = dave_frame_open(view, key, fresh, counter.value, b.scratch, b.frame);
+        check(in_place == AeadError::none && bytes_equal(b.frame, b.body, vector.size),
               "DAVE video: in-place open over the assembled frame buffer reconstructs the body");
-        dave_frame_key_release(&key);
+        aes_gcm64_release(&key);
     }
 }
 
@@ -153,16 +156,16 @@ void interleaved(Check check, const Buffers& b) noexcept {
     for (u32 i = 0; i != 16; ++i)
         seed[i] = static_cast<u8>(0x30 + i * 5);
     DaveReceiveSender sender{};
-    DaveFrameKey key{};
-    bool ready = dave_ratchet_step(workspace, {seed, 16}, 0, {key_bytes, 16}, {next, 32}).ok() &&
-                 dave_frame_key_initialize(&key, 0, {key_bytes, 16}).ok() &&
+    AesGcm64Key key{};
+    bool ready = dave_ratchet_step(workspace, {seed, 16}, 0, key_bytes, next).ok() &&
+                 aes_gcm64_initialize(&key, {key_bytes, 16}).ok() &&
                  dave_receive_sender_initialize(&sender, identity, 0) == DaveSenderError::none &&
                  dave_receive_sender_transition(sender, identity, 1, {seed, 16}, 0, 10'000).ok();
     secure_clear_bytes(key_bytes, sizeof(key_bytes));
     secure_clear_bytes(next, sizeof(next));
     check(ready, "DAVE video interleave: sender epoch and generation-0 key");
     if (!ready) {
-        dave_frame_key_release(&key);
+        aes_gcm64_release(&key);
         dave_receive_sender_release(&sender);
         kdf_sha256_release(&workspace);
         return;
@@ -210,7 +213,7 @@ void interleaved(Check check, const Buffers& b) noexcept {
     all = open(2100, false) && open(1500, true);
     check(all && !open(40, true),
           "DAVE video interleave: a frame displaced by 1000 newer gaps is rejected; recent gaps remain eligible");
-    dave_frame_key_release(&key);
+    aes_gcm64_release(&key);
     dave_receive_sender_release(&sender);
     kdf_sha256_release(&workspace);
 }

@@ -11,7 +11,8 @@ u32 table_capacity(u32 count) noexcept {
     return value;
 }
 // Leaf and parent views of the tree under validation, with collision-checked
-// open-addressing tables over node indices for keys and identities.
+// open-addressing tables over node indices for keys and identities. Once keys
+// are checked, the tables' words hold the tree hash of every parent node.
 struct Validation {
     KdfSha256Workspace& kdf;
     const MlsRatchetTree& tree;
@@ -20,6 +21,7 @@ struct Validation {
     u8* filtered; // Serialized ParentNode with unmerged leaves filtered out.
     u32 encryption_capacity, signature_capacity, filtered_capacity;
     u64 seed;
+    u8 (*tree_hashes)[kMlsHashBytes]; // Parent 2k+1 at k.
 };
 struct RawNode {
     ConstSlice<u8> content;
@@ -199,9 +201,20 @@ MlsStatus filtered_parent_hash(const Validation& v, const MlsParentNode& parent,
     const ConstSlice<u8> part{v.filtered, writer.used};
     return mls_hash(v.kdf, {&part, 1}, hash);
 }
+bool excluded_below(ConstSlice<u8> excluded, u32 index) noexcept {
+    for (u32 i = 0; i != excluded.count; i += 4)
+        if (mls_tree_is_below(byte_load_be32(excluded.data + i) * 2, index))
+            return true;
+    return false;
+}
 // Tree hash of the original sibling subtree: leaves in the parent's unmerged
-// list are blanked and removed from every parent's unmerged list.
+// list are blanked and removed from every parent's unmerged list. Subtrees
+// without such leaves serialize canonically, so their plain hash is cached.
 MlsStatus original_hash(const Validation& v, u32 index, ConstSlice<u8> excluded, u8* hash) noexcept {
+    if (!mls_tree_is_leaf(index) && !excluded_below(excluded, index)) {
+        copy_bytes(hash, v.tree_hashes[index >> 1], kMlsHashBytes);
+        return MlsStatus::ok;
+    }
     RawNode raw{};
     if (auto status = raw_at(v, index, &raw); status != MlsStatus::ok)
         return status;
@@ -327,46 +340,64 @@ MlsStatus resolution_matches(const Validation& v, u32 child, u32 index, ConstSli
         status = resolution_matches(v, child, mls_tree_right(index), parent_unmerged, expected, matches);
     return status;
 }
+// The original hash of `child` under a parent with these unmerged leaves.
+MlsStatus sibling_hash(const Validation& v, u32 child, ConstSlice<u8> excluded, const u8* plain,
+                       u8* hash) noexcept {
+    if (excluded_below(excluded, child))
+        return original_hash(v, child, excluded, hash);
+    copy_bytes(hash, plain, kMlsHashBytes);
+    return MlsStatus::ok;
+}
 // Each non-blank parent must be parent-hash linked from exactly one node in
-// the resolution of one of its children (RFC 9420 7.9.2).
-MlsStatus validate_parent_hashes(const Validation& v) noexcept {
+// the resolution of one of its children (RFC 9420 7.9.2). Parents go bottom-up,
+// so each child's plain tree hash is cached or is one leaf hash.
+MlsStatus validate_parent_hashes(const Validation& v, u8* tree_hash) noexcept {
     u32 root = 0;
     if (auto status = mls_tree_root(v.tree.leaf_count, &root); status != MlsStatus::ok)
         return status;
-    u8 sibling[kMlsHashBytes], left_expected[kMlsHashBytes], right_expected[kMlsHashBytes];
-    for (u32 index = 1; index < v.tree.node_count; index += 2) {
-        RawNode raw{};
-        auto status = raw_at(v, index, &raw);
-        if (status != MlsStatus::ok)
-            return status;
-        if (!raw.present)
-            continue;
-        MlsParentNode parent{};
-        if (status = parent_at(v, index, &parent); status != MlsStatus::ok)
-            return status;
-        if (index == root && parent.parent_hash_bytes)
-            return MlsStatus::malformed;
-        const u32 left = mls_tree_left(index), right = mls_tree_right(index);
-        u32 matches = 0;
-        status = original_hash(v, right, parent.unmerged, sibling);
-        if (status == MlsStatus::ok)
-            status = mls_parent_hash(v.kdf, parent.public_key, parent.parent_hash, parent.parent_hash_bytes,
-                                     sibling, left_expected);
-        if (status == MlsStatus::ok)
-            status = original_hash(v, left, parent.unmerged, sibling);
-        if (status == MlsStatus::ok)
-            status = mls_parent_hash(v.kdf, parent.public_key, parent.parent_hash, parent.parent_hash_bytes,
-                                     sibling, right_expected);
-        if (status == MlsStatus::ok)
-            status = resolution_matches(v, left, left, parent.unmerged, left_expected, &matches);
-        if (status == MlsStatus::ok)
-            status = resolution_matches(v, right, right, parent.unmerged, right_expected, &matches);
-        if (status != MlsStatus::ok)
-            return status;
-        if (matches != 1)
-            return MlsStatus::malformed;
-    }
-    return MlsStatus::ok;
+    u8 left_hash[kMlsHashBytes], right_hash[kMlsHashBytes], sibling[kMlsHashBytes];
+    u8 left_expected[kMlsHashBytes], right_expected[kMlsHashBytes];
+    for (u32 level = 1; (1u << level) - 1 < v.tree.node_count; ++level)
+        for (u32 index = (1u << level) - 1; index < v.tree.node_count; index += 2u << level) {
+            const u32 left = mls_tree_left(index), right = mls_tree_right(index);
+            RawNode raw{};
+            auto status = raw_at(v, index, &raw);
+            if (status == MlsStatus::ok)
+                status = original_hash(v, left, {}, left_hash);
+            if (status == MlsStatus::ok)
+                status = original_hash(v, right, {}, right_hash);
+            if (status == MlsStatus::ok)
+                status = mls_parent_tree_hash(v.kdf, raw.content, left_hash, right_hash,
+                                              v.tree_hashes[index >> 1]);
+            if (status != MlsStatus::ok)
+                return status;
+            if (!raw.present)
+                continue;
+            MlsParentNode parent{};
+            if (status = parent_at(v, index, &parent); status != MlsStatus::ok)
+                return status;
+            if (index == root && parent.parent_hash_bytes)
+                return MlsStatus::malformed;
+            u32 matches = 0;
+            status = sibling_hash(v, right, parent.unmerged, right_hash, sibling);
+            if (status == MlsStatus::ok)
+                status = mls_parent_hash(v.kdf, parent.public_key, parent.parent_hash,
+                                         parent.parent_hash_bytes, sibling, left_expected);
+            if (status == MlsStatus::ok)
+                status = sibling_hash(v, left, parent.unmerged, left_hash, sibling);
+            if (status == MlsStatus::ok)
+                status = mls_parent_hash(v.kdf, parent.public_key, parent.parent_hash,
+                                         parent.parent_hash_bytes, sibling, right_expected);
+            if (status == MlsStatus::ok)
+                status = resolution_matches(v, left, left, parent.unmerged, left_expected, &matches);
+            if (status == MlsStatus::ok)
+                status = resolution_matches(v, right, right, parent.unmerged, right_expected, &matches);
+            if (status != MlsStatus::ok)
+                return status;
+            if (matches != 1)
+                return MlsStatus::malformed;
+        }
+    return tree_hash ? original_hash(v, root, {}, tree_hash) : MlsStatus::ok;
 }
 } // namespace
 u32 mls_tree_validation_bytes(u32 leaf_count, u32 node_count) noexcept {
@@ -377,8 +408,8 @@ u32 mls_tree_validation_bytes(u32 leaf_count, u32 node_count) noexcept {
     const u64 bytes = words * 4 + filtered;
     return bytes > 0x7fffffffu ? 0 : static_cast<u32>(bytes);
 }
-MlsStatus mls_tree_validate(KdfSha256Workspace& kdf, const MlsRatchetTree& tree,
-                            Slice<u8> scratch) noexcept {
+MlsStatus mls_tree_validate(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, Slice<u8> scratch,
+                            u8* tree_hash) noexcept {
     const u32 required = mls_tree_validation_bytes(tree.leaf_count, tree.node_count);
     if (!required || !scratch.data || (reinterpret_cast<usize>(scratch.data) & 3))
         return MlsStatus::invalid_argument;
@@ -397,7 +428,8 @@ MlsStatus mls_tree_validate(KdfSha256Workspace& kdf, const MlsRatchetTree& tree,
                  table_capacity(tree.node_count),
                  table_capacity(tree.leaf_count),
                  0,
-                 0};
+                 0,
+                 nullptr};
     v.encryption_keys = v.offsets + tree.node_count;
     v.signature_keys = v.encryption_keys + v.encryption_capacity;
     v.identities = v.signature_keys + v.signature_capacity;
@@ -441,6 +473,9 @@ MlsStatus mls_tree_validate(KdfSha256Workspace& kdf, const MlsRatchetTree& tree,
         if (status != MlsStatus::ok)
             return status;
     }
-    return validate_parent_hashes(v);
+    // Parsed trees have L = 2^k leaves and 2L-1 nodes: the tables' words
+    // (at least 8L - 8) hold the L-1 parent hashes at 8 words each.
+    v.tree_hashes = reinterpret_cast<u8(*)[kMlsHashBytes]>(v.encryption_keys);
+    return validate_parent_hashes(v, tree_hash);
 }
 } // namespace maicord

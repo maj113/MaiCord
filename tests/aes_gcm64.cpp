@@ -17,8 +17,12 @@ void known_answers(Check check, Gcm64Backend backend) noexcept {
     u8 secret[16]{}, nonce[12]{}, output[32];
     AesGcm64Key key{};
     check(aes_gcm64_initialize(&key, {secret, 16}, backend).ok(), "GCM64 NIST key initialization");
-    if (!key.handle)
+    if (!key.storage.data)
         return;
+    check(key.backend != Gcm64Backend::automatic &&
+              (backend != Gcm64Backend::portable || key.backend == Gcm64Backend::portable) &&
+              (key.backend == Gcm64Backend::portable) == (key.handle != nullptr),
+          "GCM64 resolves the backend; only the portable one holds a CNG key");
     check(aes_gcm64_decrypt(key, {nonce, 12}, {}, {encrypted, 16}, {full_tag, 8}, {output, 32}).ok() &&
               test_filled(output, 16, 0),
           "GCM64 decrypts published NIST zero-key block");
@@ -86,14 +90,14 @@ void matrix(Check check, Gcm64Backend backend) noexcept {
     BCRYPT_HASH_HANDLE hash = nullptr;
     check(BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE, &hash, nullptr, 0, nullptr, 0, 0) >= 0,
           "GCM64 independent matrix hash initialization");
-    if (!key.handle || !reference.handle || !hash) {
+    if (!key.storage.data || !reference.handle || !hash) {
         aes_gcm64_release(&key);
         aes_gcm_release(&reference);
         if (hash)
             BCryptDestroyHash(hash);
         return;
     }
-    void* retained_handle = key.handle;
+    // Storage identity: the CNG handle exists only on the portable backend.
     const auto* retained_storage = key.storage.data;
     u32 counter = 0;
     for (u32 size : sizes) {
@@ -129,7 +133,7 @@ void matrix(Check check, Gcm64Backend backend) noexcept {
             check(in_place.ok() && in_place.bytes == size && bytes_equal(packet, plain, size) &&
                       bytes_equal(packet + size, oracle + size, 8),
                   "GCM64 supports in-place authenticated decryption with adjacent tag");
-            check(key.handle == retained_handle && key.storage.data == retained_storage &&
+            check(key.storage.data == retained_storage &&
                       key.storage.locked,
                   "GCM64 operations retain the original locked owner without allocations");
         }
@@ -151,14 +155,14 @@ void boundaries(Check check, Gcm64Backend backend) noexcept {
     constexpr u32 invalid_sizes[]{0, 1, 15, 17, 24, 32};
     for (u32 size : invalid_sizes)
         check(aes_gcm64_initialize(&key, {secret, size}, backend).error == AeadError::invalid_input &&
-                  !key.handle,
+                  !key.storage.data,
               "GCM64 accepts only AES128 key material");
     check(aes_gcm64_initialize(&key, {secret, 16}, backend).ok(), "GCM64 boundary key initialization");
-    if (!key.handle)
+    if (!key.storage.data)
         return;
-    const auto handle = key.handle;
+    const auto* const live_storage = key.storage.data;
     check(aes_gcm64_initialize(&key, {secret, 16}, backend).error == AeadError::invalid_input &&
-              key.handle == handle,
+              key.storage.data == live_storage,
           "GCM64 cannot replace a live key owner");
     constexpr u32 sizes[]{0, 1, 15, 16, 17, 65};
     for (u32 size : sizes) {

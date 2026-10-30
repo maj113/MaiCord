@@ -4,22 +4,34 @@
 
 namespace maicord {
 
+// Runs on every packet: byte_range_valid/byte_ranges_overlap (same semantics)
+// as inlined lambdas instead of ~25 calls.
 AeadResult aead_validate(ConstSlice<u8> owner, ConstSlice<u8> storage, u32 nonce_bytes,
                          ConstSlice<u8> nonce, ConstSlice<u8> aad, ConstSlice<u8> input, Slice<u8> output,
                          ConstSlice<u8> tag, bool encrypt, u32 tag_bytes) noexcept {
-    if (nonce.count != nonce_bytes || tag.count != tag_bytes || !byte_range_valid(nonce) || !byte_range_valid(aad) ||
-        !byte_range_valid(input) || !byte_range_valid(tag) || !byte_range_valid({output.data, output.count}))
+    const auto valid = [](const void* data, usize bytes) noexcept {
+        return bytes == 0 || (data && reinterpret_cast<usize>(data) <= ~usize{0} - bytes);
+    };
+    const auto overlap = [](ConstSlice<u8> a, ConstSlice<u8> b) noexcept {
+        if (!a.count || !b.count)
+            return false;
+        const usize first = reinterpret_cast<usize>(a.data), second = reinterpret_cast<usize>(b.data);
+        return first <= second ? second - first < a.count : first - second < b.count;
+    };
+    if (nonce.count != nonce_bytes || tag.count != tag_bytes || !valid(nonce.data, nonce.count) ||
+        !valid(aad.data, aad.count) || !valid(input.data, input.count) || !valid(tag.data, tag.count) ||
+        !valid(output.data, output.count))
         return aead_result(AeadError::invalid_input);
     if (output.count < input.count)
         return aead_result(AeadError::output_too_small);
     const ConstSlice<u8> written{output.data, input.count};
-    if ((input.data != output.data && byte_ranges_overlap(input, written)) || byte_ranges_overlap(written, nonce) ||
-        byte_ranges_overlap(written, aad) || byte_ranges_overlap(written, tag) ||
-        (encrypt && (byte_ranges_overlap(tag, input) || byte_ranges_overlap(tag, nonce) || byte_ranges_overlap(tag, aad))))
+    if ((input.data != output.data && overlap(input, written)) || overlap(written, nonce) ||
+        overlap(written, aad) || overlap(written, tag) ||
+        (encrypt && (overlap(tag, input) || overlap(tag, nonce) || overlap(tag, aad))))
         return aead_result(AeadError::invalid_input);
     const ConstSlice<u8> spans[]{nonce, aad, input, written, tag};
     for (const auto span : spans)
-        if (byte_ranges_overlap(span, owner) || byte_ranges_overlap(span, storage))
+        if (overlap(span, owner) || overlap(span, storage))
             return aead_result(AeadError::invalid_input);
     return aead_result(AeadError::none);
 }

@@ -12,50 +12,47 @@ namespace maicord {
 struct DaveReceiveEpoch {
     SecureBuffer storage;
     DaveReplay replay;
-    u64 created_ms, last_now_ms, expiry_ms, next_key_expiry_ms, next_generation;
+    u64 created_ms, next_key_expiry_ms, next_generation;
     u32 oldest_generation, newest_generation, count, capacity, seed_bytes;
     Gcm64Backend backend;
     bool cleanup_pending;
 };
 enum class DaveEpochError : u8 {
     none,
-    invalid_input,
-    not_initialized,
-    invalid_time,
-    expired,
     generation_gap,
     generation_lifetime,
     storage,
     derivation,
     key_import,
-    frame
+    replay_rejected,
+    authentication_failed,
+    crypto_failure
 };
-struct DaveEpochOpenResult {
-    DaveOpenResult frame;
-    KdfResult derivation;
-    AeadResult key_import;
-    u32 generation;
-    DaveEpochError error;
-    constexpr bool ok() const noexcept {
-        return error == DaveEpochError::none;
-    }
-};
+// True when the outcome ran the AEAD (success included).
+constexpr bool dave_epoch_attempted(DaveEpochError error) noexcept {
+    return error == DaveEpochError::none || error == DaveEpochError::authentication_failed ||
+           error == DaveEpochError::crypto_failure;
+}
 KdfResult dave_receive_epoch_initialize(DaveReceiveEpoch* epoch, ConstSlice<u8> exported_seed, u64 now_ms,
                                         Gcm64Backend backend = Gcm64Backend::automatic) noexcept;
 void dave_receive_epoch_release(DaveReceiveEpoch* epoch) noexcept;
 // Read-only check for parent controllers: reports whether a borrowed buffer
-// overlaps this epoch's storage, before cleanup or authentication can modify it.
+// overlaps this epoch's locked allocations (secrets and keys), before cleanup or
+// authentication can modify them. The epoch object itself is the parent's to
+// check; an initialized epoch always holds storage.
 bool dave_receive_epoch_aliases(const DaveReceiveEpoch& epoch, ConstSlice<u8> span) noexcept;
-// Monotonic milliseconds, same clock as initialization. Parsed frame and ranges
-// are borrowed for the call. All caller spans must be outside this owner, its
-// locked allocations, and the worker KDF workspace. Frame output/scratch rules
-// follow dave_frame_open. Keys derived on a failed attempt may be kept;
+// Monotonic non-decreasing milliseconds, same clock as initialization. The
+// parent (dave_receive_sender_open) owns argument validation and epoch expiry:
+// it parsed the frame, bounded and de-aliased output/scratch against this
+// owner, its locked allocations and the worker KDF workspace, and drops an
+// expired epoch before calling. Frame output/scratch rules follow
+// dave_frame_open. Keys derived on a failed attempt may be kept;
 // only authentication advances newest_generation and replay or expires old keys.
 // A resource/provider failure may keep completed intermediate derivations so a
 // retry resumes without skipping or re-deriving a generation. No plaintext is
-// usable unless the outer result succeeds. This does not choose epochs, allow
+// usable unless the result is none. This does not choose epochs, allow
 // passthrough/silence, or implement MLS/exporter/signaling policy.
-DaveEpochOpenResult dave_receive_epoch_open(DaveReceiveEpoch& epoch, KdfSha256Workspace& workspace,
-                                            const DaveFrameView& frame, u64 now_ms, Slice<u8> scratch,
-                                            Slice<u8> output) noexcept;
+DaveEpochError dave_receive_epoch_open(DaveReceiveEpoch& epoch, KdfSha256Workspace& workspace,
+                                       const DaveFrameView& frame, u64 now_ms, u8* scratch,
+                                       u8* output) noexcept;
 } // namespace maicord

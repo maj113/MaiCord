@@ -131,10 +131,20 @@ void boundaries(Check check) noexcept {
     memset(point + 1, 0xff, 64);
     check(!p256_import_public(&wrong, P256Kind::ecdh, {point, 65}).ok(),
           "P256 CNG rejects off-curve coordinates");
-    P256Key generated{};
+    P256Key generated{}, second{}, verifier{};
+    u8 generated_point[65], second_point[65];
     check(p256_generate(&generated, P256Kind::ecdsa).ok() &&
               p256_sign_digest(generated, {digest, 32}, {signature, 64}).ok(),
           "P256 generates fresh native signing key");
+    check(p256_generate(&second, P256Kind::ecdsa).ok() &&
+              p256_export_public(generated, {generated_point, 65}).ok() &&
+              p256_export_public(second, {second_point, 65}).ok() && generated_point[0] == 4 &&
+              !bytes_equal(generated_point, second_point, 65) &&
+              p256_import_public(&verifier, P256Kind::ecdsa, {generated_point, 65}).ok() &&
+              p256_verify_digest(verifier, {digest, 32}, {signature, 64}).ok(),
+          "P256 generated keys are distinct and verify with their exported public point");
+    p256_release(&verifier);
+    p256_release(&second);
     p256_release(&generated);
     check(p256_generate(&wrong, P256Kind::ecdh).ok() &&
               p256_sign_digest(wrong, {digest, 32}, {output, 64}).error == P256Error::wrong_kind &&

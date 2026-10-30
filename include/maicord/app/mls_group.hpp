@@ -44,29 +44,29 @@ struct MlsGroupContext {
     ConstSlice<u8> serialized;
     u64 group_id, epoch;
 };
+// Writes the serialized context to output and points the views into it. The
+// external sender must already have passed mls_external_sender_parse.
 MlsStatus mls_group_context_write(u64 group_id, u64 epoch, const u8* tree_hash,
                                   const u8* confirmed_transcript_hash, ConstSlice<u8> external_sender,
-                                  Slice<u8> output, u32* written) noexcept;
-MlsStatus mls_group_context_parse(const ConstSlice<u8>& input, const ConstSlice<u8>& external_sender,
-                                  MlsGroupContext* context, u32* consumed) noexcept;
+                                  Slice<u8> output, MlsGroupContext* context) noexcept;
 
-// GroupInfo with the mandatory inline RatchetTree; parse verifies the root tree
-// hash and the signer leaf's GroupInfoTBS signature. Unknown extensions are
-// ignored; duplicate extension types are rejected.
+// GroupInfo with the mandatory inline RatchetTree; parse verifies every leaf
+// and the signer leaf's GroupInfoTBS signature. The caller binds the tree to
+// the context: mls_tree_validate's tree hash must equal context.tree_hash.
+// Unknown extensions are ignored; duplicate extension types are rejected.
 struct MlsGroupInfo {
     MlsGroupContext context;
     MlsRatchetTree tree;
     const u8* confirmation_tag;
-    ConstSlice<u8> serialized;
-    u32 signer, tbs_bytes;
+    u32 signer;
 };
-// verify=false re-parses bytes that already passed verification unchanged.
 MlsStatus mls_group_info_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input,
-                               ConstSlice<u8> external_sender, bool verify, MlsGroupInfo* info) noexcept;
+                               ConstSlice<u8> external_sender, MlsGroupInfo* info) noexcept;
+// Signs and serializes a GroupInfo for a context/tree pair the caller derived
+// together (tree hash and group id already agree).
 MlsStatus mls_group_info_write(KdfSha256Workspace& kdf, const MlsGroupContext& context,
                                const MlsRatchetTree& tree, const u8* confirmation_tag, u32 signer,
-                               const P256Key& signing, ConstSlice<u8> external_sender, Slice<u8> output,
-                               u32* written, MlsGroupInfo* info) noexcept;
+                               const P256Key& signing, Slice<u8> output, u32* written) noexcept;
 MlsStatus mls_group_info_verify_confirmation(KdfSha256Workspace& kdf, const MlsGroupInfo& info,
                                              const u8* confirmation_key) noexcept;
 
@@ -141,15 +141,17 @@ MlsStatus mls_treekem_carry_forward(KdfSha256Workspace& kdf, MlsTreeKemPrivate* 
                                     const MlsTreeKemPrivate& current, const MlsRatchetTree& tree,
                                     Slice<u8> scratch) noexcept;
 // Fresh local path from leaf_secret: the stub holds the signed Commit leaf and
-// path keys without ciphertexts; merged is the resulting public tree.
+// path keys without ciphertexts; merged is the resulting public tree, with its
+// tree hash.
 MlsStatus mls_treekem_update_prepare(KdfSha256Workspace& kdf, MlsTreeKemPrivate* next,
                                      const MlsTreeKemPrivate& current, const MlsRatchetTree& proposal_tree,
                                      const u8* leaf_secret, const P256Key& signing, Slice<u8> scratch,
                                      Slice<u8> stub, u32* stub_bytes, MlsUpdatePath* stub_path,
-                                     Slice<u8> tree_output, u32* tree_bytes,
-                                     MlsRatchetTree* merged) noexcept;
+                                     Slice<u8> tree_output, u32* tree_bytes, MlsRatchetTree* merged,
+                                     u8* tree_hash) noexcept;
 // Encrypts each path secret to the copath resolution minus joiners, with the
-// provisional next-epoch GroupContext as HPKE context.
+// provisional next-epoch GroupContext as HPKE context. prepared, merged and
+// stub must be one update_prepare's outputs, which matched the keys already.
 MlsStatus mls_treekem_encap(KdfSha256Workspace& kdf, const MlsTreeKemPrivate& prepared,
                             const MlsRatchetTree& merged, const MlsUpdatePath& stub,
                             ConstSlice<u32> joiners, ConstSlice<u8> group_context, Slice<u8> scratch,
@@ -185,14 +187,15 @@ struct MlsSuccessor {
     MlsTreeKemPrivate tree_private;
     MlsEpochSecrets epoch;
     MlsTranscript transcript;
-    u32 tree_bytes, context_bytes, joiner_count;
-    bool uses_merged_tree, initialized;
+    u32 joiner_count;
+    bool initialized;
 };
+// An own Commit just authored: its successor epoch plus what the Welcome needs.
 struct MlsLocalCommit {
     MlsSuccessor successor;
-    MlsCommit commit;
-    u32 message_bytes, path_offset, path_bytes;
-    bool initialized;
+    ConstSlice<u8> references; // ProposalOrRef vector body inside the message buffer.
+    u32 sender_leaf, message_bytes;
+    bool has_path, initialized;
 };
 // Caller-owned arenas for one successor; the tree outputs and scratch must be
 // distinct from each other and from every input.
@@ -214,8 +217,8 @@ MlsStatus mls_commit_apply_remote(KdfSha256Workspace& kdf, MlsSuccessor* success
 // and encrypted directly into its final position in output.
 MlsStatus mls_welcome_write(KdfSha256Workspace& kdf, const MlsLocalCommit& local,
                             ConstSlice<MlsProposal> proposals, ConstSlice<u32> joiners,
-                            const P256Key& signing, ConstSlice<u8> external_sender,
-                            Slice<u8> group_info_scratch, Slice<u8> output, u32* written) noexcept;
+                            const P256Key& signing, Slice<u8> group_info_scratch, Slice<u8> output,
+                            u32* written) noexcept;
 
 enum class MlsPending : u8 {
     none,
@@ -223,16 +226,16 @@ enum class MlsPending : u8 {
     remote
 };
 // Group state machine. Tree/context/message arenas stay caller-owned; this
-// object owns compact secrets, views and transition bookkeeping.
+// object owns compact secrets, views and transition bookkeeping. At most one
+// transition is pending, so a remote candidate shares `staged` with a local
+// one (its successor; the commit fields are only filled for a local Commit).
 struct MlsGroup {
     MlsSuccessor active;
-    MlsLocalCommit local;
-    MlsSuccessor remote;
+    MlsLocalCommit staged;
     MlsProposalCache proposals;
     MlsExternalSender external_sender;
     ConstSlice<u8> external_sender_serialized, pending_message;
     const u32* pending_joiners;
-    u32 pending_joiner_count;
     u16 pending_transition;
     MlsPending pending;
     bool has_pending_transition, initialized;
@@ -248,8 +251,8 @@ void mls_group_cancel_pending(MlsGroup* group) noexcept;
 MlsStatus mls_group_create_initial(KdfSha256Workspace& kdf, MlsGroup* group, u64 group_id,
                                    const MlsKeyPackage& self, const P256Key& leaf_key,
                                    const u8* init_secret, ConstSlice<u8> external_sender,
-                                   const MlsGroupArena& arena, Slice<u8> tree_output, u32* tree_bytes,
-                                   Slice<u8> context_output, u32* context_bytes) noexcept;
+                                   const MlsGroupArena& arena, Slice<u8> tree_output,
+                                   Slice<u8> context_output) noexcept;
 // Joins from a Welcome. Everything is decrypted and verified in a private
 // candidate first; only then is the GroupInfo copied to group_info_output
 // (which backs the new tree/context) and *group replaced. Every leaf must be a

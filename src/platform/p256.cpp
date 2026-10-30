@@ -1,4 +1,5 @@
 #include "maicord/platform/p256.hpp"
+#include "maicord/platform/random.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/crypto.hpp"
@@ -117,20 +118,27 @@ void p256_release(P256Key* key) noexcept {
         BCryptDestroyKey(key->handle);
     reset_value(key);
 }
+// A system-RNG scalar in [1,n) imported as a private key: CNG derives the public
+// point once, where BCryptFinalizeKeyPair also self-tests the pair (twice the time).
 P256Result p256_generate(P256Key* key, P256Kind kind) noexcept {
     if (!key || key->handle)
         return {0, 0, P256Error::invalid_input};
-    void* generated = nullptr;
-    auto status = BCryptGenerateKeyPair(algorithm(kind), &generated, 256, 0);
-    if (status >= 0)
-        status = BCryptFinalizeKeyPair(generated, 0);
-    if (status < 0) {
-        if (generated)
-            BCryptDestroyKey(generated);
-        return {0, status, P256Error::platform_failure};
+    u8 scalar[32];
+    P256Result result{0, 0, P256Error::platform_failure};
+    // Rejection sampling: an out-of-range scalar has probability 2^-32.
+    for (u32 attempt = 0; attempt != 8; ++attempt) {
+        const auto random = secure_random_fill({scalar, 32});
+        if (!random.ok()) {
+            result = {0, random.platform_status, P256Error::platform_failure};
+            break;
+        }
+        if (scalar_valid({scalar, 32})) {
+            result = import(key, kind, {}, {scalar, 32}, true);
+            break;
+        }
     }
-    *key = {generated, kind, true};
-    return {};
+    SecureZeroMemory(scalar, sizeof(scalar));
+    return result;
 }
 P256Result p256_import_public(P256Key* key, P256Kind kind, ConstSlice<u8> point) noexcept {
     return import(key, kind, point, {}, false);

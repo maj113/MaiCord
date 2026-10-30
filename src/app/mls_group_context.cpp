@@ -105,11 +105,9 @@ MlsStatus mls_external_sender_parse(const ConstSlice<u8>& input_view, MlsExterna
 
 MlsStatus mls_group_context_write(u64 group_id, u64 epoch, const u8* tree_hash,
                                   const u8* confirmed_transcript_hash, ConstSlice<u8> external_sender,
-                                  Slice<u8> output, u32* written) noexcept {
-    MlsExternalSender parsed{};
-    if (!tree_hash || !written || mls_external_sender_parse(external_sender, &parsed) != MlsStatus::ok)
+                                  Slice<u8> output, MlsGroupContext* context) noexcept {
+    if (!tree_hash || !context)
         return MlsStatus::invalid_argument;
-    *written = 0;
     const u32 senders = mls_varint_size(external_sender.count) + external_sender.count;
     const u32 extension = 2 + mls_varint_size(senders) + senders;
     MlsWriter writer{output};
@@ -130,28 +128,21 @@ MlsStatus mls_group_context_write(u64 group_id, u64 epoch, const u8* tree_hash,
         secure_clear_bytes(output.data, minimum(writer.used, output.count));
         return writer.status;
     }
-    *written = writer.used;
-    return MlsStatus::ok;
-}
-MlsStatus mls_group_context_parse(const ConstSlice<u8>& input_view, const ConstSlice<u8>& external_view,
-                                  MlsGroupContext* context, u32* consumed) noexcept {
-    const ConstSlice<u8> input = input_view, external_sender = external_view; // *context is written below
-    if (!context || !consumed || !input.data || !input.count || !external_sender.data)
-        return MlsStatus::invalid_argument;
-    reset_value(context);
-    *consumed = 0;
-    MlsGroupContextView view{};
-    if (!mls_group_context_decode_prefix({input.data, minimum(input.count, kMlsGroupContextMaximum)}, &view)
-             .ok())
-        return MlsStatus::malformed;
-    if (const auto status = context_from_view(view, external_sender, context); status != MlsStatus::ok)
-        return status;
-    *consumed = view.serialized.count;
+    // The fixed prefix is version, suite and group id length (5 bytes), the
+    // group id, the epoch and the tree hash vector's length byte.
+    constexpr u32 kGroupIdOffset = 5, kTreeHashOffset = kGroupIdOffset + kMlsGroupIdBytes + 8 + 1,
+                  kConfirmedOffset = kTreeHashOffset + kMlsHashBytes + 1;
+    *context = {output.data + kGroupIdOffset,
+                output.data + kTreeHashOffset,
+                confirmed_transcript_hash ? output.data + kConfirmedOffset : nullptr,
+                {output.data, writer.used},
+                group_id,
+                epoch};
     return MlsStatus::ok;
 }
 
 MlsStatus mls_group_info_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input,
-                               ConstSlice<u8> external_sender, bool verify, MlsGroupInfo* info) noexcept {
+                               ConstSlice<u8> external_sender, MlsGroupInfo* info) noexcept {
     if (!info || !input.data || !input.count || input.count > kMlsMaxGroupInfoBytes ||
         !external_sender.data)
         return MlsStatus::invalid_argument;
@@ -178,7 +169,7 @@ MlsStatus mls_group_info_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input,
         types[count++] = type;
         if (type == kRatchetTreeExtension) {
             if (const auto status = mls_ratchet_tree_parse(kdf, data, candidate.context.group_id_bytes,
-                                                           verify, &candidate.tree);
+                                                           true, &candidate.tree);
                 status != MlsStatus::ok)
                 return status;
             have_tree = true;
@@ -188,41 +179,26 @@ MlsStatus mls_group_info_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input,
         view.confirmation_tag.count != kMlsHashBytes || view.signer >= candidate.tree.leaf_count ||
         view.signature.count < 8 || view.signature.count > kMlsSignatureMaximum)
         return MlsStatus::malformed;
-    u8 root[kMlsHashBytes];
-    if (const auto status = mls_tree_root_hash(kdf, candidate.tree, root); status != MlsStatus::ok)
-        return status;
-    if (!mls_equal(root, candidate.context.tree_hash, kMlsHashBytes))
-        return MlsStatus::crypto_failure;
     MlsTreeNode signer{};
     if (const auto status = mls_tree_leaf_at(candidate.tree, view.signer, &signer); status != MlsStatus::ok)
         return status;
-    if (verify)
-        if (const auto status = mls_verify_point(kdf, signer.leaf.signature_key, text_bytes("GroupInfoTBS"),
-                                                 view.tbs, {}, view.signature);
-            status != MlsStatus::ok)
-            return status;
+    if (const auto status = mls_verify_point(kdf, signer.leaf.signature_key, text_bytes("GroupInfoTBS"),
+                                             view.tbs, {}, view.signature);
+        status != MlsStatus::ok)
+        return status;
     candidate.confirmation_tag = view.confirmation_tag.data;
-    candidate.serialized = view.serialized;
     candidate.signer = view.signer;
-    candidate.tbs_bytes = view.tbs.count;
     *info = candidate;
     return MlsStatus::ok;
 }
 MlsStatus mls_group_info_write(KdfSha256Workspace& kdf, const MlsGroupContext& context,
                                const MlsRatchetTree& tree, const u8* confirmation_tag, u32 signer,
-                               const P256Key& signing, ConstSlice<u8> external_sender, Slice<u8> output,
-                               u32* written, MlsGroupInfo* info) noexcept {
-    if (!written || !info || !confirmation_tag || !output.data || !context.serialized.data ||
-        !tree.group_id || signer >= tree.leaf_count || tree.serialized.count > kMlsMaxRatchetTreeBytes)
+                               const P256Key& signing, Slice<u8> output, u32* written) noexcept {
+    if (!written || !confirmation_tag || !output.data || !context.serialized.data || !tree.group_id ||
+        signer >= tree.leaf_count || tree.serialized.count > kMlsMaxRatchetTreeBytes)
         return MlsStatus::invalid_argument;
     *written = 0;
-    reset_value(info);
-    u8 root[kMlsHashBytes], signature[kMlsSignatureMaximum];
-    if (const auto status = mls_tree_root_hash(kdf, tree, root); status != MlsStatus::ok)
-        return status;
-    if (!mls_equal(tree.group_id, context.group_id_bytes, kMlsGroupIdBytes) ||
-        !mls_equal(root, context.tree_hash, kMlsHashBytes))
-        return MlsStatus::malformed;
+    u8 signature[kMlsSignatureMaximum];
     const u32 extension = 2 + mls_varint_size(tree.serialized.count) + tree.serialized.count;
     MlsWriter writer{output};
     writer.bytes(context.serialized.data, context.serialized.count);
@@ -246,15 +222,8 @@ MlsStatus mls_group_info_write(KdfSha256Workspace& kdf, const MlsGroupContext& c
         status = writer.status;
     if (status == MlsStatus::ok && writer.used > kMlsMaxGroupInfoBytes)
         status = MlsStatus::buffer_too_small;
-    // Reparse across the same boundary a receiver uses; leaves are already verified.
-    if (status == MlsStatus::ok)
-        status = mls_group_info_parse(kdf, {output.data, writer.used}, external_sender, false, info);
-    if (status == MlsStatus::ok && (info->signer != signer || info->tbs_bytes != tbs_bytes ||
-                                    !mls_equal(info->confirmation_tag, confirmation_tag, kMlsHashBytes)))
-        status = MlsStatus::malformed;
     if (status != MlsStatus::ok) {
         secure_clear_bytes(output.data, minimum(writer.used, output.count));
-        reset_value(info);
         return status;
     }
     *written = writer.used;

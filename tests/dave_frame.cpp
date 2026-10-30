@@ -47,47 +47,20 @@ void vectors(Check check) noexcept {
             continue;
         memset(aad, 0xCC, sizeof(aad));
         memset(cipher, 0xCC, sizeof(cipher));
-        for (u32 capacity = 0; capacity < clear_bytes; ++capacity)
-            check(dave_frame_gather(view, {aad, capacity}, {cipher, sizeof(cipher)}) ==
-                      DaveFrameError::output_capacity,
-                  "DAVE gather rejects every short AAD output");
-        for (u32 capacity = 0; capacity < encrypted; ++capacity)
-            check(dave_frame_gather(view, {aad, sizeof(aad)}, {cipher, capacity}) ==
-                      DaveFrameError::output_capacity,
-                  "DAVE gather rejects every short cipher output");
-        check(filled(aad, sizeof(aad), 0xCC) && filled(cipher, sizeof(cipher), 0xCC),
-              "DAVE gather capacity failures preserve both complete output buffers");
-        check(dave_frame_gather(view, {aad, sizeof(aad)}, {cipher, sizeof(cipher)}) ==
-                      DaveFrameError::none &&
-                  bytes_equal(aad, expected_aad, clear_bytes) &&
-                  bytes_equal(cipher, expected_cipher, encrypted) &&
+        dave_frame_gather(view, aad, cipher);
+        check(bytes_equal(aad, expected_aad, clear_bytes) && bytes_equal(cipher, expected_cipher, encrypted) &&
                   filled(aad + clear_bytes, sizeof(aad) - clear_bytes, 0xCC) &&
                   filled(cipher + encrypted, sizeof(cipher) - encrypted, 0xCC),
               "DAVE gather matches independent AAD/cipher partitions and preserves capacity tails");
-        if (!clear_bytes)
-            check(dave_frame_gather(view, {}, {frame, body}) == DaveFrameError::none &&
-                      bytes_equal(frame, original, bytes),
-                  "DAVE wholly encrypted frame supports direct body/cipher alias without copying");
         for (u32 i = 0; i != encrypted; ++i)
             cipher[i] ^= 0xA5; // Stand-in for authenticated plaintext.
         memset(output, 0xCC, sizeof(output));
-        for (u32 capacity = 0; capacity < body; ++capacity)
-            check(dave_frame_reconstruct(view, {cipher, encrypted}, {output, capacity}) ==
-                      DaveFrameError::output_capacity,
-                  "DAVE reconstruction rejects every short output");
-        check(filled(output, sizeof(output), 0xCC) &&
-                  dave_frame_reconstruct(view, {cipher, encrypted}, {output, sizeof(output)}) ==
-                      DaveFrameError::none &&
-                  bytes_equal(output, expected, body) && filled(output + body, sizeof(output) - body, 0xCC),
+        dave_frame_reconstruct(view, cipher, output);
+        check(bytes_equal(output, expected, body) && filled(output + body, sizeof(output) - body, 0xCC),
               "DAVE reconstructed frame matches independent mixed clear/plaintext fixture");
-        check(dave_frame_reconstruct(view, {cipher, encrypted}, {frame, body}) == DaveFrameError::none &&
-                  bytes_equal(frame, expected, body) &&
-                  bytes_equal(frame + body, original + body, bytes - body),
+        dave_frame_reconstruct(view, cipher, frame);
+        check(bytes_equal(frame, expected, body) && bytes_equal(frame + body, original + body, bytes - body),
               "DAVE reassembly can reuse original body while preserving tag and supplemental data");
-        if (!clear_bytes)
-            check(dave_frame_reconstruct(view, {frame, body}, {frame, body}) == DaveFrameError::none &&
-                      bytes_equal(frame, expected, body),
-                  "DAVE fully encrypted in-place plaintext needs no separate reconstruction copy");
     }
 }
 void invalid(Check check) noexcept {
@@ -113,7 +86,7 @@ void invalid(Check check) noexcept {
                        {"0000040300", false},
                        {"00ffffffffffffffffff0100", false},
                        {"0000ffffffffffffffffff01", false}};
-    u8 frame[512], metadata[256], aad[64], cipher[64], output[64];
+    u8 frame[512], metadata[256];
     DaveClearRange ranges[4];
     for (const auto& c : cases) {
         const auto n = test_unhex(c.metadata, metadata);
@@ -138,30 +111,7 @@ void invalid(Check check) noexcept {
     const u8 ranged[]{0, 0, 1, 4, 1};
     const auto bytes = fixture(frame, 5, {ranged, sizeof(ranged)});
     DaveFrameView view{};
-    check(dave_frame_parse({frame, bytes}, {ranges, 4}, &view).ok(), "DAVE alias fixture parses");
-    memset(output, 0xCC, sizeof(output));
-    check(dave_frame_gather(view, {frame, 2}, {cipher, sizeof(cipher)}) == DaveFrameError::invalid_input &&
-              dave_frame_gather(view, {aad, 2}, {frame, 3}) == DaveFrameError::invalid_input &&
-              dave_frame_gather(view, {output, 2}, {output + 1, 3}) == DaveFrameError::invalid_input &&
-              dave_frame_reconstruct(view, {output, 3}, {output, 5}) == DaveFrameError::invalid_input &&
-              dave_frame_reconstruct(view, {cipher, 3}, {frame + 1, 5}) == DaveFrameError::invalid_input &&
-              filled(output, sizeof(output), 0xCC),
-          "DAVE gather/reassembly reject unsafe partial and header-insertion aliases");
-    ranges[0].offset = 99;
-    check(dave_frame_gather(view, {aad, sizeof(aad)}, {output, sizeof(output)}) ==
-                  DaveFrameError::invalid_input &&
-              dave_frame_reconstruct(view, {cipher, 3}, {output, sizeof(output)}) ==
-                  DaveFrameError::invalid_input &&
-              filled(output, sizeof(output), 0xCC),
-          "DAVE helpers revalidate borrowed range bounds before writing");
-    check(
-        dave_frame_parse({frame, bytes}, {reinterpret_cast<DaveClearRange*>(frame), 1}, &view).error ==
-                DaveFrameError::invalid_input &&
-            dave_frame_parse({frame, bytes}, {reinterpret_cast<DaveClearRange*>(&view), 1}, &view).error ==
-                DaveFrameError::invalid_input &&
-            dave_frame_parse({reinterpret_cast<const u8*>(~usize{0} - 4), 12}, {}, &view).error ==
-                DaveFrameError::invalid_input,
-        "DAVE parser rejects aliased metadata outputs and wrapping input ranges");
+    check(dave_frame_parse({frame, bytes}, {ranges, 4}, &view).ok(), "DAVE footer fixture parses");
     const u8 silence[]{0xF8, 0xFF, 0xFE};
     check(dave_frame_parse({silence, 3}, {}, &view).error == DaveFrameError::not_encrypted &&
               dave_frame_parse({}, {}, &view).error == DaveFrameError::not_encrypted,
@@ -173,11 +123,12 @@ void invalid(Check check) noexcept {
     clear_bytes(metadata, 243);
     const auto maximum_bytes = fixture(frame, 0, {metadata, 243});
     DaveClearRange maximum[kDaveMaximumClearRanges];
-    check(
+    const bool maximal =
         dave_frame_parse({frame, maximum_bytes}, {maximum, kDaveMaximumClearRanges}, &view).ok() &&
-            view.clear_ranges.count == kDaveMaximumClearRanges && !view.body_bytes &&
-            dave_frame_gather(view, {}, {}) == DaveFrameError::none,
-        "DAVE supports the complete wire-format clear-range count without a smaller implementation limit");
+        view.clear_ranges.count == kDaveMaximumClearRanges && !view.body_bytes;
+    dave_frame_gather(view, nullptr, nullptr);
+    check(maximal,
+          "DAVE supports the complete wire-format clear-range count without a smaller implementation limit");
 }
 void guarded(Check check) noexcept {
     Win32SystemInfo info{};
@@ -206,10 +157,9 @@ void guarded(Check check) noexcept {
             const auto bytes = test_unhex(vector.wire, source);
             auto* frame = memory + page * 2 - bytes;
             copy_bytes(frame, source, bytes);
-            check(dave_frame_parse({frame, bytes}, {ranges, 8}, &view).ok() &&
-                      dave_frame_gather(view, {aad, sizeof(aad)}, {cipher, sizeof(cipher)}) ==
-                          DaveFrameError::none,
-                  "DAVE frame ending at a guard page parses and gathers without overread");
+            check(dave_frame_parse({frame, bytes}, {ranges, 8}, &view).ok(),
+                  "DAVE frame ending at a guard page parses without overread");
+            dave_frame_gather(view, aad, cipher);
         }
     }
     if (memory)

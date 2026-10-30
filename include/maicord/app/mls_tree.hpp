@@ -120,9 +120,7 @@ MlsStatus mls_tree_resolution(const MlsTreeIndex& index, u32 subtree_root, Slice
                               u32* count) noexcept;
 MlsStatus mls_tree_filtered_direct_path(const MlsRatchetTree& tree, u32 leaf_index, Slice<u32> nodes,
                                         u32* count) noexcept;
-// RFC 9420 tree hashes, computed in one flat pass with a fixed depth stack.
-MlsStatus mls_tree_subtree_hash(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, u32 subtree_root,
-                                u8* hash) noexcept;
+// RFC 9420 tree hashes, computed in one flat walk with a fixed depth stack.
 MlsStatus mls_tree_root_hash(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, u8* hash) noexcept;
 MlsStatus mls_leaf_tree_hash(KdfSha256Workspace& kdf, u32 leaf_index, ConstSlice<u8> leaf,
                              u8* hash) noexcept;
@@ -131,14 +129,16 @@ MlsStatus mls_parent_tree_hash(KdfSha256Workspace& kdf, ConstSlice<u8> parent, c
 MlsStatus mls_parent_hash(KdfSha256Workspace& kdf, const u8* public_key, const u8* parent_hash,
                           u32 parent_hash_bytes, const u8* sibling_hash, u8* hash) noexcept;
 // ParentHash chain for a filtered direct path; keys and hashes are leaf-to-root.
+// One walk hashes every sibling subtree.
 MlsStatus mls_tree_parent_hash_chain(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, u32 leaf_index,
                                      const u8 (*path_keys)[kMlsPointBytes], u32 path_count,
                                      u8 (*hashes)[kMlsHashBytes]) noexcept;
 // RFC 9420 7.9 integrity: unique keys/identities, unmerged-leaf placement and
-// parent-hash coverage. Scratch sizing from mls_tree_validation_bytes.
+// parent-hash coverage. Scratch sizing from mls_tree_validation_bytes. The
+// check hashes every subtree, so tree_hash, when given, receives the root's.
 u32 mls_tree_validation_bytes(u32 leaf_count, u32 node_count) noexcept;
-MlsStatus mls_tree_validate(KdfSha256Workspace& kdf, const MlsRatchetTree& tree,
-                            Slice<u8> scratch) noexcept;
+MlsStatus mls_tree_validate(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, Slice<u8> scratch,
+                            u8* tree_hash) noexcept;
 
 struct MlsHpkeCiphertext {
     const u8* kem_output;
@@ -162,8 +162,9 @@ MlsStatus mls_update_path_node_next(const ConstSlice<u8>& nodes, u32* offset, Ml
 MlsStatus mls_hpke_ciphertext_next(ConstSlice<u8> ciphertexts, u32* offset, MlsHpkeCiphertext* ciphertext,
                                    bool* has_ciphertext) noexcept;
 // Merge an authenticated path into a proposal-adjusted tree; the result is
-// reparsed and validated before return. Scratch: mls_tree_validation_bytes.
+// reparsed and validated, giving its tree hash. Scratch: mls_tree_validation_bytes.
 MlsStatus mls_tree_merge_update_path(KdfSha256Workspace& kdf, const MlsRatchetTree& tree,
                                      u32 committer_leaf, const MlsUpdatePath& path, Slice<u8> scratch,
-                                     Slice<u8> output, u32* written, MlsRatchetTree* merged) noexcept;
+                                     Slice<u8> output, u32* written, MlsRatchetTree* merged,
+                                     u8* tree_hash) noexcept;
 } // namespace maicord

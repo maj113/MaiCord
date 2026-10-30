@@ -143,8 +143,8 @@ void ratchet(Check check, KdfSha256Workspace& workspace) noexcept {
         return;
     for (u32 generation = 0; generation != 257; ++generation) {
         memset(key, 0xa5, sizeof(key));
-        const auto step = dave_ratchet_step(workspace, {secret, generation ? 32u : 16u}, generation,
-                                            {key, sizeof(key)}, {secret, sizeof(secret)});
+        const auto step =
+            dave_ratchet_step(workspace, {secret, generation ? 32u : 16u}, generation, key, secret);
         check(step.ok() && step.bytes == 48 && test_filled(key + 16, 16, 0xa5) &&
                   test_filled(secret + 32, 16, 0xa5),
               "DAVE ratchet atomically replaces its seed and preserves destination tails");
@@ -152,33 +152,36 @@ void ratchet(Check check, KdfSha256Workspace& workspace) noexcept {
         feed_hash(check, hash, secret, 32);
     }
     finish_hash(check, hash, dave_chain_digest);
-    DaveFrameKey frame_key{};
-    check(dave_frame_key_initialize(&frame_key, 256, {key, 16}).ok(),
+    AesGcm64Key frame_key{};
+    check(aes_gcm64_initialize(&frame_key, {key, 16}).ok(),
           "DAVE derived generation key imports into frame cipher");
-    if (frame_key.cipher.handle) {
+    if (frame_key.storage.data) {
         u8 wire[128], output[64], scratch[64];
         const u32 wire_bytes = test_unhex(dave_derived_wire, wire);
         DaveClearRange ranges[4];
         DaveFrameView view{};
         DaveReplay replay{};
-        check(dave_frame_parse({wire, wire_bytes}, {ranges, 4}, &view).ok(),
+        DaveFrameCounter counter{};
+        check(dave_frame_parse({wire, wire_bytes}, {ranges, 4}, &view).ok() &&
+                  dave_frame_counter(256, view.nonce, &counter) && counter.generation == 256 &&
+                  counter.value == (u64{256} << 24) + 42 && dave_replay_can_accept(replay, counter.value),
               "DAVE derived-key frame parses");
-        const auto opened = dave_frame_open(view, frame_key, &replay, {scratch, 64}, {output, 64});
-        bool correct = opened.ok() && opened.bytes == 64 && opened.counter == (u64{256} << 24) + 42;
+        const auto opened = dave_frame_open(view, frame_key, replay, counter.value, scratch, output);
+        bool correct = opened == AeadError::none && view.body_bytes == 64;
         for (u32 i = 0; i != 64 && correct; ++i)
             correct = output[i] == static_cast<u8>(i * 11 + 3);
         check(correct && replay.initialized && test_filled(scratch, 64, 0),
               "DAVE protocol-derived key authenticates independent encrypted frame after generation-byte "
               "wrap");
     }
-    dave_frame_key_release(&frame_key);
+    aes_gcm64_release(&frame_key);
     for (const auto& vector : dave_step_vectors) {
         for (u32 i = 0; i != 32; ++i)
             secret[i] = static_cast<u8>(i);
         u8 next[32], expected_key[16], expected_next[32];
         test_unhex(vector.key, expected_key);
         test_unhex(vector.next, expected_next);
-        check(dave_ratchet_step(workspace, {secret, 32}, vector.generation, {key, 16}, {next, 32}).ok() &&
+        check(dave_ratchet_step(workspace, {secret, 32}, vector.generation, key, next).ok() &&
                   bytes_equal(key, expected_key, 16) && bytes_equal(next, expected_next, 32),
               "DAVE derivation preserves the complete big-endian uint32 generation");
     }
@@ -225,17 +228,6 @@ void boundaries(Check check, KdfSha256Workspace& workspace) noexcept {
           "MLS rejects vector length overflow without reading label/context");
     memset(key, 0xa5, sizeof(key));
     memset(next, 0xa5, sizeof(next));
-    for (u32 size = 0; size != 32; ++size)
-        check(dave_ratchet_step(workspace, {secret, 32}, 0, {key, 32}, {next, size}).error ==
-                      KdfError::output_capacity &&
-                  test_filled(key, sizeof(key), 0xa5) && test_filled(next, sizeof(next), 0xa5),
-              "DAVE ratchet validates both destinations before changing either");
-    check(dave_ratchet_step(workspace, {secret, 32}, 0, {next, 16}, {next + 1, 32}).error ==
-              KdfError::invalid_input,
-          "DAVE ratchet rejects overlapping key/next-secret destinations");
-    check(dave_ratchet_step(workspace, {secret, 15}, 0, {key, 32}, {next, 48}).error ==
-              KdfError::invalid_input,
-          "DAVE ratchet rejects invalid seed sizes");
     // A real provider error: advertise insufficient CNG object storage. The
     // allocation itself stays valid; restore capacity before releasing it.
     const u32 capacity = workspace.storage.capacity;
@@ -244,7 +236,7 @@ void boundaries(Check check, KdfSha256Workspace& workspace) noexcept {
     check(failure.error == KdfError::platform_failure && !failure.bytes && failure.native_status < 0 &&
               test_filled(output, 32, 0) && test_filled(output + 32, 48, 0xa5),
           "HMAC native failure wipes only attempted output and reports native status");
-    const auto step = dave_ratchet_step(workspace, {secret, 32}, 0, {key, 32}, {next, 48});
+    const auto step = dave_ratchet_step(workspace, {secret, 32}, 0, key, next);
     workspace.storage.capacity = capacity;
     check(step.error == KdfError::platform_failure && !step.bytes && test_filled(key, 32, 0xa5) &&
               test_filled(next, 48, 0xa5) && test_filled(secret, 32, 0),

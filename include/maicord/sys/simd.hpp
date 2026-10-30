@@ -5,7 +5,11 @@
 // it is C as well as C++). Defined as clang's headers define them, so the
 // generated code is the same: vector extensions and the compiler's builtins,
 // usable in C++ constant expressions where clang's are. Every unit compiles
-// with /arch:AVX, so they need no target attributes. Add what you use.
+// with /arch:AVX, so they need no target attributes, except AES-NI (not implied
+// by AVX): functions that use the _mm_aes* intrinsics carry MAICORD_TARGET_AES
+// and run only after a CPUID check. Add what you use.
+
+#define MAICORD_TARGET_AES __attribute__((__target__("aes")))
 
 #if defined(MAICORD_SDK_INCLUDES)
 #include <immintrin.h>
@@ -72,6 +76,17 @@ typedef unsigned int __v8su __attribute__((__vector_size__(32)));
 #define _mm_shuffle_ps(a, b, m) ((__m128)__builtin_ia32_shufps((__v4sf)(__m128)(a), (__v4sf)(__m128)(b), (int)(m)))
 #define _mm_slli_si128(a, i) ((__m128i)__builtin_ia32_pslldqi128_byteshift((__v16qi)(__m128i)(a), (int)(i)))
 #define _mm_srli_si128(a, i) ((__m128i)__builtin_ia32_psrldqi128_byteshift((__v16qi)(__m128i)(a), (int)(i)))
+#define _mm_aeskeygenassist_si128(a, i) ((__m128i)__builtin_ia32_aeskeygenassist128((__v2di)(__m128i)(a), (char)(i)))
+
+// AES-NI: callers carry MAICORD_TARGET_AES.
+static __inline__ __attribute__((__always_inline__, __nodebug__, __target__("aes"), __min_vector_width__(128)))
+__m128i _mm_aesenc_si128(__m128i __V, __m128i __R) {
+    return (__m128i)__builtin_ia32_aesenc128((__v2di)__V, (__v2di)__R);
+}
+static __inline__ __attribute__((__always_inline__, __nodebug__, __target__("aes"), __min_vector_width__(128)))
+__m128i _mm_aesenclast_si128(__m128i __V, __m128i __R) {
+    return (__m128i)__builtin_ia32_aesenclast128((__v2di)__V, (__v2di)__R);
+}
 
 // Construction.
 MAICORD_SIMD(128) __m128i _mm_setzero_si128(void) { return __extension__(__m128i)(__v2di){0, 0}; }
@@ -162,6 +177,7 @@ MAICORD_SIMD(128) int _mm_cvtss_si32(__m128 __a) { return __builtin_ia32_cvtss2s
 MAICORD_SIMD(128) __m128i _mm_cvtps_epi32(__m128 __a) { return (__m128i)__builtin_ia32_cvtps2dq((__v4sf)__a); }
 MAICORD_SIMD(128) __m128 _mm_cvtepi32_ps(__m128i __a) { return (__m128)__builtin_convertvector((__v4si)__a, __v4sf); }
 MAICORD_SIMD(128) __m128 _mm_castsi128_ps(__m128i __a) { return (__m128)__a; }
+MAICORD_SIMD(128) __m128i _mm_castps_si128(__m128 __a) { return (__m128i)__a; }
 MAICORD_SIMD(128) __m128i _mm_cvtepi8_epi32(__m128i __v) {
     return (__m128i)__builtin_convertvector(__builtin_shufflevector((__v16qs)__v, (__v16qs)__v, 0, 1, 2, 3), __v4si);
 }
@@ -199,7 +215,11 @@ MAICORD_SIMD(128) __m128i _mm_add_epi32(__m128i __a, __m128i __b) { return (__m1
 MAICORD_SIMD(128) __m128i _mm_add_epi64(__m128i __a, __m128i __b) { return (__m128i)((__v2du)__a + (__v2du)__b); }
 MAICORD_SIMD(128) __m128i _mm_sub_epi8(__m128i __a, __m128i __b) { return (__m128i)((__v16qu)__a - (__v16qu)__b); }
 MAICORD_SIMD(128) __m128i _mm_sub_epi16(__m128i __a, __m128i __b) { return (__m128i)((__v8hu)__a - (__v8hu)__b); }
+MAICORD_SIMD(128) __m128i _mm_sub_epi32(__m128i __a, __m128i __b) { return (__m128i)((__v4su)__a - (__v4su)__b); }
 MAICORD_SIMD(128) __m128i _mm_mullo_epi32(__m128i __a, __m128i __b) { return (__m128i)((__v4su)__a * (__v4su)__b); }
+MAICORD_SIMD(128) __m128i _mm_hadd_epi32(__m128i __a, __m128i __b) {
+    return (__m128i)__builtin_ia32_phaddd128((__v4si)__a, (__v4si)__b);
+}
 MAICORD_SIMD(128) __m128i _mm_mul_epi32(__m128i __a, __m128i __b) {
     return (__m128i)__builtin_ia32_pmuldq128((__v4si)__a, (__v4si)__b);
 }
@@ -221,7 +241,14 @@ MAICORD_SIMD(128) __m128i _mm_avg_epu8(__m128i __a, __m128i __b) {
 MAICORD_SIMD(128) __m128i _mm_max_epu8(__m128i __a, __m128i __b) {
     return (__m128i)__builtin_elementwise_max((__v16qu)__a, (__v16qu)__b);
 }
+MAICORD_SIMD(128) __m128i _mm_min_epi32(__m128i __a, __m128i __b) {
+    return (__m128i)__builtin_elementwise_min((__v4si)__a, (__v4si)__b);
+}
+MAICORD_SIMD(128) __m128i _mm_max_epi32(__m128i __a, __m128i __b) {
+    return (__m128i)__builtin_elementwise_max((__v4si)__a, (__v4si)__b);
+}
 MAICORD_SIMD(128) __m128i _mm_abs_epi16(__m128i __a) { return (__m128i)__builtin_elementwise_abs((__v8hi)__a); }
+MAICORD_SIMD(128) __m128i _mm_abs_epi32(__m128i __a) { return (__m128i)__builtin_elementwise_abs((__v4si)__a); }
 MAICORD_SIMD(128) __m128i _mm_and_si128(__m128i __a, __m128i __b) { return (__m128i)((__v2du)__a & (__v2du)__b); }
 MAICORD_SIMD(128) __m128i _mm_or_si128(__m128i __a, __m128i __b) { return (__m128i)((__v2du)__a | (__v2du)__b); }
 MAICORD_SIMD(128) __m128i _mm_xor_si128(__m128i __a, __m128i __b) { return (__m128i)((__v2du)__a ^ (__v2du)__b); }
@@ -255,6 +282,12 @@ MAICORD_SIMD(128) __m128i _mm_srai_epi16(__m128i __a, int __n) {
 MAICORD_SIMD(128) __m128i _mm_srai_epi32(__m128i __a, int __n) {
     return (__m128i)__builtin_ia32_psradi128((__v4si)__a, __n);
 }
+MAICORD_SIMD(128) __m128i _mm_sll_epi32(__m128i __a, __m128i __count) {
+    return (__m128i)__builtin_ia32_pslld128((__v4si)__a, (__v4si)__count);
+}
+MAICORD_SIMD(128) __m128i _mm_sra_epi32(__m128i __a, __m128i __count) {
+    return (__m128i)__builtin_ia32_psrad128((__v4si)__a, (__v4si)__count);
+}
 
 // Packing, shuffles and interleaving.
 MAICORD_SIMD(128) __m128i _mm_packs_epi32(__m128i __a, __m128i __b) {
@@ -278,6 +311,9 @@ MAICORD_SIMD(128) __m128i _mm_unpackhi_epi16(__m128i __a, __m128i __b) {
 }
 MAICORD_SIMD(128) __m128i _mm_unpacklo_epi32(__m128i __a, __m128i __b) {
     return (__m128i)__builtin_shufflevector((__v4si)__a, (__v4si)__b, 0, 4, 1, 5);
+}
+MAICORD_SIMD(128) __m128i _mm_unpackhi_epi32(__m128i __a, __m128i __b) {
+    return (__m128i)__builtin_shufflevector((__v4si)__a, (__v4si)__b, 2, 6, 3, 7);
 }
 MAICORD_SIMD(128) __m128i _mm_unpacklo_epi64(__m128i __a, __m128i __b) {
     return (__m128i)__builtin_shufflevector((__v2di)__a, (__v2di)__b, 0, 2);

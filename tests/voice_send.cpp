@@ -344,6 +344,7 @@ void loopback_case(Check check, bool synthetic_group) noexcept {
     i32 client_bytes = sizeof(client);
     const SOCKET peer = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     const DWORD timeout = 2000;
+    dave_frame_sealer_initialize(&v->sealer, seed);
     bool ok = peer != INVALID_SOCKET && bind(peer, reinterpret_cast<const sockaddr*>(&address), address_bytes) == 0 &&
               getsockname(peer, reinterpret_cast<sockaddr*>(&address), &address_bytes) == 0 &&
               setsockopt(peer, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout)) ==
@@ -352,7 +353,6 @@ void loopback_case(Check check, bool synthetic_group) noexcept {
               voice_packet_initialize(&v->receiver, 9, voice_transport_aes256_gcm_rtpsize, {secret, 32}).ok() &&
               kdf_sha256_initialize(&v->kdf).ok() &&
               dave_session_initialize(&v->passthrough, 1, kUser, 1, 0) == MlsStatus::ok &&
-              dave_frame_sealer_initialize(&v->sealer, {seed, 16}).ok() &&
               dave_receive_sender_initialize(&v->opener, {77, kUser}, 0) == DaveSenderError::none &&
               dave_receive_sender_transition(v->opener, {77, kUser}, 1, {seed, 16}, 0, 1000).ok() &&
               voice_playback_initialize(&v->receive.playback) && voice_send_open(&v->send) &&

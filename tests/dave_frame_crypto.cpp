@@ -16,6 +16,21 @@ bool expected(const DaveCryptoVector& vector, const u8* bytes) noexcept {
             return false;
     return true;
 }
+// What dave_receive_epoch_open does around dave_frame_open: resolve the
+// counter from the nonce, refuse replays before any cryptography, then open.
+struct Opened {
+    bool replayed, attempted;
+    AeadError error;
+    u64 counter;
+};
+Opened open(const DaveFrameView& view, const AesGcm64Key& key, u32 generation, DaveReplay& replay,
+            u8* scratch, u8* output) noexcept {
+    DaveFrameCounter counter{};
+    if (!dave_frame_counter(generation, view.nonce, &counter) || counter.generation != generation ||
+        !dave_replay_can_accept(replay, counter.value))
+        return {true, false, AeadError::none, 0};
+    return {false, true, dave_frame_open(view, key, replay, counter.value, scratch, output), counter.value};
+}
 void fixtures(Check check, Gcm64Backend backend) noexcept {
     u8 frame[2304], original[2304], output[2304], scratch[2304], secret[16];
     DaveClearRange ranges[kDaveMaximumClearRanges];
@@ -23,15 +38,14 @@ void fixtures(Check check, Gcm64Backend backend) noexcept {
         const u32 size = test_unhex(vector.wire, frame);
         copy_bytes(original, frame, size);
         test_unhex(vector.key, secret);
-        DaveFrameKey key{}, wrong{};
-        check(dave_frame_key_initialize(&key, vector.generation, {secret, 16}, backend).ok(),
-              "DAVE receive fixture key initialization");
+        AesGcm64Key key{}, wrong{};
+        check(aes_gcm64_initialize(&key, {secret, 16}, backend).ok(), "DAVE receive fixture key initialization");
         secret[0] ^= 1;
-        check(dave_frame_key_initialize(&wrong, vector.generation, {secret, 16}, backend).ok(),
+        check(aes_gcm64_initialize(&wrong, {secret, 16}, backend).ok(),
               "DAVE alternate epoch fixture key initialization");
-        if (!key.cipher.handle || !wrong.cipher.handle) {
-            dave_frame_key_release(&key);
-            dave_frame_key_release(&wrong);
+        if (!key.storage.data || !wrong.storage.data) {
+            aes_gcm64_release(&key);
+            aes_gcm64_release(&wrong);
             continue;
         }
         DaveFrameView view{};
@@ -43,20 +57,16 @@ void fixtures(Check check, Gcm64Backend backend) noexcept {
         DaveReplay replay{};
         memset(output, 0xa5, sizeof(output));
         memset(scratch, 0xa5, sizeof(scratch));
-        auto result =
-            dave_frame_open(view, wrong, &replay, {scratch, sizeof(scratch)}, {output, sizeof(output)});
-        check(result.error == DaveOpenError::authentication_failed && result.crypto_attempted &&
-                  !result.bytes && !replay.initialized && !replay.count && !replay.largest &&
-                  bytes_equal(frame, original, size) && filled(scratch, needed, 0) &&
-                  filled(scratch + needed, sizeof(scratch) - needed, 0xa5) &&
+        auto result = open(view, wrong, vector.generation, replay, scratch, output);
+        check(result.error == AeadError::authentication_failed && result.attempted && !replay.initialized &&
+                  !replay.count && !replay.largest && bytes_equal(frame, original, size) &&
+                  filled(scratch, needed, 0) && filled(scratch + needed, sizeof(scratch) - needed, 0xa5) &&
                   filled(output, view.body_bytes, needed ? 0xa5 : 0),
               "DAVE wrong epoch cannot consume replay or destroy the encrypted frame");
         memset(output, 0xa5, sizeof(output));
         memset(scratch, 0xa5, sizeof(scratch));
-        result = dave_frame_open(view, key, &replay, {scratch, sizeof(scratch)}, {output, sizeof(output)});
-        check(result.ok() && result.crypto_attempted && result.bytes == vector.body_bytes &&
-                  result.counter == counter && result.scratch_bytes == needed &&
-                  result.crypto.bytes == view.body_bytes - view.clear_bytes && expected(vector, output) &&
+        result = open(view, key, vector.generation, replay, scratch, output);
+        check(result.error == AeadError::none && result.counter == counter && expected(vector, output) &&
                   filled(output + vector.body_bytes, sizeof(output) - vector.body_bytes, 0xa5) &&
                   bytes_equal(frame, original, size) && filled(scratch, needed, 0) &&
                   filled(scratch + needed, sizeof(scratch) - needed, 0xa5) && replay.initialized &&
@@ -67,19 +77,18 @@ void fixtures(Check check, Gcm64Backend backend) noexcept {
         copy_bytes(&saved, &replay, sizeof(replay));
         memset(output, 0xa5, sizeof(output));
         memset(scratch, 0xa5, sizeof(scratch));
-        result = dave_frame_open(view, key, &replay, {scratch, sizeof(scratch)}, {output, sizeof(output)});
-        check(result.error == DaveOpenError::replay_rejected && !result.crypto_attempted && !result.bytes &&
-                  bytes_equal(&saved, &replay, sizeof(replay)) && filled(output, sizeof(output), 0xa5) &&
-                  filled(scratch, sizeof(scratch), 0xa5),
+        result = open(view, key, vector.generation, replay, scratch, output);
+        check(result.replayed && !result.attempted && bytes_equal(&saved, &replay, sizeof(replay)) &&
+                  filled(output, sizeof(output), 0xa5) && filled(scratch, sizeof(scratch), 0xa5),
               "DAVE rejects replay before gathering or changing destinations");
         clear_bytes(&replay, sizeof(replay));
-        result = dave_frame_open(view, wrong, &replay, {scratch, sizeof(scratch)}, {frame, size});
-        check(result.error == DaveOpenError::authentication_failed && bytes_equal(frame, original, size) &&
+        result = open(view, wrong, vector.generation, replay, scratch, frame);
+        check(result.error == AeadError::authentication_failed && bytes_equal(frame, original, size) &&
                   !replay.initialized && filled(scratch, vector.body_bytes, 0),
               "DAVE in-place wrong epoch preserves source for another key attempt");
         memset(scratch, 0xa5, sizeof(scratch));
-        result = dave_frame_open(view, key, &replay, {scratch, sizeof(scratch)}, {frame, size});
-        check(result.ok() && result.counter == counter && expected(vector, frame) &&
+        result = open(view, key, vector.generation, replay, scratch, frame);
+        check(result.error == AeadError::none && result.counter == counter && expected(vector, frame) &&
                   bytes_equal(frame + vector.body_bytes, original + vector.body_bytes,
                               size - vector.body_bytes) &&
                   filled(scratch, vector.body_bytes, 0) &&
@@ -89,50 +98,32 @@ void fixtures(Check check, Gcm64Backend backend) noexcept {
         clear_bytes(&replay, sizeof(replay));
         memset(output, 0xa5, sizeof(output));
         memset(scratch, 0xa5, sizeof(scratch));
-        for (u32 capacity = 0; capacity < vector.body_bytes; ++capacity) {
-            result = dave_frame_open(view, key, &replay, {scratch, sizeof(scratch)}, {output, capacity});
-            check(result.error == DaveOpenError::output_capacity && !result.crypto_attempted &&
-                      !result.bytes && !replay.initialized && filled(output, sizeof(output), 0xa5) &&
-                      filled(scratch, sizeof(scratch), 0xa5),
-                  "DAVE preflights every insufficient output capacity before authentication");
-            result = dave_frame_open(view, key, &replay, {scratch, capacity}, {frame, size});
-            check(result.error == DaveOpenError::scratch_capacity && !result.crypto_attempted &&
-                      result.scratch_bytes == vector.body_bytes && !replay.initialized &&
-                      bytes_equal(frame, original, size) && filled(scratch, sizeof(scratch), 0xa5),
-                  "DAVE reports every insufficient in-place scratch capacity without consuming the frame");
-        }
         // Every body byte includes either clear AAD or encrypted data; changing
         // either, or any tag byte, must fail without committing this nonce.
         for (u32 at = 0; at != vector.body_bytes + 8; ++at) {
             frame[at] ^= 1;
-            result =
-                dave_frame_open(view, key, &replay, {scratch, sizeof(scratch)}, {output, sizeof(output)});
-            check(result.error == DaveOpenError::authentication_failed && result.crypto_attempted &&
-                      !result.bytes && !replay.initialized && !replay.count && !replay.largest,
+            result = open(view, key, vector.generation, replay, scratch, output);
+            check(result.error == AeadError::authentication_failed && result.attempted &&
+                      !replay.initialized && !replay.count && !replay.largest,
                   "DAVE authenticates every clear/cipher/tag byte before replay commit");
             frame[at] ^= 1;
         }
         check(bytes_equal(frame, original, size),
               "DAVE failed authentication attempts preserve source bytes");
-        dave_frame_key_release(&key);
-        dave_frame_key_release(&wrong);
-        check(!key.cipher.handle && !key.cipher.storage.data && !key.generation,
-              "DAVE frame key release clears owner");
-        dave_frame_key_release(&key);
+        aes_gcm64_release(&key);
+        aes_gcm64_release(&wrong);
+        check(!key.handle && !key.storage.data, "DAVE frame key release clears owner");
+        aes_gcm64_release(&key);
     }
 }
 void ordering(Check check) noexcept {
     const auto& first = dave_crypto_vectors[12];
     u8 secret[16], frame[128], output[128];
     test_unhex(first.key, secret);
-    DaveFrameKey key{};
-    check(dave_frame_key_initialize(&key, 0, {secret, 16}).ok(), "DAVE ordering key initialization");
-    if (!key.cipher.handle)
+    AesGcm64Key key{};
+    check(aes_gcm64_initialize(&key, {secret, 16}).ok(), "DAVE ordering key initialization");
+    if (!key.storage.data)
         return;
-    const auto* storage = key.cipher.storage.data;
-    check(dave_frame_key_initialize(&key, 17, {secret, 16}).error == AeadError::invalid_input &&
-              key.generation == 0 && key.cipher.storage.data == storage,
-          "DAVE cannot relabel or replace a live generation key");
     DaveReplay replay{};
     DaveClearRange ranges[1];
     DaveFrameView view{};
@@ -143,84 +134,19 @@ void ordering(Check check) noexcept {
         check(dave_frame_parse({frame, size}, {ranges, 1}, &view).ok(), "DAVE ordering frame parse");
         if (i == 1)
             frame[0] ^= 1;
-        const auto opened = dave_frame_open(view, key, &replay, {}, {output, sizeof(output)});
+        const auto opened = open(view, key, 0, replay, nullptr, output);
         if (i == 1)
-            check(opened.error == DaveOpenError::authentication_failed && replay.largest == 5 &&
-                      !replay.count,
+            check(opened.error == AeadError::authentication_failed && replay.largest == 5 && !replay.count,
                   "DAVE forged future counter cannot advance the epoch or create missing entries");
         else if (i == 4)
-            check(opened.error == DaveOpenError::replay_rejected && replay.largest == 7 && !replay.count,
+            check(opened.replayed && replay.largest == 7 && !replay.count,
                   "DAVE reordered frame cannot be consumed twice");
         else
-            check(opened.ok() && expected(vector, output) && replay.largest == (i ? 7u : 5u) &&
-                      replay.count == (i == 2 ? 1u : 0u),
+            check(opened.error == AeadError::none && expected(vector, output) &&
+                      replay.largest == (i ? 7u : 5u) && replay.count == (i == 2 ? 1u : 0u),
                   "DAVE accepts an authentic future frame and its missing predecessor once");
     }
-    dave_frame_key_release(&key);
-}
-void aliases(Check check) noexcept {
-    const auto& vector = dave_crypto_vectors[2];
-    u8 secret[16], frame[128], original[128], scratch[128], output[128];
-    const u32 size = test_unhex(vector.wire, frame);
-    copy_bytes(original, frame, size);
-    test_unhex(vector.key, secret);
-    DaveFrameKey key{};
-    check(dave_frame_key_initialize(&key, 0, {secret, 16}).ok(), "DAVE alias key initialization");
-    if (!key.cipher.handle)
-        return;
-    DaveReplay replay{};
-    DaveClearRange ranges[8];
-    DaveFrameView view{};
-    check(dave_frame_parse({frame, size}, {ranges, 8}, &view).ok(), "DAVE alias frame parse");
-    const Slice<u8> invalid_outputs[]{{frame + 1, sizeof(frame) - 1},
-                                      {reinterpret_cast<u8*>(&replay), sizeof(replay)},
-                                      {reinterpret_cast<u8*>(&key), sizeof(key)},
-                                      {key.cipher.storage.data, key.cipher.storage.capacity},
-                                      {reinterpret_cast<u8*>(&view), sizeof(view)},
-                                      {reinterpret_cast<u8*>(ranges), sizeof(ranges)}};
-    for (auto destination : invalid_outputs) {
-        const auto opened = dave_frame_open(view, key, &replay, {scratch, sizeof(scratch)}, destination);
-        check(opened.error == DaveOpenError::invalid_input && !replay.initialized &&
-                  bytes_equal(frame, original, size),
-              "DAVE rejects frame, replay, key and descriptor output aliases before mutation");
-    }
-    const Slice<u8> invalid_scratch[]{{frame, size},
-                                      {output, sizeof(output)},
-                                      {reinterpret_cast<u8*>(&replay), sizeof(replay)},
-                                      {key.cipher.storage.data, key.cipher.storage.capacity}};
-    for (auto temporary : invalid_scratch)
-        check(dave_frame_open(view, key, &replay, temporary, {output, sizeof(output)}).error ==
-                      DaveOpenError::invalid_input &&
-                  !replay.initialized && bytes_equal(frame, original, size),
-              "DAVE rejects used scratch aliases");
-    const auto generation = key.generation;
-    key.generation = 1;
-    check(dave_frame_open(view, key, &replay, {scratch, sizeof(scratch)}, {output, sizeof(output)}).error ==
-                  DaveOpenError::generation_mismatch &&
-              !replay.initialized,
-          "DAVE cannot authenticate with a mismatched generation label");
-    key.generation = generation;
-    const auto saved_range = ranges[0];
-    ranges[0].bytes = 100;
-    memset(scratch, 0xa5, sizeof(scratch));
-    memset(output, 0xa5, sizeof(output));
-    check(dave_frame_open(view, key, &replay, {scratch, sizeof(scratch)}, {output, sizeof(output)}).error ==
-                  DaveOpenError::invalid_frame &&
-              filled(scratch, sizeof(scratch), 0xa5) && filled(output, sizeof(output), 0xa5) &&
-              !replay.initialized,
-          "DAVE rejects inconsistent borrowed ranges before gathering or cryptography");
-    ranges[0] = saved_range;
-    check(dave_frame_open(view, key, nullptr, {}, {output, sizeof(output)}).error ==
-              DaveOpenError::invalid_input,
-          "DAVE requires explicit sender-epoch replay ownership");
-    check(dave_frame_open(view, key, &replay, {scratch, sizeof(scratch)},
-                          {reinterpret_cast<u8*>(~usize{0} - 2), 128})
-                  .error == DaveOpenError::invalid_input,
-          "DAVE rejects wrapping output spans");
-    dave_frame_key_release(&key);
-    check(dave_frame_open(view, key, &replay, {scratch, sizeof(scratch)}, {output, sizeof(output)}).error ==
-              DaveOpenError::not_initialized,
-          "DAVE rejects a retired generation key");
+    aes_gcm64_release(&key);
 }
 void guards(Check check) noexcept {
     Win32SystemInfo info{};
@@ -241,13 +167,12 @@ void guards(Check check) noexcept {
             const auto& vector = dave_crypto_vectors[index];
             const u32 size = test_unhex(vector.wire, original);
             test_unhex(vector.key, secret);
-            DaveFrameKey key{}, wrong{};
-            check(dave_frame_key_initialize(&key, vector.generation, {secret, 16}).ok(),
-                  "DAVE guarded-source key initialization");
+            AesGcm64Key key{}, wrong{};
+            check(aes_gcm64_initialize(&key, {secret, 16}).ok(), "DAVE guarded-source key initialization");
             secret[0] ^= 1;
-            check(dave_frame_key_initialize(&wrong, vector.generation, {secret, 16}).ok(),
+            check(aes_gcm64_initialize(&wrong, {secret, 16}).ok(),
                   "DAVE guarded-source wrong key initialization");
-            if (key.cipher.handle && wrong.cipher.handle) {
+            if (key.storage.data && wrong.storage.data) {
                 auto* frame = pages + info.dwPageSize - size;
                 copy_bytes(frame, original, size);
                 const bool readonly = VirtualProtect(pages, info.dwPageSize, PAGE_READONLY, &previous) != 0;
@@ -257,14 +182,12 @@ void guards(Check check) noexcept {
                     DaveReplay replay{};
                     check(dave_frame_parse({frame, size}, {ranges, 8}, &view).ok(),
                           "DAVE parses a readonly frame ending at an inaccessible page");
-                    const auto rejected = dave_frame_open(view, wrong, &replay, {scratch, sizeof(scratch)},
-                                                          {output, vector.body_bytes});
-                    check(rejected.error == DaveOpenError::authentication_failed && !replay.initialized &&
+                    const auto rejected = open(view, wrong, vector.generation, replay, scratch, output);
+                    check(rejected.error == AeadError::authentication_failed && !replay.initialized &&
                               bytes_equal(frame, original, size),
                           "DAVE wrong epoch never writes immutable ciphertext");
-                    check(dave_frame_open(view, key, &replay, {scratch, sizeof(scratch)},
-                                          {output, vector.body_bytes})
-                                  .ok() &&
+                    check(open(view, key, vector.generation, replay, scratch, output).error ==
+                                  AeadError::none &&
                               expected(vector, output) && bytes_equal(frame, original, size),
                           "DAVE opens immutable guarded ciphertext");
                 }
@@ -279,16 +202,14 @@ void guards(Check check) noexcept {
                     DaveReplay replay{};
                     check(dave_frame_parse({original, size}, {ranges, 8}, &view).ok(),
                           "DAVE exact scratch fixture parse");
-                    check(
-                        dave_frame_open(view, key, &replay, {temporary, vector.body_bytes},
-                                        {original, size})
-                                .ok() &&
-                            expected(vector, original) && filled(temporary, vector.body_bytes, 0),
-                        "DAVE reconstruction and plaintext erasure respect exact guarded scratch capacity");
+                    check(open(view, key, vector.generation, replay, temporary, original).error ==
+                                  AeadError::none &&
+                              expected(vector, original) && filled(temporary, vector.body_bytes, 0),
+                          "DAVE reconstruction and plaintext erasure respect exact guarded scratch capacity");
                 }
             }
-            dave_frame_key_release(&key);
-            dave_frame_key_release(&wrong);
+            aes_gcm64_release(&key);
+            aes_gcm64_release(&wrong);
         }
     }
     VirtualFree(pages, 0, MEM_RELEASE);
@@ -298,7 +219,6 @@ void test_dave_frame_crypto(Check check) noexcept {
     fixtures(check, Gcm64Backend::automatic);
     fixtures(check, Gcm64Backend::portable);
     ordering(check);
-    aliases(check);
     guards(check);
 }
 } // namespace maicord

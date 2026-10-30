@@ -134,10 +134,35 @@ const MlsKeyPackage* add_at(ConstSlice<MlsProposal> proposals, ConstSlice<u32> j
     }
     return nullptr;
 }
-u32 parent_size(const MlsParentNode& parent, u32 added) noexcept {
-    const u32 unmerged = parent.unmerged.count + added * 4;
-    return 2 + 2 + kMlsPointBytes + 1 + parent.parent_hash_bytes + mls_varint_size(unmerged) + unmerged;
-}
+// Writes nodes in order. A blank waits for the next non-blank node, so the
+// trailing blanks RFC 9420 truncates are never written; finish() prefixes the
+// vector length. One pass instead of measuring first.
+struct NodeWriter {
+    MlsWriter writer;
+    u32 blanks;
+    explicit NodeWriter(Slice<u8> output) noexcept
+        : writer({output.data, minimum(output.count, kMlsMaxRatchetTreeBytes)}), blanks(0) {
+    }
+    void blank() noexcept {
+        ++blanks;
+    }
+    MlsWriter& node() noexcept {
+        for (; blanks; --blanks)
+            writer.integer(0, 1);
+        return writer;
+    }
+    MlsStatus finish(u32* written) noexcept {
+        const u32 body = writer.used, prefix = mls_varint_size(body);
+        if (!writer.ok())
+            return writer.status;
+        if (prefix > writer.capacity - body)
+            return MlsStatus::buffer_too_small;
+        copy_bytes(writer.data + prefix, writer.data, body);
+        mls_vector_length(body, writer.data);
+        *written = body + prefix;
+        return MlsStatus::ok;
+    }
+};
 // A parent gains each new joiner below it as an unmerged leaf, kept sorted.
 void write_parent(MlsWriter& writer, const MlsParentNode& parent, ConstSlice<u32> joiners,
                   u32 node) noexcept {
@@ -269,55 +294,10 @@ MlsStatus mls_tree_apply_proposals(const MlsRatchetTree& tree, ConstSlice<MlsPro
             if (path[p] < final_nodes)
                 blanked[path[p]] = 1;
     }
-    // Measure, then emit the same nodes; trailing blank nodes are truncated.
-    u32 running = 0, encoded = 0, last_present = 0;
-    bool any_node = false;
+    // occupancy 1 marks a present leaf of `tree` and 2 one placed by an Add.
+    NodeWriter nodes{output};
     iterator = mls_tree_iterate(tree);
-    for (u32 index = 0; index != final_nodes; ++index) {
-        if (const auto status = mls_tree_logical_next(tree, iterator, index, &node);
-            status != MlsStatus::ok)
-            return status;
-        u32 bytes = 1;
-        bool present = false;
-        if (mls_tree_is_leaf(index)) {
-            const u8 state = occupancy[index >> 1];
-            if (state == 2) {
-                const auto* added = add_at(proposals, placed, index >> 1);
-                if (!added)
-                    return MlsStatus::malformed;
-                bytes = 2 + added->leaf_node.count;
-                present = true;
-            } else if (state == 1) {
-                if (!node.present)
-                    return MlsStatus::malformed;
-                bytes = node.serialized.count;
-                present = true;
-            }
-        } else if (!blanked[index] && node.present) {
-            const u32 below = additions_below(placed, index);
-            bytes = below ? parent_size(node.parent, below) : node.serialized.count;
-            present = true;
-        }
-        if (bytes > kMlsMaxRatchetTreeBytes - running)
-            return MlsStatus::buffer_too_small;
-        running += bytes;
-        if (present) {
-            encoded = running;
-            last_present = index;
-            any_node = true;
-        }
-    }
-    if (!any_node || mls_varint_size(encoded) > kMlsMaxRatchetTreeBytes - encoded)
-        return any_node ? MlsStatus::buffer_too_small : MlsStatus::malformed;
-    const u32 required = encoded + mls_varint_size(encoded);
-    *joiner_count = additions;
-    *written = required;
-    if (!output.data || output.count < required)
-        return MlsStatus::buffer_too_small;
-    MlsWriter writer{output};
-    writer.varint(encoded);
-    iterator = mls_tree_iterate(tree);
-    for (u32 index = 0; writer.ok() && index <= last_present; ++index) {
+    for (u32 index = 0; nodes.writer.ok() && index != final_nodes; ++index) {
         if (const auto status = mls_tree_logical_next(tree, iterator, index, &node);
             status != MlsStatus::ok)
             return status;
@@ -325,27 +305,23 @@ MlsStatus mls_tree_apply_proposals(const MlsRatchetTree& tree, ConstSlice<MlsPro
             const u8 state = occupancy[index >> 1];
             if (state == 2) {
                 const auto* added = add_at(proposals, placed, index >> 1);
+                auto& writer = nodes.node();
                 writer.integer(1, 1);
                 writer.integer(kMlsNodeLeaf, 1);
                 writer.bytes(added->leaf_node.data, added->leaf_node.count);
             } else if (state == 1)
-                writer.bytes(node.serialized.data, node.serialized.count);
+                nodes.node().bytes(node.serialized.data, node.serialized.count);
             else
-                writer.integer(0, 1);
+                nodes.blank();
         } else if (blanked[index] || !node.present)
-            writer.integer(0, 1);
+            nodes.blank();
         else if (!additions_below(placed, index))
-            writer.bytes(node.serialized.data, node.serialized.count);
+            nodes.node().bytes(node.serialized.data, node.serialized.count);
         else
-            write_parent(writer, node.parent, placed, index);
+            write_parent(nodes.node(), node.parent, placed, index);
     }
-    if (writer.ok() && writer.used != required)
-        writer.status = MlsStatus::malformed;
-    if (!writer.ok()) {
-        *written = 0;
-        return writer.status;
-    }
-    return MlsStatus::ok;
+    *joiner_count = additions;
+    return nodes.finish(written);
 }
 
 namespace {
@@ -358,7 +334,8 @@ i32 slot_of(const u32* values, u32 count, u32 target) noexcept {
 } // namespace
 MlsStatus mls_tree_merge_update_path(KdfSha256Workspace& kdf, const MlsRatchetTree& tree,
                                      u32 committer_leaf, const MlsUpdatePath& path, Slice<u8> scratch,
-                                     Slice<u8> output, u32* written, MlsRatchetTree* merged) noexcept {
+                                     Slice<u8> output, u32* written, MlsRatchetTree* merged,
+                                     u8* tree_hash) noexcept {
     if (!written || !merged)
         return MlsStatus::invalid_argument;
     *written = 0;
@@ -399,58 +376,23 @@ MlsStatus mls_tree_merge_update_path(KdfSha256Workspace& kdf, const MlsRatchetTr
     }
     if (status != MlsStatus::ok)
         return status;
-    const auto merged_size = [&](u32 slot) noexcept {
-        return 2 + 2 + kMlsPointBytes + 1 + (slot + 1 < filtered_count ? kMlsHashBytes : 0) + 1;
-    };
-    u32 running = 0, encoded = 0, last_present = 0;
-    bool any_node = false;
     MlsTreeNode node{};
+    NodeWriter nodes{output};
     auto iterator = mls_tree_iterate(tree);
-    for (u32 index = 0; index != tree.node_count; ++index) {
+    for (u32 index = 0; nodes.writer.ok() && index != tree.node_count; ++index) {
         if (status = mls_tree_logical_next(tree, iterator, index, &node); status != MlsStatus::ok)
             return status;
         const i32 slot = slot_of(filtered, filtered_count, index);
-        u32 bytes = 1;
-        bool present = false;
         if (index == committer_leaf * 2) {
             if (!node.present)
                 return MlsStatus::malformed;
-            bytes = 2 + path.leaf_node.count;
-            present = true;
-        } else if (slot >= 0) {
-            bytes = merged_size(static_cast<u32>(slot));
-            present = true;
-        } else if (slot_of(direct, direct_count, index) < 0 && node.present) {
-            bytes = node.serialized.count;
-            present = true;
-        }
-        if (bytes > kMlsMaxRatchetTreeBytes - running)
-            return MlsStatus::buffer_too_small;
-        running += bytes;
-        if (present) {
-            encoded = running;
-            last_present = index;
-            any_node = true;
-        }
-    }
-    if (!any_node || mls_varint_size(encoded) > kMlsMaxRatchetTreeBytes - encoded)
-        return MlsStatus::buffer_too_small;
-    const u32 required = encoded + mls_varint_size(encoded);
-    if (!output.data || output.count < required)
-        return MlsStatus::buffer_too_small;
-    MlsWriter writer{output};
-    writer.varint(encoded);
-    iterator = mls_tree_iterate(tree);
-    for (u32 index = 0; writer.ok() && index <= last_present; ++index) {
-        if (status = mls_tree_logical_next(tree, iterator, index, &node); status != MlsStatus::ok)
-            return status;
-        const i32 slot = slot_of(filtered, filtered_count, index);
-        if (index == committer_leaf * 2) {
+            auto& writer = nodes.node();
             writer.integer(1, 1);
             writer.integer(kMlsNodeLeaf, 1);
             writer.bytes(path.leaf_node.data, path.leaf_node.count);
         } else if (slot >= 0) {
             const u32 next = static_cast<u32>(slot) + 1;
+            auto& writer = nodes.node();
             writer.integer(1, 1);
             writer.integer(kMlsNodeParent, 1);
             writer.vector(keys[slot], kMlsPointBytes);
@@ -458,18 +400,17 @@ MlsStatus mls_tree_merge_update_path(KdfSha256Workspace& kdf, const MlsRatchetTr
                           next < filtered_count ? kMlsHashBytes : 0);
             writer.varint(0);
         } else if (slot_of(direct, direct_count, index) >= 0 || !node.present)
-            writer.integer(0, 1);
+            nodes.blank();
         else
-            writer.bytes(node.serialized.data, node.serialized.count);
+            nodes.node().bytes(node.serialized.data, node.serialized.count);
     }
-    if (writer.ok() && writer.used != required)
-        writer.status = MlsStatus::malformed;
+    u32 required = 0;
+    status = nodes.finish(&required);
     // The path leaf was verified at Commit parse or produced locally.
-    status = writer.status;
     if (status == MlsStatus::ok)
         status = mls_ratchet_tree_parse(kdf, {output.data, required}, tree.group_id, false, merged);
     if (status == MlsStatus::ok)
-        status = mls_tree_validate(kdf, *merged, scratch);
+        status = mls_tree_validate(kdf, *merged, scratch, tree_hash);
     if (status != MlsStatus::ok) {
         reset_value(merged);
         return status;

@@ -214,6 +214,46 @@ bool voice_connection_dave_description(VoiceConnection* connection) noexcept {
     // Version 0 (stages only): transport-only media.
     return !version || prepare_group_key_package(*connection);
 }
+namespace {
+// Proposals and Welcomes name the members they may add. The member list is 8 KiB,
+// so it lives only in these frames, not in every DAVE binary message's.
+__declspec(noinline) bool proposals_message(VoiceConnection& connection, ConstSlice<u8> data) noexcept {
+    auto& session = connection.dave_session;
+    u64 users[kDaveMaxMembers];
+    const ConstSlice<u64> recognized{users, recognized_users(connection, users)};
+    ConstSlice<u8> output{};
+    u32 commit_bytes = 0;
+    // An invalid or out-of-order proposal batch is dropped (as libdave
+    // does); the gateway resolves the epoch with another commit or batch.
+    const auto status = dave_session_proposals(&session, data, recognized, &output, &commit_bytes);
+    if (status != MlsStatus::ok) {
+        voice_log(kWarning, "dave_proposals_rejected", "status", status_value(status), "recognized",
+                  recognized.count, "group_state", static_cast<u64>(session.group_state));
+        return true;
+    }
+    if (!output.count) {
+        voice_log(kInfo, "dave_proposals_no_commit", "recognized", recognized.count);
+        return true;
+    }
+    voice_log(kInfo, "dave_commit_welcome_sent", "commit_bytes", commit_bytes, "welcome_bytes",
+              output.count - commit_bytes, "recognized", recognized.count);
+    return enqueue(connection, true, static_cast<u8>(VoiceDaveOpcode::mls_commit_welcome), output);
+}
+__declspec(noinline) bool welcome_message(VoiceConnection& connection, u16 transition_id,
+                                          ConstSlice<u8> message, u64 now_ms) noexcept {
+    auto& session = connection.dave_session;
+    u64 users[kDaveMaxMembers];
+    const ConstSlice<u64> recognized{users, recognized_users(connection, users)};
+    const auto status = dave_session_welcome(&session, transition_id, message, recognized);
+    if (status == MlsStatus::ok) {
+        voice_log(kInfo, "dave_welcome_joined", "transition", transition_id, "epoch", active_epoch(session));
+        return acknowledge(connection, transition_id, now_ms);
+    }
+    voice_log(kWarning, "dave_welcome_failed", "transition", transition_id, "status", status_value(status),
+              "recognized", recognized.count);
+    return flag_invalid(connection, transition_id);
+}
+} // namespace
 bool voice_connection_dave_binary(VoiceConnection* connection, const VoiceGatewayBinary& frame,
                                   u64 now_ms) noexcept {
     auto& session = connection->dave_session;
@@ -238,27 +278,8 @@ bool voice_connection_dave_binary(VoiceConnection* connection, const VoiceGatewa
         voice_log(kInfo, "dave_binary_ignored", "opcode", frame.opcode, "version", session.protocol_version);
         return true;
     }
-    u64 users[kDaveMaxMembers];
-    const ConstSlice<u64> recognized{users, recognized_users(*connection, users)};
-    if (opcode == VoiceDaveOpcode::mls_proposals) {
-        ConstSlice<u8> output{};
-        u32 commit_bytes = 0;
-        // An invalid or out-of-order proposal batch is dropped (as libdave
-        // does); the gateway resolves the epoch with another commit or batch.
-        const auto status = dave_session_proposals(&session, frame.data, recognized, &output, &commit_bytes);
-        if (status != MlsStatus::ok) {
-            voice_log(kWarning, "dave_proposals_rejected", "status", status_value(status), "recognized",
-                      recognized.count, "group_state", static_cast<u64>(session.group_state));
-            return true;
-        }
-        if (!output.count) {
-            voice_log(kInfo, "dave_proposals_no_commit", "recognized", recognized.count);
-            return true;
-        }
-        voice_log(kInfo, "dave_commit_welcome_sent", "commit_bytes", commit_bytes, "welcome_bytes",
-                  output.count - commit_bytes, "recognized", recognized.count);
-        return enqueue(*connection, true, static_cast<u8>(VoiceDaveOpcode::mls_commit_welcome), output);
-    }
+    if (opcode == VoiceDaveOpcode::mls_proposals)
+        return proposals_message(*connection, frame.data);
     if (frame.data.count <= 2) {
         voice_log(kWarning, "dave_binary_truncated", "opcode", frame.opcode);
         return true;
@@ -281,16 +302,8 @@ bool voice_connection_dave_binary(VoiceConnection* connection, const VoiceGatewa
         voice_log(kWarning, "dave_commit_failed", "transition", transition_id, "status", status_value(status));
         return flag_invalid(*connection, transition_id);
     }
-    if (opcode == VoiceDaveOpcode::mls_welcome) {
-        const auto status = dave_session_welcome(&session, transition_id, message, recognized);
-        if (status == MlsStatus::ok) {
-            voice_log(kInfo, "dave_welcome_joined", "transition", transition_id, "epoch", active_epoch(session));
-            return acknowledge(*connection, transition_id, now_ms);
-        }
-        voice_log(kWarning, "dave_welcome_failed", "transition", transition_id, "status", status_value(status),
-                  "recognized", recognized.count);
-        return flag_invalid(*connection, transition_id);
-    }
+    if (opcode == VoiceDaveOpcode::mls_welcome)
+        return welcome_message(*connection, transition_id, message, now_ms);
     voice_log(kWarning, "dave_binary_unexpected", "opcode", frame.opcode);
     return true;
 }

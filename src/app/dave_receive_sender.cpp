@@ -10,7 +10,7 @@
 namespace maicord {
 struct DaveReceiveNode {
     DaveReceiveNode* older;
-    u64 revision;
+    u64 revision, expiry_ms;
     DaveReceiveEpoch epoch;
 };
 namespace {
@@ -26,13 +26,16 @@ DaveSenderError validate(const DaveReceiveSender& sender, DaveReceiveIdentity id
         return DaveSenderError::identity_mismatch;
     return now < sender.last_now_ms ? DaveSenderError::invalid_time : DaveSenderError::none;
 }
-bool external(const DaveReceiveSender& sender, ConstSlice<u8> span) noexcept {
-    if (!byte_range_valid(span) || byte_ranges_overlap(span, object_bytes(sender)))
-        return false;
+bool touches(const DaveReceiveSender& sender, ConstSlice<u8> span) noexcept {
+    if (byte_ranges_overlap(span, object_bytes(sender)))
+        return true;
     for (const auto* node = sender.newest; node; node = node->older)
         if (byte_ranges_overlap(span, object_bytes(*node)) || dave_receive_epoch_aliases(node->epoch, span))
-            return false;
-    return true;
+            return true;
+    return false;
+}
+bool external(const DaveReceiveSender& sender, ConstSlice<u8> span) noexcept {
+    return byte_range_valid(span) && !touches(sender, span);
 }
 void destroy(DaveReceiveNode* node) noexcept {
     dave_receive_epoch_release(&node->epoch);
@@ -47,12 +50,12 @@ void collect(DaveReceiveSender& sender, u64 now) noexcept {
     auto** link = &sender.newest;
     while (*link) {
         auto* node = *link;
-        if (now > node->epoch.expiry_ms) {
+        if (now > node->expiry_ms) {
             *link = node->older;
             destroy(node);
             --sender.count;
         } else {
-            sender.next_expiry_ms = minimum(sender.next_expiry_ms, node->epoch.expiry_ms);
+            sender.next_expiry_ms = minimum(sender.next_expiry_ms, node->expiry_ms);
             link = &node->older;
         }
     }
@@ -61,7 +64,7 @@ void refresh(DaveReceiveSender& sender, u64 expires) noexcept {
     // Authorized transitions renew grace for live previous epochs. This is
     // distinct from the non-extending old-generation deadlines within an epoch.
     for (auto* node = sender.newest; node; node = node->older)
-        node->epoch.expiry_ms = expires;
+        node->expiry_ms = expires;
     sender.next_expiry_ms = sender.newest ? expires : never;
 }
 DaveSenderOpenResult fail(DaveSenderError error) noexcept {
@@ -114,6 +117,7 @@ DaveSenderTransitionResult dave_receive_sender_transition(DaveReceiveSender& sen
     refresh(sender, deadline(now, grace));
     node->older = sender.newest;
     node->revision = revision;
+    node->expiry_ms = never;
     sender.newest = node;
     ++sender.count;
     sender.latest_revision = revision;
@@ -165,16 +169,6 @@ DaveSenderOpenResult dave_receive_sender_open(DaveReceiveSender& sender, DaveRec
         return fail(valid);
     if (!workspace.storage.data || !workspace.storage.locked)
         return fail(DaveSenderError::not_initialized);
-    const ConstSlice<u8> spans[]{frame, {scratch.data, scratch.count}, {output.data, output.count}};
-    for (auto span : spans)
-        if (!external(sender, span) || aliases_workspace(workspace, span))
-            return fail(DaveSenderError::invalid_input);
-    if (!external(sender, object_bytes(workspace)) ||
-        !external(sender, {workspace.storage.data, workspace.storage.capacity}) ||
-        byte_ranges_overlap({scratch.data, scratch.count}, frame) ||
-        byte_ranges_overlap({scratch.data, scratch.count}, {output.data, output.count}) ||
-        (byte_ranges_overlap(frame, {output.data, output.count}) && frame.data != output.data))
-        return fail(DaveSenderError::invalid_input);
     DaveClearRange ranges[kDaveMaximumClearRanges];
     DaveFrameView view{};
     const auto parsed = dave_frame_parse(frame, {ranges, kDaveMaximumClearRanges}, &view);
@@ -188,15 +182,25 @@ DaveSenderOpenResult dave_receive_sender_open(DaveReceiveSender& sender, DaveRec
     const u32 needed = view.clear_bytes || frame.data == output.data ? view.body_bytes : 0;
     if (scratch.count < needed)
         return fail(DaveSenderError::scratch_capacity);
+    // The bytes this call writes (output and scratch prefixes) must stay clear of
+    // everything owned and of each other; the frame is only read. A frame that
+    // sat in owned memory could only fail authentication, never corrupt state.
+    const ConstSlice<u8> written{output.data, view.body_bytes}, temporary{scratch.data, needed};
+    if (touches(sender, written) || aliases_workspace(workspace, written) ||
+        (byte_ranges_overlap(written, frame) && frame.data != output.data) ||
+        (needed && (touches(sender, temporary) || aliases_workspace(workspace, temporary) ||
+                    byte_ranges_overlap(temporary, frame) || byte_ranges_overlap(temporary, written))))
+        return fail(DaveSenderError::invalid_input);
     collect(sender, now);
     auto result = fail(sender.newest ? DaveSenderError::rejected : DaveSenderError::no_epoch);
     for (auto* node = sender.newest; node; node = node->older) {
         ++result.epochs_tried;
-        result.epoch = dave_receive_epoch_open(node->epoch, workspace, view, now, scratch, output);
-        result.crypto_attempts += result.epoch.frame.crypto_attempted ? 1u : 0u;
-        if (result.epoch.ok()) {
+        result.epoch =
+            dave_receive_epoch_open(node->epoch, workspace, view, now, scratch.data, output.data);
+        result.crypto_attempts += dave_epoch_attempted(result.epoch) ? 1u : 0u;
+        if (result.epoch == DaveEpochError::none) {
             result.revision = node->revision;
-            result.bytes = result.epoch.frame.bytes;
+            result.bytes = view.body_bytes;
             result.error = DaveSenderError::none;
             return result;
         }

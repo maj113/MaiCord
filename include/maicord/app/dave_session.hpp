@@ -42,10 +42,6 @@ enum class DaveArenaBlock : u8 {
     count
 };
 inline constexpr u32 kDaveArenaBlocks = static_cast<u32>(DaveArenaBlock::count);
-struct DaveReceiver {
-    u64 user_id;
-    DaveReceiveSender sender;
-};
 // One voice call's DAVE state (protocol v1): MLS group, our signing/leaf/init
 // keys, the outbound frame sealer and one receive controller per remote
 // member. All MLS arenas live in one reserved region committed on demand, so

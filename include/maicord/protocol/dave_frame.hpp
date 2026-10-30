@@ -16,11 +16,9 @@ struct DaveFrameView {
 };
 enum class DaveFrameError : u8 {
     none,
-    invalid_input,
     not_encrypted,
     malformed,
-    range_capacity,
-    output_capacity
+    range_capacity
 };
 struct DaveFrameParseResult {
     u32 range_count;
@@ -29,21 +27,25 @@ struct DaveFrameParseResult {
         return error == DaveFrameError::none;
     }
 };
-// Borrow input and caller range storage. Full validation precedes writes to
-// either output; range_capacity reports the required count after validation.
-// Keep metadata/ranges alive and unchanged through the cryptographic operation.
+// Borrow input and caller range storage; frame, ranges and output are distinct
+// valid caller objects. Full validation precedes writes to either output;
+// range_capacity reports the required count after validation. Keep
+// metadata/ranges alive and unchanged through the cryptographic operation.
 // not_encrypted is classification only, NOT permission for plaintext playback.
 // Noncanonical ULEB encodings are accepted as in libdave; overflow is rejected.
 DaveFrameParseResult dave_frame_parse(ConstSlice<u8> frame, Slice<DaveClearRange> ranges,
                                       DaveFrameView* output) noexcept;
-// Materialize contiguous AAD/ciphertext only when the cryptor needs it. Tail
-// capacity is untouched. For a wholly encrypted body, exact cipher/body alias
-// is allowed (a no-copy path); all other frame/output aliases are rejected.
-DaveFrameError dave_frame_gather(const DaveFrameView& view, Slice<u8> aad, Slice<u8> ciphertext) noexcept;
-// Reassemble ONLY authenticated decrypted ciphertext bytes with clear headers.
-// Can overwrite the original body in place using a separate plaintext span.
-// No-clear-range frames also allow exact plaintext/output alias. Partial aliases
-// are rejected and every error preserves the output. This does not authenticate.
-DaveFrameError dave_frame_reconstruct(const DaveFrameView& view, ConstSlice<u8> plaintext,
-                                      Slice<u8> output) noexcept;
+// The next two take only a view that dave_frame_parse published for a live
+// frame (so its ranges are ordered and inside the body) and spans sized from
+// it: aad holds clear_bytes, cipher body_bytes - clear_bytes. aad/cipher stay
+// disjoint from the frame unless cipher is the whole untouched body.
+//
+// Copy the clear ranges to aad and every other body byte to cipher, in order.
+void dave_frame_gather(const DaveFrameView& view, u8* aad, u8* cipher) noexcept;
+// Interleave authenticated plaintext back between the clear ranges, which are
+// copied from the frame unless output is the frame itself (the original body is
+// then overwritten in place from a separate plaintext span). output holds
+// body_bytes; plaintext may equal output exactly only without clear ranges.
+// This does not authenticate.
+void dave_frame_reconstruct(const DaveFrameView& view, const u8* plaintext, u8* output) noexcept;
 } // namespace maicord

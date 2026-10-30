@@ -12,20 +12,16 @@ constexpr u32 kOneReferenceBytes = 1 + 1 + kMlsHashBytes;
 constexpr u32 kMaxStubPathBytes = kMlsLeafNodeWriteBytes + 4 + kMlsTreeMaxDepth * (2 + kMlsPointBytes + 1);
 constexpr u8 kZeroSecret[kMlsHashBytes]{};
 
+u32 references_offset(u32 proposal_count) noexcept {
+    return 2 + 2 + 1 + kMlsGroupIdBytes + 8 + 1 + 4 + 1 + 1 +
+           mls_varint_size(proposal_count * kOneReferenceBytes);
+}
 u32 path_offset(u32 proposal_count) noexcept {
-    const u32 references = proposal_count * kOneReferenceBytes;
-    return 2 + 2 + 1 + kMlsGroupIdBytes + 8 + 1 + 4 + 1 + 1 + mls_varint_size(references) + references + 1;
+    return references_offset(proposal_count) + proposal_count * kOneReferenceBytes + 1;
 }
-bool context_transcript_match(const MlsGroupContext& context, const MlsTranscript& transcript) noexcept {
-    const bool has = context.confirmed_transcript_hash != nullptr;
-    if (has != transcript.has_confirmed || (context.epoch == 0) == has)
-        return false;
-    return !has || mls_equal(transcript.confirmed, context.confirmed_transcript_hash, kMlsHashBytes);
-}
-MlsStatus confirmed_hash(KdfSha256Workspace& kdf, const MlsCommit& commit, const u8* interim,
-                         u8* confirmed) noexcept {
-    const ConstSlice<u8> parts[]{
-        {interim, kMlsHashBytes}, commit.confirmed_content, commit.confirmed_signature};
+MlsStatus confirmed_hash(KdfSha256Workspace& kdf, const u8* interim, ConstSlice<u8> content,
+                         ConstSlice<u8> signature, u8* confirmed) noexcept {
+    const ConstSlice<u8> parts[]{{interim, kMlsHashBytes}, content, signature};
     return mls_hash(kdf, {parts, 3}, confirmed);
 }
 MlsStatus next_epoch(KdfSha256Workspace& kdf, const MlsEpochSecrets& current, const u8* commit_secret,
@@ -35,13 +31,6 @@ MlsStatus next_epoch(KdfSha256Workspace& kdf, const MlsEpochSecrets& current, co
                                      {commit_secret, kMlsHashBytes}, {kZeroSecret, kMlsHashBytes},
                                      {confirmed, kMlsHashBytes}, context, next));
 }
-struct Authored {
-    MlsCommit commit;
-    MlsGroupContext context;
-    MlsEpochSecrets epoch;
-    MlsTranscript transcript;
-    u32 message_bytes, context_bytes;
-};
 MlsStatus validate_authored_proposals(const MlsGroupContext& context, u32 sender_leaf,
                                       ConstSlice<MlsProposal> proposals, bool* path_required) noexcept {
     *path_required = proposals.count == 0;
@@ -61,25 +50,19 @@ MlsStatus validate_authored_proposals(const MlsGroupContext& context, u32 sender
     }
     return MlsStatus::ok;
 }
-// Signs, confirms and MACs a member Commit over a finalized next tree/path,
-// then reparses it across the receive authentication boundary.
-MlsStatus author(KdfSha256Workspace& kdf, Authored* authored, const MlsSuccessor& current,
-                 const u8* next_tree_hash, const u8* commit_secret, u32 sender_leaf, u64 sender_user_id,
+// Signs, confirms and MACs a member Commit over a finalized next tree/path and
+// fills the next epoch's context, secrets and transcript plus the commit
+// summary in *local. Everything is derived from the values written here, so
+// the message is not parsed back; the caller wipes *local on failure.
+MlsStatus author(KdfSha256Workspace& kdf, MlsLocalCommit* local, const MlsSuccessor& current,
+                 const u8* next_tree_hash, const u8* commit_secret, u32 sender_leaf,
                  ConstSlice<MlsProposal> proposals, ConstSlice<u8> path, const P256Key& signing,
                  ConstSlice<u8> external_sender, Slice<u8> message, Slice<u8> context_output) noexcept {
     const auto& context = current.context;
+    auto& next = local->successor;
     const bool has_path = path.count != 0;
-    if (!context.serialized.data || context.epoch == ~u64{0} || path.count > kMlsMaxUpdatePathBytes ||
-        !message.data || !context_output.data)
+    if (path.count > kMlsMaxUpdatePathBytes)
         return MlsStatus::invalid_argument;
-    reset_value(authored);
-    bool path_required = false;
-    auto status = validate_authored_proposals(context, sender_leaf, proposals, &path_required);
-    if (status != MlsStatus::ok)
-        return status;
-    if ((path_required && !has_path) || !context_transcript_match(context, current.transcript) ||
-        (!has_path && !mls_equal(commit_secret, kZeroSecret, kMlsHashBytes)))
-        return MlsStatus::malformed;
     const u32 expected_offset = path_offset(proposals.count);
     const bool in_place = has_path && path.data == message.data + expected_offset;
     MlsWriter writer{message};
@@ -114,21 +97,19 @@ MlsStatus author(KdfSha256Workspace& kdf, Authored* authored, const MlsSuccessor
         writer.vector(signature, signed_result.bytes);
     }
     const u32 signature_start = content_end, signature_end = writer.used;
-    status = writer.status;
-    MlsCommit transcript_view{};
-    transcript_view.confirmed_content = {message.data + 2, content_end - 2};
-    transcript_view.confirmed_signature = {message.data + signature_start, signature_end - signature_start};
+    auto status = writer.status;
     if (status == MlsStatus::ok)
-        status = confirmed_hash(kdf, transcript_view, current.transcript.interim, confirmed);
-    u32 context_bytes = 0;
+        status = confirmed_hash(kdf, current.transcript.interim, {message.data + 2, content_end - 2},
+                                {message.data + signature_start, signature_end - signature_start},
+                                confirmed);
     if (status == MlsStatus::ok)
         status = mls_group_context_write(context.group_id, context.epoch + 1, next_tree_hash, confirmed,
-                                         external_sender, context_output, &context_bytes);
+                                         external_sender, context_output, &next.context);
     if (status == MlsStatus::ok)
-        status = next_epoch(kdf, current.epoch, commit_secret, confirmed,
-                            {context_output.data, context_bytes}, &authored->epoch);
+        status = next_epoch(kdf, current.epoch, commit_secret, confirmed, next.context.serialized,
+                            &next.epoch);
     if (status == MlsStatus::ok) {
-        writer.vector(authored->epoch.confirmation_tag, kMlsHashBytes);
+        writer.vector(next.epoch.confirmation_tag, kMlsHashBytes);
         status = writer.status;
     }
     const u32 auth_end = writer.used;
@@ -146,35 +127,19 @@ MlsStatus author(KdfSha256Workspace& kdf, Authored* authored, const MlsSuccessor
     if (status == MlsStatus::ok && writer.used > kMlsMaxCommitBytes)
         status = MlsStatus::buffer_too_small;
     if (status == MlsStatus::ok)
-        status =
-            mls_transcript_join(kdf, &authored->transcript, confirmed, authored->epoch.confirmation_tag);
-    u32 consumed = 0;
-    if (status == MlsStatus::ok)
-        status = mls_group_context_parse({context_output.data, context_bytes}, external_sender,
-                                         &authored->context, &consumed);
-    u8 signature_public[kMlsPointBytes];
-    if (status == MlsStatus::ok && !p256_export_public(signing, {signature_public, kMlsPointBytes}).ok())
-        status = MlsStatus::crypto_failure;
-    if (status == MlsStatus::ok)
-        status = mls_commit_parse(kdf, {message.data, writer.used}, context,
-                                  {signature_public, current.epoch.membership_key, sender_user_id},
-                                  &authored->commit);
-    if (status == MlsStatus::ok &&
-        (!mls_equal(authored->commit.confirmation_tag, authored->epoch.confirmation_tag, kMlsHashBytes) ||
-         authored->commit.sender_leaf != sender_leaf ||
-         authored->commit.reference_count != proposals.count || authored->commit.has_path != has_path))
-        status = MlsStatus::crypto_failure;
+        status = mls_transcript_join(kdf, &next.transcript, confirmed, next.epoch.confirmation_tag);
     secure_clear_bytes(confirmed, sizeof(confirmed));
     secure_clear_bytes(membership, sizeof(membership));
     if (status != MlsStatus::ok) {
         secure_clear_bytes(message.data, minimum(writer.used, message.count));
-        if (context_bytes)
-            secure_clear_bytes(context_output.data, context_bytes);
-        secure_clear_bytes(authored, sizeof(*authored));
+        secure_clear_bytes(context_output.data, next.context.serialized.count);
         return status;
     }
-    authored->message_bytes = writer.used;
-    authored->context_bytes = context_bytes;
+    local->references = {message.data + references_offset(proposals.count),
+                         proposals.count * kOneReferenceBytes};
+    local->sender_leaf = sender_leaf;
+    local->message_bytes = writer.used;
+    local->has_path = has_path;
     return MlsStatus::ok;
 }
 MlsStatus validate_remote_proposals(const MlsCommit& commit, ConstSlice<MlsProposal> proposals,
@@ -210,20 +175,6 @@ MlsStatus validate_remote_proposals(const MlsCommit& commit, ConstSlice<MlsPropo
     if (has || (path_required && !commit.has_path))
         return MlsStatus::malformed;
     return MlsStatus::ok;
-}
-MlsStatus check_current(KdfSha256Workspace& kdf, const MlsSuccessor& current) noexcept {
-    const auto& context = current.context;
-    if (!context.serialized.data || !context.tree_hash || !context.group_id_bytes ||
-        !current.tree.group_id || !current.tree_private.initialized ||
-        current.tree_private.leaf_index >= current.tree.leaf_count || context.epoch == ~u64{0})
-        return MlsStatus::invalid_argument;
-    if (!mls_equal(current.tree.group_id, context.group_id_bytes, kMlsGroupIdBytes) ||
-        !context_transcript_match(context, current.transcript))
-        return MlsStatus::malformed;
-    u8 root[kMlsHashBytes];
-    if (const auto status = mls_tree_root_hash(kdf, current.tree, root); status != MlsStatus::ok)
-        return status;
-    return mls_equal(root, context.tree_hash, kMlsHashBytes) ? MlsStatus::ok : MlsStatus::malformed;
 }
 } // namespace
 
@@ -352,8 +303,9 @@ MlsStatus mls_commit_create_local(KdfSha256Workspace& kdf, MlsLocalCommit* local
         (!proposals.data && proposals.count) || (reinterpret_cast<usize>(buffers.scratch.data) & 3))
         return MlsStatus::invalid_argument;
     reset_value(local);
-    if (const auto status = check_current(kdf, current); status != MlsStatus::ok)
-        return status;
+    // A context at the last epoch cannot advance (the epoch is network input).
+    if (current.context.epoch == ~u64{0})
+        return MlsStatus::invalid_argument;
     const u32 core = scratch_bytes(current.tree, proposals);
     if (!core || buffers.scratch.count < core + kMaxStubPathBytes)
         return core ? MlsStatus::buffer_too_small : MlsStatus::malformed;
@@ -367,13 +319,8 @@ MlsStatus mls_commit_create_local(KdfSha256Workspace& kdf, MlsLocalCommit* local
     const bool has_path = force_path || path_required;
     if (has_path && !leaf_secret)
         return MlsStatus::invalid_argument;
-    MlsTreeIndex index{};
-    MlsTreeNode committer{};
-    auto status = mls_tree_index_init(&index, current.tree, scratch);
-    if (status == MlsStatus::ok)
-        status = mls_tree_index_node(index, self * 2, &committer);
-    if (status == MlsStatus::ok && (!committer.present || committer.type != kMlsNodeLeaf))
-        status = MlsStatus::malformed;
+    auto& next = local->successor;
+    auto status = MlsStatus::ok;
     u32 joiner_count = 0, proposal_tree_bytes = 0, merged_tree_bytes = 0, stub_bytes = 0, path_bytes = 0;
     if (status == MlsStatus::ok)
         status = mls_tree_apply_proposals(current.tree, proposals, scratch, buffers.joiners, &joiner_count,
@@ -384,70 +331,54 @@ MlsStatus mls_commit_create_local(KdfSha256Workspace& kdf, MlsLocalCommit* local
     if (status == MlsStatus::ok)
         status = mls_ratchet_tree_parse(kdf, {buffers.proposal_tree.data, proposal_tree_bytes},
                                         current.context.group_id_bytes, false, &proposal_tree);
-    MlsTreeKemPrivate next{};
-    MlsWipe next_wipe{&next, sizeof(next)};
     MlsUpdatePath stub_path{}, full_path{};
     const MlsRatchetTree* next_tree = nullptr;
+    u8 next_root[kMlsHashBytes];
     if (status == MlsStatus::ok && has_path) {
-        status = mls_treekem_update_prepare(kdf, &next, current.tree_private, proposal_tree, leaf_secret,
-                                            signing, scratch, stub, &stub_bytes, &stub_path,
-                                            buffers.merged_tree, &merged_tree_bytes, &merged);
+        status = mls_treekem_update_prepare(kdf, &next.tree_private, current.tree_private, proposal_tree,
+                                            leaf_secret, signing, scratch, stub, &stub_bytes, &stub_path,
+                                            buffers.merged_tree, &merged_tree_bytes, &merged, next_root);
         next_tree = &merged;
     } else if (status == MlsStatus::ok) {
-        status = mls_tree_validate(kdf, proposal_tree, scratch);
+        status = mls_tree_validate(kdf, proposal_tree, scratch, next_root);
         if (status == MlsStatus::ok)
-            status = mls_treekem_carry_forward(kdf, &next, current.tree_private, proposal_tree, scratch);
+            status = mls_treekem_carry_forward(kdf, &next.tree_private, current.tree_private,
+                                               proposal_tree, scratch);
         next_tree = &proposal_tree;
     }
-    u8 next_root[kMlsHashBytes];
-    if (status == MlsStatus::ok)
-        status = mls_tree_root_hash(kdf, *next_tree, next_root);
     const u32 offset = path_offset(proposals.count);
     if (status == MlsStatus::ok && has_path) {
         // The UpdatePath HPKE context is the provisional next GroupContext with
         // the old confirmed transcript (RFC 9420 12.4.2).
-        u32 hpke_context_bytes = 0;
+        MlsGroupContext hpke_context{};
         status = mls_group_context_write(current.context.group_id, current.context.epoch + 1, next_root,
                                          current.transcript.confirmed, external_sender,
-                                         buffers.next_context, &hpke_context_bytes);
+                                         buffers.next_context, &hpke_context);
         if (status == MlsStatus::ok && offset > message.count)
             status = MlsStatus::buffer_too_small;
         if (status == MlsStatus::ok)
-            status =
-                mls_treekem_encap(kdf, next, *next_tree, stub_path, {buffers.joiners.data, joiner_count},
-                                  {buffers.next_context.data, hpke_context_bytes}, scratch,
-                                  {message.data + offset, message.count - offset}, &path_bytes, &full_path);
+            status = mls_treekem_encap(kdf, next.tree_private, *next_tree, stub_path,
+                                       {buffers.joiners.data, joiner_count}, hpke_context.serialized,
+                                       scratch, {message.data + offset, message.count - offset},
+                                       &path_bytes, &full_path);
     }
-    Authored authored{};
-    MlsWipe authored_wipe{&authored, sizeof(authored)};
     if (status == MlsStatus::ok)
-        status = author(kdf, &authored, current, next_root, has_path ? next.update_secret : kZeroSecret,
-                        self, committer.leaf.user_id, proposals,
+        status = author(kdf, local, current, next_root,
+                        has_path ? next.tree_private.update_secret : kZeroSecret, self, proposals,
                         has_path ? ConstSlice<u8>{message.data + offset, path_bytes} : ConstSlice<u8>{},
                         signing, external_sender, message, buffers.next_context);
     if (status != MlsStatus::ok) {
         if (path_bytes && offset + path_bytes <= message.count)
             secure_clear_bytes(message.data + offset, path_bytes);
+        secure_clear_bytes(local, sizeof(*local));
         return status;
     }
-    auto& successor = local->successor;
     // Views of the next epoch must not borrow the current context's buffer,
     // which the session recycles for later candidates.
-    successor.tree = *next_tree;
-    successor.context = authored.context;
-    successor.tree.group_id = successor.context.group_id_bytes;
-    successor.tree_private = next;
-    successor.epoch = authored.epoch;
-    successor.transcript = authored.transcript;
-    successor.tree_bytes = has_path ? merged_tree_bytes : proposal_tree_bytes;
-    successor.context_bytes = authored.context_bytes;
-    successor.joiner_count = joiner_count;
-    successor.uses_merged_tree = has_path;
-    successor.initialized = true;
-    local->commit = authored.commit;
-    local->message_bytes = authored.message_bytes;
-    local->path_offset = has_path ? offset : 0;
-    local->path_bytes = has_path ? path_bytes : 0;
+    next.tree = *next_tree;
+    next.tree.group_id = next.context.group_id_bytes;
+    next.joiner_count = joiner_count;
+    next.initialized = true;
     local->initialized = true;
     return MlsStatus::ok;
 }
@@ -464,24 +395,17 @@ MlsStatus mls_commit_apply_remote(KdfSha256Workspace& kdf, MlsSuccessor* success
         (reinterpret_cast<usize>(buffers.scratch.data) & 3))
         return MlsStatus::invalid_argument;
     reset_value(successor);
-    if (const auto status = check_current(kdf, current); status != MlsStatus::ok)
-        return status;
+    if (current.context.epoch == ~u64{0})
+        return MlsStatus::invalid_argument;
     const u32 required = scratch_bytes(current.tree, proposals);
     if (!required || buffers.scratch.count < required)
         return required ? MlsStatus::buffer_too_small : MlsStatus::malformed;
-    MlsSuccessor candidate{};
-    MlsWipe candidate_wipe{&candidate, sizeof(candidate)};
-    MlsTreeIndex index{};
-    MlsTreeNode committer{};
-    auto status = mls_tree_index_init(&index, current.tree, buffers.scratch);
-    if (status == MlsStatus::ok)
-        status = mls_tree_index_node(index, commit.sender_leaf * 2, &committer);
-    if (status == MlsStatus::ok && (!committer.present || committer.type != kMlsNodeLeaf))
-        status = MlsStatus::malformed;
+    // The committer's leaf was authenticated from this tree by the caller
+    // (mls_group_stage_commit) before the Commit was parsed.
+    auto& candidate = *successor;
     bool receiver_removed = false;
-    if (status == MlsStatus::ok)
-        status = validate_remote_proposals(commit, proposals, current.tree_private.leaf_index,
-                                           &receiver_removed);
+    auto status = validate_remote_proposals(commit, proposals, current.tree_private.leaf_index,
+                                            &receiver_removed);
     u32 joiner_count = 0, proposal_tree_bytes = 0, merged_tree_bytes = 0;
     if (status == MlsStatus::ok)
         status = mls_tree_apply_proposals(current.tree, proposals, buffers.scratch, buffers.joiners,
@@ -491,65 +415,58 @@ MlsStatus mls_commit_apply_remote(KdfSha256Workspace& kdf, MlsSuccessor* success
         status = mls_ratchet_tree_parse(kdf, {buffers.proposal_tree.data, proposal_tree_bytes},
                                         current.context.group_id_bytes, false, &proposal_tree);
     const MlsRatchetTree* next_tree = nullptr;
+    u8 next_root[kMlsHashBytes], confirmed[kMlsHashBytes];
     if (status == MlsStatus::ok && commit.has_path) {
-        status =
-            mls_tree_merge_update_path(kdf, proposal_tree, commit.sender_leaf, commit.path, buffers.scratch,
-                                       buffers.merged_tree, &merged_tree_bytes, &merged);
+        status = mls_tree_merge_update_path(kdf, proposal_tree, commit.sender_leaf, commit.path,
+                                            buffers.scratch, buffers.merged_tree, &merged_tree_bytes, &merged,
+                                            next_root);
         next_tree = &merged;
-        candidate.uses_merged_tree = true;
     } else if (status == MlsStatus::ok) {
-        status = mls_tree_validate(kdf, proposal_tree, buffers.scratch);
+        status = mls_tree_validate(kdf, proposal_tree, buffers.scratch, next_root);
         next_tree = &proposal_tree;
     }
     if (status == MlsStatus::ok && receiver_removed)
         status = MlsStatus::member_removed;
-    u8 next_root[kMlsHashBytes], confirmed[kMlsHashBytes], hpke_context[kMlsGroupContextMaximum];
-    if (status == MlsStatus::ok)
-        status = mls_tree_root_hash(kdf, *next_tree, next_root);
     const u8* commit_secret = kZeroSecret;
     if (status == MlsStatus::ok && commit.has_path) {
-        u32 hpke_context_bytes = 0;
+        // The provisional context lives in next_context until the final one overwrites it.
+        MlsGroupContext hpke_context{};
         status = mls_group_context_write(current.context.group_id, current.context.epoch + 1, next_root,
                                          current.transcript.confirmed, external_sender,
-                                         {hpke_context, sizeof(hpke_context)}, &hpke_context_bytes);
+                                         buffers.next_context, &hpke_context);
         if (status == MlsStatus::ok)
             status =
                 mls_treekem_decap(kdf, &candidate.tree_private, current.tree_private, *next_tree,
                                   commit.path, commit.sender_leaf, {buffers.joiners.data, joiner_count},
-                                  {hpke_context, hpke_context_bytes}, buffers.scratch);
+                                  hpke_context.serialized, buffers.scratch);
         commit_secret = candidate.tree_private.update_secret;
     } else if (status == MlsStatus::ok)
         status = mls_treekem_carry_forward(kdf, &candidate.tree_private, current.tree_private, *next_tree,
                                            buffers.scratch);
     if (status == MlsStatus::ok)
-        status = confirmed_hash(kdf, commit, current.transcript.interim, confirmed);
-    u32 context_bytes = 0;
+        status = confirmed_hash(kdf, current.transcript.interim, commit.confirmed_content,
+                                commit.confirmed_signature, confirmed);
     if (status == MlsStatus::ok)
         status = mls_group_context_write(current.context.group_id, current.context.epoch + 1, next_root,
-                                         confirmed, external_sender, buffers.next_context, &context_bytes);
+                                         confirmed, external_sender, buffers.next_context,
+                                         &candidate.context);
     if (status == MlsStatus::ok)
-        status = next_epoch(kdf, current.epoch, commit_secret, confirmed,
-                            {buffers.next_context.data, context_bytes}, &candidate.epoch);
+        status = next_epoch(kdf, current.epoch, commit_secret, confirmed, candidate.context.serialized,
+                            &candidate.epoch);
     if (status == MlsStatus::ok &&
         !mls_confirmation_matches({candidate.epoch.confirmation_tag, kMlsHashBytes},
                                   {commit.confirmation_tag, kMlsHashBytes}))
         status = MlsStatus::crypto_failure;
     if (status == MlsStatus::ok)
         status = mls_transcript_join(kdf, &candidate.transcript, confirmed, commit.confirmation_tag);
-    u32 consumed = 0;
-    if (status == MlsStatus::ok)
-        status = mls_group_context_parse({buffers.next_context.data, context_bytes}, external_sender,
-                                         &candidate.context, &consumed);
-    secure_clear_bytes(hpke_context, sizeof(hpke_context));
-    if (status != MlsStatus::ok)
+    if (status != MlsStatus::ok) {
+        secure_clear_bytes(successor, sizeof(*successor));
         return status;
+    }
     candidate.tree = *next_tree;
     candidate.tree.group_id = candidate.context.group_id_bytes;
-    candidate.tree_bytes = candidate.uses_merged_tree ? merged_tree_bytes : proposal_tree_bytes;
-    candidate.context_bytes = context_bytes;
     candidate.joiner_count = joiner_count;
     candidate.initialized = true;
-    *successor = candidate;
     return MlsStatus::ok;
 }
 } // namespace maicord

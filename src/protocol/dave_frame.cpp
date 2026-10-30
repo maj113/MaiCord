@@ -1,5 +1,4 @@
 #include "maicord/protocol/dave_frame.hpp"
-#include "maicord/core/byte_range.hpp"
 
 namespace maicord {
 namespace {
@@ -17,46 +16,12 @@ bool leb(ConstSlice<u8> bytes, u32& cursor, u64& value) noexcept {
     }
     return false;
 }
-ConstSlice<u8> raw(ConstSlice<DaveClearRange> ranges) noexcept {
-    return {reinterpret_cast<const u8*>(ranges.data),
-            ranges.count * static_cast<u32>(sizeof(DaveClearRange))};
-}
-bool range_storage(ConstSlice<DaveClearRange> ranges) noexcept {
-    return ranges.count <= ~u32{0} / sizeof(DaveClearRange) && byte_range_valid(raw(ranges));
-}
-bool valid_view(const DaveFrameView& view) noexcept {
-    if (!byte_range_valid(view.frame) || view.frame.count < 12 || view.body_bytes > view.frame.count - 12 ||
-        !range_storage(view.clear_ranges) || view.clear_ranges.count > kDaveMaximumClearRanges)
-        return false;
-    u32 end = 0, clear = 0;
-    for (u32 i = 0; i != view.clear_ranges.count; ++i) {
-        const auto& range = view.clear_ranges[i];
-        if (range.offset < end || range.offset > view.body_bytes ||
-            range.bytes > view.body_bytes - range.offset)
-            return false;
-        end = range.offset + range.bytes;
-        clear += range.bytes;
-    }
-    return clear == view.clear_bytes;
-}
-bool metadata_alias(const DaveFrameView& view, ConstSlice<u8> output) noexcept {
-    return byte_ranges_overlap(output, raw(view.clear_ranges)) ||
-           byte_ranges_overlap(output, {reinterpret_cast<const u8*>(&view), sizeof(view)});
-}
 DaveFrameParseResult failure(DaveFrameError error) noexcept {
     return {0, error};
 }
 } // namespace
 DaveFrameParseResult dave_frame_parse(ConstSlice<u8> frame, Slice<DaveClearRange> ranges,
                                       DaveFrameView* output) noexcept {
-    const ConstSlice<DaveClearRange> range_span{ranges.data, ranges.count};
-    if (!output || !byte_range_valid(frame) || !range_storage(range_span))
-        return failure(DaveFrameError::invalid_input);
-    const auto range_bytes = raw(range_span);
-    const ConstSlice<u8> output_bytes{reinterpret_cast<const u8*>(output), sizeof(*output)};
-    if (!byte_range_valid(output_bytes) || byte_ranges_overlap(frame, range_bytes) ||
-        byte_ranges_overlap(frame, output_bytes) || byte_ranges_overlap(range_bytes, output_bytes))
-        return failure(DaveFrameError::invalid_input);
     if (frame.count < 2 || frame.data[frame.count - 2] != 0xFA || frame.data[frame.count - 1] != 0xFA)
         return failure(DaveFrameError::not_encrypted);
     if (frame.count < 12)
@@ -95,64 +60,31 @@ DaveFrameParseResult dave_frame_parse(ConstSlice<u8> frame, Slice<DaveClearRange
     *output = {frame, {ranges.data, count}, body, clear, static_cast<u32>(nonce)};
     return {count, DaveFrameError::none};
 }
-DaveFrameError dave_frame_gather(const DaveFrameView& view, Slice<u8> aad, Slice<u8> ciphertext) noexcept {
-    if (!valid_view(view) || !byte_range_valid({aad.data, aad.count}) ||
-        !byte_range_valid({ciphertext.data, ciphertext.count}))
-        return DaveFrameError::invalid_input;
-    const u32 encrypted = view.body_bytes - view.clear_bytes;
-    if (aad.count < view.clear_bytes || ciphertext.count < encrypted)
-        return DaveFrameError::output_capacity;
-    const ConstSlice<u8> a{aad.data, view.clear_bytes}, c{ciphertext.data, encrypted};
-    if (byte_ranges_overlap(a, c) || metadata_alias(view, a) || metadata_alias(view, c) ||
-        byte_ranges_overlap(view.frame, a) ||
-        (byte_ranges_overlap(view.frame, c) && (view.clear_bytes || ciphertext.data != view.frame.data)))
-        return DaveFrameError::invalid_input;
-    if (!view.clear_bytes && ciphertext.data == view.frame.data)
-        return DaveFrameError::none;
-    u32 read = 0, clear = 0, cipher = 0;
+void dave_frame_gather(const DaveFrameView& view, u8* aad, u8* cipher) noexcept {
+    u32 read = 0;
     for (u32 i = 0; i != view.clear_ranges.count; ++i) {
         const auto& range = view.clear_ranges[i];
         const u32 gap = range.offset - read;
-        if (gap)
-            copy_bytes(ciphertext.data + cipher, view.frame.data + read, gap);
-        if (range.bytes)
-            copy_bytes(aad.data + clear, view.frame.data + range.offset, range.bytes);
+        copy_bytes(cipher, view.frame.data + read, gap);
+        copy_bytes(aad, view.frame.data + range.offset, range.bytes);
         cipher += gap;
-        clear += range.bytes;
+        aad += range.bytes;
         read = range.offset + range.bytes;
     }
-    if (read < view.body_bytes && ciphertext.data + cipher != view.frame.data + read)
-        copy_bytes(ciphertext.data + cipher, view.frame.data + read, view.body_bytes - read);
-    return DaveFrameError::none;
+    copy_bytes(cipher, view.frame.data + read, view.body_bytes - read);
 }
-DaveFrameError dave_frame_reconstruct(const DaveFrameView& view, ConstSlice<u8> plaintext,
-                                      Slice<u8> output) noexcept {
-    if (!valid_view(view) || !byte_range_valid(plaintext) ||
-        !byte_range_valid({output.data, output.count}) ||
-        plaintext.count != view.body_bytes - view.clear_bytes)
-        return DaveFrameError::invalid_input;
-    if (output.count < view.body_bytes)
-        return DaveFrameError::output_capacity;
-    const ConstSlice<u8> written{output.data, view.body_bytes};
-    if (metadata_alias(view, written) ||
-        (byte_ranges_overlap(written, view.frame) && output.data != view.frame.data) ||
-        (byte_ranges_overlap(written, plaintext) && (view.clear_bytes || output.data != plaintext.data)))
-        return DaveFrameError::invalid_input;
-    if (!view.clear_bytes && plaintext.data == output.data)
-        return DaveFrameError::none;
-    u32 frame = 0, cipher = 0;
+void dave_frame_reconstruct(const DaveFrameView& view, const u8* plaintext, u8* output) noexcept {
+    const bool in_place = output == view.frame.data;
+    u32 written = 0;
     for (u32 i = 0; i != view.clear_ranges.count; ++i) {
         const auto& range = view.clear_ranges[i];
-        const u32 gap = range.offset - frame;
-        if (gap)
-            copy_bytes(output.data + frame, plaintext.data + cipher, gap);
-        if (range.bytes && output.data != view.frame.data)
-            copy_bytes(output.data + range.offset, view.frame.data + range.offset, range.bytes);
-        cipher += gap;
-        frame = range.offset + range.bytes;
+        const u32 gap = range.offset - written;
+        copy_bytes(output + written, plaintext, gap);
+        if (!in_place)
+            copy_bytes(output + range.offset, view.frame.data + range.offset, range.bytes);
+        plaintext += gap;
+        written = range.offset + range.bytes;
     }
-    if (frame < view.body_bytes && output.data + frame != plaintext.data + cipher)
-        copy_bytes(output.data + frame, plaintext.data + cipher, view.body_bytes - frame);
-    return DaveFrameError::none;
+    copy_bytes(output + written, plaintext, view.body_bytes - written);
 }
 } // namespace maicord

@@ -373,23 +373,12 @@ bool subtree_span(const MlsRatchetTree& tree, u32 root, u32* first, u32* last) n
     *last = root + (span - 1);
     return *last < tree.node_count;
 }
-MlsStatus mls_tree_subtree_has_present(const MlsRatchetTree& tree, u32 subtree_root,
-                                       bool* present) noexcept {
-    u32 first = 0, last = 0;
-    if (!present || !tree.node_count || !subtree_span(tree, subtree_root, &first, &last))
-        return MlsStatus::invalid_argument;
-    *present = false;
-    auto iterator = mls_tree_iterate(tree);
-    for (u32 index = 0; index <= last && index < tree.encoded_node_count; ++index) {
-        MlsTreeNode node{};
-        if (const auto status = mls_tree_logical_next(tree, iterator, index, &node); status != MlsStatus::ok)
-            return status;
-        if (index >= first && node.present) {
-            *present = true;
-            break;
-        }
-    }
-    return MlsStatus::ok;
+// The span holding `index`, or count.
+u32 span_at(const u32* first, const u32* last, u32 count, u32 index) noexcept {
+    u32 span = 0;
+    while (span != count && (index < first[span] || index > last[span]))
+        ++span;
+    return span;
 }
 } // namespace
 MlsStatus mls_tree_filtered_direct_path(const MlsRatchetTree& tree, u32 leaf_index, Slice<u32> nodes,
@@ -397,19 +386,40 @@ MlsStatus mls_tree_filtered_direct_path(const MlsRatchetTree& tree, u32 leaf_ind
     if (!nodes.data || !count || leaf_index >= tree.leaf_count)
         return MlsStatus::invalid_argument;
     *count = 0;
-    u32 copath[kMlsTreeMaxDepth], copath_count = 0, current = leaf_index * 2, used = 0;
+    u32 copath[kMlsTreeMaxDepth], first[kMlsTreeMaxDepth], last[kMlsTreeMaxDepth];
+    u32 copath_count = 0, end = 0;
     if (const auto status =
-            mls_tree_copath(current, tree.leaf_count, {copath, kMlsTreeMaxDepth}, &copath_count);
+            mls_tree_copath(leaf_index * 2, tree.leaf_count, {copath, kMlsTreeMaxDepth}, &copath_count);
         status != MlsStatus::ok)
         return status;
     for (u32 i = 0; i != copath_count; ++i) {
+        if (!subtree_span(tree, copath[i], &first[i], &last[i]))
+            return MlsStatus::invalid_argument;
+        end = maximum(end, last[i] + 1);
+    }
+    // One walk marks each copath subtree that holds a non-blank node.
+    bool present[kMlsTreeMaxDepth]{};
+    auto iterator = mls_tree_iterate(tree);
+    end = minimum(end, tree.encoded_node_count);
+    for (u32 index = 0, found = 0; index != end && found != copath_count; ++index) {
+        MlsTreeNode node{};
+        if (const auto status = mls_tree_logical_next(tree, iterator, index, &node);
+            status != MlsStatus::ok)
+            return status;
+        if (!node.present)
+            continue;
+        if (const u32 span = span_at(first, last, copath_count, index);
+            span != copath_count && !present[span]) {
+            present[span] = true;
+            ++found;
+        }
+    }
+    u32 current = leaf_index * 2, used = 0;
+    for (u32 i = 0; i != copath_count; ++i) {
         u32 parent = 0;
-        bool present = false;
         if (auto status = mls_tree_parent(current, &parent); status != MlsStatus::ok)
             return status;
-        if (auto status = mls_tree_subtree_has_present(tree, copath[i], &present); status != MlsStatus::ok)
-            return status;
-        if (present) {
+        if (present[i]) {
             if (used >= nodes.count)
                 return MlsStatus::buffer_too_small;
             nodes.data[used++] = parent;
@@ -456,27 +466,38 @@ MlsStatus mls_parent_hash(KdfSha256Workspace& kdf, const u8* public_key, const u
                                  {&sibling_length, 1}, {sibling_hash, kMlsHashBytes}};
     return mls_hash(kdf, {parts, 6}, hash);
 }
-MlsStatus mls_tree_subtree_hash(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, u32 subtree_root,
-                                u8* hash) noexcept {
+namespace {
+// Tree hashes of disjoint subtrees in one walk: hashes[i] belongs to roots[i].
+MlsStatus subtree_hashes(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, const u32* roots, u32 count,
+                         u8 (*hashes)[kMlsHashBytes]) noexcept {
     struct Pending {
         ConstSlice<u8> parent;
         u32 index;
         u8 left_hash[kMlsHashBytes];
     };
-    u32 first = 0, last = 0;
-    if (!hash || !tree.node_count || !tree.leaf_count || !subtree_span(tree, subtree_root, &first, &last))
+    u32 first[kMlsTreeMaxDepth], last[kMlsTreeMaxDepth], end = 0;
+    if (!tree.node_count || !tree.leaf_count || count > kMlsTreeMaxDepth)
         return MlsStatus::invalid_argument;
+    for (u32 i = 0; i != count; ++i) {
+        if (!subtree_span(tree, roots[i], &first[i], &last[i]))
+            return MlsStatus::invalid_argument;
+        end = maximum(end, last[i] + 1);
+    }
     Pending pending[kMlsTreeMaxDepth];
     u8 current[kMlsHashBytes]{};
-    u32 depth = 0, current_root = 0;
+    u32 depth = 0, current_root = 0, span = count, done = 0;
     bool valid = false;
     auto iterator = mls_tree_iterate(tree);
-    for (u32 index = 0; index <= last; ++index) {
+    for (u32 index = 0; index != end; ++index) {
         MlsTreeNode node{};
-        if (const auto status = mls_tree_logical_next(tree, iterator, index, &node); status != MlsStatus::ok)
+        if (const auto status = mls_tree_logical_next(tree, iterator, index, &node);
+            status != MlsStatus::ok)
             return status;
-        if (index < first)
-            continue;
+        if (span == count) {
+            span = span_at(first, last, count, index);
+            if (span == count)
+                continue;
+        }
         if (mls_tree_is_leaf(index)) {
             if (valid)
                 return MlsStatus::malformed;
@@ -503,17 +524,23 @@ MlsStatus mls_tree_subtree_hash(KdfSha256Workspace& kdf, const MlsRatchetTree& t
             ++depth;
             valid = false;
         }
+        if (index == last[span]) {
+            if (!valid || depth || current_root != roots[span])
+                return MlsStatus::malformed;
+            copy_bytes(hashes[span], current, kMlsHashBytes);
+            span = count;
+            valid = false;
+            ++done;
+        }
     }
-    if (!valid || depth || current_root != subtree_root)
-        return MlsStatus::malformed;
-    copy_bytes(hash, current, kMlsHashBytes);
-    return MlsStatus::ok;
+    return done == count ? MlsStatus::ok : MlsStatus::invalid_argument;
 }
+} // namespace
 MlsStatus mls_tree_root_hash(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, u8* hash) noexcept {
     u32 root = 0;
     if (const auto status = mls_tree_root(tree.leaf_count, &root); status != MlsStatus::ok)
         return status;
-    return mls_tree_subtree_hash(kdf, tree, root, hash);
+    return subtree_hashes(kdf, tree, &root, 1, reinterpret_cast<u8(*)[kMlsHashBytes]>(hash));
 }
 MlsStatus mls_tree_parent_hash_chain(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, u32 leaf_index,
                                      const u8 (*path_keys)[kMlsPointBytes], u32 path_count,
@@ -529,24 +556,21 @@ MlsStatus mls_tree_parent_hash_chain(KdfSha256Workspace& kdf, const MlsRatchetTr
         return MlsStatus::malformed;
     if (!path_count)
         return MlsStatus::ok;
-    u32 last = filtered[path_count - 1];
-    u8 sibling_hash[kMlsHashBytes];
-    for (u32 slot = path_count; slot; --slot) {
-        const u32 index = slot - 1, node = index ? filtered[index - 1] : leaf_index * 2;
-        u32 sibling = 0;
-        auto status = mls_tree_sibling(node, last, &sibling);
-        if (status == MlsStatus::ok)
-            status = mls_tree_subtree_hash(kdf, tree, sibling, sibling_hash);
-        if (status == MlsStatus::ok)
-            status =
-                mls_parent_hash(kdf, path_keys[index], index + 1 < path_count ? hashes[index + 1] : nullptr,
-                                index + 1 < path_count ? kMlsHashBytes : 0, sibling_hash, hashes[index]);
-        if (status != MlsStatus::ok) {
-            secure_clear_bytes(hashes, path_count * kMlsHashBytes);
-            return status;
-        }
-        last = node;
-    }
-    return MlsStatus::ok;
+    // Each slot first holds its sibling subtree's hash, then the ParentHash
+    // over it (the hash helpers stage their digest, so the alias is safe).
+    u32 siblings[kMlsTreeMaxDepth];
+    auto status = MlsStatus::ok;
+    for (u32 index = 0; status == MlsStatus::ok && index != path_count; ++index)
+        status = mls_tree_sibling(index ? filtered[index - 1] : leaf_index * 2, filtered[index],
+                                  &siblings[index]);
+    if (status == MlsStatus::ok)
+        status = subtree_hashes(kdf, tree, siblings, path_count, hashes);
+    for (u32 index = path_count; status == MlsStatus::ok && index--;)
+        status =
+            mls_parent_hash(kdf, path_keys[index], index + 1 < path_count ? hashes[index + 1] : nullptr,
+                            index + 1 < path_count ? kMlsHashBytes : 0, hashes[index], hashes[index]);
+    if (status != MlsStatus::ok)
+        secure_clear_bytes(hashes, path_count * kMlsHashBytes);
+    return status;
 }
 } // namespace maicord

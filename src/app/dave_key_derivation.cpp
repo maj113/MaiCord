@@ -1,8 +1,6 @@
-#include "maicord/core/byte_range.hpp"
-#include "byte_views.hpp"
+#include "maicord/app/dave_key_derivation.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/mls_encoding.hpp"
-
 
 namespace maicord {
 KdfResult mls_expand_label(KdfSha256Workspace& workspace, ConstSlice<u8> secret, ConstSlice<u8> label,
@@ -20,21 +18,8 @@ KdfResult mls_expand_label(KdfSha256Workspace& workspace, ConstSlice<u8> secret,
                                  context};
     return hkdf_sha256_expand(workspace, secret, {parts, 5}, output);
 }
-KdfResult dave_ratchet_step(KdfSha256Workspace& workspace, ConstSlice<u8> seed, u32 generation,
-                            Slice<u8> key, Slice<u8> next_secret) noexcept {
-    if ((seed.count != 16 && seed.count != 32) || !byte_range_valid(seed) ||
-        !byte_range_valid({key.data, key.count}) ||
-        !byte_range_valid({next_secret.data, next_secret.count}))
-        return {0, 0, KdfError::invalid_input};
-    if (key.count < 16 || next_secret.count < 32)
-        return {0, 0, KdfError::output_capacity};
-    const ConstSlice<u8> key_prefix{key.data, 16}, next_prefix{next_secret.data, 32};
-    const ConstSlice<u8> spans[]{seed, key_prefix, next_prefix};
-    for (auto span : spans)
-        if (aliases_workspace(workspace, span))
-            return {0, 0, KdfError::invalid_input};
-    if (byte_ranges_overlap(key_prefix, next_prefix))
-        return {0, 0, KdfError::invalid_input};
+KdfResult dave_ratchet_step(KdfSha256Workspace& workspace, ConstSlice<u8> seed, u32 generation, u8* key,
+                            u8* next_secret) noexcept {
     static constexpr u8 key_label[]{'k', 'e', 'y'}, secret_label[]{'s', 'e', 'c', 'r', 'e', 't'};
     u8 context[4], derived_key[16], next[32];
     for (u32 i = 0; i != 4; ++i)
@@ -45,8 +30,8 @@ KdfResult dave_ratchet_step(KdfSha256Workspace& workspace, ConstSlice<u8> seed, 
         result = mls_expand_label(workspace, seed, {secret_label, sizeof(secret_label)}, {context, 4},
                                   {next, 32});
     if (result.ok()) {
-        copy_bytes(key.data, derived_key, 16);
-        copy_bytes(next_secret.data, next, 32);
+        copy_bytes(key, derived_key, 16);
+        copy_bytes(next_secret, next, 32);
         result.bytes = 48;
     }
     secure_clear_bytes(derived_key, sizeof(derived_key));

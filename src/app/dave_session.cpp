@@ -25,7 +25,7 @@ constexpr u32 kMaximum[kDaveArenaBlocks]{kMlsMaxGroupInfoBytes,
                                          256 * 1024,
                                          kMlsMaxCommitBytes + kMlsMaxWelcomeBytes,
                                          kMlsMaxGroupInfoBytes,
-                                         kDaveMaxMembers* static_cast<u32>(sizeof(DaveReceiver))};
+                                         kDaveMaxMembers* static_cast<u32>(sizeof(DaveReceiveSender))};
 constexpr u32 page_align(u32 value) noexcept {
     return (value + kPage - 1) & ~(kPage - 1);
 }
@@ -89,8 +89,8 @@ Slice<MlsProposal> views(const DaveSession& session) noexcept {
             session.committed[static_cast<u32>(DaveArenaBlock::proposal_views)] /
                 static_cast<u32>(sizeof(MlsProposal))};
 }
-DaveReceiver* receivers(const DaveSession& session) noexcept {
-    return reinterpret_cast<DaveReceiver*>(block_data(session, DaveArenaBlock::receivers));
+DaveReceiveSender* receivers(const DaveSession& session) noexcept {
+    return reinterpret_cast<DaveReceiveSender*>(block_data(session, DaveArenaBlock::receivers));
 }
 MlsGroupArena group_arena(const DaveSession& session) noexcept {
     return {block(session, DaveArenaBlock::proposal_storage), entries(session),
@@ -203,11 +203,9 @@ MlsStatus create_initial_group(DaveSession& session) noexcept {
     if (!secure_random_fill({init_secret, sizeof(init_secret)}).ok())
         return MlsStatus::crypto_failure;
     const auto status = with_growth(session, bit(DaveArenaBlock::state0), [&]() noexcept {
-        u32 tree_bytes = 0, context_bytes = 0;
         return mls_group_create_initial(session.kdf, &session.group, session.group_id, session.package_view,
                                         session.package.leaf_key, init_secret, external_sender(session),
-                                        group_arena(session), state(session, 0), &tree_bytes,
-                                        context(session, 0), &context_bytes);
+                                        group_arena(session), state(session, 0), context(session, 0));
     });
     if (status == MlsStatus::ok) {
         session.group_state = DaveGroupState::initial;
@@ -247,25 +245,25 @@ MlsStatus stage(DaveSession& session, u16 id, u16 version, bool allow_pending_gr
     slot->allow_pending_group |= allow_pending_group;
     return MlsStatus::ok;
 }
-DaveReceiver* find_receiver(const DaveSession& session, u64 user_id) noexcept {
+DaveReceiveSender* find_receiver(const DaveSession& session, u64 user_id) noexcept {
     auto* list = receivers(session);
     for (u32 i = 0; i != session.receiver_count; ++i)
-        if (list[i].user_id == user_id)
+        if (list[i].identity.user_id == user_id)
             return &list[i];
     return nullptr;
 }
 void remove_receiver(DaveSession& session, u32 index) noexcept {
     auto* list = receivers(session);
-    dave_receive_sender_release(&list[index].sender);
+    dave_receive_sender_release(&list[index]);
     list[index] = list[session.receiver_count - 1];
-    secure_clear_bytes(&list[--session.receiver_count], sizeof(DaveReceiver));
+    secure_clear_bytes(&list[--session.receiver_count], sizeof(DaveReceiveSender));
 }
 void retire_receivers(DaveSession& session, u64 now_ms) noexcept {
     ++session.receive_revision;
     auto* list = receivers(session);
     for (u32 i = 0; i != session.receiver_count; ++i)
-        dave_receive_sender_retire(list[i].sender, list[i].sender.identity, session.receive_revision,
-                                   now_ms, kDaveEpochGraceMs);
+        dave_receive_sender_retire(list[i], list[i].identity, session.receive_revision, now_ms,
+                                   kDaveEpochGraceMs);
 }
 // Re-keys every remote member of the newly active epoch from its exporter
 // secret; members that left keep their old keys only for the grace period.
@@ -287,18 +285,16 @@ MlsStatus refresh_receivers(DaveSession& session, u64 now_ms) noexcept {
         if (!receiver) {
             if (session.receiver_count == kDaveMaxMembers ||
                 !commit_block(session, DaveArenaBlock::receivers,
-                              (session.receiver_count + 1) * static_cast<u32>(sizeof(DaveReceiver))))
+                              (session.receiver_count + 1) * static_cast<u32>(sizeof(DaveReceiveSender))))
                 return MlsStatus::buffer_too_small;
             receiver = &list[session.receiver_count];
             reset_value(receiver);
-            receiver->user_id = node.leaf.user_id;
-            if (dave_receive_sender_initialize(&receiver->sender, identity, now_ms) !=
-                DaveSenderError::none)
+            if (dave_receive_sender_initialize(receiver, identity, now_ms) != DaveSenderError::none)
                 return MlsStatus::crypto_failure;
             ++session.receiver_count;
         }
         const auto transitioned = dave_receive_sender_transition_exporter(
-            receiver->sender, identity, revision, session.kdf,
+            *receiver, identity, revision, session.kdf,
             {active.epoch.exporter_secret, kMlsHashBytes}, now_ms, kDaveEpochGraceMs);
         if (!transitioned.ok())
             return MlsStatus::crypto_failure;
@@ -307,12 +303,11 @@ MlsStatus refresh_receivers(DaveSession& session, u64 now_ms) noexcept {
         return status;
     for (u32 i = session.receiver_count; i != 0;) {
         auto& receiver = list[--i];
-        if (receiver.sender.latest_revision == revision)
+        if (receiver.latest_revision == revision)
             continue;
-        dave_receive_sender_retire(receiver.sender, receiver.sender.identity, revision, now_ms,
-                                   kDaveEpochGraceMs);
-        dave_receive_sender_collect(receiver.sender, receiver.sender.identity, now_ms);
-        if (!receiver.sender.count)
+        dave_receive_sender_retire(receiver, receiver.identity, revision, now_ms, kDaveEpochGraceMs);
+        dave_receive_sender_collect(receiver, receiver.identity, now_ms);
+        if (!receiver.count)
             remove_receiver(session, i);
     }
     return MlsStatus::ok;
@@ -377,7 +372,7 @@ void dave_session_release(DaveSession* session) noexcept {
     if (session->arena) {
         auto* list = receivers(*session);
         for (u32 i = 0; i != session->receiver_count; ++i)
-            dave_receive_sender_release(&list[i].sender);
+            dave_receive_sender_release(&list[i]);
         mls_group_clear(&session->group);
         for (u32 i = 0; i != kDaveArenaBlocks; ++i)
             if (session->committed[i])
@@ -475,10 +470,10 @@ MlsStatus dave_session_proposals(DaveSession* session, ConstSlice<u8> input, Con
                     session->kdf, &session->group, leaf_secret, session->signing_key, views(*session),
                     commit_buffers(*session, a, b, c), block(*session, DaveArenaBlock::outbound));
             u32 welcome_bytes = 0;
-            const u32 message_bytes = session->group.local.message_bytes;
+            const u32 message_bytes = session->group.staged.message_bytes;
             if (result == MlsStatus::ok)
                 session->outbound_bytes = message_bytes;
-            if (result == MlsStatus::ok && session->group.pending_joiner_count) {
+            if (result == MlsStatus::ok && session->group.staged.successor.joiner_count) {
                 const auto outbound = block(*session, DaveArenaBlock::outbound);
                 result = mls_group_write_welcome(
                     session->kdf, session->group, session->signing_key, views(*session),
@@ -637,9 +632,9 @@ MlsStatus dave_session_execute_transition(DaveSession* session, u16 transition_i
         MlsWipe wipe{seed, sizeof(seed)};
         if (!dave_export_media_seed(session->kdf, {epoch->exporter_secret, kMlsHashBytes},
                                     session->self_user_id, {seed, sizeof(seed)})
-                 .ok() ||
-            !dave_frame_sealer_initialize(&candidate, {seed, sizeof(seed)}).ok())
+                 .ok())
             return MlsStatus::crypto_failure;
+        dave_frame_sealer_initialize(&candidate, seed);
     }
     if (commit) {
         if (const auto status = mls_group_execute(&session->group, transition_id);
@@ -739,8 +734,8 @@ DaveMediaResult dave_session_decrypt(DaveSession* session, u64 user_id, ConstSli
                                                                            : DaveMediaError::not_ready;
         return result;
     }
-    result.sender = dave_receive_sender_open(receiver->sender, receiver->sender.identity, session->kdf,
-                                             frame, now_ms, scratch, output);
+    result.sender = dave_receive_sender_open(*receiver, receiver->identity, session->kdf, frame, now_ms,
+                                             scratch, output);
     if (!result.sender.ok()) {
         result.error = result.sender.error == DaveSenderError::output_capacity ||
                                result.sender.error == DaveSenderError::scratch_capacity

@@ -7,17 +7,20 @@ namespace maicord {
 
 enum class Gcm64Backend : u8 {
     automatic,
-    pclmul,
+    accelerated,
     portable
 };
 
 // AES128-GCM with a fixed 96-bit nonce and 64-bit tag, as required by DAVE.
 // Independent from the transport cipher: its 128-bit tag is never shortened.
 // Zero-initialize; one worker performs operations/release; never copy a live key.
-// One locked allocation holds the CNG AES-ECB key and GHASH subkey powers.
-// PCLMUL/SSSE3 GHASH is selected once at initialization when available; the
-// portable GHASH path uses fixed-iteration arithmetic.
-// ECB is only the internal AES block primitive for GCM, not a wire cipher mode.
+// One locked allocation holds the key: the AES-NI round keys and GHASH subkey
+// powers (accelerated), or the CNG AES-ECB key object and GHASH subkey
+// (portable, whose AES block primitive is ECB; not a wire cipher mode).
+// Initialization picks the accelerated backend (AES-NI, PCLMULQDQ and SSSE3,
+// checked with CPUID) when the CPU has it; the portable GHASH path uses
+// fixed-iteration arithmetic. A live key has storage.data set; handle is the
+// CNG key of the portable backend only.
 struct AesGcm64Key {
     void* handle;
     SecureBuffer storage;

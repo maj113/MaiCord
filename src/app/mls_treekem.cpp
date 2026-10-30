@@ -21,27 +21,23 @@ MlsStatus verify_path_key(KdfSha256Workspace& kdf, const u8* path_secret, const 
         return status;
     return mls_equal(public_key, expected, kMlsPointBytes) ? MlsStatus::ok : MlsStatus::crypto_failure;
 }
-// Public key and, optionally, a CNG handle for a node we hold a secret for.
-MlsStatus private_key(KdfSha256Workspace& kdf, const MlsTreeKemPrivate& state, u32 node, u8* public_key,
+// CNG handle for a node we hold a secret for.
+MlsStatus private_key(KdfSha256Workspace& kdf, const MlsTreeKemPrivate& state, u32 node,
                       P256Key* key) noexcept {
-    if (!state.initialized || state.path_count > kMaxPrivateNodes || state.leaf_index > 0x7fffffffu)
-        return MlsStatus::invalid_argument;
-    if (node == state.leaf_index * 2) {
-        copy_bytes(public_key, state.leaf_public, kMlsPointBytes);
-        return key ? mls_status(p256_import_private(key, P256Kind::ecdh,
-                                                    {state.leaf_private, kMlsScalarBytes},
-                                                    {state.leaf_public, kMlsPointBytes}))
-                   : MlsStatus::ok;
-    }
+    if (node == state.leaf_index * 2)
+        return mls_status(p256_import_private(key, P256Kind::ecdh, {state.leaf_private, kMlsScalarBytes},
+                                              {state.leaf_public, kMlsPointBytes}));
     const i32 slot = path_slot(state.path_nodes, state.path_count, node);
     if (slot < 0)
         return MlsStatus::malformed;
+    u8 public_key[kMlsPointBytes];
     return mls_node_key(kdf, state.path_secrets[slot], key, public_key);
 }
 bool have_private_key(const MlsTreeKemPrivate& state, u32 node) noexcept {
     return node == state.leaf_index * 2 || path_slot(state.path_nodes, state.path_count, node) >= 0;
 }
-MlsStatus set_path_secret(MlsTreeKemPrivate& state, u32 node, const u8* secret) noexcept {
+// Records the slot in `fresh` so verify_state can skip the re-derivation.
+MlsStatus set_path_secret(MlsTreeKemPrivate& state, u32 node, const u8* secret, u32* fresh) noexcept {
     i32 slot = path_slot(state.path_nodes, state.path_count, node);
     if (slot < 0) {
         if (state.path_count >= kMaxPrivateNodes)
@@ -50,6 +46,7 @@ MlsStatus set_path_secret(MlsTreeKemPrivate& state, u32 node, const u8* secret) 
         state.path_nodes[state.path_count++] = node;
     }
     copy_bytes(state.path_secrets[slot], secret, kMlsHashBytes);
+    *fresh |= 1u << slot;
     return MlsStatus::ok;
 }
 // Drops secrets for nodes beyond a shrunk tree.
@@ -70,9 +67,11 @@ void truncate_private(MlsTreeKemPrivate& state, u32 node_count) noexcept {
     }
     state.path_count = kept;
 }
-// Every retained secret must match its public node.
-MlsStatus verify_state(KdfSha256Workspace& kdf, const MlsTreeKemPrivate& state,
-                       const MlsTreeIndex& index) noexcept {
+// Every retained secret must match its public node. Slots in `fresh` were
+// already matched against this tree; `keys`, when given, holds every slot's
+// derived public key, so nothing is derived again.
+MlsStatus verify_state(KdfSha256Workspace& kdf, const MlsTreeKemPrivate& state, const MlsTreeIndex& index,
+                       u32 fresh = 0, const u8 (*keys)[kMlsPointBytes] = nullptr) noexcept {
     MlsTreeNode node{};
     auto status = mls_tree_index_node(index, state.leaf_index * 2, &node);
     if (status != MlsStatus::ok)
@@ -89,10 +88,13 @@ MlsStatus verify_state(KdfSha256Workspace& kdf, const MlsTreeKemPrivate& state,
             continue;
         if (node.type != kMlsNodeParent)
             return MlsStatus::malformed;
-        if (status = private_key(kdf, state, state.path_nodes[i], public_key, nullptr);
-            status != MlsStatus::ok)
-            return status;
-        if (!mls_equal(public_key, node.parent.public_key, kMlsPointBytes))
+        if ((fresh >> i) & 1)
+            continue;
+        if (!keys)
+            if (status = mls_node_key(kdf, state.path_secrets[i], nullptr, public_key);
+                status != MlsStatus::ok)
+                return status;
+        if (!mls_equal(keys ? keys[i] : public_key, node.parent.public_key, kMlsPointBytes))
             return MlsStatus::crypto_failure;
     }
     return MlsStatus::ok;
@@ -255,8 +257,8 @@ MlsStatus mls_treekem_update_prepare(KdfSha256Workspace& kdf, MlsTreeKemPrivate*
                                      const MlsTreeKemPrivate& current, const MlsRatchetTree& proposal_tree,
                                      const u8* leaf_secret, const P256Key& signing, Slice<u8> scratch,
                                      Slice<u8> stub, u32* stub_bytes, MlsUpdatePath* stub_path,
-                                     Slice<u8> tree_output, u32* tree_bytes,
-                                     MlsRatchetTree* merged) noexcept {
+                                     Slice<u8> tree_output, u32* tree_bytes, MlsRatchetTree* merged,
+                                     u8* tree_hash) noexcept {
     if (!next || next == &current || !leaf_secret || !stub_bytes || !stub_path || !tree_bytes || !merged ||
         !current.initialized || current.path_count > kMaxPrivateNodes ||
         current.leaf_index >= proposal_tree.leaf_count || !proposal_tree.group_id ||
@@ -342,14 +344,13 @@ MlsStatus mls_treekem_update_prepare(KdfSha256Workspace& kdf, MlsTreeKemPrivate*
         status = MlsStatus::malformed;
     if (status == MlsStatus::ok)
         status = mls_tree_merge_update_path(kdf, proposal_tree, current.leaf_index, *stub_path, scratch,
-                                            tree_output, tree_bytes, merged);
+                                            tree_output, tree_bytes, merged, tree_hash);
+    // The merged tree has at most proposal_tree's nodes; scratch holds its validation.
     MlsTreeIndex index{};
-    if (status == MlsStatus::ok && mls_tree_index_bytes(*merged) > scratch.count)
-        status = MlsStatus::buffer_too_small;
     if (status == MlsStatus::ok)
         status = mls_tree_index_init(&index, *merged, scratch);
     if (status == MlsStatus::ok)
-        status = verify_state(kdf, candidate, index);
+        status = verify_state(kdf, candidate, index, 0, keys);
     if (status != MlsStatus::ok) {
         secure_clear_bytes(stub.data, minimum(writer.used, stub.count));
         if (*tree_bytes)
@@ -381,8 +382,6 @@ MlsStatus mls_treekem_encap(KdfSha256Workspace& kdf, const MlsTreeKemPrivate& pr
     auto status = validate_joiners(joiners, merged.leaf_count, prepared.leaf_index);
     if (status == MlsStatus::ok)
         status = index_scratch(merged, scratch, &index, &resolution);
-    if (status == MlsStatus::ok)
-        status = verify_state(kdf, prepared, index);
     MlsTreeNode node{};
     if (status == MlsStatus::ok)
         status = mls_tree_index_node(index, prepared.leaf_index * 2, &node);
@@ -447,7 +446,7 @@ MlsStatus mls_treekem_encap(KdfSha256Workspace& kdf, const MlsTreeKemPrivate& pr
     writer.varint(nodes_bytes);
     current = prepared.leaf_index * 2;
     path_index = 0;
-    u8 public_key[kMlsPointBytes], kem_output[kMlsPointBytes], ciphertext[kMlsPathSecretCiphertextBytes];
+    u8 kem_output[kMlsPointBytes], ciphertext[kMlsPathSecretCiphertextBytes];
     for (u32 c = 0; status == MlsStatus::ok && writer.ok() && c != copath_count; ++c) {
         u32 parent = 0, resolution_count = 0;
         if (status = mls_tree_parent(current, &parent); status == MlsStatus::ok)
@@ -455,9 +454,12 @@ MlsStatus mls_treekem_encap(KdfSha256Workspace& kdf, const MlsTreeKemPrivate& pr
         current = parent;
         if (status != MlsStatus::ok || !resolution_count)
             continue;
+        // update_prepare matched every path key to its secret and the first
+        // pass matched the stub to these nodes.
         const u32 recipients = filter_joiners(resolution, resolution_count, joiners);
-        status = private_key(kdf, prepared, parent, public_key, nullptr);
-        writer.vector(public_key, kMlsPointBytes);
+        if (status = mls_tree_index_node(index, parent, &node); status != MlsStatus::ok)
+            break;
+        writer.vector(node.parent.public_key, kMlsPointBytes);
         writer.varint(recipients * one_ciphertext);
         for (u32 r = 0; status == MlsStatus::ok && r != recipients; ++r) {
             if (status = mls_tree_index_node(index, resolution[r], &node); status != MlsStatus::ok)
@@ -589,10 +591,10 @@ MlsStatus mls_treekem_decap(KdfSha256Workspace& kdf, MlsTreeKemPrivate* next,
         if (!has)
             return MlsStatus::malformed;
     }
-    u8 public_key[kMlsPointBytes], path_secret[kMlsHashBytes], derived[kMlsHashBytes];
+    u8 path_secret[kMlsHashBytes], derived[kMlsHashBytes];
     MlsWipe secret_wipe{path_secret, sizeof(path_secret)}, derived_wipe{derived, sizeof(derived)};
     P256Key key{};
-    status = private_key(kdf, candidate, decrypt_node, public_key, &key);
+    status = private_key(kdf, candidate, decrypt_node, &key);
     if (status == MlsStatus::ok) {
         const auto opened = mls_decrypt_with_label(
             kdf, key, text_bytes("UpdatePathNode"), group_context, {ciphertext.kem_output, kMlsPointBytes},
@@ -603,8 +605,9 @@ MlsStatus mls_treekem_decap(KdfSha256Workspace& kdf, MlsTreeKemPrivate* next,
             status = MlsStatus::malformed;
     }
     p256_release(&key);
+    u32 fresh = 0;
     if (status == MlsStatus::ok)
-        status = set_path_secret(candidate, overlap, path_secret);
+        status = set_path_secret(candidate, overlap, path_secret, &fresh);
     if (status == MlsStatus::ok)
         status = mls_tree_index_node(index, overlap, &node);
     if (status == MlsStatus::ok && (!node.present || node.type != kMlsNodeParent))
@@ -624,7 +627,7 @@ MlsStatus mls_treekem_decap(KdfSha256Workspace& kdf, MlsTreeKemPrivate* next,
         status = mls_derive_secret(kdf, path_secret, "path", derived);
         if (status == MlsStatus::ok) {
             copy_bytes(path_secret, derived, kMlsHashBytes);
-            status = set_path_secret(candidate, parent, path_secret);
+            status = set_path_secret(candidate, parent, path_secret, &fresh);
         }
         if (status == MlsStatus::ok)
             status = mls_tree_index_node(index, parent, &node);
@@ -637,7 +640,7 @@ MlsStatus mls_treekem_decap(KdfSha256Workspace& kdf, MlsTreeKemPrivate* next,
         status = mls_derive_secret(kdf, path_secret, "path", candidate.update_secret);
     if (status == MlsStatus::ok) {
         candidate.has_update_secret = true;
-        status = verify_state(kdf, candidate, index);
+        status = verify_state(kdf, candidate, index, fresh);
     }
     if (status != MlsStatus::ok)
         return status;
