@@ -173,6 +173,9 @@ struct ApplicationMediaPump {
                                   bool* repaint, bool* stop_scan) noexcept;
     bool request_search_decorations(u64 now_ms, u64 now_seconds, u64 now_us, u32* uploads,
                                     bool* repaint, bool* stop_scan) noexcept;
+    // Server icons of link chips in rendered timeline or Search text.
+    bool request_chip_guild_icons(bool search, u64 now_ms, u64 now_seconds, u32* uploads, bool* repaint,
+                                  bool* stop_scan) noexcept;
 
     static bool request_controller_attachment(void* context, const MessageRecord& message,
                                               const MessageRichAttachment& attachment, float preview_width,

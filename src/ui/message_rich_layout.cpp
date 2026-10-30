@@ -971,9 +971,9 @@ MessageRichLayout message_rich_aggregate_layout(const MessageRichRecord& rich,
             ++component_roots;
         }
     }
-    // Root components stack with the component gap.
+    // Root components stack with the root gap.
     if (component_roots > 1)
-        result.components += static_cast<float>(component_roots - 1) * kMessageComponentGap;
+        result.components += static_cast<float>(component_roots - 1) * message_component_root_gap(&rich);
     result.reactions = message_rich_reaction_layout_height(rich, available_width, reaction_widths);
     // Truncation notices and message annotations (ephemeral footer, failed
     // interaction) share the notice item; the estimate seeds only truncation.

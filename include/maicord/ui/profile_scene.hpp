@@ -28,7 +28,8 @@ enum class ProfileAction : u16 {
     // Edit Profile: the main editor, or the per-server menu in a server.
     edit,
     retry,
-    // Modal tabs and the popout's mutuals sections.
+    // Modal tabs and the mutuals row's chips (the DM panel opens the full
+    // profile on their tab).
     activity,
     friends,
     servers,
@@ -68,7 +69,10 @@ enum class ProfileAction : u16 {
     // No action: the part only carries a hint (tooltip).
     hint,
     // A profile badge (source: its index in badges): opens its link, if any.
-    badge
+    badge,
+    // A bot's popular command chip (source: its index in commands): the host
+    // puts the command in the composer.
+    command
 };
 enum class ProfilePhase : u8 {
     loading,
@@ -191,6 +195,14 @@ struct ProfileApplication {
     u64 id;
     ProfileString<64> icon;
 };
+// A bot's command the panel's Commands section offers (host-owned text,
+// borrowed until the next layout): "/name" with its description as the hint.
+// A profile lists at most five (popular_application_command_ids).
+struct ProfileCommand {
+    u64 id;
+    Utf8View name, description;
+};
+inline constexpr u32 kProfileCommandMaximum = 5;
 struct ProfileTextHit {
     UiWidgetHandle owner;
     UiRect layout, ink;
@@ -245,9 +257,9 @@ struct ProfileScene {
     u8 relation;
     ProfilePlacement placement;
     bool active, roles_busy, roles_expanded, can_manage_roles;
-    // The panel's expanded mutual lists: 1 servers, 2 friends (host-toggled
-    // through the servers and friends actions).
-    u8 sections;
+    // The panel's Commands section: the bot's popular commands the host
+    // resolved (set before layout; empty hides the section).
+    ConstSlice<ProfileCommand> commands;
     // Pointer over the card: the note button shows and the effect dims.
     bool hovered;
     u64 hover_changed_ms;

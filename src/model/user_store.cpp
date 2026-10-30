@@ -338,6 +338,19 @@ u8 user_store_client_status(const UserStore& store, u64 id) noexcept {
     return record ? record->client_status : 0;
 }
 
+bool user_store_clear_client_status(UserStore* store) noexcept {
+    if (!store || !store->records || !store->order) return false;
+    bool changed = false;
+    for (u32 i = 0; i < store->count; ++i) {
+        UserRecord& record = store->records[store->order[i]];
+        if (record.client_status) {
+            record.client_status = 0;
+            changed = true;
+        }
+    }
+    return changed;
+}
+
 const UserRecord* user_store_find(const UserStore& store, u64 id) noexcept {
     if (!store.records || !store.order || id == 0) {
         return nullptr;

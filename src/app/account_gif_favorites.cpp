@@ -1,6 +1,7 @@
 #include "maicord/app/account_gif_favorites.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/emoji_preferences.hpp"
+#include "maicord/protocol/application_commands.hpp"
 #include "maicord/app/rest_client.hpp"
 namespace maicord {
 namespace {
@@ -49,6 +50,13 @@ RestClientSubmitResult account_emoji_preferences(RestClient* rest,
                                                  ConstSlice<u8> patch, u64 request) noexcept {
     return settings_proto(rest, operation, patch, request, [](ConstSlice<u8> value) noexcept {
         return emoji_preferences_validate_patch_json(text(value)) == EmojiPreferencesError::none;
+    });
+}
+RestClientSubmitResult account_command_frecency(RestClient* rest,
+                                                AccountGifFavoritesOperation operation,
+                                                ConstSlice<u8> patch, u64 request) noexcept {
+    return settings_proto(rest, operation, patch, request, [](ConstSlice<u8> value) noexcept {
+        return command_frecency_patch_valid(text(value));
     });
 }
 } // namespace maicord

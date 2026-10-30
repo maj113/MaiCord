@@ -47,6 +47,10 @@ struct MessageComposerProjectionContext {
     // Replaces the "Message #channel" placeholder while non-empty.
     Utf8View placeholder_override{};
     MessageComposerCommand command{};
+    // Source byte ranges [first, last) of the selected command's option keys
+    // ("name:"), drawn as the client's option pills.
+    u32 option_key_count{};
+    u16 option_key_first[25]{}, option_key_last[25]{};
 };
 
 struct MessageComposerProjectionSpan {

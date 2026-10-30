@@ -25,6 +25,7 @@
 #include "application_theme_editor.hpp"
 #include "application_video.hpp"
 #include "maicord/ui/quick_switcher_scene.hpp"
+#include "maicord/ui/private_channel_rows.hpp"
 #include "maicord/app/private_channel_actions.hpp"
 #include "maicord/ui/clipboard.hpp"
 #include "maicord/core/deadline.hpp"
@@ -99,13 +100,13 @@ bool source_current(void* opaque) noexcept {
     return q && q == g_app.quick_switcher && q->active && available() &&
         quick_switcher_current(q->controller, scope(), sources(), q->source.revision);
 }
-// A friend's status, as the DM list shows it; unknown for everyone else.
-UiPresence friend_presence(u64 user, bool* mobile) noexcept {
+// A person's status as the DM list shows it (ui_user_presence); unknown
+// without one (group conversations).
+UiPresence user_presence(u64 user, bool* mobile) noexcept {
     *mobile = false;
-    const auto* relationships = application_friends_relationships();
-    const auto* relation = relationships && user ? relationship_store_find(*relationships, user) : nullptr;
-    if (!relation || relation->type != RelationshipType::friend_) return UiPresence::unknown;
-    const auto presence = application_friends_presence(relation->presence, UiPresence::offline);
+    const auto* rows = user ? application_private_channel_rows() : nullptr;
+    if (!rows) return UiPresence::unknown;
+    const auto presence = ui_user_presence(*rows, user);
     *mobile = ui_presence_mobile(presence, user_store_client_status(g_app.account_ui->user_store, user));
     return presence;
 }
@@ -119,7 +120,7 @@ bool resolve_row(void* opaque, u32 index, UiQuickSwitcherRow* out) noexcept {
         {row.label, row.label_bytes}, {row.detail, row.detail_bytes},
         row.recent ? utf8_literal("Recent") : Utf8View{}, {row.avatar_hash, row.avatar_hash_bytes}, true};
     if (target.kind == QuickSwitcherKind::user || target.kind == QuickSwitcherKind::private_channel)
-        out->presence = friend_presence(target.user_id, &out->mobile);
+        out->presence = user_presence(target.user_id, &out->mobile);
     if (q->picker && q->picker_channel &&
         private_channel_has_member(g_app.account_ui->chat_state, q->picker_channel, target.user_id)) {
         out->enabled = false;

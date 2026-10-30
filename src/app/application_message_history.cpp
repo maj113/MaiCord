@@ -22,6 +22,7 @@
 #include "application_pinned_messages.hpp"
 #include "application_media_picker.hpp"
 #include "application_expression_card.hpp"
+#include "application_interaction_card.hpp"
 #include "application_poll.hpp"
 #include "application_member_moderation.hpp"
 
@@ -211,12 +212,15 @@ static constexpr RequestLane kPrimaryLanes[] = {
      MessageHistoryRequestOwner::expression_card},
     {application_gif_favorites_pending, application_gif_favorites_submit,
      MessageHistoryRequestOwner::gif_favorites},
+    // The command chip popout's interaction data.
+    {application_interaction_card_pending, application_interaction_card_submit,
+     MessageHistoryRequestOwner::interaction_data},
     {application_emoji_preferences_pending, application_emoji_preferences_submit,
      MessageHistoryRequestOwner::emoji_preferences},
     {application_friends_pending, application_friends_submit, MessageHistoryRequestOwner::friends},
 };
-static constexpr u32 kPrimaryLaneSearch = 5, kPrimaryLaneMedia = 6, kPrimaryLaneFriends = 10,
-                     kPrimaryLaneEnd = 11;
+static constexpr u32 kPrimaryLaneSearch = 5, kPrimaryLaneMedia = 6, kPrimaryLaneFriends = 11,
+                     kPrimaryLaneEnd = 12;
 static_assert(sizeof(kPrimaryLanes) / sizeof(kPrimaryLanes[0]) == kPrimaryLaneEnd);
 
 // The first pending lane in [first, last) takes the pump's turn, whether or not its submit was
@@ -684,6 +688,7 @@ static constexpr ResponseRoute kResponseRoutes[] = {
     {MessageHistoryRequestOwner::private_channel, application_private_channel_response},
     {MessageHistoryRequestOwner::media_catalog, application_media_picker_response},
     {MessageHistoryRequestOwner::expression_card, application_expression_card_response},
+    {MessageHistoryRequestOwner::interaction_data, application_interaction_card_response},
     {MessageHistoryRequestOwner::gif_favorites, application_gif_favorites_response},
     {MessageHistoryRequestOwner::emoji_preferences, application_emoji_preferences_response},
     {MessageHistoryRequestOwner::message_search, application_search_response},

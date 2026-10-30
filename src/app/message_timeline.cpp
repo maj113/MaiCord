@@ -572,6 +572,24 @@ bool message_timeline_set_local_reply(MessageTimeline* timeline, u64 message_id,
     return message_rich_store_apply(timeline->rich_store, message_id, record->revision, rich).ok();
 }
 
+bool message_timeline_set_local_interaction(MessageTimeline* timeline, u64 message_id,
+                                            const GatewayMessageInteraction& interaction) noexcept {
+    if (validate_timeline(timeline) != MessageTimelineError::none || !message_id || !interaction.user_id ||
+        !interaction.command_name.bytes)
+        return false;
+    const MessageStoreResult found = message_store_find(*timeline->store, message_id);
+    const MessageRecord* record = found.ok() ? message_store_resolve(*timeline->store, found.handle) : nullptr;
+    if (!record || record->delivery == MessageDeliveryState::authoritative)
+        return false;
+    if (!timeline->rich_store)
+        return true;
+    GatewayMessageEvent rich{};
+    rich.id = message_id;
+    rich.interaction = interaction;
+    rich.fields = gateway_message_field_interaction;
+    return message_rich_store_apply(timeline->rich_store, message_id, record->revision, rich).ok();
+}
+
 static MessageTimelineApplyResult apply_decoded_message(
     MessageTimeline* timeline, const GatewayMessageEvent& message, bool create,
     MessageContentAvailability content_availability) noexcept {

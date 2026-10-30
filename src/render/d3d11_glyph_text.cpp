@@ -257,6 +257,17 @@ Color text_style_color(const Theme* theme, const Color& base, u32 flags,
     if ((flags & text_style_spoiler) != 0) {
         return theme->interactive;
     }
+    // A slash command option key in the composer keeps the text colour on a
+    // neutral pill (the official option pill key).
+    if (text_style_is_command_option(flags)) {
+        return base;
+    }
+    // A hovered mention or link chip is an accent pill with on-accent text
+    // (the official .interactive:hover); role mentions keep their colour.
+    constexpr u32 hovered_mention = text_style_mention | text_style_interactive_hover;
+    if ((flags & hovered_mention) == hovered_mention) {
+        return theme->tokens.emphasis.text;
+    }
     if ((flags & text_style_mention) != 0) {
         return ui_foreground_color(*theme, theme->tokens.mention.text);
     }
@@ -291,8 +302,12 @@ Color text_decoration_color(const Theme* theme, const Color& base,
     if ((decoration.style_flags & text_style_spoiler) != 0) {
         return theme->interactive;
     }
+    if (text_style_is_command_option(decoration.style_flags)) {
+        return theme->surface_high;
+    }
     if ((decoration.style_flags & text_style_mention) != 0) {
-        return theme->tokens.mention.inline_background;
+        return (decoration.style_flags & text_style_interactive_hover) ? theme->tokens.emphasis.fill
+                                                                       : theme->tokens.mention.inline_background;
     }
     return theme->surface_high;
 }
@@ -529,7 +544,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
         Color decoration_color = text_decoration_color(request.theme, request.color, decoration);
         Color role_color{};
         if (role_color_for_decoration(request, decoration, &role_color)) {
-            role_color.alpha = 0.18f;
+            role_color.alpha = (decoration.style_flags & text_style_interactive_hover) ? .3f : .18f;
             decoration_color = role_color;
         }
         if (!d3d11_glyph_text_append_solid(decoration, request.origin_x, request.origin_y, decoration_color,

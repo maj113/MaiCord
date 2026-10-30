@@ -171,6 +171,7 @@ enum class MessageHistoryRequestOwner : u8 {
     dm_profile,
     startup_history,
     expression_card,
+    interaction_data,
     count,
 };
 

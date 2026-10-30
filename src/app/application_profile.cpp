@@ -11,6 +11,8 @@
 #include "application_account_presentation.hpp"
 #include "application_message_interaction.hpp"
 #include "application_private_conversation.hpp"
+#include "application_private_channel.hpp"
+#include "maicord/ui/private_channel_rows.hpp"
 #include "application_plugins.hpp"
 #include "application_user_actions.hpp"
 #include "application_profile_editor.hpp"
@@ -383,7 +385,19 @@ bool activate(ProfileAction action, UiWidgetHandle target = {}) noexcept {
     case ProfileAction::friends:
         return show_modal(*p, 1);
     case ProfileAction::servers:
-        return show_modal(*p, s.self_id == p->data.user_id || p->data.user_appearance.bot ? 0 : 2);
+        // A bot's tabs are Activity and Mutual Servers.
+        return show_modal(*p, s.self_id == p->data.user_id ? 0 : p->data.user_appearance.bot ? 1 : 2);
+    case ProfileAction::command: {
+        // As the client: the chip closes the profile, then fills the composer
+        // (closing keeps the profile's data).
+        const u16 index = part ? part->source : 0xFFFF;
+        if (index >= p->commands.count)
+            return false;
+        application_profile_close();
+        if (!profile_commands_insert(p->commands, index))
+            log_u64(LogLevel::warning, "profile", "command_insert_failed", index);
+        return true;
+    }
     case ProfileAction::roles_toggle:
         s.roles_expanded = !s.roles_expanded;
         break;
@@ -501,11 +515,11 @@ bool activate(ProfileAction action, UiWidgetHandle target = {}) noexcept {
     return profile_scene_layout(&s, application_viewport_dips(), true) && repaint(true);
 }
 } // namespace
-bool application_profile_expand(u64 user) noexcept {
+bool application_profile_expand(u64 user, u8 tab) noexcept {
     auto* p = g_app.profile;
     if (!p || !p->scene.active || p->data.user_id != user)
         return false;
-    return show_modal(*p, 0);
+    return show_modal(*p, tab);
 }
 bool application_profile_menu_action(u32 action) noexcept {
     return action > kMenuBase && action <= menu_last && g_app.popup_owner_kind == PopupOwnerKind::profile;
@@ -598,13 +612,11 @@ bool application_profile_open(u64 user, const UiRect& anchor, ProfileAnchor kind
         const auto* member =
             guild_member_store_find(g_app.account_ui->guild_member_store, guild, user);
         p->scene.presence = member ? static_cast<UiPresence>(member->status) : UiPresence::unknown;
-        // Outside a server (DMs, friends) a friend's presence still shows.
-        const auto* relationships = application_friends_relationships();
-        const auto* relation = p->scene.presence == UiPresence::unknown && relationships
-                                   ? relationship_store_find(*relationships, user)
-                                   : nullptr;
-        if (relation && relation->type == RelationshipType::friend_)
-            p->scene.presence = application_friends_presence(relation->presence, UiPresence::offline);
+        // Without a member row (DMs, friends, an unlisted member) the user's
+        // presence as DMs show it.
+        const auto* rows = p->scene.presence == UiPresence::unknown ? application_private_channel_rows() : nullptr;
+        if (rows)
+            p->scene.presence = ui_user_presence(*rows, user);
         p->scene.presence_mobile =
             ui_presence_mobile(p->scene.presence, user_store_client_status(g_app.account_ui->user_store, user));
         if (member)
@@ -627,6 +639,8 @@ bool application_profile_open(u64 user, const UiRect& anchor, ProfileAnchor kind
     p->scene.reduced_motion = !animations || g_app.preferences.reduced_motion;
     p->scene.measure = &g_app.account_ui->text_measure_cache;
     p->scene.applications = {p->applications, p->application_count};
+    profile_commands_resolve(&p->commands, p->data, p->loaded_at, state.selected_channel_id);
+    p->scene.commands = profile_commands_view(p->commands);
     if (!profile_scene_open(&p->scene, &p->data, &state, &g_app.account_ui->user_store,
                             state.self_user_id, anchor, application_viewport_dips()))
         return false;
@@ -675,6 +689,18 @@ void application_profile_release() noexcept {
         profile_scene_release(&g_app.profile->scene);
         VirtualFree(g_app.profile, 0, MEM_RELEASE);
         g_app.profile = nullptr;
+    }
+}
+void application_profile_synchronize() noexcept {
+    auto* p = g_app.profile;
+    if (!p || !p->scene.active || !g_app.account_ui)
+        return;
+    // A landed command index changes a bot's Commands.
+    if (profile_commands_resolve(&p->commands, p->data, p->loaded_at,
+                                 g_app.account_ui->chat_state.selected_channel_id)) {
+        p->scene.commands = profile_commands_view(p->commands);
+        if (profile_scene_layout(&p->scene, application_viewport_dips(), true))
+            repaint(true);
     }
 }
 void application_profile_layout(UiRect viewport) noexcept {
@@ -1161,6 +1187,8 @@ bool application_profile_response(const RestClientResponse& response, Utf8View b
     }
     if (!p->scene.active)
         return true;
+    profile_commands_resolve(&p->commands, p->data, p->loaded_at, g_app.account_ui->chat_state.selected_channel_id);
+    p->scene.commands = profile_commands_view(p->commands);
     return profile_scene_layout(&p->scene, application_viewport_dips(), true) && repaint(true);
 }
 MessageComposer* application_profile_edit_model() noexcept {

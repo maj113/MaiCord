@@ -2,6 +2,10 @@
 #include "../src/app/application_state.hpp"
 #include "../src/app/application_plugins.hpp"
 #include "../src/app/application_message_feedback.hpp"
+#include "../src/app/application_text_form.hpp"
+#include "../src/app/application_attachments.hpp"
+#include "maicord/protocol/attachment_upload.hpp"
+#include "maicord/protocol/application_commands.hpp"
 #include "maicord/app/message_composer_controller.hpp"
 #include "maicord/app/message_send_response.hpp"
 #include "maicord/ui/popup_presentation.hpp"
@@ -57,6 +61,55 @@ bool queue_message_edit_content(u64, Utf8View) noexcept { return false; }
 Utf8View application_account_notice() noexcept { return {}; }
 u32 context_changes;
 void application_user_actions_commands_changed() noexcept { ++context_changes; }
+u32 frame_refreshes, modal_nonces;
+u64 expected_modal;
+ApplicationTextFormRequest confirm_request;
+bool refresh_account_frame(bool) noexcept { ++frame_refreshes; return true; }
+void application_message_components_expect_modal(u64 nonce, u64) noexcept {
+    ++modal_nonces;
+    expected_modal = nonce;
+}
+// Declined unless a case opts in; the invite fixture expects no modal.
+bool confirm_opens;
+bool application_text_form_open(const ApplicationTextFormRequest& request) noexcept {
+    if (!confirm_opens)
+        return false;
+    confirm_request = request;
+    return true;
+}
+// Staged uploads of the composer's channel, as the attachment pipeline reports them.
+UploadedAttachment staged_uploads[2];
+u32 staged_upload_count, picker_opens, uploads_completed;
+u64 uploads_queued_nonce;
+bool application_attachment_prepare_send(u64, Slice<UploadedAttachment> references, Slice<u64> ids, u32* count,
+                                         Slice<u64>) noexcept {
+    for (u32 i = 0; i < staged_upload_count; ++i) {
+        references[i] = staged_uploads[i];
+        references[i].id = i;
+        ids[i] = 50 + i;
+    }
+    *count = staged_upload_count;
+    return true;
+}
+void application_attachment_did_queue(ConstSlice<u64> ids, u64 nonce) noexcept {
+    if (ids.count)
+        uploads_queued_nonce = nonce;
+}
+void application_attachment_complete(u64) noexcept { ++uploads_completed; }
+bool application_pick_attachments() noexcept {
+    ++picker_opens;
+    return true;
+}
+bool application_composer_fill_command(Utf8View name) noexcept {
+    char text[160];
+    text[0] = '/';
+    copy_bytes(text + 1, name.data, name.bytes);
+    text[name.bytes + 1] = ' ';
+    return composer_apply_result(message_composer_replace_range(&g_app.message_composer, 0,
+                                                                g_app.message_composer.bytes,
+                                                                {text, name.bytes + 2}),
+                                 true);
+}
 } // namespace maicord::app_detail
 
 namespace maicord {
@@ -104,6 +157,34 @@ bool payload_contains(Utf8View expected) noexcept {
         if (bytes_equal(payload + at, expected.data, expected.bytes)) return true;
     return false;
 }
+// The one local command message on the visible timeline, if any.
+const MessageRecord* only_echo() noexcept {
+    const auto& store = *g_app.message_view.timeline.store;
+    for (u32 i = 0; i < store.capacity; ++i)
+        if (store.records[i].occupied)
+            return &store.records[i];
+    return nullptr;
+}
+bool only_echo_with(u64 id) noexcept {
+    return id && message_store_find(*g_app.message_view.timeline.store, id).ok();
+}
+Utf8View echo_text(const MessageRecord& record) noexcept {
+    return {reinterpret_cast<const char*>(g_app.message_view.timeline.store->text + record.content_offset),
+            record.content_bytes};
+}
+void interaction(GatewayClientDispatchKind kind, u64 id, u64 nonce) noexcept {
+    u8 body[128]{};
+    ProtocolWriter writer{{body, sizeof(body)}, 0};
+    bool ok = protocol_writer_append_literal(&writer, "{\"id\":\"") &&
+              protocol_writer_append_u64(&writer, id ? id : 1) && protocol_writer_append_literal(&writer, "\"");
+    if (nonce)
+        ok = ok && protocol_writer_append_literal(&writer, ",\"nonce\":\"") &&
+             protocol_writer_append_u64(&writer, nonce) && protocol_writer_append_literal(&writer, "\"");
+    ok = ok && protocol_writer_append_literal(&writer, "}");
+    check(ok, "interaction event fixture");
+    application_commands_interaction(kind, {reinterpret_cast<const char*>(body), writer.used});
+}
+constexpr auto fixture_index = utf8_literal(R"({"applications":[{"id":"10","name":"Test","bot":{"id":"11"}},{"id":"20","name":"Other","bot":{"id":"21"}}],"application_commands":[{"id":"100","application_id":"10","version":"7","name":"wordle","description":"Play wordle","type":1},{"id":"101","application_id":"10","version":"7","name":"echo","description":"Echo","type":1,"options":[{"name":"text","type":3,"required":true}]},{"id":"102","application_id":"10","version":"7","name":"pick","description":"Pick","type":1,"options":[{"name":"mode","type":4,"required":true,"choices":[{"name":"One","value":1},{"name":"Two","value":2}]}]},{"id":"103","application_id":"10","version":"7","name":"admin","description":"Admin","type":1,"options":[{"name":"group","type":2,"options":[{"name":"run","description":"Run","type":1,"options":[{"name":"count","type":4,"required":true}]}]}]},{"id":"104","application_id":"10","version":"7","name":"bump","description":"First bump","type":1},{"id":"105","application_id":"20","version":"7","name":"bump","description":"Second bump","type":1},{"id":"106","application_id":"10","version":"7","name":"search","description":"Search","type":1,"options":[{"name":"query","type":3,"required":true,"autocomplete":true},{"name":"count","type":4}]},{"id":"107","application_id":"10","version":"7","name":"upload","description":"Upload","type":1,"options":[{"name":"file","type":11,"required":true},{"name":"extra","type":11}]}]})");
 void edit(Utf8View text) noexcept {
     message_composer_select_all(&g_app.message_composer);
     const auto result = message_composer_insert_utf8(&g_app.message_composer, text);
@@ -258,9 +339,8 @@ void command_index_invalidation_cases() noexcept {
                       "command invalidation sends the interaction before update");
             const u32 submitted_before = calls;
             application_commands_invalidate_guild(55);
-            check(application_commands_tick(1) && calls == submitted_before &&
-                      utf8_equal(message_composer_text(composer), utf8_literal("/guild ")),
-                  "command invalidation never resubmits or edits a queued or sending draft");
+            check(application_commands_tick(1) && calls == submitted_before && !composer.bytes,
+                  "command invalidation never resubmits a queued or sending command");
             if (!sending)
                 check(application_commands_submit(30) && operation == 2,
                       "command invalidation preserves the already serialized queued interaction");
@@ -525,12 +605,15 @@ void run() noexcept {
     MessageRecord records[4]{}; u32 order[4]{}, heights[4]{}; u64 fenwick[4]{};
     u8 text[512]{}, draft_text[512]{}, request_text[kMessageComposerMaximumBytes]{};
     MessageDraftRecord draft_records[4]{};
-    UserRecord bot_records[2]{}; u32 bot_order[2]{}; u8 bot_names[128]{};
+    UserRecord bot_records[4]{}; u32 bot_order[4]{}; u8 bot_names[256]{};
     MessageStore store{}; UiVariableList list{}; MessageTimeline timeline{}; MessageDraftStore drafts{};
+    MessageRecord echo_records[16]{}; u32 echo_order[16]{}, echo_heights[16]{}; u64 echo_fenwick[16]{};
+    u8 echo_text_bank[1024]{};
+    MessageStore echo_store{}; UiVariableList echo_list{};
     auto& composer = g_app.message_composer;
     auto& controller = g_app.account_ui->message_composer_controller;
     const bool ready = message_composer_initialize(&composer, {input, sizeof(input)}) &&
-        user_store_initialize(&g_app.account_ui->user_store, {bot_records, 2}, {bot_order, 2},
+        user_store_initialize(&g_app.account_ui->user_store, {bot_records, 4}, {bot_order, 4},
                               {bot_names, sizeof(bot_names)}) &&
         user_store_upsert(&g_app.account_ui->user_store, 11, utf8_literal("Test bot")).ok() &&
         user_store_upsert(&g_app.account_ui->user_store, 21, utf8_literal("Other bot")).ok() &&
@@ -548,9 +631,16 @@ void run() noexcept {
         composer.focused = true;
         command_retry_cases();
         command_index_invalidation_cases();
+        // Local command messages land on the visible channel's timeline.
+        check(message_store_initialize(&echo_store, {echo_records, 16}, {echo_order, 16},
+                                       {echo_text_bank, sizeof(echo_text_bank)}) &&
+                  ui_variable_list_initialize(&echo_list, {echo_heights, 16}, {echo_fenwick, 16}, 0, 100) &&
+                  message_timeline_initialize(&g_app.message_view.timeline, &echo_store, &echo_list, 100, 100, true),
+              "command echo timeline fixture");
+        g_app.account_ui->active_channel_id = 7;
         edit(utf8_literal("/"));
         check(application_commands_submit(1) && operation == 0, "load server command index");
-        respond(200, utf8_literal(R"({"applications":[{"id":"10","name":"Test","bot":{"id":"11"}},{"id":"20","name":"Other","bot":{"id":"21"}}],"application_commands":[{"id":"100","application_id":"10","version":"7","name":"wordle","description":"Play wordle","type":1},{"id":"101","application_id":"10","version":"7","name":"echo","description":"Echo","type":1,"options":[{"name":"text","type":3,"required":true}]},{"id":"102","application_id":"10","version":"7","name":"pick","description":"Pick","type":1,"options":[{"name":"mode","type":4,"required":true,"choices":[{"name":"One","value":1},{"name":"Two","value":2}]}]},{"id":"103","application_id":"10","version":"7","name":"admin","description":"Admin","type":1,"options":[{"name":"group","type":2,"options":[{"name":"run","description":"Run","type":1,"options":[{"name":"count","type":4,"required":true}]}]}]},{"id":"104","application_id":"10","version":"7","name":"bump","description":"First bump","type":1},{"id":"105","application_id":"20","version":"7","name":"bump","description":"Second bump","type":1},{"id":"106","application_id":"10","version":"7","name":"search","description":"Search","type":1,"options":[{"name":"query","type":3,"required":true,"autocomplete":true},{"name":"count","type":4}]}]})"));
+        respond(200, fixture_index);
         check(application_commands_submit(2) && operation == 1, "load user command index");
         respond(200, utf8_literal(R"({"applications":[],"application_commands":[]})"));
         edit(utf8_literal("/word"));
@@ -615,50 +705,128 @@ void run() noexcept {
               description_left - name_right == UiThemeMetrics{}.menu_gap,
               "command summary joins Unicode bold name and description using shaped width and theme gap");
         g_app.popup_scene.items[0].label = original_header_name;
-        const u32 before = calls;
-        check(application_commands_key(VK_RETURN) && !g_app.popup_scene.active && composer.bytes &&
-              calls == before, "Enter queues and dismisses picker before network completion");
-        message_composer_select_all(&composer);
-        refresh_message_composer_ui();
-        check(!g_app.popup_scene.active && composer.anchor != composer.caret,
-              "pending command remains editable without reopening picker");
-        check(application_commands_submit(3) && operation == 2 && payload_bytes,
-              "queued command uses deterministic fake account boundary");
-        const u32 committed = edits_committed;
+        const u32 before = calls, modals_before = modal_nonces;
+        check(application_commands_key(VK_RETURN) && !g_app.popup_scene.active && !composer.bytes &&
+              calls == before && modal_nonces == modals_before + 1,
+              "Enter queues the command, clears the draft like the official client and dismisses the picker");
+        const MessageRecord* echo = only_echo();
+        check(echo && echo->type == 20 && echo->author_id == 11 && echo->channel_id == 7 &&
+              echo->delivery == MessageDeliveryState::pending &&
+              utf8_equal(echo_text(*echo), utf8_literal("Sending command...")),
+              "queued command shows the official local message under its bot until the interaction exists");
+        check(application_commands_submit(3) && operation == 2 && payload_bytes && echo &&
+              echo->id == submitted_nonce && expected_modal == submitted_nonce,
+              "queued command sends the nonce of its local message and expects its modal");
+        const u32 refreshes = frame_refreshes;
+        check(application_commands_next_wake() == 1 && application_commands_tick(1) &&
+              frame_refreshes == refreshes + 1 && application_commands_next_wake() != 1,
+              "local command message repaints once through the deferred frame refresh");
+        edit(utf8_literal("new draft"));
         respond(204);
-        check(!composer.bytes && !g_app.popup_scene.active && edits_committed == committed + 1,
-              "selection changes do not prevent success clearing through normal edit path");
-        message_composer_controller_select_channel(&controller, 8);
-        message_composer_controller_select_channel(&controller, 7);
-        check(!composer.bytes, "successful command clears retained channel draft");
-        edit(utf8_literal("/word")); application_commands_key(VK_RETURN); application_commands_key(VK_RETURN);
-        check(application_commands_submit(4), "second command submits");
-        edit(utf8_literal("new draft")); respond(204);
         check(utf8_equal(message_composer_text(composer), utf8_literal("new draft")),
-              "late success preserves edits made after submit");
+              "interaction acceptance never edits the composer");
+        interaction(GatewayClientDispatchKind::interaction_create, 900, submitted_nonce);
+        echo = only_echo();
+        check(echo && echo->content_bytes == 0 && (echo->flags & (1u << 7)) &&
+              echo->delivery == MessageDeliveryState::pending,
+              "INTERACTION_CREATE turns the local message into the deferred thinking state");
+        interaction(GatewayClientDispatchKind::interaction_success, 900, 0);
+        echo = only_echo();
+        check(echo && echo->content_bytes == 0 && !(echo->flags & (1u << 7)),
+              "INTERACTION_SUCCESS matched by interaction id leaves the message without a status");
+        application_commands_message_created(submitted_nonce);
+        check(!only_echo(), "the response message with the command nonce replaces the local message");
         edit(utf8_literal("/word")); application_commands_key(VK_RETURN); application_commands_key(VK_RETURN);
-        check(application_commands_submit(4), "command submits before channel change");
-        message_composer_controller_select_channel(&controller, 8);
-        edit(utf8_literal("another channel")); respond(204);
-        check(composer.channel_id == 8 && utf8_equal(message_composer_text(composer), utf8_literal("another channel")),
-              "late success cannot erase another channel draft");
-        message_composer_controller_select_channel(&controller, 7);
-        edit(utf8_literal("/word")); application_commands_key(VK_RETURN); application_commands_key(VK_RETURN);
-        check(application_commands_submit(5), "failed command submits"); respond(400);
-        check(composer.bytes && g_app.popup_scene.active, "failure preserves arguments and restores picker");
-        bool error_visible = false;
-        for (u32 i = 0; i < g_app.popup_scene.item_count; ++i)
-            error_visible |= utf8_equal(g_app.popup_scene.items[i].detail,
-                utf8_literal("Command failed. Try again."));
-        check(error_visible, "failure explanation is retained");
+        check(application_commands_submit(5), "failed command submits");
+        respond(400, utf8_literal(R"({"code":50035,"errors":{"data":{"options":{"_errors":[{"code":"INTERACTION_APPLICATION_COMMAND_INVALID_VERSION","message":"This command is outdated, please try again in a few minutes"}]}}},"message":"Invalid Form Body"})"));
+        echo = only_echo();
+        check(!composer.bytes && !g_app.popup_scene.active && echo &&
+              echo->delivery == MessageDeliveryState::failed &&
+              utf8_equal(echo_text(*echo),
+                         utf8_literal("This command is outdated, please try again in a few minutes")),
+              "an API refusal fails the local message with the client's nested form error");
+        edit(utf8_literal("/"));
+        check(application_commands_submit(7) && operation == 0,
+              "an outdated command version refetches the command index when discovery is wanted");
+        respond(200, fixture_index);
+        check(application_commands_submit(8) && operation == 1, "an outdated command version refetches the user index");
+        respond(200, utf8_literal(R"({"applications":[],"application_commands":[]})"));
+        message_timeline_remove_local(&g_app.message_view.timeline, only_echo() ? only_echo()->id : 0);
         edit(utf8_literal("/word")); application_commands_key(VK_RETURN); application_commands_key(VK_RETURN);
         submit_error = RestClientSubmitError::busy;
-        check(application_commands_submit(6) && !g_app.popup_scene.active && composer.bytes,
-              "busy account lane preserves pending draft without reopening picker");
+        check(application_commands_submit(6) && !g_app.popup_scene.active && !composer.bytes &&
+                  application_commands_pending(106),
+              "busy account lane keeps the queued command for a later turn");
         submit_error = RestClientSubmitError::invalid_input;
-        check(application_commands_submit(106) && g_app.popup_scene.active && composer.bytes,
-              "immediate submit failure restores an editable picker");
+        echo = nullptr;
+        check(application_commands_submit(106) && !application_commands_pending(107) && (echo = only_echo()) &&
+                  utf8_equal(echo_text(*echo), utf8_literal("This interaction failed")),
+              "immediate submit failure fails the local message");
         submit_error = RestClientSubmitError::none;
+        const u64 failed_id = echo ? echo->id : 0;
+        const u32 failed_payload_bytes = payload_bytes;
+        check(application_commands_retry(failed_id) && !only_echo_with(failed_id) &&
+                  application_commands_pending(300) && application_commands_submit(300) && operation == 2 &&
+                  submitted_nonce != failed_id && payload_bytes == failed_payload_bytes &&
+                  only_echo_with(submitted_nonce),
+              "Retry send re-executes a failed command with a new nonce and local message like the client");
+        respond(204);
+        message_timeline_remove_local(&g_app.message_view.timeline, submitted_nonce);
+        edit(utf8_literal("/word")); application_commands_key(VK_RETURN); application_commands_key(VK_RETURN);
+        check(application_commands_submit(200), "failing command submits after the busy retry floor");
+        respond(204);
+        interaction(GatewayClientDispatchKind::interaction_failure, 0, submitted_nonce);
+        echo = only_echo();
+        check(echo && echo->delivery == MessageDeliveryState::failed &&
+              utf8_equal(echo_text(*echo), utf8_literal("This interaction failed")),
+              "a quick INTERACTION_FAILURE fails the local message");
+        message_timeline_remove_local(&g_app.message_view.timeline, echo ? echo->id : 0);
+        edit(utf8_literal("/word")); application_commands_key(VK_RETURN); application_commands_key(VK_RETURN);
+        check(application_commands_submit(201) && only_echo(), "modal command submits");
+        respond(204);
+        interaction(GatewayClientDispatchKind::interaction_modal_create, 901, submitted_nonce);
+        check(!only_echo(), "a modal answering the command removes its local message");
+
+        ApplicationRootCommand roots[8]{};
+        bool roots_loading = true;
+        const u32 root_count = application_commands_for_application(7, 10, {roots, 8}, &roots_loading);
+        bool admin_nested = false;
+        for (u32 i = 0; i < root_count; ++i)
+            admin_nested |= roots[i].command_id == 103 && roots[i].subcommands && !roots[i].description.bytes;
+        check(root_count == 7 && !roots_loading && roots[0].command_id == 100 &&
+                  utf8_equal(roots[0].name, utf8_literal("wordle")) &&
+                  utf8_equal(roots[0].description, utf8_literal("Play wordle")) && !roots[0].subcommands &&
+                  admin_nested && !application_commands_for_application(8, 10, {roots, 8}, &roots_loading),
+              "profile commands list one app's root commands for the active channel only");
+        check(application_commands_catalog_revision() != 0, "loaded indexes advance the catalog revision");
+        check(application_commands_insert(10, 100, utf8_literal("wordle")) &&
+                  utf8_equal(message_composer_text(composer), utf8_literal("/wordle ")) &&
+                  g_app.message_composer_scene.command.name_bytes == 7 && !confirm_request.title.bytes,
+              "inserting a profile command into an empty draft selects it by id");
+        edit(utf8_literal("written"));
+        confirm_opens = true;
+        check(application_commands_insert(10, 101, utf8_literal("echo")) &&
+                  utf8_equal(confirm_request.title, utf8_literal("Clear message?")) &&
+                  utf8_equal(confirm_request.accept, utf8_literal("Clear")) &&
+                  utf8_equal(message_composer_text(composer), utf8_literal("written")),
+              "inserting over a written draft asks to clear it first");
+        check(confirm_request.save && confirm_request.valid(confirm_request.owner) &&
+                  confirm_request.save(confirm_request.owner, {}) &&
+                  utf8_equal(message_composer_text(composer), utf8_literal("/echo ")) &&
+                  g_app.message_composer_scene.command.name_bytes == 5,
+              "confirming the clear inserts and selects the command");
+        reset_value(&confirm_request);
+        confirm_opens = false;
+        edit({});
+        check(application_commands_insert(0, 103, utf8_literal("admin group run")) &&
+                  utf8_equal(message_composer_text(composer), utf8_literal("/admin group run ")) &&
+                  g_app.message_composer_scene.command.name_bytes == 16,
+              "a command mention selects its subcommand by id and full name");
+        edit({});
+        check(application_commands_insert(0, 103, utf8_literal("admin other")) &&
+                  !g_app.message_composer_scene.command.name_bytes,
+              "a mention whose name no longer matches the id selects nothing, like the client");
+        edit(utf8_literal("/word")); application_commands_key(VK_RETURN);
         popup_scene_close(&g_app.popup_scene); set_popup_owner(PopupOwnerKind::none);
         message_composer_select_all(&composer); refresh_message_composer_ui();
         check(!g_app.popup_scene.active, "dismissed picker stays closed during selection edits");
@@ -677,12 +845,53 @@ void run() noexcept {
         edit(utf8_literal("/echo \t"));
         check(action_named(utf8_literal("/echo")) != 0,
               "trailing whitespace does not hide an exact command from discovery");
+        {
+            edit(utf8_literal("/pick"));
+            const PopupItem* pick_row = nullptr;
+            for (u32 i = 0; i < g_app.popup_scene.item_count; ++i)
+                if (utf8_equal(g_app.popup_scene.items[i].label, utf8_literal("/pick")))
+                    pick_row = &g_app.popup_scene.items[i];
+            check(pick_row && utf8_equal(pick_row->detail, utf8_literal("Pick\x1FTest\x1Fmode")),
+                  "a picker row carries its description, app column and required option summary");
+            UiTextCommand row_text[96]{};
+            UiTextCommandStream row_stream{};
+            UiTextOutput row_output{&row_stream, nullptr};
+            ui_text_command_stream_initialize(&row_stream, {row_text, 96});
+            bool description = false, app = false, summary = false;
+            if (popup_text_presentation_build_output(g_app.popup_scene, kDefaultTheme, &row_output))
+                for (u32 i = 0; i < row_stream.count; ++i) {
+                    description |= utf8_equal(row_text[i].text, utf8_literal("Pick"));
+                    app |= utf8_equal(row_text[i].text, utf8_literal("Test"));
+                    summary |= utf8_equal(row_text[i].text, utf8_literal("mode"));
+                }
+            check(description && app && summary, "picker rows draw the description, app name and options apart");
+            edit(utf8_literal("/search"));
+            pick_row = nullptr;
+            for (u32 i = 0; i < g_app.popup_scene.item_count; ++i)
+                if (utf8_equal(g_app.popup_scene.items[i].label, utf8_literal("/search")))
+                    pick_row = &g_app.popup_scene.items[i];
+            check(pick_row && utf8_equal(pick_row->detail, utf8_literal("Search\x1FTest\x1Fquery  +1 optional")),
+                  "optional options collapse into the client's +N optional");
+        }
         edit(utf8_literal("/"));
         edit(utf8_literal("/echo text:\"keep quoted value\""));
         const u32 echo_action = action_named(utf8_literal("/echo"));
         check(echo_action && application_commands_activate(echo_action) &&
               utf8_equal(message_composer_text(composer), utf8_literal("/echo text:\"keep quoted value\"")),
               "selecting an exact typed command preserves its existing named arguments");
+        {
+            refresh_message_composer_ui();
+            const auto& scene = g_app.message_composer_scene;
+            bool key_pill = false, value_plain = true;
+            for (u32 i = 0; i < scene.display_style_count; ++i) {
+                const auto& span = scene.display_styles[i];
+                if (text_style_is_command_option(span.flags))
+                    key_pill |= span.byte_offset == 6 && span.byte_count == 5;
+                if (text_style_is_command_option(span.flags) && span.byte_offset + span.byte_count > 11)
+                    value_plain = false;
+            }
+            check(key_pill && value_plain, "the selected command's typed option key draws as an option pill");
+        }
         check(application_commands_key(VK_RETURN) && application_commands_submit(1000) && operation == 2 &&
               payload_contains(utf8_literal("\"value\":\"keep quoted value\"")),
               "typed arguments survive discovery, selection and interaction serialization");
@@ -698,14 +907,44 @@ void run() noexcept {
               "focused option shows its compact summary above only its two choices");
         const u32 choice_action = action_named(utf8_literal("Two"));
         check(choice_action && application_commands_activate(choice_action) &&
-              utf8_equal(message_composer_text(composer), utf8_literal("/pick mode:2 ")),
-              "static numeric choice maps its visible row to the typed value");
+              utf8_equal(message_composer_text(composer), utf8_literal("/pick mode:Two ")),
+              "static choice shows its name in the draft like the official client");
         check(application_commands_key(VK_RETURN) && application_commands_submit(1001) &&
               payload_contains(utf8_literal("\"type\":4,\"value\":2")),
-              "chosen numeric option remains a JSON number at execution");
+              "chosen numeric choice name executes as its JSON number value");
         respond(204);
         check(old_option_action && application_commands_activate(old_option_action) && !composer.bytes,
               "a retired option action cannot dereference or edit a completed command");
+
+        edit(utf8_literal("/upload"));
+        application_commands_key(VK_RETURN);
+        const u32 file_option = action_named(utf8_literal("file"));
+        const u32 opens = picker_opens;
+        check(file_option && application_commands_activate(file_option) && picker_opens == opens + 1 &&
+                  utf8_equal(message_composer_text(composer), utf8_literal("/upload file:")),
+              "an attachment option asks for its file like the client's upload pill");
+        const u32 before_upload = calls;
+        check(application_commands_key(VK_RETURN) && composer.bytes && calls == before_upload &&
+                  !application_commands_pending(1100),
+              "a required attachment option without a staged upload never sends");
+        staged_uploads[0] = {utf8_literal("a.png"), utf8_literal("up/a.png"), {}, 0, false};
+        staged_uploads[1] = {utf8_literal("b.txt"), utf8_literal("up/b.txt"), {}, 1, false};
+        staged_upload_count = 2;
+        edit(utf8_literal("/upload file:b.txt"));
+        check(application_commands_key(VK_RETURN) && !composer.bytes && application_commands_submit(1101) &&
+                  operation == 2 && payload_contains(utf8_literal("\"name\":\"file\",\"type\":11,\"value\":0")) &&
+                  payload_contains(utf8_literal(
+                      R"(,"attachments":[{"id":"0","filename":"b.txt","uploaded_filename":"up/b.txt"}]})")) &&
+                  uploads_queued_nonce == submitted_nonce,
+              "an attachment option sends its named staged upload as data.attachments index 0");
+        const u32 completed = uploads_completed;
+        respond(204);
+        check(uploads_completed == completed + 1, "a command's uploads are spent with its response");
+        interaction(GatewayClientDispatchKind::interaction_failure, 0, submitted_nonce);
+        check(application_commands_retry(submitted_nonce) && !application_commands_pending(1102),
+              "a failed command with files offers no resend, like the client");
+        staged_upload_count = 0;
+        message_timeline_remove_local(&g_app.message_view.timeline, submitted_nonce);
 
         edit(utf8_literal("/admin group run count:4"));
         const u32 nested_action = action_named(utf8_literal("/admin group run"));
@@ -724,6 +963,8 @@ void run() noexcept {
               "duplicate command labels retain the selected application and command identity");
         respond(204);
 
+        check(application_commands_tick(1) && application_commands_next_wake() != 1,
+              "sent commands' local messages repaint before the next picker");
         edit(utf8_literal("/search"));
         application_commands_key(VK_RETURN);
         edit(utf8_literal("/search query:\"old\" count:2"));
@@ -763,6 +1004,75 @@ void run() noexcept {
         ui_text_command_stream_initialize(&stream, {command_text, 96});
         check(popup_text_presentation_build_output(g_app.popup_scene, kDefaultTheme, &stream_output) && stream.count,
               "command error picker retains visible text commands");
+
+        // Frequently Used: settings-proto/2 command frecency, read and saved like the client.
+        {
+            static CommandFrecencyEntry seeded[2];
+            u32 seeded_count = 0;
+            const u64 today = clock_unix_milliseconds();
+            for (u32 use = 0; use < 3; ++use)
+                command_frecency_track({seeded, 2}, &seeded_count, utf8_literal("101"), today - use);
+            seeded_count = command_frecency_compute({seeded, 2}, seeded_count, today);
+            static u8 proto_scratch[4096], settings_body[8192];
+            const u32 body_bytes = command_frecency_write_patch({seeded, seeded_count}, 3,
+                                                                {proto_scratch, sizeof(proto_scratch)},
+                                                                {settings_body, sizeof(settings_body)});
+            const Utf8View settings{reinterpret_cast<const char*>(settings_body), body_bytes};
+            g_app.account.status.running = true;
+            g_app.account.status.frecency_settings_revision = 4;
+            edit(utf8_literal("/"));
+            check(body_bytes && application_commands_pending(5000) && application_commands_submit(5000) &&
+                      operation == 4,
+                  "an open picker fetches the account's command frecency from settings-proto/2");
+            respond(200, settings);
+            u32 first_row = 0;
+            while (first_row < g_app.popup_scene.item_count &&
+                   !(g_app.popup_scene.items[first_row].flags & popup_item_command_row))
+                ++first_row;
+            check(first_row < g_app.popup_scene.item_count &&
+                      utf8_equal(g_app.popup_scene.items[first_row].label, utf8_literal("/wordle")) &&
+                      utf8_equal(g_app.popup_scene.items[first_row + 1].label, utf8_literal("/echo")) &&
+                      action_named(utf8_literal("/wordle"), 1) && action_named(utf8_literal("/echo"), 1),
+                  "Frequently Used leads the picker by frecency score, replaying uses not saved yet");
+            check(application_commands_tick(1), "pending local-message repaints drain first");
+            const u64 save = application_commands_next_wake();
+            check(save > 1, "frecency save: wake");
+            check(!application_commands_pending(save - 1), "frecency save: not early");
+            check(application_commands_submit(save) && operation == 5, "frecency save: op");
+            check(command_frecency_patch_valid({payload, payload_bytes}), "frecency save: valid");
+            check(payload_contains(utf8_literal("\"required_data_version\":0")),
+                  "tracked uses are saved a few seconds later as application_command_frecency only");
+            // The server answers a save with the stored settings: the saved map.
+            static char saved[96 * 1024];
+            copy_bytes(saved, payload, payload_bytes);
+            respond(200, Utf8View{saved, payload_bytes});
+            check(!application_commands_pending(save + 60000) && application_commands_next_wake() != save,
+                  "a confirmed save leaves no pending frecency work");
+            {
+                const PopupItem* frequent_rail = nullptr;
+                for (u32 i = 0; i < g_app.popup_scene.item_count; ++i)
+                    if (utf8_equal(g_app.popup_scene.items[i].label, utf8_literal("Frequently Used")))
+                        frequent_rail = &g_app.popup_scene.items[i];
+                check(frequent_rail && (frequent_rail->flags & popup_item_command_category) &&
+                          ui_menu_row_icon(frequent_rail->presentation) == UiIcon::recent,
+                      "the rail offers the client's clock entry for Frequently Used");
+                u32 rows = 0;
+                if (frequent_rail && application_commands_activate(frequent_rail->action))
+                    for (u32 i = 0; i < g_app.popup_scene.item_count; ++i)
+                        rows += (g_app.popup_scene.items[i].flags & popup_item_command_row) ? 1u : 0u;
+                check(rows >= 2 && rows <= 5 && action_named(utf8_literal("/wordle")) &&
+                          !action_named(utf8_literal("/wordle"), 1),
+                      "the clock entry shows only the frequently used commands");
+                const u32 all_rail = action_named(utf8_literal("All"));
+                check(all_rail && application_commands_activate(all_rail) &&
+                          action_named(utf8_literal("/wordle"), 1),
+                      "All restores the full list led by Frequently Used");
+            }
+            edit(utf8_literal("/wor"));
+            check(action_named(utf8_literal("/wordle")) && !action_named(utf8_literal("/wordle"), 1),
+                  "a query hides the Frequently Used section, as in the client");
+            g_app.account.status.running = false;
+        }
 
         // Context menu commands (Apps): user (type 2) and message (type 3).
         message_composer_clear(&composer);

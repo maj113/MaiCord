@@ -423,18 +423,19 @@ UiBadgeWidget member_list_badge_resolve(const MemberListScene& s, u32 index) noe
         line = member_list_row_name_line(line);
     UiBadgeWidget b{};
     b.owner = row.label;
-    b.leading = !a->bot;
-    b.accent = a->bot;
-    b.style = text_style_subtext | text_style_bold;
-    b.label =
-        a->bot ? ((a->public_flags & (1ull << 16)) ? utf8_literal("\xE2\x9C\x93 APP") : utf8_literal("APP"))
-               : a->primary_tag.view();
+    if (a->bot)
+        ui_app_badge(&b, a->public_flags);
+    else {
+        b.leading = true;
+        b.style = text_style_subtext | text_style_bold;
+        b.label = a->primary_tag.view();
+    }
     const bool hovered =
         s.widgets.hovered.slot == row.widget.slot && s.widgets.hovered.generation == row.widget.generation;
     b.opacity = row.source_row.status == GuildMemberStatus::offline && !hovered
                     ? .4f
                     : 1.f;
-    const auto natural = ui_badge_layout(s.measure, b.label, line, b.leading, b.style);
+    const auto natural = ui_badge_widget_layout(s.measure, b, line);
     const float width = ui_rect_width(natural.outer);
     const auto name =
         member_list_row_label(row.source_row, *s.members, *s.users, *s.state);
@@ -453,8 +454,13 @@ UiBadgeWidget member_list_badge_resolve(const MemberListScene& s, u32 index) noe
                          &measured)
                          .ok())
         name_width = minimum(maximum_name, measured.size.width);
-    line.right = minimum(line.right, line.left + name_width + 6 + width);
-    b.rectangle = ui_badge_layout(s.measure, b.label, line, b.leading, b.style).outer;
+    // 6 after the name: the server tag ends there plus its width, the APP tag
+    // starts there.
+    if (b.compact)
+        line.left += name_width + 6;
+    else
+        line.right = minimum(line.right, line.left + name_width + 6 + width);
+    b.rectangle = ui_badge_widget_layout(s.measure, b, line).outer;
     return b;
 }
 UiPluginSlotBadge member_list_plugin_badge(const MemberListScene& s, u32 index) noexcept {
@@ -480,6 +486,17 @@ UiPluginSlotBadge member_list_plugin_hit(const MemberListScene& s, float x, floa
     if (!plugin.badge.label.bytes || !ui_rect_contains(plugin.badge.rectangle, x, y)) return {};
     if (user_id) *user_id = row->user_id;
     return plugin;
+}
+UiRect member_list_app_check_hit(const MemberListScene& s, float x, float y, u64* user_id,
+                                 UiWidgetHandle* row_widget) noexcept {
+    const auto* row = member_list_scene_resolve(s, ui_widget_manager_hit_test(s.widgets, x, y));
+    if (!row) return {};
+    const auto badge = member_list_badge(s, static_cast<u32>(row - s.rows.data));
+    const auto check = ui_app_badge_check(badge);
+    if (!ui_rect_contains(check, x, y)) return {};
+    if (user_id) *user_id = row->user_id;
+    if (row_widget) *row_widget = row->widget;
+    return check;
 }
 
 namespace {
@@ -693,7 +710,8 @@ UiBadgeWidget member_list_badge(const MemberListScene& s, u32 index) noexcept {
     UiBadgeWidget b{};
     b.owner = row.label;
     b.leading = entry->badge_leading;
-    b.accent = entry->badge_accent;
+    // Only the APP tag is an accent badge, and it is compact.
+    b.accent = b.compact = entry->badge_accent;
     b.style = text_style_subtext | text_style_bold;
     b.label = {entry->badge_text, entry->badge_bytes};
     const bool hovered =

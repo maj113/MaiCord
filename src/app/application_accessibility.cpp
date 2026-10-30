@@ -473,8 +473,13 @@ void describe_popup(void*, const UiWidgetManager&, UiWidgetHandle handle, const 
         info->item = row.source_index;
         g_name.bytes = 0;
         g_name.add(item.label);
-        if (item.detail.bytes)
-            g_name.add(", ").add(item.detail);
+        // Command rows join description, app and option summary with U+001F.
+        for (u32 at = 0, begin = 0; item.detail.bytes && at <= item.detail.bytes; ++at)
+            if (at == item.detail.bytes || item.detail.data[at] == '\x1F') {
+                if (at > begin)
+                    g_name.add(", ").add(Utf8View{item.detail.data + begin, at - begin});
+                begin = at + 1;
+            }
         info->name = g_name.view();
         if (item.flags & popup_item_command_category) {
             info->role = UiAccessRole::header;

@@ -348,6 +348,9 @@ static bool retry_failed_message(u64 nonce) noexcept {
     if (!record || record->delivery != MessageDeliveryState::failed) {
         return false;
     }
+    // A failed local command message re-executes its command instead.
+    if (application_commands_retry(nonce))
+        return refresh_account_frame(true);
     const auto captcha = application_action_captcha_phase(ApplicationActionCaptchaKind::message_send, nonce);
     if (captcha == ApplicationActionCaptchaPhase::captured || captcha == ApplicationActionCaptchaPhase::failed)
         return application_action_captcha_verify(ApplicationActionCaptchaKind::message_send, nonce) &&
@@ -477,9 +480,13 @@ static bool open_message_link_context_popup(const MessageTextHit& hit, UiRect an
     // Generated rows (system messages, "Dismiss message") carry actions, not URLs.
     if (!message_markdown_url_valid(url))
         return false;
-    const u32 count = message_link_menu(url, {link_menu.items, kMessageLinkMenuItems});
-    // Plugins get the URL; the visible text of an autolink is the URL itself.
-    const ApplicationPluginMenuExtra plugin{MC_MENU_LINK, 0, 0, false, url, url};
+    // An attachment chip offers Copy Media Link / Copy Text (its file name).
+    Utf8View name{};
+    const bool chip = (hit.reserved & kMessageMarkdownAttachmentChip) && message_markdown_attachment_link(url, &name);
+    const u32 count = chip ? attachment_link_menu({link_menu.items, kMessageLinkMenuItems})
+                           : message_link_menu(url, {link_menu.items, kMessageLinkMenuItems});
+    // Plugins get the URL and the link's visible text (an autolink's is the URL).
+    const ApplicationPluginMenuExtra plugin{MC_MENU_LINK, 0, 0, false, url, chip ? name : url};
     if (!count || !open_message_media_context_popup(hit.message_id, anchor, {link_menu.items, count}, &plugin))
         return false;
     link_menu.hit = hit;
@@ -505,8 +512,18 @@ static bool activate_message_link_action(u32 action) noexcept {
     if (!url.bytes)
         return true;
     if (action == kMessageLinkActionCopy) {
+        // An attachment chip copies its refreshed media link, as the client does.
+        if (application_copy_content_attachment_link(hit))
+            return true;
         if (!application_copy_text(url, kToastLinkCopied, kToastLinkCopyFailed))
             log_write(LogLevel::warning, "message", "copy_link_failed");
+        return true;
+    }
+    if (action == kMessageLinkActionCopyText) {
+        Utf8View name{};
+        if (message_markdown_attachment_link(url, &name) &&
+            !application_copy_text(name, kToastTextCopied, kToastCopyFailed))
+            log_write(LogLevel::warning, "message", "copy_text_failed");
         return true;
     }
     return application_open_content_link(hit);

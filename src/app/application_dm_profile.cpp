@@ -6,8 +6,10 @@
 #include "application_guild_card.hpp"
 #include "application_link_trust.hpp"
 #include "application_profile.hpp"
+#include "application_private_channel.hpp"
 #include "application_search.hpp"
 #include "application_state.hpp"
+#include "application_profile_commands.hpp"
 #include "application_user_actions.hpp"
 
 #include "maicord/core/deadline.hpp"
@@ -44,6 +46,8 @@ struct DmProfilePanel {
     // the profile or the icons may next be asked for.
     u64 shown, requested, retry_at, icons_retry_at;
     bool fetch, icons_requested;
+    // The Commands section (application_profile_commands.hpp).
+    ProfileCommandSet commands;
 };
 DmProfilePanel* g_panel;
 
@@ -179,12 +183,11 @@ bool adopt_popout(CachedProfile* entry, u64 now) noexcept {
     entry->status = 200;
     return true;
 }
+// As the DM row and header show it (ui_user_presence): bots and other
+// non-friends report through the guild presences an open DM subscribes to.
 UiPresence presence_of(u64 user) noexcept {
-    const auto* relationships = application_friends_relationships();
-    const auto* relation = relationships ? relationship_store_find(*relationships, user) : nullptr;
-    return relation && relation->type == RelationshipType::friend_
-               ? application_friends_presence(relation->presence, UiPresence::offline)
-               : UiPresence::unknown;
+    const auto* rows = application_private_channel_rows();
+    return rows ? ui_user_presence(*rows, user) : UiPresence::unknown;
 }
 u8 relation_of(u64 user) noexcept {
     u8 relation = 0;
@@ -193,6 +196,12 @@ u8 relation_of(u64 user) noexcept {
 UiRect slot_rectangle() noexcept {
     const auto* node = ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::member_sidebar));
     return node ? node->rectangle : UiRect{};
+}
+// The shown profile's Commands; true when they changed (the panel lays out again).
+bool resolve_commands(const CachedProfile& entry, u64 channel) noexcept {
+    const bool changed = profile_commands_resolve(&g_panel->commands, entry.data, entry.loaded_at, channel);
+    g_panel->scene.commands = profile_commands_view(g_panel->commands);
+    return changed;
 }
 void hide() noexcept {
     if (g_app.renderer.dm_profile_panel) {
@@ -240,23 +249,28 @@ bool show(u64 user, UiRect slot) noexcept {
         s.relation = relation_of(user);
         s.effect = nullptr;
         s.note_visible = false;
-        s.sections = 0;
         BOOL animations = TRUE;
         SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0);
         s.reduced_motion = !animations || g_app.preferences.reduced_motion;
         s.measure = &g_app.account_ui->text_measure_cache;
         const auto& state = g_app.account_ui->chat_state;
+        resolve_commands(*entry, state.selected_channel_id);
         if (!profile_scene_open(&s, &entry->data, &state, &g_app.account_ui->user_store, state.self_user_id, slot,
                                 application_viewport_dips()))
             return false;
     } else {
-        // Friend changes show in the header buttons and the presence dot.
+        // Friend changes show in the header buttons and the presence dot; a
+        // landed command index in the Commands section.
+        const bool commands = resolve_commands(*entry, g_app.account_ui->chat_state.selected_channel_id);
         const u8 relation = relation_of(user);
         const UiPresence presence = presence_of(user);
-        const bool moved = !ui_rect_equal(s.anchor, slot) || relation != s.relation || presence != s.presence;
+        const bool mobile = ui_presence_mobile(presence, user_store_client_status(g_app.account_ui->user_store, user));
+        const bool moved = commands || !ui_rect_equal(s.anchor, slot) || relation != s.relation ||
+                           presence != s.presence || mobile != s.presence_mobile;
         s.anchor = slot;
         s.relation = relation;
         s.presence = presence;
+        s.presence_mobile = mobile;
         if (!profile_scene_layout(&s, application_viewport_dips(), moved))
             return false;
     }
@@ -264,10 +278,10 @@ bool show(u64 user, UiRect slot) noexcept {
     g_app.renderer.dm_profile_panel = &s;
     return true;
 }
-bool open_full(u64 user, UiRect anchor) noexcept {
+bool open_full(u64 user, UiRect anchor, u8 tab = 0) noexcept {
     if (!application_profile_open(user, anchor))
         return false;
-    application_profile_expand(user);
+    application_profile_expand(user, tab);
     return true;
 }
 // Shown activity timers (elapsed, track progress) advance each second. True
@@ -299,19 +313,16 @@ bool activate(const ProfileScene& s, UiWidgetHandle target) noexcept {
     case ProfileAction::activity:
     case ProfileAction::activity_button:
         return open_full(user, s.rectangle);
-    case ProfileAction::servers:
+    // The mutuals row opens the full profile on its tab (a bot's tabs are
+    // Activity and Mutual Servers).
     case ProfileAction::friends:
-        g_panel->scene.sections ^= part->action == ProfileAction::servers ? 1u : 2u;
-        return relayout();
-    case ProfileAction::open_friend:
-    case ProfileAction::open_server: {
-        const bool friends = part->action == ProfileAction::open_friend;
-        const auto& p = *s.profile;
-        if (part->source >= (friends ? p.mutual_friends_count : p.mutual_guild_count))
-            return false;
-        const u64 id = friends ? p.mutual_friends[part->source].id : p.mutual_guilds[part->source].id;
-        return friends ? open_full(id, anchor) : select_content_guild(id);
-    }
+        return open_full(user, s.rectangle, 1);
+    case ProfileAction::servers:
+        return open_full(user, s.rectangle, s.profile->user_appearance.bot ? 1 : 2);
+    case ProfileAction::command:
+        if (part->source < g_panel->commands.count && !profile_commands_insert(g_panel->commands, part->source))
+            log_u64(LogLevel::warning, "profile", "panel_command_insert_failed", part->source);
+        return true;
     case ProfileAction::guild_tag:
         if (part->target)
             application_guild_card_open(part->target, anchor);

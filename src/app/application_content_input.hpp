@@ -18,6 +18,9 @@ namespace maicord::app_detail {
 bool application_open_content_url(Utf8View url) noexcept;
 // A link in message text, as a click opens it (the context menu's Open Link).
 bool application_open_content_link(const MessageTextHit& hit) noexcept;
+// An attachment chip's Copy Media Link: copies its URL, refreshed first when
+// the signature expires within the hour.
+bool application_copy_content_attachment_link(const MessageTextHit& hit) noexcept;
 void application_received_attachment_pump() noexcept;
 bool application_received_attachment_activate_focused() noexcept;
 // Opens a resident message's attachment (or forwarded snapshot attachment, with
@@ -45,6 +48,8 @@ bool application_message_media_reveal_at(float x, float y) noexcept;
 MessageProfileHit application_message_profile_hit_test(float x, float y) noexcept;
 // A server tag chip on an author line (it opens the server tag popout).
 bool application_message_guild_tag_hit(float x, float y) noexcept;
+// The slash command chip of a "<user> used <command>" header (a click opens its command card).
+bool application_message_command_chip_hit(float x, float y) noexcept;
 bool handle_content_hover(LPARAM lparam) noexcept;
 // Message pane targets a click would activate: inline players, polls, image
 // previews, replies, file cards and declared rich buttons. False defers to

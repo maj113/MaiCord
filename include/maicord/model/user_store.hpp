@@ -89,6 +89,9 @@ bool user_store_set_avatar(UserStore* store, u64 id,
 bool user_store_set_client_status(UserStore* store, u64 id, u8 client_status) noexcept;
 // Zero (no platform online) for a user that is not resident.
 u8 user_store_client_status(const UserStore& store, u64 id) noexcept;
+// A fresh Gateway session re-sends only non-offline presences: every user
+// starts offline again. Returns whether any record changed.
+bool user_store_clear_client_status(UserStore* store) noexcept;
 const UserRecord* user_store_find(const UserStore& store,
                                                  u64 id) noexcept;
 Utf8View user_store_name(const UserStore& store,

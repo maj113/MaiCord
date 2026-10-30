@@ -12,6 +12,9 @@
 #include "maicord/ui/message_presentation.hpp"
 #include "maicord/ui/message_author.hpp"
 #include "maicord/ui/ansi_text.hpp"
+#include "maicord/ui/message_interaction.hpp"
+#include "maicord/ui/message_system_text.hpp"
+#include "maicord/protocol/message_interaction_data.hpp"
 #include "maicord/ui/message_text_coordinator.hpp"
 #include "maicord/ui/timestamp_format.hpp"
 #include "maicord/ui/native_text_candidate.hpp"
@@ -1669,6 +1672,238 @@ void test_reply_previews(Check check) noexcept {
         message_scene_release(&f.scene);
 }
 
+// A reply that pings its quoted author names them "@Author"; a quoted join
+// notice or app subscription reads as its system line without an author name.
+void test_reply_author_and_system_quotes(Check check) noexcept {
+    auto& f = fixture;
+    const auto pinged = utf8_literal(
+        R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","type":19,"author":{"id":"9","username":"Poster"},"content":"reply","mentions":[{"id":"3","username":"other"},{"id":"8","username":"alice"}],"timestamp":"2026-09-05T10:00:00Z","message_reference":{"message_id":"5","channel_id":"7"},"referenced_message":{"id":"5","channel_id":"7","author":{"id":"8","username":"alice","global_name":"Alice"},"content":"hello"}}})");
+    const auto* row = converge_message(pinged);
+    const auto* line = row ? owned_command(f.presentation, row->reply) : nullptr;
+    const auto* rich = row ? message_rich_store_find(f.rich, 1) : nullptr;
+    check(line && utf8_equal(line->text, utf8_literal("@Alice hello")) && line->styles.count >= 1 &&
+              line->styles[0].byte_offset == 0 && line->styles[0].byte_count == 6 &&
+              (line->styles[0].flags & text_style_bold) && (line->styles[0].flags & text_style_inline_role_color) && rich &&
+              (rich->reference.content_flags & gateway_reference_mentions_author),
+          "reply preview: a reply whose mentions list the quoted author names them @Author in the muted name span");
+    if (line) {
+        const float cy = (line->rectangle.top + line->rectangle.bottom) * .5f;
+        const auto avatar_hit = message_reply_author_hit_test(f.scene, f.presentation, &f.cache,
+                                                              line->rectangle.left - kMessageReplyTextInset + 8, cy);
+        const auto name_hit = message_reply_author_hit_test(f.scene, f.presentation, &f.cache,
+                                                            line->rectangle.left + 4, cy);
+        const auto text_hit = message_reply_author_hit_test(f.scene, f.presentation, &f.cache,
+                                                            line->rectangle.right - 8, cy);
+        check(avatar_hit.target == MessageInteractionTarget::avatar && avatar_hit.user_id == 8 &&
+                  name_hit.target == MessageInteractionTarget::name && name_hit.user_id == 8 &&
+                  text_hit.target == MessageInteractionTarget::none,
+              "reply preview: the quoted author's avatar and name open their profile, the rest of the line is not theirs");
+    }
+    if (row)
+        message_scene_release(&f.scene);
+    const auto silent = utf8_literal(
+        R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","type":19,"author":{"id":"9","username":"Poster"},"content":"reply","mentions":[{"id":"3","username":"other"}],"timestamp":"2026-09-05T10:00:00Z","message_reference":{"message_id":"5","channel_id":"7"},"referenced_message":{"id":"5","channel_id":"7","author":{"id":"8","username":"alice","global_name":"Alice"},"content":"hello"}}})");
+    row = converge_message(silent);
+    line = row ? owned_command(f.presentation, row->reply) : nullptr;
+    check(line && utf8_equal(line->text, utf8_literal("Alice hello")),
+          "reply preview: a reply without the quoted author in its mentions (ping off) keeps the bare name");
+    if (row)
+        message_scene_release(&f.scene);
+
+    struct SystemCase {
+        const char* referenced;
+        u16 type;
+        MessageReplyLeading leading;
+        const char* question; // the poll result's poll name
+    };
+    const SystemCase system_cases[]{
+        {R"("type":7,"content":"")", message_type_user_join, MessageReplyLeading::join_arrow, ""},
+        {R"("type":32,"content":"")", message_type_guild_application_premium, MessageReplyLeading::ticket, ""},
+        {R"("type":46,"content":"","embeds":[{"type":"poll_result","fields":[{"name":"poll_question_text","value":"Lunch?"},{"name":"total_votes","value":"3"}]}])",
+         message_type_poll_result, MessageReplyLeading::poll, "Lunch?"},
+        {R"("type":25,"content":"")", message_type_role_subscription_purchase, MessageReplyLeading::join_arrow, ""},
+    };
+    u32 passed = 0;
+    for (const auto& c : system_cases) {
+        static char payload[2048];
+        u32 at = 0;
+        const auto append = [&](const char* text) noexcept {
+            while (*text && at + 1 < sizeof(payload))
+                payload[at++] = *text++;
+        };
+        append(R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","type":19,"author":{"id":"9","username":"Poster"},"content":"welcome","timestamp":"2026-09-05T10:00:00Z","message_reference":{"message_id":"5","channel_id":"7"},"referenced_message":{"id":"5","channel_id":"7","author":{"id":"8","username":"alice","global_name":"Alice"},)");
+        append(c.referenced);
+        append("}}}");
+        row = converge_message({payload, at});
+        line = row ? owned_command(f.presentation, row->reply) : nullptr;
+        char storage[kMessageSystemTextMaximumBytes];
+        MessageSystemText expected{};
+        MessageSystemTextInput input{};
+        input.message_id = 5;
+        input.author = utf8_literal("Alice");
+        input.type = c.type;
+        input.poll_question = c_text(c.question);
+        rich = row ? message_rich_store_find(f.rich, 1) : nullptr;
+        const bool ok = line && rich && message_system_text_build(input, {storage, sizeof(storage)}, &expected) &&
+                        utf8_equal(line->text, expected.text) &&
+                        line->styles.count == (c.leading == MessageReplyLeading::poll ? 1u : 0u) &&
+                        message_rich_reply_leading(rich->reference) == c.leading &&
+                        row->rich_item_layout.reply_width == 0.0f;
+        if (!ok)
+            check(false, c.referenced);
+        passed += ok ? 1u : 0u;
+        if (row)
+            message_scene_release(&f.scene);
+    }
+    check(passed == 4, "reply preview: a quoted join notice, role subscription, app subscription or closed poll shows its "
+                       "system line without an author name, leads with its icon and has no trailing icon");
+
+    // A quoted forward is flagged (its preview leads with the forward icon).
+    const auto forward_quote = utf8_literal(
+        R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","type":19,"author":{"id":"9","username":"Poster"},"content":"reply","timestamp":"2026-09-05T10:00:00Z","message_reference":{"message_id":"5","channel_id":"7"},"referenced_message":{"id":"5","channel_id":"7","author":{"id":"8","username":"alice","global_name":"Alice"},"content":"fwd","message_reference":{"type":1,"message_id":"4","channel_id":"6"}}}})");
+    row = converge_message(forward_quote);
+    rich = row ? message_rich_store_find(f.rich, 1) : nullptr;
+    check(rich && (rich->reference.quote_flags & gateway_quote_forwarded) && !(rich->reference.quote_flags & gateway_quote_media_mention),
+          "reply preview: a quote that is itself a forward is flagged for the forward icon");
+    line = row ? owned_command(f.presentation, row->reply) : nullptr;
+    check(line && utf8_equal(line->text, utf8_literal("Alice \xE2\x80\x83\xE2\x80\x85\xE2\x80\x8D" "fwd")) &&
+              line->styles.count >= 1 && line->styles[0].byte_count == 5 && line->semantics.count == 1 &&
+              line->semantics[0].kind == MessageMarkdownSemanticKind::chip_icon &&
+              line->semantics[0].target == static_cast<u64>(MessageMarkdownChipIcon::forward) &&
+              line->semantics[0].byte_offset == 6 && line->semantics[0].byte_count == 3,
+          "reply preview: a quoted forward leads its text with the forward icon cell");
+    if (row)
+        message_scene_release(&f.scene);
+
+    // A reply that points into a clip quotes the clip's title and the moment.
+    const auto clip = utf8_literal(
+        R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","type":19,"author":{"id":"9","username":"Poster"},"content":"","media_mention":{"attachment_id":"3","timestamp":3723000},"timestamp":"2026-09-05T10:00:00Z","message_reference":{"message_id":"5","channel_id":"7"},"referenced_message":{"id":"5","channel_id":"7","author":{"id":"8","username":"alice","global_name":"Alice"},"content":"","attachments":[{"id":"2","filename":"x.png","size":5,"url":"https://cdn.discordapp.com/x.png","proxy_url":"https://media.discordapp.net/x.png"},{"id":"3","filename":"c.mp4","title":"Epic clip","flags":1,"size":5,"url":"https://cdn.discordapp.com/c.mp4","proxy_url":"https://media.discordapp.net/c.mp4"}]}}})");
+    row = converge_message(clip);
+    line = row ? owned_command(f.presentation, row->reply) : nullptr;
+    rich = row ? message_rich_store_find(f.rich, 1) : nullptr;
+    check(line && rich && utf8_equal(line->text, utf8_literal("Alice Epic clip @1:02:03")) && line->styles.count == 3 &&
+              (line->styles[1].flags & text_style_bold) && line->styles[2].flags == text_style_link &&
+              (rich->reference.quote_flags & gateway_quote_media_mention) &&
+              (rich->reference.quote_flags & gateway_quote_media_clip) && row->rich_item_layout.reply_width == 0.0f,
+          "reply preview: a clip mention reads the clip's title (bold) and the moment (link) with no trailing icon");
+    if (row)
+        message_scene_release(&f.scene);
+    const auto untitled = utf8_literal(
+        R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","type":19,"author":{"id":"9","username":"Poster"},"content":"","media_mention":{"attachment_id":"3","timestamp":83000},"timestamp":"2026-09-05T10:00:00Z","message_reference":{"message_id":"5","channel_id":"7"},"referenced_message":{"id":"5","channel_id":"7","author":{"id":"8","username":"alice","global_name":"Alice"},"content":"hi"}}})");
+    row = converge_message(untitled);
+    line = row ? owned_command(f.presentation, row->reply) : nullptr;
+    check(line && utf8_equal(line->text, utf8_literal("Alice Untitled @1:23")),
+          "reply preview: a clip mention without a known title reads Untitled");
+    if (row)
+        message_scene_release(&f.scene);
+}
+
+// "<user> used <command>": the line, its layout (muted name, "used", a chip for
+// a slash command and plain link text for any other command) and its hits.
+void test_interaction_headers(Check check) noexcept {
+    auto& f = fixture;
+    static UserStore users{};
+    const auto slash = utf8_literal(
+        R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","type":20,"author":{"id":"9","username":"Poster","bot":true},"content":"","timestamp":"2026-09-05T10:00:00Z","interaction":{"id":"6","type":2,"name":"blueprint file","user":{"id":"8","username":"alice","global_name":"Alice"}}}})");
+    const auto* row = converge_message(slash);
+    const auto* line = row ? owned_command(f.presentation, row->reply) : nullptr;
+    check(line && utf8_equal(line->text, utf8_literal("Alice used blueprint file")) && line->styles.count == 2 &&
+              line->styles[0].byte_count == 5 && (line->styles[0].flags & text_style_inline_role_color) &&
+              line->styles[1].byte_offset == 11 && line->styles[1].byte_count == 14 &&
+              line->styles[1].flags == text_style_mention,
+          "interaction header: a slash command reads \"<user> used <command>\" without a leading slash, the command a chip span");
+    MessageInteractionLayout layout{};
+    const bool laid = line && message_interaction_layout(f.scene, *line, users, &f.cache, kDefaultTheme, &layout);
+    check(laid && utf8_equal(layout.name.text, utf8_literal("Alice")) && utf8_equal(layout.used.text, utf8_literal("used")) &&
+              utf8_equal(layout.command.text, utf8_literal("blueprint file")) && !layout.tag.label.bytes &&
+              layout.name.rectangle.right < layout.used.rectangle.left &&
+              layout.used.rectangle.right < layout.chip.left && ui_rect_has_area(layout.chip) &&
+              layout.chip.left <= layout.chip_icon.left && layout.chip_icon.right < layout.command.rectangle.left &&
+              layout.command.rectangle.right <= layout.chip.right && layout.user_id == 8 &&
+              close_to(layout.name.color.alpha, kMessageReplyAuthorOpacity) && layout.used.color.alpha == 1.0f,
+          "interaction header: the name is muted, \"used\" is not, and the command is a chip with its icon before the name");
+    if (laid) {
+        const auto at = [&](UiRect r) noexcept {
+            return message_interaction_hit_test(f.scene, f.presentation, users, &f.cache, kDefaultTheme,
+                                                (r.left + r.right) * .5f, (r.top + r.bottom) * .5f);
+        };
+        const float cy = (line->rectangle.top + line->rectangle.bottom) * .5f;
+        const UiRect avatar{line->rectangle.left - kMessageReplyTextInset, cy - 4, line->rectangle.left - kMessageReplyTextInset + 16,
+                            cy + 4};
+        const auto avatar_hit = at(avatar), name_hit = at(layout.name.rectangle), chip_hit = at(layout.chip),
+                   gap_hit = at({layout.name.rectangle.right + 1, cy - 2, layout.name.rectangle.right + 3, cy + 2});
+        check(avatar_hit.target == MessageInteractionTarget::avatar && avatar_hit.user_id == 8 &&
+                  name_hit.target == MessageInteractionTarget::name && name_hit.user_id == 8 &&
+                  chip_hit.target == MessageInteractionTarget::command && gap_hit.target == MessageInteractionTarget::none,
+              "interaction header: the avatar and name open the user, the chip is its own target and the gap between is none");
+    }
+    if (row)
+        message_scene_release(&f.scene);
+
+    // A component response (type 0 with a component interaction) names the command as plain link text.
+    const auto component = utf8_literal(
+        R"({"op":0,"s":1,"t":"MESSAGE_CREATE","d":{"id":"1","channel_id":"7","type":0,"author":{"id":"9","username":"Poster","bot":true},"content":"","timestamp":"2026-09-05T10:00:00Z","interaction":{"id":"6","type":3,"name":"vote","user":{"id":"8","username":"alice"}}}})");
+    row = converge_message(component);
+    line = row ? owned_command(f.presentation, row->reply) : nullptr;
+    MessageInteractionLayout plain{};
+    check(line && utf8_equal(line->text, utf8_literal("alice used vote")) && line->styles.count == 2 &&
+              line->styles[1].flags == text_style_link &&
+              message_interaction_layout(f.scene, *line, users, &f.cache, kDefaultTheme, &plain) &&
+              !ui_rect_has_area(plain.chip) && utf8_equal(plain.command.text, utf8_literal("vote")) &&
+              plain.used.rectangle.right < plain.command.rectangle.left,
+          "interaction header: a command that is not a slash command is plain link-coloured text, not a chip");
+    if (row)
+        message_scene_release(&f.scene);
+}
+
+Utf8View interaction_data_name(void*, InteractionDataEntity entity, u64 id) noexcept {
+    if (entity == InteractionDataEntity::user && id == 8)
+        return utf8_literal("Alice");
+    if (entity == InteractionDataEntity::channel && id == 5)
+        return utf8_literal("general");
+    if (entity == InteractionDataEntity::role && id == 4)
+        return utf8_literal("Mods");
+    return {};
+}
+
+// The command card's request (its target and rate-limit route are the request
+// metadata) and its text: the root command, sub commands as words, options
+// with their entity names, one line.
+void test_interaction_data(Check check) noexcept {
+    u8 target[kInteractionDataTargetBytes];
+    const u32 bytes = interaction_data_write_target(1234567890123ull, 98765432109876ull, {target, sizeof(target)});
+    const Utf8View expected = utf8_literal("/api/v10/channels/1234567890123/messages/98765432109876/interaction-data");
+    const RestRouteKey route = interaction_data_route(1234567890123ull);
+    u8 small[16];
+    check(bytes == expected.bytes && bytes_equal(target, expected.data, bytes) && rest_route_valid(route) &&
+              route.method == RestMethod::get && route.major == RestMajorParameter::channel &&
+              route.major_key == 1234567890123ull && route.route_id == kInteractionDataRouteId &&
+              interaction_data_write_target(0, 9, {target, sizeof(target)}) == 0 &&
+              interaction_data_write_target(9, 0, {target, sizeof(target)}) == 0 &&
+              interaction_data_write_target(9, 9, {small, sizeof(small)}) == 0,
+          "interaction data request: a bodyless GET of the message's interaction-data, one route per channel; zero ids and short buffers are refused");
+    const InteractionDataNames names{nullptr, interaction_data_name};
+    u32 scratch[kInteractionDataScratchStructurals];
+    char out[256];
+    const auto text = [&](const char* body, u32 capacity = sizeof(out)) noexcept {
+        const u32 n = interaction_data_text(c_text(body), names, {scratch, kInteractionDataScratchStructurals},
+                                            {out, capacity});
+        return Utf8View{out, n};
+    };
+    const auto full = text(R"({"id":"6","type":2,"name":"blueprint file","application_command":{"id":"1","name":"blueprint"},"options":[{"name":"file","type":1,"options":[{"name":"user","type":6,"value":"8"},{"name":"where","type":7,"value":"5"},{"name":"who","type":8,"value":"4"},{"name":"text","type":3,"value":"a\nb \u00e9"},{"name":"n","type":4,"value":12},{"name":"flag","type":5,"value":true},{"name":"img","type":11,"value":"99"}]}]})");
+    check(utf8_equal(full, utf8_literal("/blueprint file user: @Alice where: #general who: @Mods text: a b \xC3\xA9 n: 12 flag: true img: [attachment]")),
+          "interaction data text: the command, sub command words, entity names, one line");
+    check(utf8_equal(text(R"({"name":"x y","application_command":{"name":"x","name_localized":"ex"},"options":[{"name":"user","type":6,"value":"777"}]})"),
+                     utf8_literal("/ex user: 777")) &&
+              utf8_equal(text(R"({"name":"solo"})"), utf8_literal("/solo")) && text("[]").bytes == 0 &&
+              text(R"({"id":"1"})").bytes == 0,
+          "interaction data text: the localized root name wins, unknown entities show their id, a body without a command reads nothing");
+    const auto cut = text(R"({"name":"cmd","options":[{"name":"message","type":3,"value":"abcdefghijklmnopqrstuvwxyz"}]})", 24);
+    check(cut.bytes <= 24 && cut.bytes > 3 && utf8_equal({cut.data + cut.bytes - 3, 3}, utf8_literal("\xE2\x80\xA6")) &&
+              utf8_starts_with(cut, utf8_literal("/cmd message")),
+          "interaction data text: a line longer than the card is cut after a whole piece and ends with an ellipsis");
+}
+
 // Shapes a presentation command as the renderer does and checks each glyph's
 // ```ansi colour tag, and the underline/line-through segment under it,
 // against the foreground of its span (the block colour without one).
@@ -2052,6 +2287,9 @@ void test_embed_parity(Check check) noexcept {
     test_native_text_never_fails(check);
     test_vxtwitter_embeds(check);
     test_reply_previews(check);
+    test_reply_author_and_system_quotes(check);
+    test_interaction_headers(check);
+    test_interaction_data(check);
     test_component_embed(check);
     test_code_block_embeds(check);
     test_author_header_isolation(check);

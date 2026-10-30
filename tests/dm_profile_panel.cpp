@@ -4,6 +4,8 @@
 // (fetch dedupe, caching, rate limits, toggles, card geometry, activity art,
 // timers, failures). Synthetic fixtures only.
 #include "application_dm_profile.hpp"
+#include "application_commands.hpp"
+#include "application_private_channel.hpp"
 #include "application_profile.hpp"
 #include "application_state.hpp"
 #include "application_friends.hpp"
@@ -16,6 +18,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/model/private_channel_store.hpp"
 #include "maicord/model/relationship_store.hpp"
+#include "maicord/protocol/client_status.hpp"
+#include "maicord/ui/presence.hpp"
 #include "maicord/ui/activity_status.hpp"
 #include "maicord/ui/caption_bar.hpp"
 #include "maicord/ui/dm_profile_panel.hpp"
@@ -33,6 +37,12 @@
 namespace maicord::dm_profile_test {
 using namespace app_detail;
 u32 failures, reads, full_opens, menus;
+u8 expanded_tab;
+// The command index the Commands section reads, and the last insertion.
+u32 command_revision = 1;
+u64 inserted_application, inserted_command, asked_channel;
+char inserted_name[32];
+u32 inserted_name_bytes;
 u64 read_user, read_guild, request_id;
 u8 read_operation;
 char read_value[256];
@@ -369,6 +379,35 @@ void header_cases() noexcept {
     check(!ui_private_header_activity(g_app.shell_scene, unmeasured, 9998, {line, sizeof(line)}, &activity) &&
               !ui_private_header_activity(g_app.shell_scene, source, 9997, {line, sizeof(line)}, &activity),
           "DM header: group DMs and unmeasured names show none");
+    // A stranger (a bot) reports through the guild presences an open DM
+    // subscribes to: the user record's platforms carry the status.
+    check(ui_private_row_status(source, 9996) == UiPrivateRowStatus::offline &&
+              ui_user_presence(source, 124) == UiPresence::offline,
+          "DM presence: a stranger without a presence shows offline");
+    auto& users = g_app.account_ui->user_store;
+    const bool set = user_store_set_client_status(&users, 124,
+                                                  client_status_with(0, ClientPlatform::web, ClientPlatformStatus::online));
+    check(set && ui_private_row_status(source, 9996) == UiPrivateRowStatus::online &&
+              ui_user_presence(source, 124) == UiPresence::online,
+          "DM presence: a stranger's guild presence (web) shows online in the DM row");
+    user_store_set_client_status(&users, 124,
+                                 client_status_with(client_status_with(0, ClientPlatform::web, ClientPlatformStatus::idle),
+                                                    ClientPlatform::desktop, ClientPlatformStatus::dnd));
+    check(ui_user_presence(source, 124) == UiPresence::busy && ui_private_row_status(source, 9997) == UiPrivateRowStatus::none,
+          "DM presence: do not disturb on any platform wins; an unknown group shows none");
+    // A group is online (only online) while any other member is online.
+    auto& state = g_app.account_ui->chat_state;
+    const u64 crew[] = {99, 124};
+    const bool group = chat_state_store_upsert_channel(&state, {9995, 0, 0, utf8_literal("Duo"), 0, 0, 3}).ok() &&
+                       private_channel_store_replace(state.private_channels, {9995, 0, {crew, 2}, {}, true, false, false});
+    check(group && ui_private_row_status(source, 9995) == UiPrivateRowStatus::none,
+          "DM presence: a group whose members are busy or idle shows no status");
+    user_store_set_client_status(&users, 124, client_status_with(0, ClientPlatform::web, ClientPlatformStatus::online));
+    check(ui_private_row_status(source, 9995) == UiPrivateRowStatus::online && !ui_private_row_mobile(source, 9995),
+          "DM presence: a group with an online member shows online");
+    check(user_store_clear_client_status(&users) && ui_user_presence(source, 124) == UiPresence::offline &&
+              !user_store_clear_client_status(&users),
+          "DM presence: a fresh session clears every platform status once");
 }
 
 void response(u16 status, Utf8View json = {}) noexcept {
@@ -416,19 +455,20 @@ void panel_cases() noexcept {
     s = application_dm_profile_scene();
     check(s && s->phase == ProfilePhase::ready && s->profile->mutual_guild_count == 2 &&
               find_part(*s, ProfileAction::expand) && find_part(*s, ProfileAction::servers) &&
-              !find_part(*s, ProfileAction::open_server),
-          "DM panel: the loaded profile lays out with View Full Profile and collapsed mutual servers");
+              !find_part(*s, ProfileAction::open_server) && !find_part(*s, ProfileAction::command),
+          "DM panel: the loaded profile lays out with View Full Profile and the mutuals row");
     g_app.dm_profile_clock_ms = 5;
     application_dm_profile_tick(4);
     check(g_app.dm_profile_clock_ms == 5, "DM panel: the loop tick waits for the activity clock");
     application_dm_profile_tick(5);
     check(!g_app.dm_profile_clock_ms,
           "DM panel: a due clock without a timed activity is consumed outside a frame");
-    check(click(ProfileAction::servers) && find_part(*application_dm_profile_scene(), ProfileAction::open_server) &&
-              (application_dm_profile_scene()->sections & 1),
-          "DM panel: Mutual Servers expands in place");
-    const u32 opens = full_opens;
-    check(click(ProfileAction::expand) && full_opens == opens + 1, "DM panel: View Full Profile opens the full profile");
+    u32 opens = full_opens;
+    check(click(ProfileAction::servers) && full_opens == opens + 1 && expanded_tab == 2,
+          "DM panel: the mutuals row opens the full profile on Mutual Servers");
+    opens = full_opens;
+    check(click(ProfileAction::expand) && full_opens == opens + 1 && expanded_tab == 0,
+          "DM panel: View Full Profile opens the full profile");
     // Leaving for a server and coming back within the minute reuses the cache.
     state.home_selected = false;
     layout_shell();
@@ -472,6 +512,67 @@ void panel_cases() noexcept {
     application_dm_profile_synchronize();
     check(application_dm_profile_pending(400), "DM panel: a released cache fetches again");
     application_dm_profile_release();
+}
+
+const ProfilePart* find_text(const ProfileScene& s, Utf8View text) noexcept {
+    for (u32 i = 0; i < s.part_count; ++i)
+        if (utf8_equal(s.parts[i].text, text))
+            return &s.parts[i];
+    return nullptr;
+}
+// A bot: "name#1234", its servers in the mutuals row, the bio's markdown,
+// "Created On", and its popular commands as chips that fill the composer.
+void bot_cases() noexcept {
+    // The DM to 124, who is no friend.
+    chat_state_store_select_channel(&g_app.account_ui->chat_state, 9996);
+    layout_shell();
+    application_dm_profile_synchronize();
+    const u32 before = reads;
+    check(application_dm_profile_submit(510, 500) && reads == before + 1 && read_user == 124,
+          "DM bot: the profile is fetched");
+    response(200, utf8_literal(R"({"user":{"id":"124","username":"BlueprintBot","discriminator":"8797",)"
+                               R"("global_name":null,"bot":true,"public_flags":65536},)"
+                               R"("user_profile":{"bio":"*** NOW UPDATED FOR SOME MODS! ***"},)"
+                               R"("mutual_guilds":[{"id":"7"}],"application":{"id":"55","flags":0,)"
+                               R"("popular_application_command_ids":["901","902","903","904"]}})"));
+    application_dm_profile_synchronize();
+    const auto* s = application_dm_profile_scene();
+    check(s && s->profile->discriminator == 8797 && s->profile->application_id == 55 &&
+              s->profile->popular_command_count == 4 && s->profile->popular_commands[3] == 904,
+          "DM bot: the profile keeps the discriminator and the application's popular commands");
+    check(s && find_text(*s, utf8_literal("BlueprintBot#8797")) && find_text(*s, utf8_literal("Created On")) &&
+              !find_text(*s, utf8_literal("Member Since")) && find_text(*s, utf8_literal("1 Mutual Server")) &&
+              find_part(*s, ProfileAction::servers),
+          "DM bot: name#1234, Created On and the mutual servers row");
+    check(click(ProfileAction::servers) && expanded_tab == 1,
+          "DM bot: its servers open the full profile on Mutual Servers (Activity, Mutual Servers)");
+    check(s && utf8_equal(s->bio_display.view(), utf8_literal(" NOW UPDATED FOR SOME MODS! ")) &&
+              s->bio_style_count && (s->bio_styles[0].flags & text_style_bold) && (s->bio_styles[0].flags & text_style_italic),
+          "DM bot: *** around spaced text renders bold italic");
+    u32 chips = 0;
+    for (u32 i = 0; s && i < s->part_count; ++i)
+        chips += s->parts[i].action == ProfileAction::command;
+    check(s && asked_channel == 9996 && s->commands.count == 2 && s->commands[0].id == 901 &&
+              s->commands[1].id == 902 && chips == 2 && find_text(*s, utf8_literal("Commands")) &&
+              find_text(*s, utf8_literal("/info")) && find_text(*s, utf8_literal("/json")) &&
+              utf8_equal(find_part(*s, ProfileAction::command)->hint, utf8_literal("About the bot")),
+          "DM bot: Commands lists the popular ones in order, without NSFW or subcommand commands");
+    check(click(ProfileAction::command) && inserted_application == 55 && inserted_command == 901 &&
+              utf8_equal({inserted_name, inserted_name_bytes}, utf8_literal("info")),
+          "DM bot: a command chip puts the command in the composer");
+    ++command_revision;
+    asked_channel = 0;
+    application_dm_profile_synchronize();
+    check(asked_channel == 9996 && application_dm_profile_scene()->commands.count == 2,
+          "DM bot: a landed command index resolves the section again");
+    asked_channel = 0;
+    application_dm_profile_synchronize();
+    check(!asked_channel, "DM bot: an unchanged index is not read again");
+    application_dm_profile_release();
+    chat_state_store_select_channel(&g_app.account_ui->chat_state, 9998);
+    // The bot's profile renamed the user; later cases know them as Ren.
+    check(user_store_upsert(&g_app.account_ui->user_store, 124, utf8_literal("Ren"), utf8_literal("ren")).ok(),
+          "DM bot: fixture restores the user");
 }
 
 // The user's presence (activities JSON) replaces their activities.
@@ -772,6 +873,7 @@ void run() noexcept {
     }
     header_cases();
     panel_cases();
+    bot_cases();
     geometry_cases();
     activity_art_cases();
     progress_cases();
@@ -787,9 +889,6 @@ UiRect application_viewport_dips() noexcept {
 }
 bool refresh_account_text(bool) noexcept {
     return true;
-}
-const RelationshipStore* application_friends_relationships() noexcept {
-    return g_relations;
 }
 bool application_friends_user_relation(u64, u8* relation) noexcept {
     *relation = 1;
@@ -808,7 +907,41 @@ bool application_profile_open(u64, const UiRect&, ProfileAnchor) noexcept {
     ++full_opens;
     return true;
 }
-bool application_profile_expand(u64) noexcept {
+bool application_profile_expand(u64, u8 tab) noexcept {
+    expanded_tab = tab;
+    return true;
+}
+const UiPrivateRowSource* application_private_channel_rows() noexcept {
+    static UiPrivateRowSource source{};
+    source = {&g_app.account_ui->chat_state, &g_app.account_ui->user_store, g_relations, nullptr, nullptr};
+    return &source;
+}
+// The bot's loaded root commands: its third popular one is NSFW, its fourth
+// has subcommands, and the index lists them out of popularity order.
+u32 application_commands_for_application(u64 channel, u64 application, Slice<ApplicationRootCommand> output,
+                                         bool* loading) noexcept {
+    asked_channel = channel;
+    *loading = false;
+    static const ApplicationRootCommand roots[]{
+        {utf8_literal("json"), utf8_literal("Blueprint as JSON"), 902, false, false},
+        {utf8_literal("mods"), {}, 904, false, true},
+        {utf8_literal("info"), utf8_literal("About the bot"), 901, false, false},
+        {utf8_literal("lewd"), utf8_literal("Not for here"), 903, true, false}};
+    if (application != 55)
+        return 0;
+    const u32 count = minimum<u32>(4, static_cast<u32>(output.count));
+    for (u32 i = 0; i < count; ++i)
+        output[i] = roots[i];
+    return count;
+}
+u32 application_commands_catalog_revision() noexcept {
+    return command_revision;
+}
+bool application_commands_insert(u64 application, u64 command, Utf8View name) noexcept {
+    inserted_application = application;
+    inserted_command = command;
+    inserted_name_bytes = minimum<u32>(name.bytes, sizeof(inserted_name));
+    copy_bytes(inserted_name, name.data, inserted_name_bytes);
     return true;
 }
 bool application_guild_card_open(u64, UiRect) noexcept {
@@ -818,9 +951,6 @@ bool application_open_content_url(Utf8View) noexcept {
     return true;
 }
 bool application_link_open(Utf8View, bool) noexcept {
-    return true;
-}
-bool select_content_guild(u64) noexcept {
     return true;
 }
 bool application_user_menu_open(u64, UiRect, u64, UserMenuSource, ConstSlice<PopupItem>,

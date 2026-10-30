@@ -8,6 +8,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/model/user_store.hpp"
+#include "maicord/protocol/client_status.hpp"
 #include "maicord/ui/shell_navigation_scene.hpp"
 #include "maicord/ui/member_list_scene.hpp"
 #include "maicord/ui/scene.hpp"
@@ -34,15 +35,45 @@ u64 private_row_peer(const UiPrivateRowSource& source, u64 channel_id) noexcept 
 }
 } // namespace
 
+UiPresence ui_user_presence(const UiPrivateRowSource& source, u64 user) noexcept {
+    const auto* relation = source.relationships && user ? relationship_store_find(*source.relationships, user) : nullptr;
+    if (relation && relation->type == RelationshipType::friend_ && relation->presence != RelationshipPresence::unknown) {
+        switch (relation->presence) {
+        case RelationshipPresence::online: return UiPresence::online;
+        case RelationshipPresence::idle: return UiPresence::idle;
+        case RelationshipPresence::dnd: return UiPresence::busy;
+        default: return UiPresence::offline;
+        }
+    }
+    // Everyone else: the latest presence of any scope (a guild presence of an
+    // open DM's recipient included) left its platforms on the user record.
+    switch (source.users && user ? client_status_overall(user_store_client_status(*source.users, user))
+                                 : ClientPlatformStatus::offline) {
+    case ClientPlatformStatus::online: return UiPresence::online;
+    case ClientPlatformStatus::idle: return UiPresence::idle;
+    case ClientPlatformStatus::dnd: return UiPresence::busy;
+    default: return UiPresence::offline;
+    }
+}
 UiPrivateRowStatus ui_private_row_status(const UiPrivateRowSource& source, u64 channel_id) noexcept {
-    const u64 peer = source.relationships ? private_row_peer(source, channel_id) : 0;
+    const ChannelRecord* channel = nullptr;
+    const auto* metadata = source.state ? record(*source.state, channel_id, &channel) : nullptr;
+    if (metadata && channel->type == 3) {
+        // As the client's DM list: a group is online (and nothing else) while
+        // any other member's own status is online.
+        const auto recipients = private_channel_store_recipients(*source.state->private_channels, *metadata);
+        for (u32 i = 0; i < recipients.count; ++i)
+            if (recipients[i] != source.state->self_user_id &&
+                ui_user_presence(source, recipients[i]) == UiPresence::online)
+                return UiPrivateRowStatus::online;
+        return UiPrivateRowStatus::none;
+    }
+    const u64 peer = private_row_peer(source, channel_id);
     if (!peer) return UiPrivateRowStatus::none;
-    const auto* relation = relationship_store_find(*source.relationships, peer);
-    if (!relation || relation->type != RelationshipType::friend_) return UiPrivateRowStatus::none;
-    switch (relation->presence) {
-    case RelationshipPresence::online: return UiPrivateRowStatus::online;
-    case RelationshipPresence::idle: return UiPrivateRowStatus::idle;
-    case RelationshipPresence::dnd: return UiPrivateRowStatus::dnd;
+    switch (ui_user_presence(source, peer)) {
+    case UiPresence::online: return UiPrivateRowStatus::online;
+    case UiPresence::idle: return UiPrivateRowStatus::idle;
+    case UiPresence::busy: return UiPrivateRowStatus::dnd;
     default: return UiPrivateRowStatus::offline;
     }
 }
@@ -152,14 +183,24 @@ bool ring(PaintStream* stream, UiRect r, Color color) noexcept {
                                             color, ui_rect_width(r) * .5f + 2.f, 2);
 }
 // Cutouts repeat the row highlight so the ring matches the composited surface.
+// Only a conversation row shows a group's online dot (not the header).
 bool decorations(PaintStream* stream, const UiPrivateRowSource& source, u64 channel_id, u8 type, UiRect avatar,
-                 Color surface, const Color* highlight, const Theme& theme) noexcept {
+                 Color surface, const Color* highlight, const Theme& theme, bool row) noexcept {
     if (type == 3) {
+        // The generated icon: the front avatar's cut, then an online group's
+        // dot at the usual corner.
         const auto front = ui_private_row_group_avatar(avatar, 1);
-        return ring(stream, front, surface) && (!highlight || ring(stream, front, *highlight));
+        if (!ring(stream, front, surface) || (highlight && !ring(stream, front, *highlight)))
+            return false;
+        if (!row || ui_private_row_status(source, channel_id) != UiPrivateRowStatus::online)
+            return true;
+        const auto dot = ui_private_row_status_rectangle(avatar);
+        return ui_presence_paint(stream, dot, UiPresence::online, surface, theme) &&
+               (!highlight || ring(stream, dot, *highlight));
     }
     const auto status = ui_private_row_status(source, channel_id);
-    if (status == UiPrivateRowStatus::none) return true;
+    if (status == UiPrivateRowStatus::none || (!row && !private_row_peer(source, channel_id)))
+        return true;
     const auto dot = ui_private_row_status_rectangle(avatar);
     if (ui_private_row_mobile(source, channel_id)) {
         const auto phone = ui_presence_mobile_geometry(dot, 2.f);
@@ -198,7 +239,7 @@ bool ui_private_rows_overlay_paint(const ShellNavigationScene& scene, UiRect cli
                                                           selected ? .28f : .20f);
         ok = decorations(stream, source, row.view.id, ui_private_avatar_shape(source.state, row.view.id, row.view.type),
                          icon->rectangle, theme.base_lower,
-                         selected || over ? &highlight : nullptr, theme);
+                         selected || over ? &highlight : nullptr, theme, true);
         // The activity glyph leads the subtitle line (shell_text_presentation).
         UiActivityGlyph glyph = UiActivityGlyph::none;
         char subtitle[192];
@@ -229,7 +270,7 @@ bool ui_private_header_overlay_paint(const UiScene& scene, const UiPrivateRowSou
     const auto avatar = ui_private_header_avatar(scene);
     if (!channel || !channel_is_private(channel->type) || !ui_rect_has_area(avatar)) return true;
     if (!decorations(stream, source, channel_id, ui_private_avatar_shape(source.state, channel_id, channel->type),
-                     avatar, theme.base_lower, nullptr, theme))
+                     avatar, theme.base_lower, nullptr, theme, false))
         return false;
     char line[192];
     UiPrivateHeaderActivity activity{};

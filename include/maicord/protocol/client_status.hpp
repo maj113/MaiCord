@@ -29,6 +29,21 @@ constexpr bool client_status_mobile_online(u8 packed) noexcept {
            client_status_get(packed, ClientPlatform::desktop) != ClientPlatformStatus::online;
 }
 
+// The user's overall status from the platforms that report one: do not
+// disturb is shared by every session, an idle session leaves the others
+// online, so dnd, then online, then idle; offline when none reports.
+constexpr ClientPlatformStatus client_status_overall(u8 packed) noexcept {
+    ClientPlatformStatus best = ClientPlatformStatus::offline;
+    for (u32 platform = 0; platform < kClientPlatformCount; ++platform) {
+        const auto status = client_status_get(packed, static_cast<ClientPlatform>(platform));
+        if (status == ClientPlatformStatus::dnd)
+            return status;
+        if (status == ClientPlatformStatus::online || (status == ClientPlatformStatus::idle && best == ClientPlatformStatus::offline))
+            best = status;
+    }
+    return best;
+}
+
 // Reads a client_status object. Unknown platforms and values are ignored (a
 // future platform never rejects the presence); null or a non-object is empty.
 // False only for a malformed object or a duplicated platform.

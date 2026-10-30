@@ -441,7 +441,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
         tests/composer_geometry.cpp tests/reply_grouping.cpp tests/message_markdown_cache.cpp
         tests/message_interaction_rules.cpp tests/timeline_overlay_regressions.cpp tests/chat_display.cpp
         tests/message_live_updates.cpp tests/embed_colors.cpp tests/ansi_code_blocks.cpp tests/message_components.cpp
-        tests/message_content_wave.cpp tests/embed_convergence.cpp tests/embed_parity.cpp
+        tests/message_content_wave.cpp tests/embed_convergence.cpp tests/embed_parity.cpp tests/message_link_chips.cpp
         tests/history_presence_recovery.cpp tests/profile_appearance.cpp tests/profile_decode_scratch.cpp
         tests/message_rich_index.cpp tests/cdn_response_storage.cpp tests/rest_response_storage.cpp
         tests/engineering_regressions.cpp tests/deflate_matches.cpp tests/deflate_differential.cpp
@@ -1571,7 +1571,7 @@ foreach(maicord_ui_gate IN ITEMS ACCOUNT_MENU_UI ANIMATION_HANDOFF_UI BOOTSTRAP_
         UI_GUILD_ROLES
         UI_CAPTION UI_COMPOSER_WORKFLOW UI_DOWNLOAD UI_FORUM_POST UI_FORWARDED_MESSAGES UI_HOVER_RETENTION
         UI_INLINE_FLAGS
-        UI_MEDIA_UNDERLAY UI_MESSAGE_FORWARD UI_PANE_GLYPH_STRESS UI_PINNED_MESSAGES UI_QUICK_SWITCHER
+        UI_MEDIA_UNDERLAY UI_MESSAGE_COMPONENTS UI_MESSAGE_FORWARD UI_PANE_GLYPH_STRESS UI_PINNED_MESSAGES UI_QUICK_SWITCHER
         UI_SEARCH_POLISH UI_SURFACE_MOTION UI_THREAD_CREATION UI_UNIFIED_PICKER TOAST_UI)
     string(TOLOWER "${maicord_ui_gate}" maicord_ui_gate_name)
     string(REGEX REPLACE "^ui_(.*)$" "\\1_ui" maicord_ui_gate_name "${maicord_ui_gate_name}")

@@ -1099,6 +1099,11 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
             ? maximum(requests_media_first,
                       minimum(renderer->friends_requests_media_end_batch, gallery_media_first))
             : gallery_media_first;
+    // Link chip server icons, the timeline's last media range, follow the
+    // message text so a hovered chip's accent pill never covers them.
+    const u32 chip_media_first = minimum(renderer->chip_media_first_batch, requests_media_first);
+    const u32 chip_media_end =
+        maximum(chip_media_first, minimum(renderer->chip_media_end_batch, requests_media_first));
     const u32 requests_text_end =
         friends_requests_active
             ? maximum(base_text_end, minimum(renderer->friends_requests_text_end_batch, visible_text_end))
@@ -1374,9 +1379,11 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
             !paint(dialog_foreground, dialog_end) || !text(dialog_text, dialog_text_end, false) ||
             !forms(dialog_end, dialog_text_end, false))
             goto draw_failed;
-    } else if (!paint(0, media_overlay_begin) || !media(0, requests_media_first, upload_media) ||
+    } else if (!paint(0, media_overlay_begin) || !media(0, chip_media_first, upload_media) ||
+               !media(chip_media_end, requests_media_first, false) ||
                !paint(media_overlay_begin, edit_overlay) || !inline_media(RendererInlineMediaLayer::base) ||
-               !text(0, base_text_end, true) || !paint(edit_overlay, base_paint_end) ||
+               !text(0, base_text_end, true) || !media(chip_media_first, chip_media_end, false) ||
+               !paint(edit_overlay, base_paint_end) ||
                !paint(base_paint_end, requests_foreground) ||
                !media(requests_media_first, requests_media_end, false) ||
                !paint(requests_foreground, requests_paint_end) ||

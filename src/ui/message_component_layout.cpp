@@ -12,8 +12,10 @@ namespace {
 constexpr u16 kNoParent = 0xFFFFu;
 
 float separator_height(const MessageRichComponent& component) noexcept {
-    // Separator spacing 1 (small) and 2 (large) frame an optional 1 DIP rule.
-    return component.style >= 2 ? 32.0f : 16.0f;
+    // The parent's 8-DIP gaps frame every separator; spacing 2 (large) adds
+    // 8 above and below, and a divider is a 1-DIP rule.
+    const float rule = (component.flags & gateway_message_component_divider) ? 1.0f : 0.0f;
+    return rule + (component.style >= 2 ? 2 * kMessageComponentSeparatorLargeMargin : 0.0f);
 }
 
 bool section_accessory(const MessageRichRecord& rich, u32 index) noexcept {
@@ -34,9 +36,14 @@ bool row_holds_only_buttons(const MessageRichRecord& rich, u32 index) noexcept {
     return true;
 }
 
-Color mix(Color a, Color b, float t) noexcept {
-    return {a.red + (b.red - a.red) * t, a.green + (b.green - a.green) * t, a.blue + (b.blue - a.blue) * t,
-            a.alpha + (b.alpha - a.alpha) * t};
+// `top` composited source-over onto `bottom` (both straight alpha).
+Color over(Color top, Color bottom) noexcept {
+    const float under = bottom.alpha * (1 - top.alpha);
+    const float alpha = top.alpha + under;
+    if (alpha <= 0)
+        return {};
+    return {(top.red * top.alpha + bottom.red * under) / alpha, (top.green * top.alpha + bottom.green * under) / alpha,
+            (top.blue * top.alpha + bottom.blue * under) / alpha, alpha};
 }
 
 } // namespace
@@ -129,40 +136,78 @@ float message_component_leaf_width(const MessageRichComponent& component, float 
     }
 }
 
-float message_component_gallery_height(u32 count, float width) noexcept {
+namespace {
+// Media mosaic heights: a lone item is capped at 350, a two-item row and a
+// lead item above a grid at 280, the three- and four-item layouts at 350.
+constexpr float kGallerySingleMaximum = 350.0f;
+constexpr float kGalleryRowMaximum = 280.0f;
+constexpr float kGalleryGridMaximum = 350.0f;
+
+float gallery_pair_height(float width) noexcept {
+    return minimum(kGalleryRowMaximum, (width - kMessageComponentGalleryGap) * 0.5f);
+}
+// Galleries of five or more lead with count % 3 items (one full-width item or
+// a pair) above rows of three squares.
+float gallery_lead_height(u32 count, float width) noexcept {
+    const u32 lead = count % 3;
+    return lead == 1   ? minimum(kGalleryRowMaximum, width * 0.5625f)
+           : lead == 2 ? gallery_pair_height(width)
+                       : 0.0f;
+}
+} // namespace
+
+float message_component_media_aspect(const MessageRichComponent& component) noexcept {
+    if (component.type != gateway_component_thumbnail && component.type != gateway_component_gallery_item)
+        return 0.0f;
+    const u32 width = component.accent_color >> 16, height = component.accent_color & 0xFFFFu;
+    return width && height ? static_cast<float>(height) / static_cast<float>(width) : 0.0f;
+}
+
+float message_component_gallery_aspect(const MessageRichRecord& rich, u32 gallery) noexcept {
+    u32 count = 0;
+    float aspect = 0.0f;
+    for (u32 i = gallery + 1; i < rich.component_count && count < 2; ++i)
+        if (rich.components[i].parent == gallery && rich.components[i].type == gateway_component_gallery_item) {
+            aspect = message_component_media_aspect(rich.components[i]);
+            ++count;
+        }
+    return count == 1 ? aspect : 0.0f;
+}
+
+float message_component_gallery_height(u32 count, float width, float aspect) noexcept {
     if (count == 0 || width <= 0.0f)
         return 0.0f;
     const float gap = kMessageComponentGalleryGap;
+    // A lone item keeps its own aspect (16:9 until its size is known).
     if (count == 1)
-        return minimum(width * 0.5625f, 300.0f);
+        return minimum(width * (aspect > 0.0f ? aspect : 0.5625f), kGallerySingleMaximum);
     if (count == 2)
-        return (width - gap) * 0.5f;
+        return gallery_pair_height(width);
     if (count == 3)
-        return width * 2.0f / 3.0f;
+        return minimum(kGalleryGridMaximum, (width - gap) * 2.0f / 3.0f);
     if (count == 4)
-        return width; // two square rows of (width - gap) / 2 plus the gap
-    // A top pair followed by rows of three.
-    const u32 rest = count - 2;
-    const u32 rows = (rest + 2) / 3;
-    const float pair = (width - gap) * 0.5f;
+        return 2.0f * minimum((kGalleryGridMaximum - gap) * 0.5f, (width - gap) * 0.5f) + gap;
+    const float lead = gallery_lead_height(count, width);
+    const u32 rows = (count - count % 3) / 3;
     const float triple = (width - 2.0f * gap) / 3.0f;
-    return pair + static_cast<float>(rows) * (triple + gap);
+    return lead + (lead > 0 ? gap : 0.0f) + static_cast<float>(rows) * triple + static_cast<float>(rows - 1) * gap;
 }
 
-UiRect message_component_gallery_cell(u32 count, u32 index, float width) noexcept {
+UiRect message_component_gallery_cell(u32 count, u32 index, float width, float aspect) noexcept {
     if (index >= count || width <= 0.0f)
         return {};
     const float gap = kMessageComponentGalleryGap;
-    const float height = message_component_gallery_height(count, width);
+    const float height = message_component_gallery_height(count, width, aspect);
     if (count == 1)
-        return {0, 0, width, height};
+        return {0, 0, aspect > 0.0f ? minimum(width, height / aspect) : width, height};
+    const float half = (width - gap) * 0.5f;
     if (count == 2) {
-        const float cell = (width - gap) * 0.5f;
-        const float left = index * (cell + gap);
-        return {left, 0, left + cell, cell};
+        const float left = index * (half + gap);
+        return {left, 0, left + half, height};
     }
     if (count == 3) {
-        const float large = width * 2.0f / 3.0f - gap * 0.5f;
+        // One item over two-thirds of the width beside two stacked ones.
+        const float large = (width - gap) * 2.0f / 3.0f;
         const float small = (height - gap) * 0.5f;
         if (index == 0)
             return {0, 0, large, height};
@@ -170,19 +215,22 @@ UiRect message_component_gallery_cell(u32 count, u32 index, float width) noexcep
         return {large + gap, top, width, top + small};
     }
     if (count == 4) {
-        const float cell = (width - gap) * 0.5f;
-        const float left = (index % 2) * (cell + gap), top = (index / 2) * (cell + gap);
-        return {left, top, left + cell, top + cell};
+        const float row = (height - gap) * 0.5f;
+        const float left = (index % 2) * (half + gap), top = (index / 2) * (row + gap);
+        return {left, top, left + half, top + row};
     }
-    const float pair = (width - gap) * 0.5f;
-    if (index < 2) {
-        const float left = index * (pair + gap);
-        return {left, 0, left + pair, pair};
+    const u32 lead = count % 3;
+    const float lead_height = gallery_lead_height(count, width);
+    if (index < lead) {
+        if (lead == 1)
+            return {0, 0, width, lead_height};
+        const float left = index * (half + gap);
+        return {left, 0, left + half, lead_height};
     }
     const float triple = (width - 2.0f * gap) / 3.0f;
-    const u32 at = index - 2;
+    const u32 at = index - lead;
     const float left = (at % 3) * (triple + gap);
-    const float top = pair + gap + (at / 3) * (triple + gap);
+    const float top = (lead ? lead_height + gap : 0.0f) + (at / 3) * (triple + gap);
     return {left, top, left + triple, top + triple};
 }
 
@@ -203,8 +251,32 @@ u32 message_component_child_ordinal(const MessageRichRecord& rich, u32 index) no
     return ordinal;
 }
 
+u32 message_component_error_host(const MessageRichRecord& rich, u32 index) noexcept {
+    if (index >= rich.component_count)
+        return kMessageComponentNone;
+    const u16 parent = rich.components[index].parent;
+    if (parent >= rich.component_count)
+        return kMessageComponentNone;
+    const auto kind = message_component_kind(rich.components[parent]);
+    return kind == MessageComponentKind::row || kind == MessageComponentKind::section ? parent
+                                                                                       : kMessageComponentNone;
+}
+
+u32 message_component_spoiler_container(const MessageRichRecord& rich, u32 index) noexcept {
+    for (u32 at = index, depth = 0; at < rich.component_count && depth < kGatewayMessageComponentMaximum;
+         at = rich.components[at].parent, ++depth)
+        if (rich.components[at].type == gateway_component_container)
+            return (rich.components[at].flags & gateway_message_component_spoiler) ? at : kMessageComponentNone;
+    return kMessageComponentNone;
+}
+
+bool message_component_hit_target(const MessageRichComponent& component) noexcept {
+    return message_component_interactive(component) ||
+           (component.type == gateway_component_container && (component.flags & gateway_message_component_spoiler));
+}
+
 float message_component_measure_tree(const MessageRichRecord& rich, MessageRichItemLayout* items,
-                                     float available_width) noexcept {
+                                     float available_width, u32 error_host) noexcept {
     if (!items)
         return 0.0f;
     // Per-parent accumulators for the reverse fold.
@@ -257,16 +329,17 @@ float message_component_measure_tree(const MessageRichRecord& rich, MessageRichI
             break;
         case MessageComponentKind::section: {
             const u32 text_children = children[i] - (accessory_height[i] > 0 ? 1u : 0u);
-            const float text = sum_height[i] +
-                               static_cast<float>(text_children > 1 ? text_children - 1 : 0) * kMessageComponentGap;
+            const float text = sum_height[i] + static_cast<float>(text_children > 1 ? text_children - 1 : 0) *
+                                                   kMessageComponentSectionTextGap;
             height = maximum(text, accessory_height[i]);
-            width = max_width[i] + (accessory_width[i] > 0 ? accessory_width[i] + kMessageComponentPadding : 0.0f);
+            width = max_width[i] + (accessory_width[i] > 0 ? accessory_width[i] + kMessageComponentSectionGap : 0.0f);
             break;
         }
         case MessageComponentKind::gallery:
             // The text pass seeds the gallery's own width; cells never fold.
             height = message_component_gallery_height(
-                message_component_child_count(rich, i, MessageComponentKind::gallery_item), width);
+                message_component_child_count(rich, i, MessageComponentKind::gallery_item), width,
+                message_component_gallery_aspect(rich, i));
             break;
         case MessageComponentKind::hidden:
         case MessageComponentKind::gallery_item:
@@ -277,6 +350,8 @@ float message_component_measure_tree(const MessageRichRecord& rich, MessageRichI
         default:
             break; // measured leaf
         }
+        if (i == error_host)
+            height += kMessageComponentErrorHeight;
         if (component.parent < i) {
             const u32 parent = component.parent;
             if (section_accessory(rich, i)) {
@@ -298,8 +373,12 @@ float message_component_measure_tree(const MessageRichRecord& rich, MessageRichI
             ++roots;
         }
     }
-    // Root components stack with the block gap between them.
-    return total + static_cast<float>(roots > 1 ? roots - 1 : 0) * kMessageComponentGap;
+    // Root components stack with the root gap between them.
+    return total + static_cast<float>(roots > 1 ? roots - 1 : 0) * message_component_root_gap(&rich);
+}
+
+float message_component_root_gap(const MessageRichRecord* rich) noexcept {
+    return rich && !rich->components_v2 ? kMessageComponentLegacyRootGap : kMessageComponentGap;
 }
 
 u64 message_component_structure(const MessageRichRecord* rich) noexcept {
@@ -309,7 +388,7 @@ u64 message_component_structure(const MessageRichRecord* rich) noexcept {
         hash = hash64_mix(hash, rich->components[i].order);
         hash = hash64_mix(hash, rich->components[i].type);
     }
-    return hash;
+    return rich && rich->components_v2 ? hash64_mix(hash, 1) : hash;
 }
 
 UiLayoutStyle message_component_style(const MessageRichRecord& rich, u32 index,
@@ -371,25 +450,37 @@ UiLayoutStyle message_component_style(const MessageRichRecord& rich, u32 index,
         if (section_accessory(rich, index)) {
             style.horizontal_alignment = UiLayoutAlignment::end;
         } else {
-            // Text stacks down the leading column; the accessory keeps its lane.
-            float top = 0;
-            float accessory = 0;
+            // Text stacks down the leading column, 4 apart; the accessory
+            // keeps its lane 12 away. Beside a button the column is centred.
+            float top = 0, column = 0;
+            u32 texts = 0;
+            float accessory = 0, accessory_height = 0;
+            bool button = false;
             for (u32 i = parent + 1u; i < rich.component_count; ++i) {
                 if (rich.components[i].parent != parent)
                     continue;
-                if (section_accessory(rich, i))
+                const float child = items.heights[kMessageRichComponentItemOffset + i];
+                if (section_accessory(rich, i)) {
                     accessory = items.component_widths[i];
-                else if (i < index)
-                    top += items.heights[kMessageRichComponentItemOffset + i] + kMessageComponentGap;
+                    accessory_height = child;
+                    button = rich.components[i].type == gateway_component_button;
+                    continue;
+                }
+                if (i < index)
+                    top += child + kMessageComponentSectionTextGap;
+                column += child + (texts++ ? kMessageComponentSectionTextGap : 0.0f);
             }
+            if (button && accessory_height > column)
+                top += (accessory_height - column) * 0.5f;
             style.margin.top = top;
-            style.margin.right = accessory > 0 ? accessory + kMessageComponentPadding : 0.0f;
+            style.margin.right = accessory > 0 ? accessory + kMessageComponentSectionGap : 0.0f;
             style.horizontal_alignment = UiLayoutAlignment::stretch;
         }
     } else if (parent_kind == MessageComponentKind::gallery) {
         const u32 count = message_component_child_count(rich, parent, MessageComponentKind::gallery_item);
         const UiRect cell = message_component_gallery_cell(count, message_component_child_ordinal(rich, index),
-                                                           items.component_widths[parent]);
+                                                           items.component_widths[parent],
+                                                           message_component_gallery_aspect(rich, parent));
         style.width = ui_layout_fixed(maximum(1.0f, ui_rect_width(cell)));
         style.height = ui_layout_fixed(maximum(1.0f, ui_rect_height(cell)));
         style.margin.left = cell.left;
@@ -406,8 +497,12 @@ MessageComponentButtonColors message_component_button_colors(const Theme& theme,
                                                              bool disabled) noexcept {
     MessageComponentButtonColors colors{};
     const auto& tokens = theme.tokens;
+    // Filled buttons carry a faint light rim; the neutral fill is
+    // translucent, so it reads over any message background.
+    colors.border = tokens.border.subtle;
     switch (static_cast<MessageComponentButtonStyle>(style)) {
     case MessageComponentButtonStyle::primary:
+    case MessageComponentButtonStyle::premium:
         colors.fill = tokens.emphasis.fill;
         colors.text = tokens.emphasis.text;
         break;
@@ -419,15 +514,12 @@ MessageComponentButtonColors message_component_button_colors(const Theme& theme,
         colors.fill = tokens.accent.danger;
         colors.text = tokens.text.on_accent;
         break;
-    default: // secondary, link, premium
-        colors.fill = theme.interactive;
+    default: // secondary and link
+        colors.fill = tokens.fill.muted;
         colors.text = theme.text_primary;
         break;
     }
-    colors.border = colors.fill;
-    // Hover composites the theme's hover state over the fill.
-    const Color hover = tokens.state.hover;
-    colors.hover = mix(colors.fill, {hover.red, hover.green, hover.blue, colors.fill.alpha}, hover.alpha);
+    colors.hover = over(tokens.state.hover, colors.fill);
     if (disabled) {
         colors.fill.alpha *= 0.5f;
         colors.border.alpha *= 0.5f;

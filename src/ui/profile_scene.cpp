@@ -30,9 +30,9 @@ constexpr float kPopoutWidth = 300, kPopoutBanner = 105, kModalBanner = 140;
 // The DM profile panel (the official sidebar redesign): a card inset 8 DIPs
 // in its slot with a 2 DIP border (a Nitro theme's gradient), a 105 DIP banner,
 // the 80 DIP avatar 16 and 57 from the card's corner, a 44 DIP "View Full
-// Profile" bar; mutual list rows 40 DIPs.
+// Profile" bar.
 constexpr float kPanelInset = 8, kPanelBorder = 2, kPanelBanner = 105, kPanelAvatarTop = 57 - kPanelBorder,
-                kPanelFooter = 44, kPanelRow = 40;
+                kPanelFooter = 44;
 constexpr u16 kNoPart = 0xFFFF;
 // A card's changing parts (indices into parts): the timer chip's label and
 // glyph, the progress bar's ends and track.
@@ -46,6 +46,10 @@ struct Storage {
     ProfilePart parts[capacity];
     // Owned labels; other parts borrow profile text.
     ProfileString<64> mutual_text[2], tab_text[2], roles_more, member_since[2];
+    // The username line: a bot's "name#1234".
+    ProfileString<136> username_tag;
+    // The panel's command chips: "/name".
+    ProfileString<132> command_label[kProfileCommandMaximum];
     ProfileString<64> connection_line[16];
     char connection_initial[16][2];
     // The laid-out activities and their cards' text (the store changes under
@@ -971,9 +975,12 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
     const float line = large ? 30.f : 24.f;
     const u32 name_flags = (large ? kXl : kLg) | text_style_bold;
     const bool note = !large && interactive(*s) && s->note_visible && !self(*s);
+    UiBadgeWidget app{};
     float tag = 0;
-    if (bot(*s))
-        tag = ui_rect_width(ui_badge_layout(s->measure, utf8_literal("APP"), {0, 0, 64, 20}, false).outer) + 4;
+    if (bot(*s)) {
+        ui_app_badge(&app, p.user_appearance.public_flags);
+        tag = ui_rect_width(ui_badge_widget_layout(s->measure, app, {0, 0, 96, 16}).outer) + 4;
+    }
     const float name_width = maximum(24.f, text_width(s, display, width - tag - (note ? 28.f : 0.f), name_flags));
     auto* name = add(s, owner, {left, top, left + name_width, top + line}, display,
                      large ? ProfileAction::none : ProfileAction::expand, name_flags);
@@ -982,10 +989,22 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
     s->name_widget = name->widget;
     float x = left + name_width + 4;
     if (tag) {
-        auto* badge = blank(s, owner, {x, top + (line - 20) * .5f, x + tag - 4, top + (line + 20) * .5f});
+        auto* badge = blank(s, owner, {x, top + (line - 16) * .5f, x + tag - 4, top + (line + 16) * .5f});
         if (!badge)
             return -1;
-        badge->badge = {badge->widget, utf8_literal("APP"), {}, text_style_subtext | text_style_bold, false, true};
+        app.owner = badge->widget;
+        badge->badge = app;
+        // The client wraps only the verified check in its "Verified App" tooltip.
+        if (app.leading) {
+            auto* check = blank(s, owner,
+                                ui_app_badge_check_rectangle({x, top + (line - 16) * .5f, x + tag - 4,
+                                                              top + (line + 16) * .5f}),
+                                ProfileAction::hint);
+            if (!check)
+                return -1;
+            check->hint = kUiAppBadgeVerifiedHint;
+            unfocusable(s, check);
+        }
         x += tag;
     }
     if (note && !icon(s, owner, {x, top, x + 24, top + 24}, UiIcon::file_text, ProfileAction::open_note))
@@ -1015,7 +1034,21 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
         main->media = ProfileMediaKind::peer_avatar;
         main->source = 0xFFFF;
     }
-    if (!add(s, owner, slot(text_width(s, p.username.view(), width, kSm), 18), p.username.view(),
+    // Bots keep a discriminator: "name#1234" (unique usernames show alone).
+    auto username = p.username.view();
+    if (p.discriminator) {
+        auto& tag = labels(s).username_tag;
+        tag.bytes = 0;
+        char digits[4];
+        u32 n = p.discriminator;
+        for (u32 i = 4; i-- > 0; n /= 10)
+            digits[i] = static_cast<char>('0' + n % 10);
+        append(&tag, username);
+        append(&tag, utf8_literal("#"));
+        append(&tag, Utf8View{digits, 4});
+        username = tag.view();
+    }
+    if (!add(s, owner, slot(text_width(s, username, width, kSm), 18), username,
              large ? ProfileAction::none : ProfileAction::expand, kSm, ProfileLook::plain, ProfileTone::strong))
         return -1;
     if (pronouns.bytes) {
@@ -1071,6 +1104,7 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
 
 float button(ProfileScene* s, UiWidgetHandle owner, float left, float top, const Utf8View& label, UiIcon glyph,
              ProfileAction action, bool primary, float width = 0) noexcept;
+float commands_section(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width) noexcept;
 // Relationship notices: the incoming friend request
 // card with Accept, or "You blocked them".
 float notices(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, bool large) noexcept {
@@ -1133,11 +1167,12 @@ bool mutual_chip(ProfileScene* s, UiWidgetHandle owner, float x, float top, floa
     }
     return caption(s, owner, {x + stack, top + 4, x + w, top + 20}, text, flags, ProfileTone::subtle) != nullptr;
 }
-// The popout's mutuals row.
+// The mutuals row of the popout and the DM panel (bots list servers only:
+// their profiles carry no mutual friends).
 float mutuals(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width) noexcept {
     const auto& p = *s->profile;
     const u32 friends = p.mutual_friend_count, servers = p.mutual_guild_count;
-    if (self(*s) || bot(*s) || (!friends && !servers))
+    if (self(*s) || (!friends && !servers))
         return 0;
     auto& l = labels(s);
     const u32 flags = friends && servers ? kXs : kSm;
@@ -1385,7 +1420,9 @@ bool layout_popout(ProfileScene* s, const UiRect& viewport) noexcept {
         if (!section(h + (peek && h > 0 ? 8.f : 0.f)))
             return false;
     }
-    if (!section(roles(s, s->body, x0, y, content, true)) || !section(plugin_section(s, s->body, x0, y, content)))
+    // The client's bot popout lists its Commands after the bio, before roles.
+    if (!section(commands_section(s, s->body, x0, y, content)) || !section(roles(s, s->body, x0, y, content, true)) ||
+        !section(plugin_section(s, s->body, x0, y, content)))
         return false;
     const float body_content = y > 4 ? y - 12 + 8 : 12;
     // Footer: Message @name for others, Edit Profile for self.
@@ -1472,11 +1509,10 @@ bool layout_popout(ProfileScene* s, const UiRect& viewport) noexcept {
     return finish(s, viewport);
 }
 
-// Body sections
-float heading(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, const Utf8View& text) noexcept {
-    return caption(s, owner, {left, top, left + width, top + 16}, text, kXs | text_style_bold, ProfileTone::subtle)
-               ? 24.f
-               : -1.f;
+// Body sections: a text-xs semibold heading, 8 above its content.
+float heading(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, const Utf8View& text,
+              ProfileTone tone = ProfileTone::subtle) noexcept {
+    return caption(s, owner, {left, top, left + width, top + 16}, text, kXs | text_style_bold, tone) ? 24.f : -1.f;
 }
 Utf8View platform_name(const Utf8View& type) noexcept {
     // "type", "Display Name" pairs, each NUL-terminated.
@@ -1496,27 +1532,34 @@ Utf8View platform_name(const Utf8View& type) noexcept {
     }
     return type;
 }
-float member_since(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width) noexcept {
+// The account's creation date under "Member Since" ("Created On" for a bot);
+// in a server the Discord date gets a mark and the server's join date follows.
+float member_since(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width,
+                   ProfileTone tone = ProfileTone::subtle) noexcept {
     const auto& p = *s->profile;
-    float h = heading(s, owner, left, top, width, utf8_literal("Member Since"));
+    float h = heading(s, owner, left, top, width, bot(*s) ? utf8_literal("Created On") : utf8_literal("Member Since"),
+                      tone);
     if (h < 0)
         return -1;
     auto& l = labels(s);
     const float y = top + h;
     float x = left;
+    u64 joined = 0;
+    const auto* guild = s->state && p.guild_id ? chat_state_store_find_guild(*s->state, p.guild_id) : nullptr;
+    const bool member = guild && p.joined_at.bytes && parse_iso_timestamp({p.joined_at.view(), 0, false}, &joined);
     // A generic calendar icon marks the account date; no brand asset is shipped.
-    if (!icon(s, owner, {x, y + 1, x + 16, y + 17}, UiIcon::calendar, ProfileAction::none))
-        return -1;
-    x += 20;
+    if (member) {
+        if (!icon(s, owner, {x, y + 1, x + 16, y + 17}, UiIcon::calendar, ProfileAction::none))
+            return -1;
+        x += 20;
+    }
     l.member_since[0].bytes = 0;
     append_date(&l.member_since[0], ((p.user_id >> 22) + 1420070400000ull) / 1000);
     const float first = text_width(s, l.member_since[0].view(), width - (x - left), kSm);
     if (!caption(s, owner, {x, y, x + first, y + 18}, l.member_since[0].view(), kSm))
         return -1;
     x += first;
-    u64 joined = 0;
-    const auto* guild = s->state && p.guild_id ? chat_state_store_find_guild(*s->state, p.guild_id) : nullptr;
-    if (guild && p.joined_at.bytes && parse_iso_timestamp({p.joined_at.view(), 0, false}, &joined)) {
+    if (member) {
         x += 8;
         if (!blank(s, owner, {x, y + 7, x + 4, y + 11}, ProfileAction::none, ProfileLook::dot))
             return -1;
@@ -1642,25 +1685,25 @@ float modal_buttons(ProfileScene* s, UiWidgetHandle owner, float left, float top
 bool tab_panel(ProfileScene* s, const UiRect& panel, float bottom_pad, const u8* order, u32 cards) noexcept {
     const auto& p = *s->profile;
     auto& l = labels(s);
-    const bool mutuals = !self(*s) && !bot(*s);
+    // Activity, then the mutual lists: a bot has servers only (as the
+    // client's bot profile), the signed-in user none.
     Utf8View titles[3]{utf8_literal("Activity")};
+    ProfileAction actions[3]{ProfileAction::activity};
     u32 count = 1;
-    if (mutuals) {
-        for (u32 i = 0; i < 2; ++i) {
-            auto& text = l.tab_text[i];
-            const u32 n = i ? p.mutual_guild_count : p.mutual_friend_count;
-            if (n)
-                mutual_count(&text, n, i != 0);
-            else {
-                text.bytes = 0;
-                append(&text, i ? utf8_literal("No Mutual Servers") : utf8_literal("No Mutual Friends"));
-            }
-            titles[count++] = text.view();
+    for (u32 i = bot(*s) ? 1 : 0; !self(*s) && i < 2; ++i) {
+        auto& text = l.tab_text[i];
+        const u32 n = i ? p.mutual_guild_count : p.mutual_friend_count;
+        if (n)
+            mutual_count(&text, n, i != 0);
+        else {
+            text.bytes = 0;
+            append(&text, i ? utf8_literal("No Mutual Servers") : utf8_literal("No Mutual Friends"));
         }
+        actions[count] = i ? ProfileAction::servers : ProfileAction::friends;
+        titles[count++] = text.view();
     }
     if (s->tab >= count)
         s->tab = 0;
-    const ProfileAction actions[] = {ProfileAction::activity, ProfileAction::friends, ProfileAction::servers};
     float x = panel.left;
     const float tab_top = panel.top + 20;
     for (u32 i = 0; i < count; ++i) {
@@ -1707,7 +1750,7 @@ bool tab_panel(ProfileScene* s, const UiRect& panel, float bottom_pad, const u8*
         }
         s->secondary_height = y;
     } else {
-        const bool friends = s->tab == 1;
+        const bool friends = actions[s->tab] == ProfileAction::friends;
         const u32 n = friends ? p.mutual_friends_count : p.mutual_guild_count;
         s->secondary_height = n * 50.f;
         s->secondary_scroll =
@@ -1793,7 +1836,9 @@ bool layout_modal(ProfileScene* s, const UiRect& viewport) noexcept {
         return false;
     if (!section(notices(s, s->body, cp, y, content, true)) ||
         !section(interactive(*s) ? modal_buttons(s, s->body, cp, y) : 0.f) ||
-        !section(biography(s, s->body, cp, y, content, false)) || !section(member_since(s, s->body, cp, y, content)))
+        !section(biography(s, s->body, cp, y, content, false)) ||
+        // The client's bot info: the bio, its Commands, then Created On.
+        !section(commands_section(s, s->body, cp, y, content)) || !section(member_since(s, s->body, cp, y, content)))
         return false;
     if (s->profile->guild_id && s->state) {
         const float before = y;
@@ -1834,45 +1879,45 @@ bool layout_modal(ProfileScene* s, const UiRect& viewport) noexcept {
     s->preview_height = mh;
     return finish(s, viewport);
 }
-// The DM profile panel (Discord's user profile sidebar): a card inset in its
-// slot (anchor), sections 12 apart 16 from the sides, the body scrolling
-// between the header and the "View Full Profile" bar. Geometry below is
-// relative to the card's inside (within its border).
-float panel_mutual_section(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, bool friends,
-                           float visible_top, float visible_bottom) noexcept {
-    const auto& p = *s->profile;
-    const u32 n = friends ? p.mutual_friends_count : p.mutual_guild_count;
-    const u32 count = friends ? p.mutual_friend_count : p.mutual_guild_count;
-    if (!count)
+// A bot's popular commands (resolved by the host): "Commands", then small
+// secondary "/name" chips 6 apart that wrap, each hinting its description.
+float commands_section(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width) noexcept {
+    const u32 count = minimum<u32>(s->commands.count, kProfileCommandMaximum);
+    if (!count || !bot(*s))
         return 0;
-    auto& text = labels(s).mutual_text[friends ? 0 : 1];
-    text.bytes = 0;
-    append(&text, friends ? utf8_literal("Mutual Friends \xE2\x80\x94 ") : utf8_literal("Mutual Servers \xE2\x80\x94 "));
-    append_number(&text, count);
-    const bool open = s->sections & (friends ? 2u : 1u);
-    if (!blank(s, owner, {left - 8, top, left + width + 8, top + 32},
-               friends ? ProfileAction::friends : ProfileAction::servers, ProfileLook::row) ||
-        !caption(s, owner, {left, top + 7, left + width - 24, top + 25}, text.view(), kSm, ProfileTone::strong) ||
-        !icon(s, owner, {left + width - 16, top + 8, left + width, top + 24},
-              open ? UiIcon::chevron_down : UiIcon::chevron_right, ProfileAction::none))
+    // The client's Commands section keeps the default heading colour.
+    const float h = heading(s, owner, left, top, width, utf8_literal("Commands"));
+    if (h < 0)
         return -1;
-    float y = top + 32;
-    if (!open)
-        return y - top;
-    // Rows outside the scrolled viewport only take their space.
-    for (u32 i = 0; i < n; ++i, y += kPanelRow) {
-        if (y + kPanelRow < visible_top || y > visible_bottom)
-            continue;
-        const auto& peer = friends ? p.mutual_friends[i] : p.mutual_guilds[i];
-        const auto name = peer_name(*s, friends, peer);
-        if (!peer_row(s, owner, friends, i, {left - 8, y, left + width + 8, y + kPanelRow},
-                      {left, y + 6, left + 28, y + 34}))
+    auto& l = labels(s);
+    float x = left, y = top + h;
+    for (u32 i = 0; i < count; ++i) {
+        const auto& command = s->commands[i];
+        auto& label = l.command_label[i];
+        label.bytes = 0;
+        append(&label, utf8_literal("/"));
+        append(&label, command.name);
+        const float text = text_width(s, label.view(), width - 24, kSm);
+        const float w = minimum(width, maximum(60.f, text + 24));
+        if (x > left && x + w > left + width) {
+            x = left;
+            y += 32 + 6;
+        }
+        auto* chip = blank(s, owner, {x, y, x + w, y + 32}, ProfileAction::command, ProfileLook::secondary);
+        if (!chip)
             return -1;
-        if (name.bytes && !caption(s, owner, {left + 40, y + 11, left + width, y + 29}, name, kSm))
+        chip->source = static_cast<u16>(i);
+        chip->hint = command.description;
+        if (!caption(s, owner, {x + (w - text) * .5f, y, x + (w + text) * .5f, y + 32}, label.view(), kSm))
             return -1;
+        x += w + 6;
     }
-    return y - top;
+    return y + 32 - top;
 }
+// The DM profile panel (the official user profile sidebar redesign): a card
+// inset in its slot (anchor), blocks 20 apart 16 from the sides, the body
+// scrolling between the header and the "View Full Profile" bar. Geometry
+// below is relative to the card's inside (within its border).
 bool layout_panel(ProfileScene* s, const UiRect& viewport) noexcept {
     const UiRect outer = ui_rect_inset(s->anchor, {kPanelInset, kPanelInset, kPanelInset, kPanelInset});
     const UiRect slot = ui_rect_inset(outer, {kPanelBorder, kPanelBorder, kPanelBorder, kPanelBorder});
@@ -1903,60 +1948,32 @@ bool layout_panel(ProfileScene* s, const UiRect& viewport) noexcept {
     if (!body)
         return false;
     s->body = body->widget;
-    const float visible_top = s->scroll, visible_bottom = s->scroll + (footer_top - header_bottom);
     float y = 0;
     const auto section = [&](float height) noexcept {
         if (height > 0)
-            y += height + 12;
+            y += height + 20;
         return height >= 0;
     };
     if (s->phase == ProfilePhase::failed && !section(failed_notice(s, s->body, x0, y, content)))
         return false;
-    if (!section(name_block(s, s->body, x0, y, content, false)) || !section(notices(s, s->body, x0, y, content, false)))
+    // Name and username, then the mutuals row 8 below.
+    const float name = name_block(s, s->body, x0, y, content, false);
+    const float shared = name < 0 ? -1.f : mutuals(s, s->body, x0, y + name + 8, content);
+    if (shared < 0 || !section(name + (shared ? 8 + shared : 0)) ||
+        !section(notices(s, s->body, x0, y, content, false)))
         return false;
     for (u32 i = 0; i < cards; ++i)
         if (!section(activity_card(s, s->body, x0, y, x0 + content, i, order[i], activity_now(*s), ProfileAction::card)))
             return false;
-    {
-        // Bio and Member Since share one card (12 inside, 12 apart).
-        auto* card = blank(s, s->body, {x0, y, x0 + content, y + 1}, ProfileAction::none, ProfileLook::card);
-        if (!card)
-            return false;
-        const float inner = content - 24;
-        float cy = y + 12;
-        if (profile_display(*s->profile).bio.bytes) {
-            const float h = heading(s, s->body, x0 + 12, cy, inner, utf8_literal("Bio"));
-            const float b = h < 0 ? -1.f : biography(s, s->body, x0 + 12, cy + h, inner, false);
-            if (b < 0)
-                return false;
-            if (b == 0)
-                --s->part_count;
-            else
-                cy += h + b + 12;
-        }
-        const float since = member_since(s, s->body, x0 + 12, cy, inner);
-        if (since < 0 || !place(s, card->widget, {x0, y, x0 + content, cy + since + 12}))
-            return false;
-        y += cy + since + 12 - y + 12;
-    }
-    if (!self(*s) && !bot(*s) && (s->profile->mutual_guild_count || s->profile->mutual_friend_count)) {
-        const float servers = panel_mutual_section(s, s->body, x0, y, content, false, visible_top, visible_bottom);
-        if (servers < 0)
-            return false;
-        y += servers;
-        if (servers && s->profile->mutual_friend_count) {
-            if (!blank(s, s->body, {x0, y + 4, x0 + content, y + 5}, ProfileAction::none, ProfileLook::rule))
-                return false;
-            y += 9;
-        }
-        if (!section(panel_mutual_section(s, s->body, x0, y, content, true, visible_top, visible_bottom)))
-            return false;
-        if (servers && !s->profile->mutual_friend_count)
-            y += 12;
-    }
+    // The bio without a heading (three lines, then "View Full Bio"), the
+    // account date, then the cards (a bot's commands).
+    if (!section(biography(s, s->body, x0, y, content, true)) ||
+        !section(member_since(s, s->body, x0, y, content, ProfileTone::strong)) ||
+        !section(commands_section(s, s->body, x0, y, content)))
+        return false;
     if (!section(plugin_section(s, s->body, x0, y, content)))
         return false;
-    const float body_content = y > 0 ? y - 12 + 16 : 16;
+    const float body_content = y > 0 ? y - 20 + 16 : 16;
     // "View Full Profile": a full-width bar under a 1 DIP rule.
     if (!blank(s, s->panel, {0, footer_top, W, footer_top + 1}, ProfileAction::none, ProfileLook::rule) ||
         !blank(s, s->panel, {8, footer_top + 6, W - 8, H - 6}, ProfileAction::expand, ProfileLook::row))

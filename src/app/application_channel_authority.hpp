@@ -32,17 +32,25 @@ inline bool application_rich_url_owned(const MessageRichStore& store, const Mess
     }
     return false;
 }
+inline bool application_text_contains(Utf8View text, Utf8View url) noexcept {
+    for (u32 at = 0; url.bytes && at + url.bytes <= text.bytes; ++at)
+        if (text.data[at] == url.data[0] && bytes_equal(text.data + at, url.data, url.bytes)) return true;
+    return false;
+}
 // Refresh responses share URLs, so authorize them through a current containing
-// source rather than treating the CDN origin as a permission source.
+// source (an attachment, embed, or for an attachment chip the message text)
+// rather than treating the CDN origin as a permission source.
 inline bool application_media_url_authorized(const Application& application, Utf8View url) noexcept {
     if (!application.account_ui || !url.bytes) return false;
     const auto& store = application.message_view.store;
     const auto& rich_store = application.account_ui->message_rich_store;
     for (u32 i = 0; i < store.count; ++i) {
-        const auto* message = message_store_resolve(store, message_store_ordered_handle(store, i));
+        const auto handle = message_store_ordered_handle(store, i);
+        const auto* message = message_store_resolve(store, handle);
         if (!message || message->channel_id != application.account_ui->active_channel_id ||
             !application_channel_readable(application, message->channel_id)) continue;
         const auto* rich = message_rich_store_find(rich_store, message->id);
+        if (application_text_contains(message_store_content(store, handle), url)) return true;
         if (rich && rich->message_revision == message->revision &&
             (application_rich_url_owned(rich_store, rich, url) ||
              application_rich_url_owned(rich_store, message_rich_store_snapshot(rich_store, message->id), url))) return true;

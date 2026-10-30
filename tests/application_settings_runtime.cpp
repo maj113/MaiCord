@@ -2433,6 +2433,10 @@ bool application_message_guild_tag_hit(float, float) noexcept {
     ++settings_runtime_test::observed.profile_hits;
     return false;
 }
+bool application_message_command_chip_hit(float, float) noexcept {
+    ++settings_runtime_test::observed.profile_hits;
+    return false;
+}
 MessageProfileHit application_message_profile_hit_test(float x, float y) noexcept {
     ++settings_runtime_test::observed.profile_hits;
     const auto& renderer = g_app.renderer;

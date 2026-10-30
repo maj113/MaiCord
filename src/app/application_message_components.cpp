@@ -39,6 +39,9 @@ struct SelectChoice {
     Utf8View label;
     Utf8View value;
     bool chosen;
+    bool emoji_animated;
+    Utf8View description;
+    u64 emoji_id;
 };
 
 struct Owner {
@@ -75,6 +78,9 @@ struct Owner {
     u64 modal_serial;
     u64 modal_message_id;
     u64 modal_guild_id;
+    // A slash command sent with this nonce may answer with a modal.
+    u64 command_nonce;
+    u64 command_application_id;
     u32 modal_step;
     Utf8View modal_status;
     bool modal_active;
@@ -195,10 +201,12 @@ Utf8View retain_number(u64 value) noexcept {
     return retain_label({digits, decimal_write(digits, value)});
 }
 
-void add_choice(Utf8View label, Utf8View value, bool chosen) noexcept {
+SelectChoice* add_choice(Utf8View label, Utf8View value, bool chosen) noexcept {
     if (owner->choice_count >= kSelectMaximumChoices || !value.bytes)
-        return;
-    owner->choices[owner->choice_count++] = {retain_label(label.bytes ? label : value), retain_label(value), chosen};
+        return nullptr;
+    auto& choice = owner->choices[owner->choice_count++];
+    choice = {retain_label(label.bytes ? label : value), retain_label(value), chosen};
+    return &choice;
 }
 
 // String selects list their options; auto-populated selects list resident
@@ -214,8 +222,23 @@ void collect_choices(const Resolved& message, u16 index) noexcept {
             const auto& option = message.rich->components[i];
             if (option.parent != index || option.type != gateway_component_select_option)
                 continue;
-            add_choice(message_rich_store_string(store, option.label), message_rich_store_string(store, option.custom_id),
-                       (option.flags & gateway_message_component_default) != 0);
+            // Options show their emoji ahead of the label (Unicode as text,
+            // custom emoji as media) and their description under it.
+            const Utf8View unicode = option.emoji_id ? Utf8View{} : message_rich_store_string(store, option.emoji_name);
+            Utf8View label = message_rich_store_string(store, option.label);
+            if (unicode.bytes) {
+                const Utf8View emoji = retain_label(unicode);
+                retain_label(utf8_literal(" "));
+                const Utf8View text = retain_label(label);
+                label = {emoji.data, static_cast<u32>(text.data + text.bytes - emoji.data)};
+            }
+            auto* choice = add_choice(label, message_rich_store_string(store, option.custom_id),
+                                      (option.flags & gateway_message_component_default) != 0);
+            if (!choice)
+                continue;
+            choice->description = retain_label(message_rich_store_string(store, option.content));
+            choice->emoji_id = option.emoji_id;
+            choice->emoji_animated = (option.flags & gateway_message_component_emoji_animated) != 0;
         }
         return;
     }
@@ -266,9 +289,22 @@ bool open_select_menu(UiRect anchor, float width) noexcept {
     PopupItem items[kSelectMaximumChoices + 1]{};
     u32 count = 0;
     const bool multiple = owner->select_maximum > 1;
-    for (u32 i = 0; i < owner->choice_count; ++i)
-        items[count++] = {owner->choices[i].label, kSelectActionBase + i,
-                          static_cast<u16>(popup_item_enabled | (owner->choices[i].chosen && multiple ? popup_item_checked : 0))};
+    for (u32 i = 0; i < owner->choice_count; ++i) {
+        const auto& choice = owner->choices[i];
+        auto& item = items[count++];
+        item = {choice.label, kSelectActionBase + i,
+                static_cast<u16>(popup_item_enabled | (choice.chosen && multiple ? popup_item_checked : 0))};
+        // A custom emoji leads the row; a description is its second line.
+        if (choice.emoji_id) {
+            item.flags |= popup_item_emoji_preview;
+            item.media_id = choice.emoji_id;
+            item.media_flags = choice.emoji_animated ? 1 : 0;
+        }
+        if (choice.description.bytes) {
+            item.detail = choice.description;
+            item.presentation.secondary_line = true;
+        }
+    }
     if (!count)
         items[count++] = {utf8_literal("No options available"), 0, popup_item_none};
     else if (multiple)
@@ -437,24 +473,30 @@ void open_modal(Utf8View body) noexcept {
                               {g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount},
                               {owner->modal_pool, sizeof(owner->modal_pool)}, &modal))
         return;
-    // Only modals answering this session's interaction are shown.
-    if (!modal.nonce || modal.nonce != owner->nonce || !modal.channel_id)
+    // Only modals answering this session's interaction or slash command are shown.
+    const bool command = modal.nonce && modal.nonce == owner->command_nonce;
+    if (!modal.nonce || (modal.nonce != owner->nonce && !command) || !modal.channel_id)
         return;
     if (!modal.application_id)
-        modal.application_id = owner->request.application_id;
+        modal.application_id = command ? owner->command_application_id : owner->request.application_id;
     copy_value(&owner->modal, modal);
-    owner->modal_message_id = owner->message_id;
+    owner->modal_message_id = command ? 0 : owner->message_id;
     const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, modal.channel_id);
     owner->modal_guild_id = channel ? channel->guild_id : 0;
     for (u32 i = 0; i < kMessageModalMaximumFields; ++i)
         owner->value_bytes[i] = 0;
-    owner->phase = Phase::idle;
-    owner->deadline_ms = 0;
-    publish_feedback();
+    // A command modal leaves any component interaction's feedback alone.
+    if (!command) {
+        owner->phase = Phase::idle;
+        owner->deadline_ms = 0;
+        publish_feedback();
+    }
     if (modal.unsupported) {
         // Selects and uploads in modals are not supported natively yet.
-        owner->failed = true;
-        publish_feedback();
+        if (!command) {
+            owner->failed = true;
+            publish_feedback();
+        }
         return;
     }
     owner->modal_serial = next_nonce();
@@ -749,6 +791,14 @@ bool application_message_components_popup_action(u32 action) noexcept {
         !open_select_menu(g_app.popup_scene.anchor, ui_rect_width(g_app.popup_scene.rectangle)))
         return dismiss_popup();
     return refresh_popup_text();
+}
+
+void application_message_components_expect_modal(u64 nonce, u64 application_id) noexcept {
+    if (!nonce || !application_id || !ensure_owner())
+        return;
+    owner->account_scope = application_account_scope();
+    owner->command_nonce = nonce;
+    owner->command_application_id = application_id;
 }
 
 void application_message_components_gateway(GatewayClientDispatchKind kind, Utf8View body) noexcept {

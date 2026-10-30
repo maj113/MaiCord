@@ -217,6 +217,9 @@ inline constexpr float kMessageSceneIntroHeaderMargin = 8.0f;     // 8 px above 
 inline constexpr float kMessageSceneIntroSubtitleLine = 24.0f;    // 20 px font * 1.2
 inline constexpr float kMessageSceneIntroDescriptionLine = 20.0f; // 16 px font * 1.25
 
+// MessageScene::header_hover_target of a hovered quoted line (the interaction
+// header's own targets are 1..4, see message_interaction.hpp).
+inline constexpr u8 kMessageHoverQuote = 5;
 struct MessageScene {
     const UiResolvedThemeStyles* theme_styles;
     u32 theme_geometry_revision;
@@ -271,12 +274,21 @@ struct MessageScene {
     u64 highlight_message_id;
     float highlight_level;
     u32 highlight_revision;
+    // The interaction-header or quoted-line part under the pointer (set by the
+    // host on pointer moves): chips and the quote light up on hover. Zero id:
+    // none; the target is a MessageInteractionTarget (message_interaction.hpp)
+    // or kMessageHoverQuote.
+    u64 header_hover_message_id;
+    u8 header_hover_target;
     MessageSceneDisplay display;
     // Session reveals and a borrowed per-author policy; scenes without a policy
     // query show explicit media.
     MessageMediaReveals media_reveals;
     MessageMediaPolicy media_policy;
     MessageSceneInteraction interaction;
+    // The loading dots' pose for a pending control (ui_typing_dots_phase); the
+    // host steps it only while the control is visible and loading.
+    u16 interaction_phase;
     // Borrowed invite resolutions; null hosts show no invite cards.
     const InviteCardCache* invite_cards;
     // Borrowed scheduled events for event link cards; may be null.

@@ -523,8 +523,11 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
     bool has_quick_reaction = false;
     for (u32 index = 0; index < items.count; ++index) {
         const PopupItem& item = items[index];
+        // A command rail category may carry a leading icon instead of an avatar.
+        const bool rail_icon = (item.flags & popup_item_command_category) && item.presentation.icon_plus_one &&
+                               !item.presentation.secondary_line && !item.presentation.trailing_icon;
         if (!ui_menu_row_presentation_valid(item.presentation) ||
-            (!popup_item_menu_row(item) &&
+            (!popup_item_menu_row(item) && !rail_icon &&
              (item.presentation.icon_plus_one || item.presentation.secondary_line ||
               item.presentation.trailing_icon)) ||
             (item.presentation.icon_plus_one &&

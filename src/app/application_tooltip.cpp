@@ -11,6 +11,7 @@
 #include "application_plugins.hpp"
 #include "application_reaction_tooltip.hpp"
 #include "application_emoji_tooltip.hpp"
+#include "application_interaction_card.hpp"
 #include "maicord/ui/plugin_slots.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/ui/tooltip.hpp"
@@ -22,6 +23,8 @@
 #include "maicord/ui/media_picker.hpp"
 #include "maicord/render/renderer_settings_visibility.hpp"
 #include "maicord/render/forum_post_surface.hpp"
+#include "maicord/ui/message_author.hpp"
+#include "maicord/ui/member_list_scene.hpp"
 #include "account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
@@ -303,6 +306,30 @@ bool message_target(UiPoint point, u64 scope, UiTooltipTarget* target) noexcept 
     *target = {{bar.owner, scope, message->id, message->revision, 0x200u + static_cast<u32>(hit.action)},
                anchor,
                label};
+    return true;
+}
+// The check of a verified app's APP tag beside a message's author.
+bool app_check_target(UiPoint point, u64 scope, UiTooltipTarget* target) noexcept {
+    const auto& renderer = g_app.renderer;
+    if (application_friends_active() || !renderer.message_text || !renderer.chat_state || !renderer.user_store)
+        return false;
+    const auto hit = message_author_app_check_hit_test(g_app.message_scene, *renderer.message_text, *renderer.chat_state,
+                                                       *renderer.user_store, renderer.message_measure_cache,
+                                                       application_theme(), point.x, point.y);
+    if (!hit.message_id || !ui_rect_has_area(hit.check))
+        return false;
+    *target = {{hit.owner, scope, hit.message_id, hit.revision, 0x5900u}, hit.check, kUiAppBadgeVerifiedHint};
+    return true;
+}
+// The same check on a member row's APP tag.
+bool member_app_check_target(UiPoint point, u64 scope, UiTooltipTarget* target) noexcept {
+    const auto& s = g_app.member_list_scene;
+    u64 user = 0;
+    UiWidgetHandle row{};
+    const auto check = s.active ? member_list_app_check_hit(s, point.x, point.y, &user, &row) : UiRect{};
+    if (!user || !ui_rect_has_area(check))
+        return false;
+    *target = {{{&s.widgets, row}, scope, user, 0, 0x5901u}, check, kUiAppBadgeVerifiedHint};
     return true;
 }
 bool search_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* target) noexcept {
@@ -628,7 +655,8 @@ bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target, UiToo
         panel && panel->active && ui_rect_contains(panel->rectangle, point.x, point.y))
         return profile_hint_target(*panel, point, false, scope, 0x5802u, target);
     if (!application_thread_browser_read_blocked()) {
-        if (application_video_tooltip_target(point, false, scope, target) || message_target(point, scope, target))
+        if (application_video_tooltip_target(point, false, scope, target) || message_target(point, scope, target) ||
+            app_check_target(point, scope, target) || member_app_check_target(point, scope, target))
             return true;
         if (!application_friends_active() && application_reaction_tooltip_target(point, scope, target)) {
             // Reaction pills lead with their emoji; their names wrap beside it.
@@ -702,14 +730,16 @@ bool refresh(ApplicationTooltip& owner, u64 now_ms) noexcept {
     UiTooltipTarget target{};
     UiTooltipStyle style{};
     bool reaction = false;
-    const bool resolved = !owner.pressed && (owner.keyboard || owner.pointer_valid) &&
-                          resolve_target(owner.point, owner.keyboard, &target, &style, &reaction);
+    // The command card is pinned: it stays up while the pointer moves away.
+    const bool pinned = content_available() && application_interaction_card_target(application_account_scope(), &target, &style);
+    const bool resolved = pinned || (!owner.pressed && (owner.keyboard || owner.pointer_valid) &&
+                                     resolve_target(owner.point, owner.keyboard, &target, &style, &reaction));
     const bool badge_shown = owner.scene.visible && owner.scene.key.action == kProfileBadgeTooltip;
     if (!reaction)
         application_reaction_tooltip_leave();
-    if (!resolved || ui_tooltip_key_equal(owner.dismissed, target.key) ||
+    if (!resolved || (!pinned && (ui_tooltip_key_equal(owner.dismissed, target.key) ||
         (ui_tooltip_key_equal(owner.failed, target.key) &&
-         ui_rect_equal(owner.failed_anchor, target.anchor))) {
+         ui_rect_equal(owner.failed_anchor, target.anchor))))) {
         ui_tooltip_clear(&owner.scene);
     } else {
         reset_value(&owner.dismissed);
@@ -770,6 +800,10 @@ void application_tooltip_clear() noexcept {
         application_repaint();
     }
 }
+void application_tooltip_wake() noexcept {
+    if (ensure())
+        application_request_frame();
+}
 void application_tooltip_release() noexcept {
     application_tooltip_clear();
     auto* owner = g_app.tooltip;
@@ -801,6 +835,7 @@ void application_tooltip_input(UINT message, WPARAM wparam, LPARAM lparam) noexc
         return;
     if (press) {
         application_reaction_tooltip_leave();
+        application_interaction_card_press();
         if (g_app.tooltip) {
             g_app.tooltip->pressed = true;
             ui_tooltip_clear(&g_app.tooltip->scene);
@@ -838,6 +873,8 @@ void application_tooltip_input(UINT message, WPARAM wparam, LPARAM lparam) noexc
     }
     if (keyboard && (wparam == VK_RETURN || wparam == VK_SPACE || wparam == VK_ESCAPE)) {
         application_reaction_tooltip_leave();
+        if (wparam == VK_ESCAPE)
+            application_interaction_card_close();
         owner->dismissed = owner->scene.key;
         ui_tooltip_clear(&owner->scene);
         application_request_frame();

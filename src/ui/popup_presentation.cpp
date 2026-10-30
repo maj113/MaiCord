@@ -188,6 +188,20 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
                 break;
             }
         }
+        // A command rail category with an icon (Frequently Used) shows the icon alone.
+        if ((item.flags & popup_item_command_category) && item.presentation.icon_plus_one) {
+            const float extent = minimum(popup_paint_metrics(scene, theme).menu_icon,
+                                         minimum(ui_rect_width(layout->rectangle), ui_rect_height(layout->rectangle)));
+            const float x = (layout->rectangle.left + layout->rectangle.right - extent) * .5f;
+            const float y = (layout->rectangle.top + layout->rectangle.bottom - extent) * .5f;
+            const Color color = (item.flags & popup_item_checked) || scene.selected_index == index
+                                    ? theme.text_primary
+                                    : theme.text_secondary;
+            if (!ui_icon_paint(paint, ui_menu_row_icon(item.presentation), {x, y, x + extent, y + extent}, color)) {
+                success = false;
+                break;
+            }
+        }
         if (item.flags & popup_item_command_close) {
             const float inset = popup_paint_metrics(scene, theme).menu_gap;
             auto icon = layout->rectangle;
@@ -281,7 +295,74 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
             label_rectangle.left = item_layout.row->rectangle.left + 48;
         if (item.flags & popup_item_command_category)
             label_rectangle = label->content_rectangle;
-        if (item.detail.bytes) {
+        // Command rows carry "description\x1Fapp\x1Foptions": like the official
+        // picker, the app name takes a right column and the option summary
+        // follows the command name.
+        Utf8View detail_text = item.detail, source{}, summary{};
+        if (item.flags & popup_item_command_row) {
+            Utf8View* parts[] = {&detail_text, &source, &summary};
+            u32 part = 0, begin = 0;
+            for (u32 at = 0; at <= item.detail.bytes && part < 3; ++at)
+                if (at == item.detail.bytes || item.detail.data[at] == '\x1F') {
+                    *parts[part++] = {item.detail.data + begin, at - begin};
+                    begin = at + 1;
+                }
+        }
+        if (source.bytes || summary.bytes) {
+            Color muted = theme.text_primary;
+            muted.alpha *= .65f;
+            const UiRect row_text = shared_row ? UiRect{menu_geometry.primary.left, menu_geometry.primary.top,
+                                                        menu_geometry.primary.right,
+                                                        maximum(menu_geometry.primary.bottom,
+                                                                menu_geometry.detail.bottom)}
+                                               : label_rectangle;
+            if (source.bytes) {
+                const float column = minimum(ui_rect_width(row_text) * .4f, 160.0f);
+                const UiRect app{row_text.right - column, row_text.top, row_text.right, row_text.bottom};
+                if (!ui_text_output_push(text, {source,
+                                                {&scene.widgets, row.label},
+                                                app,
+                                                shared_row ? ui_menu_row_slot_clip(menu_geometry, app)
+                                                           : item_layout.clip_rectangle,
+                                                muted,
+                                                text_style_subtext,
+                                                UiTextAlignment::end,
+                                                UiTextAlignment::center,
+                                                UiTextWrapping::no_wrap,
+                                                UiTextOverflow::ellipsis}))
+                    return false;
+                const float right = maximum(label_rectangle.left, app.left - 16.0f);
+                label_rectangle.right = minimum(label_rectangle.right, right);
+                if (shared_row)
+                    menu_geometry.detail.right = minimum(menu_geometry.detail.right, right);
+            }
+            if (summary.bytes) {
+                UiTextMeasureValue measured{};
+                const bool shaped = measure && ui_text_measure_cache_measure(measure,
+                    {{scene.owner_id, hash64_bytes(kHash64Seed, item.label.data, item.label.bytes), 0, 0x4352, 0},
+                     item.label, {},
+                     {maximum(1.f, ui_rect_width(label_rectangle)), ui_rect_height(label_rectangle)}, true},
+                    &measured).ok();
+                const float name_width = minimum(ui_rect_width(label_rectangle) * (shaped ? 1.f : .5f),
+                                                 shaped ? measured.size.width : ui_rect_width(label_rectangle));
+                const UiRect options{minimum(label_rectangle.right, label_rectangle.left + name_width + 8.0f),
+                                     label_rectangle.top, label_rectangle.right, label_rectangle.bottom};
+                label_rectangle.right = options.left;
+                if (!ui_text_output_push(text, {summary,
+                                                {&scene.widgets, row.label},
+                                                options,
+                                                shared_row ? ui_menu_row_slot_clip(menu_geometry, options)
+                                                           : item_layout.clip_rectangle,
+                                                muted,
+                                                text_style_none,
+                                                UiTextAlignment::start,
+                                                UiTextAlignment::center,
+                                                UiTextWrapping::no_wrap,
+                                                UiTextOverflow::ellipsis}))
+                    return false;
+            }
+        }
+        if (detail_text.bytes) {
             Color detail_color = theme.text_primary;
             detail_color.alpha *= .65f;
             UiRect detail = shared_row ? menu_geometry.detail : label_rectangle;
@@ -310,7 +391,7 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
             }
             if (!ui_text_output_push(
                     text,
-                    {item.detail,
+                    {detail_text,
                      {&scene.widgets, row.label},
                      detail,
                      shared_row ? ui_menu_row_slot_clip(menu_geometry, detail) : item_layout.clip_rectangle,
@@ -346,7 +427,8 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
                                       UiTextOverflow::ellipsis}))
                 return false;
         }
-        if ((item.flags & popup_item_command_category) && (item.flags & popup_item_avatar))
+        if ((item.flags & popup_item_command_category) &&
+            ((item.flags & popup_item_avatar) || item.presentation.icon_plus_one))
             continue;
         if (!ui_text_output_push(
                 text, UiTextCommand{

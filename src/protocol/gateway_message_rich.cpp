@@ -167,6 +167,10 @@ struct RootContext {
     JsonValue snapshots;
     JsonValue poll;
     JsonValue thread;
+    // The message's own mentions: only a reply that mentions the quoted author shows "@" before the name.
+    JsonValue mentions;
+    // A clip or media mention of the replying message (see gateway_quote_media_mention).
+    JsonValue media_mention;
     u64 seen;
     GatewayEventDecodeError error;
 };
@@ -177,7 +181,8 @@ bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
     JsonValue* target = nullptr;
     JsonValueKind expected = JsonValueKind::array;
     switch (member_index<"message_reference", "referenced_message", "reactions", "attachments", "embeds",
-                         "sticker_items", "components", "message_snapshots", "poll", "interaction", "thread">(name)) {
+                         "sticker_items", "components", "message_snapshots", "poll", "interaction", "thread",
+                         "mentions", "media_mention">(name)) {
     case 0:
         bit = gateway_message_field_message_reference;
         target = &context->message_reference;
@@ -232,6 +237,14 @@ bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
         target = &context->thread;
         expected = value.kind == JsonValueKind::null_value ? value.kind : JsonValueKind::object;
         break;
+    case 11:
+        if (value.kind == JsonValueKind::array)
+            context->mentions = value;
+        return true;
+    case 12:
+        if (value.kind == JsonValueKind::object)
+            context->media_mention = value;
+        return true;
     default:
         return true;
     }
@@ -318,6 +331,8 @@ struct ReferencedContext {
     JsonValue author;
     JsonString content;
     JsonValue embeds;
+    // The attachments (a clip mention reads one's title) and the message's own reference (a forward).
+    JsonValue attachments, message_reference;
     JsonValue poll;
     u64 flags;
     u64 seen;
@@ -342,7 +357,7 @@ bool json_array_nonempty(const JsonValue& value) noexcept {
 bool visit_referenced(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<ReferencedContext*>(opaque);
     switch (member_index<"id", "channel_id", "author", "content", "attachments", "embeds", "sticker_items", "poll",
-                         "interaction", "interaction_metadata", "flags", "type">(name)) {
+                         "interaction", "interaction_metadata", "flags", "type", "message_reference">(name)) {
     case 0:
         return accept_member(&context->seen, 1ull << 0, json_value_to_snowflake(value, &context->id),
                              &context->error, GatewayEventDecodeError::invalid_message_id);
@@ -360,8 +375,10 @@ bool visit_referenced(void* opaque, JsonString name, JsonValue value) noexcept {
         return accept_member(&context->seen, 1ull << 3, json_value_as_string(value, &context->content),
                              &context->error, GatewayEventDecodeError::invalid_message_content);
     case 4:
-        if (json_array_nonempty(value))
+        if (json_array_nonempty(value)) {
             context->content_flags |= gateway_reference_attachments;
+            context->attachments = value;
+        }
         break;
     case 5:
         if (json_array_nonempty(value)) {
@@ -392,6 +409,10 @@ bool visit_referenced(void* opaque, JsonString name, JsonValue value) noexcept {
         context->type = json_value_to_u64(value, &type) && type < 256 ? static_cast<u32>(type) : 0;
         break;
     }
+    case 12:
+        if (value.kind == JsonValueKind::object)
+            context->message_reference = value;
+        break;
     default: break;
     }
     return true;
@@ -406,6 +427,9 @@ struct ReferencedPreviewContext {
     JsonString text, type, url;
     u32 count;
     bool described;
+    // A poll result message's embed carries the question in a "poll_question_text" field.
+    JsonValue fields;
+    JsonString field_name, field_value, poll_question;
 };
 bool visit_referenced_question(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<ReferencedPreviewContext*>(opaque);
@@ -424,7 +448,7 @@ bool visit_referenced_question(void* opaque, JsonString name, JsonValue value) n
 }
 bool visit_referenced_embed(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<ReferencedPreviewContext*>(opaque);
-    switch (member_index<"type", "url", "title", "description">(name)) {
+    switch (member_index<"type", "url", "title", "description", "fields">(name)) {
     case 0:
         if (value.kind == JsonValueKind::string)
             json_value_as_string(value, &context->type);
@@ -438,9 +462,41 @@ bool visit_referenced_embed(void* opaque, JsonString name, JsonValue value) noex
         if (value.kind == JsonValueKind::string)
             context->described = true;
         break;
+    case 4:
+        if (value.kind == JsonValueKind::array)
+            context->fields = value;
+        break;
     default: break;
     }
     return true;
+}
+bool visit_referenced_field(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto* context = static_cast<ReferencedPreviewContext*>(opaque);
+    switch (member_index<"name", "value">(name)) {
+    case 0:
+        if (value.kind == JsonValueKind::string)
+            json_value_as_string(value, &context->field_name);
+        break;
+    case 1:
+        if (value.kind == JsonValueKind::string)
+            json_value_as_string(value, &context->field_value);
+        break;
+    default: break;
+    }
+    return true;
+}
+bool visit_referenced_field_item(void* opaque, u32, JsonValue value) noexcept {
+    auto* context = static_cast<ReferencedPreviewContext*>(opaque);
+    context->field_name = {};
+    context->field_value = {};
+    if (value.kind == JsonValueKind::object)
+        json_visit_indexed_object(*context->document, value, context->depth, visit_referenced_field, context);
+    char name[24];
+    const auto decoded = json_string_decode_utf8(context->field_name, Slice<char>{name, sizeof(name)});
+    if (!decoded.ok() || !utf8_equal(Utf8View{name, decoded.bytes}, utf8_literal("poll_question_text")))
+        return true;
+    context->poll_question = context->field_value;
+    return false;
 }
 bool visit_referenced_embed_item(void* opaque, u32 index, JsonValue value) noexcept {
     auto* context = static_cast<ReferencedPreviewContext*>(opaque);
@@ -486,6 +542,108 @@ GatewayEventDecodeResult read_object(const JsonValue& value, const JsonIndexedDo
         return result;
     }
     return decode_failure(GatewayEventDecodeError::none);
+}
+
+// A reply pings the quoted author when the replying message's mentions list that user.
+struct MentionProbe {
+    const JsonIndexedDocument* document;
+    u32 depth;
+    u64 target;
+    bool found;
+};
+
+bool visit_mention_user(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto* probe = static_cast<MentionProbe*>(opaque);
+    u64 id = 0;
+    if (member_index<"id">(name) == 0 && json_value_to_snowflake(value, &id) && id == probe->target)
+        probe->found = true;
+    return true;
+}
+
+bool visit_mention_item(void* opaque, u32, JsonValue value) noexcept {
+    auto* probe = static_cast<MentionProbe*>(opaque);
+    if (value.kind == JsonValueKind::object)
+        json_visit_indexed_object(*probe->document, value, probe->depth, visit_mention_user, probe);
+    return !probe->found;
+}
+
+// The "type" of a quoted message's own message_reference (1: it is a forward).
+bool visit_quote_reference_type(void* opaque, JsonString name, JsonValue value) noexcept {
+    u32 type = 0;
+    if (json_string_equals_utf8(name, utf8_literal("type")) && value_u32(value, &type))
+        *static_cast<u32*>(opaque) = type;
+    return true;
+}
+
+// The reply's media_mention: the attachment it points into and the moment, in ms.
+struct MediaMentionProbe {
+    u64 attachment_id, timestamp_ms;
+};
+bool visit_media_mention(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto* probe = static_cast<MediaMentionProbe*>(opaque);
+    if (json_string_equals_utf8(name, utf8_literal("attachment_id")))
+        json_value_to_snowflake(value, &probe->attachment_id);
+    else if (json_string_equals_utf8(name, utf8_literal("timestamp")))
+        json_value_to_u64(value, &probe->timestamp_ms);
+    return true;
+}
+
+// The quoted attachment a media mention names: its title and whether it is a clip (flag 1 << 0).
+struct QuotedAttachmentProbe {
+    const JsonIndexedDocument* document;
+    u32 depth;
+    u64 target;
+    JsonValue title;
+    u64 flags;
+    u64 id;
+    bool found;
+};
+bool visit_attachment_member(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto* probe = static_cast<QuotedAttachmentProbe*>(opaque);
+    if (json_string_equals_utf8(name, utf8_literal("id")))
+        json_value_to_snowflake(value, &probe->id);
+    else if (json_string_equals_utf8(name, utf8_literal("title")))
+        probe->title = value;
+    else if (json_string_equals_utf8(name, utf8_literal("flags")))
+        json_value_to_u64(value, &probe->flags);
+    return true;
+}
+bool visit_attachment_item(void* opaque, u32, JsonValue value) noexcept {
+    auto* probe = static_cast<QuotedAttachmentProbe*>(opaque);
+    if (value.kind != JsonValueKind::object)
+        return true;
+    probe->title = {};
+    probe->flags = probe->id = 0;
+    json_visit_indexed_object(*probe->document, value, probe->depth, visit_attachment_member, probe);
+    probe->found = probe->id == probe->target;
+    return !probe->found;
+}
+
+// "m:ss", or "h:mm:ss" from an hour on: where in the clip the mention points.
+u32 format_media_time(u64 milliseconds, char* output) noexcept {
+    const u64 seconds = milliseconds / 1000;
+    const u32 hours = static_cast<u32>(seconds / 3600), minutes = static_cast<u32>(seconds / 60 % 60),
+              rest = static_cast<u32>(seconds % 60);
+    u32 used = 0;
+    const auto digits = [&](u32 value, bool pad) noexcept {
+        char text[10];
+        u32 count = 0;
+        do
+            text[count++] = static_cast<char>('0' + value % 10);
+        while (value /= 10);
+        if (pad && count < 2)
+            text[count++] = '0';
+        while (count)
+            output[used++] = text[--count];
+    };
+    if (hours) {
+        digits(hours, false);
+        output[used++] = ':';
+    }
+    digits(minutes, hours != 0);
+    output[used++] = ':';
+    digits(rest, true);
+    return used;
 }
 
 GatewayEventDecodeResult decode_reference(const RootContext& root, const JsonIndexedDocument& scratch,
@@ -558,6 +716,12 @@ GatewayEventDecodeResult decode_reference(const RootContext& root, const JsonInd
     if (referenced.flags & components_v2_flag)
         content_flags |= gateway_reference_components_v2;
     output->reference.message_type = static_cast<u8>(referenced.type);
+    if (root.mentions.source.data) {
+        MentionProbe probe{&scratch, maximum_depth, author.id, false};
+        json_visit_indexed_array(scratch, root.mentions, maximum_depth, visit_mention_item, &probe);
+        if (probe.found)
+            content_flags |= gateway_reference_mentions_author;
+    }
     ReferencedPreviewContext preview{&scratch, maximum_depth, {}, {}, {}, {}, 0, false};
     bool simple_embed = false;
     if (referenced.content.encoded.bytes && referenced.embeds.source.data) {
@@ -590,6 +754,51 @@ GatewayEventDecodeResult decode_reference(const RootContext& root, const JsonInd
                 content_flags |= gateway_reference_poll_question;
         }
     }
+    // A poll result message has no text: its embed names the poll in a field.
+    if (!output->reference.content.bytes && referenced.type == 46 && referenced.embeds.source.data) {
+        json_visit_indexed_array(scratch, referenced.embeds, maximum_depth, visit_referenced_embed_item, &preview);
+        if (preview.fields.source.data)
+            json_visit_indexed_array(scratch, preview.fields, maximum_depth, visit_referenced_field_item, &preview);
+        if (preview.poll_question.encoded.data &&
+            bounded_string(preview.poll_question, kGatewayMessagePollQuestionMaximumBytes, text_output, text_used,
+                           &output->reference.content, &output->rich_truncations) &&
+            output->reference.content.bytes)
+            content_flags |= gateway_reference_poll_question;
+    }
+    u8 quote_flags = 0;
+    if (referenced.message_reference.source.data && referenced.message_reference.kind == JsonValueKind::object) {
+        u32 quoted_type = 0;
+        json_visit_indexed_object(scratch, referenced.message_reference, maximum_depth, visit_quote_reference_type,
+                                  &quoted_type);
+        if (quoted_type == 1)
+            quote_flags |= gateway_quote_forwarded;
+    }
+    // A clip mention replaces the quoted text by the clip's title and the moment: "<title>\x1f@<time>".
+    if (root.media_mention.source.data && root.media_mention.kind == JsonValueKind::object && text_output.data) {
+        MediaMentionProbe mention{};
+        json_visit_indexed_object(scratch, root.media_mention, maximum_depth, visit_media_mention, &mention);
+        QuotedAttachmentProbe attachment{&scratch, maximum_depth, mention.attachment_id, {}, 0, 0, false};
+        if (referenced.attachments.kind == JsonValueKind::array)
+            json_visit_indexed_array(scratch, referenced.attachments, maximum_depth, visit_attachment_item,
+                                     &attachment);
+        char composed[kRichAttachmentNameMaximumBytes + 32];
+        u32 bytes = 0;
+        JsonString title{};
+        if (attachment.found && json_value_as_string(attachment.title, &title)) {
+            const auto decoded = json_string_decode_utf8(title, {composed, kRichAttachmentNameMaximumBytes});
+            bytes = decoded.ok() ? decoded.bytes : 0u;
+        }
+        composed[bytes++] = '\x1f';
+        composed[bytes++] = '@';
+        bytes += format_media_time(mention.timestamp_ms, composed + bytes);
+        if (bytes <= text_output.count - *text_used) {
+            copy_bytes(text_output.data + *text_used, composed, bytes);
+            output->reference.content = {text_output.data + *text_used, bytes};
+            *text_used += bytes;
+            quote_flags |= gateway_quote_media_mention | (attachment.found && (attachment.flags & 1) ? gateway_quote_media_clip : 0);
+        }
+    }
+    output->reference.quote_flags = quote_flags;
     output->reference.content_flags = content_flags;
     return decode_failure(GatewayEventDecodeError::none);
 }
@@ -1747,18 +1956,27 @@ struct UrlObjectContext {
     JsonString url;
     JsonString proxy_url;
     u64 seen;
+    u32 width;
+    u32 height;
     GatewayEventDecodeError error;
 };
 
 // Unfurled media items carry both the source URL and the media proxy URL;
-// the proxy is fetchable through the CDN pipeline, so it is preferred.
+// the proxy is fetchable through the CDN pipeline, so it is preferred. Their
+// width and height (when known) size a lone gallery item.
 bool visit_url_object(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<UrlObjectContext*>(opaque);
-    const u32 which = member_index<"url", "proxy_url">(name);
+    const u32 which = member_index<"url", "proxy_url", "width", "height">(name);
+    const bool null = value.kind == JsonValueKind::null_value;
+    if (which >= 2 && which < 4) {
+        u64 number = 0;
+        if (!null && json_value_to_u64(value, &number))
+            (which == 2 ? context->width : context->height) = static_cast<u32>(minimum<u64>(number, 0xFFFFu));
+        return true;
+    }
     const bool url = which == 0;
     if (which < 2) {
         const u64 bit = url ? 1ull : 2ull;
-        const bool null = value.kind == JsonValueKind::null_value;
         if (!accept_member(&context->seen, bit,
                            null || json_value_as_string(value, url ? &context->url : &context->proxy_url),
                            &context->error))
@@ -2108,6 +2326,10 @@ GatewayEventDecodeResult decode_components(JsonValue array, const JsonIndexedDoc
             // attachment:// names resolve against the message's files.
             if (destination.url.bytes != 0 && !rich_url_valid(destination.url, true))
                 return decode_failure(GatewayEventDecodeError::invalid_data, indirect_url.source_offset);
+            // Media items reuse accent_color for their size: width << 16 | height.
+            if ((destination.type == gateway_component_thumbnail || destination.type == gateway_component_gallery_item) &&
+                url.width && url.height)
+                destination.accent_color = url.width << 16 | url.height;
         }
         if ((parsed.seen & component_seen_children) != 0 &&
             !queue_component_children(parsed.children, scratch, maximum_depth, capacity, destination_index, 0,

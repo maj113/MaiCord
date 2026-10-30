@@ -506,6 +506,15 @@ void test_message_markdown() noexcept {
                spans[1].flags == text_style_strikethrough && spans[2].flags == text_style_spoiler,
            "message_markdown_combined_underline_strike_spoiler");
 
+    // The client's rules: **, __, ||, inline code and *** may open before a
+    // space; a single * and ~~ need text right after their opener.
+    result = parse(utf8_literal("*** spaced ***|** b **|__ u __|` c `|* i *|~~ s ~~"));
+    expect(markdown_text_equal(result, utf8_literal(" spaced | b | u | c |* i *|~~ s ~~")) &&
+               result.span_count == 4 && spans[0].byte_offset == 0 && spans[0].byte_count == 8 &&
+               spans[0].flags == (text_style_bold | text_style_italic) && spans[1].flags == text_style_bold &&
+               spans[2].flags == text_style_underline && spans[3].flags == text_style_monospace,
+           "message_markdown_spaced_multi_char_markers_open");
+
     result = parse(utf8_literal("`**literal**` and ```cpp\nint x = 1;\n```"));
     expect(markdown_text_equal(result, utf8_literal("**literal** and int x = 1;\n")) &&
                result.code_blocks == 1 && result.syntax_tokens == 3 && !result.syntax_truncated &&
@@ -3282,7 +3291,9 @@ void test_message_text_presentation() noexcept {
             const UiLayoutNode* owner_layout = message_scene_layout_node(scene, command.owner.handle);
             command_clips_owned = command_clips_owned && owner_layout &&
                                   command.clip.right <= owner_layout->content_rectangle.left + 520.0f;
-            if (utf8_equal(command.text, utf8_literal("@Moderators #reply-channel @Layout Author"))) {
+            // <#7> is a channel chip: icon cell, margin and glue, then the name.
+            if (utf8_equal(command.text, utf8_literal("@Moderators \xE2\x80\x83\xE2\x80\x85\xE2\x80\x8Dreply-channel "
+                                                      "@Layout Author"))) {
                 embed_entities_resolved = true;
                 for (u32 semantic_index = 0; semantic_index < command.semantics.count; ++semantic_index) {
                     const MessageMarkdownSemantic& candidate = command.semantics[semantic_index];
@@ -3511,11 +3522,14 @@ void test_message_text_presentation() noexcept {
             reply_is_single_line_summary =
                 reply_is_single_line_summary ||
                 (utf8_equal(command.text,
-                            utf8_literal("Reply Author A reply to @Layout Author in #reply-channel "
-                                         "whose measured width must be ellipsized")) &&
+                            utf8_literal("Reply Author A reply to @Layout Author in \xE2\x80\x83\xE2\x80\x85\xE2\x80\x8D"
+                                         "reply-channel whose measured width must be ellipsized")) &&
                  ui_rect_height(command.rectangle) == 18.0f &&
                  command.wrapping == UiTextWrapping::no_wrap &&
-                 command.overflow == UiTextOverflow::ellipsis && command.styles.count >= 3);
+                 command.overflow == UiTextOverflow::ellipsis && command.styles.count >= 3 &&
+                 // The quoted <#7> chip keeps only its icon cell, never a hit target.
+                 command.semantics.count == 1 &&
+                 command.semantics[0].kind == MessageMarkdownSemanticKind::chip_icon);
             for (u32 style = 0; style < command.styles.count; ++style) {
                 reply_author_has_role_style =
                     reply_author_has_role_style ||
@@ -3525,7 +3539,7 @@ void test_message_text_presentation() noexcept {
                 command.inline_role_color.red > 0.0f &&
                 command.inline_role_color.green > command.inline_role_color.red &&
                 command.inline_role_color.blue > command.inline_role_color.green &&
-                command.inline_role_color.alpha == 1.0f;
+                command.inline_role_color.alpha == kMessageReplyAuthorOpacity;
         }
         if (row && command.measurement_kind == MessageTextMeasurementKind::none &&
             command.owner.handle.slot == row->author.slot &&
@@ -3544,7 +3558,7 @@ void test_message_text_presentation() noexcept {
            "message_text_reply_reference_is_one_rich_ellipsized_summary_line");
     expect(author_header_has_timestamp, "message_text_group_header_includes_muted_timestamp");
     // Role colours are server data: the reply author keeps #123456 exactly
-    // under flat dark, flat light and both gradient theme types.
+    // (muted only in opacity) under flat dark, flat light and both gradient theme types.
     Theme dark_gradient_theme = kDefaultTheme;
     dark_gradient_theme.background = background_theme_defaults();
     Theme light_gradient_theme = kLightTheme;
@@ -3566,7 +3580,8 @@ void test_message_text_presentation() noexcept {
                     return delta < 1e-5f && delta > -1e-5f;
                 };
                 found = near_byte(command.inline_role_color.red, 0x12) && near_byte(command.inline_role_color.green, 0x34) &&
-                        near_byte(command.inline_role_color.blue, 0x56) && command.inline_role_color.alpha == 1;
+                        near_byte(command.inline_role_color.blue, 0x56) &&
+                        command.inline_role_color.alpha == kMessageReplyAuthorOpacity;
             }
         role_colors_exact = role_colors_exact && found;
     }
@@ -16119,11 +16134,11 @@ void test_message_media_controller() noexcept {
 
     MessageRichRecord rich_records[2]{};
     u16 rich_order[2]{};
-    u8 rich_text[256]{};
+    u8 rich_text[512]{};
     MessageRichStore rich_store{};
     const bool rich_ready =
         message_rich_store_initialize(&rich_store, Slice<MessageRichRecord>{rich_records, 2},
-                                      Slice<u16>{rich_order, 2}, Slice<u8>{rich_text, 256});
+                                      Slice<u16>{rich_order, 2}, Slice<u8>{rich_text, 512});
     GatewayMessageReaction reaction{};
     reaction.emoji_id = 222;
     reaction.name = utf8_literal("wave");
@@ -16143,11 +16158,20 @@ void test_message_media_controller() noexcept {
     attachment.height = 64;
     attachment.has_width = true;
     attachment.has_height = true;
+    GatewayMessageComponent button{};
+    button.type = gateway_component_button;
+    button.style = 2;
+    button.label = utf8_literal("Download");
+    button.custom_id = utf8_literal("download");
+    button.emoji_id = 555;
+    button.emoji_name = utf8_literal("blueprint");
+    button.parent = 0xFFFFu;
     GatewayMessageEvent rich_event{};
     rich_event.id = 100;
     rich_event.fields = gateway_message_field_message_reference | gateway_message_field_referenced_message |
                         gateway_message_field_reactions | gateway_message_field_sticker_items |
-                        gateway_message_field_attachments;
+                        gateway_message_field_attachments | gateway_message_field_components;
+    rich_event.components = ConstSlice<GatewayMessageComponent>{&button, 1};
     rich_event.reference.author_id = 20;
     rich_event.reference.message_id = 90;
     rich_event.reference.channel_id = 7;
@@ -16234,7 +16258,8 @@ void test_message_media_controller() noexcept {
                collected.visited == 2 && collected.candidates == 2 && controller.row_count == 2 &&
                controller.collections == 1 && controller.source_rows_visited == 2 &&
                controller.rows_collected == 2 && primary.ok() && primary.candidates == 0 &&
-               decorated.ok() && decorated.candidates == 5 && capture.count == 5 &&
+               decorated.ok() && decorated.candidates == 6 && capture.count == 6 &&
+               message_media_test_captured(capture, media_asset_custom_emoji(555, false), false) &&
                message_media_test_captured(capture, media_asset_user_avatar(10, static_variant, false),
                                            false) &&
                message_media_test_captured(capture, media_asset_user_avatar(20, animated_variant, true),
@@ -16310,7 +16335,7 @@ void test_message_media_controller() noexcept {
         &controller, messages, users, &animations, &atlas, 60'000, callbacks);
     animation_timeline_end_visibility(&animations, 60'000);
     expect(resident.ok() && second_collect.ok() && second_decorated.ok() &&
-               second_decorated.candidates == 4 && capture.count == 4 &&
+               second_decorated.candidates == 5 && capture.count == 5 &&
                !message_media_test_captured(capture, media_asset_custom_emoji(111, false), false) &&
                controller.collections == 2 && controller.source_rows_visited == 4 &&
                controller.duplicate_assets_skipped == 8 && emoji_memo.parses == 2,

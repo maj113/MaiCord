@@ -804,6 +804,18 @@ MessageMediaControllerResult message_media_controller_visit_decorations(
             if (stopped)
                 return stopped_at(visible);
         }
+        // Button emoji: the custom emoji drawn ahead of a component's label.
+        for (u32 index = 0; index < content_rich->component_count; ++index) {
+            const MessageRichComponent& value = content_rich->components[index];
+            if (value.type != gateway_component_button || value.emoji_id == 0)
+                continue;
+            const bool animated = (value.flags & gateway_message_component_emoji_animated) != 0;
+            if (!request_asset(callbacks, media_asset_custom_emoji(value.emoji_id, animated), animated, controller,
+                               animations, media_atlas, now_us, &candidates, &stopped, emoji_plays))
+                return failure(controller, MessageMediaControllerError::callback, visible + 1u, candidates);
+            if (stopped)
+                return stopped_at(visible);
+        }
         for (u32 reaction = 0; !content_scope && message_rich_display().reactions &&
                                 reaction < content_rich->reaction_count;
              ++reaction) {

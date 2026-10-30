@@ -459,7 +459,8 @@ struct GatewayClientMessageRichHeader {
     u8 interaction_type;
     u8 reference_content_flags; // GatewayMessageReferenceContent
     u8 reference_message_type;
-    u8 reserved[3];
+    u8 reference_quote_flags; // GatewayMessageReferenceQuote
+    u8 reserved[2];
 };
 
 // Present only for messages whose fields contain gateway_message_field_poll.

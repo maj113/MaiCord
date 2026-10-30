@@ -318,6 +318,7 @@ bool append_message_rich_metadata(Slice<char> output, const GatewayMessageEvent&
     header.reference_state = static_cast<u8>(message.reference.state);
     header.reference_type = message.reference.type;
     header.reference_content_flags = message.reference.content_flags;
+    header.reference_quote_flags = message.reference.quote_flags;
     header.reference_message_type = message.reference.message_type;
     header.interaction_id = message.interaction.id;
     header.interaction_user_id = message.interaction.user_id;

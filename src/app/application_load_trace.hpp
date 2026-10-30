@@ -115,6 +115,8 @@ inline const char* rest_owner_name(MessageHistoryRequestOwner owner) noexcept {
         return "startup_history";
     case MessageHistoryRequestOwner::expression_card:
         return "expression_card";
+    case MessageHistoryRequestOwner::interaction_data:
+        return "interaction_data";
     case MessageHistoryRequestOwner::user_settings:
     case MessageHistoryRequestOwner::account_settings:
     case MessageHistoryRequestOwner::count:

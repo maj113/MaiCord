@@ -38,7 +38,8 @@
       "brand": "{colors.accent}",
       "success": [0.14, 0.65, 0.38, 1],
       "warning": [0.94, 0.69, 0.2, 1],
-      "danger": "{colors.notification}"
+      "danger": "{colors.notification}",
+      "app_badge": "#5865f2"
     },
     "text": {
       "normal": "{colors.text_primary}",

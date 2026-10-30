@@ -30,6 +30,73 @@ enum class MessageMarkdownSemanticKind : u8 {
     regional_flag,
     // </name sub:id>; target is the command id, source covers the tag.
     command_mention,
+    // An icon cell inside a link chip: target is a MessageMarkdownChipIcon,
+    // the cell is the measured space the renderer draws the icon over (an
+    // em wide; the chevron half an em). reserved bit kMessageMarkdownChipHovered
+    // marks a cell of the hovered chip. Never a hit target of its own.
+    chip_icon,
+    // The server icon cell of a link chip; target is the guild id. With
+    // kMessageMarkdownChipInitials the server has no icon: the cell shows its
+    // initials on a round plate instead.
+    guild_icon,
+};
+
+inline constexpr u8 kMessageMarkdownChipHovered = 1u << 2;
+// reserved bit of a link semantic: a CDN attachment URL shown as a chip with
+// its file name (the source stays the full URL).
+inline constexpr u8 kMessageMarkdownAttachmentChip = 1u << 3;
+inline constexpr u8 kMessageMarkdownChipInitials = 1u << 4;
+
+enum class MessageMarkdownChipIcon : u8 {
+    text_channel,
+    voice,
+    stage,
+    locked,
+    thread,
+    message,
+    forum,
+    media,
+    announcement,
+    attachment,
+    chevron,
+    // A quoted forward's leading icon (reply previews), in the text colour.
+    forward,
+    // A local command message's status: sending / thinking (text colour) and
+    // failed or unanswered (critical colour).
+    pending_dots,
+    failed,
+    count,
+};
+
+enum MessageMarkdownChannelFlag : u8 {
+    message_markdown_channel_known = 1u << 0,
+    // The account can view it (a DM always; a server channel with VIEW_CHANNEL).
+    message_markdown_channel_viewable = 1u << 1,
+    // Text-like, voice and stage channels; categories render as plain text.
+    message_markdown_channel_mentionable = 1u << 2,
+    message_markdown_channel_private = 1u << 3,
+    // A thread of a forum or media channel.
+    message_markdown_channel_forum_post = 1u << 4,
+    // guild_name/guild_icon describe a server in the store.
+    message_markdown_channel_guild_known = 1u << 5,
+    // That server is the one of the message being rendered.
+    message_markdown_channel_same_guild = 1u << 6,
+    // The forum post's parent channel is in the store (parent_name/parent_icon).
+    message_markdown_channel_parent_known = 1u << 7,
+};
+
+// What a channel reference (<#id> or a /channels/ URL) resolves to. The guild
+// fields describe the channel's server, or for an unknown channel the URL's.
+struct MessageMarkdownChannelTarget {
+    Utf8View name;
+    Utf8View guild_name;
+    Utf8View parent_name;
+    u64 guild_id;
+    MessageMarkdownChipIcon icon;
+    MessageMarkdownChipIcon parent_icon;
+    u8 flags;
+    // The server has a CDN icon (the chip draws it before the server name).
+    bool guild_icon;
 };
 
 struct MessageLink {
@@ -37,6 +104,8 @@ struct MessageLink {
     u64 channel_id;
     u64 message_id;
     u32 source_bytes;
+    // A /threads/ URL: channel_id is the thread, this its parent channel.
+    u64 parent_channel_id;
 };
 
 struct MessageMarkdownSemantic {
@@ -61,6 +130,10 @@ using MessageMarkdownFormatTimestamp = TimestampFormatResult (*)(void* context, 
                                                                         char style,
                                                                         Slice<char> output) noexcept;
 using MessageMarkdownSpoilerRevealed = bool (*)(void* context, u32 source_offset) noexcept;
+// Resolves a channel reference: guild_id is the URL's server (zero for @me and
+// for <#id>). Returns false when nothing is known about the reference.
+using MessageMarkdownResolveChannel = bool (*)(void* context, u64 guild_id, u64 channel_id,
+                                               MessageMarkdownChannelTarget* target) noexcept;
 
 struct MessageMarkdownOptions {
     void* context;
@@ -89,6 +162,10 @@ struct MessageMarkdownOptions {
     // tag or edge newlines (```ansi drops its SGR escapes instead of colouring),
     // headings are inline bold and list markers inline text.
     bool inline_reply;
+    // Set: channel references and /channels/ URLs become link chips with
+    // channel, server and message icons. Unset (plain-text surfaces such as
+    // notifications): a message URL shows "#name › 💬" from resolve_entity.
+    MessageMarkdownResolveChannel resolve_channel;
 };
 
 // The TextSize the markdown gives a run with these style flags.
@@ -149,7 +226,13 @@ MessageMarkdownResult message_markdown_parse(Utf8View input, Slice<char> text_ou
 u32 message_markdown_source_styles(Utf8View input, Slice<TextStyleSpan> output) noexcept;
 
 bool message_markdown_url_valid(Utf8View value) noexcept;
+// A discord.com/discordapp.com (canary./ptb.) /channels/<guild|@me>/<channel>/<message>
+// URL, optionally with a ?query, or /channels/<guild>/<parent>/threads/<thread>/<message>
+// (channel_id is then the thread); the whole value must be the URL.
 bool message_markdown_message_link(Utf8View value, MessageLink* link) noexcept;
+// A CDN attachment URL the chat shows as an attachment chip; the whole value
+// must match. name receives the chip's file name (a view into value).
+bool message_markdown_attachment_link(Utf8View value, Utf8View* name) noexcept;
 
 inline constexpr u32 kInviteCodeMaximumBytes = 32;
 inline constexpr u32 kInviteLinksPerMessage = 10;

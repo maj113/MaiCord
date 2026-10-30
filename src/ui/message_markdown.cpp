@@ -993,67 +993,92 @@ bool decimal_u64(Utf8View input, u32 begin, u32 end, u64* value) noexcept {
     return begin < end && decimal_parse({input.data + begin, end - begin}, value);
 }
 
-bool message_link_at(Utf8View input, u32 begin, MessageLink* link) noexcept {
-    // Each of these hosts routes /channels/<guild|@me>/<channel>/<message>.
-    constexpr const char* prefixes[] = {"https://discord.com/channels/", "https://ptb.discord.com/channels/",
-                                        "https://canary.discord.com/channels/",
-                                        "https://discordapp.com/channels/"};
-    if (begin > input.bytes) {
+bool ascii_letter(char value) noexcept {
+    return static_cast<u8>((static_cast<u8>(value) | 0x20) - 'a') < 26;
+}
+
+bool take_literal(Utf8View input, u32* cursor, const char* literal, u32 bytes) noexcept {
+    if (bytes > input.bytes - *cursor || !bytes_equal(input.data + *cursor, literal, bytes))
         return false;
-    }
-    u32 prefix_bytes = 0;
-    for (const char* prefix : prefixes) {
-        u32 bytes = 0;
-        while (prefix[bytes])
-            ++bytes;
-        if (bytes <= input.bytes - begin && bytes_equal(input.data + begin, prefix, bytes)) {
-            prefix_bytes = bytes;
-            break;
-        }
-    }
-    if (!prefix_bytes) {
+    *cursor += bytes;
+    return true;
+}
+
+// One /channels/ path segment: digits or letters and '-' (the official
+// (\d+|[a-zA-Z-]+)); value stays zero for a non-numeric segment.
+bool channel_segment(Utf8View input, u32* cursor, u64* value, bool* numeric) noexcept {
+    const u32 begin = *cursor;
+    u32 end = begin;
+    while (end < input.bytes && ascii_is_digit(input.data[end]))
+        ++end;
+    *numeric = end != begin;
+    if (!*numeric)
+        while (end < input.bytes && (ascii_letter(input.data[end]) || input.data[end] == '-'))
+            ++end;
+    u64 parsed = 0;
+    if (end == begin || (*numeric && (!decimal_u64(input, begin, end, &parsed) || parsed == 0)))
         return false;
-    }
-    u32 cursor = begin + prefix_bytes;
-    const u32 guild_begin = cursor;
-    u64 guild_id = 0;
-    if (input.bytes - cursor >= 3 && bytes_equal(input.data + cursor, "@me", 3)) {
-        cursor += 3;
-    } else {
-        while (cursor < input.bytes && ascii_is_digit(input.data[cursor])) {
+    *value = parsed;
+    *cursor = end;
+    return true;
+}
+
+// The official channel/message URL rule: https:// discord.com or
+// discordapp.com (optionally canary./ptb.), /channels/<guild|@me>/<channel>,
+// an optional /<message> and ?query. A prefix match: text after the last
+// segment stays text. A channel URL has message_id zero; a guild-only URL and
+// one with a non-numeric channel or message segment are ordinary links.
+bool channel_link_at(Utf8View input, u32 begin, MessageLink* link) noexcept {
+    if (begin > input.bytes)
+        return false;
+    u32 cursor = begin;
+    if (!take_literal(input, &cursor, "https://", 8))
+        return false;
+    if (!take_literal(input, &cursor, "canary.", 7))
+        take_literal(input, &cursor, "ptb.", 4);
+    if (!take_literal(input, &cursor, "discord", 7))
+        return false;
+    take_literal(input, &cursor, "app", 3);
+    if (!take_literal(input, &cursor, ".com/channels/", 14))
+        return false;
+    u64 guild_id = 0, channel_id = 0, message_id = 0;
+    bool numeric = false;
+    if (!take_literal(input, &cursor, "@me", 3)) {
+        const u32 guild_begin = cursor;
+        while (cursor < input.bytes && ascii_is_digit(input.data[cursor]))
             ++cursor;
-        }
-        if (!decimal_u64(input, guild_begin, cursor, &guild_id))
+        if (!decimal_u64(input, guild_begin, cursor, &guild_id) || guild_id == 0)
             return false;
     }
-    if (cursor >= input.bytes || input.data[cursor++] != '/') {
+    if (!take_literal(input, &cursor, "/", 1) || !channel_segment(input, &cursor, &channel_id, &numeric) ||
+        !numeric)
         return false;
-    }
-    const u32 channel_begin = cursor;
-    while (cursor < input.bytes && ascii_is_digit(input.data[cursor])) {
-        ++cursor;
-    }
-    u64 channel_id = 0;
-    if (!decimal_u64(input, channel_begin, cursor, &channel_id) || cursor >= input.bytes ||
-        input.data[cursor++] != '/') {
-        return false;
-    }
-    const u32 message_begin = cursor;
-    while (cursor < input.bytes && ascii_is_digit(input.data[cursor])) {
-        ++cursor;
-    }
-    u64 message_id = 0;
-    if (!decimal_u64(input, message_begin, cursor, &message_id)) {
-        return false;
-    }
-    if (cursor < input.bytes) {
-        const char next = input.data[cursor];
-        // Sentence punctuation terminates a permalink. Only characters that
-        // could extend a path/identifier make this candidate invalid.
-        if ((next >= 'a' && next <= 'z') || (next >= 'A' && next <= 'Z') || ascii_is_digit(next) ||
-            next == '_' || next == '-' || next == '/') {
+    // A thread message (the official mediaPostLink rule):
+    // /channels/<guild>/<parent>/threads/<thread>/<message>, no query.
+    u32 end = cursor;
+    if (take_literal(input, &end, "/threads/", 9)) {
+        u64 thread_id = 0;
+        if (!guild_id || !channel_segment(input, &end, &thread_id, &numeric) || !numeric ||
+            !take_literal(input, &end, "/", 1) || !channel_segment(input, &end, &message_id, &numeric) || !numeric)
             return false;
-        }
+        *link = MessageLink{guild_id, thread_id, message_id, end - begin, channel_id};
+        return true;
+    }
+    if (take_literal(input, &end, "/", 1)) {
+        if (channel_segment(input, &end, &message_id, &numeric) && !numeric)
+            return false;
+        if (message_id)
+            cursor = end;
+    }
+    // ?query: [\w%=&+-]+
+    if (cursor + 1 < input.bytes && input.data[cursor] == '?') {
+        end = cursor + 1;
+        while (end < input.bytes && (ascii_is_alnum(input.data[end]) || input.data[end] == '_' ||
+                                     input.data[end] == '%' || input.data[end] == '=' || input.data[end] == '&' ||
+                                     input.data[end] == '+' || input.data[end] == '-'))
+            ++end;
+        if (end > cursor + 1)
+            cursor = end;
     }
     *link = MessageLink{guild_id, channel_id, message_id, cursor - begin};
     return true;
@@ -1070,45 +1095,327 @@ bool emit_decimal(Parser* parser, u64 value, u32 style) noexcept {
     return true;
 }
 
-bool try_emit_message_link(Parser* parser, bool* matched) noexcept {
+// Chip icon cells are measured spaces the renderer draws the icon over: an em
+// (U+2003) for channel, server, message and file icons, half an em (U+2002)
+// for the chevron, then the official trailing margins (U+2005 4 px,
+// U+2006 3 px, U+200A 2 px at 16 px). These spaces never break before
+// themselves (UAX #14 BA); a closing U+200D allows no break after it either,
+// so an icon never wraps away from what follows it. (U+2060, the official
+// nowrap glue, is a default-ignorable the chat hides as U+200C.)
+constexpr Utf8View kChipCell = utf8_literal("\xE2\x80\x83");
+constexpr Utf8View kChipHalfCell = utf8_literal("\xE2\x80\x82");
+constexpr Utf8View kChipGap4 = utf8_literal("\xE2\x80\x85");
+constexpr Utf8View kChipGap3 = utf8_literal("\xE2\x80\x86");
+constexpr Utf8View kChipGap2 = utf8_literal("\xE2\x80\x8A");
+constexpr Utf8View kChipGlue = utf8_literal("\xE2\x80\x8D");
+
+struct Chip {
+    Parser* parser;
+    u32 style;
+    u32 source_begin;
+    bool hovered;
+};
+
+bool emit_chip_cell(const Chip& chip, MessageMarkdownSemanticKind kind, u64 target, Utf8View cell,
+                    Utf8View gap, u8 reserved = 0) noexcept {
+    Parser* parser = chip.parser;
+    const u32 at = parser->output_bytes;
+    return emit_view(parser, cell, chip.style) &&
+           append_semantic(parser, kind, target, at, cell.bytes, chip.source_begin, 0,
+                           static_cast<u8>(reserved | (chip.hovered ? kMessageMarkdownChipHovered : 0))) &&
+           emit_view(parser, gap, chip.style) && emit_view(parser, kChipGlue, chip.style);
+}
+
+bool emit_chip_icon(const Chip& chip, MessageMarkdownChipIcon icon, Utf8View gap = kChipGap4) noexcept {
+    return emit_chip_cell(chip, MessageMarkdownSemanticKind::chip_icon, static_cast<u64>(icon), kChipCell, gap);
+}
+
+// The official chevron between a chip's container and its target: 4 px, a
+// half-em chevron, 2 px.
+bool emit_chip_separator(const Chip& chip) noexcept {
+    return emit_view(chip.parser, kChipGap4, chip.style) &&
+           emit_chip_cell(chip, MessageMarkdownSemanticKind::chip_icon,
+                          static_cast<u64>(MessageMarkdownChipIcon::chevron), kChipHalfCell, kChipGap2);
+}
+
+// Server and channel names are cut to 32 UTF-16 units: 31 code points with
+// trailing spaces and dots removed, then an ellipsis.
+bool emit_chip_name(const Chip& chip, Utf8View name) noexcept {
+    u32 units = 0, kept = 0, points = 0;
+    for (u32 at = 0; at < name.bytes;) {
+        const Utf8DecodeResult decoded = utf8_decode_one(name.data + at, name.bytes - at);
+        if (!decoded.valid || !decoded.width)
+            return false;
+        units += decoded.codepoint > 0xFFFFu ? 2u : 1u;
+        if (++points <= 31)
+            kept = at + decoded.width;
+        at += decoded.width;
+    }
+    if (units <= 32)
+        return emit_view(chip.parser, name, chip.style);
+    while (kept && (ascii_space(name.data[kept - 1]) || name.data[kept - 1] == '.'))
+        --kept;
+    return emit_view(chip.parser, {name.data, kept}, chip.style) &&
+           emit_view(chip.parser, utf8_literal("\xE2\x80\xA6"), chip.style);
+}
+
+bool emit_chip_channel(const Chip& chip, MessageMarkdownChipIcon icon, Utf8View name) noexcept {
+    return emit_chip_icon(chip, icon) && emit_chip_name(chip, name);
+}
+
+// The server's icon, or for a server without one its initials (the client's
+// acronym icon), then its name and the chevron.
+bool emit_chip_guild(const Chip& chip, const MessageMarkdownChannelTarget& target) noexcept {
+    return emit_chip_cell(chip, MessageMarkdownSemanticKind::guild_icon, target.guild_id, kChipCell, kChipGap3,
+                          target.guild_icon ? 0 : kMessageMarkdownChipInitials) &&
+           emit_chip_name(chip, target.guild_name) && emit_chip_separator(chip);
+}
+
+bool chip_view_valid(Utf8View value) noexcept {
+    return (value.data || !value.bytes) && (!value.bytes || utf8_validate(value).valid);
+}
+
+enum class ChipResult : u8 { chip, text, none };
+
+// The official channelMention rendering of a channel reference: <#id> and
+// /channels/ URLs. kind/target name the chip's semantic. A URL to a channel of
+// an unknown non-private server stays an ordinary link (ChipResult::none).
+bool emit_channel_chip(Parser* parser, const MessageLink& link, bool url, u32 source_begin,
+                       ChipResult* result) noexcept {
+    const MessageMarkdownOptions& options = *parser->options;
+    MessageMarkdownChannelTarget target{};
+    const auto resolve = [&](u64 channel_id) noexcept {
+        reset_value(&target);
+        if (!options.resolve_channel(options.context, link.guild_id, channel_id, &target) ||
+            !chip_view_valid(target.name) || !chip_view_valid(target.guild_name) ||
+            !chip_view_valid(target.parent_name) ||
+            static_cast<u8>(target.icon) >= static_cast<u8>(MessageMarkdownChipIcon::count) ||
+            static_cast<u8>(target.parent_icon) >= static_cast<u8>(MessageMarkdownChipIcon::count))
+            reset_value(&target);
+    };
+    resolve(link.channel_id);
+    // A thread that is not loaded shows its parent channel, as the client does.
+    if (!(target.flags & message_markdown_channel_known) && link.parent_channel_id)
+        resolve(link.parent_channel_id);
+    const u8 flags = target.flags;
+    const bool message = link.message_id != 0;
+    const auto kind = message ? MessageMarkdownSemanticKind::message_link : MessageMarkdownSemanticKind::channel_mention;
+    const bool hovered = semantic_hovered(*parser, kind, source_begin);
+    const Chip chip{parser, text_style_mention | (hovered ? u32{text_style_interactive_hover} : 0u), source_begin,
+                    hovered};
+    const u32 display_begin = parser->output_bytes;
+    *result = ChipResult::chip;
+    bool ok = true;
+    if (!(flags & message_markdown_channel_known)) {
+        ok = ((flags & message_markdown_channel_guild_known) && !(flags & message_markdown_channel_same_guild)
+                  ? emit_chip_guild(chip, target)
+                  : true) &&
+             emit_chip_icon(chip, MessageMarkdownChipIcon::text_channel) &&
+             emit_view(parser, utf8_literal("unknown"), chip.style | text_style_italic);
+    } else if (!(flags & message_markdown_channel_viewable)) {
+        ok = emit_chip_channel(chip, MessageMarkdownChipIcon::locked, utf8_literal("No Access"));
+    } else if (!(flags & message_markdown_channel_mentionable)) {
+        *result = ChipResult::text;
+        ok = emit_byte(parser, '#') && emit_view(parser, target.name, 0);
+    } else if (!(flags & message_markdown_channel_guild_known)) {
+        if (flags & message_markdown_channel_private) {
+            ok = emit_chip_channel(chip, target.icon, target.name) && emit_chip_separator(chip) &&
+                 emit_chip_icon(chip, MessageMarkdownChipIcon::message);
+        } else if (url) {
+            *result = ChipResult::none;
+            return true;
+        } else {
+            *result = ChipResult::text;
+            ok = emit_view(parser, utf8_literal("#unknown-channel"), 0);
+        }
+    } else if (flags & message_markdown_channel_same_guild) {
+        if (!message)
+            ok = emit_chip_channel(chip, target.icon, target.name);
+        else if ((flags & message_markdown_channel_forum_post) && (flags & message_markdown_channel_parent_known))
+            ok = emit_chip_channel(chip, target.parent_icon, target.parent_name) && emit_chip_separator(chip) &&
+                 emit_chip_channel(chip, target.icon, target.name);
+        else
+            ok = emit_chip_channel(chip, target.icon, target.name) && emit_chip_separator(chip) &&
+                 emit_chip_icon(chip, MessageMarkdownChipIcon::message);
+    } else {
+        ok = emit_chip_guild(chip, target) &&
+             (message && !(flags & message_markdown_channel_forum_post)
+                  ? emit_chip_icon(chip, MessageMarkdownChipIcon::message)
+                  : emit_chip_channel(chip, target.icon, target.name));
+    }
+    if (!ok)
+        return false;
+    if (flags & message_markdown_channel_known)
+        saturating_increment(parser->resolved_entities);
+    else
+        saturating_increment(parser->unresolved_entities);
+    return *result != ChipResult::chip ||
+           append_semantic(parser, kind, message ? link.message_id : link.channel_id, display_begin,
+                           parser->output_bytes - display_begin, source_begin, link.source_bytes);
+}
+
+bool inside_masked_link(const Parser& parser) noexcept {
+    return parser.depth != 0 && parser.delimiters[parser.depth - 1].kind == DelimiterKind::masked_link;
+}
+
+bool try_emit_channel_link(Parser* parser, bool* matched) noexcept {
     *matched = false;
     MessageLink link{};
     const u32 source_begin = parser->input_offset;
-    if (!message_link_at(parser->input, source_begin, &link)) {
+    const MessageMarkdownOptions* options = parser->options;
+    // Embed titles keep this rule (the official EMBED_TITLE_RULES omit only
+    // attachment links among link rules); masked link text does not.
+    if (inside_masked_link(*parser) || !channel_link_at(parser->input, source_begin, &link)) {
         return true;
     }
-    if (parser->options && parser->options->preserve_entities) {
+    if (options && options->preserve_entities) {
         *matched = true;
         parser->input_offset += link.source_bytes;
         return emit_range(parser, source_begin, parser->input_offset, text_style_link);
     }
-    const u32 display_begin = parser->output_bytes;
-    u32 channel_style = text_style_mention | text_style_link;
-    u32 suffix_style = text_style_link;
-    if (semantic_hovered(*parser, MessageMarkdownSemanticKind::message_link, source_begin)) {
-        channel_style |= text_style_interactive_hover;
-        suffix_style |= text_style_interactive_hover | text_style_underline;
-    }
-    Utf8View channel_name{};
-    if (parser->options && parser->options->resolve_entity) {
-        channel_name = parser->options->resolve_entity(parser->options->context,
-                                                       MessageMarkdownEntityKind::channel, link.channel_id);
-        if ((!channel_name.data && channel_name.bytes != 0) ||
-            (channel_name.bytes != 0 && !utf8_validate(channel_name).valid)) {
-            reset_value<Utf8View>(&channel_name);
+    if (options && options->resolve_channel) {
+        ChipResult result{};
+        if (!emit_channel_chip(parser, link, true, source_begin, &result))
+            return false;
+        if (result == ChipResult::none)
+            return true;
+    } else {
+        // Plain-text surfaces: a message URL reads "#channel › 💬"; a channel
+        // URL stays an ordinary link.
+        if (!link.message_id)
+            return true;
+        const u32 display_begin = parser->output_bytes;
+        u32 channel_style = text_style_mention | text_style_link;
+        u32 suffix_style = text_style_link;
+        if (semantic_hovered(*parser, MessageMarkdownSemanticKind::message_link, source_begin)) {
+            channel_style |= text_style_interactive_hover;
+            suffix_style |= text_style_interactive_hover | text_style_underline;
+        }
+        Utf8View channel_name{};
+        if (options && options->resolve_entity) {
+            channel_name = options->resolve_entity(options->context, MessageMarkdownEntityKind::channel,
+                                                   link.channel_id);
+            if (!chip_view_valid(channel_name))
+                reset_value<Utf8View>(&channel_name);
+        }
+        if (!emit_byte(parser, '#', channel_style) ||
+            !(channel_name.bytes != 0 ? emit_view(parser, channel_name, channel_style)
+                                      : emit_decimal(parser, link.channel_id, channel_style)) ||
+            !emit_view(parser, utf8_literal(" \xE2\x80\xBA \xF0\x9F\x92\xAC"), suffix_style) ||
+            !append_semantic(parser, MessageMarkdownSemanticKind::message_link, link.message_id, display_begin,
+                             parser->output_bytes - display_begin, source_begin, link.source_bytes)) {
+            return false;
         }
     }
-    if (!emit_byte(parser, '#', channel_style) ||
-        !(channel_name.bytes != 0 ? emit_view(parser, channel_name, channel_style)
-                                  : emit_decimal(parser, link.channel_id, channel_style)) ||
-        !emit_view(parser, utf8_literal(" \xE2\x80\xBA \xF0\x9F\x92\xAC"), suffix_style)) {
-        return false;
-    }
-    if (!append_semantic(parser, MessageMarkdownSemanticKind::message_link, link.message_id, display_begin,
-                         parser->output_bytes - display_begin, source_begin, link.source_bytes)) {
-        return false;
-    }
     parser->input_offset += link.source_bytes;
+    ++parser->transformations;
+    *matched = true;
+    return true;
+}
+
+bool ascii_host_label(char value) noexcept {
+    return ascii_is_alnum(value) || value == '-';
+}
+
+// The official attachment-link rule (prefix match):
+// ^https://(?:[A-Za-z0-9-]+\.)*(?:(?:media|images)(?:-[A-Za-z0-9]+)?\.discordapp\.net|
+//   cdn(?:-[A-Za-z0-9]+)?\.discordapp\.com)/(?:attachments|ephemeral-attachments)/\d+/\d+/
+//   ([A-Za-z0-9._-]*[A-Za-z0-9_-])(?:[?][a-zA-Z0-9?&=_-]*)?
+// Returns the matched bytes (zero: no match) and the file name range.
+u32 attachment_link_at(Utf8View input, u32 begin, u32* name_begin, u32* name_end) noexcept {
+    u32 cursor = begin;
+    if (begin > input.bytes || !take_literal(input, &cursor, "https://", 8))
+        return 0;
+    const u32 host = cursor;
+    while (cursor < input.bytes && (ascii_host_label(input.data[cursor]) || input.data[cursor] == '.'))
+        ++cursor;
+    const u32 host_end = cursor;
+    if (!take_literal(input, &cursor, "/", 1))
+        return 0;
+    // The last three labels: <service>.discordapp.<net|com>.
+    constexpr u32 suffix = 15; // ".discordapp.net"
+    if (host_end - host <= suffix)
+        return 0;
+    const char* tail = input.data + host_end - suffix;
+    const bool net = bytes_equal(tail, ".discordapp.net", suffix);
+    if (!net && !bytes_equal(tail, ".discordapp.com", suffix))
+        return 0;
+    u32 service = host_end - suffix;
+    while (service > host && input.data[service - 1] != '.')
+        --service;
+    // Leading labels: each non-empty, then a dot.
+    for (u32 at = host; at < service; ++at)
+        if (input.data[at] == '.' && (at == host || input.data[at - 1] == '.'))
+            return 0;
+    const Utf8View label{input.data + service, host_end - suffix - service};
+    u32 name = 0;
+    if (net && label.bytes >= 5 && bytes_equal(label.data, "media", 5))
+        name = 5;
+    else if (net && label.bytes >= 6 && bytes_equal(label.data, "images", 6))
+        name = 6;
+    else if (!net && label.bytes >= 3 && bytes_equal(label.data, "cdn", 3))
+        name = 3;
+    if (!name)
+        return 0;
+    if (name != label.bytes) {
+        if (label.data[name] != '-' || name + 1 == label.bytes)
+            return 0;
+        for (u32 at = name + 1; at < label.bytes; ++at)
+            if (!ascii_is_alnum(label.data[at]))
+                return 0;
+    }
+    if (!take_literal(input, &cursor, "attachments/", 12) &&
+        !take_literal(input, &cursor, "ephemeral-attachments/", 22))
+        return 0;
+    for (u32 id = 0; id < 2; ++id) {
+        const u32 digits = cursor;
+        while (cursor < input.bytes && ascii_is_digit(input.data[cursor]))
+            ++cursor;
+        if (cursor == digits || !take_literal(input, &cursor, "/", 1))
+            return 0;
+    }
+    const u32 file = cursor;
+    while (cursor < input.bytes &&
+           (ascii_is_alnum(input.data[cursor]) || input.data[cursor] == '.' || input.data[cursor] == '_' ||
+            input.data[cursor] == '-'))
+        ++cursor;
+    while (cursor > file && input.data[cursor - 1] == '.')
+        --cursor;
+    if (cursor == file)
+        return 0;
+    *name_begin = file;
+    *name_end = cursor;
+    if (cursor < input.bytes && input.data[cursor] == '?') {
+        ++cursor;
+        while (cursor < input.bytes &&
+               (ascii_is_alnum(input.data[cursor]) || input.data[cursor] == '?' || input.data[cursor] == '&' ||
+                input.data[cursor] == '=' || input.data[cursor] == '_' || input.data[cursor] == '-'))
+            ++cursor;
+    }
+    return cursor - begin;
+}
+
+// A CDN attachment URL becomes a mention-style chip: a paperclip and the file
+// name. The link semantic keeps the whole URL as its source.
+bool try_emit_attachment_link(Parser* parser, bool* matched) noexcept {
+    *matched = false;
+    const MessageMarkdownOptions* options = parser->options;
+    if ((options && (options->no_links || options->preserve_entities)) || inside_masked_link(*parser))
+        return true;
+    const u32 begin = parser->input_offset;
+    u32 name_begin = 0, name_end = 0;
+    const u32 bytes = attachment_link_at(parser->input, begin, &name_begin, &name_end);
+    if (!bytes)
+        return true;
+    const bool hovered = semantic_hovered(*parser, MessageMarkdownSemanticKind::link, begin);
+    const Chip chip{parser, text_style_mention | (hovered ? u32{text_style_interactive_hover} : 0u), begin, hovered};
+    const u32 display_begin = parser->output_bytes;
+    if (!emit_chip_icon(chip, MessageMarkdownChipIcon::attachment, kChipGap2) ||
+        !emit_range(parser, name_begin, name_end, chip.style) ||
+        !append_semantic(parser, MessageMarkdownSemanticKind::link, 0, display_begin,
+                         parser->output_bytes - display_begin, begin, bytes, kMessageMarkdownAttachmentChip))
+        return false;
+    parser->input_offset = begin + bytes;
     ++parser->transformations;
     *matched = true;
     return true;
@@ -1298,6 +1605,16 @@ bool try_emit_entity_tag(Parser* parser, bool* matched) noexcept {
     if (begin + 2 < end && parser->input.data[begin + 1] == '#' &&
         decimal_range(parser->input, begin + 2, end)) {
         *matched = true;
+        u64 channel_id = 0;
+        if (parser->options && parser->options->resolve_channel && !parser->options->preserve_entities &&
+            decimal_u64(parser->input, begin + 2, end, &channel_id) && channel_id) {
+            ChipResult result{};
+            if (!emit_channel_chip(parser, MessageLink{0, channel_id, 0, end + 1 - begin}, false, begin, &result))
+                return false;
+            parser->input_offset = end + 1;
+            ++parser->transformations;
+            return true;
+        }
         return emit_entity_tag(parser, MessageMarkdownEntityKind::channel,
                                MessageMarkdownSemanticKind::channel_mention, begin, begin + 2, end, '#',
                                end);
@@ -1590,12 +1907,16 @@ u8 emphasis_marker(const Parser& parser, u32* style, DelimiterKind* kind) noexce
     return 0;
 }
 
-// A fence may open before a space or newline ("```\ncode\n```"); other
-// markers need text right after them.
+// As the client's rules match: code, spoilers, ***, ** and __ may open before
+// whitespace ("** a **" is bold, "` a `" code); a single * or _ and ~~ need
+// text right after them.
 bool marker_can_open(const Parser& parser, u8 bytes, DelimiterKind kind) noexcept {
     const u32 after = parser.input_offset + bytes;
-    return after < parser.input.bytes &&
-           ((kind == DelimiterKind::code && bytes == 3) || !ascii_space(parser.input.data[after]));
+    if (after >= parser.input.bytes)
+        return false;
+    const bool spaced = kind != DelimiterKind::emphasis ||
+                        (bytes >= 2 && parser.input.data[parser.input_offset] != '~');
+    return spaced || !ascii_space(parser.input.data[after]);
 }
 
 bool marker_can_close(const Parser& parser, const Delimiter& delimiter) noexcept {
@@ -1819,7 +2140,8 @@ MessageMarkdownError walk(Parser* state, u32 stop_depth) noexcept {
         }
 
         bool matched = false;
-        if (value == 'h' && !try_emit_message_link(&parser, &matched)) {
+        if (value == 'h' &&
+            (!try_emit_attachment_link(&parser, &matched) || (!matched && !try_emit_channel_link(&parser, &matched)))) {
             return MessageMarkdownError::output_too_small;
         }
         if (matched) {
@@ -2123,10 +2445,18 @@ bool message_markdown_message_link(Utf8View value, MessageLink* link) noexcept {
         return false;
     }
     MessageLink parsed{};
-    if (!message_link_at(value, 0, &parsed) || parsed.source_bytes != value.bytes) {
+    if (!channel_link_at(value, 0, &parsed) || !parsed.message_id || parsed.source_bytes != value.bytes) {
         return false;
     }
     *link = parsed;
+    return true;
+}
+
+bool message_markdown_attachment_link(Utf8View value, Utf8View* name) noexcept {
+    u32 name_begin = 0, name_end = 0;
+    if (!value.data || !name || attachment_link_at(value, 0, &name_begin, &name_end) != value.bytes)
+        return false;
+    *name = {value.data + name_begin, name_end - name_begin};
     return true;
 }
 

@@ -52,10 +52,14 @@ u32 received_attachment_menu(const ReceivedAttachmentMenuFacts& facts, Slice<Pop
 // its leaving-site warning.
 inline constexpr u32 kMessageLinkActionCopy = 0x4C4E0001u;
 inline constexpr u32 kMessageLinkActionOpen = 0x4C4E0002u;
+inline constexpr u32 kMessageLinkActionCopyText = 0x4C4E0003u;
 constexpr bool message_link_menu_action(u32 action) noexcept {
-    return action == kMessageLinkActionCopy || action == kMessageLinkActionOpen;
+    return action >= kMessageLinkActionCopy && action <= kMessageLinkActionCopyText;
 }
 inline constexpr u32 kMessageLinkMenuItems = 2;
 // Returns the item count (zero for an empty URL or a too-small output).
 u32 message_link_menu(Utf8View url, Slice<PopupItem> output) noexcept;
+// An attachment chip (a CDN attachment URL shown by its file name) offers the
+// official pair instead: Copy Media Link and Copy Text (the file name).
+u32 attachment_link_menu(Slice<PopupItem> output) noexcept;
 } // namespace maicord

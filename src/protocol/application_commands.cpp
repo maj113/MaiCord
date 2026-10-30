@@ -1,6 +1,9 @@
 #include "maicord/protocol/application_commands.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/ascii.hpp"
+#include "maicord/protocol/user_settings_proto.hpp"
+#include "proto_wire.hpp"
 
 namespace maicord {
 namespace {
@@ -108,6 +111,7 @@ bool read_root(Walk& w, JsonValue value) noexcept {
     json_value_to_u64_or_string(field(doc, value, "guild_id"), &w.root.guild_id);
     w.root.dm_permission = true;
     json_value_to_bool(field(doc, value, "dm_permission"), &w.root.dm_permission);
+    json_value_to_bool(field(doc, value, "nsfw"), &w.root.nsfw);
     w.root.root_name = command_name(*w.index, value);
     w.root.original = value;
     return true;
@@ -164,6 +168,9 @@ bool visit_application(void* context, u32, JsonValue value) noexcept {
     if (!app.bot_id)
         json_value_to_u64_or_string(field(doc, value, "bot_id"), &app.bot_id);
     app.avatar = named(*a.index, bot, "avatar");
+    app.bot_name = named(*a.index, bot, "global_name");
+    if (!app.bot_name.bytes)
+        app.bot_name = named(*a.index, bot, "username");
     return true;
 }
 } // namespace
@@ -246,16 +253,24 @@ bool command_index_decode(Utf8View body, Slice<u32> scratch, CommandIndex* outpu
     *output = index;
     return true;
 }
-bool command_data(const ApplicationCommand& command, Utf8View options,
-                  ProtocolWriter* w) noexcept {
+bool command_data(const ApplicationCommand& command, Utf8View options, ProtocolWriter* w,
+                  Utf8View attachments) noexcept {
     if (!w || !command.id || !command.version || !command.root_name.bytes || !options.bytes)
         return false;
+    // The official client's order: version, id, guild_id, name, type, options,
+    // application_command, then the staged attachments.
     if (!protocol_writer_append_literal(w, "{\"version\":\"") ||
         !protocol_writer_append_u64(w, command.version) ||
         !protocol_writer_append_literal(w, "\",\"id\":\"") || !protocol_writer_append_u64(w, command.id) ||
-        !protocol_writer_append_literal(w, "\",\"name\":") ||
+        !protocol_writer_append_byte(w, '"'))
+        return false;
+    if (command.guild_id &&
+        (!protocol_writer_append_literal(w, ",\"guild_id\":\"") ||
+         !protocol_writer_append_u64(w, command.guild_id) || !protocol_writer_append_byte(w, '"')))
+        return false;
+    if (!protocol_writer_append_literal(w, ",\"name\":") ||
         !protocol_writer_append_json_string(w, command.root_name) ||
-        !protocol_writer_append_literal(w, " ,\"type\":1,\"options\":"))
+        !protocol_writer_append_literal(w, ",\"type\":1,\"options\":"))
         return false;
     const auto wrapper = [&](Utf8View name, u32 type) noexcept {
         return protocol_writer_append_literal(w, "[{\"type\":") && protocol_writer_append_u64(w, type) &&
@@ -273,14 +288,15 @@ bool command_data(const ApplicationCommand& command, Utf8View options,
         return false;
     if (command.group_name.bytes && !protocol_writer_append_literal(w, "}]"))
         return false;
-    if (command.guild_id &&
-        (!protocol_writer_append_literal(w, ",\"guild_id\":\"") ||
-         !protocol_writer_append_u64(w, command.guild_id) || !protocol_writer_append_byte(w, '"')))
+    if (!protocol_writer_append_literal(w, ",\"application_command\":") ||
+        !protocol_writer_append_bytes(w, {reinterpret_cast<const u8*>(command.original.source.data),
+                                          command.original.source.bytes}))
         return false;
-    return protocol_writer_append_literal(w, ",\"application_command\":") &&
-           protocol_writer_append_bytes(w, {reinterpret_cast<const u8*>(command.original.source.data),
-                                            command.original.source.bytes}) &&
-           protocol_writer_append_byte(w, '}');
+    if (attachments.bytes &&
+        (!protocol_writer_append_literal(w, ",\"attachments\":") ||
+         !protocol_writer_append_bytes(w, {reinterpret_cast<const u8*>(attachments.data), attachments.bytes})))
+        return false;
+    return protocol_writer_append_byte(w, '}');
 }
 
 bool command_context_data(const ApplicationCommand& command, u8 type, u64 target_id,
@@ -344,6 +360,40 @@ bool argument_schema(void* opaque, u32, JsonValue value) noexcept {
 bool blank(char c) noexcept {
     return c == ' ' || c == '\t' || c == '\r' || c == '\n';
 }
+struct ChoiceMatch {
+    const JsonIndexedDocument* document;
+    Utf8View name;
+    JsonValue value;
+    bool found;
+};
+bool match_choice(void* opaque, u32, JsonValue choice) noexcept {
+    auto& match = *static_cast<ChoiceMatch*>(opaque);
+    char storage[512];
+    Utf8View name{};
+    if (!match.found && command_json_text(field(*match.document, choice, "name"), {storage, sizeof(storage)}, &name) &&
+        utf8_equal(name, match.name)) {
+        match.value = field(*match.document, choice, "value");
+        match.found = true;
+    }
+    return true;
+}
+// Like the official client, a typed choice name sends that choice's value
+// (strings for string options, numbers for numeric ones); other text is sent as typed.
+Utf8View choice_value(const JsonIndexedDocument& doc, JsonValue option, u32 type, Utf8View value,
+                      Slice<char> scratch) noexcept {
+    const auto choices = field(doc, option, "choices");
+    if (choices.kind != JsonValueKind::array || !value.bytes)
+        return value;
+    ChoiceMatch match{&doc, value, {}, false};
+    json_visit_indexed_array(doc, choices, depth_limit, match_choice, &match);
+    Utf8View mapped{};
+    if (match.found && type == 3 && match.value.kind == JsonValueKind::string &&
+        command_json_text(match.value, scratch, &mapped))
+        return mapped;
+    if (match.found && (type == 4 || type == 10) && match.value.kind == JsonValueKind::number)
+        return match.value.source;
+    return value;
+}
 
 struct ScannedArgument {
     CommandArgumentFocus span;
@@ -396,7 +446,8 @@ bool scan_arguments(const ArgumentSchema& schema, Utf8View input, ScannedArgumen
             }
         }
         if (next_option) {
-            if (!partial) {
+            // An ATTACHMENT option may stay empty: it takes the next staged upload.
+            if (!partial && schema.types[slot] != 11) {
                 *error = utf8_literal("Enter a value for the selected option");
                 return false;
             }
@@ -447,7 +498,7 @@ bool scan_arguments(const ArgumentSchema& schema, Utf8View input, ScannedArgumen
         if (!quoted)
             while (end > begin && blank(input.data[end - 1]))
                 --end;
-        if (end == begin && !partial) {
+        if (end == begin && !partial && schema.types[slot] != 11) {
             *error = utf8_literal("Enter a value for the selected option");
             return false;
         }
@@ -566,6 +617,27 @@ bool command_argument_find(const CommandIndex& index,
                            CommandArgumentFocus* output) noexcept {
     return name.bytes && argument_lookup(index, command, input, input.bytes, name, output);
 }
+u32 command_argument_keys(const CommandIndex& index, const ApplicationCommand& command, Utf8View input,
+                          Slice<CommandArgumentKey> output) noexcept {
+    if (!output.data || !utf8_validate(input).valid || !command.options.source.bytes)
+        return 0;
+    ArgumentSchema schema;
+    schema.index = &index;
+    schema.count = 0;
+    if (!json_visit_indexed_array(index.document, command.options, depth_limit, argument_schema, &schema).ok())
+        return 0;
+    ScannedArgument spans[25];
+    u32 count = 0;
+    Utf8View error{};
+    scan_arguments(schema, input, spans, &count, true, &error);
+    u32 keys = 0;
+    for (u32 n = 0; n < count && keys < output.count; ++n) {
+        const auto& name = spans[n].span.name;
+        const u32 first = static_cast<u32>(name.data - input.data);
+        output[keys++] = {first, first + name.bytes + 1};
+    }
+    return keys;
+}
 bool command_argument_query(const CommandArgumentFocus& focus, Slice<char> scratch,
                             Utf8View* output) noexcept {
     if (!output)
@@ -586,11 +658,14 @@ bool command_argument_query(const CommandArgumentFocus& focus, Slice<char> scrat
 }
 bool command_arguments(const CommandIndex& index, const ApplicationCommand& command,
                        Utf8View input, ProtocolWriter* writer, Utf8View* error,
-                       Utf8View focused_name, Utf8View focused_query) noexcept {
+                       Utf8View focused_name, Utf8View focused_query, ConstSlice<Utf8View> files,
+                       CommandAttachmentPlan* plan) noexcept {
     if (!writer || !error || !utf8_validate(input).valid || !utf8_validate(focused_name).valid ||
-        !utf8_validate(focused_query).valid)
+        !utf8_validate(focused_query).valid || files.count > 10)
         return false;
     reset_value(error);
+    if (plan)
+        plan->count = 0;
     ArgumentSchema schema;
     schema.index = &index;
     schema.count = 0;
@@ -609,7 +684,7 @@ bool command_arguments(const CommandIndex& index, const ApplicationCommand& comm
     for (u32 n = 0; n < count; ++n) {
         const auto& argument = spans[n];
         if (!utf8_equal(argument.span.name, focused_name) &&
-            (!argument.span.closed || !argument.span.value.bytes)) {
+            (!argument.span.closed || (!argument.span.value.bytes && schema.types[argument.slot] != 11))) {
             if (focused_name.bytes)
                 continue;
             *error = utf8_literal("Enter a complete option value");
@@ -640,6 +715,40 @@ bool command_arguments(const CommandIndex& index, const ApplicationCommand& comm
     for (u32 n = 0; n < schema.count; ++n) {
         if (focused_name.bytes && schema.types[n] == 11)
             continue;
+        if (schema.types[n] == 11 && (supplied[n] || schema.required[n])) {
+            // The upload whose name the value gives, else the next unused one.
+            Utf8View wanted = supplied[n] ? values[n] : Utf8View{};
+            char decoded_name[1024];
+            if (wanted.bytes && wanted.data[0] == '"' &&
+                !command_json_text({wanted, 0, JsonValueKind::string}, {decoded_name, sizeof(decoded_name)}, &wanted))
+                wanted = {};
+            u32 chosen = files.count;
+            for (u32 file = 0; plan && file < files.count && plan->count < 10; ++file) {
+                bool used = false;
+                for (u32 k = 0; k < plan->count && !used; ++k)
+                    used = plan->file[k] == file;
+                if (used || (wanted.bytes && !utf8_equal(files[file], wanted)))
+                    continue;
+                chosen = file;
+                break;
+            }
+            if (chosen == files.count) {
+                *error = utf8_literal("Please attach a file");
+                writer->used = mark;
+                return false;
+            }
+            if ((comma && !protocol_writer_append_byte(writer, ',')) ||
+                !protocol_writer_append_literal(writer, "{\"name\":") ||
+                !protocol_writer_append_json_string(writer, schema.names[n]) ||
+                !protocol_writer_append_literal(writer, ",\"type\":11,\"value\":") ||
+                !protocol_writer_append_u64(writer, plan->count) || !protocol_writer_append_byte(writer, '}')) {
+                writer->used = mark;
+                return false;
+            }
+            comma = true;
+            plan->file[plan->count++] = static_cast<u8>(chosen);
+            continue;
+        }
         if (!supplied[n]) {
             if (schema.required[n] && !focused_name.bytes) {
                 *error = utf8_literal("Missing a required command option");
@@ -658,6 +767,10 @@ bool command_arguments(const CommandIndex& index, const ApplicationCommand& comm
                 return false;
             }
         }
+        char choice_text[512];
+        if (!focused)
+            value = choice_value(index.document, schema.options[n], schema.types[n], value,
+                                 {choice_text, sizeof(choice_text)});
         const auto fail = [&]() noexcept {
             *error = utf8_literal("Invalid command option value");
             writer->used = mark;
@@ -683,10 +796,12 @@ bool command_arguments(const CommandIndex& index, const ApplicationCommand& comm
                                               {reinterpret_cast<const u8*>(value.data), value.bytes}))
                 return fail();
         } else if (type == 5) {
-            if (!utf8_equal(value, utf8_literal("true")) && !utf8_equal(value, utf8_literal("false")))
+            // The official client accepts either case ("True" is its choice label).
+            const bool truth = ascii_equal_ignore_case(value, utf8_literal("true"));
+            if (!truth && !ascii_equal_ignore_case(value, utf8_literal("false")))
                 return fail();
-            if (!protocol_writer_append_bytes(writer,
-                                              {reinterpret_cast<const u8*>(value.data), value.bytes}))
+            if (truth ? !protocol_writer_append_literal(writer, "true")
+                      : !protocol_writer_append_literal(writer, "false"))
                 return fail();
         } else {
             if (value.bytes > 3 && value.data[0] == '<' && value.data[value.bytes - 1] == '>') {
@@ -786,6 +901,374 @@ bool command_suggestions_decode(Utf8View body, Slice<u32> scratch, u64 expected_
     }
     command_suggestions_release(output);
     copy_value(output, candidate);
+    return true;
+}
+namespace {
+bool first_element(void* opaque, u32, JsonValue value) noexcept {
+    *static_cast<JsonValue*>(opaque) = value;
+    return false;
+}
+void first_form_error(const JsonIndexedDocument& doc, JsonValue value, u32 depth, JsonValue* entry) noexcept;
+struct FormErrorWalk {
+    const JsonIndexedDocument* document;
+    JsonValue* entry;
+    u32 depth;
+    bool descended;
+};
+bool form_error_member(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& walk = *static_cast<FormErrorWalk*>(opaque);
+    if (walk.descended || json_string_equals_utf8(name, utf8_literal("_errors")) ||
+        (value.kind != JsonValueKind::object && value.kind != JsonValueKind::array))
+        return true;
+    // Like the official client, follow only the first nested container.
+    walk.descended = true;
+    first_form_error(*walk.document, value, walk.depth + 1, walk.entry);
+    return true;
+}
+void first_form_error(const JsonIndexedDocument& doc, JsonValue value, u32 depth, JsonValue* entry) noexcept {
+    if (depth > 16 || !value.source.bytes)
+        return;
+    if (value.kind == JsonValueKind::array) {
+        JsonValue element{};
+        json_visit_indexed_array(doc, value, depth_limit, first_element, &element);
+        first_form_error(doc, element, depth + 1, entry);
+        return;
+    }
+    if (value.kind != JsonValueKind::object)
+        return;
+    const auto errors = field(doc, value, "_errors");
+    if (errors.kind == JsonValueKind::array) {
+        json_visit_indexed_array(doc, errors, depth_limit, first_element, entry);
+        return;
+    }
+    FormErrorWalk walk{&doc, entry, depth, false};
+    json_visit_indexed_object(doc, value, depth_limit, form_error_member, &walk);
+}
+} // namespace
+bool command_interaction_failure(Utf8View body, Slice<u32> scratch, Slice<char> message,
+                                 CommandInteractionFailure* output) noexcept {
+    if (!output)
+        return false;
+    reset_value(output);
+    if (!body.data || !body.bytes || body.data[0] != '{')
+        return false;
+    const auto scan = json_scan_structurals_avx1(body, scratch);
+    if (!scan.ok())
+        return false;
+    const JsonIndexedDocument doc{body, {scratch.data, scan.count}};
+    const JsonValue root{body, 0, JsonValueKind::object};
+    json_value_to_u64(field(doc, root, "code"), &output->code);
+    JsonValue text = field(doc, root, "message");
+    const auto errors = field(doc, root, "errors");
+    constexpr u64 invalid_form_body = 50035, unknown_integration = 10005;
+    if (output->code == invalid_form_body && errors.kind == JsonValueKind::object) {
+        JsonValue entry{};
+        first_form_error(doc, errors, 0, &entry);
+        char storage[64];
+        Utf8View code{};
+        output->stale_index =
+            command_json_text(field(doc, entry, "code"), {storage, sizeof(storage)}, &code) &&
+            (utf8_equal(code, utf8_literal("INTERACTION_APPLICATION_COMMAND_INVALID_VERSION")) ||
+             utf8_equal(code, utf8_literal("INTERACTION_APPLICATION_COMMAND_INVALID")));
+        text = field(doc, entry, "message");
+    } else
+        output->stale_index = output->code == unknown_integration;
+    if (!command_json_text(text, message, &output->message))
+        reset_value(&output->message);
+    return true;
+}
+
+namespace {
+using namespace protocol_detail;
+constexpr u32 kFrecencyField = 7, kVersionsField = 1, kDataVersionField = 3;
+// One FrecencyItem message in [p, stop) of an extracted group.
+bool frecency_item(const ProtoSource& w, u32 p, u32 stop, CommandFrecencyEntry* entry) noexcept {
+    while (p < stop) {
+        u32 field = 0, type = 0;
+        u64 n = 0;
+        if (!proto_tag(w, p, stop, field, type))
+            return false;
+        if ((field == 1 || field == 3 || field == 4) && type == 0) {
+            if (!proto_varint(w, p, stop, n))
+                return false;
+            if (field == 1)
+                entry->total_uses = static_cast<u32>(n);
+            else if (field == 3)
+                entry->frecency = static_cast<i32>(n);
+            else
+                entry->score = static_cast<i32>(n) * 100;
+        } else if (field == 2 && (type == 0 || type == 2)) {
+            u32 end = p;
+            if (type == 2 && !proto_length(w, p, stop, end))
+                return false;
+            do {
+                if (!proto_varint(w, p, type == 2 ? end : stop, n))
+                    return false;
+                if (n) {
+                    // Keep the latest ten, ascending.
+                    if (entry->recent_count == kCommandFrecencyRecentUses) {
+                        if (n <= entry->recent_uses[0])
+                            continue;
+                        copy_bytes(entry->recent_uses, entry->recent_uses + 1,
+                                   (kCommandFrecencyRecentUses - 1) * sizeof(u64));
+                        --entry->recent_count;
+                    }
+                    u32 at = entry->recent_count++;
+                    while (at && entry->recent_uses[at - 1] > n) {
+                        entry->recent_uses[at] = entry->recent_uses[at - 1];
+                        --at;
+                    }
+                    entry->recent_uses[at] = n;
+                }
+            } while (type == 2 && p < end);
+        } else if (!proto_skip(w, p, stop, type, field)) {
+            return false;
+        }
+    }
+    return true;
+}
+i64 find_frecency(ConstSlice<CommandFrecencyEntry> entries, u32 count, Utf8View key) noexcept {
+    for (u32 n = 0; n < count; ++n)
+        if (entries[n].key_bytes == key.bytes && bytes_equal(entries[n].key, key.data, key.bytes))
+            return n;
+    return -1;
+}
+u64 last_use(const CommandFrecencyEntry& entry) noexcept {
+    return entry.recent_count ? entry.recent_uses[entry.recent_count - 1] : 0;
+}
+} // namespace
+
+bool command_frecency_decode_response(Utf8View body, Slice<u8> scratch, Slice<CommandFrecencyEntry> entries,
+                                      u32* count, u32* data_version) noexcept {
+    if (!count || !data_version || !entries.data || !scratch.data)
+        return false;
+    *count = 0;
+    *data_version = 0;
+    const auto response =
+        user_settings_proto_decode_response(body, (1u << kVersionsField) | (1u << kFrecencyField), {}, scratch);
+    if (!response.extracted.ok())
+        return false;
+    const ConstSlice<u8> extracted{scratch.data, response.extracted.bytes};
+    const ConstSlice<u8> versions = user_settings_proto_group(extracted, kVersionsField);
+    const ProtoSource v = proto_source(versions);
+    for (u32 p = 0; p < v.size;) {
+        u32 field = 0, type = 0;
+        u64 n = 0;
+        if (!proto_tag(v, p, v.size, field, type))
+            return false;
+        if (field == kDataVersionField && type == 0) {
+            if (!proto_varint(v, p, v.size, n))
+                return false;
+            *data_version = static_cast<u32>(n);
+        } else if (!proto_skip(v, p, v.size, type, field)) {
+            return false;
+        }
+    }
+    const ConstSlice<u8> group = user_settings_proto_group(extracted, kFrecencyField);
+    const ProtoSource w = proto_source(group);
+    for (u32 p = 0; p < w.size;) {
+        u32 field = 0, type = 0, stop = 0;
+        if (!proto_tag(w, p, w.size, field, type))
+            return false;
+        if (field != 1 || type != 2) {
+            if (!proto_skip(w, p, w.size, type, field))
+                return false;
+            continue;
+        }
+        if (!proto_length(w, p, w.size, stop))
+            return false;
+        // Map entry: key = 1, value = 2.
+        CommandFrecencyEntry entry{};
+        bool keyed = false, long_key = false;
+        while (p < stop) {
+            u32 entry_field = 0, entry_type = 0, end = 0;
+            if (!proto_tag(w, p, stop, entry_field, entry_type))
+                return false;
+            if (entry_type != 2) {
+                if (!proto_skip(w, p, stop, entry_type, entry_field))
+                    return false;
+                continue;
+            }
+            if (!proto_length(w, p, stop, end))
+                return false;
+            if (entry_field == 1) {
+                long_key = end - p > kCommandFrecencyKeyBytes;
+                if (!long_key) {
+                    copy_bytes(entry.key, group.data + p, end - p);
+                    entry.key_bytes = static_cast<u8>(end - p);
+                    keyed = true;
+                }
+            } else if (entry_field == 2) {
+                reset_value(&entry.recent_uses);
+                entry.recent_count = 0;
+                if (!frecency_item(w, p, end, &entry))
+                    return false;
+            }
+            p = end;
+        }
+        if (!keyed || long_key)
+            continue;
+        const i64 existing = find_frecency({entries.data, entries.count}, *count, {entry.key, entry.key_bytes});
+        if (existing >= 0)
+            entries[static_cast<u32>(existing)] = entry;
+        else if (*count < entries.count)
+            entries[(*count)++] = entry;
+    }
+    return true;
+}
+
+u32 command_frecency_compute(Slice<CommandFrecencyEntry> entries, u32 count, u64 now_unix_ms) noexcept {
+    constexpr u64 day_ms = 24ull * 60 * 60 * 1000;
+    u32 kept = 0;
+    for (u32 n = 0; n < count; ++n) {
+        auto entry = entries[n];
+        u32 score = 0;
+        for (u32 use = 0; use < entry.recent_count; ++use) {
+            const u64 used = entry.recent_uses[use];
+            const u64 days = now_unix_ms > used ? (now_unix_ms - used) / day_ms : 0;
+            score += days <= 3 ? 100 : days <= 15 ? 70 : days <= 30 ? 50 : days <= 45 ? 30 : days <= 80 ? 10 : 1;
+        }
+        if (!score)
+            continue;
+        entry.score = static_cast<i32>(score);
+        // ceil(total * (score / 100) / uses)
+        const u64 denominator = 100ull * entry.recent_count;
+        entry.frecency = static_cast<i32>(
+            minimum<u64>(0x7FFFFFFF, (static_cast<u64>(entry.total_uses) * score + denominator - 1) / denominator));
+        entries[kept++] = entry;
+    }
+    return kept;
+}
+
+void command_frecency_track(Slice<CommandFrecencyEntry> entries, u32* count, Utf8View key,
+                            u64 now_unix_ms) noexcept {
+    if (!count || !key.bytes || key.bytes > kCommandFrecencyKeyBytes || !entries.count)
+        return;
+    i64 found = find_frecency({entries.data, entries.count}, *count, key);
+    if (found < 0) {
+        u32 slot = *count;
+        if (slot == entries.count) {
+            // Like the client's save, the least recently used entry goes first.
+            slot = 0;
+            for (u32 n = 1; n < *count; ++n)
+                if (last_use(entries[n]) < last_use(entries[slot]))
+                    slot = n;
+        } else {
+            ++*count;
+        }
+        auto& entry = entries[slot];
+        reset_value(&entry);
+        copy_bytes(entry.key, key.data, key.bytes);
+        entry.key_bytes = static_cast<u8>(key.bytes);
+        found = slot;
+    }
+    auto& entry = entries[static_cast<u32>(found)];
+    ++entry.total_uses;
+    if (entry.recent_count == kCommandFrecencyRecentUses) {
+        copy_bytes(entry.recent_uses, entry.recent_uses + 1, (kCommandFrecencyRecentUses - 1) * sizeof(u64));
+        --entry.recent_count;
+    }
+    entry.recent_uses[entry.recent_count++] = now_unix_ms;
+}
+
+u32 command_frecency_write_patch(ConstSlice<CommandFrecencyEntry> entries, u32 data_version, Slice<u8> scratch,
+                                 Slice<u8> json) noexcept {
+    const auto item_bytes = [](const CommandFrecencyEntry& entry) noexcept {
+        u32 packed = 0;
+        for (u32 use = 0; use < entry.recent_count; ++use)
+            packed += proto_varint_size(entry.recent_uses[use]);
+        const u64 score = (static_cast<u64>(entry.score) + 50) / 100;
+        return (entry.total_uses ? 1 + proto_varint_size(entry.total_uses) : 0) +
+               (packed ? 1 + proto_varint_size(packed) + packed : 0) +
+               (entry.frecency ? 1 + proto_varint_size(static_cast<u64>(static_cast<i64>(entry.frecency))) : 0) +
+               (score ? 1 + proto_varint_size(score) : 0);
+    };
+    u64 map_bytes = 0;
+    for (u32 n = 0; n < entries.count; ++n) {
+        const auto& entry = entries[n];
+        const u32 value = item_bytes(entry);
+        const u32 inner = 1 + proto_varint_size(entry.key_bytes) + entry.key_bytes + 1 + proto_varint_size(value) + value;
+        map_bytes += 1 + proto_varint_size(inner) + inner;
+    }
+    if (map_bytes > scratch.count)
+        return 0;
+    ProtoWriter out{scratch, 0, true};
+    out.tag(kFrecencyField, 2);
+    out.varint(map_bytes);
+    for (u32 n = 0; n < entries.count; ++n) {
+        const auto& entry = entries[n];
+        const u32 value = item_bytes(entry);
+        out.tag(1, 2);
+        out.varint(1 + proto_varint_size(entry.key_bytes) + entry.key_bytes + 1 + proto_varint_size(value) + value);
+        out.tag(1, 2);
+        out.varint(entry.key_bytes);
+        out.bytes(entry.key, entry.key_bytes);
+        out.tag(2, 2);
+        out.varint(value);
+        if (entry.total_uses) {
+            out.tag(1, 0);
+            out.varint(entry.total_uses);
+        }
+        u32 packed = 0;
+        for (u32 use = 0; use < entry.recent_count; ++use)
+            packed += proto_varint_size(entry.recent_uses[use]);
+        if (packed) {
+            out.tag(2, 2);
+            out.varint(packed);
+            for (u32 use = 0; use < entry.recent_count; ++use)
+                out.varint(entry.recent_uses[use]);
+        }
+        if (entry.frecency) {
+            out.tag(3, 0);
+            out.varint(static_cast<u64>(static_cast<i64>(entry.frecency)));
+        }
+        const u64 score = (static_cast<u64>(entry.score) + 50) / 100;
+        if (score) {
+            out.tag(4, 0);
+            out.varint(score);
+        }
+    }
+    if (!out.ok)
+        return 0;
+    const u32 bytes = proto_settings_patch_bytes(out.at, data_version, true);
+    if (!bytes || bytes > json.count || !proto_write_settings_patch({scratch.data, out.at}, data_version, json, true))
+        return 0;
+    return bytes;
+}
+
+bool command_frecency_patch_valid(Utf8View json) noexcept {
+    u32 indexes[64];
+    const auto scanned = json_scan_structurals_avx1(json, {indexes, 64});
+    if (!scanned.ok())
+        return false;
+    struct Envelope {
+        JsonString settings;
+        bool seen, other;
+    } envelope{};
+    if (!json_visit_root_object(json, {indexes, scanned.count}, 4,
+                                [](void* opaque, JsonString name, JsonValue value) noexcept {
+                                    auto& e = *static_cast<Envelope*>(opaque);
+                                    if (json_string_equals_ascii(name, utf8_literal("settings")))
+                                        e.seen = json_value_as_string(value, &e.settings) && !e.settings.has_escapes;
+                                    else if (!json_string_equals_ascii(name, utf8_literal("required_data_version")))
+                                        e.other = true;
+                                    return true;
+                                },
+                                &envelope)
+             .ok() ||
+        !envelope.seen || envelope.other)
+        return false;
+    const auto measured = base64_decode(envelope.settings.encoded, {});
+    if ((!measured.ok() && measured.error != Base64Error::output_too_small) || !measured.bytes)
+        return false;
+    const ProtoSource w{{}, envelope.settings.encoded, measured.bytes};
+    for (u32 p = 0; p < w.size;) {
+        u32 field = 0, type = 0, stop = 0;
+        if (!proto_tag(w, p, w.size, field, type) || field != kFrecencyField || type != 2 ||
+            !proto_length(w, p, w.size, stop))
+            return false;
+        p = stop;
+    }
     return true;
 }
 } // namespace maicord

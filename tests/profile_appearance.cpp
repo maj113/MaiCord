@@ -5,6 +5,7 @@
 #include "maicord/model/user_profile.hpp"
 #include "maicord/ui/profile_media.hpp"
 #include "maicord/ui/badge.hpp"
+#include "maicord/ui/icon.hpp"
 #include "maicord/ui/accessibility.hpp"
 #include "maicord/ui/profile_scene.hpp"
 #include "maicord/ui/plugin_slots.hpp"
@@ -806,14 +807,48 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
     check(crowded, "profile_hundred_friends_paint_without_spending_clips_on_offscreen_rows");
     paint_stream_release(&profile_paint);
     profile_scene_release(&scene);
-    const auto plain = ui_badge_layout(nullptr, utf8_literal("APP"), {0, 0, 100, 20}, false);
-    const auto verified =
-        ui_badge_layout(nullptr, utf8_literal("\xE2\x9C\x93 APP"), {0, 0, 100, 20}, false);
+    // The APP tag (the client's bot tag): 16 tall, 4 padding, a verified app's
+    // 16 DIP check 2 into the padding, the brand fill and no border.
+    UiBadgeWidget plain{}, verified{};
+    ui_app_badge(&plain, 0);
+    ui_app_badge(&verified, 1ull << 16);
+    const auto plain_layout = ui_badge_widget_layout(nullptr, plain, {0, 0, 100, 20});
+    const auto verified_layout = ui_badge_widget_layout(nullptr, verified, {0, 0, 100, 20});
     const auto tag = ui_badge_layout(nullptr, utf8_literal("GEAR"), {0, 0, 100, 20}, true);
-    check(ui_rect_width(verified.outer) > ui_rect_width(plain.outer) &&
-              plain.text.left - plain.outer.left == 6 && verified.text.left - verified.outer.left == 6 &&
+    check(plain.compact && plain.accent && !plain.leading && verified.leading &&
+              utf8_equal(plain.label, utf8_literal("APP")) && ui_rect_height(plain_layout.outer) == 16 &&
+              plain_layout.outer.left == 0 && plain_layout.text.left - plain_layout.outer.left == 4 &&
+              ui_rect_width(verified_layout.outer) - ui_rect_width(plain_layout.outer) == 14 &&
               tag.icon.left - tag.outer.left == 6 && tag.icon.right < tag.text.left,
           "profile_badges_content_sizing_and_icon_padding");
+    UiWidget badge_widgets[2]{};
+    UiLayoutNode badge_nodes[2]{};
+    UiWidgetManager badge_manager{};
+    bool app_painted = ui_widget_manager_initialize(&badge_manager, {badge_widgets, 2}, {badge_nodes, 2});
+    if (app_painted) {
+        auto style = ui_layout_style();
+        style.width = ui_layout_fixed(ui_rect_width(verified_layout.outer));
+        style.height = ui_layout_fixed(16);
+        const auto added = ui_widget_manager_add(&badge_manager, ui_widget_invalid_handle(),
+                                                 {1, UiWidgetKind::text, ui_widget_enabled,
+                                                  {utf8_literal("Badge"), style, {}, 0, 1}});
+        app_painted = added.ok() && ui_widget_manager_layout_rectangle(&badge_manager, {0, 0, 200, 40}).ok();
+        verified.owner = added.handle;
+        verified.rectangle = verified_layout.outer;
+    }
+    PaintStream badge_paint{};
+    app_painted = app_painted && paint_stream_initialize(&badge_paint) && paint_stream_reset(&badge_paint, 200, 16) &&
+                  ui_badge_paint(verified, badge_manager, kDefaultTheme, &badge_paint);
+    bool brand_fill = false, check_icon = false;
+    for (u32 i = 0; app_painted && i < badge_paint.count; ++i) {
+        const auto& quad = badge_paint.quads[i];
+        brand_fill |= !ui_icon_quad(quad) && quad.fill.blue == kDefaultTheme.tokens.accent.app_badge.blue &&
+                      quad.fill.red == kDefaultTheme.tokens.accent.app_badge.red && quad.border_width == 0;
+        check_icon |= ui_icon_quad(quad) && ui_icon_quad_data(quad).icon == static_cast<u32>(UiIcon::check);
+    }
+    check(app_painted && brand_fill && check_icon,
+          "profile_app_tag_paints_the_brand_fill_and_a_verified_check");
+    paint_stream_release(&badge_paint);
 }
 } // namespace maicord
 

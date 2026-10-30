@@ -95,18 +95,13 @@ inline bool message_author_layout(const MessageScene& scene, const MessageTextCo
     badge.owner = command.owner.handle;
     badge.style = text_style_subtext | text_style_bold;
     if (global && global->bot) {
-        badge.accent = true;
-        badge.label =
-            (global->public_flags & (1ull << 16)) ? utf8_literal("\xE2\x9C\x93 APP") : utf8_literal("APP");
+        ui_app_badge(&badge, global->public_flags);
     } else if (global && global->primary_enabled && global->primary_tag.bytes) {
         badge.leading = true;
         badge.label = global->primary_tag.view();
     }
     const float badge_width =
-        badge.label.bytes
-            ? ui_rect_width(
-                  ui_badge_layout(cache, badge.label, command.rectangle, badge.leading, badge.style).outer)
-            : 0;
+        badge.label.bytes ? ui_rect_width(ui_badge_widget_layout(cache, badge, command.rectangle).outer) : 0;
     const float name_limit =
         maximum(1.f, ui_rect_width(command.rectangle) - (badge_width ? badge_width + 6 : 0) - decoration_space);
     UiTextMeasureValue measured{};
@@ -173,7 +168,7 @@ inline bool message_author_layout(const MessageScene& scene, const MessageTextCo
         auto line = command.rectangle;
         line.left = bounds.right + 6;
         line.right = minimum(command.rectangle.right, line.left + badge_width);
-        badge.rectangle = ui_badge_layout(cache, badge.label, line, badge.leading, badge.style).outer;
+        badge.rectangle = ui_badge_widget_layout(cache, badge, line).outer;
         tail_left = badge.rectangle.right + 8;
     }
     auto& plugin = out->plugin;
@@ -354,10 +349,40 @@ inline MessageGuildTagHit message_author_guild_tag_hit_test(const MessageScene& 
             continue;
         MessageAuthorLayout header{};
         if (!message_author_layout(scene, command, state, users, cache, theme, &header) || !header.badge.leading ||
+            header.badge.accent ||
             !header.badge.label.bytes || !header.appearance || !header.appearance->primary_guild_id ||
             !ui_rect_contains(ui_rect_intersection(header.badge.rectangle, command.clip), x, y))
             continue;
         return {header.appearance->primary_guild_id, header.badge.rectangle};
+    }
+    return {};
+}
+
+// The check leading a verified app's APP tag on a message's author line: its
+// tooltip reads "Verified App" (the client wraps only the check).
+struct MessageAppCheckHit {
+    UiWidgetReference owner;
+    u64 message_id;
+    u32 revision;
+    UiRect check;
+};
+inline MessageAppCheckHit message_author_app_check_hit_test(const MessageScene& scene, const MessageTextPresentation& text,
+                                                            const ChatStateStore& state, const UserStore& users,
+                                                            UiTextMeasureCache* cache, const Theme& theme, float x,
+                                                            float y) noexcept {
+    if (!scene.active || !scene.timeline || !scene.timeline->store || !ui_rect_contains(scene.viewport, x, y))
+        return {};
+    for (u32 i = 0; i < text.command_count; ++i) {
+        const auto& command = text.commands[i];
+        const auto* row = message_author_command_row(scene, command);
+        if (!row || command.message_revision != row->message_revision)
+            continue;
+        MessageAuthorLayout header{};
+        if (!message_author_layout(scene, command, state, users, cache, theme, &header))
+            continue;
+        const UiRect check = ui_rect_intersection(ui_app_badge_check(header.badge), command.clip);
+        if (ui_rect_contains(check, x, y))
+            return {command.owner, row->message_id, row->message_revision, check};
     }
     return {};
 }

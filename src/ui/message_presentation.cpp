@@ -13,6 +13,7 @@
 #include "maicord/ui/message_system_text.hpp"
 #include "maicord/ui/message_text_presentation.hpp"
 #include "maicord/ui/unread_divider.hpp"
+#include "maicord/ui/typing_indicator.hpp"
 #include "maicord/model/invite_card_cache.hpp"
 #include "maicord/model/message_poll_store.hpp"
 #include "maicord/model/scheduled_event_store.hpp"
@@ -325,19 +326,53 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                                       reference_top + reference_extent};
         const float connector_y = reference_top + reference_extent * 0.5f;
         const float connector_x = (avatar->rectangle.left + avatar->rectangle.right) * 0.5f;
-        const UiRect connector_vertical{connector_x - 1.0f, connector_y, connector_x + 1.0f,
-                                        avatar->rectangle.top + 3.0f};
-        const UiRect connector_horizontal{connector_x, connector_y - 1.0f, reference_avatar.left - 3.0f,
-                                          connector_y + 1.0f};
-        const Color line = ui_background_line_color(theme);
-        if (!paint_stream_push_rounded(paint, connector_vertical, line, 1.0f) ||
-            !paint_stream_push_rounded(paint, connector_horizontal, line, 1.0f) ||
-            !paint_stream_push_rounded(paint, reference_avatar, theme.avatar_placeholder, reference_extent * 0.5f)) {
+        // The clickable spine of a hovered quote takes the interactive tone.
+        const Color line = scene.header_hover_message_id == record->id && scene.header_hover_target == kMessageHoverQuote
+                               ? theme.text_secondary
+                               : ui_background_line_color(theme);
+        const auto& reference = rich->reference;
+        const MessageReplyLeading leading = message_rich_reply_leading(reference);
+        // The spine bends round a 6-DIP corner: a bordered rounded rectangle
+        // larger than the spine, of which only the top-left corner shows.
+        const UiRect spine_clip{connector_x - 1.0f, connector_y - 1.0f, reference_avatar.left - 3.0f,
+                                avatar->rectangle.top + 3.0f};
+        bool painted = paint_stream_push_clip(paint, spine_clip) &&
+                       paint_stream_push_rounded_border(
+                           paint, {spine_clip.left, spine_clip.top, spine_clip.right + 24.0f, spine_clip.bottom + 24.0f},
+                           Color{}, line, 6.0f, 2.0f);
+        painted = paint_stream_pop_clip(paint) && painted;
+        if (!painted)
             return false;
+        if (leading == MessageReplyLeading::avatar) {
+            if (!paint_stream_push_rounded(paint, reference_avatar, theme.avatar_placeholder, reference_extent * 0.5f))
+                return false;
+            // A quote that is gone or not loaded shows the reply arrow in the avatar's place.
+            if (reference.state != GatewayMessageReferenceState::available &&
+                reference.state != GatewayMessageReferenceState::none) {
+                const float arrow = 10.0f;
+                const float inset = (reference_extent - arrow) * 0.5f;
+                if (!ui_icon_paint(paint, UiIcon::reply,
+                                   {reference_avatar.left + inset, reference_avatar.top + inset,
+                                    reference_avatar.left + inset + arrow, reference_avatar.top + inset + arrow},
+                                   theme.text_primary))
+                    return false;
+            }
+        } else {
+            // The poll chart fills the avatar slot; the join arrow and ticket are 12 DIPs.
+            const float size = message_reply_leading_small(leading) ? kMessageReplyLeadingIcon : reference_extent;
+            const float inset = (reference_extent - size) * 0.5f;
+            const UiRect mark{reference_avatar.left, reference_avatar.top + inset, reference_avatar.left + size,
+                              reference_avatar.top + inset + size};
+            const UiIcon icon = leading == MessageReplyLeading::join_arrow ? UiIcon::arrow_right
+                                : leading == MessageReplyLeading::ticket   ? UiIcon::tag
+                                                                           : UiIcon::poll;
+            if (!ui_icon_paint(paint, icon, mark,
+                               leading == MessageReplyLeading::join_arrow ? theme.tokens.text.positive
+                                                                          : theme.text_primary))
+                return false;
         }
         // Trailing reply icon (attachment/embed image, sticker, command, voice
         // message), 4 DIPs after the measured preview text.
-        const auto& reference = rich->reference;
         const float reply_width = row.rich_item_layout.reply_width;
         if (reference.state == GatewayMessageReferenceState::available && reply_width > 0.0f) {
             const bool text_empty = !reference.content.bytes;
@@ -410,7 +445,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                     return false;
                 continue;
             }
-            if (!paint_stream_push_rounded(paint, preview, theme.surface_high, 6.0f))
+            if (!paint_stream_push_rounded(paint, preview, theme.surface_high, theme.scale.radius_md))
                 return false;
             MessageMediaCommand* const command = append_media(media, attachment.id, MessageMediaCommandKind::attachment,
                                                               static_cast<u8>(format), false, preview, row_clip, owner);
@@ -608,53 +643,62 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
         const UiRect control = item_layout->rectangle;
         if (!ui_rect_intersects(control, row_clip))
             continue;
+        // An unrevealed spoiler container shows only its own card.
+        const u32 spoiler = message_component_spoiler_container(*rich, index);
+        if (spoiler != kMessageComponentNone && spoiler != index && record &&
+            message_scene_media_obscure(scene, media_policy, 0,
+                                        message_media_reveal_key(record->id, MessageMediaSource::component, spoiler,
+                                                                 row.forwarded_snapshot),
+                                        true, false) != MessageMediaObscure::none)
+            continue;
         const bool item_hovered = hovered_widget.slot == item_widget.slot &&
                                   hovered_widget.generation == item_widget.generation && item_widget.generation;
         const bool pending = record && scene.interaction.pending && scene.interaction.message_id == record->id &&
                              scene.interaction.component_index == index && !row.forwarded_snapshot;
         switch (kind) {
         case MessageComponentKind::container: {
-            constexpr float container_radius = 10.0f;
-            if (!push_card(paint, control, theme, container_radius, UiBackgroundTier::low))
+            const float radius = theme.scale.radius_md;
+            if (!push_card(paint, control, theme, radius, UiBackgroundTier::low))
                 return false;
             if (component.has_accent_color &&
                 !paint_stream_push_edge_strip(paint, control, kMessageEmbedAccentWidth,
-                                              color_from_rgb24(component.accent_color), container_radius))
+                                              color_from_rgb24(component.accent_color), radius))
                 return false;
             break;
         }
         case MessageComponentKind::button: {
+            // Disabled and loading controls draw at half opacity; a loading
+            // control keeps its width and shows dots in place of its content.
             const auto colors =
                 message_component_button_colors(theme, component.style, component.disabled || pending);
             const Color fill = item_hovered && message_component_interactive(component) && !pending ? colors.hover
                                                                                                : colors.fill;
-            const bool neutral = component.style != 1 && component.style != 3 && component.style != 4;
-            if (!(neutral ? push_material(paint, control, theme, fill, colors.border, 4.0f, 0.0f,
-                                          UiBackgroundTier::highest)
-                          : paint_stream_push_rounded_border(paint, control, fill, colors.border, 4.0f, 0.0f)))
+            if (!paint_stream_push_rounded_border(paint, control, fill, colors.border, theme.scale.radius_md, 1.0f))
                 return false;
+            if (pending) {
+                const float cx = (control.left + control.right) * 0.5f;
+                const UiRect dots{cx - kUiTypingDotsWidth * 0.5f, control.top, cx + kUiTypingDotsWidth * 0.5f,
+                                  control.bottom};
+                if (!ui_typing_dots_paint(paint, dots, colors.text, scene.interaction_phase))
+                    return false;
+                break;
+            }
             if (component.emoji_id && record) {
+                // After the padding, or centred in a button holding only the emoji.
                 const float top = control.top + (ui_rect_height(control) - kMessageComponentEmojiExtent) * 0.5f;
-                const UiRect emoji{control.left + kMessageComponentButtonPadding, top,
-                                   control.left + kMessageComponentButtonPadding + kMessageComponentEmojiExtent,
-                                   top + kMessageComponentEmojiExtent};
+                const float left = component.label.bytes
+                                       ? control.left + kMessageComponentButtonPadding
+                                       : (control.left + control.right - kMessageComponentEmojiExtent) * 0.5f;
                 if (!append_media(media, component.emoji_id, MessageMediaCommandKind::custom_emoji, 0,
-                                  (component.flags & gateway_message_component_emoji_animated) != 0, emoji, row_clip,
-                                  owner))
+                                  (component.flags & gateway_message_component_emoji_animated) != 0,
+                                  {left, top, left + kMessageComponentEmojiExtent, top + kMessageComponentEmojiExtent},
+                                  row_clip, owner))
                     return false;
             }
-            if (pending) {
-                const float extent = 16.0f;
-                const float cx = (control.left + control.right) * 0.5f, cy = (control.top + control.bottom) * 0.5f;
-                if (!ui_icon_paint(paint, UiIcon::sending,
-                                   {cx - extent * 0.5f, cy - extent * 0.5f, cx + extent * 0.5f, cy + extent * 0.5f},
-                                   colors.text))
-                    return false;
-            } else if (message_component_is_link(component)) {
-                const float extent = 14.0f;
-                const UiRect glyph{control.right - kMessageComponentButtonPadding - extent,
-                                   control.top + (ui_rect_height(control) - extent) * 0.5f,
-                                   control.right - kMessageComponentButtonPadding,
+            if (message_component_is_link(component)) {
+                const float extent = kMessageComponentLinkIconExtent;
+                const float left = control.right - kMessageComponentButtonPadding - extent;
+                const UiRect glyph{left, control.top + (ui_rect_height(control) - extent) * 0.5f, left + extent,
                                    control.top + (ui_rect_height(control) + extent) * 0.5f};
                 if (!ui_icon_paint(paint, UiIcon::external_link, glyph, colors.text))
                     return false;
@@ -669,18 +713,28 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                 fill.alpha *= 0.5f;
                 border.alpha *= 0.5f;
             }
-            if (!paint_stream_push_rounded_border(paint, control, fill, border, 4.0f, 1.0f))
+            if (!paint_stream_push_rounded_border(paint, control, fill, border, theme.scale.radius_md, 1.0f))
                 return false;
+            const UiRect icons{control.right - kMessageComponentSelectIconLane, control.top,
+                               control.right - kMessageComponentSelectEndPadding, control.bottom};
+            if (pending) {
+                const float cx = (icons.left + icons.right) * 0.5f;
+                if (!ui_typing_dots_paint(paint,
+                                          {cx - kUiTypingDotsWidth * 0.5f, control.top, cx + kUiTypingDotsWidth * 0.5f,
+                                           control.bottom},
+                                          ui_background_muted_text_color(theme), scene.interaction_phase))
+                    return false;
+                break;
+            }
             const float extent = 18.0f;
-            const UiRect chevron{control.right - extent - 12.0f, control.top + (ui_rect_height(control) - extent) * 0.5f,
-                                 control.right - 12.0f, control.top + (ui_rect_height(control) + extent) * 0.5f};
-            if (!ui_icon_paint(paint, pending ? UiIcon::sending : UiIcon::chevron_down, chevron,
-                               ui_background_muted_text_color(theme)))
+            const UiRect chevron{icons.right - extent, control.top + (ui_rect_height(control) - extent) * 0.5f,
+                                 icons.right, control.top + (ui_rect_height(control) + extent) * 0.5f};
+            if (!ui_icon_paint(paint, UiIcon::chevron_down, chevron, ui_background_muted_text_color(theme)))
                 return false;
             break;
         }
         case MessageComponentKind::file: {
-            if (!push_card(paint, control, theme, 6.0f, UiBackgroundTier::high))
+            if (!push_card(paint, control, theme, kUiAttachmentFileCardRadius, UiBackgroundTier::high))
                 return false;
             const UiRect glyph{control.left + 12.0f, control.top + (ui_rect_height(control) - 28.0f) * 0.5f,
                                control.left + 40.0f, control.top + (ui_rect_height(control) + 28.0f) * 0.5f};
@@ -692,14 +746,14 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             if (component.flags & gateway_message_component_divider) {
                 const float y = (control.top + control.bottom) * 0.5f;
                 const UiRect line{control.left, y - 0.5f, control.right, y + 0.5f};
-                if (!paint_stream_push(paint, line, theme.tokens.border.subtle))
+                if (!paint_stream_push(paint, line, theme.tokens.border.strong))
                     return false;
             }
             break;
         }
         case MessageComponentKind::thumbnail:
         case MessageComponentKind::gallery_item: {
-            if (!paint_stream_push_rounded(paint, control, theme.surface_high, 8.0f))
+            if (!paint_stream_push_rounded(paint, control, theme.surface_high, theme.scale.radius_md))
                 return false;
             MessageComponentMedia resolved{};
             if (record && message_component_media_resolve(*rich_store, component, &resolved)) {
@@ -730,6 +784,22 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
         }
     }
 
+    // A failed control's error line leads with the critical icon.
+    if (record && !row.forwarded_snapshot && scene.interaction.failed && scene.interaction.message_id == record->id) {
+        const u32 host = message_component_error_host(*rich, scene.interaction.component_index);
+        const UiLayoutNode* node =
+            host != kMessageComponentNone
+                ? message_scene_rich_item_layout_node(scene, row, MessageSceneRichItemKind::component, host)
+                : nullptr;
+        if (node && ui_rect_height(node->rectangle) >= kMessageComponentErrorHeight) {
+            const float middle = node->rectangle.bottom - kMessageComponentErrorHeight * 0.5f;
+            const float half = kMessageComponentErrorIconExtent * 0.5f;
+            if (!ui_icon_paint(paint, UiIcon::circle_x,
+                               {node->rectangle.left, middle - half, node->rectangle.left + 2 * half, middle + half},
+                               theme.tokens.text.danger))
+                return false;
+        }
+    }
     if (row.rich_layout.thread > 0.0f && rich->thread.id) {
         const auto* node = message_scene_layout_node(scene, row.thread);
         if (!node)

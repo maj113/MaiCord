@@ -498,12 +498,15 @@ GatewayClientPopResult application_pop_account_gateway(void* source, GatewayClie
         if (kind == GatewayClientDispatchKind::interaction_create ||
             kind == GatewayClientDispatchKind::interaction_success ||
             kind == GatewayClientDispatchKind::interaction_failure ||
-            kind == GatewayClientDispatchKind::interaction_modal_create)
+            kind == GatewayClientDispatchKind::interaction_modal_create) {
             application_message_components_gateway(kind, text);
-        else if (kind == GatewayClientDispatchKind::message_update ||
-                 kind == GatewayClientDispatchKind::message_create)
+            application_commands_interaction(kind, text);
+        } else if (kind == GatewayClientDispatchKind::message_update ||
+                   kind == GatewayClientDispatchKind::message_create) {
             application_message_components_message(event->message.id);
-        else if (kind == GatewayClientDispatchKind::user_note_update)
+            if (kind == GatewayClientDispatchKind::message_create)
+                application_commands_message_created(event->message.nonce);
+        } else if (kind == GatewayClientDispatchKind::user_note_update)
             application_user_actions_note_gateway(text);
     }
     if (event->kind == GatewayClientEventKind::ready) {

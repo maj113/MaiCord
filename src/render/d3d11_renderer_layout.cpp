@@ -17,6 +17,7 @@
 #include "maicord/ui/button.hpp"
 #include "maicord/ui/message_action_bar_presentation.hpp"
 #include "maicord/ui/message_author.hpp"
+#include "maicord/ui/message_interaction.hpp"
 #include "maicord/ui/message_presentation.hpp"
 #include "maicord/ui/message_component_media.hpp"
 #include "maicord/ui/attachment_actions.hpp"
@@ -76,6 +77,92 @@ UiRect emoji_cell(const TextHitRegion& region, bool flag) noexcept {
     const float center_x = (region.left + region.right) * 0.5f;
     const float center_y = (region.top + region.bottom) * 0.5f;
     return {center_x - extent * 0.5f, center_y - extent * 0.5f, center_x + extent * 0.5f, center_y + extent * 0.5f};
+}
+
+UiIcon chip_ui_icon(MessageMarkdownChipIcon icon) noexcept {
+    switch (icon) {
+    case MessageMarkdownChipIcon::voice: return UiIcon::speaker;
+    case MessageMarkdownChipIcon::stage: return UiIcon::podcast;
+    case MessageMarkdownChipIcon::locked: return UiIcon::lock;
+    case MessageMarkdownChipIcon::thread: return UiIcon::thread;
+    case MessageMarkdownChipIcon::message: return UiIcon::direct_message;
+    case MessageMarkdownChipIcon::forum: return UiIcon::message_text;
+    case MessageMarkdownChipIcon::media: return UiIcon::image;
+    case MessageMarkdownChipIcon::announcement: return UiIcon::megaphone;
+    case MessageMarkdownChipIcon::attachment: return UiIcon::attachment;
+    case MessageMarkdownChipIcon::chevron: return UiIcon::chevron_right;
+    case MessageMarkdownChipIcon::forward: return UiIcon::forwarded;
+    case MessageMarkdownChipIcon::pending_dots: return UiIcon::ellipsis;
+    case MessageMarkdownChipIcon::failed: return UiIcon::circle_x;
+    default: return UiIcon::channel;
+    }
+}
+
+// A link chip's icon square: the cell's width (an em, or half an em for the
+// chevron) centred on its line box.
+UiRect chip_icon_cell(const TextHitRegion& region) noexcept {
+    const float side = region.right - region.left;
+    const float center_y = (region.top + region.bottom) * .5f;
+    return {region.left, center_y - side * .5f, region.right, center_y + side * .5f};
+}
+
+bool chip_semantic_visible(const MessageTextSemantic& semantic, MessageMarkdownSemanticKind kind,
+                           bool search) noexcept {
+    return semantic.kind == kind && !(semantic.reserved & 2u) &&
+           ((semantic.reserved & kRendererSearchSemanticFlag) != 0) == search;
+}
+
+// Link chip icons follow their text (theme icons in the mention colour,
+// on-accent while the chip is hovered) and draw above it, so the hovered
+// chip's accent pill never covers them. A quoted forward's icon is plain text.
+bool paint_chip_icons(D3D11Renderer* renderer, const Theme& theme, bool search) noexcept {
+    if (!renderer->content_text || (!search && !renderer->message_scene) || (search && !renderer->search_scene))
+        return true;
+    const RendererTextStorage& text = *renderer->content_text;
+    const Color normal = ui_foreground_color(theme, theme.tokens.mention.text);
+    const Color plain = ui_foreground_color(theme, theme.tokens.text.normal);
+    for (u32 i = 0; i < text.content_hit_region_count; ++i) {
+        const TextHitRegion& region = text.content_hit_regions[i];
+        if (region.semantic_index >= text.content_semantic_count)
+            continue;
+        const MessageTextSemantic& semantic = text.content_semantics[region.semantic_index];
+        if (!chip_semantic_visible(semantic, MessageMarkdownSemanticKind::chip_icon, search) ||
+            semantic.target >= static_cast<u64>(MessageMarkdownChipIcon::count))
+            continue;
+        const UiRect cell = chip_icon_cell(region);
+        const UiRect clip = search ? ui_search_scene_content_clip(*renderer->search_scene, cell)
+                                   : ui_rect_intersection(renderer->message_scene->viewport, cell);
+        if (!ui_rect_has_area(clip))
+            continue;
+        const bool clipped = !ui_rect_equal(clip, cell);
+        const auto icon = static_cast<MessageMarkdownChipIcon>(semantic.target);
+        const Color color = icon == MessageMarkdownChipIcon::forward || icon == MessageMarkdownChipIcon::pending_dots
+                                ? plain
+                            : icon == MessageMarkdownChipIcon::failed ? ui_foreground_color(theme, theme.tokens.text.danger)
+                            : (semantic.reserved & kMessageMarkdownChipHovered) ? theme.tokens.emphasis.text
+                                                                                 : normal;
+        if (icon == MessageMarkdownChipIcon::pending_dots) {
+            // The client's three dots, stepping on the message scene's dots clock.
+            const float x = (region.left + region.right - kUiTypingDotsWidth) * .5f;
+            const UiRect dots{x, region.top, x + kUiTypingDotsWidth, region.bottom};
+            const UiRect dots_clip = search ? ui_search_scene_content_clip(*renderer->search_scene, dots)
+                                            : ui_rect_intersection(renderer->message_scene->viewport, dots);
+            const bool cut = !ui_rect_equal(dots_clip, dots);
+            if (!ui_rect_has_area(dots_clip))
+                continue;
+            if ((cut && !paint_stream_push_clip(&renderer->paint_stream, dots_clip)) ||
+                !ui_typing_dots_paint(&renderer->paint_stream, dots, color,
+                                      search ? kUiTypingDotsRest : renderer->message_scene->interaction_phase) ||
+                (cut && !paint_stream_pop_clip(&renderer->paint_stream)))
+                return false;
+            continue;
+        }
+        if ((clipped && !paint_stream_push_clip(&renderer->paint_stream, clip)) ||
+            !ui_icon_paint(&renderer->paint_stream, chip_ui_icon(icon), cell, color) ||
+            (clipped && !paint_stream_pop_clip(&renderer->paint_stream)))
+            return false;
+    }
+    return true;
 }
 
 // A width x height picture scaled into the tile (covering it or contained) and centred.
@@ -451,6 +538,69 @@ bool queue_avatar(D3D11Renderer* renderer, const MediaAtlasResult& allocation, c
     if (!queue_media_quad(renderer, allocation, r, clip, true, first))
         return false;
     reveal_media_underlay(*renderer, before, r, placeholder);
+    return true;
+}
+
+// Server icons of link chips: the round CDN icon over its cell.
+bool queue_chip_guild_icons(D3D11Renderer* renderer, bool search) noexcept {
+    if (!renderer->content_text || !renderer->chat_state || !renderer->media_atlas ||
+        !renderer->media_gpu.texture_view || (!search && !renderer->message_scene) ||
+        (search && !renderer->search_scene))
+        return true;
+    const RendererTextStorage& text = *renderer->content_text;
+    bool first = true;
+    for (u32 i = 0; i < text.content_hit_region_count && renderer->media_quad_count < kRendererMediaQuadCapacity;
+         ++i) {
+        const TextHitRegion& region = text.content_hit_regions[i];
+        if (region.semantic_index >= text.content_semantic_count)
+            continue;
+        const MessageTextSemantic& semantic = text.content_semantics[region.semantic_index];
+        if (!chip_semantic_visible(semantic, MessageMarkdownSemanticKind::guild_icon, search))
+            continue;
+        const GuildRecord* guild = chat_state_store_find_guild(*renderer->chat_state, semantic.target);
+        if (!guild || !guild->icon_variant || !guild->icon_hash_bytes)
+            continue;
+        const MediaAtlasResult allocation =
+            media_atlas_peek(renderer->media_atlas, media_asset_guild_icon(guild->id, guild->icon_variant, false));
+        if (!allocation.ok())
+            continue;
+        const UiRect cell = chip_icon_cell(region);
+        const UiRect clip = search ? ui_search_scene_content_clip(*renderer->search_scene, cell)
+                                   : renderer->message_scene->viewport;
+        const u32 before = renderer->media_quad_count;
+        if (!queue_media_quad(renderer, allocation, cell, clip, true, first))
+            return false;
+        first = first && renderer->media_quad_count == before;
+    }
+    return true;
+}
+
+// The round plate under a chip server's initials (the official noIcon
+// background); the text pass draws the initials over it.
+bool paint_chip_initial_plates(D3D11Renderer* renderer, const Theme& theme, bool search) noexcept {
+    if (!renderer->content_text || (!search && !renderer->message_scene) || (search && !renderer->search_scene))
+        return true;
+    const RendererTextStorage& text = *renderer->content_text;
+    for (u32 i = 0; i < text.content_hit_region_count; ++i) {
+        const TextHitRegion& region = text.content_hit_regions[i];
+        if (region.semantic_index >= text.content_semantic_count)
+            continue;
+        const MessageTextSemantic& semantic = text.content_semantics[region.semantic_index];
+        if (!chip_semantic_visible(semantic, MessageMarkdownSemanticKind::guild_icon, search) ||
+            !(semantic.reserved & kMessageMarkdownChipInitials))
+            continue;
+        const UiRect cell = chip_icon_cell(region);
+        const UiRect clip = search ? ui_search_scene_content_clip(*renderer->search_scene, cell)
+                                   : ui_rect_intersection(renderer->message_scene->viewport, cell);
+        if (!ui_rect_has_area(clip))
+            continue;
+        const bool clipped = !ui_rect_equal(clip, cell);
+        if ((clipped && !paint_stream_push_clip(&renderer->paint_stream, clip)) ||
+            !paint_stream_push_rounded(&renderer->paint_stream, cell, theme.tokens.background.secondary,
+                                       ui_rect_width(cell) * .5f) ||
+            (clipped && !paint_stream_pop_clip(&renderer->paint_stream)))
+            return false;
+    }
     return true;
 }
 
@@ -1025,10 +1175,16 @@ bool queue_message_media(D3D11Renderer* renderer, const Theme& theme,
         const UiRect quad = message_media_picture_rectangle(command, allocation.width, allocation.height, playing_embed);
         const UiRect quad_clip = command.cover || playing_embed
             ? ui_rect_intersection(command.clip, command.rectangle) : command.clip;
+        // The official framing: a message attachment rounds 8 DIP, embed
+        // media 4 DIP; grid and gallery tiles keep their own mask.
+        const float radius = command.ordinary_video ? UiVideoSceneStyle{}.preview_radius
+                             : command.tile_radius || command.cover ? 0.f
+                             : command.kind == MessageMediaCommandKind::attachment ? theme.scale.radius_md
+                             : command.kind == MessageMediaCommandKind::embed ? theme.scale.radius_sm
+                                                                              : 0.f;
         if (!queue_media_quad(renderer, allocation, quad, quad_clip, false, first,
-                              MediaQuadStyle{tile, 1.f,
-                                             command.ordinary_video ? UiVideoSceneStyle{}.preview_radius : 0.f,
-                                             static_cast<float>(command.tile_radius), blur, domain})) {
+                              MediaQuadStyle{tile, 1.f, radius, static_cast<float>(command.tile_radius), blur,
+                                             domain})) {
             return layout_step_failed(__LINE__);
         }
         if (large_preview || command.kind == MessageMediaCommandKind::sticker)
@@ -1060,6 +1216,28 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
         if (renderer->message_text && renderer->chat_state) {
             for (u32 i = 0; i < renderer->message_text->command_count; ++i) {
                 const auto& command = renderer->message_text->commands[i];
+                MessageInteractionLayout interaction{};
+                if (ui_rect_intersects(command.rectangle, message_scene->viewport) &&
+                    message_interaction_layout(*message_scene, command, *renderer->user_store,
+                                               renderer->message_measure_cache, theme, &interaction)) {
+                    if (!message_interaction_paint(interaction, command, theme, &renderer->paint_stream))
+                        return layout_step_failed(__LINE__);
+                    if (!interaction.tag.label.bytes)
+                        continue;
+                    if (!ui_badge_paint(interaction.tag, message_scene->widgets, theme, &renderer->paint_stream))
+                        return layout_step_failed(__LINE__);
+                    ProfileMedia tag_media{};
+                    if (interaction.appearance &&
+                        user_guild_badge_media(*interaction.appearance,
+                                               ui_badge_geometry(interaction.tag, message_scene->widgets).icon,
+                                               command.clip, &tag_media)) {
+                        const auto allocation = media_atlas_find(renderer->media_atlas, tag_media.key);
+                        if (allocation.ok() &&
+                            !queue_media_quad(renderer, allocation, tag_media.rectangle, tag_media.clip, false))
+                            return layout_step_failed(__LINE__);
+                    }
+                    continue;
+                }
                 MessageAuthorLayout header{};
                 if (!ui_rect_intersects(command.rectangle, message_scene->viewport) ||
                     !message_author_layout(*message_scene, command, *renderer->chat_state,
@@ -1131,7 +1309,9 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
             const MessageRichRecord* rich =
                 message && rich_store ? message_rich_store_find(*rich_store, message->id) : nullptr;
             const UserRecord* user =
-                rich && rich->message_revision == message->revision && message_rich_has_header(*rich)
+                rich && rich->message_revision == message->revision && message_rich_has_header(*rich) &&
+                        (rich->reference.state != GatewayMessageReferenceState::available ||
+                         message_rich_reply_leading(rich->reference) == MessageReplyLeading::avatar)
                     ? user_store_find(*renderer->user_store, message_rich_header_user(*rich))
                     : nullptr;
             const UiLayoutNode* body = message_scene_layout_node(*message_scene, row.body);
@@ -1297,6 +1477,13 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
         !renderer->video_scene_search_result &&
         !ui_video_scene_paint(*renderer->video_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
+    // Link chip server icons are the timeline's last media range: they draw
+    // after the message text, above a hovered chip's accent pill.
+    renderer->chip_media_first_batch = renderer->media_batch_count;
+    if (messages_visible && !content_hidden &&
+        (!paint_chip_initial_plates(renderer, theme, false) || !queue_chip_guild_icons(renderer, false)))
+        return layout_step_failed(__LINE__);
+    renderer->chip_media_end_batch = renderer->media_batch_count;
     return true;
 }
 
@@ -1371,6 +1558,8 @@ bool build_search_media(D3D11Renderer* renderer, const Theme& theme) noexcept {
                     first = false;
             }
         }
+        if (!paint_chip_initial_plates(renderer, theme, true) || !queue_chip_guild_icons(renderer, true))
+            return layout_step_failed(__LINE__);
     }
     if (d3d11_renderer_search_visible(*renderer) &&
         !split_paint_quad_boundary(&renderer->paint_stream, search_foreground_quad,
@@ -1467,6 +1656,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     renderer->media_picker_paint_first_batch = renderer->media_picker_paint_end_batch = 0;
     renderer->media_picker_foreground_first_batch = 0;
     renderer->media_picker_media_first_batch = renderer->media_picker_media_end_batch = 0;
+    renderer->chip_media_first_batch = renderer->chip_media_end_batch = 0;
     // Fractional-DIP viewport, as in the retained scene: integer division would
     // disagree at 125%/150% scales and the rectangle guard below would reject
     // valid frames.
@@ -1978,6 +2168,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         !paint_stream_push_focus(&renderer->paint_stream, *focus_owner, theme.tokens.border.focus))
         return layout_step_failed(__LINE__);
     renderer->edit_overlay_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
+    if (messages_visible && !content_hidden && !paint_chip_icons(renderer, theme, false))
+        return layout_step_failed(__LINE__);
     UiTypingDotsPaint typing_dots{};
     if (!content_hidden &&
         !shell_presentation_build_composer_overlay(renderer->message_composer_scene, composer_presentation,
@@ -2120,6 +2312,9 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         !paint_stream_push_focus(&renderer->paint_stream, *focus_owner, theme.tokens.border.focus))
         return layout_step_failed(__LINE__);
     renderer->friends_requests_paint_end_batch = paint_stream_seal(&renderer->paint_stream);
+    // Search result link chip icons draw above the search text.
+    if (d3d11_renderer_search_visible(*renderer) && !paint_chip_icons(renderer, theme, true))
+        return layout_step_failed(__LINE__);
     renderer->media_picker_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
     renderer->media_picker_media_first_batch = renderer->media_batch_count;
     if (d3d11_renderer_media_picker_visible(*renderer)) {

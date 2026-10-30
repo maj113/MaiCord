@@ -117,6 +117,8 @@ struct MessageTextHit {
     u16 source_bytes;
     MessageMarkdownSemanticKind kind;
     bool valid;
+    // The semantic's reserved bits (kMessageMarkdownAttachmentChip, ...).
+    u8 reserved;
 };
 
 struct MessageTextCopyProjectionResult {
@@ -276,6 +278,9 @@ struct MessageTextPresentation {
     bool active;
     bool reveal_spoilers; // Chat setting: spoiler text renders revealed
     bool scroll_moving;   // The last move was a step of a continuing scroll
+    // A presented row shows the animated status dots of a pending interaction
+    // (a local command message or a deferred response); the dots clock runs.
+    bool status_dots;
     MessageTextPresentationError last_error;
     u64 failure_message_id;
     u32 failure_source_index;

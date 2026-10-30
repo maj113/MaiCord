@@ -289,6 +289,42 @@ bool profile_details(const JsonIndexedDocument& doc, const JsonValue& value, Use
     Effect effect{&doc, guild ? &p->guild_effect_sku_id : &p->effect_sku_id};
     return !filled(f[5].value) || json_visit_indexed_array(doc, f[5].value, 64, effect_item, &effect).ok();
 }
+struct PopularCommands {
+    UserProfile* profile;
+};
+bool popular_command_item(void* opaque, u32, JsonValue v) noexcept {
+    auto& p = *static_cast<PopularCommands*>(opaque)->profile;
+    u64 id = 0;
+    if (!number(v, &id))
+        return false;
+    if (id && p.popular_command_count < 5)
+        p.popular_commands[p.popular_command_count++] = id;
+    return true;
+}
+// A bot's application: an unusable object only drops its commands.
+void profile_application(const JsonIndexedDocument& doc, const JsonValue& value, UserProfile* p) noexcept {
+    FieldSet<"id", "popular_application_command_ids"> f;
+    PopularCommands commands{p};
+    if (!filled(value) || !object(doc, value, f) || !number(f[0].value, &p->application_id) ||
+        (filled(f[1].value) &&
+         !json_visit_indexed_array(doc, f[1].value, 64, popular_command_item, &commands).ok())) {
+        p->application_id = 0;
+        p->popular_command_count = 0;
+    }
+}
+// "0" for unique usernames; bots keep four digits.
+u16 discriminator(const JsonValue& value) noexcept {
+    ProfileString<8> text;
+    if (!string(value, &text) || !text.bytes || text.bytes > 4)
+        return 0;
+    u32 n = 0;
+    for (u32 i = 0; i < text.bytes; ++i) {
+        if (text.data[i] < '0' || text.data[i] > '9')
+            return 0;
+        n = n * 10 + static_cast<u32>(text.data[i] - '0');
+    }
+    return static_cast<u16>(n);
+}
 } // namespace
 bool user_appearance_decode(const JsonIndexedDocument& doc, JsonValue user, u64 id, u64 guild,
                                UserAppearance* output) noexcept {
@@ -376,10 +412,11 @@ bool user_profile_decode(Utf8View json, Slice<u32> scratch, u64 expected, u64 gu
         return false;
     const JsonIndexedDocument doc{json, {scratch.data, scan.count}};
     FieldSet<"user", "user_profile", "guild_member", "guild_member_profile", "badges", "connected_accounts",
-             "mutual_guilds", "mutual_friends", "mutual_friends_count", "premium_type", "private", "guild_badges"> f;
+             "mutual_guilds", "mutual_friends", "mutual_friends_count", "premium_type", "private", "guild_badges",
+             "application"> f;
     if (!object(doc, {json, 0, JsonValueKind::object}, f))
         return false;
-    FieldSet<"id", "username", "global_name", "avatar", "banner"> u;
+    FieldSet<"id", "username", "global_name", "avatar", "banner", "discriminator"> u;
     if (!present(f[0].value) || !object(doc, f[0].value, u) || !number(u[0].value, &p->user_id) ||
         p->user_id != expected || !string(u[1].value, &p->username) || !p->username.bytes ||
         !string(u[2].value, &p->display_name) || !string(u[3].value, &p->avatar))
@@ -387,6 +424,8 @@ bool user_profile_decode(Utf8View json, Slice<u32> scratch, u64 expected, u64 gu
     if (!p->display_name.bytes)
         p->display_name = p->username;
     p->guild_id = guild;
+    p->discriminator = discriminator(u[5].value);
+    profile_application(doc, f[12].value, p);
     if (!user_appearance_decode(doc, f[0].value, expected, 0, &p->user_appearance) ||
         !profile_details(doc, f[1].value, p, false) || !profile_details(doc, f[3].value, p, true))
         return false;

@@ -1850,6 +1850,35 @@ bool ApplicationMediaPump::request_search_decorations(u64 now_ms, u64 now_second
     return true;
 }
 
+bool ApplicationMediaPump::request_chip_guild_icons(bool search, u64 now_ms, u64 now_seconds, u32* uploads,
+                                                    bool* repaint, bool* stop_scan) noexcept {
+    *stop_scan = false;
+    const auto* text = application.renderer.content_text;
+    const auto* state = application.account_ui ? &application.account_ui->chat_state : nullptr;
+    if (!text || !state || !text->content_semantics || !text->content_hit_regions || prefetch_only ||
+        (search && !search_media_visible()) || (!search && !application.message_scene.active))
+        return true;
+    for (u32 i = 0; i < text->content_hit_region_count; ++i) {
+        const auto& region = text->content_hit_regions[i];
+        if (region.semantic_index >= text->content_semantic_count)
+            continue;
+        const auto& semantic = text->content_semantics[region.semantic_index];
+        const UiRect cell{region.left, region.top, region.right, region.bottom};
+        if (semantic.kind != MessageMarkdownSemanticKind::guild_icon || (semantic.reserved & 2u) ||
+            ((semantic.reserved & kRendererSearchSemanticFlag) != 0) != search ||
+            !ui_rect_has_area(search ? ui_search_scene_content_clip(*application.renderer.search_scene, cell)
+                                     : ui_rect_intersection(application.message_scene.viewport, cell)))
+            continue;
+        const GuildRecord* guild = chat_state_store_find_guild(*state, semantic.target);
+        if (!guild || !request_visible_guild_icon(*guild, now_ms, now_seconds, uploads, repaint, stop_scan, false,
+                                                  false))
+            continue;
+        if (*stop_scan)
+            return true;
+    }
+    return true;
+}
+
 bool ApplicationMediaPump::request_controller_attachment(void* context, const MessageRecord& message,
                                                          const MessageRichAttachment& attachment,
                                                          float preview_width, float preview_height,

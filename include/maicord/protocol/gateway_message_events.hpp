@@ -55,6 +55,19 @@ enum GatewayMessageReferenceContent : u8 {
     gateway_reference_voice_message = 1u << 4,
     gateway_reference_components_v2 = 1u << 5,
     gateway_reference_interaction = 1u << 6,
+    // The replying message mentions the quoted author (a reply with ping on): the preview names them "@Name".
+    gateway_reference_mentions_author = 1u << 7,
+};
+
+// More of the quoted message the preview shows (GatewayMessageReference::quote_flags).
+enum GatewayMessageReferenceQuote : u8 {
+    // The quoted message is itself a forward: its preview leads with the forward icon.
+    gateway_quote_forwarded = 1u << 0,
+    // The reply carries media_mention: the preview shows the clip's title and "@time"
+    // (reference.content holds "<title>\x1f@<time>").
+    gateway_quote_media_mention = 1u << 1,
+    // The mentioned attachment is a clip.
+    gateway_quote_media_clip = 1u << 2,
 };
 
 struct GatewayMessageReference {
@@ -69,6 +82,7 @@ struct GatewayMessageReference {
     u8 type;
     u8 content_flags;  // GatewayMessageReferenceContent
     u8 message_type;   // referenced message type (all known types are < 256)
+    u8 quote_flags;    // GatewayMessageReferenceQuote
 };
 
 struct GatewayMessageReaction {

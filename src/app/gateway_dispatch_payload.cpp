@@ -140,7 +140,8 @@ bool rich_header_valid(const GatewayClientMessageRichHeader& header, u32 rich_fi
           header.reference_channel_id != 0 || header.reference_guild_id != 0 ||
           header.reference_author_id != 0 || header.reference_author_name.bytes != 0 ||
           header.reference_author_avatar_hash.bytes != 0 || header.reference_content.bytes != 0 ||
-          header.reference_content_flags != 0 || header.reference_message_type != 0)) ||
+          header.reference_content_flags != 0 || header.reference_message_type != 0 ||
+          header.reference_quote_flags != 0)) ||
         ((rich_fields & gateway_message_field_reactions) == 0 && header.reaction_count != 0) ||
         ((rich_fields & gateway_message_field_attachments) == 0 && header.attachment_count != 0) ||
         ((rich_fields & gateway_message_field_embeds) == 0 &&
@@ -416,6 +417,7 @@ static bool unpack_message_rich_metadata(ConstSlice<u8> payload, u32 role_offset
     message->reference.state = static_cast<GatewayMessageReferenceState>(header.reference_state);
     message->reference.type = header.reference_type;
     message->reference.content_flags = header.reference_content_flags;
+    message->reference.quote_flags = header.reference_quote_flags;
     message->reference.message_type = header.reference_message_type;
     message->interaction.id = header.interaction_id;
     message->interaction.user_id = header.interaction_user_id;

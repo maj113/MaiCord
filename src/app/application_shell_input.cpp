@@ -33,6 +33,7 @@
 #include "account_ui_runtime.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/ui/message_author.hpp"
+#include "maicord/ui/message_interaction.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -233,7 +234,8 @@ bool select_client_cursor(i32 pixel_x, i32 pixel_y, UiCursor* out) noexcept {
         return true;
     cursor = UiCursor::hand;
     const auto message = message_scene_hit_test(g_app.message_scene, x, y);
-    if (application_message_profile_hit_test(x, y).user_id || application_message_guild_tag_hit(x, y))
+    if (application_message_profile_hit_test(x, y).user_id || application_message_guild_tag_hit(x, y) ||
+        application_message_command_chip_hit(x, y))
         return true;
     u32 reaction_index = 0;
     // Every emoji in body text is clickable (its popout), Unicode included.
@@ -456,6 +458,33 @@ u64 message_avatar_at(float x, float y) noexcept {
     return 0;
 }
 
+// The interaction header's name, tag chip or command chip, or a quoted line,
+// under the pointer light up; zero ids clear them. True on success.
+bool set_header_hover(float x, float y) noexcept {
+    auto& scene = g_app.message_scene;
+    const auto& renderer = g_app.renderer;
+    u64 id = 0;
+    u8 target = 0;
+    if (scene.active && !g_app.login.visible && renderer.message_text && renderer.user_store &&
+        ui_rect_contains(scene.viewport, x, y)) {
+        const auto header = message_interaction_hit_test(scene, *renderer.message_text, *renderer.user_store,
+                                                         renderer.message_measure_cache, application_theme(), x, y);
+        if (header.target == MessageInteractionTarget::name || header.target == MessageInteractionTarget::tag ||
+            header.target == MessageInteractionTarget::command) {
+            id = header.message_id;
+            target = static_cast<u8>(header.target);
+        } else if (message_scene_reply_hit_test(scene, x, y).message_id) {
+            id = message_scene_hit_test(scene, x, y).message_id;
+            target = kMessageHoverQuote;
+        }
+    }
+    if (scene.header_hover_message_id == id && scene.header_hover_target == target)
+        return true;
+    scene.header_hover_message_id = id;
+    scene.header_hover_target = target;
+    return refresh_retained_projection();
+}
+
 bool clear_message_hover() noexcept {
     set_message_avatar_hover(0);
     bool changed = false;
@@ -464,6 +493,11 @@ bool clear_message_hover() noexcept {
     if (g_app.message_scene.widgets.hovered.generation) {
         if (!ui_widget_manager_hover(&g_app.message_scene.widgets, ui_widget_invalid_handle()))
             return false;
+        changed = true;
+    }
+    if (g_app.message_scene.header_hover_message_id) {
+        g_app.message_scene.header_hover_message_id = 0;
+        g_app.message_scene.header_hover_target = 0;
         changed = true;
     }
     return !changed || refresh_retained_projection();
@@ -500,6 +534,8 @@ bool handle_message_hover(LPARAM lparam) noexcept {
     if (!message_hover_scroll_gate_pointer(&g_message_hover_gate, x, y))
         return false;
     set_message_avatar_hover(message_avatar_at(x, y));
+    if (!set_header_hover(x, y))
+        return false;
     const MessageActionBarPointerResult tracked = message_action_bar_track_pointer(
         &g_app.message_action_bar, &g_app.message_scene, x, y,
         g_app.account_ui ? &g_app.account_ui->reaction_preferences : nullptr,

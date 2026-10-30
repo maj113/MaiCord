@@ -2,6 +2,7 @@
 #include "application_state.hpp"
 #include "application_account_presentation.hpp"
 #include "application_friends.hpp"
+#include "application_private_channel.hpp"
 #include "application_plugins.hpp"
 #include "application_profile_editor.hpp"
 #include "application_user_actions.hpp"
@@ -29,6 +30,8 @@ char read_value[64];
 u32 read_value_bytes;
 char opened_url[128], content_url[128];
 u32 opened_url_bytes, opened, content_url_bytes, content_opened;
+// The command index the profile's Commands read, and the last insertion.
+u64 command_channel, inserted_application, inserted_command;
 bool opened_trusted;
 GuildRecord guild;
 u16 guild_order;
@@ -306,6 +309,38 @@ void run() noexcept {
           "profile runtime: a badge click opens its link through the content link rules");
     check(laid && click_badge(1) && content_opened == 1 && p.scene.active,
           "profile runtime: a badge without a link opens nothing");
+    // A verified bot: its check carries "Verified App", the popout lists its
+    // Commands for the selected channel, its servers open the full profile's
+    // Mutual Servers tab (Activity, Mutual Servers), and a chip closes the
+    // profile before filling the composer.
+    constexpr auto bot = utf8_literal(
+        R"({"user":{"id":"42","username":"helper","discriminator":"8797","bot":true,"public_flags":65536},)"
+        R"("user_profile":{"bio":"hi"},"mutual_guilds":[{"id":"7"}],)"
+        R"("application":{"id":"55","popular_application_command_ids":["902","901"]}})");
+    g_app.account_ui->chat_state.selected_channel_id = 900;
+    p.loaded_at = 1000;
+    const bool bot_laid = g_app.account_ui->profile_decode.decode_into(bot, 42, 7, p.data);
+    application_profile_synchronize();
+    u32 chips = 0;
+    bool verified_hint = false;
+    for (u32 i = 0; i < p.scene.part_count; ++i) {
+        chips += p.scene.parts[i].action == ProfileAction::command;
+        verified_hint |= p.scene.parts[i].action == ProfileAction::hint &&
+                         utf8_equal(p.scene.parts[i].hint, utf8_literal("Verified App"));
+    }
+    check(bot_laid && command_channel == 900 && p.commands.count == 2 && p.commands.commands[0].id == 902 &&
+              chips == 2 && verified_hint,
+          "profile runtime: a bot popout lists its popular commands and its verified check's hint");
+    check(click(ProfileAction::servers) && p.scene.presentation == ProfilePresentation::modal && p.scene.tab == 1,
+          "profile runtime: a bot's servers open its full profile on Mutual Servers");
+    bool server_row = false, friends_tab = false;
+    for (u32 i = 0; i < p.scene.part_count; ++i) {
+        server_row |= p.scene.parts[i].action == ProfileAction::open_server;
+        friends_tab |= p.scene.parts[i].action == ProfileAction::friends;
+    }
+    check(server_row && !friends_tab, "profile runtime: a bot's full profile has Mutual Servers and no Mutual Friends");
+    check(click(ProfileAction::command) && !p.scene.active && inserted_application == 55 && inserted_command == 902,
+          "profile runtime: a command chip closes the profile and fills the composer");
     application_profile_release();
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;
@@ -383,7 +418,28 @@ bool application_friends_user_relation(u64, u8*) noexcept {
 bool application_friends_user_action(u64, ApplicationFriendsUserAction) noexcept {
     return false;
 }
-const RelationshipStore* application_friends_relationships() noexcept {
+u32 application_commands_for_application(u64 channel, u64 application, Slice<ApplicationRootCommand> output,
+                                         bool* loading) noexcept {
+    using namespace profile_runtime_test;
+    command_channel = channel;
+    *loading = false;
+    static const ApplicationRootCommand roots[]{{utf8_literal("info"), utf8_literal("About"), 901, false, false},
+                                                {utf8_literal("json"), utf8_literal("JSON"), 902, false, false}};
+    if (application != 55 || output.count < 2)
+        return 0;
+    output[0] = roots[0];
+    output[1] = roots[1];
+    return 2;
+}
+u32 application_commands_catalog_revision() noexcept {
+    return 1;
+}
+bool application_commands_insert(u64 application, u64 command, Utf8View) noexcept {
+    profile_runtime_test::inserted_application = application;
+    profile_runtime_test::inserted_command = command;
+    return true;
+}
+const UiPrivateRowSource* application_private_channel_rows() noexcept {
     return nullptr;
 }
 bool application_profile_editor_open(ProfileEditorTab, u64) noexcept {

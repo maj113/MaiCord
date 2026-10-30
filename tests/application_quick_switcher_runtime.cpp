@@ -8,6 +8,9 @@
 // native window and authoritative model stores. Navigation and TSF are observed
 // at their host boundaries; no account traffic or renderer is created.
 #include "application_quick_switcher.hpp"
+#include "application_private_channel.hpp"
+#include "application_friends.hpp"
+#include "maicord/ui/private_channel_rows.hpp"
 #include "application_input_routing.hpp"
 #include "application_state.hpp"
 #include "application_private_conversation.hpp"
@@ -493,6 +496,12 @@ bool application_message_navigation_cancel() noexcept {
 }
 bool application_voice_join(u64, u64) noexcept {
     return true;
+}
+const UiPrivateRowSource* application_private_channel_rows() noexcept {
+    static UiPrivateRowSource source{};
+    source = {&g_app.account_ui->chat_state, &g_app.account_ui->user_store, application_friends_relationships(),
+              nullptr, nullptr};
+    return &source;
 }
 } // namespace app_detail
 } // namespace maicord

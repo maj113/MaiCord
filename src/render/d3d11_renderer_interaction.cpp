@@ -390,7 +390,10 @@ MessageTextHit renderer_content_hit_test(const D3D11Renderer& renderer, i32 clie
             continue;
         }
         const MessageTextSemantic& semantic = storage.content_semantics[region.semantic_index];
-        if (semantic.reserved & kRendererSearchSemanticFlag)
+        // Icon cells belong to the chip around them, which hits instead.
+        if ((semantic.reserved & kRendererSearchSemanticFlag) ||
+            semantic.kind == MessageMarkdownSemanticKind::chip_icon ||
+            semantic.kind == MessageMarkdownSemanticKind::guild_icon)
             continue;
         // Message rows clip to themselves: only the visible timeline takes hits.
         if (semantic.message_id != 0 &&
@@ -402,7 +405,8 @@ MessageTextHit renderer_content_hit_test(const D3D11Renderer& renderer, i32 clie
                               semantic.source_offset,
                               semantic.source_bytes,
                               semantic.kind,
-                              true};
+                              true,
+                              semantic.reserved};
     }
     return MessageTextHit{};
 }

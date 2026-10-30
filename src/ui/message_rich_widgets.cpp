@@ -220,7 +220,7 @@ bool message_rich_widgets_build(UiWidgetManager* manager, UiWidgetHandle parent,
                                               false, kDefaultMessageStickerLayoutMetrics.gap);
     const UiWidgetResult components =
         add_group(manager, parent, row_widget_id + 9u, "Components", row->rich_layout.components, false,
-                  kMessageComponentGap);
+                  message_component_root_gap(rich));
     const UiWidgetResult invite_group = add_group(manager, parent, row_widget_id + 13u, "Invites",
                                                   row->rich_layout.invites, false, kMessageInviteCardGap);
     const UiWidgetResult reactions =
@@ -309,7 +309,7 @@ bool message_rich_widgets_build(UiWidgetManager* manager, UiWidgetHandle parent,
     }
     for (u32 index = 0; index < row->component_item_count; ++index) {
         const u32 slot = kMessageSceneComponentItemOffset + index;
-        const bool interactive = rich && message_component_interactive(rich->components[index]);
+        const bool interactive = rich && message_component_hit_target(rich->components[index]);
         const u16 parent_index = rich->components[index].parent;
         const auto component_parent =
             parent_index == 0xFFFFu ? components.handle
@@ -402,7 +402,7 @@ bool message_rich_widgets_apply(UiWidgetManager* manager, const MessageRichRecor
         }
     }
     for (u32 index = 0; index < row->component_item_count; ++index) {
-        const bool interactive = rich && message_component_interactive(rich->components[index]);
+        const bool interactive = rich && message_component_hit_target(rich->components[index]);
         auto* widget =
             ui_widget_manager_resolve(manager, row->rich_items[kMessageSceneComponentItemOffset + index]);
         auto* node = widget ? ui_layout_engine_resolve(&manager->layout, widget->layout) : nullptr;

@@ -550,6 +550,7 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
             .push(scene.layout_passes)
             .push(scene.data_updates)
             .push(scene.measurement_updates)
+            .push(stamp.structural ? 0 : scene.interaction_phase)
             .widgets(scene.widgets);
     }
     s.pointer(renderer.message_action_bar);

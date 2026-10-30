@@ -333,7 +333,7 @@ void test_components(Check check) noexcept {
               {"label":"Red","value":"r","description":"Warm","default":true},
               {"label":"Blue","value":"b","emoji":{"name":"🔵"}}]}]},
           {"type":9,"components":[{"type":10,"content":"Section text"}],
-           "accessory":{"type":11,"media":{"url":"https://example.com/a.png","proxy_url":"https://media.discordapp.net/a.png"},"spoiler":true}},
+           "accessory":{"type":11,"media":{"url":"https://example.com/a.png","proxy_url":"https://media.discordapp.net/a.png","width":170,"height":85},"spoiler":true}},
           {"type":12,"items":[{"media":{"url":"https://example.com/1.jpg"}},{"media":{"url":"https://example.com/2.webp"},"description":"Two","spoiler":true}]},
           {"type":14,"divider":false,"spacing":2},
           {"type":13,"file":{"url":"attachment://notes.txt"},"name":"notes.txt"},
@@ -426,6 +426,29 @@ void test_components(Check check) noexcept {
               ui_rect_height(message_component_gallery_cell(3, 0, 300)) ==
                   message_component_gallery_height(3, 300),
           "components_gallery_grid");
+    // Mosaic caps: pairs at 280, the lead of a larger gallery is count % 3
+    // items, then rows of three squares 4 apart.
+    const UiRect six = message_component_gallery_cell(6, 3, 600), seven_lead = message_component_gallery_cell(7, 0, 600),
+                 seven_first = message_component_gallery_cell(7, 1, 600);
+    const float seven_height = message_component_gallery_height(7, 600),
+                seven_bottom = message_component_gallery_cell(7, 6, 600).bottom;
+    check(message_component_gallery_height(2, 600) == 280.0f && six.top > 0.0f && six.left == 0.0f &&
+              ui_rect_width(seven_lead) == 600.0f && ui_rect_height(seven_lead) == 280.0f &&
+              seven_first.top == 284.0f && seven_first.left == 0.0f &&
+              ui_rect_width(seven_first) - ui_rect_height(seven_first) < 0.01f &&
+              ui_rect_height(seven_first) - ui_rect_width(seven_first) < 0.01f && seven_height - seven_bottom < 0.01f &&
+              seven_bottom - seven_height < 0.01f,
+          "components_gallery_mosaic_follows_official_layout");
+    // A spacing-2 separator without a divider adds 8 above and below; a
+    // small divider is a 1-DIP rule between the parent's 8-DIP gaps.
+    MessageRichComponent small_divider{};
+    small_divider.type = gateway_component_separator;
+    small_divider.style = 1;
+    small_divider.flags = gateway_message_component_divider;
+    check(rich->components[4].type == gateway_component_separator &&
+              message_component_leaf_height(rich->components[4]) == 16.0f &&
+              message_component_leaf_height(small_divider) == 1.0f,
+          "components_separator_spacing");
     u32 accessory = 0;
     for (u32 i = 0; i < rich->component_count; ++i)
         if (rich->components[i].type == 11)
@@ -434,8 +457,50 @@ void test_components(Check check) noexcept {
     check(accessory_style.horizontal_alignment == UiLayoutAlignment::end, "components_section_accessory_trailing");
     const auto primary = message_component_button_colors(kDefaultTheme, 1, false);
     const auto danger = message_component_button_colors(kDefaultTheme, 4, true);
-    check(primary.fill.red == kDefaultTheme.tokens.emphasis.fill.red && danger.fill.alpha < 1.0f,
+    const auto secondary = message_component_button_colors(kDefaultTheme, 2, false);
+    const auto premium = message_component_button_colors(kDefaultTheme, 6, false);
+    check(primary.fill.red == kDefaultTheme.tokens.emphasis.fill.red && danger.fill.alpha < 1.0f &&
+              bytes_equal(&premium.fill, &primary.fill, sizeof(Color)) &&
+              bytes_equal(&secondary.fill, &kDefaultTheme.tokens.fill.muted, sizeof(Color)) &&
+              secondary.hover.alpha > secondary.fill.alpha &&
+              bytes_equal(&secondary.border, &kDefaultTheme.tokens.border.subtle, sizeof(Color)),
           "components_button_colors_follow_tokens");
+    // V2 messages stack top-level components 8 apart, legacy rows 6.
+    static MessageRichRecord variant{};
+    copy_value(&variant, *rich);
+    variant.components_v2 = false;
+    check(rich->components_v2 && message_component_root_gap(rich) == kMessageComponentGap &&
+              message_component_root_gap(&variant) == kMessageComponentLegacyRootGap &&
+              message_component_structure(rich) != message_component_structure(&variant),
+          "components_root_gap_follows_the_v2_flag");
+    // Media sizes travel with the item: a lone gallery item keeps its aspect.
+    const UiRect wide = message_component_gallery_cell(1, 0, 400, 0.25f),
+                 tall = message_component_gallery_cell(1, 0, 400, 2.0f);
+    check(message_component_media_aspect(rich->components[accessory]) == 0.5f && ui_rect_width(wide) == 400.0f &&
+              ui_rect_height(wide) == 100.0f && ui_rect_height(tall) == 350.0f && ui_rect_width(tall) == 175.0f,
+          "components_single_gallery_item_keeps_its_aspect");
+    // A failed button's error line grows its action row by 28.
+    u32 accept_index = 0;
+    for (u32 i = 0; i < rich->component_count; ++i)
+        if (rich->components[i].type == gateway_component_button && rich->components[i].style == 1)
+            accept_index = i;
+    const u32 host = message_component_error_host(*rich, accept_index);
+    MessageRichItemLayout failed_items = items;
+    message_component_measure_tree(*rich, &failed_items, 600.0f, host);
+    message_component_measure_tree(*rich, &items, 600.0f);
+    check(host == rich->components[accept_index].parent &&
+              failed_items.heights[kMessageRichComponentItemOffset + host] ==
+                  items.heights[kMessageRichComponentItemOffset + host] + kMessageComponentErrorHeight &&
+              message_component_error_host(*rich, host) == kMessageComponentNone,
+          "components_failed_control_grows_its_row_by_the_error_line");
+    // A spoiler container hides everything inside it and takes the click.
+    variant.components[host].type = gateway_component_container;
+    variant.components[host].flags = gateway_message_component_spoiler;
+    check(message_component_spoiler_container(variant, accept_index) == host &&
+              message_component_spoiler_container(*rich, accept_index) == kMessageComponentNone &&
+              message_component_hit_target(variant.components[host]) &&
+              !message_component_hit_target(rich->components[host]),
+          "components_spoiler_container_conceals_its_children");
     message_rich_store_release(&r.store);
 }
 
@@ -754,6 +819,36 @@ void test_presentation(Check check) noexcept {
               command_text(f, ephemeral.id, utf8_literal("Only you can see this")),
           "presentation_ephemeral_footer");
     check(command_text(f, thinking.id, utf8_literal("is thinking")), "presentation_loading_thinks");
+    const auto status_icon = [&](MessageMarkdownChipIcon icon) noexcept {
+        for (u32 i = 0; i < f.presentation.command_count; ++i) {
+            const auto& command = f.commands[i];
+            if (command.message_id != thinking.id)
+                continue;
+            for (u32 s = 0; s < command.semantics.count; ++s)
+                if (command.semantics[s].kind == MessageMarkdownSemanticKind::chip_icon &&
+                    command.semantics[s].target == static_cast<u64>(icon) && command.semantics[s].byte_offset == 0)
+                    return true;
+        }
+        return false;
+    };
+    check(status_icon(MessageMarkdownChipIcon::pending_dots) && f.presentation.status_dots,
+          "presentation_loading_leads_with_the_status_dots");
+    const u64 thinking_deadline = snowflake_timestamp_ms(thinking.id) / 1000 + 15 * 60;
+    check(f.presentation.next_timestamp_update_unix_seconds &&
+              f.presentation.next_timestamp_update_unix_seconds <= thinking_deadline,
+          "presentation_loading_schedules_its_response_deadline");
+    {
+        const MessageTextCoordinatorRequest late{&f.scene, &f.presentation, &f.cache, &state, nullptr,
+                                                 &navigation, &kDefaultTheme, finish, nullptr,
+                                                 thinking_deadline, 1};
+        check(message_text_coordinator_converge(late).ok() &&
+                  command_text(f, thinking.id, utf8_literal("The application did not respond")) &&
+                  !command_text(f, thinking.id, utf8_literal("is thinking")),
+              "presentation_loading_times_out_after_fifteen_minutes");
+        check(status_icon(MessageMarkdownChipIcon::failed) && !f.presentation.status_dots,
+              "presentation_unanswered_loading_shows_the_failed_icon");
+        check(converge(), "presentation_restores_the_fixture_clock");
+    }
     const auto* invite_row = message_scene_find_row(f.scene, 3);
     check(invite_row && invite_row->invite_item_count == 1 && invite_row->rich_layout.invites == kMessageInviteCardHeight &&
               command_text(f, invite.id, utf8_literal("Loading invite")),

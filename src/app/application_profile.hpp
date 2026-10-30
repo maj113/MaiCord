@@ -4,6 +4,7 @@
 #include "maicord/ui/profile_scene.hpp"
 #include "maicord/ui/popup_scene.hpp"
 #include "maicord/ui/button.hpp"
+#include "application_profile_commands.hpp"
 
 namespace maicord {
 struct RestClientResponse;
@@ -65,12 +66,16 @@ struct ApplicationProfile {
     u64 note_user;
     u32 note_text_revision;
     char note_display[kUserNoteMaximumBytes];
+    // A bot's Commands in the popout and the full profile.
+    ProfileCommandSet commands;
 };
 bool application_profile_open(u64 user, const UiRect& anchor, ProfileAnchor kind = ProfileAnchor::point) noexcept;
 // Edit Profile for the signed-in user: the profile editor's Main Profile.
 bool application_profile_open_edit(u64 user, UiRect anchor, ProfileAnchor kind = ProfileAnchor::account) noexcept;
-// The open popout for user becomes the full profile; false when not shown.
-bool application_profile_expand(u64 user) noexcept;
+// The open popout for user becomes the full profile on a tab (0 About Me,
+// then the mutual lists: 1 Mutual Friends and 2 Mutual Servers, a bot's
+// Mutual Servers 1); false when not shown.
+bool application_profile_expand(u64 user, u8 tab = 0) noexcept;
 // Popup rows of the profile card's menus.
 bool application_profile_menu_action(u32 action) noexcept;
 bool application_profile_menu_activate(u32 action) noexcept;
@@ -86,6 +91,8 @@ bool application_profile_refresh_message() noexcept;
 bool application_profile_submit(u64 now) noexcept;
 bool application_profile_response(const RestClientResponse& response, Utf8View body) noexcept;
 void application_profile_layout(UiRect viewport) noexcept;
+// Each frame: a landed command index lays out a bot's Commands again.
+void application_profile_synchronize() noexcept;
 u64 application_profile_next_wake() noexcept;
 // The editor that owns keyboard and IME input: the note while it is edited,
 // else the message field.

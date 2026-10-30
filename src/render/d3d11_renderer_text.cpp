@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/profile_appearance.hpp"
 #include "maicord/ui/message_author.hpp"
+#include "maicord/ui/message_interaction.hpp"
 #include "maicord/ui/native_text_candidate.hpp"
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/render/colr_paint.hpp"
@@ -849,13 +850,16 @@ bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& requ
         const float right = minimum(clip.right, origin_x + local.right);
         const float bottom = minimum(clip.bottom, origin_y + local.bottom);
         if (right > left && bottom > top) {
-            const bool flag_cell = semantic_index < storage->content_semantic_count &&
-                                   storage->content_semantics[semantic_index].message_id != 0 &&
-                                   storage->content_semantics[semantic_index].kind ==
-                                       MessageMarkdownSemanticKind::regional_flag;
-            // Flag hit ranges keep the full em cell so the viewport scissor
-            // clips the artwork without shrinking or recentering it; other
-            // hit rectangles are clipped here.
+            const MessageMarkdownSemanticKind kind = semantic_index < storage->content_semantic_count &&
+                                                             storage->content_semantics[semantic_index].message_id != 0
+                                                         ? storage->content_semantics[semantic_index].kind
+                                                         : MessageMarkdownSemanticKind::none;
+            const bool flag_cell = kind == MessageMarkdownSemanticKind::regional_flag ||
+                                   kind == MessageMarkdownSemanticKind::chip_icon ||
+                                   kind == MessageMarkdownSemanticKind::guild_icon;
+            // Flag and chip icon ranges keep the full cell so the viewport
+            // scissor clips the artwork without shrinking or recentering it;
+            // other hit rectangles are clipped here.
             storage->content_hit_regions[storage->content_hit_region_count++] =
                 flag_cell
                     ? TextHitRegion{origin_x + local.left,   origin_y + local.top, origin_x + local.right,
@@ -1116,6 +1120,26 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
     const auto* users = search_result ? renderer->search_message_users : renderer->user_store;
     auto* cache = search_result ? renderer->search_message_measure_cache : renderer->message_measure_cache;
     const UiRect* batch_clip = scene ? &scene->viewport : nullptr;
+    MessageInteractionLayout interaction{};
+    if (scene && users && message_interaction_layout(*scene, command, *users, cache, theme, &interaction)) {
+        // "<user> used <command>" is laid out piece by piece: the name and
+        // server tag chip muted, "used" and the command chip at full strength.
+        const UiTextCommand* parts[]{&interaction.name, &interaction.used, &interaction.command};
+        bool first = force_new_batch;
+        for (const auto* part : parts) {
+            if (part->text.bytes && !append_content_text_command(renderer, *part, theme, atlas_invalidated, first,
+                                                                 batch_clip))
+                return false;
+            first = false;
+        }
+        if (!interaction.tag.label.bytes)
+            return true;
+        UiTextCommand tag_command{};
+        UiTextCommandStream stream{};
+        return ui_text_command_stream_initialize(&stream, {&tag_command, 1}) &&
+               ui_badge_text(interaction.tag, scene->widgets, theme, &stream) &&
+               append_content_text_command(renderer, tag_command, theme, atlas_invalidated, false, batch_clip);
+    }
     MessageAuthorLayout header{};
     if (scene && renderer->chat_state && users &&
         message_author_layout(*scene, command, *renderer->chat_state, *users, cache, theme, &header,
@@ -1154,6 +1178,7 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
         renderer->message_text_selection_revision == command.message_revision &&
         renderer->message_text_selection_command_index == command_index;
     const u32 first_semantic = renderer->content_text->content_semantic_count;
+    const u32 first_region = renderer->content_text->content_hit_region_count;
     const ContentTextRequest request{
         command.text, ui_rect_width(command.rectangle), ui_rect_height(command.rectangle),
         command.rectangle.left, command.rectangle.top, &command.clip, batch_clip, &command.color,
@@ -1185,6 +1210,38 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
             }
         }
     }
+    // A link chip's server without an icon shows its initials in the cell (the
+    // official acronym icon); the round plate is painted beneath the text.
+    auto& storage = *renderer->content_text;
+    for (u32 i = first_region; i < storage.content_hit_region_count; ++i) {
+        const TextHitRegion region = storage.content_hit_regions[i];
+        if (region.semantic_index >= storage.content_semantic_count || !renderer->chat_state)
+            continue;
+        const MessageTextSemantic& semantic = storage.content_semantics[region.semantic_index];
+        const GuildRecord* guild = semantic.kind == MessageMarkdownSemanticKind::guild_icon &&
+                                           (semantic.reserved & kMessageMarkdownChipInitials) &&
+                                           !(semantic.reserved & 2u)
+                                       ? chat_state_store_find_guild(*renderer->chat_state, semantic.target)
+                                       : nullptr;
+        if (!guild)
+            continue;
+        char letters[24];
+        u32 characters = 0;
+        const float side = region.right - region.left, middle = (region.top + region.bottom) * .5f;
+        UiTextCommand initials{};
+        initials.text = ui_guild_acronym(chat_state_store_guild_name(*renderer->chat_state, *guild),
+                                         {letters, sizeof(letters)}, &characters);
+        initials.owner = command.owner;
+        initials.rectangle = {region.left, middle - side * .5f, region.right, middle + side * .5f};
+        initials.clip = ui_rect_intersection(command.clip, initials.rectangle);
+        initials.color = theme.tokens.text.normal;
+        initials.style_flags = kTextStyleSizeCodeXs;
+        initials.horizontal_alignment = initials.vertical_alignment = UiTextAlignment::center;
+        initials.wrapping = UiTextWrapping::no_wrap;
+        if (initials.text.bytes && ui_rect_has_area(initials.clip) &&
+            !append_content_text_command(renderer, initials, theme, atlas_invalidated, false, batch_clip))
+            return false;
+    }
     return true;
 }
 
@@ -1194,6 +1251,10 @@ u64 retention_shell_signature(const D3D11Renderer& renderer, u64 shell_signature
     const bool settings_active = renderer_settings_page_visible(renderer);
     const bool friends_active =
         !settings_active && d3d11_renderer_active(renderer.friends_scene);
+    // A hovered header chip or quote restyles its message's retained text.
+    if (renderer.message_scene && renderer.message_scene->header_hover_message_id)
+        shell_signature = hash64_mix(hash64_mix(shell_signature, renderer.message_scene->header_hover_message_id),
+                                     renderer.message_scene->header_hover_target);
     const bool browser_active = d3d11_renderer_thread_browser_visible(renderer);
     const auto* composer =
         settings_active || friends_active || browser_active ? nullptr : renderer.message_composer_scene;

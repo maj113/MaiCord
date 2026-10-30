@@ -164,6 +164,39 @@ void synchronize_typing_dots(u64 now_ms) noexcept {
     scene.typing_phase = g_typing_dots.phase;
 }
 
+UiTypingDotsClock g_component_dots{};
+// A pending message component's loading dots step only while its row is on
+// screen; otherwise they rest and the clock disarms.
+void synchronize_component_dots(u64 now_ms) noexcept {
+    auto& renderer = g_app.renderer;
+    auto& scene = g_app.message_scene;
+    bool visible = false;
+    if (g_app.renderer_ready && !renderer.live_resize && !d3d11_renderer_page_open(renderer) &&
+        renderer.message_scene == &scene && scene.interaction.pending)
+        for (u32 i = 0; i < scene.count && !visible; ++i) {
+            const auto& row = scene.rows[i];
+            const auto* node = row.message_id == scene.interaction.message_id
+                                   ? message_scene_layout_node(scene, row.widget)
+                                   : nullptr;
+            visible = node && ui_rect_intersects(node->rectangle, scene.viewport);
+        }
+    // A local command message's or deferred response's status dots on screen
+    // step on the same clock.
+    if (!visible && g_app.renderer_ready && !renderer.live_resize && !d3d11_renderer_page_open(renderer) &&
+        renderer.message_scene == &scene && g_app.account_ui && g_app.account_ui->message_text.status_dots) {
+        const auto& text = g_app.account_ui->message_text;
+        for (u32 i = 0; i < text.command_count && !visible; ++i) {
+            const auto& command = text.commands[i];
+            for (u32 s = 0; s < command.semantics.count && !visible; ++s)
+                visible = command.semantics[s].kind == MessageMarkdownSemanticKind::chip_icon &&
+                          command.semantics[s].target == static_cast<u64>(MessageMarkdownChipIcon::pending_dots) &&
+                          ui_rect_intersects(command.rectangle, scene.viewport);
+        }
+    }
+    ui_typing_dots_clock_tick(&g_component_dots, now_ms, visible, typing_dots_animate());
+    scene.interaction_phase = g_component_dots.phase;
+}
+
 void record_first_present() noexcept {
     if (!g_app.first_present_recorded) {
         g_app.first_present_recorded = true;
@@ -182,10 +215,16 @@ void record_first_present() noexcept {
 u64 application_loading_spinner_wake() noexcept {
     const u64 spinner = g_loading_spinner.visible ? g_loading_spinner.wake_ms : 0;
     const u64 dots = g_typing_dots.visible ? g_typing_dots.wake_ms : 0;
-    return spinner && dots ? minimum(spinner, dots) : spinner ? spinner : dots;
+    const u64 component = g_component_dots.visible ? g_component_dots.wake_ms : 0;
+    const u64 wakes[]{spinner, dots, component};
+    u64 wake = 0;
+    for (const u64 at : wakes)
+        wake = at && (!wake || at < wake) ? at : wake;
+    return wake;
 }
 bool application_loading_spinner_due(u64 now_ms) noexcept {
-    return ui_spinner_clock_due(g_loading_spinner, now_ms) || ui_typing_dots_clock_due(g_typing_dots, now_ms);
+    return ui_spinner_clock_due(g_loading_spinner, now_ms) || ui_typing_dots_clock_due(g_typing_dots, now_ms) ||
+           ui_typing_dots_clock_due(g_component_dots, now_ms);
 }
 
 namespace {
@@ -224,6 +263,8 @@ bool application_present_frame() noexcept {
                               g_app.preferences.reduced_motion);
     if (ui_typing_dots_clock_due(g_typing_dots, clock_monotonic_milliseconds()))
         ui_typing_dots_clock_tick(&g_typing_dots, clock_monotonic_milliseconds(), true, typing_dots_animate());
+    if (ui_typing_dots_clock_due(g_component_dots, clock_monotonic_milliseconds()))
+        ui_typing_dots_clock_tick(&g_component_dots, clock_monotonic_milliseconds(), true, typing_dots_animate());
     // A due entrance must consume its deadline even when later scene/text
     // preparation rejects this draw. Retained permits cannot repeatedly wake
     // against the same past-due opacity sample. Reconcile final scene keys again
@@ -251,6 +292,7 @@ bool application_present_frame() noexcept {
     if (!application_friends_synchronize())
         return present_rejected("friends");
     application_dm_profile_synchronize();
+    application_profile_synchronize();
     application_self_status_synchronize();
     application_user_settings_synchronize();
     if (!application_account_menu_synchronize())
@@ -324,6 +366,7 @@ bool application_present_frame() noexcept {
     // this frame and arm (or disarm) the next spinner step.
     synchronize_loading_spinners(clock_monotonic_milliseconds());
     synchronize_typing_dots(clock_monotonic_milliseconds());
+    synchronize_component_dots(clock_monotonic_milliseconds());
     MAICORD_PERF_MARK("frame_surfaces");
     const u64 before =
         static_cast<u64>(g_app.renderer.full_present_draws) + g_app.renderer.partial_present_draws;

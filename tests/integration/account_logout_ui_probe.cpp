@@ -773,6 +773,9 @@ MessageProfileHit application_message_profile_hit_test(float, float) noexcept {
 bool application_message_guild_tag_hit(float, float) noexcept {
     return false;
 }
+bool application_message_command_chip_hit(float, float) noexcept {
+    return false;
+}
 bool application_thread_browser_read_blocked() noexcept {
     return false;
 }

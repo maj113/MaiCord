@@ -588,6 +588,10 @@ bool application_friends_active() noexcept {
     return false;
 }
 bool application_thread_browser_read_blocked() noexcept { return false; }
+// The pinned command card is exercised with the message view, not here.
+bool application_interaction_card_target(u64, UiTooltipTarget*, UiTooltipStyle*) noexcept { return false; }
+void application_interaction_card_press() noexcept {}
+void application_interaction_card_close() noexcept {}
 UiThreadBrowserScene* application_thread_browser_scene() noexcept { return nullptr; }
 bool application_friends_requests_active() noexcept {
     return false;

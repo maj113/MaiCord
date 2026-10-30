@@ -78,12 +78,13 @@ inline void test_message_background_surfaces(const MessageScene& original, u64 r
                                       ui_extent_dips(scene.timeline->list->total_units))
               : UiScrollbarGeometry{};
     u32 materials = 0, scrollbar_materials = 0;
-    bool component_material = false;
+    bool component_fill = false;
     for (u32 i = 0; geometry && i < flat.count; ++i) {
         const auto& a = flat.quads[i];
         const auto& b = gradient.quads[i];
         if (card && ui_rect_equal({b.left, b.top, b.right, b.bottom}, card->rectangle))
-            component_material |= b.border_width == -7 && b.reserved_y > 0;
+            component_fill |= b.border_width == 1 && bytes_equal(&b.fill, &kDefaultTheme.tokens.fill.muted, sizeof(Color)) &&
+                              bytes_equal(&a, &b, sizeof(PaintQuad));
         geometry = a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom &&
                    a.radius == b.radius;
         if (b.border_width == -7) {
@@ -129,7 +130,7 @@ inline void test_message_background_surfaces(const MessageScene& original, u64 r
                      a.animated == b.animated && a.ordinary_video == b.ordinary_video;
     }
     check(media_keys, "message gradient actual media keys resources clip and owners match");
-    check(component_material, "message link button uses the background theme material");
+    check(component_fill, "message link button keeps its translucent neutral fill over background themes");
     check(materials != 0, "message gradient admitted rich fixture emits at least one real material card");
     check(geometry && media_keys && materials && !gradient.rejected &&
               gradient.count <= kMaxPaintQuads && !gradient_media.rejected,

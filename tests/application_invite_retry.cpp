@@ -2,14 +2,12 @@
 #include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
-// The owner fixture exercises no browser, modal or navigation admission.
+// The owner fixture exercises no browser or navigation admission; the shared
+// command UI fixture owns the declined modal stub.
 bool application_link_open(Utf8View, bool) noexcept {
     return false;
 }
 bool select_content_guild(u64) noexcept {
-    return false;
-}
-bool application_text_form_open(const ApplicationTextFormRequest&) noexcept {
     return false;
 }
 void application_text_form_close(bool, bool) noexcept {

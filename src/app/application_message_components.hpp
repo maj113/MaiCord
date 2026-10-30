@@ -17,6 +17,10 @@ bool application_message_component_click(u64 message_id, UiWidgetHandle widget, 
 bool application_message_components_popup_action(u32 action) noexcept;
 // Gateway interaction_* dispatches (payload is the verbatim event object).
 void application_message_components_gateway(GatewayClientDispatchKind kind, Utf8View body) noexcept;
+// A slash or context command sent with `nonce` may answer with a modal
+// (INTERACTION_MODAL_CREATE carries the command's nonce); its submit goes to
+// `application_id`.
+void application_message_components_expect_modal(u64 nonce, u64 application_id) noexcept;
 // A message update/create resolves a deferred component response.
 void application_message_components_message(u64 message_id) noexcept;
 

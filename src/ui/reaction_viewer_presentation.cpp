@@ -77,10 +77,10 @@ bool reaction_viewer_presentation_build(const ReactionViewer& viewer, const Them
             break;
         }
         if ((viewer.users[index].flags & reaction_viewer_user_bot) != 0) {
-            const UiRect badge{row.right - 42.0f, (row.top + row.bottom - 18.0f) * 0.5f, row.right,
-                               (row.top + row.bottom + 18.0f) * 0.5f};
-            if (!paint_stream_push_rounded_border(paint, badge, theme.tokens.emphasis.fill, theme.tokens.emphasis.fill,
-                                                  3.0f, 0.0f)) {
+            // The APP tag: 16 DIPs of the brand fill (badge.hpp).
+            const UiRect badge{row.right - 42.0f, (row.top + row.bottom) * 0.5f - 8.0f, row.right,
+                               (row.top + row.bottom) * 0.5f + 8.0f};
+            if (!paint_stream_push_rounded(paint, badge, theme.tokens.accent.app_badge, theme.scale.radius_sm)) {
                 success = false;
             }
         }
@@ -140,7 +140,7 @@ bool reaction_viewer_text_presentation_build_output(const ReactionViewer& viewer
         }
         if ((user.flags & reaction_viewer_user_bot) != 0) {
             const UiRect badge{row.right - 42.0f, row.top, row.right, row.bottom};
-            if (!text_command(viewer, text, kApp, badge, viewer.body, kDefaultTheme.text_primary,
+            if (!text_command(viewer, text, kApp, badge, viewer.body, theme.tokens.text.on_accent,
                               text_style_subtext | text_style_bold, UiTextAlignment::center)) {
                 return false;
             }

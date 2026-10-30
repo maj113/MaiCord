@@ -484,6 +484,7 @@ void copy_input(MessageRichStore* store, MessageRichRecord* record, const Gatewa
         record->reference.state = input.reference.state;
         record->reference.type = input.reference.type;
         record->reference.content_flags = input.reference.content_flags;
+        record->reference.quote_flags = input.reference.quote_flags;
         record->reference.message_type = input.reference.message_type;
         record->reference.author_name = store_string(store, input.reference.author_name, truncated);
         record->reference.author_avatar_hash =
@@ -908,8 +909,11 @@ static MessageRichStoreResult apply_body(MessageRichStore* store, u64 message_id
     record->truncations &= ~replaced_truncation_mask(fields);
     bool storage_truncated = desired_bytes > capacity - store->text_used;
     copy_input(store, record, input, fields, &storage_truncated);
-    if (input.fields & gateway_message_field_flags)
+    if (input.fields & gateway_message_field_flags) {
+        constexpr u32 kComponentsV2Flag = 1u << 15;
         record->voice_message = (input.flags & kGatewayMessageVoiceFlag) != 0;
+        record->components_v2 = (input.flags & kComponentsV2Flag) != 0;
+    }
     if (!child && (input.fields & gateway_message_field_type))
         record->system.message_type = input.type;
     record->message_revision = message_revision;

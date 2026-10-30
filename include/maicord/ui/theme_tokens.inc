@@ -34,6 +34,8 @@ MAICORD_THEME_TOKEN(accent, brand, P(accent), P(accent))
 MAICORD_THEME_TOKEN(accent, success, RGBA(.14f, .65f, .38f, 1), RGBA(.14f, .65f, .38f, 1))
 MAICORD_THEME_TOKEN(accent, warning, RGBA(.94f, .69f, .2f, 1), RGBA(.94f, .69f, .2f, 1))
 MAICORD_THEME_TOKEN(accent, danger, P(notification), P(notification))
+// The APP tag beside a bot's name: the brand blurple in every theme.
+MAICORD_THEME_TOKEN(accent, app_badge, RGBA(.34509804f, .39607843f, .94901961f, 1), RGBA(.34509804f, .39607843f, .94901961f, 1))
 MAICORD_THEME_GROUP_END(accent)
 
 MAICORD_THEME_GROUP(text)

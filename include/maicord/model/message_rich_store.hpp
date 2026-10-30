@@ -25,7 +25,8 @@ struct MessageRichReference {
     u8 type;
     u8 content_flags; // GatewayMessageReferenceContent
     u8 message_type;
-    u8 reserved[4];
+    u8 quote_flags; // GatewayMessageReferenceQuote
+    u8 reserved[3];
 };
 
 // The reply preview's trailing icon, in priority order: sticker, slash
@@ -34,6 +35,40 @@ struct MessageRichReference {
 enum class MessageReplyIcon : u8 { none, image, sticker, command, voice };
 inline constexpr u8 kMessageTypePinned = 6;
 inline constexpr u8 kMessageTypePollResult = 46;
+inline constexpr u8 kMessageTypeUserJoin = 7;
+inline constexpr u8 kMessageTypeRoleSubscriptionPurchase = 25;
+inline constexpr u8 kMessageTypeGuildApplicationPremium = 32;
+inline constexpr u16 kMessageTypeChatInputCommand = 20;
+inline constexpr u16 kMessageTypeInteractionPremiumUpsell = 26;
+// An interaction header shows slash commands (and the premium upsell) as a
+// chip; every other command is plain link-coloured text.
+constexpr bool message_interaction_chip(u16 message_type) noexcept {
+    return message_type == kMessageTypeChatInputCommand || message_type == kMessageTypeInteractionPremiumUpsell;
+}
+// What the 16-DIP slot before a quoted message's preview shows besides the
+// author's avatar: a join notice's arrow, an app subscription's ticket, a
+// poll result's chart.
+enum class MessageReplyLeading : u8 { avatar, join_arrow, ticket, poll };
+constexpr MessageReplyLeading message_rich_reply_leading(u8 message_type) noexcept {
+    return message_type == kMessageTypeUserJoin || message_type == kMessageTypeRoleSubscriptionPurchase
+               ? MessageReplyLeading::join_arrow
+           : message_type == kMessageTypeGuildApplicationPremium ? MessageReplyLeading::ticket
+           : message_type == kMessageTypePollResult              ? MessageReplyLeading::poll
+                                                                 : MessageReplyLeading::avatar;
+}
+// The poll icon fills the 16-DIP avatar slot; the other marks are 12 DIPs and
+// give their text 4 DIPs less room.
+constexpr bool message_reply_leading_small(MessageReplyLeading leading) noexcept {
+    return leading == MessageReplyLeading::join_arrow || leading == MessageReplyLeading::ticket;
+}
+// A quoted poll result leads with its chart only when the poll's name is
+// known; any quote that is not loaded leads with the avatar slot.
+inline MessageReplyLeading message_rich_reply_leading(const MessageRichReference& reference) noexcept {
+    if (reference.state != GatewayMessageReferenceState::available)
+        return MessageReplyLeading::avatar;
+    const MessageReplyLeading leading = message_rich_reply_leading(reference.message_type);
+    return leading == MessageReplyLeading::poll && reference.content.bytes == 0 ? MessageReplyLeading::avatar : leading;
+}
 constexpr MessageReplyIcon message_rich_reply_icon(u8 content_flags, u8 message_type, bool text_empty,
                                                    bool poll) noexcept {
     if (content_flags & gateway_reference_stickers)
@@ -230,6 +265,9 @@ struct MessageRichRecord {
     bool forwarded_snapshot_child;
     bool has_forwarded_snapshot;
     bool voice_message;
+    // Message flag IS_COMPONENTS_V2: top-level components stack 8 apart
+    // instead of the 6 between legacy action rows.
+    bool components_v2;
     MessageRichThread thread;
     MessageRichSystem system;
 };

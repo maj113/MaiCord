@@ -127,6 +127,13 @@ struct MessageRichItemLayout {
 inline constexpr float kMessageReplyTextInset = 20.0f;
 inline constexpr float kMessageReplyIcon = 20.0f;
 inline constexpr float kMessageReplyIconGap = 4.0f;
+// A quoted join or app-subscription notice leads with a 12-DIP icon instead
+// of the avatar, and its text follows after 4 DIPs.
+inline constexpr float kMessageReplyLeadingIcon = 12.0f;
+inline constexpr float kMessageReplyLeadingIconInset = 16.0f;
+// The quoted author's name (and an interaction header's name and server tag)
+// draw at this opacity of their colour, the rest of the preview at full.
+inline constexpr float kMessageReplyAuthorOpacity = 0.64f;
 
 // Embed card: 4-DIP accent border, 12-DIP start and 16-DIP end padding, 2-DIP
 // top padding plus an 8-DIP margin above every block, 16 DIPs above large media

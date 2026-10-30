@@ -9,7 +9,8 @@
 
 namespace maicord {
 
-inline constexpr u32 kUiTooltipMaximumTextBytes = 192;
+// Room for the command card's "/command option: value ..." line.
+inline constexpr u32 kUiTooltipMaximumTextBytes = 384;
 inline constexpr u32 kUiTooltipMaximumBold = 3;
 inline constexpr u32 kUiTooltipMaximumEmojiBytes = 48;
 inline constexpr u32 kUiTooltipMaximumDetailBytes = 48;
@@ -94,7 +95,7 @@ struct UiTooltipScene {
     UiTooltipTrigger trigger;
     bool pending, visible;
 };
-static_assert(sizeof(UiTooltipScene) <= 640);
+static_assert(sizeof(UiTooltipScene) <= 832);
 
 // Offers never capture input or allocate. Repeated identical offers retain
 // their deadline; changing source or modality requires a fresh delay. New

@@ -445,6 +445,9 @@ struct AccountModuleApi {
     AccountModuleLoginNotificationHandleFunction login_notification_handle;
     AccountModuleLoginStopFunction login_stop;
     AccountModuleProfileFunction profile_get;
+    // operation: 0 channel/guild index, 1 user index, 2 execute, 3 autocomplete,
+    // 4 command frecency GET, 5 frecency PATCH (data = settings JSON body),
+    // 6 GET the interaction data of message `nonce` in `channel_id` (the command chip's card).
     RestClientSubmitResult(WINAPI* application_command)(void* instance, u64 channel_id, u64 guild_id,
                                                         u64 application_id, u64 nonce, Utf8View data,
                                                         u64 request_id, u8 operation) noexcept;

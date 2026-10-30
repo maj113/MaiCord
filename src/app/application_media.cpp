@@ -931,6 +931,30 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             if (!proceed(request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop)))
                 return outcome;
         }
+        // An interaction header ("<user> used <command>") shows the command
+        // user's server tag chip, from the same badge asset.
+        for (u32 i = 0; i < application.message_scene.count; ++i) {
+            const auto& row = application.message_scene.rows[i];
+            const auto* layout = message_scene_layout_node(application.message_scene, row.reply);
+            if (!layout || !ui_rect_has_area(
+                               ui_rect_intersection(layout->rectangle, application.message_scene.viewport)))
+                continue;
+            const auto* record = message_store_resolve(application.message_view.store, row.message);
+            const auto* rich = record && application.message_scene.timeline->rich_store
+                                   ? message_rich_store_find(*application.message_scene.timeline->rich_store, record->id)
+                                   : nullptr;
+            if (!rich || rich->message_revision != record->revision || !message_rich_has_interaction(*rich) ||
+                rich->reference.state != GatewayMessageReferenceState::none)
+                continue;
+            const auto* appearance =
+                user_appearance_find(application.account_ui->user_store.appearance, rich->interaction.user_id);
+            ProfileMedia media;
+            if (!appearance || appearance->bot ||
+                !user_guild_badge_media(*appearance, layout->rectangle, application.message_scene.viewport, &media))
+                continue;
+            if (!proceed(request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop)))
+                return outcome;
+        }
     }
     if (chat_visible && application.member_list_scene.active && application.member_list_scene.users) {
         // Plain avatars first, through the shared user-avatar identity (one
@@ -1003,6 +1027,9 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
         if (decorations.stopped)
             return true;
     }
+    if ((chat_visible && !proceed(request_chip_guild_icons(false, now_ms, now_seconds, &uploads, repaint, &stop))) ||
+        !proceed(request_chip_guild_icons(true, now_ms, now_seconds, &uploads, repaint, &stop)))
+        return outcome;
     if (!proceed(request_search_decorations(now_ms, now_seconds, now_us, &uploads, repaint, &stop)) || !chat_visible)
         return outcome;
     if (visibility_only || uploads >= kMessageMediaUploadBudget)

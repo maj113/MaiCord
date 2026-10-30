@@ -513,6 +513,9 @@ struct D3D11Renderer {
     u32 overlay_text_first_batch;
     u32 friends_requests_foreground_first_batch, friends_requests_paint_end_batch;
     u32 friends_requests_media_first_batch, friends_requests_media_end_batch;
+    // Link chip server icons: the timeline's last media batches, drawn after
+    // the message text.
+    u32 chip_media_first_batch, chip_media_end_batch;
     u32 friends_requests_text_end_batch;
     u32 media_picker_paint_first_batch, media_picker_paint_end_batch;
     u32 media_picker_foreground_first_batch;
@@ -641,7 +644,7 @@ struct D3D11Renderer {
     RendererLoginStatus login_status;
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
-static_assert(sizeof(D3D11Renderer) == 120616);
+static_assert(sizeof(D3D11Renderer) == 120624);
 
 // Starts hardware device and draw-pipeline creation on a worker at process
 // entry; the next renderer_initialize adopts them. Main thread only.

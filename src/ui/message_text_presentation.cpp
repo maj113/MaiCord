@@ -307,6 +307,81 @@ Utf8View resolve_entity(void* opaque, MessageMarkdownEntityKind kind, u64 id) no
     return name;
 }
 
+// The official channel icon types: voice and stage lock without Connect,
+// forum posts show the post (speech bubble) icon, everything text-like '#'.
+MessageMarkdownChipIcon chip_channel_icon(const ChatStateStore& state, const ChannelRecord& channel) noexcept {
+    const bool connect = !channel.permissions_resolved || (channel.actions & channel_action_connect);
+    switch (channel.type) {
+    case 2: return connect ? MessageMarkdownChipIcon::voice : MessageMarkdownChipIcon::locked;
+    case 13: return connect ? MessageMarkdownChipIcon::stage : MessageMarkdownChipIcon::locked;
+    case 5: return MessageMarkdownChipIcon::announcement;
+    case 10:
+    case 11:
+    case 12: {
+        const ChannelRecord* parent = chat_state_store_find_channel(state, channel.parent_id);
+        return parent && (parent->type == 15 || parent->type == 16) ? MessageMarkdownChipIcon::message
+                                                                    : MessageMarkdownChipIcon::thread;
+    }
+    case 15: return MessageMarkdownChipIcon::forum;
+    case 16: return MessageMarkdownChipIcon::media;
+    default: return MessageMarkdownChipIcon::text_channel;
+    }
+}
+
+// Channel references become chips of what the store knows: the channel, its
+// server (named when it is not the message's own) and a forum post's forum.
+bool resolve_channel(void* opaque, u64 guild_id, u64 channel_id, MessageMarkdownChannelTarget* target) noexcept {
+    auto* context = static_cast<BuildContext*>(opaque);
+    if (!context || !context->state || !target)
+        return false;
+    const ChatStateStore& state = *context->state;
+    context->trace.entities = true;
+    const ChannelRecord* channel = chat_state_store_find_channel(state, channel_id);
+    if (channel && !channel->occupied)
+        channel = nullptr;
+    u8 flags = 0;
+    if (channel) {
+        const u8 type = channel->type;
+        const bool direct = type == 1 || type == 3;
+        flags |= message_markdown_channel_known;
+        if (direct || (!(channel->flags & kChannelObfuscatedFlag) &&
+                       (!channel->permissions_resolved || (channel->actions & channel_action_view))))
+            flags |= message_markdown_channel_viewable;
+        if (type != 4 && (type <= 3 || type == 5 || type == 6 || (type >= 10 && type <= 16)))
+            flags |= message_markdown_channel_mentionable;
+        if (direct)
+            flags |= message_markdown_channel_private;
+        guild_id = channel->guild_id;
+        target->name = chat_state_store_channel_name(state, *channel);
+        target->icon = chip_channel_icon(state, *channel);
+        if (target->icon == MessageMarkdownChipIcon::message) {
+            flags |= message_markdown_channel_forum_post;
+            if (const ChannelRecord* parent = chat_state_store_find_channel(state, channel->parent_id)) {
+                flags |= message_markdown_channel_parent_known;
+                target->parent_name = chat_state_store_channel_name(state, *parent);
+                target->parent_icon = chip_channel_icon(state, *parent);
+            }
+        }
+    }
+    const GuildRecord* guild = guild_id ? chat_state_store_find_guild(state, guild_id) : nullptr;
+    if (guild && guild->occupied && !guild->unavailable) {
+        flags |= message_markdown_channel_guild_known;
+        target->guild_id = guild->id;
+        target->guild_name = chat_state_store_guild_name(state, *guild);
+        target->guild_icon = chat_state_store_guild_icon_hash(*guild).bytes != 0 && guild->icon_variant != 0;
+        const ChannelRecord* own =
+            context->message ? chat_state_store_find_channel(state, context->message->channel_id) : nullptr;
+        if (own && own->guild_id == guild->id)
+            flags |= message_markdown_channel_same_guild;
+    }
+    target->flags = flags;
+    // Icon cells, margins, the chevron and an ellipsis around three labels.
+    constexpr u32 kChipMarkup = 64;
+    note_emission(&context->trace,
+                  target->name.bytes + target->guild_name.bytes + target->parent_name.bytes + kChipMarkup);
+    return flags != 0;
+}
+
 TimestampFormatResult format_timestamp(void* opaque, u64 unix_seconds, char style,
                                               Slice<char> output) noexcept {
     auto* context = static_cast<BuildContext*>(opaque);
@@ -764,6 +839,8 @@ bool append_rich_line(MessageTextPresentation* presentation, Utf8View text, UiTe
 struct RetainedReplySummary {
     Utf8View text;
     ConstSlice<TextStyleSpan> styles;
+    // Icon cells of link chips in the quoted text (never hit targets).
+    ConstSlice<MessageMarkdownSemantic> semantics;
 };
 
 Color member_role_color(const MessageTextPresentation& presentation, const ChatStateStore& state,
@@ -966,7 +1043,7 @@ u32 reply_preview_source(Utf8View content, char* output, u32 capacity) noexcept 
 RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation, BuildContext* context,
                                           Utf8View author, Utf8View content, bool available = false,
                                           u8 content_flags = 0, u8 message_type = 0,
-                                          Utf8View poll_question = {}) noexcept {
+                                          Utf8View poll_question = {}, u8 quote_flags = 0) noexcept {
     if (!presentation || !context || (!author.data && author.bytes != 0) ||
         (!content.data && content.bytes != 0) || (!poll_question.data && poll_question.bytes != 0)) {
         return RetainedReplySummary{};
@@ -985,6 +1062,9 @@ RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation,
     char transformed[maximum_display_bytes];
     u32 byte_styles[maximum_display_bytes];
     TextStyleSpan transformed_styles[maximum_styles];
+    // The client's reply rules keep channel, message and attachment chips;
+    // only their icon cells are kept, so the line stays one jump target.
+    MessageMarkdownSemantic chip_semantics[64];
 
     const bool poll = (content_flags & gateway_reference_poll_question) != 0;
     Utf8View display_content{};
@@ -1001,10 +1081,12 @@ RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation,
         MessageMarkdownOptions options{
             context, resolve_entity, format_timestamp, nullptr, 0, MessageMarkdownSemanticKind::none, false};
         options.inline_reply = true;
+        options.resolve_channel = resolve_channel;
         parsed = cached_markdown_parse(
             presentation, context, MarkdownCacheMode::reply, Utf8View{source, source_bytes},
             Slice<char>{transformed, maximum_display_bytes}, Slice<u32>{byte_styles, maximum_display_bytes},
-            Slice<TextStyleSpan>{transformed_styles, maximum_styles}, options, Slice<MessageMarkdownSemantic>{});
+            Slice<TextStyleSpan>{transformed_styles, maximum_styles}, options,
+            Slice<MessageMarkdownSemantic>{chip_semantics, 64});
         parsed_markdown = true;
         if (parsed.ok()) {
             display_content = parsed.text;
@@ -1031,27 +1113,39 @@ RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation,
         display_content = placeholder;
         display_style_count = 0;
     }
+    // A reply that pings its quoted author names them "@Author".
+    const u32 at_sign = author.bytes != 0 && (content_flags & gateway_reference_mentions_author) ? 1u : 0u;
+    const u32 author_bytes = author.bytes + at_sign;
     const u32 separator = author.bytes != 0 && display_content.bytes != 0 ? 1u : 0u;
+    // A quoted forward leads its text with the forward icon (a 1em cell and
+    // a 4 px margin, like a chip icon).
+    constexpr Utf8View forward_cell = utf8_literal("\xE2\x80\x83\xE2\x80\x85\xE2\x80\x8D");
+    const u32 forward_bytes =
+        (quote_flags & gateway_quote_forwarded) && display_content.bytes != 0 ? forward_cell.bytes : 0u;
     const u32 retained_style_count =
         (author.bytes != 0 ? 1u : 0u) + display_style_count + (placeholder.bytes ? 1u : 0u);
-    if (author.bytes > presentation->utf8.count - presentation->utf8_count ||
-        separator + display_content.bytes >
-            presentation->utf8.count - presentation->utf8_count - author.bytes ||
+    if (author_bytes > presentation->utf8.count - presentation->utf8_count ||
+        separator + forward_bytes + display_content.bytes >
+            presentation->utf8.count - presentation->utf8_count - author_bytes ||
         retained_style_count > presentation->styles.count - presentation->style_count) {
         return RetainedReplySummary{};
     }
 
     const u32 text_begin = presentation->utf8_count;
     const u32 style_begin = presentation->style_count;
+    if (at_sign)
+        presentation->utf8.data[presentation->utf8_count++] = '@';
     copy_bytes(presentation->utf8.data + presentation->utf8_count, author.data, author.bytes);
     presentation->utf8_count += author.bytes;
     if (author.bytes != 0) {
         presentation->styles[presentation->style_count++] =
-            TextStyleSpan{0, author.bytes, text_style_bold | text_style_inline_role_color};
+            TextStyleSpan{0, author_bytes, text_style_bold | text_style_inline_role_color};
     }
     if (separator != 0) {
         presentation->utf8.data[presentation->utf8_count++] = ' ';
     }
+    copy_bytes(presentation->utf8.data + presentation->utf8_count, forward_cell.data, forward_bytes);
+    presentation->utf8_count += forward_bytes;
     char* content_out = presentation->utf8.data + presentation->utf8_count;
     copy_bytes(content_out, display_content.data, display_content.bytes);
     // Newlines inside text, inline code and emphasis render as spaces.
@@ -1059,7 +1153,7 @@ RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation,
         if (content_out[index] == '\n' || content_out[index] == '\r')
             content_out[index] = ' ';
     presentation->utf8_count += display_content.bytes;
-    const u32 content_offset = author.bytes + separator;
+    const u32 content_offset = author_bytes + separator + forward_bytes;
     if (placeholder.bytes) {
         presentation->styles[presentation->style_count++] =
             TextStyleSpan{content_offset, placeholder.bytes, text_style_italic};
@@ -1075,6 +1169,22 @@ RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation,
         presentation->styles[presentation->style_count++] =
             TextStyleSpan{content_offset + source_span.byte_offset, source_span.byte_count, flags};
     }
+    // The forward icon and chip icon cells, in the line's coordinates.
+    const u32 semantic_begin = presentation->semantic_count;
+    if (forward_bytes && presentation->semantic_count < presentation->semantics.count)
+        presentation->semantics[presentation->semantic_count++] =
+            MessageMarkdownSemantic{static_cast<u64>(MessageMarkdownChipIcon::forward), author_bytes + separator, 3,
+                                    0, 0, MessageMarkdownSemanticKind::chip_icon, 0};
+    for (u32 index = 0; parsed_markdown && parsed.ok() && !placeholder.bytes && index < parsed.semantic_count &&
+                        presentation->semantic_count < presentation->semantics.count;
+         ++index) {
+        MessageMarkdownSemantic semantic = chip_semantics[index];
+        if (semantic.kind != MessageMarkdownSemanticKind::chip_icon &&
+            semantic.kind != MessageMarkdownSemanticKind::guild_icon)
+            continue;
+        semantic.byte_offset += content_offset;
+        presentation->semantics[presentation->semantic_count++] = semantic;
+    }
     if (parsed_markdown && parsed.ok()) {
         saturating_accumulate(presentation->markdown_transformations, parsed.transformations);
         saturating_accumulate(presentation->markdown_spans_emitted, parsed.span_count);
@@ -1086,7 +1196,9 @@ RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation,
     return RetainedReplySummary{
         Utf8View{presentation->utf8.data + text_begin, presentation->utf8_count - text_begin},
         ConstSlice<TextStyleSpan>{presentation->styles.data + style_begin,
-                                  presentation->style_count - style_begin}};
+                                  presentation->style_count - style_begin},
+        ConstSlice<MessageMarkdownSemantic>{presentation->semantics.data + semantic_begin,
+                                            presentation->semantic_count - semantic_begin}};
 }
 
 // "Original message was deleted" / "Message could not be loaded": an italic
@@ -1103,9 +1215,81 @@ RetainedReplySummary retain_reply_placeholder(MessageTextPresentation* presentat
     return {{out, text.bytes}, {style, 1}};
 }
 
+// A quoted system notice (a join line, an app subscription, a closed poll):
+// plain text whose highlighted part (the poll's name) is bold.
+RetainedReplySummary retain_reply_plain(MessageTextPresentation* presentation, const MessageSystemText& system) noexcept {
+    const Utf8View text = system.text;
+    const auto highlighted = [&](u32 i) noexcept {
+        const auto& span = system.spans[i];
+        return (span.kind == MessageSystemSpanKind::emphasis || span.kind == MessageSystemSpanKind::message) &&
+               span.offset <= text.bytes && span.bytes <= text.bytes - span.offset;
+    };
+    u32 count = 0;
+    for (u32 i = 0; i < system.span_count && i < kMessageSystemSpanMaximum; ++i)
+        count += highlighted(i) ? 1u : 0u;
+    if (!text.bytes || text.bytes > presentation->utf8.count - presentation->utf8_count ||
+        count > presentation->styles.count - presentation->style_count)
+        return {};
+    char* out = presentation->utf8.data + presentation->utf8_count;
+    copy_bytes(out, text.data, text.bytes);
+    presentation->utf8_count += text.bytes;
+    auto* styles = presentation->styles.data + presentation->style_count;
+    count = 0;
+    for (u32 i = 0; i < system.span_count && i < kMessageSystemSpanMaximum; ++i)
+        if (highlighted(i))
+            styles[count++] = TextStyleSpan{system.spans[i].offset, system.spans[i].bytes, text_style_bold};
+    presentation->style_count += count;
+    return {{out, text.bytes}, {styles, count}};
+}
+
+// A reply that points into a clip: "<author> <title> @1:23", the title bold
+// ("Untitled" without one), the moment in link colour. content is the decoded
+// "<title>\x1f@<time>" of the quote.
+RetainedReplySummary retain_reply_media_mention(MessageTextPresentation* presentation, Utf8View author,
+                                                bool at_sign, Utf8View content) noexcept {
+    u32 split = 0;
+    while (split < content.bytes && content.data[split] != '\x1f')
+        ++split;
+    if (split >= content.bytes || !author.bytes)
+        return {};
+    Utf8View title{content.data, split};
+    const Utf8View stamp{content.data + split + 1, content.bytes - split - 1};
+    if (!title.bytes)
+        title = utf8_literal("Untitled");
+    const u32 author_bytes = author.bytes + (at_sign ? 1u : 0u);
+    const u32 bytes = author_bytes + 1 + title.bytes + 1 + stamp.bytes;
+    if (!stamp.bytes || bytes > presentation->utf8.count - presentation->utf8_count ||
+        presentation->styles.count - presentation->style_count < 3)
+        return {};
+    char* out = presentation->utf8.data + presentation->utf8_count;
+    u32 at = 0;
+    if (at_sign)
+        out[at++] = '@';
+    copy_bytes(out + at, author.data, author.bytes);
+    at += author.bytes;
+    out[at++] = ' ';
+    const u32 title_at = at;
+    copy_bytes(out + at, title.data, title.bytes);
+    at += title.bytes;
+    out[at++] = ' ';
+    const u32 stamp_at = at;
+    copy_bytes(out + at, stamp.data, stamp.bytes);
+    presentation->utf8_count += bytes;
+    auto* styles = presentation->styles.data + presentation->style_count;
+    styles[0] = {0, author_bytes, text_style_bold | text_style_inline_role_color};
+    styles[1] = {title_at, title.bytes, text_style_bold};
+    styles[2] = {stamp_at, stamp.bytes, text_style_link};
+    presentation->style_count += 3;
+    return {{out, bytes}, {styles, 3}};
+}
+
+// "<user> used <command>": the spans name the user and the command so the
+// header layout (message_interaction_layout) can place the avatar-line pieces
+// itself; a slash command is a chip (no leading slash), any other command is
+// plain link-coloured text.
 RetainedReplySummary retain_interaction_header(MessageTextPresentation* presentation, Utf8View user,
-                                               Utf8View command) noexcept {
-    const auto separator = utf8_literal(" used /");
+                                               Utf8View command, bool chip) noexcept {
+    const auto separator = utf8_literal(" used ");
     const u32 bytes = user.bytes + separator.bytes + command.bytes;
     if (bytes > presentation->utf8.count - presentation->utf8_count ||
         presentation->styles.count - presentation->style_count < 2)
@@ -1116,7 +1300,7 @@ RetainedReplySummary retain_interaction_header(MessageTextPresentation* presenta
     copy_bytes(text + user.bytes + separator.bytes, command.data, command.bytes);
     auto* styles = presentation->styles.data + presentation->style_count;
     styles[0] = {0, user.bytes, text_style_inline_role_color};
-    styles[1] = {user.bytes + separator.bytes - 1, command.bytes + 1, text_style_mention};
+    styles[1] = {user.bytes + separator.bytes, command.bytes, chip ? text_style_mention : text_style_link};
     presentation->utf8_count += bytes;
     presentation->style_count += 2;
     return {{text, bytes}, {styles, 2}};
@@ -1126,20 +1310,21 @@ bool append_reply_line(MessageTextPresentation* presentation, const Utf8View& te
                        const ConstSlice<TextStyleSpan>& styles, UiTextFlowLayout* flow, const Color& color,
                        const Color& inline_role_color, const UiWidgetReference& owner, const MessageRecord& record,
                        u16 measurement_index, UiTextOverflow overflow,
-                       float right_inset = 0.0f) noexcept {
+                       float right_inset = 0.0f, float left_inset = kMessageReplyTextInset,
+                       ConstSlice<MessageMarkdownSemantic> semantics = {}) noexcept {
     if (!presentation || !flow || text.bytes == 0) {
         return false;
     }
     UiRect rectangle{};
     // Reserve the leading 16-DIP referenced-author avatar plus a 4-DIP gap,
     // and room for a trailing 20-DIP icon (4-DIP gap) when one follows.
-    if (!begin_item(presentation, flow, 20.0f, right_inset, &rectangle)) {
+    if (!begin_item(presentation, flow, left_inset, right_inset, &rectangle)) {
         return false;
     }
     // Bound shaping to one line; the renderer applies character-granularity
     // ellipsis inside this retained width.
     rectangle.bottom = rectangle.top + 18.0f;
-    if (!append_command(presentation, text, styles, kNoSemantics, owner, rectangle,
+    if (!append_command(presentation, text, styles, semantics, owner, rectangle,
                         flow->clip_rectangle, color, &record, measurement_index,
                         {.kind = MessageTextMeasurementKind::reply,
                          .minimum_height = 16.0f,
@@ -1313,6 +1498,7 @@ bool parse_content(MessageTextPresentation* presentation, BuildContext* context,
     options.no_lists = context->markdown_rules == 1;
     options.text_sizes = true;
     options.base_size = base_size;
+    options.resolve_channel = resolve_channel;
     const MessageMarkdownResult parsed = cached_markdown_parse(
         presentation, context, MarkdownCacheMode::content, source,
         Slice<char>{presentation->utf8.data + text_begin, presentation->utf8.count - text_begin},
@@ -2097,13 +2283,27 @@ bool append_plugin_accessories(MessageTextPresentation* presentation, const UiPl
     return true;
 }
 
+// The row or section showing this message's failed component error, or
+// kMessageComponentNone when the failure has no control of its own.
+u32 failed_component_host(const MessageScene& scene, const MessageRecord& record) noexcept {
+    if (!scene.interaction.failed || scene.interaction.message_id != record.id || !scene.timeline ||
+        !scene.timeline->rich_store)
+        return kMessageComponentNone;
+    const MessageRichRecord* rich = message_rich_store_find(*scene.timeline->rich_store, record.id);
+    return rich && rich->message_revision == record.revision
+               ? message_component_error_host(*rich, scene.interaction.component_index)
+               : kMessageComponentNone;
+}
+
 bool append_annotations(MessageTextPresentation* presentation, const MessageScene& scene,
                         const MessageSceneRowWidget& row, const MessageRecord& record, const Theme& theme,
                         const UiRect& row_clip, u16 measurement_index, bool forwarded, float offset,
                         const UiPluginRenderDecoration* decoration = nullptr) noexcept {
     if (forwarded)
         return true;
-    const bool failed = scene.interaction.failed && scene.interaction.message_id == record.id;
+    // A failure on a control shows under its action row instead.
+    const bool failed = scene.interaction.failed && scene.interaction.message_id == record.id &&
+                        failed_component_host(scene, record) == kMessageComponentNone;
     const bool ephemeral = (record.flags & kMessageFlagEphemeral) != 0;
     const bool accessories = decoration && decoration->accessory_count;
     if (!failed && !ephemeral && !accessories)
@@ -2962,7 +3162,9 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         Utf8View label{};
         const bool interaction_header = rich->reference.state == GatewayMessageReferenceState::none;
         if (interaction_header) {
-            label = message_rich_store_string(*rich_store, rich->interaction.user_name);
+            label = member_nickname(*presentation, state, record->channel_id, rich->interaction.user_id);
+            if (label.bytes == 0)
+                label = message_rich_store_string(*rich_store, rich->interaction.user_name);
             if (label.bytes == 0)
                 label = utf8_literal("Unknown user");
         } else if (rich->reference.state == GatewayMessageReferenceState::available) {
@@ -2992,17 +3194,41 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                 poll_question = message_poll_store_string(*scene.polls->store, poll->question);
         }
         BuildContext reply_context{presentation, &state, users, &navigation, record, now_unix_seconds};
-        const RetainedReplySummary summary =
-            interaction_header
-                ? retain_interaction_header(
-                      presentation, label,
-                      message_rich_store_string(*rich_store, rich->interaction.command_name))
-            : reference_available
-                ? retain_reply_summary(presentation, &reply_context, label, reference_content, true,
-                                       rich->reference.content_flags, rich->reference.message_type, poll_question)
-                : retain_reply_placeholder(presentation, label);
+        // A quoted join, app-premium or poll-result notice reads as its system line, without an author name.
+        const MessageReplyLeading leading = interaction_header ? MessageReplyLeading::avatar
+                                                               : message_rich_reply_leading(rich->reference);
+        RetainedReplySummary summary{};
+        if (leading != MessageReplyLeading::avatar) {
+            MessageSystemTextInput system_input{};
+            system_input.message_id = rich->reference.message_id;
+            system_input.author = label;
+            system_input.poll_question = reference_content;
+            system_input.type = rich->reference.message_type;
+            char system_storage[kMessageSystemTextMaximumBytes];
+            MessageSystemText system_text{};
+            if (message_system_text_build(system_input, {system_storage, sizeof(system_storage)}, &system_text))
+                summary = retain_reply_plain(presentation, system_text);
+        }
+        // A reply that points into a clip quotes the clip's title and the moment instead of the text.
+        const bool media_mention = reference_available && !interaction_header &&
+                                   (rich->reference.quote_flags & gateway_quote_media_mention) != 0;
+        if (summary.text.bytes == 0 && media_mention)
+            summary = retain_reply_media_mention(presentation, label,
+                                                 (rich->reference.content_flags & gateway_reference_mentions_author) != 0,
+                                                 reference_content);
+        if (summary.text.bytes == 0)
+            summary = interaction_header
+                          ? retain_interaction_header(
+                                presentation, label,
+                                message_rich_store_string(*rich_store, rich->interaction.command_name),
+                                message_interaction_chip(record->type))
+                      : reference_available
+                          ? retain_reply_summary(presentation, &reply_context, label, reference_content, true,
+                                                 rich->reference.content_flags, rich->reference.message_type,
+                                                 poll_question, rich->reference.quote_flags)
+                          : retain_reply_placeholder(presentation, label);
         const MessageReplyIcon reply_icon =
-            reference_available && !interaction_header
+            reference_available && !interaction_header && leading == MessageReplyLeading::avatar && !media_mention
                 ? message_rich_reply_icon(rich->reference.content_flags, rich->reference.message_type,
                                           reference_content.bytes == 0,
                                           poll_question.bytes != 0 ||
@@ -3010,14 +3236,22 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                 : MessageReplyIcon::none;
         const UiWidgetReference owner{&scene.widgets, row.reply};
         // Role colours are server data and pass through every theme unchanged.
+        // The quoted author's name is muted like the official client's; the
+        // interaction header mutes its name when it lays the line out.
         const Color reply_author_color = member_role_color(*presentation, state, record->channel_id,
                                                            message_rich_header_user(*rich), theme.text_primary);
+        const Color reply_name_color =
+            interaction_header ? reply_author_color
+                               : ui_theme_color_alpha(reply_author_color, kMessageReplyAuthorOpacity);
         if (summary.text.bytes == 0 ||
             !append_reply_line(presentation, summary.text, summary.styles, &flow, theme.text_primary,
-                               reply_author_color, owner, *record, measurement_index,
+                               reply_name_color, owner, *record, measurement_index,
                                UiTextOverflow::ellipsis,
                                reply_icon != MessageReplyIcon::none ? kMessageReplyIconGap + kMessageReplyIcon
-                                                                    : 0.0f)) {
+                                                                    : 0.0f,
+                               message_reply_leading_small(leading) ? kMessageReplyLeadingIconInset
+                                                                    : kMessageReplyTextInset,
+                               summary.semantics)) {
             return false;
         }
         if (presentation->command_count == reply_begin) {
@@ -3105,29 +3339,61 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                             record->content_availability == MessageContentAvailability::available;
     const bool thinking =
         !forwarded && !collapsed && (record->flags & kMessageFlagLoading) != 0 && content.bytes == 0;
+    // The official client's local command message shows its status text as
+    // is ("Sending command...", the refusal), after a status icon.
+    const bool command_status = !forwarded && !replaced && !collapsed && !thinking && content.bytes != 0 &&
+                                (record->type == 20 || record->type == 23) &&
+                                record->delivery != MessageDeliveryState::authoritative;
     if (system_row) {
         if (!retain_system_text(presentation, state, users, *record, rich_store, rich, content, now_unix_seconds,
                                 &display_content, &styles, &semantics))
             return false;
         content_color = ui_background_muted_text_color(theme);
         row_measurement.content_present = true;
-    } else if (thinking) {
-        // Deferred interaction response: the app is shown "thinking".
-        const UserRecord* app_user = users ? user_store_find(*users, record->author_id) : nullptr;
-        const Utf8View name = app_user ? user_store_name(*users, *app_user) : utf8_literal("The app");
-        const auto suffix = utf8_literal(" is thinking\xE2\x80\xA6");
-        if (name.bytes + suffix.bytes > presentation->utf8.count - presentation->utf8_count ||
-            presentation->style_count >= presentation->styles.count)
+    } else if (thinking || command_status) {
+        // Deferred interaction response, as the official client draws it: the
+        // app "is thinking..." until 15 minutes after the message id, then
+        // "The application did not respond" in the critical colour.
+        bool failed = record->delivery == MessageDeliveryState::failed;
+        Utf8View name{}, suffix = content;
+        if (thinking) {
+            constexpr u64 kInteractionResponseWindowSeconds = 15 * 60;
+            const u64 expires = snowflake_timestamp_ms(record->id) / 1000 + kInteractionResponseWindowSeconds;
+            failed = now_unix_seconds >= expires;
+            if (!failed && (presentation->next_timestamp_update_unix_seconds == 0 ||
+                            expires < presentation->next_timestamp_update_unix_seconds))
+                presentation->next_timestamp_update_unix_seconds = expires;
+            const UserRecord* app_user = users ? user_store_find(*users, record->author_id) : nullptr;
+            name = failed ? Utf8View{} : app_user ? user_store_name(*users, *app_user) : utf8_literal("The app");
+            suffix = failed ? utf8_literal("The application did not respond") : utf8_literal(" is thinking...");
+        }
+        // An icon cell of EM SPACEs (one for the failure icon, two for the
+        // client's three dots), a 4 DIP gap and a joiner, as link chips do.
+        const Utf8View cell = failed ? utf8_literal("\xE2\x80\x83\xE2\x80\x85\xE2\x80\x8D")
+                                     : utf8_literal("\xE2\x80\x83\xE2\x80\x83\xE2\x80\x85\xE2\x80\x8D");
+        const u32 bytes = cell.bytes + name.bytes + suffix.bytes;
+        if (bytes > presentation->utf8.count - presentation->utf8_count ||
+            presentation->style_count >= presentation->styles.count ||
+            presentation->semantic_count >= presentation->semantics.count)
             return fail(presentation, MessageTextPresentationError::capacity);
         char* retained = presentation->utf8.data + presentation->utf8_count;
-        copy_bytes(retained, name.data, name.bytes);
-        copy_bytes(retained + name.bytes, suffix.data, suffix.bytes);
-        presentation->utf8_count += name.bytes + suffix.bytes;
-        display_content = {retained, name.bytes + suffix.bytes};
-        auto& italic = presentation->styles[presentation->style_count++];
-        italic = {0, display_content.bytes, text_style_italic};
-        styles = {&italic, 1};
-        content_color = ui_background_muted_text_color(theme);
+        copy_bytes(retained, cell.data, cell.bytes);
+        copy_bytes(retained + cell.bytes, name.data, name.bytes);
+        copy_bytes(retained + cell.bytes + name.bytes, suffix.data, suffix.bytes);
+        presentation->utf8_count += bytes;
+        display_content = {retained, bytes};
+        auto& run = presentation->styles[presentation->style_count++];
+        run = {0, bytes, text_style_none};
+        styles = {&run, 1};
+        auto& icon = presentation->semantics[presentation->semantic_count++];
+        icon = MessageMarkdownSemantic{
+            static_cast<u64>(failed ? MessageMarkdownChipIcon::failed : MessageMarkdownChipIcon::pending_dots), 0,
+            failed ? 3u : 6u, 0, 0, MessageMarkdownSemanticKind::chip_icon, 0};
+        semantics = {&icon, 1};
+        if (failed)
+            content_color = theme.notification;
+        else
+            presentation->status_dots = true;
         row_measurement.content_present = true;
     } else if (compact_name.bytes) {
         if (!compact_content(presentation, &context, compact_name, parse ? content : Utf8View{}, &display_content,
@@ -3143,7 +3409,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
     }
     QuoteSegment segments[kQuoteSegmentMaximum];
     // Compact rows keep the name inline with the first line of the body.
-    u32 segment_count = parse && !system_row && !thinking
+    u32 segment_count = parse && !system_row && !thinking && !command_status
                             ? split_quote_segments(display_content, styles, semantics, segments)
                             : 0u;
     if (segment_count == 0) {
@@ -3274,20 +3540,41 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
             auto& measured_items = row_measurement.rich_item_layout;
             const bool text_leaf = kind == MessageComponentKind::text || kind == MessageComponentKind::button ||
                                    kind == MessageComponentKind::select || kind == MessageComponentKind::file;
+            // Inside an unrevealed spoiler container, text is clipped away
+            // (still measured, so revealing moves nothing) and media add no
+            // labels: the container carries the one spoiler label.
+            const u32 spoiler = message_component_spoiler_container(*rich, index);
+            const MessageMediaObscure concealed =
+                spoiler == kMessageComponentNone
+                    ? MessageMediaObscure::none
+                    : message_scene_media_obscure(scene, media_policy, 0,
+                                                  message_media_reveal_key(record->id, MessageMediaSource::component,
+                                                                           spoiler, row.forwarded_snapshot),
+                                                  true, false);
+            const bool hidden = concealed != MessageMediaObscure::none && spoiler != index;
+            const UiRect component_clip =
+                hidden ? UiRect{row_clip.left, row_clip.top, row_clip.left + 0.01f, row_clip.top + 0.01f} : row_clip;
             // Parents are folded from their measured children below; media
             // leaves and separators have fixed extents.
             if (!text_leaf) {
-                if (kind == MessageComponentKind::thumbnail || kind == MessageComponentKind::gallery_item) {
+                const UiLayoutNode* node =
+                    message_scene_rich_item_layout_node(scene, row, MessageSceneRichItemKind::component, index);
+                if (kind == MessageComponentKind::container && concealed != MessageMediaObscure::none && node &&
+                    !append_obscure_label(
+                        presentation, concealed, node->rectangle,
+                        {&scene.widgets,
+                         message_scene_rich_item_widget(row, MessageSceneRichItemKind::component, index)},
+                        row_clip, theme, *record, measurement_index))
+                    return false;
+                if (!hidden && (kind == MessageComponentKind::thumbnail || kind == MessageComponentKind::gallery_item)) {
                     const MessageMediaObscure obscure = message_scene_media_obscure(
                         scene, media_policy, 0,
                         message_media_reveal_key(record->id, MessageMediaSource::component, index,
                                                  row.forwarded_snapshot),
                         message_rich_component_spoiler(component), false);
-                    const UiLayoutNode* media = message_scene_rich_item_layout_node(
-                        scene, row, MessageSceneRichItemKind::component, index);
-                    if (media && obscure != MessageMediaObscure::none &&
+                    if (node && obscure != MessageMediaObscure::none &&
                         !append_obscure_label(
-                            presentation, obscure, media->rectangle,
+                            presentation, obscure, node->rectangle,
                             {&scene.widgets, message_scene_rich_item_widget(row, MessageSceneRichItemKind::component,
                                                                             index)},
                             row_clip, theme, *record, measurement_index))
@@ -3328,15 +3615,20 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
             }
             const UiWidgetReference owner{&scene.widgets, item_widget};
             const UiRect box = item_layout->rectangle;
-            const UiRect item_clip = ui_rect_intersection(row_clip, box);
+            const UiRect item_clip = ui_rect_intersection(component_clip, box);
             const u32 command_begin = presentation->command_count;
             if (kind == MessageComponentKind::text) {
+                // Text inside a container uses the reduced .875rem size.
+                bool contained = false;
+                for (u16 at = component.parent; at != 0xFFFFu && !contained; at = rich->components[at].parent)
+                    contained = rich->components[at].type == gateway_component_container;
                 UiTextFlowLayout flow{};
                 if (!initialize_flow(presentation, *item_layout, item_layout->content_rectangle.left,
-                                     ui_rect_width(item_layout->content_rectangle), row_clip, &flow) ||
+                                     ui_rect_width(item_layout->content_rectangle), component_clip, &flow) ||
                     !append_rich_markdown_line(
                         &context, message_rich_store_string(*rich_store, component.content), &flow, 0.0f, 0.0f,
-                        theme.text_primary, owner, measurement_index, MessageTextMeasurementKind::component)) {
+                        theme.text_primary, owner, measurement_index, MessageTextMeasurementKind::component, 3.0f, 0,
+                        contained ? text_size_sm : text_size_inherit)) {
                     return false;
                 }
                 set_failure_operation(presentation, MessageTextPresentationOperation::ensure_extent);
@@ -3361,39 +3653,46 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
             float left_inset = kMessageComponentButtonPadding, right_inset = kMessageComponentButtonPadding;
             UiTextAlignment alignment = UiTextAlignment::start;
             float fixed_height = message_component_leaf_height(component);
+            ConstSlice<TextStyleSpan> styles{};
             if (kind == MessageComponentKind::button) {
                 label = message_rich_store_string(*rich_store, component.label);
                 color = message_component_button_colors(theme, component.style, component.disabled).text;
-                const bool emoji = component.emoji_id != 0 || component.emoji_name.bytes != 0;
-                const bool link = message_component_is_link(component);
-                // Unicode emoji render as text ahead of the label; custom
-                // emoji are media painted in the leading inset.
-                Utf8View unicode = component.emoji_id ? Utf8View{} :
-                                       message_rich_store_string(*rich_store, component.emoji_name);
-                const Utf8View suffix{};
-                if (link)
-                    right_inset += 18.0f; // external-link glyph lane
+                // Unicode emoji render as text ahead of the 14-DIP label;
+                // custom emoji are media painted in the leading inset.
+                const Utf8View unicode =
+                    component.emoji_id ? Utf8View{} : message_rich_store_string(*rich_store, component.emoji_name);
+                if (message_component_is_link(component))
+                    right_inset += kMessageComponentLinkIconGap + kMessageComponentLinkIconExtent;
                 if (unicode.bytes) {
-                    const u32 bytes = unicode.bytes + (unicode.bytes && label.bytes ? 1u : 0u) + label.bytes +
-                                      suffix.bytes;
+                    const u32 bytes = unicode.bytes + (label.bytes ? 1u : 0u) + label.bytes;
                     if (bytes > presentation->utf8.count - presentation->utf8_count)
                         return fail(presentation, MessageTextPresentationError::capacity);
                     char* retained = presentation->utf8.data + presentation->utf8_count;
-                    u32 at = 0;
                     copy_bytes(retained, unicode.data, unicode.bytes);
-                    at += unicode.bytes;
-                    if (unicode.bytes && label.bytes)
-                        retained[at++] = ' ';
-                    copy_bytes(retained + at, label.data, label.bytes);
-                    at += label.bytes;
-                    copy_bytes(retained + at, suffix.data, suffix.bytes);
+                    if (label.bytes) {
+                        retained[unicode.bytes] = ' ';
+                        copy_bytes(retained + unicode.bytes + 1u, label.data, label.bytes);
+                    }
                     label = {retained, bytes};
                     presentation->utf8_count += bytes;
                 }
-                if (emoji && component.emoji_id)
-                    left_inset += kMessageComponentEmojiExtent + (label.bytes ? 4.0f : 0.0f);
+                if (component.emoji_id)
+                    left_inset += kMessageComponentEmojiExtent + (label.bytes ? kMessageComponentEmojiGap : 0.0f);
+                // The emoji keeps the body size; the label is .875rem.
+                if (label.bytes) {
+                    if (presentation->styles.count - presentation->style_count < 2)
+                        return fail(presentation, MessageTextPresentationError::capacity);
+                    TextStyleSpan* spans = presentation->styles.data + presentation->style_count;
+                    u32 count = 0;
+                    if (unicode.bytes)
+                        spans[count++] = {0, unicode.bytes, 0, text_size_md, {}};
+                    if (label.bytes > unicode.bytes)
+                        spans[count++] = {unicode.bytes, label.bytes - unicode.bytes, 0, text_size_sm, {}};
+                    presentation->style_count += count;
+                    styles = {spans, count};
+                }
                 alignment = UiTextAlignment::center;
-                // A pending interaction replaces the label with a spinner.
+                // A pending interaction replaces the label with loading dots.
                 if (scene.interaction.pending && scene.interaction.message_id == record->id &&
                     scene.interaction.component_index == index)
                     reset_value(&label);
@@ -3411,7 +3710,8 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                     label = message_rich_store_string(*rich_store, component.content);
                 if (!label.bytes)
                     label = utf8_literal("Make a selection");
-                right_inset += 24.0f; // chevron lane
+                left_inset = kMessageComponentSelectPadding;
+                right_inset = kMessageComponentSelectIconLane;
             } else {
                 label = message_rich_store_string(*rich_store, component.label);
                 if (!label.bytes)
@@ -3425,9 +3725,10 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
             const UiRect label_rectangle{box.left + clamped_left, box.top, box.right - clamped_right,
                                          box.top + fixed_height};
             if (label.bytes && ui_rect_has_area(item_clip) &&
-                !append_command(presentation, label, kNoStyles, kNoSemantics, owner, label_rectangle, item_clip, color,
+                !append_command(presentation, label, styles, kNoSemantics, owner, label_rectangle, item_clip, color,
                                 record, measurement_index,
                                 {.kind = MessageTextMeasurementKind::component,
+                                 .themed = styles.count != 0,
                                  .horizontal = alignment,
                                  .vertical = UiTextAlignment::center,
                                  .wrapping = UiTextWrapping::no_wrap,
@@ -3447,7 +3748,8 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                         static_cast<float>(static_cast<u32>(measured_width + 0.999f)) + left_inset + right_inset);
                 else if (!label.bytes && !component.label.bytes)
                     measured_items.component_widths[index] =
-                        kMessageComponentEmojiExtent + 2.0f * kMessageComponentButtonPadding;
+                        maximum(kMessageComponentButtonMinimumWidth,
+                                kMessageComponentEmojiExtent + 2.0f * kMessageComponentButtonPadding);
             }
             saturating_accumulate(presentation->rich.components);
         }
@@ -3455,8 +3757,31 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         const UiLayoutNode* components_region = message_scene_layout_node(scene, row.components);
         const float components_available =
             components_region ? ui_rect_width(components_region->content_rectangle) : text_width;
+        const u32 error_host = forwarded ? kMessageComponentNone : failed_component_host(scene, *record);
         presentation->measurements[measurement_index].rich_layout.components = message_component_measure_tree(
-            *rich, &row_measurement.rich_item_layout, maximum(1.0f, components_available));
+            *rich, &row_measurement.rich_item_layout, maximum(1.0f, components_available), error_host);
+        // The failed control's error line: after the icon, in the space the
+        // measure reserved under its row or section.
+        const UiLayoutNode* host =
+            error_host != kMessageComponentNone
+                ? message_scene_rich_item_layout_node(scene, row, MessageSceneRichItemKind::component, error_host)
+                : nullptr;
+        if (host && ui_rect_height(host->rectangle) >= kMessageComponentErrorHeight) {
+            const float bottom = host->rectangle.bottom - 4.0f;
+            const UiRect line{host->rectangle.left + kMessageComponentErrorIconExtent + kMessageComponentErrorIconGap,
+                              bottom - (kMessageComponentErrorHeight - 8.0f),
+                              maximum(host->rectangle.left + kMessageComponentErrorIconExtent +
+                                          kMessageComponentErrorIconGap + 1.0f,
+                                      host->rectangle.right),
+                              bottom};
+            if (ui_rect_has_area(ui_rect_intersection(line, row_clip)) &&
+                !append_command(presentation, utf8_literal("This interaction failed"), kNoStyles, kNoSemantics,
+                                {&scene.widgets, message_scene_rich_item_widget(row, MessageSceneRichItemKind::component,
+                                                                                error_host)},
+                                line, row_clip, theme.tokens.text.danger, record, kInvalidMessageTextMeasurement,
+                                kLookMiddle))
+                return false;
+        }
     }
 
     MessageReactionTextItem reaction_items[kGatewayMessageReactionMaximum]{};
@@ -3724,6 +4049,7 @@ MessageTextPresentationResult message_text_presentation_build(
         markdown_entity_epoch(state, users, presentation->guild_members, navigation);
     reset_value<MessageTextRichMetrics>(&presentation->rich);
     presentation->next_timestamp_update_unix_seconds = 0;
+    presentation->status_dots = false;
     presentation->projection_signature = 0;
     presentation->shift_layout_passes = 0;
     presentation->scroll_shift_dips = 0.0f;
@@ -3992,7 +4318,14 @@ MessageTextCopyProjectionResult message_text_project_selection_for_copy(const Me
     bool transformed = false;
     for (u32 index = 0; index < command.semantics.count; ++index) {
         const MessageMarkdownSemantic& semantic = command.semantics[index];
-        if (semantic.kind != MessageMarkdownSemanticKind::custom_emoji || semantic.byte_count == 0 ||
+        // Custom emoji and link chips (message/channel references, attachment
+        // URLs) copy their source when fully selected; generated rows have none.
+        const bool chip = semantic.source_bytes != 0 &&
+                          (semantic.kind == MessageMarkdownSemanticKind::message_link ||
+                           semantic.kind == MessageMarkdownSemanticKind::channel_mention ||
+                           (semantic.kind == MessageMarkdownSemanticKind::link &&
+                            (semantic.reserved & kMessageMarkdownAttachmentChip)));
+        if ((semantic.kind != MessageMarkdownSemanticKind::custom_emoji && !chip) || semantic.byte_count == 0 ||
             semantic.byte_offset > command.text.bytes ||
             semantic.byte_count > command.text.bytes - semantic.byte_offset) {
             continue;

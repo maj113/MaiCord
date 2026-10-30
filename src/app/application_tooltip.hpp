@@ -10,6 +10,9 @@ void application_tooltip_input(UINT message, WPARAM wparam, LPARAM lparam) noexc
 bool application_tooltip_synchronize(u64 now_ms) noexcept;
 u64 application_tooltip_next_wake() noexcept;
 void application_tooltip_clear() noexcept;
+// A pinned tooltip (the command card) appeared: makes the next frame offer it
+// even before the pointer has hovered anything.
+void application_tooltip_wake() noexcept;
 void application_tooltip_release() noexcept;
 u32 application_tooltip_owner_bytes() noexcept;
 } // namespace maicord::app_detail

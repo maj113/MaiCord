@@ -1,4 +1,5 @@
 #include "application_account_reconnect.hpp"
+#include "application_commands.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_channel_memory.hpp"
 #include "application_guild_community.hpp"
@@ -15,6 +16,7 @@
 #include "application_content_input.hpp"
 #include "application_media_policy.hpp"
 #include "application_guild_card.hpp"
+#include "application_interaction_card.hpp"
 #include "application_guild_lifecycle.hpp"
 #include "application_navigation_drag.hpp"
 #include "application_friends.hpp"
@@ -26,6 +28,7 @@
 #include "application_message_history.hpp"
 #include "application_message_interaction.hpp"
 #include "application_message_components.hpp"
+#include "maicord/ui/message_component_layout.hpp"
 #include "application_invite_cards.hpp"
 #include "application_pinned_messages.hpp"
 #include "application_message_reaction.hpp"
@@ -39,6 +42,7 @@
 #include "application_message_navigation.hpp"
 #include "application_plugins.hpp"
 #include "application_link_trust.hpp"
+#include "application_toast.hpp"
 
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
@@ -48,6 +52,7 @@
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/ui/message_action_bar.hpp"
 #include "maicord/ui/message_author.hpp"
+#include "maicord/ui/message_interaction.hpp"
 
 #include "maicord/core/win32_user.hpp"
 
@@ -270,7 +275,73 @@ bool content_link_trusted_text(const MessageTextHit& hit, const Utf8View& url) n
     }
     return false;
 }
+
+// An attachment chip (a signed CDN URL in message text) opens or copies its
+// URL refreshed through the official refresh-urls request when it expires
+// within the hour, as the client does; a failed refresh keeps the URL as sent.
+struct ContentAttachmentIntent {
+    MessageTextHit hit;
+    u64 account_scope;
+    u64 source_fingerprint;
+    bool pending;
+    bool copy;
+} content_attachment;
+
+Utf8View content_attachment_source(const MessageTextHit& hit) noexcept {
+    return g_app.account_ui ? message_text_presentation_hit_source(g_app.message_view.store,
+                                                                   &g_app.account_ui->message_rich_store, hit)
+                            : Utf8View{};
+}
+
+void finish_content_attachment(Utf8View url, bool copy) noexcept {
+    if (!copy)
+        open_content_url_impl(url);
+    else if (!application_copy_text(url, kToastLinkCopied, kToastLinkCopyFailed))
+        log_write(LogLevel::warning, "message", "copy_link_failed");
+}
+
+// Ready, failed or no refresh needed: act now and release the intent.
+bool resolve_content_attachment(Utf8View source) noexcept {
+    const u64 now_ms = clock_monotonic_milliseconds(), now_seconds = clock_unix_milliseconds() / 1000;
+    const Utf8View ready = media_url_resolve(&g_app.media_urls, source, now_ms, now_seconds);
+    const auto state = ready.bytes ? MediaUrlState::ready : media_url_resolution_state(g_app.media_urls, source);
+    if (state == MediaUrlState::queued || state == MediaUrlState::pending) {
+        content_attachment.pending = true;
+        return true;
+    }
+    const bool copy = content_attachment.copy;
+    reset_value(&content_attachment);
+    finish_content_attachment(ready.bytes ? ready : source, copy);
+    return true;
+}
+
+bool activate_content_attachment(const MessageTextHit& hit, bool copy) noexcept {
+    const Utf8View source = content_attachment_source(hit);
+    Utf8View name{};
+    if (!message_markdown_attachment_link(source, &name))
+        return true;
+    reset_value(&content_attachment);
+    content_attachment = {hit, application_account_scope(), hash64_bytes(kHash64Seed, source.data, source.bytes),
+                          false, copy};
+    return resolve_content_attachment(source);
+}
+
+void content_attachment_pump() noexcept {
+    if (!content_attachment.pending)
+        return;
+    // An edited, deleted or switched-away source drops the intent.
+    const Utf8View source = content_attachment_source(content_attachment.hit);
+    if (application_account_scope() != content_attachment.account_scope || !source.bytes ||
+        hash64_bytes(kHash64Seed, source.data, source.bytes) != content_attachment.source_fingerprint) {
+        reset_value(&content_attachment);
+        return;
+    }
+    resolve_content_attachment(source);
+}
+
 bool open_content_link(const MessageTextHit& hit) noexcept {
+    if (hit.reserved & kMessageMarkdownAttachmentChip)
+        return activate_content_attachment(hit, false);
     const auto url = message_text_presentation_hit_source(
         g_app.message_view.store, g_app.account_ui ? &g_app.account_ui->message_rich_store : nullptr, hit);
     MessageLink target{};
@@ -289,8 +360,8 @@ bool open_content_link(const MessageTextHit& hit) noexcept {
     return true;
 }
 
-// A clicked command mention goes into the chat input: the tag
-// </name sub:id> becomes "/name sub " in the composer.
+// A clicked command mention </name sub:id> selects that command in the chat
+// input by id, as the client does (asking first when the draft has text).
 bool insert_command_mention(const MessageTextHit& hit) noexcept {
     if (!g_app.account_ui)
         return true;
@@ -299,9 +370,17 @@ bool insert_command_mention(const MessageTextHit& hit) noexcept {
     u32 separator = source.bytes;
     while (separator > 2 && source.data[separator - 1] != ':')
         --separator;
-    if (!source.data || source.bytes < 6 || source.data[0] != '<' || source.data[1] != '/' || separator <= 3)
+    if (!source.data || source.bytes < 6 || source.data[0] != '<' || source.data[1] != '/' || separator <= 3 ||
+        source.data[source.bytes - 1] != '>')
         return true;
-    return application_composer_fill_command({source.data + 2, separator - 3});
+    u64 command_id = 0;
+    for (u32 at = separator; at + 1 < source.bytes; ++at) {
+        const char digit = source.data[at];
+        if (digit < '0' || digit > '9' || command_id > (~0ull - 9) / 10)
+            return true;
+        command_id = command_id * 10 + static_cast<u64>(digit - '0');
+    }
+    return application_commands_insert(0, command_id, {source.data + 2, separator - 3}) || true;
 }
 
 // Home reopens what it showed when a server was last opened from it: Friends
@@ -411,7 +490,12 @@ bool application_open_content_link(const MessageTextHit& hit) noexcept {
            (hit.kind == MessageMarkdownSemanticKind::link || hit.kind == MessageMarkdownSemanticKind::message_link) &&
            open_content_link(hit);
 }
+bool application_copy_content_attachment_link(const MessageTextHit& hit) noexcept {
+    return hit.valid && hit.kind == MessageMarkdownSemanticKind::link &&
+           (hit.reserved & kMessageMarkdownAttachmentChip) && activate_content_attachment(hit, true);
+}
 void application_received_attachment_pump() noexcept {
+    content_attachment_pump();
     if (!received_attachment_open.pending)
         return;
     const auto identity = received_attachment_open.identity;
@@ -615,6 +699,10 @@ bool handle_message_click(LPARAM lparam) noexcept {
         message_scene_reply_hit_test(g_app.message_scene, client_dip_x(lparam), client_dip_y(lparam));
     if (reply.message_id != 0) {
         SetFocus(g_app.window);
+        // The quoted author's avatar and name open their profile; the rest of the line jumps.
+        if (const auto author = application_message_profile_hit_test(client_dip_x(lparam), client_dip_y(lparam));
+            author.user_id)
+            return application_profile_open(author.user_id, author.anchor);
         return navigate_content_message(reply.channel_id, reply.message_id);
     }
     const MessageSceneHit hit =
@@ -744,18 +832,57 @@ MessageProfileHit application_message_profile_hit_test(float x, float y) noexcep
     const auto& renderer = g_app.renderer;
     if (g_app.login.visible || !renderer.message_text || !renderer.chat_state || !renderer.user_store)
         return {};
-    return message_author_hit_test(g_app.message_scene, *renderer.message_text, *renderer.chat_state,
-                                   *renderer.user_store, renderer.message_measure_cache,
-                                   application_theme(), x, y);
+    const auto author = message_author_hit_test(g_app.message_scene, *renderer.message_text, *renderer.chat_state,
+                                                *renderer.user_store, renderer.message_measure_cache,
+                                                application_theme(), x, y);
+    if (author.user_id)
+        return author;
+    // The "<user> used <command>" header and a reply's quoted author: the
+    // avatar and name open that user.
+    const auto header = message_interaction_hit_test(g_app.message_scene, *renderer.message_text, *renderer.user_store,
+                                                     renderer.message_measure_cache, application_theme(), x, y);
+    if (header.target == MessageInteractionTarget::avatar || header.target == MessageInteractionTarget::name)
+        return {header.user_id, header.anchor};
+    const auto quoted = message_reply_author_hit_test(g_app.message_scene, *renderer.message_text,
+                                                      renderer.message_measure_cache, x, y);
+    return quoted.user_id ? MessageProfileHit{quoted.user_id, quoted.anchor} : MessageProfileHit{};
+}
+
+static MessageGuildTagHit message_guild_tag_hit(float x, float y) noexcept {
+    const auto& renderer = g_app.renderer;
+    if (g_app.login.visible || !renderer.message_text || !renderer.chat_state || !renderer.user_store)
+        return {};
+    const auto tag = message_author_guild_tag_hit_test(g_app.message_scene, *renderer.message_text,
+                                                       *renderer.chat_state, *renderer.user_store,
+                                                       renderer.message_measure_cache, application_theme(), x, y);
+    if (tag.guild_id)
+        return tag;
+    // The interaction header has its own server tag chip.
+    const auto header = message_interaction_hit_test(g_app.message_scene, *renderer.message_text, *renderer.user_store,
+                                                     renderer.message_measure_cache, application_theme(), x, y);
+    return header.target == MessageInteractionTarget::tag ? MessageGuildTagHit{header.guild_id, header.anchor}
+                                                          : MessageGuildTagHit{};
 }
 
 bool application_message_guild_tag_hit(float x, float y) noexcept {
+    return message_guild_tag_hit(x, y).guild_id != 0;
+}
+
+// The slash command chip of a "<user> used <command>" header: the message
+// whose command card a click opens, or zero.
+static u64 command_chip_hit(float x, float y) noexcept {
     const auto& renderer = g_app.renderer;
-    return !g_app.login.visible && renderer.message_text && renderer.chat_state && renderer.user_store &&
-           message_author_guild_tag_hit_test(g_app.message_scene, *renderer.message_text, *renderer.chat_state,
-                                             *renderer.user_store, renderer.message_measure_cache, application_theme(),
-                                             x, y)
-               .guild_id;
+    if (g_app.login.visible || !g_app.account_ui || !renderer.message_text || !renderer.user_store)
+        return 0;
+    const auto header = message_interaction_hit_test(g_app.message_scene, *renderer.message_text, *renderer.user_store,
+                                                     renderer.message_measure_cache, application_theme(), x, y);
+    const auto* record = header.target == MessageInteractionTarget::command ? application_message_record(header.message_id)
+                                                                          : nullptr;
+    return record && message_interaction_chip(record->type) ? record->id : 0;
+}
+
+bool application_message_command_chip_hit(float x, float y) noexcept {
+    return command_chip_hit(x, y) != 0;
 }
 
 bool application_message_media_reveal_at(float x, float y) noexcept {
@@ -819,9 +946,18 @@ bool application_message_media_reveal_at(float x, float y) noexcept {
             }
         for (u32 i = 0; !key && i < rich->component_count && i < row->component_item_count; ++i)
             if (same(MessageSceneRichItemKind::component, i)) {
-                key = message_media_reveal_key(record->id, MessageMediaSource::component, i, scope != 0);
+                // Anything inside an unrevealed spoiler container reveals it.
+                u32 target = i;
+                const u32 container = message_component_spoiler_container(*rich, i);
+                if (container != kMessageComponentNone && container != i &&
+                    message_scene_media_obscure(
+                        scene, message_scene_media_policy(scene, message_media_owner(*record, outer_rich)), 0,
+                        message_media_reveal_key(record->id, MessageMediaSource::component, container, scope != 0),
+                        true, false) != MessageMediaObscure::none)
+                    target = container;
+                key = message_media_reveal_key(record->id, MessageMediaSource::component, target, scope != 0);
                 plugin_message_id = 0;
-                spoiler = message_rich_component_spoiler(rich->components[i]);
+                spoiler = message_rich_component_spoiler(rich->components[target]);
             }
         if (key)
             return application_media_activation_consumed(scene, message_media_owner(*record, outer_rich),
@@ -848,11 +984,12 @@ bool handle_content_click(LPARAM lparam) noexcept {
             return true;
         }
         // A server tag chip opens the server tag popout, not the profile.
-        const auto tag = message_author_guild_tag_hit_test(g_app.message_scene, *renderer.message_text,
-                                                           *renderer.chat_state, *renderer.user_store,
-                                                           renderer.message_measure_cache, application_theme(), x, y);
+        const auto tag = message_guild_tag_hit(x, y);
         if (tag.guild_id)
             return application_guild_card_open(tag.guild_id, tag.chip) || true;
+        // A slash command chip opens (or closes) the command card.
+        if (const u64 chip_message = command_chip_hit(x, y))
+            return application_interaction_card_toggle(chip_message);
     }
     const auto profile = application_message_profile_hit_test(x, y);
     if (profile.user_id)
@@ -913,7 +1050,9 @@ bool handle_content_click(LPARAM lparam) noexcept {
         return application_profile_open(hit.target, {client_dip_x(lparam), client_dip_y(lparam),
                                                      client_dip_x(lparam) + 1, client_dip_y(lparam) + 1});
     case MessageMarkdownSemanticKind::channel_mention:
-        return select_content_channel(hit.target);
+        // The official client joins a voice or stage channel from its mention
+        // instead of opening it.
+        return join_voice_channel(hit.target) || select_content_channel(hit.target);
     case MessageMarkdownSemanticKind::message_link:
     case MessageMarkdownSemanticKind::link:
         return open_content_link(hit);

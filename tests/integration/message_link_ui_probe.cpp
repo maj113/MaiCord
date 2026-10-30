@@ -994,6 +994,9 @@ bool application_profile_open(u64, const UiRect&, ProfileAnchor) noexcept {
 bool application_guild_card_open(u64, UiRect) noexcept {
     return false;
 }
+bool application_interaction_card_toggle(u64) noexcept {
+    return false;
+}
 bool application_plugins_slot_action(u64, NativePluginSdkSlotTarget, u64) noexcept {
     return false;
 }
@@ -1054,7 +1057,7 @@ bool application_gif_favorite_star_target(float, float) noexcept {
 bool application_image_viewer_open_at(float, float, bool) noexcept {
     return false;
 }
-bool application_composer_fill_command(Utf8View) noexcept {
+bool application_commands_insert(u64, u64, Utf8View) noexcept {
     return true;
 }
 bool begin_message_reply(u64) noexcept {

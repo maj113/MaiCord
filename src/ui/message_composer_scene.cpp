@@ -627,7 +627,11 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
                        scene->source_styles[style_index].byte_count <=
                    cursor)
             ++style_index;
+        bool option_key = false;
+        for (u32 key = 0; context && key < context->option_key_count && !option_key; ++key)
+            option_key = cursor >= context->option_key_first[key] && cursor < context->option_key_last[key];
         const u32 style = (context && cursor < context->command.name_bytes ? text_style_bold : 0) |
+                          (option_key ? text_style_command_option : 0) |
                           (style_index < scene->source_style_count &&
                                   scene->source_styles[style_index].byte_offset <= cursor
                               ? scene->source_styles[style_index].flags
@@ -705,6 +709,8 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
         signature = hash64_mix(signature, span.animated);
     }
     signature = hash64_mix(signature, context ? context->command.name_bytes : 0);
+    for (u32 key = 0; context && key < context->option_key_count; ++key)
+        signature = hash64_mix(hash64_mix(signature, context->option_key_first[key]), context->option_key_last[key]);
     scene->display_signature = hash64_mix(signature, scene->projection_span_count);
 }
 

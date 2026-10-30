@@ -24,9 +24,14 @@ enum class UiActivityGlyph : u8;
 inline constexpr float kUiPrivateRowHeight = 42.f;
 inline constexpr float kUiPrivateRowAvatar = 32.f;
 inline constexpr float kUiPrivateHeaderAvatar = 24.f;
-// Friends' presence for a one-to-one peer; none for groups and strangers.
+enum class UiPresence : u8;
+// A user's presence as DMs show it: a friend's relationship presence, else
+// the last presence any scope reported (offline without one).
+UiPresence ui_user_presence(const UiPrivateRowSource& source, u64 user) noexcept;
+// The one-to-one peer's presence (ui_user_presence); a group is online while
+// any other member is online, else none.
 UiPrivateRowStatus ui_private_row_status(const UiPrivateRowSource& source, u64 channel_id) noexcept;
-// The online friend is online on mobile only: the row draws the phone status.
+// The online peer is online on mobile only: the row draws the phone status.
 bool ui_private_row_mobile(const UiPrivateRowSource& source, u64 channel_id) noexcept;
 // "Typing…" while someone else types, "N members" for groups, and an online
 // peer's activity line, whose glyph (none otherwise) leads it.

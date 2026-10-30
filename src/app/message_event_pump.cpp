@@ -942,6 +942,10 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             guild_member_store_retire_role_authority(pump->members);
             guild_member_store_refresh_visible_users(*pump->members, pump->users);
         }
+        // The session's presences follow READY; anything offline meanwhile
+        // is never re-sent, so no earlier platform status may survive.
+        if (pump->users && user_store_clear_client_status(pump->users))
+            ++pump->users->revision;
         if (pump->thread_members) {
             thread_member_store_reset_snapshot(pump->thread_members);
             if (!synchronize_thread_scope(pump))

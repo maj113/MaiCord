@@ -153,6 +153,12 @@ struct UserProfile {
     ProfilePeer mutual_guilds[100], mutual_friends[100];
     u32 mutual_friend_count;
     u16 role_count, badge_count, connection_count, mutual_guild_count, mutual_friends_count;
+    // The legacy "#1234" discriminator bots keep; zero for unique usernames.
+    u16 discriminator;
+    // A bot's application (the profile's application object): its ID and its
+    // most used commands (at most five), most popular first.
+    u64 application_id, popular_commands[5];
+    u8 popular_command_count;
     u8 premium_type;
     bool has_theme, has_guild_theme, private_profile;
 };

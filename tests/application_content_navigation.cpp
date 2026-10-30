@@ -313,6 +313,9 @@ bool application_message_action_bar_activate(const MessageActionBarHit&, bool) n
 bool application_guild_card_open(u64, UiRect) noexcept {
     return false;
 }
+bool application_interaction_card_toggle(u64) noexcept {
+    return false;
+}
 bool application_profile_open(u64, const UiRect&, ProfileAnchor) noexcept {
     return false;
 }
@@ -358,7 +361,7 @@ bool application_image_viewer_open_at(float, float, bool) noexcept {
 bool application_video_open_focused() noexcept {
     return false;
 }
-bool application_composer_fill_command(Utf8View) noexcept {
+bool application_commands_insert(u64, u64, Utf8View) noexcept {
     return true;
 }
 bool queue_message_reaction(u64, u32) noexcept {

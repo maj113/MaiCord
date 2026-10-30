@@ -60,6 +60,7 @@
 #include "maicord/protocol/message_delete.hpp"
 #include "maicord/protocol/message_edit.hpp"
 #include "maicord/protocol/message_interaction.hpp"
+#include "maicord/protocol/message_interaction_data.hpp"
 #include "maicord/protocol/message_typing.hpp"
 
 namespace maicord {
@@ -1059,8 +1060,20 @@ RestClientSubmitResult WINAPI module_application_command(void* instance, u64 cha
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     auto* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator, true) : nullptr;
-    if (!rest || !request_id || operation > 3)
+    if (!rest || !request_id || operation > 6)
         return invalid;
+    // 6: GET the interaction data of message `nonce` in `channel` (the command chip's popout).
+    if (operation == 6) {
+        u8 target[kInteractionDataTargetBytes];
+        const u32 bytes = interaction_data_write_target(channel, nonce, {target, sizeof(target)});
+        return bytes ? rest_client_submit(rest, {target, bytes}, {}, interaction_data_route(channel), request_id, false)
+                     : invalid;
+    }
+    // 4/5: GET / PATCH the command frecency in settings-proto/2.
+    if (operation >= 4)
+        return account_command_frecency(
+            rest, operation == 4 ? AccountGifFavoritesOperation::fetch : AccountGifFavoritesOperation::update,
+            {reinterpret_cast<const u8*>(data.data), data.bytes}, request_id);
     u8 target[160];
     ProtocolWriter path{{target, sizeof(target)}, 0};
     if (operation <= 1) {
@@ -1092,23 +1105,9 @@ RestClientSubmitResult WINAPI module_application_command(void* instance, u64 cha
         return invalid;
     u8* bytes = arena_allocate<u8>(&storage, capacity);
     ProtocolWriter body{{bytes, capacity}, 0};
-    bool ok = bytes && protocol_writer_append_literal(&body, "{\"type\":") &&
-              protocol_writer_append_u64(&body, operation == 3 ? 4 : 2) &&
-              protocol_writer_append_literal(&body, ",\"application_id\":\"") &&
-              protocol_writer_append_u64(&body, application) &&
-              protocol_writer_append_literal(&body, "\",\"channel_id\":\"") &&
-              protocol_writer_append_u64(&body, channel) &&
-              protocol_writer_append_literal(&body, "\",\"nonce\":\"") &&
-              protocol_writer_append_u64(&body, nonce) &&
-              protocol_writer_append_literal(&body, "\",\"session_id\":") &&
-              protocol_writer_append_json_string(
-                  &body, {snapshot.resume.session_id, snapshot.resume.session_id_bytes});
-    if (guild)
-        ok = ok && protocol_writer_append_literal(&body, ",\"guild_id\":\"") &&
-             protocol_writer_append_u64(&body, guild) && protocol_writer_append_byte(&body, '"');
-    ok = ok && protocol_writer_append_literal(&body, ",\"data\":") &&
-         protocol_writer_append_bytes(&body, {reinterpret_cast<const u8*>(data.data), data.bytes}) &&
-         protocol_writer_append_byte(&body, '}');
+    const bool ok = bytes && app_detail::application_command_interaction_body(
+                                 operation == 3, application, guild, channel,
+                                 {snapshot.resume.session_id, snapshot.resume.session_id_bytes}, nonce, data, &body);
     auto result = invalid;
     if (ok) {
         result = rest_client_submit(rest, app_detail::application_command_interaction_request(
@@ -1729,11 +1728,10 @@ RestClientSubmitResult WINAPI module_media_url_refresh(void* instance, Utf8View 
     const u32 bytes = attachment_refresh_body(source, {body, sizeof(body)});
     if (!rest || request_id == 0 || bytes == 0)
         return {RestClientSubmitError::invalid_input};
-    constexpr auto target = utf8_literal("/api/v10/attachments/refresh-urls");
     return rest_client_submit(
-        rest, {reinterpret_cast<const u8*>(target.data), target.bytes},
+        rest, {reinterpret_cast<const u8*>(kAttachmentRefreshTarget.data), kAttachmentRefreshTarget.bytes},
         {body, bytes},
-        {0x4154545245465245ull, 0, RestMethod::post, RestMajorParameter::none},
+        kAttachmentRefreshRoute,
         request_id,
         true);
 }

@@ -94,13 +94,11 @@ u32 received_attachment_menu(const ReceivedAttachmentMenuFacts& facts, Slice<Pop
     return count;
 }
 
-u32 message_link_menu(Utf8View url, Slice<PopupItem> output) noexcept {
-    if (!output.data || output.count < kMessageLinkMenuItems || !url.data || !url.bytes)
+namespace {
+u32 link_pair(const Utf8View (&labels)[kMessageLinkMenuItems], const u32 (&actions)[kMessageLinkMenuItems],
+              const UiIcon (&icons)[kMessageLinkMenuItems], Slice<PopupItem> output) noexcept {
+    if (!output.data || output.count < kMessageLinkMenuItems)
         return 0;
-    const auto link = received_attachment_link_kind(url);
-    const Utf8View labels[]{link_label(link, false), link_label(link, true)};
-    static constexpr u32 actions[]{kMessageLinkActionCopy, kMessageLinkActionOpen};
-    static constexpr UiIcon icons[]{UiIcon::link, UiIcon::external_link};
     for (u32 i = 0; i < kMessageLinkMenuItems; ++i) {
         PopupItem item{labels[i], actions[i],
                        static_cast<u16>(popup_item_enabled | (i == 0 ? popup_item_separator_before : 0)), 0};
@@ -108,5 +106,23 @@ u32 message_link_menu(Utf8View url, Slice<PopupItem> output) noexcept {
         output[i] = item;
     }
     return kMessageLinkMenuItems;
+}
+} // namespace
+
+u32 message_link_menu(Utf8View url, Slice<PopupItem> output) noexcept {
+    if (!url.data || !url.bytes)
+        return 0;
+    const auto link = received_attachment_link_kind(url);
+    const Utf8View labels[]{link_label(link, false), link_label(link, true)};
+    static constexpr u32 actions[]{kMessageLinkActionCopy, kMessageLinkActionOpen};
+    static constexpr UiIcon icons[]{UiIcon::link, UiIcon::external_link};
+    return link_pair(labels, actions, icons, output);
+}
+
+u32 attachment_link_menu(Slice<PopupItem> output) noexcept {
+    static constexpr Utf8View labels[]{utf8_literal("Copy Media Link"), utf8_literal("Copy Text")};
+    static constexpr u32 actions[]{kMessageLinkActionCopy, kMessageLinkActionCopyText};
+    static constexpr UiIcon icons[]{UiIcon::link, UiIcon::copy};
+    return link_pair(labels, actions, icons, output);
 }
 } // namespace maicord
