@@ -65,4 +65,25 @@ __declspec(noinline) inline bool ui_background_paint_surface(
     }
     return true;
 }
+// A band of a rounded panel on a lower background tier (a category rail, an
+// inspector bar), rounding only its outer corners: the rounded plate overhangs
+// the band's inner sides under the band's clip. On background themes the band
+// samples the gradient at the tier's opacity like the panel itself; flat
+// themes paint fill.
+inline bool ui_background_paint_band(PaintStream* stream, UiRect band, UiRect panel, const Theme& theme,
+                                     const Color& fill, float radius, UiBackgroundTier tier) noexcept {
+    if (!ui_rect_has_area(band))
+        return true;
+    UiRect plate = band;
+    if (plate.left > panel.left)
+        plate.left -= radius;
+    if (plate.right < panel.right)
+        plate.right += radius;
+    if (plate.top > panel.top)
+        plate.top -= radius;
+    return paint_stream_push_clip(stream, band) &&
+           ui_background_paint_surface(stream, plate, theme, fill, fill, radius, 0, .9f,
+                                       UiBackgroundSurfaceMode::gradient, tier) &&
+           paint_stream_pop_clip(stream);
+}
 } // namespace maicord

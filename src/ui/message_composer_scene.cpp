@@ -1192,9 +1192,8 @@ MessageComposerSceneResult message_composer_scene_update(
                           !ui_rect_equal(scene->viewport, viewport);
     bool changed = relayout || scene->model != model || scene->observed_revision != model->revision ||
                    scene->command.name_bytes != (projection ? projection->command.name_bytes : 0) ||
-                   scene->command.bot_id != (projection ? projection->command.bot_id : 0) ||
-                   scene->command.avatar_variant != (projection ? projection->command.avatar_variant : 0) ||
-                   scene->command.animated != (projection && projection->command.animated) ||
+                   !media_asset_key_equal(scene->command.avatar,
+                                          projection ? projection->command.avatar : MediaAssetKey{}) ||
                    scene->channel_allows_send != can_send || reply_changed || typing_changed || bar_changed ||
                    attachments_changed || scene->mention_reply_author != mention_reply_author ||
                    scene->status_is_error != status_is_error || scene->reply_sendable != reply_sendable ||
@@ -1249,7 +1248,7 @@ MessageComposerSceneResult message_composer_scene_update(
 
 UiRect message_composer_scene_command_avatar(const MessageComposerScene& scene) noexcept {
     const auto* attachment = message_composer_scene_layout_node(scene, MessageComposerControl::add_attachment);
-    if (!scene.active || !scene.command.bot_id || !attachment)
+    if (!scene.active || scene.command.avatar.kind == MediaAssetKind::none || !attachment)
         return {};
     const float extent = composer_metrics(scene.theme_styles).menu_icon;
     const float x = (attachment->rectangle.left + attachment->rectangle.right) * .5f;

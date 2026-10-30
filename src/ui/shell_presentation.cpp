@@ -764,7 +764,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
         : composer_enabled ? theme.surface_high
                            : theme.base_low, Color{}, kUiControlCornerRadius, 0.0f) ||
         (voice_bar && !ui_composer_voice_bar_paint(*composer_scene->voice, edit->content_rectangle, theme, stream)) ||
-        (!composer_scene->command.bot_id &&
+        (composer_scene->command.avatar.kind == MediaAssetKind::none &&
          !ui_button_icon_paint(stream, composer_scene->widgets, composer_scene->add_attachment,
                               composer_scene->command.name_bytes ? UiIcon::command :
                               voice_bar ? UiIcon::trash : UiIcon::attachment, theme)) ||

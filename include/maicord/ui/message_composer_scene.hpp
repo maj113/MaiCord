@@ -8,6 +8,7 @@
 #include "maicord/ui/text_composition.hpp"
 #include "maicord/ui/text_style.hpp"
 #include "maicord/ui/theme_styles.hpp"
+#include "maicord/media/asset_key.hpp"
 
 namespace maicord {
 struct UserStore;
@@ -58,12 +59,12 @@ inline constexpr u32 kMessageComposerChipMargin = 1;
 inline constexpr u32 kMessageComposerChipPadding = 2;
 
 struct MessageComposerCommand {
-    u64 bot_id;
-    u32 avatar_variant;
+    // The app's picture (a user avatar or a picture fetched by URL); kind none
+    // shows the command glyph instead.
+    MediaAssetKey avatar;
     u16 name_bytes; // Includes the leading slash; source bytes remain editable.
-    bool animated;
 };
-static_assert(sizeof(MessageComposerCommand) == 16);
+static_assert(sizeof(MessageComposerCommand) == 24);
 static_assert(__is_trivial(MessageComposerCommand) && __is_standard_layout(MessageComposerCommand));
 
 struct MessageComposerProjectionContext {

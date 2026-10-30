@@ -3,7 +3,7 @@
 #include "maicord/ui/scrollbar.hpp"
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/ui/presence.hpp"
-#include "maicord/ui/background_presentation.hpp"
+#include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/foreground_color.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
@@ -190,25 +190,30 @@ float placeholder_width(u32 seed, u32 bar, float lo, float hi) noexcept {
 }
 // The skeleton bars of a placeholder row: in the picker the command skeleton
 // (524007: usage 60-120 on the strong fill, description 200-600, source
-// 45-90), elsewhere the generic Loading row (one 60-120 bar).
+// 45-90), elsewhere the generic Loading row (one 60-120 bar). Base-low bars
+// take that tier's gradient material on background themes.
 bool paint_placeholder(PaintStream* paint, const PopupItem& item, UiRect content, bool command,
                        const Theme& theme) noexcept {
     const u32 seed = item.media_variant;
     const float radius = kPickerBar * .5f;
-    const auto bar = [&](float left, float top, float width, const Color& color) noexcept {
+    const auto bar = [&](float left, float top, float width, bool strong) noexcept {
         const float right = minimum(content.right, left + width);
-        return right <= left || paint_stream_push_rounded(paint, {left, top, right, top + kPickerBar}, color, radius);
+        const UiRect r{left, top, right, top + kPickerBar};
+        return right <= left ||
+               (strong ? paint_stream_push_rounded(paint, r, theme.tokens.fill.muted, radius)
+                       : ui_background_paint_surface(paint, r, theme, theme.base_low, theme.base_low, radius, 0, .9f,
+                                                     UiBackgroundSurfaceMode::gradient, UiBackgroundTier::low));
     };
     if (!command)
         return bar(content.left, (content.top + content.bottom - kPickerBar) * .5f,
-                   placeholder_width(seed, 0, 60, 120), theme.base_low);
+                   placeholder_width(seed, 0, 60, 120), false);
     const float source = placeholder_width(seed, 2, 45, 90);
     const float info_right = content.right - source - kPickerImageGap;
-    return bar(content.right - source, (content.top + content.bottom - kPickerBar) * .5f, source, theme.base_low) &&
+    return bar(content.right - source, (content.top + content.bottom - kPickerBar) * .5f, source, false) &&
            bar(content.left, content.top, minimum(info_right - content.left, placeholder_width(seed, 0, 60, 120)),
-               theme.tokens.fill.muted) &&
+               true) &&
            bar(content.left, content.top + kPickerBar + kPickerBarGap,
-               minimum(info_right - content.left, placeholder_width(seed, 1, 200, 600)), theme.base_low);
+               minimum(info_right - content.left, placeholder_width(seed, 1, 200, 600)), false);
 }
 // A command row's columns: description, source and usage summary from the
 // detail ("description\x1Fsource\x1Fsummary", summary parts \x1E-separated:
@@ -304,10 +309,14 @@ bool paint_picker_item(const PopupScene& scene, u32 index, const PopupItemLayout
         if ((item.flags & popup_item_separator_before) && !after_clock)
             ok = paint_stream_push(paint, r.left, r.top - kCommandRailDivider * .5f, r.right,
                                    r.top - kCommandRailDivider * .5f + 1, theme.tokens.border.subtle);
+        // The selected entry is background-base-low, the low tier's gradient
+        // material on background themes; hover is the translucent hover token.
         const bool active = (item.flags & popup_item_checked) != 0;
-        if (ok && (active || pointed))
-            ok = paint_stream_push_rounded(paint, r, active ? theme.base_low : theme.tokens.state.hover,
-                                           theme.scale.radius_md);
+        if (ok && active)
+            ok = ui_background_paint_surface(paint, r, theme, theme.base_low, theme.base_low, theme.scale.radius_md,
+                                             0, .9f, UiBackgroundSurfaceMode::gradient, UiBackgroundTier::low);
+        else if (ok && pointed)
+            ok = paint_stream_push_rounded(paint, r, theme.tokens.state.hover, theme.scale.radius_md);
         if (ok && picker_keyboard_focus(scene, index))
             ok = paint_stream_push_rounded_border(paint, r.left - 2, r.top - 2, r.right + 2, r.bottom + 2, Color{},
                                                   theme.tokens.border.focus, theme.scale.radius_md + 2, 2);
@@ -466,10 +475,18 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
     // clip. Every popup kind shares the popover elevation material on gradient themes.
     bool success = ui_surface_paint_plate(paint, panel->rectangle, theme, UiElevation::popover, panel_radius);
     const bool picker = picker_scene(scene);
-    // The picker rail is the client's darkest surface, following the panel's left corners.
-    if (picker && picker_discovery(scene))
-        success = success && paint_stream_push_edge_strip(paint, panel->rectangle, kCommandRailWidth,
-                                                          theme.base_lowest, panel_radius);
+    // The picker rail is the client's darkest surface (background-base-lowest),
+    // following the panel's left corners; on background themes it is the
+    // lowest tier of the panel's gradient material, as the media picker's rail.
+    if (picker && picker_discovery(scene)) {
+        const UiRect panel_rectangle = panel->rectangle;
+        success = success && ui_background_paint_band(paint,
+                                                      {panel_rectangle.left, panel_rectangle.top,
+                                                       panel_rectangle.left + kCommandRailWidth,
+                                                       panel_rectangle.bottom},
+                                                      panel_rectangle, theme, theme.base_lowest, panel_radius,
+                                                      UiBackgroundTier::lowest);
+    }
     // Rows sit the panel padding inside its corners, so their fills share its corner centres.
     const float row_radius = ui_inner_radius(panel_radius, popup_metrics(scene).menu_padding);
     for (u32 index = 0; success && index < scene.item_count; ++index) {
@@ -750,5 +767,27 @@ PopupMediaPresentationStatus popup_media_presentation_resolve(const PopupScene& 
             command->corner_radius = picker_media_radius(scene, index, command->rectangle);
     }
     return PopupMediaPresentationStatus::ready;
+}
+
+MediaAssetKey popup_media_url_key(u64 url_hash, MediaAttachmentFormat format) noexcept {
+    // As profile media and the settings rows' default avatars: a still image by
+    // URL at 512 px.
+    auto key = media_asset_embed(url_hash, 1, 0, MediaEmbedResource::image, format, false,
+                                 MediaResolutionTier::px512);
+    key.kind = MediaAssetKind::profile_image;
+    return key;
+}
+
+MediaAssetKey popup_media_asset_key(const PopupMediaCommand& command) noexcept {
+    const bool animated = (command.media_flags & 1u) != 0;
+    if (command.regional_flag)
+        return media_asset_regional_flag(command.regional_flag);
+    if (command.guild_icon)
+        return media_asset_guild_icon(command.media_id, command.media_variant, animated);
+    if (command.avatar && (command.media_flags & kPopupItemMediaUrl))
+        return popup_media_url_key(command.media_id, static_cast<MediaAttachmentFormat>(command.media_variant));
+    if (command.avatar)
+        return media_asset_user_avatar(command.media_id, command.media_variant, animated);
+    return media_asset_custom_emoji(command.media_id, animated);
 }
 } // namespace maicord

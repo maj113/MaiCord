@@ -13,6 +13,7 @@
 #include "application_forum_preview.hpp"
 #include "application_composer_preview.hpp"
 #include "application_forum_form.hpp"
+#include "application_commands.hpp"
 
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
@@ -418,22 +419,35 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
     }
 
 
+    // A command app's picture (the commands module's fallback chain): its bot's
+    // avatar through the user store, or a picture fetched by the URL the
+    // commands module keeps under the key.
+    const auto request_app_picture = [&](const MediaAssetKey& key) noexcept {
+        if (key.kind == MediaAssetKind::profile_image) {
+            ProfileMedia media{};
+            media.key = key;
+            media.url.bytes = static_cast<u16>(
+                application_commands_icon_url(key.id, {media.url.data, sizeof(media.url.data)}));
+            return !media.url.bytes ||
+                   request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop);
+        }
+        const auto* user =
+            key.kind == MediaAssetKind::user_avatar ? user_store_find(application.account_ui->user_store, key.id)
+                                                    : nullptr;
+        bool force = false;
+        const bool resident = (key.flags & media_asset_flag_animated) && animation_resident(key, now_us, &force);
+        return !user || resident ||
+               request_visible_user_avatar(*user, now_ms, now_seconds, &uploads, repaint, &stop, force);
+    };
     // The open picker is an active interaction surface, so its visible custom
     // emoji cells outrank decorative identity media. The CDN serves all
     // in-client custom emoji as WebP; animated cells join the normal bounded
     // animation timeline rather than starting a second playback path.
     if (chat_visible && application.message_composer_scene.active) {
         const auto& composer = application.message_composer_scene;
-        if (composer.command.bot_id) {
-            const auto* user = user_store_find(application.account_ui->user_store, composer.command.bot_id);
-            const auto key = media_asset_user_avatar(composer.command.bot_id, composer.command.avatar_variant,
-                                                     composer.command.animated);
-            bool force = false;
-            const bool resident = composer.command.animated && animation_resident(key, now_us, &force);
-            if (!proceed(!user || resident ||
-                         request_visible_user_avatar(*user, now_ms, now_seconds, &uploads, repaint, &stop, force)))
-                return outcome;
-        }
+        if (composer.command.avatar.kind != MediaAssetKind::none &&
+            !proceed(request_app_picture(composer.command.avatar)))
+            return outcome;
         for (u32 i = 0; i < composer.projection_span_count; ++i) {
             UiRect rectangle{}, clip{};
             if (!text_composer_emoji_rectangle(application.renderer.composer_layout, composer, i,
@@ -459,11 +473,12 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                 continue;
             }
             const bool animated = (item.media_flags & custom_emoji_animated) != 0;
-            const MediaAssetKey key =
-                command.regional_flag ? media_asset_regional_flag(command.regional_flag)
-                : command.guild_icon  ? media_asset_guild_icon(item.media_id, item.media_variant, animated)
-                : command.avatar      ? media_asset_user_avatar(item.media_id, item.media_variant, animated)
-                                      : media_asset_custom_emoji(item.media_id, animated);
+            const MediaAssetKey key = popup_media_asset_key(command);
+            if (command.avatar && (item.media_flags & kPopupItemMediaUrl)) {
+                if (!proceed(request_app_picture(key)))
+                    return outcome;
+                continue;
+            }
             bool force_request = false;
             if (animated && animation_resident(key, now_us, &force_request))
                 continue;

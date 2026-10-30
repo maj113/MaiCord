@@ -1404,9 +1404,7 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
         const auto& composer = *renderer->message_composer_scene;
         const auto avatar = message_composer_scene_command_avatar(composer);
         if (ui_rect_has_area(avatar)) {
-            const auto allocation = media_atlas_peek(renderer->media_atlas,
-                media_asset_user_avatar(composer.command.bot_id, composer.command.avatar_variant,
-                                        composer.command.animated));
+            const auto allocation = media_atlas_peek(renderer->media_atlas, composer.command.avatar);
             if (allocation.ok() &&
                 !queue_media_quad(renderer, allocation, avatar,
                                   composer.viewport, true))
@@ -2774,14 +2772,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 log_u64(LogLevel::warning, "render", "popup_emoji_layout_rejected", index);
                 continue;
             }
-            const MediaAssetKey key =
-                command.guild_icon ? media_asset_guild_icon(command.media_id, command.media_variant,
-                                                            (command.media_flags & 1u) != 0)
-                : command.avatar   ? media_asset_user_avatar(command.media_id, command.media_variant,
-                                                             (command.media_flags & 1u) != 0)
-                : command.regional_flag
-                    ? media_asset_regional_flag(command.regional_flag)
-                    : media_asset_custom_emoji(command.media_id, (command.media_flags & 1u) != 0);
+            const MediaAssetKey key = popup_media_asset_key(command);
             const MediaAtlasResult allocation = media_atlas_peek(renderer->media_atlas, key);
             if (!allocation.ok()) {
                 continue;

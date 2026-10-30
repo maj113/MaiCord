@@ -36,6 +36,10 @@ bool application_commands_escape() noexcept;
 bool application_commands_builtin_used(Utf8View replacement) noexcept;
 // The pointer hovered a picker row; the keyboard selection is dropped.
 void application_commands_hover() noexcept;
+// A picker picture fetched by URL (an app's icon or its bot's default avatar,
+// kPopupItemMediaUrl): the URL for the item's media_id into url; its bytes, 0
+// when the id is not a current picture.
+u32 application_commands_icon_url(u64 media_id, Slice<char> url) noexcept;
 void application_commands_gateway(Utf8View body) noexcept;
 // Gateway INTERACTION_CREATE / SUCCESS / FAILURE / MODAL_CREATE (verbatim
 // object) and a created message's nonce advance the local command message

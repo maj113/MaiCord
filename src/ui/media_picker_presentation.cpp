@@ -80,23 +80,6 @@ UiRect footer_text(const UiMediaPickerScene& scene) noexcept {
     const auto r = scene.footer;
     return {r.left + m.padding + m.footer_art + m.gap, r.top, r.right - m.padding, r.bottom};
 }
-// A lower-tier band at the panel's edge, rounding only its outer corner:
-// the rounded plate overhangs the band's inner sides under the band's clip.
-bool paint_band(PaintStream* paint, UiRect band, UiRect panel, const Theme& theme, float radius) noexcept {
-    if (!ui_rect_has_area(band))
-        return true;
-    UiRect plate = band;
-    if (plate.left > panel.left)
-        plate.left -= radius;
-    if (plate.right < panel.right)
-        plate.right += radius;
-    if (plate.top > panel.top)
-        plate.top -= radius;
-    return paint_stream_push_clip(paint, band) &&
-           ui_background_paint_surface(paint, plate, theme, theme.base_lower, theme.base_lower, radius, 0, .9f,
-                                       UiBackgroundSurfaceMode::gradient, UiBackgroundTier::lower) &&
-           paint_stream_pop_clip(paint);
-}
 // Inline results: the popover plate, the loading spinner, the hovered and the
 // keyboard-selected result's highlight (the client's autocomplete row fill),
 // missing-art placeholders and the GIF strip's paging arrows.
@@ -221,8 +204,10 @@ bool ui_media_picker_scene_paint(const UiMediaPickerScene& scene, const Theme& t
     bool ok =
         ui_surface_paint_plate(paint, panel, theme, UiElevation::popover, style.panel_radius) &&
         // Discord's category list and inspector bar sit on the lower tier.
-        paint_band(paint, scene.rail, panel, theme, style.panel_radius) &&
-        paint_band(paint, scene.footer, panel, theme, style.panel_radius);
+        ui_background_paint_band(paint, scene.rail, panel, theme, theme.base_lower, style.panel_radius,
+                                 UiBackgroundTier::lower) &&
+        ui_background_paint_band(paint, scene.footer, panel, theme, theme.base_lower, style.panel_radius,
+                                 UiBackgroundTier::lower);
     for (u32 i = 0; ok && i < 3; ++i) {
         const auto widget = scene.tab_widgets[i];
         if (!widget.generation)

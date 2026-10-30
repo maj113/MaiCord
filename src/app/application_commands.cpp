@@ -20,6 +20,12 @@
 #include "maicord/core/data_path.hpp"
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/core/hash.hpp"
+#include "maicord/model/asset_hash.hpp"
+#include "maicord/model/user_activity.hpp"
+#include "maicord/model/user_profile.hpp"
+#include "maicord/protocol/writer.hpp"
+#include "maicord/ui/popup_presentation.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/log.hpp"
@@ -166,6 +172,14 @@ struct Commands {
     u32 builtin_text_revision;
     Echo echoes[echo_slots];
     u32 echo_next;
+    // Pictures fetched by URL (app icons, bots' default avatars) that picker
+    // items name by the URL's hash; a ring past the visible rail and rows.
+    struct IconUrl {
+        u64 hash;
+        u16 bytes;
+        char url[160];
+    } icon_urls[64];
+    u32 icon_url_next;
 };
 Commands* commands;
 Commands* ensure_commands() noexcept {
@@ -737,23 +751,82 @@ bool project(Utf8View input) noexcept {
     ++c.generation;
     return true;
 }
-// The app's bot avatar (the client's app icon, bot first). An index bot not
-// yet known is made resident from the index, as the local command message does.
-bool avatar(PopupItem& item, const CommandApplication* app) noexcept {
-    if (!app || !app->bot_id)
-        return false;
+// Keeps a picture's URL for the media pump under its key (the URL's hash),
+// fetched as a still image of format. Kind none when the URL does not fit.
+MediaAssetKey url_picture(Utf8View url, MediaAttachmentFormat format) noexcept {
+    auto& c = *commands;
+    if (!url.bytes || url.bytes > sizeof(c.icon_urls[0].url))
+        return {};
+    const u64 hash = hash64_bytes(kHash64Seed, url.data, url.bytes);
+    bool known = false;
+    for (const auto& entry : c.icon_urls)
+        known = known || (entry.hash == hash && entry.bytes);
+    if (!known) {
+        auto& entry = c.icon_urls[c.icon_url_next++ % (sizeof(c.icon_urls) / sizeof(c.icon_urls[0]))];
+        entry.hash = hash;
+        entry.bytes = static_cast<u16>(url.bytes);
+        copy_bytes(entry.url, url.data, url.bytes);
+    }
+    return popup_media_url_key(hash, format);
+}
+// The app's picture in the client's order (getApplicationIconURL with
+// botIconFirst), for the picker and the composer's command bar alike: the
+// bot's avatar in this server (its member record), its avatar, the
+// application's icon (app-icons), then the bot's default avatar; all still.
+// An index bot not yet known is made resident from the index, as the local
+// command message does; one known without an avatar takes the index's.
+MediaAssetKey app_picture(const CommandApplication* app) noexcept {
+    if (!app || !g_app.account_ui)
+        return {};
+    const auto& c = *commands;
     auto& users = g_app.account_ui->user_store;
-    if (!user_store_find(users, app->bot_id) && user_store_upsert(&users, app->bot_id, section_name(*app)).ok() &&
-        app->avatar.bytes)
-        user_store_set_avatar(&users, app->bot_id, app->avatar);
-    const auto* user = user_store_find(users, app->bot_id);
-    if (!user)
+    char url[192];
+    ProtocolWriter w{{reinterpret_cast<u8*>(url), sizeof(url)}, 0};
+    if (c.guild && app->bot_id)
+        if (const auto* member = user_appearance_find(users.appearance, app->bot_id, c.guild)) {
+            const Utf8View hash = member->avatar.view();
+            if (user_avatar_variant(hash) &&
+                protocol_writer_append_c_string(&w, "https://cdn.discordapp.com/guilds/") &&
+                protocol_writer_append_u64(&w, c.guild) && protocol_writer_append_c_string(&w, "/users/") &&
+                protocol_writer_append_u64(&w, app->bot_id) && protocol_writer_append_c_string(&w, "/avatars/") &&
+                protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(hash.data), hash.bytes) &&
+                protocol_writer_append_c_string(&w, ".webp?size=64"))
+                return url_picture({url, w.used}, MediaAttachmentFormat::webp);
+        }
+    const UserRecord* user = nullptr;
+    if (app->bot_id) {
+        if (!user_store_find(users, app->bot_id))
+            user_store_upsert(&users, app->bot_id, section_name(*app));
+        user = user_store_find(users, app->bot_id);
+        if (user && !user_store_avatar_hash(*user).bytes && app->avatar.bytes &&
+            user_store_set_avatar(&users, app->bot_id, app->avatar))
+            user = user_store_find(users, app->bot_id);
+    }
+    const Utf8View hash = user ? user_store_avatar_hash(*user) : Utf8View{};
+    if (const u32 variant = user ? user_avatar_variant(hash) : 0)
+        return media_asset_user_avatar(user->id, variant, asset_hash_animated(hash));
+    if (const u32 bytes = user_activity_application_icon_url(app->id, app->icon, {url, sizeof(url)}))
+        return url_picture({url, bytes}, MediaAttachmentFormat::png);
+    if (!app->bot_id)
+        return {};
+    // The CDN's default avatar for the bot ((id >> 22) % 6, as profiles use).
+    static constexpr char prefix[] = "https://cdn.discordapp.com/embed/avatars/";
+    constexpr u32 prefix_bytes = sizeof(prefix) - 1;
+    copy_bytes(url, prefix, prefix_bytes);
+    url[prefix_bytes] = static_cast<char>('0' + (app->bot_id >> 22) % 6);
+    copy_bytes(url + prefix_bytes + 1, ".png", 4);
+    return url_picture({url, prefix_bytes + 5}, MediaAttachmentFormat::png);
+}
+// Puts the app's picture on a picker row.
+bool avatar(PopupItem& item, const CommandApplication* app) noexcept {
+    const MediaAssetKey key = app_picture(app);
+    if (key.kind == MediaAssetKind::none)
         return false;
     item.flags |= popup_item_avatar;
-    item.media_id = user->id;
-    const auto hash = user_store_avatar_hash(*user);
-    item.media_variant = user_avatar_variant(hash);
-    item.media_flags = hash.bytes > 2 && hash.data[0] == 'a' && hash.data[1] == '_' ? 1 : 0;
+    item.media_id = key.id;
+    const bool url = key.kind == MediaAssetKind::profile_image;
+    item.media_variant = url ? static_cast<u32>(media_asset_embed_format(key)) : key.variant;
+    item.media_flags = url ? kPopupItemMediaUrl : (key.flags & media_asset_flag_animated) ? 1 : 0;
     return true;
 }
 constexpr u32 no_option = ~0u;
@@ -2027,15 +2100,8 @@ void application_commands_composer(MessageComposerProjectionContext* projection)
         projection->command_bar_detail = c.error;
         projection->command_bar_error = true;
     }
-    if (c.selected.app && c.selected.app->bot_id && g_app.account_ui) {
-        const auto* user = user_store_find(g_app.account_ui->user_store, c.selected.app->bot_id);
-        if (user) {
-            const auto hash = user_store_avatar_hash(*user);
-            projection->command.bot_id = user->id;
-            projection->command.avatar_variant = user_avatar_variant(hash);
-            projection->command.animated = hash.bytes > 2 && hash.data[0] == 'a' && hash.data[1] == '_';
-        }
-    }
+    if (c.selected.app)
+        projection->command.avatar = app_picture(c.selected.app);
 }
 bool application_commands_sync(bool* handled) noexcept {
     *handled = false;
@@ -2890,6 +2956,16 @@ void application_commands_hover() noexcept {
         commands->keyboard_row = no_row;
         commands->rail_focus = no_row;
     }
+}
+u32 application_commands_icon_url(u64 media_id, Slice<char> url) noexcept {
+    if (!commands || !media_id)
+        return 0;
+    for (const auto& entry : commands->icon_urls)
+        if (entry.hash == media_id && entry.bytes && entry.bytes <= url.count) {
+            copy_bytes(url.data, entry.url, entry.bytes);
+            return entry.bytes;
+        }
+    return 0;
 }
 void application_commands_dismiss() noexcept {
     if (commands) {

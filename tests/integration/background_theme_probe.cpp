@@ -14,6 +14,7 @@
 #include "maicord/render/background_fx.hpp"
 #include "maicord/render/renderer_settings_visibility.hpp"
 #include "maicord/ui/member_list_scene.hpp"
+#include "maicord/ui/popup_scene.hpp"
 
 #include "maicord/sys/d3d11.hpp"
 
@@ -1365,6 +1366,111 @@ bool theme_editor_pixels(BackgroundThemeProbeContext c, Theme theme) noexcept {
         "theme_editor_native_SV_hue_stops_live_main_settings_authority_retained_prefix_dark_light_passed");
     return true;
 }
+// The `/` command picker's category rail (the client's background-base-lowest)
+// on every theme: flat Dark, Light and AMOLED paint their darkest base, and a
+// background theme the panel's gradient material at its lowest tier, so the
+// rail is never an opaque strip over the gradient.
+bool command_picker_pixels(BackgroundThemeProbeContext c) noexcept {
+    auto& r = c.renderer;
+    const auto* composer = r.message_composer_scene;
+    const auto* surface =
+        composer && composer->active ? ui_widget_manager_layout_node(composer->widgets, composer->surface) : nullptr;
+    if (!surface)
+        return failure(150);
+    PopupItem storage[8]{};
+    PopupRowWidget rows[8]{};
+    UiWidget widgets[24]{};
+    UiLayoutNode nodes[24]{};
+    PopupScene picker{};
+    struct Restore {
+        D3D11Renderer& r;
+        PopupScene& picker;
+        const PopupScene* original;
+        ~Restore() noexcept {
+            r.popup_scene = original;
+            r.retained_presentation.valid = false;
+            popup_scene_release(&picker);
+        }
+    } restore{r, picker, r.popup_scene};
+    PopupItem items[]{
+        {utf8_literal("Frequently Used"), 200000, popup_item_enabled | popup_item_command_category},
+        {utf8_literal("Built-in"), 200001,
+         popup_item_enabled | popup_item_command_category | popup_item_separator_before | popup_item_checked},
+        {utf8_literal("Frequently Used"), 600000, popup_item_command_section},
+        {utf8_literal("/gif"), 100000, popup_item_enabled | popup_item_command_row},
+        {utf8_literal("/shrug"), 100001, popup_item_enabled | popup_item_command_row},
+        {utf8_literal("Built-in"), 600001, popup_item_command_section},
+        {utf8_literal("/ban"), 100002, popup_item_enabled | popup_item_command_row}};
+    items[0].presentation = items[2].presentation = ui_menu_row_presentation(UiIcon::recent);
+    items[1].presentation = items[5].presentation = ui_menu_row_presentation(UiIcon::command);
+    items[3].detail = utf8_literal("Search Animated GIFs on the Web\x1F" "Built-in\x1Fquery");
+    items[4].detail = utf8_literal("Appends \xC2\xAF\\_(\xE3\x83\x84)_/\xC2\xAF to your message.\x1F" "Built-in\x1F");
+    items[6].detail = utf8_literal("Ban user\x1F" "Built-in\x1Fuser");
+    const UiRect viewport{0, 0, static_cast<float>(r.width) * 96.f / r.dpi,
+                          static_cast<float>(r.height) * 96.f / r.dpi};
+    if (!popup_scene_initialize(&picker, {storage, 8}, {rows, 8}, {widgets, 24}, {nodes, 24}) ||
+        !popup_scene_open(&picker, PopupKind::autocomplete, 77, {items, 7}, surface->rectangle, viewport,
+                          ui_rect_width(surface->rectangle), true)
+             .ok() ||
+        !renderer_bind_popup_scene(&r, &picker))
+        return failure(151);
+    // A rail point below its entries.
+    const UiRect panel = picker.rectangle;
+    const float rail_x = (panel.left + kCommandRailWidth * .5f) / viewport.right,
+                rail_y = (panel.bottom - 24) / viewport.bottom;
+    const auto sample = [&](const Theme& theme, const wchar_t* name, u8 (&rail)[3]) noexcept {
+        if (!renderer_rebuild_content_text(&r, theme) || !probe_present(&r, theme) ||
+            !d3d11_renderer_draw_stream(&r, theme, false, false, nullptr))
+            return false;
+        {
+            PixelReadback pixels{r};
+            if (!pixels.read(rail_x, rail_y, rail))
+                return false;
+        }
+        return !c.capture || c.capture(name, theme);
+    };
+    const auto delta = [](const u8 (&a)[3], const u8 (&b)[3]) noexcept {
+        u32 sum = 0;
+        for (u32 i = 0; i < 3; ++i)
+            sum += a[i] > b[i] ? a[i] - b[i] : b[i] - a[i];
+        return sum;
+    };
+    // Flat themes: the rail is their darkest base.
+    const Theme flat[]{kDefaultTheme, kLightTheme, ui_theme_amoled()};
+    const wchar_t* flat_names[]{L"commands-picker-dark.bmp", L"commands-picker-light.bmp",
+                                L"commands-picker-amoled.bmp"};
+    for (u32 i = 0; i < 3; ++i) {
+        const Color base = flat[i].base_lowest;
+        const u8 expected[3]{static_cast<u8>(base.red * 255.f + .5f), static_cast<u8>(base.green * 255.f + .5f),
+                             static_cast<u8>(base.blue * 255.f + .5f)};
+        u8 rail[3]{};
+        if (!sample(flat[i], flat_names[i], rail) || delta(rail, expected) > 6)
+            return failure(152 + i);
+    }
+    // Background themes: the rail shows the gradient through the panel's
+    // material, so flipping the gradient's direction (same tokens) changes it;
+    // an opaque rail would keep its pixels.
+    auto preferences = client_preferences_defaults();
+    preferences.theme = ClientTheme::custom_gradient;
+    preferences.gradient = background_theme_defaults();
+    u8 rail[3]{}, toward_rail[3]{}, away_rail[3]{};
+    if (!sample(client_theme_projection(preferences), L"commands-picker-gradient.bmp", rail))
+        return failure(155);
+    preferences.gradient = {{0xff00ff, 0x00ffff, 0, 0, 0}, 90, 2, 100, BackgroundEffect::none, 50, 25, 35};
+    const Theme toward = client_theme_projection(preferences);
+    preferences.gradient.angle_degrees = 270;
+    const Theme away = client_theme_projection(preferences);
+    if (!bytes_equal(&toward.base_lowest, &away.base_lowest, sizeof(Color)) ||
+        !sample(toward, L"commands-picker-magenta-cyan.bmp", toward_rail) ||
+        !sample(away, L"commands-picker-cyan-magenta.bmp", away_rail))
+        return failure(156);
+    const u32 rail_change = delta(toward_rail, away_rail);
+    log_u64(LogLevel::info, "probe", "command_picker_gradient_rail_rgb_delta", rail_change);
+    if (rail_change < 24)
+        return failure(157);
+    log_write(LogLevel::info, "probe", "command_picker_rail_flat_and_gradient_pixels_passed");
+    return true;
+}
 } // namespace
 
 bool background_theme_ui_probe(BackgroundThemeProbeContext c) noexcept {
@@ -1540,11 +1646,13 @@ bool background_theme_ui_probe(BackgroundThemeProbeContext c) noexcept {
     if (!capture_colors.project(kDefaultTheme))
         return failure(36);
     // The Settings page and the themed Friends/DM/group views are independent
-    // fixtures: they run (and capture) even when an editor check fails.
+    // fixtures: they run (and capture) even when an editor check fails. The
+    // command picker runs first, over the chat's composer.
+    const bool picker_passed = command_picker_pixels(c);
     const bool editor_passed = theme_editor_pixels(c, theme);
     const bool settings_passed = settings_theme_ui_probe(c);
     const bool views_passed = theme_views_ui_probe(c);
-    if (!editor_passed || !settings_passed || !views_passed)
+    if (!editor_passed || !settings_passed || !views_passed || !picker_passed)
         return false;
     log_u64(LogLevel::info, "probe", "background_theme_lazy_gpu_constant_bytes", buffer.ByteWidth);
     log_u64(LogLevel::info, "probe", "background_theme_pipeline_owner_bytes",

@@ -226,7 +226,13 @@ void interaction(GatewayClientDispatchKind kind, u64 id, u64 nonce) noexcept {
     check(ok, "interaction event fixture");
     application_commands_interaction(kind, {reinterpret_cast<const char*>(body), writer.used});
 }
-constexpr auto fixture_index = utf8_literal(R"({"applications":[{"id":"10","name":"Test","bot":{"id":"11"}},{"id":"20","name":"Other","bot":{"id":"21"}}],"application_commands":[{"id":"100","application_id":"10","version":"7","name":"wordle","description":"Play wordle","type":1},{"id":"101","application_id":"10","version":"7","name":"echo","description":"Echo","type":1,"options":[{"name":"text","type":3,"required":true}]},{"id":"102","application_id":"10","version":"7","name":"pick","description":"Pick","type":1,"options":[{"name":"mode","type":4,"required":true,"choices":[{"name":"One","value":1},{"name":"Two","value":2}]}]},{"id":"103","application_id":"10","version":"7","name":"admin","description":"Admin","type":1,"options":[{"name":"group","type":2,"options":[{"name":"run","description":"Run","type":1,"options":[{"name":"count","type":4,"required":true}]}]}]},{"id":"104","application_id":"10","version":"7","name":"bump","description":"First bump","type":1},{"id":"105","application_id":"20","version":"7","name":"bump","description":"Second bump","type":1},{"id":"106","application_id":"10","version":"7","name":"search","description":"Search","type":1,"options":[{"name":"query","type":3,"required":true,"autocomplete":true},{"name":"count","type":4}]},{"id":"107","application_id":"10","version":"7","name":"upload","description":"Upload","type":1,"options":[{"name":"file","type":11,"required":true},{"name":"extra","type":11}]}]})");
+constexpr auto fixture_index = utf8_literal(R"({"applications":[{"id":"10","name":"Test","bot":{"id":"11"}},{"id":"20","name":"Other","icon":"0f1e2d","bot":{"id":"21"}}],"application_commands":[{"id":"100","application_id":"10","version":"7","name":"wordle","description":"Play wordle","type":1},{"id":"101","application_id":"10","version":"7","name":"echo","description":"Echo","type":1,"options":[{"name":"text","type":3,"required":true}]},{"id":"102","application_id":"10","version":"7","name":"pick","description":"Pick","type":1,"options":[{"name":"mode","type":4,"required":true,"choices":[{"name":"One","value":1},{"name":"Two","value":2}]}]},{"id":"103","application_id":"10","version":"7","name":"admin","description":"Admin","type":1,"options":[{"name":"group","type":2,"options":[{"name":"run","description":"Run","type":1,"options":[{"name":"count","type":4,"required":true}]}]}]},{"id":"104","application_id":"10","version":"7","name":"bump","description":"First bump","type":1},{"id":"105","application_id":"20","version":"7","name":"bump","description":"Second bump","type":1},{"id":"106","application_id":"10","version":"7","name":"search","description":"Search","type":1,"options":[{"name":"query","type":3,"required":true,"autocomplete":true},{"name":"count","type":4}]},{"id":"107","application_id":"10","version":"7","name":"upload","description":"Upload","type":1,"options":[{"name":"file","type":11,"required":true},{"name":"extra","type":11}]}]})");
+// The URL of a command app's picture fetched by URL (empty for a user avatar).
+Utf8View picture_url(MediaAssetKey key, char (&url)[160]) noexcept {
+    return key.kind == MediaAssetKind::profile_image
+               ? Utf8View{url, application_commands_icon_url(key.id, {url, sizeof(url)})}
+               : Utf8View{};
+}
 void edit(Utf8View text) noexcept {
     message_composer_select_all(&g_app.message_composer);
     const auto result = message_composer_insert_utf8(&g_app.message_composer, text);
@@ -807,6 +813,76 @@ void builtin_cases() noexcept {
     popup_scene_close(&g_app.popup_scene);
     set_popup_owner(PopupOwnerKind::none);
 }
+// The bot's avatar in the channel's server comes first (the client's guild
+// member avatar), as a still WebP by URL, in the picker and the composer.
+void guild_picture_cases() noexcept {
+    auto& ui = *g_app.account_ui;
+    auto& composer = g_app.message_composer;
+    const auto saved_state = ui.chat_state;
+    const u64 saved_active_channel = ui.active_channel_id;
+    const u64 saved_composer_channel = composer.channel_id;
+    GuildRecord guilds[1]{};
+    ChannelRecord channels[1]{};
+    u16 guild_order[1]{}, channel_order[1]{};
+    u8 names[128]{};
+    ChannelInput channel{};
+    channel.id = 9;
+    channel.guild_id = 55;
+    channel.name = utf8_literal("general");
+    UserAppearance member{};
+    member.user_id = 21;
+    member.guild_id = 55;
+    member.fields = appearance_avatar;
+    copy_bytes(member.avatar.data, "fedcba9876543210fedcba9876543210", 32);
+    member.avatar.bytes = 32;
+    const bool initialized =
+        chat_state_store_initialize(&ui.chat_state, {guilds, 1}, {guild_order, 1}, {channels, 1},
+                                    {channel_order, 1}, {names, sizeof(names)}) &&
+        chat_state_store_upsert_guild(&ui.chat_state, {55, utf8_literal("Guild"), GuildMutationKind::create, 1})
+            .ok() &&
+        chat_state_store_upsert_channel(&ui.chat_state, channel).ok() &&
+        message_composer_controller_select_channel(&ui.message_composer_controller, 9).ok() &&
+        user_appearance_upsert(&ui.user_store.appearance, member);
+    check(initialized, "server picture fixture initializes");
+    if (initialized) {
+        ui.active_channel_id = 9;
+        edit(utf8_literal("/"));
+        const bool loaded = application_commands_submit(clock_monotonic_milliseconds()) && operation == 0;
+        respond(200, fixture_index);
+        edit(utf8_literal("/bump"));
+        // The second app's /bump (its row's detail starts with its description).
+        const PopupItem* other = nullptr;
+        for (u32 i = 0; i < g_app.popup_scene.item_count; ++i) {
+            const auto& item = g_app.popup_scene.items[i];
+            if (utf8_equal(item.label, utf8_literal("/bump")) && item.detail.bytes > 11 &&
+                bytes_equal(item.detail.data, "Second bump", 11))
+                other = &item;
+        }
+        char row_url[160]{}, bar_url[160]{};
+        const Utf8View row = other && (other->media_flags & kPopupItemMediaUrl)
+                                 ? Utf8View{row_url, application_commands_icon_url(other->media_id,
+                                                                                   {row_url, sizeof(row_url)})}
+                                 : Utf8View{};
+        constexpr auto expected = utf8_literal("https://cdn.discordapp.com/guilds/55/users/21/avatars/"
+                                               "fedcba9876543210fedcba9876543210.webp?size=64");
+        check(loaded && utf8_equal(row, expected) &&
+                  other->media_variant == static_cast<u32>(MediaAttachmentFormat::webp),
+              "a bot's avatar in this server comes before its own avatar and the app's icon");
+        check(other && application_commands_activate(other->action) &&
+                  utf8_equal(picture_url(g_app.message_composer_scene.command.avatar, bar_url), expected),
+              "the composer's command bar shows the same picture as the picker");
+    }
+    message_composer_clear(&composer);
+    popup_scene_close(&g_app.popup_scene);
+    set_popup_owner(PopupOwnerKind::none);
+    ui.chat_state = saved_state;
+    ui.active_channel_id = saved_active_channel;
+    message_composer_controller_select_channel(&ui.message_composer_controller, saved_composer_channel);
+    edit(utf8_literal("/"));
+    message_composer_clear(&composer);
+    popup_scene_close(&g_app.popup_scene);
+    set_popup_owner(PopupOwnerKind::none);
+}
 void run() noexcept {
     Arena arena{};
     const usize bytes = sizeof(AccountUiRuntime);
@@ -910,12 +986,15 @@ void run() noexcept {
                   !selected_scene.command_bar_error &&
                   ui_rect_has_area(message_composer_scene_command_bar_text_rectangle(selected_scene)),
               "a selected command without options shows only the composer's option bar, as in the client");
-        check(selected_scene.command.name_bytes == 7 && selected_scene.command.bot_id == 11 &&
+        char first_picture[160]{};
+        check(selected_scene.command.name_bytes == 7 &&
+              utf8_equal(picture_url(selected_scene.command.avatar, first_picture),
+                         utf8_literal("https://cdn.discordapp.com/embed/avatars/0.png")) &&
               selected_scene.display_style_count == 1 && selected_scene.display_styles[0].byte_offset == 0 &&
               selected_scene.display_styles[0].byte_count == 7 &&
               (selected_scene.display_styles[0].flags & text_style_bold) &&
               ui_rect_has_area(message_composer_scene_command_avatar(selected_scene)),
-              "selected command projects its bot avatar and bold editable name into the composer");
+              "selected command projects its app's picture and bold editable name into the composer");
         const auto* bar_layout = ui_widget_manager_layout_node(selected_scene.widgets, selected_scene.command_bar);
         const auto* close_layout =
             message_composer_scene_layout_node(selected_scene, MessageComposerControl::command_close);
@@ -1188,9 +1267,11 @@ void run() noexcept {
         respond(204);
 
         edit(utf8_literal("/bump"));
+        char second_picture[160]{};
         const u32 second_app_action = action_named(utf8_literal("/bump"), 1);
         check(second_app_action && application_commands_activate(second_app_action) &&
-              g_app.message_composer_scene.command.bot_id == 21 &&
+              utf8_equal(picture_url(g_app.message_composer_scene.command.avatar, second_picture),
+                         utf8_literal("https://cdn.discordapp.com/app-icons/20/0f1e2d.png?size=160")) &&
               application_commands_key(VK_RETURN) && application_commands_submit(1003) &&
               submitted_application == 20 && payload_contains(utf8_literal("\"id\":\"105\"")),
               "duplicate command labels retain the selected application and command identity");
@@ -1370,6 +1451,22 @@ void run() noexcept {
                           (frequent_rail->flags & popup_item_checked) && section(utf8_literal("Frequently Used")) &&
                           rail_item(utf8_literal("Test")) && !rail_item(utf8_literal("All")),
                       "the rail leads with the clock, highlights the section in view and has no All entry");
+                {
+                    // The client's icon order without a bot avatar: the app's
+                    // icon (app-icons), else the bot's CDN default avatar,
+                    // both fetched by URL.
+                    const auto url_of = [](const PopupItem* app, char (&url)[160]) noexcept {
+                        return app && (app->flags & popup_item_avatar) && (app->media_flags & kPopupItemMediaUrl)
+                                   ? Utf8View{url, application_commands_icon_url(app->media_id, {url, sizeof(url)})}
+                                   : Utf8View{};
+                    };
+                    char test_url[160]{}, other_url[160]{};
+                    check(utf8_equal(url_of(rail_item(utf8_literal("Test")), test_url),
+                                     utf8_literal("https://cdn.discordapp.com/embed/avatars/0.png")) &&
+                              utf8_equal(url_of(rail_item(utf8_literal("Other")), other_url),
+                                         utf8_literal("https://cdn.discordapp.com/app-icons/20/0f1e2d.png?size=160")),
+                          "an app without a bot avatar shows its icon, else its bot's default avatar");
+                }
                 const PopupItem* app_rail = rail_item(utf8_literal("Test"));
                 const u32 app_action = app_rail ? app_rail->action : 0;
                 check(app_action && application_commands_activate(app_action) && !section(utf8_literal("Frequently Used")) &&
@@ -1445,6 +1542,7 @@ void run() noexcept {
         }
 
         builtin_cases();
+        guild_picture_cases();
 
         // Context menu commands (Apps): user (type 2) and message (type 3).
         message_composer_clear(&composer);

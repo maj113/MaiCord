@@ -133,6 +133,11 @@ inline constexpr u8 kPopupItemPlaceholder = 1u << 2;
 constexpr bool popup_item_placeholder(const PopupItem& item) noexcept {
     return (item.media_flags & kPopupItemPlaceholder) != 0 && !(item.flags & popup_item_enabled);
 }
+// media_flags bit with popup_item_avatar: a picture fetched by URL (an app's
+// icon, a bot's server or default avatar) under a profile-image key; media_id
+// is the URL's hash, media_variant its MediaAttachmentFormat, and the popup's
+// owner resolves the URL.
+inline constexpr u8 kPopupItemMediaUrl = 1u << 3;
 static_assert(__is_trivial(PopupItem) && __is_standard_layout(PopupItem));
 static_assert(offsetof(PopupItem, media_flags) == 32 && offsetof(PopupItem, regional_flag) == 34);
 static_assert(offsetof(PopupItem, detail) == 40 && offsetof(PopupItem, media_variant) == 56);

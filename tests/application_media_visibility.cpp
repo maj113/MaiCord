@@ -521,7 +521,7 @@ void run_identity_residency_test(VisibilityFixture& fixture, AccountUiRuntime& u
     char command_text[32]{};
     MessageComposer command_model{};
     MessageComposerProjectionContext command_projection{};
-    command_projection.command = {9, avatar.variant, 5, true};
+    command_projection.command = {avatar, 5};
     const bool composer_ready = message_composer_initialize(&command_model, {command_text, sizeof(command_text)}) &&
         message_composer_restore(&command_model, 7, utf8_literal("/test "), 6, 6) &&
         message_composer_scene_initialize_owned(&g_app.message_composer_scene) &&

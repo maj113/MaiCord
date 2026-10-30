@@ -3,6 +3,7 @@
 #include "../src/app/application_guild_card.hpp"
 #include "../src/app/application_guild_banner.hpp"
 #include "../src/app/application_expression_card.hpp"
+#include "../src/app/application_commands.hpp"
 
 namespace maicord::app_detail {
 bool application_stream_preview_key_current(const MediaAssetKey&) noexcept {
@@ -36,5 +37,9 @@ bool application_guild_banner_key_current(MediaAssetKey) noexcept {
 void application_guild_banner_media_failed(MediaAssetKey) noexcept {}
 bool application_guild_banner_take_retired(MediaAssetKey*) noexcept {
     return false;
+}
+// Nor the command picker's app icons.
+u32 application_commands_icon_url(u64, Slice<char>) noexcept {
+    return 0;
 }
 } // namespace maicord::app_detail
