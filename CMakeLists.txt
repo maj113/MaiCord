@@ -14,7 +14,7 @@ if(CMAKE_BUILD_TYPE AND NOT CMAKE_BUILD_TYPE STREQUAL "Release")
 endif()
 set(CMAKE_BUILD_TYPE Release CACHE STRING "Build configuration" FORCE)
 
-project(MaiCord VERSION 0.5.0 LANGUAGES C CXX RC ASM_MASM)
+project(MaiCord VERSION 0.5.1 LANGUAGES C CXX RC ASM_MASM)
 
 # Shipping build: MaiCord.exe. Targets defined up to
 # cmake/tests.cmake are production targets. Their intermediate products are
