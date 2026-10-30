@@ -57,6 +57,7 @@
 #include "maicord/model/typing_store.hpp"
 #include "maicord/ui/settings_scene.hpp"
 #include "maicord/ui/shell_navigation_scene.hpp"
+#include "maicord/ui/typing_indicator.hpp"
 #include "maicord/ui/virtual_list.hpp"
 #include "maicord/ui/caption_bar.hpp"
 
@@ -963,6 +964,7 @@ bool project(Fixture& f, D3D11Renderer& r) noexcept {
                "search_update_failed"))
         return false;
     r.search_scene = &f.search;
+    f.composer_scene.typing_dots = typing.bytes != 0;
     message_composer_scene_set_caret_visible(&f.composer_scene, false);
     if (!renderer_bind_ui_scene(&r, &f.shell) || !renderer_bind_guild_rail_scene(&r, &f.rail) ||
         !renderer_bind_shell_navigation_scene(&r, &f.navigation) ||
@@ -1305,9 +1307,9 @@ bool react(Fixture& f, u64 id, Utf8View emoji, bool self) noexcept {
                  "reaction_add_failed");
 }
 
-// The bot's answer to /release: the attribution header, a release card and
-// link buttons under it.
-bool arrive_release(Fixture& f, u64 id) noexcept {
+// The bot's deferred answer to /release: the attribution header with "is
+// thinking...", then the release card and link buttons replace it.
+bool answer_release(Fixture& f, u64 id, bool ready) noexcept {
     GatewayMessageEmbed card{};
     card.type = GatewayMessageEmbedType::rich;
     card.title = utf8_literal("MaiCord 0.5.2");
@@ -1334,17 +1336,22 @@ bool arrive_release(Fixture& f, u64 id) noexcept {
     m.timestamp_ms = snowflake_timestamp_ms(id);
     m.fields = gateway_message_field_id | gateway_message_field_channel_id | gateway_message_field_author_id |
                gateway_message_field_content | gateway_message_field_timestamp | gateway_message_field_type |
-               gateway_message_field_interaction | gateway_message_field_embeds | gateway_message_field_components;
+               gateway_message_field_flags | gateway_message_field_interaction;
     m.type = 20;
     m.interaction = {id + 1, kSelf, utf8_literal("Mai"), {f.avatar_hashes[0], 32}, utf8_literal("release"), 2};
+    if (!ready) {
+        m.flags = 1u << 7; // The API's LOADING flag.
+        return check(message_timeline_apply_created(&f.timeline, m).ok(), "bot_message_failed");
+    }
+    m.fields |= gateway_message_field_embeds | gateway_message_field_components;
     m.embeds = {&card, 1};
     m.components = {components, 3};
-    return check(message_timeline_apply_created(&f.timeline, m).ok(), "bot_message_failed");
+    return check(message_timeline_apply_updated(&f.timeline, m).ok(), "bot_answer_failed");
 }
 
 // The composer's picker as a slash opens it: the bot's commands and the
-// built-in ones beside their rail, or once a query narrows it, the matches.
-bool open_commands(Fixture& f, D3D11Renderer& r, bool query) noexcept {
+// built-in ones beside their rail, or under a title, what a query matches.
+bool open_commands(Fixture& f, D3D11Renderer& r, Utf8View title = {}) noexcept {
     const UiLayoutNode* compose = node(f.shell, UiSemantic::composer);
     if (!check(compose != nullptr, "picker_anchor_missing"))
         return false;
@@ -1361,8 +1368,9 @@ bool open_commands(Fixture& f, D3D11Renderer& r, bool query) noexcept {
                release_detail = utf8_literal("Post the release notes\x1FLab Bot\x1Fversion");
     PopupItem items[9]{};
     u32 count = 0;
+    const bool query = title.bytes != 0;
     if (query) {
-        items[count++] = {utf8_literal("Commands matching /rel"), 1, popup_item_command_section, 0};
+        items[count++] = {title, 1, popup_item_command_section, 0};
         command(items[count], 2, release, release_detail);
         picture(items[count++]);
     } else {
@@ -1403,12 +1411,14 @@ void close_commands(Fixture& f, D3D11Renderer& r) noexcept {
 
 // The animated hero: 12 s at 12.5 fps under Aurora with its effect running.
 // Juniper finishes typing and posts, reactions land, Ada replies, then Mai
-// types a slash, picks /release and the bot answers. The clock and effect phase
-// are fixed per frame, so every run draws the same frames.
+// types a slash, picks /release and the bot thinks and answers. The clock, dots
+// and effect phase are fixed per frame, so every run draws the same frames, and
+// 12 s is a whole number of dot pulses, so the loop closes.
 void hero_loop(Fixture& f, D3D11Renderer& r) noexcept {
     constexpr u32 kFrames = 150;
     constexpr float kStep = .08f;
     const u64 juniper = snowflake(0, 10), ada = snowflake(0, 20), release = snowflake(0, 30);
+    constexpr u32 kFrameMs = 80, kSlash = 92, kSent = 116, kAnswer = 128;
     constexpr Utf8View fire = utf8_literal("\xF0\x9F\x94\xA5"), eyes = utf8_literal("\xF0\x9F\x98\x8D");
     constexpr Utf8View rocket = utf8_literal("\xF0\x9F\x9A\x80"), party = utf8_literal("\xF0\x9F\x8E\x89");
     constexpr Utf8View juniper_text =
@@ -1417,6 +1427,8 @@ void hero_loop(Fixture& f, D3D11Renderer& r) noexcept {
         return;
     for (u32 frame = 0; frame < kFrames; ++frame) {
         bool changed = true;
+        f.composer_scene.typing_phase = f.messages.interaction_phase =
+            ui_typing_dots_phase(u64{frame} * kFrameMs, true);
         switch (frame) {
         case 19:
             arrive(f, juniper, 13, juniper_text);
@@ -1450,32 +1462,57 @@ void hero_loop(Fixture& f, D3D11Renderer& r) noexcept {
         case 86:
             react(f, ada, rocket, false);
             break;
-        case 92:
+        case kSlash:
+            f.composer.focused = true;
             message_composer_insert_utf8(&f.composer, utf8_literal("/"));
             break;
+        case 102:
+            message_composer_insert_utf8(&f.composer, utf8_literal("r"));
+            break;
         case 104:
-            message_composer_insert_utf8(&f.composer, utf8_literal("rel"));
+            message_composer_insert_utf8(&f.composer, utf8_literal("e"));
             break;
-        case 116:
+        case 106:
+            message_composer_insert_utf8(&f.composer, utf8_literal("l"));
+            break;
+        case kSent:
+            f.composer.focused = false;
             close_commands(f, r);
-            arrive_release(f, release);
+            answer_release(f, release, false);
             break;
-        case 128:
+        case kAnswer:
+            answer_release(f, release, true);
+            break;
+        case 134:
             react(f, release, party, false);
             break;
-        case 133:
+        case 138:
             react(f, release, rocket, false);
             break;
-        case 138:
+        case 142:
             react(f, release, party, false);
             break;
         default:
-            changed = false;
+            // "is thinking..." is message text, so its dots lay out again.
+            changed = frame > kSent && frame < kAnswer;
         }
-        if (changed && !project(f, r))
+        const bool composing = frame >= kSlash && frame < kSent;
+        if ((changed || composing) && !project(f, r))
             return;
-        if (frame == 92 || frame == 104)
-            open_commands(f, r, frame == 104);
+        if (composing) {
+            message_composer_scene_set_caret_visible(&f.composer_scene, (frame - kSlash) / 6 % 2 == 0);
+            r.retained_presentation.valid = false;
+        }
+        if (frame == kSlash)
+            open_commands(f, r);
+        else if (frame == 102)
+            open_commands(f, r, utf8_literal("Commands matching /r"));
+        else if (frame == 104)
+            open_commands(f, r, utf8_literal("Commands matching /re"));
+        else if (frame == 106)
+            open_commands(f, r, utf8_literal("Commands matching /rel"));
+        if (frame == kSlash || frame == kSlash + 1)
+            renderer_set_layer_opacity(&r, RendererLayerSurface::popup, frame == kSlash ? .5f : 1.f);
         shot(f, r, frame_name(L"hero", frame), 6.f + frame * kStep);
     }
 }
@@ -1563,7 +1600,7 @@ bool showcase_ui_probe(D3D11Renderer& r, MessageTextPresentation& presentation) 
                      two ? L"showcase-settings-appearance@2x.bmp" : L"showcase-settings-appearance@1x.bmp");
             renderer_bind_settings_scene(&r, nullptr);
             message_composer_insert_utf8(&f.composer, utf8_literal("/"));
-            if (project(f, r) && open_commands(f, r, false))
+            if (project(f, r) && open_commands(f, r))
                 shot(f, r, two ? L"showcase-commands@2x.bmp" : L"showcase-commands@1x.bmp");
             close_commands(f, r);
         }
