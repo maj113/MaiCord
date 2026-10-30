@@ -1,18 +1,14 @@
 // MPEG audio Layer III decoding; see maicord/media/mp3_decoder.h. The tables
 // are ISO/IEC 11172-3 Annex B and 13818-3 (and the MPEG-2.5 bands its FhG
-// extension uses); the Huffman codes are multi-level lookup tables. The
-// transforms run 8 lanes wide: the IMDCT over subbands, the synthesis DCT and
-// window over time slots.
+// extension uses); the Huffman codes are multi-level lookup tables. Every
+// stage works in place in the output, slot-major (see mp3_frame_decode), with
+// a few KiB of stack. The transforms run 8 lanes wide: the IMDCT over
+// subbands, the synthesis DCT and window over time slots.
 #include "maicord/media/mp3_decoder.h"
 #include "maicord/sys/simd.hpp"
 #include <string.h>
 
 typedef __m256 V;
-// Synthesis input (36 slots, padded to whole 8-slot groups) and DCT row widths.
-enum {
-    kSlots = 40,
-    kRows = 15 + kSlots
-};
 
 static const uint16_t kRates[3] = {44100, 48000, 32000};
 // Kilobits per second / 8, MPEG-1 and MPEG-2/2.5.
@@ -20,8 +16,8 @@ static const uint8_t kBitrates[2][15] = {{0, 4, 5, 6, 7, 8, 10, 12, 14, 16, 20, 
                                          {0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 18, 20}};
 // blendv masks: kLeading + 8 - n selects the first n lanes.
 static const float kLeading[16] = {-0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f};
-// Sign bits on the odd lanes (from kOddLanes + 1: the even ones).
-static const float kOddLanes[9] = {0.0f, -0.0f, 0.0f, -0.0f, 0.0f, -0.0f, 0.0f, -0.0f, 0.0f};
+// Sign bits on the odd lanes: frequency inversion of odd subbands' odd slots.
+static const float kOddLanes[8] = {0.0f, -0.0f, 0.0f, -0.0f, 0.0f, -0.0f, 0.0f, -0.0f};
 // Huffman tables: entries are (bits << 8) | (x << 4) | y, bits the codeword's
 // (past any subtable index) plus one sign bit per nonzero value, or
 // -((offset << 4) | bits) for a subtable of `bits` index bits. kHuffmanTables:
@@ -337,8 +333,6 @@ int mp3_frame_parse(const uint8_t* h, uint32_t available, Mp3Frame* out) {
     f.mid_side = h[3] >> 6 == 1 && (h[3] & 0x20);
     f.intensity = h[3] >> 6 == 1 && (h[3] & 0x10);
     f.bytes = (lsf ? 576000u : 1152000u) * kBitrates[lsf][h[2] >> 4] / f.sample_rate + ((h[2] >> 1) & 1);
-    if (f.bytes < 4 + crc + side)
-        return 2;
     if (f.bytes > available)
         return 4;
     f.main_bytes = f.bytes - 4 - crc - side;
@@ -387,40 +381,60 @@ int mp3_frame_parse(const uint8_t* h, uint32_t available, Mp3Frame* out) {
     return 0;
 }
 
-// One granule channel's scalefactor bands in bitstream order: the long bands,
-// then the short bands window by window.
+// One granule channel's scalefactor bands in bitstream order (the long bands,
+// then the short bands window by window) and where their lines go. A
+// granule channel is slot-major: line n of subband sb at x[n * stride + sb],
+// short-block lines already in the IMDCT's order (line 6 * window + j). A
+// band's lines start at x[at] and step through `run` lines of its subband,
+// then on through the next subband's 6 (its window's) or 18.
 typedef struct Bands {
     float scale[40];
-    uint16_t end[40], region1, region2;
-    uint8_t width[40], count, longs, first_short;
+    uint16_t end[40], at[40], region1, region2;
+    uint8_t width[40], run[40], count, longs, first_short;
 } Bands;
 
+typedef struct Walk {
+    uint32_t at, left, span;
+} Walk;
+static inline Walk walk(const Bands* b, uint32_t e) {
+    const Walk w = {b->at[e], b->run[e], e < b->longs ? 18u : 6u};
+    return w;
+}
+static inline void advance(Walk* w, uint32_t stride) {
+    w->at += stride;
+    if (!--w->left)
+        w->left = w->span, w->at -= w->span * stride - 1;
+}
+
 static inline float quarter_power(int32_t q) { // 2^(q / 4)
-    const int32_t e = (q >> 2) + 127;
-    if (e <= 0)
-        return 0;
-    const uint32_t bits = (uint32_t)e << 23;
+    const uint32_t bits = (uint32_t)((q >> 2) + 127) << 23;
     float v;
     memcpy(&v, &bits, 4);
     return v * kQuarter[q & 3];
 }
 
-// Reads the scalefactors at r and lays out the bands. sf keeps the first
-// granule's values for scfsi; limit is each band's illegal intensity position.
-static void scalefactors(Reader* r, const Mp3Frame* f, const Mp3Granule* g, uint32_t intensity_right,
-                         uint8_t* sf, uint8_t* limit, Bands* b) {
+// Lays out g's bands for a granule channel at stride.
+static void layout(const Mp3Frame* f, const Mp3Granule* g, uint32_t stride, Bands* b) {
     const uint32_t lsf = f->version != 3, shorts = g->block_type == 2;
     const uint8_t *long_widths = kLongWidths[f->rate_index], *short_widths = kShortWidths[f->rate_index];
     b->longs = (uint8_t)(!shorts ? 22 : g->mixed ? (lsf ? 6 : 8) : 0);
     b->first_short = (uint8_t)(b->longs ? 3 : 0);
-    memcpy(b->width, long_widths, b->longs);
-    uint32_t n = b->longs;
-    for (uint32_t sfb = b->first_short; shorts && sfb < 13; ++sfb)
-        for (uint32_t w = 0; w < 3; ++w)
-            b->width[n++] = short_widths[sfb];
+    uint32_t n = 0, sum = 0;
+    for (; n < b->longs; sum += long_widths[n++]) {
+        b->width[n] = long_widths[n];
+        b->run[n] = (uint8_t)(18 - sum % 18);
+        b->at[n] = (uint16_t)(sum % 18 * stride + sum / 18);
+    }
+    // A mixed block's long bands span its first three short bands' lines.
+    for (uint32_t sfb = b->first_short, start = sum / 3; shorts && sfb < 13; start += short_widths[sfb++])
+        for (uint32_t w = 0; w < 3; ++w, ++n) {
+            b->width[n] = short_widths[sfb];
+            b->run[n] = (uint8_t)(6 - start % 6);
+            b->at[n] = (uint16_t)((6 * w + start % 6) * stride + start / 6);
+        }
     b->count = (uint8_t)n;
-    for (uint32_t e = 0, sum = 0; e < n; ++e)
-        b->end[e] = (uint16_t)(sum += b->width[e]);
+    for (uint32_t e = 0, end = 0; e < n; ++e)
+        b->end[e] = (uint16_t)(end += b->width[e]);
     if (shorts) {
         b->region1 = (uint16_t)(3 * (short_widths[0] + short_widths[1] + short_widths[2]));
         b->region2 = 576;
@@ -429,6 +443,13 @@ static void scalefactors(Reader* r, const Mp3Frame* f, const Mp3Granule* g, uint
         b->region1 = b->end[first];
         b->region2 = g->block_type ? 576 : b->end[second < 21 ? second : 21];
     }
+}
+
+// Reads the scalefactors at r into b's scales. sf keeps the first granule's
+// values for scfsi; limit is each band's illegal intensity position.
+static void scalefactors(Reader* r, const Mp3Frame* f, const Mp3Granule* g, uint32_t intensity_right,
+                         uint8_t* sf, uint8_t* limit, Bands* b) {
+    const uint32_t lsf = f->version != 3, shorts = g->block_type == 2, n = b->count;
     uint32_t counts[4] = {6, 5, 5, 5}, slen[4] = {0}, preflag = g->preflag, c = g->scalefac_compress;
     if (!lsf) {
         slen[0] = slen[1] = kSlen[0][c];
@@ -513,61 +534,102 @@ static inline float value(uint32_t v, uint32_t linbits, uint64_t* c, uint32_t* u
     return with_sign(v < 16 ? kPow43[v] : pow43(v), sign);
 }
 
-// Decodes the big values and count1 quadruples between at and end into x
-// (zeroed), unscaled, and returns the end of the decoded lines. c caches
-// `valid` bits from at; reads stop one pair or quadruple past end, inside the
-// main data's padding.
-static uint32_t lines(const uint8_t* data, uint32_t at, uint32_t end, const Mp3Granule* g, const Bands* b,
-                      float* x) {
-    uint32_t i = 0, valid = 0;
-    uint64_t c = 0;
+// Where the next pair of lines goes: p, `left` lines before the next subband
+// (where it steps back by `back`), `pairs` pairs before the next band, in
+// band e (scaled by `scale`) of the granule channel at x.
+typedef struct Spot {
+    float *p, *x;
+    uint32_t left, span, back, pairs, e;
+    float scale;
+} Spot;
+static inline void enter(Spot* s, const Bands* b, uint32_t e, uint32_t stride) {
+    s->p = s->x + b->at[e];
+    s->left = b->run[e];
+    s->span = e < b->longs ? 18 : 6;
+    s->back = s->span * stride - 1;
+    s->pairs = b->width[e] / 2u;
+    s->e = e;
+    s->scale = b->scale[e];
+}
+// Stores the next pair of lines (bands and subband runs hold whole pairs)
+// dequantized, and moves on.
+static inline void put(uint32_t stride, const Bands* b, Spot* s, float first, float second) {
+    if (!s->pairs)
+        enter(s, b, s->e + 1, stride);
+    --s->pairs;
+    s->p[0] = first * s->scale;
+    s->p[stride] = second * s->scale;
+    s->left -= 2;
+    const uint32_t next = s->left ? 0 : ~0u; // On to the next subband, without a mispredicted branch.
+    s->left += s->span & next;
+    s->p += (int32_t)(2 * stride) - (int32_t)(s->back & next);
+}
+
+// Big value pairs from table (root bits) up to line `limit`, from bit *at of
+// data; false when the granule's bits (to end) ran out before. Inlined per
+// case, linbits 0 a constant.
+static __forceinline int big_values(const uint8_t* data, uint32_t* at, uint32_t end, const int16_t* table,
+                                    uint32_t root, uint32_t linbits, uint32_t* i, uint32_t limit,
+                                    uint32_t stride, const Bands* b, Spot* s) {
+    for (; *i < limit; *i += 2) {
+        if (*at > end)
+            return 0;
+        uint64_t c = peek(data, *at); // At least 57 bits: codeword, linbits and signs.
+        int32_t e = table[c >> (64 - root)];
+        uint32_t used = 0, bits = root;
+        while (e < 0) {
+            used += bits;
+            bits = (uint32_t)-e & 15;
+            e = table[((uint32_t)-e >> 4) + (uint32_t)(c << used >> (64 - bits))];
+        }
+        used += (uint32_t)e >> 8; // The codeword and its sign bits.
+        const uint32_t vx = ((uint32_t)e >> 4) & 15, vy = (uint32_t)e & 15, signs = (vx != 0) + (vy != 0);
+        const uint64_t t = c << (used - signs);
+        float first, second;
+        if (linbits) { // Linbits precede each sign.
+            c = t;
+            used -= signs;
+            first = value(vx, linbits, &c, &used);
+            second = value(vy, linbits, &c, &used);
+        } else {
+            const uint32_t one = (uint32_t)(t >> 63), two = (uint32_t)(t >> 62) & 1;
+            first = with_sign(kPow43[vx], one & (vx != 0));
+            second = with_sign(kPow43[vy], (vx ? two : one) & (vy != 0));
+            c <<= used;
+        }
+        put(stride, b, s, first, second);
+        *at += used;
+    }
+    return 1;
+}
+
+// Decodes the big values and count1 quadruples between at and end,
+// dequantized, into the granule channel at x (zeroed; see Bands). Reads stop
+// one pair or quadruple past end, inside the main data's padding.
+static void lines(const uint8_t* data, uint32_t at, uint32_t end, const Mp3Granule* g, const Bands* b,
+                  float* x, uint32_t stride) {
+    uint32_t i = 0;
+    Spot s;
+    s.x = x;
+    enter(&s, b, 0, stride);
     const uint32_t big = g->big_values * 2u;
     for (uint32_t region = 0; region < 3; ++region) {
         uint32_t limit = region == 0 ? b->region1 : region == 1 ? b->region2 : 576;
         limit = limit < big ? limit : big;
-        const uint32_t select = kTableSelect[g->table[region]], linbits = select >> 4,
-                       need = 21 + 2 * linbits;
+        const uint32_t select = kTableSelect[g->table[region]], linbits = select >> 4;
         if (!(select & 15)) { // Table 0: zeros without bits.
-            i = i > limit ? i : limit;
+            for (; i < limit; i += 2)
+                put(stride, b, &s, 0, 0);
             continue;
         }
         const int16_t* table = kHuffman + kHuffmanTables[(select & 15) - 1][0];
         const uint32_t root = kHuffmanTables[(select & 15) - 1][1];
-        for (; i < limit; i += 2) {
-            if (at > end)
-                return i;
-            if (valid < need) // Codeword, linbits and signs.
-                c = peek(data, at), valid = 64 - (at & 7);
-            int32_t e = table[c >> (64 - root)];
-            uint32_t used = 0, bits = root;
-            while (e < 0) {
-                used += bits;
-                bits = (uint32_t)-e & 15;
-                e = table[((uint32_t)-e >> 4) + (uint32_t)(c << used >> (64 - bits))];
-            }
-            used += (uint32_t)e >> 8; // The codeword and its sign bits.
-            const uint32_t vx = ((uint32_t)e >> 4) & 15, vy = (uint32_t)e & 15,
-                           signs = (vx != 0) + (vy != 0);
-            const uint64_t t = c << (used - signs);
-            if (linbits) { // Linbits precede each sign.
-                c = t;
-                used -= signs;
-                x[i] = value(vx, linbits, &c, &used);
-                x[i + 1] = value(vy, linbits, &c, &used);
-            } else {
-                const uint32_t first = (uint32_t)(t >> 63), second = (uint32_t)(t >> 62) & 1;
-                x[i] = with_sign(kPow43[vx], first & (vx != 0));
-                x[i + 1] = with_sign(kPow43[vy], (vx ? second : first) & (vy != 0));
-                c <<= used;
-            }
-            at += used;
-            valid -= used;
-        }
+        if (!(linbits ? big_values(data, &at, end, table, root, linbits, &i, limit, stride, b, &s)
+                      : big_values(data, &at, end, table, root, 0, &i, limit, stride, b, &s)))
+            return;
     }
-    i = i > big ? i : big;
-    while (i <= 572 && at < end) {
-        if (valid < 10)
-            c = peek(data, at), valid = 64 - (at & 7);
+    for (; i <= 572; i += 4) {
+        const uint64_t c = peek(data, at);
         uint32_t v = 15 - (uint32_t)(c >> 60), used = 4;
         if (!g->count1_table)
             v = kCount1[c >> 58] & 15, used = kCount1[c >> 58] >> 4;
@@ -577,58 +639,44 @@ static uint32_t lines(const uint8_t* data, uint32_t at, uint32_t end, const Mp3G
             break;
         // The sign bits after the codeword, one per nonzero value in order.
         const uint32_t signs = (uint32_t)(c << (used - nonzero) >> 60);
+        float q[4];
         for (uint32_t k = 0, taken = 0; k < 4; ++k) {
             const uint32_t set = v >> (3 - k) & 1;
-            x[i + k] = with_sign((float)set, (signs >> (3 - taken)) & set);
+            q[k] = with_sign((float)set, (signs >> (3 - taken)) & set);
             taken += set;
         }
-        c <<= used;
+        put(stride, b, &s, q[0], q[1]);
+        put(stride, b, &s, q[2], q[3]);
         at += used;
-        valid -= used;
-        i += 4;
-    }
-    return i;
-}
-
-// Huffman decoding and requantization: the decoded lines times their bands'
-// scales, spread over a line array 8 at a time. Returns the end of the lines.
-static uint32_t huffman(const uint8_t* data, uint32_t at, uint32_t end, const Mp3Granule* g, const Bands* b,
-                        float* x) {
-    const uint32_t count = lines(data, at, end, g, b, x);
-    float scales[576 + 16];
-    uint32_t i = 0;
-    for (uint32_t e = 0; i < count; i = b->end[e++])
-        for (uint32_t j = i; j < b->end[e]; j += 8)
-            _mm256_storeu_ps(scales + j, splat(b->scale[e]));
-    _mm256_storeu_ps(scales + i, _mm256_setzero_ps());
-    for (i = 0; i < count; i += 8)
-        _mm256_storeu_ps(x + i, _mm256_mul_ps(_mm256_loadu_ps(x + i), _mm256_loadu_ps(scales + i)));
-    return count;
-}
-
-static void mid_side(float* l, float* r, uint32_t from, uint32_t to) {
-    for (uint32_t i = from; i < to; ++i) {
-        const float m = l[i], s = r[i];
-        l[i] = (m + s) * 0.70710678f;
-        r[i] = (m - s) * 0.70710678f;
     }
 }
 
-// Joint stereo on band-ordered lines. Intensity coding starts above the right
-// channel's last nonzero band (per window in short bands); the band structure
-// is the left channel's, positions are the right channel's scalefactors.
-static void stereo(float* l, float* r, const Mp3Frame* f, const Bands* b, const uint8_t* positions,
-                   const uint8_t* limits, uint32_t scale_bit, uint32_t end) {
-    if (!f->intensity) {
-        if (f->mid_side)
-            mid_side(l, r, 0, end);
+// Joint stereo of a granule (left channel at l, right at l + 32, stride 64).
+// Intensity coding starts above the right channel's last nonzero band (per
+// window in short bands); the band structure is the left channel's (g),
+// positions are the right channel's scalefactors.
+static void stereo(float* l, const Mp3Frame* f, const Mp3Granule* g, const uint8_t* positions,
+                   const uint8_t* limits, uint32_t scale_bit) {
+    float* r = l + 32;
+    const V half = splat(0.70710678f);
+    if (!f->intensity) { // Mid/side everywhere: lines past both channels' last are zeros either way.
+        for (uint32_t n = 0; f->mid_side && n < 18 * 64; n += 64)
+            for (uint32_t i = n; i < n + 32; i += 8) {
+                const V m = _mm256_loadu_ps(l + i), s = _mm256_loadu_ps(r + i);
+                _mm256_storeu_ps(l + i, _mm256_mul_ps(_mm256_add_ps(m, s), half));
+                _mm256_storeu_ps(r + i, _mm256_mul_ps(_mm256_sub_ps(m, s), half));
+            }
         return;
     }
-    uint32_t long_start = 0, short_start[3] = {b->first_short, b->first_short, b->first_short}, at = 0;
-    for (uint32_t e = 0; e < b->count; at += b->width[e++]) {
+    Bands bands;
+    const Bands* b = &bands;
+    layout(f, g, 64, &bands);
+    uint32_t long_start = 0, short_start[3] = {b->first_short, b->first_short, b->first_short};
+    for (uint32_t e = 0; e < b->count; ++e) {
         uint32_t nonzero = 0;
-        for (uint32_t i = at; i < at + b->width[e]; ++i)
-            nonzero |= r[i] != 0;
+        Walk w = walk(b, e);
+        for (uint32_t k = 0; k < b->width[e]; ++k, advance(&w, 64))
+            nonzero |= r[w.at] != 0;
         if (!nonzero)
             continue;
         if (e < b->longs)
@@ -638,8 +686,7 @@ static void stereo(float* l, float* r, const Mp3Frame* f, const Bands* b, const 
     }
     if (b->count > b->longs && short_start[0] + short_start[1] + short_start[2] > 3u * b->first_short)
         long_start = b->longs; // The short part decides; no intensity in the long part.
-    at = 0;
-    for (uint32_t e = 0; e < b->count; at += b->width[e++]) {
+    for (uint32_t e = 0; e < b->count; ++e) {
         const uint32_t sfb = e < b->longs ? e : b->first_short + (e - b->longs) / 3;
         const uint32_t from = e < b->longs ? long_start : short_start[(e - b->longs) % 3];
         uint32_t position = positions[e], limit = limits[e];
@@ -650,9 +697,13 @@ static void stereo(float* l, float* r, const Mp3Frame* f, const Bands* b, const 
             position = coded ? positions[below] : f->version == 3 ? 3 : 0;
             limit = coded ? limits[below] : 8;
         }
+        Walk w = walk(b, e);
         if (sfb < from || position >= limit) {
-            if (f->mid_side)
-                mid_side(l, r, at, at + b->width[e]);
+            for (uint32_t k = 0; f->mid_side && k < b->width[e]; ++k, advance(&w, 64)) {
+                const float m = l[w.at], s = r[w.at];
+                l[w.at] = (m + s) * 0.70710678f;
+                r[w.at] = (m - s) * 0.70710678f;
+            }
             continue;
         }
         float left, right;
@@ -664,38 +715,30 @@ static void stereo(float* l, float* r, const Mp3Frame* f, const Bands* b, const 
             left = position & 1 ? quarter_power(step) : 1.0f;
             right = position && !(position & 1) ? quarter_power(step) : 1.0f;
         }
-        for (uint32_t i = at; i < at + b->width[e]; ++i) {
-            const float v = l[i];
-            l[i] = v * left;
-            r[i] = v * right;
+        for (uint32_t k = 0; k < b->width[e]; ++k, advance(&w, 64)) {
+            const float v = l[w.at];
+            l[w.at] = v * left;
+            r[w.at] = v * right;
         }
     }
 }
 
-// Short bands from window-major to the IMDCT's subband order: per subband the
-// three windows' six lines.
-static void reorder(float* x, const uint8_t* widths, uint32_t first) {
-    float t[576];
-    uint32_t start = 0;
-    for (uint32_t sfb = 0; sfb < first; ++sfb)
-        start += widths[sfb];
-    memcpy(t, x + 3 * start, (576 - 3 * start) * sizeof(float));
-    const float* source = t;
-    for (uint32_t sfb = first; sfb < 13; start += widths[sfb++])
-        for (uint32_t w = 0; w < 3; ++w)
-            for (uint32_t j = 0; j < widths[sfb]; ++j) {
-                const uint32_t line = start + j;
-                x[line / 6 * 18 + w * 6 + line % 6] = *source++;
-            }
-}
-
-static void antialias(float* x, uint32_t boundaries) {
-    for (uint32_t sb = 1; sb <= boundaries; ++sb) {
-        float *up = x + 18 * sb - 1, *down = x + 18 * sb;
+// Alias reduction across subband boundaries 1 to `boundaries`, 8 at a time:
+// lines 17 - i below each boundary and i above it.
+static void antialias(float* x, uint32_t stride, uint32_t boundaries) {
+    for (uint32_t first = 0; first <= boundaries; first += 8) {
+        const uint32_t count = boundaries + 1 - first;
+        V mask = lanes(count < 8 ? count : 8);
+        if (!first)
+            mask = _mm256_blend_ps(mask, _mm256_setzero_ps(), 1); // No boundary below subband 0.
         for (uint32_t i = 0; i < 8; ++i) {
-            const float u = up[-(int32_t)i], d = down[i];
-            up[-(int32_t)i] = u * kAntialias[0][i] - d * kAntialias[1][i];
-            down[i] = d * kAntialias[0][i] + u * kAntialias[1][i];
+            float *up = x + (17 - i) * stride + first - 1, *down = x + i * stride + first;
+            const V u = _mm256_loadu_ps(up), d = _mm256_loadu_ps(down);
+            const V c = splat(kAntialias[0][i]), a = splat(kAntialias[1][i]);
+            const V u2 = _mm256_sub_ps(_mm256_mul_ps(u, c), _mm256_mul_ps(d, a));
+            const V d2 = _mm256_add_ps(_mm256_mul_ps(d, c), _mm256_mul_ps(u, a));
+            _mm256_storeu_ps(up, _mm256_blendv_ps(u, u2, mask));
+            _mm256_storeu_ps(down, _mm256_blendv_ps(d, d2, mask));
         }
     }
 }
@@ -734,15 +777,18 @@ static inline void dct3_9(const V* y, V* out) {
     out[4] = _mm256_add_ps(_mm256_sub_ps(_mm256_add_ps(_mm256_sub_ps(y[0], y[2]), y[4]), y[6]), y[8]);
 }
 
-// DCT-IV of 18, the 36-point IMDCT's kernel: summing adjacent inputs turns a
-// DCT-IV into a DCT-III, whose odd half is a DCT-IV of 9 again.
-static inline void dct4_18(const V* x, V* z) {
+// DCT-IV of 18, the 36-point IMDCT's kernel, of lines x[k * stride]: summing
+// adjacent inputs turns a DCT-IV into a DCT-III, whose odd half is a DCT-IV of
+// 9 again.
+static inline void dct4_18(const float* x, uint32_t stride, V* z) {
     V even[9], odd[9], e[9], o[9];
-    even[0] = x[0];
+    even[0] = _mm256_loadu_ps(x);
     for (uint32_t j = 1; j < 9; ++j)
-        even[j] = _mm256_add_ps(x[2 * j], x[2 * j - 1]);
+        even[j] =
+            _mm256_add_ps(_mm256_loadu_ps(x + 2 * j * stride), _mm256_loadu_ps(x + (2 * j - 1) * stride));
     for (uint32_t j = 0; j < 9; ++j)
-        odd[j] = _mm256_add_ps(x[2 * j + 1], x[2 * j]);
+        odd[j] =
+            _mm256_add_ps(_mm256_loadu_ps(x + (2 * j + 1) * stride), _mm256_loadu_ps(x + 2 * j * stride));
     for (uint32_t j = 8; j; --j)
         odd[j] = _mm256_add_ps(odd[j], odd[j - 1]);
     dct3_9(even, e);
@@ -754,131 +800,108 @@ static inline void dct4_18(const V* x, V* z) {
     }
 }
 
-// The 12-point IMDCT of window w's six lines: z[0..2] = Z[3..5], z[3..8] =
-// -Z[5..0], z[9..11] = -Z[0..2] for Z the DCT-IV of 6.
-static void imdct12(const V* x, V* z) {
-    V d[6];
+// The DCT-IV of six lines x[k * stride], d: the 12-point IMDCT's outputs are
+// d[3..5], then -d[5..0], then -d[0..2].
+static void dct4_6(const float* x, uint32_t stride, V* d) {
     for (uint32_t n = 0; n < 6; ++n) {
-        d[n] = _mm256_mul_ps(x[0], splat(kCos6[n][0]));
+        d[n] = _mm256_mul_ps(_mm256_loadu_ps(x), splat(kCos6[n][0]));
         for (uint32_t k = 1; k < 6; ++k)
-            d[n] = _mm256_add_ps(d[n], _mm256_mul_ps(x[k], splat(kCos6[n][k])));
+            d[n] = _mm256_add_ps(d[n], _mm256_mul_ps(_mm256_loadu_ps(x + k * stride), splat(kCos6[n][k])));
     }
-    for (uint32_t i = 0; i < 3; ++i) {
-        z[i] = d[3 + i];
-        z[9 + i] = negate(d[i]);
-    }
-    for (uint32_t i = 0; i < 6; ++i)
-        z[3 + i] = negate(d[5 - i]);
+}
+static inline V imdct12(const V* d, uint32_t k) {
+    return k < 3 ? d[3 + k] : negate(d[k < 9 ? 8 - k : k - 9]);
 }
 
-// Hybrid synthesis of 8 subbands (lanes): IMDCT, windowing, overlap-add with
+// Hybrid synthesis of 8 subbands (lanes) in place: x[n * stride] holds line n
+// of each and becomes its sample in slot n. IMDCT, windowing, overlap-add with
 // the previous granule and frequency inversion. The first `split` lanes are a
 // mixed block's long part; the others use `shorts` or the long `window`.
-// tail[j * 32] keeps 12 terms per subband from which the next granule rebuilds
-// this one's windowed second half: long blocks the 9 distinct IMDCT outputs,
-// short ones the second window's tail and the third window's 6 distinct values.
+// tail[m * 32] keeps 9 terms per subband from which the next granule rebuilds
+// this one's windowed second half: long blocks the 9 distinct IMDCT outputs;
+// short ones the second window's 3 distinct tail values, then the third
+// window's first three outputs and its 3 distinct tail values.
 typedef struct Kind {
     uint32_t split, shorts;
     const float* window; // Long first half, or the tail weights for the previous granule.
 } Kind;
-static void imdct(const float* in, float* tail, float* out, Kind now, Kind before, int active) {
-    V y[18], keep[12];
-    const V zero = _mm256_setzero_ps(), split = lanes(now.split);
-    if (active) {
-        V x[24], z[18];
-        for (uint32_t c = 0; c < 3; ++c) {
-            for (uint32_t l = 0; l < 8; ++l)
-                x[8 * c + l] = _mm256_loadu_ps(in + l * 18 + 8 * c);
-            transpose(x + 8 * c);
-        }
-        if (!now.shorts || now.split) {
-            dct4_18(x, z);
-            for (uint32_t n = 0; n < 18; ++n) {
-                const V w = _mm256_blendv_ps(splat(now.window[n]), splat(kLongWindow[0][n]), split);
-                y[n] = _mm256_mul_ps(w, z[n < 9 ? 9 + n : 26 - n]);
-            }
-            for (uint32_t m = 0; m < 9; ++m)
-                keep[m] = z[8 - m];
-            keep[9] = keep[10] = keep[11] = zero;
-        }
-        if (now.shorts) {
-            V w0[12], w1[12], w2[12];
-            imdct12(x, w0);
-            imdct12(x + 6, w1);
-            imdct12(x + 12, w2);
-            V sy[18], sk[12];
-            for (uint32_t i = 0; i < 6; ++i) {
-                sy[i] = zero;
-                sy[6 + i] = _mm256_mul_ps(w0[i], splat(kShortWindow[i]));
-                sy[12 + i] = _mm256_add_ps(_mm256_mul_ps(w0[6 + i], splat(kShortWindow[6 + i])),
-                                           _mm256_mul_ps(w1[i], splat(kShortWindow[i])));
-                sk[i] = w1[6 + i];
-            }
-            for (uint32_t i = 0; i < 3; ++i) {
-                sk[6 + i] = w2[6 + i];
-                sk[9 + i] = w2[i];
-            }
-            for (uint32_t n = 0; n < 18; ++n)
-                y[n] = now.split ? _mm256_blendv_ps(sy[n], y[n], split) : sy[n];
-            for (uint32_t m = 0; m < 12; ++m)
-                keep[m] = now.split ? _mm256_blendv_ps(sk[m], keep[m], split) : sk[m];
-        }
-    } else {
-        for (uint32_t n = 0; n < 18; ++n)
-            y[n] = zero;
-        for (uint32_t m = 0; m < 12; ++m)
-            keep[m] = zero;
+static void imdct(float* x, uint32_t stride, float* tail, Kind now, Kind before, int active) {
+    const V zero = _mm256_setzero_ps(), split = lanes(now.split), low = lanes(before.split);
+    const int longs = active && (!now.shorts || now.split), shorts = active && now.shorts;
+    V z[18], d0[6], d1[6], d2[6];
+    if (longs)
+        dct4_18(x, stride, z);
+    if (shorts) {
+        dct4_6(x, stride, d0);
+        dct4_6(x + 6 * stride, stride, d1);
+        dct4_6(x + 12 * stride, stride, d2);
     }
-    const V low = lanes(before.split);
-    for (uint32_t n = 0; n < 18; ++n) {
+    for (uint32_t n = 0; n < 18; ++n) { // Every line is read; each slot now replaces its line.
+        V y = zero;
+        if (longs)
+            y = _mm256_mul_ps(_mm256_blendv_ps(splat(now.window[n]), splat(kLongWindow[0][n]), split),
+                              z[n < 9 ? 9 + n : 26 - n]);
+        if (shorts) {
+            V s = zero;
+            if (n >= 6)
+                s = _mm256_mul_ps(imdct12(d0, n - 6), splat(kShortWindow[n - 6]));
+            if (n >= 12)
+                s = _mm256_add_ps(s, _mm256_mul_ps(imdct12(d1, n - 12), splat(kShortWindow[n - 12])));
+            y = now.split ? _mm256_blendv_ps(s, y, split) : s;
+        }
         const V weight = _mm256_blendv_ps(splat(before.window[n]), splat(kTail[0][n]), low);
-        y[n] =
-            _mm256_add_ps(y[n], _mm256_mul_ps(weight, _mm256_loadu_ps(tail + (n < 9 ? n : 17 - n) * 32)));
-        if (n < 6 && before.shorts) {
+        V term = _mm256_loadu_ps(tail + (n < 9 ? n : 17 - n) * 32);
+        if (before.shorts && ((n >= 3 && n < 6) || (n >= 12 && n < 15))) // The second window's mirror.
+            term = _mm256_blendv_ps(_mm256_loadu_ps(tail + (n < 9 ? 5 - n : n - 12) * 32), term, low);
+        y = _mm256_add_ps(y, _mm256_mul_ps(weight, term));
+        if (n < 6 && before.shorts) { // The third window; long lanes kept none.
             const V weight3 = _mm256_blendv_ps(splat(kTailShort[n]), zero, low);
-            y[n] = _mm256_add_ps(
-                y[n], _mm256_mul_ps(weight3, _mm256_loadu_ps(tail + (n < 3 ? 9 + n : 14 - n) * 32)));
+            const V third =
+                _mm256_blendv_ps(_mm256_loadu_ps(tail + (n < 3 ? 3 + n : 8 - n) * 32), zero, low);
+            y = _mm256_add_ps(y, _mm256_mul_ps(weight3, third));
         }
         if (n & 1)
-            y[n] = _mm256_xor_ps(y[n], _mm256_loadu_ps(kOddLanes));
+            y = _mm256_xor_ps(y, _mm256_loadu_ps(kOddLanes));
+        _mm256_storeu_ps(x + n * stride, y);
     }
-    for (uint32_t m = 0; m < 12; ++m)
-        _mm256_storeu_ps(tail + m * 32, keep[m]);
-    for (uint32_t c = 0; c < 3; ++c) {
-        V r[8];
-        for (uint32_t l = 0; l < 8; ++l)
-            r[l] = 8 * c + l < 18 ? y[8 * c + l] : zero;
-        transpose(r);
-        for (uint32_t l = 0; l < 8; ++l) {
-            if (c < 2) {
-                _mm256_storeu_ps(out + l * kSlots + 8 * c, r[l]);
-            } else {
-                float last[8];
-                _mm256_storeu_ps(last, r[l]);
-                memcpy(out + l * kSlots + 16, last, 2 * sizeof(float));
-            }
+    for (uint32_t m = 0; m < 9; ++m) { // After the old tail's last use.
+        V keep = longs ? z[8 - m] : zero;
+        if (shorts) {
+            const V s = imdct12(m < 3 ? d1 : d2, m < 3 ? 6 + m : m < 6 ? m - 3 : m);
+            keep = now.split ? _mm256_blendv_ps(s, keep, split) : s;
         }
+        _mm256_storeu_ps(tail + m * 32, keep);
     }
 }
 
-// Reorder, alias reduction and IMDCT of one granule channel into 18 slots of
-// the 32 subband rows at out.
-static void hybrid(float* x, const Mp3Granule* g, uint32_t rate_index, float* overlap, uint8_t* previous,
-                   float* out) {
+// Whether any of 8 subbands' 18 lines at stride is nonzero.
+static int nonzero(const float* x, uint32_t stride) {
+    __v8su bits = {0};
+    for (uint32_t n = 0; n < 18; ++n)
+        bits |= (__v8su)_mm256_loadu_ps(x + n * stride);
+    uint32_t any = 0;
+    for (uint32_t i = 0; i < 8; ++i)
+        any |= bits[i] << 1; // Without the sign: -0 is zero.
+    return any != 0;
+}
+
+// Alias reduction and IMDCT of one granule channel (see Bands) in place: its
+// 18 slots of 32 subband samples.
+static void hybrid(float* x, uint32_t stride, const Mp3Granule* g, uint32_t rate_index, float* overlap,
+                   uint8_t* previous) {
     const uint32_t shorts = g->block_type == 2, longs = rate_index == 8 ? 4 : 2;
-    if (shorts)
-        reorder(x, kShortWidths[rate_index], g->mixed ? 3 : 0);
-    antialias(x, shorts ? (g->mixed ? longs - 1 : 0) : 31);
-    uint32_t top = 576;
-    while (top && x[top - 1] == 0)
+    if (!shorts || g->mixed)
+        antialias(x, stride, shorts ? longs - 1 : 31);
+    // A group is transformed when it or a higher one holds a nonzero line.
+    uint32_t top = 4;
+    while (top && !nonzero(x + 8 * (top - 1), stride))
         --top;
     const uint32_t before_type = *previous & 3, before_mixed = *previous >> 2;
     for (uint32_t group = 0; group < 4; ++group) {
         const Kind now = {group || !g->mixed ? 0 : longs, shorts, kLongWindow[g->block_type == 3]};
         const Kind before = {group || !before_mixed ? 0 : longs, before_type == 2,
                              kTail[before_type == 2 ? 2 : before_type == 1]};
-        imdct(x + 144 * group, overlap + 8 * group, out + 8 * group * kSlots, now, before,
-              144 * group < top);
+        imdct(x + 8 * group, stride, overlap + 8 * group, now, before, group < top);
     }
     *previous = (uint8_t)(g->block_type | g->mixed << 2);
 }
@@ -928,80 +951,110 @@ static void dct(V* x, V* t, uint32_t n, const float* twiddle) {
     }
 }
 
-// 15 floats as two overlapping 8-lane copies.
-static inline void copy15(float* to, const float* from) {
-    const V head = _mm256_loadu_ps(from), tail = _mm256_loadu_ps(from + 7);
-    _mm256_storeu_ps(to, head);
-    _mm256_storeu_ps(to + 7, tail);
+// Moves a row's history (its last 15 slots) on by the `count` newest slots of
+// its stage (history slots 7-14, then the new ones).
+static inline void retire(float* history, const float* stage, uint32_t count) {
+    const V head = _mm256_loadu_ps(count == 8 ? stage + 1 : history + count);
+    const V rest = _mm256_loadu_ps(stage + count);
+    _mm256_storeu_ps(history, head);
+    _mm256_storeu_ps(history + 7, rest);
 }
 
-// Polyphase synthesis of one channel's slots (rows of 32 subbands at in) into
-// interleaved PCM. rows holds 15 slots of history, then this frame's DCTs.
-static void synthesize(const float* in, uint32_t slots, float* history, float* rows, float* pcm,
-                       uint32_t channels, uint32_t channel) {
-    const uint32_t groups = (slots + 7) / 8;
-    const V zero = _mm256_setzero_ps();
-    for (uint32_t k = 0; k < 32; ++k)
-        copy15(rows + k * kRows, history + k * 15);
-    for (uint32_t group = 0; group < groups; ++group) {
-        V v[32], t[32];
-        for (uint32_t sb = 0; sb < 32; ++sb)
-            v[sb] = _mm256_loadu_ps(in + sb * kSlots + 8 * group);
-        dct(v, t, 32, kDctTwiddle);
-        for (uint32_t k = 0; k < 32; ++k)
-            _mm256_storeu_ps(rows + k * kRows + 15 + 8 * group, v[k]);
+// Stores output block q (samples 8q to 8q + 7; lanes: slots) of `count` slots
+// starting at pcm, of channel 0, or of channel 1 interleaved with channel 0's
+// block q (which the store to samples 16q to 16q + 15 replaces).
+static inline void flush(V* block, float* pcm, uint32_t q, uint32_t stride, uint32_t count,
+                         uint32_t channel) {
+    transpose(block);
+    for (uint32_t t = 0; t < count; ++t) {
+        float* p = pcm + t * stride;
+        if (!channel) {
+            _mm256_storeu_ps(p + 8 * q, block[t]);
+            continue;
+        }
+        const V left = _mm256_loadu_ps(p + 8 * q), low = _mm256_unpacklo_ps(left, block[t]),
+                high = _mm256_unpackhi_ps(left, block[t]);
+        _mm256_storeu_ps(p + 16 * q, _mm256_permute2f128_ps(low, high, 0x20));
+        _mm256_storeu_ps(p + 16 * q + 8, _mm256_permute2f128_ps(low, high, 0x31));
     }
-    for (uint32_t group = 0; group < groups; ++group) {
-        // Output j of 8 slots: the window over the 16 latest slots' DCT rows
-        // 16 + j (even ages) and 16 - j (odd); 32 - j uses the same rows.
-        const float* base = rows + 15 + 8 * group;
-        V o[32];
+}
+
+// Polyphase synthesis of one channel in place, 8 slots at a time: slot t's 32
+// subband samples at pcm[t * stride + 32 * channel] become its 32 PCM samples;
+// channel 1's interleave with channel 0's. history holds each DCT row's last
+// 15 slots.
+static void synthesize(float* pcm, uint32_t slots, uint32_t stride, uint32_t channel, float* history) {
+    const V zero = _mm256_setzero_ps();
+    for (uint32_t first = 0; first < slots; first += 8) {
+        const uint32_t count = slots - first < 8 ? slots - first : 8;
+        float* in = pcm + first * stride;
+        // The slots' subband samples in time lanes, their DCT rows in the first
+        // half (the DCT's scratch in the second), then per row k the history's
+        // slots 7-14 at stage[2k] and the new slots at stage[2k + 1].
+        V stage[64];
+        for (uint32_t q = 0; q < 4; ++q) {
+            for (uint32_t t = 0; t < 8; ++t)
+                stage[8 * q + t] =
+                    t < count ? _mm256_loadu_ps(in + t * stride + 32 * channel + 8 * q) : zero;
+            transpose(stage + 8 * q);
+        }
+        dct(stage, stage + 32, 32, kDctTwiddle);
+        // Downwards: row k moves to 2k + 1 after rows 2k and 2k + 1 have.
+        for (uint32_t k = 32; k--;) {
+            stage[2 * k + 1] = stage[k];
+            stage[2 * k] = _mm256_loadu_ps(history + 15 * k + 7);
+        }
+        const float* rows = (const float*)stage;
+        // Output j: the window over the 16 latest slots' DCT rows 16 + j (even
+        // ages) and 16 - j (odd); 32 - j uses the same rows. Ages up to 7 are
+        // on the stage, older ones in the history. Outputs take over retired
+        // rows: j < 16 at stage[32 + j] (rows 16 to 23), the others at
+        // stage[j] (rows 8 to 15). Channel 1 stores blocks 3 to 0 at the end:
+        // block q's interleaved samples replace channel 0's blocks 2q and
+        // 2q + 1.
         for (uint32_t j = 0; j < 16; ++j) {
-            const float *even = base + (16 + j) * kRows, *odd = base + (16 - j) * kRows - 1;
-            V first = zero, second = zero;
+            const float *even = rows + 16 * (16 + j), *odd = rows + 16 * (16 - j);
+            float *even_old = history + 15 * (16 + j), *odd_old = history + 15 * (16 - j);
+            V sum = zero, mirror = zero;
             for (uint32_t i = 0; i < 8; ++i) {
-                const V e = _mm256_loadu_ps(even - 2 * i), d = _mm256_loadu_ps(odd - 2 * i);
-                first = _mm256_add_ps(first, _mm256_add_ps(_mm256_mul_ps(e, splat(kSynthesis[j][i][0])),
-                                                           _mm256_mul_ps(d, splat(kSynthesis[j][i][1]))));
-                second =
-                    _mm256_add_ps(second, _mm256_sub_ps(_mm256_mul_ps(d, splat(kSynthesis[j][7 - i][0])),
+                const V e = _mm256_loadu_ps(i < 4 ? even + 8 - 2 * i : even_old + 15 - 2 * i);
+                const V d = _mm256_loadu_ps(i < 4 ? odd + 7 - 2 * i : odd_old + 14 - 2 * i);
+                sum = _mm256_add_ps(sum, _mm256_add_ps(_mm256_mul_ps(e, splat(kSynthesis[j][i][0])),
+                                                       _mm256_mul_ps(d, splat(kSynthesis[j][i][1]))));
+                mirror =
+                    _mm256_add_ps(mirror, _mm256_sub_ps(_mm256_mul_ps(d, splat(kSynthesis[j][7 - i][0])),
                                                         _mm256_mul_ps(e, splat(kSynthesis[j][7 - i][1]))));
             }
-            o[j] = first;
-            if (j)
-                o[32 - j] = second;
-        }
-        o[16] = zero;
-        for (uint32_t i = 0; i < 8; ++i)
-            o[16] = _mm256_add_ps(
-                o[16], _mm256_mul_ps(_mm256_loadu_ps(base - 1 - 2 * i), splat(kSynthesisMiddle[i])));
-        const uint32_t count = slots - 8 * group < 8 ? slots - 8 * group : 8;
-        // Stereo: each channel's samples, duplicated, blend into their lanes.
-        const V lanes_of_channel = channel ? _mm256_loadu_ps(kOddLanes) : _mm256_loadu_ps(kOddLanes + 1);
-        for (uint32_t block = 0; block < 4; ++block) {
-            transpose(o + 8 * block);
-            for (uint32_t t = 0; t < count; ++t) {
-                float* p = pcm + ((8 * group + t) * 32 + 8 * block) * channels;
-                const V r = o[8 * block + t], low = _mm256_unpacklo_ps(r, r),
-                        high = _mm256_unpackhi_ps(r, r);
-                if (channels == 1) {
-                    _mm256_storeu_ps(p, r);
-                    continue;
-                }
-                _mm256_storeu_ps(p, _mm256_blendv_ps(_mm256_loadu_ps(p),
-                                                     _mm256_permute2f128_ps(low, high, 0x20),
-                                                     lanes_of_channel));
-                _mm256_storeu_ps(p + 8, _mm256_blendv_ps(_mm256_loadu_ps(p + 8),
-                                                         _mm256_permute2f128_ps(low, high, 0x31),
-                                                         lanes_of_channel));
+            retire(even_old, even, count);
+            stage[32 + j] = sum;
+            if (j) {
+                retire(odd_old, odd, count);
+                stage[32 - j] = mirror;
             }
+            if ((j & 7) == 7 && !channel)
+                flush(stage + 25 + j, in, j / 8, stride, count, 0);
+            if (j == 8 && !channel)
+                flush(stage + 24, in, 3, stride, count, 0);
         }
+        V middle = zero;
+        for (uint32_t i = 0; i < 8; ++i)
+            middle = _mm256_add_ps(
+                middle, _mm256_mul_ps(_mm256_loadu_ps(i < 4 ? rows + 7 - 2 * i : history + 14 - 2 * i),
+                                      splat(kSynthesisMiddle[i])));
+        retire(history, rows, count);
+        stage[16] = middle;
+        for (uint32_t q = 4; q--;)
+            if (channel || q == 2)
+                flush(q < 2 ? stage + 32 + 8 * q : stage + 8 * q, in, q, stride, count, channel);
     }
-    for (uint32_t k = 0; k < 32; ++k)
-        copy15(history + k * 15, rows + k * kRows + slots);
 }
 
-uint32_t mp3_frame_decode(Mp3DecoderState* s, const uint8_t* data, const Mp3Frame* f, float* pcm) {
+// Reads every granule's scalefactors and Huffman-coded lines into pcm,
+// dequantized and in place (see mp3_frame_decode), and moves the reservoir on;
+// positions and limits receive each granule's right channel intensity
+// positions. Returns whether the reservoir held the frame's main data.
+static uint32_t unpack(Mp3DecoderState* s, const uint8_t* data, const Mp3Frame* f, float* pcm,
+                       uint8_t (*positions)[40], uint8_t (*limits)[40]) {
     // Main data: the reservoir's last main_data_begin bytes, this frame's, and
     // zeros for the Huffman decoder's bounded overrun.
     uint8_t main[511 + 1441 + 64];
@@ -1012,37 +1065,22 @@ uint32_t mp3_frame_decode(Mp3DecoderState* s, const uint8_t* data, const Mp3Fram
     memset(main + total, 0, 64);
     uint32_t consumed = 0;
     if (ready) {
-        const uint32_t channels = f->channels, granules = f->version == 3 ? 2 : 1, slots = 18 * granules;
-        union {
-            float lines[2][576 + 8]; // + 8: the IMDCT's last transposed loads
-            float rows[32 * kRows];
-        } work;
-        float subbands[2][32 * kSlots];
-        uint8_t sf[2][40] = {{0}}, limits[2][40] = {{0}};
-        Bands bands[2];
+        const uint32_t channels = f->channels, granules = f->version == 3 ? 2 : 1, stride = 32 * channels;
+        uint8_t sf[2][40] = {{0}}, limit[2][40] = {{0}};
+        Bands bands;
         Reader r = {main, 0};
+        memset(pcm, 0, (size_t)f->samples * channels * sizeof(float));
         for (uint32_t gr = 0; gr < granules; ++gr) {
-            uint32_t ends[2] = {0, 0};
             for (uint32_t ch = 0; ch < channels; ++ch) {
                 const Mp3Granule* g = &f->granules[gr * channels + ch];
                 const uint32_t end = r.at + g->part2_3_bits;
-                memset(work.lines[ch], 0, sizeof(work.lines[ch]));
-                scalefactors(&r, f, g, f->intensity && ch, sf[ch], limits[ch], &bands[ch]);
-                ends[ch] = huffman(main, r.at, end, g, &bands[ch], work.lines[ch]);
+                layout(f, g, stride, &bands);
+                scalefactors(&r, f, g, f->intensity && ch, sf[ch], limit[ch], &bands);
+                lines(main, r.at, end, g, &bands, pcm + gr * 18 * stride + 32 * ch, stride);
                 r.at = end;
             }
-            if (channels == 2)
-                stereo(work.lines[0], work.lines[1], f, &bands[0], sf[1], limits[1],
-                       f->granules[gr * 2 + 1].scalefac_compress & 1,
-                       ends[0] > ends[1] ? ends[0] : ends[1]);
-            for (uint32_t ch = 0; ch < channels; ++ch)
-                hybrid(work.lines[ch], &f->granules[gr * channels + ch], f->rate_index,
-                       &s->overlap[ch][0][0], &s->previous_block[ch], subbands[ch] + 18 * gr);
-        }
-        for (uint32_t ch = 0; ch < channels; ++ch) {
-            for (uint32_t sb = 0; sb < 32; ++sb)
-                memset(subbands[ch] + sb * kSlots + slots, 0, (kSlots - slots) * sizeof(float));
-            synthesize(subbands[ch], slots, &s->history[ch][0][0], work.rows, pcm, channels, ch);
+            memcpy(positions[gr], sf[1], 40);
+            memcpy(limits[gr], limit[1], 40);
         }
         consumed = (r.at + 7) / 8;
     }
@@ -1051,5 +1089,28 @@ uint32_t mp3_frame_decode(Mp3DecoderState* s, const uint8_t* data, const Mp3Fram
     remains = remains < 511 ? remains : 511;
     memcpy(s->reservoir, main + total - remains, remains);
     s->reservoir_bytes = (uint16_t)remains;
-    return ready ? f->samples : 0;
+    return ready;
+}
+
+uint32_t mp3_frame_decode(Mp3DecoderState* s, const uint8_t* data, const Mp3Frame* f, float* pcm) {
+    // Every stage works in place in pcm: granule gr's line n of subband sb of
+    // channel c at pcm[(18 * gr + n) * 32 * channels + 32 * c + sb], which
+    // becomes slot 18 * gr + n's sample, then its PCM sample sb, then the
+    // channels interleave.
+    uint8_t positions[2][40], limits[2][40];
+    if (!unpack(s, data, f, pcm, positions, limits))
+        return 0;
+    const uint32_t channels = f->channels, granules = f->version == 3 ? 2 : 1, stride = 32 * channels;
+    for (uint32_t gr = 0; gr < granules; ++gr) {
+        float* x = pcm + gr * 18 * stride;
+        if (channels == 2)
+            stereo(x, f, &f->granules[gr * 2], positions[gr], limits[gr],
+                   f->granules[gr * 2 + 1].scalefac_compress & 1);
+        for (uint32_t ch = 0; ch < channels; ++ch)
+            hybrid(x + 32 * ch, stride, &f->granules[gr * channels + ch], f->rate_index,
+                   &s->overlap[ch][0][0], &s->previous_block[ch]);
+    }
+    for (uint32_t ch = 0; ch < channels; ++ch)
+        synthesize(pcm, 18 * granules, stride, ch, &s->history[ch][0][0]);
+    return f->samples;
 }

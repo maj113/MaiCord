@@ -261,6 +261,31 @@ void test_mp3_decoder(void (*check)(bool, const char*) noexcept) noexcept {
             peak = pcm[i] > peak ? pcm[i] : -pcm[i] > peak ? -pcm[i] : peak;
         check(loud == 1152 && finite(pcm, 1152) && peak > 1.0f, "MP3 float PCM is unclipped and finite");
 
+        // The decoder works in place in its output: a stereo frame decodes into
+        // exactly its 2,304 samples, ending at the no-access page, to the same
+        // PCM as before (mixed blocks and intensity stereo).
+        {
+            const u32 frames = decode_all(feature(2), storage, pcm, sizeof(pcm) / sizeof(pcm[0]));
+            float* exact = reinterpret_cast<float*>(guard.end()) - 2304;
+            Mp3Stream source{};
+            Mp3Decoder decoder{};
+            bool same = frames != ~0u && mp3_stream_initialize(&source, feature(2)) == Mp3Error::none &&
+                        mp3_decoder_initialize(&decoder, {storage, mp3_decoder_storage_bytes()}, 44100,
+                                               2) == Mp3Error::none;
+            u32 decoded = 0;
+            while (same) {
+                const auto packet = mp3_stream_next(&source);
+                if (packet.error == Mp3Error::end_of_stream)
+                    break;
+                const auto r = mp3_decoder_decode(&decoder, packet.bytes, {exact, 2304});
+                same = packet.ok() && (r.ok() || (r.error == Mp3Error::need_preroll && !decoded)) &&
+                       bytes_equal(exact, pcm + decoded * 2, r.frames * 2 * sizeof(float));
+                decoded += r.frames;
+            }
+            mp3_decoder_release(&decoder);
+            check(same && decoded == frames, "MP3 frames decode in place within exactly their PCM samples");
+        }
+
         // VBR tag fields are bounded by the frame: a 72-byte MPEG-2.5 8 kbps
         // Xing frame asking for frames, bytes, TOC and scale.
         u8 tiny[72]{0xff, 0xe3, 0x18, 0xc4};
@@ -280,10 +305,11 @@ void test_mp3_decoder(void (*check)(bool, const char*) noexcept) noexcept {
               "MP3 Xing fields are bounded by the frame and checked against the scan");
 
         // Mutated feature streams at a page end: every packet the scan admits
-        // decodes to finite PCM within its output.
+        // decodes to finite PCM within its output. A smoke test; fuzzing runs
+        // outside the suite.
         u32 random = 0x2545f491, admitted = 0;
         bool robust = true;
-        for (u32 i = 0; i < 3000 && robust; ++i) {
+        for (u32 i = 0; i < 500 && robust; ++i) {
             const auto source = feature(i % 5);
             u8* input = guard.end() - source.count;
             copy_bytes(input, source.data, source.count);
@@ -302,7 +328,7 @@ void test_mp3_decoder(void (*check)(bool, const char*) noexcept) noexcept {
             robust = finite(pcm, frames * kMp3FeatureStreamList[i % 5].channels) &&
                      pcm[frames * kMp3FeatureStreamList[i % 5].channels] == kSentinel;
         }
-        check(robust && admitted > 100, "MP3 mutated streams decode to finite, bounded PCM or are refused");
+        check(robust && admitted > 300, "MP3 mutated streams decode to finite, bounded PCM or are refused");
         VirtualFree(guard.memory, 0, MEM_RELEASE);
     }
 }

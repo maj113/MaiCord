@@ -16,10 +16,8 @@ bool tag(const u8* p, const char* text, u32 bytes) noexcept {
     return bytes_equal(p, text, bytes);
 }
 // Header and side information, bounded as the decoder consumes them. The
-// protection CRC is skipped, not verified.
+// protection CRC is skipped, not verified. Callers pass offsets within bytes.
 Mp3Error frame(ConstSlice<u8> bytes, u32 offset, Mp3Frame* out) noexcept {
-    if (offset > bytes.count)
-        return Mp3Error::truncated;
     return static_cast<Mp3Error>(mp3_frame_parse(bytes.data + offset, bytes.count - offset, out));
 }
 bool format(const Mp3Frame& f, const Mp3Stream& s) noexcept {

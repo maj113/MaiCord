@@ -5,7 +5,8 @@
 // information; mp3_frame_decode turns a parsed frame into interleaved float
 // PCM (full scale 1.0, not clipped), keeping the bit reservoir, IMDCT overlap
 // and synthesis history in caller state. Reads stay inside the frame and the
-// retained reservoir for any byte sequence; nothing allocates.
+// retained reservoir for any byte sequence; nothing allocates, and a decode
+// needs under 4 KiB of stack.
 #include <stdint.h>
 
 #if defined(__cplusplus)
@@ -27,9 +28,9 @@ typedef struct Mp3Frame {
     Mp3Granule granules[4]; // [granule * channels + channel]
 } Mp3Frame;
 
-// Zero-initialized is the initial state. 7,440 bytes.
+// Zero-initialized is the initial state. 6,660 bytes.
 typedef struct Mp3DecoderState {
-    float overlap[2][12][32];  // per channel: IMDCT tail terms by subband
+    float overlap[2][9][32];   // per channel: IMDCT tail terms by subband
     float history[2][32][15];  // per channel: synthesis DCT rows of the last 15 slots
     uint8_t reservoir[511];    // main data not consumed by earlier frames
     uint8_t previous_block[2]; // per channel: block type | mixed << 2 of the last granule
@@ -41,8 +42,9 @@ typedef struct Mp3DecoderState {
 // unsupported (3, free format) or truncated (4).
 int mp3_frame_parse(const uint8_t* frame, uint32_t available, Mp3Frame* out);
 // Decodes frame->bytes bytes at data, which mp3_frame_parse accepted as frame,
-// into frame->samples * frame->channels samples. Returns frame->samples, or 0
-// with only the reservoir updated when it holds fewer than main_data_begin bytes.
+// into frame->samples * frame->channels samples, which are also its working
+// space. Returns frame->samples, or 0 with only the reservoir updated (pcm
+// untouched) when it holds fewer than main_data_begin bytes.
 uint32_t mp3_frame_decode(Mp3DecoderState* state, const uint8_t* data, const Mp3Frame* frame, float* pcm);
 
 #if defined(__cplusplus)
