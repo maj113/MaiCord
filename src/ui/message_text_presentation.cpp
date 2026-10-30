@@ -3253,43 +3253,15 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         return false;
 
     if (rich->sticker_count != 0) {
+        // Stickers draw no caption: the name is their tooltip's, popout's and
+        // accessible name, as in the official client.
+        auto& measured = presentation->measurements[measurement_index];
         for (u32 index = 0; index < rich->sticker_count; ++index) {
-            set_failure_context(presentation, MessageTextPresentationStage::sticker,
-                                MessageTextPresentationOperation::resolve_layout, static_cast<u16>(index));
-            const UiWidgetHandle item_widget =
-                message_scene_rich_item_widget(row, MessageSceneRichItemKind::sticker, index);
-            const UiLayoutNode* item_layout =
-                message_scene_rich_item_layout_node(scene, row, MessageSceneRichItemKind::sticker, index);
-            if (!item_layout) {
-                return fail(presentation, MessageTextPresentationError::layout);
-            }
-            const UiWidgetReference owner{&scene.widgets, item_widget};
-            UiTextFlowLayout flow{};
-            if (!initialize_flow(presentation, *item_layout, item_layout->content_rectangle.left,
-                                 ui_rect_width(item_layout->content_rectangle), row_clip, &flow)) {
-                return false;
-            }
-            Utf8View label = message_rich_store_string(*rich_store, rich->stickers[index].name);
-            if (label.bytes == 0) {
-                label = utf8_literal("Sticker");
-            }
-            if (!ui_text_flow_advance(&flow, kDefaultMessageStickerLayoutMetrics.caption_offset()) ||
-                !append_rich_line(presentation, label, &flow, theme.text_primary, owner, *record,
-                                  measurement_index, MessageTextMeasurementKind::sticker) ||
-                !ui_text_flow_ensure_extent(&flow, kDefaultMessageStickerLayoutMetrics.minimum_height())) {
-                return fail(presentation, MessageTextPresentationError::layout);
-            }
-            const u32 slot = kMessageSceneStickerItemOffset + index;
-            if (!finish_flow(
-                    presentation, flow,
-                    &presentation->measurements[measurement_index].rich_item_layout.heights[slot])) {
-                return false;
-            }
+            measured.rich_item_layout.heights[kMessageSceneStickerItemOffset + index] =
+                kDefaultMessageStickerLayoutMetrics.extent;
             saturating_accumulate(presentation->rich.stickers);
         }
-        presentation->measurements[measurement_index].rich_layout.stickers =
-            rich_item_total(presentation->measurements[measurement_index].rich_item_layout,
-                            kMessageSceneStickerItemOffset, rich->sticker_count);
+        measured.rich_layout.stickers = kDefaultMessageStickerLayoutMetrics.group_height(rich->sticker_count);
     }
 
     if (rich->component_count != 0) {

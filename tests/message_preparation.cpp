@@ -124,15 +124,21 @@ void test_message_preparation(void (*check)(bool, const char*) noexcept) noexcep
           "message_preparation_reserves_unmaterialized_media_from_metadata");
 
     bool changed = false;
+    // Row 0 carries an attachment: the official accessories' 2 DIP top padding
+    // follows its text. Row 1 is text alone and keeps 5 DIPs.
     const bool measured = message_scene_set_text_metrics(&f.scene, 0, 0, 180, true, nullptr, nullptr, {}, &changed) &&
+                          message_scene_set_text_metrics(&f.scene, 1, 0, 180, true, nullptr, nullptr, {}, &changed) &&
                           message_scene_update(&f.scene, viewport).ok();
+    const auto* text_only = message_scene_find_row(f.scene, 1);
+    check(measured && text_only && text_only->measured_content_height == 185,
+          "message_preparation_text_alone_keeps_its_5_dip_trailing_space");
     const u32 measured_height = f.heights[0];
     bool away = message_timeline_scroll_to_bottom(&f.timeline, &changed) && message_scene_update(&f.scene, viewport).ok();
     away = away && !message_scene_find_row(f.scene, 0);
     const bool returned = message_timeline_set_scroll(&f.timeline, 0, false) && message_scene_update(&f.scene, viewport).ok();
     const auto* row = message_scene_find_row(f.scene, 0);
     check(measured && away && returned && row && row->text_measured &&
-          row->measured_content_height == 185 && f.heights[0] == measured_height,
+          row->measured_content_height == 182 && f.heights[0] == measured_height,
           "message_preparation_measurements_survive_widget_recycling");
 
     const u32 passes = f.scene.preparation_passes;

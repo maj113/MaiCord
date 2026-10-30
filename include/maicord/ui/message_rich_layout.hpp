@@ -45,20 +45,21 @@ struct MessageReactionLayoutMetrics {
 inline constexpr MessageReactionLayoutMetrics kDefaultMessageReactionLayoutMetrics{
     80.0f, 24.0f, 4.0f, 6.0f, 2.0f, 6.0f, 0.0f, 16.0f, 4.0f};
 
+// A message's stickers, as the official client's message sticker accessory:
+// each a 160 DIP square (STICKERS_CONSTANTS_STICKER_DIMENSION) at the
+// content's start without a caption, 4 DIPs apart (the accessories' row gap),
+// the group ending in the accessories' 2 DIP bottom padding.
 struct MessageStickerLayoutMetrics {
-    float preview_extent;
-    float caption_gap;
-    float minimum_caption_extent;
+    float extent;
+    float gap;
+    float trailing;
 
-    constexpr float caption_offset() const noexcept {
-        return preview_extent + caption_gap;
-    }
-    constexpr float minimum_height() const noexcept {
-        return caption_offset() + minimum_caption_extent;
+    constexpr float group_height(u32 count) const noexcept {
+        return count ? static_cast<float>(count) * extent + static_cast<float>(count - 1) * gap + trailing : 0.0f;
     }
 };
 
-inline constexpr MessageStickerLayoutMetrics kDefaultMessageStickerLayoutMetrics{64.0f, 8.0f, 24.0f};
+inline constexpr MessageStickerLayoutMetrics kDefaultMessageStickerLayoutMetrics{160.0f, 4.0f, 2.0f};
 
 struct MessageRichLayout {
     float attachments;

@@ -3301,9 +3301,6 @@ void test_message_text_presentation() noexcept {
         } else if (command.measurement_kind == MessageTextMeasurementKind::embed) {
             first = 2;
             end = 4;
-        } else if (command.measurement_kind == MessageTextMeasurementKind::sticker) {
-            first = 4;
-            end = 6;
         } else if (command.measurement_kind == MessageTextMeasurementKind::component) {
             first = 6;
             end = 8;
@@ -3344,26 +3341,45 @@ void test_message_text_presentation() noexcept {
                rich_item_hit.widget.slot == retained_rich_items[0].slot &&
                rich_item_hit.widget.generation == retained_rich_items[0].generation,
            "message_rich_items_own_hierarchy_text_and_hit_testing");
-    // A sticker's tooltip anchors to its 64 DIP preview; its caption misses.
-    // The stickers lie below this viewport: lay the row out whole meanwhile.
+    // A sticker's tooltip and popout anchor to its 160 DIP square; the space
+    // between and beside the squares misses. The stickers lie below this
+    // viewport: lay the row out whole meanwhile.
+    const float sticker_extent = kDefaultMessageStickerLayoutMetrics.extent;
     bool sticker_previews_hit = row && message_scene_update(&scene, {0.0f, 0.0f, 720.0f, 4000.0f}).ok();
     for (u32 index = 0; index < 2 && sticker_previews_hit; ++index) {
         const UiLayoutNode* node = message_scene_layout_node(scene, retained_rich_items[4 + index]);
-        MessageStickerHit sticker{}, caption{};
-        const float extent = kDefaultMessageStickerLayoutMetrics.preview_extent;
+        MessageStickerHit sticker{}, below{}, beside{};
         sticker_previews_hit =
-            node && ui_rect_height(node->rectangle) > extent + 4 &&
-            message_scene_sticker_hit(scene, node->rectangle.left + extent * .5f,
-                                      node->rectangle.top + extent * .5f, &sticker) &&
+            node && ui_rect_height(node->rectangle) == sticker_extent &&
+            ui_rect_width(node->rectangle) > sticker_extent + 4 &&
+            message_scene_sticker_hit(scene, node->rectangle.left + sticker_extent * .5f,
+                                      node->rectangle.top + sticker_extent * .5f, &sticker) &&
             sticker.index == index && !sticker.snapshot && sticker.message_id == row->message_id &&
             ui_widget_handle_equal(sticker.widget, retained_rich_items[4 + index]) &&
             ui_rect_equal(sticker.preview, ui_rect_intersection({node->rectangle.left, node->rectangle.top,
-                                                                 node->rectangle.left + extent,
-                                                                 node->rectangle.top + extent},
+                                                                 node->rectangle.left + sticker_extent,
+                                                                 node->rectangle.top + sticker_extent},
                                                                 node->clip_rectangle)) &&
-            !message_scene_sticker_hit(scene, node->rectangle.left + 2, node->rectangle.top + extent + 2, &caption) &&
-            !caption.message_id;
+            !message_scene_sticker_hit(scene, node->rectangle.left + 2, node->rectangle.bottom + 1, &below) &&
+            !below.message_id &&
+            !message_scene_sticker_hit(scene, node->rectangle.left + sticker_extent + 2,
+                                       node->rectangle.top + sticker_extent * .5f, &beside) &&
+            !beside.message_id;
     }
+    // Discord's accessories: the squares stack 4 DIPs apart at the content's
+    // start and the group ends in a 2 DIP padding.
+    const UiLayoutNode* first_sticker = row ? message_scene_layout_node(scene, retained_rich_items[4]) : nullptr;
+    const UiLayoutNode* second_sticker = row ? message_scene_layout_node(scene, retained_rich_items[5]) : nullptr;
+    const UiLayoutNode* sticker_group = row ? message_scene_layout_node(scene, row->stickers) : nullptr;
+    const UiLayoutNode* content_node = row ? message_scene_layout_node(scene, row->content) : nullptr;
+    sticker_previews_hit = sticker_previews_hit && first_sticker && second_sticker && sticker_group && content_node &&
+                           second_sticker->rectangle.top ==
+                               first_sticker->rectangle.bottom + kDefaultMessageStickerLayoutMetrics.gap &&
+                           second_sticker->rectangle.left == first_sticker->rectangle.left &&
+                           first_sticker->rectangle.left == content_node->rectangle.left &&
+                           ui_rect_height(sticker_group->rectangle) ==
+                               kDefaultMessageStickerLayoutMetrics.group_height(2) &&
+                           first_sticker->rectangle.top == sticker_group->rectangle.top;
     const UiLayoutNode* attachment_node =
         row ? message_scene_rich_item_layout_node(scene, *row, MessageSceneRichItemKind::attachment, 0) : nullptr;
     MessageStickerHit attachment_sticker{};
@@ -3373,7 +3389,7 @@ void test_message_text_presentation() noexcept {
                                (attachment_node->rectangle.top + attachment_node->rectangle.bottom) * .5f,
                                &attachment_sticker);
     expect(sticker_previews_hit && message_scene_update(&scene, viewport).ok(),
-           "message_sticker_preview_hit_is_the_preview_square_not_its_caption_or_other_items");
+           "message_sticker_hit_is_its_160_dip_square_stacked_4_dips_apart_not_the_gaps_or_other_items");
     const auto* downloadable = ui_widget_manager_resolve(scene.widgets, retained_rich_items[0]);
     const auto* unavailable = ui_widget_manager_resolve(scene.widgets, retained_rich_items[1]);
     expect(downloadable && unavailable && (downloadable->flags & ui_widget_focusable) &&
@@ -3664,23 +3680,13 @@ void test_message_text_presentation() noexcept {
            "message_text_author_and_reply_headers_use_server_nicknames");
 
     u32 embed_command_index = ~0u;
-    u32 sticker_caption_index = ~0u;
     for (u32 index = 0; index < presentation.command_count; ++index) {
         if (embed_command_index == ~0u && presentation.commands[index].measurement_kind == MessageTextMeasurementKind::embed) {
             embed_command_index = index;
         }
-        if (sticker_caption_index == ~0u && presentation.commands[index].measurement_kind == MessageTextMeasurementKind::sticker)
-            sticker_caption_index = index;
     }
     if (embed_command_index != ~0u) {
         presentation.commands[embed_command_index].measured_height = 96.0f;
-    }
-    // A measured multiline caption must grow its own item and move every
-    // following sibling; the minimum estimate must not clip it to one line.
-    float sticker_caption_gap_after = 0.0f;
-    if (sticker_caption_index != ~0u) {
-        presentation.commands[sticker_caption_index].measured_height = 48.0f;
-        sticker_caption_gap_after = presentation.commands[sticker_caption_index].gap_after;
     }
     const MessageTextPresentationResult rich_flowed =
         embed_command_index != ~0u
@@ -3741,35 +3747,32 @@ void test_message_text_presentation() noexcept {
         message_media_command_stream_initialize(&sticker_preview_stream, {sticker_preview_commands, 16}) &&
         message_presentation_build(scene, kDefaultTheme, &sticker_preview_paint, &sticker_preview_stream,
                                   &sticker_preview_result);
-    bool sticker_caption_separated = sticker_preview_built;
-    u32 sticker_caption_matches = 0;
-    for (u32 index = 0; index < presentation.command_count; ++index) {
-        const auto& caption = presentation.commands[index];
-        if (caption.measurement_kind != MessageTextMeasurementKind::sticker) continue;
-        bool matching_preview = false;
-        for (u32 media_index = 0; media_index < sticker_preview_stream.count; ++media_index) {
-            const auto& preview = sticker_preview_commands[media_index];
-            if (preview.kind != MessageMediaCommandKind::sticker || preview.owner.manager != caption.owner.manager ||
-                preview.owner.handle.slot != caption.owner.handle.slot ||
-                preview.owner.handle.generation != caption.owner.handle.generation) continue;
-            matching_preview = true;
-            sticker_caption_separated = sticker_caption_separated &&
-                ui_rect_width(preview.rectangle) == kDefaultMessageStickerLayoutMetrics.preview_extent &&
-                ui_rect_height(preview.rectangle) == kDefaultMessageStickerLayoutMetrics.preview_extent &&
-                caption.rectangle.top >= preview.rectangle.bottom + kDefaultMessageStickerLayoutMetrics.caption_gap &&
-                !ui_rect_has_area(ui_rect_intersection(caption.rectangle, preview.rectangle));
-            ++sticker_caption_matches;
-        }
-        sticker_caption_separated = sticker_caption_separated && matching_preview;
+    // Each sticker draws its 160 DIP square at its item's origin; no text
+    // (the official client shows no caption) and the measured item is the square.
+    u32 sticker_squares = 0;
+    bool sticker_squares_placed = sticker_preview_built;
+    for (u32 media_index = 0; media_index < sticker_preview_stream.count; ++media_index) {
+        const auto& preview = sticker_preview_commands[media_index];
+        if (preview.kind != MessageMediaCommandKind::sticker)
+            continue;
+        const UiLayoutNode* item = rich_sticker_items[sticker_squares < 2 ? sticker_squares : 1];
+        sticker_squares_placed = sticker_squares_placed && item &&
+                                 ui_widget_handle_equal(preview.owner.handle, rich_row->rich_items[kMessageSceneStickerItemOffset + sticker_squares]) &&
+                                 ui_rect_equal(preview.rectangle, {item->rectangle.left, item->rectangle.top,
+                                                                   item->rectangle.left + kDefaultMessageStickerLayoutMetrics.extent,
+                                                                   item->rectangle.top + kDefaultMessageStickerLayoutMetrics.extent});
+        ++sticker_squares;
     }
-    expect(sticker_caption_separated && sticker_caption_matches == 2,
-           "message_sticker_caption_commands_follow_their_exact_owned_preview_without_overlap");
-    expect(sticker_caption_index != ~0u && rich_sticker_items[0] &&
-               ui_rect_height(rich_sticker_items[0]->rectangle) ==
-                   kDefaultMessageStickerLayoutMetrics.caption_offset() + 48.0f + sticker_caption_gap_after &&
-               rich_sticker_items[1] && ui_rect_height(rich_sticker_items[1]->rectangle) >=
-                   kDefaultMessageStickerLayoutMetrics.minimum_height(),
-           "message_sticker_measured_multiline_caption_grows_item_beyond_its_minimum");
+    for (u32 index = 0; rich_row && index < presentation.command_count; ++index)
+        for (u32 sticker = 0; sticker < 2; ++sticker)
+            sticker_squares_placed =
+                sticker_squares_placed &&
+                !ui_widget_handle_equal(presentation.commands[index].owner.handle,
+                                        rich_row->rich_items[kMessageSceneStickerItemOffset + sticker]);
+    expect(sticker_squares_placed && sticker_squares == 2 && rich_sticker_items[0] && rich_sticker_items[1] &&
+               ui_rect_height(rich_sticker_items[0]->rectangle) == kDefaultMessageStickerLayoutMetrics.extent &&
+               ui_rect_height(rich_sticker_items[1]->rectangle) == kDefaultMessageStickerLayoutMetrics.extent,
+           "message_stickers_draw_160_dip_squares_at_their_items_without_a_caption");
     paint_stream_release(&sticker_preview_paint);
     UiLayoutDiagnostic rich_diagnostics[32]{};
     const UiLayoutValidationResult rich_validation =
@@ -4212,13 +4215,13 @@ void test_message_rich_widget_materializer() noexcept {
     rich.components[1].type = 10;
 
     MessageSceneRowWidget row{};
-    row.rich_layout = MessageSceneRichLayout{42.0f, 130.0f, kDefaultMessageStickerLayoutMetrics.minimum_height(), 92.0f, 24.0f, 22.0f};
+    row.rich_layout = MessageSceneRichLayout{42.0f, 130.0f, kDefaultMessageStickerLayoutMetrics.group_height(1), 92.0f, 24.0f, 22.0f};
     row.reaction_widths[0] = 44.0f;
     row.reaction_widths[1] = 76.0f;
     row.rich_item_layout.heights[kMessageSceneAttachmentItemOffset] = 42.0f;
     row.rich_item_layout.heights[kMessageSceneEmbedItemOffset] = 60.0f;
     row.rich_item_layout.heights[kMessageSceneEmbedItemOffset + 1] = 70.0f;
-    row.rich_item_layout.heights[kMessageSceneStickerItemOffset] = kDefaultMessageStickerLayoutMetrics.minimum_height();
+    row.rich_item_layout.heights[kMessageSceneStickerItemOffset] = kDefaultMessageStickerLayoutMetrics.extent;
     row.rich_item_layout.heights[kMessageSceneComponentItemOffset] = 52.0f;
     row.rich_item_layout.heights[kMessageSceneComponentItemOffset + 1] = 32.0f;
     row.rich_item_layout.component_widths[0] = 220.0f;
@@ -4226,7 +4229,7 @@ void test_message_rich_widget_materializer() noexcept {
     const bool built =
         root.ok() && message_rich_widgets_build(&manager, root.handle, 200, &rich, &row) &&
         message_rich_widgets_apply(&manager, &rich, &row) &&
-        ui_widget_manager_layout_rectangle(&manager, UiRect{0.0f, 0.0f, 400.0f, 420.0f}).ok();
+        ui_widget_manager_layout_rectangle(&manager, UiRect{0.0f, 0.0f, 400.0f, 520.0f}).ok();
     const UiWidgetHandle attachment =
         message_scene_rich_item_widget(row, MessageSceneRichItemKind::attachment, 0);
     const UiWidgetHandle first_embed =
@@ -4311,7 +4314,7 @@ void test_message_rich_widget_materializer() noexcept {
     rich.components[0].custom_id.bytes = 0;
     const bool updated =
         message_rich_widgets_apply(&manager, &rich, &row) &&
-        ui_widget_manager_layout_rectangle(&manager, UiRect{0.0f, 0.0f, 400.0f, 450.0f}).ok();
+        ui_widget_manager_layout_rectangle(&manager, UiRect{0.0f, 0.0f, 400.0f, 560.0f}).ok();
     first_embed_layout = ui_widget_manager_layout_node(manager, first_embed);
     second_embed_layout = ui_widget_manager_layout_node(manager, second_embed);
     first_component_widget = ui_widget_manager_resolve(manager, first_component);

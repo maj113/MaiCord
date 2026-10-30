@@ -2,6 +2,7 @@
 
 #include "maicord/core/log.hpp"
 #include "maicord/render/colr_program.hpp"
+#include "maicord/render/lottie_program.hpp"
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/media/jpeg.hpp"
 
@@ -457,9 +458,10 @@ MediaAtlasGpuResult renderer_upload_lottie_program(D3D11Renderer* renderer, Medi
            media_asset_catalog_format(key) == MediaAttachmentFormat::lottie) ||
           (key.kind == MediaAssetKind::sticker && key.variant == 3)) ||
         !program.storage.base || !program.storage.offset) return reject_media_request(renderer);
-    AnimationAtlasTarget surface(renderer, key, 128, 128);
+    const u16 extent = static_cast<u16>(lottie_raster_pixels(key));
+    AnimationAtlasTarget surface(renderer, key, extent, extent);
     if (!surface.initialized.ok()) return surface.initialized;
-    return bake_program(renderer, surface.atlas, key, 128, surface.preview, program,
+    return bake_program(renderer, surface.atlas, key, extent, surface.preview, program,
                         d3d11_glyph_text_rasterize_lottie_program);
 }
 MediaAtlasGpuResult renderer_upload_media_straight_rgba8(D3D11Renderer* renderer, MediaAssetKey key,

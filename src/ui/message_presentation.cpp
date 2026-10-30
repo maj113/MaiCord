@@ -579,10 +579,9 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             return false;
         }
         const UiWidgetReference owner{&scene.widgets, item_widget};
-        const UiRect rectangle{
-            item_layout->rectangle.left, item_layout->rectangle.top,
-            item_layout->rectangle.left + kDefaultMessageStickerLayoutMetrics.preview_extent,
-            item_layout->rectangle.top + kDefaultMessageStickerLayoutMetrics.preview_extent};
+        const UiRect rectangle{item_layout->rectangle.left, item_layout->rectangle.top,
+                               item_layout->rectangle.left + kDefaultMessageStickerLayoutMetrics.extent,
+                               item_layout->rectangle.top + kDefaultMessageStickerLayoutMetrics.extent};
         if (!paint_stream_push_rounded(paint, rectangle, theme.surface_high, 8.0f) ||
             !append_media(media, rich->stickers[index].id, MessageMediaCommandKind::sticker,
                           rich->stickers[index].format_type, false, rectangle, row_clip, owner)) {

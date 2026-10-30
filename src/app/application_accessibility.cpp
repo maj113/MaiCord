@@ -302,6 +302,33 @@ void describe_channel(void*, const UiWidgetManager&, UiWidgetHandle handle, cons
     info->name = g_name.view();
 }
 
+// A message sticker draws no caption; like the official client's sticker
+// image it is named "Sticker, <name>".
+void describe_sticker(const MessageScene& scene, const MessageSceneRowWidget& row, UiWidgetHandle handle,
+                      UiAccessWidgetInfo* info) noexcept {
+    if (!g_app.account_ui)
+        return;
+    const auto& store = g_app.account_ui->message_rich_store;
+    for (u32 snapshot = 0; snapshot < 2; ++snapshot) {
+        const auto* items = snapshot ? message_scene_snapshot_row(scene, row) : &row;
+        for (u32 index = 0; items && index < items->sticker_item_count; ++index) {
+            if (!ui_widget_handle_equal(message_scene_rich_item_widget(*items, MessageSceneRichItemKind::sticker, index),
+                                        handle))
+                continue;
+            const auto* rich = snapshot ? message_rich_store_snapshot(store, row.message_id)
+                                        : message_rich_store_find(store, row.message_id);
+            if (!rich || index >= rich->sticker_count)
+                return;
+            g_name.bytes = 0;
+            g_name.add("Sticker, ").add(message_rich_store_string(store, rich->stickers[index].name));
+            info->role = UiAccessRole::image;
+            info->name = g_name.view();
+            info->leaf = true;
+            return;
+        }
+    }
+}
+
 void describe_message(void*, const UiWidgetManager&, UiWidgetHandle handle, const UiWidget&, const UiLayoutNode&,
                       UiAccessWidgetInfo* info) noexcept {
     const auto& scene = g_app.message_scene;
@@ -326,8 +353,12 @@ void describe_message(void*, const UiWidgetManager&, UiWidgetHandle handle, cons
         return;
     }
     const auto* row = message_scene_resolve(scene, handle);
-    if (!row || !ui_widget_handle_equal(row->widget, handle))
+    if (!row)
         return;
+    if (!ui_widget_handle_equal(row->widget, handle)) {
+        describe_sticker(scene, *row, handle, info);
+        return;
+    }
     info->key = row->message_id;
     info->item = row->message_id;
     info->role = UiAccessRole::list_item;

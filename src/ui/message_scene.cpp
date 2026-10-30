@@ -519,6 +519,14 @@ float desired_content_height(const Scene& scene, const MessageSceneRowWidget& ro
     return row.text_measured ? row.measured_content_height : content_height(scene);
 }
 
+// Space after the message text: the official accessories container's 2 DIP
+// top padding when attachments, embeds, stickers, components, invites,
+// reactions, a notice, a thread, a poll or a forwarded message follow; 5 DIPs
+// under text alone.
+float content_trailing(bool accessories) noexcept {
+    return accessories ? 2.0f : 5.0f;
+}
+
 float unread_row_height(const MessageScene& scene, const MessageSceneRowWidget& row) noexcept {
     return !row.forwarded_snapshot && row.message_id == scene.unread_first_message_id && row.message_id
                ? scene.unread_divider_style.height
@@ -2074,7 +2082,6 @@ bool message_scene_set_text_metrics(MessageScene* scene, u32 source_index, float
     }
     const MessageRichRecord* rich = row_rich(*scene, *record);
     const float measured_reply = rich && message_rich_has_header(*rich) ? reply_height : 0.0f;
-    const float measured_content = maximum(content_height, content_present ? 16.0f : 0.0f) + 5.0f;
     MessageSceneRichLayout measured_rich = rich_layout ? *rich_layout : row->rich_layout;
     const MessageSceneRichItemLayout& measured_items =
         rich_item_layout ? *rich_item_layout : row->rich_item_layout;
@@ -2104,6 +2111,9 @@ bool message_scene_set_text_metrics(MessageScene* scene, u32 source_index, float
                                ConstSlice<float>{intrinsic_reaction_widths, rich->reaction_count}))) {
         return false;
     }
+    const float measured_content =
+        maximum(content_height, content_present ? 16.0f : 0.0f) +
+        content_trailing(measured_rich.total() > 0.0f || row->poll_height > 0.0f || row->has_snapshot);
     bool reaction_metrics_changed = false;
     for (u32 index = 0; index < row->reaction_button_count; ++index) {
         const float width = index < reaction_widths.count
@@ -2197,7 +2207,8 @@ bool message_scene_set_snapshot_text_metrics(MessageScene* scene, u32 source_ind
     const auto* rich = child ? snapshot_rich(*scene, child->message_id) : nullptr;
     if (!child || !rich)
         return false;
-    const float content = maximum(content_height, content_present ? 16.f : 0.f) + 5.f;
+    const float content = maximum(content_height, content_present ? 16.f : 0.f) +
+                          content_trailing((rich_layout ? rich_layout->total() : child->rich_layout.total()) > 0.f);
     const MessageSceneRichItemLayout& items = rich_item_layout ? *rich_item_layout : child->rich_item_layout;
     const auto layout = rich_layout ? *rich_layout : child->rich_layout;
     if (rich_layout && rich_item_layout &&
@@ -2372,7 +2383,7 @@ bool message_scene_sticker_hit(const MessageScene& scene, float x, float y, Mess
             if (!node)
                 return false;
             // Drawn at the item's origin (message_presentation.cpp).
-            const float extent = kDefaultMessageStickerLayoutMetrics.preview_extent;
+            const float extent = kDefaultMessageStickerLayoutMetrics.extent;
             const UiRect preview = ui_rect_intersection(
                 {node->rectangle.left, node->rectangle.top, node->rectangle.left + extent, node->rectangle.top + extent},
                 node->clip_rectangle);

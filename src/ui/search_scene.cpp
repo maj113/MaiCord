@@ -1640,7 +1640,7 @@ bool ui_search_scene_rich_preview_geometry(const UiSearchScene& s, const UiSearc
         *rectangle = {left, top, left + width, top + height};
     } else if (target.rich_kind == MessageSceneRichItemKind::sticker &&
                target.rich_index < rich->sticker_count) {
-        const float extent = kDefaultMessageStickerLayoutMetrics.preview_extent;
+        const float extent = kDefaultMessageStickerLayoutMetrics.extent;
         *rectangle = {node->rectangle.left, node->rectangle.top, node->rectangle.left + extent,
                       node->rectangle.top + extent};
     } else

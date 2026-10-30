@@ -3806,6 +3806,19 @@ bool probe_media_underlay_and_quick_reactions() noexcept {
             return false;
     if (!draw_changed() || !readback.read(renderer, 1))
         return false;
+    // The official client's message sticker: a 160 DIP square at the content's
+    // start without a caption line.
+    for (u32 i = 0; i < stream.count; ++i)
+        if (commands[i].kind == MessageMediaCommandKind::sticker &&
+            (ui_rect_width(commands[i].rectangle) != kDefaultMessageStickerLayoutMetrics.extent ||
+             ui_rect_height(commands[i].rectangle) != kDefaultMessageStickerLayoutMetrics.extent))
+            return false;
+    for (u32 i = 0; i < g_probe.message_text.command_count; ++i)
+        if (ui_widget_handle_equal(g_probe.message_text.commands[i].owner.handle,
+                                   message_scene_rich_item_widget(row, MessageSceneRichItemKind::sticker, 0)))
+            return false;
+    if (!probe_capture_frame(L"media-underlay-sticker.bmp"))
+        return false;
     // Obtain the actual native underlay with the admitted media hidden. No
     // theme/color assumption can stand in for the final composited pixels.
     for (u32 i = 0; i < renderer.media_quad_count; ++i)

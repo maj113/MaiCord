@@ -922,10 +922,8 @@ void message_rich_fill_item_layout(const MessageRichStore* store, const MessageR
         }
         result.heights[kMessageRichEmbedItemOffset + index] = height + (media_only ? 0.0f : kMessageEmbedItemGap);
     }
-    for (u32 index = 0; index < rich->sticker_count; ++index) {
-        result.heights[kMessageRichStickerItemOffset + index] =
-            kDefaultMessageStickerLayoutMetrics.minimum_height();
-    }
+    for (u32 index = 0; index < rich->sticker_count; ++index)
+        result.heights[kMessageRichStickerItemOffset + index] = kDefaultMessageStickerLayoutMetrics.extent;
     for (u32 index = 0; index < rich->component_count; ++index) {
         result.heights[kMessageRichComponentItemOffset + index] =
             message_component_leaf_height(rich->components[index]);
@@ -962,6 +960,10 @@ MessageRichLayout message_rich_aggregate_layout(const MessageRichRecord& rich,
     for (u32 index = 0; index < rich.sticker_count; ++index) {
         result.stickers += items.heights[kMessageRichStickerItemOffset + index];
     }
+    // Stickers stack with the accessories' gap and end in their padding.
+    if (rich.sticker_count)
+        result.stickers += kDefaultMessageStickerLayoutMetrics.group_height(rich.sticker_count) -
+                           static_cast<float>(rich.sticker_count) * kDefaultMessageStickerLayoutMetrics.extent;
     u32 component_roots = 0;
     for (u32 index = 0; index < rich.component_count; ++index) {
         if (rich.components[index].parent == 0xFFFFu) {

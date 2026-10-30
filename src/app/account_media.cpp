@@ -754,8 +754,9 @@ bool publish_vector(AccountMedia* media, const MediaAssetKey& key_view, const Co
         return static_cast<ColrPaintProgram*>(media->lottie_workspace);
     };
     LottieTiming timing{};
+    const u32 pixels = lottie ? lottie_raster_pixels(key) : 0;
     if (lottie) {
-        if (!lottie_program_compile_frame(encoded, frame_index, 128, &timing, workspace, media))
+        if (!lottie_program_compile_frame(encoded, frame_index, static_cast<float>(pixels), &timing, workspace, media))
             return false;
     } else {
         RegionalFlagSvg image{};
@@ -770,10 +771,10 @@ bool publish_vector(AccountMedia* media, const MediaAssetKey& key_view, const Co
     media->frame_count = lottie ? timing.frames : 0;
     media->frame_play_count = 0;
     media->frame_cache_generation = 0;
-    media->frame_canvas_width = lottie ? 128 : 0;
-    media->frame_canvas_height = lottie ? 128 : 0;
+    media->frame_canvas_width = static_cast<u16>(pixels);
+    media->frame_canvas_height = static_cast<u16>(pixels);
     reset_value(&media->frame_webp_image);
-    media->frame_webp_image.width = media->frame_webp_image.height = lottie ? 128 : 64;
+    media->frame_webp_image.width = media->frame_webp_image.height = lottie ? pixels : 64;
     media->frame_kind =
         lottie ? AccountMediaFrameKind::lottie_paint : AccountMediaFrameKind::regional_flag_paint;
     mark_frame_ready(media, key);

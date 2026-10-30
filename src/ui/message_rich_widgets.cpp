@@ -216,8 +216,8 @@ bool message_rich_widgets_build(UiWidgetManager* manager, UiWidgetHandle parent,
         add_group(manager, parent, row_widget_id + 6u, "Attachments", row->rich_layout.attachments, false);
     const UiWidgetResult embeds =
         add_group(manager, parent, row_widget_id + 7u, "Embeds", row->rich_layout.embeds, false);
-    const UiWidgetResult stickers =
-        add_group(manager, parent, row_widget_id + 8u, "Stickers", row->rich_layout.stickers, false);
+    const UiWidgetResult stickers = add_group(manager, parent, row_widget_id + 8u, "Stickers", row->rich_layout.stickers,
+                                              false, kDefaultMessageStickerLayoutMetrics.gap);
     const UiWidgetResult components =
         add_group(manager, parent, row_widget_id + 9u, "Components", row->rich_layout.components, false,
                   kMessageComponentGap);

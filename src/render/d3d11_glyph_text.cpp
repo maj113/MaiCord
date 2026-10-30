@@ -59,11 +59,12 @@ bool d3d11_glyph_text_rasterize_flag_program(D3D11GlyphTextOwner* owner, ID3D11D
     return rasterize_program(owner, context, program, allocation, 64, kRegionalFlagPixelsPerUnit,
                              target_width, target_height, padding, target);
 }
+// The frame was compiled at its tile's extent (lottie_raster_pixels).
 bool d3d11_glyph_text_rasterize_lottie_program(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context,
     const ColrPaintProgram& program,const GlyphAtlasAllocation& allocation,u16 target_width,
     u16 target_height,u16 padding,ID3D11UnorderedAccessView* target) noexcept {
-    return rasterize_program(owner, context, program, allocation, 128, 128.f, target_width, target_height,
-                             padding, target);
+    return rasterize_program(owner, context, program, allocation, static_cast<u16>(allocation.width),
+                             static_cast<float>(allocation.width), target_width, target_height, padding, target);
 }
 bool d3d11_glyph_text_gpu_footprint(const D3D11GlyphTextOwner& owner,
                                     D3D11GlyphGpuFootprint* output) noexcept {
