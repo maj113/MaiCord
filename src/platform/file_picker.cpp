@@ -76,10 +76,8 @@ bool snapshot_path(ConstSlice<wchar_t> path, FileSnapshot* snapshot, NativeFileP
 }
 NativeFilePickerResult collect(Runtime* runtime) noexcept {
     IShellItemArray* items = nullptr;
-    IFileOpenDialog* open = nullptr;
-    HRESULT result = runtime->dialog->QueryInterface(__uuidof(IFileOpenDialog), reinterpret_cast<void**>(&open));
-    if (SUCCEEDED(result) && open) result = open->GetResults(&items);
-    com_release(open);
+    // An open dialog is created as IFileOpenDialog, so its IFileDialog pointer is one.
+    HRESULT result = static_cast<IFileOpenDialog*>(runtime->dialog)->GetResults(&items);
     if (FAILED(result) || !items) return {0, static_cast<u32>(result), NativeFilePickerError::dialog};
     DWORD count = 0;
     result = items->GetCount(&count);
@@ -265,7 +263,7 @@ DWORD WINAPI worker(void* context) noexcept {
     if (FAILED(initialized)) { outcome.error = NativeFilePickerError::com; outcome.native_error = static_cast<u32>(initialized); }
     else {
         HRESULT result = CoCreateInstance(runtime->save ? __uuidof(FileSaveDialog) : __uuidof(FileOpenDialog), nullptr, CLSCTX_INPROC_SERVER,
-            __uuidof(IFileDialog), reinterpret_cast<void**>(&runtime->dialog));
+            runtime->save ? __uuidof(IFileDialog) : __uuidof(IFileOpenDialog), reinterpret_cast<void**>(&runtime->dialog));
         if (SUCCEEDED(result)) {
             FILEOPENDIALOGOPTIONS options{};
             result = runtime->dialog->GetOptions(&options);
@@ -312,6 +310,19 @@ void destroy(NativeFilePicker* picker) noexcept {
     if (picker->thread) CloseHandle(picker->thread);
     if (picker->notification) CloseHandle(picker->notification);
     reset_value(picker);
+}
+bool launch(NativeFilePicker* picker, LPTHREAD_START_ROUTINE routine) noexcept {
+    picker->thread = CreateThread(nullptr, 256 * 1024, routine, picker, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+    return picker->thread != nullptr;
+}
+// An empty title, or one without NULs that fits the dialog.
+bool title_plain(Utf8View title) noexcept {
+    if (title.bytes > 1024 || (!title.data && title.bytes)) return false;
+    for (u32 i = 0; i < title.bytes; ++i) if (!title.data[i]) return false;
+    return true;
+}
+bool title_widen(Runtime* runtime, Utf8View title) noexcept {
+    return !title.bytes || MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, title.data, static_cast<int>(title.bytes), runtime->title, 255) != 0;
 }
 NativeFilePickerError initialize(NativeFilePicker* picker, u32 maximum_files) noexcept {
     if (!picker || picker->runtime || picker->thread || picker->notification || !maximum_files ||
@@ -364,33 +375,26 @@ bool native_file_picker_valid_path(ConstSlice<wchar_t> path) noexcept {
     return true;
 }
 NativeFilePickerError native_file_picker_start(NativeFilePicker* picker, HWND owner, u32 maximum_files, Utf8View title) noexcept {
-    if (!owner || !IsWindow(owner) || title.bytes > 1024 || (!title.data && title.bytes)) return NativeFilePickerError::invalid_input;
-    for (u32 i = 0; i < title.bytes; ++i) if (!title.data[i]) return NativeFilePickerError::invalid_input;
+    if (!owner || !IsWindow(owner) || !title_plain(title)) return NativeFilePickerError::invalid_input;
     const auto initialized = initialize(picker, maximum_files);
     if (initialized != NativeFilePickerError::none) return initialized;
     auto* runtime = static_cast<Runtime*>(picker->runtime); runtime->owner = owner;
-    if (title.bytes) {
-        const int units = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, title.data, static_cast<int>(title.bytes), runtime->title, 255);
-        if (!units) { destroy(picker); return NativeFilePickerError::invalid_input; }
-    }
-    picker->thread = CreateThread(nullptr, 256 * 1024, worker, picker, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
-    if (!picker->thread) { destroy(picker); return NativeFilePickerError::thread; }
+    if (!title_widen(runtime, title)) { destroy(picker); return NativeFilePickerError::invalid_input; }
+    if (!launch(picker, worker)) { destroy(picker); return NativeFilePickerError::thread; }
     return NativeFilePickerError::none;
 }
 NativeFilePickerError native_file_picker_save_start(NativeFilePicker* picker, HWND owner, Utf8View filename, Utf8View title) noexcept {
-    if (!owner || !IsWindow(owner) || !filename.data || !filename.bytes || filename.bytes > 1020 || title.bytes > 1024 ||
-        (!title.data && title.bytes) || !utf8_validate(filename).valid || !utf8_validate(title).valid) return NativeFilePickerError::invalid_input;
+    if (!owner || !IsWindow(owner) || !filename.data || !filename.bytes || filename.bytes > 1020 || !title_plain(title) ||
+        !utf8_validate(filename).valid || !utf8_validate(title).valid) return NativeFilePickerError::invalid_input;
     for (u32 i = 0; i < filename.bytes; ++i) if (static_cast<u8>(filename.data[i]) < 32 || filename.data[i] == '/' || filename.data[i] == '\\' || filename.data[i] == ':' || filename.data[i] == 0)
         return NativeFilePickerError::invalid_input;
-    for (u32 i = 0; i < title.bytes; ++i) if (!title.data[i]) return NativeFilePickerError::invalid_input;
     const auto result = initialize(picker, 1); if (result != NativeFilePickerError::none) return result;
     auto* runtime = static_cast<Runtime*>(picker->runtime); runtime->owner = owner; runtime->save = true;
     if (!MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, filename.data, static_cast<int>(filename.bytes), runtime->save_name, 255) ||
-        (title.bytes && !MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, title.data, static_cast<int>(title.bytes), runtime->title, 255))) {
+        !title_widen(runtime, title)) {
         destroy(picker); return NativeFilePickerError::invalid_input;
     }
-    picker->thread = CreateThread(nullptr, 256 * 1024, worker, picker, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
-    if (!picker->thread) { destroy(picker); return NativeFilePickerError::thread; }
+    if (!launch(picker, worker)) { destroy(picker); return NativeFilePickerError::thread; }
     return NativeFilePickerError::none;
 }
 bool native_file_picker_save_selection(const NativeFilePicker* picker, NativeFileSaveSelection* output) noexcept {
@@ -408,8 +412,7 @@ NativeFilePickerError native_file_picker_take_drop(NativeFilePicker* picker, HAN
     if (initialized != NativeFilePickerError::none) return initialized;
     auto* runtime = static_cast<Runtime*>(picker->runtime);
     runtime->drop = static_cast<HDROP>(drop);
-    picker->thread = CreateThread(nullptr, 256 * 1024, drop_worker, picker, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
-    if (!picker->thread) { runtime->drop = nullptr; destroy(picker); return NativeFilePickerError::thread; }
+    if (!launch(picker, drop_worker)) { runtime->drop = nullptr; destroy(picker); return NativeFilePickerError::thread; }
     return NativeFilePickerError::none;
 }
 NativeFilePickerError native_file_picker_take_clipboard(NativeFilePicker* picker, ClipboardAttachmentData* input, u32 maximum_files, u64 maximum_bytes) noexcept {
@@ -418,8 +421,7 @@ NativeFilePickerError native_file_picker_take_clipboard(NativeFilePicker* picker
     if (initialized != NativeFilePickerError::none) return initialized;
     auto* runtime = static_cast<Runtime*>(picker->runtime); runtime->clipboard = *input;
     runtime->maximum_bytes = maximum_bytes;
-    picker->thread = CreateThread(nullptr, 256 * 1024, clipboard_worker, picker, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
-    if (!picker->thread) { reset_value(&runtime->clipboard); destroy(picker); return NativeFilePickerError::thread; }
+    if (!launch(picker, clipboard_worker)) { reset_value(&runtime->clipboard); destroy(picker); return NativeFilePickerError::thread; }
     reset_value(input); return NativeFilePickerError::none;
 }
 ConstSlice<wchar_t> native_file_picker_filename(const NativeFilePicker* picker, u32 index) noexcept {

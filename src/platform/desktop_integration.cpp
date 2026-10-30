@@ -1,5 +1,6 @@
 #include "maicord/platform/desktop_integration.hpp"
 #include "maicord/core/win32_process.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
@@ -356,12 +357,17 @@ DesktopRegistryScope desktop_registry_user_scope() noexcept {
             L"discord"};
 }
 
+// The registry texts of one call, page-backed: each is 4 KiB, and a call needs up to five.
+struct RegistryTexts {
+    wchar_t first[kRegistryText], second[kRegistryText], third[kRegistryText], fourth[kRegistryText], fifth[kRegistryText];
+};
+
 DesktopRegistration desktop_startup_query(const DesktopRegistryScope& s, ConstSlice<wchar_t> executable) noexcept {
-    wchar_t command[kRegistryText];
+    ScratchPages<RegistryTexts> texts;
     u32 units = 0;
-    if (!scope_valid(s) || !read_string(s.root, s.run_key, s.value_name, command, kRegistryText, &units))
+    if (!scope_valid(s) || !texts.data || !read_string(s.root, s.run_key, s.value_name, texts.data->first, kRegistryText, &units))
         return DesktopRegistration::absent;
-    if (!executable_valid(executable) || !command_names(command, units, executable))
+    if (!executable_valid(executable) || !command_names(texts.data->first, units, executable))
         return DesktopRegistration::other;
     return startup_disabled(s) ? DesktopRegistration::absent : DesktopRegistration::ours;
 }
@@ -371,20 +377,24 @@ bool desktop_startup_set(const DesktopRegistryScope& s, ConstSlice<wchar_t> exec
         return false;
     if (!enable)
         return delete_value(s.root, s.run_key, s.value_name) && delete_value(s.root, s.approved_key, s.value_name);
-    wchar_t command[kRegistryText];
-    WideBuilder b{command, kRegistryText, 0, true};
+    ScratchPages<RegistryTexts> texts;
+    if (!texts.data)
+        return false;
+    WideBuilder b{texts.data->first, kRegistryText, 0, true};
     b.add(L"\"").add(executable).add(L"\" ").add(kStartupArgument);
-    return executable_valid(executable) && b.ok && write_string(s.root, s.run_key, s.value_name, command) &&
+    return executable_valid(executable) && b.ok && write_string(s.root, s.run_key, s.value_name, texts.data->first) &&
            (!startup_disabled(s) || delete_value(s.root, s.approved_key, s.value_name));
 }
 
 DesktopRegistration desktop_protocol_query(const DesktopRegistryScope& s, ConstSlice<wchar_t> executable) noexcept {
-    wchar_t key[kRegistryText], command[kRegistryText];
+    ScratchPages<RegistryTexts> texts;
     u32 units = 0;
-    if (!scope_valid(s) || !protocol_path(s, L"\\shell\\open\\command", key, kRegistryText))
+    if (!scope_valid(s) || !texts.data || !protocol_path(s, L"\\shell\\open\\command", texts.data->first, kRegistryText))
         return DesktopRegistration::absent;
+    wchar_t* const key = texts.data->first;
+    wchar_t* const command = texts.data->second;
     if (!read_string(s.root, key, nullptr, command, kRegistryText, &units)) {
-        wchar_t root_key[kRegistryText];
+        wchar_t* const root_key = texts.data->third;
         HKEY opened{};
         // A class without a command still belongs to someone else.
         if (protocol_path(s, L"", root_key, kRegistryText) &&
@@ -399,7 +409,12 @@ DesktopRegistration desktop_protocol_query(const DesktopRegistryScope& s, ConstS
 }
 
 bool desktop_protocol_set(const DesktopRegistryScope& s, ConstSlice<wchar_t> executable, bool enable) noexcept {
-    wchar_t root_key[kRegistryText], icon_key[kRegistryText], command_key[kRegistryText];
+    ScratchPages<RegistryTexts> texts;
+    if (!texts.data)
+        return false;
+    wchar_t* const root_key = texts.data->first;
+    wchar_t* const icon_key = texts.data->second;
+    wchar_t* const command_key = texts.data->third;
     if (!scope_valid(s) || !protocol_path(s, L"", root_key, kRegistryText) ||
         !protocol_path(s, L"\\DefaultIcon", icon_key, kRegistryText) ||
         !protocol_path(s, L"\\shell\\open\\command", command_key, kRegistryText))
@@ -415,13 +430,12 @@ bool desktop_protocol_set(const DesktopRegistryScope& s, ConstSlice<wchar_t> exe
     }
     if (!executable_valid(executable))
         return false;
-    wchar_t icon[kRegistryText], command[kRegistryText];
-    WideBuilder i{icon, kRegistryText, 0, true}, c{command, kRegistryText, 0, true};
+    WideBuilder i{texts.data->fourth, kRegistryText, 0, true}, c{texts.data->fifth, kRegistryText, 0, true};
     i.add(L"\"").add(executable).add(L"\",0");
     c.add(L"\"").add(executable).add(L"\" ").add(kUrlArgument).add(L" -- \"%1\"");
     return i.ok && c.ok && write_string(s.root, root_key, nullptr, L"URL:Discord Protocol") &&
-           write_string(s.root, root_key, L"URL Protocol", L"") && write_string(s.root, icon_key, nullptr, icon) &&
-           write_string(s.root, command_key, nullptr, command);
+           write_string(s.root, root_key, L"URL Protocol", L"") && write_string(s.root, icon_key, nullptr, texts.data->fourth) &&
+           write_string(s.root, command_key, nullptr, texts.data->fifth);
 }
 
 HANDLE desktop_instance_mutex(const wchar_t* name, bool* existed) noexcept {

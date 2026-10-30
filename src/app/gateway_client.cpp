@@ -72,7 +72,7 @@ inline constexpr u32 kStructuralCount = kGatewaySessionMaximumStructuralCount;
 inline constexpr u32 kInitialStructuralCount = 1024;
 inline constexpr u32 kInitialDecodedMessageBytes = 4096;
 inline constexpr u32 kPlainOutputBytes = 64 * 1024;
-inline constexpr u32 kRecordOutputBytes = 68 * 1024;
+inline constexpr u32 kRecordOutputBytes = 20 * 1024;
 inline constexpr u64 kPhaseTimeoutMs = 15'000;
 // Typed READY records are far smaller than the decoded READY; a larger
 // projection routes twice instead of staging.
@@ -249,6 +249,8 @@ struct GatewayClientRuntime {
     StableStorage decoded_message;
     StableStorage zstd_storage;
     StableStorage ready_record_index;
+    // READY's top-level arrays are indexed here, so the message's own index (structural_scratch) stays intact.
+    StableStorage ready_arrays;
     union {
         u8 plain_output[kPlainOutputBytes];
         u32 ready_object_scratch[kPlainOutputBytes / sizeof(u32)];
@@ -354,6 +356,9 @@ bool grow_compressed_message(void* context, u32 required, Slice<u8>* backed) noe
 Slice<u32> ready_record_index_view(GatewayClientRuntime* runtime) noexcept {
     return {stable_storage_data<u32>(runtime->ready_record_index), runtime->ready_record_index.capacity};
 }
+Slice<u32> ready_arrays_view(GatewayClientRuntime* runtime) noexcept {
+    return {stable_storage_data<u32>(runtime->ready_arrays), runtime->ready_arrays.capacity};
+}
 bool grow_ready_record_index(void* context, u32 required, Slice<u32>* backed) noexcept {
     auto* runtime = static_cast<GatewayClientRuntime*>(context);
     if (!growth_allowed(runtime) || !stable_storage_grow(&runtime->ready_record_index, required))
@@ -377,6 +382,8 @@ void trim_message_banks(GatewayClientRuntime* runtime) noexcept {
         runtime->session.structural_scratch = main_index_view(runtime);
     if (runtime->ready_record_index.capacity > kInitialStructuralCount)
         stable_storage_shrink(&runtime->ready_record_index, kInitialStructuralCount);
+    if (runtime->ready_arrays.capacity > kInitialStructuralCount)
+        stable_storage_shrink(&runtime->ready_arrays, kInitialStructuralCount);
     // The window moves to the front; the pages past it and the next message's room are returned.
     if (runtime->user && runtime->session.zstd_stream == &runtime->user->zstd &&
         runtime->zstd_storage.capacity > 4 * kZstdInitialStorageBytes) {
@@ -407,6 +414,7 @@ void release_runtime_allocation(GatewayClient* client) noexcept {
     release_wiped_storage(&runtime->decoded_message);
     release_wiped_storage(&runtime->zstd_storage);
     release_wiped_storage(&runtime->ready_record_index);
+    release_wiped_storage(&runtime->ready_arrays);
     if (runtime->self_status_group) {
         SecureZeroMemory(runtime->self_status_group, kSelfStatusSettingsMaximumGroupBytes);
         VirtualFree(runtime->self_status_group, 0, MEM_RELEASE);
@@ -973,6 +981,7 @@ void clear_user_transport(GatewayClientRuntime* runtime) noexcept {
     SecureZeroMemory(runtime->handshake_output, kHandshakeBytes);
     wipe_storage(runtime->decoded_message);
     wipe_storage(runtime->ready_record_index);
+    wipe_storage(runtime->ready_arrays);
 }
 
 struct SelfSettingsJson {
@@ -2158,6 +2167,14 @@ void note_route_error(Target* target, const GatewayClientDispatchRouteResult& ro
     target->route_detail = route.detail;
 }
 
+// Registers the READY document as the scan source until the projection returns.
+struct ReadyScanSource {
+    void set(const JsonIndexedDocument& document) noexcept {
+        json_scan_source_set(document.input, document.structurals);
+    }
+    ~ReadyScanSource() { json_scan_source_clear(); }
+};
+
 // Out of line: its resume capture would otherwise join process_session's stack frame.
 // receive means the READY was handled and the session loop continues.
 __declspec(noinline) PlaintextDrive process_ready(GatewayClient* client, GatewayClientRuntime* runtime,
@@ -2182,12 +2199,22 @@ __declspec(noinline) PlaintextDrive process_ready(GatewayClient* client, Gateway
         return fail_plaintext(runtime, GatewayClientFailureStage::ready_resume_capture);
     }
     ReadyProjectionBinding binding{client, runtime, event.ready.required_action};
+    // The envelope's index stays intact (gateway_decode_ready read through it) while the projection indexes its
+    // arrays into their own storage: every scan of a large container inside READY is then answered from it.
+    Slice<u32> arrays = main_index_view(runtime);
+    const JsonIndexedDocument& document = event.envelope.document;
+    ReadyScanSource source;
+    if (document.structurals.data == arrays.data && document.structurals.count &&
+        stable_storage_grow(&runtime->ready_arrays, arrays.count)) {
+        arrays = ready_arrays_view(runtime);
+        source.set(document);
+    }
     // The zero-copy READY packet stays in the current session message
     // backing while both passes run. No push/next/compaction occurs
     // until all typed routes validate and the commit has finished.
     const auto projection = gateway_ready_project(
         event.ready,
-        {main_index_view(runtime),
+        {arrays,
          ready_record_index_view(runtime),
          dispatch_scratch(runtime),
          {reinterpret_cast<char*>(runtime->gateway_payload), sizeof(runtime->gateway_payload)},
@@ -3085,6 +3112,8 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
         !stable_storage_initialize(&runtime->decoded_message, kGatewaySessionMaximumDecodedMessageBytes,
                                    kInitialDecodedMessageBytes, sizeof(u8), alignof(u8)) ||
         !stable_storage_initialize(&runtime->ready_record_index, kStructuralCount, kInitialStructuralCount,
+                                   sizeof(u32), alignof(u32)) ||
+        !stable_storage_initialize(&runtime->ready_arrays, kStructuralCount, kInitialStructuralCount,
                                    sizeof(u32), alignof(u32)) ||
         !reserved_bytes_initialize(&runtime->ready_staging, kReadyStagingBytes) ||
         !reserved_bytes_initialize(&runtime->compressed_spill, kGatewaySessionMaximumDecodedMessageBytes) ||

@@ -34,6 +34,24 @@ u8* chunk(u8* out, const char* type, const u8* data, u32 bytes) noexcept {
     byte_store_be32(out + 8 + bytes, crc32_update(0, out + 4, 4 + u64{bytes}));
     return out + 12 + bytes;
 }
+// Signature and IHDR (8-bit, no interlace); returns where the IDAT chunk starts.
+u8* write_header(u8* out, u32 width, u32 height, u8 color_type) noexcept {
+    copy_bytes(out, kPngSignature, 8);
+    u8 header[13]{};
+    byte_store_be32(header, width);
+    byte_store_be32(header + 4, height);
+    header[8] = 8;
+    header[9] = color_type;
+    return chunk(out + 8, "IHDR", header, 13);
+}
+// The five bytes that open a stored deflate block of `block` bytes.
+void store_header(u8* at, u32 block, bool last) noexcept {
+    at[0] = last ? 1 : 0;
+    at[1] = static_cast<u8>(block);
+    at[2] = static_cast<u8>(block >> 8);
+    at[3] = static_cast<u8>(~block);
+    at[4] = static_cast<u8>(~block >> 8);
+}
 u64 raw_bytes(u32 width, u32 height) noexcept {
     return u64{height} * (1 + u64{width} * 4);
 }
@@ -51,13 +69,7 @@ u64 clipboard_image_encode_png(const u8* rgba, u32 width, u32 height, u32 stride
     const u64 total = clipboard_image_png_bytes(width, height);
     if (!rgba || !total || stride < width * 4 || !output.data || output.count < total)
         return 0;
-    copy_bytes(output.data, kPngSignature, 8);
-    u8 header[13]{};
-    byte_store_be32(header, width);
-    byte_store_be32(header + 4, height);
-    header[8] = 8; // bit depth
-    header[9] = 6; // truecolor with alpha
-    u8* idat = chunk(output.data + 8, "IHDR", header, 13);
+    u8* idat = write_header(output.data, width, height, 6); // truecolor with alpha
     const u64 raw = raw_bytes(width, height), zlib = zlib_bytes(raw);
     u8* z = idat + 8;
     z[0] = 0x78; // deflate, 32 KiB window
@@ -68,11 +80,8 @@ u64 clipboard_image_encode_png(const u8* rgba, u32 width, u32 height, u32 stride
     const u32 row_bytes = 1 + width * 4;
     do {
         const u32 block = static_cast<u32>(minimum<u64>(kStoredBlock, raw - emitted));
-        z[cursor++] = emitted + block == raw ? 1 : 0;
-        z[cursor++] = static_cast<u8>(block);
-        z[cursor++] = static_cast<u8>(block >> 8);
-        z[cursor++] = static_cast<u8>(~block);
-        z[cursor++] = static_cast<u8>(~block >> 8);
+        store_header(z + cursor, block, emitted + block == raw);
+        cursor += 5;
         for (u32 i = 0; i < block;) {
             // With reduced initial sums and bytes <= 255, 5552 additions keep
             // both Adler sums within u32. Include each row's zero filter byte.
@@ -359,11 +368,7 @@ DWORD encode_dib_png(const Dib& source, u64 limit, ClipboardPng* output) noexcep
         filter_row(row, y ? packed[(y + 1) & 1] : nullptr, row_bytes, channels, data + u64{y} * (1 + row_bytes));
     }
     unreserve(rows);
-    copy_bytes(png, kPngSignature, 8);
-    u8 header[13]{};
-    byte_store_be32(header, w); byte_store_be32(header + 4, h);
-    header[8] = 8; header[9] = channels == 4 ? 6 : 2;
-    u8* idat = chunk(png + 8, "IHDR", header, 13);
+    u8* idat = write_header(png, w, h, channels == 4 ? 6 : 2);
     u8* z = idat + 8;
     z[0] = 0x78; z[1] = 0x01;
     u64 body = deflate_fixed(data, raw, z + 2, stored, head, head + (u64{1} << kHashBits));
@@ -373,9 +378,7 @@ DWORD encode_dib_png(const Dib& source, u64 limit, ClipboardPng* output) noexcep
         do {
             const u32 block = static_cast<u32>(minimum<u64>(kStoredBlock, raw - emitted));
             u8* b = z + 2 + cursor;
-            b[0] = emitted + block == raw ? 1 : 0;
-            b[1] = static_cast<u8>(block); b[2] = static_cast<u8>(block >> 8);
-            b[3] = static_cast<u8>(~block); b[4] = static_cast<u8>(~block >> 8);
+            store_header(b, block, emitted + block == raw);
             copy_bytes(b + 5, data + emitted, block);
             cursor += 5 + u64{block}; emitted += block;
         } while (emitted < raw);

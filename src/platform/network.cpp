@@ -115,10 +115,12 @@ NetworkResult network_connection_connect(NetworkLoop* loop, NetworkConnection* c
         return failure(NetworkError::socket_create, WSAGetLastError());
     }
     connection->socket = socket_value;
-    const BOOL no_delay=TRUE;
-    if(setsockopt(socket_value,IPPROTO_TCP,TCP_NODELAY,reinterpret_cast<const char*>(&no_delay),sizeof(no_delay))==SOCKET_ERROR) {
-        const i32 native_error=WSAGetLastError();network_connection_close(connection);
-        return failure(NetworkError::socket_create,native_error);
+    const BOOL no_delay = TRUE;
+    if (setsockopt(socket_value, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&no_delay),
+                   sizeof(no_delay)) == SOCKET_ERROR) {
+        const i32 native_error = WSAGetLastError();
+        network_connection_close(connection);
+        return failure(NetworkError::socket_create, native_error);
     }
 
     const HANDLE associated =

@@ -55,10 +55,9 @@ void test_notification_identity_registry(void (*check)(bool,const char*) noexcep
     auto foreign=id;foreign.ownership_nonce=wide(L"fedcba9876543210fedcba9876543210");
     const auto refused=notification_identity_create(foreign);
     check(notification_identity_check(foreign).error==E::foreign_resource&&refused.error==E::foreign_resource&&!refused.registry_created&&
-        notification_identity_remove_owned(foreign).error==E::not_owned&&notification_identity_check(id).ok(),
-        "toast identity registry: another owner's keys are never claimed, rewritten or removed");
-    check(notification_identity_remove_owned(id).ok()&&notification_identity_check(id).error==E::absent&&
-        notification_identity_remove_owned(id).error==E::absent,"toast identity registry: remove deletes exactly the owned keys");
+        notification_identity_check(id).ok(),
+        "toast identity registry: another owner's keys are never claimed or rewritten");
+    RegDeleteTreeW(HKEY_CURRENT_USER,classes);
     HKEY partial=nullptr;
     if(RegCreateKeyExW(HKEY_CURRENT_USER,aumid,0,nullptr,0,KEY_SET_VALUE,nullptr,&partial,nullptr)==ERROR_SUCCESS)RegCloseKey(partial);
     check(notification_identity_check(id).error==E::foreign_resource&&notification_identity_create(id).error==E::foreign_resource&&
@@ -142,7 +141,6 @@ void test_native_notifications(void (*check)(bool,const char*) noexcept) noexcep
     test_notification_identity_registry(check);
     DesktopNotifications owner{};DesktopNotificationConfig config{wide(L"MaiCord.Probe.Unit"),kTestActivator,nullptr,0,false};
     const bool initialized=desktop_notifications_initialize(&owner,config).ok();check(initialized,"toast nonemitting raw COM owner initializes");if(!initialized)return;
-    check(desktop_notifications_owned_bytes(&owner)<=2048,"toast early factory and activation owner bounded independently of OS transport");
     auto rejected=p;rejected.body={control,1};
     const auto invalid_show=desktop_notifications_show_once(&owner,rejected);
     check(invalid_show.state==ShowState::failed && invalid_show.result.error==DesktopNotificationError::invalid_input &&
@@ -185,7 +183,7 @@ void test_native_notifications(void (*check)(bool,const char*) noexcept) noexcep
     }
     desktop_notifications_remove_channel(&owner,9,99);
     desktop_notifications_release(&owner);
-    check(!owner.runtime&&!desktop_notifications_owned_bytes(&owner),"toast teardown clears live owner while external COM references retain inert storage");
+    check(!owner.runtime,"toast teardown clears live owner while external COM references retain inert storage");
     if(callback){check(callback->Activate(L"MaiCord.Probe.Unit",original,nullptr,0)==CO_E_SERVER_STOPPING,
         "toast retained callback safely becomes inert after owner teardown");callback->Release();}
     if(factory){void* absent=nullptr;check(factory->CreateInstance(nullptr,__uuidof(INotificationActivationCallback),&absent)==CO_E_SERVER_STOPPING&&!absent,

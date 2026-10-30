@@ -79,7 +79,4 @@ DesktopNotificationResult desktop_notifications_factory(DesktopNotifications*, v
 // balances its COM apartment initialization. An outstanding COM callback keeps its own
 // inert state alive.
 void desktop_notifications_release(DesktopNotifications*) noexcept;
-// Counts the attached runtime storage only; outstanding external COM references may
-// keep the inert callback object alive until their final Release.
-u32 desktop_notifications_owned_bytes(const DesktopNotifications*) noexcept;
 }

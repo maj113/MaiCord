@@ -8,7 +8,7 @@
 namespace maicord {
 namespace {
 void emit(const char* kind, u64 index, u64 microseconds, u64 bytes, u64 status, u64 reused,
-          u64 checksum = 0, u64 wire_bytes = 0, u64 decode_us = 0) noexcept {
+          u64 checksum = 0) noexcept {
     u8 buffer[512]{};
     ProtocolWriter w{{buffer, sizeof(buffer)}, 0};
     protocol_writer_append_literal(&w, "{\"kind\":\"");
@@ -23,8 +23,6 @@ void emit(const char* kind, u64 index, u64 microseconds, u64 bytes, u64 status, 
     field(",\"status\":", status);
     field(",\"reused\":", reused);
     field(",\"checksum\":", checksum);
-    field(",\"wire_bytes\":", wire_bytes);
-    field(",\"decode_us\":", decode_us);
     protocol_writer_append_literal(&w, "}\n");
     DWORD written = 0;
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), buffer, w.used, &written, nullptr);
@@ -117,8 +115,7 @@ int run_mixed(u32 rest_count) noexcept {
             const auto taken =
                 rest_client_take_response(&lane.rest, &response, {body, sizeof(body)});
             emit("rest", response.request_id, response.elapsed_us, taken.body_bytes, response.status_code,
-                 response.reused_connection, hash({body, taken.body_bytes}), response.wire_body_bytes,
-                 response.decode_us);
+                 response.reused_connection, hash({body, taken.body_bytes}));
             ok = taken.ok() && response.transport_ok() && response.status_code == 200;
             if (++rest_done == 6)
                 rest_end = clock_microseconds(clock, begin, clock_now());
@@ -226,8 +223,7 @@ int run() noexcept {
                     {1, 0, RestMethod::get, RestMajorParameter::none},
                     queued + 1,
                     8000,
-                    false,
-                    json && mode[4] == L'0'};
+                    false};
                 ok = rest_client_submit(&lane.rest, request).ok();
             } else {
                 char target[] = "/embed/avatars/0.png";
@@ -262,8 +258,7 @@ int run() noexcept {
             const auto taken =
                 rest_client_take_response(&lane.rest, &response, {body, sizeof(body)});
             emit("request", response.request_id, response.elapsed_us, taken.body_bytes,
-                 response.status_code, response.reused_connection, hash({body, taken.body_bytes}),
-                 response.wire_body_bytes, response.decode_us);
+                 response.status_code, response.reused_connection, hash({body, taken.body_bytes}));
             ok = taken.ok() && response.transport_ok() && response.status_code == 200 &&
                  taken.body_bytes != 0;
         } else {

@@ -391,7 +391,13 @@ bool visit_resumed_member(void* opaque, JsonString name, JsonValue value) noexce
 GatewayEventDecodeResult visit_object(JsonValue data, Slice<u32> scratch, u32 maximum_depth,
                                       JsonMemberVisitor visitor, void* context,
                                       const GatewayEventDecodeError* visitor_error,
-                                      GatewayEventDecodeError fallback) noexcept {
+                                      GatewayEventDecodeError fallback,
+                                      const JsonIndexedDocument* document = nullptr) noexcept {
+    if (document) {
+        const JsonReadResult read = json_visit_indexed_object(*document, data, maximum_depth, visitor, context);
+        return read.ok() ? decode_failure(GatewayEventDecodeError::none)
+                         : read_failure(*visitor_error, read, fallback);
+    }
     const JsonScanResult scan = json_scan_structurals_avx1(data.source, scratch);
     if (!scan.ok()) {
         return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
@@ -465,13 +471,14 @@ GatewayEventDecodeResult gateway_decode_hello(JsonValue data, Slice<u32> structu
 }
 
 GatewayEventDecodeResult gateway_decode_ready(JsonValue data, Slice<u32> structural_scratch,
-                                              u32 maximum_depth, GatewayReady* output) noexcept {
+                                              u32 maximum_depth, GatewayReady* output,
+                                              const JsonIndexedDocument* document) noexcept {
     if (data.kind != JsonValueKind::object) {
         return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
     }
     ReadyContext context{};
     const auto result = visit_object(data, structural_scratch, maximum_depth, visit_ready_member, &context,
-                                     &context.error, GatewayEventDecodeError::invalid_json);
+                                     &context.error, GatewayEventDecodeError::invalid_json, document);
     if (!result.ok()) {
         return result;
     }
@@ -479,16 +486,22 @@ GatewayEventDecodeResult gateway_decode_ready(JsonValue data, Slice<u32> structu
     if ((context.fields & required_fields) != required_fields) {
         return decode_failure(GatewayEventDecodeError::missing_required_field, data.source_offset);
     }
-    const JsonScanResult user_scan =
-        json_scan_structurals_avx1(context.ready.user.source, structural_scratch);
-    if (!user_scan.ok()) {
-        return decode_failure(GatewayEventDecodeError::scan_failed, user_scan.error_offset,
-                              user_scan.error);
-    }
     ReadyUserContext user{};
-    const JsonReadResult user_read = json_visit_value_object(
-        context.ready.user, ConstSlice<u32>{structural_scratch.data, user_scan.count},
-        maximum_depth, visit_ready_user_member, &user);
+    JsonReadResult user_read;
+    if (document) {
+        user_read = json_visit_indexed_object(*document, context.ready.user, maximum_depth,
+                                              visit_ready_user_member, &user);
+    } else {
+        const JsonScanResult user_scan =
+            json_scan_structurals_avx1(context.ready.user.source, structural_scratch);
+        if (!user_scan.ok()) {
+            return decode_failure(GatewayEventDecodeError::scan_failed, user_scan.error_offset,
+                                  user_scan.error);
+        }
+        user_read = json_visit_value_object(
+            context.ready.user, ConstSlice<u32>{structural_scratch.data, user_scan.count},
+            maximum_depth, visit_ready_user_member, &user);
+    }
     if (!user_read.ok() || user.error != GatewayEventDecodeError::none || !user.seen) {
         return decode_failure(user.error != GatewayEventDecodeError::none
                                   ? user.error

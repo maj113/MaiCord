@@ -201,10 +201,10 @@ TlsResult tls_client_encrypt_spans(
         !plaintext.data || plaintext.count == 0 || !output.data) {
         return result(TlsError::invalid_argument, SEC_E_INVALID_TOKEN);
     }
+    // At most 2^32-1 spans of at most 2^32-1 bytes each: the u64 sum cannot wrap.
     u64 plaintext_bytes = 0;
     for (u32 span = 0; span < plaintext.count; ++span) {
-        if ((!plaintext[span].data && plaintext[span].count != 0) ||
-            plaintext_bytes + plaintext[span].count < plaintext_bytes) {
+        if (!plaintext[span].data && plaintext[span].count != 0) {
             return result(TlsError::invalid_argument, SEC_E_INVALID_TOKEN);
         }
         plaintext_bytes += plaintext[span].count;

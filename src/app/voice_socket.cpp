@@ -7,7 +7,8 @@
 
 namespace maicord {
 namespace {
-constexpr u32 kEncrypted = 64 * 1024, kHandshake = 256 * 1024, kRecord = 64 * 1024;
+// A TLS token is at most cbMaxToken (24 KiB) and a record header + 16 KiB + trailer; the stream checks both.
+constexpr u32 kEncrypted = 64 * 1024, kHandshake = 64 * 1024, kRecord = 20 * 1024;
 constexpr u32 kScratch = 256;
 bool active(const VoiceSocket& socket) noexcept {
     return socket.phase == VoiceSocketPhase::connecting || socket.phase == VoiceSocketPhase::opening ||

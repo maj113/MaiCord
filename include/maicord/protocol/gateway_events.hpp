@@ -111,8 +111,11 @@ GatewayEventDecodeResult gateway_decode_rate_limited(JsonValue data, Slice<u32> 
 GatewayEventDecodeResult gateway_decode_member_chunk_receipt(JsonValue data, Slice<u32> structural_scratch,
                                                              u32 maximum_depth,
                                                              GatewayMemberChunkReceipt* output) noexcept;
+// With `document` (the envelope's, holding `data`) READY is read through its index and nothing is scanned, so the
+// index stays intact for what follows; without one `data` is scanned into the scratch.
 GatewayEventDecodeResult gateway_decode_ready(JsonValue data, Slice<u32> structural_scratch,
-                                              u32 maximum_depth, GatewayReady* output) noexcept;
+                                              u32 maximum_depth, GatewayReady* output,
+                                              const JsonIndexedDocument* document = nullptr) noexcept;
 GatewayEventDecodeResult gateway_decode_supplemental_private_channels(JsonValue data, Slice<u32> scratch,
     u32 maximum_depth, JsonValue* channels) noexcept;
 GatewayEventDecodeResult gateway_decode_resumed(JsonValue data, Slice<u32> structural_scratch,

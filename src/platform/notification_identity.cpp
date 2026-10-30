@@ -1,4 +1,5 @@
 #include "maicord/platform/notification_identity.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/sys/registry.hpp"
 #include "maicord/sys/shell.hpp"
 
@@ -119,7 +120,8 @@ NotificationIdentityResult notification_identity_set_process(ConstSlice<wchar_t>
     return FAILED(h)?failure(NotificationIdentityError::process,static_cast<u32>(h)):NotificationIdentityResult{};
 }
 NotificationIdentityResult notification_identity_check(const NotificationIdentityConfig& c) noexcept {
-    Paths p{};if(!paths(c,&p))return failure(NotificationIdentityError::invalid_input,ERROR_INVALID_PARAMETER);
+    ScratchPages<Paths> work;if(!work.data)return failure(NotificationIdentityError::registry,ERROR_NOT_ENOUGH_MEMORY);
+    Paths& p=*work.data;if(!paths(c,&p))return failure(NotificationIdentityError::invalid_input,ERROR_INVALID_PARAMETER);
     HKEY aumid=nullptr,clsid=nullptr;LSTATUS aumid_status{},clsid_status{};
     const Key a=open_key(p.aumid_key,p.nonce,&aumid,&aumid_status),k=open_key(p.clsid_key,p.nonce,&clsid,&clsid_status);
     NotificationIdentityResult result{};
@@ -130,7 +132,8 @@ NotificationIdentityResult notification_identity_check(const NotificationIdentit
     if(aumid)RegCloseKey(aumid);if(clsid)RegCloseKey(clsid);return result;
 }
 NotificationIdentityResult notification_identity_create(const NotificationIdentityConfig& c) noexcept {
-    Paths p{};if(!paths(c,&p))return failure(NotificationIdentityError::invalid_input,ERROR_INVALID_PARAMETER);
+    ScratchPages<Paths> work;if(!work.data)return failure(NotificationIdentityError::registry,ERROR_NOT_ENOUGH_MEMORY);
+    Paths& p=*work.data;if(!paths(c,&p))return failure(NotificationIdentityError::invalid_input,ERROR_INVALID_PARAMETER);
     const DWORD attributes=GetFileAttributesW(p.exe);
     if(attributes==INVALID_FILE_ATTRIBUTES||(attributes&FILE_ATTRIBUTE_DIRECTORY))return failure(NotificationIdentityError::invalid_input,ERROR_FILE_NOT_FOUND);
     HKEY clsid=nullptr,server=nullptr,aumid=nullptr;bool clsid_created=false,aumid_created=false;
@@ -156,23 +159,5 @@ NotificationIdentityResult notification_identity_create(const NotificationIdenti
     auto result=failure(!removed?NotificationIdentityError::rollback:r==ERROR_ALREADY_EXISTS?NotificationIdentityError::foreign_resource:
         NotificationIdentityError::registry,static_cast<u32>(r));
     result.registry_created=!removed;return result;
-}
-NotificationIdentityResult notification_identity_remove_owned(const NotificationIdentityConfig& c) noexcept {
-    Paths p{};if(!paths(c,&p))return failure(NotificationIdentityError::invalid_input,ERROR_INVALID_PARAMETER);
-    HKEY aumid=nullptr,clsid=nullptr;LSTATUS aumid_status{},clsid_status{};
-    const Key a=open_key(p.aumid_key,p.nonce,&aumid,&aumid_status),k=open_key(p.clsid_key,p.nonce,&clsid,&clsid_status);
-    if(aumid)RegCloseKey(aumid);if(clsid)RegCloseKey(clsid);
-    if(a==Key::error||k==Key::error)return failure(NotificationIdentityError::registry,static_cast<u32>(a==Key::error?aumid_status:clsid_status));
-    if(a==Key::foreign||k==Key::foreign)return failure(NotificationIdentityError::not_owned,ERROR_ACCESS_DENIED);
-    if(a==Key::absent&&k==Key::absent)return failure(NotificationIdentityError::absent,ERROR_FILE_NOT_FOUND);
-    // RegDeleteKeyW is not recursive: a key holding foreign subkeys survives.
-    LSTATUS r=a==Key::owned?RegDeleteKeyW(HKEY_CURRENT_USER,p.aumid_key):ERROR_SUCCESS;
-    if(k==Key::owned){
-        const LSTATUS s=RegDeleteKeyW(HKEY_CURRENT_USER,p.server_key);
-        const LSTATUS t=s==ERROR_SUCCESS||s==ERROR_FILE_NOT_FOUND?RegDeleteKeyW(HKEY_CURRENT_USER,p.clsid_key):s;
-        if(r==ERROR_SUCCESS)r=t;
-    }
-    if(r!=ERROR_SUCCESS){auto result=failure(NotificationIdentityError::rollback,static_cast<u32>(r));result.registry_created=true;return result;}
-    return {};
 }
 }

@@ -20,8 +20,8 @@ namespace {
 inline constexpr wchar_t kRemoteAuthHostWide[] = L"remote-auth-gateway.discord.gg";
 inline constexpr char kRemoteAuthHost[] = "remote-auth-gateway.discord.gg";
 inline constexpr u32 kEncryptedInputBytes = 128 * 1024;
-inline constexpr u32 kHandshakeOutputBytes = 256 * 1024;
-inline constexpr u32 kRecordOutputBytes = 64 * 1024;
+inline constexpr u32 kHandshakeOutputBytes = 64 * 1024;
+inline constexpr u32 kRecordOutputBytes = 20 * 1024;
 inline constexpr u32 kWebSocketInputBytes = 16 * 1024;
 inline constexpr u32 kFrameOutputBytes = 1024;
 inline constexpr u32 kStructuralCount = 256;

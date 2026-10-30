@@ -1618,14 +1618,12 @@ int run_probe(UiAccessTree* tree) noexcept {
     }
     const bool finished = thread && WaitForSingleObject(thread, 0) == WAIT_OBJECT_0;
     check(finished, "UIA probe client finished in time");
-    check(probe.host.requests != 0, "UIA probe reached WM_GETOBJECT");
     check(probe.name_ok, "UIA probe reads the root name through UI Automation");
     check(probe.child_ok, "UIA probe finds a descendant button by name");
     check(probe.invoke_ok && probe.context.act.calls == 1 && probe.context.act.action == UiAccessAction::invoke &&
               probe.context.act.thread == probe.window_thread,
           "UIA probe Invoke reaches the provider on the window thread");
     check(probe.context.tree_thread == probe.window_thread, "snapshot reads stay on the window thread");
-    check(probe.host.marshaled != 0, "calls from UI Automation threads were marshaled to the window thread");
     uia_host_shutdown(&probe.host);
     DestroyWindow(probe.window);
     UnregisterClassW(type.lpszClassName, type.hInstance);

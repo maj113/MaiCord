@@ -833,6 +833,8 @@ bool start_runtime() noexcept {
                                    kInitialDecodedMessageBytes, sizeof(u8), alignof(u8)) ||
         !stable_storage_initialize(&runtime->ready_record_index, kStructuralCount, kInitialStructuralCount,
                                    sizeof(u32), alignof(u32)) ||
+        !stable_storage_initialize(&runtime->ready_arrays, kStructuralCount, kInitialStructuralCount,
+                                   sizeof(u32), alignof(u32)) ||
         !reserved_bytes_initialize(&runtime->ready_staging, kReadyStagingBytes) ||
         !reserved_bytes_initialize(&runtime->compressed_spill, kGatewaySessionMaximumDecodedMessageBytes) ||
         !stable_storage_initialize(&runtime->zstd_storage, kZstdStorageBytes, kZstdInitialStorageBytes, sizeof(u8),
@@ -963,7 +965,8 @@ bool replay_once(PhaseTotals (&totals)[kPhases], u64* committed_peak) noexcept {
         t.messages += messages;
     }
     const u64 committed = runtime->decoded_message.arena.committed + runtime->structural_scratch.arena.committed +
-                          runtime->ready_record_index.arena.committed + runtime->zstd_storage.arena.committed;
+                          runtime->ready_record_index.arena.committed + runtime->ready_arrays.arena.committed +
+                          runtime->zstd_storage.arena.committed;
     if (committed > *committed_peak) *committed_peak = committed;
     WriteRelease(&consumer.stop, 1);
     SetEvent(client.notification_event);

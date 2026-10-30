@@ -413,7 +413,6 @@ __declspec(noinline) HRESULT run_on_window_thread(UiaProviderHost* host, WindowC
         call.result = kTimeout;
     }
     ReleaseSRWLockExclusive(host->call_lock.native());
-    InterlockedIncrement(&host->marshaled);
     return call.result;
 }
 
@@ -655,21 +654,17 @@ constexpr Pattern kPatterns[]{
     {&kIidText, pattern_text, kText},
 };
 
-void* pattern_interface(Element* element, const GUID& iid) noexcept {
-    for (const auto& pattern : kPatterns) {
-        if (iid != *pattern.iid)
-            continue;
-        Resolved r{};
-        if (!resolve_element(element, &r) || !supports(r, pattern.id))
-            return nullptr;
-        return reinterpret_cast<char*>(element) + pattern.offset;
-    }
+// Pattern support reads the snapshot, so it is answered on the window thread;
+// an IID that names no pattern is refused without a cross-thread call.
+const Pattern* pattern_for(const GUID& iid) noexcept {
+    for (const auto& pattern : kPatterns)
+        if (iid == *pattern.iid)
+            return &pattern;
     return nullptr;
 }
 
 // The identity interfaces depend only on fields fixed at creation, so the
-// calling thread answers them; pattern support reads the snapshot on the
-// window thread.
+// calling thread answers them.
 __declspec(noinline) HRESULT element_query(Element* element, const GUID* iid, void** out) noexcept {
     if (!out)
         return E_POINTER;
@@ -683,9 +678,11 @@ __declspec(noinline) HRESULT element_query(Element* element, const GUID* iid, vo
         result = &element->fragment;
     } else if (*iid == kIidFragmentRoot) {
         result = element->root ? &element->fragment_root : nullptr;
-    } else {
+    } else if (const Pattern* pattern = pattern_for(*iid)) {
         on_window_thread(element->host, [&]() noexcept -> HRESULT {
-            result = pattern_interface(element, *iid);
+            Resolved r{};
+            if (resolve_element(element, &r) && supports(r, pattern->id))
+                result = reinterpret_cast<char*>(element) + pattern->offset;
             return S_OK;
         });
     }
@@ -1641,18 +1638,16 @@ HRESULT STDMETHODCALLTYPE range_text(void* self, int maximum_length, BSTR* out) 
     if (!scratch.data)
         return E_OUTOFMEMORY;
     wchar_t* wide = *scratch.data;
-    int units = part.bytes ? MultiByteToWideChar(CP_UTF8, 0, part.data, static_cast<int>(part.bytes), wide,
-                                                 static_cast<int>(kUiAccessValueMaximumBytes))
-                           : 0;
-    if (units < 0)
-        units = 0;
+    // MultiByteToWideChar returns 0, never a negative count, on failure or empty input.
+    int units = MultiByteToWideChar(CP_UTF8, 0, part.data, static_cast<int>(part.bytes), wide,
+                                    static_cast<int>(kUiAccessValueMaximumBytes));
     if (maximum_length >= 0 && units > maximum_length) {
         units = maximum_length;
         // Never split a surrogate pair.
         if (units > 0 && wide[units - 1] >= 0xD800 && wide[units - 1] <= 0xDBFF)
             --units;
     }
-    *out = runtime->alloc_string_len(units ? wide : L"", static_cast<UINT>(units));
+    *out = runtime->alloc_string_len(wide, static_cast<UINT>(units));
     return *out ? S_OK : E_OUTOFMEMORY;
 }
 
@@ -1926,19 +1921,24 @@ bool property_values(const UiaProviderHost* host, const Resolved& r, const UiAcc
 }
 
 void variant_free(const UiaRuntime* runtime, VARIANT* value) noexcept {
-    if (V_VT(value) == VT_BSTR && V_BSTR(value))
-        runtime->free_string(V_BSTR(value));
+    if (V_VT(value) == VT_BSTR)
+        runtime->free_string(V_BSTR(value)); // SysFreeString accepts null
     V_VT(value) = VT_EMPTY;
 }
 
-bool raise_event(UiaProviderHost* host, u64 key, int event) noexcept {
+// The element a raised event is about; null while the runtime is unloaded or the host disconnected.
+Element* event_element(UiaProviderHost* host, u64 key) noexcept {
     if (!host || !host->runtime || !host->connected)
-        return false;
-    void* element = element_create(host, key, key == 0);
+        return nullptr;
+    return static_cast<Element*>(element_create(host, key, key == 0));
+}
+
+bool raise_event(UiaProviderHost* host, u64 key, int event) noexcept {
+    Element* element = event_element(host, key);
     if (!element)
         return false;
     const HRESULT hr = host->runtime->raise_automation_event(element, event);
-    element_release(static_cast<Element*>(element));
+    element_release(element);
     return SUCCEEDED(hr);
 }
 
@@ -1994,7 +1994,6 @@ bool uia_host_window_message(UiaProviderHost* host, UINT message, WPARAM wparam,
         return false;
     *result = host->runtime->return_raw_element_provider(host->window, wparam, lparam, root);
     element_release(static_cast<Element*>(root));
-    ++host->requests;
     return true;
 }
 
@@ -2003,9 +2002,7 @@ bool uia_host_listening(const UiaProviderHost& host) noexcept {
 }
 
 void* uia_host_element(UiaProviderHost* host, u64 key) noexcept {
-    if (!host || !host->connected)
-        return nullptr;
-    return element_create(host, key, key == 0);
+    return element_create(host, key, key == 0); // refuses a null or disconnected host
 }
 
 bool uia_host_raise_focus(UiaProviderHost* host, u64 key) noexcept {
@@ -2017,9 +2014,7 @@ bool uia_host_raise_live_region(UiaProviderHost* host, u64 key) noexcept {
 }
 
 bool uia_host_raise_structure(UiaProviderHost* host, u64 key) noexcept {
-    if (!host || !host->runtime || !host->connected)
-        return false;
-    auto* element = static_cast<Element*>(element_create(host, key, key == 0));
+    auto* element = event_element(host, key);
     if (!element)
         return false;
     int runtime_id[3]{kUiaAppendRuntimeId, static_cast<int>(key & 0x7FFF'FFFFu),
@@ -2031,9 +2026,7 @@ bool uia_host_raise_structure(UiaProviderHost* host, u64 key) noexcept {
 }
 
 bool uia_host_raise_property(UiaProviderHost* host, u64 key, const UiAccessPropertyChange& change) noexcept {
-    if (!host || !host->runtime || !host->connected)
-        return false;
-    auto* element = static_cast<Element*>(element_create(host, key, key == 0));
+    auto* element = event_element(host, key);
     if (!element)
         return false;
     Resolved r{};
@@ -2062,9 +2055,9 @@ bool uia_host_raise_property(UiaProviderHost* host, u64 key, const UiAccessPrope
 
 bool uia_host_raise_notification(UiaProviderHost* host, u64 key, UiaNotificationKind kind,
                                  UiaNotificationProcessing processing, Utf8View text, Utf8View activity) noexcept {
-    if (!host || !host->runtime || !host->connected || !host->runtime->raise_notification_event || !text.bytes)
+    if (!host || !host->runtime || !host->runtime->raise_notification_event || !text.bytes)
         return false;
-    auto* element = static_cast<Element*>(element_create(host, key, key == 0));
+    auto* element = event_element(host, key);
     if (!element)
         return false;
     BSTR display = make_bstr(host->runtime, text);
@@ -2073,10 +2066,8 @@ bool uia_host_raise_notification(UiaProviderHost* host, u64 key, UiaNotification
     if (display && identity)
         raised = SUCCEEDED(host->runtime->raise_notification_event(element, static_cast<int>(kind),
                                                                    static_cast<int>(processing), display, identity));
-    if (display)
-        host->runtime->free_string(display);
-    if (identity)
-        host->runtime->free_string(identity);
+    host->runtime->free_string(display); // SysFreeString accepts null
+    host->runtime->free_string(identity);
     element_release(element);
     return raised;
 }

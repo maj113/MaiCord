@@ -3,7 +3,7 @@
 namespace maicord {
 // stale: both resources carry this nonce but a value (path, name, icon) drifted;
 // notification_identity_create repairs it in place.
-enum class NotificationIdentityError : u8 { none, invalid_input, foreign_resource, registry, process, rollback, not_owned, absent, stale };
+enum class NotificationIdentityError : u8 { none, invalid_input, foreign_resource, registry, process, rollback, absent, stale };
 struct NotificationIdentityResult {
     NotificationIdentityError error{};
     u32 native_error{};
@@ -40,6 +40,4 @@ NotificationIdentityResult notification_identity_set_process(ConstSlice<wchar_t>
 // failure deletes only keys this call created. LocalServer32 is the quoted
 // executable plus --toast-activated; ServerExecutable is the unquoted path.
 NotificationIdentityResult notification_identity_create(const NotificationIdentityConfig&) noexcept;
-// Deletes only keys carrying this nonce (non-recursively). Refuses foreign keys.
-NotificationIdentityResult notification_identity_remove_owned(const NotificationIdentityConfig&) noexcept;
 }

@@ -66,8 +66,6 @@ struct UiaProviderHost {
     SrwLock call_lock;
     volatile LONG elements; // live element objects (diagnostics/tests)
     volatile LONG ranges;   // live text range objects (diagnostics/tests)
-    u32 requests;           // WM_GETOBJECT answers
-    volatile LONG marshaled; // calls moved onto the window thread
     // Client pixels above the snapshot's DIP origin (a custom window caption).
     i32 content_offset_y;
     bool connected;

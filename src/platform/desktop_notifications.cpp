@@ -1,4 +1,5 @@
 #include "maicord/platform/desktop_notifications.hpp"
+#include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
@@ -150,11 +151,13 @@ HRESULT transport(Server* s) noexcept {
     if(SUCCEEDED(h))h=RoGetActivationFactory(toast_name.get(),toast::kIidToastNotificationFactory,reinterpret_cast<void**>(&s->factory));
     release(second);release(manager);if(FAILED(h))drop_transport(s);return h;
 }
-HRESULT document(Server* s,const DesktopNotificationXml& text,Object** out) noexcept {
+// One notification's text in both encodings; page-backed so a Show call carries no 12 KiB stack frame.
+struct Toast {DesktopNotificationXml xml; wchar_t wide[kDesktopNotificationXmlBytes];};
+HRESULT document(Server* s,Toast& toast,Object** out) noexcept {
     *out=nullptr;
     // One unit stays free for the NUL a string reference requires.
-    wchar_t wide[kDesktopNotificationXmlBytes];
-    const int n=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text.bytes,static_cast<int>(text.count),wide,kDesktopNotificationXmlBytes-1);
+    wchar_t* wide=toast.wide;
+    const int n=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,toast.xml.bytes,static_cast<int>(toast.xml.count),wide,kDesktopNotificationXmlBytes-1);
     if(!n)return E_INVALIDARG;
     wide[n]=0;
     HRESULT h=S_OK;
@@ -166,7 +169,7 @@ HRESULT document(Server* s,const DesktopNotificationXml& text,Object** out) noex
     if(SUCCEEDED(h))h=query(instance,toast::kIidXmlDocument,out);
     release(io);release(instance);return h;
 }
-HRESULT show_once(Server* s,const DesktopNotificationPayload& p,const DesktopNotificationXml& text,bool* attempted) noexcept {
+HRESULT show_once(Server* s,const DesktopNotificationPayload& p,Toast& text,bool* attempted) noexcept {
     wchar_t tag_text[17],group_text[17];desktop_notification_hex_id(p.target.message_id,{tag_text,17});desktop_notification_hex_id(p.target.profile_id,{group_text,17});
     StringReference tag(tag_text,16),group(group_text,16);Object* dom=nullptr;Object* item=nullptr;Object* identity=nullptr;
     HRESULT h=transport(s);
@@ -242,10 +245,12 @@ DesktopNotificationShowState desktop_notification_show_state(DesktopNotification
 DesktopNotificationShowResult desktop_notifications_show_once(DesktopNotifications* n,const DesktopNotificationPayload& p) noexcept {
     auto* s=owner(n);
     if(!ui_owner(s))return {DesktopNotificationShowState::failed,failed(DesktopNotificationError::closed,CO_E_NOTINITIALIZED),false};
-    DesktopNotificationXml text{};auto result=desktop_notification_xml(p,&text);
+    ScratchPages<Toast> toast;
+    if(!toast.data)return {DesktopNotificationShowState::failed,failed(DesktopNotificationError::memory,E_OUTOFMEMORY),false};
+    auto result=desktop_notification_xml(p,&toast.data->xml);
     if(!result.ok())return {DesktopNotificationShowState::failed,result,false};
     bool attempted=false;
-    const HRESULT h=show_once(s,p,text,&attempted);
+    const HRESULT h=show_once(s,p,*toast.data,&attempted);
     if(disconnected(h)){
         // A retained cursor belongs to the disconnected broker too. Preserve
         // queued cleanup requests, which acquire a new snapshot on a later turn.
@@ -338,5 +343,4 @@ void desktop_notifications_release(DesktopNotifications* n) noexcept {
     if(s->cookie)CoRevokeClassObject(s->cookie);drop_snapshot(s);clear_bytes(s->history_requests,sizeof(s->history_requests));s->history_count=0;
     drop_transport(s);const bool apartment=s->enrolled;s->Release();if(apartment)CoUninitialize();
 }
-u32 desktop_notifications_owned_bytes(const DesktopNotifications* n) noexcept {return n&&n->runtime?sizeof(Server):0;}
 }

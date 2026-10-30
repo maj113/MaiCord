@@ -169,7 +169,8 @@ void process_gateway_message(GatewaySession* session, Utf8View message, u32 hear
             protocol_detail::skim_member_index<"READY", "RESUMED">(result.envelope.event_name);
         if (session_event == 0) {
             const GatewayEventDecodeResult ready =
-                gateway_decode_ready(result.envelope.data, session->structural_scratch, 64, &result.ready);
+                gateway_decode_ready(result.envelope.data, session->structural_scratch, 64, &result.ready,
+                                     &result.envelope.document);
             if (event_decode_failed(result, ready)) {
                 return;
             }

@@ -458,13 +458,17 @@ TlsStreamEvent tls_stream_begin_connect(TlsStream* stream, NetworkLoop* loop) no
     }
     byte_queue_clear(&stream->encrypted_input, true);
     // Keep the initialized endpoint, buffers and state; reset everything else.
-    const TlsStream configured = *stream;
+    const wchar_t* const server_name = stream->server_name;
+    const TlsStreamBuffers buffers = stream->buffers;
+    const TlsStreamState state = stream->state;
+    wchar_t service[sizeof(stream->service) / sizeof(wchar_t)];
+    copy_bytes(service, stream->service, sizeof(service));
     reset_value<TlsStream>(stream);
     stream->connection.socket = INVALID_SOCKET;
-    stream->server_name = configured.server_name;
-    copy_bytes(stream->service, configured.service, sizeof(stream->service));
-    stream->buffers = configured.buffers;
-    stream->state = configured.state;
+    stream->server_name = server_name;
+    copy_bytes(stream->service, service, sizeof(service));
+    stream->buffers = buffers;
+    stream->state = state;
     if (!byte_queue_initialize(&stream->encrypted_input, stream->buffers.encrypted_input)) {
         return failure(stream, TlsStreamError::capacity);
     }

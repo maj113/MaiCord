@@ -8,17 +8,11 @@
 namespace maicord {
 namespace {
 constexpr UINT kTrayId = 1;
+// The count badge's side at the largest extent; smaller extents give smaller sides.
+constexpr u32 kBadgeSideMaximum = static_cast<u32>(kTrayIconMaximumExtent * .62f + .5f);
 
 float clamp01(float v) noexcept {
     return clamp_value(v, 0.f, 1.f);
-}
-float root(float v) noexcept {
-    if (v <= 0)
-        return 0;
-    float x = v > 1 ? v : 1;
-    for (u32 i = 0; i < 14; ++i)
-        x = .5f * (x + v / x);
-    return x;
 }
 float channel(u32 color, u32 shift) noexcept {
     return static_cast<float>((color >> shift) & 255u) / 255.f;
@@ -47,13 +41,13 @@ float segment_distance(float px, float py, float ax, float ay, float bx, float b
     const float length = dx * dx + dy * dy;
     const float t = length > 0 ? clamp01(((px - ax) * dx + (py - ay) * dy) / length) : 0;
     const float ex = px - (ax + dx * t), ey = py - (ay + dy * t);
-    return root(ex * ex + ey * ey);
+    return taskbar_attention_root(ex * ex + ey * ey);
 }
 // Signed distance to a rounded square centred at c with half extent h.
 float rounded_distance(float px, float py, float c, float h, float r) noexcept {
     const float qx = absolute_value(px - c) - (h - r), qy = absolute_value(py - c) - (h - r);
     const float ox = maximum(qx, 0.f), oy = maximum(qy, 0.f);
-    return root(ox * ox + oy * oy) + minimum(maximum(qx, qy), 0.f) - r;
+    return taskbar_attention_root(ox * ox + oy * oy) + minimum(maximum(qx, qy), 0.f) - r;
 }
 
 void render_mark(const TrayIconPalette& palette, u32 extent, Slice<u32> pixels) noexcept {
@@ -83,7 +77,7 @@ void cut(Slice<u32> pixels, u32 extent, float cx, float cy, float radius) noexce
     for (u32 y = 0; y < extent; ++y)
         for (u32 x = 0; x < extent; ++x) {
             const float dx = static_cast<float>(x) + .5f - cx, dy = static_cast<float>(y) + .5f - cy;
-            const float keep = clamp01(root(dx * dx + dy * dy) - radius + .5f);
+            const float keep = clamp01(taskbar_attention_root(dx * dx + dy * dy) - radius + .5f);
             u32& p = pixels[y * extent + x];
             p = (static_cast<u32>(channel(p, 24) * keep * 255.f + .5f) << 24) | (p & 0x00FFFFFFu);
         }
@@ -92,7 +86,7 @@ void disc(Slice<u32> pixels, u32 extent, float cx, float cy, float radius, u32 c
     for (u32 y = 0; y < extent; ++y)
         for (u32 x = 0; x < extent; ++x) {
             const float dx = static_cast<float>(x) + .5f - cx, dy = static_cast<float>(y) + .5f - cy;
-            const float coverage = clamp01(radius - root(dx * dx + dy * dy) + .5f);
+            const float coverage = clamp01(radius - taskbar_attention_root(dx * dx + dy * dy) + .5f);
             if (coverage > 0)
                 pixels[y * extent + x] = over(pixels[y * extent + x], color | 0xFF000000u, coverage);
         }
@@ -198,9 +192,10 @@ bool tray_icon_render(TrayIconState state, u8 badge, const TrayIconPalette& pale
     if (state == TrayIconState::unread && badge != kTaskbarBadgeDot) {
         // Mention count: the taskbar's badge in the lower-right corner.
         const u32 side = static_cast<u32>(e * .62f + .5f);
-        u32 badge_pixels[kTrayIconMaximumExtent * kTrayIconMaximumExtent];
-        if (!taskbar_attention_render_badge(badge, side, {badge_pixels, side * side}))
+        ScratchPages<u32[kBadgeSideMaximum * kBadgeSideMaximum]> scratch;
+        if (!scratch.data || !taskbar_attention_render_badge(badge, side, {*scratch.data, side * side}))
             return false;
+        const u32* badge_pixels = *scratch.data;
         const float radius = static_cast<float>(side) * .5f;
         cut(pixels, extent, e - radius, e - radius, radius + e * .06f);
         for (u32 y = 0; y < side; ++y)

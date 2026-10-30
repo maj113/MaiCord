@@ -158,7 +158,79 @@ __forceinline ChunkResult scan_chunk(const char* chunk, u64 valid, u32 base, Sca
     return ChunkResult::overflow;
 }
 
+// The document json_scan_source_set registered: input, its exact structural index, and the thread that owns it.
+// Only the owner reads the other fields, so another thread's scans never see them half written.
+// Containers shorter than this are cheaper to scan than to look up.
+constexpr u32 kServedMinimumBytes = 256;
+
+struct ScanSource {
+    const char* input;
+    u32 bytes;
+    const u32* index;
+    u32 count;
+    volatile u32 owner;
+};
+ScanSource g_source;
+
+__forceinline u32 current_thread() noexcept {
+    return __readgsdword(0x48);
+}
+
+u32 first_at_or_after(const u32* index, u32 count, u32 value) noexcept {
+    u32 first = 0, last = count;
+    while (first < last) {
+        const u32 middle = first + (last - first) / 2;
+        if (index[middle] < value) first = middle + 1;
+        else last = middle;
+    }
+    return first;
+}
+
+// The scan of a container inside the registered document, answered by rebasing its entries; false when the
+// scan has to run (another input, a range that is not a whole container, output over the index).
+bool serve_from_source(const Utf8View& input, const Slice<u32>& output, JsonScanResult* result) noexcept {
+    const auto at = reinterpret_cast<usize>(input.data), base = reinterpret_cast<usize>(g_source.input);
+    if (at < base || at - base > g_source.bytes || input.bytes > g_source.bytes - (at - base) ||
+        (input.data[0] != '{' && input.data[0] != '[') ||
+        (input.data[input.bytes - 1] != '}' && input.data[input.bytes - 1] != ']'))
+        return false;
+    const auto out = reinterpret_cast<usize>(output.data), index = reinterpret_cast<usize>(g_source.index);
+    if (out < index + usize{g_source.count} * 4 && index < out + usize{output.count} * 4) {
+        // The scan would overwrite the index: it stops being a source.
+        g_source.owner = 0;
+        return false;
+    }
+    const u32 begin = static_cast<u32>(at - base), end = begin + input.bytes;
+    const u32 first = first_at_or_after(g_source.index, g_source.count, begin);
+    const u32 last = first + first_at_or_after(g_source.index + first, g_source.count - first, end);
+    if (first == last || g_source.index[first] != begin || g_source.index[last - 1] != end - 1)
+        return false;
+    const u32 count = last - first;
+    const u32 stored = count < output.count ? count : output.count;
+    for (u32 i = 0; i < stored; ++i)
+        output.data[i] = g_source.index[first + i] - begin;
+    *result = stored < count ? JsonScanResult{stored, g_source.index[first + stored] - begin, JsonScanError::output_overflow}
+                             : JsonScanResult{count, input.bytes, JsonScanError::none};
+    return true;
+}
+
 } // namespace
+
+void json_scan_source_set(const Utf8View& input, const ConstSlice<u32>& index) noexcept {
+    g_source.owner = 0;
+    if (!input.data || !index.data || !index.count)
+        return;
+    g_source.input = input.data;
+    g_source.bytes = input.bytes;
+    g_source.index = index.data;
+    g_source.count = index.count;
+    g_source.owner = current_thread();
+}
+
+void json_scan_source_clear() noexcept {
+    if (g_source.owner == current_thread())
+        g_source.owner = 0;
+}
 
 // 64-byte chunks: quote, backslash, structural and control masks from SSSE3
 // lookups, odd backslash runs resolved with carries, string interiors from a
@@ -172,6 +244,10 @@ JsonScanResult json_scan_structurals_avx1(const Utf8View& input_view, const Slic
     if ((!input.data && input.bytes != 0) || (!output.data && output.count != 0)) {
         return JsonScanResult{0, 0, JsonScanError::invalid_input};
     }
+    JsonScanResult served;
+    if (g_source.owner && input.bytes >= kServedMinimumBytes && g_source.owner == current_thread() &&
+        serve_from_source(input, output, &served))
+        return served;
 
     ScanState state{};
     u32 error_offset = 0;

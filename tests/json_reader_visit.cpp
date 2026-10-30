@@ -185,6 +185,38 @@ bool scan_fits_every_capacity(Utf8View text) noexcept {
     return true;
 }
 
+// Containers of a registered document scan exactly like the same text scanned alone, at every output capacity.
+bool source_answers_like_scan() noexcept {
+    static char doc[8192];
+    static u32 index[2048], reference[2048 + 80], served[2048 + 80];
+    const Utf8View text{doc, make_items(doc, 24)};
+    const JsonScanResult whole = json_scan_structurals_avx1(text, {index, 2048});
+    JsonValue list{};
+    if (!whole.ok() || !json_visit_root_object(text, {index, whole.count}, 64, find_items, &list).ok()) return false;
+    const Utf8View ranges[]{text, list.source};
+    for (const Utf8View range : ranges) {
+        json_scan_source_clear();
+        const JsonScanResult full = json_scan_structurals_avx1(range, {reference, 2048});
+        const u32 capacities[]{0, 1, 7, 64, full.count - 1, full.count, full.count + 70};
+        for (const u32 capacity : capacities) {
+            json_scan_source_clear();
+            const JsonScanResult expected = json_scan_structurals_avx1(range, {reference, capacity});
+            json_scan_source_set(text, {index, whole.count});
+            const JsonScanResult actual = json_scan_structurals_avx1(range, {served, capacity});
+            if (actual.count != expected.count || actual.error != expected.error ||
+                actual.error_offset != expected.error_offset)
+                return false;
+            for (u32 i = 0; i < actual.count; ++i)
+                if (served[i] != reference[i]) return false;
+        }
+    }
+    // Scanning into the index itself ends the registration and still gives the right entries.
+    json_scan_source_set(text, {index, whole.count});
+    const JsonScanResult over = json_scan_structurals_avx1(list.source, {index, 2048});
+    json_scan_source_clear();
+    return over.ok() && over.count == json_scan_structurals_avx1(list.source, {reference, 2048}).count;
+}
+
 } // namespace
 
 void test_json_reader_visit(void (*check)(bool, const char*) noexcept) noexcept {
@@ -238,6 +270,7 @@ void test_json_reader_visit(void (*check)(bool, const char*) noexcept) noexcept 
     }
     check(ok, "json indexed visits find values in any order of lookup");
 
+    check(source_answers_like_scan(), "json scan source answers container scans like the scanner");
     check(scan_fits_every_capacity(utf8_literal(R"({"a":[1,2,{"b":"c"}],"d":"e\"f"})")),
           "json scan fills small outputs exactly");
     static char dense[300];

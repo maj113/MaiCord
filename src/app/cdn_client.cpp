@@ -17,8 +17,9 @@ namespace maicord {
 namespace {
 
 inline constexpr u32 kEncryptedInputBytes = 128 * 1024;
-inline constexpr u32 kHandshakeOutputBytes = 256 * 1024;
-inline constexpr u32 kRecordOutputBytes = 64 * 1024;
+// TLS tokens (cbMaxToken, 24 KiB) and one record (header + 16 KiB + trailer) are all these hold.
+inline constexpr u32 kHandshakeOutputBytes = 64 * 1024;
+inline constexpr u32 kRecordOutputBytes = 20 * 1024;
 // Must hold one complete TLS plaintext record plus a partial HTTP head/chunk
 // line; the 16 KiB header limit is too small for split responses.
 inline constexpr u32 kResponseInputBytes = kCdnMaximumResponseHeaderBytes + 16 * 1024;
