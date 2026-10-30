@@ -9,20 +9,21 @@ namespace maicord {
 // evidence that the native renderer embeds any of these web runtimes.
 inline constexpr char kClientUserAgent[] =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
-    "discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36";
+    "discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36";
 inline constexpr char kClientBrowser[] = "Discord Client";
-// Stable web snapshot supplied for compatibility review (web_assets/module 562708).
-inline constexpr unsigned kClientBuildNumber = 634'304;
+// Stable web build number: the BUILD_NUMBER the discord.com/app page serves
+// (GLOBAL_ENV) and its entry bundle embeds as client_build_number.
+inline constexpr unsigned kClientBuildNumber = 655'747;
 
 // The desktop app and Electron versions the user agent names, reported as the
 // client_version and browser_version properties.
-inline constexpr char kClientVersion[] = "1.0.9265";
-inline constexpr char kClientElectronVersion[] = "42.11.15";
+inline constexpr char kClientVersion[] = "1.0.9266";
+inline constexpr char kClientElectronVersion[] = "44.9.3";
 // The Chromium the Electron runtime embeds, as the user agent names it.
-inline constexpr char kClientChromeVersion[] = "148.0.7778.280";
-// native_build_number: the updater metadata_version an installed 1.0.9265
+inline constexpr char kClientChromeVersion[] = "152.0.7977.167";
+// native_build_number: the updater metadata_version an installed 1.0.9266
 // stable win/x64 host reports (its crash reporter's nativeBuildNumber).
-inline constexpr unsigned kClientNativeBuildNumber = 96'160;
+inline constexpr unsigned kClientNativeBuildNumber = 97'026;
 
 // Where text ends when the user agent continues with it at `at`, else null.
 consteval const char* client_user_agent_skip(const char* at, const char* text) noexcept {

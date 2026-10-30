@@ -21590,7 +21590,7 @@ void test_user_auth_protocol() noexcept {
                      "X-Captcha-Key: solution\r\n"
                      "X-Captcha-Rqtoken: request-token\r\n"
                      "X-Captcha-Session-Id: session-7\r\n"
-                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
+                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
                      "Content-Type: application/json\r\n"
                      "Accept: */*\r\n\r\n");
     const ConstSlice<u8> expected_remote_auth_head =
@@ -21598,7 +21598,7 @@ void test_user_auth_protocol() noexcept {
                      "Host: discord.com\r\n"
                      "Connection: keep-alive\r\n"
                      "Content-Length: 32\r\n"
-                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
+                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
                      "Content-Type: application/json\r\n"
                      "Accept: */*\r\n\r\n");
     const ConstSlice<u8> expected_remote_auth_captcha_head =
@@ -21609,7 +21609,7 @@ void test_user_auth_protocol() noexcept {
                      "X-Captcha-Key: solution\r\n"
                      "X-Captcha-Rqtoken: request-token\r\n"
                      "X-Captcha-Session-Id: session-7\r\n"
-                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
+                     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
                      "Content-Type: application/json\r\n"
                      "Accept: */*\r\n\r\n");
     written = user_auth_write_request_head(UserAuthOperation::password, 123,
@@ -23418,7 +23418,7 @@ void test_rest() noexcept {
                            byte_literal("GET /api/v10/gateway HTTP/1.1\r\n"
                                         "Host: discord.com\r\n"
                                         "Connection: keep-alive\r\n"
-                                        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
+                                        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
                                         "Accept: */*\r\n\r\n")),
            "rest_get_request_head");
 
@@ -23433,7 +23433,7 @@ void test_rest() noexcept {
                                         "Connection: close\r\n"
                                         "Content-Length: 4\r\n"
                                         "Authorization: Bearer secret.token\r\n"
-                                        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
+                                        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
                                         "Content-Type: application/json\r\n"
                                         "Accept: */*\r\n\r\n")),
            "rest_authenticated_json_request_head");
@@ -23453,14 +23453,14 @@ void test_rest() noexcept {
                                byte_literal("GET /api/v9/users/@me HTTP/1.1\r\n"
                                             "Host: discord.com\r\n"
                                             "Connection: keep-alive\r\n"
-                                            "sec-ch-ua: \"Not/A)Brand\";v=\"99\", \"Chromium\";v=\"148\"\r\n"
+                                            "sec-ch-ua: \"Not?A_Brand\";v=\"24\", \"Chromium\";v=\"152\"\r\n"
                                             "sec-ch-ua-mobile: ?0\r\n"
                                             "sec-ch-ua-platform: \"Windows\"\r\n"
                                             "Authorization: user.token\r\n"
                                             "X-Super-Properties: e30=\r\n"
                                             "X-Discord-Locale: en-US\r\n"
                                             "X-Discord-Timezone: Europe/Ljubljana\r\n"
-                                            "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
+                                            "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
                                             "Accept: */*\r\n"
                                             "Sec-Fetch-Site: same-origin\r\n"
                                             "Sec-Fetch-Mode: cors\r\n"
@@ -23482,7 +23482,7 @@ void test_rest() noexcept {
                                             "Host: discord.com\r\n"
                                             "Connection: keep-alive\r\n"
                                             "Content-Length: 2\r\n"
-                                            "sec-ch-ua: \"Not/A)Brand\";v=\"99\", \"Chromium\";v=\"148\"\r\n"
+                                            "sec-ch-ua: \"Not?A_Brand\";v=\"24\", \"Chromium\";v=\"152\"\r\n"
                                             "sec-ch-ua-mobile: ?0\r\n"
                                             "sec-ch-ua-platform: \"Windows\"\r\n"
                                             "Authorization: user.token\r\n"
@@ -23490,7 +23490,7 @@ void test_rest() noexcept {
                                             "X-Discord-Locale: en-US\r\n"
                                             "X-Discord-Timezone: Europe/Ljubljana\r\n"
                                             "X-Context-Properties: e30=\r\n"
-                                            "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9265 Chrome/148.0.7778.280 Electron/42.11.15 Safari/537.36\r\n"
+                                            "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
                                             "Content-Type: application/json\r\n"
                                             "Accept: */*\r\n"
                                             "Origin: https://discord.com\r\n"
@@ -23504,7 +23504,7 @@ void test_rest() noexcept {
                    page_written.extra_headers_end ==
                        byte_literal("POST /api/v9/channels/7/messages HTTP/1.1\r\nHost: discord.com\r\n"
                                     "Connection: keep-alive\r\nContent-Length: 2\r\n"
-                                    "sec-ch-ua: \"Not/A)Brand\";v=\"99\", \"Chromium\";v=\"148\"\r\n"
+                                    "sec-ch-ua: \"Not?A_Brand\";v=\"24\", \"Chromium\";v=\"152\"\r\n"
                                     "sec-ch-ua-mobile: ?0\r\nsec-ch-ua-platform: \"Windows\"\r\n"
                                     "Authorization: user.token\r\nX-Super-Properties: e30=\r\n"
                                     "X-Discord-Locale: en-US\r\nX-Discord-Timezone: Europe/Ljubljana\r\n"
