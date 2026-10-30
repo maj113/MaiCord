@@ -1207,6 +1207,17 @@ bool application_media_picker_open_sticker_pack(u64 pack_id) noexcept {
     g_app.media_picker->jump_section = pack_id;
     return repaint();
 }
+bool application_media_picker_open_search(UiMediaPickerKind kind, Utf8View query) noexcept {
+    // Already on that tab: stay open (a reopen would toggle it shut).
+    const auto* shown = g_app.media_picker;
+    if (!(shown && shown->active && shown->scene.active && owns_current(*shown) && shown->kind == kind &&
+          !shown->reaction_message_id) &&
+        !application_media_picker_open(kind))
+        return false;
+    auto* p = g_app.media_picker;
+    return p && message_composer_restore(&p->edit, 0, query, query.bytes, query.bytes) &&
+           application_media_picker_edit_changed(true);
+}
 u64 application_media_picker_sticker_server(u64 sticker_id) noexcept {
     if (!sticker_id)
         return 0;

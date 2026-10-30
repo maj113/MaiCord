@@ -478,7 +478,8 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
     INCLUDES src/app
     TEST maicord_core)
 maicord_test(MaiCordCommandUiTests ENTRY maicord_command_ui_tests_entry
-    SOURCES tests/application_commands_ui.cpp src/app/application_commands.cpp src/app/application_state.cpp
+    SOURCES tests/application_commands_ui.cpp src/app/application_commands.cpp src/app/application_builtin_commands.cpp
+        src/app/application_state.cpp
         src/app/application_message_feedback.cpp tests/application_activity_retry.cpp
         tests/application_custom_status_retry.cpp tests/application_notification_retry.cpp
         tests/application_community_retry.cpp tests/application_invite_retry.cpp src/core/log.cpp

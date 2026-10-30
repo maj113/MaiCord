@@ -17,6 +17,14 @@
 #include "maicord/core/win32_user.hpp"
 #include "maicord/model/permission_bits.hpp"
 #include "../src/app/account_ui_runtime.hpp"
+#include "../src/app/application_builtin_commands.hpp"
+#include "../src/app/application_media_picker.hpp"
+#include "../src/app/application_private_channel.hpp"
+#include "../src/app/application_private_conversation.hpp"
+#include "../src/app/application_thread_actions.hpp"
+#include "maicord/protocol/private_conversation.hpp"
+#include "maicord/protocol/guild_admin.hpp"
+#include "maicord/ui/media_picker.hpp"
 
 namespace maicord::app_detail {
 void test_activity_retry(void (*)(bool, const char*) noexcept) noexcept;
@@ -110,6 +118,30 @@ bool application_composer_fill_command(Utf8View name) noexcept {
                                                                 {text, name.bytes + 2}),
                                  true);
 }
+// Built-in commands: the picker searches, group leave and DM open they start.
+UiMediaPickerKind searched_kind;
+char searched[64];
+u32 searched_bytes, searches;
+bool application_media_picker_open_search(UiMediaPickerKind kind, Utf8View query) noexcept {
+    searched_kind = kind;
+    searched_bytes = utf8_copy_truncated(searched, query);
+    ++searches;
+    return true;
+}
+u64 left_group;
+bool left_silent;
+bool application_private_channel_leave(u64 channel_id, bool silent) noexcept {
+    left_group = channel_id;
+    left_silent = silent;
+    return true;
+}
+u64 opened_dm_user;
+bool queue_private_conversation(PrivateConversationOperation, u64 id) noexcept {
+    opened_dm_user = id;
+    return true;
+}
+bool thread_sendable;
+bool application_thread_actions_channel_sendable(u64) noexcept { return thread_sendable; }
 } // namespace maicord::app_detail
 
 namespace maicord {
@@ -118,7 +150,7 @@ using namespace app_detail;
 u32 failures, calls, operation;
 char payload[65536];
 u32 payload_bytes;
-u64 submitted_channel, submitted_guild, submitted_application, submitted_nonce;
+u64 submitted_channel, submitted_guild, submitted_application, submitted_nonce, submitted_request;
 RestClientSubmitError submit_error;
 bool measure_header_name(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* value) noexcept {
     if (!request.no_wrap || request.styles.count != 1 ||
@@ -131,9 +163,10 @@ void check(bool ok, const char* label) noexcept {
     test_check(&failures, ok, label);
 }
 RestClientSubmitResult WINAPI submit(void*, u64 channel, u64 guild, u64 application, u64 nonce,
-                                     Utf8View data, u64, u8 op) noexcept {
+                                     Utf8View data, u64 request_id, u8 op) noexcept {
     ++calls;
     operation = op;
+    submitted_request = request_id;
     submitted_channel = channel;
     submitted_guild = guild;
     submitted_application = application;
@@ -592,6 +625,158 @@ void composer_slowmode_cases() noexcept {
     g_app.account.instance = saved_instance;
     application_composer_slowmode_active(0);
 }
+// The newest local notice (the client's bot message) on the visible timeline.
+bool notice_says(Utf8View expected) noexcept {
+    const auto& store = *g_app.message_view.timeline.store;
+    for (u32 i = 0; i < store.capacity; ++i) {
+        const auto& record = store.records[i];
+        if (record.occupied && record.type == kMessageTypeLocalNotice &&
+            utf8_equal({reinterpret_cast<const char*>(store.text + record.content_offset), record.content_bytes},
+                       expected))
+            return true;
+    }
+    return false;
+}
+void builtin_cases() noexcept {
+    auto& ui = *g_app.account_ui;
+    auto& composer = g_app.message_composer;
+    const auto saved_state = ui.chat_state;
+    const u64 saved_active_channel = ui.active_channel_id;
+    const u64 saved_composer_channel = composer.channel_id;
+    GuildRecord guilds[1]{};
+    ChannelRecord channels[1]{};
+    u16 guild_order[1]{}, channel_order[1]{};
+    u8 names[128]{};
+    ChannelInput channel{};
+    channel.id = 9;
+    channel.guild_id = 55;
+    channel.name = utf8_literal("general");
+    const bool initialized =
+        chat_state_store_initialize(&ui.chat_state, {guilds, 1}, {guild_order, 1}, {channels, 1},
+                                    {channel_order, 1}, {names, sizeof(names)}) &&
+        chat_state_store_upsert_guild(&ui.chat_state, {55, utf8_literal("Guild"), GuildMutationKind::create, 1})
+            .ok() &&
+        chat_state_store_upsert_channel(&ui.chat_state, channel).ok() &&
+        message_composer_controller_select_channel(&ui.message_composer_controller, 9).ok();
+    check(initialized, "built-in command fixture initializes");
+    if (initialized) {
+        ui.active_channel_id = 9;
+        ui.chat_state.self_user_id = 1;
+        channels[0].permissions_resolved = true;
+        channels[0].effective_permissions = kPermissionViewChannel | kPermissionSendMessages |
+                                            kPermissionChangeNickname | kPermissionCreatePublicThreads |
+                                            kPermissionReadMessageHistory | kPermissionKickMembers;
+        const auto pick = [&](Utf8View name, Utf8View typed) noexcept {
+            edit(name);
+            const u32 action = action_named(name);
+            if (!action || !application_commands_activate(action))
+                return false;
+            edit(typed);
+            return true;
+        };
+        edit(utf8_literal("/"));
+        check(action_named(utf8_literal("/shrug")) && action_named(utf8_literal("/gif")) &&
+                  action_named(utf8_literal("/nick")) && action_named(utf8_literal("/thread")) &&
+                  action_named(utf8_literal("/kick")) && !action_named(utf8_literal("/ban")) &&
+                  !action_named(utf8_literal("/timeout")) && !action_named(utf8_literal("/leave")) &&
+                  action_named(utf8_literal("Built-in")),
+              "the picker lists the client's built-in commands this channel allows, in their own section");
+        check(pick(utf8_literal("/shrug"), utf8_literal("/shrug message:hello")) &&
+                  application_commands_key(VK_RETURN) &&
+                  utf8_equal(message_composer_text(composer), utf8_literal("hello \xC2\xAF\\_(\xE3\x83\x84)_/\xC2\xAF")),
+              "/shrug appends the shrug and leaves the message for the ordinary send");
+        bool handled = true;
+        check(application_commands_send(&handled) && !handled,
+              "the rewritten message sends as typed rather than as a command");
+        check(pick(utf8_literal("/tableflip"), utf8_literal("/tableflip")) && application_commands_key(VK_RETURN) &&
+                  utf8_equal(message_composer_text(composer),
+                             utf8_literal("(\xE2\x95\xAF\xC2\xB0\xE2\x96\xA1\xC2\xB0)\xE2\x95\xAF\xEF\xB8\xB5 "
+                                          "\xE2\x94\xBB\xE2\x94\x81\xE2\x94\xBB")),
+              "/tableflip without a message sends the table flip alone");
+        check(pick(utf8_literal("/me"), utf8_literal("/me message:waves")) && application_commands_key(VK_RETURN) &&
+                  utf8_equal(message_composer_text(composer), utf8_literal("_waves_")),
+              "/me wraps the message in emphasis");
+        check(pick(utf8_literal("/spoiler"), utf8_literal("/spoiler message:ending")) &&
+                  application_commands_key(VK_RETURN) &&
+                  utf8_equal(message_composer_text(composer), utf8_literal("||ending||")),
+              "/spoiler marks the message as a spoiler");
+        check(pick(utf8_literal("/gif"), utf8_literal("/gif query:cats")) && application_commands_key(VK_RETURN) &&
+                  searches == 1 && searched_kind == UiMediaPickerKind::gif &&
+                  utf8_equal({searched, searched_bytes}, utf8_literal("cats")) && !composer.bytes,
+              "/gif opens the GIF search for its query");
+        const u32 before_nick = calls;
+        check(pick(utf8_literal("/nick"), utf8_literal("/nick new_nick:Maj")) && application_commands_key(VK_RETURN) &&
+                  !composer.bytes && application_commands_pending(clock_monotonic_milliseconds()) &&
+                  application_commands_submit(clock_monotonic_milliseconds()) && calls == before_nick + 1 &&
+                  operation == 7 && submitted_guild == 55 &&
+                  utf8_equal({payload, payload_bytes}, utf8_literal(R"({"nick":"Maj"})")),
+              "/nick sends the client's nickname change on the command lane");
+        RestClientResponse response{};
+        response.request_id = submitted_request;
+        response.status_code = 200;
+        g_app.details_request_owner = MessageHistoryRequestOwner::none;
+        check(application_commands_response(response, utf8_literal(R"({"nick":"Maj"})")) &&
+                  notice_says(utf8_literal("Your nickname on this server has been changed to **Maj**.")),
+              "a changed nickname is answered with the client's local notice");
+        check(pick(utf8_literal("/thread"), utf8_literal("/thread name:Plans message:first")) &&
+                  application_commands_key(VK_RETURN) && application_commands_submit(clock_monotonic_milliseconds()) &&
+                  operation == 8 && submitted_channel == 9 &&
+                  utf8_equal({payload, payload_bytes},
+                             utf8_literal(
+                                 R"({"name":"Plans","type":11,"auto_archive_duration":4320,"location":"Slash Command"})")),
+              "/thread creates a public thread with the client's body");
+        response.request_id = submitted_request;
+        response.status_code = 201;
+        const u32 requests_before = ui.message_composer_controller.request_count;
+        thread_sendable = false;
+        check(application_commands_response(response, utf8_literal(R"({"id":"777","type":11})")) &&
+                  ui.message_composer_controller.request_count == requests_before,
+              "the thread's first message waits for the thread channel");
+        thread_sendable = true;
+        u64 thread_message = 0;
+        if (application_commands_tick(clock_monotonic_milliseconds()))
+            for (const auto& request : ui.message_composer_controller.requests)
+                if (request.occupied && request.channel_id == 777)
+                    thread_message = request.nonce;
+        check(thread_message && ui.message_composer_controller.request_count == requests_before + 1,
+              "the first message is sent into the new thread once it arrives");
+        message_composer_controller_cancel_unsent(&ui.message_composer_controller, thread_message);
+        thread_sendable = false;
+        const u32 before_kick = calls;
+        check(pick(utf8_literal("/kick"), utf8_literal("/kick user:5")) && application_commands_key(VK_RETURN) &&
+                  !application_commands_pending(clock_monotonic_milliseconds()) && calls == before_kick &&
+                  notice_says(utf8_literal("You do not have the appropriate permissions to kick that user.")),
+              "/kick refuses a member it cannot manage with the client's notice and no request");
+        check(pick(utf8_literal("/msg"), utf8_literal("/msg user:42 message:hey")) &&
+                  application_commands_key(VK_RETURN) && opened_dm_user == 42 && !composer.bytes,
+              "/msg opens the DM with the user");
+        ui.private_conversation.target_id = 42;
+        ui.private_conversation.operation = PrivateConversationOperation::open;
+        ui.private_conversation.phase = PrivateConversationPhase::failed;
+        check(application_commands_tick(clock_monotonic_milliseconds()) &&
+                  notice_says(utf8_literal("Oops! We encountered an error when trying to message that user.")),
+              "a DM that could not open reports the client's error notice");
+        reset_value(&ui.private_conversation);
+        channels[0].type = 3;
+        edit(utf8_literal("/"));
+        // Enter first takes the highlighted True choice, then runs the command.
+        check(action_named(utf8_literal("/leave")) && pick(utf8_literal("/leave"), utf8_literal("/leave silent:true")) &&
+                  application_commands_key(VK_RETURN) && application_commands_key(VK_RETURN) && left_group == 9 &&
+                  left_silent,
+              "/leave asks to leave the group, silently when asked");
+    }
+    message_composer_clear(&composer);
+    popup_scene_close(&g_app.popup_scene);
+    set_popup_owner(PopupOwnerKind::none);
+    ui.chat_state = saved_state;
+    ui.active_channel_id = saved_active_channel;
+    message_composer_controller_select_channel(&ui.message_composer_controller, saved_composer_channel);
+    // Rebind the picker to the fixture's own channel (and its server) again.
+    edit(utf8_literal("/"));
+    message_composer_clear(&composer);
+    popup_scene_close(&g_app.popup_scene);
+    set_popup_owner(PopupOwnerKind::none);
+}
 void run() noexcept {
     Arena arena{};
     const usize bytes = sizeof(AccountUiRuntime);
@@ -643,6 +828,48 @@ void run() noexcept {
         respond(200, fixture_index);
         check(application_commands_submit(2) && operation == 1, "load user command index");
         respond(200, utf8_literal(R"({"applications":[],"application_commands":[]})"));
+        {
+            // Keyboard navigation follows the client's two lists: the discovery
+            // list (empty query) and the results of a typed query.
+            const auto row_action = [](bool last) noexcept {
+                u32 action = 0;
+                for (u32 n = 0; n < g_app.popup_scene.item_count; ++n)
+                    if ((g_app.popup_scene.items[n].flags & popup_item_command_row) &&
+                        (g_app.popup_scene.items[n].flags & popup_item_enabled)) {
+                        action = g_app.popup_scene.items[n].action;
+                        if (!last)
+                            break;
+                    }
+                return action;
+            };
+            const auto selected = [] noexcept { return popup_scene_selected_action(g_app.popup_scene); };
+            edit(utf8_literal("/"));
+            check(g_app.popup_scene.active && !selected(), "discovery opens without a keyboard selection");
+            check(!application_commands_key(VK_RETURN) && utf8_equal(message_composer_text(composer), utf8_literal("/")),
+                  "Enter without a discovery selection keeps its composer meaning");
+            check(application_commands_key(VK_TAB) && selected() == row_action(false) &&
+                      utf8_equal(message_composer_text(composer), utf8_literal("/")),
+                  "Tab without a selection selects the top discovery row without choosing it");
+            check(application_commands_key(VK_UP) && selected() == row_action(false),
+                  "Up stops at the top of the discovery list");
+            check(application_commands_key(VK_DOWN) && selected() != row_action(false) && selected(),
+                  "Down moves the discovery selection");
+            application_commands_hover();
+            check(application_commands_key(VK_DOWN) && selected() == row_action(false),
+                  "after hovering, Down starts again at the top of the discovery list");
+            edit(utf8_literal("/o"));
+            check(selected() == row_action(false), "typed query results focus their first row");
+            check(application_commands_key(VK_UP) && selected() == row_action(true),
+                  "Up from the first query result wraps to the last");
+            check(application_commands_key(VK_DOWN) && selected() == row_action(false),
+                  "Down from the last query result wraps to the first");
+            application_commands_hover();
+            check(application_commands_key(VK_UP) && selected() == row_action(true),
+                  "after hovering, Up starts from the end of the query results");
+            application_commands_hover();
+            check(!application_commands_key(VK_TAB) && utf8_equal(message_composer_text(composer), utf8_literal("/o")),
+                  "Tab after hovering keeps its composer meaning instead of choosing the hovered row");
+        }
         edit(utf8_literal("/word"));
         check(application_commands_key(VK_RETURN) && utf8_equal(message_composer_text(composer),
               utf8_literal("/wordle ")), "Enter selects command without submitting");
@@ -1073,6 +1300,8 @@ void run() noexcept {
                   "a query hides the Frequently Used section, as in the client");
             g_app.account.status.running = false;
         }
+
+        builtin_cases();
 
         // Context menu commands (Apps): user (type 2) and message (type 3).
         message_composer_clear(&composer);

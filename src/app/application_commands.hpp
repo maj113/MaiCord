@@ -14,6 +14,8 @@ bool application_commands_response(const RestClientResponse&, Utf8View body) noe
 bool application_commands_scroll_range(bool rail, UiScrollRange*) noexcept;
 bool application_commands_scroll(bool rail, double offset, bool* changed) noexcept;
 bool application_commands_key(u32 key) noexcept;
+// The pointer hovered a picker row; the keyboard selection is dropped.
+void application_commands_hover() noexcept;
 void application_commands_gateway(Utf8View body) noexcept;
 // Gateway INTERACTION_CREATE / SUCCESS / FAILURE / MODAL_CREATE (verbatim
 // object) and a created message's nonce advance the local command message

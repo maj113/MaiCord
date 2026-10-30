@@ -1427,6 +1427,8 @@ bool handle_popup_hover(LPARAM lparam) noexcept {
     if (!popup_scene_set_hover(&g_app.popup_scene, x, y, &changed)) {
         return false;
     }
+    if (changed && g_app.popup_owner_kind == PopupOwnerKind::commands)
+        application_commands_hover();
 
     if (changed && !refresh_popup_text())
         log_write(LogLevel::warning, "ui", "popup_hover_refresh_failed");

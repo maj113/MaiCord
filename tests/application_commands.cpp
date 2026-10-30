@@ -35,6 +35,43 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
                   RestRequestError::invalid_input,
               "real HTTP validator rejects the former nonempty non-JSON interaction request");
     }
+    // The built-in /nick and /thread requests: the client's endpoints and
+    // methods, JSON bodies, and their server/channel rate-limit majors.
+    {
+        constexpr auto nick_body = utf8_literal(R"({"nick":"Maj"})");
+        constexpr auto thread_body =
+            utf8_literal(R"({"name":"Plans","type":11,"auto_archive_duration":4320,"location":"Slash Command"})");
+        u8 target[96];
+        const auto nick = app_detail::builtin_command_request(
+            app_detail::kBuiltinCommandNick, 55, 9, {reinterpret_cast<const u8*>(nick_body.data), nick_body.bytes}, 3,
+            {target, sizeof(target)});
+        RestRequestHead head{nick.target,
+            {reinterpret_cast<const u8*>(fixture_token.data), fixture_token.bytes}, nick.body.count,
+            nick.route.method, RestAuthorization::normal_user, nick.json_body, false, &fixture_headers, false};
+        check(utf8_equal({reinterpret_cast<const char*>(nick.target.data), nick.target.count},
+                         utf8_literal("/api/v9/guilds/55/members/@me/nick")) &&
+                  nick.route.method == RestMethod::patch && nick.route.major == RestMajorParameter::guild &&
+                  nick.route.major_key == 55 && nick.json_body && rest_route_valid(nick.route) &&
+                  write_rest_request_head(head, {request_head, sizeof(request_head)}).ok(),
+              "built-in /nick patches the server nickname endpoint with a JSON body");
+        u8 thread_target[96];
+        const auto thread = app_detail::builtin_command_request(
+            app_detail::kBuiltinCommandThread, 55, 9,
+            {reinterpret_cast<const u8*>(thread_body.data), thread_body.bytes}, 4, {thread_target, sizeof(thread_target)});
+        head.target = thread.target;
+        head.content_length = thread.body.count;
+        head.method = thread.route.method;
+        check(utf8_equal({reinterpret_cast<const char*>(thread.target.data), thread.target.count},
+                         utf8_literal("/api/v9/channels/9/threads")) &&
+                  thread.route.method == RestMethod::post && thread.route.major == RestMajorParameter::channel &&
+                  thread.route.major_key == 9 && thread.route.route_id == kThreadCreationRouteId && thread.json_body &&
+                  write_rest_request_head(head, {request_head, sizeof(request_head)}).ok(),
+              "built-in /thread posts to the channel's threads with the thread creation bucket");
+        check(!app_detail::builtin_command_request(app_detail::kBuiltinCommandNick, 0, 9, {}, 5, {target, sizeof(target)})
+                   .target.count &&
+                  !app_detail::builtin_command_request(2, 55, 9, {}, 5, {target, sizeof(target)}).target.count,
+              "built-in requests need their server or channel and a built-in operation");
+    }
     // The official client's body: key order, guild only in servers, the
     // analytics location on executions and never on autocomplete.
     u8 written_body[512];

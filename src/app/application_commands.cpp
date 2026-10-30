@@ -13,6 +13,7 @@
 #include "application_plugins.hpp"
 #include "application_user_actions.hpp"
 #include "maicord/protocol/application_commands.hpp"
+#include "application_builtin_commands.hpp"
 #include "maicord/protocol/message_interaction.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/utf.hpp"
@@ -32,6 +33,9 @@ constexpr u32 clear_selection = choose_base - 3;
 // The rail's Frequently Used entry filters to those commands.
 constexpr u64 frequent_filter = ~0ull;
 constexpr u32 plugin_rows = 8;
+// The lane's built-in request (the API operation is the action's own).
+constexpr u8 builtin_operation = 9;
+constexpr u32 no_row = ~0u;
 constexpr float row_height = 56, rail_height = 40;
 // The official client's local command message ("<user> used <command>") while
 // the interaction is sent, created, and when it fails.
@@ -92,7 +96,11 @@ struct Commands {
     u8 pending, operation, requested_slot;
     bool loaded[2], sending, queued, catalog_dirty, indexing_retry;
     float offset, rail_offset;
+    // The keyboard selection (no_row: none, as after the pointer hovers a row).
+    // An empty query is the client's discovery list (no initial selection,
+    // arrows stop at the ends); a typed query and the option lists wrap.
     u32 keyboard_row, option_count;
+    bool discovery;
     u8 attempts[2];
     Utf8View error;
     char labels[32][512], details[32][1024], payload[65536];
@@ -100,6 +108,10 @@ struct Commands {
     u64 nonce, send_application, send_channel, send_guild;
     // A context menu wants the index loaded.
     bool context_wanted;
+    // A built-in text command rewrote the draft at this revision; it sends as
+    // an ordinary message.
+    bool builtin_text;
+    u32 builtin_text_revision;
     Echo echoes[echo_slots];
     u32 echo_next;
 };
@@ -217,7 +229,8 @@ bool frecency_save_due(u64 now) noexcept {
 }
 // Score (hundredths) of a command among the 100 most frecent entries, or 0.
 i32 frequently_score(const ApplicationCommand& command, u64 guild) noexcept {
-    if (!frecency_current())
+    // Built-in commands are not keyed in the account's command frecency here.
+    if (!frecency_current() || command.application_id == kBuiltinCommandApplication)
         return 0;
     char storage[kCommandFrecencyKeyBytes + 32];
     const Utf8View key = frecency_key(command, guild, {storage, sizeof(storage)});
@@ -289,7 +302,9 @@ bool project(Utf8View query) noexcept {
     c.entries = nullptr;
     c.apps = nullptr;
     c.count = c.app_count = c.frequent_count = 0;
-    const u32 capacity = c.index[0].command_count + c.index[1].command_count;
+    const CommandIndex* builtins = builtin_commands_index();
+    const u32 capacity =
+        c.index[0].command_count + c.index[1].command_count + (builtins ? builtins->command_count : 0);
     const usize bytes = maximum<usize>(
         4096, static_cast<usize>(capacity + 1 + frequently_shown) * (sizeof(Entry) + sizeof(void*)) + 64);
     if (!arena_initialize(&c.projection, bytes, 0, 4096))
@@ -332,6 +347,19 @@ bool project(Utf8View query) noexcept {
                 continue;
             c.entries[c.count++] = {&command, &source, app};
         }
+    // The client's Built-in section comes last, each command under its own
+    // availability rule rather than Use Application Commands.
+    for (u32 n = 0; builtins && n < builtins->command_count; ++n) {
+        const auto& command = builtins->commands[n];
+        if (!builtin_command_available(command, c.channel))
+            continue;
+        const auto* app = builtins->applications;
+        if (!c.app_count || c.apps[c.app_count - 1] != app)
+            c.apps[c.app_count++] = app;
+        if (!ascii_contains_ignore_case(command.name, query) && !ascii_contains_ignore_case(app->name, query))
+            continue;
+        c.entries[c.count++] = {&command, builtins, app};
+    }
     // Without a query, the official client leads with up to five Frequently
     // Used commands (by frecency score); they also stay in their app's list,
     // and the rail's clock entry shows them alone.
@@ -376,7 +404,10 @@ bool project(Utf8View query) noexcept {
         c.count += frequent;
     }
     c.offset = c.rail_offset = 0;
-    c.keyboard_row = 0;
+    // The client's discovery list starts without a selection; results of a
+    // typed query focus their first row.
+    c.discovery = !query.bytes;
+    c.keyboard_row = c.discovery ? no_row : 0;
     ++c.generation;
     return true;
 }
@@ -662,10 +693,10 @@ bool render() noexcept {
     set_popup_owner(PopupOwnerKind::commands);
     g_app.popup_scene.selected_index = ~0u;
     u32 selected_action = 0;
-    if (!c.selected.command && c.count) {
+    if (c.keyboard_row != no_row && !c.selected.command && c.count) {
         c.keyboard_row = minimum(c.keyboard_row, c.count - 1);
         selected_action = choose_base + c.keyboard_row;
-    } else if (c.selected.command && c.option_count) {
+    } else if (c.keyboard_row != no_row && c.selected.command && c.option_count) {
         c.keyboard_row = minimum(maximum(c.keyboard_row, 1u), c.option_count);
         selected_action = (c.choices_shown ? value_base : option_base) + c.keyboard_row - 1;
     }
@@ -1107,6 +1138,14 @@ bool application_commands_activate(u32 action) noexcept {
 }
 bool application_commands_send(bool* handled) noexcept {
     const auto input = message_composer_text(g_app.message_composer);
+    // A built-in text command's message, rewritten in place, sends as typed.
+    if (commands && commands->builtin_text) {
+        commands->builtin_text = false;
+        if (commands->builtin_text_revision == g_app.message_composer.text_revision) {
+            *handled = false;
+            return true;
+        }
+    }
     *handled = input.bytes && input.data[0] == '/';
     if (!*handled)
         return true;
@@ -1116,6 +1155,37 @@ bool application_commands_send(bool* handled) noexcept {
         return application_commands_sync(&ignored);
     }
     auto& c = *commands;
+    if (c.selected.command->application_id == kBuiltinCommandApplication) {
+        char options[16384];
+        ProtocolWriter writer{{reinterpret_cast<u8*>(options), sizeof(options)}, 0};
+        const u32 start = c.selected.command->name.bytes + 1;
+        if (input.bytes < start || !command_arguments(*c.selected.index, *c.selected.command,
+                                                      {input.data + start, input.bytes - start}, &writer, &c.error))
+            return render();
+        char text_storage[kMessageComposerMaximumBytes];
+        Utf8View text{};
+        const auto run = builtin_command_run(*c.selected.command, {options, writer.used}, c.channel,
+                                             {text_storage, sizeof(text_storage)}, &text);
+        if (run == BuiltinCommandRun::failed) {
+            c.error = utf8_literal("This command couldn't run. Try again.");
+            return render();
+        }
+        command_autocomplete_cancel(&c.autocomplete);
+        reset_value(&c.error);
+        reset_value(&c.selected);
+        close_popup();
+        if (run == BuiltinCommandRun::handled)
+            return composer_apply_result(message_composer_clear(&g_app.message_composer), true);
+        // The client sends a text command's result as the message itself.
+        const auto replaced = message_composer_replace_range(&g_app.message_composer, 0,
+                                                             g_app.message_composer.bytes, text);
+        if (replaced == MessageComposerResult::invalid_input)
+            return true;
+        c.builtin_text = true;
+        c.builtin_text_revision = g_app.message_composer.text_revision;
+        *handled = false;
+        return composer_apply_result(replaced, true);
+    }
     if (c.sending || c.queued)
         return true;
     // ATTACHMENT options take the channel's staged uploads (the client stages
@@ -1183,13 +1253,27 @@ bool application_commands_pending(u64 now) noexcept {
     if (!commands || !g_app.account_ui || !g_app.account.api.application_command) return false;
     const auto& c = *commands;
     const bool suggest = c.autocomplete.phase == CommandAutocompletePhase::debounce && now >= c.autocomplete.due_at;
-    const bool lane = c.queued || ((c.pending || suggest) &&
-                                   (c.context_wanted || g_app.popup_owner_kind == PopupOwnerKind::commands));
+    const bool lane = c.queued || builtin_commands_pending() ||
+                      ((c.pending || suggest) &&
+                       (c.context_wanted || g_app.popup_owner_kind == PopupOwnerKind::commands));
     return !c.sending && c.retry_at <= now && (lane || frecency_fetch_due(now) || frecency_save_due(now));
 }
 bool application_commands_submit(u64 now) noexcept {
     if (!application_commands_pending(now)) return false;
     auto& c = *commands;
+    // A built-in /nick, /thread, /kick, /ban or /timeout, after a queued interaction.
+    if (!c.queued && builtin_commands_pending()) {
+        const u64 request_id = application_next_request_id();
+        bool busy = false;
+        if (builtin_commands_submit(request_id, &busy)) {
+            c.operation = builtin_operation;
+            c.retry_at = 0;
+            g_app.details_request_owner = MessageHistoryRequestOwner::commands;
+            g_app.details_request_id = request_id;
+        } else if (busy)
+            c.retry_at = now + 100;
+        return true;
+    }
     const u8 slot = (c.pending & 1) ? 0 : 1;
     const bool popup = g_app.popup_owner_kind == PopupOwnerKind::commands;
     const bool indexes = c.pending && (c.context_wanted || popup);
@@ -1301,6 +1385,10 @@ bool application_commands_response(const RestClientResponse& response, Utf8View 
     auto& c = *commands;
     if (c.catalog_dirty && !application_commands_tick(clock_monotonic_milliseconds()))
         return false;
+    if (c.operation == builtin_operation) {
+        c.operation = 0;
+        return builtin_commands_response(response, body);
+    }
     const bool same = c.requested_channel == c.channel && c.requested_guild == c.guild;
     if (c.operation == 0 && c.requested_index_epoch != c.channel_index_epoch)
         return refresh_message_composer_ui();
@@ -1447,9 +1535,6 @@ bool application_commands_key(u32 key) noexcept {
     const u32 first = c.selected.command ? 1u : 0u;
     const u32 count = c.selected.command ? c.option_count : c.count;
     const u32 action_base = !c.selected.command ? choose_base : c.choices_shown ? value_base : option_base;
-    const u32 hovered_action = popup_scene_selected_action(g_app.popup_scene);
-    if (hovered_action >= action_base && hovered_action - action_base < count)
-        c.keyboard_row = first + hovered_action - action_base;
     if (key == VK_RETURN && !c.selected.command && application_plugins_command_pending()) {
         close_popup();
         return queue_message_send();
@@ -1457,26 +1542,40 @@ bool application_commands_key(u32 key) noexcept {
     if (key == VK_RETURN || key == VK_TAB) {
         if (key == VK_RETURN && c.selected.command && !c.choices_shown) {
             bool handled;
-            return application_commands_send(&handled);
+            // A built-in text command leaves its message for the ordinary send.
+            return application_commands_send(&handled) && (handled || queue_message_send());
         }
         if (count && c.keyboard_row >= first && c.keyboard_row - first < count)
             return application_commands_activate(action_base + c.keyboard_row - first);
-        return true;
+        // Without a keyboard selection Tab first selects the discovery list's
+        // top row; otherwise the key keeps its composer meaning, as in the client.
+        if (key == VK_TAB && c.discovery && !c.selected.command && count) {
+            c.keyboard_row = 0;
+            return reveal_command_row(0, row_height) && render();
+        }
+        return false;
     }
     if (key == VK_UP || key == VK_DOWN) {
         if (!count)
             return true;
-        c.keyboard_row = minimum(maximum(c.keyboard_row, first), first + count - 1);
-        if (key == VK_UP) {
-            if (c.keyboard_row > first)
-                --c.keyboard_row;
-        } else if (c.keyboard_row < first + count - 1)
-            ++c.keyboard_row;
+        const u32 last = first + count - 1;
+        const bool clamp = c.discovery && !c.selected.command;
+        if (c.keyboard_row == no_row || c.keyboard_row < first || c.keyboard_row > last)
+            c.keyboard_row = key == VK_UP && !clamp ? last : first;
+        else if (key == VK_UP)
+            c.keyboard_row = c.keyboard_row > first ? c.keyboard_row - 1 : clamp ? first : last;
+        else
+            c.keyboard_row = c.keyboard_row < last ? c.keyboard_row + 1 : clamp ? last : first;
         const float extent = c.selected.command ? option_row_height() : row_height;
         const float top = (c.selected.command ? c.keyboard_row - 1 : c.keyboard_row) * extent;
         return reveal_command_row(top, top + extent) && render();
     }
     return false;
+}
+// The pointer took over: like the client, hovering a row drops the keyboard selection.
+void application_commands_hover() noexcept {
+    if (commands)
+        commands->keyboard_row = no_row;
 }
 void application_commands_dismiss() noexcept {
     if (commands) {
@@ -1540,6 +1639,9 @@ bool application_commands_tick(u64 now) noexcept {
     if (!commands)
         return true;
     auto& c = *commands;
+    // A /msg or /thread message goes out once its channel is there.
+    if (!builtin_commands_tick())
+        return false;
     if (c.echo_dirty) {
         c.echo_dirty = false;
         if (!refresh_account_frame(true))
@@ -1586,6 +1688,8 @@ u64 application_commands_next_wake() noexcept {
         return wake;
     if (c.suggestions_dirty)
         return 1;
+    if (builtin_commands_pending() && !c.sending)
+        wake = earliest_deadline(wake, c.retry_at ? c.retry_at : 1);
     if (c.autocomplete.phase == CommandAutocompletePhase::debounce)
         wake = earliest_deadline(wake, maximum(c.autocomplete.due_at, c.retry_at));
     // One deadline each for a wanted frecency fetch and the pending save.
@@ -1858,6 +1962,7 @@ bool application_commands_insert(u64 application_id, u64 command_id, Utf8View na
     return true;
 }
 void application_commands_release() noexcept {
+    builtin_commands_release();
     if (!commands)
         return;
     command_autocomplete_cancel(&commands->autocomplete);

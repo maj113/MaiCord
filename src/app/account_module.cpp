@@ -1060,8 +1060,18 @@ RestClientSubmitResult WINAPI module_application_command(void* instance, u64 cha
     const RestClientSubmitResult invalid{RestClientSubmitError::invalid_input};
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     auto* rest = runtime ? user_account_coordinator_rest(&runtime->coordinator, true) : nullptr;
-    if (!rest || !request_id || operation > 6)
+    if (!rest || !request_id || operation > 8)
         return invalid;
+    // 7/8: the built-in /nick (guild) and /thread (channel); data is the JSON body.
+    if (operation >= app_detail::kBuiltinCommandNick) {
+        if (!data.bytes || !utf8_validate(data).valid)
+            return invalid;
+        u8 target[96];
+        const auto request = app_detail::builtin_command_request(
+            operation, guild, channel, {reinterpret_cast<const u8*>(data.data), data.bytes}, request_id,
+            {target, sizeof(target)});
+        return request.target.count ? rest_client_submit(rest, request) : invalid;
+    }
     // 6: GET the interaction data of message `nonce` in `channel` (the command chip's popout).
     if (operation == 6) {
         u8 target[kInteractionDataTargetBytes];

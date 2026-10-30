@@ -214,7 +214,7 @@ bool application_private_channel_rename(u64 channel_id) noexcept {
     request.single_line = true;
     return application_text_form_open(request);
 }
-static bool application_private_channel_leave(u64 channel_id, bool silent) noexcept {
+bool application_private_channel_leave(u64 channel_id, bool silent) noexcept {
     if (!scope_current() || !private_channel_is_group(state(), channel_id)) return false;
     char name[256];
     const auto group = title(channel_id, {name, sizeof(name)});

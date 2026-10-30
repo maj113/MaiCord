@@ -1,6 +1,7 @@
 #pragma once
 #include "maicord/app/rest_client.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "maicord/protocol/thread_creation.hpp"
 
 namespace maicord::app_detail {
 // Body bytes borrow the caller's bounded serialization until submit copies
@@ -34,5 +35,26 @@ inline bool application_command_interaction_body(bool autocomplete, u64 applicat
          protocol_writer_append_bytes(body, {reinterpret_cast<const u8*>(data.data), data.bytes}) &&
          protocol_writer_append_literal(body, ",\"nonce\":\"") && protocol_writer_append_u64(body, nonce);
     return ok && protocol_writer_append_c_string(body, autocomplete ? "\"}" : "\",\"analytics_location\":\"slash_ui\"}");
+}
+// The built-in /nick and /thread requests, as the official client sends
+// them: PATCH /guilds/{guild}/members/@me/nick {"nick"} and
+// POST /channels/{channel}/threads {"name","type","auto_archive_duration",
+// "location"}. The target is written into target_storage; zero target bytes
+// mark an invalid request.
+inline constexpr u8 kBuiltinCommandNick = 7, kBuiltinCommandThread = 8;
+inline constexpr u64 kBuiltinNickRouteId = 0x4E49434B4E414D45ull;
+inline RestClientRequest builtin_command_request(u8 operation, u64 guild, u64 channel, ConstSlice<u8> body,
+                                                 u64 request_id, Slice<u8> target_storage) noexcept {
+    ProtocolWriter path{target_storage, 0};
+    const bool nick = operation == kBuiltinCommandNick;
+    const u64 major = nick ? guild : channel;
+    const bool ok = major && (nick || operation == kBuiltinCommandThread) &&
+                    protocol_writer_append_c_string(&path, nick ? "/api/v9/guilds/" : "/api/v9/channels/") &&
+                    protocol_writer_append_u64(&path, major) &&
+                    protocol_writer_append_c_string(&path, nick ? "/members/@me/nick" : "/threads");
+    return {{target_storage.data, ok ? path.used : 0u}, body,
+            {nick ? kBuiltinNickRouteId : kThreadCreationRouteId, major, nick ? RestMethod::patch : RestMethod::post,
+             nick ? RestMajorParameter::guild : RestMajorParameter::channel},
+            request_id, kRestClientDefaultTimeoutMs, true};
 }
 } // namespace maicord::app_detail

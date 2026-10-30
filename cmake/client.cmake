@@ -33,7 +33,8 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/application_account_pump.cpp src/app/application_account_presentation.cpp
     src/app/application_account_reconnect.cpp
     src/app/application_thread_starter.cpp src/app/application_channel_session.cpp
-    src/app/application_channel_snapshots.cpp src/app/application_commands.cpp src/app/application_composer.cpp
+    src/app/application_channel_snapshots.cpp src/app/application_commands.cpp src/app/application_builtin_commands.cpp
+    src/app/application_composer.cpp
     src/app/application_message_feedback.cpp src/app/application_reply_draft.cpp
     src/app/application_composer_input.cpp src/app/application_button_input.cpp
     src/app/application_composer_edit_menu.cpp src/app/application_composer_spellcheck.cpp
