@@ -184,7 +184,7 @@ MAICORD_THEME_TOKEN(caption, badge_ready, T(accent, success), T(accent, success)
 MAICORD_THEME_TOKEN(caption, badge_ready_fill, RGBA(.14f, .65f, .38f, .16f), RGBA(.14f, .65f, .38f, .14f))
 MAICORD_THEME_GROUP_END(caption)
 
-// Slash command option chips in the composer (the client's optionPill): the
+// Slash command option chips in the composer: the
 // value segment that frames the chip, the option name segment and the resting
 // border. The active chip takes border.focus, a failed check text.danger.
 MAICORD_THEME_GROUP(option)

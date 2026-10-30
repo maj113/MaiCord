@@ -324,7 +324,7 @@ Utf8View resolve_entity(void* opaque, MessageMarkdownEntityKind kind, u64 id) no
     return name;
 }
 
-// The official channel icon types: voice and stage lock without Connect,
+// The channel icon types: voice and stage lock without Connect,
 // forum posts show the post (speech bubble) icon, everything text-like '#'.
 MessageMarkdownChipIcon chip_channel_icon(const ChatStateStore& state, const ChannelRecord& channel) noexcept {
     const bool connect = !channel.permissions_resolved || (channel.actions & channel_action_connect);
@@ -1049,7 +1049,7 @@ RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation,
     char* const source = reinterpret_cast<char*>(byte_styles + maximum_display_bytes);
     char* const transformed = source + maximum_source_bytes + 4;
     TextStyleSpan transformed_styles[maximum_styles];
-    // The client's reply rules keep channel, message and attachment chips;
+    // Reply rules keep channel, message and attachment chips;
     // only their icon cells are kept, so the line stays one jump target.
     MessageMarkdownSemantic chip_semantics[64];
 
@@ -3342,7 +3342,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                 : MessageReplyIcon::none;
         const UiWidgetReference owner{&scene.widgets, row.reply};
         // Role colours are server data and pass through every theme unchanged.
-        // The quoted author's name is muted like the official client's; the
+        // The quoted author's name is muted; the
         // interaction header mutes its name when it lays the line out.
         const Color reply_author_color = member_role_color(*presentation, state, record->channel_id,
                                                            message_rich_header_user(*rich), theme.text_primary);
@@ -3445,7 +3445,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                             record->content_availability == MessageContentAvailability::available;
     const bool thinking =
         !forwarded && !collapsed && (record->flags & kMessageFlagLoading) != 0 && content.bytes == 0;
-    // The official client's local command message shows its status text as
+    // A local command message shows its status text as
     // is ("Sending command...", the refusal), after a status icon.
     const bool command_status = !forwarded && !replaced && !collapsed && !thinking && content.bytes != 0 &&
                                 (record->type == 20 || record->type == 23) &&
@@ -3457,7 +3457,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         content_color = ui_background_muted_text_color(theme);
         row_measurement.content_present = true;
     } else if (thinking || command_status) {
-        // Deferred interaction response, as the official client draws it: the
+        // Deferred interaction response: the
         // app "is thinking..." until 15 minutes after the message id, then
         // "The application did not respond" in the critical colour.
         bool failed = record->delivery == MessageDeliveryState::failed;
@@ -3474,7 +3474,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
             suffix = failed ? utf8_literal("The application did not respond") : utf8_literal(" is thinking...");
         }
         // An icon cell of EM SPACEs (one for the failure icon, two for the
-        // client's three dots), a 4 DIP gap and a joiner, as link chips do.
+        // three dots), a 4 DIP gap and a joiner, as link chips do.
         const Utf8View cell = failed ? utf8_literal("\xE2\x80\x83\xE2\x80\x85\xE2\x80\x8D")
                                      : utf8_literal("\xE2\x80\x83\xE2\x80\x83\xE2\x80\x85\xE2\x80\x8D");
         const u32 bytes = cell.bytes + name.bytes + suffix.bytes;
@@ -3537,7 +3537,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
 
     if (rich->sticker_count != 0) {
         // Stickers draw no caption: the name is their tooltip's, popout's and
-        // accessible name, as in the official client.
+        // accessible name.
         auto& measured = presentation->measurements[measurement_index];
         for (u32 index = 0; index < rich->sticker_count; ++index) {
             measured.rich_item_layout.heights[kMessageSceneStickerItemOffset + index] =

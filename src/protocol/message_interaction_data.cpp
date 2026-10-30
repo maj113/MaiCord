@@ -74,7 +74,7 @@ bool entity_id(const JsonValue& value, u64* id) noexcept {
     return json_value_to_u64(value, id) && *id != 0;
 }
 
-// A value as the client prints it raw: a string's text, else its JSON text.
+// A value printed raw: a string's text, else its JSON text.
 void put_raw(State& state, const JsonValue& value) noexcept {
     if (value.kind != JsonValueKind::string) {
         state.out.put_line(value.source);
@@ -94,7 +94,7 @@ void put_entity(State& state, const JsonValue& value, InteractionDataEntity enti
                               ? state.names->resolve(state.names->context, entity, id)
                               : Utf8View{};
     if (!name.bytes)
-        return put_raw(state, value); // an entity the client does not know shows its raw value
+        return put_raw(state, value); // an unknown entity shows its raw value
     state.out.put({prefix, 1});
     state.out.put_line(name);
 }

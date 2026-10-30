@@ -493,8 +493,7 @@ MediaCatalogWriteResult media_catalog_write_target(const MediaCatalogQuery& quer
         break;
     }
     if (query.operation != MediaCatalogOperation::guild_stickers && !object_operation(query.operation)) {
-        // Each route's parameters in the order of the official client's query
-        // objects (all.js @101785078 and @16137249): trending {locale,
+        // Each route's parameters in order: trending {locale,
         // media_format}, trending-gifs {media_format, locale, limit}, search
         // {q, media_format, locale, limit}, suggest {q, limit, locale}.
         bool first = true;

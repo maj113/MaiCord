@@ -19,8 +19,7 @@ inline constexpr float kPopupQuickReactionGap = 4.0f;
 inline constexpr float kPopupQuickReactionTop = 10.0f;
 inline constexpr float kPopupQuickReactionBottomGap = 8.0f;
 inline constexpr float kPopupContextSeparatorGap = 16.0f;
-// The command picker (the official client's application command browser,
-// all.css .wrapper_d1405b / .wrapper_b1e4f3 / .wrapper__920ab): a fixed
+// The command picker (the application command browser): a fixed
 // 420-DIP panel; a 48-DIP rail of 32-DIP section icons 40 DIPs apart below a
 // 16-DIP lead, with 8 more DIPs and a divider before Built-in; a body of
 // 32-DIP section headers and 56-DIP rows inset 8 DIPs, sections 16 DIPs apart.
@@ -36,7 +35,7 @@ inline constexpr float kCommandSectionHeight = 32.0f;
 inline constexpr float kCommandRowHeight = 56.0f;
 inline constexpr float kCommandSectionGap = 16.0f;
 inline constexpr float kCommandTitleHeight = 40.0f;
-// The client's Generic autocomplete row and its Loading row (659280 ex/eE).
+// The generic autocomplete row and its Loading row.
 inline constexpr float kCommandGenericRowHeight = 36.0f;
 inline constexpr float kCommandGenericLoadingHeight = 40.0f;
 
@@ -84,7 +83,7 @@ enum PopupItemFlag : u16 {
     // without a category rail, its "Commands matching" title. Never actionable.
     popup_item_command_section = 1u << 10,
     // A section header pinned to the top of the picker body over the rows it
-    // leads (the client's sticky header); listed after the scrolled items.
+    // leads (a sticky header); listed after the scrolled items.
     popup_item_command_pinned = 1u << 11,
     popup_item_emoji_preview = 1u << 12,
     popup_item_guild_icon = 1u << 13,
@@ -126,7 +125,7 @@ static_assert(sizeof(PopupItem) == 64);
 // media_flags bit for rows without media: media_variant is a 0xRRGGBB tint
 // for the leading menu icon (a role colour). Zero keeps the theme colour.
 inline constexpr u8 kPopupItemMediaIconTint = 1u << 1;
-// media_flags bit: a loading placeholder row (the client's skeleton). It is
+// media_flags bit: a loading placeholder row (a skeleton). It is
 // never actionable, draws rounded bars instead of text and needs no media;
 // media_variant seeds the bar widths so a row keeps its look between frames.
 inline constexpr u8 kPopupItemPlaceholder = 1u << 2;
@@ -154,8 +153,8 @@ constexpr bool popup_items_command_picker(ConstSlice<PopupItem> items) noexcept 
     return items.count && (items[0].flags & (popup_item_command_category | popup_item_command_section));
 }
 // A loading placeholder row: in the command picker (popup_item_command_row)
-// the client's command skeleton (usage, description and source bars, 524007);
-// elsewhere its generic Loading row (one 60-120 DIP bar, 659280 `eE`).
+// the command skeleton (usage, description and source bars); elsewhere its
+// generic Loading row (one 60-120 DIP bar).
 constexpr PopupItem popup_placeholder_row(u32 action, u32 seed, u16 flags = popup_item_none) noexcept {
     PopupItem item{};
     item.label = Utf8View{"Loading", 7};

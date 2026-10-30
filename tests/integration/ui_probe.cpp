@@ -3805,7 +3805,7 @@ bool probe_media_underlay_and_quick_reactions() noexcept {
             return false;
     if (!draw_changed() || !readback.read(renderer, 1))
         return false;
-    // The official client's message sticker: a 160 DIP square at the content's
+    // A message sticker: a 160 DIP square at the content's
     // start without a caption line.
     for (u32 i = 0; i < stream.count; ++i)
         if (commands[i].kind == MessageMediaCommandKind::sticker &&
@@ -6627,7 +6627,7 @@ bool probe_autocomplete_identity() noexcept {
         popup_scene_close(&g_probe.popup_scene);
     }
     {
-        // The client's discovery browser: clock, app and Built-in rail; section
+        // The discovery browser: clock, app and Built-in rail; section
         // headers carry the pictures, rows don't (Frequently Used rows show their
         // app); the selected row adds its usage summary.
         PopupItem picker[]{

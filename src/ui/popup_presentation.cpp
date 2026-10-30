@@ -110,20 +110,17 @@ UiRect popup_avatar_rectangle(const UiLayoutNode& row) noexcept {
     return {row.rectangle.left + 8, y, row.rectangle.left + 32, y + 24};
 }
 
-// The command picker (all.css .wrapper__920ab, .categoryHeader_d1405b,
-// .wrapper_b1e4f3, .selected__1a58a): rows pad their 40-DIP content by 8
+// The command picker: rows pad their 40-DIP content by 8
 // DIPs, an app image is 32 DIPs 4 DIPs below the content top with 16 DIPs
 // after it, headers show a 16-DIP icon 8 DIPs in and their label 4 DIPs
 // after it, and rail icons fill their 32-DIP slot (Built-in and Frequently
 // Used glyphs 24 DIPs inside it).
 constexpr float kPickerRowPadding = 8, kPickerImage = 32, kPickerImageGap = 16, kPickerHeaderIcon = 16,
                 kPickerHeaderGap = 4, kPickerRailGlyph = 24, kPickerTitleLine = 20, kPickerLineGap = 4;
-// Usage chips (.option__a19535, .option__920ab): 8 DIPs apart, 4 DIPs of
-// padding, a text-sm line; the optional count follows a 1-DIP divider
-// (.optionals__920ab) with 8 DIPs on both sides.
+// Usage chips: 8 DIPs apart, 4 DIPs of padding, a text-sm line; the optional
+// count follows a 1-DIP divider with 8 DIPs on both sides.
 constexpr float kPickerChipGap = 8, kPickerChipPadding = 4, kPickerChipHeight = 18;
-// Loading skeletons (.wrapper__78aa3, .autocompletePlaceholder__13533):
-// 16-DIP pill bars, 8 DIPs apart.
+// Loading skeletons: 16-DIP pill bars, 8 DIPs apart.
 constexpr float kPickerBar = 16, kPickerBarGap = 8;
 inline bool picker_discovery(const PopupScene& scene) noexcept {
     return (scene.items[0].flags & popup_item_command_category) != 0;
@@ -144,8 +141,7 @@ UiRect picker_media_rectangle(const PopupItem& item, const UiLayoutNode& row) no
     return {r.left + kPickerRowPadding, top, r.left + kPickerRowPadding + kPickerImage, top + kPickerImage};
 }
 // A rail app icon is a circle that becomes a rounded square (30%) while
-// hovered or selected (213404: SQUIRCLE mask when selectable and selected or
-// hovered), as a server icon does.
+// hovered or selected, as a server icon does.
 float picker_media_radius(const PopupScene& scene, u32 index, UiRect media) noexcept {
     const PopupItem& item = scene.items[index];
     const float extent = minimum(ui_rect_width(media), ui_rect_height(media));
@@ -182,14 +178,14 @@ float picker_measure(UiTextMeasureCache* measure, const PopupScene& scene, Utf8V
         return limit;
     return minimum(limit, measured.size.width);
 }
-// A loading bar's width: the client draws each between lo and hi at random;
+// A loading bar's width: drawn between lo and hi at random;
 // the seed keeps a row's bars steady from frame to frame.
 float placeholder_width(u32 seed, u32 bar, float lo, float hi) noexcept {
     const u64 mixed = hash64_mix(hash64_mix(kHash64Seed, seed), bar);
     return lo + static_cast<float>(mixed % 1000u) * (hi - lo) / 999.f;
 }
 // The skeleton bars of a placeholder row: in the picker the command skeleton
-// (524007: usage 60-120 on the strong fill, description 200-600, source
+// (usage 60-120 on the strong fill, description 200-600, source
 // 45-90), elsewhere the generic Loading row (one 60-120 bar). Base-low bars
 // take that tier's gradient material on background themes.
 bool paint_placeholder(PaintStream* paint, const PopupItem& item, UiRect content, bool command,
@@ -218,7 +214,7 @@ bool paint_placeholder(PaintStream* paint, const PopupItem& item, UiRect content
 // A command row's columns: description, source and usage summary from the
 // detail ("description\x1Fsource\x1Fsummary", summary parts \x1E-separated:
 // the required option names, then "+N optional"); the summary shows only on
-// the selected row, as the client shows it on hover or keyboard selection.
+// the selected row (hover or keyboard selection).
 inline constexpr u32 kPickerChipCapacity = 8;
 struct PickerRow {
     Utf8View description, source;
@@ -302,7 +298,7 @@ bool paint_picker_item(const PopupScene& scene, u32 index, const PopupItemLayout
     const bool pointed = scene.selected_index == index && (item.flags & popup_item_enabled);
     if (item.flags & popup_item_command_category) {
         // Built-in's extra 8 DIPs hold the divider unless only Frequently Used
-        // (itself a built-in section) leads (845207 `ei`).
+        // (itself a built-in section) leads.
         const bool after_clock = index && (scene.items[index - 1].flags & popup_item_command_category) &&
                                  scene.items[index - 1].presentation.icon_plus_one &&
                                  ui_menu_row_icon(scene.items[index - 1].presentation) == UiIcon::recent;
@@ -405,7 +401,7 @@ bool picker_text(const PopupScene& scene, u32 index, const Theme& theme, UiTextO
             return push_picker_text(text, scene, index, layout, item.label,
                                     {left, r.top, r.right - kPickerRowPadding, r.bottom}, theme.text_primary,
                                     text_style_bold | kTextStyleSizeCodeSm);
-        // The client's title ("COMMANDS MATCHING /QUERY"), with an optional
+        // The title ("COMMANDS MATCHING /QUERY"), with an optional
         // emphasised detail after it.
         constexpr u32 flags = text_style_bold | kTextStyleSizeCodeXs;
         const float right = r.right - kPickerRowPadding;
@@ -424,8 +420,7 @@ bool picker_text(const PopupScene& scene, u32 index, const Theme& theme, UiTextO
                                 theme.text_secondary, text_style_none);
     if (!(item.flags & popup_item_command_row)) {
         // The Generic row: its text, then the description right-aligned and
-        // muted in the rest of the line (.autocompleteRowContentSecondary__13533:
-        // 16 DIPs after the text, at least ten characters).
+        // muted in the rest of the line (16 DIPs after the text, at least ten characters).
         const float right = r.right - kPickerRowPadding;
         const float detail_minimum = item.detail.bytes ? 70.f : 0.f;
         const float width = picker_measure(measure, scene, item.label, text_style_none,
@@ -475,7 +470,7 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
     // clip. Every popup kind shares the popover elevation material on gradient themes.
     bool success = ui_surface_paint_plate(paint, panel->rectangle, theme, UiElevation::popover, panel_radius);
     const bool picker = picker_scene(scene);
-    // The picker rail is the client's darkest surface (background-base-lowest),
+    // The picker rail is the darkest surface (background-base-lowest),
     // following the panel's left corners; on background themes it is the
     // lowest tier of the panel's gradient material, as the media picker's rail.
     if (picker && picker_discovery(scene)) {

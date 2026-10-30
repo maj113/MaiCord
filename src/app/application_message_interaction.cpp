@@ -512,7 +512,7 @@ static bool activate_message_link_action(u32 action) noexcept {
     if (!url.bytes)
         return true;
     if (action == kMessageLinkActionCopy) {
-        // An attachment chip copies its refreshed media link, as the client does.
+        // An attachment chip copies its refreshed media link.
         if (application_copy_content_attachment_link(hit))
             return true;
         if (!application_copy_text(url, kToastLinkCopied, kToastLinkCopyFailed))
@@ -1493,7 +1493,7 @@ bool handle_popup_key(WPARAM key) noexcept {
         const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         if ((GetKeyState(VK_CONTROL) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000))
             return false;
-        // Shift+Tab selects the previous option chip (the client's editor key).
+        // Shift+Tab selects the previous option chip.
         if (shift) {
             if (key != VK_TAB || !application_commands_option_tab(true))
                 return false;

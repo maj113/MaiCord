@@ -58,9 +58,8 @@ struct CatalogBank {
     u32 count, text_bytes, generation;
     MediaCatalogOperation operation;
 };
-// The client's IntegrationQueryStore (all.js @16136700) keeps every /gif
-// query's results for the session and asks again only after a failure; this
-// keeps the most recent queries' banks.
+// Keeps the most recent /gif queries' banks; a cached query is asked again only
+// after a failure.
 constexpr u32 kInlineGifCacheCapacity = 16;
 bool preview_admitted(const CatalogBank& bank, u32 index) noexcept {
     return index < bank.count && bank.preview_mask && (bank.preview_mask[index >> 3] & (1u << (index & 7)));
@@ -227,8 +226,8 @@ struct ApplicationMediaPicker {
     // Inline results: the composer's /gif strip or /sticker list. The query is
     // the command's option (kept in edit, never focused); the panel sits above
     // inline_anchor (the commands popup, else the composer) while the command's
-    // option bar shows. The first result of each new set is selected, as the
-    // client's autocomplete does. Entering keeps the expression picker's tab
+    // option bar shows. The first result of each new set is selected. Entering
+    // keeps the expression picker's tab
     // and query (composer_kind, tab_query).
     bool inline_mode, inline_select;
     UiRect inline_anchor;
@@ -249,7 +248,7 @@ namespace {
 constexpr auto kReactionHint = utf8_literal("Shift-click to add more reactions");
 // Search-as-you-type waits for typing to pause before one request.
 constexpr u32 kSearchDebounceMs = 250;
-// The client's inline /gif search waits 300 ms (a trailing debounce).
+// The inline /gif search waits 300 ms (a trailing debounce).
 constexpr u32 kInlineSearchDebounceMs = 300;
 // Rate-limited catalog requests retry at most this often, never sooner than
 // the server's Retry-After.
@@ -803,7 +802,7 @@ bool build_server_stickers(ApplicationMediaPicker& p) noexcept {
     return true;
 }
 // A server sticker's server name, else its pack's name: the inline row's
-// trailing column (the client's pack or guild name).
+// trailing column.
 Utf8View sticker_source(const ApplicationMediaPicker& p, const MediaCatalogItem& item) noexcept {
     if (!item.guild_id)
         return item.pack_name;
@@ -812,16 +811,15 @@ Utf8View sticker_source(const ApplicationMediaPicker& p, const MediaCatalogItem&
             return p.sticker_servers[s].label;
     return {};
 }
-// The client's /sticker results (queryStickers, all.js @166232562): every
+// The /sticker results: every
 // sendable sticker scores its best field, a field's weight (name 11, server or
 // pack name 8, a server sticker's correlated emoji 6 and tag 1) times 10 when
 // it equals the query, 7 when it starts with it, or 5 when a name contains it.
 // The correlated emoji is the tag's emoji and its skin-tone variants
-// (GuildStickersStore metadata, @164408638). A sticker with synced frecency
-// (StickersPersistedStore 931959) then weighs by its score / 100. The eight
-// best show, equal scores in catalog order (server stickers, then packs). A
-// sticker found by another field than its name notes that field, lowercase as
-// the client keeps it. Not kept: this session's unsaved sticker uses.
+// (guild sticker metadata). A sticker with synced frecency then weighs by its
+// score / 100. The eight best show, equal scores in catalog order (server
+// stickers, then packs). A sticker found by another field than its name notes
+// that field in lowercase. Not kept: this session's unsaved sticker uses.
 constexpr u32 kStickerFrecencyCapacity = 256;
 struct StickerFrecency {
     u64 id[kStickerFrecencyCapacity];
@@ -1274,7 +1272,7 @@ bool activate(ApplicationMediaPicker& p, const UiMediaPickerTarget& target, bool
         return repaint();
     }
     if (target.action == UiMediaPickerAction::page_back || target.action == UiMediaPickerAction::page_forward) {
-        // The client's scrollBy({behavior: smooth}), ticked each frame only while it runs.
+        // A smooth scroll, ticked each frame only while it runs.
         const u64 now = clock_monotonic_milliseconds();
         if (ui_media_picker_scene_page(&p.scene, target.action == UiMediaPickerAction::page_forward, now,
                                        static_cast<float>(maximum(g_app.renderer.dpi, 1u)) / 96.f,
@@ -1384,8 +1382,7 @@ bool activate(ApplicationMediaPicker& p, const UiMediaPickerTarget& target, bool
     if (target.action != UiMediaPickerAction::item)
         return true;
     focus(p, false);
-    // The inline strip's Tab: the GIF's link replaces the draft (the client's
-    // INSERT), which counts as a use of /gif.
+    // The inline strip's Tab: the GIF's link replaces the draft, which counts as a use of /gif.
     if (p.inline_mode && insert && p.kind == UiMediaPickerKind::gif) {
         const auto url = item->send_url;
         application_media_picker_close();
@@ -1422,8 +1419,7 @@ bool activate(ApplicationMediaPicker& p, const UiMediaPickerTarget& target, bool
         p.status = utf8_literal("Couldn't send. Try again.");
         return repaint();
     }
-    // A result sent from the inline strip or list ends its command: the
-    // draft clears, as after the client's sendMessage/sendSticker.
+    // A result sent from the inline strip or list ends its command: the draft clears.
     const bool inline_results = p.inline_mode;
     application_media_picker_close();
     if (inline_results && !application_commands_builtin_used({}))
@@ -1527,7 +1523,7 @@ bool application_media_picker_open_sticker_pack(u64 pack_id) noexcept {
 }
 bool application_media_picker_inline(UiMediaPickerKind kind, Utf8View query, UiRect anchor) noexcept {
     auto* open = g_app.media_picker;
-    // The client hides its autocomplete while the expression picker is open.
+    // Inline results hide while the expression picker is open.
     if (open && open->active && !open->inline_mode)
         return true;
     if (!query.bytes || kind == UiMediaPickerKind::emoji || !ui_rect_valid(anchor) || !available()) {
@@ -1602,7 +1598,7 @@ bool application_media_picker_inline_key(u32 key, bool* handled) noexcept {
     }
     if (key != VK_RETURN && key != VK_TAB)
         return true;
-    // The client's onTabOrEnter: without a selected result the key keeps its
+    // Without a selected result the key keeps its
     // composer meaning; Tab inserts a GIF's link where Enter sends it.
     const auto target = ui_media_picker_scene_selected_target(p->scene);
     if (target.action != UiMediaPickerAction::item)
@@ -1847,7 +1843,7 @@ bool application_media_picker_synchronize() noexcept {
         const auto status = application_message_reaction_status(p->reaction_message_id, &error);
         p->status = status.bytes ? status : kReactionHint;
     }
-    // The client's inline results show only while loading or with results.
+    // Inline results show only while loading or with results.
     if (p->inline_mode && (p->phase == UiMediaPickerPhase::empty || p->phase == UiMediaPickerPhase::failed ||
                            (p->phase == UiMediaPickerPhase::ready && !p->source.count))) {
         revoke_capture(*p);
@@ -1950,8 +1946,7 @@ bool application_media_picker_submit(u64 id, u64 now) noexcept {
     CopyMemory(p.submitted_query, text.data, text.bytes);
     const bool search = p.operation == MediaCatalogOperation::gif_search ||
                         p.operation == MediaCatalogOperation::gif_suggestions;
-    // The inline /gif strip asks as the client's integration search does:
-    // animated WebP, 20 results.
+    // The inline /gif strip asks for animated WebP, 20 results.
     const bool strip = p.inline_mode && p.operation == MediaCatalogOperation::gif_search;
     MediaCatalogQuery query{p.operation,
                             search ? Utf8View{p.submitted_query, text.bytes} : Utf8View{},
@@ -2537,10 +2532,9 @@ bool application_media_picker_input(UiInputKind kind, u32 key, bool repeated) no
 }
 namespace {
 // Inline results take the pointer only over their panel (the composer keeps
-// the keyboard): hover highlights a result and drops the keyboard selection
-// as the client's onResultHover does, a click sends it or pages the strip,
-// and the wheel scrolls the GIF strip sideways (the client turns vertical
-// wheel motion into horizontal scrolling).
+// hover highlights a result and drops the keyboard selection, a click sends it
+// or pages the strip, and the wheel scrolls the GIF strip sideways (vertical
+// wheel motion becomes horizontal scrolling).
 bool inline_pointer(ApplicationMediaPicker& p, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
     if (!shown(&p) || !ui_media_picker_scene_current(p.scene))
         return false;

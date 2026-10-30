@@ -6,7 +6,7 @@
 namespace maicord::app_detail {
 // The popout of a slash command chip: click the chip of "<user> used <command>"
 // and a card above it reads "/command option: value ..." (the interaction's
-// command with the options it was run with), as in the official client. The
+// command with the options it was run with). The
 // card opens at once with "/command"; GET .../interaction-data fills in the
 // options. The card is the pinned tooltip: the tooltip host shows it, and it
 // closes with a press or wheel anywhere (a second click on the chip toggles

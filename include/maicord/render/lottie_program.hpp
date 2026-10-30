@@ -3,8 +3,8 @@
 #include "maicord/media/asset_key.hpp"
 namespace maicord {
 inline constexpr u32 kLottieMaximumBytes = 1024 * 1024;
-// Raster extent of a compiled Lottie frame: a message sticker at the official
-// client's 160 px sticker size; picker previews (96 DIP cells) at 128.
+// Raster extent of a compiled Lottie frame: a message sticker at 160 px; picker
+// previews (96 DIP cells) at 128.
 constexpr u32 lottie_raster_pixels(const MediaAssetKey& key) noexcept {
     return key.kind == MediaAssetKind::sticker ? 160u : 128u;
 }

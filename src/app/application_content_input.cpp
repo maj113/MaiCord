@@ -277,8 +277,8 @@ bool content_link_trusted_text(const MessageTextHit& hit, const Utf8View& url) n
 }
 
 // An attachment chip (a signed CDN URL in message text) opens or copies its
-// URL refreshed through the official refresh-urls request when it expires
-// within the hour, as the client does; a failed refresh keeps the URL as sent.
+// URL refreshed through the refresh-urls request when it expires
+// within the hour; a failed refresh keeps the URL as sent.
 struct ContentAttachmentIntent {
     MessageTextHit hit;
     u64 account_scope;
@@ -361,7 +361,7 @@ bool open_content_link(const MessageTextHit& hit) noexcept {
 }
 
 // A clicked command mention </name sub:id> selects that command in the chat
-// input by id, as the client does (asking first when the draft has text).
+// input by id (asking first when the draft has text).
 bool insert_command_mention(const MessageTextHit& hit) noexcept {
     if (!g_app.account_ui)
         return true;
@@ -1050,8 +1050,7 @@ bool handle_content_click(LPARAM lparam) noexcept {
         return application_profile_open(hit.target, {client_dip_x(lparam), client_dip_y(lparam),
                                                      client_dip_x(lparam) + 1, client_dip_y(lparam) + 1});
     case MessageMarkdownSemanticKind::channel_mention:
-        // The official client joins a voice or stage channel from its mention
-        // instead of opening it.
+        // A voice or stage channel mention joins it instead of opening it.
         return join_voice_channel(hit.target) || select_content_channel(hit.target);
     case MessageMarkdownSemanticKind::message_link:
     case MessageMarkdownSemanticKind::link:
@@ -1060,8 +1059,8 @@ bool handle_content_click(LPARAM lparam) noexcept {
         return insert_command_mention(hit);
     case MessageMarkdownSemanticKind::custom_emoji:
     case MessageMarkdownSemanticKind::regional_flag:
-        // A press on an emoji may start a text selection, as on the official
-        // client's undraggable emoji images; a click without a drag opens its
+        // A press on an emoji may start a text selection (emoji images are not
+        // draggable); a click without a drag opens its
         // popout on release (application_expression_card_pointer_up).
         return false;
     default:

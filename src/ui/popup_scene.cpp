@@ -134,7 +134,7 @@ inline bool picker_flow_item(const PopupItem& item) noexcept {
     return !(item.flags & (popup_item_command_category | popup_item_command_pinned));
 }
 // Section headers are 32 DIPs (the query title 40); command rows 56. Other
-// rows are the client's Generic autocomplete row (the selected command's
+// rows are the Generic autocomplete row (the selected command's
 // option and choice lists: base padding 8 around a text-md line, 36 DIPs) or
 // its Loading row (a 16-DIP bar 8 DIPs down that line, 40 DIPs).
 inline float picker_item_height(const PopupItem& item, bool discovery) noexcept {
@@ -192,7 +192,7 @@ float picker_rail_top(ConstSlice<PopupItem> items, u32 target) noexcept {
 }
 // Content height of query results and option lists: the flow (titles, rows
 // and the gap before every later title) and the list's bottom padding;
-// discovery is the client's fixed panel.
+// discovery is a fixed panel.
 inline float picker_height(ConstSlice<PopupItem> items) noexcept {
     if (picker_discovery(items))
         return kCommandPickerHeight;

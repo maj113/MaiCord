@@ -261,8 +261,8 @@ Color text_style_color(const Theme* theme, const Color& base, u32 flags,
     if ((flags & text_style_spoiler) != 0) {
         return theme->interactive;
     }
-    // A hovered mention or link chip is an accent pill with on-accent text
-    // (the official .interactive:hover); role mentions keep their colour.
+    // A hovered mention or link chip is an accent pill with on-accent text; role
+    // mentions keep their colour.
     constexpr u32 hovered_mention = text_style_mention | text_style_interactive_hover;
     if ((flags & hovered_mention) == hovered_mention) {
         return theme->tokens.emphasis.text;

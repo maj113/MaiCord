@@ -13,7 +13,7 @@ inline RestClientRequest application_command_interaction_request(
             {0x434d4458, 0, RestMethod::post, RestMajorParameter::none},
             request_id, autocomplete ? 3000u : kRestClientDefaultTimeoutMs, true};
 }
-// The official client's application command body, in its key order: type,
+// The application command body, in key order: type,
 // application_id, guild_id (guild channels only), channel_id, session_id, data,
 // nonce, then analytics_location for executions (type 2). Autocomplete (type 4)
 // carries no analytics location.
@@ -36,8 +36,8 @@ inline bool application_command_interaction_body(bool autocomplete, u64 applicat
          protocol_writer_append_literal(body, ",\"nonce\":\"") && protocol_writer_append_u64(body, nonce);
     return ok && protocol_writer_append_c_string(body, autocomplete ? "\"}" : "\",\"analytics_location\":\"slash_ui\"}");
 }
-// The built-in /nick and /thread requests, as the official client sends
-// them: PATCH /guilds/{guild}/members/@me/nick {"nick"} and
+// The built-in /nick and /thread requests:
+// PATCH /guilds/{guild}/members/@me/nick {"nick"} and
 // POST /channels/{channel}/threads {"name","type","auto_archive_duration",
 // "location"}. The target is written into target_storage; zero target bytes
 // mark an invalid request.

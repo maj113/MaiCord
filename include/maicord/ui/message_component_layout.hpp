@@ -11,7 +11,7 @@ struct UiRect;
 
 struct Theme;
 
-// Official client metrics (Components V1 buttons/selects, V2 layout): a
+// Component metrics (V1 buttons/selects, V2 layout): a
 // container pads 16 and stacks children 8 apart; an action row wraps its
 // controls 8 apart; V2 content is at most 600 wide.
 inline constexpr float kMessageComponentPadding = 16.0f;

@@ -1090,7 +1090,7 @@ bool typing_dots_steps() noexcept {
 }
 
 // A selected command as application_commands_composer projects it: the
-// client's option bar stacked over the editor (here the active option's failed
+// option bar stacked over the editor (here the active option's failed
 // check in the danger colour) and the typed options as chips, each value
 // ending at its end marker (U+2063): a plain one and the active, failed one.
 bool option_chips() noexcept {

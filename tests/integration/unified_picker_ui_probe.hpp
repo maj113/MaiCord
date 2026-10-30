@@ -117,8 +117,7 @@ inline bool distinct_rail_ink(const UiMediaPickerScene& scene,
         }
     return false;
 }
-// The composer's inline /gif strip and /sticker list (the official client's
-// integration autocomplete rows) from one original fixture: GIF tiles as
+// The composer's inline /gif strip and /sticker list from one original fixture: GIF tiles as
 // catalog previews (solid green), sticker rows with their name, a
 // "Similar to:" note and the pack, the heading with its bold query.
 struct InlineSource {

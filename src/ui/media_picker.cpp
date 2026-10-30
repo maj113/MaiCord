@@ -622,7 +622,7 @@ bool project_inline(UiMediaPickerScene& scene, const UiMediaPickerCell* prior, u
         if (box.right > scene.body.left && !cell(scene, i, art, prior, prior_count, &box))
             return false;
     }
-    // The client's arrows: centred on the strip, 8 DIP inside its ends, only
+    // The arrows: centred on the strip, 8 DIP inside its ends, only
     // toward content past that end.
     const float middle = (scene.body.top + scene.body.bottom) * .5f, half = kUiInlineResultsArrowExtent * .5f;
     if (scene.scroll_dips > 0)
@@ -1371,8 +1371,7 @@ bool ui_media_picker_scene_clear_selection(UiMediaPickerScene* scene) noexcept {
     return true;
 }
 namespace {
-// Chromium's programmatic smooth scroll (cc ScrollOffsetAnimationCurve,
-// kDeltaBased): cubic-bezier(.4, 0, 0, 1), so x(t) = 1.2(1-t)^2 t + t^3 and
+// Chromium's smooth scroll curve: cubic-bezier(.4, 0, 0, 1), so x(t) = 1.2(1-t)^2 t + t^3 and
 // y(t) = 3t^2 - 2t^3; x is solved by bisection before sampling y.
 float page_eased(float progress) noexcept {
     float low = 0, high = 1;
@@ -1540,7 +1539,7 @@ bool media_slot(const UiMediaPickerScene& scene, const UiMediaPickerCell& cell, 
                cell.item.asset_id,
                rectangle,
                ui_rect_intersection(rectangle, clip),
-               // The client's inline tiles and stickers are square-cornered.
+               // Inline tiles and stickers are square-cornered.
                inline_results(scene) ? 0.f : scene.style.control_radius,
                cell.item.kind == UiMediaPickerItemKind::category ? scene.style.category_opacity : 1.f,
                cell.item.variant,

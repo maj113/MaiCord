@@ -14,8 +14,8 @@ bool application_commands_response(const RestClientResponse&, Utf8View body) noe
 bool application_commands_scroll_range(bool rail, UiScrollRange*) noexcept;
 bool application_commands_scroll(bool rail, double offset, bool* changed) noexcept;
 bool application_commands_key(u32 key) noexcept;
-// Tab/Shift+Tab with a command selected (the client's selectNext/Previous
-// CommandOption): selects the next or previous option chip's value, else moves
+// Tab/Shift+Tab with a command selected: selects the next or previous option
+// chip's value, else moves
 // the caret to the end or after the command name. False without a command.
 bool application_commands_option_tab(bool reverse) noexcept;
 // Backspace (forward false) or Delete about to run in the composer: a caret

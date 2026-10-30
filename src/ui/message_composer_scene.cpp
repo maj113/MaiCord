@@ -856,7 +856,7 @@ bool message_composer_scene_initialize(MessageComposerScene* scene, Slice<UiWidg
                                             UiWidgetKind::container, ui_widget_none, surface_style());
     UiLayoutStyle banner_style = reply_style();
     banner_style.padding = UiInsets{kUiMenuRowHorizontalPadding, 0.f, 0.f, 0.f};
-    // The option bar leads the client's stacked bars (845207 tB before the reply bar).
+    // The option bar leads the stacked bars, before the reply bar.
     const UiWidgetResult command_bar = b.widget(surface.handle, {kComposerCommandBarId, utf8_literal("CommandBar")},
                                                 UiWidgetKind::container, ui_widget_none, banner_style);
     UiLayoutStyle command_close_style = fixed_control_style(kMessageComposerCommandBarHeight);

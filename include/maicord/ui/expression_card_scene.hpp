@@ -8,9 +8,9 @@ namespace maicord {
 struct UiTextMeasureCache;
 
 // The emoji and sticker popout, opened by clicking an emoji or a sticker in a
-// message: the official client's 288 DIP card beside it. Pure geometry and
-// paint; the host resolves the content, draws the picture, the pack's stickers
-// and the server icon into ui_expression_card_media and runs the controls.
+// message: a 288 DIP card beside it. Pure geometry and paint; the host resolves
+// the content, draws the picture, the pack's stickers and the server icon into
+// ui_expression_card_media and runs the controls.
 inline constexpr float kUiExpressionCardWidth = 288, kUiExpressionCardPadding = 16, kUiExpressionCardGap = 8;
 inline constexpr float kUiExpressionCardPicture = 48, kUiExpressionCardPreview = 80, kUiExpressionCardGuildIcon = 32;
 inline constexpr u32 kUiExpressionCardTitleBytes = 160, kUiExpressionCardTextBytes = 320,
@@ -18,7 +18,7 @@ inline constexpr u32 kUiExpressionCardTitleBytes = 160, kUiExpressionCardTextByt
 inline constexpr u32 kUiExpressionCardEntranceMs = 200;
 
 enum class UiExpressionCardLayout : u8 {
-    loading, // The official client's loader while the sticker is fetched.
+    loading, // Loader while the sticker is fetched.
     head,    // The picture beside its name and description (an emoji, a server sticker).
     pack,    // A standard sticker: its name, its pack and the pack's stickers.
 };

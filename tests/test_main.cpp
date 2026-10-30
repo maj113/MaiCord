@@ -506,7 +506,7 @@ void test_message_markdown() noexcept {
                spans[1].flags == text_style_strikethrough && spans[2].flags == text_style_spoiler,
            "message_markdown_combined_underline_strike_spoiler");
 
-    // The client's rules: **, __, ||, inline code and *** may open before a
+    // Rules: **, __, ||, inline code and *** may open before a
     // space; a single * and ~~ need text right after their opener.
     result = parse(utf8_literal("*** spaced ***|** b **|__ u __|` c `|* i *|~~ s ~~"));
     expect(markdown_text_equal(result, utf8_literal(" spaced | b | u | c |* i *|~~ s ~~")) &&
@@ -3764,8 +3764,8 @@ void test_message_text_presentation() noexcept {
         message_media_command_stream_initialize(&sticker_preview_stream, {sticker_preview_commands, 16}) &&
         message_presentation_build(scene, kDefaultTheme, &sticker_preview_paint, &sticker_preview_stream,
                                   &sticker_preview_result);
-    // Each sticker draws its 160 DIP square at its item's origin; no text
-    // (the official client shows no caption) and the measured item is the square.
+    // Each sticker draws its 160 DIP square at its item's origin; no caption
+    // text, and the measured item is the square.
     u32 sticker_squares = 0;
     bool sticker_squares_placed = sticker_preview_built;
     for (u32 media_index = 0; media_index < sticker_preview_stream.count; ++media_index) {

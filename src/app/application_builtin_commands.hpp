@@ -4,7 +4,7 @@
 #include "maicord/ui/geometry.hpp"
 
 namespace maicord::app_detail {
-// The official client's own "Built-in" commands, its last picker section.
+// The "Built-in" commands, the last picker section.
 // They never reach an application: text commands rewrite the message that is
 // then sent normally, /gif and /sticker show their results above the option
 // bar (a result is what gets sent), /leave asks to leave the group, /msg opens
@@ -14,7 +14,7 @@ namespace maicord::app_detail {
 inline constexpr u64 kBuiltinCommandApplication = 1;
 // The section as a command index (application "Built-in"), decoded once.
 const CommandIndex* builtin_commands_index() noexcept;
-// The client's availability rule of each command in this channel.
+// Each command's availability in this channel.
 bool builtin_command_available(const ApplicationCommand&, u64 channel_id) noexcept;
 enum class BuiltinCommandRun : u8 {
     failed,

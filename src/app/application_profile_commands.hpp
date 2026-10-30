@@ -18,7 +18,7 @@ struct ProfileCommandSet {
     // still settling) or an index on its way is asked again next time.
     bool settled;
 };
-// As the official client resolves its Commands section: the profile's popular
+// Resolves the Commands section: the profile's popular
 // command IDs, in that order, among the app's root commands loaded for the
 // selected channel (the conversation or server channel), without NSFW
 // commands or commands with subcommands. Asking starts loading a missing

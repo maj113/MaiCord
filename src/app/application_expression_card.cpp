@@ -29,7 +29,7 @@ enum class StickerView : u8 { loading, guild, premium_pack, retired_pack, unknow
 constexpr u32 kKnownStickers = 16;
 constexpr u8 kRateRetries = 2;
 constexpr u64 kLocalRateRetryMs = 1000;
-constexpr u32 kPackPreviewWindow = 4; // The official popout picks from the pack's first four.
+constexpr u32 kPackPreviewWindow = 4; // The popout picks from the pack's first four.
 
 struct Bank {
     u32 count;
@@ -217,7 +217,7 @@ void guild_section(const GuildRecord& guild, Utf8View heading, UiExpressionCardC
     }
 }
 
-// The official sentences for a custom emoji: whether it is from this server,
+// The sentences for a custom emoji: whether it is from this server,
 // one of yours or an unknown one, and whether Nitro carries it everywhere.
 Utf8View emoji_description(bool joined, bool current, bool premium) noexcept {
     if (!joined)
@@ -250,7 +250,7 @@ bool emoji_content(UiExpressionCardContent* content) noexcept {
             content->picture = media_asset_regional_flag(static_cast<u16>(e.id));
         else
             content->glyph = {c.glyph, c.glyph_bytes};
-        // The official English title keeps its joke for one emoji.
+        // The English title keeps its joke for one emoji.
         if (bytes_equal(c.name, ":pizza:", 7) && c.name_bytes == 7) {
             Text title{c.title, sizeof(c.title), 0, true};
             title.add({c.name, c.name_bytes});
@@ -484,7 +484,7 @@ bool application_expression_card_window_message(UINT message, WPARAM wparam, LPA
             application_expression_card_close();
             return true;
         }
-        // The official popout focuses its button: Enter and Space press it.
+        // The popout focuses its button: Enter and Space press it.
         if ((wparam == VK_RETURN || wparam == VK_SPACE) && c.view_pack) {
             activate(UiExpressionCardControl::button);
             return true;
@@ -495,7 +495,7 @@ bool application_expression_card_window_message(UINT message, WPARAM wparam, LPA
     case WM_SIZE:
     case WM_CANCELMODE:
     case WM_KILLFOCUS:
-        // The official emoji popouts close when their message scrolls.
+        // Emoji popouts close when their message scrolls.
         application_expression_card_close();
         return false;
     case WM_MOUSELEAVE:
@@ -536,8 +536,8 @@ bool application_expression_card_window_message(UINT message, WPARAM wparam, LPA
                 application_request_frame();
             return true;
         }
-        // Outside: the popout closes and the click still acts, as in the
-        // official client; a click on its own source only closes it.
+        // Outside: the popout closes and the click still acts; a click on its own
+        // source only closes it.
         MessageExpression under{};
         const bool source = application_message_expression_at(point, &under) &&
                             application_message_expression_same(under, c.source);

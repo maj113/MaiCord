@@ -104,10 +104,10 @@ constexpr UiMediaPickerStyle ui_media_picker_inline_style() noexcept {
     style.metrics.anchor_gap = kUiFloatingSurfaceInset;
     return style;
 }
-// The composer's inline /gif and /sticker results, as the official client's
-// autocomplete draws them above the composer: a heading, then one row of GIF
-// tiles 150 DIP high (scrolled sideways, with paging arrows) or a list of at
-// most eight 40 DIP stickers with their names and packs.
+// The composer's inline /gif and /sticker results, drawn above the composer: a
+// heading, then one row of GIF tiles 150 DIP high (scrolled sideways, with
+// paging arrows) or a list of at most eight 40 DIP stickers with their names
+// and packs.
 inline constexpr float kUiInlineResultsGifExtent = 150;
 inline constexpr float kUiInlineResultsStickerExtent = kUiMediaControlHeight;
 inline constexpr u32 kUiInlineResultsStickerLimit = 8;
@@ -390,10 +390,10 @@ bool ui_media_picker_scene_page_selection(UiMediaPickerScene*, bool reverse) noe
 // Home/End reach the row's ends, edge selection the grid's.
 bool ui_media_picker_scene_edge_selection(UiMediaPickerScene*, bool last) noexcept;
 bool ui_media_picker_scene_row_edge_selection(UiMediaPickerScene*, bool last) noexcept;
-// Inline results, as the client's autocomplete navigator: Up/Down step through
+// Inline results navigation: Up/Down step through
 // the results and wrap at either end, the selected tile scrolled into view;
 // the host clears it when the pointer moves onto a result. An arrow pages the
-// strip by 80% of its width with the client's smooth scrollBy, Chromium's
+// strip by 80% of its width with a smooth scroll, Chromium's
 // programmatic scroll curve: cubic-bezier(.4, 0, 0, 1) over
 // min(sqrt(|delta px|), 90) / 60 s, instant under reduced motion. Any other
 // scroll, a step or a new result set ends it. The selected target is the

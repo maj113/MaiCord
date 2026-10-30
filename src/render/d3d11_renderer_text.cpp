@@ -1184,8 +1184,8 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
             }
         }
     }
-    // A link chip's server without an icon shows its initials in the cell (the
-    // official acronym icon); the round plate is painted beneath the text.
+    // A link chip's server without an icon shows its initials in the cell; the
+    // round plate is painted beneath the text.
     auto& storage = *renderer->content_text;
     for (u32 i = first_region; i < storage.content_hit_region_count; ++i) {
         const TextHitRegion region = storage.content_hit_regions[i];

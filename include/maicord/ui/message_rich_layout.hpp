@@ -45,8 +45,7 @@ struct MessageReactionLayoutMetrics {
 inline constexpr MessageReactionLayoutMetrics kDefaultMessageReactionLayoutMetrics{
     80.0f, 24.0f, 4.0f, 6.0f, 2.0f, 6.0f, 0.0f, 16.0f, 4.0f};
 
-// A message's stickers, as the official client's message sticker accessory:
-// each a 160 DIP square (STICKERS_CONSTANTS_STICKER_DIMENSION) at the
+// A message's stickers: each a 160 DIP square at the
 // content's start without a caption, 4 DIPs apart (the accessories' row gap),
 // the group ending in the accessories' 2 DIP bottom padding.
 struct MessageStickerLayoutMetrics {

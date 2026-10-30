@@ -813,8 +813,8 @@ void builtin_cases() noexcept {
     popup_scene_close(&g_app.popup_scene);
     set_popup_owner(PopupOwnerKind::none);
 }
-// The bot's avatar in the channel's server comes first (the client's guild
-// member avatar), as a still WebP by URL, in the picker and the composer.
+// The bot's avatar in the channel's server comes first (its member avatar),
+// as a still WebP by URL, in the picker and the composer.
 void guild_picture_cases() noexcept {
     auto& ui = *g_app.account_ui;
     auto& composer = g_app.message_composer;
@@ -935,7 +935,7 @@ void run() noexcept {
         check(application_commands_submit(2) && operation == 1, "load user command index");
         respond(200, utf8_literal(R"({"applications":[],"application_commands":[]})"));
         {
-            // Keyboard navigation follows the client's two lists: the discovery
+            // Keyboard navigation follows two lists: the discovery
             // list (empty query) and the results of a typed query.
             const auto row_action = [](bool last) noexcept {
                 u32 action = 0;
@@ -1184,7 +1184,7 @@ void run() noexcept {
               "selecting an exact typed command preserves its existing named arguments");
         {
             refresh_message_composer_ui();
-            // The option is the client's chip: its blank and name project to the
+            // The option is a chip: its blank and name project to the
             // chip's head and the value runs to its end marker.
             const auto& scene = g_app.message_composer_scene;
             bool head = false;
@@ -1205,7 +1205,7 @@ void run() noexcept {
 
         edit(utf8_literal("/pick"));
         application_commands_key(VK_RETURN);
-        // The client sets a chosen command up with its required options as
+        // A chosen command is set up with its required options as
         // empty chips, the caret in the first: its choices list right away.
         check(utf8_equal(message_composer_text(composer), utf8_literal("/pick mode:\xE2\x81\xA3")) &&
               composer.caret == composer.bytes - 3 && g_app.popup_scene.item_count == 3 &&
@@ -1280,7 +1280,7 @@ void run() noexcept {
         check(application_commands_tick(1) && application_commands_next_wake() != 1,
               "sent commands' local messages repaint before the next picker");
         {
-            // The end marker is the client's pill end: "name:" typed inside a
+            // The end marker ends the chip: "name:" typed inside a
             // value stays text, Tab leaves the chip, a key typed after it makes
             // the next chip, and Backspace after a chip deletes its last character.
             edit(utf8_literal("/search"));
@@ -1309,7 +1309,7 @@ void run() noexcept {
                                  utf8_literal("/search query:a count\xE2\x81\xA3 count:\xE2\x81\xA3")) &&
                       composer.caret == 21,
                   "Backspace right after a chip deletes its value's last character, like the client");
-            // Back in the autocomplete option: the client's five Loading rows
+            // Back in the autocomplete option: five Loading rows
             // under the title while the suggestions are on their way.
             check(g_app.popup_scene.active && g_app.popup_scene.item_count == 6 &&
                       (g_app.popup_scene.items[0].flags & popup_item_command_section) &&
@@ -1323,8 +1323,7 @@ void run() noexcept {
         edit(utf8_literal("/search"));
         application_commands_key(VK_RETURN);
         edit(utf8_literal("/search query:old count:2"));
-        // Shift+Tab selects the previous chip's value (the client's
-        // selectPreviousCommandOption); Tab the next one, then the end.
+        // Shift+Tab selects the previous chip's value; Tab the next one, then the end.
         // Typed options get end markers: "/search query:old⁣ count:2⁣".
         check(composer.caret == 28 && application_commands_option_tab(true) && composer.anchor == 14 &&
                   composer.caret == 17 && application_commands_option_tab(false) && composer.anchor == 27 &&
@@ -1388,7 +1387,7 @@ void run() noexcept {
                              utf8_literal("text")),
               "a failed option is checked again as its value changes");
 
-        // Frequently Used: settings-proto/2 command frecency, read and saved like the client.
+        // Frequently Used: settings-proto/2 command frecency, read and saved.
         {
             static CommandFrecencyEntry seeded[2];
             u32 seeded_count = 0;
@@ -1452,7 +1451,7 @@ void run() noexcept {
                           rail_item(utf8_literal("Test")) && !rail_item(utf8_literal("All")),
                       "the rail leads with the clock, highlights the section in view and has no All entry");
                 {
-                    // The client's icon order without a bot avatar: the app's
+                    // The icon order without a bot avatar: the app's
                     // icon (app-icons), else the bot's CDN default avatar,
                     // both fetched by URL.
                     const auto url_of = [](const PopupItem* app, char (&url)[160]) noexcept {
@@ -1526,8 +1525,7 @@ void run() noexcept {
                   "a query lists ranked results under the client's title without the rail or Frequently Used");
             edit(utf8_literal("/zzzz"));
             check(!g_app.popup_scene.active, "a query matching nothing hides the results, as in the client");
-            // The client counts built-ins too (APPLICATION_COMMAND_USED before
-            // execute, keyed by the negative id): a used /shrug joins Frequently Used.
+            // Built-ins count too (keyed by the negative id): a used /shrug joins Frequently Used.
             // Five uses outrank the fixture's earlier commands.
             for (u32 use = 0; use < 5; ++use) {
                 edit(utf8_literal("/shrug"));

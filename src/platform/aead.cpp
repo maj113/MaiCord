@@ -5,7 +5,7 @@
 namespace maicord {
 
 // Runs on every packet: byte_range_valid/byte_ranges_overlap (same semantics)
-// as inlined lambdas instead of ~25 calls.
+// as inlined lambdas.
 AeadResult aead_validate(ConstSlice<u8> owner, ConstSlice<u8> storage, u32 nonce_bytes,
                          ConstSlice<u8> nonce, ConstSlice<u8> aad, ConstSlice<u8> input, Slice<u8> output,
                          ConstSlice<u8> tag, bool encrypt, u32 tag_bytes) noexcept {

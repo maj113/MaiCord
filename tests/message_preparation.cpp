@@ -124,7 +124,7 @@ void test_message_preparation(void (*check)(bool, const char*) noexcept) noexcep
           "message_preparation_reserves_unmaterialized_media_from_metadata");
 
     bool changed = false;
-    // Row 0 carries an attachment: the official accessories' 2 DIP top padding
+    // Row 0 carries an attachment: the accessories' 2 DIP top padding
     // follows its text. Row 1 is text alone and keeps 5 DIPs.
     const bool measured = message_scene_set_text_metrics(&f.scene, 0, 0, 180, true, nullptr, nullptr, {}, &changed) &&
                           message_scene_set_text_metrics(&f.scene, 1, 0, 180, true, nullptr, nullptr, {}, &changed) &&

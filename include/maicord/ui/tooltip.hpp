@@ -66,8 +66,8 @@ struct UiTooltipTarget {
     // disjoint. With an emoji the label starts beside it instead of centred.
     ConstSlice<TextStyleSpan> bold{};
     UiTooltipEmoji emoji{};
-    // A second line in the muted colour below the label (the official
-    // "Click to learn more"). With one, the label keeps to one line; an icon
+    // A second line in the muted colour below the label ("Click to learn more").
+    // With one, the label keeps to one line; an icon
     // then leads the label on its line and both lines centre.
     Utf8View detail{};
 };

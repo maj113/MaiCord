@@ -4,8 +4,8 @@
 
 namespace maicord {
 
-// The command a message answers, as the official client's command chip shows
-// it on click: GET /channels/{channel}/messages/{message}/interaction-data
+// The command a message answers, shown by the command chip on click: GET
+// /channels/{channel}/messages/{message}/interaction-data
 // returns {"id","type","name","application_command","options":[...]} for a
 // message created by an interaction (any user may read it).
 inline constexpr u32 kInteractionDataTargetBytes = 96;

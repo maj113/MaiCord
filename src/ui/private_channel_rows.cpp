@@ -64,7 +64,7 @@ UiPrivateRowStatus ui_private_row_status(const UiPrivateRowSource& source, u64 c
     const ChannelRecord* channel = nullptr;
     const auto* metadata = source.state ? record(*source.state, channel_id, &channel) : nullptr;
     if (metadata && channel->type == 3) {
-        // As the client's DM list: a group is online (and nothing else) while
+        // As in the DM list: a group is online (and nothing else) while
         // any other member's own status is online.
         const auto recipients = private_channel_store_recipients(*source.state->private_channels, *metadata);
         for (u32 i = 0; i < recipients.count; ++i)

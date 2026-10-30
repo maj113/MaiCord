@@ -81,7 +81,7 @@ UiRect footer_text(const UiMediaPickerScene& scene) noexcept {
     return {r.left + m.padding + m.footer_art + m.gap, r.top, r.right - m.padding, r.bottom};
 }
 // Inline results: the popover plate, the loading spinner, the hovered and the
-// keyboard-selected result's highlight (the client's autocomplete row fill),
+// keyboard-selected result's highlight,
 // missing-art placeholders and the GIF strip's paging arrows.
 bool paint_inline(const UiMediaPickerScene& scene, const Theme& theme, PaintStream* paint) noexcept {
     const auto panel = scene.panel;
@@ -142,7 +142,7 @@ bool paint_inline_arrows(const UiMediaPickerScene& scene, const Theme& theme, Pa
 }
 // The heading "<kind> matching **query**" (14 DIP, the query bold), then each
 // sticker row's name (16 DIP) over its "Similar to:" line and, at the row's
-// end, its pack or server (12 DIP), as the client's autocomplete rows.
+// end, its pack or server (12 DIP).
 bool text_inline(const UiMediaPickerScene& scene, const Theme& theme, UiTextOutput* output) noexcept {
     const float pad = kUiInlineResultsPadding;
     if (scene.content->phase == UiMediaPickerPhase::ready && scene.content->heading.bytes) {

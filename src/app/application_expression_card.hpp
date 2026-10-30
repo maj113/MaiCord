@@ -11,13 +11,13 @@ struct UiExpressionCardScene;
 } // namespace maicord
 
 namespace maicord::app_detail {
-// The emoji and sticker popout, as the official client opens it by clicking an
+// The emoji and sticker popout, opened by clicking an
 // emoji or a sticker in a message: beside it (right, else left), closed by
 // Escape, the wheel, a click outside (which still acts) or a second click on
 // its source.
 // - Unicode emoji and flags: the emoji, ":name:" and "A default emoji. You can
 //   use this emoji everywhere on Discord."
-// - Custom emoji: the emoji, its name and the official sentence for whether it
+// - Custom emoji: the emoji, its name and the sentence for whether it
 //   is from this server, one of yours, or an unknown one, with Nitro; a joined
 //   source server below ("This emoji is from"), linked to open it.
 // - Standard stickers: their name, "This is a <pack> sticker." (or "... They

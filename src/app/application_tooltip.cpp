@@ -438,7 +438,7 @@ bool browser_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* ta
 }
 bool gallery_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* target) noexcept {
     const auto* scene = g_app.renderer.media_picker_scene;
-    // The client's inline /gif and /sticker results carry no tooltips.
+    // Inline /gif and /sticker results carry no tooltips.
     if (!scene || !ui_media_picker_scene_current(*scene) || scene->variant == UiMediaPickerVariant::inline_results)
         return false;
     const auto handle =
@@ -618,8 +618,7 @@ bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target, UiToo
         return profile_available() && GetCapture() != g_app.window && scope &&
                (!keyboard || g_app.keyboard_focus_visible) &&
                profile_hint_target(*g_app.renderer.profile_scene, point, keyboard, scope, 0x5800u, target);
-    // The command picker's rail entries name their sections at the right
-    // (845207 `ei`: Tooltip position "right" around each section button).
+    // The command picker's rail entries name their sections at the right.
     if (g_app.popup_scene.active && g_app.popup_owner_kind == PopupOwnerKind::commands)
         return g_app.renderer_ready && scope && GetCapture() != g_app.window && !IsIconic(g_app.window) &&
                command_rail_target(point, keyboard, scope, target);

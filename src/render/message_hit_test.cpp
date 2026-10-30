@@ -160,7 +160,7 @@ bool acquire_layout(MessageHitTestCacheOwner* owner, const MessageTextCommand& c
     return true;
 }
 
-// Body text: the surfaces whose emoji the official client gives a tooltip.
+// Body text: the surfaces whose emoji get a tooltip.
 bool emoji_text(const MessageTextCommand& command) noexcept {
     switch (command.measurement_kind) {
     case MessageTextMeasurementKind::reply:

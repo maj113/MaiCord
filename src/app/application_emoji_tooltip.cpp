@@ -10,7 +10,7 @@
 
 namespace maicord::app_detail {
 namespace {
-// The official client shows expression tooltips 300 ms after the pointer enters.
+// Expression tooltips show 300 ms after the pointer enters.
 constexpr u32 kExpressionTooltipDelayMs = 300;
 // Rich tooltip: at most 272 DIPs wide, the emoji's column beside the text.
 constexpr float kEmojiTooltipMaximumWidth = 272;
@@ -218,7 +218,7 @@ bool application_emoji_tooltip_target(UiPoint point, u64 scope, UiTooltipTarget*
     const auto& scale = application_theme().scale;
     style->pointer_delay_ms = kExpressionTooltipDelayMs;
     if (e.kind == MessageExpressionKind::sticker) {
-        // The official sticker tooltip: the icon leads the name, both lines centred.
+        // The sticker tooltip: the icon leads the name, both lines centred.
         style->emoji_size = kStickerIconExtent;
         style->emoji_gap = scale.space_2 + scale.space_1;
         return true;

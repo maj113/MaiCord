@@ -10,7 +10,7 @@ void test_command_argument_editing(void (*check)(bool, const char*) noexcept) no
     if (index.command_count != 1)
         return;
     const auto& command = index.commands[0];
-    // The client's composer keys: a known option name not used yet, after a
+    // Composer keys: a known option name not used yet, after a
     // blank; its value runs to the blank before the next key.
     constexpr auto input = utf8_literal("scope:all query:hello scope:inside count:2");
     CommandArgumentSpan spans[25];
@@ -58,7 +58,7 @@ void test_command_argument_editing(void (*check)(bool, const char*) noexcept) no
               utf8_equal(spans[0].name, utf8_literal("caf\xc3\xa9")) &&
               command_arguments(index, command, unicode, &writer, &error),
           "escaped non-ASCII option names match typed UTF-8 and serialize");
-    // The client's checks (module 203779) and their messages.
+    // The checks and their messages.
     command_argument_spans(index, command, utf8_literal("count:x ratio:1 title:a size:Three flag:yes who:bob"),
                            {spans, 25});
     char message[160];
@@ -89,7 +89,7 @@ void test_command_argument_editing(void (*check)(bool, const char*) noexcept) no
               utf8_equal({reinterpret_cast<const char*>(bytes), writer.used},
                          utf8_literal(R"([{"name":"count","type":4,"value":7},{"name":"ratio","type":10,"value":0.5},{"name":"title","type":3,"value":"ab"},{"name":"size","type":4,"value":2},{"name":"flag","type":5,"value":true},{"name":"who","type":6,"value":"42"}])")),
           "typed numbers serialize as JSON numbers, choices as their values and mentions as ids");
-    // The client's number normalization (159436332): en-US group commas go,
+    // Number normalization: en-US group commas go,
     // 0x/0o/0b integers parse, and Infinity is a number outside every range.
     writer.used = 0;
     check(command_arguments(index, command, utf8_literal("count:0x0A ratio:1,000.50 title:ab"), &writer, &error) &&

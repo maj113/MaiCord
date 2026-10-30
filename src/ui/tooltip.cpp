@@ -84,8 +84,8 @@ u8 icon_slot(UiIcon icon) noexcept {
 bool has_emoji(const UiTooltipScene& scene) noexcept {
     return media_asset_key_valid(scene.emoji_media) || scene.emoji_glyph_bytes || scene.emoji_icon;
 }
-// An icon with a detail line leads the label on its own line (the official
-// sticker tooltip) instead of standing in a column beside both lines.
+// An icon with a detail line leads the label on its own line instead of
+// standing in a column beside both lines.
 bool inline_icon(const UiTooltipScene& scene) noexcept {
     return scene.emoji_icon && scene.detail_bytes && !media_asset_key_valid(scene.emoji_media) &&
            !scene.emoji_glyph_bytes;

@@ -46,13 +46,13 @@ struct CommandAttachmentPlan {
     u32 count;
 };
 // A choice the user took from an option's autocomplete suggestions: its name
-// stands in the draft, its value is sent (the client's last choices per option).
+// stands in the draft, its value is sent.
 struct CommandAcceptedChoice {
     Utf8View option, name, value;
     JsonValueKind kind;
 };
 // Builds the options array from the composer's arguments (command_argument_spans):
-// each typed value, checked like the client (command_option_check), with its
+// each typed value, checked by command_option_check, with its
 // declared wire type in definition order. A failing option sets *error to the
 // client's message. ATTACHMENT options take the channel's staged uploads (files:
 // their names in order): the one whose name the value gives, else the next unused
@@ -75,12 +75,12 @@ struct CommandInteractionFailure {
 bool command_interaction_failure(Utf8View body, Slice<u32> scratch, Slice<char> message,
                                  CommandInteractionFailure*) noexcept;
 // The end of an option chip in the composer's draft: U+2063 INVISIBLE
-// SEPARATOR after a value marks where the client's option pill ends, so text
+// SEPARATOR after a value marks where the option chip ends, so text
 // typed after it is outside the option and "name:" typed inside the value
 // stays value text. It is never sent: values exclude it.
 inline constexpr char kCommandOptionEnd[] = "\xE2\x81\xA3";
 inline constexpr u32 kCommandOptionEndBytes = 3;
-// The client's composer option (module 317681 pY): outside every option, a
+// The composer option: outside every option, a
 // known option name not used yet, followed by ':' at the start of the
 // arguments, after a blank or right after an option's end. A terminated value
 // runs to its kCommandOptionEnd; an unterminated one (text not yet turned into
@@ -97,13 +97,13 @@ struct CommandArgumentSpan {
 };
 u32 command_argument_spans(const CommandIndex&, const ApplicationCommand&, Utf8View arguments,
                            Slice<CommandArgumentSpan> output) noexcept;
-// The client's check of one option value (module 203779): an absent option
+// The check of one option value: an absent option
 // passes unless required; an empty one passes while allow_empty (a command being
 // set up). Returns the message to show, empty on success; range messages are
 // formatted into message. accepted maps autocomplete choice names to values.
 Utf8View command_option_check(const CommandIndex&, JsonValue option, bool present, Utf8View value, bool allow_empty,
                               Slice<char> message, ConstSlice<CommandAcceptedChoice> accepted = {}) noexcept;
-// The client's choice ranking (queryChoice): 10 for the whole name, 7 for a
+// Choice ranking: 10 for the whole name, 7 for a
 // prefix, 5 for a substring, 3 when every word of the query occurs, 1 for a
 // subsequence, else 0 (dropped). ASCII letters compare case-insensitively.
 u32 command_choice_score(Utf8View name, Utf8View query) noexcept;
@@ -123,7 +123,7 @@ void command_suggestions_release(CommandSuggestions*) noexcept;
 
 // Command frecency inside the FRECENCY_AND_FAVORITES settings proto
 // (settings-proto/2): application_command_frecency = 7, a map<string,
-// FrecencyItem> application_commands = 1 keyed like the official client: the
+// FrecencyItem> application_commands = 1 keyed by the
 // command id, "\0group" and "\0sub" for subcommands, and ":<guild>" for a
 // server's own commands used there. FrecencyItem: total_uses = 1, recent_uses
 // = 2 (packed unix ms), frecency = 3, score = 4.
@@ -142,7 +142,7 @@ struct CommandFrecencyEntry {
 // extracted groups (64 KiB suffices for 500 entries).
 bool command_frecency_decode_response(Utf8View body, Slice<u8> scratch, Slice<CommandFrecencyEntry> entries,
                                       u32* count, u32* data_version) noexcept;
-// The client's frecency at now: each recent use weighs 100/70/50/30/10/1 by
+// The frecency at now: each recent use weighs 100/70/50/30/10/1 by
 // age in whole days (up to 3/15/30/45/80/older) times 1%; frecency is
 // ceil(total_uses * score / recent uses). Entries without a score are dropped;
 // score is kept in hundredths. Returns the remaining count.
@@ -156,8 +156,7 @@ u32 command_frecency_write_patch(ConstSlice<CommandFrecencyEntry> entries, u32 d
                                  Slice<u8> json) noexcept;
 // Accepts only such a body (root field 7 alone).
 bool command_frecency_patch_valid(Utf8View json) noexcept;
-// Uses not yet saved, kept on disk as the client persists them
-// (ApplicationCommandFrecencyV2 pendingUsages {key, timestamp}) so a restart
+// Uses not yet saved, kept on disk so a restart
 // replays them over the next fetched copy. A record: "MCCF", version 1, the
 // count, each use (unix ms u64 LE, key length, key), and a 32-bit hash.
 inline constexpr u32 kCommandFrecencyPendingUses = 16;

@@ -610,7 +610,7 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                                        theme.text_secondary, stream, kLookLine)))
             return reject(stream);
         // The option bar: the name in the strong face, then its detail muted
-        // (a failed check in the danger colour), 8 DIPs apart (811559 commandInfo).
+        // (a failed check in the danger colour), 8 DIPs apart.
         const Utf8View bar_name = message_composer_scene_command_bar_name(*composer_scene);
         if (bar_name.bytes) {
             const auto* bar = ui_widget_manager_layout_node(composer_scene->widgets, composer_scene->command_bar);

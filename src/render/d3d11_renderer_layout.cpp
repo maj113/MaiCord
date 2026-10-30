@@ -163,7 +163,7 @@ bool paint_chip_icons(D3D11Renderer* renderer, const Theme& theme, bool search) 
                             : (semantic.reserved & kMessageMarkdownChipHovered) ? theme.tokens.emphasis.text
                                                                                  : normal;
         if (icon == MessageMarkdownChipIcon::pending_dots) {
-            // The client's three dots, stepping on the message scene's dots clock.
+            // Three dots, stepping on the message scene's dots clock.
             const float x = (region.left + region.right - kUiTypingDotsWidth) * .5f;
             const UiRect dots{x, region.top, x + kUiTypingDotsWidth, region.bottom};
             const UiRect dots_clip = search ? ui_search_scene_content_clip(*renderer->search_scene, dots)
@@ -640,8 +640,7 @@ bool queue_chip_guild_icons(D3D11Renderer* renderer, bool search) noexcept {
     return true;
 }
 
-// The round plate under a chip server's initials (the official noIcon
-// background); the text pass draws the initials over it.
+// The round plate under a chip server's initials; the text pass draws them over it.
 bool paint_chip_initial_plates(D3D11Renderer* renderer, const Theme& theme, bool search) noexcept {
     if (!renderer->content_text || (!search && !renderer->message_scene) || (search && !renderer->search_scene))
         return true;
@@ -1244,7 +1243,7 @@ bool queue_message_media(D3D11Renderer* renderer, const Theme& theme,
         const UiRect quad = message_media_picture_rectangle(command, allocation.width, allocation.height, playing_embed);
         const UiRect quad_clip = command.cover || playing_embed
             ? ui_rect_intersection(command.clip, command.rectangle) : command.clip;
-        // The official framing: a message attachment rounds 8 DIP, embed
+        // Framing: a message attachment rounds 8 DIP, embed
         // media 4 DIP; grid and gallery tiles keep their own mask.
         const float radius = command.ordinary_video ? UiVideoSceneStyle{}.preview_radius
                              : command.tile_radius || command.cover ? 0.f

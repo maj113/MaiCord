@@ -20,11 +20,11 @@ namespace maicord::app_detail {
 
 bool application_media_picker_open(UiMediaPickerKind kind) noexcept;
 // The composer's Stickers tab scrolled to a pack once it has loaded (the
-// sticker popout's View More Stickers, as the official client opens it).
+// sticker popout's View More Stickers).
 bool application_media_picker_open_sticker_pack(u64 pack_id) noexcept;
 // The composer's inline /gif strip or /sticker list for query, above anchor
 // (the commands popup, else the composer); it lasts while the command's option
-// bar shows. The client's integration results: a 300 ms debounced GET
+// bar shows. Results: a 300 ms debounced GET
 // /gifs/search (animated WebP, 20 results; a query answered this session
 // shows again without a request), or the eight best sendable stickers. An
 // empty query hides them; the open expression picker suppresses them.

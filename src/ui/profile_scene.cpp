@@ -1212,7 +1212,7 @@ float biography(ProfileScene* s, UiWidgetHandle owner, float left, float top, fl
     if (!bio.bytes)
         return 0;
     float height = maximum(18.f, size.size.height);
-    // The client clamps the bio to three lines (-webkit-line-clamp: 3), the
+    // The bio is clamped to three lines, the
     // third ending in an ellipsis when more follows. Without line counts
     // (no measure cache) three text-sm lines stand in.
     const u32 lines = size.line_count;
@@ -1375,7 +1375,7 @@ bool layout_popout(ProfileScene* s, const UiRect& viewport) noexcept {
         // The peek paints only below the first card, so its order is free.
         section(h + (peek && h > 0 ? 8.f : 0.f));
     }
-    // The client's bot popout lists its Commands after the bio, before roles.
+    // A bot popout lists its Commands after the bio, before roles.
     section(commands_section(s, s->body, x0, y, content));
     section(roles(s, s->body, x0, y, content, true));
     section(plugin_section(s, s->body, x0, y, content));
@@ -1592,8 +1592,7 @@ float modal_buttons(ProfileScene* s, UiWidgetHandle owner, float left, float top
 void tab_panel(ProfileScene* s, const UiRect& panel, float bottom_pad, const u8* order, u32 cards) noexcept {
     const auto& p = *s->profile;
     auto& l = labels(s);
-    // Activity, then the mutual lists: a bot has servers only (as the
-    // client's bot profile), the signed-in user none.
+    // Activity, then the mutual lists: a bot has servers only, the signed-in user none.
     Utf8View titles[3]{utf8_literal("Activity")};
     ProfileAction actions[3]{ProfileAction::activity};
     u32 count = 1;
@@ -1723,7 +1722,7 @@ bool layout_modal(ProfileScene* s, const UiRect& viewport) noexcept {
     section(notices(s, s->body, cp, y, content, true));
     section(interactive(*s) ? modal_buttons(s, s->body, cp, y) : 0.f);
     section(biography(s, s->body, cp, y, content, false));
-    // The client's bot info: the bio, its Commands, then Created On.
+    // Bot info: the bio, its Commands, then Created On.
     section(commands_section(s, s->body, cp, y, content));
     section(member_since(s, s->body, cp, y, content));
     if (s->profile->guild_id && s->state) {
@@ -1768,7 +1767,7 @@ float commands_section(ProfileScene* s, UiWidgetHandle owner, float left, float 
     const u32 count = minimum<u32>(s->commands.count, kProfileCommandMaximum);
     if (!count || !bot(*s))
         return 0;
-    // The client's Commands section keeps the default heading colour.
+    // The Commands section keeps the default heading colour.
     const float h = heading(s, owner, left, top, width, utf8_literal("Commands"));
     auto& l = labels(s);
     float x = left, y = top + h;
@@ -1792,7 +1791,7 @@ float commands_section(ProfileScene* s, UiWidgetHandle owner, float left, float 
     }
     return y + 32 - top;
 }
-// The DM profile panel (the official user profile sidebar redesign): a card
+// The DM profile panel: a card
 // inset in its slot (anchor), blocks 20 apart 16 from the sides, the body
 // scrolling between the header and the "View Full Profile" bar. Geometry
 // below is relative to the card's inside (within its border).
@@ -1839,7 +1838,7 @@ bool layout_panel(ProfileScene* s, const UiRect& viewport) noexcept {
     section(commands_section(s, s->body, x0, y, content));
     section(plugin_section(s, s->body, x0, y, content));
     const float body_content = y > 0 ? y - 20 + 16 : 16;
-    // "View Full Profile": a full-width bar, no rule above it (as the client).
+    // "View Full Profile": a full-width bar, no rule above it.
     blank(s, s->panel, {8, footer_top + 6, W - 8, H - 6}, ProfileAction::expand, ProfileLook::row);
     constexpr auto label = utf8_literal("View Full Profile");
     const float label_width = text_width(s, label, W - 32, kSm | text_style_bold) + 1;

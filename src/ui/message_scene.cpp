@@ -519,7 +519,7 @@ float desired_content_height(const Scene& scene, const MessageSceneRowWidget& ro
     return row.text_measured ? row.measured_content_height : content_height(scene);
 }
 
-// Space after the message text: the official accessories container's 2 DIP
+// Space after the message text: the accessories container's 2 DIP
 // top padding when attachments, embeds, stickers, components, invites,
 // reactions, a notice, a thread, a poll or a forwarded message follow; 5 DIPs
 // under text alone.

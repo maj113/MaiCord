@@ -302,8 +302,7 @@ void describe_channel(void*, const UiWidgetManager&, UiWidgetHandle handle, cons
     info->name = g_name.view();
 }
 
-// A message sticker draws no caption; like the official client's sticker
-// image it is named "Sticker, <name>".
+// A message sticker draws no caption; its image is named "Sticker, <name>".
 void describe_sticker(const MessageScene& scene, const MessageSceneRowWidget& row, UiWidgetHandle handle,
                       UiAccessWidgetInfo* info) noexcept {
     if (!g_app.account_ui)
@@ -483,7 +482,7 @@ void describe_popup(void*, const UiWidgetManager&, UiWidgetHandle handle, const 
             }
         info->name = g_name.view();
         // The command picker's section headers and query title are headings;
-        // its rail entries are the client's labelled section buttons.
+        // its rail entries are labelled section buttons.
         if (item.flags & popup_item_command_section) {
             info->role = UiAccessRole::header;
             info->actions = ui_access_action_none;

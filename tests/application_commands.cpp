@@ -74,7 +74,7 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
                   !app_detail::builtin_command_request(2, 55, 9, {}, 5, {target, sizeof(target)}).target.count,
               "built-in requests need their server or channel and a built-in operation");
     }
-    // The official client's body: key order, guild only in servers, the
+    // The request body: key order, guild only in servers, the
     // analytics location on executions and never on autocomplete.
     u8 written_body[512];
     struct BodyCase {
@@ -316,7 +316,7 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
               row.row->rectangle.top < row.clip_rectangle.top,
           "command_rail_and_rows_clip_independently_at_fractional_scroll");
     {
-        // The client's discovery browser: a 420-DIP panel, 32-DIP rail icons
+        // The discovery browser: a 420-DIP panel, 32-DIP rail icons
         // from 16 DIPs down 40 apart (8 more before Built-in after an app),
         // 32-DIP section headers and 56-DIP rows inset 8, sections 16 apart.
         PopupItem picker[] = {
@@ -415,7 +415,7 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
         const PopupItem clock_only[] = {picker[0], picker[2], picker[8]};
         check(rail_divider({picker, 9}) && !rail_divider({clock_only, 3}),
               "Built-in's rail divider shows after an app, and only the gap after Frequently Used");
-        // Loading: the client's skeleton rows draw bars and no text.
+        // Loading: skeleton rows draw bars and no text.
         PopupItem loading[] = {{utf8_literal("COMMANDS MATCHING /B"), 30, popup_item_command_section},
                                popup_placeholder_row(31, 0, popup_item_command_row),
                                popup_placeholder_row(32, 1, popup_item_command_row)};

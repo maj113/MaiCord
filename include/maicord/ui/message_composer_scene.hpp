@@ -24,7 +24,7 @@ inline constexpr u32 kMessageComposerProjectionSpanCapacity = 128;
 inline constexpr u32 kMessageComposerReplyLabelBytes = 256;
 inline constexpr u32 kMessageComposerPlaceholderBytes = 512;
 inline constexpr u32 kMessageComposerCommandBarBytes = 1536;
-// The client's slash command option bar, stacked over the editor like the reply bar.
+// The slash command option bar, stacked over the editor like the reply bar.
 inline constexpr float kMessageComposerCommandBarHeight = 32.0f;
 
 enum class MessageComposerProjectionKind : u8 {
@@ -34,7 +34,7 @@ enum class MessageComposerProjectionKind : u8 {
     emoji,
     regional_flag,
     // A slash command option's "name:" key (with its separating blank, if
-    // any), drawn as the head of the client's option chip (target:
+    // any), drawn as the head of the option chip (target:
     // message_composer_chip_*).
     command_option,
     // The end marker of an option's value (kCommandOptionEnd): the chip's end
@@ -74,11 +74,10 @@ struct MessageComposerProjectionContext {
     // Replaces the "Message #channel" placeholder while non-empty.
     Utf8View placeholder_override{};
     MessageComposerCommand command{};
-    // The selected command's typed options, in source order, drawn as the
-    // client's option chips.
+    // The selected command's typed options, in source order, drawn as option chips.
     u32 option_chip_count{};
     MessageComposerOptionChip option_chips[25]{};
-    // The client's option bar over the editor while a command is selected:
+    // The option bar over the editor while a command is selected:
     // the active option's name and description (its failed check instead when
     // error), else "/command" and its description. Empty name: no bar.
     Utf8View command_bar_name{}, command_bar_detail{};

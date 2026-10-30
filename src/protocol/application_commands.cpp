@@ -260,7 +260,7 @@ bool command_data(const ApplicationCommand& command, Utf8View options, ProtocolW
                   Utf8View attachments) noexcept {
     if (!w || !command.id || !command.version || !command.root_name.bytes || !options.bytes)
         return false;
-    // The official client's order: version, id, guild_id, name, type, options,
+    // The key order: version, id, guild_id, name, type, options,
     // application_command, then the staged attachments.
     if (!protocol_writer_append_literal(w, "{\"version\":\"") ||
         !protocol_writer_append_u64(w, command.version) ||
@@ -372,7 +372,7 @@ bool load_schema(const CommandIndex& index, const ApplicationCommand& command, A
 bool blank(char c) noexcept {
     return c == ' ' || c == '\t' || c == '\r' || c == '\n';
 }
-// The client trims option text (String.trim) before using it.
+// Option text is trimmed before use.
 Utf8View trimmed(Utf8View input, u32 first, u32 last) noexcept {
     while (first < last && blank(input.data[first]))
         ++first;
@@ -452,7 +452,7 @@ bool match_choice(void* opaque, u32, JsonValue choice) noexcept {
     }
     return true;
 }
-// The choice whose display name is exactly value (the client's $7/Bk), or none.
+// The choice whose display name is exactly value, or none.
 bool find_choice(const JsonIndexedDocument& doc, JsonValue option, Utf8View value, JsonValue* output) noexcept {
     const auto choices = field(doc, option, "choices");
     if (choices.kind != JsonValueKind::array || !value.bytes)
@@ -469,8 +469,8 @@ const CommandAcceptedChoice* accepted_choice(ConstSlice<CommandAcceptedChoice> a
             return accepted.data + n;
     return nullptr;
 }
-// A typed number as the client reads it: Number(normalizeNumericString(text))
-// with the en-US group separator ',' dropped. Decimal literals (sign, digits,
+// A typed number as JavaScript's Number() reads it, with the en-US group
+// separator ',' dropped. Decimal literals (sign, digits,
 // fraction, exponent), unsigned 0x/0o/0b integers and a signed Infinity.
 struct NumberText {
     double value;
@@ -591,7 +591,7 @@ Utf8View join(Slice<char> output, Utf8View a, Utf8View b = {}, Utf8View c = {}, 
     }
     return {output.data, used};
 }
-// The client's per-type message for a value that does not check out (73510 tE).
+// The per-type message for a value that does not check out.
 Utf8View invalid_text(const JsonIndexedDocument& doc, JsonValue option, u64 type) noexcept {
     if (field(doc, option, "choices").kind == JsonValueKind::array)
         return utf8_literal("Not a valid choice.");
@@ -898,7 +898,7 @@ bool command_arguments(const CommandIndex& index, const ApplicationCommand& comm
             NumberText number{};
             parse_number(value, &number);
             u32 used = 0;
-            // The client sends the Number itself: whole values as integers.
+            // Numbers are sent as JSON numbers: whole values as integers.
             if (safe_integer(number.value)) {
                 used = decimal_write_signed(number_text, static_cast<i64>(number.value));
             } else {
@@ -1036,7 +1036,7 @@ bool form_error_member(void* opaque, JsonString name, JsonValue value) noexcept 
     if (walk.descended || json_string_equals_utf8(name, utf8_literal("_errors")) ||
         (value.kind != JsonValueKind::object && value.kind != JsonValueKind::array))
         return true;
-    // Like the official client, follow only the first nested container.
+    // Follow only the first nested container.
     walk.descended = true;
     first_form_error(*walk.document, value, walk.depth + 1, walk.entry);
     return true;
@@ -1264,7 +1264,7 @@ void command_frecency_track(Slice<CommandFrecencyEntry> entries, u32* count, Utf
     if (found < 0) {
         u32 slot = *count;
         if (slot == entries.count) {
-            // Like the client's save, the least recently used entry goes first.
+            // The least recently used entry goes first.
             slot = 0;
             for (u32 n = 1; n < *count; ++n)
                 if (last_use(entries[n]) < last_use(entries[slot]))

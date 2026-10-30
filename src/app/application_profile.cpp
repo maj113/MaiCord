@@ -388,7 +388,7 @@ bool activate(ProfileAction action, UiWidgetHandle target = {}) noexcept {
         // A bot's tabs are Activity and Mutual Servers.
         return show_modal(*p, s.self_id == p->data.user_id ? 0 : p->data.user_appearance.bot ? 1 : 2);
     case ProfileAction::command: {
-        // As the client: the chip closes the profile, then fills the composer
+        // The chip closes the profile, then fills the composer
         // (closing keeps the profile's data).
         const u16 index = part ? part->source : 0xFFFF;
         if (index >= p->commands.count)

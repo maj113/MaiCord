@@ -81,8 +81,7 @@ void test_media_catalog(void (*check)(bool, const char*) noexcept) noexcept {
             !media_catalog_write_target(query, {target, sizeof(target)}).ok() && target[0] == 0x55,
             "media catalog: unsupported provider result counts fail atomically before request submission");
     }
-    // The composer's inline /gif strip: the client's integration search
-    // (all.js @16137249) asks for animated WebP and 20 results.
+    // The composer's inline /gif strip asks for animated WebP and 20 results.
     query.limit = kMediaCatalogMinimumGifPageItems;
     query.format = MediaCatalogFormat::webp;
     query.query = utf8_literal("dap");
@@ -138,7 +137,7 @@ void test_media_catalog(void (*check)(bool, const char*) noexcept) noexcept {
     check(!media_catalog_write_target(query, {target, sizeof(target)}).ok(),
           "media catalog: absent guild identity never routes to a foreign catalog");
     // The emoji/sticker popout's lookups: one sticker, one pack, each by ID
-    // without a locale, as the official client requests them.
+    // without a locale.
     query.operation = MediaCatalogOperation::sticker;
     query.object_id = 749054660769218631;
     written = media_catalog_write_target(query, {target, sizeof(target)});

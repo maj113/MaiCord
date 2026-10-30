@@ -1,7 +1,6 @@
-// Link chips follow the official client's markdown rules: CDN attachment URLs
-// become a paperclip chip with the file name (attachmentLink), and /channels/
-// URLs and <#id> references become channel, server and message chips
-// (channelOrMessageUrl, channelMention). Icon cells are measured spaces that
+// Link chips: CDN attachment URLs become a paperclip chip with the file name,
+// and /channels/ URLs and <#id> references become channel, server and message
+// chips. Icon cells are measured spaces that
 // keep their icon on the label's line; the renderer draws the icons.
 #include "maicord/ui/message_markdown.hpp"
 #include "maicord/ui/message_text_presentation.hpp"
@@ -423,7 +422,7 @@ bool view_contains(Utf8View text, Utf8View needle) noexcept {
 }
 
 // An attachment chip whose signature expires within the hour is refreshed
-// with the official request before it is opened or copied.
+// with a refresh request before it is opened or copied.
 void test_refresh_request(Check check) noexcept {
     const Utf8View expired = utf8_literal(
         "https://cdn.discordapp.com/attachments/7/70/report.pdf?ex=6ae4d1df&is=6ae3805f&hm="

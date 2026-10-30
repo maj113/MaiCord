@@ -494,8 +494,8 @@ bool inline_row(const UiMediaPickerScene& scene, Utf8View name, Utf8View note, U
     }
     return named && noted && sourced;
 }
-// The composer's /gif strip and /sticker list (the client's integration
-// autocomplete): request, first-result selection, keys, pointer and sends.
+// The composer's /gif strip and /sticker list: request, first-result
+// selection, keys, pointer and sends.
 void test_inline_results(ApplicationMediaPicker& p) noexcept {
     auto& ui = *g_app.account_ui;
     const UiRect anchor{320, 560, 1280, 610};
@@ -562,7 +562,7 @@ void test_inline_results(ApplicationMediaPicker& p) noexcept {
           "inline results: a sent GIF ends the command and closes the strip");
     check(p.kind == composer_kind && utf8_equal(message_composer_text(p.edit), {kept, kept_bytes}),
           "inline results: the expression picker keeps its tab and query");
-    // The session keeps each query's results, as the client's IntegrationQueryStore.
+    // The session keeps each query's results.
     const auto open_strip = [&]() noexcept {
         return application_media_picker_inline(UiMediaPickerKind::gif, utf8_literal("dap"), anchor) &&
                application_media_picker_synchronize() && p.phase == UiMediaPickerPhase::ready;
@@ -643,7 +643,7 @@ void test_inline_results(ApplicationMediaPicker& p) noexcept {
           "inline results: they outlast a hidden commands list and close with the command's option bar");
     command_bar = true;
     g_app.popup_scene.active = true;
-    // /sticker: the eight best sendable stickers by the client's field scores.
+    // /sticker: the eight best sendable stickers by field scores.
     application_media_picker_gateway(sticker_update(7, guild_body), guild_body);
     const bool listed = application_media_picker_inline(UiMediaPickerKind::sticker, utf8_literal("wave"), anchor) &&
                         p.inline_mode && p.kind == UiMediaPickerKind::sticker;

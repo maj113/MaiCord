@@ -491,8 +491,7 @@ struct FoldedSpans {
 
 // The one front end of shaping (output) and measurement (measure): both see
 // the same hidden ignorables, folded styles and fallback substitutes, so
-// measured and drawn text agree. Forced inline into both entries: through a
-// shared call, measurement ran about 10% slower in the text benchmark.
+// measured and drawn text agree. Forced inline into both entries.
 __forceinline TextShapeResult text_layout_utf8(TextSystem* system, Utf8View source,
                                                ConstSlice<TextStyleSpan> sized_styles, ConstSlice<TextHitSpan> hits,
                                                float maximum_width, float maximum_height,

@@ -821,7 +821,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
             !shell_presentation_paint_reply_mention(*composer_scene, theme, stream))
             return false;
     }
-    // The client's option bar, stacked over the editor like the reply bar,
+    // The option bar, stacked over the editor like the reply bar,
     // with its close button.
     if (message_composer_scene_command_bar_name(*composer_scene).bytes) {
         const auto* bar = ui_widget_manager_layout_node(composer_scene->widgets, composer_scene->command_bar);
@@ -844,7 +844,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                                                                  : theme.text_primary,
                               kUiTypingDotsRest))
         return false;
-    // The selected command's option chips (the client's optionPill, r4, 1 DIP
+    // The selected command's option chips (1 DIP
     // border): the value segment frames the chip and the name segment sits on
     // its leading end. The active chip's border is the focus colour, a chip
     // that failed its check the danger colour.

@@ -119,7 +119,7 @@ void p256_release(P256Key* key) noexcept {
     reset_value(key);
 }
 // A system-RNG scalar in [1,n) imported as a private key: CNG derives the public
-// point once, where BCryptFinalizeKeyPair also self-tests the pair (twice the time).
+// point once, where BCryptFinalizeKeyPair also self-tests the pair.
 P256Result p256_generate(P256Key* key, P256Kind kind) noexcept {
     if (!key || key->handle)
         return {0, 0, P256Error::invalid_input};

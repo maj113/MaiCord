@@ -235,7 +235,7 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
     sticker.emoji.icon = static_cast<UiIcon>(static_cast<u32>(UiIcon::count) + 1);
     ui_tooltip_offer(&scene, sticker, viewport, UiTooltipTrigger::pointer, 4600, sticker_style);
     check(!scene.visible && !scene.pending, "tooltip sticker: an unknown icon is rejected");
-    // The official sticker tooltip: icon and name on one line over the grey
+    // The sticker tooltip: icon and name on one line over the grey
     // "Click to learn more", both lines centred.
     sticker.emoji = sticker_icon;
     sticker.detail = utf8_literal("Click to learn more");

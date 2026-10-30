@@ -48,7 +48,7 @@ struct Machine {
         return SfntStatus::malformed;
     }
     // Zone pointers only ever hold 0 (twilight) or 1 (glyph): SZP* reject other values. Out of line:
-    // inlined at every point operand it costs about 850 bytes for no measurable speed.
+    // inlining at every point operand adds size for no speed.
     __declspec(noinline) TtPoint* point(u32 zone,i32 index) noexcept {if(index<0)return nullptr;const auto points=zone?s.glyph:s.twilight;return static_cast<u32>(index)<points.count?points.data+index:nullptr;}
     bool project(const TtPoint& p,bool original,i32* value) noexcept {const auto& g=s.graphics;const i16 x=original?g.dual_x:g.projection_x,y=original?g.dual_y:g.projection_y;
         const i64 v=projected_product(static_cast<i64>(original?p.original_x:p.x)*x,16384)+projected_product(static_cast<i64>(original?p.original_y:p.y)*y,16384);if(!fits(v))return false;*value=static_cast<i32>(v);return true;}

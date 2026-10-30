@@ -808,7 +808,7 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
     check(crowded, "profile_hundred_friends_paint_without_spending_clips_on_offscreen_rows");
     paint_stream_release(&profile_paint);
     profile_scene_release(&scene);
-    // The APP tag (the client's bot tag): 16 tall, 4 padding, a verified app's
+    // The APP tag (a bot tag): 16 tall, 4 padding, a verified app's
     // 16 DIP check 2 into the padding, the brand fill and no border.
     UiBadgeWidget plain{}, verified{};
     ui_app_badge(&plain, 0);

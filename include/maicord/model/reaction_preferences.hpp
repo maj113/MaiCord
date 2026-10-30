@@ -27,7 +27,7 @@ enum class ReactionPreferenceKind : u8 {
     message,
 };
 inline constexpr u32 kReactionPreferenceKindCount = 2;
-// The client's Frecency.computeWeight (all.js 283047) for one recent use:
+// The client's weight for one recent use:
 // 100 within 3 days, then 70, 50, 30 and 10 up to 15, 30, 45 and 80 days, else 1.
 u16 frecency_age_weight(u64 now_ms, u64 timestamp_ms) noexcept;
 

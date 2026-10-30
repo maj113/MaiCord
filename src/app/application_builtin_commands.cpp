@@ -198,7 +198,7 @@ bool permitted(const ChannelRecord* channel, PermissionSet required) noexcept {
     return channel && channel->guild_id && channel->permissions_resolved &&
            permission_has(channel->effective_permissions, required);
 }
-// /kick, /ban and /timeout: the client's canManageUser gate, then the action
+// /kick, /ban and /timeout: the permission gate, then the action
 // on the lane, or its refusal notice at once.
 bool moderate(Action action, const Options& options, u64 channel_id) noexcept {
     const auto* channel = application_channel_record(channel_id);
@@ -303,7 +303,7 @@ BuiltinCommandRun builtin_command_run(const ApplicationCommand& command, Utf8Vie
     case gif:
     case sticker:
         // The client's integration commands send only a chosen result; Enter
-        // shakes the app and keeps the draft (all.js @108589682).
+        // shakes the app and keeps the draft.
         return BuiltinCommandRun::rejected;
     case leave: {
         bool silent = false;
@@ -312,8 +312,7 @@ BuiltinCommandRun builtin_command_run(const ApplicationCommand& command, Utf8Vie
                                                                       : BuiltinCommandRun::failed;
     }
     case msg: {
-        // As the client: open the DM (it becomes the selected conversation),
-        // then send there.
+        // Open the DM (it becomes the selected conversation), then send there.
         const u64 user = option_number(options, utf8_literal("user"));
         clear_message();
         if (!user || !hold_message(message, channel_id))
@@ -342,8 +341,8 @@ BuiltinCommandRun builtin_command_run(const ApplicationCommand& command, Utf8Vie
                  protocol_writer_append_byte(&body, '}');
         } else {
             char name_storage[512];
-            // The client's body: name, a public thread, the channel's default
-            // archive duration (three days unless set, 268761 Gl) and the location.
+            // The request body: name, a public thread, the channel's default archive
+            // duration (three days unless set) and the location.
             ok = protocol_writer_append_literal(&body, "{\"name\":") &&
                  protocol_writer_append_json_string(
                      &body, option_text(options, utf8_literal("name"), {name_storage, sizeof(name_storage)})) &&

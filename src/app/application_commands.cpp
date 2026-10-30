@@ -39,26 +39,25 @@ constexpr u32 choose_base = 100000, rail_base = 200000, option_base = 300000, va
 // Local plugin commands, ordered as application_plugins_commands returns them.
 constexpr u32 plugin_base = 500000;
 constexpr u32 clear_selection = choose_base - 3;
-// The picker's sections: MaiCord's local plugin commands, the client's
-// Frequently Used, each app (by name) and Built-in last.
+// The picker's sections: MaiCord's local plugin commands, Frequently Used, each
+// app (by name) and Built-in last.
 enum class SectionKind : u8 { plugins, frequent, app, builtin };
 struct Section {
     const CommandApplication* app; // null for plugins and Frequently Used
     u32 first, count;              // rows in entries (plugins: the local list)
-    u32 placeholders;              // loading rows after them (the client's skeletons)
+    u32 placeholders;              // loading rows after them
     SectionKind kind;
 };
 constexpr u32 plugin_rows = 8;
 // The lane's built-in request (the API operation is the action's own).
 constexpr u8 builtin_operation = 9;
 constexpr u32 no_row = ~0u;
-// The query results' size cap (the client's limit) and the scroll-spy's lead.
+// The query results' size cap and the scroll-spy's lead.
 constexpr u32 query_limit = 20;
 constexpr float spy_lead = 20;
-// While an index loads the client shows seven placeholder rows in discovery
-// (845207 `ed` placeholderCount) and three after query results (type B).
+// While an index loads, discovery shows seven placeholder rows and query results three.
 constexpr u32 discovery_placeholder_rows = 7, query_placeholder_rows = 3;
-// The official client's local command message ("<user> used <command>") while
+// The local command message ("<user> used <command>") while
 // the interaction is sent, created, and when it fails.
 constexpr auto echo_sending = utf8_literal("Sending command...");
 constexpr auto echo_no_response = utf8_literal("The application did not respond");
@@ -103,7 +102,7 @@ struct Commands {
     CommandAutocomplete autocomplete;
     u64 issued_nonce, nonce_serial;
     bool suggestions_dirty, echo_dirty;
-    // The option chip the caret is in (the client's active option): its
+    // The option chip the caret is in (the active option): its
     // definition, slot and raw value range in the draft; no_option outside.
     JsonValue focused_option;
     u32 focused_slot, value_begin, value_end, choice_count;
@@ -113,7 +112,7 @@ struct Commands {
     char choice_names[25][512];
     u32 choice_bytes[25];
     bool choice_suggested;
-    // The client's option states: each option's last check (empty error when
+    // Option states: each option's last check (empty error when
     // it passed or never ran) and its value when last seen; the active option
     // at the previous sync is checked once the caret leaves it.
     struct OptionState {
@@ -122,7 +121,7 @@ struct Commands {
         char message[160];
     } option_states[25];
     u32 previous_slot;
-    // Autocomplete choices taken, one per option (the client's last choices).
+    // Autocomplete choices taken, one per option.
     CommandAcceptedChoice accepted[25];
     char accepted_text[25][3][512];
     u32 accepted_count;
@@ -154,7 +153,7 @@ struct Commands {
     bool loaded[2], sending, queued, catalog_dirty, indexing_retry;
     float offset, rail_offset;
     // The keyboard selection (no_row: none, as after the pointer hovers a row).
-    // An empty query is the client's discovery list (no initial selection,
+    // An empty query is the discovery list (no initial selection,
     // arrows stop at the ends); a typed query and the option lists wrap.
     // rail_focus is the rail section the keyboard moved into (no_row: none).
     u32 keyboard_row, option_count, rail_focus;
@@ -188,7 +187,7 @@ Commands* ensure_commands() noexcept {
             VirtualAlloc(nullptr, sizeof(Commands), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     return commands;
 }
-// Command frecency (settings-proto/2), as the official client keeps it: uses
+// Command frecency (settings-proto/2): uses
 // are tracked locally, saved a few seconds later and replayed over a fresh
 // copy until a save confirms them. Allocated with the first picker or use.
 constexpr u32 frecency_pending_uses = kCommandFrecencyPendingUses, frequently_shown = 5, frequently_ranked = 100;
@@ -205,8 +204,7 @@ struct Frecency {
     u8 json[96 * 1024];
 };
 Frecency* frecency;
-// Unsaved uses outlive a restart, as the client persists its pendingUsages
-// (26909 ApplicationCommandFrecencyV2): one small file per account profile.
+// Unsaved uses outlive a restart: one small file per account profile.
 bool frecency_store_path(u64 profile, wchar_t* path, u32 capacity) noexcept {
     if (!profile)
         return false;
@@ -254,7 +252,7 @@ Frecency* ensure_frecency() noexcept {
 bool frecency_current() noexcept {
     return frecency && frecency->loaded && frecency->revision == g_app.account.status.frecency_settings_revision;
 }
-// The client's key: a built-in's negative id; otherwise the id, "\0group",
+// The frecency key: a built-in's negative id; otherwise the id, "\0group",
 // "\0sub", and ":<guild>" for a server's own command used in that server.
 Utf8View frecency_key(const ApplicationCommand& command, u64 guild, Slice<char> output) noexcept {
     ProtocolWriter w{{reinterpret_cast<u8*>(output.data), output.count}, 0};
@@ -337,8 +335,8 @@ bool frecency_save_due(u64 now) noexcept {
     return frecency_ready() && now >= f->retry_after && frecency_current() && f->pending_count && f->save_due &&
            now >= f->save_due;
 }
-// The command's entry in the account's command frecency. Like the client,
-// the picker reads the copy it has while a newer one is fetched.
+// The command's entry in the account's command frecency. The picker reads the
+// copy it has while a newer one is fetched.
 const CommandFrecencyEntry* frecency_entry(const ApplicationCommand& command, u64 guild) noexcept {
     if (!frecency || !frecency->loaded)
         return nullptr;
@@ -410,14 +408,14 @@ const CommandApplication* find_app(const CommandIndex& source, u64 id) noexcept 
             return source.applications + n;
     return nullptr;
 }
-// The client's section name: the bot's username, else the app's name.
+// The section name: the bot's username, else the app's name.
 Utf8View section_name(const CommandApplication& app) noexcept {
     return app.bot_name.bytes ? app.bot_name : app.name;
 }
 bool starts_with_ignore_case(Utf8View text, Utf8View prefix) noexcept {
     return text.bytes >= prefix.bytes && ascii_equal_ignore_case({text.data, prefix.bytes}, prefix);
 }
-// The client's fuzzysearch: needle's characters appear in order in text.
+// Fuzzy match: needle's characters appear in order in text.
 bool fuzzy_ignore_case(Utf8View needle, Utf8View text) noexcept {
     if (needle.bytes > text.bytes)
         return false;
@@ -432,7 +430,7 @@ bool fuzzy_ignore_case(Utf8View needle, Utf8View text) noexcept {
     }
     return true;
 }
-// The client's collator order, approximated case-insensitively.
+// Collator order, approximated case-insensitively.
 i32 compare_names(Utf8View a, Utf8View b) noexcept {
     const u32 shared = minimum(a.bytes, b.bytes);
     for (u32 n = 0; n < shared; ++n) {
@@ -442,7 +440,7 @@ i32 compare_names(Utf8View a, Utf8View b) noexcept {
     }
     return a.bytes == b.bytes ? 0 : a.bytes < b.bytes ? -1 : 1;
 }
-// The client's query text (module 664929 Yn): before the word ahead of a
+// The query text: before the word ahead of a
 // "name:" argument, at most three words; a cut or a trailing space makes it
 // "terminated" (only that command and its subcommands match).
 struct PickerQuery {
@@ -471,7 +469,7 @@ PickerQuery picker_query(Utf8View input) noexcept {
     }
     return query;
 }
-// The client's query score (264322 `ed`, lower ranks first): name prefix 0,
+// The query score (lower ranks first): name prefix 0,
 // first-word and rest prefixes 1, name substring 2, option prefix 3, option
 // substring 4, section prefix 5 or substring 6, description substring 7,
 // fuzzy name 9, option 10, section 11, description 12; ~0u: no match.
@@ -603,7 +601,7 @@ bool project(Utf8View input) noexcept {
                 apps[app_count++] = app;
             candidates[candidate_count++] = {&command, &source, app};
         }
-    // Apps by section name, as the client sorts them; Built-in comes last.
+    // Apps by section name; Built-in comes last.
     heap_sort(apps, app_count, [](const CommandApplication* a, const CommandApplication* b) noexcept {
         const i32 order = compare_names(section_name(*a), section_name(*b));
         return order ? order < 0 : a->id < b->id;
@@ -624,8 +622,7 @@ bool project(Utf8View input) noexcept {
     }
     c.discovery = !query.text.bytes;
     if (!c.discovery) {
-        // Query results: ranked by score, then frecency, then name (the
-        // client's COMMAND_OR_APPLICATION order), at most twenty.
+        // Query results: ranked by score, then frecency, then name, at most twenty.
         u32 kept = 0;
         for (u32 n = 0; n < candidate_count; ++n) {
             const auto& name = candidates[n].command->name;
@@ -673,7 +670,7 @@ bool project(Utf8View input) noexcept {
         for (u32 n = 0; n < slot_count; ++n)
             c.entries[c.count++] = candidates[order[slots[n]]];
     } else {
-        // Discovery: each app's commands by name, then the client's Frequently
+        // Discovery: each app's commands by name, then Frequently
         // Used (up to five by score among its hundred most frecent) ahead.
         heap_sort(order, candidate_count, [&](u32 a, u32 b) noexcept {
             if (ranks[a] != ranks[b])
@@ -734,8 +731,7 @@ bool project(Utf8View input) noexcept {
             for (u32 s = 0; s < c.rail_count; ++s)
                 c.body[c.body_count++] = c.rail[s];
         }
-        // While an index loads, the first section ends in the client's
-        // placeholder rows (842209 `S`: the first section's data plus them).
+        // While an index loads, the first section ends in placeholder rows.
         for (u32 s = 0; c.pending && s < c.body_count; ++s)
             if (c.body[s].kind != SectionKind::plugins) {
                 c.body[s].placeholders = discovery_placeholder_rows;
@@ -745,7 +741,7 @@ bool project(Utf8View input) noexcept {
     c.query_placeholders = !c.discovery && c.pending ? query_placeholder_rows : 0;
     c.offset = c.rail_offset = 0;
     c.rail_focus = no_row;
-    // The client's discovery list starts without a selection; results of a
+    // The discovery list starts without a selection; results of a
     // typed query focus their first row.
     c.keyboard_row = c.discovery ? no_row : 0;
     ++c.generation;
@@ -769,8 +765,7 @@ MediaAssetKey url_picture(Utf8View url, MediaAttachmentFormat format) noexcept {
     }
     return popup_media_url_key(hash, format);
 }
-// The app's picture in the client's order (getApplicationIconURL with
-// botIconFirst), for the picker and the composer's command bar alike: the
+// The app's picture for the picker and the composer's command bar alike: the
 // bot's avatar in this server (its member record), its avatar, the
 // application's icon (app-icons), then the bot's default avatar; all still.
 // An index bot not yet known is made resident from the index, as the local
@@ -879,7 +874,7 @@ u32 typed_options(Utf8View input, Slice<CommandArgumentSpan> spans) noexcept {
     return count;
 }
 // The chip the caret is in (up to its end marker), or no_option: after the
-// marker the caret is outside, like the client's caret after a pill.
+// marker the caret is outside.
 u32 chip_at(Utf8View, const CommandArgumentSpan* spans, u32 count, u32 caret) noexcept {
     for (u32 n = 0; n < count; ++n)
         if (caret >= spans[n].value_first && caret <= spans[n].value_last)
@@ -903,7 +898,7 @@ Utf8View caret_word(Utf8View input, u32 caret) noexcept {
 ConstSlice<CommandAcceptedChoice> accepted_choices() noexcept {
     return {commands->accepted, commands->accepted_count};
 }
-// The client's option checks after an edit (870748 M): the option the caret
+// Option checks after an edit: the option the caret
 // left and options that failed and changed are checked again; validate_all
 // checks every option (allow_empty while the command is being set up).
 void check_options(const CommandArgumentSpan* spans, u32 count, u32 active_slot, bool validate_all,
@@ -939,7 +934,7 @@ void reset_option_states(Commands& c) noexcept {
     c.focused_revision = ~0u;
 }
 // The chip the caret is in becomes the active option; the option it left and
-// failed options whose value changed are checked again (870748 M). Once per
+// failed options whose value changed are checked again. Once per
 // composer revision: the composer's projection asks first, so the chips it
 // draws show the checks of this very edit.
 void update_focus(Utf8View input) noexcept {
@@ -970,7 +965,7 @@ u64 next_nonce() noexcept {
     serial = maximum(serial + 1, stamp);
     return serial;
 }
-// The focused option's text, as the client queries its choices with it.
+// The focused option's text, used to query its choices.
 Utf8View focused_query() noexcept {
     const auto& c = *commands;
     const auto input = message_composer_text(g_app.message_composer);
@@ -983,7 +978,7 @@ Utf8View focused_query() noexcept {
         --last;
     return {input.data + first, last - first};
 }
-// A title row of the option lists (the client's autocomplete title: plain
+// A title row of the option lists (plain
 // text, upper case): the title, or "<matching> <query>" with the query too.
 void list_title(PopupItem* items, u32* count, Utf8View title, Utf8View matching, Utf8View query) noexcept {
     if (*count >= 31)
@@ -1000,8 +995,8 @@ void list_title(PopupItem* items, u32* count, Utf8View title, Utf8View matching,
     // Popup actions are unique: each title takes its own below the messages'.
     items[n] = {label, value_base - 2 - n, popup_item_command_section, 0};
 }
-// The focused option's choice list (the client's CHOICE autocomplete, 778572
-// F): BOOLEAN True/False, static choices ranked against the option's text, or
+// The focused option's choice list: BOOLEAN True/False, static choices ranked
+// against the option's text, or
 // the application's suggestions. Returns false when the option has no list.
 bool render_choices(PopupItem* items, u32* count) noexcept {
     auto& c = *commands;
@@ -1023,7 +1018,7 @@ bool render_choices(PopupItem* items, u32* count) noexcept {
             return true;
         }
         list_title(items, count, utf8_literal("OPTIONS"), utf8_literal("OPTIONS MATCHING"), query);
-        // While the application answers, the client shows five loading rows.
+        // While the application answers, five loading rows show.
         if (state.phase != CommandAutocompletePhase::ready) {
             for (u32 seed = 0; seed < 5 && *count < 31; ++seed)
                 items[(*count)++] = popup_placeholder_row(value_base - 40 - seed, seed);
@@ -1092,7 +1087,7 @@ bool render_choices(PopupItem* items, u32* count) noexcept {
                              popup_item_enabled, 0};
     return true;
 }
-// The client's option list outside every chip (778572 K): the options without
+// The option list outside every chip: the options without
 // a value whose name starts with the word at the caret, required ones first
 // under their own title.
 void render_options(PopupItem* items, u32* count, const CommandArgumentSpan* spans, u32 typed,
@@ -1142,7 +1137,7 @@ float list_item_height(const PopupItem& item) noexcept {
            : popup_item_placeholder(item)            ? kCommandGenericLoadingHeight
                                                      : kCommandGenericRowHeight;
 }
-// The selected command's list under the composer's option bar (778572): the
+// The selected command's list under the composer's option bar: the
 // active option's choices, the unset options matching the word at the caret
 // while it is outside every chip, or the file picker on an ATTACHMENT chip.
 bool render_command(const UiLayoutNode& surface) noexcept {
@@ -1157,7 +1152,7 @@ bool render_command(const UiLayoutNode& surface) noexcept {
     if (!c.choices_shown && !c.focused_option.source.bytes) {
         render_options(items, &count, spans, typed, caret_word(input, g_app.message_composer.caret));
     } else if (!c.choices_shown && option_type(*c.selected.index, c.focused_option) == 11) {
-        // An ATTACHMENT chip offers the file picker (the client's upload area).
+        // An ATTACHMENT chip offers the file picker.
         list_title(items, &count, utf8_literal("OPTIONS"), {}, {});
         items[count++] = {utf8_literal("Drag and drop or click to upload file"), option_base + c.focused_slot,
                           popup_item_enabled, 0};
@@ -1178,7 +1173,7 @@ bool render_command(const UiLayoutNode& surface) noexcept {
     for (u32 n = 0; n < typed; ++n)
         if (utf8_equal(spans[n].name, utf8_literal("query")))
             query = spans[n].value;
-    // Without rows the client shows no list, only the option bar.
+    // Without rows there is no list, only the option bar.
     if (!count) {
         hide_popup();
         return builtin_command_results(c.selected.command, query, surface.rectangle);
@@ -1202,7 +1197,7 @@ bool render_command(const UiLayoutNode& surface) noexcept {
     }
     return builtin_command_results(c.selected.command, query, g_app.popup_scene.rectangle);
 }
-// The client's usage summary after a command name: its required option names
+// The usage summary after a command name: its required option names
 // (drawn as chips), then "+N optional" for the rest; parts are \x1E-separated.
 struct OptionSummary {
     const CommandIndex* index;
@@ -1242,7 +1237,7 @@ Utf8View option_summary(const CommandIndex& index, const ApplicationCommand& com
     return {output.data, summary.writer.used};
 }
 // Picker geometry, virtual from the top of each column (see kCommandPicker*).
-// The row before Built-in is 8 DIPs taller (845207 `ei` categoryHeight); the
+// The row before Built-in is 8 DIPs taller; the
 // divider line in that gap is drawn unless Frequently Used is that row.
 u32 rail_divider(const Commands& c) noexcept {
     return c.rail_count >= 2 && c.rail[c.rail_count - 1].kind == SectionKind::builtin ? c.rail_count - 1 : no_row;
@@ -1255,7 +1250,7 @@ float rail_top(const Commands& c, u32 r) noexcept {
 float rail_extent(const Commands& c) noexcept {
     return c.rail_count ? rail_top(c, c.rail_count - 1) + kCommandRailIcon + kCommandListInset : 0.f;
 }
-// A section's rows: its commands and, while indexes load, the client's
+// A section's rows: its commands and, while indexes load, the
 // placeholder rows after them.
 u32 section_rows(const Section& section) noexcept {
     return section.count + section.placeholders;
@@ -1288,7 +1283,7 @@ float row_top(const Commands& c, u32 k) noexcept {
     }
     return 0;
 }
-// The rail entry the client highlights: the filtered section, else the one
+// The rail entry highlighted: the filtered section, else the one
 // the list is scrolled to (its top within 20 DIPs of the view's top).
 u32 active_rail(const Commands& c) noexcept {
     if (!c.discovery || !c.rail_count)
@@ -1392,13 +1387,12 @@ bool render_picker(const UiLayoutNode& surface) noexcept {
         }
     } else {
         if (!c.count && !local_count && !c.query_placeholders && !c.error.bytes) {
-            // The client hides command results that match nothing.
+            // Command results that match nothing are hidden.
             close_popup();
             c.rendered_generation = c.generation;
             return true;
         }
-        // formatToPlainString(HFRoZR) under text-transform:uppercase: one
-        // plain line, the query uppercased too.
+        // The title is one plain line, the query uppercased too.
         const Utf8View title = copy_label(c.labels[count], 512, utf8_literal("COMMANDS MATCHING /"),
                                           {c.query, c.query_bytes});
         for (u32 at = 0; at < title.bytes; ++at)
@@ -1416,7 +1410,7 @@ bool render_picker(const UiLayoutNode& surface) noexcept {
             plugin_row(items[count], count, n, local[n]);
         for (u32 n = 0; n < c.count && count < 31; ++n, ++count)
             command_row(items[count], count, n, true);
-        // The client's three loading rows follow the results.
+        // Three loading rows follow the results.
         for (u32 n = 0; n < c.query_placeholders && count < 32; ++n, ++count)
             items[count] = popup_placeholder_row(placeholder_base + n, n, popup_item_command_row);
         fraction = minimum(c.offset, maximum(0.f, body_extent(c) - kCommandRowHeight));
@@ -1571,7 +1565,7 @@ u64 echo_author(u64 application_id, const CommandApplication* app) noexcept {
     return author;
 }
 // Queues the command data already in c.payload on the command lane with a
-// fresh nonce, expects its modal and shows the official client's local
+// fresh nonce, expects its modal and shows the local
 // "Sending command..." message when its channel is visible.
 void queue_command(u64 application, u64 author, Utf8View name, u16 type) noexcept {
     auto& c = *commands;
@@ -1599,8 +1593,8 @@ void queue_command(u64 application, u64 author, Utf8View name, u16 type) noexcep
     echo.phase = EchoPhase::sending;
     echo_write(echo, echo_sending, 0, MessageDeliveryState::pending);
 }
-// The official client shows the API's reason for a quick refusal, and "did
-// not respond" once the response window has passed.
+// A quick refusal shows the API's reason, and "did not respond" once the
+// response window has passed.
 void echo_fail(Echo& echo, Utf8View reason) noexcept {
     const u64 sent = snowflake_timestamp_ms(echo.nonce);
     const Utf8View text = clock_unix_milliseconds() > sent + echo_response_window_ms ? echo_no_response
@@ -1687,7 +1681,7 @@ Utf8View trimmed_text(Utf8View input, u32 first, u32 last) noexcept {
         --last;
     return {input.data + first, last - first};
 }
-// The client's typed command (870748 onChange): with none selected, a draft of
+// A typed command: with none selected, a draft of
 // "/<name> " selects the one available command of exactly that name, unless a
 // longer command (a subcommand) continues it.
 bool select_typed(Utf8View input) noexcept {
@@ -1739,7 +1733,7 @@ MessageComposerResult rewrite_draft(Utf8View text, u32 caret) noexcept {
     return replaced == MessageComposerResult::changed ? replaced : selected;
 }
 // The draft's option end markers (kCommandOptionEnd), the plain-text form of
-// the client's option pill nodes (870748): each chip value gets one at its
+// option pill nodes: each chip value gets one at its
 // end, so text typed after it is outside the chip and "name:" typed inside it
 // stays text; markers ending no value go, as do all without a command. A
 // marker added where the user types joins their typing run, so one undo takes
@@ -1815,7 +1809,7 @@ MessageComposerResult normalize_markers(Utf8View input, bool command) noexcept {
         message_composer_set_selection(&composer, new_anchor, new_caret);
     return replaced;
 }
-// The client's single optional option (870748 P): with no chip yet, text typed
+// The single optional option: with no chip yet, text typed
 // after "/<name> " becomes the value of a command's only option when that is
 // optional and not an ATTACHMENT.
 MessageComposerResult chip_single_option(Utf8View input, u32 typed) noexcept {
@@ -1840,7 +1834,7 @@ MessageComposerResult chip_single_option(Utf8View input, u32 typed) noexcept {
     message_composer_set_selection(&g_app.message_composer, moved, moved);
     return inserted;
 }
-// The client's command set-up (870748 onChange, commandChanged): the typed
+// Command set-up: the typed
 // options stay, every required option without one follows as an empty chip
 // (text after the name fills the first one that is not an ATTACHMENT), and the
 // caret goes into the first empty chip, else to the end of the last chip's
@@ -1929,12 +1923,12 @@ MessageComposerResult set_up_command() noexcept {
     const auto single = chip_single_option(now, count);
     return single == MessageComposerResult::changed ? single : result;
 }
-// Selects a chip's whole value, as the client selects an option pill.
+// Selects a chip's whole value.
 MessageComposerResult select_chip(const CommandArgumentSpan& span) noexcept {
     return message_composer_set_selection(&g_app.message_composer, span.value_first, span.value_last);
 }
-// The client's app shake (SHAKE_APP {duration: 200, intensity: 2} on a refused
-// send; its Shakeable, all.js 157457071): on every other animation frame the
+// The app shake on a refused send (duration 200 ms, intensity 2): on every
+// other animation frame the
 // whole app moves intensity DIPs across, the side alternating, and a random
 // amount within ±intensity up or down, until the duration has passed. MaiCord
 // moves the window's composition visual, so no frame is drawn again; motion
@@ -1977,7 +1971,7 @@ void shake_step(u64 now) noexcept {
     }
     c.shake_next = now + shake_frame_ms;
 }
-// The client's send check (919327 eQ): every option is checked with empty
+// The send check: every option is checked with empty
 // values refused, required options without a chip are added as empty chips
 // at the end, and the first failing chip (typed order, then the added ones)
 // is selected instead of sending. *blocked tells the send stopped.
@@ -2056,7 +2050,7 @@ void application_commands_composer(MessageComposerProjectionContext* projection)
     const auto input = message_composer_text(g_app.message_composer);
     const auto name = c.selected.command->name;
     projection->command.name_bytes = static_cast<u16>(name.bytes + 1);
-    // The typed options draw as the client's option chips: the active one
+    // The typed options draw as option chips: the active one
     // (caret inside, editor focused) and failed ones are outlined.
     // A command not set up yet has no option states of its own.
     const bool prepared = c.prepared == c.selected.command;
@@ -2081,7 +2075,7 @@ void application_commands_composer(MessageComposerProjectionContext* projection)
         }
         projection->option_chip_count = count;
     }
-    // The client's option bar (845207 tB): the active option's name and
+    // The option bar: the active option's name and
     // description, its failed check instead in the danger colour; else the
     // command's "/name" and description, or the command's error.
     projection->command_bar_name = copy_label(commands->bar_name, sizeof(commands->bar_name), utf8_literal("/"), name);
@@ -2192,8 +2186,8 @@ bool application_commands_sync(bool* handled) noexcept {
     if (changed) {
         c.revision = g_app.message_composer.revision;
         ++c.generation;
-        // A choice list focuses its first row; the unset options list (the
-        // client's AUTO_WHEN_FILTERED mode, never filtered here) starts without.
+        // A choice list focuses its first row; the unset options list (never filtered
+        // here) starts without.
         c.keyboard_row = !c.selected.command ? 0
                          : c.focused_option.source.bytes && option_type(*c.selected.index, c.focused_option) != 11
                              ? 1
@@ -2268,8 +2262,7 @@ bool application_commands_activate(u32 action) noexcept {
             }
         }
         // The value is replaced by the name; the next chip's value is selected
-        // then, else the caret goes to the end (the client's insertText in a
-        // pill and selectNextCommandOption).
+        // then, else the caret goes to the end.
         const u32 focused = c.focused_slot;
         edit_result = message_composer_replace_range(&g_app.message_composer, c.value_begin, c.value_end,
                                                      {c.choice_names[slot], c.choice_bytes[slot]});
@@ -2293,7 +2286,7 @@ bool application_commands_activate(u32 action) noexcept {
         // The ATTACHMENT chip the caret is in only asks for its file.
         if (slot == c.focused_slot)
             return application_pick_attachments() && refresh_message_composer_ui();
-        // The client puts the "<name>" pill in place of the word at the caret:
+        // The "<name>" chip is put in place of the word at the caret:
         // a new, empty chip with the caret in it.
         char name[128], insertion[140];
         const auto key = field_text(*c.selected.index, list.options[slot], "name", {name, sizeof(name)});
@@ -2308,11 +2301,11 @@ bool application_commands_activate(u32 action) noexcept {
         const u32 inside = first + (before ? 1u : 0u) + key.bytes + 1;
         message_composer_set_selection(&g_app.message_composer, inside, inside);
         c.offset = 0;
-        // An ATTACHMENT option asks for its file, like the client's upload pill.
+        // An ATTACHMENT option asks for its file.
         if (option_type(*c.selected.index, list.options[slot]) == 11 && !application_pick_attachments())
             return false;
     } else if (action >= rail_base) {
-        // The client's rail: a section shows alone; clicking it again or the
+        // The rail: a section shows alone; clicking it again or the
         // clock lists everything again from the top.
         const u32 n = action - rail_base;
         if (c.selected.command || n >= c.rail_count)
@@ -2391,13 +2384,12 @@ bool application_commands_send(bool* handled) noexcept {
             c.error = utf8_literal("This command couldn't run. Try again.");
             return reopen();
         }
-        // /gif and /sticker send only a chosen result; the draft stays and the
-        // app shakes like the client's.
+        // /gif and /sticker send only a chosen result; the draft stays and the app shakes.
         if (run == BuiltinCommandRun::rejected) {
             shake_app();
             return reopen();
         }
-        // The client records a built-in's use (APPLICATION_COMMAND_USED) as it runs.
+        // A built-in's use is recorded as it runs.
         frecency_track(*c.selected.command, c.guild);
         builtin_command_results(nullptr, {}, {});
         command_autocomplete_cancel(&c.autocomplete);
@@ -2406,7 +2398,7 @@ bool application_commands_send(bool* handled) noexcept {
         close_popup();
         if (run == BuiltinCommandRun::handled)
             return composer_apply_result(message_composer_clear(&g_app.message_composer), true);
-        // The client sends a text command's result as the message itself.
+        // A text command's result is sent as the message itself.
         const auto replaced = message_composer_replace_range(&g_app.message_composer, 0,
                                                              g_app.message_composer.bytes, text);
         if (replaced == MessageComposerResult::invalid_input)
@@ -2418,8 +2410,8 @@ bool application_commands_send(bool* handled) noexcept {
     }
     if (c.sending || c.queued)
         return true;
-    // ATTACHMENT options take the channel's staged uploads (the client stages
-    // them the same way, through the channel attachments endpoint).
+    // ATTACHMENT options take the channel's staged uploads (staged through the
+    // channel attachments endpoint).
     UploadedAttachment uploads[kAttachmentUploadMaximumCount];
     u64 upload_ids[kAttachmentUploadMaximumCount];
     Utf8View files[kAttachmentUploadMaximumCount];
@@ -2465,8 +2457,7 @@ bool application_commands_send(bool* handled) noexcept {
                   echo_author(c.selected.command->application_id, c.selected.app), c.selected.command->name,
                   message_type_chat_command);
     if (plan.count) {
-        // The uploads now belong to this command; like the client, a command with
-        // files offers no resend.
+        // The uploads now belong to this command; a command with files offers no resend.
         application_attachment_did_queue({staged_ids, plan.count}, c.nonce);
         if (Echo* echo = find_echo(c.nonce, 0))
             echo->data_bytes = 0;
@@ -2475,7 +2466,7 @@ bool application_commands_send(bool* handled) noexcept {
     reset_value(&c.error);
     reset_value(&c.selected);
     close_popup();
-    // Like the official client, the draft clears as the command is sent; its
+    // The draft clears as the command is sent; its
     // outcome is the local command message.
     return composer_apply_result(message_composer_clear(&g_app.message_composer), true);
 }
@@ -2759,8 +2750,7 @@ bool reveal_rail(const Commands& c, u32 r) noexcept {
     const float top = rail_top(c, r);
     return reveal_command_row(top - kCommandRailLead, top + kCommandRailIcon + kCommandListInset, true);
 }
-// MaiCord's rail keys (the client's rail is pointer-only: its category list
-// gets no keyboard navigator): Up/Down/Home/End move, Enter/Space click,
+// The rail keys: Up/Down/Home/End move, Enter/Space click,
 // Right, Tab or Escape return to the list.
 bool rail_key(Commands& c, u32 key) noexcept {
     const u32 r = c.rail_focus;
@@ -2795,8 +2785,6 @@ bool rail_key(Commands& c, u32 key) noexcept {
     // Left stays in the rail; typing goes to the draft (which leaves the rail).
     return key == VK_LEFT;
 }
-// The picker's keys (all.js 845207 `ed` onTabOrEnter/onMoveSelection for
-// discovery, the generic autocomplete navigator for query results).
 bool picker_key(Commands& c, u32 key) noexcept {
     if (key == VK_RETURN && application_plugins_command_pending()) {
         close_popup();
@@ -2812,7 +2800,7 @@ bool picker_key(Commands& c, u32 key) noexcept {
         if (c.count && c.keyboard_row < c.count)
             return application_commands_activate(choose_base + c.keyboard_row);
         // Without a keyboard selection Tab first selects the discovery list's
-        // top row; otherwise the key keeps its composer meaning, as in the client.
+        // top row; otherwise the key keeps its composer meaning.
         if (key == VK_TAB && c.discovery && c.count) {
             c.keyboard_row = 0;
             return reveal_row(c, 0) && render();
@@ -2852,7 +2840,7 @@ bool application_commands_key(u32 key) noexcept {
     const bool row = c.keyboard_row != no_row && c.keyboard_row >= 1 && c.keyboard_row <= count;
     if (key == VK_RETURN || key == VK_TAB) {
         // A selected row is taken; else Tab moves to the next option and Enter
-        // sends (the client's onTab/onEnter, then its editor keys).
+        // sends.
         if (const u32 action = row ? popup_scene_selected_action(g_app.popup_scene) : 0)
             return application_commands_activate(action);
         if (key == VK_TAB)
@@ -2949,7 +2937,7 @@ bool application_commands_builtin_used(Utf8View replacement) noexcept {
         message_composer_replace_range(&g_app.message_composer, 0, g_app.message_composer.bytes, replacement);
     return result == MessageComposerResult::invalid_input || composer_apply_result(result, true);
 }
-// The pointer took over: like the client, hovering a row drops the keyboard
+// The pointer took over: hovering a row drops the keyboard
 // selection (and the keyboard's place in the rail).
 void application_commands_hover() noexcept {
     if (commands) {
@@ -3211,7 +3199,7 @@ bool application_commands_retry(u64 message_id) noexcept {
     if (!echo->failed || !echo->data_bytes || c.queued || c.sending || echo->channel != c.channel ||
         g_app.account.status.required_action != AccountRequirement::none)
         return true;
-    // Like the client: the failed local message goes and the same command data
+    // The failed local message goes and the same command data
     // is executed again with a new nonce and a new local message.
     copy_bytes(c.payload, echo->data, echo->data_bytes);
     c.payload_bytes = echo->data_bytes;
@@ -3351,7 +3339,7 @@ bool application_commands_insert(u64 application_id, u64 command_id, Utf8View na
     c.insert_name_bytes = utf8_copy_truncated(c.insert_name, sizeof(c.insert_name), name);
     if (!g_app.message_composer.bytes)
         return insert_now();
-    // The official client asks before replacing a written draft.
+    // Replacing a written draft asks first.
     insert_confirmation = {g_app.plugin_account_scope_serial, g_app.account_ui->active_channel_id, command_id};
     ApplicationTextFormRequest request{};
     request.title = utf8_literal("Clear message?");

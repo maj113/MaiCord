@@ -143,7 +143,7 @@ void test_message_components(void (*check)(bool, const char*) noexcept) noexcept
 
 // An application-command reply with two secondary buttons: a Unicode emoji
 // leads one label as text, a custom emoji leads the other as media. Both
-// draw the translucent neutral chrome at the official size.
+// draw the translucent neutral chrome.
 void test_message_component_buttons(void (*check)(bool, const char*) noexcept) noexcept {
     auto& f = fixture;
     reset_value(&f);

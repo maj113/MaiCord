@@ -1366,7 +1366,7 @@ bool theme_editor_pixels(BackgroundThemeProbeContext c, Theme theme) noexcept {
         "theme_editor_native_SV_hue_stops_live_main_settings_authority_retained_prefix_dark_light_passed");
     return true;
 }
-// The `/` command picker's category rail (the client's background-base-lowest)
+// The `/` command picker's category rail (background-base-lowest)
 // on every theme: flat Dark, Light and AMOLED paint their darkest base, and a
 // background theme the panel's gradient material at its lowest tier, so the
 // rail is never an opaque strip over the gradient.

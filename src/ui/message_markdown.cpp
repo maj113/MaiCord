@@ -988,8 +988,8 @@ bool take_literal(Utf8View input, u32* cursor, const char* literal, u32 bytes) n
     return true;
 }
 
-// One /channels/ path segment: digits or letters and '-' (the official
-// (\d+|[a-zA-Z-]+)); value stays zero for a non-numeric segment.
+// One /channels/ path segment: digits or letters and '-' ((\d+|[a-zA-Z-]+));
+// value stays zero for a non-numeric segment.
 bool channel_segment(Utf8View input, u32* cursor, u64* value, bool* numeric) noexcept {
     const u32 begin = *cursor;
     u32 end = begin;
@@ -1007,7 +1007,7 @@ bool channel_segment(Utf8View input, u32* cursor, u64* value, bool* numeric) noe
     return true;
 }
 
-// The official channel/message URL rule: https:// discord.com or
+// The channel/message URL rule: https:// discord.com or
 // discordapp.com (optionally canary./ptb.), /channels/<guild|@me>/<channel>,
 // an optional /<message> and ?query. A prefix match: text after the last
 // segment stays text. A channel URL has message_id zero; a guild-only URL and
@@ -1037,7 +1037,7 @@ bool channel_link_at(Utf8View input, u32 begin, MessageLink* link) noexcept {
     if (!take_literal(input, &cursor, "/", 1) || !channel_segment(input, &cursor, &channel_id, &numeric) ||
         !numeric)
         return false;
-    // A thread message (the official mediaPostLink rule):
+    // A thread message:
     // /channels/<guild>/<parent>/threads/<thread>/<message>, no query.
     u32 end = cursor;
     if (take_literal(input, &end, "/threads/", 9)) {
@@ -1081,10 +1081,10 @@ bool emit_decimal(Parser* parser, u64 value, u32 style) noexcept {
 
 // Chip icon cells are measured spaces the renderer draws the icon over: an em
 // (U+2003) for channel, server, message and file icons, half an em (U+2002)
-// for the chevron, then the official trailing margins (U+2005 4 px,
+// for the chevron, then the trailing margins (U+2005 4 px,
 // U+2006 3 px, U+200A 2 px at 16 px). These spaces never break before
 // themselves (UAX #14 BA); a closing U+200D allows no break after it either,
-// so an icon never wraps away from what follows it. (U+2060, the official
+// so an icon never wraps away from what follows it. (U+2060, the nowrap
 // nowrap glue, is a default-ignorable the chat hides as U+200C.)
 constexpr Utf8View kChipCell = utf8_literal("\xE2\x80\x83");
 constexpr Utf8View kChipHalfCell = utf8_literal("\xE2\x80\x82");
@@ -1114,7 +1114,7 @@ bool emit_chip_icon(const Chip& chip, MessageMarkdownChipIcon icon, Utf8View gap
     return emit_chip_cell(chip, MessageMarkdownSemanticKind::chip_icon, static_cast<u64>(icon), kChipCell, gap);
 }
 
-// The official chevron between a chip's container and its target: 4 px, a
+// The chevron between a chip's container and its target: 4 px, a
 // half-em chevron, 2 px.
 bool emit_chip_separator(const Chip& chip) noexcept {
     return emit_view(chip.parser, kChipGap4, chip.style) &&
@@ -1147,8 +1147,7 @@ bool emit_chip_channel(const Chip& chip, MessageMarkdownChipIcon icon, Utf8View 
     return emit_chip_icon(chip, icon) && emit_chip_name(chip, name);
 }
 
-// The server's icon, or for a server without one its initials (the client's
-// acronym icon), then its name and the chevron.
+// The server's icon, or for a server without one its initials, then its name and the chevron.
 bool emit_chip_guild(const Chip& chip, const MessageMarkdownChannelTarget& target) noexcept {
     return emit_chip_cell(chip, MessageMarkdownSemanticKind::guild_icon, target.guild_id, kChipCell, kChipGap3,
                           target.guild_icon ? 0 : kMessageMarkdownChipInitials) &&
@@ -1161,7 +1160,7 @@ bool chip_view_valid(Utf8View value) noexcept {
 
 enum class ChipResult : u8 { chip, text, none };
 
-// The official channelMention rendering of a channel reference: <#id> and
+// The chip for a channel reference: <#id> and
 // /channels/ URLs. kind/target name the chip's semantic. A URL to a channel of
 // an unknown non-private server stays an ordinary link (ChipResult::none).
 bool emit_channel_chip(Parser* parser, const MessageLink& link, bool url, u32 source_begin,
@@ -1178,7 +1177,7 @@ bool emit_channel_chip(Parser* parser, const MessageLink& link, bool url, u32 so
             reset_value(&target);
     };
     resolve(link.channel_id);
-    // A thread that is not loaded shows its parent channel, as the client does.
+    // A thread that is not loaded shows its parent channel.
     if (!(target.flags & message_markdown_channel_known) && link.parent_channel_id)
         resolve(link.parent_channel_id);
     const u8 flags = target.flags;
@@ -1247,8 +1246,8 @@ bool try_emit_channel_link(Parser* parser, bool* matched) noexcept {
     MessageLink link{};
     const u32 source_begin = parser->input_offset;
     const MessageMarkdownOptions* options = parser->options;
-    // Embed titles keep this rule (the official EMBED_TITLE_RULES omit only
-    // attachment links among link rules); masked link text does not.
+    // Embed titles keep this rule (only the attachment-link rule is omitted there);
+    // masked link text does not.
     if (inside_masked_link(*parser) || !channel_link_at(parser->input, source_begin, &link)) {
         return true;
     }
@@ -1301,7 +1300,7 @@ bool ascii_host_label(char value) noexcept {
     return ascii_is_alnum(value) || value == '-';
 }
 
-// The official attachment-link rule (prefix match):
+// The attachment-link rule (prefix match):
 // ^https://(?:[A-Za-z0-9-]+\.)*(?:(?:media|images)(?:-[A-Za-z0-9]+)?\.discordapp\.net|
 //   cdn(?:-[A-Za-z0-9]+)?\.discordapp\.com)/(?:attachments|ephemeral-attachments)/\d+/\d+/
 //   ([A-Za-z0-9._-]*[A-Za-z0-9_-])(?:[?][a-zA-Z0-9?&=_-]*)?
@@ -1891,7 +1890,7 @@ u8 emphasis_marker(const Parser& parser, u32* style, DelimiterKind* kind) noexce
     return 0;
 }
 
-// As the client's rules match: code, spoilers, ***, ** and __ may open before
+// Rules match: code, spoilers, ***, ** and __ may open before
 // whitespace ("** a **" is bold, "` a `" code); a single * or _ and ~~ need
 // text right after them.
 bool marker_can_open(const Parser& parser, u8 bytes, DelimiterKind kind) noexcept {

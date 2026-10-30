@@ -10,7 +10,7 @@
 namespace maicord {
 namespace {
 constexpr float kW = kUiExpressionCardWidth, kP = kUiExpressionCardPadding, kSlide = 8;
-// The picture sits 4 DIPs low beside the text (the official primaryEmoji).
+// The picture sits 4 DIPs low beside the text.
 constexpr float kPictureTop = 4, kColumnGap = 12, kTitleLine = 20, kLine = 18, kSmallLine = 16;
 constexpr float kHeadingGap = 8, kGuildRow = 36, kGuildGap = 8, kListGap = 8, kButton = 32, kSkeleton = 78;
 constexpr UiHoverCardMotion kEntrance{{kUiExpressionCardEntranceMs, UiMotionCurve::spring},
@@ -295,7 +295,7 @@ bool ui_expression_card_media(const UiExpressionCardScene& s, u32 index, UiExpre
     }
     if (!media_asset_key_valid(s.guild_icon_key) || !ui_rect_has_area(s.guild_icon))
         return false;
-    // The official card masks the icon to a squircle; a 12 DIP radius approximates it.
+    // The icon is masked to a squircle; a 12 DIP radius approximates it.
     *output = {s.guild_icon_key, at(s.guild_icon, f.dx, f.dy), s.panel, 12, a};
     return true;
 }
