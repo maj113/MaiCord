@@ -7,11 +7,15 @@
 #include "maicord/media/deflate.hpp"
 #include "maicord/media/gpu_video_frame.hpp"
 #include "maicord/media/png_stream.hpp"
+#include "maicord/media/jpeg.hpp"
 #include "maicord/media/webp_thumbnail.hpp"
 #include "maicord/ui/composer_attachment_strip.hpp"
 #include "../src/media/png_common.hpp"
 #include "media_fixture.hpp"
 #include "webp_fixture.hpp"
+#include "jpeg_cmyk_fixture.hpp"
+#include "jpeg_reference_fixture.hpp"
+#include "jpeg_thumbnail_fixture.hpp"
 
 // Composer attachment previews beyond the first strip work: MP4/MOV posters
 // read only the movie header and first samples, large PNG/WebP thumbnails
@@ -536,6 +540,15 @@ void test_webp_thumbnails(Check check) noexcept {
     check(decoded && layout.width == 32 && layout.height == 24 && collected.rows == 24 &&
               collected.hash == kWebpLossy32x24RgbaFnv1a,
           "the CPU WebP path matches libwebp's RGBA for a multi-macroblock lossy frame");
+    // Odd width and height: the upsampler's edge column and row cases.
+    collected = {1'469'598'103'934'665'603ull, 0, 33, 0, 0, {}, nullptr};
+    const bool odd_decoded =
+        webp_thumbnail_parse({kWebpLossy33x19, sizeof(kWebpLossy33x19)}, &layout) == WebpThumbnailError::none &&
+        layout.width == 33 && layout.height == 19 && layout.workspace_bytes <= workspace_capacity &&
+        webp_thumbnail_decode(layout, {workspace, workspace_capacity}, webp_row, &collected) ==
+            WebpThumbnailError::none;
+    check(odd_decoded && collected.rows == 19 && collected.hash == kWebpLossy33x19RgbaFnv1a,
+          "the CPU WebP path matches libwebp's RGBA for an odd-sized lossy frame");
 
     // A 1104 x 600 frame (beyond the 512 px GPU path) streams row by row.
     static u8 large[256u * 1024u];
@@ -592,6 +605,49 @@ void test_webp_thumbnails(Check check) noexcept {
           "lossless and truncated WebPs are refused; a compressed alpha plane is left to the caller");
 }
 
+// The per-component sample stepping and the colour conversion of every JPEG
+// colour transform, hashed over whole rows (frozen from the earlier scalar form).
+struct JpegHash {
+    u64 hash;
+    u32 width;
+};
+bool jpeg_hash_row(void* context, u32, const u8* rgba) noexcept {
+    auto* hash = static_cast<JpegHash*>(context);
+    hash->hash = hash64_bytes(hash->hash, rgba, hash->width * 4u);
+    return true;
+}
+u64 jpeg_thumbnail_hash(const u8* encoded, u32 bytes, u32 extent) noexcept {
+    static JpegWorkspace workspace;
+    alignas(16) static u8 scratch[64u * 1024u];
+    u8 row[128]{};
+    JpegImage image{};
+    JpegThumbnailLayout layout{};
+    if (!jpeg_thumbnail_parse({encoded, bytes}, extent, &image, &workspace, &layout).ok() ||
+        layout.coefficient_bytes + layout.plane_bytes > sizeof(scratch) || layout.width * 4u > sizeof(row))
+        return 0;
+    JpegHash hash{kHash64Seed, layout.width};
+    return jpeg_thumbnail_decode_rows({encoded, bytes}, image, layout, {scratch, sizeof(scratch)}, {row, sizeof(row)},
+                                      jpeg_hash_row, &hash)
+                   .ok()
+               ? hash.hash
+               : 0;
+}
+
+void test_jpeg_thumbnail_conversion(Check check) noexcept {
+    check(jpeg_thumbnail_hash(kJpeg422Odd, sizeof(kJpeg422Odd), 1000) == kJpeg422OddRgbaFnv1a &&
+              jpeg_thumbnail_hash(kJpeg422Odd, sizeof(kJpeg422Odd), 1) == kJpeg422OddDcRgbaFnv1a &&
+              jpeg_thumbnail_hash(kJpegGrayOdd, sizeof(kJpegGrayOdd), 1000) == kJpegGrayOddRgbaFnv1a &&
+              jpeg_thumbnail_hash(kJpegProgressive420Odd, sizeof(kJpegProgressive420Odd), 1000) ==
+                  kJpegProgressive420OddRgbaFnv1a,
+          "JPEG thumbnails of odd-sized 4:2:2, gray and progressive 4:2:0 images keep their exact RGBA");
+    check(jpeg_thumbnail_hash(kJpeg420Reference, sizeof(kJpeg420Reference), 1000) == kJpeg420ReferenceThumbnailFnv1a &&
+              jpeg_thumbnail_hash(kJpegCmykAdobeReference, sizeof(kJpegCmykAdobeReference), 1000) ==
+                  kJpegCmykAdobeThumbnailFnv1a &&
+              jpeg_thumbnail_hash(kJpegYcckProgressiveReference, sizeof(kJpegYcckProgressiveReference), 1000) ==
+                  kJpegYcckProgressiveThumbnailFnv1a,
+          "JPEG thumbnails of 4:2:0, CMYK and YCCK images keep their exact RGBA");
+}
+
 void test_spoiler_blur(Check check) noexcept {
     UiComposerAttachmentTile tile{};
     tile.id = 1;
@@ -636,6 +692,7 @@ void test_composer_thumbnails(void (*check)(bool, const char*) noexcept) noexcep
     test_windowed_inflate(check);
     test_png_streaming(check);
     test_webp_thumbnails(check);
+    test_jpeg_thumbnail_conversion(check);
     test_spoiler_blur(check);
 }
 

@@ -1573,7 +1573,7 @@ __forceinline bool store_coefficient(JpegEntropyReader* reader, i32 value, i16* 
     return true;
 }
 
-__forceinline bool decode_progressive_dc_initial(JpegEntropyReader* reader, const JpegDecodeTable& table, i32* predictor,
+__declspec(noinline) bool decode_progressive_dc_initial(JpegEntropyReader* reader, const JpegDecodeTable& table, i32* predictor,
                                    u8 approximation_low, JpegCoefficientBlock* block,
                                    u32* huffman_symbols) noexcept {
     u8 symbol = 0;
@@ -1590,7 +1590,7 @@ __forceinline bool decode_progressive_dc_initial(JpegEntropyReader* reader, cons
            store_coefficient(reader, static_cast<i32>(scaled), &block->values[0]);
 }
 
-__forceinline bool decode_progressive_dc_refinement(JpegEntropyReader* reader, u8 approximation_low,
+__declspec(noinline) bool decode_progressive_dc_refinement(JpegEntropyReader* reader, u8 approximation_low,
                                       JpegCoefficientBlock* block) noexcept {
     const i32 delta = 1u << approximation_low;
     const u32 bit = entropy_read_bit(reader);
@@ -1608,7 +1608,7 @@ __forceinline bool decode_progressive_dc_refinement(JpegEntropyReader* reader, u
     return store_coefficient(reader, value, &block->values[0]);
 }
 
-__forceinline bool decode_progressive_ac_initial(JpegEntropyReader* reader, const JpegAcDecodeTable& table,
+__declspec(noinline) bool decode_progressive_ac_initial(JpegEntropyReader* reader, const JpegAcDecodeTable& table,
                                    u8 spectral_start, u8 spectral_end, u8 approximation_low,
                                    JpegCoefficientBlock* block, u32* eob_run,
                                    u32* huffman_symbols) noexcept {
@@ -1723,7 +1723,7 @@ __forceinline bool refine_nonzeroes(JpegEntropyReader* reader, JpegCoefficientBl
     return true;
 }
 
-__forceinline bool decode_progressive_ac_refinement(JpegEntropyReader* reader, const JpegDecodeTable& table,
+__declspec(noinline) bool decode_progressive_ac_refinement(JpegEntropyReader* reader, const JpegDecodeTable& table,
                                       u8 spectral_start, u8 spectral_end, u8 approximation_low,
                                       JpegCoefficientBlock* block, u32* eob_run,
                                       u32* huffman_symbols) noexcept {
@@ -2419,53 +2419,91 @@ void reconstruct_component_block(const JpegImage& image, const JpegThumbnailLayo
     reconstruct_block(block, image.tables->quantization[component.quantization_table], layout.samples, target, pitch);
 }
 
+// Four pixels in place: sixteen bytes of component samples (one pixel per four
+// bytes) become RGBA. The float operations are the scalar ones, in order.
+template <JpegColorTransform Transform> void convert_group(u8* pixels) noexcept {
+    const __m128i bytes = _mm_loadu_si128(reinterpret_cast<const __m128i*>(pixels));
+    const auto sample = [&](char index) noexcept {
+        return _mm_cvtepi32_ps(_mm_cvtepu8_epi32(_mm_shuffle_epi8(
+            bytes, _mm_setr_epi8(index, index + 4, index + 8, index + 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))));
+    };
+    const __m128 zero = _mm_setzero_ps(), maximum_value = _mm_set1_ps(255.f);
+    __m128 r = sample(0), g = r, b = r;
+    if constexpr (Transform != JpegColorTransform::grayscale) {
+        g = sample(1);
+        b = sample(2);
+    }
+    if constexpr (Transform == JpegColorTransform::ycbcr || Transform == JpegColorTransform::ycck) {
+        const __m128 luma = r, cb = _mm_sub_ps(g, _mm_set1_ps(128.f)), cr = _mm_sub_ps(b, _mm_set1_ps(128.f));
+        r = _mm_add_ps(luma, _mm_mul_ps(_mm_set1_ps(1.402f), cr));
+        g = _mm_sub_ps(_mm_sub_ps(luma, _mm_mul_ps(_mm_set1_ps(.344136f), cb)), _mm_mul_ps(_mm_set1_ps(.714136f), cr));
+        b = _mm_add_ps(luma, _mm_mul_ps(_mm_set1_ps(1.772f), cb));
+    }
+    if constexpr (Transform == JpegColorTransform::ycck || Transform == JpegColorTransform::cmyk) {
+        // Inverted Adobe CMYK: the YCC triple, like C, M and Y, is already 255 - ink.
+        const __m128 k = _mm_div_ps(sample(3), maximum_value);
+        if constexpr (Transform == JpegColorTransform::ycck) {
+            r = _mm_min_ps(_mm_max_ps(r, zero), maximum_value);
+            g = _mm_min_ps(_mm_max_ps(g, zero), maximum_value);
+            b = _mm_min_ps(_mm_max_ps(b, zero), maximum_value);
+        }
+        r = _mm_mul_ps(r, k);
+        g = _mm_mul_ps(g, k);
+        b = _mm_mul_ps(b, k);
+    }
+    // clamp_sample: round half up by truncation, clamped to 0..255.
+    const auto to_byte = [&](__m128 value) noexcept {
+        return _mm_cvttps_epi32(_mm_min_ps(_mm_max_ps(_mm_add_ps(value, _mm_set1_ps(.5f)), zero), maximum_value));
+    };
+    const __m128i packed = _mm_or_si128(
+        _mm_or_si128(to_byte(r), _mm_slli_epi32(to_byte(g), 8)),
+        _mm_or_si128(_mm_slli_epi32(to_byte(b), 16), _mm_set1_epi32(static_cast<int>(0xFF000000u))));
+    _mm_storeu_si128(reinterpret_cast<__m128i*>(pixels), packed);
+}
+
+using ConvertGroup = void (*)(u8*) noexcept;
+
+void convert_row(ConvertGroup convert, u8* row, u32 width) noexcept {
+    u32 x = 0;
+    for (; x + 4 <= width; x += 4)
+        convert(row + x * 4u);
+    if (x < width) {
+        u8 tail[16]{};
+        copy_bytes(tail, row + x * 4u, (width - x) * 4u);
+        convert(tail);
+        copy_bytes(row + x * 4u, tail, (width - x) * 4u);
+    }
+}
+
 bool convert_planes(const JpegImage& image, const JpegThumbnailLayout& layout, const u8* planes, u8* row,
                     JpegThumbnailRowSink sink, void* context) noexcept {
     const u32 max_h = image.maximum_horizontal_sampling, max_v = image.maximum_vertical_sampling;
+    ConvertGroup convert = convert_group<JpegColorTransform::grayscale>;
+    switch (image.color_transform) {
+    case JpegColorTransform::grayscale: break;
+    case JpegColorTransform::rgb: convert = convert_group<JpegColorTransform::rgb>; break;
+    case JpegColorTransform::ycbcr: convert = convert_group<JpegColorTransform::ycbcr>; break;
+    case JpegColorTransform::cmyk: convert = convert_group<JpegColorTransform::cmyk>; break;
+    case JpegColorTransform::ycck: convert = convert_group<JpegColorTransform::ycck>; break;
+    }
     for (u32 y = 0; y < layout.height; ++y) {
-        for (u32 x = 0; x < layout.width; ++x) {
-            u8 sample[kJpegComponentMaximum]{};
-            for (u32 c = 0; c < image.component_count; ++c) {
-                const JpegComponent& component = image.components[c];
-                const u32 px = x * component.horizontal_sampling / max_h;
-                const u32 py = y * component.vertical_sampling / max_v;
-                sample[c] = planes[layout.plane_offsets[c] + static_cast<usize>(py) * layout.plane_pitches[c] + px];
-            }
-            u8* out = row + x * 4u;
-            float r = 0, g = 0, b = 0;
-            switch (image.color_transform) {
-            case JpegColorTransform::grayscale:
-                r = g = b = sample[0];
-                break;
-            case JpegColorTransform::rgb:
-                r = sample[0], g = sample[1], b = sample[2];
-                break;
-            case JpegColorTransform::ycbcr:
-            case JpegColorTransform::ycck: {
-                const float luma = sample[0], cb = sample[1] - 128.f, cr = sample[2] - 128.f;
-                r = luma + 1.402f * cr;
-                g = luma - .344136f * cb - .714136f * cr;
-                b = luma + 1.772f * cb;
-                if (image.color_transform == JpegColorTransform::ycck) {
-                    // Inverted Adobe CMYK: the YCC triple is already 255 - CMY.
-                    const float k = sample[3] / 255.f;
-                    r = (r < 0 ? 0 : r > 255 ? 255 : r) * k;
-                    g = (g < 0 ? 0 : g > 255 ? 255 : g) * k;
-                    b = (b < 0 ? 0 : b > 255 ? 255 : b) * k;
+        // Each component's sample for pixel x is the plane sample at
+        // (x * h / max_h, y * v / max_v); the column index is stepped, not divided.
+        for (u32 c = 0; c < image.component_count; ++c) {
+            const JpegComponent& component = image.components[c];
+            const u32 py = y * component.vertical_sampling / max_v;
+            const u8* source = planes + layout.plane_offsets[c] + static_cast<usize>(py) * layout.plane_pitches[c];
+            u32 accumulated = 0;
+            for (u32 x = 0; x < layout.width; ++x) {
+                row[x * 4u + c] = *source;
+                accumulated += component.horizontal_sampling;
+                if (accumulated >= max_h) {
+                    accumulated -= max_h;
+                    ++source;
                 }
-                break;
             }
-            case JpegColorTransform::cmyk: {
-                const float k = sample[3] / 255.f;
-                r = sample[0] * k, g = sample[1] * k, b = sample[2] * k;
-                break;
-            }
-            }
-            out[0] = clamp_sample(r);
-            out[1] = clamp_sample(g);
-            out[2] = clamp_sample(b);
-            out[3] = 255;
         }
+        convert_row(convert, row, layout.width);
         if (!sink(context, y, row)) return false;
     }
     return true;

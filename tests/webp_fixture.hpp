@@ -63,7 +63,14 @@ inline constexpr u64 kWebpLossy32x24RgbaFnv1a = 0xD01E2835CBF76683ull;
 inline constexpr u8 kWebpLossy32x24[]{
 #embed "webp_fixture.bin"
 };
+inline constexpr u8 kWebpLossy33x19[]{
+#embed "webp_fixture_33x19.bin"
+};
 #pragma clang diagnostic pop
+
+// A 33 x 19 lossy frame (odd width and height, 3 x 2 macroblocks) with the same
+// kind of libwebp oracle: the edge columns and rows of the fancy upsampler.
+inline constexpr u64 kWebpLossy33x19RgbaFnv1a = 0x3E5E52A81EF4D10Aull;
 
 
 } // namespace maicord

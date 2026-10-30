@@ -182,6 +182,10 @@ MAICORD_SIMD(128) __m128i _mm_cvtepu8_epi16(__m128i __v) {
     return (__m128i)__builtin_convertvector(
         __builtin_shufflevector((__v16qu)__v, (__v16qu)__v, 0, 1, 2, 3, 4, 5, 6, 7), __v8hi);
 }
+MAICORD_SIMD(128) __m128i _mm_cvtepu8_epi32(__m128i __v) {
+    return (__m128i)__builtin_convertvector(__builtin_shufflevector((__v16qu)__v, (__v16qu)__v, 0, 1, 2, 3), __v4si);
+}
+MAICORD_SIMD(128) __m128i _mm_cvttps_epi32(__m128 __a) { return (__m128i)__builtin_ia32_cvttps2dq((__v4sf)__a); }
 
 // Single and double precision.
 MAICORD_SIMD(128) __m128 _mm_add_ss(__m128 __a, __m128 __b) { __a[0] += __b[0]; return __a; }
@@ -197,6 +201,7 @@ MAICORD_SIMD_RUNTIME(128) __m128d _mm_sqrt_sd(__m128d __a, __m128d __b) {
 MAICORD_SIMD(128) __m128 _mm_add_ps(__m128 __a, __m128 __b) { return (__m128)((__v4sf)__a + (__v4sf)__b); }
 MAICORD_SIMD(128) __m128 _mm_sub_ps(__m128 __a, __m128 __b) { return (__m128)((__v4sf)__a - (__v4sf)__b); }
 MAICORD_SIMD(128) __m128 _mm_mul_ps(__m128 __a, __m128 __b) { return (__m128)((__v4sf)__a * (__v4sf)__b); }
+MAICORD_SIMD(128) __m128 _mm_div_ps(__m128 __a, __m128 __b) { return (__m128)((__v4sf)__a / (__v4sf)__b); }
 MAICORD_SIMD(128) __m128 _mm_min_ps(__m128 __a, __m128 __b) { return __builtin_ia32_minps((__v4sf)__a, (__v4sf)__b); }
 MAICORD_SIMD(128) __m128 _mm_max_ps(__m128 __a, __m128 __b) { return __builtin_ia32_maxps((__v4sf)__a, (__v4sf)__b); }
 MAICORD_SIMD(128) __m128 _mm_andnot_ps(__m128 __a, __m128 __b) { return (__m128)(~(__v4su)__a & (__v4su)__b); }
@@ -210,7 +215,27 @@ MAICORD_SIMD(128) __m128i _mm_add_epi64(__m128i __a, __m128i __b) { return (__m1
 MAICORD_SIMD(128) __m128i _mm_sub_epi8(__m128i __a, __m128i __b) { return (__m128i)((__v16qu)__a - (__v16qu)__b); }
 MAICORD_SIMD(128) __m128i _mm_sub_epi16(__m128i __a, __m128i __b) { return (__m128i)((__v8hu)__a - (__v8hu)__b); }
 MAICORD_SIMD(128) __m128i _mm_sub_epi32(__m128i __a, __m128i __b) { return (__m128i)((__v4su)__a - (__v4su)__b); }
+MAICORD_SIMD(128) __m128i _mm_mullo_epi16(__m128i __a, __m128i __b) { return (__m128i)((__v8hu)__a * (__v8hu)__b); }
+MAICORD_SIMD(128) __m128i _mm_mulhi_epu16(__m128i __a, __m128i __b) {
+    return (__m128i)__builtin_ia32_pmulhuw128((__v8hu)__a, (__v8hu)__b);
+}
+MAICORD_SIMD(128) __m128i _mm_adds_epu16(__m128i __a, __m128i __b) {
+    return (__m128i)__builtin_elementwise_add_sat((__v8hu)__a, (__v8hu)__b);
+}
+MAICORD_SIMD(128) __m128i _mm_subs_epu16(__m128i __a, __m128i __b) {
+    return (__m128i)__builtin_elementwise_sub_sat((__v8hu)__a, (__v8hu)__b);
+}
+MAICORD_SIMD(128) __m128i _mm_andnot_si128(__m128i __a, __m128i __b) { return (__m128i)(~(__v2du)__a & (__v2du)__b); }
 MAICORD_SIMD(128) __m128i _mm_mullo_epi32(__m128i __a, __m128i __b) { return (__m128i)((__v4su)__a * (__v4su)__b); }
+MAICORD_SIMD(128) __m128i _mm_adds_epi16(__m128i __a, __m128i __b) {
+    return (__m128i)__builtin_elementwise_add_sat((__v8hi)__a, (__v8hi)__b);
+}
+MAICORD_SIMD(128) __m128i _mm_min_epi16(__m128i __a, __m128i __b) {
+    return (__m128i)__builtin_elementwise_min((__v8hi)__a, (__v8hi)__b);
+}
+MAICORD_SIMD(128) __m128i _mm_max_epi16(__m128i __a, __m128i __b) {
+    return (__m128i)__builtin_elementwise_max((__v8hi)__a, (__v8hi)__b);
+}
 MAICORD_SIMD(128) __m128i _mm_hadd_epi32(__m128i __a, __m128i __b) {
     return (__m128i)__builtin_ia32_phaddd128((__v4si)__a, (__v4si)__b);
 }
@@ -296,6 +321,10 @@ MAICORD_SIMD(128) __m128i _mm_shuffle_epi8(__m128i __a, __m128i __b) {
 MAICORD_SIMD(128) __m128i _mm_unpacklo_epi8(__m128i __a, __m128i __b) {
     return (__m128i)__builtin_shufflevector((__v16qi)__a, (__v16qi)__b, 0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6,
                                             22, 7, 23);
+}
+MAICORD_SIMD(128) __m128i _mm_unpackhi_epi8(__m128i __a, __m128i __b) {
+    return (__m128i)__builtin_shufflevector((__v16qi)__a, (__v16qi)__b, 8, 16 + 8, 9, 16 + 9, 10, 16 + 10, 11,
+                                            16 + 11, 12, 16 + 12, 13, 16 + 13, 14, 16 + 14, 15, 16 + 15);
 }
 MAICORD_SIMD(128) __m128i _mm_unpacklo_epi16(__m128i __a, __m128i __b) {
     return (__m128i)__builtin_shufflevector((__v8hi)__a, (__v8hi)__b, 0, 8, 1, 9, 2, 10, 3, 11);

@@ -321,10 +321,18 @@ PngParseResult png_parse(ConstSlice<u8> encoded,
     return result;
 }
 
-bool png_image_configure(PngImage* image, u32 width, u32 height,
-                         u8 bit_depth, u8 color_type) noexcept {
-    image->width = width;
-    image->height = height;
+namespace {
+
+struct PngGeometry {
+    u32 row_bytes;
+    u32 inflated_bytes;
+    u8 channels;
+    u8 bytes_per_pixel;
+};
+
+// Row and image sizes of a width x height image in a colour format; false for
+// dimensions or a format outside the admitted set.
+bool png_geometry(u32 width, u32 height, u8 bit_depth, u8 color_type, PngGeometry* geometry) noexcept {
     u8 channels = 0;
     if (width == 0 || height == 0 || width > kPngDimensionMaximum ||
         height > kPngDimensionMaximum ||
@@ -336,14 +344,28 @@ bool png_image_configure(PngImage* image, u32 width, u32 height,
     static_assert(u64{kPngDimensionMaximum} * (u64{kPngDimensionMaximum} * 8 + 1) ==
                   kPngInflatedMaximumBytes);
     const u32 row_bytes = (width * channels * bit_depth + 7) / 8;
-    image->row_bytes = row_bytes;
-    image->row_stride = row_bytes + 1;
-    image->inflated_bytes = (row_bytes + 1) * height;
+    *geometry = {row_bytes, (row_bytes + 1) * height, channels,
+                 static_cast<u8>(maximum<u32>(1, (static_cast<u32>(channels) * bit_depth + 7) / 8))};
+    return true;
+}
+
+} // namespace
+
+bool png_image_configure(PngImage* image, u32 width, u32 height,
+                         u8 bit_depth, u8 color_type) noexcept {
+    image->width = width;
+    image->height = height;
+    PngGeometry geometry{};
+    if (!png_geometry(width, height, bit_depth, color_type, &geometry)) {
+        return false;
+    }
+    image->row_bytes = geometry.row_bytes;
+    image->row_stride = geometry.row_bytes + 1;
+    image->inflated_bytes = geometry.inflated_bytes;
     image->bit_depth = bit_depth;
     image->color_type = color_type;
-    image->channels = channels;
-    image->bytes_per_pixel = static_cast<u8>(maximum<u32>(
-        1, (static_cast<u32>(channels) * bit_depth + 7) / 8));
+    image->channels = geometry.channels;
+    image->bytes_per_pixel = geometry.bytes_per_pixel;
     return true;
 }
 
@@ -362,18 +384,17 @@ PngDecodeResult png_decode_parsed_scanlines(
     PngImage* image, DeflateWorkspace* workspace,
     Slice<u8> scanlines) noexcept {
     PngDecodeResult result{};
-    PngImage configured{};
+    PngGeometry geometry{};
     // Zero for a null image, interlace above 1 or an empty inflated size.
     const u32 required = image ? png_decode_buffer_bytes(*image) : 0;
     if (!required || !workspace || !scanlines.data || scanlines.count < required ||
-        !png_image_configure(&configured, image->width, image->height, image->bit_depth,
-                             image->color_type) ||
+        !png_geometry(image->width, image->height, image->bit_depth, image->color_type, &geometry) ||
         image->idat_span_count == 0 || image->compressed_bytes < 6 ||
-        image->row_bytes != configured.row_bytes ||
-        image->row_stride != configured.row_stride ||
-        image->inflated_bytes != configured.inflated_bytes ||
-        image->channels != configured.channels ||
-        image->bytes_per_pixel != configured.bytes_per_pixel ||
+        image->row_bytes != geometry.row_bytes ||
+        image->row_stride != geometry.row_bytes + 1 ||
+        image->inflated_bytes != geometry.inflated_bytes ||
+        image->channels != geometry.channels ||
+        image->bytes_per_pixel != geometry.bytes_per_pixel ||
         image->palette_count > kPngPaletteCapacity ||
         (image->color_type == 3 &&
          image->palette_count > (1u << image->bit_depth)) ||

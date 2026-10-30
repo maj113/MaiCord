@@ -2,6 +2,7 @@
 
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "deflate_tables.hpp"
 #include "png_common.hpp"
 
 namespace maicord {
@@ -23,14 +24,6 @@ constexpr u32 kMatchFlag = 0x8000'0000u;
 constexpr u32 kEndOfBlock = 256;
 constexpr u32 kLiteralSymbols = 286;
 constexpr u32 kDistanceSymbols = 30;
-
-static constexpr u16 kLengthBase[29] = {3,  4,  5,  6,  7,  8,  9,  10, 11,  13,  15,  17,  19,  23, 27,
-                                 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258};
-constexpr u8 kLengthExtra[29] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0};
-constexpr u16 kDistanceBase[30] = {1,   2,   3,   4,   5,   7,    9,    13,   17,   25,   33,   49,   65,    97,    129,
-                                   193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577};
-constexpr u8 kDistanceExtra[30] = {0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13};
-constexpr u8 kCodeLengthOrder[19] = {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15};
 
 // LSB-first bit packer; bytes past capacity are counted, not written.
 struct Bits {
@@ -269,7 +262,7 @@ void build_dynamic(const u32* literal_frequency, const u32* distance_frequency, 
     huffman_lengths(cf, 19, 7, h->code_lengths);
     canonical(h->code_lengths, 19, h->code_codes);
     h->hclen = 19;
-    while (h->hclen > 4 && !h->code_lengths[kCodeLengthOrder[h->hclen - 1]])
+    while (h->hclen > 4 && !h->code_lengths[kDeflateCodeLengthOrder[h->hclen - 1]])
         --h->hclen;
     h->bits = 3 + 5 + 5 + 4 + 3ull * h->hclen;
     for (u32 i = 0; i < h->rle_count; ++i) {
@@ -350,12 +343,12 @@ void write_symbols(Deflate* d, u32 count, const Tree& tree) noexcept {
         const u32 distance = (symbol & 0x7FFFu) + 1;
         const u32 lc = d->length_code[length];
         d->bits.put(tree.literal_codes[257 + lc], tree.literal_lengths[257 + lc]);
-        if (kLengthExtra[lc])
-            d->bits.put(length - kLengthBase[lc], kLengthExtra[lc]);
+        if (kDeflateLengthExtra[lc])
+            d->bits.put(length - kDeflateLengthBase[lc], kDeflateLengthExtra[lc]);
         const u32 dc = distance_symbol(*d, distance);
         d->bits.put(tree.distance_codes[dc], tree.distance_lengths[dc]);
-        if (kDistanceExtra[dc])
-            d->bits.put(distance - kDistanceBase[dc], kDistanceExtra[dc]);
+        if (kDeflateDistanceExtra[dc])
+            d->bits.put(distance - kDeflateDistanceBase[dc], kDeflateDistanceExtra[dc]);
     }
     d->bits.put(tree.literal_codes[kEndOfBlock], tree.literal_lengths[kEndOfBlock]);
 }
@@ -398,7 +391,7 @@ void emit_block(Deflate* d, u32 start, u32 end, u32 count, const u32* literal_fr
     d->bits.put(header.hdist - 1, 5);
     d->bits.put(header.hclen - 4, 4);
     for (u32 i = 0; i < header.hclen; ++i)
-        d->bits.put(header.code_lengths[kCodeLengthOrder[i]], 3);
+        d->bits.put(header.code_lengths[kDeflateCodeLengthOrder[i]], 3);
     for (u32 i = 0; i < header.rle_count; ++i) {
         const u32 s = header.rle[i];
         d->bits.put(header.code_codes[s], header.code_lengths[s]);
@@ -410,12 +403,13 @@ void emit_block(Deflate* d, u32 start, u32 end, u32 count, const u32* literal_fr
 
 void setup_tables(Deflate* d) noexcept {
     for (u32 c = 0; c < 29; ++c)
-        for (u32 length = kLengthBase[c]; length < kLengthBase[c] + (1u << kLengthExtra[c]) && length <= kMaxMatch;
+        for (u32 length = kDeflateLengthBase[c];
+             length < kDeflateLengthBase[c] + (1u << kDeflateLengthExtra[c]) && length <= kMaxMatch;
              ++length)
             d->length_code[length] = static_cast<u8>(c);
     d->length_code[kMaxMatch] = 28;
     for (u32 c = 0; c < 30; ++c) {
-        const u32 first = kDistanceBase[c] - 1u, last = first + (1u << kDistanceExtra[c]);
+        const u32 first = kDeflateDistanceBase[c] - 1u, last = first + (1u << kDeflateDistanceExtra[c]);
         for (u32 v = first; v < last; ++v)
             d->distance_code[v < 256 ? v : 256 + (v >> 7)] = static_cast<u8>(c);
     }
@@ -547,7 +541,7 @@ u32 zlib_compress(ConstSlice<u8> input, Slice<u8> workspace, Slice<u8> output) n
             const u32 lc = d.length_code[length], dc = distance_symbol(d, distance);
             ++literal_frequency[257 + lc];
             ++distance_frequency[dc];
-            extra += kLengthExtra[lc] + kDistanceExtra[dc];
+            extra += kDeflateLengthExtra[lc] + kDeflateDistanceExtra[dc];
             position += length;
         }
         literal_frequency[kEndOfBlock] = 1;
