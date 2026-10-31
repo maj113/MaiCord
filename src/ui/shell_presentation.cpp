@@ -673,11 +673,11 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                     if (!row_selected)
                         control_ink.alpha *= .8f;
                     if (((controls & channel_row_invite) &&
-                         !ui_icon_paint(stream, UiIcon::user_plus_filled,
+                         !ui_icon_paint(stream, UiIcon::user_plus,
                                         shell_navigation_control_rectangle(row_rectangle, row, channel_row_invite),
                                         control_ink)) ||
                         ((controls & channel_row_settings) &&
-                         !ui_icon_paint(stream, UiIcon::settings_filled,
+                         !ui_icon_paint(stream, UiIcon::settings,
                                         shell_navigation_control_rectangle(row_rectangle, row, channel_row_settings),
                                         control_ink)))
                         return false;
