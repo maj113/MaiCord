@@ -1413,7 +1413,7 @@ UiSettingsModalLayout ui_settings_modal_layout(const UiSettingsLayoutTokens& tok
     }
     // Layer: growing sidebar region with a right-aligned column, then content.
     // Below sidebar + 640 DIP the sidebar, padding and close gap shrink
-    // together (down to the 632 DIP minimum window) so the form column
+    // together (down to the 624 DIP minimum window) so the form column
     // keeps at least ~360 DIP instead of collapsing beside a full sidebar.
     l.modal = viewport;
     const float extra = maximum(0.f, width - m.sidebar_width - 800);

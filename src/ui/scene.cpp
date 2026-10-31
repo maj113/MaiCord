@@ -216,14 +216,18 @@ bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& m
         return false;
     }
     const UiWidgetHandle rail = scene->semantics[static_cast<u32>(UiSemantic::guild_rail)];
-    UiLayoutStyle home_style = fixed_height(metrics.title_bar_height);
-    home_style.margin = UiInsets{8.0f, 8.0f, 8.0f, 0.0f};
+    // Home is a rail tile directly below the caption; the server list starts
+    // below the separator, one gap under Home.
+    UiLayoutStyle home_style = fixed_height(kUiGuildRailTileExtent);
+    home_style.width = ui_layout_fixed(kUiGuildRailTileExtent);
+    home_style.horizontal_alignment = UiLayoutAlignment::center;
     home_style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children |
                                         ui_layout_node_text_content);
     UiLayoutStyle guild_navigation_style = ui_layout_style();
     guild_navigation_style.width = ui_layout_fill();
     guild_navigation_style.height = ui_layout_fill();
     guild_navigation_style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children);
+    guild_navigation_style.margin.top = kUiGuildRailGap + kUiGuildRailSeparatorHeight;
     if (navigation && metrics.navigation_footer_height > 0)
         guild_navigation_style.margin.bottom = account_band;
     if (!add_node(scene, UiSemantic::home_button, rail, home_style) ||

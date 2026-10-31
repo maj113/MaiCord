@@ -403,7 +403,8 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
     }
 
     // A gradient theme: the band is the shell's backdrop, so the gradient
-    // runs on across the seam into the guild rail below.
+    // runs on across the seam into the guild rail below, on both sides of the
+    // Home tile that sits directly under the band.
     {
         Theme gradient = kDefaultTheme;
         gradient.background = background_theme_defaults();
@@ -415,6 +416,8 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
         const Color flat = over(gradient.tokens.caption.background, gradient.base_lowest);
         u32 columns = 0, continuous = 0, tinted = 0;
         for (u32 x = 2; x < px(64); x += 3) {
+            if (x >= px(12) && x < px(52))
+                continue;
             const Pixel above = read(image, x, caption - 1), below = read(image, x, caption);
             const auto close_to = [](u8 a, u8 b) noexcept { return (a > b ? a - b : b - a) <= 4; };
             ++columns;

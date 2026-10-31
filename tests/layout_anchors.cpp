@@ -11,10 +11,10 @@ void test_layout_anchors(void (*check)(bool, const char*) noexcept) noexcept {
         const auto wide = ui_scene_header_geometry(shell);
         const auto* messages = ui_scene_node(shell, UiSemantic::message_view);
         const auto* members = ui_scene_node(shell, UiSemantic::member_sidebar);
-        check(ui_rect_equal(wide.title, {312, 0, 1280, 48}) &&
+        check(ui_rect_equal(wide.title, {304, 0, 1280, 48}) &&
                   ui_rect_equal(wide.search_field, {944, 8, 1224, 40}) && ui_rect_equal(wide.inbox, {1228, 8, 1264, 40}) &&
                   ui_rect_equal(wide.member_toggle, {900, 8, 936, 40}) && wide.label.right == 892 &&
-                  messages && ui_rect_equal(messages->rectangle, {312, 48, 1040, 726}) && members &&
+                  messages && ui_rect_equal(messages->rectangle, {304, 48, 1040, 726}) && members &&
                   ui_rect_equal(members->rectangle, {1040, 48, 1280, 800}) &&
                   ui_layout_engine_validate(shell.widgets.layout, {diagnostics, 16}).clean(),
               "shell header: member control precedes trailing search while message/member pane bounds stay "

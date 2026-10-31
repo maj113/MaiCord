@@ -379,33 +379,34 @@ void drag() noexcept {
     navigation_drag_press(&d, NavigationDragList::guilds, 20, NavigationDragRowKind::guild, {30, 100});
     check(navigation_drag_move(&d, {30, 110}) && navigation_drag_dragging(d) && !navigation_drag_move(&d, {30, 120}),
           "drag: crossing the threshold starts one drag");
-    // Rail rows: 40 DIP icons with 18 DIP gaps.
-    const NavigationDragRow rail[]{{10, {16, 12, 56, 52}, NavigationDragRowKind::guild},
-                                   {20, {16, 70, 56, 110}, NavigationDragRowKind::guild},
-                                   {7, {16, 128, 56, 168}, NavigationDragRowKind::folder},
-                                   {30, {16, 186, 56, 226}, NavigationDragRowKind::nested_guild}};
+    // Rail rows: 40 DIP tiles with 6 DIP gaps.
+    const NavigationDragRow rail[]{{10, {12, 12, 52, 52}, NavigationDragRowKind::guild},
+                                   {20, {12, 58, 52, 98}, NavigationDragRowKind::guild},
+                                   {7, {12, 104, 52, 144}, NavigationDragRowKind::folder},
+                                   {30, {12, 150, 52, 190}, NavigationDragRowKind::nested_guild}};
     auto t = navigation_drag_guild_target(d, {rail, 4}, 20, kGuildRailRowGapDips);
     check(t.id == 10 && t.drop == NavigationDropKind::before && t.indicator.top < 12 && t.indicator.bottom <= 12,
           "drag: the top quarter of a guild drops above it, the line in the gap");
     t = navigation_drag_guild_target(d, {rail, 4}, 32, kGuildRailRowGapDips);
     check(t.id == 10 && t.drop == NavigationDropKind::combine && t.indicator.top == 12,
           "drag: the middle of a guild combines into a folder with a ring");
-    t = navigation_drag_guild_target(d, {rail, 4}, 148, kGuildRailRowGapDips);
+    t = navigation_drag_guild_target(d, {rail, 4}, 124, kGuildRailRowGapDips);
     check(t.id == 7 && t.drop == NavigationDropKind::combine, "drag: a guild over a folder's middle joins it");
-    t = navigation_drag_guild_target(d, {rail, 4}, 206, kGuildRailRowGapDips);
+    t = navigation_drag_guild_target(d, {rail, 4}, 170, kGuildRailRowGapDips);
     check(t.id == 30 && t.drop == NavigationDropKind::after, "drag: folder members only take neighbours");
-    t = navigation_drag_guild_target(d, {rail, 4}, 90, kGuildRailRowGapDips);
+    t = navigation_drag_guild_target(d, {rail, 4}, 78, kGuildRailRowGapDips);
     check(!t.id && t.drop == NavigationDropKind::none, "drag: a guild over itself has no target");
-    t = navigation_drag_guild_target(d, {rail, 4}, 58, kGuildRailRowGapDips);
+    t = navigation_drag_guild_target(d, {rail, 4}, 54, kGuildRailRowGapDips);
     check(t.id == 10 && t.drop == NavigationDropKind::after, "drag: the gap below a row drops after it");
     auto visual = navigation_drag_update_target(&d, navigation_drag_guild_target(d, {rail, 4}, 32, kGuildRailRowGapDips));
     check(visual.active && visual.ring && visual.source_id == 20 && navigation_drag_release(&d, &dropped) &&
               dropped.id == 10 && dropped.drop == NavigationDropKind::combine && d.phase == NavigationDragPhase::idle,
           "drag: release commits the last target");
-    navigation_drag_press(&d, NavigationDragList::guilds, 7, NavigationDragRowKind::folder, {30, 148});
+    navigation_drag_press(&d, NavigationDragList::guilds, 7, NavigationDragRowKind::folder, {30, 124});
     navigation_drag_move(&d, {30, 20});
     t = navigation_drag_guild_target(d, {rail, 4}, 25, kGuildRailRowGapDips);
-    check(t.id == 10 && t.drop == NavigationDropKind::before && !navigation_drag_guild_target(d, {rail, 4}, 206, 18).id,
+    check(t.id == 10 && t.drop == NavigationDropKind::before &&
+              !navigation_drag_guild_target(d, {rail, 4}, 170, kGuildRailRowGapDips).id,
           "drag: folders never combine or sit among folder members");
     navigation_drag_cancel(&d);
     check(d.phase == NavigationDragPhase::idle && !navigation_drag_release(&d, &dropped), "drag: Esc cancels");

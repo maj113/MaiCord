@@ -163,7 +163,7 @@ struct UiThemeTypography {
 // capacities, permissions and widget identities are not theme data. Defaults
 // match the shared primitives. Consumers project these into their own styles.
 struct UiThemeMetrics {
-    float shell_rail_width{72}, shell_sidebar_width{240}, shell_member_width{240}, shell_header_height{48},
+    float shell_rail_width{64}, shell_sidebar_width{240}, shell_member_width{240}, shell_header_height{48},
         shell_gutter{0};
     float control_height{32}, control_radius{6}, edit_radius{8}, compact_radius{4}, composer_padding{4};
     float message_left{18}, message_right{24}, message_top{14}, message_bottom{1};

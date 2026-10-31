@@ -380,14 +380,21 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                     ui_guild_acronym(chat_state_store_guild_name(state, *guild), {storage, sizeof(storage)}, &characters);
                 const auto clip = ui_rect_intersection(guild_navigation->rectangle, guild_scene->viewport);
                 TextLook look = kLookCentered;
-                look.style_flags = characters <= 2 ? text_style_heading_3 : characters <= 4 ? text_style_none : text_style_subtext;
+                // The official sizes by length: 18, 18, 16, 16, 14, 12 and 10
+                // (MaiCord's smallest code, 12, for seven and more).
+                look.style_flags = characters <= 2   ? text_style_heading_3
+                                   : characters <= 4 ? text_style_none
+                                   : characters == 5 ? kTextStyleSizeCodeSm
+                                                     : kTextStyleSizeCodeXs;
                 look.owned = true;
+                // Text tiles take the accent, and its ink, while hovered or selected.
+                const bool accent = !row.view.unavailable &&
+                                    (row.view.selected || ui_widget_handle_equal(guild_scene->widgets.hovered, row.widget));
+                const Color ink = accent ? theme.tokens.emphasis.text
+                                  : row.view.unavailable || (row.view.muted && !row.view.selected) ? theme.text_secondary
+                                                                                                   : theme.text_primary;
                 if (!append_command(guild_scene->widgets, row.widget, acronym,
-                                    guild_rail_icon_rectangle(layout->rectangle), clip,
-                                    row.view.unavailable || (row.view.muted && !row.view.selected)
-                                        ? theme.text_secondary
-                                        : theme.text_primary,
-                                    stream, look))
+                                    guild_rail_icon_rectangle(layout->rectangle), clip, ink, stream, look))
                     return reject(stream);
             }
             if (!row.view.mention_count ||
@@ -398,8 +405,8 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                 return reject(stream);
             const auto rectangle = ui_mention_badge_guild_rectangle(guild_rail_icon_rectangle(layout->rectangle),
                                                                     row.view.mention_count);
-            // Rail badges extend beyond the row; clipping to the row itself
-            // would cut the two-DIP overhang shared with the paint geometry.
+            // The badge's text clips to the rail viewport like its painted
+            // cut-out, which reaches past the tile.
             const auto clip = ui_rect_intersection(guild_navigation->rectangle, guild_scene->viewport);
             if (!ui_mention_badge_text_output(row.view.mention_count, guild_scene->widgets, row.widget,
                                               rectangle, clip, stream))

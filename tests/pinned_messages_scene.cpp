@@ -240,7 +240,7 @@ void test_pinned_messages_scene(void (*check)(bool, const char*) noexcept) noexc
               ui_scene_header_geometry(shell).member_toggle.right < ui_scene_header_geometry(shell).search_field.left &&
               ui_layout_engine_validate(shell.widgets.layout, {diagnostics, 32}).clean(),
           "pins launcher: narrow native header bounds all controls without overlapping hit regions");
-    check(ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, metrics, 632, 800) &&
+    check(ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, metrics, 624, 800) &&
               ui_rect_width(ui_scene_header_geometry(shell).label) == 72.f &&
               ui_rect_width(ui_scene_header_geometry(shell).search_field) == 120.f &&
               ui_scene_header_geometry(shell).label.right + 8.f == ui_scene_header_geometry(shell).pins.left &&

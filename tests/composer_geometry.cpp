@@ -14,7 +14,7 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
         UiScene shell{};
         UiShellLayoutMetrics metrics = kGuildChannelShellLayoutMetrics;
         bool responsive = ui_scene_initialize_bootstrap(&shell);
-        const float widths[]{632.f, 872.f, 871.5f, 1280.f, 672.f, 872.f};
+        const float widths[]{624.f, 864.f, 863.5f, 1280.f, 664.f, 864.f};
         for (const float width : widths) {
             responsive &=
                 ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, metrics, width, 800.f);
@@ -22,7 +22,7 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
             const auto* members = ui_scene_node(shell, UiSemantic::member_sidebar);
             const auto* composer = ui_scene_node(shell, UiSemantic::composer);
             responsive &= center && ui_rect_width(center->rectangle) >= kUiShellMinimumMessageWidthDips &&
-                          (members != nullptr) == (width >= 872.f) &&
+                          (members != nullptr) == (width >= 864.f) &&
                           ui_scene_node(shell, UiSemantic::member_toggle) &&
                           composer &&
                           ui_scene_composer_width(metrics, width) ==
@@ -181,7 +181,7 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
                       indicator->rectangle.bottom + 4.0f == surface->rectangle.top &&
                       !ui_rect_has_area(ui_rect_intersection(indicator->rectangle, surface->rectangle))));
                 compact = compact && edit && ui_rect_height(edit->rectangle) == base - 8.0f;
-                // The 632-DIP window minimum leaves a 304-DIP composer: GIF and
+                // The 624-DIP window minimum leaves a 304-DIP composer: GIF and
                 // sticker fold into the emoji picker so the editor keeps one row.
                 if (width == 304.f && text.bytes == 0)
                     primary_readable &= edit && toolbar_height == 0.f &&

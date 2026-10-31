@@ -92,7 +92,7 @@ struct UiShellLayoutMetrics {
 inline constexpr UiShellLayoutMetrics kGuildChannelShellLayoutMetrics{
     1,
     static_cast<u16>(ui_shell_layout_navigation | ui_shell_layout_members | ui_shell_layout_composer),
-    72.0f,
+    64.0f,
     240.0f,
     240.0f,
     640.0f,
@@ -114,7 +114,7 @@ inline constexpr UiShellLayoutMetrics kGuildChannelShellLayoutMetrics{
 inline constexpr UiShellLayoutMetrics kFriendsShellLayoutMetrics{
     1,
     ui_shell_layout_navigation,
-    72.0f,
+    64.0f,
     240.0f,
     0.0f,
     0.0f,

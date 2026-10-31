@@ -222,8 +222,9 @@ struct ProbeState {
     UiScene shell_scene;
     GuildRailScene guild_rail_scene;
     GuildRailRowWidget guild_rail_rows[kProbeGuildCapacity];
-    UiWidget guild_rail_widgets[kProbeGuildCapacity + 2];
-    UiLayoutNode guild_rail_layout_nodes[kProbeGuildCapacity + 2];
+    // Root, top spacer, rows and the trailing "Add a server" button.
+    UiWidget guild_rail_widgets[kProbeGuildCapacity + 3];
+    UiLayoutNode guild_rail_layout_nodes[kProbeGuildCapacity + 3];
     ShellNavigationScene shell_navigation_scene;
     ShellNavigationRowWidget shell_navigation_rows[kProbeChannelCapacity];
     UiWidget shell_navigation_widgets[kProbeChannelCapacity * 4 + 2];
@@ -9659,8 +9660,8 @@ int run_probe() noexcept {
         !guild_rail_scene_initialize(
             &g_probe.guild_rail_scene,
             Slice<GuildRailRowWidget>{g_probe.guild_rail_rows, kProbeGuildCapacity},
-            Slice<UiWidget>{g_probe.guild_rail_widgets, kProbeGuildCapacity + 2},
-            Slice<UiLayoutNode>{g_probe.guild_rail_layout_nodes, kProbeGuildCapacity + 2}) ||
+            Slice<UiWidget>{g_probe.guild_rail_widgets, kProbeGuildCapacity + 3},
+            Slice<UiLayoutNode>{g_probe.guild_rail_layout_nodes, kProbeGuildCapacity + 3}) ||
         !shell_navigation_scene_initialize(
             &g_probe.shell_navigation_scene,
             Slice<ShellNavigationRowWidget>{g_probe.shell_navigation_rows, kProbeChannelCapacity},
@@ -9701,10 +9702,12 @@ int run_probe() noexcept {
     if (probe_option_enabled(L"MAICORD_UI_GUILD_RAIL_ICON_PROBE"))
         return finish_gate(initialize_fixture(true) &&
                            guild_rail_icon_ui_probe({g_probe.renderer, g_probe.guild_rail_scene, g_probe.chat_state,
-                                                     g_probe.navigation, +[]() noexcept {
+                                                     g_probe.navigation,
+                                                     +[]() noexcept {
                                                          return synchronize_probe_shell_layout() &&
                                                                 rebuild_probe_content_text();
-                                                     }}),
+                                                     },
+                                                     probe_capture_frame}),
                            "guild_rail_icons_native_ui_passed", "guild_rail_icons_native_ui_failed", 275);
     if (probe_option_enabled(L"MAICORD_UI_POST_RESIZE_PACING_PROBE")) {
         if (post_resize_probe_detail::compositor_asleep()) {

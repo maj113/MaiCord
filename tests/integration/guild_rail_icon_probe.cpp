@@ -7,6 +7,8 @@
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/ui/guild_rail_scene.hpp"
 #include "maicord/ui/navigation_view.hpp"
+#include "maicord/ui/background_theme.hpp"
+#include "maicord/ui/theme.hpp"
 
 namespace maicord {
 namespace {
@@ -132,6 +134,52 @@ bool run_phase(GuildRailIconProbeContext& c, const Phase& phase, u32 index) noex
         return failed(13, index);
     return rail_matches(c, phase, index);
 }
+
+// Optional captures of the finished rail: server 100 selected, 200 unread,
+// 300 with a mention badge and 400, now without artwork, as a hovered text
+// tile; flat and gradient themes at 100% and 125%.
+bool capture_rail(GuildRailIconProbeContext& c) noexcept {
+    if (!c.capture)
+        return true;
+    auto& r = c.renderer;
+    if (!chat_state_store_upsert_guild(&c.state, GuildInput{400, {}, GuildMutationKind::update, 0, {}, true}).ok() ||
+        !navigation_view_rebuild(&c.navigation, c.state).ok() || c.navigation.guild_count != kCaseCount)
+        return failed(60);
+    c.navigation.selected_guild_id = 100;
+    for (u32 i = 0; i < c.navigation.guild_count; ++i) {
+        GuildViewRow& row = c.navigation.guild_rows[i];
+        row.selected = row.id == 100;
+        row.unread = row.id == 200;
+        row.mention_count = row.id == 300 ? 3 : 0;
+        ++row.generation;
+    }
+    ++c.navigation.guild_revision;
+    Theme gradient = kDefaultTheme;
+    gradient.background = background_theme_defaults();
+    const u32 dpi = r.dpi, width = r.width, height = r.height;
+    struct Shot {
+        u32 dpi;
+        const Theme* theme;
+        const wchar_t* name;
+    };
+    const Shot shots[]{{96, &kDefaultTheme, L"guild-rail-dark96.bmp"},
+                       {96, &gradient, L"guild-rail-gradient96.bmp"},
+                       {120, &kDefaultTheme, L"guild-rail-dark120.bmp"},
+                       {120, &gradient, L"guild-rail-gradient120.bmp"}};
+    for (const Shot& shot : shots) {
+        renderer_set_dpi(&r, shot.dpi);
+        if (!renderer_resize(&r, width, height) || !c.rebuild())
+            return failed(61);
+        const GuildRailRowWidget* text_tile = rail_row(c.rail, 400);
+        if (!text_tile)
+            return failed(62);
+        ui_widget_manager_hover(&c.rail.widgets, text_tile->widget);
+        if (!probe_present(&r, *shot.theme) || !c.capture(shot.name, *shot.theme))
+            return failed(63);
+    }
+    renderer_set_dpi(&r, dpi);
+    return (renderer_resize(&r, width, height) && c.rebuild()) || failed(64);
+}
 } // namespace
 
 bool guild_rail_icon_ui_probe(GuildRailIconProbeContext c) noexcept {
@@ -183,7 +231,7 @@ bool guild_rail_icon_ui_probe(GuildRailIconProbeContext c) noexcept {
         return failed(7);
     if (!run_phase(c, {300, {S, S, M, S}}, index++))
         return false;
-    if (!run_phase(c, {0, {S, S, S, S}}, index++))
+    if (!run_phase(c, {0, {S, S, S, S}}, index++) || !capture_rail(c))
         return false;
     log_write(LogLevel::info, "probe", "guild_rail_icons_layout_quads_present_passed");
     return true;

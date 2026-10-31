@@ -123,9 +123,11 @@ bool project() noexcept {
     auto metrics = kGuildChannelShellLayoutMetrics;
     metrics.flags = static_cast<u16>(metrics.flags & ~ui_shell_layout_members);
     metrics.member_sidebar_width = 0;
-    // Compact available-width fixture topology only; shipping minimum632 stays
-    // enforced by the application window. Default632 retains both rail/sidebar.
-    if (r.width * 96.f / r.dpi < 632.f)
+    // Compact available-width fixture topology only; the shipping minimum
+    // (rail, sidebar and the minimum message width) stays enforced by the
+    // application window, and that default width retains both rail and sidebar.
+    if (r.width * 96.f / r.dpi <
+        metrics.guild_rail_width + metrics.navigation_width + kUiShellMinimumMessageWidthDips)
         metrics.flags = static_cast<u16>(metrics.flags & ~ui_shell_layout_navigation);
     const float full_width = ui_scene_composer_width(metrics, r.width * 96.f / r.dpi);
     const bool command_bar = fixture->command && fixture->command->command_bar_name.bytes;
@@ -226,7 +228,7 @@ bool initialize(HWND window) noexcept {
                 message_view_runtime_bind_rich_store(&g_app.message_view, &ui.message_rich_store).ok() &&
                 ui_scene_initialize_bootstrap(&g_app.shell_scene) &&
                 ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel,
-                                             kGuildChannelShellLayoutMetrics, 632, 600) &&
+                                             kGuildChannelShellLayoutMetrics, 624, 600) &&
                 guild_rail_scene_initialize(&g_app.guild_rail_scene, {fixture->rail_rows, 2},
                                             {fixture->rail_widgets, 4}, {fixture->rail_nodes, 4}) &&
                 shell_navigation_scene_initialize(
@@ -418,7 +420,7 @@ bool geometry() noexcept {
                      238))
             return false;
     }
-    // The 632-DIP window minimum keeps a single editor row: attach, editor,
+    // The 624-DIP window minimum keeps a single editor row: attach, editor,
     // emoji and send share it with at least 156 DIP of editable width.
     if (fixture->expected_width == 304.f &&
         !require(message_composer_scene_toolbar_height(304.f) == 0.f &&
@@ -1212,11 +1214,11 @@ bool member_query_transitions() noexcept {
 bool scenarios() noexcept {
     if (!member_query_transitions())
         return false;
-    if (!require(resize(632, 600, 96, 304) && disabled_send() &&
+    if (!require(resize(624, 600, 96, 304) && disabled_send() &&
                      capture(L"composer-default304-dark-placeholder96.bmp"),
                  1))
         return false;
-    if (!require(resize(320, 600, 96, 232) && capture(L"composer-compact232-dark-placeholder96.bmp"), 2))
+    if (!require(resize(312, 600, 96, 232) && capture(L"composer-compact232-dark-placeholder96.bmp"), 2))
         return false;
     if (!require(pointer(MessageComposerControl::edit) &&
                      text(utf8_literal("Živjo 日本語 café 😀"), L"Živjo 日本語 café 😀") &&
@@ -1236,12 +1238,12 @@ bool scenarios() noexcept {
                      warm(1),
                  5))
         return false;
-    if (!require(resize(248, 600, 96, 160) && text(utf8_literal("Živjo 😀"), L"Živjo 😀") &&
+    if (!require(resize(240, 600, 96, 160) && text(utf8_literal("Živjo 😀"), L"Živjo 😀") &&
                      compact160_routes() && capture(L"composer-compact160-dark96.bmp"),
                  14))
         return false;
     fixture->theme = kLightTheme;
-    if (!require(text({}, L"") && resize(480, 900, 144, 232) &&
+    if (!require(text({}, L"") && resize(468, 900, 144, 232) &&
                      capture(L"composer-compact232-light-placeholder144.bmp"),
                  6))
         return false;
@@ -1257,7 +1259,7 @@ bool scenarios() noexcept {
         return false;
     fixture->theme = kLightTheme;
     if (!require(message_composer_scene_minimum_inline_width() == 380.f &&
-                     resize(468, 600, 96, message_composer_scene_minimum_inline_width()) &&
+                     resize(460, 600, 96, message_composer_scene_minimum_inline_width()) &&
                      capture(L"composer-boundary380-light96.bmp"),
                  9))
         return false;
@@ -1266,16 +1268,16 @@ bool scenarios() noexcept {
     fixture->attachments = {};
     fixture->typing = {};
     application_reply_draft_cancel();
-    if (!require(text({}, L"") && resize(632, 600, 96, 304) &&
+    if (!require(text({}, L"") && resize(624, 600, 96, 304) &&
                      capture(L"composer-custom-secondary-dark96.bmp"),
                  10))
         return false;
     fixture->theme = kDefaultTheme;
     fixture->theme.background = background_theme_defaults();
-    if (!require(resize(480, 900, 144, 232) && capture(L"composer-gradient-dark144.bmp"), 11))
+    if (!require(resize(468, 900, 144, 232) && capture(L"composer-gradient-dark144.bmp"), 11))
         return false;
     fixture->theme = kDefaultTheme;
-    if (!require(resize(1100, 780, 96, 772) &&
+    if (!require(resize(1092, 780, 96, 772) &&
                      text(utf8_literal("Native composer restored"), L"Native composer restored") &&
                      stale_geometry() && capture(L"composer-wide-restored-dark96.bmp"),
                  12))
@@ -1335,7 +1337,7 @@ bool composer_ui_probe() noexcept {
         return false;
     // Never activated, no taskbar button, opened behind every other window.
     constexpr DWORD kWindowExStyle = WS_EX_NOREDIRECTIONBITMAP | probe_window::kExtendedStyle;
-    RECT bounds{0, 0, 632, 600};
+    RECT bounds{0, 0, 624, 600};
     if (!AdjustWindowRectEx(&bounds, WS_OVERLAPPEDWINDOW, FALSE, kWindowExStyle))
         return false;
     HWND window = CreateWindowExW(kWindowExStyle, type.lpszClassName, L"MaiCord native composer",

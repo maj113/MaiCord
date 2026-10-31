@@ -35,5 +35,13 @@ inline constexpr float kUiMediaPlayTarget = 60.0f;
 inline constexpr float kUiMediaSurfaceOpacity = .58f;
 inline constexpr float kUiMediaHoverOpacity = .45f;
 inline constexpr float kUiAutocompleteGap = 6.0f;
+// Server rail (the official client's compact density): 40-DIP tiles, 6 DIPs
+// apart, centred in the rail; a 32 x 1 separator sits one gap below Home.
+inline constexpr float kUiGuildRailTileExtent = 40.0f;
+inline constexpr float kUiGuildRailGap = 6.0f;
+inline constexpr float kUiGuildRailSeparatorWidth = 32.0f;
+inline constexpr float kUiGuildRailSeparatorHeight = 1.0f;
+// Glyph of an icon-only rail tile (Add a Server).
+inline constexpr float kUiGuildRailGlyphExtent = 20.0f;
 
 } // namespace maicord

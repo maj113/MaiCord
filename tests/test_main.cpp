@@ -1964,12 +1964,12 @@ void test_ui_scene() noexcept {
     const UiLayoutNode* members = ui_scene_node(scene, UiSemantic::member_sidebar);
     const UiLayoutNode* composer = ui_scene_node(scene, UiSemantic::composer);
     const UiLayoutNode* messages = ui_scene_node(scene, UiSemantic::message_view);
-    expect(guild && guild->rectangle.left == 0.0f && guild->rectangle.right == 72.0f && channels &&
-               channels->rectangle.left == 72.0f && channels->rectangle.right == 312.0f && content &&
-               content->rectangle.left == 312.0f && content->rectangle.right == 1040.0f && members &&
+    expect(guild && guild->rectangle.left == 0.0f && guild->rectangle.right == 64.0f && channels &&
+               channels->rectangle.left == 64.0f && channels->rectangle.right == 304.0f && content &&
+               content->rectangle.left == 304.0f && content->rectangle.right == 1040.0f && members &&
                members->rectangle.left == 1040.0f && members->rectangle.top == 48.0f,
            "ui_scene_semantic_docks");
-    expect(composer && composer->rectangle.left == 320.0f && composer->rectangle.top == 744.0f &&
+    expect(composer && composer->rectangle.left == 312.0f && composer->rectangle.top == 744.0f &&
                composer->rectangle.right == 1032.0f && composer->rectangle.bottom == 792.0f && messages &&
                messages->rectangle.top == 48.0f && messages->rectangle.bottom == 726.0f,
            "ui_scene_nested_margin_fill");
@@ -2112,7 +2112,7 @@ void test_ui_scene() noexcept {
                                                &chrome_navigation_scene, kDefaultTheme, 1280.0f, 800.0f,
                                                &shell_paint, &shell_regions) &&
                shell_paint.rejected == 0 && shell_paint.count >= 16 && navigation_scroll == 0.0f &&
-               shell_regions.member_sidebar_visible && shell_regions.message_view.left == 312.0f &&
+               shell_regions.member_sidebar_visible && shell_regions.message_view.left == 304.0f &&
                shell_regions.message_view.right == 1040.0f,
            "shell_presentation_renderer_neutral_chrome");
     {
@@ -2931,7 +2931,7 @@ void test_ui_scene() noexcept {
             ui_scene_node(scene, UiSemantic::channel_sidebar) &&
             !ui_scene_node(scene, UiSemantic::member_sidebar) &&
             ui_scene_node(scene, UiSemantic::member_toggle) &&
-            ui_scene_node(scene, UiSemantic::content)->rectangle.left == 312.0f &&
+            ui_scene_node(scene, UiSemantic::content)->rectangle.left == 304.0f &&
             ui_scene_node(scene, UiSemantic::content)->rectangle.right == 632.0f,
         "ui_scene_narrow_transition_suppresses_members_and_preserves_toggle");
 
@@ -2948,10 +2948,10 @@ void test_ui_scene() noexcept {
         ui_scene_node(friends_scene, UiSemantic::content);
     const UiLayoutNode* friends_messages =
         ui_scene_node(friends_scene, UiSemantic::message_view);
-    expect(friends_guild && friends_guild->rectangle.right == 72.0f && friends_navigation &&
-               friends_navigation->rectangle.left == 72.0f &&
-               friends_navigation->rectangle.right == 312.0f && friends_content &&
-               friends_content->rectangle.left == 312.0f && friends_content->rectangle.right == 480.0f &&
+    expect(friends_guild && friends_guild->rectangle.right == 64.0f && friends_navigation &&
+               friends_navigation->rectangle.left == 64.0f &&
+               friends_navigation->rectangle.right == 304.0f && friends_content &&
+               friends_content->rectangle.left == 304.0f && friends_content->rectangle.right == 480.0f &&
                friends_messages && friends_messages->rectangle.top == 48.0f &&
                friends_messages->rectangle.bottom == 930.0f &&
                !ui_scene_node(friends_scene, UiSemantic::member_sidebar) &&
@@ -2964,7 +2964,7 @@ void test_ui_scene() noexcept {
                friends_scene.layout_rebuilds == friends_rebuilds &&
                friends_scene.widgets.generation == friends_generation &&
                ui_scene_node(friends_scene, UiSemantic::content)
-                       ->rectangle.left == 312.0f,
+                       ->rectangle.left == 304.0f,
            "ui_scene_friends_resize_retains_fixed_policy_tree");
     UiShellLayoutMetrics revised_friends = kFriendsShellLayoutMetrics;
     revised_friends.revision = 2;
@@ -2973,7 +2973,7 @@ void test_ui_scene() noexcept {
                                         930.0f) &&
                friends_scene.layout_rebuilds == friends_rebuilds + 1 &&
                ui_scene_node(friends_scene, UiSemantic::content)
-                       ->rectangle.left == 372.0f,
+                       ->rectangle.left == 364.0f,
            "ui_scene_metrics_revision_rebuilds_structure");
     UiShellLayoutMetrics invalid_friends = revised_friends;
     invalid_friends.revision = 0;
@@ -7705,7 +7705,8 @@ void test_member_list_scene() noexcept {
         const bool corner_ok = ui_plugin_slot_corner(kUiPluginSlotGuildRail, 9, icon, &corner);
         const UiRect mention = ui_mention_badge_guild_rectangle(icon, 120);
         expect(corner_ok && corner.action_id == 0 && corner.icon == static_cast<u16>(UiIcon::pin) &&
-                   utf8_equal(corner.label, utf8_literal("Pinned server")) && corner.rectangle.right == icon.right + 2 &&
+                   utf8_equal(corner.label, utf8_literal("Pinned server")) && corner.rectangle.right == icon.right &&
+                   corner.rectangle.top == icon.top && mention.right == icon.right && mention.bottom == icon.bottom &&
                    corner.rectangle.bottom <= mention.top && !ui_plugin_slot_corner(kUiPluginSlotGuildRail, 8, icon, &corner),
                "guild_rail_plugin_badge_takes_the_top_corner_clear_of_the_mention_badge");
         const UiRect footer{0, 500, 240, 552};

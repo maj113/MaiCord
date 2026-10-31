@@ -20,21 +20,13 @@ void test_ui_transition(void (*check)(bool, const char*) noexcept) noexcept {
     guild_rail_indicator_tick(&pill, pill_scope, true, true, true, 400, true);
     check(pill.height.value == 1 && !guild_rail_indicator_next_wake(pill, 400),
           "guild pill: selected state wins over hover and settles at 40px");
-    // The icon morphs with the pill: a circle (50%) at rest, a rounded square
-    // (30%) while hovered or selected, sampled mid-flight.
+    // Rail tiles are rounded squares in every state; a folder transition's
+    // shrinking tile keeps the shape.
     const UiRect icon{0, 0, 40, 40};
-    GuildRailIndicator shape{};
-    guild_rail_indicator_tick(&shape, pill_scope, false, false, false, 0, true);
-    const float rest = guild_rail_icon_radius(icon, &shape, false, false);
-    guild_rail_indicator_tick(&shape, pill_scope, false, true, false, 100, true);
-    guild_rail_indicator_tick(&shape, pill_scope, false, true, false, 200, true);
-    const float flight = guild_rail_icon_radius(icon, &shape, false, true);
-    guild_rail_indicator_tick(&shape, pill_scope, true, false, false, 400, true);
-    const float selected = guild_rail_icon_radius(icon, &shape, true, false);
-    const float unsampled = guild_rail_icon_radius(icon, nullptr, true, false);
-    check(rest == 20 && flight < 19.9f && flight > 12.1f && selected > 11.99f && selected < 12.01f &&
-              unsampled > 11.99f && unsampled < 12.01f && guild_rail_icon_radius(icon, nullptr, false, false) == 20,
-          "guild icon: the selected or hovered server morphs from a circle to a 30% rounded square");
+    const UiRect revealing{0, 10, 40, 30};
+    check(guild_rail_tile_radius(icon, 12) == 12 && guild_rail_tile_radius(revealing, 12) == 6 &&
+              guild_rail_tile_radius({0, 0, 4, 4}, 12) == 1.2f && guild_rail_tile_radius(icon, 30) == 20,
+          "guild icon: rail tiles keep the theme radius, scaled with the tile and capped at a circle");
     guild_rail_indicator_tick(&pill, pill_scope, false, false, false, 500, true);
     guild_rail_indicator_tick(&pill, pill_scope, false, false, false, 600, true);
     check(pill.height.value > .314f && pill.height.value < .316f &&

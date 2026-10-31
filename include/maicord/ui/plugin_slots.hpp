@@ -170,6 +170,7 @@ struct UiPluginSlotCorner {
     u16 icon;
     u8 tone;
 };
+// The rail tile's top-right badge, flush with the corner like the lower badge.
 inline constexpr float kUiPluginSlotCornerExtent = 16;
 inline bool ui_plugin_slot_corner(u32 surface, u64 guild_id, UiRect icon, UiPluginSlotCorner* out) noexcept {
     reset_value(out);
@@ -179,8 +180,8 @@ inline bool ui_plugin_slot_corner(u32 surface, u64 guild_id, UiRect icon, UiPlug
     for (u32 i = 0; i < count; ++i) {
         const auto& node = nodes[i];
         if (node.kind == ui_plugin_node_separator || node.kind == ui_plugin_node_link) continue;
-        out->rectangle = {icon.right + 2 - kUiPluginSlotCornerExtent, icon.top - 2, icon.right + 2,
-                          icon.top - 2 + kUiPluginSlotCornerExtent};
+        out->rectangle = {icon.right - kUiPluginSlotCornerExtent, icon.top, icon.right,
+                          icon.top + kUiPluginSlotCornerExtent};
         out->label = ui_plugin_slot_label(node);
         out->owner_id = node.owner_id;
         out->action_id = node.kind == ui_plugin_node_button ? node.action_id : 0;

@@ -13,8 +13,9 @@ inline constexpr u32 kGuildRailRootWidgetId = 1;
 inline constexpr u32 kGuildRailSpacerWidgetId = 2;
 // Row widgets use source index + 3; the add button sits above any row ID.
 inline constexpr u32 kGuildRailAddWidgetId = 0x7FFF0000u;
-inline constexpr float kGuildRailTopInset = 12.0f;
-inline constexpr float kGuildRailRowExtent = 40.0f;
+// One gap below the separator above the list.
+inline constexpr float kGuildRailTopInset = kUiGuildRailGap;
+inline constexpr float kGuildRailRowExtent = kUiGuildRailTileExtent;
 inline constexpr float kGuildRailRowGap = kGuildRailRowGapDips;
 inline constexpr float kGuildRailRowStride = kGuildRailRowExtent + kGuildRailRowGap;
 inline constexpr float kGuildRailOverscanDips = kGuildRailOverscanRows * kGuildRailRowStride;
@@ -26,11 +27,12 @@ GuildRailSceneResult scene_error(GuildRailScene* scene, GuildRailSceneError erro
                                 scene ? scene->scroll_dips : 0.0f, false};
 }
 
+// Rows are centred in whatever width the theme gives the rail.
 UiLayoutStyle row_style(float reveal) noexcept {
     UiLayoutStyle style = ui_layout_style();
     style.width = ui_layout_fixed(kGuildRailRowExtent);
     style.height = ui_layout_fixed(kGuildRailRowExtent * reveal);
-    style.margin.left = 16.0f;
+    style.horizontal_alignment = UiLayoutAlignment::center;
     style.margin.bottom = kGuildRailRowGap * reveal;
     return style;
 }

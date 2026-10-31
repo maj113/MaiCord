@@ -540,8 +540,10 @@ MediaAtlasResult guild_icon_rail_allocation(MediaAtlas* atlas, const GuildRecord
     return allocation.ok() || !animated || animate ? allocation : media_atlas_peek(atlas, moving);
 }
 
-// Collapsed folder tiles preview their first four member icons.
-bool queue_folder_preview(D3D11Renderer* renderer, const GuildRailRowWidget& row, const UiRect& tile) noexcept {
+// Collapsed folder tiles preview their first four member icons as small
+// rounded squares.
+bool queue_folder_preview(D3D11Renderer* renderer, const GuildRailRowWidget& row, const UiRect& tile,
+                          float radius) noexcept {
     const auto* view = renderer->navigation_view;
     for (u32 k = 0; view && k < 4 && k < row.view.folder_size; ++k) {
         const u32 source = row.source_index + 1 + k;
@@ -554,7 +556,8 @@ bool queue_folder_preview(D3D11Renderer* renderer, const GuildRailRowWidget& row
         if (!allocation.ok())
             continue;
         const UiRect mini = guild_rail_folder_preview_rectangle(tile, k);
-        if (!queue_media_quad(renderer, allocation, mini, renderer->guild_rail_scene->viewport, true))
+        if (!queue_media_quad(renderer, allocation, mini, renderer->guild_rail_scene->viewport, false, false,
+                              MediaQuadStyle{{}, 1.f, radius, 0.f, 0.f, 0}))
             return false;
     }
     return true;
@@ -1929,7 +1932,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             const GuildRailRowWidget& row = renderer->guild_rail_scene->rows[index];
             const UiLayoutNode* layout = guild_rail_scene_layout_node(*renderer->guild_rail_scene, row);
             if (layout && row.view.folder_role == GuildFolderRole::header && !row.view.folder_expanded &&
-                !queue_folder_preview(renderer, row, guild_rail_icon_rectangle(layout->rectangle)))
+                !queue_folder_preview(renderer, row, guild_rail_icon_rectangle(layout->rectangle), theme.scale.radius_sm))
                 return layout_step_failed(__LINE__);
             if (layout && row.view.folder_role == GuildFolderRole::conversation) {
                 if (!queue_conversation_pin(renderer, row, guild_rail_icon_rectangle(layout->rectangle), theme))
@@ -1948,8 +1951,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 continue;
             }
             // Server artwork is a cover surface, not a glyph inset inside a
-            // second placeholder. The media takes the row's silhouette: a
-            // circle morphing to a rounded square while hovered or selected.
+            // second placeholder. The media takes the rail tile's rounded square.
             const UiRect icon = guild_rail_icon_rectangle(layout->rectangle);
             // Muted servers sit back in the rail until hovered or selected.
             // A dragged server sits back too.
@@ -1958,7 +1960,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                                 (row.view.muted && !row.view.selected && !hovered);
             if (!queue_media_quad(renderer, allocation, icon, renderer->guild_rail_scene->viewport, false, false,
                                   MediaQuadStyle{{}, dimmed ? .5f : 1.f,
-                                                 guild_rail_icon_radius(icon, &row.indicator, row.view.selected, hovered),
+                                                 guild_rail_tile_radius(icon, theme.scale.radius_lg),
                                                  0.f, 0.f, 0})) {
                 return layout_step_failed(__LINE__);
             }

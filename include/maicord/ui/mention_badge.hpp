@@ -25,9 +25,11 @@ inline Utf8View ui_mention_badge_label(u32 count, Slice<char> output) noexcept {
 inline float ui_mention_badge_width(u32 count) noexcept {
     return count < 10 ? 16.0f : count < 100 ? 22.0f : 30.0f;
 }
-inline UiRect ui_mention_badge_guild_rectangle(UiRect row, u32 count) noexcept {
-    return {row.right + 2.0f - ui_mention_badge_width(count), row.bottom - 14.0f,
-            row.right + 2.0f, row.bottom + 2.0f};
+// A rail tile's badge sits flush in the tile's bottom-right corner; the
+// painter cuts a ring of rail around it.
+inline UiRect ui_mention_badge_guild_rectangle(UiRect tile, u32 count) noexcept {
+    return {tile.right - ui_mention_badge_width(count), tile.bottom - kUiMentionBadgeHeight, tile.right,
+            tile.bottom};
 }
 inline bool ui_mention_badge_text_output(u32 count, const UiWidgetManager& manager,
     UiWidgetHandle owner, UiRect rectangle, UiRect clip, UiTextOutput* stream) noexcept {

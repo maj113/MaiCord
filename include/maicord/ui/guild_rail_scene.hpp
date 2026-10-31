@@ -2,6 +2,7 @@
 
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/navigation_drag.hpp"
+#include "maicord/ui/surface_geometry.hpp"
 #include "maicord/ui/widget_manager.hpp"
 #include "maicord/ui/transition.hpp"
 
@@ -11,7 +12,7 @@ struct UiVirtualRowStorageOwner;
 
 inline constexpr u32 kGuildRailOverscanRows = 2;
 // Vertical gap between rail rows (drop lines sit in its middle).
-inline constexpr float kGuildRailRowGapDips = 18.0f;
+inline constexpr float kGuildRailRowGapDips = kUiGuildRailGap;
 
 // Guild indicator transition: 8/20/40px, 200ms CSS ease-out.
 struct GuildRailIndicatorMotion {
@@ -20,10 +21,8 @@ struct GuildRailIndicatorMotion {
     float value, from, target;
     bool active;
 };
-// shape: the icon's circle (0) to rounded square (1) morph while hovered or
-// selected, on the pill's 200 ms CSS ease-out.
 struct GuildRailIndicator {
-    GuildRailIndicatorMotion height, visibility, shape;
+    GuildRailIndicatorMotion height, visibility;
 };
 inline UiMotionTransition guild_rail_indicator_transition(const GuildRailIndicatorMotion& motion) noexcept {
     return {{motion.scope.owner, motion.scope.generation}, motion.started_ms, motion.sampled_ms,
@@ -46,13 +45,11 @@ inline bool guild_rail_indicator_tick(GuildRailIndicator* pill, UiMotionScope sc
     const float height = selected ? 1.f : hovered ? .375f : 0.f;
     const float visibility = selected || hovered || unread ? 1.f : 0.f;
     bool changed = guild_rail_indicator_parameter_tick(&pill->height, scope, height, now_ms, animate);
-    changed = guild_rail_indicator_parameter_tick(&pill->shape, scope, selected || hovered ? 1.f : 0.f, now_ms,
-                                                  animate) || changed;
     return guild_rail_indicator_parameter_tick(&pill->visibility, scope, visibility, now_ms, animate) || changed;
 }
 inline u64 guild_rail_indicator_next_wake(const GuildRailIndicator& pill, u64 now_ms) noexcept {
     u64 wake = 0;
-    const GuildRailIndicatorMotion* motions[]{&pill.height, &pill.visibility, &pill.shape};
+    const GuildRailIndicatorMotion* motions[]{&pill.height, &pill.visibility};
     for (const auto* motion : motions) {
         const auto transition = guild_rail_indicator_transition(*motion);
         const u64 deadline = ui_motion_transition_next_wake(transition, transition.scope, now_ms, false, true);
@@ -61,14 +58,12 @@ inline u64 guild_rail_indicator_next_wake(const GuildRailIndicator& pill, u64 no
     }
     return wake;
 }
-// Server icon: a circle (border-radius 50%) that morphs to a
-// rounded square (30%) while hovered or selected. The sampled shape motion
-// drives it; an unsampled row (no tick yet) takes its settled state.
-inline float guild_rail_icon_radius(UiRect icon, const GuildRailIndicator* motion, bool selected,
-                                    bool hovered) noexcept {
-    const float shape = motion && motion->shape.scope.owner ? motion->shape.value : selected || hovered ? 1.f : 0.f;
-    const float extent = minimum(ui_rect_width(icon), ui_rect_height(icon));
-    return extent * (.5f - .2f * shape);
+// Rail tiles (server icons, text tiles, Home, Add a Server, folders) are
+// rounded squares at every state; `radius` is the theme's tile radius for a
+// full-size tile and scales with a tile that a folder transition shrinks.
+inline float guild_rail_tile_radius(UiRect tile, float radius) noexcept {
+    const float extent = minimum(ui_rect_width(tile), ui_rect_height(tile));
+    return minimum(radius * extent / kUiGuildRailTileExtent, extent * .5f);
 }
 
 enum class GuildRailSceneError : u8 {
@@ -173,11 +168,12 @@ bool guild_rail_scene_folder_toggled(GuildRailScene* scene, u64 folder_id, bool 
 // Advances folder transitions; true when the host must re-run the update.
 bool guild_rail_scene_tick(GuildRailScene* scene, u64 now_ms, bool animate) noexcept;
 u64 guild_rail_scene_next_wake(const GuildRailScene& scene, u64 now_ms) noexcept;
-// Collapsed folder preview: 2x2 member icons with 4 DIP padding and 2 DIP gap.
+// Collapsed folder preview: 2x2 member icons with 3 DIP padding and 2 DIP gap
+// (16-DIP icons in a 40-DIP tile).
 inline UiRect guild_rail_folder_preview_rectangle(UiRect tile, u32 index) noexcept {
-    const float extent = (ui_rect_width(tile) - 10.0f) * .5f;
-    const float left = tile.left + 4.0f + static_cast<float>(index % 2) * (extent + 2.0f);
-    const float top = tile.top + 4.0f + static_cast<float>(index / 2) * (extent + 2.0f);
+    const float extent = (ui_rect_width(tile) - 8.0f) * .5f;
+    const float left = tile.left + 3.0f + static_cast<float>(index % 2) * (extent + 2.0f);
+    const float top = tile.top + 3.0f + static_cast<float>(index / 2) * (extent + 2.0f);
     return {left, top, left + extent, top + extent};
 }
 // Icons stay square and centered while a row's extent animates.

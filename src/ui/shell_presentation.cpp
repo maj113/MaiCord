@@ -1,6 +1,7 @@
 #include "maicord/ui/theme_style_projection.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/badge.hpp"
+#include "maicord/ui/brand_mark.hpp"
 #include "maicord/ui/mention_badge.hpp"
 #include "maicord/ui/presence.hpp"
 #include "maicord/ui/shell_presentation.hpp"
@@ -95,32 +96,56 @@ bool paint_drag_visual(PaintStream* stream, const NavigationDragVisual& drag, co
                                             theme.accent, ring_radius + inset, 2.0f);
 }
 
-// "Add a server": a round tile with an accent plus that fills with the accent
-// on hover. Its surface follows the theme like the Home button's.
+float rail_tile_radius(const UiRect& tile, const Theme& theme) noexcept {
+    return guild_rail_tile_radius(tile, theme.scale.radius_lg);
+}
+
+// A rail tile without artwork (Home, Add a Server, a server's initials): the
+// raised surface at rest, the accent while hovered or selected. Its surface
+// follows the theme like the other raised controls.
+bool paint_rail_tile(PaintStream* stream, const UiRect& tile, bool accent, const Theme& theme) noexcept {
+    const bool background = ui_background_active(theme);
+    Color fill = accent ? theme.tokens.emphasis.fill : theme.surface_high;
+    if (background && !accent)
+        fill.alpha = 1;
+    return ui_background_paint_surface(stream, tile, theme, fill, fill, rail_tile_radius(tile, theme),
+                                       background && !accent ? .75f : 0, accent ? 1.f : .80f,
+                                       accent ? UiBackgroundSurfaceMode::tinted : UiBackgroundSurfaceMode::gradient,
+                                       UiBackgroundTier::highest, UiBackgroundBorderTone::palette);
+}
+Color rail_tile_ink(bool accent, const Theme& theme) noexcept {
+    return accent ? theme.tokens.emphasis.text : theme.text_primary;
+}
+
+// "Add a server": a rail tile with a 20-DIP plus.
 bool paint_add_server(PaintStream* stream, const GuildRailScene& scene, const Theme& theme) noexcept {
     const UiRect row = guild_rail_scene_add_rectangle(scene);
     if (!ui_rect_has_area(row))
         return true;
     const UiRect tile = guild_rail_icon_rectangle(row);
     const bool hovered = ui_widget_handle_matches(scene.add_button, scene.widgets.hovered);
-    const bool background = ui_background_active(theme);
-    Color fill = hovered ? theme.tokens.emphasis.fill : theme.surface_high;
-    if (background && !hovered)
-        fill.alpha = 1;
-    if (!ui_background_paint_surface(stream, tile, theme, fill, fill, hovered ? 14.0f : ui_rect_width(tile) * 0.5f,
-                                     background && !hovered ? .75f : 0, hovered ? 1.f : .80f,
-                                     hovered ? UiBackgroundSurfaceMode::tinted : UiBackgroundSurfaceMode::gradient,
-                                     UiBackgroundTier::highest, UiBackgroundBorderTone::palette))
-        return false;
     const float cx = (tile.left + tile.right) * .5f, cy = (tile.top + tile.bottom) * .5f;
-    const float half = 12.0f;
-    return ui_icon_paint(stream, UiIcon::plus, {cx - half, cy - half, cx + half, cy + half},
-                         ui_icon_role_color(theme, hovered ? UiIconRole::on_accent : UiIconRole::accent));
+    const float half = kUiGuildRailGlyphExtent * .5f;
+    return paint_rail_tile(stream, tile, hovered, theme) &&
+           ui_icon_paint(stream, UiIcon::plus, {cx - half, cy - half, cx + half, cy + half},
+                         rail_tile_ink(hovered, theme));
+}
+
+// MaiCord's mark stroked across a rail tile, the Home button's glyph.
+bool paint_brand_mark(PaintStream* stream, const UiRect& tile, Color color) noexcept {
+    const float extent = ui_rect_width(tile);
+    const auto point = [&](u32 i) noexcept {
+        return UiPoint{tile.left + kBrandMarkPoints[i][0] * extent, tile.top + kBrandMarkPoints[i][1] * extent};
+    };
+    for (u32 i = 0; i < 4; ++i)
+        if (!paint_stream_push_line(stream, point(i), point(i + 1), extent * kBrandMarkStroke, color))
+            return false;
+    return true;
 }
 
 // A count badge cut out of the rail like a server badge.
 bool paint_rail_badge(PaintStream* stream, const UiRect& badge, const Theme& theme) noexcept {
-    const float cutout = ui_background_active(theme) ? 0.0f : theme.scale.space_1 * 1.5f;
+    const float cutout = ui_background_active(theme) ? 0.0f : theme.scale.space_1;
     return paint_stream_push_rounded_border(stream, badge.left - cutout, badge.top - cutout, badge.right + cutout,
                                             badge.bottom + cutout, theme.notification, theme.base_lowest,
                                             ui_rect_height(badge) * 0.5f + cutout, cutout);
@@ -203,8 +228,8 @@ Color folder_color(const Theme& theme, const GuildViewRow& row, float alpha) noe
     return color;
 }
 
-// Expanded (or animating) folders sit on one tinted plate spanning the
-// header and its visible members.
+// Expanded (or animating) folders sit on one tinted, outlined plate spanning
+// the header and its visible members, 4 DIPs outside their tiles.
 bool paint_folder_groups(PaintStream* stream, const GuildRailScene& scene, const Theme& theme) noexcept {
     for (u32 i = 0; i < scene.count;) {
         const auto& first = scene.rows[i];
@@ -222,7 +247,9 @@ bool paint_folder_groups(PaintStream* stream, const GuildRailScene& scene, const
                 return false;
             const UiRect plate{top->rectangle.left - 4, top->rectangle.top - 4, top->rectangle.right + 4,
                                bottom->rectangle.bottom + 4};
-            if (!paint_stream_push_rounded(stream, plate, folder_color(theme, first.view, .15f), theme.scale.radius_xl))
+            if (!paint_stream_push_rounded_border(stream, plate.left, plate.top, plate.right, plate.bottom,
+                                                  folder_color(theme, first.view, .15f), theme.tokens.border.subtle,
+                                                  theme.scale.radius_xl, 1))
                 return false;
         }
         i = end;
@@ -237,19 +264,20 @@ bool paint_folder_header(PaintStream* stream, const NavigationView* navigation,
     if (row.folder_expanded) {
         const float half = kUiNavigationIconExtent * .5f;
         const float x = (rectangle.left + rectangle.right) * .5f, y = (rectangle.top + rectangle.bottom) * .5f;
-        return (!hovered || paint_stream_push_rounded(stream, rectangle, folder_color(theme, row, .25f), theme.scale.radius_lg)) &&
+        return (!hovered || paint_stream_push_rounded(stream, rectangle, theme.tokens.state.hover,
+                                                      rail_tile_radius(rectangle, theme))) &&
                ui_icon_paint(stream, UiIcon::folder, {x - half, y - half, x + half, y + half},
                              folder_color(theme, row, 1));
     }
-    if (!paint_stream_push_rounded(stream, rectangle, folder_color(theme, row, hovered ? .55f : .4f), 13))
+    if (!paint_stream_push_rounded(stream, rectangle, folder_color(theme, row, .4f), rail_tile_radius(rectangle, theme)))
         return false;
-    // Members without artwork get a neutral disc; icons are queued as media.
+    // Members without artwork get a neutral tile; icons are queued as media.
     for (u32 k = 0; navigation && k < 4 && k < row.folder_size; ++k) {
         const u32 source = row_widget.source_index + 1 + k;
         if (source >= navigation->guild_count || navigation->guild_rows[source].has_icon)
             continue;
         const UiRect mini = guild_rail_folder_preview_rectangle(rectangle, k);
-        if (!paint_stream_push_rounded(stream, mini, theme.surface_high, ui_rect_width(mini) * .5f))
+        if (!paint_stream_push_rounded(stream, mini, theme.surface_high, theme.scale.radius_sm))
             return false;
     }
     return true;
@@ -325,33 +353,24 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
         return false;
     }
 
+    // Home: the MaiCord mark on a rail tile that takes the accent while hovered
+    // or selected, then the separator one gap below it.
     const bool home_hovered = ui_widget_handle_equal(scene.widgets.hovered, ui_scene_widget(scene, UiSemantic::home_button));
     const bool home_selected = navigation && !navigation->selected_guild_id;
+    const bool home_accent = home_selected || home_hovered;
     if (!paint_guild_indicator(stream, guild->rectangle.left, home->rectangle,
                                guild_scene ? &guild_scene->home_indicator : nullptr, home_selected,
-                               home_hovered, false, theme.text_primary))
+                               home_hovered, false, theme.text_primary) ||
+        !paint_rail_tile(stream, home->rectangle, home_accent, theme) ||
+        !paint_brand_mark(stream, home->rectangle, rail_tile_ink(home_accent, theme)))
         return false;
-    Color home_fill = home_selected  ? theme.tokens.emphasis.fill
-                      : home_hovered ? ui_background_hover_color(theme, theme.interactive, .32f)
-                                     : theme.surface_high;
-    if (background && !home_selected)
-        home_fill.alpha = 1;
-    if (!ui_background_paint_surface(stream, home->rectangle, theme, home_fill, home_fill, theme.scale.radius_md,
-                                     background && !home_selected ? .75f : 0, home_hovered ? 1.f : .80f,
-                                     home_selected ? UiBackgroundSurfaceMode::tinted
-                                                   : UiBackgroundSurfaceMode::gradient,
-                                     UiBackgroundTier::highest, UiBackgroundBorderTone::palette))
+    const float separator_center = (home->rectangle.left + home->rectangle.right) * .5f;
+    const float separator_top = home->rectangle.bottom + kUiGuildRailGap;
+    if (!paint_stream_push_rounded(stream, separator_center - kUiGuildRailSeparatorWidth * .5f, separator_top,
+                                   separator_center + kUiGuildRailSeparatorWidth * .5f,
+                                   separator_top + kUiGuildRailSeparatorHeight, theme.tokens.border.subtle,
+                                   theme.scale.radius_xs * .5f))
         return false;
-
-    const float home_center_x = (home->rectangle.left + home->rectangle.right) * 0.5f;
-    const float home_center_y = (home->rectangle.top + home->rectangle.bottom) * 0.5f;
-    const float home_icon_half = kUiNavigationIconExtent * 0.5f;
-    if (!ui_icon_paint(stream, UiIcon::home,
-                       {home_center_x - home_icon_half, home_center_y - home_icon_half,
-                        home_center_x + home_icon_half, home_center_y + home_icon_half},
-                       theme.text_primary)) {
-        return false;
-    }
     // Friend and message requests badge Home, cut out of the rail like a server badge.
     if (navigation && navigation->home_badge &&
         !paint_rail_badge(stream, ui_mention_badge_guild_rectangle(home->rectangle, navigation->home_badge), theme))
@@ -397,21 +416,23 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                     return false;
                 continue;
             }
-            // The fallback tile belongs to guilds without artwork. Painting it
-            // below an icon replaces the rail backdrop in transparent pixels.
+            // The fallback tile belongs to guilds without artwork; it takes
+            // the accent while hovered or selected. Painting it below an icon
+            // would replace the rail backdrop in transparent pixels.
+            const bool accent = !row.unavailable && (row_hovered || row.selected);
             if (!header && !row.has_icon &&
-                !paint_stream_push_rounded(stream, rectangle, row_hovered       ? ui_background_hover_color(theme, theme.interactive, .32f)
+                !paint_stream_push_rounded(stream, rectangle, accent ? theme.tokens.emphasis.fill
                 : row.unavailable ? theme.interactive
                 // A light rail needs the raised white tile to separate the acronym.
                 : theme.appearance == ThemeAppearance::light ? theme.surface
-                                                             : theme.surface_high, guild_rail_icon_radius(rectangle, &row_widget.indicator, row.selected, row_hovered))) {
+                                                             : theme.surface_high, rail_tile_radius(rectangle, theme))) {
                 return false;
             }
             // Mention and plugin badges sit above the icon's media:
             // shell_presentation_build_guild_rail_overlay.
         }
         if (!paint_add_server(stream, *guild_scene, theme) ||
-            !paint_drag_visual(stream, guild_scene->drag, theme, 16.0f))
+            !paint_drag_visual(stream, guild_scene->drag, theme, theme.scale.radius_lg))
             return false;
         if (!paint_stream_pop_clip(stream)) {
             return false;

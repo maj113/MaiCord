@@ -339,17 +339,19 @@ void guild_folders() noexcept {
           "rail focus visits the folder header and skips collapsed members");
 
     // Rail: collapsed members take no space; expanding animates their extent.
-    // The trailing "Add a server" button adds one row stride after the rows.
+    // Rows are 46 DIPs apart (40-DIP tiles, 6-DIP gaps) after a 6-DIP inset;
+    // the trailing "Add a server" button adds one row stride after the rows.
     GuildRailScene rail{};
     GuildRailRowWidget rail_rows[16]{};
     UiWidget rail_widgets[24]{};
     UiLayoutNode rail_nodes[24]{};
     check(guild_rail_scene_initialize(&rail, {rail_rows, 16}, {rail_widgets, 24}, {rail_nodes, 24}) &&
-              guild_rail_scene_update(&rail, &view, {0, 0, 72, 900}, 0).ok() && rail.count == 5 &&
-              rail.content_height == 12 + 6 * 58.f && rail.add_button.generation &&
-              guild_rail_scene_add_rectangle(rail).top == 12 + 5 * 58.f,
-          "collapsed folders show one tile");
-    const auto header = guild_rail_scene_hit_test(rail, 36, 12 + 2 * 58 + 20);
+              guild_rail_scene_update(&rail, &view, {0, 0, 64, 900}, 0).ok() && rail.count == 5 &&
+              rail.content_height == 6 + 6 * 46.f && rail.add_button.generation &&
+              guild_rail_scene_add_rectangle(rail).top == 6 + 5 * 46.f &&
+              guild_rail_scene_add_rectangle(rail).left == 12,
+          "collapsed folders show one tile, centred in the rail");
+    const auto header = guild_rail_scene_hit_test(rail, 32, 6 + 2 * 46 + 20);
     check(header.folder && !header.selectable && header.id == guild_rows[2].id, "folder tiles hit as folders");
     const u64 expanded[] = {guild_rows[2].id};
     view.expanded_folders = expanded;
@@ -360,12 +362,12 @@ void guild_folders() noexcept {
               guild_rail_scene_update(&rail, &view, rail.viewport, 0).ok() && rail.count == 5,
           "an expanding folder starts with zero-extent members");
     check(guild_rail_scene_tick(&rail, 1075, true) && guild_rail_scene_update(&rail, &view, rail.viewport, 0).ok() &&
-              rail.count == 7 && rail.content_height > 12 + 6 * 58.f && rail.content_height < 12 + 8 * 58.f &&
+              rail.count == 7 && rail.content_height > 6 + 6 * 46.f && rail.content_height < 6 + 8 * 46.f &&
               guild_rail_scene_next_wake(rail, 1075),
           "members grow during the 150 ms transition");
     check(guild_rail_scene_tick(&rail, 1200, true) && guild_rail_scene_update(&rail, &view, rail.viewport, 0).ok() &&
-              rail.content_height == 12 + 8 * 58.f && !guild_rail_scene_next_wake(rail, 1200) &&
-              guild_rail_scene_hit_test(rail, 36, 12 + 7 * 58.f + 20).add_server,
+              rail.content_height == 6 + 8 * 46.f && !guild_rail_scene_next_wake(rail, 1200) &&
+              guild_rail_scene_hit_test(rail, 32, 6 + 7 * 46.f + 20).add_server,
           "expanded folders settle at full height");
     view.selected_guild_id = 40;
     check(guild_rail_scene_reveal_guild(&rail, view, 40) && rail.focused_guild_id == 40,

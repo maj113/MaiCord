@@ -197,7 +197,7 @@
     "code_face": "mono"
   },
   "metrics": {
-    "shell_rail_width": 72,
+    "shell_rail_width": 64,
     "shell_sidebar_width": 240,
     "shell_member_width": 240,
     "shell_header_height": 48,

@@ -2,6 +2,7 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/platform/taskbar_attention.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/ui/brand_mark.hpp"
 
 #include "maicord/sys/shell.hpp"
 
@@ -52,9 +53,8 @@ float rounded_distance(float px, float py, float c, float h, float r) noexcept {
 
 void render_mark(const TrayIconPalette& palette, u32 extent, Slice<u32> pixels) noexcept {
     const float e = static_cast<float>(extent), c = e * .5f;
-    // "M": two posts and a centre valley, round caps.
-    const float points[5][2] = {{.28f, .71f}, {.28f, .31f}, {.5f, .55f}, {.72f, .31f}, {.72f, .71f}};
-    const float half_stroke = maximum(e * .072f, .85f);
+    const auto& points = kBrandMarkPoints;
+    const float half_stroke = maximum(e * kBrandMarkStroke * .5f, .85f);
     for (u32 y = 0; y < extent; ++y)
         for (u32 x = 0; x < extent; ++x) {
             const float px = static_cast<float>(x) + .5f, py = static_cast<float>(y) + .5f;

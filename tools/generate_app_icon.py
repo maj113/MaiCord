@@ -1,8 +1,9 @@
 """Write MaiCord's executable icon: the tray mark in the default theme colours.
 
 Standard library only and deterministic. The drawing mirrors render_mark in
-src/platform/system_tray.cpp (rounded brand tile, white "M" stroke); the
-running client still re-tints window and tray icons to the active theme.
+src/platform/system_tray.cpp (rounded brand tile, white "M" stroke, whose
+geometry lives in include/maicord/ui/brand_mark.hpp); the running client still
+re-tints window and tray icons to the active theme.
 PNG filters, DEFLATE strategies and gentle RGB posterization are searched
 deterministically. Alpha and the white mark are preserved exactly; each image
 must meet the PSNR floor against the original rendering. No external libraries.
