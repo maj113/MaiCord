@@ -1,3 +1,5 @@
+#include "application_overlay_input.hpp"
+#include "application_window_state.hpp"
 #include "application_scrolling.hpp"
 #include "maicord/model/role_policy.hpp"
 #include "application_profile.hpp"
@@ -51,7 +53,7 @@ MessageComposer& edit_model(ApplicationProfile& p) noexcept {
 }
 // Visible: the window is shown and not minimized (tests run without one).
 bool window_shown() noexcept {
-    return !g_app.window || (IsWindowVisible(g_app.window) && !IsIconic(g_app.window));
+    return !g_app.window || application_window_shown();
 }
 bool application_known(const ApplicationProfile& p, u64 id) noexcept {
     for (u32 i = 0; i < p.application_count; ++i)
@@ -674,8 +676,7 @@ bool application_profile_close() noexcept {
     }
     ui_button_pointer(&s.widgets, UiButtonPointerEvent::cancel, {});
     ui_button_keyboard_cancel(&s.keyboard);
-    if (GetCapture() == g_app.window)
-        ReleaseCapture();
+    application_release_capture();
     ++s.revision;
     return repaint(true);
 }
@@ -819,7 +820,7 @@ bool application_profile_character(u32 character) noexcept {
     auto& model = edit_model(*p);
     if (!p->scene.edit.active || !model.focused || (p->message_pending && !p->scene.note_editing) || character < 32 ||
         character == 127 || character > 0xFFFF ||
-        ((GetKeyState(VK_CONTROL) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000)))
+        application_command_down())
         return true;
     if (message_composer_codepoints(model) >= (p->scene.note_editing ? kUserNoteMaximumCodepoints : ~0u))
         return true;
@@ -876,8 +877,7 @@ bool application_profile_pointer(UiButtonPointerEvent event, UiPoint point) noex
     if (event == UiButtonPointerEvent::release && s.bio_pressed) {
         const u32 pressed = s.bio_pressed;
         s.bio_pressed = 0;
-        if (GetCapture() == g_app.window)
-            ReleaseCapture();
+        application_release_capture();
         if (bio_hit && bio_hit->source_offset + 1 == pressed) {
             if (bio_hit->kind == MessageMarkdownSemanticKind::spoiler && s.bio_revealed_count < 64) {
                 s.bio_revealed[s.bio_revealed_count++] = bio_hit->source_offset;
@@ -913,13 +913,12 @@ bool application_profile_pointer(UiButtonPointerEvent event, UiPoint point) noex
             if (text_edit_layout_hit_test(g_app.renderer.profile_edit_layout, point.x, point.y,
                                             &position))
                 utf8_byte_offset_for_utf16_position(message_composer_text(model), position, &byte);
-            const bool extend = event != UiButtonPointerEvent::press || (GetKeyState(VK_SHIFT) & 0x8000);
+            const bool extend = event != UiButtonPointerEvent::press || application_shift_down();
             message_composer_set_selection(&model, extend ? model.anchor : byte, byte);
         }
         if (event == UiButtonPointerEvent::release || event == UiButtonPointerEvent::cancel) {
             p->message_dragging = false;
-            if (GetCapture() == g_app.window)
-                ReleaseCapture();
+            application_release_capture();
         }
         application_profile_refresh_message();
         return true;
@@ -938,8 +937,8 @@ bool application_profile_pointer(UiButtonPointerEvent event, UiPoint point) noex
         SetFocus(g_app.window);
         SetCapture(g_app.window);
     }
-    if (event == UiButtonPointerEvent::release && GetCapture() == g_app.window)
-        ReleaseCapture();
+    if (event == UiButtonPointerEvent::release)
+        application_release_capture();
     if (result.changed) {
         bool text_changed = false;
         if (previous_hover.slot != s.widgets.hovered.slot ||
@@ -970,8 +969,7 @@ bool application_profile_double_click(UiPoint point) noexcept {
         // The press re-armed character dragging; a jittery move must not
         // collapse the word that was just selected.
         p->message_dragging = false;
-        if (GetCapture() == g_app.window)
-            ReleaseCapture();
+        application_release_capture();
         application_profile_refresh_message();
     }
     return true;
@@ -998,8 +996,8 @@ bool application_profile_key(u32 key, bool down, bool repeated) noexcept {
         if (!down || (p->message_pending && !s.note_editing))
             return true;
         auto* edit = &edit_model(*p);
-        const bool control = (GetKeyState(VK_CONTROL) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000);
-        const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        const bool control = application_command_down();
+        const bool shift = application_shift_down();
         MessageComposerResult result = MessageComposerResult::unchanged;
         if (key == VK_RETURN) {
             if (application_composer_text_input_composing())
@@ -1057,7 +1055,7 @@ bool application_profile_key(u32 key, bool down, bool repeated) noexcept {
         s.focus_visible = true;
         ui_widget_manager_focus(&s.widgets,
                                 ui_widget_manager_next_focus(s.widgets, s.widgets.focused,
-                                                             (GetKeyState(VK_SHIFT) & 0x8000) != 0, true));
+                                                             application_shift_down(), true));
         edit_model(*p).focused = s.edit.active && s.widgets.focused.slot == s.message_field.slot &&
                              s.widgets.focused.generation == s.message_field.generation;
         application_profile_refresh_message();

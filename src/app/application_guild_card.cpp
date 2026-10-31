@@ -340,7 +340,7 @@ bool application_guild_card_window_message(UINT message, WPARAM wparam, LPARAM l
         return false;
     UiPoint point{};
     if (message == WM_SETCURSOR) {
-        if (LOWORD(lparam) != HTCLIENT || !application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point))
+        if (!application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point))
             return false;
     } else
         point = {client_dip_x(lparam), client_dip_y(lparam)};

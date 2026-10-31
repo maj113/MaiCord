@@ -1,6 +1,7 @@
 #include "maicord/core/memory.hpp"
 
 #include "application_caption.hpp"
+#include "application_window_state.hpp"
 #include "application_state.hpp"
 
 #include "maicord/core/log.hpp"
@@ -59,7 +60,7 @@ void application_apply_minimum_window_track(HWND window, MINMAXINFO* limits) noe
     if (!window || !limits) {
         return;
     }
-    const UINT queried_dpi = GetDpiForWindow(window);
+    const UINT queried_dpi = application_window_dpi(window);
     const UINT dpi = queried_dpi != 0 ? queried_dpi : maximum(g_app.renderer.dpi, 96u);
     const LONG client_width = static_cast<LONG>(
         minimum_client_width_dips(g_app) * static_cast<float>(dpi) / 96.0f + 0.999f);
@@ -108,6 +109,9 @@ bool application_create_main_window(WNDPROC window_proc) noexcept {
         log_write(LogLevel::error, "window", "create_window_failed");
         return false;
     }
+    // Creation-time messages saw only a partly built window: take the state it ended with.
+    application_window_observe_position(g_app.window);
+    g_window_state.dpi = GetDpiForWindow(g_app.window);
     enable_dark_window_frame(g_app.window);
     // The renderer splits its first swap chain between caption and content.
     application_caption_synchronize();

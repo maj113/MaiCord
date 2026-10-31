@@ -1,7 +1,7 @@
 #include "application_downloads.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_toast.hpp"
-#include "application_content_point.hpp"
+#include "application_overlay_input.hpp"
 #include "application_image_viewer.hpp"
 #include "application_cursor.hpp"
 #include "application_state.hpp"
@@ -469,8 +469,8 @@ void application_image_viewer_close() noexcept {
     scene.dragging = false;
     ui_button_pointer(&scene.widgets, UiButtonPointerEvent::cancel, {});
     ui_button_keyboard_cancel(&scene.keyboard);
-    if (capture && GetCapture() == g_app.window)
-        ReleaseCapture();
+    if (capture)
+        application_release_capture();
     // The playing session returns to its inline preview at the same position.
     application_video_viewer_detach();
     g_app.renderer.image_viewer = nullptr;
@@ -977,8 +977,7 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
         if (video && !button.handled)
             application_video_viewer_pointer(message, point);
         scene.dragging = false;
-        if (GetCapture() == g_app.window)
-            ReleaseCapture();
+        application_release_capture();
         if (button.activate)
             activate(scene.widgets.storage[button.target.slot].id - 10);
         if (button.changed)
@@ -998,18 +997,16 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
         // Plain and Ctrl+wheel both zoom about the pointer.
         if (video)
             return true;
-        POINT cursor{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-        application_screen_to_content(&cursor);
-        const float scale = 96.0f / static_cast<float>(g_app.renderer.dpi);
-        ui_image_viewer_wheel(&scene, static_cast<short>(HIWORD(wparam)), {cursor.x * scale, cursor.y * scale});
+        UiPoint cursor{};
+        application_wheel_point(lparam, &cursor);
+        ui_image_viewer_wheel(&scene, static_cast<short>(HIWORD(wparam)), cursor);
         application_request_frame();
         return true;
     }
     case WM_KEYDOWN: {
         const bool repeat = (lparam & (1ll << 30)) != 0;
-        const UiImageViewerKeyModifiers modifiers{(GetKeyState(VK_CONTROL) & 0x8000) != 0,
-                                                  (GetKeyState(VK_SHIFT) & 0x8000) != 0,
-                                                  (GetKeyState(VK_MENU) & 0x8000) != 0};
+        const UiImageViewerKeyModifiers modifiers{application_control_down(), application_shift_down(),
+                                                  application_alt_down()};
         UiImageViewerKey key = UiImageViewerKey::other;
         switch (wparam) {
         case VK_ESCAPE: key = UiImageViewerKey::escape; break;

@@ -10,6 +10,7 @@
 #include "application_login_ui.hpp"
 #include "application_login_geometry.hpp"
 #include "application_state.hpp"
+#include "application_overlay_input.hpp"
 
 #include "maicord/app/account_paths.hpp"
 #include "maicord/app/login_mfa_policy.hpp"
@@ -1410,13 +1411,13 @@ bool application_login_handle_click(LPARAM position) noexcept {
     const LoginControl hit = login_scene_hit_test(g_app.login_scene, static_cast<float>(x) * scale,
                                                   static_cast<float>(y) * scale);
     if (hit == LoginControl::login || hit == LoginControl::password || hit == LoginControl::phone_code) {
-        const bool extend_selection = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        const bool extend_selection = application_shift_down();
         const bool handled = application_login_position_edit(hit, x, y, extend_selection);
         if (handled && application_active_login_edit()) {
             auto& widgets = g_app.login_scene.widgets;
             if (ui_widget_manager_capture(&widgets, widgets.focused)) {
-                SetCapture(g_app.window);
-                if (GetCapture() == g_app.window) g_app.login.pointer_selection = hit;
+                application_capture_pointer();
+                if (application_pointer_captured()) g_app.login.pointer_selection = hit;
                 else ui_widget_manager_capture(&widgets, ui_widget_invalid_handle());
             }
         }
@@ -1445,8 +1446,8 @@ bool application_login_handle_key(WPARAM key, bool repeated) noexcept {
     }
     if (key == VK_ESCAPE && back_available())
         return application_login_cancel_blocked();
-    const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-    const bool control = (GetKeyState(VK_CONTROL) & 0x8000) != 0 && (GetKeyState(VK_MENU) & 0x8000) == 0;
+    const bool shift = application_shift_down();
+    const bool control = application_command_down();
     if (key == VK_TAB) {
         const LoginControl next = login_scene_move_focus(&g_app.login_scene, shift);
         if (next == LoginControl::none) {

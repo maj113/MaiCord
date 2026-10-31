@@ -28,6 +28,9 @@ struct Runtime {
     u64 maximum_bytes;
     NativeFilePickerResult result;
     volatile LONG cancelled;
+    // The dialog thread's message window while the dialog is up; cancel posts to it.
+    SRWLOCK cancel_lock;
+    HWND cancel_window;
     u32 maximum_files;
     wchar_t title[256];
 };
@@ -38,9 +41,11 @@ LRESULT CALLBACK cancel_window(HWND window, UINT message, WPARAM wparam, LPARAM 
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(create->lpCreateParams));
     }
     auto* runtime = reinterpret_cast<Runtime*>(GetWindowLongPtrW(window, GWLP_USERDATA));
-    if (message == WM_TIMER && runtime && runtime->dialog && cancelled(runtime)) {
-        // This callback runs in the dialog's apartment while Show pumps events.
+    // Cancel posts WM_APP. Close runs in the dialog's apartment while Show pumps
+    // events; it can be a no-op until the dialog exists, so it repeats until Show returns.
+    if ((message == WM_APP || message == WM_TIMER) && runtime && runtime->dialog && cancelled(runtime)) {
         runtime->dialog->Close(HRESULT_FROM_WIN32(ERROR_CANCELLED));
+        SetTimer(window, 1, 100, nullptr);
         return 0;
     }
     return DefWindowProcW(window, message, wparam, lparam);
@@ -278,7 +283,10 @@ DWORD WINAPI worker(void* context) noexcept {
         if (SUCCEEDED(result)) {
             module = class_acquire();
             if (module) cancel = CreateWindowExW(0, kClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, module, runtime);
-            if (!cancel || !SetTimer(cancel, 1, 100, nullptr)) result = HRESULT_FROM_WIN32(ERROR_NOT_ENOUGH_MEMORY);
+            if (!cancel) result = HRESULT_FROM_WIN32(ERROR_NOT_ENOUGH_MEMORY);
+            else {
+                AcquireSRWLockExclusive(&runtime->cancel_lock); runtime->cancel_window = cancel; ReleaseSRWLockExclusive(&runtime->cancel_lock);
+            }
         }
         if (SUCCEEDED(result)) {
             if (cancelled(runtime) || !IsWindow(runtime->owner)) result = HRESULT_FROM_WIN32(ERROR_CANCELLED);
@@ -287,7 +295,10 @@ DWORD WINAPI worker(void* context) noexcept {
                 result = runtime->dialog->Show(runtime->owner);
             }
         }
-        if (cancel) { KillTimer(cancel, 1); DestroyWindow(cancel); }
+        if (cancel) {
+            AcquireSRWLockExclusive(&runtime->cancel_lock); runtime->cancel_window = nullptr; ReleaseSRWLockExclusive(&runtime->cancel_lock);
+            KillTimer(cancel, 1); DestroyWindow(cancel);
+        }
         if (module) class_release(module);
         if (cancelled(runtime) || result == HRESULT_FROM_WIN32(ERROR_CANCELLED)) outcome.error = NativeFilePickerError::cancelled;
         else if (FAILED(result)) { outcome.error = NativeFilePickerError::dialog; outcome.native_error = static_cast<u32>(result); }
@@ -449,7 +460,13 @@ bool native_file_picker_snapshot(const NativeFilePicker* picker, u32 index, File
     return true;
 }
 void native_file_picker_cancel(NativeFilePicker* picker) noexcept {
-    if (picker && picker->runtime) InterlockedExchange(&static_cast<Runtime*>(picker->runtime)->cancelled, 1);
+    if (!picker || !picker->runtime) return;
+    auto* runtime = static_cast<Runtime*>(picker->runtime);
+    if (InterlockedExchange(&runtime->cancelled, 1)) return;
+    // The dialog thread sees the flag at its next check or this post, whichever follows publication of the window.
+    AcquireSRWLockExclusive(&runtime->cancel_lock);
+    if (runtime->cancel_window) PostMessageW(runtime->cancel_window, WM_APP, 0, 0);
+    ReleaseSRWLockExclusive(&runtime->cancel_lock);
 }
 bool native_file_picker_release(NativeFilePicker* picker, u32 timeout_ms) noexcept {
     if (!picker) return false;

@@ -2,6 +2,7 @@
 #include "application_guild_lifecycle.hpp"
 #include "application_stage.hpp"
 #include "application_state.hpp"
+#include "application_window_state.hpp"
 #include "application_text_form.hpp"
 #include "application_voice.hpp"
 #include "maicord/core/log.hpp"
@@ -378,7 +379,7 @@ void application_voice_timer_tick(u64 now_ms) noexcept {
         vc.clock.wake_ms = 0;
         return;
     }
-    const bool shown = g_app.window && !IsIconic(g_app.window) && IsWindowVisible(g_app.window) &&
+    const bool shown = g_app.window && application_window_shown() &&
                        !renderer_settings_hides_shell(g_app.renderer);
     const auto& scene = g_app.shell_navigation_scene;
     bool timer = false, invite = false;
@@ -395,7 +396,7 @@ void application_voice_timer_tick(u64 now_ms) noexcept {
         invite = invite || (ui_voice_invite_row(row, layout->rectangle, &rows) && on_screen(rows.row));
     }
     const u64 unix_ms = clock_unix_milliseconds();
-    const bool focused = GetForegroundWindow() == g_app.window && !g_app.preferences.reduced_motion;
+    const bool focused = application_window_foreground() && !g_app.preferences.reduced_motion;
     if (ui_voice_timer_tick(&vc.clock, now_ms, unix_ms, timer, focused)) {
         vc.extras.clock_s = vc.clock.shown_s;
         application_repaint();

@@ -1,3 +1,4 @@
+#include "application_overlay_input.hpp"
 #include "application_thread_browser.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_content_point.hpp"
@@ -164,7 +165,7 @@ void clear_capture(ApplicationThreadBrowser& value) noexcept {
     value.scrollbar_dragging = false;
     const bool captured = value.captured;
     value.captured = false;
-    if (captured && GetCapture() == g_app.window) ReleaseCapture();
+    if (captured) application_release_capture();
 }
 void cancel_flight(ApplicationThreadBrowser& value) noexcept {
     auto& flight = value.flight;
@@ -661,7 +662,7 @@ bool application_thread_browser_open(u64 parent_id) noexcept {
     end_message_composer_pointer_selection();
     end_message_text_selection();
     ui_scroll_host_cancel(&g_app.scroll_host);
-    if (GetCapture() == g_app.window) ReleaseCapture();
+    application_release_capture();
     application_composer_text_input_suspend();
     g_app.message_composer.focused = false;
     reset_value(&g_app.message_action_bar);
@@ -1031,6 +1032,9 @@ bool application_thread_browser_scroll_to(double offset) noexcept {
     return true;
 }
 bool application_thread_browser_window_message(UINT message, WPARAM, LPARAM lparam) noexcept {
+    if ((message < WM_MOUSEFIRST || message > WM_MOUSELAST) && message != WM_CONTEXTMENU && message != WM_MOUSELEAVE &&
+        message != WM_CAPTURECHANGED && message != WM_CANCELMODE && message != WM_KILLFOCUS)
+        return false;
     const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);
     const float client_x = static_cast<short>(LOWORD(lparam)) * scale;
     const float client_y = static_cast<short>(HIWORD(lparam)) * scale;
@@ -1145,7 +1149,7 @@ bool application_thread_browser_input(UiInputKind kind, u32 code, bool repeated)
     if (shortcut_matches(ShortcutAction::search, shortcut_chord_from_keyboard(code))) return false;
     if (code == VK_ESCAPE) { value->held_key = code; application_thread_browser_close(); repaint(); return true; }
     if (code == VK_TAB) {
-        ui_thread_browser_scene_move_focus(&value->scene, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
+        ui_thread_browser_scene_move_focus(&value->scene, application_shift_down());
         application_request_frame(); return true;
     }
     if (code == VK_RETURN || code == VK_SPACE) {

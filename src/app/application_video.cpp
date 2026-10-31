@@ -1,4 +1,6 @@
 #include "application_downloads.hpp"
+#include "application_overlay_input.hpp"
+#include "application_window_state.hpp"
 #include "application_content_point.hpp"
 #include "application_video.hpp"
 #include "application_frame_presentation.hpp"
@@ -84,7 +86,6 @@ struct ApplicationVideo {
     bool hidden_pause{};
     bool input_focus{};
     bool presentation_failed{};
-    bool pointer_leave_armed{};
     // The media lane reported an expired signed URL; the next source request forces a refresh.
     bool source_refresh{};
     // The media viewer hosts this same session; geometry comes from the viewer.
@@ -148,16 +149,12 @@ bool content_surface_covers_video() noexcept {
            (g_app.renderer.forum_form && g_app.renderer.forum_form->scene &&
             g_app.renderer.forum_form->scene->active);
 }
-void release_video_pointer_capture() noexcept {
-    if (GetCapture() == g_app.window)
-        ReleaseCapture();
-}
 // Capture and repaint requests every scene event can carry.
 template <typename Result> void apply_scene_result(const Result& event) noexcept {
     if (event.request_capture)
         SetCapture(g_app.window);
     if (event.release_capture)
-        release_video_pointer_capture();
+        application_release_capture();
     if (event.handled)
         application_request_frame();
 }
@@ -221,7 +218,7 @@ bool video_viewer_hosted() noexcept {
 bool video_surface_available() noexcept {
     return !content_surface_covers_video() &&
            !modal_overlay_covers_video() &&
-           video_session_available() && !IsIconic(g_app.window) && !application_settings_active() &&
+           video_session_available() && !application_window_minimized() && !application_settings_active() &&
            !application_friends_active() && !g_app.popup_scene.active && !g_app.reaction_viewer.active &&
            (!g_app.image_viewer.scene.active || video_viewer_hosted()) && !g_app.text_form &&
            !(g_app.renderer.quick_switcher_scene && g_app.renderer.quick_switcher_scene->active) &&
@@ -235,14 +232,6 @@ UiPoint video_pointer_position() noexcept {
     const float scale = 96.0f / static_cast<float>(g_app.renderer.dpi);
     return {pointer.x * scale, pointer.y * scale};
 }
-void track_video_pointer(ApplicationVideo& video) noexcept {
-    const bool hovered =
-        video.source.audio ? video.ui.audio.hover != UiAudioControl::none : video.ui.video.preview_hovered;
-    if (hovered && !video.pointer_leave_armed) {
-        TRACKMOUSEEVENT tracking{sizeof(tracking), TME_LEAVE, g_app.window, 0};
-        video.pointer_leave_armed = TrackMouseEvent(&tracking) != FALSE;
-    }
-}
 void note_video_pointer(ApplicationVideo& video, UINT message, UiPoint point) noexcept {
     // Windows repeats WM_MOUSEMOVE without motion; only real movement is activity.
     if (message == WM_MOUSEMOVE && video.pointer.x == point.x && video.pointer.y == point.y)
@@ -252,7 +241,7 @@ void note_video_pointer(ApplicationVideo& video, UINT message, UiPoint point) no
         application_request_frame();
 }
 bool video_input_focus_current(const ApplicationVideo& video) noexcept {
-    return video.input_focus && GetFocus() == g_app.window && !g_app.context_focus &&
+    return video.input_focus && application_window_keyboard_focus() && !g_app.context_focus &&
            !g_app.message_composer.focused;
 }
 void acquire_video_focus(ApplicationVideo& video) noexcept {
@@ -1017,7 +1006,6 @@ bool video_scene_pointer_event(ApplicationVideo& video, UINT message, UiPoint po
                       : message == WM_LBUTTONUP ? UiVideoPointerEvent::up
                                                 : UiVideoPointerEvent::move;
     const auto result = ui_video_scene_pointer(&scene, kind, point);
-    track_video_pointer(video);
     if (before != ui_video_scene_paint_revision(scene))
         application_request_frame();
     if (!result.handled)
@@ -1129,7 +1117,7 @@ void application_video_cancel_pointer() noexcept {
         const auto before = ui_audio_scene_paint_revision(scene);
         const auto result = ui_audio_scene_pointer(&scene, UiAudioPointerEvent::cancel, {});
         if (result.release_capture)
-            release_video_pointer_capture();
+            application_release_capture();
         if (before != ui_audio_scene_paint_revision(scene))
             application_request_frame();
         return;
@@ -1138,7 +1126,7 @@ void application_video_cancel_pointer() noexcept {
     const auto before = ui_video_scene_paint_revision(scene);
     const auto result = ui_video_scene_pointer(&scene, UiVideoPointerEvent::cancel, {});
     if (result.release_capture)
-        release_video_pointer_capture();
+        application_release_capture();
     if (before != ui_video_scene_paint_revision(scene))
         application_request_frame();
 }
@@ -1404,17 +1392,16 @@ bool project_video_scene(ApplicationVideo* video, const InlineMediaSource& posit
             video->ui.audio.keyboard_focus =
                 video_input_focus_current(*video) && g_app.keyboard_focus_visible;
             ui_audio_scene_hover(&video->ui.audio, video_pointer_position());
-            track_video_pointer(*video);
             if (!renderer_bind_audio_scene(&g_app.renderer, &video->ui.audio))
                 return false;
             if (capture != UiAudioControl::none && video->ui.audio.capture == UiAudioControl::none)
-                release_video_pointer_capture();
+                application_release_capture();
             if (g_app.renderer.interaction_text_audio_revision != ui_audio_scene_text_revision(video->ui.audio))
                 refresh_video_text();
         } else {
             renderer_bind_audio_scene(&g_app.renderer, nullptr);
             if (capture != UiAudioControl::none)
-                release_video_pointer_capture();
+                application_release_capture();
         }
         if (repaint && before != ui_audio_scene_paint_revision(video->ui.audio))
             *repaint = true;
@@ -1459,7 +1446,6 @@ bool project_video_scene(ApplicationVideo* video, const InlineMediaSource& posit
         }
         video->ui.video.keyboard_focus = video_input_focus_current(*video) && g_app.keyboard_focus_visible;
         ui_video_scene_hover(&video->ui.video, video_pointer_position());
-        track_video_pointer(*video);
         const bool was_idle = video->ui.video.idle;
         ui_video_scene_tick(&video->ui.video, now_ms, g_app.preferences.reduced_motion);
         if (video->collection_count && g_app.account.api.collection_title) {
@@ -1484,7 +1470,7 @@ bool project_video_scene(ApplicationVideo* video, const InlineMediaSource& posit
         g_app.renderer.video_scene_search_result = searched && !video->expanded;
         g_app.renderer.video_scene_viewer = video->expanded;
         if (before_capture != UiVideoControl::none && video->ui.video.capture == UiVideoControl::none)
-            release_video_pointer_capture();
+            application_release_capture();
         if (g_app.renderer.interaction_text_video_revision != ui_video_scene_text_paint_revision(video->ui.video))
             refresh_video_text();
     } else {
@@ -1493,7 +1479,7 @@ bool project_video_scene(ApplicationVideo* video, const InlineMediaSource& posit
         g_app.renderer.video_scene_search_result = false;
         g_app.renderer.video_scene_viewer = false;
         if (before_capture != UiVideoControl::none)
-            release_video_pointer_capture();
+            application_release_capture();
     }
     if (repaint && old_paint_revision != ui_video_scene_paint_revision(video->ui.video))
         *repaint = true;
@@ -1716,7 +1702,6 @@ u64 application_video_next_wake() noexcept {
 bool application_video_pointer(UINT message, LPARAM lparam) noexcept {
     if (message == WM_MOUSELEAVE) {
         if (g_app.video) {
-            g_app.video->pointer_leave_armed = false;
             if (g_app.video->source.audio) {
                 auto& scene = g_app.video->ui.audio;
                 const auto before = ui_audio_scene_paint_revision(scene);
@@ -1755,7 +1740,6 @@ bool application_video_pointer(UINT message, LPARAM lparam) noexcept {
                           : message == WM_LBUTTONUP ? UiAudioPointerEvent::up
                                                     : UiAudioPointerEvent::move;
         const auto result = ui_audio_scene_pointer(&video->ui.audio, kind, point);
-        track_video_pointer(*video);
         if (before != ui_audio_scene_paint_revision(video->ui.audio))
             application_request_frame();
         if (result.handled) {
@@ -1927,7 +1911,7 @@ bool application_video_key(UINT key, bool shift, bool repeat) noexcept {
                                               : video->ui.video.focus != UiVideoControl::none);
     // Player shortcuts also follow the pointer, but never steal typing or list focus.
     const bool hovered = !video->source.audio && video->ui.video.preview_hovered &&
-                         GetFocus() == g_app.window && !g_app.message_composer.focused && !g_app.context_focus;
+                         application_window_keyboard_focus() && !g_app.message_composer.focused && !g_app.context_focus;
     if (!focused && !hovered && !video->expanded)
         return false;
     if (key == VK_ESCAPE) {
@@ -1961,7 +1945,7 @@ bool application_video_key(UINT key, bool shift, bool repeat) noexcept {
     }
     auto& scene = video->ui.video;
     const u64 now = clock_monotonic_milliseconds();
-    const bool modified = (GetKeyState(VK_CONTROL) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000);
+    const bool modified = application_control_down() || application_alt_down();
     const bool range_focus = focused && scene.keyboard_focus &&
         (scene.focus == UiVideoControl::volume || scene.focus == UiVideoControl::track);
     const auto player = [&](UiVideoPlayerKey shortcut, u32 percent = 0) noexcept {

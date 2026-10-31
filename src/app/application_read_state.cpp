@@ -2,7 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "application_read_state.hpp"
 #include "application_state.hpp"
-#include "application_window_focus.hpp"
+#include "application_window_state.hpp"
 #include "application_search.hpp"
 #include "application_pinned_messages.hpp"
 #include "application_thread_browser.hpp"
@@ -452,7 +452,7 @@ bool application_read_state_eligible() noexcept {
     const auto* pane =
         ui_scene_node(g_app.shell_scene, UiSemantic::message_view);
     ReadAckVisibility visibility{
-        application_window_focused(g_app.window),
+        application_window_focused(),
         !g_app.login.visible && pane && ui_rect_has_area(pane->rectangle) &&
             !(g_app.renderer.friends_scene && g_app.renderer.friends_scene->active) &&
             !(g_app.renderer.settings_scene && g_app.renderer.settings_scene->active) &&

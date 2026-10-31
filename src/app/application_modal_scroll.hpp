@@ -1,27 +1,17 @@
 #pragma once
+#include "application_overlay_input.hpp"
 #include "application_state.hpp"
-#include "maicord/core/win32_records.hpp"
-#include "maicord/core/win32_user.hpp"
 #include "maicord/ui/scroll_host.hpp"
 
 #include <limits.h>
 
 namespace maicord::app_detail {
 // Modal controllers consume wheel input themselves, but share the ordinary
-// scroll host's timing, wheel preferences and fractional-offset policy.
-inline UiScrollDispatch application_modal_scroll_wheel(UiScrollHost* host, UiScrollBinding binding,
-                                                       HWND window, u32 dpi, WPARAM wparam, LPARAM lparam,
-                                                       u64 now_us) noexcept {
-    Win32Point point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-    if (!ScreenToClient(window, point.native()))
-        return UiScrollDispatch::unhandled;
-    if (window == g_app.window)
-        point.y -= static_cast<LONG>(g_app.renderer.caption_height);
-    const double scale = 96.0 / maximum(dpi, 1u);
-    UINT lines = 3;
-    SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
-    return ui_scroll_host_wheel(
-        host, binding, {static_cast<float>(point.x * scale), static_cast<float>(point.y * scale)},
-        static_cast<short>(HIWORD(wparam)), lines, lines == WHEEL_PAGESCROLL, now_us, scale);
+// scroll host's timing, wheel preferences and fractional-offset policy. The
+// point is the wheel's content position from application_wheel_point.
+inline UiScrollDispatch application_modal_scroll_wheel(UiScrollBinding binding, UiPoint point, WPARAM wparam) noexcept {
+    const u32 lines = application_wheel_scroll_lines();
+    return ui_scroll_host_wheel(&g_app.scroll_host, binding, point, static_cast<short>(HIWORD(wparam)), lines,
+                                lines == WHEEL_PAGESCROLL, application_now_us(), 96.0 / maximum(g_app.renderer.dpi, 1u));
 }
 } // namespace maicord::app_detail

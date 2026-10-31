@@ -1,3 +1,4 @@
+#include "application_overlay_input.hpp"
 #include "application_stream.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_account_presentation.hpp"
@@ -194,8 +195,7 @@ void release_press() noexcept {
     ui_stream_card_set_pressed(&stream.card, false);
     if (stream.captured) {
         stream.captured = false;
-        if (GetCapture() == g_app.window)
-            ReleaseCapture();
+        application_release_capture();
     }
 }
 // The live badge (or row) of a streaming participant under (x, y).
@@ -319,7 +319,7 @@ bool application_stream_menu_pointer(float x, float y, bool press) noexcept {
         return false;
     }
     const UiRect track = popup_feedback_slider(g_app.popup_scene);
-    if (!press && stream.menu_dragging && !(GetKeyState(VK_LBUTTON) & 0x8000)) {
+    if (!press && stream.menu_dragging && !application_key_down(VK_LBUTTON)) {
         stream.menu_dragging = false;
         ReleaseCapture();
         return true;
@@ -454,7 +454,7 @@ bool application_stream_window_message(UINT message, WPARAM, LPARAM lparam) noex
     }
     UiPoint point{};
     if (message == WM_SETCURSOR) {
-        if (LOWORD(lparam) != HTCLIENT || !application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point))
+        if (!application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point))
             return false;
     } else
         point = {client_dip_x(lparam), client_dip_y(lparam)};

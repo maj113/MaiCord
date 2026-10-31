@@ -4,6 +4,7 @@
 #include "application_profile.hpp"
 #include "application_composer.hpp"
 #include "application_state.hpp"
+#include "application_window_state.hpp"
 #include "application_friends.hpp"
 #include "application_search.hpp"
 #include "application_media_picker.hpp"
@@ -119,21 +120,21 @@ bool eligible() noexcept {
     if (application_downloads_active())
         return false;
     if (application_message_forward_active())
-        return g_app.window && forward_edit() && GetFocus() == g_app.window;
+        return g_app.window && forward_edit() && application_window_keyboard_focus();
     if (application_quick_switcher_active())
-        return g_app.window && quick_edit() && GetFocus() == g_app.window;
+        return g_app.window && quick_edit() && application_window_keyboard_focus();
     if (g_app.renderer.settings_scene && g_app.renderer.settings_scene->active)
         return overview_edit() && !g_app.text_form && !g_app.popup_scene.active &&
-               GetFocus() == g_app.window;
+               application_window_keyboard_focus();
     if (!g_app.window || !g_app.renderer_ready || !g_app.account_ui || g_app.login.visible ||
         g_app.text_form || g_app.image_viewer.scene.active || g_app.reaction_viewer.active)
         return false;
     if (g_app.profile && g_app.profile->scene.active)
         return profile_edit() && application_profile_edit_focused() &&
-               !g_app.popup_scene.active && GetFocus() == g_app.window;
+               !g_app.popup_scene.active && application_window_keyboard_focus();
     if (application_friends_active())
         return friends_edit() && application_friends_search_focused() && !g_app.popup_scene.active &&
-               GetFocus() == g_app.window;
+               application_window_keyboard_focus();
     if (g_app.renderer.friends_scene && g_app.renderer.friends_scene->active)
         return false;
     // The call view covers the composer: keys must not edit or send through
@@ -141,20 +142,20 @@ bool eligible() noexcept {
     if (g_app.renderer.call_scene && g_app.renderer.call_scene->active && !g_app.renderer.call_scene->chat_open)
         return false;
     if (application_media_picker_active())
-        return gallery_edit() && GetFocus() == g_app.window;
+        return gallery_edit() && application_window_keyboard_focus();
     // The thread browser covers the composer; the header search bar is the
     // only text field while it is open.
     if (application_thread_browser_active())
-        return search_edit() && !g_app.popup_scene.active && GetFocus() == g_app.window;
+        return search_edit() && !g_app.popup_scene.active && application_window_keyboard_focus();
     if (search_edit())
-        return !g_app.popup_scene.active && GetFocus() == g_app.window;
+        return !g_app.popup_scene.active && application_window_keyboard_focus();
     return g_app.message_composer.focused && g_app.message_composer_scene.active &&
            g_app.message_composer.channel_id &&
            message_composer_scene_focused_control(g_app.message_composer_scene) ==
                MessageComposerControl::edit &&
            (!g_app.popup_scene.active || (g_app.popup_owner_kind == PopupOwnerKind::autocomplete ||
                                           g_app.popup_owner_kind == PopupOwnerKind::commands)) &&
-           GetFocus() == g_app.window;
+           application_window_keyboard_focus();
 }
 bool current_owner(const ApplicationComposerTextInput* input) noexcept {
     return input && input == g_app.composer_text_input && eligible() && input->target == edit_target() &&

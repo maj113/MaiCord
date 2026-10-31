@@ -23,7 +23,7 @@
 #include "application_perf_mark.hpp"
 #include "application_commands.hpp"
 #include "application_account_module.hpp"
-#include "application_window_focus.hpp"
+#include "application_window_state.hpp"
 #include "application_custom_status.hpp"
 #include "application_notification_controls.hpp"
 #include "application_inbox.hpp"
@@ -984,7 +984,7 @@ AccountModuleStartResult start_account_worker(const AccountPaths& paths) noexcep
 
 void publish_started_account(const AccountPaths& paths, const AccountModuleStartResult& started) noexcept {
     AccountHost& host = g_app.account;
-    application_account_report_focus(application_window_focused(g_app.window));
+    application_account_report_focus(application_window_focused());
     g_app.login.visible = true;
     g_app.login.status = RendererLoginStatus::restoring_session;
     g_app.login.focus = LoginControl::none;

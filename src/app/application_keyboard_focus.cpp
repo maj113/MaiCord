@@ -1,6 +1,7 @@
 #include "application_profile.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_account_presentation.hpp"
+#include "application_overlay_input.hpp"
 #include "application_commands.hpp"
 #include "application_composer.hpp"
 #include "application_content_input.hpp"
@@ -217,7 +218,7 @@ bool handle_thread_header_key(u32 key, bool down, bool repeated) noexcept {
         ui_thread_header_widget_target(g_app.thread_header, g_app.shell_scene.widgets.focused).thread_id;
     if (!focused && !thread_header_keyboard.armed) return false;
     if (!g_app.account_ui || g_app.login.visible || g_app.popup_scene.active || g_app.reaction_viewer.active ||
-        (GetKeyState(VK_CONTROL) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000)) {
+        application_control_down() || application_alt_down()) {
         ui_button_keyboard_cancel(&g_app.button_keyboard);
         reset_value(&thread_header_keyboard);
         return true;
@@ -247,8 +248,8 @@ bool handle_content_focus_key(u32 key) noexcept {
     if (key != VK_TAB && key != VK_F6 && key != VK_ESCAPE && key != VK_RETURN && key != VK_SPACE && key != VK_UP && key != VK_DOWN &&
         key != VK_HOME && key != VK_END && key != VK_PRIOR && key != VK_NEXT) return false;
     if (!g_app.account_ui || g_app.login.visible || g_app.reaction_viewer.active ||
-        (GetKeyState(VK_CONTROL) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000)) return false;
-    const bool reverse = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        application_control_down() || application_alt_down()) return false;
+    const bool reverse = application_shift_down();
     const u32 pane = current_pane();
     if (pane == thread_header && (key == VK_RETURN || key == VK_SPACE))
         return handle_thread_header_key(key, true, false);

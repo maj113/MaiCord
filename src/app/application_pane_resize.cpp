@@ -1,6 +1,7 @@
 #include "application_shell_input.hpp"
 #include "application_account_presentation.hpp"
 #include "application_account_text_retry.hpp"
+#include "application_overlay_input.hpp"
 #include "application_state.hpp"
 #include "maicord/ui/splitter.hpp"
 
@@ -59,8 +60,7 @@ void end_pane_resize() noexcept {
     // Persist once per completed drag, never per pointer sample.
     if (*pane_width(kind) != g_app.pane_resize_origin_width)
         g_app.pane_widths_persist_pending = true;
-    if (GetCapture() == g_app.window)
-        ReleaseCapture();
+    application_release_capture();
 }
 
 bool cancel_pane_resize() noexcept {
@@ -69,8 +69,7 @@ bool cancel_pane_resize() noexcept {
         return false;
     set_pane_width(kind, g_app.pane_resize_origin_width);
     g_app.pane_resize = PaneResizeKind::none;
-    if (GetCapture() == g_app.window)
-        ReleaseCapture();
+    application_release_capture();
     return true;
 }
 

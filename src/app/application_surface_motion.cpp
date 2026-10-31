@@ -7,6 +7,7 @@
 
 #if !defined(MAICORD_SURFACE_MOTION_CONTROLLER_TEST)
 #include "application_state.hpp"
+#include "application_window_state.hpp"
 #include "application_unread_banner.hpp"
 #include "application_guild_folders.hpp"
 #include "maicord/core/deadline.hpp"
@@ -105,8 +106,7 @@ bool host_motion_allowed() noexcept {
     const auto& owner = g_app.surface_motion;
     return owner.system_preference_cached && owner.client_area_animation &&
            !g_app.preferences.reduced_motion && !g_app.renderer.reduced_motion &&
-           !g_app.renderer.live_resize && g_app.renderer_ready && g_app.window &&
-           IsWindowVisible(g_app.window) && !IsIconic(g_app.window);
+           !g_app.renderer.live_resize && g_app.renderer_ready && g_app.window && application_window_shown();
 }
 ObservedSurface observe(RendererLayerSurface surface, bool allowed) noexcept {
     const auto& renderer = g_app.renderer;

@@ -5,6 +5,7 @@
 #include "application_account_presentation.hpp"
 #include "application_composer_text_input.hpp"
 #include "application_state.hpp"
+#include "application_window_state.hpp"
 #include "application_popup_plugin_owner.hpp"
 
 #include "maicord/app/mention_member_query.hpp"
@@ -250,7 +251,7 @@ static u32 caret_blink_ms() noexcept {
 
 void reset_message_composer_caret_timing(bool edit_active) noexcept {
     if (!edit_active) message_composer_break_history_run(&g_app.message_composer);
-    const bool visible = edit_active && g_app.account_ui && g_app.window && GetFocus() == g_app.window;
+    const bool visible = edit_active && g_app.account_ui && application_window_keyboard_focus();
     const u32 blink_ms = caret_blink_ms();
     g_app.message_composer_caret_visible = visible;
     message_composer_scene_set_caret_visible(&g_app.message_composer_scene, visible);
@@ -267,7 +268,7 @@ void application_tick_message_composer_caret(u64 now_ms) noexcept {
     }
     const u32 blink_ms = caret_blink_ms();
     if (!g_app.renderer_ready || !g_app.account_ui || !g_app.message_composer_scene.active ||
-        !g_app.message_composer.focused || GetFocus() != g_app.window || blink_ms == INFINITE) {
+        !g_app.message_composer.focused || !application_window_keyboard_focus() || blink_ms == INFINITE) {
         reset_message_composer_caret_timing(false);
         return;
     }

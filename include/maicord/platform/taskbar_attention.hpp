@@ -40,13 +40,14 @@ bool taskbar_attention_render_badge(u8 badge, u32 extent, Slice<u32> pixels) noe
 HICON taskbar_attention_create_icon(Slice<u32> pixels, u32 extent) noexcept;
 
 // Win32 executor: ITaskbarList3 overlay plus FlashWindowEx. Waits for the
-// TaskbarButtonCreated message before touching the overlay.
+// TaskbarButtonCreated message before touching the overlay; the taskbar
+// object is activated when the first badge is shown.
 struct TaskbarAttention {
     ITaskbarList3* list;
     void* icon; // HICON
     u32 created_message;
     u8 icon_badge;
-    bool button_ready, com_initialized;
+    bool button_ready, com_initialized, list_attempted;
     TaskbarAttentionState state;
 };
 bool taskbar_attention_initialize(TaskbarAttention*) noexcept;

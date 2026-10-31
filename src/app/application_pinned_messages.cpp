@@ -1,3 +1,4 @@
+#include "application_overlay_input.hpp"
 #include "application_pinned_messages.hpp"
 #include "maicord/app/shortcut_registry.hpp"
 #include "application_state.hpp"
@@ -98,7 +99,7 @@ void clear_capture(ApplicationPinnedMessages& value) noexcept {
     value.scrollbar_dragging = false;
     const bool captured = value.captured;
     value.captured = false;
-    if (captured && GetCapture() == g_app.window) ReleaseCapture();
+    if (captured) application_release_capture();
 }
 bool repaint() noexcept {
     return application_pinned_messages_synchronize() && refresh_retained_projection();
@@ -225,7 +226,7 @@ bool activate(UiPinnedMessagesTarget target) noexcept {
         else pinned_message_controller_retry(&value->controller);
         break;
     case UiPinnedMessagesAction::unpin:
-        return application_pinned_messages_action(target.message_id, false, (GetKeyState(VK_SHIFT) & 0x8000) == 0);
+        return application_pinned_messages_action(target.message_id, false, !application_shift_down());
     case UiPinnedMessagesAction::jump:
         if (!pinned_message_controller_select(&value->controller, target.message_id)) return true;
         if (value->scene.overlay) application_pinned_messages_close();
@@ -507,6 +508,8 @@ bool application_pinned_messages_scroll_to(double offset) noexcept {
 }
 bool application_pinned_messages_window_message(UINT message, WPARAM, LPARAM lparam) noexcept {
     auto* value = g_app.pinned_messages;
+    if ((message < WM_MOUSEFIRST || message > WM_MOUSELAST) && message != WM_CAPTURECHANGED && message != WM_CANCELMODE)
+        return false;
     if (!front()) return false;
     const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);
     const float x = static_cast<short>(LOWORD(lparam)) * scale;
@@ -590,19 +593,19 @@ bool application_pinned_messages_input(UiInputKind kind, u32 code, bool repeated
             g_app.context_focus == &value->scene.widgets;
     if (shortcut_matches(ShortcutAction::search, shortcut_chord_from_keyboard(code))) { application_pinned_messages_close(); return false; }
     if (code == VK_ESCAPE) { value->held_key = code; application_pinned_messages_close(); repaint(); return true; }
-    if ((GetKeyState(VK_CONTROL) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000)) return false;
+    if (application_control_down() || application_alt_down()) return false;
     if (g_app.context_focus != &value->scene.widgets) return false;
     if (code == VK_RETURN || code == VK_SPACE) {
         if (!repeated) { value->held_key = code; activate(ui_pinned_messages_scene_focused_target(value->scene)); }
         return true;
     }
-    if (code == 'X' && (GetKeyState(VK_SHIFT) & 0x8000)) {
+    if (code == 'X' && application_shift_down()) {
         const auto target = ui_pinned_messages_scene_focused_target(value->scene);
         if (!repeated && target.message_id) { value->held_key = code; application_pinned_messages_action(target.message_id, false, false); }
         return true;
     }
     UiPinnedMessagesFocusMove move{};
-    if (code == VK_TAB) move = (GetKeyState(VK_SHIFT) & 0x8000) ? UiPinnedMessagesFocusMove::previous : UiPinnedMessagesFocusMove::next;
+    if (code == VK_TAB) move = application_shift_down() ? UiPinnedMessagesFocusMove::previous : UiPinnedMessagesFocusMove::next;
     else if (code == VK_DOWN || code == VK_RIGHT) move = UiPinnedMessagesFocusMove::next;
     else if (code == VK_UP || code == VK_LEFT) move = UiPinnedMessagesFocusMove::previous;
     else if (code == VK_HOME) move = UiPinnedMessagesFocusMove::first;

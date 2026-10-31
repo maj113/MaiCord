@@ -1,6 +1,7 @@
 
 #include "application_login_ui.hpp"
 #include "application_state.hpp"
+#include "application_overlay_input.hpp"
 #include "application_login_geometry.hpp"
 
 #include "maicord/core/log.hpp"
@@ -132,7 +133,7 @@ void application_login_tick_caret(u64 now_ms) noexcept {
     if (login.caret_blink_at_ms == 0 || now_ms < login.caret_blink_at_ms) {
         return;
     }
-    if (!g_app.renderer_ready || !g_app.renderer.login_edit.active || GetFocus() != g_app.window ||
+    if (!g_app.renderer_ready || !g_app.renderer.login_edit.active || !application_window_keyboard_focus() ||
         login.caret_blink_ms == INFINITE) {
         login.caret_blink_at_ms = 0;
         login.caret_visible = false;
@@ -191,9 +192,7 @@ bool application_login_position_edit(LoginControl control, i32 client_x, i32 cli
 void application_login_end_pointer_selection() noexcept {
     g_app.login.pointer_selection = LoginControl::none;
     ui_widget_manager_capture(&g_app.login_scene.widgets, ui_widget_invalid_handle());
-    if (GetCapture() == g_app.window) {
-        ReleaseCapture();
-    }
+    application_release_capture();
 }
 
 bool application_login_handle_drag(WPARAM buttons, LPARAM position) noexcept {

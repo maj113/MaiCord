@@ -1,3 +1,5 @@
+#include "application_overlay_input.hpp"
+#include "application_window_state.hpp"
 #include "application_action_captcha.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/hash.hpp"
@@ -340,7 +342,7 @@ void close_requests(ApplicationFriends& friends) noexcept {
     if (!friends.requests_visible) return;
     application_composer_text_input_suspend();
     if (g_app.context_focus == &friends.requests_scene.widgets) g_app.context_focus = &friends.scene.widgets;
-    if (GetCapture() == g_app.window && (friends.pressed.action != UiFriendsAction::none || friends.dragging)) ReleaseCapture();
+    if (friends.pressed.action != UiFriendsAction::none || friends.dragging) application_release_capture();
     reset_value(&friends.pressed);friends.dragging = false;friends.requests_visible = false;
     renderer_bind_friends_requests_scene(&g_app.renderer, nullptr);ui_friends_scene_release(&friends.requests_scene);
     friends.requests_source.count = 0;++friends.requests_source.revision;
@@ -774,8 +776,8 @@ constexpr TextInputOperations search_operations{search_ready, search_revision, s
     search_copy, search_replace, search_cancel, search_begin, search_end};
 bool search_keys(ApplicationFriends& friends, UiInputKind kind, u32 key) noexcept {
     auto* model = friends_search_document(&friends.search, friends.tab);
-    const bool raw_control = (GetKeyState(VK_CONTROL) & 0x8000) != 0, alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
-    const bool control = raw_control && !alt, shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    const bool raw_control = application_control_down(), alt = application_alt_down();
+    const bool control = raw_control && !alt, shift = application_shift_down();
     if (kind == UiInputKind::key_down && shortcut_matches(ShortcutAction::search, shortcut_chord_from_keyboard(key)) &&
         model) {
         search_focus(friends, true);message_composer_select_all(model);return application_friends_search_changed(false);
@@ -891,7 +893,7 @@ bool application_friends_popup_action(u32 action) noexcept {
 }
 void application_friends_tick(u64 now) noexcept {
     auto* friends = g_app.friends;if (!friends || !friends->search_blink_at || !deadline_due(now, friends->search_blink_at)) return;
-    if (!application_friends_search_focused() || (g_app.window && GetFocus() != g_app.window)) {
+    if (!application_friends_search_focused() || (g_app.window && !application_window_keyboard_focus())) {
         friends->search_blink_at = 0;friends->search_caret_visible = false;
     } else {
         friends->search_caret_visible = !friends->search_caret_visible;
@@ -933,7 +935,7 @@ void application_friends_hide() noexcept {
     close_requests(*friends);
     search_focus(*friends, false);
     if (g_app.context_focus == &friends->scene.widgets) g_app.context_focus = nullptr;
-    if (GetCapture() == g_app.window && (friends->pressed.action != UiFriendsAction::none || friends->dragging || friends->search_dragging)) ReleaseCapture();
+    if (friends->pressed.action != UiFriendsAction::none || friends->dragging || friends->search_dragging) application_release_capture();
     friends->visible = false;reset_value(&friends->pressed);friends->dragging = false;friends->search_dragging = false;
     renderer_bind_friends_scene(&g_app.renderer, nullptr);ui_friends_scene_release(&friends->scene);
 }
@@ -1221,10 +1223,10 @@ bool application_friends_input(UiInputKind kind, u32 key, bool repeated) noexcep
     }
     if (!modal && g_app.context_focus && g_app.context_focus != &scene.widgets) return false;
     if (kind == UiInputKind::character) return true;
-    if (kind != UiInputKind::key_down || (GetKeyState(VK_CONTROL) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000)) return modal;
+    if (kind != UiInputKind::key_down || application_control_down() || application_alt_down()) return modal;
     if (key == VK_TAB) {
         const auto next = ui_widget_manager_next_focus(scene.widgets, scene.widgets.focused,
-            (GetKeyState(VK_SHIFT) & 0x8000) != 0, true);
+            application_shift_down(), true);
         if (next.generation) {
             const auto* node = ui_widget_manager_layout_node(scene.widgets, next);
             if (node) ui_friends_scene_focus(&scene, ui_friends_scene_hit_test(scene,
@@ -1249,6 +1251,7 @@ bool application_friends_window_message(UINT message, WPARAM wparam, LPARAM lpar
         return false;
     }
     if (message == WM_SETFOCUS && friends->search_focused) { application_friends_search_changed(false);return false; }
+    if ((message < WM_MOUSEFIRST || message > WM_MOUSELAST) && message != WM_CONTEXTMENU) return false;
     if (overlay_open()) return false;
     auto& scene = input_scene(*friends);
     const bool modal = friends->requests_visible;
@@ -1260,9 +1263,9 @@ bool application_friends_window_message(UINT message, WPARAM wparam, LPARAM lpar
         return true;
     }
     if (message == WM_MOUSEWHEEL || message == WM_CONTEXTMENU) {
-        POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-        if (!application_screen_to_content(&point)) return false;
-        const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);x = point.x * scale;y = point.y * scale;
+        UiPoint point{};
+        if (!application_wheel_point(lparam, &point)) return false;
+        x = point.x;y = point.y;
         if (!ui_rect_contains(scene.viewport, x, y)) return modal;
         if (message == WM_MOUSEWHEEL) {
             ui_friends_scene_scroll(&scene, -static_cast<short>(HIWORD(wparam)) * .8f);repaint();
@@ -1311,7 +1314,7 @@ bool application_friends_window_message(UINT message, WPARAM wparam, LPARAM lpar
         friends->pressed = ui_friends_scene_hit_test(scene, x, y);
         if (friends->pressed.action == UiFriendsAction::search) {
             search_focus(*friends, true);repaint();
-            search_pointer(*friends, x, y, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
+            search_pointer(*friends, x, y, (wparam & MK_SHIFT) != 0);
             reset_value(&friends->pressed);friends->search_dragging = true;SetCapture(g_app.window);return true;
         }
         search_focus(*friends, false);
@@ -1323,7 +1326,7 @@ bool application_friends_window_message(UINT message, WPARAM wparam, LPARAM lpar
     }
     if (message == WM_LBUTTONUP) {
         const auto pressed = friends->pressed;const auto revision = friends->pressed_revision;
-        reset_value(&friends->pressed);friends->dragging = false;friends->search_dragging = false;if (GetCapture() == g_app.window) ReleaseCapture();
+        reset_value(&friends->pressed);friends->dragging = false;friends->search_dragging = false;application_release_capture();
         if (revision == scene.revision && ui_friends_target_equal(pressed, ui_friends_scene_hit_test(scene, x, y))) activate(pressed);
         return true;
     }

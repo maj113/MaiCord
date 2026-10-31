@@ -1,7 +1,7 @@
 #include "maicord/core/memory.hpp"
 #include "application_friends.hpp"
 #include "application_state.hpp"
-#include "application_window_focus.hpp"
+#include "application_window_state.hpp"
 #include "maicord/platform/taskbar_attention.hpp"
 #include "account_ui_runtime.hpp"
 
@@ -20,7 +20,7 @@ struct Owner {
 Owner g_owner{};
 
 bool focused() noexcept {
-    return application_window_focused(g_app.window);
+    return application_window_focused();
 }
 // The official client's badge: mentions plus incoming friend requests; unread alone is a dot.
 void recount() noexcept {
@@ -67,7 +67,7 @@ void application_taskbar_attention_tick(u64 now_ms) noexcept {
     if (!g_owner.initialized) {
         taskbar_attention_initialize(&g_owner.native);
         // The button may predate registration of TaskbarButtonCreated.
-        g_owner.native.button_ready = IsWindowVisible(g_app.window) != FALSE;
+        g_owner.native.button_ready = application_window_visible();
         g_owner.initialized = true;
     }
     // Counters cover most changes; a slow periodic recount catches the rest.

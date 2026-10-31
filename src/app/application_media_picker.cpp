@@ -5,6 +5,8 @@
 #include "application_cursor.hpp"
 #include "maicord/ui/scene_cursor.hpp"
 #include "application_state.hpp"
+#include "application_overlay_input.hpp"
+#include "application_shell_input.hpp"
 #include "application_account_presentation.hpp"
 #include "application_composer.hpp"
 #include "application_composer_text_input.hpp"
@@ -589,7 +591,7 @@ void focus(ApplicationMediaPicker& p, bool value) noexcept {
     if (value) {
         g_app.message_composer.focused = false;
         g_app.context_focus = &p.scene.widgets;
-        SetFocus(g_app.window);
+        application_focus_window();
         ui_widget_manager_focus(&p.scene.widgets, p.scene.edit);
     } else if (g_app.context_focus == &p.scene.widgets)
         g_app.context_focus = nullptr;
@@ -1234,7 +1236,7 @@ bool react(ApplicationMediaPicker& p, const ReactionPickerSelection& selection) 
                             : ApplicationMessageReactionEnqueueResult::stale;
     const bool accepted = admission == ApplicationMessageReactionEnqueueResult::accepted ||
                           admission == ApplicationMessageReactionEnqueueResult::coalesced;
-    if (accepted && !(GetKeyState(VK_SHIFT) & 0x8000)) {
+    if (accepted && !application_shift_down()) {
         application_media_picker_close();
         return true;
     }
@@ -1306,7 +1308,7 @@ bool activate(ApplicationMediaPicker& p, const UiMediaPickerTarget& target, bool
         ReactionPickerSelection selection{};
         if (!reaction_picker_result_at(p.emoji, target.source_index, &selection))
             return true;
-        if (GetKeyState(VK_MENU) & 0x8000) {
+        if (application_alt_down()) {
             if (!application_emoji_preferences_toggle_favorite(reaction_picker_selection_emoji(selection)) ||
                 !reaction_picker_refresh_preferences(&p.emoji).ok() || !emoji_projection(p))
                 return false;
@@ -1385,7 +1387,7 @@ bool activate(ApplicationMediaPicker& p, const UiMediaPickerTarget& target, bool
         application_media_picker_close();
         return application_commands_builtin_used(url);
     }
-    if (!p.inline_mode && p.kind == UiMediaPickerKind::gif && (GetKeyState(VK_SHIFT) & 0x8000)) {
+    if (!p.inline_mode && p.kind == UiMediaPickerKind::gif && application_shift_down()) {
         const auto inserted = message_composer_insert_utf8(&g_app.message_composer, item->send_url);
         application_media_picker_close();
         return composer_apply_result(inserted, true);
@@ -1912,12 +1914,9 @@ bool application_media_picker_synchronize() noexcept {
     // A saved-state response rebuilds cell handles. Restore pointer state
     // once for that update so a stationary cursor keeps its action hint.
     if (prior_generation != p->scene.generation && !g_app.keyboard_focus_visible) {
-        POINT pointer{};
-        if (GetCursorPos(&pointer) && application_screen_to_content(&pointer)) {
-            const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);
-            ui_media_picker_scene_hover(&p->scene, pointer.x * scale, pointer.y * scale,
-                                        clock_monotonic_milliseconds());
-        }
+        UiPoint pointer{};
+        if (application_pointer_dip(&pointer))
+            ui_media_picker_scene_hover(&p->scene, pointer.x, pointer.y, clock_monotonic_milliseconds());
     }
     // View More Stickers: the pack's section, once the packs have arrived.
     if (p->jump_section && p->kind == UiMediaPickerKind::sticker && p->phase == UiMediaPickerPhase::ready) {
@@ -2336,8 +2335,7 @@ void revoke_capture(ApplicationMediaPicker& p) noexcept {
     p.captured = p.dragging = p.scrollbar_dragging = p.resizing = false;
     ui_media_picker_scene_set_scrollbar_state(&p.scene, false, UiScrollbarVisualState::normal);
     ui_media_picker_scene_cancel_capture(&p.scene);
-    if (GetCapture() == g_app.window)
-        ReleaseCapture();
+    application_release_capture();
     if (was_resizing) {
         const u16 width = ui_splitter_persisted_width(p.preferred_width);
         if (g_app.preferences.expression_picker_width != width) {
@@ -2404,9 +2402,9 @@ bool application_media_picker_input(UiInputKind kind, u32 key, bool repeated) no
         return true;
     if (!application_media_picker_active())
         return false;
-    const bool raw_control = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-    const bool alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
-    const bool control = raw_control && !alt, shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    const bool raw_control = application_control_down();
+    const bool alt = application_alt_down();
+    const bool control = raw_control && !alt, shift = application_shift_down();
     if (kind == UiInputKind::character) {
         if (!p->focused || control || (alt && !raw_control) || key < 32 || (key >= 127 && key <= 159) ||
             key == 0x2028 || key == 0x2029 || key > 0xffff)
@@ -2540,14 +2538,18 @@ bool inline_pointer(ApplicationMediaPicker& p, UINT message, WPARAM wparam, LPAR
             repaint(true);
         return false;
     }
-    POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-    if (message == WM_SETCURSOR &&
-        (LOWORD(lparam) != HTCLIENT || !GetCursorPos(&point) || !application_screen_to_content(&point)))
+    if (!application_pointer_message(message))
         return false;
-    if ((message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL) && !application_screen_to_content(&point))
-        return false;
-    const float scale = g_app.renderer.dpi ? 96.f / g_app.renderer.dpi : 1;
-    const float x = point.x * scale, y = point.y * scale;
+    UiPoint point{};
+    if (message == WM_SETCURSOR) {
+        if (!application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point))
+            return false;
+    } else if (message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL) {
+        if (!application_wheel_point(lparam, &point))
+            return false;
+    } else
+        point = {client_dip_x(lparam), client_dip_y(lparam)};
+    const float x = point.x, y = point.y;
     const bool inside = ui_rect_contains(ui_rect_intersection(p.scene.panel, p.scene.viewport), x, y);
     if (message == WM_SETCURSOR) {
         if (!inside)
@@ -2561,8 +2563,6 @@ bool inline_pointer(ApplicationMediaPicker& p, UINT message, WPARAM wparam, LPAR
                 repaint(true);
             return p.captured;
         }
-        TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, g_app.window, 0};
-        TrackMouseEvent(&track);
         if (ui_media_picker_scene_hover(&p.scene, x, y, clock_monotonic_milliseconds())) {
             if (ui_media_picker_scene_hit_test(p.scene, x, y).action == UiMediaPickerAction::item)
                 ui_media_picker_scene_clear_selection(&p.scene);
@@ -2576,7 +2576,7 @@ bool inline_pointer(ApplicationMediaPicker& p, UINT message, WPARAM wparam, LPAR
         revoke_capture(p);
         ui_media_picker_scene_pointer_down(&p.scene, x, y);
         p.captured = true;
-        SetCapture(g_app.window);
+        application_capture_pointer();
         application_request_frame();
         return true;
     }
@@ -2594,9 +2594,8 @@ bool inline_pointer(ApplicationMediaPicker& p, UINT message, WPARAM wparam, LPAR
     if (message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL) {
         if (!inside)
             return false;
-        u32 lines = 3;
-        SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
-        const float notches = static_cast<float>(static_cast<short>(HIWORD(wparam))) / WHEEL_DELTA;
+        const u32 lines = application_wheel_scroll_lines();
+        const float notches = application_wheel_notches(wparam);
         // Wheel up scrolls back; tilting right scrolls forward.
         const float delta = (message == WM_MOUSEWHEEL ? -notches : notches) *
                             (lines == WHEEL_PAGESCROLL ? ui_rect_width(p.scene.body) : lines * kUiScrollLineDips);
@@ -2644,18 +2643,21 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
             repaint(true);
         return false;
     }
-    POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-    if (message == WM_SETCURSOR &&
-        (LOWORD(lparam) != HTCLIENT || !GetCursorPos(&point) || !application_screen_to_content(&point)))
+    if (!application_pointer_message(message) && !p->scrollbar_dragging)
         return false;
-    if (message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL || message == WM_CONTEXTMENU) {
+    UiPoint point{};
+    if (message == WM_SETCURSOR) {
+        if (!application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point))
+            return false;
+    } else if (message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL || message == WM_CONTEXTMENU) {
         if (message == WM_CONTEXTMENU && lparam == -1)
             return true;
-        if (!application_screen_to_content(&point))
+        if (!application_wheel_point(lparam, &point))
             return false;
-    }
+    } else
+        point = {client_dip_x(lparam), client_dip_y(lparam)};
     const float scale = g_app.renderer.dpi ? 96.f / g_app.renderer.dpi : 1;
-    const float x = point.x * scale, y = point.y * scale;
+    const float x = point.x, y = point.y;
     const bool inside = ui_rect_contains(ui_rect_intersection(p->scene.panel, p->scene.viewport), x, y);
     const bool resize_hit = !p->reaction_message_id &&
                             ui_rect_contains(p->scene.viewport, x, y) &&
@@ -2686,7 +2688,7 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
         p->resize_pointer_offset = x - p->scene.panel.left;
         p->resizing = p->captured = true;
         p->hover_at = 0;
-        SetCapture(g_app.window);
+        application_capture_pointer();
         application_set_cursor(UiCursor::resize_we);
         return true;
     }
@@ -2728,7 +2730,7 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
         p->scrollbar_dragging = p->captured = true;
         ui_media_picker_scene_set_scrollbar_state(&p->scene, false, UiScrollbarVisualState::pressed);
         scrollbar_follow(*p, geometry, y);
-        SetCapture(g_app.window);
+        application_capture_pointer();
         repaint(true);
         return true;
     }
@@ -2739,14 +2741,12 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
     if ((message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL) && inside) {
         const bool rail = ui_rect_contains(p->scene.rail, x, y);
         if (message == WM_MOUSEWHEEL && (rail || ui_rect_contains(p->scene.body, x, y))) {
-            u32 lines = 3;
-            SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
+            const u32 lines = application_wheel_scroll_lines();
             ui_scroll_host_wheel(&g_app.scroll_host,
                                  {p, p->scope, rail ? rail_scroll_read : body_scroll_read,
                                   rail ? rail_scroll_write : body_scroll_write},
-                                 {x, y}, static_cast<short>(HIWORD(wparam)), lines,
-                                 lines == WHEEL_PAGESCROLL,
-                                 clock_microseconds(g_app.clock, g_app.process_start, clock_now()), scale);
+                                 {x, y}, static_cast<short>(HIWORD(wparam)), lines, lines == WHEEL_PAGESCROLL,
+                                 application_now_us(), scale);
             application_request_frame();
         }
         return true;
@@ -2763,11 +2763,11 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
             application_media_picker_close();
             return false;
         }
-        SetFocus(g_app.window);
+        application_focus_window();
         revoke_capture(*p);
         if (hit.action == UiMediaPickerAction::edit) {
             focus(*p, true);
-            edit_pointer(*p, x, y, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
+            edit_pointer(*p, x, y, (wparam & MK_SHIFT) != 0);
             p->dragging = true;
         } else {
             focus(*p, false);
@@ -2780,7 +2780,7 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
             application_request_frame();
         }
         p->captured = true;
-        SetCapture(g_app.window);
+        application_capture_pointer();
         return true;
     }
     if (message == WM_MOUSEMOVE && p->dragging) {
@@ -2795,8 +2795,6 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
         if (scrollbar_changed)
             application_request_frame();
         if (inside) {
-            TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, g_app.window, 0};
-            TrackMouseEvent(&track);
             if (ui_media_picker_scene_hover(&p->scene, x, y, clock_monotonic_milliseconds())) {
                 p->hover_at = hit.action == UiMediaPickerAction::item ||
                                       hit.action == UiMediaPickerAction::category ||

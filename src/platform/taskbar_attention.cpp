@@ -65,6 +65,25 @@ void flash(HWND window, bool start) noexcept {
                     start ? 3u : 0u, 0};
     FlashWindowEx(&info);
 }
+// The shell's taskbar object is activated when the first badge is shown; a
+// session that never shows one never pays for it. One attempt per session.
+bool acquire_list(TaskbarAttention* attention) noexcept {
+    if (attention->list)
+        return true;
+    if (attention->list_attempted)
+        return false;
+    attention->list_attempted = true;
+    void* list = nullptr;
+    if (FAILED(CoCreateInstance(kTaskbarListClass, nullptr, CLSCTX_INPROC_SERVER, kTaskbarList3, &list)) || !list)
+        return false;
+    auto* taskbar = static_cast<ITaskbarList3*>(list);
+    if (FAILED(taskbar->HrInit())) {
+        taskbar->Release();
+        return false;
+    }
+    attention->list = taskbar;
+    return true;
+}
 } // namespace
 
 u8 taskbar_attention_badge(u32 mentions, bool unread, bool enabled) noexcept {
@@ -154,17 +173,8 @@ bool taskbar_attention_initialize(TaskbarAttention* attention) noexcept {
         return false;
     reset_value(attention);
     attention->created_message = RegisterWindowMessageW(L"TaskbarButtonCreated");
-    const HRESULT apartment = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    attention->com_initialized = SUCCEEDED(apartment);
-    void* list = nullptr;
-    if (FAILED(CoCreateInstance(kTaskbarListClass, nullptr, CLSCTX_INPROC_SERVER, kTaskbarList3, &list)) || !list)
-        return attention->created_message != 0;
-    attention->list = static_cast<ITaskbarList3*>(list);
-    if (FAILED(attention->list->HrInit())) {
-        attention->list->Release();
-        attention->list = nullptr;
-    }
-    return true;
+    attention->com_initialized = SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));
+    return attention->created_message != 0;
 }
 
 bool taskbar_attention_window_message(TaskbarAttention* attention, UINT message) noexcept {
@@ -186,10 +196,13 @@ void taskbar_attention_apply(TaskbarAttention* attention, HWND window, const Tas
         flash(window, true);
     if (!plan.set_badge)
         return;
-    if (!attention->list || !attention->button_ready) {
+    if (!attention->button_ready) {
         attention->state.badge_applied = false;
         return;
     }
+    // Without a taskbar object nothing was shown, so there is no overlay to clear.
+    if ((!plan.badge && !attention->list) || !acquire_list(attention))
+        return;
     HICON icon = nullptr;
     if (plan.badge) {
         if (attention->icon && attention->icon_badge == plan.badge) {

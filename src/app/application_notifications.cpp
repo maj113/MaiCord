@@ -1,5 +1,5 @@
 #include "application_taskbar_attention.hpp"
-#include "application_window_focus.hpp"
+#include "application_window_state.hpp"
 #include "application_desktop.hpp"
 #include "application_notifications.hpp"
 #include "application_state.hpp"
@@ -148,12 +148,12 @@ bool popup_sink(const Application& a,const ApplicationNotifications& n) noexcept
     return a.preferences.desktop_enabled && n.enrolled;
 #endif
 }
-bool focused(const Application& a,const ApplicationNotifications& n) noexcept {
+bool focused(const ApplicationNotifications& n) noexcept {
     (void)n;
 #if defined(MAICORD_NOTIFICATION_FIXTURE)
     if(n.fixture_focus_known) return n.fixture_focused;
 #endif
-    return application_window_focused(a.window);
+    return application_window_focused();
 }
 u64 sound_clock(const ApplicationNotifications& n) noexcept {
     (void)n;
@@ -639,7 +639,7 @@ void application_notifications_selection(Application* a) noexcept {
     if(!a || !a->notifications || !a->account_ui) return;
     auto& n=*a->notifications;
     const u64 selected=a->account_ui->chat_state.selected_channel_id;
-    const bool window_focused=focused(*a,n);
+    const bool window_focused=focused(n);
     if(selected!=n.selected || (window_focused && !n.focused)) {
         // Runs inside focus messages; the toast withdrawal waits for the drain.
         if(selected) acknowledge(a,selected,true);
@@ -695,7 +695,7 @@ void application_notifications_drain(Application* a) noexcept {
             auto outcome=DesktopNotificationQueueOutcome::failed;
             const auto& id=dispatch.identity;
             const auto* channel=a->account_ui?chat_state_store_find_channel(a->account_ui->chat_state,id.channel_id):nullptr;
-            const bool window_focused=focused(*a,n);
+            const bool window_focused=focused(n);
             const auto* policy_channel=a->account_ui?chat_state_store_find_channel(a->account_ui->chat_state,
                 id.policy_channel_id?id.policy_channel_id:id.channel_id):nullptr;
             const bool selected=policy_channel && policy_channel->id==a->account_ui->chat_state.selected_channel_id;
@@ -1220,7 +1220,7 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     input.guild_default_known=!channel->guild_id || (gs && (gs->flags&gateway_notification_guild_default_known));
     input.guild_default=gs && (gs->flags&gateway_notification_guild_default_mentions)?MessageNotificationLevel::mentions:MessageNotificationLevel::all;
     mention_flags(input,event);
-    input.focused=focused(*a,n);
+    input.focused=focused(n);
     input.selected=policy_channel->id==state.selected_channel_id;
     // This process's own call; a voice state from another client never counts.
     input.current_voice_channel=ui.voice_session.channel_id==policy_channel->id &&

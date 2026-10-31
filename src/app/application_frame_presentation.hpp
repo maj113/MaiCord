@@ -11,7 +11,7 @@ void application_update_frame_rate(u64 now_us) noexcept;
 void application_present_pending_frame() noexcept;
 void application_record_presentation_failure(const char* stage) noexcept;
 void application_record_presentation_success() noexcept;
-void application_resize_client(HWND window) noexcept;
+void application_resize_client() noexcept;
 void application_resize_surface(u32 width, u32 height) noexcept;
 // Shared visual step clock: loading spinners (pins, inbox, thread browser)
 // and the composer's typing dots. Sampled once per presented frame; zero while

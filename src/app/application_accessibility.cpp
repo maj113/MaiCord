@@ -25,6 +25,7 @@
 #include "application_poll_create.hpp"
 #include "application_settings_layer.hpp"
 #include "application_state.hpp"
+#include "application_window_state.hpp"
 #include "maicord/app/voice_socket.hpp"
 #include "maicord/app/voice_udp_discovery.hpp"
 #include "../render/d3d11_renderer_interaction_state.hpp"
@@ -1726,7 +1727,7 @@ void announce_new_message(const UiAccessTree& tree) noexcept {
                                   record->delivery != MessageDeliveryState::authoritative);
     if (!ui_access_message_should_announce(&g_access.messages, state->selected_channel_id, record ? record->id : 0,
                                            local) ||
-        GetForegroundWindow() != g_app.window)
+        !application_window_foreground())
         return;
     const auto& users = g_app.account_ui->user_store;
     const auto* user = user_store_find(users, record->author_id);
@@ -1960,7 +1961,7 @@ void publish_events() noexcept {
         if (change.property == UiAccessProperty::name && (tree->nodes[change.node].state & ui_access_live))
             uia_host_raise_live_region(&g_access.host, key);
     }
-    if (plan.focus_changed && GetFocus() == g_app.window)
+    if (plan.focus_changed && application_window_keyboard_focus())
         uia_host_raise_focus(&g_access.host, event_key(*tree, plan.focus_node));
     announce_new_message(*tree);
     observe_status(GetTickCount64());

@@ -3,6 +3,7 @@
 #include "application_guild_menu.hpp"
 #include "application_guild_lifecycle.hpp"
 #include "application_cursor.hpp"
+#include "application_overlay_input.hpp"
 #include "application_video.hpp"
 #include "application_private_channel.hpp"
 #include "application_settings.hpp"
@@ -289,7 +290,7 @@ bool handle_pane_resize_begin(LPARAM lparam) noexcept {
     g_app.pane_resize = hit;
     g_app.pane_resize_origin_width =
         hit == PaneResizeKind::channels ? g_app.channel_pane_width : g_app.member_pane_width;
-    SetCapture(g_app.window);
+    application_capture_pointer();
     return true;
 }
 

@@ -12,6 +12,8 @@
 #include "application_settings.hpp"
 #include "application_settings_layer.hpp"
 #include "application_state.hpp"
+#include "application_overlay_input.hpp"
+#include "application_shell_input.hpp"
 #include "application_text_form.hpp"
 #include "settings_catalog.hpp"
 #include "maicord/core/deadline.hpp"
@@ -527,9 +529,8 @@ bool layout_preview(const UiRect& anchor, const UiRect& visible) noexcept {
         s.pending_banner = {p.banner.request.key, p.banner.crop, true};
     s.measure = &g_app.account_ui->text_measure_cache;
     s.effect = p.effect.sku && p.effect.sku == p.effect_wanted ? &p.effect : nullptr;
-    BOOL animations = TRUE;
-    SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0);
-    s.reduced_motion = !animations || g_app.preferences.reduced_motion;
+    s.reduced_motion = g_app.preferences.reduced_motion ||
+                       (g_app.surface_motion.system_preference_cached && !g_app.surface_motion.client_area_animation);
     s.phase = ProfilePhase::ready;
     s.presence = UiPresence::online;
     const auto viewport = ui_rect_has_area(visible) ? visible : application_viewport_dips();
@@ -970,8 +971,7 @@ void close_dialog() noexcept {
         release_picked(p.staged);
     p.dialog_kind = Dialog::none;
     p.crop_dragging = p.zoom_dragging = false;
-    if (GetCapture() == g_app.window)
-        ReleaseCapture();
+    application_release_capture();
     ui_profile_dialog_close(&p.dialog);
     g_app.renderer.settings_profile_dialog = nullptr;
     g_app.context_focus = &p.scene.widgets;
@@ -1747,12 +1747,6 @@ bool application_profile_editor_synchronize() noexcept {
 }
 
 namespace {
-float client_x(LPARAM lparam) noexcept {
-    return static_cast<i16>(LOWORD(lparam)) * 96.f / maximum(g_app.renderer.dpi, 1u);
-}
-float client_y(LPARAM lparam) noexcept {
-    return static_cast<i16>(HIWORD(lparam)) * 96.f / maximum(g_app.renderer.dpi, 1u);
-}
 void set_zoom(float x) noexcept {
     auto& p = *owner;
     const float t = ui_profile_dialog_zoom_at(p.dialog, x);
@@ -1790,17 +1784,15 @@ bool dialog_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
     auto& p = *owner;
     auto& d = p.dialog;
     if (message == WM_MOUSEWHEEL) {
-        const float delta = -static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA * 48.f;
+        const float delta = -application_wheel_notches(wparam) * 48.f;
         if (ui_profile_dialog_scroll(&d, delta))
             repaint();
         return true;
     }
     if (message == WM_SETCURSOR && LOWORD(lparam) == HTCLIENT) {
-        POINT point{};
-        GetCursorPos(&point);
-        application_screen_to_content(&point);
-        const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);
-        const auto hit = ui_profile_dialog_hit_test(d, point.x * scale, point.y * scale);
+        UiPoint point{};
+        application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point);
+        const auto hit = ui_profile_dialog_hit_test(d, point.x, point.y);
         const auto action = ui_profile_dialog_action(d, hit);
         application_set_cursor(p.crop_dragging || action == UiProfileDialogAction::pan ? UiCursor::move
                                : action != UiProfileDialogAction::none                 ? UiCursor::hand
@@ -1817,7 +1809,7 @@ bool dialog_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
         return message == WM_RBUTTONDOWN || message == WM_RBUTTONUP || message == WM_MOUSELEAVE;
     if (message == WM_LBUTTONDBLCLK)
         message = WM_LBUTTONDOWN;
-    const float x = client_x(lparam), y = client_y(lparam);
+    const float x = client_dip_x(lparam), y = client_dip_y(lparam);
     if (p.crop_dragging || p.zoom_dragging) {
         if (message == WM_MOUSEMOVE) {
             if (p.crop_dragging) {
@@ -1829,8 +1821,7 @@ bool dialog_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
             refresh_dialog();
         } else if (message == WM_LBUTTONUP) {
             p.crop_dragging = p.zoom_dragging = false;
-            if (GetCapture() == g_app.window)
-                ReleaseCapture();
+            application_release_capture();
             refresh_dialog();
         }
         return true;
@@ -1844,7 +1835,7 @@ bool dialog_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
         return true;
     }
     if (message == WM_LBUTTONDOWN && (action == UiProfileDialogAction::pan || action == UiProfileDialogAction::zoom)) {
-        SetCapture(g_app.window);
+        application_capture_pointer();
         if (action == UiProfileDialogAction::pan) {
             p.crop_dragging = true;
             p.drag_x = x;
@@ -1864,9 +1855,9 @@ bool dialog_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
                                                                            : UiButtonPointerEvent::move,
                                                  hit);
     if (message == WM_LBUTTONDOWN && result.handled)
-        SetCapture(g_app.window);
-    if (message == WM_LBUTTONUP && GetCapture() == g_app.window)
-        ReleaseCapture();
+        application_capture_pointer();
+    if (message == WM_LBUTTONUP)
+        application_release_capture();
     if (result.changed) {
         ++d.revision;
         repaint();
@@ -1876,17 +1867,13 @@ bool dialog_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
         const auto act = ui_profile_dialog_action(d, result.target, &activated);
         dialog_action(act, activated);
     }
-    if (message == WM_MOUSEMOVE) {
-        TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, g_app.window, 0};
-        TrackMouseEvent(&track);
-    }
     return true;
 }
 bool dialog_key(UiInputKind kind, u32 key, bool repeated) noexcept {
     auto& p = *owner;
     if (kind != UiInputKind::key_down && kind != UiInputKind::system_key_down)
         return true;
-    const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    const bool shift = application_shift_down();
     if (key == VK_ESCAPE && !repeated) {
         close_dialog();
         repaint();

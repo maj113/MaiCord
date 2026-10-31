@@ -1,5 +1,5 @@
+#include "application_window_state.hpp"
 #include "application_private_channel.hpp"
-#include "application_content_point.hpp"
 #include "application_account_reconnect.hpp"
 #include "application_cursor.hpp"
 #include "application_attachments.hpp"
@@ -30,7 +30,7 @@ bool g_connection_notice{};
 
 bool motion_allowed() noexcept {
     return !g_app.preferences.reduced_motion && !g_app.renderer.reduced_motion && !g_app.renderer.live_resize &&
-           g_app.window && IsWindowVisible(g_app.window) && !IsIconic(g_app.window);
+           g_app.window && application_window_shown();
 }
 // Covered or absent timelines publish an empty view so the bars retire.
 bool timeline_presented() noexcept {
@@ -249,18 +249,13 @@ bool application_unread_banner_window_message(UINT message, WPARAM, LPARAM lpara
         }
         return false;
     }
-    POINT cursor{};
-    float x = 0, y = 0;
+    UiPoint point{};
     if (message == WM_SETCURSOR) {
-        if (!GetCursorPos(&cursor) || !application_screen_to_content(&cursor))
+        if (!application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point))
             return false;
-        const float scale = 96.f / static_cast<float>(maximum<u32>(g_app.renderer.dpi, 1));
-        x = static_cast<float>(cursor.x) * scale;
-        y = static_cast<float>(cursor.y) * scale;
-    } else {
-        x = client_dip_x(lparam);
-        y = client_dip_y(lparam);
-    }
+    } else
+        point = {client_dip_x(lparam), client_dip_y(lparam)};
+    const float x = point.x, y = point.y;
     const auto action = ui_unread_banner_hit_test(g_banner, x, y);
     switch (message) {
     case WM_SETCURSOR:

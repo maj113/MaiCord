@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "application_content_point.hpp"
 #include "application_cursor.hpp"
+#include "application_overlay_input.hpp"
 #include "application_scrolling.hpp"
 #include "application_profile.hpp"
 #include "application_account_presentation.hpp"
@@ -308,8 +309,7 @@ bool handle_scroll_wheel(WPARAM wparam, LPARAM lparam) noexcept {
         return false;
     const double scale = 96.0 / maximum(g_app.renderer.dpi, 1u);
     const UiPoint point{static_cast<float>(pixel.x * scale), static_cast<float>(pixel.y * scale)};
-    UINT lines = 3;
-    SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
+    const u32 lines = application_wheel_scroll_lines();
     const i32 delta = static_cast<short>(HIWORD(wparam));
     const u64 now = application_now_us();
     const auto wheel = [&](u64 surface) noexcept {

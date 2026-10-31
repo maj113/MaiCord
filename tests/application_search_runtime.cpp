@@ -2,6 +2,7 @@
 // ownership is visible here without adding a shipping diagnostic/test hook.
 #include "../src/app/application_search.cpp"
 #include "../src/app/application_content_input.hpp"
+#include "../src/app/application_window_state.hpp"
 #include "application_search_measurement.hpp"
 #include "maicord/app/chat_state_dispatch.hpp"
 #include "maicord/core/utf.hpp"
@@ -282,6 +283,7 @@ bool initialize() noexcept {
     g_app.account.api.message_search = submit;
     g_app.account.api.message_ack = acknowledge;
     SetFocus(g_app.window);
+    g_window_state.keyboard_focus = true;
     return application_search_synchronize();
 }
 
@@ -293,6 +295,7 @@ void release() noexcept {
     }
     if (g_app.window) {
         DestroyWindow(g_app.window);
+        g_window_state.keyboard_focus = false;
     }
     if (g_app.account_ui) {
         message_poll_store_release(&g_app.account_ui->message_poll_store);

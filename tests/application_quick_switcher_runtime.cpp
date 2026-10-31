@@ -13,6 +13,7 @@
 #include "maicord/ui/private_channel_rows.hpp"
 #include "application_input_routing.hpp"
 #include "application_state.hpp"
+#include "application_window_state.hpp"
 #include "application_private_conversation.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/hash.hpp"
@@ -187,6 +188,7 @@ void run() noexcept {
     if (!g_app.window || !g_app.account_ui)
         return;
     SetFocus(g_app.window);
+    g_window_state.keyboard_focus = true;
     g_app.renderer_ready = true;
     g_app.renderer.dpi = 96;
     g_app.renderer.width = 1200;
@@ -433,6 +435,7 @@ void run() noexcept {
     scoped_shortcut_routing();
     message_composer_release(&g_app.message_composer);
     DestroyWindow(g_app.window);
+    g_window_state.keyboard_focus = false;
     g_app.window = nullptr;
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;

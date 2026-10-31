@@ -38,6 +38,8 @@
 #include "application_scrolling.hpp"
 #include "application_shell_input.hpp"
 #include "application_window.hpp"
+#include "application_overlay_input.hpp"
+#include "application_window_state.hpp"
 #include "application_window_resize.hpp"
 #include "application_text_form.hpp"
 #include "application_forum_form.hpp"
@@ -69,21 +71,68 @@
 namespace maicord::app_detail {
 static_assert(kWindowMessageApp == WM_APP);
 namespace {
-// Whether this window holds a TME_LEAVE request; cleared by WM_MOUSELEAVE.
-bool g_pointer_leave_armed = false;
-
 void update_keyboard_focus_visible(UINT message, WPARAM wparam) noexcept {
     const bool shift_f10 = (message == WM_KEYDOWN || message == WM_SYSKEYDOWN) && wparam == VK_F10 &&
-                           (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                           application_shift_down();
     const bool visible = keyboard_focus_after_message(g_app.keyboard_focus_visible, message, wparam, shift_f10);
     if (visible != g_app.keyboard_focus_visible) {
         g_app.keyboard_focus_visible = visible;
         application_request_frame();
     }
 }
+// The wndproc is the only place window state changes are observed. Position
+// changes carry every show/hide/minimize/restore/resize; activation, focus,
+// DPI and pointer departure have their own messages. Runs first, before any
+// handler reads the flags.
+void observe_window_state(HWND window, UINT message, WPARAM wparam) noexcept {
+    switch (message) {
+    case WM_WINDOWPOSCHANGED:
+        application_window_observe_position(window);
+        break;
+    case WM_ACTIVATE:
+        g_window_state.foreground = LOWORD(wparam) != WA_INACTIVE;
+        break;
+    case WM_SETFOCUS:
+    case WM_KILLFOCUS:
+        g_window_state.keyboard_focus = message == WM_SETFOCUS;
+        break;
+    case WM_DPICHANGED:
+        g_window_state.dpi = HIWORD(wparam);
+        break;
+    case WM_MOUSEMOVE:
+        // Hover affordances end when the pointer leaves the client, as a DOM
+        // mouseleave would. The request is shared by every layer and re-armed
+        // by the first move after each WM_MOUSELEAVE.
+        application_arm_pointer_leave(window);
+        break;
+    case WM_MOUSELEAVE:
+        g_window_state.pointer_leave_armed = false;
+        break;
+    case WM_SETTINGCHANGE:
+        application_wheel_scroll_lines_invalidate();
+        application_cursor_handles_reset();
+        break;
+    }
+}
+
+// Resolves the cursor once for a WM_SETCURSOR over the client area.
+struct DispatchCursorScope {
+    DispatchCursorScope(HWND window, UINT message, LPARAM lparam) noexcept {
+        POINT point{};
+        if (message == WM_SETCURSOR && LOWORD(lparam) == HTCLIENT && GetCursorPos(&point) &&
+            ScreenToClient(window, &point))
+            g_dispatch_cursor = {window, point, true};
+    }
+    ~DispatchCursorScope() {
+        g_dispatch_cursor.valid = false;
+    }
+};
+
 } // namespace
 
 LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+    observe_window_state(window, message, wparam);
+    const DispatchCursorScope dispatch_cursor(window, message, lparam);
     // The caption owns the frame and the rows above the content.
     LRESULT caption_result = 0;
     if (application_caption_window_message(window, message, wparam, lparam, &caption_result))
@@ -237,17 +286,8 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
             return 0;
         // Leaving the client retires video hover even when a modal owns the event.
         // The observer preserves an active seek/volume capture and never consumes it.
-        if (message == WM_MOUSELEAVE)
-            application_video_pointer(message, lparam);
-        // Hover affordances end when the pointer leaves the client, as a DOM
-        // mouseleave would. Leave tracking is one shared per-window request,
-        // re-armed by the first move after each WM_MOUSELEAVE.
-        if (message == WM_MOUSEMOVE && !g_pointer_leave_armed) {
-            TRACKMOUSEEVENT tracking{static_cast<DWORD>(sizeof(TRACKMOUSEEVENT)), TME_LEAVE, window, 0};
-            g_pointer_leave_armed = TrackMouseEvent(&tracking) != FALSE;
-        }
         if (message == WM_MOUSELEAVE) {
-            g_pointer_leave_armed = false;
+            application_video_pointer(message, lparam);
             if (g_app.renderer_ready && !application_message_hover_leave())
                 log_write(LogLevel::error, "ui", "message_hover_leave_failed");
             // The DM profile's name effect animates only under the pointer.
@@ -310,7 +350,7 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
         // Splitter grips sit on panel borders (the channel splitter is the
         // thread browser's left edge), so they win over the panels below.
         if (message == WM_LBUTTONDOWN && g_app.renderer_ready && handle_pane_resize_begin(lparam)) {
-            SetFocus(window);
+            application_focus_window();
             return 0;
         }
         if (application_thread_browser_window_message(message, wparam, lparam))
@@ -364,7 +404,7 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
         const auto* position = reinterpret_cast<const WINDOWPOS*>(lparam);
         if (position &&
             ((position->flags & SWP_NOSIZE) == 0 || (position->flags & SWP_FRAMECHANGED) != 0)) {
-            application_resize_client(window);
+            application_resize_client();
         }
         return 0;
     }
@@ -433,8 +473,7 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
     case WM_SETCURSOR:
         if (LOWORD(lparam) == HTCLIENT && g_app.renderer_ready) {
             POINT point{};
-            if (GetCursorPos(&point) && application_screen_to_content(&point) &&
-                set_client_cursor(point.x, point.y)) {
+            if (application_cursor_content(&point) && set_client_cursor(point.x, point.y)) {
                 return TRUE;
             }
         }
@@ -515,7 +554,7 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
         ui_button_keyboard_cancel(&g_app.button_keyboard);
         if (g_app.renderer_ready &&
             handle_reaction_viewer_click(client_dip_x(lparam), client_dip_y(lparam))) {
-            SetFocus(window);
+            application_focus_window();
             return 0;
         }
         if (g_app.message_text_selection.valid && !clear_message_text_selection(true)) {
@@ -526,13 +565,13 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
         if (handle_popup_click(wparam, lparam) || handle_message_action_bar_click(lparam) ||
             application_login_handle_click(lparam) ||
             handle_scrollbar_begin(client_dip_x(lparam), client_dip_y(lparam))) {
-            SetFocus(window);
+            application_focus_window();
             return 0;
         }
         focus_context_at(client_dip_x(lparam), client_dip_y(lparam));
         application_request_frame();
         if (handle_shell_click(lparam) || handle_composer_click(lparam)) {
-            SetFocus(window);
+            application_focus_window();
             return 0;
         }
         application_expression_card_pointer_down({client_dip_x(lparam), client_dip_y(lparam)});
@@ -544,7 +583,7 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
             handle_navigation_click(lparam))
             return 0;
         if (begin_message_text_selection(lparam)) {
-            SetFocus(window);
+            application_focus_window();
             return 0;
         }
         break;
@@ -556,16 +595,16 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
             return 0;
         }
         if (g_app.renderer_ready && application_login_handle_click(lparam)) {
-            SetFocus(window);
+            application_focus_window();
             return 0;
         }
         if (g_app.renderer_ready && handle_composer_double_click(lparam)) {
-            SetFocus(window);
+            application_focus_window();
             return 0;
         }
         // Message text: double click selects the word under the pointer.
         if (g_app.renderer_ready && begin_message_text_selection(lparam, true)) {
-            SetFocus(window);
+            application_focus_window();
             return 0;
         }
         break;
@@ -587,7 +626,7 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
         if (application_quick_switcher_input(UiInputKind::key_down, static_cast<u32>(wparam),
                                              (lparam & (1ll << 30)) != 0))
             return 0;
-        if (application_video_key(static_cast<UINT>(wparam), (GetKeyState(VK_SHIFT) & 0x8000) != 0,
+        if (application_video_key(static_cast<UINT>(wparam), application_shift_down(),
                                   (lparam & (1ll << 30)) != 0))
             return 0;
         if (route_application_input(UiInputKind::key_down, static_cast<u32>(wparam),

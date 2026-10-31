@@ -5,6 +5,7 @@
 #include "probe_glyph_ink.hpp"
 #include "probe_capture.hpp"
 #include "application_state.hpp"
+#include "application_window_state.hpp"
 #include "application_account_logout.hpp"
 #include "application_account_module.hpp"
 #include "application_account_menu.hpp"
@@ -1094,6 +1095,8 @@ bool account_logout_ui_probe() noexcept {
     } cleanup{window, SUCCEEDED(apartment)};
     probe_window::show(window);
     SetFocus(window);
+    application_window_observe_position(window);
+    g_window_state.keyboard_focus = GetFocus() == window;
     if (!require(SUCCEEDED(apartment) && fixture->stop_entered && fixture->stop_allowed &&
                      initialize_paths() &&
                      renderer_initialize(&g_app.renderer, window),

@@ -3,6 +3,7 @@
 #include "application_state.hpp"
 #include "application_surface_motion.hpp"
 #include "application_background.hpp"
+#include "application_window_state.hpp"
 #include "test_output.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -18,6 +19,13 @@ void check(bool passed, const char* label) noexcept {
     test_check(&failures, passed, label);
 }
 
+// The native show state reaches the application through the window procedure's
+// position messages; this fixture window has none, so it reports them itself.
+void show(HWND window, int command) noexcept {
+    ShowWindow(window, command);
+    application_window_observe_position(window);
+}
+
 void background_host(HWND window) noexcept {
     g_app.preferences = client_preferences_defaults();
     g_app.preferences.theme = ClientTheme::custom_gradient;
@@ -29,11 +37,11 @@ void background_host(HWND window) noexcept {
     r.background_phase_seconds = 3.f;
     r.background_motion_running = true;
     r.background_next_frame_ms = 10;
-    ShowWindow(window, SW_HIDE);
+    show(window, SW_HIDE);
     check(!application_background_next_wake(10000) && !r.background_motion_running &&
               !r.background_next_frame_ms && r.background_phase_seconds == 3.f,
           "background host: hidden native window retires overdue shader deadline without presentation");
-    ShowWindow(window, SW_SHOWNOACTIVATE);
+    show(window, SW_SHOWNOACTIVATE);
     check(
         IsWindowVisible(window) && !IsIconic(window) && application_background_next_wake(10000) == 10000 &&
             application_background_synchronize(10000) && application_background_next_wake(10001) == 10042 &&
@@ -43,11 +51,11 @@ void background_host(HWND window) noexcept {
               r.background_phase_seconds > 3.041f && r.background_phase_seconds < 3.043f,
           "background host: due production sample advances one bounded shader phase");
     const float paused = r.background_phase_seconds;
-    ShowWindow(window, SW_HIDE);
+    show(window, SW_HIDE);
     check(!application_background_next_wake(10043) && !r.background_motion_running &&
               !r.background_next_frame_ms && r.background_phase_seconds == paused,
           "background host: hide without synchronize clears running clock and preserves shader phase");
-    ShowWindow(window, SW_SHOWNOACTIVATE);
+    show(window, SW_SHOWNOACTIVATE);
     check(application_background_next_wake(500000) == 500000 &&
               application_background_synchronize(500000) && r.background_next_frame_ms == 500042 &&
               r.background_phase_seconds == paused,
@@ -173,7 +181,7 @@ void run() noexcept {
     application_surface_motion_synchronize(10);
     check(g_app.renderer.layer_opacity.popup == 1 && !application_surface_motion_next_wake(10),
           "host motion: actual hidden HWND suppresses entrance and wake");
-    ShowWindow(window, SW_SHOWNOACTIVATE);
+    show(window, SW_SHOWNOACTIVATE);
     ++popup.opens;
     application_surface_motion_synchronize(100);
     check(g_app.renderer.layer_opacity.popup == 0 && application_surface_motion_next_wake(100) == 116 &&
@@ -280,7 +288,7 @@ void run() noexcept {
     application_surface_motion_synchronize(600);
     check(g_app.renderer.layer_opacity.gallery == 0,
           "host motion: explicit close/reopen binds fresh scope");
-    ShowWindow(window, SW_SHOWMINNOACTIVE);
+    show(window, SW_SHOWMINNOACTIVE);
     check(IsIconic(window) && !application_surface_motion_next_wake(601),
           "host motion: actual minimized HWND has no visual deadline");
     application_surface_motion_synchronize(601);
@@ -288,7 +296,7 @@ void run() noexcept {
     application_surface_motion_retire_all();
     g_app.renderer.media_picker_scene = nullptr;
     g_app.renderer.popup_scene = nullptr;
-    ShowWindow(window, SW_SHOWNOACTIVATE);
+    show(window, SW_SHOWNOACTIVATE);
     ProfileScene profile{};
     profile.active = true;
     profile.self_id = 42;
@@ -353,6 +361,7 @@ void run() noexcept {
     background_host(window);
     g_app.renderer_ready = false;
     g_app.window = nullptr;
+    g_window_state = {};
     DestroyWindow(window);
     UnregisterClassW(name, type.hInstance);
 }

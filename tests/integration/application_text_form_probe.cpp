@@ -8,6 +8,7 @@
 #include "../../src/app/application_composer_text_input_state.hpp"
 #include "../../src/app/application_state.hpp"
 #include "../../src/app/application_button_input.hpp"
+#include "../../src/app/application_window_state.hpp"
 #include "../../src/app/application_account_presentation.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/log.hpp"
@@ -418,6 +419,8 @@ bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& ca
                     .ok() &&
                 message_composer_scene_focus_edit(&g_app.message_composer_scene) && valid;
         const HWND prior_focus = SetFocus(window);
+        // The probe window has no application window procedure to keep the focus state.
+        g_window_state.keyboard_focus = GetFocus() == window;
         valid = GetFocus() == window && application_composer_text_input_synchronize() &&
                 g_app.composer_text_input && secure_text_store_attached(g_app.composer_text_input->store) &&
                 !g_app.composer_text_input->failed && valid;
@@ -706,6 +709,7 @@ bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& ca
         message_composer_scene_release(&g_app.message_composer_scene);
         message_composer_release(&g_app.message_composer);
         SetFocus(prior_focus);
+        g_window_state.keyboard_focus = false;
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "composer_native_owner_modal_handoff_passed"
                         : "composer_native_owner_modal_handoff_failed");

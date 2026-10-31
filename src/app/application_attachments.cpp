@@ -37,6 +37,22 @@ bool can_attach() noexcept {
     constexpr u32 actions = channel_action_send_messages | channel_action_attach_files;
     return channel && (channel->actions & actions) == actions;
 }
+// WS_EX_ACCEPTFILES as this module last set it. The style is read once per
+// window and written only on a change; nothing else touches it.
+HWND g_drop_window;
+bool g_drop_registered;
+void set_drop_registration(bool enabled) noexcept {
+    const HWND window = g_app.window;
+    if (!window) return;
+    if (g_drop_window != window) {
+        g_drop_window = window;
+        g_drop_registered = (GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_ACCEPTFILES) != 0;
+    }
+    if (g_drop_registered == enabled) return;
+    const LONG_PTR style = GetWindowLongPtrW(window, GWL_EXSTYLE);
+    SetWindowLongPtrW(window, GWL_EXSTYLE, enabled ? style | WS_EX_ACCEPTFILES : style & ~LONG_PTR{WS_EX_ACCEPTFILES});
+    g_drop_registered = enabled;
+}
 bool description_owner_valid(TextFormOwnerKey key) noexcept {
     const auto* state = g_app.attachments;
     if (!current(state) || state->profile_id != key.scope || g_app.account_ui->active_channel_id != key.collection) return false;
@@ -242,11 +258,7 @@ void application_sync_attachment_drop_target() noexcept {
     const auto* state = g_app.attachments;
     const bool enabled = can_attach() && (!state || (!state->picker.runtime &&
         message_attachment_drafts_channel(&state->drafts, g_app.account_ui->active_channel_id, {}) < kAttachmentUploadMaximumCount));
-    const LONG_PTR style = GetWindowLongPtrW(g_app.window, GWL_EXSTYLE);
-    const bool registered = (style & WS_EX_ACCEPTFILES) != 0;
-    if (registered != enabled)
-        SetWindowLongPtrW(g_app.window, GWL_EXSTYLE,
-                         enabled ? style | WS_EX_ACCEPTFILES : style & ~LONG_PTR{WS_EX_ACCEPTFILES});
+    set_drop_registration(enabled);
 }
 bool application_drop_attachments(HANDLE drop) noexcept {
     if (!drop) return true;
@@ -592,10 +604,7 @@ void application_cancel_attachments() noexcept {
         if (state->active_id) application_upload_lane_cancel(state->upload_lease);
         else application_upload_lane_release(&state->upload_lease);
     }
-    if (g_app.window) {
-        const LONG_PTR style = GetWindowLongPtrW(g_app.window, GWL_EXSTYLE);
-        SetWindowLongPtrW(g_app.window, GWL_EXSTYLE, style & ~LONG_PTR{WS_EX_ACCEPTFILES});
-    }
+    set_drop_registration(false);
 }
 bool application_release_attachments() noexcept {
     application_cancel_attachments(); return !g_app.attachments || reap(g_app.attachments);

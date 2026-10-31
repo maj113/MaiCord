@@ -56,6 +56,7 @@
 #include "application_ui_runtime.hpp"
 #include "application_window.hpp"
 #include "application_window_runtime.hpp"
+#include "application_window_state.hpp"
 #include "application_notifications.hpp"
 #include "application_media.hpp"
 #include "application_video.hpp"
@@ -363,7 +364,7 @@ int application_run() noexcept {
         // signaling and the watchdog would tick a synthetic 16 ms clock for
         // frames nobody sees. Suspend the frame clock and visual timers; the
         // pending damage presents once the window is restored.
-        const bool window_hidden = g_app.window && (IsIconic(g_app.window) || !IsWindowVisible(g_app.window));
+        const bool window_hidden = !application_window_shown();
         const bool frame_clock_available = !window_hidden && g_app.renderer_ready &&
                                            !g_app.renderer.live_resize &&
                                            g_app.renderer.graphics.frame_latency_waitable;
@@ -407,10 +408,9 @@ int application_run() noexcept {
         // other expirations; the waitable timer replaces the exact timeout.
         u32 wake_timer_index = 0xFFFFFFFFu;
         DWORD wait_timeout = timeout;
-        const WakeContext wake_context = window_hidden ? WakeContext::hidden
-                                         : g_app.window && GetForegroundWindow() == g_app.window
-                                             ? WakeContext::foreground
-                                             : WakeContext::background;
+        const WakeContext wake_context = window_hidden                    ? WakeContext::hidden
+                                         : application_window_foreground() ? WakeContext::foreground
+                                                                           : WakeContext::background;
         const u32 tolerance = frame_handle_index == 0xFFFFFFFFu && !retained_frame_permit
                                   ? wake_tolerance_ms(timeout, wake_context)
                                   : 0;

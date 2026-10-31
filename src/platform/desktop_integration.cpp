@@ -540,10 +540,10 @@ bool desktop_instance_receive(const COPYDATASTRUCT* data, DesktopForwardMessage*
 void desktop_window_reveal(HWND window) noexcept {
     if (!window)
         return;
-    if (!IsWindowVisible(window))
-        ShowWindow(window, IsIconic(window) ? SW_RESTORE : SW_SHOW);
-    else if (IsIconic(window))
+    if (IsIconic(window))
         ShowWindow(window, SW_RESTORE);
+    else if (!IsWindowVisible(window))
+        ShowWindow(window, SW_SHOW);
     SetForegroundWindow(window);
 }
 

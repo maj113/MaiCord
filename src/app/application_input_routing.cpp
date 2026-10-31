@@ -3,6 +3,7 @@
 #include "application_profile.hpp"
 
 #include "application_state.hpp"
+#include "application_overlay_input.hpp"
 #include "application_composer_input.hpp"
 #include "application_attachments.hpp"
 #include "application_content_input.hpp"
@@ -104,8 +105,8 @@ UiInputDisposition popup_input(void*, const UiInputEvent& event) noexcept {
     if (g_app.popup_scene.kind == PopupKind::autocomplete &&
         (event.kind == UiInputKind::key_down || event.kind == UiInputKind::system_key_down) &&
         (event.code == VK_UP || event.code == VK_DOWN) &&
-        navigation_shortcut(event.code, (GetKeyState(VK_CONTROL) & 0x8000) != 0,
-                            (GetKeyState(VK_MENU) & 0x8000) != 0, (GetKeyState(VK_SHIFT) & 0x8000) != 0)
+        navigation_shortcut(event.code, application_control_down(), application_alt_down(),
+                            application_shift_down())
                 .mode != NavigationMode::none)
         return UiInputDisposition::ignored;
     if (event.kind == UiInputKind::key_down || event.kind == UiInputKind::system_key_down)
@@ -179,7 +180,7 @@ UiInputDisposition content_input(void*, const UiInputEvent& event) noexcept {
         (event.code == VK_RETURN || event.code == VK_SPACE))
         return UiInputDisposition::handled;
     if (event.kind == UiInputKind::key_down && (event.code == VK_RETURN || event.code == VK_SPACE) &&
-        (GetKeyState(VK_CONTROL) & 0x8000) == 0 && (GetKeyState(VK_MENU) & 0x8000) == 0 &&
+        !application_control_down() && !application_alt_down() &&
         application_received_attachment_activate_focused())
         return UiInputDisposition::handled;
     if (event.kind == UiInputKind::key_down && handle_content_focus_key(event.code))
@@ -206,7 +207,7 @@ UiInputDisposition content_input(void*, const UiInputEvent& event) noexcept {
         if (event.code == 'C' &&
             (g_app.context_focus == &g_app.message_scene.widgets ||
              (!g_app.context_focus && !g_app.message_composer.focused)) &&
-            (GetKeyState(VK_CONTROL) & 0x8000) != 0 && (GetKeyState(VK_MENU) & 0x8000) == 0 &&
+            application_command_down() &&
             copy_message_text_selection())
             return UiInputDisposition::handled;
         if ((!g_app.context_focus || g_app.context_focus == &g_app.message_composer_scene.widgets) &&

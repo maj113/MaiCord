@@ -1,6 +1,7 @@
 #include "application_keybinds_settings.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_voice.hpp"
+#include "application_overlay_input.hpp"
 #include "maicord/core/log.hpp"
 
 #include "maicord/core/win32_user.hpp"
@@ -263,14 +264,14 @@ bool application_keybinds_settings_capture(UiInputKind kind, u32 code) noexcept 
     if (!application_keybinds_settings_recording())
         return false;
     // Alt+F4 still closes the window while recording.
-    if (kind == UiInputKind::system_key_down && code == VK_F4 && (GetKeyState(VK_MENU) & 0x8000))
+    if (application_alt_f4(kind, code))
         return false;
     const bool down = kind == UiInputKind::key_down || kind == UiInputKind::system_key_down;
     if (!down && kind != UiInputKind::key_up)
         return true; // Characters of the recorded keys never reach the page.
-    const u8 modifiers = static_cast<u8>(((GetKeyState(VK_CONTROL) & 0x8000) ? shortcut_ctrl : 0) |
-                                         ((GetKeyState(VK_MENU) & 0x8000) ? shortcut_alt : 0) |
-                                         ((GetKeyState(VK_SHIFT) & 0x8000) ? shortcut_shift : 0));
+    const u8 modifiers = static_cast<u8>((application_control_down() ? shortcut_ctrl : 0) |
+                                         (application_alt_down() ? shortcut_alt : 0) |
+                                         (application_shift_down() ? shortcut_shift : 0));
     ShortcutChord chord{};
     switch (shortcut_recorder_input(&ui.recorder, down, code, modifiers, &chord)) {
     case ShortcutRecordStep::recorded:

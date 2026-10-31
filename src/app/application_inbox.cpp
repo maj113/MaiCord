@@ -1,3 +1,4 @@
+#include "application_overlay_input.hpp"
 #include "application_inbox.hpp"
 #include "application_content_point.hpp"
 #include "application_cursor.hpp"
@@ -352,8 +353,8 @@ void release_capture() noexcept {
     inbox->captured = false;
     inbox->thumb_dragging = false;
     ui_inbox_scene_set_scrollbar_state(&inbox->scene, UiScrollbarVisualState::normal);
-    if (captured && GetCapture() == g_app.window)
-        ReleaseCapture();
+    if (captured)
+        application_release_capture();
 }
 bool repaint() noexcept {
     return application_inbox_synchronize() && refresh_account_frame(true);
@@ -647,14 +648,15 @@ bool application_inbox_window_message(UINT message, WPARAM wparam, LPARAM lparam
         application_set_cursor(ui_inbox_scene_cursor(inbox->scene, point.x, point.y));
         return true;
     }
-    const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);
+    if (message != WM_CAPTURECHANGED && message != WM_CANCELMODE && (message < WM_MOUSEFIRST || message > WM_MOUSELAST))
+        return false;
+    const float scale = 96.f / g_app.renderer.dpi;
     float x = static_cast<short>(LOWORD(lparam)) * scale;
     float y = static_cast<short>(HIWORD(lparam)) * scale;
-    if (message == WM_MOUSEWHEEL) {
-        POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-        application_screen_to_content(&point);
-        x = point.x * scale;
-        y = point.y * scale;
+    UiPoint wheel{};
+    if (message == WM_MOUSEWHEEL && application_wheel_point(lparam, &wheel)) {
+        x = wheel.x;
+        y = wheel.y;
     }
     const bool header = front() && ui_rect_contains(ui_scene_header_geometry(g_app.shell_scene).inbox, x, y);
     if (message == WM_LBUTTONDOWN && header) {
@@ -775,7 +777,7 @@ bool application_inbox_input(UiInputKind kind, u32 code, bool repeated) noexcept
         refresh_account_frame(true);
         return true;
     }
-    if ((GetKeyState(VK_CONTROL) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000) ||
+    if (application_control_down() || application_alt_down() ||
         g_app.context_focus != &inbox->scene.widgets)
         return false;
     if (code == VK_RETURN || code == VK_SPACE) {
@@ -785,7 +787,7 @@ bool application_inbox_input(UiInputKind kind, u32 code, bool repeated) noexcept
     }
     UiInboxFocusMove move{};
     if (code == VK_TAB)
-        move = (GetKeyState(VK_SHIFT) & 0x8000) ? UiInboxFocusMove::previous : UiInboxFocusMove::next;
+        move = application_shift_down() ? UiInboxFocusMove::previous : UiInboxFocusMove::next;
     else if (code == VK_DOWN)
         move = UiInboxFocusMove::next;
     else if (code == VK_UP)

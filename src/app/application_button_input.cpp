@@ -1,4 +1,5 @@
 #include "application_state.hpp"
+#include "application_overlay_input.hpp"
 #include "application_composer_input.hpp"
 #include "application_composer.hpp"
 #include "application_shell_input.hpp"
@@ -54,17 +55,16 @@ bool application_button_pointer(UINT message, LPARAM lparam) noexcept {
                 ui_button_keyboard_cancel(&g_app.button_keyboard);
                 g_app.context_focus = &g_app.shell_scene.widgets;
                 g_app.button_pointer_owner = &g_app.shell_scene.widgets;
-                SetFocus(g_app.window);
-                SetCapture(g_app.window);
-                if (GetCapture() != g_app.window) {
+                application_focus_window();
+                application_capture_pointer();
+                if (!application_pointer_captured()) {
                     ui_thread_header_pointer(&g_app.thread_header, UiButtonPointerEvent::cancel, {});
                     g_app.button_pointer_owner = nullptr;
                 }
             }
             if (event == UiButtonPointerEvent::release || cancel) {
                 g_app.button_pointer_owner = nullptr;
-                if (GetCapture() == g_app.window)
-                    ReleaseCapture();
+                application_release_capture();
             }
             if (thread.activate)
                 application_thread_header_activate_target(&g_app.thread_header, thread.target);
@@ -106,8 +106,7 @@ bool application_button_pointer(UINT message, LPARAM lparam) noexcept {
                                               result.activate);
         if ((event == UiButtonPointerEvent::release || cancel) && owner == captured_owner) {
             g_app.button_pointer_owner = nullptr;
-            if (GetCapture() == g_app.window)
-                ReleaseCapture();
+            application_release_capture();
             consumed = true;
         }
         if (!result.handled)
@@ -117,9 +116,9 @@ bool application_button_pointer(UINT message, LPARAM lparam) noexcept {
             ui_button_keyboard_cancel(&g_app.button_keyboard);
             g_app.context_focus = owner;
             g_app.button_pointer_owner = owner;
-            SetFocus(g_app.window);
-            SetCapture(g_app.window);
-            if (GetCapture() != g_app.window) {
+            application_focus_window();
+            application_capture_pointer();
+            if (!application_pointer_captured()) {
                 ui_button_pointer(owner, UiButtonPointerEvent::cancel, {});
                 g_app.button_pointer_owner = nullptr;
             }

@@ -5,6 +5,7 @@
 #include "probe_glyph_ink.hpp"
 #include "probe_capture.hpp"
 #include "application_state.hpp"
+#include "application_window_state.hpp"
 #include "application_composer.hpp"
 #include "application_composer_input.hpp"
 #include "application_reply_draft.hpp"
@@ -1365,6 +1366,8 @@ bool composer_ui_probe() noexcept {
     } cleanup{window};
     probe_window::show(window);
     SetFocus(window);
+    application_window_observe_position(window);
+    g_window_state.keyboard_focus = GetFocus() == window;
     if (!require(GetFocus() == window, 100, "focus") ||
         !require(renderer_initialize(&g_app.renderer, window), 100, "renderer_initialize") ||
         !require(initialize(window), 100, "initialize"))

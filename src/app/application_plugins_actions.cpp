@@ -5,6 +5,7 @@
 #include "application_plugins_runtime.hpp"
 #include "application_plugins_actions.hpp"
 #include "application_state.hpp"
+#include "application_window_state.hpp"
 #include "application_account_presentation.hpp"
 #include "application_activity.hpp"
 #include "application_channel_authority.hpp"
@@ -361,7 +362,7 @@ bool application_plugins_keybind_input(UiInputKind kind, u32 code, bool repeated
     auto* rt = application_plugins_runtime();
     if (!rt || (kind != UiInputKind::key_down && kind != UiInputKind::system_key_down) || code > 0xff ||
         shortcut_key_is_modifier(code) || keybinds_blocked() || application_plugins_busy() ||
-        (g_app.window && GetForegroundWindow() != g_app.window))
+        (g_app.window && !application_window_foreground()))
         return false;
     application_plugins_keybinds_synchronize();
     const auto pressed = shortcut_chord_from_keyboard(code);

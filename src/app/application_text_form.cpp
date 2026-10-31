@@ -1,5 +1,6 @@
 #include "application_click_count.hpp"
 #include "application_content_point.hpp"
+#include "application_overlay_input.hpp"
 #include "application_text_form_state.hpp"
 #include "application_cursor.hpp"
 #include "application_composer_text_input.hpp"
@@ -46,8 +47,7 @@ void end_capture(ApplicationTextForm* form) noexcept {
     form->dragging = false;
     form->pointer_button = ui_widget_invalid_handle();
     ui_widget_manager_capture(&form->scene.widgets, ui_widget_invalid_handle());
-    if (GetCapture() == g_app.window)
-        ReleaseCapture();
+    application_release_capture();
 }
 void reset_caret(ApplicationTextForm* form) noexcept {
     if (form->request.confirmation_only || !form->editable) {
@@ -56,7 +56,7 @@ void reset_caret(ApplicationTextForm* form) noexcept {
         return;
     }
     form->caret_visible =
-        GetFocus() == g_app.window && text_form_focused(form->scene) == TextFormElement::edit;
+        application_window_keyboard_focus() && text_form_focused(form->scene) == TextFormElement::edit;
     form->blink_at_ms = form->caret_visible && form->blink_ms != INFINITE
                             ? clock_monotonic_milliseconds() + form->blink_ms
                             : 0;
@@ -278,7 +278,7 @@ bool focus_field(ApplicationTextForm* form, TextFormElement element) noexcept {
     if (element == TextFormElement::edit) {
         if (!secure_text_store_bind(&form->store, &form->edit, SecureTextInputScope::text))
             return false;
-        secure_text_store_set_window_focus(&form->store, GetFocus() == g_app.window);
+        secure_text_store_set_window_focus(&form->store, application_window_keyboard_focus());
     } else
         secure_text_store_unbind(&form->store);
     reset_caret(form);
@@ -572,7 +572,7 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
         set_popup_owner(PopupOwnerKind::none);
     }
     g_app.text_form = form;
-    if ((GetKeyState(VK_RETURN) & 0x8000) != 0)
+    if (application_key_down(VK_RETURN))
         g_app.text_form_held_key = VK_RETURN;
     g_app.context_focus = &form->scene.widgets;
     form->surface.scene = &form->scene;
@@ -592,7 +592,7 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
             application_text_form_close();
             return false;
         }
-        secure_text_store_set_window_focus(&form->store, GetFocus() == g_app.window);
+        secure_text_store_set_window_focus(&form->store, application_window_keyboard_focus());
     }
     reset_caret(form);
     if (!refresh(form)) {
@@ -618,9 +618,9 @@ void application_text_form_close(bool restore_focus, bool rebuild) noexcept {
     const auto forum_parent = form->request.forum_parent;
     const bool login_owner = form->request.login_owner;
     const bool composer = form->previous_composer_focus;
-    if ((GetKeyState(VK_RETURN) & 0x8000) != 0)
+    if (application_key_down(VK_RETURN))
         g_app.text_form_held_key = VK_RETURN;
-    else if ((GetKeyState(VK_SPACE) & 0x8000) != 0)
+    else if (application_key_down(VK_SPACE))
         g_app.text_form_held_key = VK_SPACE;
     g_app.text_form = nullptr;
     g_app.context_focus = nullptr;
@@ -720,8 +720,8 @@ bool application_text_form_input(UiInputKind kind, u32 code, bool repeated) noex
         return code != VK_F4 && code != VK_SPACE;
     if (kind == UiInputKind::system_character)
         return code != ' ';
-    const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-    const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    const bool ctrl = application_control_down();
+    const bool shift = application_shift_down();
     const auto focused = text_form_focused(form->scene);
     if (kind == UiInputKind::key_down && code == VK_ESCAPE) {
         g_app.text_form_held_key = code;
@@ -839,11 +839,9 @@ bool application_text_form_input(UiInputKind kind, u32 code, bool repeated) noex
 bool application_text_form_filter_message(const MSG& message) noexcept {
     if (message.hwnd != g_app.window)
         return false;
-    if (g_app.text_form_held_key && (message.message == WM_KEYDOWN || message.message == WM_KEYUP) &&
-        message.wParam == g_app.text_form_held_key)
-        return application_text_form_input(
-            message.message == WM_KEYDOWN ? UiInputKind::key_down : UiInputKind::key_up,
-            static_cast<u32>(message.wParam), (message.lParam & (1ll << 30)) != 0);
+    UiInputEvent held{};
+    if (application_held_key_event(g_app.text_form_held_key, message, &held))
+        return application_text_form_input(held.kind, held.code, held.repeated);
     auto* form = g_app.text_form;
     if (!form)
         return false;
@@ -918,7 +916,7 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
             secure_edit_cancel_composition(&form->edit);
             if (form->editable && text_form_focused(form->scene) == TextFormElement::edit) {
                 secure_text_store_bind(&form->store, &form->edit, SecureTextInputScope::text);
-                secure_text_store_set_window_focus(&form->store, GetFocus() == g_app.window);
+                secure_text_store_set_window_focus(&form->store, application_window_keyboard_focus());
             }
             reset_caret(form);
             refresh(form);
@@ -934,7 +932,7 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
                 application_text_form_close();
             return true;
         }
-        SetFocus(g_app.window);
+        application_focus_window();
         const auto element = text_form_hit_test(form->scene, x, y);
         u32 at = 0;
         if (element == TextFormElement::edit || element == TextFormElement::cancel ||
@@ -959,9 +957,7 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
                 form->dragging = clicks == 1 && !composing;
             } else
                 form->pointer_button = handle;
-            if (ui_widget_manager_capture(&form->scene.widgets, handle))
-                SetCapture(g_app.window);
-            if (GetCapture() != g_app.window)
+            if (!application_capture_widget(&form->scene.widgets, handle))
                 end_capture(form);
         }
         return true;
@@ -981,10 +977,6 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
         if (!ui_widget_handle_equal(previous, hovered)) {
             if (!ui_widget_manager_hover(&form->scene.widgets, hovered))
                 ui_widget_manager_hover(&form->scene.widgets, ui_widget_invalid_handle());
-            if (hovered.generation) {
-                TRACKMOUSEEVENT tracking{static_cast<DWORD>(sizeof(TRACKMOUSEEVENT)), TME_LEAVE, g_app.window, 0};
-                TrackMouseEvent(&tracking);
-            }
             refresh(form);
         }
         return true;
@@ -1007,11 +999,11 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
         return true;
     }
     case WM_MOUSEWHEEL: {
-        POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-        application_screen_to_content(&point);
-        const float delta = -static_cast<float>(static_cast<short>(HIWORD(wparam))) / WHEEL_DELTA * 48;
+        UiPoint point{};
+        application_wheel_point(lparam, &point);
+        const float delta = -application_wheel_notches(wparam) * 48;
         if (!form->request.confirmation_only &&
-            text_form_hit_test(form->scene, point.x * scale, point.y * scale) == TextFormElement::edit)
+            text_form_hit_test(form->scene, point.x, point.y) == TextFormElement::edit)
             text_edit_layout_scroll(&form->surface.layout, delta);
         else
             text_form_scroll(&form->scene, delta);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "application_state.hpp"
+#include "application_window_state.hpp"
 
 #include "maicord/core/win32_user.hpp"
 
@@ -13,6 +14,24 @@ namespace maicord::app_detail {
 // Screen point to content pixels of the main window.
 inline bool application_screen_to_content(POINT* point) noexcept {
     if (!point || !ScreenToClient(g_app.window, point))
+        return false;
+    point->y -= static_cast<LONG>(g_app.renderer.caption_height);
+    return true;
+}
+
+// The cursor in client pixels of `window`: the point the window procedure
+// resolved for the WM_SETCURSOR being dispatched, else read from the system.
+inline bool application_cursor_client(HWND window, POINT* point) noexcept {
+    if (g_dispatch_cursor.valid && g_dispatch_cursor.window == window) {
+        *point = g_dispatch_cursor.point;
+        return true;
+    }
+    return GetCursorPos(point) && ScreenToClient(window, point);
+}
+
+// The cursor in content pixels of the main window.
+inline bool application_cursor_content(POINT* point) noexcept {
+    if (!application_cursor_client(g_app.window, point))
         return false;
     point->y -= static_cast<LONG>(g_app.renderer.caption_height);
     return true;

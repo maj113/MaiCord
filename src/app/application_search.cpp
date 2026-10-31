@@ -1,3 +1,4 @@
+#include "application_overlay_input.hpp"
 #include "application_click_count.hpp"
 #include "application_content_point.hpp"
 #include "maicord/app/shortcut_registry.hpp"
@@ -782,8 +783,7 @@ void release_pointer(ApplicationSearch& s) noexcept {
     s.dragging = s.captured = s.scrollbar_dragging = false;
     reset_value(&s.pressed);
     ui_widget_manager_capture(&s.scene.widgets, ui_widget_invalid_handle());
-    if (GetCapture() == g_app.window)
-        ReleaseCapture();
+    application_release_capture();
 }
 void focus_widget(ApplicationSearch& s, u32 index) noexcept {
     ui_widget_manager_focus(&s.scene.widgets, {static_cast<u16>(index), s.scene.widgets.generation});
@@ -1931,8 +1931,7 @@ void synchronize_privacy(ApplicationSearch& s) noexcept {
     reset_value(&s.pressed);
     s.captured = s.dragging = false;
     ui_widget_manager_capture(&s.scene.widgets, ui_widget_invalid_handle());
-    if (GetCapture() == g_app.window)
-        ReleaseCapture();
+    application_release_capture();
     if (s.text_owner) {
         s.text_owner->presentation.active = false;
         s.text_owner->input_signature = 0;
@@ -2413,8 +2412,8 @@ void application_search_release() noexcept {
         (rich_scene && g_app.context_focus == &rich_scene->widgets))
         g_app.context_focus = nullptr;
     g_app.search = nullptr;
-    if (s->captured && GetCapture() == g_app.window)
-        ReleaseCapture();
+    if (s->captured)
+        application_release_capture();
     ui_search_scene_release(&s->scene);
     choices_release(*s);
     clear_poll_tickets(*s);
@@ -2632,8 +2631,8 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
         return true;
     if (!front())
         return false;
-    const bool raw = (GetKeyState(VK_CONTROL) & 0x8000) != 0, alt = (GetKeyState(VK_MENU) & 0x8000) != 0,
-               control = raw && !alt, shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    const bool raw = application_control_down(), alt = application_alt_down(),
+               control = raw && !alt, shift = application_shift_down();
     if (kind == UiInputKind::key_down && shortcut_matches(ShortcutAction::search, shortcut_chord_from_keyboard(key))) {
         if (!s) {
             if (!application_search_synchronize())
@@ -2872,20 +2871,27 @@ bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lpara
         release_pointer(*s);
         return false;
     }
-    if (!front())
+    if (!front() || !((message >= WM_MOUSEFIRST && message <= WM_MOUSELAST) || message == WM_SETCURSOR ||
+                      message == WM_CONTEXTMENU || message == WM_MOUSELEAVE))
         return false;
-    POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
+    const float scale = 96.f / g_app.renderer.dpi;
+    float x = 0, y = 0;
     if (message == WM_SETCURSOR) {
-        if (LOWORD(lparam) != HTCLIENT || !GetCursorPos(&point) || !application_screen_to_content(&point))
+        UiPoint cursor{};
+        if (!application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &cursor))
             return false;
+        x = cursor.x;
+        y = cursor.y;
+    } else {
+        POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
+        if (message == WM_MOUSEWHEEL || message == WM_CONTEXTMENU) {
+            if (message == WM_CONTEXTMENU && lparam == -1)
+                return g_app.context_focus == &s->scene.widgets;
+            application_screen_to_content(&point);
+        }
+        x = point.x * scale;
+        y = point.y * scale;
     }
-    if (message == WM_MOUSEWHEEL || message == WM_CONTEXTMENU) {
-        if (message == WM_CONTEXTMENU && lparam == -1)
-            return g_app.context_focus == &s->scene.widgets;
-        application_screen_to_content(&point);
-    }
-    const float scale = g_app.renderer.dpi ? 96.f / g_app.renderer.dpi : 1;
-    const float x = point.x * scale, y = point.y * scale;
     const bool inside = ui_search_scene_contains(s->scene, x, y);
     const auto hit = ui_search_scene_hit_test(s->scene, x, y);
     if (message == WM_LBUTTONDBLCLK && hit.action != UiSearchAction::edit)

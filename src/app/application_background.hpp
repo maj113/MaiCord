@@ -1,5 +1,6 @@
 #pragma once
 #include "application_state.hpp"
+#include "application_window_state.hpp"
 #include "application_settings.hpp"
 #include "application_theme_editor.hpp"
 #include "maicord/core/win32_user.hpp"
@@ -11,8 +12,8 @@ inline bool application_background_animate() noexcept {
     return g_app.renderer_ready && g_app.window &&
            background_animation_allowed(
                application_theme().background, d3d11_background_fx_plugin_active(r.background_fx),
-               IsWindowVisible(g_app.window) != FALSE,
-               IsIconic(g_app.window) != FALSE, r.live_resize,
+               application_window_visible(),
+               application_window_minimized(), r.live_resize,
                g_app.preferences.reduced_motion || r.reduced_motion,
                g_app.surface_motion.system_preference_cached && g_app.surface_motion.client_area_animation,
                g_app.login.visible ||

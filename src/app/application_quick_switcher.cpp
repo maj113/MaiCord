@@ -1,7 +1,8 @@
 #include "application_downloads.hpp"
 #include "maicord/model/forwarded_input.hpp"
 #include "maicord/core/memory.hpp"
-#include "application_content_point.hpp"
+#include "application_overlay_input.hpp"
+#include "application_window_state.hpp"
 #include "text_edit_keys.hpp"
 #include "maicord/app/shortcut_registry.hpp"
 #include "application_quick_switcher.hpp"
@@ -155,7 +156,7 @@ bool confirm_picks(ApplicationQuickSwitcher& q) noexcept {
 void revoke_capture(ApplicationQuickSwitcher& q) noexcept {
     reset_value(&q.pressed); q.captured = q.dragging = false;
     ui_widget_manager_capture(&q.scene.widgets, ui_widget_invalid_handle());
-    if (GetCapture() == g_app.window) ReleaseCapture();
+    application_release_capture();
 }
 void caret_reset(ApplicationQuickSwitcher& q) noexcept {
     const u32 interval = GetCaretBlinkTime();
@@ -379,9 +380,8 @@ bool application_quick_switcher_edit_changed(bool) noexcept {
 }
 bool application_quick_switcher_input(UiInputKind kind, u32 key, bool repeated) noexcept {
     if (key_tail(kind, key, repeated)) return true;
-    const bool ctrl_raw = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-    const bool alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
-    const bool control = ctrl_raw && !alt, shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    const bool ctrl_raw = application_control_down(), alt = application_alt_down();
+    const bool control = ctrl_raw && !alt, shift = application_shift_down();
     if (kind == UiInputKind::key_down && shortcut_matches(ShortcutAction::quick_switcher, shortcut_chord_from_keyboard(key)) &&
         available()) {
         if (!repeated) { g_app.quick_switcher_held_key = key; application_quick_switcher_toggle(); }
@@ -464,14 +464,13 @@ bool application_quick_switcher_window_message(UINT message, WPARAM wparam, LPAR
     if (message == WM_CONTEXTMENU || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP ||
         message == WM_MBUTTONDOWN || message == WM_MBUTTONUP || message == WM_LBUTTONDBLCLK || message == WM_MOUSEHWHEEL) return true;
     if (message != WM_LBUTTONDOWN && message != WM_LBUTTONUP && message != WM_MOUSEMOVE && message != WM_MOUSEWHEEL) return false;
-    POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-    if (message == WM_MOUSEWHEEL) application_screen_to_content(&point);
-    const float scale = 96.f / maximum(1u, g_app.renderer.dpi), x = point.x * scale, y = point.y * scale;
     if (message == WM_MOUSEWHEEL) {
         ui_quick_switcher_scene_scroll(&q->scene, q->scene.scroll_dips -
             static_cast<short>(HIWORD(wparam)) / static_cast<float>(WHEEL_DELTA) * kUiQuickSwitcherRowHeight * 3);
         application_request_frame(); return true;
     }
+    const POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
+    const float scale = 96.f / g_app.renderer.dpi, x = point.x * scale, y = point.y * scale;
     if (message == WM_MOUSEMOVE) {
         if (q->dragging && (wparam & MK_LBUTTON)) pointer_edit(*q, x, y, true);
         else { bool changed = false; ui_quick_switcher_scene_set_hover(&q->scene, x, y, &changed); if (changed) application_request_frame(); }
@@ -480,7 +479,7 @@ bool application_quick_switcher_window_message(UINT message, WPARAM wparam, LPAR
     const auto hit = ui_quick_switcher_scene_hit_test(q->scene, x, y);
     if (message == WM_LBUTTONDOWN) {
         q->pressed = hit; q->captured = true; q->dragging = hit.action == UiQuickSwitcherAction::edit;
-        if (q->dragging) pointer_edit(*q, x, y, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
+        if (q->dragging) pointer_edit(*q, x, y, (wparam & MK_SHIFT) != 0);
         if (g_app.window) SetCapture(g_app.window);
         return true;
     }
@@ -494,7 +493,7 @@ bool application_quick_switcher_window_message(UINT message, WPARAM wparam, LPAR
     return true;
 }
 u64 application_quick_switcher_caret_wake() noexcept {
-    return application_quick_switcher_edit_focused() && GetFocus() == g_app.window ? g_app.quick_switcher->blink_at : 0;
+    return application_quick_switcher_edit_focused() && application_window_keyboard_focus() ? g_app.quick_switcher->blink_at : 0;
 }
 void application_quick_switcher_tick(u64 now) noexcept {
     auto* q = g_app.quick_switcher;

@@ -1,6 +1,7 @@
 #include "application_call.hpp"
 #include "maicord/core/memory.hpp"
-#include "application_content_point.hpp"
+#include "application_overlay_input.hpp"
+#include "application_window_state.hpp"
 #include "application_content_input.hpp"
 #include "application_account_presentation.hpp"
 #include "application_cursor.hpp"
@@ -91,8 +92,7 @@ void release_pointer() noexcept {
     ui_call_scene_set_pressed(&view.scene, UiCallControl::none);
     if (view.captured) {
         view.captured = false;
-        if (GetCapture() == g_app.window)
-            ReleaseCapture();
+        application_release_capture();
     }
 }
 Utf8View call_title(u64 channel_id) noexcept {
@@ -345,7 +345,7 @@ CallVideoPumpResult synchronize_video(bool poll) noexcept {
                                                   {after, camera_targets(snapshot, after)});
     copy_value(&view.snapshot, snapshot);
     view.snapshot_valid = true;
-    const bool shown = scene_visible() && view.channel_id == s->channel_id && g_app.window && !IsIconic(g_app.window);
+    const bool shown = scene_visible() && view.channel_id == s->channel_id && g_app.window && !application_window_minimized();
     const float pixel_scale = static_cast<float>(g_app.renderer.dpi ? g_app.renderer.dpi : 96u) / 96.f;
     CallVideoTarget targets[kGatewayVoiceVideoUsers + 1];
     u32 count = 0;
@@ -501,12 +501,6 @@ void activate(UiCallControl control, u64 user_id) noexcept {
     }
     application_repaint();
 }
-UiPoint wheel_point(LPARAM lparam) noexcept {
-    POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-    application_screen_to_content(&point);
-    const float scale = 96.f / static_cast<float>(g_app.renderer.dpi ? g_app.renderer.dpi : 96u);
-    return {static_cast<float>(point.x) * scale, static_cast<float>(point.y) * scale};
-}
 bool clear_hover() noexcept {
     if (!ui_call_scene_set_hover(&view.scene, -1e7f, -1e7f))
         return false;
@@ -515,7 +509,7 @@ bool clear_hover() noexcept {
 }
 // Keys that would edit or send through the hidden composer.
 bool editing_key(u32 key) noexcept {
-    const bool control = (GetKeyState(VK_CONTROL) & 0x8000) != 0, alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
+    const bool control = application_control_down(), alt = application_alt_down();
     if (alt)
         return false;
     if (control)
@@ -757,8 +751,8 @@ bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam)
     case WM_KEYDOWN:
     case WM_KEYUP: {
         const u32 key = static_cast<u32>(wparam);
-        if (key == VK_ESCAPE && message == WM_KEYDOWN && !(GetKeyState(VK_CONTROL) & 0x8000) &&
-            !(GetKeyState(VK_SHIFT) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000)) {
+        if (key == VK_ESCAPE && message == WM_KEYDOWN && !application_control_down() && !application_shift_down() &&
+            !application_alt_down()) {
             if (view.fullscreen) {
                 set_fullscreen(false);
                 return true;
@@ -787,7 +781,7 @@ bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam)
     }
     case WM_SETCURSOR: {
         UiPoint point{};
-        if (LOWORD(lparam) != HTCLIENT || !application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point) ||
+        if (!application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &point) ||
             !ui_call_scene_contains(scene, point.x, point.y))
             return false;
         const auto hit = ui_call_scene_hit_test(scene, point.x, point.y);
@@ -836,8 +830,8 @@ bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam)
         return true;
     }
     case WM_MOUSEWHEEL: {
-        const auto point = wheel_point(lparam);
-        if (!ui_call_scene_contains(scene, point.x, point.y))
+        UiPoint point{};
+        if (!application_wheel_point(lparam, &point) || !ui_call_scene_contains(scene, point.x, point.y))
             return false;
         const float delta = -static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA * 80;
         if (ui_call_scene_scroll(&scene, point.x, point.y, delta))
@@ -845,8 +839,8 @@ bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam)
         return true;
     }
     case WM_MOUSEHWHEEL: {
-        const auto point = wheel_point(lparam);
-        if (!ui_call_scene_contains(scene, point.x, point.y))
+        UiPoint point{};
+        if (!application_wheel_point(lparam, &point) || !ui_call_scene_contains(scene, point.x, point.y))
             return false;
         if (ui_call_scene_scroll(&scene, point.x, point.y, static_cast<float>(GET_WHEEL_DELTA_WPARAM(wparam)) / WHEEL_DELTA * 80))
             application_repaint();
@@ -862,8 +856,8 @@ bool application_call_window_message(UINT message, WPARAM wparam, LPARAM lparam)
     case WM_CONTEXTMENU: {
         if (lparam == -1)
             return false;
-        const auto point = wheel_point(lparam);
-        if (!ui_call_scene_contains(scene, point.x, point.y))
+        UiPoint point{};
+        if (!application_wheel_point(lparam, &point) || !ui_call_scene_contains(scene, point.x, point.y))
             return false;
         // The watched stream's menu: volume, full screen, stop watching.
         const auto hit = ui_call_scene_hit_test(scene, point.x, point.y);

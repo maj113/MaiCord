@@ -1,5 +1,6 @@
 #include "application_guild_community.hpp"
 #include "application_account_presentation.hpp"
+#include "application_overlay_input.hpp"
 #include "application_attachments.hpp"
 #include "application_commands.hpp"
 #include "application_media_picker.hpp"
@@ -73,8 +74,8 @@ bool activate_composer_control(MessageComposerControl control) noexcept {
 
 // The edit holds the pointer while a selection drags; without the capture the selection ends at once.
 void begin_composer_pointer_capture() noexcept {
-    SetCapture(g_app.window);
-    g_app.message_composer_pointer_selection = GetCapture() == g_app.window;
+    application_capture_pointer();
+    g_app.message_composer_pointer_selection = application_pointer_captured();
     if (!g_app.message_composer_pointer_selection)
         ui_widget_manager_capture(&g_app.message_composer_scene.widgets, ui_widget_invalid_handle());
 }
@@ -95,9 +96,7 @@ void end_message_composer_pointer_selection() noexcept {
                     static_cast<u64>(committed.error));
         }
     }
-    if (GetCapture() == g_app.window) {
-        ReleaseCapture();
-    }
+    application_release_capture();
 }
 
 void release_message_composer_focus() noexcept {
@@ -135,7 +134,7 @@ bool handle_composer_click(LPARAM lparam) noexcept {
         // the editor still acquires focus; the next rebuilt edit layout
         // restores exact point-to-text positioning.
         renderer_message_composer_edit_hit_test(g_app.renderer, client_x, client_y, &position);
-        const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        const bool shift = application_shift_down();
         // A third press within the double-click time/distance selects the
         // line; an IME composition keeps its selection (TSF owns it).
         const u8 clicks = application_click_count(&g_app.message_composer_scene, x, y, false);
@@ -290,9 +289,9 @@ bool handle_composer_key(WPARAM key) noexcept {
     // AltGr is reported by Win32 as Ctrl+Alt. Treat Ctrl as a command
     // modifier only when Alt is not held so keyboard-layout characters such
     // as @ never trigger paste/select-all before WM_CHAR arrives.
-    const bool alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
-    const bool control = (GetKeyState(VK_CONTROL) & 0x8000) != 0 && !alt;
-    const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    const bool alt = application_alt_down();
+    const bool control = application_command_down();
+    const bool shift = application_shift_down();
     if (control && (key == 'Z' || key == 'Y')) {
         return application_composer_edit_command(key == 'Y' || shift ? TextEditCommand::redo
                                                                      : TextEditCommand::undo);
@@ -389,7 +388,7 @@ bool handle_composer_button_key(u32 key, bool down, bool repeated) noexcept {
         return false;
     if (!g_app.account_ui || g_app.login.visible ||
         g_app.context_focus != &g_app.message_composer_scene.widgets ||
-        (GetKeyState(VK_CONTROL) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000)) {
+        application_control_down() || application_alt_down()) {
         ui_button_keyboard_cancel(&g_app.button_keyboard);
         return false;
     }

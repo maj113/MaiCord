@@ -3,6 +3,7 @@
 #include "maicord/core/base.hpp"
 #include "application_state.hpp"
 #include "maicord/core/win32_records.hpp"
+#include "application_content_point.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/ui/cursor.hpp"
 
@@ -36,19 +37,32 @@ inline const wchar_t* application_cursor_resource(UiCursor cursor) noexcept {
     }
 }
 
+// Stock cursors are shared system objects: load each once, and again after a
+// system settings change (a new cursor scheme). UiCursor::hidden is the last
+// enumerator.
+inline constexpr u32 kStockCursorCount = static_cast<u32>(UiCursor::hidden) + 1;
+inline HCURSOR g_stock_cursors[kStockCursorCount]{};
+inline void application_cursor_handles_reset() noexcept {
+    for (HCURSOR& cursor : g_stock_cursors)
+        cursor = nullptr;
+}
+
 // The only place a semantic UiCursor becomes a native cursor.
 inline void application_set_cursor(UiCursor cursor) noexcept {
     ++g_application_cursor_serial;
-    const wchar_t* resource = application_cursor_resource(cursor);
-    SetCursor(resource ? LoadCursorW(nullptr, resource) : nullptr);
+    const u32 index = static_cast<u32>(cursor) < kStockCursorCount ? static_cast<u32>(cursor) : 0;
+    HCURSOR& handle = g_stock_cursors[index];
+    if (!handle)
+        if (const wchar_t* resource = application_cursor_resource(static_cast<UiCursor>(index)))
+            handle = LoadCursorW(nullptr, resource);
+    SetCursor(handle);
 }
 
 // WM_SETCURSOR carries a hit-test code, not coordinates. Resolve the client
 // pointer in DIPs, for the client area only.
 inline bool application_cursor_point(HWND window, u32 dpi, LPARAM lparam, UiPoint* point) noexcept {
     Win32Point cursor{};
-    if (!point || LOWORD(lparam) != HTCLIENT || !GetCursorPos(cursor.native()) ||
-        !ScreenToClient(window, cursor.native()))
+    if (!point || LOWORD(lparam) != HTCLIENT || !application_cursor_client(window, cursor.native()))
         return false;
     if (window == g_app.window)
         cursor.y -= static_cast<LONG>(g_app.renderer.caption_height);

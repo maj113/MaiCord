@@ -32,6 +32,7 @@
 #include "application_media.hpp"
 #include "application_background.hpp"
 #include "application_window_resize.hpp"
+#include "application_window_state.hpp"
 
 #include "application_account_presentation.hpp"
 #include "application_account_text_retry.hpp"
@@ -155,8 +156,7 @@ UiTypingDotsClock g_typing_dots{};
 
 // As the official client: an inactive window holds the dots at full size.
 bool typing_dots_animate() noexcept {
-    return !g_app.preferences.reduced_motion && !application_window_inactive() &&
-           !(g_app.window && IsIconic(g_app.window));
+    return !g_app.preferences.reduced_motion && !application_window_inactive() && !application_window_minimized();
 }
 // The "is typing" dots step only while someone types in the shown chat; the
 // renderer patches the sampled phase into its retained stream.
@@ -491,17 +491,12 @@ void application_record_presentation_success() noexcept {
     g_app.presentation_failures = 0;
 }
 
-void application_resize_client(HWND window) noexcept {
+void application_resize_client() noexcept {
     if (!g_app.renderer_ready) {
         return;
     }
-    RECT client{};
-    if (!GetClientRect(window, &client)) {
-        application_record_presentation_failure("resize_client_rect_rejected");
-        return;
-    }
-    const LONG width = client.right - client.left;
-    const LONG height = client.bottom - client.top - static_cast<LONG>(application_caption_height());
+    const LONG width = g_window_state.client_width;
+    const LONG height = g_window_state.client_height - static_cast<LONG>(application_caption_height());
     if (width <= 0 || height <= 0) {
         return;
     }

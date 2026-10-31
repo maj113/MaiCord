@@ -1,4 +1,7 @@
 #include "application_caption.hpp"
+#include "application_content_point.hpp"
+#include "application_cursor.hpp"
+#include "application_window_state.hpp"
 #include "maicord/core/scratch_pages.hpp"
 
 #include "app_icon.hpp"
@@ -32,8 +35,6 @@ struct CaptionState {
     bool maximized;
     // A TME_NONCLIENT leave request is outstanding.
     bool tracking;
-    // A client leave request for the bar's own items is outstanding.
-    bool client_tracking;
     // The app icon's pixel size on the renderer, zero until decoded.
     u32 icon_extent;
     // Visible frame pixels beside the client beyond those above it; stale
@@ -64,14 +65,13 @@ void measure_side_frame(HWND window) noexcept {
                 reinterpret_cast<GetWindowAttribute>(GetProcAddress(dwm, "DwmGetWindowAttribute"));
     }
     constexpr DWORD kExtendedFrameBounds = 9;
-    RECT visible{}, client{};
+    RECT visible{};
     POINT origin{};
-    if (!g_get_window_attribute || IsIconic(window) || !IsWindowVisible(window) ||
-        !GetClientRect(window, &client) || !ClientToScreen(window, &origin) ||
+    if (!g_get_window_attribute || !application_window_shown() || !ClientToScreen(window, &origin) ||
         FAILED(g_get_window_attribute(window, kExtendedFrameBounds, &visible, sizeof(visible))))
         return;
     g_caption.side_frame_stale = false;
-    const LONG side = minimum(origin.x - visible.left, visible.right - origin.x - client.right);
+    const LONG side = minimum(origin.x - visible.left, visible.right - origin.x - g_window_state.client_width);
     const LONG frame = side - (origin.y - visible.top);
     const u32 pixels = frame > 0 && frame < 8 ? static_cast<u32>(frame) : 0;
     if (pixels != g_caption.side_frame) {
@@ -81,7 +81,7 @@ void measure_side_frame(HWND window) noexcept {
 }
 
 u32 window_dpi(HWND window) noexcept {
-    const UINT dpi = window ? GetDpiForWindow(window) : 0;
+    const u32 dpi = application_window_dpi(window);
     return dpi ? dpi : 96;
 }
 
@@ -131,17 +131,16 @@ UiCaptionPart button_part(WPARAM hit) noexcept {
 
 LRESULT hit_test(HWND window, LPARAM lparam) noexcept {
     POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-    RECT client{};
-    if (!ScreenToClient(window, &point) || !GetClientRect(window, &client))
+    if (!ScreenToClient(window, &point))
         return HTNOWHERE;
     const u32 dpi = window_dpi(window);
+    const LONG width = g_window_state.client_width;
     const auto caption = static_cast<LONG>(g_app.renderer.caption_height);
     UiCaptionPart part = UiCaptionPart::none;
-    if (point.y >= 0 && point.y < caption && point.x >= 0 && point.x < client.right)
-        part = ui_caption_bar_part(layout_for(client.right, dpi), to_dips(point.x, dpi),
-                                   to_dips(point.y, dpi));
-    return window_frame_hit(point.x, point.y, client.right, client.bottom, window_frame_border(dpi),
-                            IsZoomed(window) != FALSE, frame_part(part));
+    if (point.y >= 0 && point.y < caption && point.x >= 0 && point.x < width)
+        part = ui_caption_bar_part(layout_for(width, dpi), to_dips(point.x, dpi), to_dips(point.y, dpi));
+    return window_frame_hit(point.x, point.y, width, g_window_state.client_height, window_frame_border(dpi),
+                            g_caption.maximized, frame_part(part));
 }
 
 // Monitor edges with an auto-hide appbar (the taskbar).
@@ -243,11 +242,10 @@ bool bar_item(UiCaptionPart part) noexcept {
 // The bar part under a client point, none below the bar.
 UiCaptionPart client_part(HWND window, LPARAM lparam) noexcept {
     const i32 x = static_cast<short>(LOWORD(lparam)), y = static_cast<short>(HIWORD(lparam));
-    RECT client{};
-    if (y < 0 || y >= static_cast<i32>(g_app.renderer.caption_height) || !GetClientRect(window, &client))
+    if (y < 0 || y >= static_cast<i32>(g_app.renderer.caption_height))
         return UiCaptionPart::none;
     const u32 dpi = window_dpi(window);
-    return ui_caption_bar_part(layout_for(client.right, dpi), to_dips(x, dpi), to_dips(y, dpi));
+    return ui_caption_bar_part(layout_for(g_window_state.client_width, dpi), to_dips(x, dpi), to_dips(y, dpi));
 }
 
 // Pointer input over the bar's own items (update badge, Settings): they are
@@ -258,15 +256,10 @@ bool item_pointer(HWND window, UINT message, LPARAM lparam) noexcept {
         // Another owner's captured drag keeps its moves, even over the bar.
         const bool foreign = GetCapture() == window && !bar_item(g_caption.pressed);
         const UiCaptionPart part = foreign ? UiCaptionPart::none : client_part(window, lparam);
-        if (bar_item(part)) {
-            if (!g_caption.client_tracking) {
-                TRACKMOUSEEVENT tracking{static_cast<DWORD>(sizeof(TRACKMOUSEEVENT)), TME_LEAVE, window, 0};
-                g_caption.client_tracking = TrackMouseEvent(&tracking) != FALSE;
-            }
+        if (bar_item(part))
             set_hover(part, g_caption.pressed);
-        } else if (bar_item(g_caption.hovered)) {
+        else if (bar_item(g_caption.hovered))
             set_hover(UiCaptionPart::none, g_caption.pressed);
-        }
         // A press dragged off its item keeps the pointer until release.
         return bar_item(part) || bar_item(g_caption.pressed);
     }
@@ -299,7 +292,6 @@ bool item_pointer(HWND window, UINT message, LPARAM lparam) noexcept {
         return true;
     }
     case WM_MOUSELEAVE:
-        g_caption.client_tracking = false;
         if (bar_item(g_caption.hovered))
             set_hover(UiCaptionPart::none, g_caption.pressed);
         return false;
@@ -310,9 +302,9 @@ bool item_pointer(HWND window, UINT message, LPARAM lparam) noexcept {
     case WM_SETCURSOR:
         if (LOWORD(lparam) == HTCLIENT) {
             POINT point{};
-            if (GetCursorPos(&point) && ScreenToClient(window, &point) &&
+            if (application_cursor_client(window, &point) &&
                 point.y < static_cast<LONG>(g_app.renderer.caption_height)) {
-                SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+                application_set_cursor(UiCursor::arrow);
                 return true;
             }
         }
@@ -428,7 +420,7 @@ bool application_caption_command(UiCaptionPart part) noexcept {
         command = SC_MINIMIZE;
         break;
     case UiCaptionPart::maximize:
-        command = IsZoomed(window) ? SC_RESTORE : SC_MAXIMIZE;
+        command = g_caption.maximized ? SC_RESTORE : SC_MAXIMIZE;
         break;
     case UiCaptionPart::close:
         command = SC_CLOSE;
@@ -454,7 +446,7 @@ void application_caption_synchronize() noexcept {
     if (height != g_app.renderer.caption_height) {
         // A theme changed the band: the content below it resizes.
         renderer_set_caption_height(&g_app.renderer, height);
-        application_resize_client(g_app.window);
+        application_resize_client();
     }
     if (g_caption.side_frame_stale)
         measure_side_frame(g_app.window);
@@ -563,10 +555,8 @@ bool application_caption_window_message(HWND window, UINT message, WPARAM wparam
         if (!info || info->cbSize < sizeof(TITLEBARINFOEX) || !g_app.renderer.caption_height)
             return true;
         // Windows anchors the snap layouts flyout to the maximize rectangle.
-        RECT client{};
-        GetClientRect(window, &client);
         const u32 dpi = window_dpi(window);
-        const UiCaptionBarLayout layout = layout_for(client.right, dpi);
+        const UiCaptionBarLayout layout = layout_for(g_window_state.client_width, dpi);
         info->rcTitleBar = screen_rect(window, {0, 0, layout.width, layout.height}, dpi);
         info->rgrect[0] = info->rcTitleBar;
         static constexpr u32 kSlots[kUiCaptionButtonCount]{2, 3, 5};

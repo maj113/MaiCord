@@ -1,4 +1,5 @@
 #include "application_downloads_inactive.hpp"
+#include "application_window_state.hpp"
 #include "application_state.hpp"
 #include "application_video.hpp"
 #include "application_search.hpp"
@@ -410,8 +411,10 @@ void release() noexcept {
     if (g_app.account_ui)
         VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;
-    if (g_app.window)
+    if (g_app.window) {
         DestroyWindow(g_app.window);
+        g_window_state.keyboard_focus = false;
+    }
     g_app.window = nullptr;
 }
 
@@ -771,6 +774,7 @@ void run_audio_format(MediaAttachmentFormat format) noexcept {
             row ? message_scene_rich_item_widget(*row, MessageSceneRichItemKind::attachment, 0)
                 : ui_widget_invalid_handle();
         SetFocus(g_app.window);
+        g_window_state.keyboard_focus = true;
         g_app.context_focus = &g_app.message_scene.widgets;
         const bool focused = ui_widget_manager_focus(&g_app.message_scene.widgets, widget);
         const auto selections = account.selections;
@@ -828,6 +832,7 @@ void run_audio_format(MediaAttachmentFormat format) noexcept {
         }
         g_app.keyboard_focus_visible = true;
         SetFocus(g_app.window);
+        g_window_state.keyboard_focus = true;
         check(pump() && application_video_key(VK_SPACE, false, false) && pump() &&
                   account.status.playback.paused,
               "audio runtime: native keyboard Play Pause controls the exact selected session");
@@ -1066,6 +1071,7 @@ void run() noexcept {
               !g_app.renderer.video_scene->keyboard_focus &&
               g_app.renderer.video_scene->controls_transition.value == 0 && !application_video_next_wake(),
           "video focus runtime: real mouse selection off-hover does not pin controls or an idle wake");
+    g_window_state.keyboard_focus = GetFocus() == g_app.window; // The window procedure's WM_SETFOCUS.
     fixture.rich_record[0].attachments[0].flags &= ~kGatewayMediaExplicitFlag;
     media_filter = MessageExplicitFilter::show;
     if (!g_app.renderer.video_scene) {
@@ -1135,8 +1141,10 @@ void run() noexcept {
     application_video_key(VK_TAB, false, false);
     pump();
     SetFocus(nullptr);
+    g_window_state.keyboard_focus = false;
     application_video_blur(); // Exact API called by the real premodal WM_KILLFOCUS hook.
     SetFocus(g_app.window);
+    g_window_state.keyboard_focus = true;
     check(
         !application_video_key(VK_SPACE, false, false) && pump() && dormant(),
         "video focus runtime: blur survives native focus restoration without reviving keyboard ownership");

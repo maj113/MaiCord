@@ -2,6 +2,7 @@
 #include "application_account_presentation.hpp"
 #include "application_retained_projection.hpp"
 #include "application_state.hpp"
+#include "application_window_state.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
@@ -37,7 +38,7 @@ ApplicationGuildFolders* g_folders;
 
 bool motion_allowed() noexcept {
     return !g_app.preferences.reduced_motion && !g_app.renderer.reduced_motion && g_app.window &&
-           IsWindowVisible(g_app.window) && !IsIconic(g_app.window);
+           application_window_shown();
 }
 // Folder layout and expansion belong to one account UI lifetime.
 ApplicationGuildFolders* owner() noexcept {

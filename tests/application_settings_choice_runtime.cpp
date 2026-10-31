@@ -2,6 +2,7 @@
 #include "application_settings.hpp"
 #include "application_plugins.hpp"
 #include "maicord/ui/settings_choice.hpp"
+#include "application_window_state.hpp"
 #include "../src/app/account_ui_runtime.hpp"
 #include "settings_runtime_keys.hpp"
 
@@ -203,6 +204,7 @@ bool initialize() noexcept {
         return false;
     g_app.window = fixture.window; // Owned hidden window; no desktop input or ShowWindow.
     SetFocus(fixture.window);
+    g_window_state.keyboard_focus = GetFocus() == fixture.window;
     if (GetFocus() != fixture.window)
         return false;
     return popup_scene_initialize(&g_app.popup_scene, {fixture.items, 34}, {fixture.rows, 34},
@@ -230,6 +232,7 @@ void cleanup() noexcept {
         ReleaseCapture();
     if (fixture.window)
         DestroyWindow(fixture.window);
+    g_window_state.keyboard_focus = false;
     g_app.window = fixture.previous_window;
     fixture.window = nullptr;
     if (fixture.window_class)
@@ -382,6 +385,7 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
     // Establish that state before opening; a loss during a live picker must
     // continue to cancel it, including the nested hidden-window focus messages.
     SetFocus(f.window);
+    g_window_state.keyboard_focus = GetFocus() == f.window;
     const bool focused = GetFocus() == f.window;
     check(focused, "choice runtime: owned hidden window focus is established before pointer picker opens");
     bool mouse = focused && application_settings_synchronize() && open() &&

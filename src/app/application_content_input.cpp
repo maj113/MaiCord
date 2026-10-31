@@ -1,5 +1,6 @@
 #include "application_account_reconnect.hpp"
 #include "application_commands.hpp"
+#include "application_overlay_input.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_channel_memory.hpp"
 #include "application_guild_community.hpp"
@@ -664,7 +665,7 @@ bool handle_message_action_bar_click(LPARAM lparam) noexcept {
     SetFocus(g_app.window);
     if (message_scene_focus_message(&g_app.message_scene, hit.message_id))
         g_app.context_focus = &g_app.message_scene.widgets;
-    return application_message_action_bar_activate(hit, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
+    return application_message_action_bar_activate(hit, application_shift_down());
 }
 
 // Refreshes an expired signed URL when needed, then opens it through the

@@ -8,6 +8,7 @@
 #include "application_composer_text_input.hpp"
 #include "application_message_interaction.hpp"
 #include "application_modal_scroll.hpp"
+#include "application_overlay_input.hpp"
 #include "application_shell_input.hpp"
 #include "text_edit_keys.hpp"
 #include "maicord/render/text_edit_layout.hpp"
@@ -76,11 +77,8 @@ UiScrollBinding scroll_binding(SettingsLayer* layer, bool sidebar) noexcept {
                 return true;
             }};
 }
-u64 scroll_now_us() noexcept {
-    return clock_microseconds(g_app.clock, g_app.process_start, clock_now());
-}
 void glide_to(SettingsLayer* layer, bool sidebar, float target) noexcept {
-    ui_scroll_host_scroll_to(&g_app.scroll_host, scroll_binding(layer, sidebar), target, scroll_now_us(),
+    ui_scroll_host_scroll_to(&g_app.scroll_host, scroll_binding(layer, sidebar), target, application_now_us(),
                              96.0 / maximum(g_app.renderer.dpi, 1u));
 }
 // Focus moves reveal their target inside the scene at once; replay the
@@ -206,11 +204,10 @@ bool choose_pointer(SettingsLayer* layer, UINT message, float x, float y) noexce
             return true;
         }
         layer->popup_pressed = hit.enabled ? hit.action : 0;
-        SetCapture(g_app.window);
+        application_capture_pointer();
     } else if (message == WM_LBUTTONUP) {
         const u32 pressed = layer->popup_pressed;
-        if (GetCapture() == g_app.window)
-            ReleaseCapture();
+        application_release_capture();
         if (!hit.inside && !pressed)
             return true;
         settings_layer_close_choice(layer);
@@ -410,8 +407,7 @@ void settings_layer_cancel_pointer(SettingsLayer* layer) noexcept {
     reset_value(&layer->pressed);
     if (layer->scene->active)
         ui_button_pointer(&layer->scene->widgets, UiButtonPointerEvent::cancel, {});
-    if (GetCapture() == g_app.window)
-        ReleaseCapture();
+    application_release_capture();
 }
 
 UiRect settings_layer_edit_bounds(SettingsLayer* layer) noexcept {
@@ -468,10 +464,10 @@ bool settings_layer_input(SettingsLayer* layer, UiInputKind kind, u32 key, bool 
         return true;
     if (!layer->scene || !layer->scene->active)
         return false;
-    if (kind == UiInputKind::system_key_down && key == VK_F4 && (GetKeyState(VK_MENU) & 0x8000))
+    if (application_alt_f4(kind, key))
         return false;
-    const bool control = (GetKeyState(VK_CONTROL) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000);
-    const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    const bool control = application_command_down();
+    const bool shift = application_shift_down();
     auto* scene = layer->scene;
     if (layer->choice) {
         if (kind != UiInputKind::key_down)
@@ -623,8 +619,8 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
         }
         reset_value(&layer->pressed);
         ui_button_pointer(&scene->widgets, UiButtonPointerEvent::cancel, {});
-        if (message != WM_CAPTURECHANGED && GetCapture() == g_app.window)
-            ReleaseCapture();
+        if (message != WM_CAPTURECHANGED)
+            application_release_capture();
         if (message == WM_KILLFOCUS) {
             if (layer->choice) {
                 settings_layer_close_choice(layer);
@@ -642,6 +638,9 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
         return true;
     }
     if (message == WM_MOUSEWHEEL) {
+        UiPoint point{};
+        if (!application_wheel_point(lparam, &point))
+            return true;
         if (layer->choice) {
             // The choice menu glides like every other list (and jumps when
             // smooth scrolling is off); each animated step repaints the layer.
@@ -659,16 +658,11 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
                     if (*changed) repaint(static_cast<SettingsLayer*>(context));
                     return true;
                 }};
-            application_modal_scroll_wheel(&g_app.scroll_host, choice, g_app.window, g_app.renderer.dpi, wparam,
-                                           lparam, clock_microseconds(g_app.clock, g_app.process_start, clock_now()));
+            application_modal_scroll_wheel(choice, point, wparam);
             return true;
         }
-        POINT point{static_cast<i16>(LOWORD(lparam)), static_cast<i16>(HIWORD(lparam))};
-        application_screen_to_content(&point);
-        const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);
-        const bool sidebar = ui_rect_contains(scene->layout.sidebar, point.x * scale, point.y * scale);
-        application_modal_scroll_wheel(&g_app.scroll_host, scroll_binding(layer, sidebar), g_app.window,
-                                       g_app.renderer.dpi, wparam, lparam, scroll_now_us());
+        application_modal_scroll_wheel(scroll_binding(layer, ui_rect_contains(scene->layout.sidebar, point.x, point.y)),
+                                       point, wparam);
         return true;
     }
     if (message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP ||
@@ -688,8 +682,7 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
                 repaint(layer);
             } else if (message == WM_LBUTTONUP) {
                 layer->scrollbar_dragging = false;
-                if (GetCapture() == g_app.window)
-                    ReleaseCapture();
+                application_release_capture();
             }
             return true;
         }
@@ -701,8 +694,7 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
             if (message == WM_LBUTTONUP) {
                 layer->slider_dragging = false;
                 reset_value(&layer->pressed);
-                if (GetCapture() == g_app.window)
-                    ReleaseCapture();
+                application_release_capture();
             }
             return true;
         }
@@ -732,8 +724,7 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
                 layer->drop_target = 0;
                 layer->drag_armed = layer->dragging = false;
                 ui_settings_scene_set_drag(scene, 0, 0, false);
-                if (GetCapture() == g_app.window)
-                    ReleaseCapture();
+                application_release_capture();
                 if (moved && target && target != dragged && layer->hooks->drop)
                     layer->hooks->drop(layer, dragged, target, after);
                 repaint(layer);
@@ -751,7 +742,7 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
                     layer->scrollbar_dragging = true;
                     layer->scrollbar_sidebar = side != 0;
                     layer->scrollbar_grab = y - bar.thumb.top;
-                    SetCapture(g_app.window);
+                    application_capture_pointer();
                 } else {
                     glide_to(layer, side != 0,
                              (side ? scene->sidebar_offset : scene->content_offset) +
@@ -765,8 +756,7 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
         if (layer->backdrop_pressed) {
             if (message == WM_LBUTTONUP) {
                 layer->backdrop_pressed = false;
-                if (GetCapture() == g_app.window)
-                    ReleaseCapture();
+                application_release_capture();
                 if (settings_layer_backdrop_hit(*scene, x, y))
                     settings_layer_activate_target(layer, {UiSettingsTargetKind::close, {}, 0});
             }
@@ -774,7 +764,7 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
         }
         if (message == WM_LBUTTONDOWN && settings_layer_backdrop_hit(*scene, x, y)) {
             layer->backdrop_pressed = true;
-            SetCapture(g_app.window);
+            application_capture_pointer();
             return true;
         }
         if (layer->selecting) {
@@ -782,8 +772,7 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
                 select_point(layer, x, y, true);
             else if (message == WM_LBUTTONUP) {
                 layer->selecting = false;
-                if (GetCapture() == g_app.window)
-                    ReleaseCapture();
+                application_release_capture();
             }
             return true;
         }
@@ -796,27 +785,24 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
                                                                          : UiButtonPointerEvent::move,
                                                {x, y});
         bool changed = pointer.changed;
-        if (message == WM_MOUSEMOVE) {
+        if (message == WM_MOUSEMOVE)
             changed = ui_settings_scene_palette_hover(scene, target, x, y) || changed;
-            TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, g_app.window, 0};
-            TrackMouseEvent(&track);
-        }
         if (changed)
             repaint(layer);
         if (message == WM_LBUTTONDOWN) {
-            SetFocus(g_app.window);
+            application_focus_window();
             if (!editor && ui_settings_scene_grip_hit(*scene, target, x, y)) {
                 layer->drop_target = 0;
                 layer->drag_armed = true;
                 layer->dragging = false;
                 layer->drag_id = target.control_id;
                 layer->press_y = y;
-                SetCapture(g_app.window);
+                application_capture_pointer();
                 return true;
             }
             settings_layer_focus(layer, editor ? field.target : target);
             if (editor) {
-                select_point(layer, x, y, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
+                select_point(layer, x, y, (wparam & MK_SHIFT) != 0);
                 layer->selecting = true;
             } else if (ui_settings_scene_slider_hit(*scene, target, x, y)) {
                 UiSettingsActivation activation{};
@@ -828,12 +814,11 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
                 layer->pressed = target;
                 layer->pressed_revision = scene->revision;
             }
-            SetCapture(g_app.window);
+            application_capture_pointer();
         } else if (message == WM_LBUTTONUP) {
             const auto pressed = layer->pressed;
             reset_value(&layer->pressed);
-            if (GetCapture() == g_app.window)
-                ReleaseCapture();
+            application_release_capture();
             if (!pointer.activate || !ui_settings_target_equal(pressed, target))
                 return true;
             UiSettingsActivation activation{};
@@ -885,7 +870,7 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
     // Pointer right-clicks anchor at the pointer; the menu key at the focused row.
     const bool keyboard_menu = message == WM_CONTEXTMENU && lparam == -1;
     if ((message == WM_RBUTTONUP || keyboard_menu) && layer->hooks->context && !layer->choice &&
-        !layer->dragging && GetCapture() != g_app.window) {
+        !layer->dragging && !application_pointer_captured()) {
         const float x = keyboard_menu ? 0 : client_dip_x(lparam), y = keyboard_menu ? 0 : client_dip_y(lparam);
         const auto target = keyboard_menu ? scene->focus : ui_settings_scene_hit_test(*scene, x, y);
         UiSettingsActivation activation{};

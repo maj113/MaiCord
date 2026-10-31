@@ -6,6 +6,7 @@
 #include "application_login_auth.hpp"
 
 #include "application_state.hpp"
+#include "application_window_state.hpp"
 
 #include "maicord/app/login_mfa_policy.hpp"
 #include "maicord/core/log.hpp"
@@ -95,7 +96,7 @@ bool text_store_range(void*, u32 first, u32 last, RECT* output, bool* clipped) n
     const auto* edit = application_active_login_edit();
     POINT origin{};
     if (!edit || !g_app.renderer_ready || !application_content_to_screen(&origin)) return false;
-    if (IsIconic(g_app.window)) {
+    if (application_window_minimized()) {
         reset_value(output); *clipped = true; return true;
     }
     const LoginElement element = edit == &g_app.login.login ?
@@ -435,7 +436,7 @@ void application_release_login_ui() noexcept {
 void application_reset_login_caret_timing(bool edit_active) noexcept {
     Application& application = g_app;
     LoginRuntime& login = application.login;
-    const bool visible = edit_active && application.window && GetFocus() == application.window;
+    const bool visible = edit_active && application_window_keyboard_focus();
     login.caret_visible = visible;
     renderer_set_login_caret_visible(&application.renderer, visible);
     login.caret_blink_at_ms = visible && login.caret_blink_ms != INFINITE

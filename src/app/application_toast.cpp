@@ -1,6 +1,7 @@
 #include "application_toast.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_account_presentation.hpp"
+#include "application_window_state.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/render/layer_presentation.hpp"
 #include "account_ui_runtime.hpp"
@@ -20,8 +21,7 @@ struct ToastHost {
 ToastHost g_host{};
 
 bool animate() noexcept {
-    return !g_app.renderer.live_resize && g_app.window && IsWindowVisible(g_app.window) &&
-           !IsIconic(g_app.window);
+    return !g_app.renderer.live_resize && g_app.window && application_window_shown();
 }
 bool reduced_motion() noexcept {
     return g_app.preferences.reduced_motion || g_app.renderer.reduced_motion;

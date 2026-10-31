@@ -4,6 +4,7 @@
 #include "probe_glyph_ink.hpp"
 #include "probe_capture.hpp"
 #include "application_state.hpp"
+#include "application_window_state.hpp"
 #include "application_scoped_read.hpp"
 #include "application_scoped_read_menu.hpp"
 #include "application_read_state.hpp"
@@ -1383,6 +1384,8 @@ bool scoped_read_ui_probe() noexcept {
     } cleanup{window, SUCCEEDED(apartment)};
     probe_window::show(window);
     SetFocus(window);
+    application_window_observe_position(window);
+    g_window_state.keyboard_focus = GetFocus() == window;
     if (!SCOPED_READ_REQUIRE(SUCCEEDED(apartment) &&
                                  renderer_initialize(&g_app.renderer, window),
                              100))

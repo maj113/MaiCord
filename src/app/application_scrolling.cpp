@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 
 #include "application_account_presentation.hpp"
+#include "application_overlay_input.hpp"
 #include "application_message_history.hpp"
 #include "application_state.hpp"
 #include "application_read_state.hpp"
@@ -210,7 +211,7 @@ bool handle_scrollbar_begin(float pointer_x, float pointer_y) noexcept {
         g_app.scrollbar_thumb_grab_offset = ui_scrollbar_thumb_hit(geometry, pointer_x, pointer_y)
                                                 ? pointer_y - geometry.thumb.top
                                                 : ui_rect_height(geometry.thumb) * 0.5f;
-        SetCapture(g_app.window);
+        application_capture_pointer();
         return apply_scrollbar_pointer(pointer_y);
     }
     return false;
@@ -223,11 +224,7 @@ bool handle_scrollbar_drag(WPARAM buttons, float pointer_y) noexcept {
     if ((buttons & MK_LBUTTON) != 0) {
         return apply_scrollbar_pointer(pointer_y);
     }
-    g_app.scrollbar_drag = ScrollbarDragKind::none;
-    g_app.scrollbar_thumb_grab_offset = 0.0f;
-    if (GetCapture() == g_app.window) {
-        ReleaseCapture();
-    }
+    end_scrollbar_drag();
     return true;
 }
 
@@ -235,9 +232,8 @@ void end_scrollbar_drag() noexcept {
     const bool held = g_app.scrollbar_drag != ScrollbarDragKind::none;
     g_app.scrollbar_drag = ScrollbarDragKind::none;
     g_app.scrollbar_thumb_grab_offset = 0.0f;
-    if (held && GetCapture() == g_app.window) {
-        ReleaseCapture();
-    }
+    if (held)
+        application_release_capture();
 }
 
 bool handle_message_key(WPARAM key) noexcept {

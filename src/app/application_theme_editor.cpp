@@ -8,6 +8,7 @@
 #include "application_surface_motion.hpp"
 #include "application_tooltip.hpp"
 #include "application_modal_scroll.hpp"
+#include "application_overlay_input.hpp"
 #include "maicord/ui/button.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/memory.hpp"
@@ -100,8 +101,7 @@ void cancel_capture(ApplicationThemeEditor& e, bool rollback = true) noexcept {
         application_request_frame();
     }
     ui_button_pointer(&e.scene.widgets, UiButtonPointerEvent::cancel, {});
-    if (g_app.window && GetCapture() == g_app.window)
-        ReleaseCapture();
+    application_release_capture();
 }
 bool commit(ApplicationThemeEditor& e) noexcept {
     if (!current(e))
@@ -422,7 +422,7 @@ bool application_theme_editor_input(UiInputKind kind, u32 key, bool repeated) no
         application_theme_editor_close(false);
         return true;
     }
-    if (kind == UiInputKind::system_key_down && key == VK_F4 && (GetKeyState(VK_MENU) & 0x8000))
+    if (application_alt_f4(kind, key))
         return false;
     if (ui_input_consume_key_tail(&e->held_key, {kind, key, repeated}))
         return true;
@@ -441,7 +441,7 @@ bool application_theme_editor_input(UiInputKind kind, u32 key, bool repeated) no
         return true;
     }
     if (key == VK_TAB) {
-        ui_theme_editor_move_focus(&e->scene, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
+        ui_theme_editor_move_focus(&e->scene, application_shift_down());
         application_request_frame();
         return true;
     }
@@ -497,9 +497,9 @@ bool application_theme_editor_window_message(UINT message, WPARAM wparam, LPARAM
         return true;
     }
     if (message == WM_MOUSEWHEEL) {
-        application_modal_scroll_wheel(&g_app.scroll_host, application_theme_editor_scroll_binding(),
-                                       g_app.window, g_app.renderer.dpi, wparam, lparam,
-                                       clock_microseconds(g_app.clock, g_app.process_start, clock_now()));
+        UiPoint point{};
+        if (application_wheel_point(lparam, &point))
+            application_modal_scroll_wheel(application_theme_editor_scroll_binding(), point, wparam);
         application_request_frame();
         return true;
     }
@@ -511,7 +511,7 @@ bool application_theme_editor_window_message(UINT message, WPARAM wparam, LPARAM
     const auto hit = ui_theme_editor_hit_test(e->scene, p);
     if (message == WM_MOUSEMOVE) {
         if (e->scrollbar_dragging && e->captured_generation == e->scene.widgets.generation &&
-            GetCapture() == g_app.window) {
+            application_pointer_captured()) {
             const auto geometry = ui_theme_editor_scrollbar(e->scene);
             UiWidgetScrollGeometry scroll{};
             if (ui_widget_scroll_geometry(e->scene.widgets,
@@ -524,7 +524,7 @@ bool application_theme_editor_window_message(UINT message, WPARAM wparam, LPARAM
             return true;
         }
         if (e->dragging && e->captured_generation == e->scene.widgets.generation &&
-            GetCapture() == g_app.window) {
+            application_pointer_captured()) {
             BackgroundTheme next{};
             if (ui_theme_editor_pointer(&e->scene, e->pressed, p, &next))
                 preview(*e, next, !effect_control(e->pressed));
@@ -533,7 +533,7 @@ bool application_theme_editor_window_message(UINT message, WPARAM wparam, LPARAM
         return true;
     }
     if (message == WM_LBUTTONDOWN) {
-        SetFocus(g_app.window);
+        application_focus_window();
         if (g_app.theme_editor != e || !current(*e))
             return true;
         e->gesture_active = false;
@@ -547,8 +547,8 @@ bool application_theme_editor_window_message(UINT message, WPARAM wparam, LPARAM
         if (e->dragging)
             begin_gesture(*e);
         ui_theme_editor_focus(&e->scene, hit);
-        SetCapture(g_app.window);
-        if (g_app.theme_editor != e || !current(*e) || GetCapture() != g_app.window) {
+        application_capture_pointer();
+        if (g_app.theme_editor != e || !current(*e) || !application_pointer_captured()) {
             if (g_app.theme_editor == e)
                 cancel_capture(*e);
             return true;
@@ -579,7 +579,7 @@ bool application_theme_editor_window_message(UINT message, WPARAM wparam, LPARAM
     const auto pressed = e->pressed;
     const bool dragging = e->dragging;
     const bool accepted =
-        e->captured_generation == e->scene.widgets.generation && GetCapture() == g_app.window;
+        e->captured_generation == e->scene.widgets.generation && application_pointer_captured();
     const auto pointer = ui_button_pointer(&e->scene.widgets, UiButtonPointerEvent::release, p);
     cancel_capture(*e, false);
     if (g_app.theme_editor != e || !current(*e) || !accepted)

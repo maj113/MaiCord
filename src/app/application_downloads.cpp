@@ -1,7 +1,7 @@
 #include "application_downloads.hpp"
-#include "application_content_point.hpp"
 #include "maicord/app/shortcut_registry.hpp"
 #include "application_cursor.hpp"
+#include "application_overlay_input.hpp"
 #include "maicord/ui/scene_cursor.hpp"
 #include "application_state.hpp"
 #include "application_account_presentation.hpp"
@@ -578,8 +578,8 @@ void revoke_capture(ApplicationDownloads& q) noexcept {
     reset_value(&q.pressed_widget);
     reset_value(&q.pressed_bounds);
     ui_widget_manager_capture(&q.scene.widgets, ui_widget_invalid_handle());
-    if (owned && GetCapture() == g_app.window)
-        ReleaseCapture();
+    if (owned)
+        application_release_capture();
 }
 void page_step(ApplicationDownloads& q, bool previous) noexcept {
     revoke_capture(q);
@@ -755,8 +755,7 @@ bool application_downloads_open() noexcept {
     q->active = true;
     if (g_app.window)
         SetFocus(g_app.window);
-    if (GetCapture() == g_app.window)
-        ReleaseCapture();
+    application_release_capture();
     return application_downloads_synchronize() && application_request_frame();
 }
 bool application_downloads_synchronize() noexcept {
@@ -1583,7 +1582,7 @@ bool application_downloads_input(UiInputKind kind, u32 key, bool repeated) noexc
             g_app.downloads_held_key = key;
             ui_widget_manager_focus(&q->scene.widgets, ui_widget_manager_next_focus(
                                                            q->scene.widgets, q->scene.widgets.focused,
-                                                           (GetKeyState(VK_SHIFT) & 0x8000) != 0, true));
+                                                           application_shift_down(), true));
             application_request_frame();
         } else if ((key == VK_RETURN || key == VK_SPACE) && !repeated) {
             g_app.downloads_held_key = key;
@@ -1612,8 +1611,7 @@ __declspec(noinline) bool inline_press_message(ApplicationDownloads& q, UINT mes
         q.inline_capture = false;
         if (owned)
             ui_widget_manager_capture(&g_app.message_scene.widgets, ui_widget_invalid_handle());
-        if (GetCapture() == g_app.window)
-            ReleaseCapture();
+        application_release_capture();
         const float scale = 96.f / maximum(1u, g_app.renderer.dpi);
         DownloadSource live{};
         UiRect current_bounds{};
@@ -1636,8 +1634,7 @@ __declspec(noinline) bool inline_press_message(ApplicationDownloads& q, UINT mes
             ui_widget_manager_capture(&g_app.message_scene.widgets, ui_widget_invalid_handle());
         q.inline_capture = false;
         g_app.downloads_pointer_tail = true;
-        if (GetCapture() == g_app.window)
-            ReleaseCapture();
+        application_release_capture();
     } else if (message == WM_LBUTTONDOWN)
         q.inline_capture = false;
     return false;
@@ -1682,17 +1679,11 @@ bool application_downloads_window_message(UINT message, WPARAM wparam, LPARAM lp
     if (message != WM_LBUTTONDOWN && message != WM_LBUTTONUP && message != WM_MOUSEMOVE &&
         message != WM_MOUSEWHEEL && message != WM_SETCURSOR)
         return false;
-    POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-    if (message == WM_MOUSEWHEEL)
-        application_screen_to_content(&point);
     if (message == WM_SETCURSOR) {
-        if (LOWORD(lparam) != HTCLIENT || !GetCursorPos(&point) || !application_screen_to_content(&point))
+        UiPoint cursor{};
+        if (!application_cursor_point(g_app.window, g_app.renderer.dpi, lparam, &cursor))
             return false;
-    }
-    const float scale = 96.f / maximum(1u, g_app.renderer.dpi);
-    const auto target = ui_download_scene_hit_test(q->scene, point.x * scale, point.y * scale);
-    if (message == WM_SETCURSOR) {
-        application_set_cursor(ui_download_scene_cursor(q->scene, point.x * scale, point.y * scale));
+        application_set_cursor(ui_download_scene_cursor(q->scene, cursor.x, cursor.y));
         return true;
     }
     if (message == WM_MOUSEWHEEL) {
@@ -1700,6 +1691,8 @@ bool application_downloads_window_message(UINT message, WPARAM wparam, LPARAM lp
         application_request_frame();
         return true;
     }
+    const POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
+    const float scale = 96.f / g_app.renderer.dpi;
     if (message == WM_MOUSEMOVE) {
         bool paint = false;
         ui_download_scene_set_hover(&q->scene, point.x * scale, point.y * scale, &paint);
@@ -1707,6 +1700,7 @@ bool application_downloads_window_message(UINT message, WPARAM wparam, LPARAM lp
             application_request_frame();
         return true;
     }
+    const auto target = ui_download_scene_hit_test(q->scene, point.x * scale, point.y * scale);
     if (message == WM_LBUTTONDOWN) {
         q->pressed = target;
         q->captured = true;
@@ -1761,8 +1755,7 @@ void application_downloads_prepare_account_stop() noexcept {
         g_app.downloads_pointer_tail = true;
         if (ui_widget_handle_matches(g_app.message_scene.widgets.captured, q->pressed_widget))
             ui_widget_manager_capture(&g_app.message_scene.widgets, ui_widget_invalid_handle());
-        if (GetCapture() == g_app.window)
-            ReleaseCapture();
+        application_release_capture();
     }
     for (u32 i = 0; i < kDownloadJobs; ++i)
         if (q->jobs[i].occupied && !terminal(q->jobs[i].phase))

@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "application_account_presentation.hpp"
 #include "application_content_input.hpp"
+#include "application_overlay_input.hpp"
 #include "application_guild_folders.hpp"
 #include "application_guild_lifecycle.hpp"
 #include "application_shell_input.hpp"
@@ -133,8 +134,7 @@ void retarget() noexcept {
 void end_capture() noexcept {
     if (g_drag.captured) {
         g_drag.captured = false;
-        if (GetCapture() == g_app.window)
-            ReleaseCapture();
+        application_release_capture();
     }
 }
 void commit(const NavigationDragTarget& target, NavigationDragList list, u64 source, NavigationDragRowKind kind,
@@ -219,7 +219,7 @@ bool application_navigation_drag_window_message(UINT message, WPARAM wparam, LPA
         }
         const UiPoint point{client_dip_x(lparam), client_dip_y(lparam)};
         if (navigation_drag_move(&g_drag.drag, point)) {
-            SetCapture(g_app.window);
+            application_capture_pointer();
             g_drag.captured = true;
             g_drag.last_tick_ms = clock_monotonic_milliseconds();
             application_tooltip_clear();

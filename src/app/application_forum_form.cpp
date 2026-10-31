@@ -1,6 +1,7 @@
 #include "application_click_count.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_content_point.hpp"
+#include "application_overlay_input.hpp"
 #include "application_forum_form_state.hpp"
 #include "application_cursor.hpp"
 #include "application_state.hpp"
@@ -46,11 +47,10 @@ void end_capture(ApplicationForumForm* f) noexcept {
     f->dragging = false;
     f->pointer_button = ui_widget_invalid_handle();
     ui_widget_manager_capture(&f->scene.widgets, ui_widget_invalid_handle());
-    if (GetCapture() == g_app.window)
-        ReleaseCapture();
+    application_release_capture();
 }
 void reset_caret(ApplicationForumForm* f) noexcept {
-    f->caret_visible = f->editable && focused_field(f) >= 0 && GetFocus() == g_app.window;
+    f->caret_visible = f->editable && focused_field(f) >= 0 && application_window_keyboard_focus();
     f->blink_at_ms =
         f->caret_visible && f->blink_ms != INFINITE ? clock_monotonic_milliseconds() + f->blink_ms : 0;
 }
@@ -350,7 +350,7 @@ bool focus(ApplicationForumForm* f, ForumPostTarget target) noexcept {
         if (!secure_text_store_bind(&field.store, &field.edit, SecureTextInputScope::text) ||
             !secure_text_store_attach(&field.store))
             return false;
-        secure_text_store_set_window_focus(&field.store, GetFocus() == g_app.window);
+        secure_text_store_set_window_focus(&field.store, application_window_keyboard_focus());
     }
     reset_caret(f);
     return refresh(f);
@@ -365,9 +365,9 @@ void dispose(bool restore, bool rebuild, bool cancel) noexcept {
         application_text_form_close(false, false);
     const auto previous = f->previous_focus;
     const bool composer = f->previous_composer_focus, can_restore = restore && valid(f);
-    if ((GetKeyState(VK_RETURN) & 0x8000) != 0)
+    if (application_key_down(VK_RETURN))
         held_key = VK_RETURN;
-    else if ((GetKeyState(VK_SPACE) & 0x8000) != 0)
+    else if (application_key_down(VK_SPACE))
         held_key = VK_SPACE;
     // Detach every borrowed renderer/TSF/input reference before notifying owner.
     owner = nullptr;
@@ -600,7 +600,7 @@ bool application_forum_form_open(const ApplicationForumPostTicket& ticket) noexc
     g_app.context_focus = &f->scene.widgets;
     f->surface.scene = &f->scene;
     renderer_bind_forum_form(&g_app.renderer, &f->surface);
-    if ((GetKeyState(VK_RETURN) & 0x8000) != 0)
+    if (application_key_down(VK_RETURN))
         held_key = VK_RETURN;
     for (auto& field : f->fields)
         if (!secure_text_store_initialize(
@@ -735,8 +735,7 @@ bool application_forum_form_input(UiInputKind kind, u32 code, bool repeated) noe
         return code != VK_F4 && code != VK_SPACE;
     if (kind == UiInputKind::system_character)
         return code != ' ';
-    const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0,
-               shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    const bool ctrl = application_control_down(), shift = application_shift_down();
     if (kind == UiInputKind::key_down && code == VK_ESCAPE) {
         held_key = code;
         application_forum_form_close();
@@ -866,11 +865,9 @@ bool application_forum_form_input(UiInputKind kind, u32 code, bool repeated) noe
 bool application_forum_form_filter_message(const MSG& message) noexcept {
     if (message.hwnd != g_app.window)
         return false;
-    if (held_key && (message.message == WM_KEYDOWN || message.message == WM_KEYUP) &&
-        message.wParam == held_key)
-        return application_forum_form_input(
-            message.message == WM_KEYDOWN ? UiInputKind::key_down : UiInputKind::key_up,
-            static_cast<u32>(message.wParam), (message.lParam & (1ll << 30)) != 0);
+    UiInputEvent held{};
+    if (application_held_key_event(held_key, message, &held))
+        return application_forum_form_input(held.kind, held.code, held.repeated);
     auto* f = owner;
     if (!f || f->child_suspended || application_text_form_forum_child(f->ticket) ||
         !application_forum_form_synchronize() || owner != f)
@@ -878,7 +875,7 @@ bool application_forum_form_filter_message(const MSG& message) noexcept {
     // Attachment clipboard formats belong to the post owner before TSF has
     // an opportunity to consume Ctrl+V for the focused text field.
     if (f->editable && message.message == WM_KEYDOWN && message.wParam == 'V' &&
-        (GetKeyState(VK_CONTROL) & 0x8000) != 0 && clipboard_attachment_available())
+        application_control_down() && clipboard_attachment_available())
         return application_forum_form_input(UiInputKind::key_down, 'V',
                                             (message.lParam & (1ll << 30)) != 0);
     const i32 focused = focused_field(f);
@@ -939,7 +936,7 @@ bool application_forum_form_window_message(UINT message, WPARAM wparam, LPARAM l
             application_forum_form_close();
             return true;
         }
-        SetFocus(g_app.window);
+        application_focus_window();
         const auto target = forum_post_hit_test(f->scene, x, y);
         if (target.element == ForumPostElement::count)
             return true;
@@ -967,9 +964,7 @@ bool application_forum_form_window_message(UINT message, WPARAM wparam, LPARAM l
                              : f->scene.elements[static_cast<u32>(target.element)];
                 f->pointer_button = handle;
             }
-            if (ui_widget_manager_capture(&f->scene.widgets, handle))
-                SetCapture(g_app.window);
-            if (GetCapture() != g_app.window)
+            if (!application_capture_widget(&f->scene.widgets, handle))
                 end_capture(f);
         }
         return true;
@@ -999,10 +994,10 @@ bool application_forum_form_window_message(UINT message, WPARAM wparam, LPARAM l
         return true;
     }
     case WM_MOUSEWHEEL: {
-        POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-        application_screen_to_content(&point);
-        const float delta = -static_cast<float>(static_cast<short>(HIWORD(wparam))) / WHEEL_DELTA * 48;
-        const auto target = forum_post_hit_test(f->scene, point.x * scale, point.y * scale);
+        UiPoint point{};
+        application_wheel_point(lparam, &point);
+        const float delta = -application_wheel_notches(wparam) * 48;
+        const auto target = forum_post_hit_test(f->scene, point.x, point.y);
         if (target.element == ForumPostElement::body)
             text_edit_layout_scroll(&f->surface.layouts[1], delta);
         else

@@ -17,6 +17,7 @@
 #include "application_message_interaction.hpp"
 #include "application_scrolling.hpp"
 #include "application_modal_scroll.hpp"
+#include "application_overlay_input.hpp"
 #include "application_shell_input.hpp"
 #include "application_attachments.hpp"
 #include "application_plugins.hpp"
@@ -904,8 +905,8 @@ void bind_chrome(ApplicationSettings& settings) noexcept {
                    : settings_catalog_navigation(application_account_logout_available());
     ui_settings_scene_bind_navigation(&settings.scene, navigation,
                                       settings.registry.revision ^ (signed_out ? 0x8000'0000u : 0u));
-    const bool focused = settings.scene.focus.kind == UiSettingsTargetKind::search && g_app.window &&
-                         GetFocus() == g_app.window;
+    const bool focused = settings.scene.focus.kind == UiSettingsTargetKind::search &&
+                         application_window_keyboard_focus();
     ui_settings_scene_set_search(
         &settings.scene,
         {{search_query(settings), minimum(settings.search_edit.anchor, settings.search_bytes),
@@ -1196,11 +1197,6 @@ void animate_toggle(ApplicationSettings& settings, const UiSettingsTarget& targe
 bool settled(ApplicationSettings& settings, bool result) noexcept {
     project(settings);
     return refresh() && result;
-}
-// Gives up the mouse capture when the window holds it.
-void release_capture() noexcept {
-    if (GetCapture() == g_app.window)
-        ReleaseCapture();
 }
 // A toggle's result: the thumb animates on success, then the page refreshes.
 bool settled_toggle(ApplicationSettings& settings, const UiSettingsTarget& target, const UiSettingsActivation& request,
@@ -1573,7 +1569,7 @@ void application_animation_activity_synchronize() noexcept {
     // and sticker animations while its window is inactive. The Settings
     // modal keeps the shell beneath it live, animations included.
     if (g_app.preferences.reduced_motion || g_app.renderer.live_resize || g_window_inactive ||
-        (g_app.window && IsIconic(g_app.window)))
+        application_window_minimized())
         animation_visual_runtime_suspend(&g_app.animations, now);
     else
         animation_visual_runtime_resume(&g_app.animations, now);
@@ -1660,8 +1656,7 @@ void application_settings_cancel_pointer() noexcept {
     settings->search_selecting = false;
     settings->backdrop_pressed = false;
     ui_button_pointer(&settings->scene.widgets, UiButtonPointerEvent::cancel, {});
-    if (g_app.window && GetCapture() == g_app.window)
-        ReleaseCapture();
+    application_release_capture();
 }
 UiPageRegistry* application_settings_pages() noexcept {
     auto* settings = ensure();
@@ -1854,7 +1849,7 @@ bool application_settings_open() noexcept {
     ui_button_keyboard_cancel(&g_app.button_keyboard);
     ui_button_pointer(&g_app.message_composer_scene.widgets, UiButtonPointerEvent::cancel, {});
     ui_button_pointer(&g_app.shell_scene.widgets, UiButtonPointerEvent::cancel, {});
-    release_capture();
+    application_release_capture();
     g_app.button_pointer_owner = nullptr;
     g_app.message_composer_pointer_selection = false;
     g_app.message_text_pointer_selection = false;
@@ -1922,7 +1917,7 @@ void application_settings_close(bool restore_focus) noexcept {
     }
     const auto* previous = settings->previous_focus;
     const bool composer = settings->previous_composer_focus;
-    release_capture();
+    application_release_capture();
     reset_value(&settings->pressed);
     settings->notifications_active = false;
     renderer_bind_settings_scene(&g_app.renderer, nullptr);
@@ -2178,7 +2173,7 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
     }
     if (application_voice_settings_capture(kind, code) || application_keybinds_settings_capture(kind, code))
         return settled(*settings, true);
-    if (kind == UiInputKind::system_key_down && code == VK_F4 && (GetKeyState(VK_MENU) & 0x8000))
+    if (application_alt_f4(kind, code))
         return false;
     if (kind != UiInputKind::key_down && kind != UiInputKind::system_key_down)
         return true;
@@ -2194,7 +2189,7 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
             refresh();
             return true;
         }
-        const bool reverse = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        const bool reverse = application_shift_down();
         bool changed = false;
         if (code == VK_UP || code == VK_DOWN || code == VK_TAB) {
             popup_scene_move_selection(&g_app.popup_scene, code == VK_UP || (code == VK_TAB && reverse) ? -1 : 1,
@@ -2219,8 +2214,8 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
         }
         return true;
     }
-    const bool control_key = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-    const bool reverse = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    const bool control_key = application_control_down();
+    const bool reverse = application_shift_down();
     const auto focused = ui_settings_scene_focused(settings->scene);
     const auto zone = ui_settings_scene_focus_zone(settings->scene);
     if (code == 'F' && control_key && !repeated) {
@@ -2240,7 +2235,7 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
         return true;
     }
     if (zone == UiSettingsFocusZone::search) {
-        if (search_key(*settings, code, control_key && !(GetKeyState(VK_MENU) & 0x8000), reverse))
+        if (search_key(*settings, code, control_key && !application_alt_down(), reverse))
             return true;
         if (code == VK_RETURN && !repeated && searching(*settings)) {
             g_app.settings_held_key = code;
@@ -2400,14 +2395,12 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
             choice_action(static_cast<short>(HIWORD(wparam)) > 0 ? kUiSettingsChoicePrevious : kUiSettingsChoiceNext);
             return true;
         }
-        POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-        if (!application_screen_to_content(&point))
+        UiPoint point{};
+        if (!application_wheel_point(lparam, &point))
             return true;
-        const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);
-        const bool left = ui_rect_contains(settings->scene.layout.sidebar, point.x * scale, point.y * scale);
-        application_modal_scroll_wheel(&g_app.scroll_host, application_settings_scroll_binding(left), g_app.window,
-                                       g_app.renderer.dpi, wparam, lparam,
-                                       clock_microseconds(g_app.clock, g_app.process_start, clock_now()));
+        application_modal_scroll_wheel(
+            application_settings_scroll_binding(ui_rect_contains(settings->scene.layout.sidebar, point.x, point.y)),
+            point, wparam);
         refresh();
         return true;
     }
@@ -2422,7 +2415,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                                  settings->pressed_profile == g_app.account.status.profile_id &&
                                  settings->slider_generation == settings->scene.widgets.generation &&
                                  ui_rect_equal(settings->slider_viewport, settings->scene.viewport) &&
-                                 GetCapture() == g_app.window;
+                                 application_pointer_captured();
             if (!current) {
                 application_settings_cancel_pointer();
                 return true;
@@ -2458,20 +2451,20 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                     return true;
                 }
                 const auto choice = settings->choice;
-                SetFocus(g_app.window);
+                application_focus_window();
                 if (!choice_popup_current(choice))
                     return true;
-                SetCapture(g_app.window);
+                application_capture_pointer();
                 if (!choice_popup_current(choice))
                     return true;
-                g_app.settings->choice.pressed_action = hit.enabled && GetCapture() == g_app.window ? hit.action : 0;
+                g_app.settings->choice.pressed_action = hit.enabled && application_pointer_captured() ? hit.action : 0;
             } else {
                 auto choice = settings->choice;
                 settings->choice.pressed_action = 0;
                 const bool accepted = hit.enabled && hit.action == choice.pressed_action;
                 close_choice();
                 choice.popup_generation = g_app.popup_scene.widgets.generation;
-                release_capture();
+                application_release_capture();
                 // Capture cancellation may run nested UI. Both the closed bank
                 // and copied control token must remain current before dispatch.
                 if (accepted)
@@ -2489,7 +2482,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
         if (settings->backdrop_pressed) {
             if (message == WM_LBUTTONUP) {
                 settings->backdrop_pressed = false;
-                release_capture();
+                application_release_capture();
                 if (backdrop())
                     application_settings_close();
             }
@@ -2498,7 +2491,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
         if (message == WM_LBUTTONDOWN && backdrop()) {
             ui_scroll_host_cancel(&g_app.scroll_host);
             settings->backdrop_pressed = true;
-            SetCapture(g_app.window);
+            application_capture_pointer();
             return true;
         }
         if (settings->search_selecting) {
@@ -2508,7 +2501,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                 settings->search_selecting = false;
                 reset_value(&settings->pressed);
                 ui_button_pointer(&settings->scene.widgets, UiButtonPointerEvent::cancel, {});
-                release_capture();
+                application_release_capture();
             }
             return true;
         }
@@ -2522,7 +2515,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                 refresh();
             } else if (message == WM_LBUTTONUP) {
                 settings->scrollbar_dragging = false;
-                release_capture();
+                application_release_capture();
             }
             return true;
         }
@@ -2537,8 +2530,8 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                     settings->scrollbar_dragging = true;
                     settings->scrollbar_sidebar = sidebar;
                     settings->scrollbar_grab = y - geometry.thumb.top;
-                    SetCapture(g_app.window);
-                    if (GetCapture() != g_app.window)
+                    application_capture_pointer();
+                    if (!application_pointer_captured())
                         settings->scrollbar_dragging = false;
                 } else {
                     settings_glide_to(sidebar, (sidebar ? settings->scene.sidebar_offset
@@ -2568,7 +2561,6 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
             (control->kind == UiSettingsControlKind::palette || control->kind == UiSettingsControlKind::radio) &&
             ui_settings_scene_palette_hover(&settings->scene, hit, x, y))
             application_request_frame();
-        const bool track_leave = !settings->scene.widgets.hovered.generation;
         const auto pointer = ui_button_pointer(&settings->scene.widgets,
                                                message == WM_LBUTTONDOWN ? UiButtonPointerEvent::press
                                                : message == WM_LBUTTONUP ? UiButtonPointerEvent::release
@@ -2576,17 +2568,13 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                                                {x, y});
         if (pointer.changed)
             application_request_frame();
-        if (message == WM_MOUSEMOVE && track_leave && pointer.target.generation) {
-            TRACKMOUSEEVENT tracking{static_cast<DWORD>(sizeof(TRACKMOUSEEVENT)), TME_LEAVE, g_app.window, 0};
-            TrackMouseEvent(&tracking);
-        }
         if (message == WM_LBUTTONDOWN) {
             const u64 account_serial = g_app.plugin_account_scope_serial, profile = g_app.account.status.profile_id;
             const u64 catalog_revision = application_plugins_catalog_revision();
             settings->pressed = hit;
             ui_settings_scene_focus(&settings->scene, hit);
-            SetFocus(g_app.window);
-            SetCapture(g_app.window);
+            application_focus_window();
+            application_capture_pointer();
             refresh();
             if (g_app.settings != settings || !settings->scene.active ||
                 account_serial != g_app.plugin_account_scope_serial || profile != g_app.account.status.profile_id ||
@@ -2595,15 +2583,15 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
             settings->pressed_revision = settings->scene.revision;
             settings->pressed_catalog_revision = catalog_revision;
             // A press in the search field places the caret and may drag a selection.
-            if (hit.kind == UiSettingsTargetKind::search && GetCapture() == g_app.window) {
+            if (hit.kind == UiSettingsTargetKind::search && application_pointer_captured()) {
                 settings->search_selecting = true;
-                search_point(*settings, x, y, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
+                search_point(*settings, x, y, (wparam & MK_SHIFT) != 0);
                 return true;
             }
             settings->pressed_account_serial = account_serial;
             settings->pressed_profile = profile;
             if (control && control->kind == UiSettingsControlKind::slider && hit.page.owner_id == kNativeSettingsOwner &&
-                GetCapture() == g_app.window) {
+                application_pointer_captured()) {
                 settings->slider_dragging = true;
                 settings->slider_baseline = g_app.preferences;
                 if (!capture_slider_theme(*settings, hit)) {
@@ -2627,7 +2615,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
             if (settings->pressed_plugin &&
                 !native_plugin_host_settings_token(&settings->plugins, hit.page, &settings->pressed_token).ok())
                 reset_value(&settings->pressed);
-            if (GetCapture() != g_app.window) {
+            if (!application_pointer_captured()) {
                 reset_value(&settings->pressed);
                 if (ui_button_pointer(&settings->scene.widgets, UiButtonPointerEvent::cancel, {}).changed)
                     application_request_frame();
@@ -2641,7 +2629,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
             const u64 serial = settings->pressed_account_serial, profile = settings->pressed_profile;
             reset_value(&settings->pressed);
             settings->pressed_plugin = false;
-            release_capture();
+            application_release_capture();
             if (g_app.settings == settings && settings->scene.active && serial == g_app.plugin_account_scope_serial &&
                 profile == g_app.account.status.profile_id &&
                 catalog_revision == application_plugins_catalog_revision() && pointer.activate &&

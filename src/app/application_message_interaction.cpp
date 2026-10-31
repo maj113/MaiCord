@@ -1,3 +1,4 @@
+#include "application_overlay_input.hpp"
 #include "application_guild_community.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_toast.hpp"
@@ -178,9 +179,8 @@ bool clear_message_text_selection(bool rebuild) noexcept {
     g_app.message_text_selection_anchor = 0;
     g_app.message_text_selection_caret = 0;
     renderer_clear_message_text_selection(&g_app.renderer);
-    if (held && GetCapture() == g_app.window) {
-        ReleaseCapture();
-    }
+    if (held)
+        application_release_capture();
     if (!rebuild || !had_selection || !g_app.account_ui) {
         return true;
     }
@@ -230,9 +230,8 @@ bool begin_message_text_selection(LPARAM lparam, bool double_click) noexcept {
 void end_message_text_selection() noexcept {
     const bool held = g_app.message_text_pointer_selection;
     g_app.message_text_pointer_selection = false;
-    if (held && GetCapture() == g_app.window) {
-        ReleaseCapture();
-    }
+    if (held)
+        application_release_capture();
 }
 
 bool handle_message_text_selection_drag(WPARAM buttons, LPARAM lparam) noexcept {
@@ -581,7 +580,7 @@ u16 application_message_action_bar_capabilities(u64 message_id) noexcept {
     };
     add(application_message_forward_available(message_id), message_action_bar_forward);
     add(application_message_edit_available(message_id), message_action_bar_edit);
-    add((GetKeyState(VK_SHIFT) & 0x8000) != 0 && !g_app.popup_scene.active, message_action_bar_expanded);
+    add(application_shift_down() && !g_app.popup_scene.active, message_action_bar_expanded);
     add(application_pinned_messages_can_pin(message_id), message_action_bar_pin);
     add(message_can_delete(*record), message_action_bar_delete);
     add(g_app.preferences.developer_mode, message_action_bar_copy_id);
@@ -1497,8 +1496,8 @@ bool handle_popup_key(WPARAM key) noexcept {
     if (g_app.popup_owner_kind == PopupOwnerKind::soundboard && application_soundboard_menu_key(static_cast<u32>(key)))
         return true;
     if (g_app.popup_owner_kind == PopupOwnerKind::commands) {
-        const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-        if ((GetKeyState(VK_CONTROL) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000))
+        const bool shift = application_shift_down();
+        if (application_control_down() || application_alt_down())
             return false;
         // Shift+Tab selects the previous option chip.
         if (shift) {
@@ -1521,7 +1520,7 @@ bool handle_popup_key(WPARAM key) noexcept {
         if (action && (g_app.popup_owner_kind == PopupOwnerKind::composer_edit ||
                        g_app.popup_owner_kind == PopupOwnerKind::account_menu))
             g_app.composer_menu_held_key = static_cast<u32>(key);
-        return action == 0 || activate_popup_action(action, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
+        return action == 0 || activate_popup_action(action, application_shift_down());
     }
     if ((key == VK_PRIOR || key == VK_NEXT) && (g_app.popup_scene.kind == PopupKind::context_menu ||
                                                 g_app.popup_scene.kind == PopupKind::autocomplete ||

@@ -1,7 +1,8 @@
 #include "application_message_forward.hpp"
 #include "maicord/model/forwarded_input.hpp"
 #include "maicord/core/memory.hpp"
-#include "application_content_point.hpp"
+#include "application_overlay_input.hpp"
+#include "application_window_state.hpp"
 #include "text_edit_keys.hpp"
 #include "application_cursor.hpp"
 #include "maicord/ui/scene_cursor.hpp"
@@ -87,7 +88,7 @@ void revoke_capture(ApplicationMessageForward& q) noexcept {
     g_app.message_forward_pointer_tail = g_app.message_forward_pointer_tail || q.captured;
     reset_value(&q.pressed); q.captured = q.dragging = false;
     ui_widget_manager_capture(&q.scene.widgets, ui_widget_invalid_handle());
-    if (GetCapture() == g_app.window) ReleaseCapture();
+    application_release_capture();
 }
 u64 blink_deadline(u64 now) noexcept {
     const u32 interval = GetCaretBlinkTime();
@@ -282,7 +283,7 @@ bool application_message_forward_open(u64 id) noexcept {
         application_media_picker_close(); application_pinned_messages_close(); application_search_close_panel();
         application_account_menu_clear();
         if (!application_profile_close() || !dismiss_popup()) return false;
-        if (GetCapture() == g_app.window) ReleaseCapture();
+        application_release_capture();
         q->active = true;
         if (g_app.window) SetFocus(g_app.window);
         return application_message_forward_synchronize() && application_request_frame();
@@ -328,7 +329,7 @@ bool application_message_forward_open(u64 id) noexcept {
     q->active = q->focused = q->edit.focused = true; q->caption_focused = q->resumed_existing = false; g_app.message_forward_pointer_tail = false;
     ++q->content_revision; caret_reset(*q);
     application_video_blur();
-    if (GetCapture() == g_app.window) ReleaseCapture();
+    application_release_capture();
     if (!application_message_forward_synchronize()) { application_message_forward_close(); return false; }
     if (g_app.window) SetFocus(g_app.window);
     return application_composer_text_input_synchronize() && application_request_frame();
@@ -361,9 +362,8 @@ bool application_message_forward_input(UiInputKind kind, u32 key, bool repeated)
             g_app.message_forward_held_key = key;
         application_message_forward_close(); return true;
     }
-    const bool ctrl_raw = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-    const bool alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
-    const bool control = ctrl_raw && !alt, shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    const bool ctrl_raw = application_control_down(), alt = application_alt_down();
+    const bool control = ctrl_raw && !alt, shift = application_shift_down();
     if (kind == UiInputKind::key_up) return true;
     if (kind == UiInputKind::key_down && key == VK_ESCAPE) { g_app.message_forward_held_key = key; application_message_forward_close(); return true; }
     if (kind == UiInputKind::key_down && key == VK_TAB) {
@@ -437,14 +437,13 @@ bool application_message_forward_window_message(UINT message, WPARAM wparam, LPA
     if (message == WM_CONTEXTMENU || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP ||
         message == WM_MBUTTONDOWN || message == WM_MBUTTONUP || message == WM_LBUTTONDBLCLK || message == WM_MOUSEHWHEEL) return true;
     if (message != WM_LBUTTONDOWN && message != WM_LBUTTONUP && message != WM_MOUSEMOVE && message != WM_MOUSEWHEEL) return false;
-    POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-    if (message == WM_MOUSEWHEEL) application_screen_to_content(&point);
-    const float scale = 96.f / maximum(1u, g_app.renderer.dpi), x = point.x * scale, y = point.y * scale;
     if (message == WM_MOUSEWHEEL) {
         ui_message_forward_scene_scroll(&q->scene, q->scene.scroll_dips -
             static_cast<short>(HIWORD(wparam)) / static_cast<float>(WHEEL_DELTA) * kUiMessageForwardRowHeight * 3);
         application_request_frame(); return true;
     }
+    const POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
+    const float scale = 96.f / g_app.renderer.dpi, x = point.x * scale, y = point.y * scale;
     if (message == WM_MOUSEMOVE) {
         if (q->dragging && (wparam & MK_LBUTTON)) pointer_edit(*q, x, y, true);
         else { bool changed = false; ui_message_forward_scene_set_hover(&q->scene, x, y, &changed); if (changed) application_request_frame(); }
@@ -455,7 +454,7 @@ bool application_message_forward_window_message(UINT message, WPARAM wparam, LPA
         g_app.message_forward_pointer_tail = false;
         q->pressed = hit; q->captured = true;
         q->dragging = !q->controller.committed && (hit.action == UiMessageForwardAction::edit || hit.action == UiMessageForwardAction::caption);
-        if (q->dragging) { focus_field(*q, hit.action == UiMessageForwardAction::caption); pointer_edit(*q, x, y, (GetKeyState(VK_SHIFT) & 0x8000) != 0); }
+        if (q->dragging) { focus_field(*q, hit.action == UiMessageForwardAction::caption); pointer_edit(*q, x, y, (wparam & MK_SHIFT) != 0); }
         if (g_app.window) SetCapture(g_app.window);
         return true;
     }
@@ -466,7 +465,7 @@ bool application_message_forward_window_message(UINT message, WPARAM wparam, LPA
     return true;
 }
 u64 application_message_forward_caret_wake() noexcept {
-    return application_message_forward_edit_focused() && GetFocus() == g_app.window ? g_app.message_forward->blink_at : 0;
+    return application_message_forward_edit_focused() && application_window_keyboard_focus() ? g_app.message_forward->blink_at : 0;
 }
 void application_message_forward_tick(u64 now) noexcept {
     auto* q = g_app.message_forward;

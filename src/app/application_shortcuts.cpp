@@ -1,5 +1,6 @@
 #include "application_shortcuts.hpp"
 #include "application_state.hpp"
+#include "application_window_state.hpp"
 #include "application_account_presentation.hpp"
 #include "application_attachments.hpp"
 #include "application_composer.hpp"
@@ -31,6 +32,7 @@
 namespace maicord::app_detail {
 namespace {
 constexpr u8 kModifierOrder[]{shortcut_ctrl, shortcut_alt, shortcut_shift};
+constexpr u32 kModifiersUnread = ~0u;
 constexpr u32 kKeyBytes = 24, kQueryBytes = 64;
 struct Overlay {
     UiShortcutsScene scene;
@@ -71,13 +73,16 @@ bool run_custom(CustomKeybindAction action) noexcept {
     default: return false; // Push to talk is held by the capture thread.
     }
 }
-bool chord_down(ShortcutChord chord) noexcept {
+// Whether the chord is held. The modifier keys are read on the first held
+// key and shared by the chords checked after it in the same pump.
+bool chord_down(ShortcutChord chord, u32* held) noexcept {
     if (!chord.key || !(GetAsyncKeyState(chord.key) & 0x8000))
         return false;
-    const u8 held = static_cast<u8>(((GetAsyncKeyState(VK_CONTROL) & 0x8000) ? shortcut_ctrl : 0) |
-                                    ((GetAsyncKeyState(VK_MENU) & 0x8000) ? shortcut_alt : 0) |
-                                    ((GetAsyncKeyState(VK_SHIFT) & 0x8000) ? shortcut_shift : 0));
-    return held == chord.modifiers;
+    if (*held == kModifiersUnread)
+        *held = ((GetAsyncKeyState(VK_CONTROL) & 0x8000) ? shortcut_ctrl : 0) |
+                ((GetAsyncKeyState(VK_MENU) & 0x8000) ? shortcut_alt : 0) |
+                ((GetAsyncKeyState(VK_SHIFT) & 0x8000) ? shortcut_shift : 0);
+    return *held == chord.modifiers;
 }
 
 // Overlay content from the registry listing and the current query.
@@ -265,7 +270,7 @@ bool application_custom_keybind_input(UiInputKind kind, u32 code, bool repeated)
 void application_shortcuts_pump() noexcept {
     application_plugins_keybinds_synchronize();
     const auto& keybinds = application_custom_keybinds();
-    const bool background = g_app.window && GetForegroundWindow() != g_app.window;
+    const bool background = g_app.window && !application_window_foreground();
     if (!background || !keybinds.count || !in_call()) {
         global.armed = false;
         return;
@@ -275,8 +280,9 @@ void application_shortcuts_pump() noexcept {
     const bool rebase = !global.armed || global.revision != revision;
     global.armed = true;
     global.revision = revision;
+    u32 held = kModifiersUnread;
     for (u32 i = 0; i < keybinds.count; ++i) {
-        const bool down = chord_down(keybinds.items[i].chord);
+        const bool down = chord_down(keybinds.items[i].chord, &held);
         if (down && !global.down[i] && !rebase)
             run_custom(keybinds.items[i].action);
         global.down[i] = down;

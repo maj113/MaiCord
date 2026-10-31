@@ -1,3 +1,4 @@
+#include "application_overlay_input.hpp"
 #include "application_poll.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_cursor.hpp"
@@ -218,8 +219,8 @@ void clear_capture() noexcept {
     reset_value(&owner->pressed);
     ui_poll_voters_scene_pointer(&owner->scene, UiPollPointerEvent::cancel, {});
     ui_poll_scene_pointer(&owner->card, UiPollPointerEvent::cancel, {});
-    if (captured && GetCapture() == g_app.window)
-        ReleaseCapture();
+    if (captured)
+        application_release_capture();
 }
 bool needs_reconcile(u64 id) noexcept {
     if (!owner || owner->source_checked)
@@ -1361,7 +1362,7 @@ bool application_poll_input(UiInputKind kind, u32 code, bool repeated) noexcept 
     if (code == VK_RETURN || code == VK_SPACE)
         key = UiPollKey::activate;
     else if (code == VK_TAB || code == VK_DOWN || code == VK_RIGHT)
-        key = code == VK_TAB && (GetKeyState(VK_SHIFT) & 0x8000) ? UiPollKey::previous : UiPollKey::next;
+        key = code == VK_TAB && application_shift_down() ? UiPollKey::previous : UiPollKey::next;
     else if (code == VK_UP || code == VK_LEFT)
         key = UiPollKey::previous;
     else if (code == VK_HOME)
@@ -1426,6 +1427,9 @@ bool application_poll_window_message(UINT message, WPARAM wparam, LPARAM lparam)
         clear_capture();
         return false;
     }
+    if ((message < WM_MOUSEFIRST || message > WM_MOUSELAST) && message != WM_SETCURSOR && message != WM_MOUSELEAVE &&
+        message != WM_CONTEXTMENU && message != WM_DROPFILES)
+        return false;
     if (!front())
         return false;
     const bool voters = application_poll_voters_active();

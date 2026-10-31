@@ -1,6 +1,7 @@
 #include "maicord/core/memory.hpp"
 #include "application_caption.hpp"
 #include "application_state.hpp"
+#include "application_window_state.hpp"
 #include "application_account_presentation.hpp"
 #include "application_settings.hpp"
 #include "application_friends.hpp"
@@ -60,14 +61,14 @@ bool content_available() noexcept {
            !g_app.text_form && !g_app.popup_scene.active && !g_app.reaction_viewer.active &&
            !g_app.image_viewer.scene.active &&
            !(g_app.renderer.profile_scene && g_app.renderer.profile_scene->active) &&
-           !application_friends_requests_active() && !IsIconic(g_app.window);
+           !application_friends_requests_active() && !application_window_minimized();
 }
 // The media viewer owns the window while open; only its toolbar and chevrons
 // offer tooltips, and not while idle playback hides them.
 bool viewer_available() noexcept {
     const auto& viewer = g_app.image_viewer;
     return g_app.renderer_ready && viewer.scene.active && !viewer.closing && viewer.scene.chrome >= 1 &&
-           !IsIconic(g_app.window);
+           !application_window_minimized();
 }
 bool widget_target(const UiWidgetManager& manager, UiWidgetHandle handle, u64 scope, u64 identity,
                    u64 revision, u32 action, const Utf8View& label, UiTooltipTarget* target) noexcept {
@@ -574,7 +575,7 @@ bool viewer_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* tar
 bool profile_available() noexcept {
     const auto* scene = g_app.renderer.profile_scene;
     return g_app.renderer_ready && scene && scene->active && !g_app.popup_scene.active && !g_app.text_form &&
-           !IsIconic(g_app.window);
+           !application_window_minimized();
 }
 // Profile badges show after Discord's 300 ms, and at once when moving
 // from one badge to the next.
@@ -622,7 +623,7 @@ bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target, UiToo
                profile_hint_target(*g_app.renderer.profile_scene, point, keyboard, scope, 0x5800u, target);
     // The command picker's rail entries name their sections at the right.
     if (g_app.popup_scene.active && g_app.popup_owner_kind == PopupOwnerKind::commands)
-        return g_app.renderer_ready && scope && GetCapture() != g_app.window && !IsIconic(g_app.window) &&
+        return g_app.renderer_ready && scope && GetCapture() != g_app.window && !application_window_minimized() &&
                command_rail_target(point, keyboard, scope, target);
     // Check current host ownership before touching any old scene descriptor.
     if (!content_available() || GetCapture() == g_app.window)
@@ -901,9 +902,5 @@ void application_tooltip_input(UINT message, WPARAM wparam, LPARAM lparam) noexc
         application_request_frame();
     }
     refresh(*owner, clock_monotonic_milliseconds());
-    if (pointer && owner->scene.pending) {
-        TRACKMOUSEEVENT tracking{static_cast<DWORD>(sizeof(TRACKMOUSEEVENT)), TME_LEAVE, g_app.window, 0};
-        TrackMouseEvent(&tracking);
-    }
 }
 } // namespace maicord::app_detail
