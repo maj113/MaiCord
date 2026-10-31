@@ -754,6 +754,39 @@ void builtin_cases() noexcept {
                   application_commands_key(VK_RETURN) &&
                   utf8_equal(message_composer_text(composer), utf8_literal("||ending||")),
               "/spoiler marks the message as a spoiler");
+        // The ordinary send path first rewrites the client's legacy text commands, then runs the selected
+        // built-in: both must take the option's value, never "message:" or the chip's end marker.
+        const auto sent_as = [&](Utf8View name, Utf8View typed, bool legacy, Utf8View expected) noexcept {
+            bool prepared = true, ran = true;
+            edit({}); // A command left selected by the previous case ends with its draft.
+            if (!pick(name, typed) || !application_composer_prepare_send(&prepared) || prepared)
+                return false;
+            const auto drafted = message_composer_text(composer);
+            const bool rewritten = drafted.bytes && drafted.data[0] != '/';
+            return rewritten == legacy && application_commands_send(&ran) && !ran &&
+                   utf8_equal(message_composer_text(composer), expected);
+        };
+        check(sent_as(utf8_literal("/me"), utf8_literal("/me message:test"), true, utf8_literal("_test_")),
+              "/me sends the typed value in emphasis, without its option name or end marker");
+        check(sent_as(utf8_literal("/me"), utf8_literal("/me message:snake_case *x*"), true,
+                      utf8_literal("_snake_case *x*_")),
+              "/me wraps the value as typed, escaping nothing, like the client");
+        check(sent_as(utf8_literal("/shrug"), utf8_literal("/shrug message:hi"), true,
+                      utf8_literal("hi \xC2\xAF\\_(\xE3\x83\x84)_/\xC2\xAF")),
+              "/shrug sends the value then the face unescaped");
+        check(sent_as(utf8_literal("/shrug"), utf8_literal("/shrug"), true,
+                      utf8_literal("\xC2\xAF\\_(\xE3\x83\x84)_/\xC2\xAF")),
+              "/shrug without a value sends the face alone");
+        check(sent_as(utf8_literal("/tableflip"), utf8_literal("/tableflip message:rage"), true,
+                      utf8_literal("rage (\xE2\x95\xAF\xC2\xB0\xE2\x96\xA1\xC2\xB0)\xE2\x95\xAF\xEF\xB8\xB5 "
+                                   "\xE2\x94\xBB\xE2\x94\x81\xE2\x94\xBB")),
+              "/tableflip sends the value then the table flip");
+        check(sent_as(utf8_literal("/unflip"), utf8_literal("/unflip message:calm"), true,
+                      utf8_literal("calm \xE2\x94\xAC\xE2\x94\x80\xE2\x94\xAC\xE3\x83\x8E( \xC2\xBA _ \xC2\xBA\xE3\x83\x8E)")),
+              "/unflip sends the value then the restored table");
+        check(sent_as(utf8_literal("/spoiler"), utf8_literal("/spoiler message:ending"), false,
+                      utf8_literal("||ending||")),
+              "/spoiler sends the value between spoiler markers on the ordinary send path");
         check(pick(utf8_literal("/gif"), utf8_literal("/gif query:cats")) && searches &&
                   searched_kind == UiMediaPickerKind::gif && utf8_equal({searched, searched_bytes}, utf8_literal("cats")) &&
                   application_commands_key(VK_RETURN) &&
@@ -792,12 +825,18 @@ void builtin_cases() noexcept {
               "the thread's first message waits for the thread channel");
         thread_sendable = true;
         u64 thread_message = 0;
+        Utf8View thread_text{};
         if (application_commands_tick(clock_monotonic_milliseconds()))
             for (const auto& request : ui.message_composer_controller.requests)
-                if (request.occupied && request.channel_id == 777)
+                if (request.occupied && request.channel_id == 777) {
                     thread_message = request.nonce;
-        check(thread_message && ui.message_composer_controller.request_count == requests_before + 1,
-              "the first message is sent into the new thread once it arrives");
+                    thread_text = {reinterpret_cast<const char*>(ui.message_composer_controller.request_text) +
+                                       request.text_offset,
+                                   request.text_bytes};
+                }
+        check(thread_message && ui.message_composer_controller.request_count == requests_before + 1 &&
+                  utf8_equal(thread_text, utf8_literal("first")),
+              "the first message is sent into the new thread once it arrives, as typed");
         message_composer_controller_cancel_unsent(&ui.message_composer_controller, thread_message);
         thread_sendable = false;
         const u32 before_kick = calls;

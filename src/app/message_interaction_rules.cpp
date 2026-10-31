@@ -4,6 +4,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/protocol/application_commands.hpp"
 
 namespace maicord {
 namespace {
@@ -39,6 +40,22 @@ bool command_argument(Utf8View text, Utf8View command, Utf8View* argument) noexc
         return false;
     *argument = trim({text.data + command.bytes, text.bytes - command.bytes});
     return true;
+}
+
+// The text a command takes from its argument. The composer's command bar writes
+// the argument as the "message:" option, its value ended by kCommandOptionEnd
+// (text after the end belongs to no option); that value is the text, not the
+// key or the marker. Anything else is the plain text typed after the command.
+Utf8View message_text(Utf8View argument) noexcept {
+    constexpr Utf8View key = utf8_literal("message:");
+    if (!utf8_starts_with(argument, key))
+        return argument;
+    u32 end = key.bytes;
+    while (end < argument.bytes &&
+           !utf8_starts_with({argument.data + end, argument.bytes - end},
+                             Utf8View{kCommandOptionEnd, kCommandOptionEndBytes}))
+        ++end;
+    return trim({argument.data + key.bytes, end - key.bytes});
 }
 
 float smooth(float t) noexcept {
@@ -78,6 +95,7 @@ ComposerTextCommand composer_text_command_parse(Utf8View raw, Slice<char> output
     for (const auto& rewrite : rewrites) {
         if (!command_argument(text, rewrite.name, &argument))
             continue;
+        argument = message_text(argument);
         Writer writer{output, 0, output.data != nullptr};
         if (argument.bytes) {
             writer.append(argument);
@@ -89,6 +107,7 @@ ComposerTextCommand composer_text_command_parse(Utf8View raw, Slice<char> output
         return command;
     }
     if (command_argument(text, utf8_literal("/me"), &argument)) {
+        argument = message_text(argument);
         Writer writer{output, 0, output.data != nullptr};
         writer.append(utf8_literal("_"));
         writer.append(argument);

@@ -41,6 +41,29 @@ void test_text_commands(Check check) noexcept {
           "text_command_requires_exact_leading_command_and_me_argument");
     check(composer_text_command_parse(utf8_literal("/shrug x"), {out, 4}).kind == ComposerTextCommandKind::none,
           "text_command_rewrite_refuses_overflow");
+    // The command bar writes the argument as the "message:" option ended by U+2063; the text is its value.
+    c = composer_text_command_parse(utf8_literal("/me message:test\xE2\x81\xA3"), output);
+    check(c.kind == ComposerTextCommandKind::rewrite && text_is(out, c.bytes, utf8_literal("_test_")),
+          "text_command_me_takes_the_option_value_not_its_key_or_end");
+    c = composer_text_command_parse(utf8_literal("/me message:a_b *c* \xE2\x81\xA3 \xE2\x81\xA3tail"), output);
+    check(c.kind == ComposerTextCommandKind::rewrite && text_is(out, c.bytes, utf8_literal("_a_b *c*_")),
+          "text_command_me_value_ends_at_its_end_marker_and_is_not_escaped");
+    c = composer_text_command_parse(utf8_literal("/me message:"), output);
+    check(c.kind == ComposerTextCommandKind::none, "text_command_me_needs_a_value");
+    c = composer_text_command_parse(utf8_literal("/shrug message:hi\xE2\x81\xA3"), output);
+    check(c.kind == ComposerTextCommandKind::rewrite &&
+              text_is(out, c.bytes, utf8_literal("hi \xC2\xAF\\_(\xE3\x83\x84)_/\xC2\xAF")),
+          "text_command_shrug_takes_the_option_value");
+    c = composer_text_command_parse(utf8_literal("/shrug message:\xE2\x81\xA3"), output);
+    check(c.kind == ComposerTextCommandKind::rewrite &&
+              text_is(out, c.bytes, utf8_literal("\xC2\xAF\\_(\xE3\x83\x84)_/\xC2\xAF")),
+          "text_command_shrug_with_an_empty_value_is_the_bare_face");
+    c = composer_text_command_parse(utf8_literal("/tableflip message:rage\xE2\x81\xA3"), output);
+    check(c.kind == ComposerTextCommandKind::rewrite && c.bytes > 5 && text_is(out, 5, utf8_literal("rage ")),
+          "text_command_tableflip_takes_the_option_value");
+    c = composer_text_command_parse(utf8_literal("/unflip message:calm\xE2\x81\xA3"), output);
+    check(c.kind == ComposerTextCommandKind::rewrite && c.bytes > 5 && text_is(out, 5, utf8_literal("calm ")),
+          "text_command_unflip_takes_the_option_value");
     c = composer_text_command_parse(utf8_literal("+:thumbsup:"), output);
     check(c.kind == ComposerTextCommandKind::react && utf8_equal(c.emoji, utf8_literal("thumbsup")),
           "text_command_plus_emoji_reacts");
