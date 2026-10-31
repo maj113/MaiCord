@@ -1037,7 +1037,7 @@ bool paint_tabs(const UiSearchScene& s, const Theme& theme, PaintStream* out) no
     if (!s.content->tabs)
         return true;
     const auto p = s.panel;
-    if (!paint_stream_push(out, p.left + 8, p.top + 115, p.right - 8, p.top + 116, theme.surface_high))
+    if (!paint_stream_push(out, p.left + 8, p.top + 115, p.right - 8, p.top + 116, ui_separator_color(theme)))
         return false;
     for (u32 i = 0; i < 5; ++i) {
         const auto r = bounds(s, s.tabs[i]);
@@ -2090,7 +2090,7 @@ bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStre
             }
         if (!paint_stream_pop_clip(out) || !rows_ok)
             return false;
-        if (!paint_stream_push(out, p.left, p.bottom - 44, p.right, p.bottom - 43, theme.surface_high))
+        if (!paint_stream_push(out, p.left, p.bottom - 44, p.right, p.bottom - 43, ui_separator_color(theme)))
             return false;
     }
     if (s.content->sort_menu &&

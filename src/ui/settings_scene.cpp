@@ -2488,7 +2488,7 @@ bool paint_list_row(const UiSettingsScene& scene, const Theme& theme, const UiSe
     // Rows of one list are divided by hairlines inside their content edges.
     if (ok && list_style(scene.content, index + 1, UiSettingsListStyle::row))
         ok = paint_stream_push(paint, parts.content.left, r.row.bottom - 1, parts.content.right, r.row.bottom,
-                               tc.border_subtle);
+                               tc.separator);
     return ok;
 }
 
@@ -2581,11 +2581,11 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
     const u32 next = entry.source_index + 1;
     if (ok && !scene.content.sectioned && field_row(c.kind) && next < scene.content.controls.count &&
         field_row(scene.content.controls[next].kind))
-        ok = paint_stream_push(paint, r.row.left, r.row.bottom - 1, r.row.right, r.row.bottom, tc.border_subtle);
+        ok = paint_stream_push(paint, r.row.left, r.row.bottom - 1, r.row.right, r.row.bottom, tc.separator);
     if (ok && scene.content.sectioned && c.kind != UiSettingsControlKind::tabs &&
         section_trailing(scene.content, entry.source_index) > 0) {
         const float y = r.row.bottom - kSectionGap - 1;
-        ok = paint_stream_push(paint, r.row.left, y, r.row.right, y + 1, tc.border_subtle);
+        ok = paint_stream_push(paint, r.row.left, y, r.row.right, y + 1, tc.separator);
     }
     if (!ok)
         return false;
@@ -2615,7 +2615,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         // The brand tab bar: a hairline under every tab and a 2 DIP
         // brand underline under the active one.
         ok = paint_stream_push(paint, r.control.left, r.control.bottom - 1, r.control.right, r.control.bottom,
-                               tc.border_subtle);
+                               tc.separator);
         const auto tab = option_rect(t, c, r.control, c.selected_choice);
         if (ok && c.selected_choice < c.choices.count && ui_rect_has_area(tab))
             ok = paint_stream_push_rounded(paint, tab.left, r.control.bottom - 2, tab.right, r.control.bottom,

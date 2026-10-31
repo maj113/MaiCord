@@ -121,6 +121,13 @@ inline Color ui_background_hover_color(const Theme& theme, Color color, float op
 inline Color ui_background_line_color(const Theme& theme) noexcept {
     return ui_background_hover_color(theme, theme.interactive_hover, 1);
 }
+// Hairline separators (a rule between a header and its content, between list
+// rows, in a rail or a menu): the subtle border token on flat themes, and on a
+// background theme the reply spine's tint so the line reads against the
+// gradient. Every separator takes its colour from here.
+inline Color ui_separator_color(const Theme& theme) noexcept {
+    return ui_background_active(theme) ? ui_background_line_color(theme) : theme.tokens.border.subtle;
+}
 inline Color ui_background_muted_text_color(const Theme& theme) noexcept {
     return theme.text_secondary;
 }

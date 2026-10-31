@@ -376,7 +376,8 @@ bool ui_quick_switcher_scene_paint(const UiQuickSwitcherScene& s, const Theme& t
     if (body_clip) ok = paint_stream_pop_clip(out) && ok;
     if (ok) ok = ui_scrollbar_paint(out, ui_scrollbar_geometry(s.body, s.scroll_dips,
         s.accepted_count * kUiQuickSwitcherRowHeight), theme) &&
-        paint_stream_push(out, s.panel.left + 16, s.footer.top - 4, s.panel.right - 16, s.footer.top - 3, theme.surface_high);
+        paint_stream_push(out, s.panel.left + 16, s.footer.top - 4, s.panel.right - 16, s.footer.top - 3,
+                          ui_separator_color(theme));
     if (ok && s.content->picker) {
         const bool enabled = s.content->can_confirm;
         const bool emphasis = ui_widget_handle_matches(s.widgets.hovered, s.confirm) || ui_widget_handle_matches(s.widgets.focused, s.confirm);

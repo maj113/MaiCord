@@ -16,6 +16,9 @@ struct UiSettingsColors {
     // Selected navigation rows/tabs: mod_strong on flat themes, the emphasis
     // selected tint on gradient themes (accent treatment).
     Color nav_selected;
+    // Hairlines between rows, sections and tabs: border_subtle unless the
+    // theme paints a background, where they take the shared separator tint.
+    Color separator;
 };
 
 struct UiSettingsMetrics {

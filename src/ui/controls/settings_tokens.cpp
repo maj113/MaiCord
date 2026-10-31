@@ -151,6 +151,7 @@ void ui_settings_fill_tokens(const Theme& theme, UiSettingsTokens* output) noexc
     c.modal_background = pick(s.modal_background, light ? theme.surface : theme.base_low);
     c.sidebar_background = pick(s.sidebar_background, theme.base_lower);
     c.nav_selected = ui_background_active(theme) ? theme.tokens.emphasis.selected : c.mod_strong;
+    c.separator = !s.border_subtle && ui_background_active(theme) ? ui_separator_color(theme) : c.border_subtle;
 
     set_layout_tokens(t, s, theme.scale.space_1, theme.styles);
 }

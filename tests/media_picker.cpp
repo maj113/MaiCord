@@ -685,9 +685,21 @@ void test_picker_style(void (*check)(bool, const char*) noexcept) noexcept {
     check(themed_panel && panel_material && paint.clip_depth == 1,
           "media picker style: window inherits opaque global gradient with palette border alongside search "
           "field");
+    const Color gradient_line = ui_separator_color(gradient), flat_line = ui_separator_color(kDefaultTheme);
     check(themed_panel && band_materials == 1u + ui_rect_has_area(scene.footer) && !opaque_bands,
           "media picker style: the category rail and preview bar take the gradient on the lower tier instead "
           "of a flat plate");
+    // The rule under the search field takes the shared separator colour: the spine's tint on a gradient.
+    bool header_rule = false;
+    for (u32 i = 0; themed_panel && i < paint.count; ++i) {
+        const auto& q = paint.quads[i];
+        header_rule = header_rule || (q.left == scene.panel.left && q.right == scene.panel.right &&
+                                      q.top == scene.body.top - 1 && q.bottom == scene.body.top &&
+                                      bytes_equal(&q.fill, &gradient_line, sizeof(Color)));
+    }
+    check(header_rule && !bytes_equal(&gradient_line, &kDefaultTheme.tokens.border.subtle, sizeof(Color)) &&
+              bytes_equal(&flat_line, &kDefaultTheme.tokens.border.subtle, sizeof(Color)),
+          "media picker style: separators use the themed line colour on a gradient and the subtle border on flat themes");
     paint_stream_release(&paint);
     const u32 before_scroll = fixture.calls;
     check(ui_media_picker_scene_scroll(&scene, scene.cell_pitch * 3 + 17) &&

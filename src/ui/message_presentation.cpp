@@ -773,7 +773,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             if (component.flags & gateway_message_component_divider) {
                 const float y = (control.top + control.bottom) * 0.5f;
                 const UiRect line{control.left, y - 0.5f, control.right, y + 0.5f};
-                if (!paint_stream_push(paint, line, theme.tokens.border.strong))
+                if (!paint_stream_push(paint, line, ui_separator_color(theme)))
                     return false;
             }
             break;

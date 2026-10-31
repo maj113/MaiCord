@@ -380,7 +380,7 @@ bool shell_presentation_paint_reply_mention(const MessageComposerScene& scene, c
     const float middle = (icon.top + icon.bottom) * .5f;
     return ui_icon_paint(stream, UiIcon::mention, icon,
                          scene.mention_reply_author ? theme.tokens.text.link : theme.tokens.text.muted) &&
-           paint_stream_push(stream, divider, middle - 10, divider + 1, middle + 10, theme.tokens.border.subtle);
+           paint_stream_push(stream, divider, middle - 10, divider + 1, middle + 10, ui_separator_color(theme));
 }
 
 bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView* navigation,
@@ -451,7 +451,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
     const float separator_top = home->rectangle.bottom + kUiGuildRailGap;
     if (!paint_stream_push_rounded(stream, separator_center - kUiGuildRailSeparatorWidth * .5f, separator_top,
                                    separator_center + kUiGuildRailSeparatorWidth * .5f,
-                                   separator_top + kUiGuildRailSeparatorHeight, theme.tokens.border.subtle,
+                                   separator_top + kUiGuildRailSeparatorHeight, ui_separator_color(theme),
                                    theme.scale.radius_xs * .5f))
         return false;
     // Friend and message requests badge Home, cut out of the rail like a server badge.
@@ -685,7 +685,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                     if (row.type == kNavigationEventsRowType && index + 1 < channel_scene->count) {
                         const float line = row_rectangle.bottom - 1.0f;
                         if (!paint_stream_push(stream, row_rectangle.left + kShellCategoryNameLeft, line,
-                                               row_rectangle.right - 3.0f, line + 1.0f, theme.tokens.border.subtle))
+                                               row_rectangle.right - 3.0f, line + 1.0f, ui_separator_color(theme)))
                             return false;
                     }
                     if (row.mention_count != 0 &&
@@ -1143,7 +1143,7 @@ bool shell_presentation_build_guild_banner_overlay(const UiScene& scene, const N
         !paint_stream_push_gradient(stream, {bar.left, bar.top, bar.right, bar.bottom + 4}, shade, clear))
         return false;
     // Header glass: its 1 DIP lower edge comes in with the glass.
-    Color edge = theme.tokens.border.subtle;
+    Color edge = ui_separator_color(theme);
     edge.alpha *= banner.glass;
     if (edge.alpha > 0 && !paint_stream_push(stream, bar.left, bar.bottom, bar.right, bar.bottom + 1, edge))
         return false;

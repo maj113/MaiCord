@@ -344,6 +344,9 @@ inline bool unified_picker_ui_probe(D3D11Renderer& renderer,
         sections[i] = {i + 1ull, i * 10, 10, utf8_literal("Original Emoji"), true};
         sections[i].visual = static_cast<UiMediaPickerSectionVisual>(1 + i % 10);
     }
+    // A server entry before the stock categories: the rail draws its separator after it.
+    sections[1].visual = UiMediaPickerSectionVisual::guild;
+    sections[1].guild_id = 77;
     UiMediaPickerSource source{&fixture, 0x71, 1, 200, 1, {sections, 20}, resolve};
     UiMediaPickerContent content{};
     content.account_scope = source.account_scope;

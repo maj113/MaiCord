@@ -305,7 +305,7 @@ bool paint_picker_item(const PopupScene& scene, u32 index, const PopupItemLayout
                                  ui_menu_row_icon(scene.items[index - 1].presentation) == UiIcon::recent;
         if ((item.flags & popup_item_separator_before) && !after_clock)
             ok = paint_stream_push(paint, r.left, r.top - kCommandRailDivider * .5f, r.right,
-                                   r.top - kCommandRailDivider * .5f + 1, theme.tokens.border.subtle);
+                                   r.top - kCommandRailDivider * .5f + 1, ui_separator_color(theme));
         // The selected entry is background-base-low, the low tier's gradient
         // material on background themes; hover is the translucent hover token.
         const bool active = (item.flags & popup_item_checked) != 0;
@@ -365,7 +365,7 @@ bool paint_picker_item(const PopupScene& scene, u32 index, const PopupItemLayout
         if (ok && row.optional.bytes && ui_rect_has_area(row.optional_rectangle))
             ok = paint_stream_push(paint, row.divider, (row.title.top + row.title.bottom - kPickerChipHeight) * .5f,
                                    row.divider + 1, (row.title.top + row.title.bottom + kPickerChipHeight) * .5f,
-                                   theme.tokens.border.subtle);
+                                   ui_separator_color(theme));
     }
     return paint_stream_pop_clip(paint) && ok;
 }
@@ -549,7 +549,7 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
     const auto feedback = popup_feedback_rectangle(scene);
     if (ui_rect_has_area(feedback))
         success = paint_stream_push(paint, feedback.left, feedback.top, feedback.right, feedback.top + 1,
-                                    theme.surface_high) &&
+                                    ui_separator_color(theme)) &&
                   success;
     if (const UiRect track = popup_feedback_slider(scene); ui_rect_has_area(track)) {
         const UiSettingsThemeTokens tokens(theme);

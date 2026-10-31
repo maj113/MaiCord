@@ -313,8 +313,10 @@ bool ui_pinned_messages_scene_paint(const UiPinnedMessagesScene& s, const Theme&
     if (!out || !ui_surface_shadow_paint_isolated(out, s.panel, theme, UiElevation::popover, 0) ||
         !paint_stream_push_clip(out, s.panel)) return false;
     bool ok = ui_surface_paint_plate(out, s.panel, theme, UiElevation::popover, 0, nullptr, &theme.surface_high) &&
-        paint_stream_push(out, ui_rect_edges(s.header, ui_start(0), ui_end(-1), ui_end(0), ui_end(0)), theme.surface_high) &&
-        paint_stream_push(out, ui_rect_edges(s.footer, ui_start(0), ui_start(0), ui_end(0), ui_start(1)), theme.surface_high) &&
+        paint_stream_push(out, ui_rect_edges(s.header, ui_start(0), ui_end(-1), ui_end(0), ui_end(0)),
+                          ui_separator_color(theme)) &&
+        paint_stream_push(out, ui_rect_edges(s.footer, ui_start(0), ui_start(0), ui_end(0), ui_start(1)),
+                          ui_separator_color(theme)) &&
         ui_icon_paint(out, UiIcon::pin, ui_rect_edges(s.panel, ui_start(12), ui_start(16), ui_start(36), ui_start(40)), theme.text_secondary);
     const UiWidgetHandle header_buttons[]{s.refresh, s.close};
     for (u32 i = 0; ok && i < 2; ++i) {
@@ -339,7 +341,8 @@ bool ui_pinned_messages_scene_paint(const UiPinnedMessagesScene& s, const Theme&
                     paint_stream_push_rounded(out, ui_rect_edges(avatar, ui_start(6), ui_start(16), ui_end(-6), ui_end(-4)),
                                               theme.text_secondary, 6);
             const float action_top = r.bottom - 38;
-            ok = ok && paint_stream_push(out, r.left + 12, action_top - 3, r.right - 12, action_top - 2, theme.surface_high) &&
+            ok = ok && paint_stream_push(out, r.left + 12, action_top - 3, r.right - 12, action_top - 2,
+                                         ui_separator_color(theme)) &&
                 ui_icon_paint(out, UiIcon::reply, {r.left + 12, action_top + 5, r.left + 30, action_top + 23},
                               s.visible[i].jump_enabled ? theme.tokens.emphasis.outline : theme.interactive);
             if (s.visible[i].can_unpin) {

@@ -1392,8 +1392,10 @@ bool command_picker_pixels(BackgroundThemeProbeContext c) noexcept {
             popup_scene_release(&picker);
         }
     } restore{r, picker, r.popup_scene};
+    // An app section between Frequently Used and Built-in, so the rail draws its separator.
     PopupItem items[]{
         {utf8_literal("Frequently Used"), 200000, popup_item_enabled | popup_item_command_category},
+        {utf8_literal("Test app"), 200002, popup_item_enabled | popup_item_command_category},
         {utf8_literal("Built-in"), 200001,
          popup_item_enabled | popup_item_command_category | popup_item_separator_before | popup_item_checked},
         {utf8_literal("Frequently Used"), 600000, popup_item_command_section},
@@ -1401,15 +1403,16 @@ bool command_picker_pixels(BackgroundThemeProbeContext c) noexcept {
         {utf8_literal("/shrug"), 100001, popup_item_enabled | popup_item_command_row},
         {utf8_literal("Built-in"), 600001, popup_item_command_section},
         {utf8_literal("/ban"), 100002, popup_item_enabled | popup_item_command_row}};
-    items[0].presentation = items[2].presentation = ui_menu_row_presentation(UiIcon::recent);
-    items[1].presentation = items[5].presentation = ui_menu_row_presentation(UiIcon::command);
-    items[3].detail = utf8_literal("Search Animated GIFs on the Web\x1F" "Built-in\x1Fquery");
-    items[4].detail = utf8_literal("Appends \xC2\xAF\\_(\xE3\x83\x84)_/\xC2\xAF to your message.\x1F" "Built-in\x1F");
-    items[6].detail = utf8_literal("Ban user\x1F" "Built-in\x1Fuser");
+    items[0].presentation = items[3].presentation = ui_menu_row_presentation(UiIcon::recent);
+    items[1].presentation = ui_menu_row_presentation(UiIcon::link);
+    items[2].presentation = items[6].presentation = ui_menu_row_presentation(UiIcon::command);
+    items[4].detail = utf8_literal("Search Animated GIFs on the Web\x1F" "Built-in\x1Fquery");
+    items[5].detail = utf8_literal("Appends \xC2\xAF\\_(\xE3\x83\x84)_/\xC2\xAF to your message.\x1F" "Built-in\x1F");
+    items[7].detail = utf8_literal("Ban user\x1F" "Built-in\x1Fuser");
     const UiRect viewport{0, 0, static_cast<float>(r.width) * 96.f / r.dpi,
                           static_cast<float>(r.height) * 96.f / r.dpi};
     if (!popup_scene_initialize(&picker, {storage, 8}, {rows, 8}, {widgets, 24}, {nodes, 24}) ||
-        !popup_scene_open(&picker, PopupKind::autocomplete, 77, {items, 7}, surface->rectangle, viewport,
+        !popup_scene_open(&picker, PopupKind::autocomplete, 77, {items, 8}, surface->rectangle, viewport,
                           ui_rect_width(surface->rectangle), true)
              .ok() ||
         !renderer_bind_popup_scene(&r, &picker))

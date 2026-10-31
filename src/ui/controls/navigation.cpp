@@ -46,7 +46,7 @@ bool ui_settings_separator_paint(PaintStream* paint, const UiSettingsTokens& tok
     const float middle = (row.top + row.bottom) * .5f;
     const float inset = tokens.metric.nav_item_padding;
     return paint_stream_push(paint, row.left + inset, middle - .5f, row.right - inset, middle + .5f,
-                             tokens.color.border_subtle);
+                             tokens.color.separator);
 }
 
 bool ui_settings_search_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& field, bool has_text,

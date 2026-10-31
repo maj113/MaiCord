@@ -300,9 +300,9 @@ bool ui_thread_header_paint(const UiThreadHeader& h, const Theme& theme, PaintSt
             false, true, UiButtonSurface::palette);
     if (h.view.status.bytes) ok = ok && paint_stream_push(out, g.rectangle.left,
         g.rectangle.top + h.style.height, g.rectangle.right,
-        g.rectangle.top + h.style.height + 1.f, theme.surface_high);
+        g.rectangle.top + h.style.height + 1.f, ui_separator_color(theme));
     ok = ok && paint_stream_push(out, g.rectangle.left, g.rectangle.bottom - 1.f,
-        g.rectangle.right, g.rectangle.bottom, theme.surface_high);
+        g.rectangle.right, g.rectangle.bottom, ui_separator_color(theme));
     return paint_stream_pop_clip(out) && ok;
 }
 bool ui_thread_header_text(const UiThreadHeader& h, const Theme& theme, UiTextOutput* out) noexcept {

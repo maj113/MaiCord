@@ -1146,8 +1146,7 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
     if (ok && s.active_visible) {
         const auto& r = s.active_rect;
         // A hairline divides the column from the list.
-        ok = paint_stream_push(paint, r.left, r.top, r.left + 1, r.bottom,
-                               ui_background_surface_color(theme, theme.interactive, .30f));
+        ok = paint_stream_push(paint, r.left, r.top, r.left + 1, r.bottom, ui_separator_color(theme));
         const auto toggle = active_toggle_rect(s);
         const bool toggle_hover = s.active_hover == ~0u;
         if (ok && toggle_hover)

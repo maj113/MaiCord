@@ -946,7 +946,7 @@ bool ui_call_scene_paint(const UiCallScene& s, const Theme& theme, PaintStream* 
                              {s.header.left + 16, middle - 10, s.header.left + 36, middle + 10},
                              s.stage_live ? ui_icon_role_color(theme, UiIconRole::success) : theme.text_secondary);
     ok = ok && paint_stream_push(paint, s.header.left, s.header.bottom - 1, s.header.right, s.header.bottom,
-                                 theme.tokens.border.subtle);
+                                 ui_separator_color(theme));
     // Letterbox behind pictures: the opaque media scrim.
     Color black = theme.tokens.overlay.media;
     black.alpha = 1;

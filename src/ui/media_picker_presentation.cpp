@@ -236,7 +236,7 @@ bool ui_media_picker_scene_paint(const UiMediaPickerScene& scene, const Theme& t
                            theme.text_secondary);
     }
     ok = ok && paint_stream_push(paint, panel.left, scene.body.top - 1, panel.right, scene.body.top,
-                                 theme.surface_high);
+                                 ui_separator_color(theme));
     const auto grid = grid_region(scene);
     if (ok)
         ok = paint_stream_push_clip(paint, grid);
@@ -320,7 +320,7 @@ bool ui_media_picker_scene_paint(const UiMediaPickerScene& scene, const Theme& t
             if (following != UiMediaPickerSectionVisual::guild && following != UiMediaPickerSectionVisual::media) {
                 // 12 DIP below the item's 8 DIP spacing; the separator is 1 DIP.
                 const float y = r.bottom + (m.rail_pitch - ui_rect_height(r)) + m.header_gap;
-                ok = paint_stream_push(paint, r.left, y, r.right, y + 1, theme.surface_high);
+                ok = paint_stream_push(paint, r.left, y, r.right, y + 1, ui_separator_color(theme));
             }
         }
         const bool hovered = active_widget(scene, slot.widget);

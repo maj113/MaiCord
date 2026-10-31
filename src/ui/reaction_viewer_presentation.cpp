@@ -42,7 +42,7 @@ bool reaction_viewer_presentation_build(const ReactionViewer& viewer, const Them
     if (success) {
         const float y = viewer.header.bottom;
         success =
-            paint_stream_push(paint, viewer.panel.left, y, viewer.panel.right, y + 1.0f, theme.interactive);
+            paint_stream_push(paint, viewer.panel.left, y, viewer.panel.right, y + 1.0f, ui_separator_color(theme));
     }
     if (!paint_stream_push_clip(paint, viewer.body)) {
         paint_stream_pop_clip(paint);

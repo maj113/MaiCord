@@ -2382,7 +2382,8 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
                                            theme.scale.radius_full);
             break;
         case ProfileLook::rule:
-            ok = paint_stream_push(paint, r, c.border);
+            // A profile's own theme column keeps its border; the application theme's cards take the separator.
+            ok = paint_stream_push(paint, r, s.themed ? c.border : ui_separator_color(theme));
             break;
         case ProfileLook::input:
             ok = paint_stream_push_rounded(paint, r, c.input, theme.scale.radius_md);

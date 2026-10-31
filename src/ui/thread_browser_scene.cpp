@@ -389,7 +389,8 @@ bool ui_thread_browser_scene_paint(const UiThreadBrowserScene& s, const Theme& t
     if (!out || !ui_surface_shadow_paint_isolated(out, s.panel, t, UiElevation::popover, 0) ||
         !paint_stream_push_clip(out, s.panel)) return false;
     bool ok = ui_surface_paint_plate(out, s.panel, t, UiElevation::popover, 0, nullptr, &t.surface_high) &&
-        paint_stream_push(out, ui_rect_edges(s.header, ui_start(0), ui_end(-1), ui_end(0), ui_end(0)), t.surface_high) &&
+        paint_stream_push(out, ui_rect_edges(s.header, ui_start(0), ui_end(-1), ui_end(0), ui_end(0)),
+                          ui_separator_color(t)) &&
         ((!s.create_post.generation || bounds(s, s.create_post).left - s.style.gap >= s.header.left + s.style.inset + 32) ?
             ui_icon_paint(out, UiIcon::thread, {s.header.left + s.style.inset, s.header.top + 10,
                 s.header.left + s.style.inset + 24, s.header.top + 34}, t.text_secondary) : true) &&
@@ -420,7 +421,7 @@ bool ui_thread_browser_scene_paint(const UiThreadBrowserScene& s, const Theme& t
     if (ok && s.forum) ok = ui_forum_channel_paint(s, t, out);
     if (ok) ok = ui_scrollbar_paint(out, ui_scrollbar_geometry(s.body, s.scroll_dips,
         content_height(s)), t) && paint_stream_push(out, ui_rect_edges(s.footer, ui_start(0), ui_start(0), ui_end(0), ui_start(1)),
-            t.surface_high);
+            ui_separator_color(t));
     return paint_stream_pop_clip(out) && ok;
 }
 bool ui_thread_browser_scene_text_output(const UiThreadBrowserScene& s, const Theme& t, UiTextOutput* out) noexcept {

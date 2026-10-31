@@ -387,7 +387,7 @@ bool ui_inbox_scene_paint(const UiInboxScene& s, const Theme& theme, PaintStream
     bool ok = ui_surface_paint_plate(out, s.panel, theme, UiElevation::popover, theme.scale.radius_md, nullptr,
                                      &theme.surface_high) &&
               paint_stream_push(out, ui_rect_edges(s.header, ui_start(0), ui_end(-1), ui_end(0), ui_end(0)),
-                                theme.surface_high) &&
+                                ui_separator_color(theme)) &&
               ui_icon_paint(out, UiIcon::inbox, ui_rect_edges(s.panel, ui_start(14), ui_start(16), ui_start(34), ui_start(36)),
                             theme.text_secondary) &&
               pill(out, s, s.tabs[0], theme, s.tab == UiInboxTab::mentions) &&
@@ -408,7 +408,7 @@ bool ui_inbox_scene_paint(const UiInboxScene& s, const Theme& theme, PaintStream
                          focused(s, s.chips[i]) || checked[i] ? theme.tokens.emphasis.outline : theme.surface_high, ui_rect_height(r) * .5f);
         }
         ok = ok && paint_stream_push(out, ui_rect_edges(s.filters, ui_start(0), ui_end(-1), ui_end(0), ui_end(0)),
-                                     theme.surface_high);
+                                     ui_separator_color(theme));
     }
     if (ok && !paint_stream_push_clip(out, s.body))
         ok = false;
@@ -467,7 +467,8 @@ bool ui_inbox_scene_paint(const UiInboxScene& s, const Theme& theme, PaintStream
     if (ok && s.more.generation)
         ok = surface(out, bounds(s, s.more), theme, hovered(s, s.more) ? theme.surface_high : theme.surface,
                      focused(s, s.more) ? theme.tokens.border.focus : theme.interactive, 6) &&
-             paint_stream_push(out, ui_rect_edges(s.footer, ui_start(0), ui_start(0), ui_end(0), ui_start(1)), theme.surface_high);
+             paint_stream_push(out, ui_rect_edges(s.footer, ui_start(0), ui_start(0), ui_end(0), ui_start(1)),
+                               ui_separator_color(theme));
     if (ok)
         ok = ui_scrollbar_paint(out, ui_inbox_scene_scrollbar(s), theme, s.scrollbar_state);
     return paint_stream_pop_clip(out) && ok;
