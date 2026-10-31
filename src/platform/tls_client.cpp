@@ -1,5 +1,6 @@
 #include "maicord/platform/tls_client.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 #include "maicord/sys/sspi.hpp"
 
@@ -42,6 +43,53 @@ u32 extra_input_bytes(const SecBuffer (&buffers)[2]) noexcept {
     return 0;
 }
 
+// The one credential of the process, acquired by the first connection (a failed acquisition is not
+// remembered: the next connection tries again). Schannel keeps its client session cache per
+// credential, which is what lets a later connection to a host resume an earlier handshake. It is
+// never freed: workers may still hold contexts made from it when the process exits.
+SRWLOCK g_credentials_lock = SRWLOCK_INIT;
+CredHandle g_credentials;
+u32 g_maximum_token_bytes;
+bool g_credentials_acquired;
+
+TlsResult share_credentials(TlsClient* client) noexcept {
+    struct Lock {
+        Lock() noexcept { AcquireSRWLockExclusive(&g_credentials_lock); }
+        ~Lock() noexcept { ReleaseSRWLockExclusive(&g_credentials_lock); }
+    } lock;
+    if (!g_credentials_acquired) {
+        PSecPkgInfoW package_info = nullptr;
+        SECURITY_STATUS status =
+            QuerySecurityPackageInfoW(const_cast<wchar_t*>(UNISP_NAME_W), &package_info);
+        if (status != SEC_E_OK || !package_info || package_info->cbMaxToken == 0) {
+            if (package_info) {
+                FreeContextBuffer(package_info);
+            }
+            return result(TlsError::package_query, status);
+        }
+        const u32 maximum_token_bytes = package_info->cbMaxToken;
+        FreeContextBuffer(package_info);
+
+        SCHANNEL_CRED configuration{};
+        configuration.dwVersion = SCHANNEL_CRED_VERSION;
+        configuration.dwFlags =
+            SCH_CRED_AUTO_CRED_VALIDATION | SCH_CRED_NO_DEFAULT_CREDS | SCH_USE_STRONG_CRYPTO;
+        TimeStamp expiry{};
+        status = AcquireCredentialsHandleW(nullptr, const_cast<wchar_t*>(UNISP_NAME_W),
+                                           SECPKG_CRED_OUTBOUND, nullptr, &configuration, nullptr, nullptr,
+                                           &g_credentials, &expiry);
+        if (status != SEC_E_OK) {
+            return result(TlsError::credential_acquire, status);
+        }
+        g_maximum_token_bytes = maximum_token_bytes;
+        g_credentials_acquired = true;
+    }
+    *credentials(client) = g_credentials;
+    client->maximum_token_bytes = g_maximum_token_bytes;
+    client->credentials_valid = true;
+    return result(TlsError::none, SEC_E_OK);
+}
+
 } // namespace
 
 TlsResult tls_client_initialize(TlsClient* client, const wchar_t* server_name) noexcept {
@@ -52,43 +100,16 @@ TlsResult tls_client_initialize(TlsClient* client, const wchar_t* server_name) n
     SecInvalidateHandle(credentials(client));
     SecInvalidateHandle(context(client));
     client->server_name = server_name;
-
-    PSecPkgInfoW package_info = nullptr;
-    SECURITY_STATUS status =
-        QuerySecurityPackageInfoW(const_cast<wchar_t*>(UNISP_NAME_W), &package_info);
-    if (status != SEC_E_OK || !package_info || package_info->cbMaxToken == 0) {
-        if (package_info) {
-            FreeContextBuffer(package_info);
-        }
-        return result(TlsError::package_query, status);
-    }
-    client->maximum_token_bytes = package_info->cbMaxToken;
-    FreeContextBuffer(package_info);
-
-    SCHANNEL_CRED configuration{};
-    configuration.dwVersion = SCHANNEL_CRED_VERSION;
-    configuration.dwFlags =
-        SCH_CRED_AUTO_CRED_VALIDATION | SCH_CRED_NO_DEFAULT_CREDS | SCH_USE_STRONG_CRYPTO;
-    TimeStamp expiry{};
-    status =
-        AcquireCredentialsHandleW(nullptr, const_cast<wchar_t*>(UNISP_NAME_W), SECPKG_CRED_OUTBOUND,
-                                  nullptr, &configuration, nullptr, nullptr, credentials(client), &expiry);
-    if (status != SEC_E_OK) {
-        return result(TlsError::credential_acquire, status);
-    }
-    client->credentials_valid = true;
-    return result(TlsError::none, SEC_E_OK);
+    return share_credentials(client);
 }
 
+// Deletes the connection's context; the credential is shared and stays.
 void tls_client_release(TlsClient* client) noexcept {
     if (!client) {
         return;
     }
     if (client->context_valid) {
         DeleteSecurityContext(context(client));
-    }
-    if (client->credentials_valid) {
-        FreeCredentialsHandle(credentials(client));
     }
     reset_value<TlsClient>(client);
 }

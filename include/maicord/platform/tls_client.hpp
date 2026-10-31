@@ -41,6 +41,8 @@ struct TlsStreamSizes {
     unsigned long cbBlockSize;
 };
 
+// credentials is a copy of the process-wide Schannel credential every client shares (see
+// tls_client.cpp); a later connection to the same server_name can resume an earlier session.
 struct TlsClient {
     TlsSecurityHandle credentials;
     TlsSecurityHandle context;

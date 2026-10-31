@@ -18,6 +18,9 @@ maicord_program(MaiCordRestClientProbe ENTRY maicord_rest_client_probe_entry
 maicord_program(MaiCordTlsStreamProbe ENTRY maicord_tls_stream_probe_entry
     SOURCES tests/integration/tls_stream_probe.cpp
     LIBS maicord_core maicord_platform maicord_protocol kernel32 ${maicord_tls_libs})
+maicord_program(MaiCordTlsResumeProbe ENTRY maicord_tls_resume_probe_entry
+    SOURCES tests/integration/tls_resume_probe.cpp
+    LIBS maicord_core maicord_platform kernel32 ${maicord_tls_libs})
 maicord_program(MaiCordVoiceSocketProbe ENTRY maicord_voice_socket_probe_entry
     SOURCES tests/integration/voice_socket_probe.cpp
     LIBS maicord_app_core maicord_core maicord_platform maicord_protocol kernel32 ${maicord_tls_libs})

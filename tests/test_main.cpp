@@ -26030,6 +26030,57 @@ void test_tls_client_bootstrap() noexcept {
            "tls_client_null_reject");
 }
 
+struct TlsCredentialThread {
+    TlsSecurityHandle credentials;
+    bool ok;
+};
+
+DWORD WINAPI tls_credential_thread(void* parameter) noexcept {
+    auto* result = static_cast<TlsCredentialThread*>(parameter);
+    TlsClient client{};
+    result->ok = tls_client_initialize(&client, L"discord.com").ok() && client.credentials_valid;
+    result->credentials = client.credentials;
+    tls_client_release(&client);
+    return 0;
+}
+
+// Every client shares the process's one Schannel credential, which is what lets a later connection to a
+// host resume an earlier session; releasing a client must leave it intact for the others.
+void test_tls_client_shared_credential() noexcept {
+    TlsClient first{}, second{};
+    const bool both = tls_client_initialize(&first, L"discord.com").ok() &&
+                      tls_client_initialize(&second, L"cdn.discordapp.com").ok();
+    expect(both && first.credentials.lower == second.credentials.lower &&
+               first.credentials.upper == second.credentials.upper && first.credentials_valid,
+           "tls_clients_share_one_credential");
+    if (!both) {
+        return;
+    }
+    const TlsSecurityHandle shared = first.credentials;
+    tls_client_release(&first);
+    const auto hello = tls_client_handshake(&second, ConstSlice<u8>{nullptr, 0},
+                                            Slice<u8>{g_tls_token, second.maximum_token_bytes});
+    expect(hello.ok() && hello.state == TlsHandshakeState::need_send && hello.produced != 0,
+           "tls_credential_survives_release_of_another_client");
+    tls_client_release(&second);
+
+    TlsCredentialThread results[4]{};
+    HANDLE threads[4]{};
+    for (u32 index = 0; index < 4; ++index) {
+        threads[index] = CreateThread(nullptr, 0, tls_credential_thread, &results[index], 0, nullptr);
+    }
+    bool same = true;
+    for (u32 index = 0; index < 4; ++index) {
+        same = threads[index] && WaitForSingleObject(threads[index], 10'000) == WAIT_OBJECT_0 && same;
+        if (threads[index]) {
+            CloseHandle(threads[index]);
+        }
+        same = same && results[index].ok && results[index].credentials.lower == shared.lower &&
+               results[index].credentials.upper == shared.upper;
+    }
+    expect(same, "tls_credential_is_not_reacquired_after_every_client_released");
+}
+
 void test_runtime_memory() noexcept {
     bool valid = true;
     u32 state = 0x6a09e667u;

@@ -10,7 +10,6 @@ EXPORTS
     DeleteSecurityContext
     EncryptMessage
     FreeContextBuffer
-    FreeCredentialsHandle
     InitializeSecurityContextW
     QueryContextAttributesW
     QuerySecurityPackageInfoW

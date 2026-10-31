@@ -37,6 +37,9 @@
 #define UNISP_NAME_W L"Microsoft Unified Security Protocol Provider"
 #define SCHANNEL_CRED_VERSION 0x00000004
 #define SCH_CRED_NO_DEFAULT_CREDS 0x00000010
+#define SECPKG_ATTR_CONNECTION_INFO 0x5a
+#define SECPKG_ATTR_SESSION_INFO 0x5d
+#define SSL_SESSION_RECONNECT 1
 #define SCH_CRED_AUTO_CRED_VALIDATION 0x00000020
 #define SCH_USE_STRONG_CRYPTO 0x00400000
 
@@ -92,6 +95,22 @@ struct _SecPkgContext_StreamSizes {
 };
 typedef _SecPkgContext_StreamSizes SecPkgContext_StreamSizes;
 // <Schannel.h>
+struct _SecPkgContext_ConnectionInfo {
+    DWORD dwProtocol;
+    ALG_ID aiCipher;
+    DWORD dwCipherStrength;
+    ALG_ID aiHash;
+    DWORD dwHashStrength;
+    ALG_ID aiExch;
+    DWORD dwExchStrength;
+};
+typedef _SecPkgContext_ConnectionInfo SecPkgContext_ConnectionInfo;
+struct _SecPkgContext_SessionInfo {
+    DWORD dwFlags;
+    DWORD cbSessionId;
+    BYTE rgbSessionId[32];
+};
+typedef _SecPkgContext_SessionInfo SecPkgContext_SessionInfo;
 struct _SCHANNEL_CRED {
     DWORD dwVersion;
     DWORD cCreds;
@@ -115,7 +134,6 @@ MAICORD_SYS_TYPES_END
 extern "C" __declspec(dllimport) SECURITY_STATUS WINAPI AcquireCredentialsHandleW(LPWSTR pszPrincipal,
     LPWSTR pszPackage, unsigned long fCredentialUse, void* pvLogonId, void* pAuthData, SEC_GET_KEY_FN pGetKeyFn,
     void* pvGetKeyArgument, PCredHandle phCredential, PTimeStamp ptsExpiry);
-extern "C" __declspec(dllimport) SECURITY_STATUS WINAPI FreeCredentialsHandle(PCredHandle phCredential);
 extern "C" __declspec(dllimport) SECURITY_STATUS WINAPI InitializeSecurityContextW(PCredHandle phCredential,
     PCtxtHandle phContext, SEC_WCHAR* pszTargetName, unsigned long fContextReq, unsigned long Reserved1,
     unsigned long TargetDataRep, PSecBufferDesc pInput, unsigned long Reserved2, PCtxtHandle phNewContext,

@@ -3,7 +3,7 @@
 # times against the live endpoints and prints every sample with the medians and maxima. tools/benchmark_session.ps1
 # owns the build, mutex and cleanup.
 param(
-    [Parameter(Mandatory)][ValidateSet('tls', 'tls-stream', 'rest', 'rest-async', 'cdn')][string]$Probe,
+    [Parameter(Mandatory)][ValidateSet('tls', 'tls-stream', 'tls-resume', 'rest', 'rest-async', 'cdn')][string]$Probe,
     [ValidateRange(1, 20)][int]$Samples = 5
 )
 $ErrorActionPreference = 'Stop'
@@ -20,6 +20,12 @@ $probes = @{
             reused_us = 'ReusedRequestMicroseconds'; stream_bytes = 'StreamBytes' }
         Median = @('ConnectMicroseconds', 'FirstRequestMicroseconds', 'ReusedRequestMicroseconds')
         Maximum = @('StreamBytesMaximum=StreamBytes') }
+    'tls-resume' = @{ Target = 'MaiCordTlsResumeProbe'; Label = 'TLS resumption probe'
+        Fields = [ordered]@{ discord_cold_handshake_us = 'DiscordColdHandshake'; discord_later_handshake_us = 'DiscordLaterHandshake'
+            discord_later_resumed = 'DiscordLaterResumed'; discord_protocol = 'DiscordProtocol'; cdn_cold_handshake_us = 'CdnColdHandshake'
+            cdn_later_handshake_us = 'CdnLaterHandshake'; cdn_later_resumed = 'CdnLaterResumed' }
+        Median = @('DiscordColdHandshake', 'DiscordLaterHandshake', 'CdnColdHandshake', 'CdnLaterHandshake')
+        Maximum = @('DiscordLaterResumedMaximum=DiscordLaterResumed', 'CdnLaterResumedMaximum=CdnLaterResumed', 'DiscordProtocolMaximum=DiscordProtocol') }
     'rest' = @{ Target = 'MaiCordRestProbe'; Label = 'REST probe'
         Fields = [ordered]@{ first_us = 'FirstRequestMicroseconds'; reused_us = 'ReusedRequestMicroseconds'
             rate_fields = 'RateFieldMask' }
