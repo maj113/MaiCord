@@ -794,12 +794,13 @@ void project_create() noexcept {
     if (external) {
         if (auto* view = editor_view(control_location, utf8_literal("Add a location, link or something."), edit))
             add_control(control_location, utf8_literal("Location"), {}, UiSettingsControlKind::edit, edit).editor = view;
+    } else if (!p.channel_count) {
+        // A choice row needs at least one option; without channels the row states why there is nothing to pick.
+        notice(control_channel, utf8_literal("Channel"),
+               p.where == 0 ? utf8_literal("This server has no stage channels you can use.")
+                            : utf8_literal("This server has no voice channels you can use."));
     } else {
-        auto& channel = add_control(control_channel, utf8_literal("Channel"),
-                                    p.channel_count ? Utf8View{}
-                                                    : (p.where == 0 ? utf8_literal("This server has no stage channels you can use.")
-                                                                    : utf8_literal("This server has no voice channels you can use.")),
-                                    UiSettingsControlKind::choice, edit && p.channel_count);
+        auto& channel = add_control(control_channel, utf8_literal("Channel"), {}, UiSettingsControlKind::choice, edit);
         channel.choices = {p.channel_labels, p.channel_count};
         channel.selected_choice = p.channel_index;
     }

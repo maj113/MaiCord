@@ -432,6 +432,25 @@ void test_community_forms(void (*check)(bool, const char*) noexcept) noexcept {
                     p.guild_generation == guilds[0].generation && retry_background.queue_count == 1 &&
                     retry_background.queue[0].op == GuildCommunityOperation::onboarding_get,
                 "community active Create replacement refreshes identity and drops its prior queued write");
+            // A server without stage or voice channels: choosing that location type must still project a
+            // presentable page (a choice row cannot be empty) and state why no channel can be picked.
+            for (u32 where = 0; where < 2; ++where) {
+                SettingsLayerActivation pick{};
+                pick.value.target = {UiSettingsTargetKind::control, kPage, control_where};
+                pick.value.selected_choice = where;
+                p.phase = Phase::ready;
+                activate(nullptr, pick);
+                bool channel_notice = false;
+                for (u32 i = 0; i < p.control_count; ++i)
+                    if (p.controls[i].id == control_channel)
+                        channel_notice = p.controls[i].kind == UiSettingsControlKind::notice &&
+                                         p.controls[i].description.bytes != 0;
+                const bool projected = project();
+                check(p.where == where && !p.channel_count && channel_notice && projected &&
+                          !p.footer.can_save,
+                      where ? "community Create with no voice channels projects an empty-state notice"
+                            : "community Create with no stage channels projects an empty-state notice");
+            }
             p.phase = Phase::submitting;
             p.status = utf8_literal("Replacement event");
             check(application_guild_community_response(response, {}) && retry_background.queue_count == 1 &&
