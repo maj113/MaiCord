@@ -180,6 +180,35 @@ void test_mention_badge_text(void (*check)(bool, const char*) noexcept) noexcept
         for (u32 index = 0; index < f.navigation.count; ++index)
             check(!f.navigation.rows[index].mention_badge.generation,
                 "mention badge: read channel materialization releases old badge widget identities");
+        // Row controls: while Create Invite and Edit Channel show (selected or
+        // hovered), the name's box ends before them, so a long name ellipsizes
+        // there; otherwise it keeps the label's full width.
+        const auto name_box = [&](u32 index) noexcept {
+            const auto& row = f.navigation.rows[index];
+            const auto* command = owned(f.navigation.widgets, row.label);
+            return command ? command->rectangle : UiRect{};
+        };
+        for (auto& row : f.channel_rows) row.controls = channel_row_invite | channel_row_settings;
+        f.channel_rows[0].selected = true;
+        ++f.view.channel_revision;
+        const bool rebuilt = update();
+        const auto* first = rebuilt ? shell_navigation_scene_layout_node(f.navigation, f.navigation.rows[0]) : nullptr;
+        const auto* second = rebuilt ? shell_navigation_scene_layout_node(f.navigation, f.navigation.rows[1]) : nullptr;
+        const auto* second_label = rebuilt ? ui_widget_manager_layout_node(f.navigation.widgets, f.navigation.rows[1].label)
+                                           : nullptr;
+        const UiRect selected_invite =
+            first ? shell_navigation_control_rectangle(first->rectangle, f.navigation.rows[0].view, channel_row_invite)
+                  : UiRect{};
+        check(first && second_label && ui_rect_has_area(selected_invite) && name_box(0).right <= selected_invite.left &&
+                  name_box(1).right == second_label->content_rectangle.right,
+              "row controls: the selected channel's name ends before its controls; an idle row keeps its width");
+        const bool hovered = second && ui_widget_manager_hover(&f.navigation.widgets, f.navigation.rows[1].widget) && update();
+        const UiRect hovered_invite =
+            second ? shell_navigation_control_rectangle(second->rectangle, f.navigation.rows[1].view, channel_row_invite)
+                   : UiRect{};
+        check(hovered && ui_rect_has_area(hovered_invite) && name_box(1).right <= hovered_invite.left &&
+                  name_box(1).left < hovered_invite.left,
+              "row controls: a hovered channel's name ends before its controls");
     }
     ui_scene_release(&f.shell);
 }

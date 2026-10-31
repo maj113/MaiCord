@@ -24,7 +24,7 @@ inline constexpr float kShellCategoryHeight = 32.0f, kShellCategoryLineTop = 8.0
 inline constexpr float kShellCategoryNameLeft = 12.0f, kShellCategoryChevron = 12.0f, kShellCategoryGap = 4.0f;
 // Row controls (Create Invite and Edit Channel on a hovered or selected
 // channel, a category's Create Channel): 16-DIP buttons 4 DIPs apart, ending
-// 6 DIPs inside the highlight (a category's 6 DIPs from the edge).
+// 4 DIPs inside the highlight (a category's 6 DIPs from the edge).
 inline constexpr float kShellChannelControl = 16.0f, kShellChannelControlGap = 4.0f;
 // The rows leading a server's list (events) end with a 9-DIP divider band whose
 // 1-DIP line runs from 12 DIPs in to 3 DIPs before the edge.

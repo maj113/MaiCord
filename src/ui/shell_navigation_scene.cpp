@@ -137,9 +137,12 @@ UiRect shell_navigation_control_rectangle(UiRect row, const ChannelViewRow& view
         const float right = row.right - kShellChannelHighlightLeft;
         return {right - kShellChannelControl, top, right, top + kShellChannelControl};
     }
-    float right = row.right - kShellChannelHighlightRight - kShellChannelHighlightLeft;
+    // The client's controls end 4 DIPs inside the highlight, or 4 before the
+    // badge (which ends 6 inside).
+    float right = row.right - kShellChannelHighlightRight - kShellChannelControlGap;
     if (view.mention_count)
-        right -= ui_mention_badge_width(view.mention_count) + kShellChannelControlGap;
+        right = row.right - kShellChannelHighlightRight - kShellChannelHighlightLeft -
+                ui_mention_badge_width(view.mention_count) - kShellChannelControlGap;
     if (control == channel_row_invite && (view.controls & channel_row_settings))
         right -= kShellChannelControl + kShellChannelControlGap;
     const float top = row.top + (kShellNavigationVoiceHeadHeight - kShellChannelControl) * .5f;

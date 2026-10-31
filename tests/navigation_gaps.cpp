@@ -594,11 +594,11 @@ void channel_controls() noexcept {
               shell_navigation_row_controls(channel, false, true) == channel.controls &&
               shell_navigation_row_height(channel) == 30,
           "a 30-DIP channel shows Create Invite and Edit Channel while hovered or selected");
-    check(ui_rect_equal(shell_navigation_control_rectangle(row, channel, channel_row_settings), {210, 7, 226, 23}) &&
-              ui_rect_equal(shell_navigation_control_rectangle(row, channel, channel_row_invite), {190, 7, 206, 23}) &&
-              shell_navigation_controls_left(row, channel, channel.controls, 226) == 186 &&
+    check(ui_rect_equal(shell_navigation_control_rectangle(row, channel, channel_row_settings), {212, 7, 228, 23}) &&
+              ui_rect_equal(shell_navigation_control_rectangle(row, channel, channel_row_invite), {192, 7, 208, 23}) &&
+              shell_navigation_controls_left(row, channel, channel.controls, 226) == 188 &&
               !ui_rect_has_area(shell_navigation_control_rectangle(row, channel, channel_row_create)),
-          "row controls are 16 DIPs, 4 apart, ending 6 DIPs inside the highlight");
+          "row controls are 16 DIPs, 4 apart, ending 4 DIPs inside the highlight");
     channel.mention_count = 3;
     check(ui_rect_equal(shell_navigation_control_rectangle(row, channel, channel_row_settings), {190, 7, 206, 23}),
           "row controls sit before a mention badge");

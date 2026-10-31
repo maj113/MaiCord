@@ -60,6 +60,10 @@ MAICORD_THEME_TOKEN(state, pressed, RGBA(1, 1, 1, .16f), RGBA(0, 0, 0, .10f))
 // Hue of the translucent hover/selected glass over a gradient
 // (ui_background_hover_color); a chromatic gradient derives it from its stops.
 MAICORD_THEME_TOKEN(state, tint, P(interactive), P(interactive))
+// A hovered and a selected list row (channel list): the official client's
+// hsla(240, 4%, 61%) at 12% and 20% (24% in light).
+MAICORD_THEME_TOKEN(state, row_hover, RGBA(.594f, .594f, .626f, .12f), RGBA(.594f, .594f, .626f, .12f))
+MAICORD_THEME_TOKEN(state, row_selected, RGBA(.594f, .594f, .626f, .2f), RGBA(.594f, .594f, .626f, .24f))
 MAICORD_THEME_GROUP_END(state)
 
 MAICORD_THEME_GROUP(fill)

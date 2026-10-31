@@ -8,8 +8,9 @@
 
 namespace maicord {
 void test_background_effect_policy(void (*check)(bool, const char*) noexcept) noexcept {
-    // Room for the ANSI code block palette and the slash command option chip tokens.
-    static_assert(sizeof(Theme) <= 2112);
+    // Room for the ANSI code block palette, the slash command option chip
+    // tokens and the list row highlight tokens.
+    static_assert(sizeof(Theme) <= 2120);
     auto authored_dark = kDefaultTheme;
     authored_dark.text_primary = {0, 1, 0, 1};
     authored_dark.background = background_theme_defaults();

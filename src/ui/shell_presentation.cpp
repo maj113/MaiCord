@@ -611,11 +611,17 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                                                 row_top + row_height - 1.0f};
                 if (row_rectangle.bottom > channel_navigation->rectangle.top &&
                     row_rectangle.top < channel_navigation->rectangle.bottom) {
-                    // Categories change only their ink on hover.
+                    // Categories change only their ink on hover. A guild channel's
+                    // highlight takes the row tokens; a gradient keeps its glass.
+                    const Color highlight =
+                        private_row || ui_background_active(theme)
+                            ? ui_background_hover_color(theme, row_selected ? theme.interactive : theme.surface_high,
+                                                        row_selected ? .28f : .20f)
+                        : row_selected ? theme.tokens.state.row_selected
+                                       : theme.tokens.state.row_hover;
                     if ((row_selected || (row_hovered && !category)) &&
-                        !paint_stream_push_rounded(stream, selected_rectangle, ui_background_hover_color(
-                             theme, row_selected ? theme.interactive : theme.surface_high,
-                             row_selected ? .28f : .20f), private_row ? theme.scale.radius_sm : theme.scale.radius_md)) {
+                        !paint_stream_push_rounded(stream, selected_rectangle, highlight,
+                                                   private_row ? theme.scale.radius_sm : theme.scale.radius_md)) {
                         return false;
                     }
                     const UiRect& icon_rectangle = icon_layout->rectangle;
@@ -660,15 +666,18 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                                                                       : row_color)) {
                         return false;
                     }
-                    // Create Invite and Edit Channel on a hovered or selected channel.
+                    // Create Invite and Edit Channel on a hovered or selected
+                    // channel: strong on the selected row, dimmer on a hovered one.
                     const u8 controls = category ? 0 : shell_navigation_row_controls(row, row_hovered, row_selected);
-                    const Color control_ink = row_selected ? theme.text_primary : theme.text_secondary;
+                    Color control_ink = row_selected ? theme.text_primary : theme.text_secondary;
+                    if (!row_selected)
+                        control_ink.alpha *= .8f;
                     if (((controls & channel_row_invite) &&
-                         !ui_icon_paint(stream, UiIcon::user_plus,
+                         !ui_icon_paint(stream, UiIcon::user_plus_filled,
                                         shell_navigation_control_rectangle(row_rectangle, row, channel_row_invite),
                                         control_ink)) ||
                         ((controls & channel_row_settings) &&
-                         !ui_icon_paint(stream, UiIcon::settings,
+                         !ui_icon_paint(stream, UiIcon::settings_filled,
                                         shell_navigation_control_rectangle(row_rectangle, row, channel_row_settings),
                                         control_ink)))
                         return false;

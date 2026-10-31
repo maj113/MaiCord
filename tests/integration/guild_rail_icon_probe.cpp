@@ -7,6 +7,7 @@
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/ui/guild_rail_scene.hpp"
 #include "maicord/ui/navigation_view.hpp"
+#include "maicord/ui/shell_navigation_scene.hpp"
 #include "maicord/ui/background_theme.hpp"
 #include "maicord/model/permission_bits.hpp"
 #include "maicord/ui/theme.hpp"
@@ -184,7 +185,18 @@ bool capture_rail(GuildRailIconProbeContext& c) noexcept {
         if (!text_tile)
             return failed(62);
         ui_widget_manager_hover(&c.rail.widgets, text_tile->widget);
-        if (!probe_present(&r, *shot.theme) || !c.capture(shot.name, *shot.theme))
+        // The first idle channel is hovered too: its controls, dimmer than
+        // the selected channel's, and its brightened name.
+        if (auto* channels = const_cast<ShellNavigationScene*>(r.shell_navigation_scene)) {
+            for (u32 i = 0; i < channels->count; ++i) {
+                const auto& row = channels->rows[i];
+                if (row.view.type == 0 && !row.view.selected) {
+                    ui_widget_manager_hover(&channels->widgets, row.widget);
+                    break;
+                }
+            }
+        }
+        if (!c.rebuild() || !probe_present(&r, *shot.theme) || !c.capture(shot.name, *shot.theme))
             return failed(63);
     }
     renderer_set_dpi(&r, dpi);

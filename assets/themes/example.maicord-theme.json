@@ -58,7 +58,9 @@
     "state": {
       "hover": [1, 1, 1, 0.1],
       "pressed": [1, 1, 1, 0.16],
-      "tint": "{colors.interactive}"
+      "tint": "{colors.interactive}",
+      "row_hover": [0.594, 0.594, 0.626, 0.12],
+      "row_selected": [0.594, 0.594, 0.626, 0.2]
     },
     "fill": {
       "subtle": [1, 1, 1, 0.08],
