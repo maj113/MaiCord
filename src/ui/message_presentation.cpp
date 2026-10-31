@@ -618,6 +618,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                 return false;
             const bool visible = obscure == MessageMediaObscure::none;
             command->ordinary_video = playable && embed.type != GatewayMessageEmbedType::gifv && visible;
+            command->open_link = command->ordinary_video && message_rich_embed_open_pill(*rich_store, embed);
             command->snapshot = row.forwarded_snapshot;
             command->obscure = static_cast<u8>(obscure);
             command->gif = (embed.type == GatewayMessageEmbedType::gifv || selected.format == MediaAttachmentFormat::gif) &&

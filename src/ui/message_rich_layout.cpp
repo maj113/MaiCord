@@ -517,6 +517,13 @@ bool message_rich_embed_playback_select(const MessageRichStore& store, const Mes
     return true;
 }
 
+bool message_rich_embed_open_pill(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
+    MessageRichEmbedMediaSelection playback{};
+    return embed.type != GatewayMessageEmbedType::gifv && embed.url.bytes != 0 &&
+           message_rich_embed_playback_select(store, embed, &playback) && playback.provider &&
+           playback.format == MediaAttachmentFormat::mp4;
+}
+
 MessageRichEmbedPlan message_rich_embed_plan(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
     const GatewayMessageEmbedType type = embed.type;
     const bool components = type == GatewayMessageEmbedType::components;

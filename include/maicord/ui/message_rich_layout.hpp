@@ -252,6 +252,9 @@ bool message_rich_embed_music_preview(const MessageRichStore&, const MessageRich
 Utf8View message_rich_embed_provider_label(const MessageRichStore&, const MessageRichEmbed&) noexcept;
 bool message_rich_embed_playback_select(const MessageRichStore&, const MessageRichEmbed&,
                                        MessageRichEmbedMediaSelection*) noexcept;
+// A provider video embed (not a GIFV) with a page: its poster carries the
+// play-and-open pill, and the open control leads to that page.
+bool message_rich_embed_open_pill(const MessageRichStore&, const MessageRichEmbed&) noexcept;
 bool message_rich_embed_media_only(const MessageRichEmbed& embed) noexcept;
 
 // Embeds that share a url (multi-photo posts: one card plus image-only embeds)

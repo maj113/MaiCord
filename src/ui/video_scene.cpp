@@ -351,6 +351,43 @@ bool ui_video_play_affordance_paint(UiRect preview, UiRect clip, const UiVideoPl
 
     return paint_stream_pop_clip(paint) && ok;
 }
+UiVideoEmbedActions ui_video_embed_actions(UiRect preview, bool open_link, const UiVideoEmbedActionsStyle& style) noexcept {
+    if (!rectangle(preview))
+        return {};
+    const float width = open_link ? 2 * style.padding + 2 * style.icon + style.gap : style.height;
+    if (width > ui_rect_width(preview) - 2 * style.inset || style.height > ui_rect_height(preview) - 2 * style.inset)
+        return {};
+    const float left = (preview.left + preview.right - width) * .5f,
+                top = (preview.top + preview.bottom - style.height) * .5f,
+                icon_top = top + (style.height - style.icon) * .5f;
+    UiVideoEmbedActions actions{};
+    actions.pill = {left, top, left + width, top + style.height};
+    actions.play = {left + style.padding, icon_top, left + style.padding + style.icon, icon_top + style.icon};
+    if (open_link)
+        actions.open = {actions.play.right + style.gap, icon_top, actions.play.right + style.gap + style.icon,
+                        icon_top + style.icon};
+    return actions;
+}
+bool ui_video_embed_actions_paint(UiRect preview, UiRect clip, bool open_link, const UiVideoEmbedActionsStyle& style,
+                                  const Theme& theme, PaintStream* paint) noexcept {
+    if (!rectangle(preview) || !ui_rect_valid_or_empty(clip))
+        return false;
+    const UiVideoEmbedActions actions = ui_video_embed_actions(preview, open_link, style);
+    const UiRect visible = ui_rect_overlap(preview, clip);
+    if (!rectangle(actions.pill) || !rectangle(visible) || !rectangle(ui_rect_overlap(actions.pill, visible)))
+        return true;
+    if (!paint_stream_push_clip(paint, visible))
+        return false;
+    // The media scrim's black at the pill's own opacity; the controls rest at
+    // the client's idle icon opacity.
+    Color background = theme.tokens.overlay.media;
+    background.alpha = style.opacity;
+    const Color icon = ui_theme_color_alpha(kDefaultTheme.text_primary, style.icon_opacity);
+    const bool ok = quad(paint, actions.pill, background, style.height * .5f) &&
+                    symbol(paint, actions.play, UiVideoControl::play_pause, {}, style.icon, icon) &&
+                    (!open_link || ui_icon_paint(paint, UiIcon::external_link, actions.open, icon));
+    return paint_stream_pop_clip(paint) && ok;
+}
 bool ui_video_scene_covers_preview(const UiVideoScene& scene, UiRect preview) noexcept {
     const auto bounds = scene.projection.bounds;
     return scene.active && rectangle(preview) && rectangle(bounds) && bounds.left >= preview.left &&

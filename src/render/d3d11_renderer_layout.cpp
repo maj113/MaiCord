@@ -1537,8 +1537,11 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
                 (d3d11_renderer_video_scene_visible(*renderer) &&
                  ui_video_scene_covers_preview(*renderer->video_scene, command.rectangle)))
                 continue;
-            if (!ui_video_play_affordance_paint(command.rectangle, command.clip, affordance, theme,
-                                                &renderer->paint_stream))
+            if (command.open_link
+                    ? !ui_video_embed_actions_paint(command.rectangle, command.clip, true, UiVideoEmbedActionsStyle{},
+                                                    theme, &renderer->paint_stream)
+                    : !ui_video_play_affordance_paint(command.rectangle, command.clip, affordance, theme,
+                                                      &renderer->paint_stream))
                 return layout_step_failed(__LINE__);
         }
     }

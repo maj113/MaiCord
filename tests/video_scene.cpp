@@ -766,6 +766,23 @@ void test_video_scene(void (*check)(bool, const char*) noexcept) noexcept {
           "video posters: search chooser occlusion and zero-area resize clips are successful empty paints");
     check(!ui_video_play_affordance_paint(small, {100, 25, 20, 85}, affordance, kDefaultTheme, &paint),
           "video posters: inverted clips remain invalid");
+    // The provider embed pill: 48 high capsule with a 24 play icon and, with a page, a 24 open icon.
+    const UiRect embed_poster{0, 0, 400, 225};
+    const auto pill = ui_video_embed_actions(embed_poster, true, UiVideoEmbedActionsStyle{});
+    const auto circle = ui_video_embed_actions(embed_poster, false, UiVideoEmbedActionsStyle{});
+    check(ui_rect_width(pill.pill) == 78 && ui_rect_height(pill.pill) == 48 && ui_rect_width(pill.play) == 24 &&
+              ui_rect_width(pill.open) == 24 && pill.play.left == pill.pill.left + 12 &&
+              pill.open.left == pill.play.right + 6 && pill.open.right + 12 == pill.pill.right &&
+              (pill.pill.left + pill.pill.right) * .5f == 200 && (pill.pill.top + pill.pill.bottom) * .5f == 112.5f &&
+              ui_rect_width(circle.pill) == 48 && !ui_rect_has_area(circle.open),
+          "video embed pill: client capsule geometry, centred, open control only with a page");
+    check(!ui_rect_has_area(ui_video_embed_actions({0, 0, 80, 60}, true, UiVideoEmbedActionsStyle{}).pill),
+          "video embed pill: a preview too small for the capsule shows none");
+    paint_stream_reset(&paint, 640, 200);
+    check(ui_video_embed_actions_paint(embed_poster, embed_poster, true, UiVideoEmbedActionsStyle{}, kDefaultTheme,
+                                       &paint) &&
+              paint.count > 2 && paint.clip_depth == 1 && !paint.rejected,
+          "video embed pill: paints the capsule and both icons under one balanced clip");
     state.error = false;
     state.can_play = true;
     check(ui_video_scene_project_play_only(&s, state, small, small, controls, style, affordance,

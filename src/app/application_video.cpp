@@ -12,6 +12,7 @@
 #include "application_composer_text_input.hpp"
 #include "application_search.hpp"
 #include "application_image_viewer.hpp"
+#include "application_link_trust.hpp"
 #include "application_media_policy.hpp"
 #include "application_cursor.hpp"
 #include "maicord/media/presentation_policy.hpp"
@@ -1802,6 +1803,18 @@ bool application_video_pointer(UINT message, LPARAM lparam) noexcept {
             send_video_command(*video, video->status.playback.playing ? AccountVideoCommand::pause
                                                                       : AccountVideoCommand::play);
             application_request_frame();
+            return true;
+        }
+        // The open control of a provider embed's pill leaves for the page
+        // (through the link trust rules) instead of starting playback.
+        if (source.embed && source.provider && rich && item_index < rich->embed_count &&
+            message_rich_embed_open_pill(g_app.account_ui->message_rich_store, rich->embeds[item_index]) &&
+            ui_rect_contains(ui_video_embed_actions(source.preview, true, UiVideoEmbedActionsStyle{}).open, point.x,
+                             point.y)) {
+            const Utf8View page =
+                message_rich_store_string(g_app.account_ui->message_rich_store, rich->embeds[item_index].url);
+            if (message_markdown_url_valid(page) && page.bytes <= 2'047)
+                application_link_open(page, false);
             return true;
         }
         return start_video_session(source);

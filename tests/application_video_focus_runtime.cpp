@@ -2021,6 +2021,10 @@ bool application_call_pump(bool*) noexcept {
 u64 application_call_next_wake() noexcept {
     return 0;
 }
+// Provider-embed pills open their page through the link trust rules.
+bool application_link_open(Utf8View, bool) noexcept {
+    return true;
+}
 } // namespace app_detail
 } // namespace maicord
 

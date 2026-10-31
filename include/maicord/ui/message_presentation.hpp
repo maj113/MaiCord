@@ -40,8 +40,11 @@ struct MessageMediaCommand {
     u8 cover;
     // Non-zero: a GIF (a .gif or a looping GIFV) that offers a favourite star.
     u8 gif;
+    // A provider video embed with a page: its play control is a pill that
+    // also holds an open-in-browser control (ui_video_embed_actions).
+    bool open_link;
 };
-static_assert(sizeof(MessageMediaCommand) == 72, "Poster metadata reuses command padding.");
+static_assert(sizeof(MessageMediaCommand) == 80, "Keep media commands compact: they fill a per-frame scratch array.");
 
 struct MessageMediaCommandStream {
     Slice<MessageMediaCommand> storage;

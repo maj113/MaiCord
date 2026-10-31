@@ -27,6 +27,17 @@ struct UiVideoPlayAffordanceStyle {
         stroke{2};
     float opacity{kUiMediaSurfaceOpacity};
 };
+// The play and open-in-browser pill of a provider video embed: a capsule over
+// the poster holding a play control and, when the embed has a page, a second
+// control that opens it. Sizes follow the client's pill (48 high, 12 inside
+// padding, 24 icons, 2 + 4 around the second icon).
+struct UiVideoEmbedActionsStyle {
+    float height{48}, padding{12}, icon{24}, gap{6}, inset{8};
+    float opacity{kUiMediaSurfaceOpacity}, icon_opacity{.6f};
+};
+struct UiVideoEmbedActions {
+    UiRect pill{}, play{}, open{}; // empty when the preview is too small
+};
 struct UiVideoScene {
     UiVideoControlsProjection projection{};
     UiVideoSceneStyle style{};
@@ -88,6 +99,9 @@ bool ui_video_scene_project_play_only(UiVideoScene*, const UiVideoPlaybackState&
 UiRect ui_video_play_affordance_rectangle(UiRect preview, const UiVideoPlayAffordanceStyle&) noexcept;
 bool ui_video_play_affordance_paint(UiRect preview, UiRect clip, const UiVideoPlayAffordanceStyle&,
                                     const Theme&, PaintStream*) noexcept;
+UiVideoEmbedActions ui_video_embed_actions(UiRect preview, bool open_link, const UiVideoEmbedActionsStyle&) noexcept;
+bool ui_video_embed_actions_paint(UiRect preview, UiRect clip, bool open_link, const UiVideoEmbedActionsStyle&,
+                                  const Theme&, PaintStream*) noexcept;
 bool ui_video_scene_covers_preview(const UiVideoScene&, UiRect preview) noexcept;
 // No internal pointers: labels and time remain valid on a copied scene.
 Utf8View ui_video_scene_label(const UiVideoScene&, UiVideoControl) noexcept;
