@@ -754,6 +754,9 @@ bool application_private_channel_picker(u64) noexcept {
 bool application_guild_menu_toggle(bool) noexcept {
     return false;
 }
+bool application_guild_lifecycle_open_invite(u64, u64) noexcept {
+    return unexpected();
+}
 bool application_private_channel_call(u64) noexcept {
     return false;
 }

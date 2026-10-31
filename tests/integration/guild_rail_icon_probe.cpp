@@ -8,6 +8,7 @@
 #include "maicord/ui/guild_rail_scene.hpp"
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/background_theme.hpp"
+#include "maicord/model/permission_bits.hpp"
 #include "maicord/ui/theme.hpp"
 
 namespace maicord {
@@ -142,8 +143,17 @@ bool capture_rail(GuildRailIconProbeContext& c) noexcept {
     if (!c.capture)
         return true;
     auto& r = c.renderer;
-    if (!chat_state_store_upsert_guild(&c.state, GuildInput{400, {}, GuildMutationKind::update, 0, {}, true}).ok() ||
-        !navigation_view_rebuild(&c.navigation, c.state).ok() || c.navigation.guild_count != kCaseCount)
+    if (!chat_state_store_upsert_guild(&c.state, GuildInput{400, {}, GuildMutationKind::update, 0, {}, true}).ok())
+        return failed(60);
+    // The account may invite to and manage every channel, so the server
+    // header, the categories and the selected channel show their controls.
+    for (u32 i = 0; i < c.state.channel_count; ++i) {
+        ChannelRecord& channel = c.state.channels[c.state.channel_order[i]];
+        channel.permissions_resolved = true;
+        channel.effective_permissions |= kPermissionViewChannel | kPermissionCreateInvite | kPermissionManageChannels;
+        channel.actions |= channel_action_view | channel_action_manage_channel;
+    }
+    if (!navigation_view_rebuild(&c.navigation, c.state).ok() || c.navigation.guild_count != kCaseCount)
         return failed(60);
     c.navigation.selected_guild_id = 100;
     for (u32 i = 0; i < c.navigation.guild_count; ++i) {

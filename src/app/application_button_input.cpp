@@ -88,6 +88,7 @@ bool application_button_pointer(UINT message, LPARAM lparam) noexcept {
             widget->id != static_cast<u32>(UiSemantic::settings) + 1 &&
             widget->id != static_cast<u32>(UiSemantic::friends_button) + 1 &&
             widget->id != static_cast<u32>(UiSemantic::guild_menu) + 1 &&
+            widget->id != static_cast<u32>(UiSemantic::guild_invite) + 1 &&
             widget->id != static_cast<u32>(UiSemantic::private_create) + 1 &&
             widget->id != static_cast<u32>(UiSemantic::private_add) + 1 &&
             widget->id != static_cast<u32>(UiSemantic::private_call) + 1 &&

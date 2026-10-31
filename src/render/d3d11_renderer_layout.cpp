@@ -1889,7 +1889,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 renderer->shell_navigation_scene, content_hidden ? nullptr : renderer->message_composer_scene,
                 content_hidden ? nullptr : renderer->member_list_scene, theme, width_dip, height_dip,
                 &renderer->paint_stream, &shell, &composer_presentation,
-                browser_active ? renderer->thread_browser_scene->view->parent_id : 0)) {
+                browser_active ? renderer->thread_browser_scene->view->parent_id : 0,
+                ShellTextMeasure{renderer->chat_state, renderer->message_measure_cache})) {
             return layout_step_failed(__LINE__);
         }
         if (!paint_threads_launcher(*renderer, theme, &renderer->paint_stream))
@@ -2231,7 +2232,9 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     if (renderer->ui_scene &&
         !shell_presentation_build_guild_banner_overlay(*renderer->ui_scene, renderer->navigation_view,
                                                        renderer->shell_navigation_scene, theme,
-                                                       &renderer->paint_stream))
+                                                       &renderer->paint_stream,
+                                                       ShellTextMeasure{renderer->chat_state,
+                                                                        renderer->message_measure_cache}))
         return layout_step_failed(__LINE__);
     if (renderer->navigation_view && renderer->navigation_view->private_rows &&
         renderer->ui_scene) {

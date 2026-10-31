@@ -202,13 +202,14 @@ void test_hairlines_and_spine(Check check) noexcept {
     check(crisp && unsnapped > 111.79f && unsnapped < 111.81f,
           "chat_unread_divider_hairline_snaps_to_whole_device_pixels");
 
-    const UiRect row{0, 100, 240, 132}, icon{36, 108, 52, 124};
-    const auto first = shell_navigation_thread_spine(row, 32, icon, true, false);
-    const auto middle = shell_navigation_thread_spine(row, 32, icon, false, true);
-    check(first.rail_top.x == 32 && first.rail_top.y == 94 && first.arc_start.x == 32 && first.arc_start.y == 108 &&
-              first.arc_end.x == 40 && first.arc_end.y == 116 && first.arm_end.x == 48 &&
+    // A depth-1 thread row: 30 DIPs tall, its 20-DIP icon slot one 12-DIP indent in.
+    const UiRect row{0, 100, 240, 130}, icon{24, 105, 44, 125};
+    const auto first = shell_navigation_thread_spine(row, 30, icon, true, false);
+    const auto middle = shell_navigation_thread_spine(row, 30, icon, false, true);
+    check(first.rail_top.x == 22 && first.rail_top.y == 97 && first.arc_start.x == 22 && first.arc_start.y == 107 &&
+              first.arc_end.x == 30 && first.arc_end.y == 115 && first.arm_end.x == 40 &&
               first.continue_bottom == first.arc_start.y && middle.rail_top.y == 100 &&
-              middle.continue_bottom == 132 && kShellThreadSpineRadius == first.arc_end.x - first.arc_start.x,
+              middle.continue_bottom == 130 && kShellThreadSpineRadius == first.arc_end.x - first.arc_start.x,
           "chat_thread_spine_runs_under_the_parent_icon_and_curves_into_the_row");
 }
 } // namespace

@@ -50,6 +50,12 @@ struct GuildViewRow {
     u8 avatar_shape; // conversation pins: ui_private_avatar_shape
 };
 
+// The controls a guild channel row offers (ui/channel_controls.hpp).
+enum ChannelRowControl : u8 {
+    channel_row_invite = 1u << 0,   // Create Invite
+    channel_row_settings = 1u << 1, // Edit Channel
+    channel_row_create = 1u << 2,   // a category's Create Channel
+};
 struct ChannelViewRow {
     u64 id;
     u64 parent_id;
@@ -69,6 +75,7 @@ struct ChannelViewRow {
     bool stage_live; // Stage channel with a live stage instance (topic line, green icon).
     bool voice_subtitle; // Voice channel status, or "Set a channel status", under the name.
     bool voice_invite;   // "Invite to Voice" after the users (the connected channel).
+    u8 controls;         // ChannelRowControl bits.
 };
 
 struct ChannelSortKey {

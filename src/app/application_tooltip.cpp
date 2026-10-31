@@ -114,6 +114,8 @@ bool shell_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* targ
         label = utf8_literal("Browse threads");
     else if (widget->id == static_cast<u32>(UiSemantic::friends_button) + 1)
         label = utf8_literal("Friends");
+    else if (widget->id == static_cast<u32>(UiSemantic::guild_invite) + 1)
+        label = utf8_literal("Invite people");
     else if (widget->id == static_cast<u32>(UiSemantic::private_create) + 1)
         label = utf8_literal("Create DM");
     else if (widget->id == static_cast<u32>(UiSemantic::private_add) + 1)

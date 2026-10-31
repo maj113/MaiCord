@@ -155,4 +155,8 @@ namespace maicord::app_detail {
 bool application_guild_menu_toggle(bool) noexcept {
     return false;
 }
+// ... and its Invite People button opens the invite dialog.
+bool application_guild_lifecycle_open_invite(u64, u64) noexcept {
+    return false;
+}
 } // namespace maicord::app_detail

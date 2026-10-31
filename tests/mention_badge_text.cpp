@@ -129,7 +129,7 @@ void test_mention_badge_text(void (*check)(bool, const char*) noexcept) noexcept
                 "mention badge: guild numeric text owns copied UTF8 and matches painted badge geometry");
             check(badge && name && numeric(owned(f.navigation.widgets, channel.mention_badge), labels[index], badge->rectangle) &&
                 ui_rect_width(badge->rectangle) == ui_mention_badge_width(counts[index]) &&
-                name->content_rectangle.right <= badge->rectangle.left - 8.0f,
+                name->content_rectangle.right <= badge->rectangle.left - 6.0f,
                 "mention badge: channel numeric text matches widget badge and reserves name spacing at every width");
             check(f.guild_rows[index].mention_count == counts[index] && f.channel_rows[index].mention_count == counts[index],
                 "mention badge: compact numeric labels never replace complete projected model counts");

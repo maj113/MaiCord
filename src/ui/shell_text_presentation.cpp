@@ -330,17 +330,22 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
         if (selected_guild || state.home_selected) {
             const Utf8View name = selected_guild ? chat_state_store_guild_name(state, *selected_guild)
                                                  : utf8_literal("Direct messages");
-            // A guild header draws the name on its dropdown button, ahead of
-            // the trailing chevron.
+            // A guild header draws the name on its dropdown button, the
+            // chevron right after it (shell_guild_header_geometry).
             const UiLayoutNode* guild_menu = selected_guild ? ui_scene_node(scene, UiSemantic::guild_menu) : nullptr;
             const UiLayoutNode* owner = guild_menu ? guild_menu : channel_header;
             UiRect header_text_rectangle =
                 ui_scene_content_rectangle(scene, guild_menu ? UiSemantic::guild_menu : UiSemantic::channel_header);
             header_text_rectangle.top = channel_header->rectangle.top;
             header_text_rectangle.bottom = channel_header->rectangle.bottom;
-            if (guild_menu)
-                header_text_rectangle.right =
-                    maximum(header_text_rectangle.left, header_text_rectangle.right - kUiShellGuildMenuChevron - 4.f);
+            if (guild_menu) {
+                const UiRect menu = guild_menu->rectangle;
+                const auto geometry = shell_guild_header_geometry(
+                    menu, shell_text_width(measure, selected_guild->id, kShellMeasureGuildName, name, text_style_none,
+                                           shell_guild_header_name_space(menu)));
+                header_text_rectangle.left = geometry.name.left;
+                header_text_rectangle.right = minimum(geometry.chevron.left, geometry.name.right + 1.f);
+            }
             // Over a server banner the name turns white with a drop shadow.
             const bool banner = selected_guild && shell_presentation_guild_banner_visible(scene, &channel_scene);
             if (banner) {
@@ -499,15 +504,38 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                         effect = profile_name_effect(appearance->name, hovered, channel_scene.widgets.hover_started_ms);
                         look.effect = &effect;
                     }
+                    Color ink = color;
+                    if (row.type == 4) {
+                        // A category: 14-DIP text centred on its line, ending
+                        // where the chevron starts (shell_category_geometry).
+                        look = kLookLine;
+                        look.style_flags = kTextStyleSizeCodeSm;
+                        const auto geometry = shell_category_geometry(
+                            layout->rectangle, row,
+                            shell_text_width(measure, row.id, kShellMeasureCategoryName, name, kTextStyleSizeCodeSm,
+                                             shell_category_name_space(layout->rectangle, row)));
+                        name_rectangle = {geometry.name.left, geometry.name.top,
+                                          minimum(geometry.chevron.left, geometry.name.right + 1.f),
+                                          geometry.name.bottom};
+                    } else if (!private_row) {
+                        // Shown row controls end the name early.
+                        name_rectangle.right = shell_navigation_controls_left(
+                            layout->rectangle, row, shell_navigation_row_controls(row, hovered, row_selected),
+                            name_rectangle.right);
+                    }
+                    // A hovered channel's name (and a category's) brightens.
+                    if (hovered && !private_row)
+                        ink = theme.text_primary;
                     if (!append_command(channel_scene.widgets, row_widget.label, name, name_rectangle, visible_clip,
-                                        color, stream, look))
+                                        ink, stream, look))
                         return reject(stream);
                 }
                 // A live stage's topic sits on its own line under the name.
                 if (const auto* instance = row.stage_live && navigation.stage_instances
                                                ? stage_instance_store_find(*navigation.stage_instances, row.id)
                                                : nullptr) {
-                    const float left = layout->rectangle.left + 34.0f + static_cast<float>(row.depth) * 12.0f;
+                    const float left = layout->rectangle.left + kShellChannelLabelLeft +
+                                       static_cast<float>(row.depth) * kShellChannelIndent;
                     const float top = layout->rectangle.top + kShellNavigationVoiceHeadHeight - 4.0f;
                     const UiRect topic{left, top, layout->rectangle.right - 10.0f,
                                        top + kShellNavigationStageTopicHeight};

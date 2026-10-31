@@ -3,6 +3,8 @@
 #include "maicord/core/memory.hpp"
 #include "application_channel_memory.hpp"
 #include "application_guild_community.hpp"
+#include "application_guild_settings.hpp"
+#include "application_channel_overview.hpp"
 #include "application_guild_menu.hpp"
 #include "application_private_channel.hpp"
 #include "application_guild_invite.hpp"
@@ -529,6 +531,32 @@ static bool join_voice_channel(u64 channel_id) noexcept {
     return application_voice_join(channel->guild_id, channel->id);
 }
 
+// Create Invite and Edit Channel on a channel row, Create Channel on a
+// category: the controls the row shows under the pointer.
+static bool activate_channel_row_control(u64 channel_id, float x, float y) noexcept {
+    const auto& scene = g_app.shell_navigation_scene;
+    const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, channel_id);
+    for (u32 i = 0; channel && i < scene.count; ++i) {
+        const auto& row = scene.rows[i];
+        const auto* layout = row.view.id == channel_id ? shell_navigation_scene_layout_node(scene, row) : nullptr;
+        if (!layout)
+            continue;
+        const u8 shown = shell_navigation_row_controls(row.view, true, row.view.selected);
+        const auto under = [&](ChannelRowControl control) noexcept {
+            return (shown & control) &&
+                   ui_rect_contains(shell_navigation_control_rectangle(layout->rectangle, row.view, control), x, y);
+        };
+        if (under(channel_row_invite))
+            return application_guild_lifecycle_open_invite(channel->guild_id, channel_id) || true;
+        if (under(channel_row_settings))
+            return application_channel_overview_open(channel_id) || true;
+        if (under(channel_row_create))
+            return application_guild_settings_create_channel(0, channel_id, 0) || true;
+        return false;
+    }
+    return false;
+}
+
 bool handle_navigation_click(LPARAM lparam) noexcept {
     // Draggable rows act on release so a drag never also clicks them.
     if (application_navigation_drag_press(lparam))
@@ -557,6 +585,9 @@ bool activate_navigation_press(LPARAM lparam) noexcept {
     const auto hit = renderer_navigation_hit_test(g_app.renderer, point.x, point.y);
     if (hit.kind == RendererNavigationHitKind::none)
         return false;
+    if (g_app.account_ui && hit.kind == RendererNavigationHitKind::channel &&
+        activate_channel_row_control(hit.id, client_dip_x(lparam), client_dip_y(lparam)))
+        return true;
     if (g_app.account_ui && hit.kind == RendererNavigationHitKind::channel && navigation_events_row(hit.id)) {
         shell_navigation_scene_focus_channel(&g_app.shell_navigation_scene, hit.id);
         return application_guild_community_open_events(g_app.account_ui->chat_state.selected_guild_id) || true;

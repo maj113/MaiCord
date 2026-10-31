@@ -11,6 +11,34 @@ struct MemberListScene;
 struct MessageComposerPresentationInput;
 struct MessageComposerScene;
 struct ShellNavigationScene;
+struct UiTextMeasureCache;
+
+// Names the chrome places a glyph after (the server name's chevron, a
+// category's chevron) are measured in the shell text's own style; both the
+// chrome and the text pass take the same width from the cache.
+struct ShellTextMeasure {
+    const ChatStateStore* state;
+    UiTextMeasureCache* cache;
+};
+inline constexpr u16 kShellMeasureCategoryName = 1, kShellMeasureGuildName = 2;
+// Width of `text` in `style_flags` on one line, at most `maximum_width`;
+// `maximum_width` without a cache or when measuring fails.
+float shell_text_width(UiTextMeasureCache* cache, u64 source_id, u16 item, Utf8View text, u32 style_flags,
+                       float maximum_width) noexcept;
+// The server header: the name (`name` DIPs wide at most) then the chevron
+// 4 DIPs after it, inside the dropdown's 8-DIP padding.
+struct ShellGuildHeaderGeometry {
+    UiRect name, chevron, hover;
+};
+ShellGuildHeaderGeometry shell_guild_header_geometry(UiRect menu, float name_width) noexcept;
+// The available name width in the dropdown.
+float shell_guild_header_name_space(UiRect menu) noexcept;
+// A category's name line, ending before its create control, and its chevron.
+struct ShellCategoryGeometry {
+    UiRect name, chevron;
+};
+ShellCategoryGeometry shell_category_geometry(UiRect row, const ChannelViewRow& view, float name_width) noexcept;
+float shell_category_name_space(UiRect row, const ChannelViewRow& view) noexcept;
 
 struct ShellPresentationRegions {
     UiRect message_view;
@@ -38,7 +66,7 @@ bool shell_presentation_build_chrome(
     const Theme& theme, float viewport_width, float viewport_height,
     PaintStream* stream, ShellPresentationRegions* regions,
     const MessageComposerPresentationInput* composer_presentation,
-    u64 visual_selected_channel_id = 0) noexcept;
+    u64 visual_selected_channel_id = 0, ShellTextMeasure measure = {}) noexcept;
 
 // Status badges are composited after avatar media so the avatar texture cannot
 // cover them; a distinct retained pass keeps the layer order independent of
@@ -56,7 +84,7 @@ bool shell_presentation_build_guild_rail_overlay(const UiScene& scene, const Gui
 // which the chrome leaves out while the banner shows.
 bool shell_presentation_build_guild_banner_overlay(const UiScene& scene, const NavigationView* navigation,
                                                    const ShellNavigationScene* channel_scene, const Theme& theme,
-                                                   PaintStream* stream) noexcept;
+                                                   PaintStream* stream, ShellTextMeasure measure = {}) noexcept;
 // Whether the banner shows behind the header (white header content).
 bool shell_presentation_guild_banner_visible(const UiScene& scene, const ShellNavigationScene* channel_scene) noexcept;
 

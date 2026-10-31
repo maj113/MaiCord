@@ -10,6 +10,9 @@
 #include "maicord/ui/message_markdown.hpp"
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/guild_rail_scene.hpp"
+#include "maicord/ui/channel_controls.hpp"
+#include "maicord/ui/shell_navigation_scene.hpp"
+#include "maicord/ui/shell_presentation.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
@@ -559,12 +562,70 @@ void taskbar() noexcept {
           "overflow and dot badges render; invalid requests are rejected");
 }
 
+// The channel list's row controls: their permission gates, when they show,
+// and the client's compact geometry for them, a category's chevron and the
+// server header's chevron.
+void channel_controls() noexcept {
+    ChannelRecord category{};
+    category.type = 4;
+    category.guild_id = 7;
+    category.permissions_resolved = true;
+    category.effective_permissions = kPermissionViewChannel;
+    const bool create_denied = !channel_controls_can_create_in(category);
+    category.effective_permissions |= kPermissionManageChannels;
+    check(create_denied && channel_controls_can_create_in(category),
+          "a category offers Create Channel only with Manage Channels there");
+    ChannelRecord text{};
+    text.type = 0;
+    text.guild_id = 7;
+    text.occupied = true;
+    text.permissions_resolved = true;
+    text.actions = channel_action_view;
+    text.effective_permissions = kPermissionViewChannel;
+    const bool edit_denied = !channel_controls_can_edit(text);
+    text.effective_permissions |= kPermissionManageRoles;
+    check(edit_denied && channel_controls_can_edit(text), "Manage Permissions alone opens Edit Channel");
+
+    const UiRect row{0, 0, 240, 30};
+    ChannelViewRow channel{};
+    channel.controls = channel_row_invite | channel_row_settings;
+    check(!shell_navigation_row_controls(channel, false, false) &&
+              shell_navigation_row_controls(channel, true, false) == channel.controls &&
+              shell_navigation_row_controls(channel, false, true) == channel.controls &&
+              shell_navigation_row_height(channel) == 30,
+          "a 30-DIP channel shows Create Invite and Edit Channel while hovered or selected");
+    check(ui_rect_equal(shell_navigation_control_rectangle(row, channel, channel_row_settings), {210, 7, 226, 23}) &&
+              ui_rect_equal(shell_navigation_control_rectangle(row, channel, channel_row_invite), {190, 7, 206, 23}) &&
+              shell_navigation_controls_left(row, channel, channel.controls, 226) == 186 &&
+              !ui_rect_has_area(shell_navigation_control_rectangle(row, channel, channel_row_create)),
+          "row controls are 16 DIPs, 4 apart, ending 6 DIPs inside the highlight");
+    channel.mention_count = 3;
+    check(ui_rect_equal(shell_navigation_control_rectangle(row, channel, channel_row_settings), {190, 7, 206, 23}),
+          "row controls sit before a mention badge");
+    ChannelViewRow group{};
+    group.type = 4;
+    group.controls = channel_row_create;
+    const UiRect line{0, 0, 240, 32};
+    const auto named = shell_category_geometry(line, group, 50);
+    const auto clipped = shell_category_geometry(line, group, 500);
+    check(shell_navigation_row_height(group) == 32 && shell_navigation_row_controls(group, false, false) == channel_row_create &&
+              ui_rect_equal(shell_navigation_control_rectangle(line, group, channel_row_create), {218, 12, 234, 28}) &&
+              ui_rect_equal(named.name, {12, 8, 62, 32}) && ui_rect_equal(named.chevron, {66, 14, 78, 26}) &&
+              clipped.chevron.right == 214,
+          "a category's chevron follows its name and Create Channel ends its line");
+    const auto header = shell_guild_header_geometry({8, 8, 200, 40}, 60);
+    check(ui_rect_equal(header.name, {16, 8, 76, 40}) && ui_rect_equal(header.chevron, {80, 18, 92, 30}) &&
+              ui_rect_equal(header.hover, {8, 8, 100, 40}),
+          "the server header's chevron follows the name inside the dropdown's fill");
+}
+
 void run() noexcept {
     unread_banner();
     guild_folders();
     invites();
     folder_publication();
     taskbar();
+    channel_controls();
 }
 } // namespace maicord::navigation_gaps_test
 

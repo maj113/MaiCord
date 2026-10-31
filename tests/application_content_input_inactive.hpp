@@ -96,6 +96,15 @@ bool application_guild_folders_toggle(u64) noexcept {
 bool application_navigation_drag_press(LPARAM) noexcept {
     return false;
 }
+bool application_guild_lifecycle_open_invite(u64, u64) noexcept {
+    return false;
+}
+bool application_channel_overview_open(u64) noexcept {
+    return false;
+}
+bool application_guild_settings_create_channel(u64, u64, u8) noexcept {
+    return false;
+}
 bool application_guild_lifecycle_open_create() noexcept {
     return false;
 }

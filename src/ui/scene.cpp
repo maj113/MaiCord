@@ -19,7 +19,8 @@ Utf8View semantic_name(UiSemantic semantic) noexcept {
         utf8_literal("Threads"),        utf8_literal("ThreadHeader"),  utf8_literal("ThreadStatus"),
         utf8_literal("ThreadPrimaryAction"), utf8_literal("ThreadActions"), utf8_literal("ThreadFeedback"),
         utf8_literal("ThreadCancel"),   utf8_literal("CreateDirectMessage"), utf8_literal("AddPeople"),
-        utf8_literal("StartCall"),      utf8_literal("Inbox"),         utf8_literal("ServerMenu")};
+        utf8_literal("StartCall"),      utf8_literal("Inbox"),         utf8_literal("ServerMenu"),
+        utf8_literal("InvitePeople")};
     static_assert(sizeof(names) / sizeof(names[0]) == static_cast<u32>(UiSemantic::count));
     return names[static_cast<u32>(semantic)];
 }
@@ -32,7 +33,7 @@ bool semantic_button(UiSemantic semantic) noexcept {
            semantic == UiSemantic::thread_overflow || semantic == UiSemantic::thread_cancel ||
            semantic == UiSemantic::private_create || semantic == UiSemantic::private_add ||
            semantic == UiSemantic::private_call || semantic == UiSemantic::inbox_toggle ||
-           semantic == UiSemantic::guild_menu;
+           semantic == UiSemantic::guild_menu || semantic == UiSemantic::guild_invite;
 }
 
 UiWidgetKind semantic_kind(UiSemantic semantic) noexcept {
@@ -99,7 +100,8 @@ bool shell_flag(const UiShellLayoutMetrics& metrics, UiShellLayoutFlags flag) no
 bool shell_metrics_valid(const UiShellLayoutMetrics& metrics) noexcept {
     constexpr u16 known_flags =
         static_cast<u16>(ui_shell_layout_navigation | ui_shell_layout_members | ui_shell_layout_composer |
-                         ui_shell_layout_pins | ui_shell_layout_threads | ui_shell_layout_private);
+                         ui_shell_layout_pins | ui_shell_layout_threads | ui_shell_layout_private |
+                         ui_shell_layout_guild_invite);
     const bool navigation = shell_flag(metrics, ui_shell_layout_navigation);
     const bool members = shell_flag(metrics, ui_shell_layout_members);
     const bool composer = shell_flag(metrics, ui_shell_layout_composer);
@@ -149,7 +151,8 @@ u8 shell_variant(const UiShellLayoutMetrics& metrics, float width) noexcept {
     return static_cast<u8>((shell_flag(metrics, ui_shell_layout_navigation) ? 1u : 0u) |
                            (members ? 2u : 0u) | (shell_flag(metrics, ui_shell_layout_composer) ? 4u : 0u) |
                            (shell_flag(metrics, ui_shell_layout_pins) ? 8u : 0u) | (threads ? 16u : 0u) |
-                           (shell_flag(metrics, ui_shell_layout_private) ? 32u : 0u) | (inbox ? 64u : 0u));
+                           (shell_flag(metrics, ui_shell_layout_private) ? 32u : 0u) | (inbox ? 64u : 0u) |
+                           (shell_flag(metrics, ui_shell_layout_guild_invite) ? 128u : 0u));
 }
 
 float header_search_width(float content_width, float controls_width) noexcept {
@@ -284,12 +287,24 @@ bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& m
             return false;
         }
         if (guild_header) {
+            // Invite People ends the header, 4 DIPs after the dropdown.
+            const bool invite = (variant & 128u) != 0;
             UiLayoutStyle menu_style = fixed_height(32.f);
             menu_style.vertical_alignment = UiLayoutAlignment::center;
             menu_style.padding = {8.f, 0, 8.f, 0};
-            if (!add_node(scene, UiSemantic::guild_menu,
-                          scene->semantics[static_cast<u32>(UiSemantic::channel_header)], menu_style))
+            menu_style.margin.right = invite ? kUiShellGuildInvite + 4.f : 0.f;
+            const UiWidgetHandle header = scene->semantics[static_cast<u32>(UiSemantic::channel_header)];
+            if (!add_node(scene, UiSemantic::guild_menu, header, menu_style))
                 return false;
+            if (invite) {
+                UiLayoutStyle invite_style = fixed_width(kUiShellGuildInvite);
+                invite_style.height = ui_layout_fixed(kUiShellGuildInvite);
+                invite_style.horizontal_alignment = UiLayoutAlignment::end;
+                invite_style.vertical_alignment = UiLayoutAlignment::center;
+                invite_style.flags |= ui_layout_node_allow_overlap;
+                if (!add_node(scene, UiSemantic::guild_invite, header, invite_style))
+                    return false;
+            }
         }
         if (view == UiShellView::friends || view == UiShellView::private_channels) {
             auto friends_style = fixed_height(40.f);

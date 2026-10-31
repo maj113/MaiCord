@@ -21,6 +21,7 @@
 #include "application_thread_browser.hpp"
 #include "application_message_edit.hpp"
 #include "maicord/ui/message_typing_presentation.hpp"
+#include "maicord/ui/guild_context_policy.hpp"
 #include "application_thread_header.hpp"
 #include "application_channel_authority.hpp"
 #include "application_reply_draft.hpp"
@@ -673,6 +674,11 @@ u16 shell_header_flags(bool friends) noexcept {
         ui ? chat_state_store_find_channel(ui->chat_state, ui->chat_state.selected_channel_id) : nullptr;
     if (!friends && ui && ui->chat_state.home_selected && selected && channel_is_private(selected->type))
         flags |= ui_shell_layout_private;
+    // Invite People heads a server's list while one of its channels takes invites.
+    if (!friends && ui && !ui->chat_state.home_selected && ui->chat_state.selected_guild_id &&
+        guild_context_invite_channel(ui->chat_state, ui->chat_state.selected_guild_id,
+                                     ui->chat_state.selected_channel_id))
+        flags |= ui_shell_layout_guild_invite;
     return flags;
 }
 

@@ -36,14 +36,17 @@ UiLayoutStyle icon_style(const ChannelViewRow& row) noexcept {
     UiLayoutStyle style = ui_layout_style();
     const bool category = row.type == 4;
     const bool private_channel = channel_is_private(row.type);
-    // Original icon-pack glyphs: 16-DIP channel icons and a 12-DIP category
-    // chevron, centred in the 32-DIP head and 28-DIP category rows.
-    const float extent = private_channel ? kUiPrivateRowAvatar : category ? 12.0f : 16.0f;
+    // Original icon-pack glyphs: 20-DIP channel icons centred in the 30-DIP
+    // head. A category's chevron follows its name (painted after measuring
+    // it); its slot sits at the name's start.
+    const float extent = private_channel ? kUiPrivateRowAvatar : category ? kShellCategoryChevron : kShellChannelIcon;
     style.width = ui_layout_fixed(extent);
     style.height = ui_layout_fixed(extent);
-    style.margin.left = (private_channel ? 16.0f : category ? 16.0f : 12.0f) + static_cast<float>(row.depth) * 12.0f;
-    style.margin.top = ((category ? 28.0f : private_channel ? kUiPrivateRowHeight : kShellNavigationVoiceHeadHeight) -
-                        extent) * 0.5f;
+    style.margin.left = (private_channel ? 16.0f : category ? kShellCategoryNameLeft : kShellChannelIconLeft) +
+                        static_cast<float>(row.depth) * kShellChannelIndent;
+    style.margin.top = category ? kShellCategoryLineTop + (kShellCategoryHeight - kShellCategoryLineTop - extent) * .5f
+                                : ((private_channel ? kUiPrivateRowHeight : kShellNavigationVoiceHeadHeight) - extent) *
+                                      0.5f;
     return style;
 }
 
@@ -53,11 +56,16 @@ UiLayoutStyle label_style(const ChannelViewRow& row) noexcept {
     style.height = ui_layout_fill();
     style.horizontal_alignment = UiLayoutAlignment::stretch;
     style.vertical_alignment = UiLayoutAlignment::stretch;
+    const bool category = row.type == 4;
+    const bool private_channel = channel_is_private(row.type);
     style.margin = UiInsets{
-        (channel_is_private(row.type) ? 60.0f : 34.0f) + static_cast<float>(row.depth) * 12.0f,
-        channel_is_private(row.type) ? 0.0f : 5.0f,
-        row.mention_count != 0 ? ui_mention_badge_width(row.mention_count) + 18.0f
-        : channel_is_private(row.type) ? 40.0f : 12.0f, 0.0f};
+        (private_channel ? 60.0f : category ? kShellCategoryNameLeft : kShellChannelLabelLeft) +
+            static_cast<float>(row.depth) * kShellChannelIndent,
+        private_channel ? 0.0f : category ? kShellCategoryLineTop : 5.0f,
+        row.mention_count != 0 ? ui_mention_badge_width(row.mention_count) + 20.0f
+        : private_channel      ? 40.0f
+                               : kShellChannelHighlightRight + kShellChannelHighlightLeft,
+        0.0f};
     style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_text_content);
     return style;
 }
@@ -66,8 +74,9 @@ UiLayoutStyle mention_badge_style(u32 count, bool private_channel) noexcept {
     UiLayoutStyle style = ui_layout_style();
     style.width = ui_layout_fixed(ui_mention_badge_width(count));
     style.height = ui_layout_fixed(kUiMentionBadgeHeight);
-    style.margin.right = 10.0f;
-    style.margin.top = private_channel ? (kUiPrivateRowHeight - kUiMentionBadgeHeight) * 0.5f : 8.0f;
+    style.margin.right = private_channel ? 10.0f : kShellChannelHighlightRight + kShellChannelHighlightLeft;
+    style.margin.top = ((private_channel ? kUiPrivateRowHeight : kShellNavigationVoiceHeadHeight) -
+                        kUiMentionBadgeHeight) * 0.5f;
     style.horizontal_alignment = UiLayoutAlignment::end;
     return style;
 }
@@ -94,21 +103,55 @@ u64 focused_channel(const ShellNavigationScene& scene) noexcept {
 
 ShellThreadSpine shell_navigation_thread_spine(UiRect row, float row_height, UiRect icon, bool first,
                                                bool continues) noexcept {
-    const float x = (icon.left + icon.right) * 0.5f - 12.0f;
+    const float x = (icon.left + icon.right) * 0.5f - kShellChannelIndent;
     const float y = row.top + row_height * 0.5f;
     const float r = kShellThreadSpineRadius;
-    // The parent icon ends 8 DIP above this row; leave a 2 DIP gap below it.
-    const float top = first ? row.top - 6.0f : row.top;
+    // The parent icon ends 5 DIP above this row; leave a 2 DIP gap below it.
+    const float top = first ? row.top - 3.0f : row.top;
     return {{x, top}, {x, y - r}, {x + r, y}, {icon.right - 4.0f, y}, continues ? row.bottom : y - r};
 }
 
 float shell_navigation_row_height(const ChannelViewRow& row) noexcept {
     if (channel_is_private(row.type))
         return kUiPrivateRowHeight;
-    return row.type == 4 ? 28.0f
-                         : shell_navigation_voice_top(row) +
-                               static_cast<float>(row.voice_count) * kShellNavigationVoiceUserHeight +
-                               (row.voice_invite ? kShellNavigationVoiceInviteHeight : 0.0f);
+    if (row.type == 4)
+        return kShellCategoryHeight;
+    if (row.type == kNavigationEventsRowType)
+        return kShellNavigationVoiceHeadHeight + kShellNavigationDividerBand;
+    return shell_navigation_voice_top(row) + static_cast<float>(row.voice_count) * kShellNavigationVoiceUserHeight +
+           (row.voice_invite ? kShellNavigationVoiceInviteHeight : 0.0f);
+}
+
+u8 shell_navigation_row_controls(const ChannelViewRow& row, bool hovered, bool selected) noexcept {
+    if (row.type == 4)
+        return row.controls & channel_row_create;
+    return hovered || selected ? row.controls & (channel_row_invite | channel_row_settings) : 0;
+}
+
+UiRect shell_navigation_control_rectangle(UiRect row, const ChannelViewRow& view, ChannelRowControl control) noexcept {
+    if (!(view.controls & control) || (control == channel_row_create) != (view.type == 4))
+        return {};
+    if (view.type == 4) {
+        const float top = row.top + kShellCategoryLineTop +
+                          (kShellCategoryHeight - kShellCategoryLineTop - kShellChannelControl) * .5f;
+        const float right = row.right - kShellChannelHighlightLeft;
+        return {right - kShellChannelControl, top, right, top + kShellChannelControl};
+    }
+    float right = row.right - kShellChannelHighlightRight - kShellChannelHighlightLeft;
+    if (view.mention_count)
+        right -= ui_mention_badge_width(view.mention_count) + kShellChannelControlGap;
+    if (control == channel_row_invite && (view.controls & channel_row_settings))
+        right -= kShellChannelControl + kShellChannelControlGap;
+    const float top = row.top + (kShellNavigationVoiceHeadHeight - kShellChannelControl) * .5f;
+    return {right - kShellChannelControl, top, right, top + kShellChannelControl};
+}
+
+float shell_navigation_controls_left(UiRect row, const ChannelViewRow& view, u8 shown, float right) noexcept {
+    constexpr ChannelRowControl order[]{channel_row_invite, channel_row_settings, channel_row_create};
+    for (const auto control : order)
+        if (shown & control)
+            return minimum(right, shell_navigation_control_rectangle(row, view, control).left - kShellChannelControlGap);
+    return right;
 }
 
 float shell_navigation_content_height(const NavigationView* view) noexcept {

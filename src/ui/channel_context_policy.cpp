@@ -1,4 +1,5 @@
 #include "maicord/ui/channel_context_policy.hpp"
+#include "maicord/ui/channel_controls.hpp"
 #include "maicord/model/permission_bits.hpp"
 #include "maicord/ui/popup_scene.hpp"
 
@@ -63,17 +64,7 @@ u32 channel_context_policy_build(const ChatStateStore& state, u64 channel_id, u3
           (channel->effective_permissions & read_permissions) == read_permissions));
     const bool unread = mark_unread_action && unread_eligible;
     const bool retry_unread = retry_unread_action && unread_eligible;
-    // Channel Settings opens for guild text, voice, category, announcement,
-    // stage and forum channels with Manage Channels or Manage Permissions.
-    const bool settings_type = channel->type == 0 || channel->type == 2 || channel->type == 4 ||
-                               channel->type == 5 || channel->type == 13 || channel->type == 15;
-    const u64 granted = channel->effective_permissions;
-    const bool manages = (granted & kPermissionManageChannels) &&
-                         (channel->actions & channel_action_manage_channel);
-    const bool overrides = (granted & kPermissionManageRoles) != 0;
-    const bool editable = edit_action && channel->occupied && channel->guild_id && settings_type &&
-                          channel->permissions_resolved && (granted & kPermissionViewChannel) &&
-                          (channel->actions & channel_action_view) && (manages || overrides);
+    const bool editable = edit_action && channel_controls_can_edit(*channel);
     const u32 count = static_cast<u32>(readable) + static_cast<u32>(unread) +
                       static_cast<u32>(retry_unread) + static_cast<u32>(close) +
                       static_cast<u32>(editable) + static_cast<u32>(category_mark) +

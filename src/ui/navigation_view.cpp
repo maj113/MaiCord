@@ -11,6 +11,7 @@
 #include "maicord/model/voice_state_store.hpp"
 #include "maicord/protocol/guild_folders.hpp"
 #include "maicord/ui/private_channel_rows.hpp"
+#include "maicord/ui/channel_controls.hpp"
 
 namespace maicord {
 namespace {
@@ -185,7 +186,7 @@ bool row_changed(const ChannelViewRow& left, const ChannelViewRow& right) noexce
            left.selectable != right.selectable || left.unread != right.unread || left.collapsed != right.collapsed ||
            left.voice_count != right.voice_count || left.muted != right.muted ||
            left.stage_live != right.stage_live || left.voice_subtitle != right.voice_subtitle ||
-           left.voice_invite != right.voice_invite;
+           left.voice_invite != right.voice_invite || left.controls != right.controls;
 }
 bool stage_live(const NavigationView& view, u64 channel_id, u8 type) noexcept {
     return type == 13 && view.stage_instances && stage_instance_store_find(*view.stage_instances, channel_id);
@@ -604,6 +605,9 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
             stage_live(*view, channel.id, channel.type),
             voice_subtitle(*view, channel.id, channel.type),
             voice_invite(*view, channel.id, channel.type),
+            static_cast<u8>((channel_controls_can_invite(state, channel) ? channel_row_invite : 0u) |
+                            (channel_controls_can_edit(channel) ? channel_row_settings : 0u) |
+                            (channel_controls_can_create_in(channel) ? channel_row_create : 0u)),
         };
         channel_changed = channel_changed || row_changed(view->channel_rows[order + lead], row);
         view->channel_rows[order + lead] = row;

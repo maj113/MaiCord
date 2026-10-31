@@ -10,6 +10,8 @@ inline constexpr u32 kMaximumUiNodes = 32;
 // the 32-DIP button, with 8-DIP rounded corners.
 inline constexpr float kUiShellGuildMenuChevron = 12.0f;
 inline constexpr float kUiShellGuildMenuRadius = 8.0f;
+// Invite People beside the server name: a 32-DIP button with an 18-DIP glyph.
+inline constexpr float kUiShellGuildInvite = 32.0f, kUiShellGuildInviteGlyph = 18.0f;
 inline constexpr float kUiShellMinimumMessageWidthDips = 320.0f;
 
 enum class UiSemantic : u8 {
@@ -45,6 +47,9 @@ enum class UiSemantic : u8 {
     // The server name and chevron above the channel list (guild views only):
     // opens the server header popout.
     guild_menu,
+    // Invite People at the end of the server header (with the
+    // ui_shell_layout_guild_invite flag).
+    guild_invite,
     count,
 };
 
@@ -63,6 +68,8 @@ enum UiShellLayoutFlags : u16 {
     ui_shell_layout_threads = 1u << 4,
     // A DM or group DM is open: the title bar offers add people and call.
     ui_shell_layout_private = 1u << 5,
+    // The selected server has a channel the account may invite people to.
+    ui_shell_layout_guild_invite = 1u << 6,
 };
 
 struct UiShellLayoutMetrics {
@@ -184,8 +191,8 @@ void ui_scene_release(UiScene* scene) noexcept;
 bool ui_scene_layout_with_metrics(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& metrics,
                                   float width, float height) noexcept;
 // The flags that decide the header's controls.
-inline constexpr u16 kUiShellHeaderFlags =
-    static_cast<u16>(ui_shell_layout_pins | ui_shell_layout_threads | ui_shell_layout_private);
+inline constexpr u16 kUiShellHeaderFlags = static_cast<u16>(ui_shell_layout_pins | ui_shell_layout_threads |
+                                                             ui_shell_layout_private | ui_shell_layout_guild_invite);
 // The last layout used other header flags than `flags` (a channel's type or
 // permissions arrived since): the host lays the shell out again.
 bool ui_scene_header_stale(const UiScene& scene, u16 flags) noexcept;

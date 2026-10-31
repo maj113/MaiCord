@@ -2116,8 +2116,9 @@ void test_ui_scene() noexcept {
                shell_regions.message_view.right == 1040.0f,
            "shell_presentation_renderer_neutral_chrome");
     {
+        // The selected channel's highlight takes radius_md.
         Theme square_theme = kDefaultTheme;
-        square_theme.scale.radius_sm = 0;
+        square_theme.scale.radius_md = 0;
         PaintStream square_paint{};
         bool same_geometry = paint_stream_initialize(&square_paint) &&
             shell_presentation_build_chrome(scene, &navigation, &chrome_guild_scene,
@@ -2130,7 +2131,7 @@ void test_ui_scene() noexcept {
             same_geometry = ui_rect_equal({before.left,before.top,before.right,before.bottom},
                                           {after.left,after.top,after.right,after.bottom});
             if (before.radius != after.radius) {
-                same_geometry &= before.radius <= kDefaultTheme.scale.radius_sm && after.radius == 0;
+                same_geometry &= before.radius <= kDefaultTheme.scale.radius_md && after.radius == 0;
                 ++changed_corners;
             }
         }
@@ -18880,8 +18881,9 @@ void test_chat_state() noexcept {
                                                                          label_layout->content_rectangle),
                                                     shell_navigation->rectangle)
                              : UiRect{};
+            // A category's name ends where its chevron starts.
             if (row && row_layout && label_layout && command.rectangle.left == expected_rectangle.left &&
-                command.rectangle.right == expected_rectangle.right &&
+                (row->view.type == 4 || command.rectangle.right == expected_rectangle.right) &&
                 command.clip.left == expected_clip.left && command.clip.top == expected_clip.top &&
                 command.clip.right == expected_clip.right && command.clip.bottom == expected_clip.bottom &&
                 command.wrapping == TextWrapping::no_wrap &&
@@ -18930,10 +18932,10 @@ void test_chat_state() noexcept {
             const auto* layout = shell_navigation_scene_layout_node(shell_text_navigation_scene, row);
             const auto* icon = ui_widget_manager_layout_node(shell_text_navigation_scene.widgets, row.icon);
             if (!layout || !icon) continue;
-            const float right = layout->rectangle.right - 8.f;
-            const UiRect highlight{minimum(right - 1.f, maximum(layout->rectangle.left + 8.f,
-                icon->rectangle.left - 8.f)), layout->rectangle.top + 1.f,
-                right, layout->rectangle.bottom - 1.f};
+            const float right = layout->rectangle.right - kShellChannelHighlightRight;
+            const UiRect highlight{layout->rectangle.left + kShellChannelHighlightLeft +
+                                       static_cast<float>(row.view.depth) * kShellChannelIndent,
+                                   layout->rectangle.top + 1.f, right, layout->rectangle.bottom - 1.f};
             for (u32 j = 0; j < location_paint.count; ++j) {
                 const auto& quad = location_paint.quads[j];
                 if (!ui_rect_equal({quad.left, quad.top, quad.right, quad.bottom}, highlight)) continue;

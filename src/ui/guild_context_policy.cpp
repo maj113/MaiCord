@@ -1,5 +1,6 @@
 #include "maicord/ui/guild_context_policy.hpp"
 #include "maicord/model/guild_settings_model.hpp"
+#include "maicord/ui/channel_controls.hpp"
 #include "maicord/ui/popup_scene.hpp"
 
 namespace maicord {
@@ -56,10 +57,7 @@ u32 guild_context_policy_build(const ChatStateStore& state, u64 guild_id, u32 co
 bool guild_context_can_create_channel(const ChatStateStore& state, u64 guild_id, u64 category_id) noexcept {
     if (category_id) {
         const auto* category = chat_state_store_find_channel(state, category_id);
-        if (!category || category->type != 4 || !category->guild_id || !category->permissions_resolved)
-            return false;
-        return (category->effective_permissions & kPermissionViewChannel) &&
-               permission_has(category->effective_permissions, kPermissionManageChannels);
+        return category && channel_controls_can_create_in(*category);
     }
     const auto access = guild_settings_access(state, guild_id);
     return access.resolved && permission_has(access.permissions, kPermissionManageChannels);
@@ -70,12 +68,7 @@ bool text_like(u8 type) noexcept {
     return type == 0 || type == 5 || type == 15 || type == 16;
 }
 bool invite_target(const ChatStateStore& state, const ChannelRecord* channel, u64 guild_id) noexcept {
-    return channel && channel->occupied && channel->guild_id == guild_id && channel->permissions_resolved &&
-           (channel->type == 0 || channel->type == 2 || channel->type == 5 || channel->type == 13 ||
-            channel->type == 15 || channel->type == 16) &&
-           !(channel->flags & kChannelObfuscatedFlag) && chat_state_store_channel_visible(state, *channel) &&
-           permission_has(channel->effective_permissions, kPermissionViewChannel) &&
-           permission_has(channel->effective_permissions, kPermissionCreateInvite);
+    return channel && channel->guild_id == guild_id && channel_controls_can_invite(state, *channel);
 }
 } // namespace
 

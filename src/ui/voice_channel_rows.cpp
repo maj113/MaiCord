@@ -15,27 +15,30 @@ bool ui_voice_participant_row(const ChannelViewRow& row, UiRect row_rectangle,
         return false;
     const float top = row_rectangle.top + shell_navigation_voice_top(row) +
                       static_cast<float>(index) * kShellNavigationVoiceUserHeight;
-    const float left = row_rectangle.left + 34.0f + static_cast<float>(row.depth) * 12.0f;
-    const float right = row_rectangle.right - 10.0f;
+    // 32-DIP rows with a 24-DIP avatar under the channel name, 16-DIP state
+    // icons 4 DIPs apart at the highlight's end.
+    const float left = row_rectangle.left + kShellChannelLabelLeft + static_cast<float>(row.depth) * kShellChannelIndent;
+    const float right = row_rectangle.right - kShellChannelHighlightRight - kShellChannelHighlightLeft;
     UiVoiceParticipantRow result{state};
     result.speaking = (state->flags & voice_speaking) != 0;
     result.row = {row_rectangle.left, top, row_rectangle.right, top + kShellNavigationVoiceUserHeight};
-    result.avatar = {left, top + 2.0f, left + 20.0f, top + 22.0f};
+    result.avatar = {left, top + 4.0f, left + 24.0f, top + 28.0f};
     float indicator = right;
     if (state->flags & (voice_deaf | voice_self_deaf)) {
-        result.deafened = {indicator - 16.0f, top + 4.0f, indicator, top + 20.0f};
+        result.deafened = {indicator - 16.0f, top + 8.0f, indicator, top + 24.0f};
         indicator -= 20.0f;
     }
     if (state->flags & (voice_mute | voice_self_mute)) {
-        result.muted = {indicator - 16.0f, top + 4.0f, indicator, top + 20.0f};
+        result.muted = {indicator - 16.0f, top + 8.0f, indicator, top + 24.0f};
         indicator -= 20.0f;
     }
     if (state->flags & voice_self_video) {
-        result.video = {indicator - 16.0f, top + 4.0f, indicator, top + 20.0f};
+        result.video = {indicator - 16.0f, top + 8.0f, indicator, top + 24.0f};
         indicator -= 20.0f;
     }
     if (voice_state_live(*state)) {
-        result.live = {indicator - kUiVoiceLiveBadgeWidth, top + 4.0f, indicator, top + 4.0f + kUiVoiceLiveBadgeHeight};
+        const float live_top = top + (kShellNavigationVoiceUserHeight - kUiVoiceLiveBadgeHeight) * .5f;
+        result.live = {indicator - kUiVoiceLiveBadgeWidth, live_top, indicator, live_top + kUiVoiceLiveBadgeHeight};
         indicator -= kUiVoiceLiveBadgeWidth + 4.0f;
     }
     result.label = {result.avatar.right + 8.0f, top, maximum(result.avatar.right + 8.0f, indicator - 4.0f),
@@ -136,7 +139,7 @@ bool ui_voice_invite_dismiss(UiVoiceInviteCountdown* countdown) noexcept {
 }
 
 UiRect ui_voice_status_rectangle(const ChannelViewRow& row, UiRect row_rectangle) noexcept {
-    const float left = row_rectangle.left + 34.0f + static_cast<float>(row.depth) * 12.0f;
+    const float left = row_rectangle.left + kShellChannelLabelLeft + static_cast<float>(row.depth) * kShellChannelIndent;
     const float top = row_rectangle.top + kShellNavigationVoiceHeadHeight - 4.0f;
     return {left, top, maximum(left, row_rectangle.right - 10.0f), top + kShellNavigationStageTopicHeight};
 }

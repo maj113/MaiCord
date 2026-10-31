@@ -1,6 +1,7 @@
 #include "application_shell_input.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_guild_menu.hpp"
+#include "application_guild_lifecycle.hpp"
 #include "application_cursor.hpp"
 #include "application_video.hpp"
 #include "application_private_channel.hpp"
@@ -325,6 +326,7 @@ bool handle_shell_hover(LPARAM lparam) noexcept {
                    widget->id == static_cast<u32>(UiSemantic::settings) + 1u ||
                    widget->id == static_cast<u32>(UiSemantic::friends_button) + 1u ||
                    widget->id == static_cast<u32>(UiSemantic::guild_menu) + 1u ||
+                   widget->id == static_cast<u32>(UiSemantic::guild_invite) + 1u ||
                    widget->id == static_cast<u32>(UiSemantic::channel_footer) + 1u ||
                    widget->id == static_cast<u32>(UiSemantic::home_button) + 1u)) {
         if (!ui_widget_handle_equal(prior, hit)) {
@@ -386,6 +388,10 @@ bool handle_shell_click(LPARAM lparam) noexcept {
         return application_settings_open();
     if (widget && widget->id == static_cast<u32>(UiSemantic::guild_menu) + 1u)
         return application_guild_menu_toggle(false);
+    if (widget && widget->id == static_cast<u32>(UiSemantic::guild_invite) + 1u && g_app.account_ui)
+        return application_guild_lifecycle_open_invite(g_app.account_ui->chat_state.selected_guild_id,
+                                                       g_app.account_ui->chat_state.selected_channel_id) ||
+               true;
     if (widget && widget->id == static_cast<u32>(UiSemantic::private_create) + 1u)
         return application_private_channel_picker(0);
     if (widget && widget->id == static_cast<u32>(UiSemantic::private_add) + 1u && g_app.account_ui)

@@ -650,6 +650,10 @@ void describe_shell(void*, const UiWidgetManager&, UiWidgetHandle, const UiWidge
         info->name = utf8_literal("Friends");
         info->leaf = true;
         break;
+    case UiSemantic::guild_invite:
+        info->name = utf8_literal("Invite people");
+        info->leaf = true;
+        break;
     case UiSemantic::private_create:
         info->name = utf8_literal("Create direct message");
         info->leaf = true;

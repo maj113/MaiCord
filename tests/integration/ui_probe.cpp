@@ -33,6 +33,7 @@
 #include "maicord/render/d3d11_renderer.hpp"
 #include "../../src/app/account_ui_runtime.hpp"
 #include "maicord/ui/presence.hpp"
+#include "maicord/ui/guild_context_policy.hpp"
 #include "../../src/app/application_state.hpp"
 #include "../../src/render/d3d11_renderer_draw.hpp"
 #include "../../src/render/d3d11_renderer_layout.hpp"
@@ -488,6 +489,11 @@ bool synchronize_probe_shell_layout(Utf8View typing_label = {},
     }
     if (!friends && probe_option_enabled(L"MAICORD_UI_PINNED_MESSAGES_PROBE"))
         metrics.flags = static_cast<u16>(metrics.flags | ui_shell_layout_pins);
+    // As the application: Invite People while a channel of the server takes invites.
+    if (!friends && !g_probe.chat_state.home_selected && g_probe.chat_state.selected_guild_id &&
+        guild_context_invite_channel(g_probe.chat_state, g_probe.chat_state.selected_guild_id,
+                                     g_probe.chat_state.selected_channel_id))
+        metrics.flags = static_cast<u16>(metrics.flags | ui_shell_layout_guild_invite);
     if (navigation_width > 0) {
         metrics.navigation_width = navigation_width;
         metrics.revision += 100000u + ui_extent_units(navigation_width);

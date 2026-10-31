@@ -7,6 +7,8 @@
 #include "maicord/ui/shell_presentation.hpp"
 #include "maicord/ui/surface_geometry.hpp"
 #include "maicord/ui/scrollbar.hpp"
+#include "maicord/ui/text_measure_cache.hpp"
+#include "maicord/core/hash.hpp"
 #include "maicord/ui/button.hpp"
 #include "maicord/ui/background_presentation.hpp"
 #include "maicord/ui/background_surface.hpp"
@@ -33,7 +35,6 @@ namespace {
 UiIcon channel_row_icon(const ChannelViewRow& row) noexcept {
     switch (row.type) {
     case 2: return UiIcon::speaker;
-    case 4: return row.collapsed ? UiIcon::chevron_right : UiIcon::chevron_down;
     case 5: return UiIcon::megaphone;
     case 10:
     case 11:
@@ -283,7 +284,89 @@ bool paint_folder_header(PaintStream* stream, const NavigationView* navigation,
     return true;
 }
 
+// The server header: the dropdown's fill while hovered or open, the chevron
+// after the measured name (an X while open), then Invite People.
+bool paint_guild_header(PaintStream* stream, const UiScene& scene, const NavigationView* navigation,
+                        ShellTextMeasure measure, Color hover, Color pressed, Color ink, Color quiet) noexcept {
+    const auto* menu = ui_scene_node(scene, UiSemantic::guild_menu);
+    if (!menu || !navigation || !navigation->selected_guild_id)
+        return true;
+    const u64 guild_id = navigation->selected_guild_id;
+    const auto* guild = measure.state ? chat_state_store_find_guild(*measure.state, guild_id) : nullptr;
+    const Utf8View name = guild ? chat_state_store_guild_name(*measure.state, *guild) : Utf8View{};
+    const UiRect r = menu->rectangle;
+    const auto geometry = shell_guild_header_geometry(
+        r, shell_text_width(measure.cache, guild_id, kShellMeasureGuildName, name, text_style_none,
+                            shell_guild_header_name_space(r)));
+    const bool hovered = ui_widget_handle_equal(scene.widgets.hovered, ui_scene_widget(scene, UiSemantic::guild_menu));
+    if (((hovered || scene.guild_menu_expanded) &&
+         !paint_stream_push_rounded(stream, geometry.hover, scene.guild_menu_expanded ? pressed : hover,
+                                    kUiShellGuildMenuRadius)) ||
+        !ui_icon_paint(stream, scene.guild_menu_expanded ? UiIcon::close : UiIcon::chevron_down, geometry.chevron,
+                       ink))
+        return false;
+    const auto* invite = ui_scene_node(scene, UiSemantic::guild_invite);
+    if (!invite)
+        return true;
+    const bool invite_hovered =
+        ui_widget_handle_equal(scene.widgets.hovered, ui_scene_widget(scene, UiSemantic::guild_invite));
+    const UiRect b = invite->rectangle;
+    const float x = (b.left + b.right) * .5f, y = (b.top + b.bottom) * .5f, half = kUiShellGuildInviteGlyph * .5f;
+    return (!invite_hovered || paint_stream_push_rounded(stream, b, hover, kUiShellGuildMenuRadius)) &&
+           ui_icon_paint(stream, UiIcon::user_plus, {x - half, y - half, x + half, y + half},
+                         invite_hovered ? ink : quiet);
+}
+
 } // namespace
+
+float shell_text_width(UiTextMeasureCache* cache, u64 source_id, u16 item, Utf8View text, u32 style_flags,
+                       float maximum_width) noexcept {
+    const float limit = maximum(0.f, maximum_width);
+    if (!text.bytes)
+        return 0.f;
+    if (!cache || limit <= 0)
+        return limit;
+    const TextStyleSpan style{0, text.bytes, style_flags};
+    UiTextMeasureValue measured{};
+    const UiTextMeasureRequest request{{source_id, hash64_bytes(kHash64Seed, text.data, text.bytes), 0, item, 0},
+                                       text,
+                                       style_flags ? ConstSlice<TextStyleSpan>{&style, 1} : ConstSlice<TextStyleSpan>{},
+                                       {limit, 40.f},
+                                       true};
+    return ui_text_measure_cache_measure(cache, request, &measured).ok() ? minimum(limit, measured.size.width)
+                                                                          : limit;
+}
+
+float shell_guild_header_name_space(UiRect menu) noexcept {
+    return maximum(0.f, ui_rect_width(menu) - 16.f - kUiShellGuildMenuChevron - 4.f);
+}
+
+ShellGuildHeaderGeometry shell_guild_header_geometry(UiRect menu, float name_width) noexcept {
+    const float left = menu.left + 8.f;
+    const float width = minimum(maximum(0.f, name_width), shell_guild_header_name_space(menu));
+    const float chevron = left + width + 4.f;
+    const float top = (menu.top + menu.bottom - kUiShellGuildMenuChevron) * .5f;
+    return {{left, menu.top, left + width, menu.bottom},
+            {chevron, top, chevron + kUiShellGuildMenuChevron, top + kUiShellGuildMenuChevron},
+            {menu.left, menu.top, minimum(menu.right, chevron + kUiShellGuildMenuChevron + 8.f), menu.bottom}};
+}
+
+float shell_category_name_space(UiRect row, const ChannelViewRow& view) noexcept {
+    const float left = row.left + kShellCategoryNameLeft + static_cast<float>(view.depth) * kShellChannelIndent;
+    const float right = shell_navigation_controls_left(row, view, view.controls & channel_row_create,
+                                                       row.right - kShellChannelHighlightLeft);
+    return maximum(0.f, right - left - kShellCategoryGap - kShellCategoryChevron);
+}
+
+ShellCategoryGeometry shell_category_geometry(UiRect row, const ChannelViewRow& view, float name_width) noexcept {
+    const float left = row.left + kShellCategoryNameLeft + static_cast<float>(view.depth) * kShellChannelIndent;
+    const float width = minimum(maximum(0.f, name_width), shell_category_name_space(row, view));
+    const float top = row.top + kShellCategoryLineTop, bottom = row.top + kShellCategoryHeight;
+    const float chevron = left + width + kShellCategoryGap, middle = (top + bottom) * .5f;
+    return {{left, top, left + width, bottom},
+            {chevron, middle - kShellCategoryChevron * .5f, chevron + kShellCategoryChevron,
+             middle + kShellCategoryChevron * .5f}};
+}
 
 bool shell_presentation_paint_reply_mention(const MessageComposerScene& scene, const Theme& theme,
                                             PaintStream* stream) noexcept {
@@ -308,7 +391,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                                      float viewport_width, float viewport_height, PaintStream* stream,
                                      ShellPresentationRegions* regions,
                                      const MessageComposerPresentationInput* composer_presentation,
-                                     u64 visual_selected_channel_id) noexcept {
+                                     u64 visual_selected_channel_id, ShellTextMeasure measure) noexcept {
     if (!stream || !regions || !ui_extent_valid(viewport_width) || !ui_extent_valid(viewport_height) ||
         viewport_width <= 0.0f || viewport_height <= 0.0f) {
         return false;
@@ -497,12 +580,17 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                 const UiRect& row_rectangle = layout->rectangle;
                 const bool row_hovered = hovered_row == &row_widget;
                 const float row_top = row_rectangle.top;
-                // Voice rows extend below their head (and status line) for users and the invite row.
+                const bool private_row = channel_is_private(row.type);
+                const bool category = row.type == 4;
+                // Voice rows extend below their head (and status line) for
+                // users and the invite row; the leading events row ends with
+                // its divider band.
                 const float row_height = row.voice_count || row.stage_live || row.voice_subtitle || row.voice_invite
                                              ? shell_navigation_voice_top(row)
-                                             : ui_rect_height(row_rectangle);
-                const float selected_right = row_rectangle.right - 8.0f;
-                const bool thread = shell_navigation_thread_row(row) && !channel_is_private(row.type);
+                                         : row.type == kNavigationEventsRowType ? kShellNavigationVoiceHeadHeight
+                                                                                : ui_rect_height(row_rectangle);
+                const float selected_right = row_rectangle.right - kShellChannelHighlightRight;
+                const bool thread = shell_navigation_thread_row(row) && !private_row;
                 const auto sibling = [&](u32 at) noexcept {
                     return at < channel_scene->count && shell_navigation_thread_row(channel_scene->rows[at].view) &&
                            channel_scene->rows[at].view.parent_id == row.parent_id;
@@ -511,41 +599,85 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                     thread ? shell_navigation_thread_spine(row_rectangle, row_height, icon_layout->rectangle,
                                                            index && !sibling(index - 1), sibling(index + 1))
                            : ShellThreadSpine{};
-                // Thread highlights start where the spine's arm ends.
-                const float selected_left =
-                    minimum(selected_right - 1.0f,
-                            thread ? spine.arm_end.x + 2.0f
-                                   : maximum(row_rectangle.left + 8.0f, icon_layout->rectangle.left - 8.0f));
+                // A channel's 28-DIP highlight starts 6 DIPs in (indented with
+                // its depth); thread highlights start where the spine's arm ends.
+                const float selected_left = minimum(
+                    selected_right - 1.0f,
+                    thread        ? spine.arm_end.x + 2.0f
+                    : private_row ? maximum(row_rectangle.left + 8.0f, icon_layout->rectangle.left - 8.0f)
+                                  : row_rectangle.left + kShellChannelHighlightLeft +
+                                        static_cast<float>(row.depth) * kShellChannelIndent);
                 const UiRect selected_rectangle{selected_left, row_top + 1.0f, selected_right,
                                                 row_top + row_height - 1.0f};
                 if (row_rectangle.bottom > channel_navigation->rectangle.top &&
                     row_rectangle.top < channel_navigation->rectangle.bottom) {
-                    if ((row_selected || row_hovered) &&
+                    // Categories change only their ink on hover.
+                    if ((row_selected || (row_hovered && !category)) &&
                         !paint_stream_push_rounded(stream, selected_rectangle, ui_background_hover_color(
                              theme, row_selected ? theme.interactive : theme.surface_high,
-                             row_selected ? .28f : .20f), theme.scale.radius_sm)) {
+                             row_selected ? .28f : .20f), private_row ? theme.scale.radius_sm : theme.scale.radius_md)) {
                         return false;
                     }
                     const UiRect& icon_rectangle = icon_layout->rectangle;
                     const Color row_color = ui_navigation_foreground(theme, row, row_selected);
-                    const UiRect unread_rectangle{row_rectangle.left - 3.0f, row_top + 10.0f,
-                                                  row_rectangle.left + 3.0f, row_top + row_height - 10.0f};
+                    // Unread: a 4 x 8 pill against the list's edge, rounded on its right.
+                    const float middle = row_top + row_height * .5f;
+                    const UiRect unread_rectangle =
+                        private_row ? UiRect{row_rectangle.left - 3.0f, row_top + 10.0f, row_rectangle.left + 3.0f,
+                                             row_top + row_height - 10.0f}
+                                    : UiRect{row_rectangle.left - 4.0f, middle - 4.0f, row_rectangle.left + 4.0f,
+                                             middle + 4.0f};
                     if (row.unread && !row_selected &&
                         !paint_stream_push_rounded(stream, unread_rectangle, theme.text_primary,
-                                                   theme.scale.radius_full)) {
+                                                   private_row ? theme.scale.radius_full : theme.scale.radius_sm)) {
                         return false;
                     }
-                    if (channel_is_private(row.type)) {
+                    if (private_row) {
                         const u8 shape = ui_private_avatar_shape(
                             navigation && navigation->private_rows ? navigation->private_rows->state : nullptr,
                             row.id, row.type);
                         if (!ui_private_avatar_placeholder_paint(stream, shape, icon_rectangle, theme))
+                            return false;
+                    } else if (category) {
+                        // The chevron follows the measured name; Create Channel ends the line.
+                        const auto* record = measure.state ? chat_state_store_find_channel(*measure.state, row.id)
+                                                           : nullptr;
+                        const Utf8View name =
+                            record ? chat_state_store_channel_name(*measure.state, *record) : Utf8View{};
+                        const auto geometry = shell_category_geometry(
+                            row_rectangle, row,
+                            shell_text_width(measure.cache, row.id, kShellMeasureCategoryName, name,
+                                             kTextStyleSizeCodeSm, shell_category_name_space(row_rectangle, row)));
+                        const Color ink = row_hovered ? theme.text_primary : row_color;
+                        const UiRect create = shell_navigation_control_rectangle(row_rectangle, row, channel_row_create);
+                        if (!ui_icon_paint(stream, row.collapsed ? UiIcon::chevron_right : UiIcon::chevron_down,
+                                           geometry.chevron, ink) ||
+                            (ui_rect_has_area(create) && !ui_icon_paint(stream, UiIcon::plus, create, ink)))
                             return false;
                     } else if (thread ? !paint_thread_spine(stream, spine, ui_background_line_color(theme))
                                       : !ui_icon_paint(stream, channel_row_icon(row), icon_rectangle,
                                                        row.stage_live ? ui_icon_role_color(theme, UiIconRole::success)
                                                                       : row_color)) {
                         return false;
+                    }
+                    // Create Invite and Edit Channel on a hovered or selected channel.
+                    const u8 controls = category ? 0 : shell_navigation_row_controls(row, row_hovered, row_selected);
+                    const Color control_ink = row_selected ? theme.text_primary : theme.text_secondary;
+                    if (((controls & channel_row_invite) &&
+                         !ui_icon_paint(stream, UiIcon::user_plus,
+                                        shell_navigation_control_rectangle(row_rectangle, row, channel_row_invite),
+                                        control_ink)) ||
+                        ((controls & channel_row_settings) &&
+                         !ui_icon_paint(stream, UiIcon::settings,
+                                        shell_navigation_control_rectangle(row_rectangle, row, channel_row_settings),
+                                        control_ink)))
+                        return false;
+                    // The leading rows' divider closes the events row's band.
+                    if (row.type == kNavigationEventsRowType && index + 1 < channel_scene->count) {
+                        const float line = row_rectangle.bottom - 1.0f;
+                        if (!paint_stream_push(stream, row_rectangle.left + kShellCategoryNameLeft, line,
+                                               row_rectangle.right - 3.0f, line + 1.0f, theme.tokens.border.subtle))
+                            return false;
                     }
                     if (row.mention_count != 0 &&
                         !paint_stream_push_rounded(stream, badge_layout->rectangle, theme.notification,
@@ -634,23 +766,14 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                            hovered ? theme.text_primary : theme.text_secondary))
             return false;
     }
-    // Server header dropdown: hover (and open) fill, then the chevron that
-    // becomes an X while the popout is open.
-    if (const auto* menu = ui_scene_node(scene, UiSemantic::guild_menu);
-        menu && navigation && navigation->selected_guild_id &&
-        !shell_presentation_guild_banner_visible(scene, channel_scene)) {
-        const bool hovered = ui_widget_handle_equal(scene.widgets.hovered, ui_scene_widget(scene, UiSemantic::guild_menu));
-        const UiRect r = menu->rectangle;
-        if ((hovered || scene.guild_menu_expanded) &&
-            !paint_stream_push_rounded(stream, r, ui_background_hover_color(theme, theme.surface_high, scene.guild_menu_expanded ? .28f : .20f), kUiShellGuildMenuRadius))
-            return false;
-        const float extent = kUiShellGuildMenuChevron;
-        const float right = maximum(r.left + extent, r.right - 8.f);
-        const float top = (r.top + r.bottom - extent) * .5f;
-        if (!ui_icon_paint(stream, scene.guild_menu_expanded ? UiIcon::close : UiIcon::chevron_down,
-                           {right - extent, top, right, top + extent}, theme.text_primary))
-            return false;
-    }
+    // Server header: the dropdown's hover (and open) fill, the chevron after
+    // the name (an X while the popout is open), then Invite People.
+    if (!shell_presentation_guild_banner_visible(scene, channel_scene) &&
+        !paint_guild_header(stream, scene, navigation, measure,
+                            ui_background_hover_color(theme, theme.surface_high, .20f),
+                            ui_background_hover_color(theme, theme.surface_high, .28f), theme.text_primary,
+                            theme.text_secondary))
+        return false;
     if (channel_footer && navigation && navigation->voice_panel) {
         const auto& voice = *navigation->voice_panel;
         const UiRect footer = channel_footer->rectangle;
@@ -989,7 +1112,7 @@ bool shell_presentation_guild_banner_visible(const UiScene& scene, const ShellNa
 
 bool shell_presentation_build_guild_banner_overlay(const UiScene& scene, const NavigationView* navigation,
                                                    const ShellNavigationScene* channel_scene, const Theme& theme,
-                                                   PaintStream* stream) noexcept {
+                                                   PaintStream* stream, ShellTextMeasure measure) noexcept {
     if (!stream)
         return false;
     const UiLayoutNode* channels = ui_scene_node(scene, UiSemantic::channel_sidebar);
@@ -1015,20 +1138,9 @@ bool shell_presentation_build_guild_banner_overlay(const UiScene& scene, const N
     edge.alpha *= banner.glass;
     if (edge.alpha > 0 && !paint_stream_push(stream, bar.left, bar.bottom, bar.right, bar.bottom + 1, edge))
         return false;
-    // The dropdown over the banner: hover fill, then the white chevron (or X).
-    const auto* menu = ui_scene_node(scene, UiSemantic::guild_menu);
-    if (!menu || !navigation || !navigation->selected_guild_id)
-        return true;
-    const bool hovered = ui_widget_handle_equal(scene.widgets.hovered, ui_scene_widget(scene, UiSemantic::guild_menu));
-    const UiRect r = menu->rectangle;
-    if ((hovered || scene.guild_menu_expanded) &&
-        !paint_stream_push_rounded(stream, r, scene.guild_menu_expanded ? theme.tokens.state.pressed : theme.tokens.state.hover, kUiShellGuildMenuRadius))
-        return false;
-    const float extent = kUiShellGuildMenuChevron;
-    const float right = maximum(r.left + extent, r.right - 8.f);
-    const float top = (r.top + r.bottom - extent) * .5f;
-    return ui_icon_paint(stream, scene.guild_menu_expanded ? UiIcon::close : UiIcon::chevron_down,
-                         {right - extent, top, right, top + extent}, theme.tokens.text.on_accent);
+    // The header over the banner: the same dropdown and invite in white.
+    return paint_guild_header(stream, scene, navigation, measure, theme.tokens.state.hover,
+                              theme.tokens.state.pressed, theme.tokens.text.on_accent, theme.tokens.text.on_accent);
 }
 
 bool shell_presentation_build_member_status_overlay(const MemberListScene* member_scene, const Theme& theme,
