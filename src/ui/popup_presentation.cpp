@@ -11,6 +11,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/popup_scene.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
+#include "maicord/ui/theme_style_projection.hpp"
 
 namespace maicord {
 namespace {
@@ -470,18 +471,14 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
     // clip. Every popup kind shares the popover elevation material on gradient themes.
     bool success = ui_surface_paint_plate(paint, panel->rectangle, theme, UiElevation::popover, panel_radius);
     const bool picker = picker_scene(scene);
-    // The picker rail is the darkest surface (background-base-lowest),
-    // following the panel's left corners; on background themes it is the
-    // lowest tier of the panel's gradient material, as the media picker's rail.
-    if (picker && picker_discovery(scene)) {
-        const UiRect panel_rectangle = panel->rectangle;
-        success = success && ui_background_paint_band(paint,
-                                                      {panel_rectangle.left, panel_rectangle.top,
-                                                       panel_rectangle.left + kCommandRailWidth,
-                                                       panel_rectangle.bottom},
-                                                      panel_rectangle, theme, theme.base_lowest, panel_radius,
+    // The picker rail is an inset rounded card in the darkest surface
+    // (background-base-lowest) with the composer's corner radius, floating in
+    // the panel; on background themes it is the lowest tier of the panel's
+    // gradient material, as the media picker's rail.
+    if (picker && picker_discovery(scene))
+        success = success && ui_background_paint_card(paint, popup_scene_picker_rail(scene), theme, theme.base_lowest,
+                                                      ui_theme_metrics(theme.styles).edit_radius,
                                                       UiBackgroundTier::lowest);
-    }
     // Rows sit the panel padding inside its corners, so their fills share its corner centres.
     const float row_radius = ui_inner_radius(panel_radius, popup_metrics(scene).menu_padding);
     for (u32 index = 0; success && index < scene.item_count; ++index) {

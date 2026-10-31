@@ -348,10 +348,18 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
         const auto at = [&](u32 n) noexcept { return layout[n].row->rectangle; };
         check(resolved && ui_rect_height(panel) == kCommandPickerHeight && scene.selected_index == ~0u,
               "the picker opens at the client's fixed height without a selection");
-        check(resolved && at(0).left == panel.left + 8 && at(0).top == panel.top + 16 && ui_rect_width(at(0)) == 32 &&
+        check(resolved && at(0).left == panel.left + 16 && at(0).top == panel.top + 16 && ui_rect_width(at(0)) == 32 &&
                   ui_rect_height(at(0)) == 32 && at(1).top == panel.top + 56 && at(2).top == panel.top + 104,
               "rail icons sit 40 DIPs apart with the divider's 8 DIPs before Built-in");
-        check(resolved && at(3).left == panel.left + 56 && at(3).top == panel.top + 8 && ui_rect_height(at(3)) == 32 &&
+        const UiRect card = popup_scene_picker_rail(scene);
+        check(resolved && card.left == panel.left + 8 && card.top == panel.top + 8 &&
+                  card.bottom == panel.bottom - 8 && ui_rect_width(card) == kCommandRailWidth &&
+                  at(0).left == card.left + 8 && at(0).top == card.top + 8 &&
+                  popup_scene_picker_body(scene).left == card.right + 8 &&
+                  popup_scene_hit_test(scene, at(0).left + 4, at(0).top + 4).source_index == 0 &&
+                  popup_scene_hit_test(scene, card.left + 2, card.top + 2).source_index == ~0u,
+              "the rail is a card inset 8 DIPs from the panel's left, top and bottom, with the body an 8 DIP gap after it");
+        check(resolved && at(3).left == panel.left + 72 && at(3).top == panel.top + 8 && ui_rect_height(at(3)) == 32 &&
                   at(4).top == at(3).bottom && ui_rect_height(at(4)) == 56 && at(4).right == panel.right - 8 &&
                   at(5).top == at(4).bottom + 16 && at(6).top == at(5).bottom && at(7).top == at(6).bottom + 16,
               "sections stack header and rows inset 8 DIPs with 16 DIPs between sections");
@@ -406,7 +414,7 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
                 popup_presentation_build(scene, kDefaultTheme, &rail_paint))
                 for (u32 n = 0; n < rail_paint.count; ++n) {
                     const auto& q = rail_paint.quads[n];
-                    line = line || (q.bottom - q.top == 1 && q.right <= scene.rectangle.left + kCommandRailWidth &&
+                    line = line || (q.bottom - q.top == 1 && q.right <= scene.rectangle.left + kCommandRailColumn &&
                                     bytes_equal(&q.fill, &kDefaultTheme.tokens.border.subtle, sizeof(Color)));
                 }
             paint_stream_release(&rail_paint);
@@ -415,6 +423,24 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
         const PopupItem clock_only[] = {picker[0], picker[2], picker[8]};
         check(rail_divider({picker, 9}) && !rail_divider({clock_only, 3}),
               "Built-in's rail divider shows after an app, and only the gap after Frequently Used");
+        // The card paints as one rounded quad of the rail material with the composer's radius.
+        PaintStream card_paint{};
+        bool card_quad = false;
+        if (popup_scene_open(&scene, PopupKind::autocomplete, 7, {picker, 9}, anchor, viewport, 760, true, 0.f, 0.f)
+                .ok() &&
+            paint_stream_initialize(&card_paint) && paint_stream_reset(&card_paint, 800, 600) &&
+            popup_presentation_build(scene, kDefaultTheme, &card_paint)) {
+            const UiRect rail_card = popup_scene_picker_rail(scene);
+            for (u32 n = 0; n < card_paint.count; ++n) {
+                const auto& q = card_paint.quads[n];
+                card_quad = card_quad || (q.left == rail_card.left && q.top == rail_card.top &&
+                                          q.right == rail_card.right && q.bottom == rail_card.bottom &&
+                                          q.radius == kUiEditCornerRadius &&
+                                          bytes_equal(&q.fill, &kDefaultTheme.base_lowest, sizeof(Color)));
+            }
+        }
+        paint_stream_release(&card_paint);
+        check(card_quad, "the rail paints as one rounded card in the lowest tier with the composer's radius");
         // Loading: skeleton rows draw bars and no text.
         PopupItem loading[] = {{utf8_literal("COMMANDS MATCHING /B"), 30, popup_item_command_section},
                                popup_placeholder_row(31, 0, popup_item_command_row),

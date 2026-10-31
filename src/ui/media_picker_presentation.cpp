@@ -8,6 +8,7 @@
 #include "maicord/ui/text_presentation.hpp"
 #include "maicord/ui/spinner.hpp"
 #include "maicord/ui/background_presentation.hpp"
+#include "maicord/ui/theme_style_projection.hpp"
 
 namespace maicord {
 namespace {
@@ -203,11 +204,12 @@ bool ui_media_picker_scene_paint(const UiMediaPickerScene& scene, const Theme& t
         return false;
     bool ok =
         ui_surface_paint_plate(paint, panel, theme, UiElevation::popover, style.panel_radius) &&
-        // Discord's category list and inspector bar sit on the lower tier.
-        ui_background_paint_band(paint, scene.rail, panel, theme, theme.base_lower, style.panel_radius,
-                                 UiBackgroundTier::lower) &&
-        ui_background_paint_band(paint, scene.footer, panel, theme, theme.base_lower, style.panel_radius,
-                                 UiBackgroundTier::lower);
+        // Discord's category list and inspector bar sit on the lower tier, as
+        // inset cards with the composer's corner radius.
+        ui_background_paint_card(paint, scene.rail, theme, theme.base_lower,
+                                 ui_theme_metrics(theme.styles).edit_radius, UiBackgroundTier::lower) &&
+        ui_background_paint_card(paint, scene.footer, theme, theme.base_lower,
+                                 ui_theme_metrics(theme.styles).edit_radius, UiBackgroundTier::lower);
     for (u32 i = 0; ok && i < 3; ++i) {
         const auto widget = scene.tab_widgets[i];
         if (!widget.generation)
@@ -235,9 +237,6 @@ bool ui_media_picker_scene_paint(const UiMediaPickerScene& scene, const Theme& t
     }
     ok = ok && paint_stream_push(paint, panel.left, scene.body.top - 1, panel.right, scene.body.top,
                                  theme.surface_high);
-    if (ok && ui_rect_has_area(scene.footer))
-        ok = paint_stream_push(paint, scene.footer.left, scene.footer.top, scene.footer.right,
-                               scene.footer.top + 1, theme.surface_high);
     const auto grid = grid_region(scene);
     if (ok)
         ok = paint_stream_push_clip(paint, grid);

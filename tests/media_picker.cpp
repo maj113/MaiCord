@@ -169,7 +169,8 @@ void test_picker_emoji(void (*check)(bool, const char*) noexcept) noexcept {
     const UiRect pane{0, 0, 1000, 800}, anchor{560, 700, 940, 740};
     check(
         ui_media_picker_scene_update(&scene, &source, &content, pane, anchor) && scene.columns == 10 &&
-            scene.body.bottom == scene.footer.top && scene.cell_count <= kUiMediaPickerVisibleCells &&
+            scene.body.bottom + scene.style.metrics.card_gap == scene.footer.top &&
+            scene.cell_count <= kUiMediaPickerVisibleCells &&
             scene.storage.arena.committed <= 128 * 1024 && ui_media_picker_scene_select(&scene, 0) &&
             ui_media_picker_scene_move_selection(&scene, 0, 1) && scene.selected_index == 10,
         "media picker emoji: full shared body and ten-column logical navigation use bounded native grid");
@@ -209,7 +210,8 @@ void test_picker_emoji(void (*check)(bool, const char*) noexcept) noexcept {
     fixture.glyph = utf8_literal("😀");
     ++source.revision;
     check(ui_media_picker_scene_update(&scene, &source, &content, pane, anchor) &&
-              scene.body.bottom == scene.footer.top && scene.cell_count <= kUiMediaPickerVisibleCells,
+              scene.body.bottom + scene.style.metrics.card_gap == scene.footer.top &&
+              scene.cell_count <= kUiMediaPickerVisibleCells,
           "media picker emoji: the common body ends at the footer");
     fixture.count = 272;
     source.count = 272;
@@ -575,11 +577,14 @@ void test_picker_style(void (*check)(bool, const char*) noexcept) noexcept {
     content.placeholder = utf8_literal("Search stickers");
     const UiRect viewport{0, 0, 1000, 800}, anchor{560, 700, 940, 740};
     check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor) &&
-              ui_rect_width(scene.panel) == 498 && ui_rect_height(scene.panel) == 486 &&
+              ui_rect_width(scene.panel) == kUiMediaPickerWidth && ui_rect_height(scene.panel) == 486 &&
               scene.tabs.top == scene.panel.top + 16 && scene.tabs.bottom == scene.panel.top + 46 &&
               scene.field.top == scene.panel.top + 58 && scene.field.bottom == scene.panel.top + 98 &&
-              scene.body.top == scene.panel.top + 110 && scene.footer.top == scene.panel.bottom - 48 &&
-              scene.footer.left == scene.rail.right && scene.rail.bottom == scene.panel.bottom,
+              scene.body.top == scene.panel.top + 110 && ui_rect_height(scene.footer) == 48 &&
+              scene.rail.left == scene.panel.left + 8 && scene.rail.top == scene.body.top + 8 &&
+              scene.rail.bottom == scene.panel.bottom - 8 && scene.body.left == scene.rail.right + 8 &&
+              scene.footer.left == scene.body.left && scene.footer.right == scene.panel.right - 8 &&
+              scene.footer.bottom == scene.panel.bottom - 8 && scene.body.bottom == scene.footer.top - 8,
           "media picker style: shared-token default preserves original chrome geometry");
     if (!scene.active)
         return;
@@ -747,7 +752,7 @@ void test_picker_style(void (*check)(bool, const char*) noexcept) noexcept {
     paint_stream_reset(&paint, 1000, 1000);
     ui_text_command_stream_reset(&stream);
     check(scene.cell_count != 0 && scene.cell_count <= kUiMediaPickerVisibleCells &&
-              scene.body.bottom == scene.footer.top &&
+              scene.body.bottom + scene.style.metrics.card_gap == scene.footer.top &&
               scene.widgets.count <= kUiMediaPickerWidgetCapacity &&
               ui_media_picker_scene_paint(scene, kDefaultTheme, &paint, nullptr, 96) &&
               ui_media_picker_scene_paint_foreground(scene, kDefaultTheme, &paint) &&
@@ -761,7 +766,7 @@ void test_picker_style(void (*check)(bool, const char*) noexcept) noexcept {
     ui_text_command_stream_reset(&stream);
     check(ui_media_picker_scene_update(&scene, &source, &content, {0, 0, 1000, 1000}, {560, 900, 940, 940}) &&
               scene.cell_count != 0 && scene.cell_count <= kUiMediaPickerVisibleCells &&
-              scene.body.bottom == scene.footer.top &&
+              scene.body.bottom + scene.style.metrics.card_gap == scene.footer.top &&
               ui_media_picker_scene_paint(scene, amoled_theme, &paint, nullptr, 96) &&
               ui_media_picker_scene_paint_foreground(scene, amoled_theme, &paint) &&
               ui_media_picker_scene_text_output(scene, amoled_theme, &output, nullptr) &&
@@ -820,12 +825,13 @@ void test_picker_fixed_cells(void (*check)(bool, const char*) noexcept) noexcept
     auto content = picker_content(UiMediaPickerKind::emoji);
     const UiRect viewport{0, 0, 2400, 900}, anchor{2000, 850, 2380, 890};
     // Discord: 498 DIP fits nine 48 DIP cells beside the 48 DIP rail; from 538
-    // DIP the drawer uses 56 DIP cells (48 DIP emoji).
+    // DIP the drawer uses 56 DIP cells (48 DIP emoji). The rail card and its two
+    // 8 DIP gaps add 16 DIP to each width.
     struct Width {
         float width;
         u16 columns;
         float cell;
-    } const widths[]{{498, 9, 48}, {537, 9, 48}, {538, 8, 56}, {800, 13, 56}, {1200, 20, 56}};
+    } const widths[]{{514, 9, 48}, {553, 9, 48}, {554, 8, 56}, {816, 13, 56}, {1216, 20, 56}};
     bool columns = true, cells = true, glyphs = true;
     UiTextCommand commands[512]{};
     UiTextCommandStream stream{};
@@ -849,7 +855,7 @@ void test_picker_fixed_cells(void (*check)(bool, const char*) noexcept) noexcept
                 commands[i].rectangle.left >= scene.body.left)
                 glyphs = commands[i].style_flags == expected && ui_rect_width(commands[i].rectangle) == w.cell;
     }
-    check(columns, "media picker cells: emoji column count follows width at 498, 537, 538, 800 and 1200 DIP");
+    check(columns, "media picker cells: emoji column count follows width at 514, 553, 554, 816 and 1216 DIP");
     check(cells, "media picker cells: every emoji cell keeps its fixed size, left-aligned in the grid");
     check(glyphs && text_style_font_size(16, text_style_picker_grid_emoji) == 40 &&
               text_style_font_size(16, text_style_picker_large_emoji) == 48,
@@ -864,7 +870,7 @@ void test_picker_fixed_cells(void (*check)(bool, const char*) noexcept) noexcept
     const auto move = [&](i32 h, i32 v) noexcept {
         return ui_media_picker_scene_move_selection(&scene, h, v) ? scene.selected_index : ~u32{0};
     };
-    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 498) &&
+    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 514) &&
               scene.columns == 9 && ui_media_picker_scene_select(&scene, 7) && move(0, 1) == 9 &&
               move(0, 1) == 10 && move(0, 1) == 13 && move(0, -1) == 10 && move(0, -1) == 9 &&
               move(0, -1) == 0 && ui_media_picker_scene_select(&scene, 8) && move(1, 0) == 9 &&
@@ -875,7 +881,7 @@ void test_picker_fixed_cells(void (*check)(bool, const char*) noexcept) noexcept
               ui_media_picker_scene_row_edge_selection(&scene, true) && scene.selected_index == 21,
           "media picker keyboard: nine columns clamp Up/Down to short rows and wrap Left/Right across "
           "sections");
-    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 800) &&
+    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 816) &&
               scene.columns == 13 && ui_media_picker_scene_select(&scene, 4) && move(0, 1) == 12 &&
               move(0, 1) == 15 && move(0, 1) == ~u32{0} && ui_media_picker_scene_select(&scene, 9) &&
               move(1, 0) == 10,
@@ -889,7 +895,7 @@ void test_picker_fixed_cells(void (*check)(bool, const char*) noexcept) noexcept
     ++content.revision;
     char name[96]{};
     const u32 name_bytes = emoji_shortcode_key(fixture.glyph, {name, sizeof(name)});
-    bool footer = ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 498) &&
+    bool footer = ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 514) &&
                   name_bytes && scene.cell_count > 3;
     const auto title = ui_media_picker_scene_footer_title(scene);
     footer = footer && ui_media_picker_scene_inspected(scene) == &scene.projection->cells[0] &&
@@ -905,7 +911,7 @@ void test_picker_fixed_cells(void (*check)(bool, const char*) noexcept) noexcept
     fixture.missing_asset = false;
     ++source.revision;
     UiMediaPickerMediaSlot art{};
-    footer = footer && ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 498) &&
+    footer = footer && ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 514) &&
              utf8_equal(ui_media_picker_scene_footer_title(scene), utf8_literal(":Original native media:")) &&
              ui_media_picker_scene_footer_media(scene, &art) &&
              ui_rect_width(art.rectangle) == scene.style.metrics.footer_art &&
@@ -935,7 +941,7 @@ void test_picker_masonry(void (*check)(bool, const char*) noexcept) noexcept {
               !scene.masonry && scene.cell_height == 110 &&
               ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 2000) &&
               scene.columns == 6,
-          "media picker masonry: landing categories use 110 DIP tiles, two columns at 498 DIP, capped at six");
+          "media picker masonry: landing categories use 110 DIP tiles, two columns at 514 DIP, capped at six");
     fixture.kind = UiMediaPickerItemKind::gif;
     content.back = true;
     ++content.revision;
@@ -943,7 +949,7 @@ void test_picker_masonry(void (*check)(bool, const char*) noexcept) noexcept {
     struct Width {
         float width;
         u16 columns;
-    } const widths[]{{498, 2}, {600, 3}, {1000, 5}, {2000, 8}};
+    } const widths[]{{514, 2}, {600, 3}, {1000, 5}, {2000, 8}};
     bool columns = true;
     for (const auto& w : widths)
         columns = columns &&
@@ -1004,7 +1010,7 @@ void test_picker_resize_cost(void (*check)(bool, const char*) noexcept) noexcept
     const u32 allocations = scene.counters.allocations;
     const auto bank = scene.storage.arena.base;
     const auto committed = scene.storage.arena.committed;
-    const float widths[]{560, 700, 900, 1300, 1700, 640, 498};
+    const float widths[]{560, 700, 900, 1300, 1700, 640, 514};
     for (float width : widths) {
         const auto before = scene.counters;
         valid = valid &&

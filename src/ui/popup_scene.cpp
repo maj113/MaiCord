@@ -683,13 +683,16 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
         return failure(PopupSceneError::widget);
     }
     UiWidgetHandle command_rail{}, command_body{};
-    const float rail_width = discovery ? kCommandRailWidth : 0.f;
+    const float rail_width = discovery ? kCommandRailColumn : 0.f;
     if (picker) {
         for (u32 column = discovery ? 0u : 1u; column != 2; ++column) {
+            // The rail is an inset card; the body takes the rest of the panel.
+            const float inset = column ? 0.f : kCommandRailInset;
             auto style = ui_layout_style();
-            style.width = ui_layout_fixed(column ? maximum(1.f, width - rail_width) : rail_width);
-            style.height = ui_layout_fixed(maximum(0.f, height));
-            style.margin.left = column ? rail_width : 0.0f;
+            style.width = ui_layout_fixed(column ? maximum(1.f, width - rail_width) : kCommandRailWidth);
+            style.height = ui_layout_fixed(maximum(0.f, height - 2.f * inset));
+            style.margin.left = column ? rail_width : inset;
+            style.margin.top = inset;
             style.horizontal_alignment = UiLayoutAlignment::start;
             style.flags = ui_layout_node_visible | ui_layout_node_clip_children |
                           ui_layout_node_scroll_vertical | ui_layout_node_allow_overlap |
@@ -987,8 +990,19 @@ UiRect popup_scene_picker_body(const PopupScene& scene) noexcept {
         return {};
     UiRect body = panel->rectangle;
     if (picker_discovery(items))
-        body.left = minimum(body.right, body.left + kCommandRailWidth);
+        body.left = minimum(body.right, body.left + kCommandRailColumn);
     return body;
+}
+
+UiRect popup_scene_picker_rail(const PopupScene& scene) noexcept {
+    const ConstSlice<PopupItem> items{scene.items.data, scene.item_count};
+    const auto* panel = scene.active ? popup_scene_layout_node(scene, scene.panel) : nullptr;
+    if (!panel || !popup_items_command_picker(items) || !picker_discovery(items))
+        return {};
+    const UiRect p = panel->rectangle;
+    const float top = minimum(p.bottom, p.top + kCommandRailInset);
+    const float left = minimum(p.right, p.left + kCommandRailInset);
+    return {left, top, minimum(p.right, left + kCommandRailWidth), maximum(top, p.bottom - kCommandRailInset)};
 }
 
 UiRect popup_feedback_rectangle(const PopupScene& scene) noexcept {
@@ -1057,16 +1071,12 @@ bool popup_scene_resolve_item_layout(const PopupScene& scene, u32 index, PopupIt
     const ConstSlice<PopupItem> items{scene.items.data, scene.item_count};
     const bool picker = popup_items_command_picker(items);
     if (picker) {
-        // Rail and body columns run to the panel edges; rows scrolled under a
-        // pinned section header are hidden (and unhittable) beneath it.
+        // The rail card and the body column sit inside the panel; rows scrolled
+        // under a pinned section header are hidden (and unhittable) beneath it.
         UiRect column = panel->rectangle;
         const bool rail = (scene.items[index].flags & popup_item_command_category) != 0;
-        if (picker_discovery(items)) {
-            if (rail)
-                column.right = minimum(column.right, column.left + kCommandRailWidth);
-            else
-                column.left = minimum(column.right, column.left + kCommandRailWidth);
-        }
+        if (picker_discovery(items))
+            column = rail ? popup_scene_picker_rail(scene) : popup_scene_picker_body(scene);
         if (!rail && !(scene.items[index].flags & popup_item_command_pinned))
             for (u32 n = 0; n < items.count; ++n)
                 if (items[n].flags & popup_item_command_pinned) {

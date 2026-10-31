@@ -2712,15 +2712,12 @@ bool application_commands_scroll_range(bool rail, UiScrollRange* range) noexcept
                   kCommandGenericRowHeight, 1, 0, c.generation};
         return true;
     }
-    // The picker's columns run to the panel edges; query results have no rail.
+    // The picker's body runs to the panel edges after the rail card and its
+    // gap; query results have no rail.
     if (rail && !c.discovery)
         return false;
-    if (c.discovery) {
-        if (rail)
-            rect.right = minimum(rect.right, rect.left + kCommandRailWidth);
-        else
-            rect.left = minimum(rect.right, rect.left + kCommandRailWidth);
-    }
+    if (c.discovery)
+        rect = rail ? popup_scene_picker_rail(g_app.popup_scene) : popup_scene_picker_body(g_app.popup_scene);
     const double height = rail ? rail_extent(c) : body_extent(c);
     *range = {rect,
               rail ? c.rail_offset : c.offset,

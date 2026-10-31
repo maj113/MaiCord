@@ -13,12 +13,15 @@ inline constexpr u32 kUiMediaPickerWidgetCapacity = kUiMediaPickerVisibleCells +
 inline constexpr u32 kUiMediaPickerMaximumSections = 272;
 // Holds every custom emoji the chat state can (131,072) plus Unicode and preferences.
 inline constexpr u32 kUiMediaPickerMaximumItems = 262'144;
-// Discord's expression picker: 498 DIP minimum (and default) width, 486 high.
-inline constexpr float kUiMediaPickerWidth = 498;
+// Discord's expression picker is 498 DIP wide with a flat 48 DIP category rail
+// and 486 high. The rail and the inspector bar are inset cards with an 8 DIP
+// gap around them, so the panel is 16 DIP wider (the grid keeps its nine
+// 48 DIP emoji columns at the minimum width).
+inline constexpr float kUiMediaPickerWidth = 498 + kUiFloatingSurfaceInset * 2;
 inline constexpr float kUiMediaPickerHeight = 486;
-// The reaction emoji popout: the standalone emoji picker, 498 x 440, left of
+// The reaction emoji popout: the standalone emoji picker, 514 x 440, left of
 // its control with the popout's 8 DIP spacing.
-inline constexpr float kUiMediaPickerReactionWidth = 498;
+inline constexpr float kUiMediaPickerReactionWidth = 498 + kUiFloatingSurfaceInset * 2;
 inline constexpr float kUiMediaPickerReactionHeight = 440;
 // Value-owned DIP metrics: geometry and presentation consume the same snapshot.
 // Grid cells are fixed: a wider pane fits more columns, never larger cells.
@@ -27,6 +30,8 @@ struct UiMediaPickerMetrics {
     // header_gap separates the tabs, search field and body.
     float padding, gap, content_inset, tab_height, tab_max_width, header_gap;
     float search_height, footer_height, section_height, rail_width, rail_pitch;
+    // card_gap: the space around the rail and inspector cards inside the panel.
+    float card_gap;
     // list_inset: the grid's leading padding; the scrollbar gutter trails it.
     float scrollbar_gutter, list_inset;
     // Emoji art (large once the drawer is emoji_extent wider than its
@@ -63,6 +68,7 @@ constexpr UiMediaPickerStyle ui_media_picker_style() noexcept {
     m.section_height = kUiMenuCompactRowHeight;
     m.rail_width = kUiMediaControlHeight + kUiFloatingSurfaceInset;
     m.rail_pitch = kUiMediaControlHeight;
+    m.card_gap = kUiFloatingSurfaceInset;
     m.scrollbar_gutter = kUiFloatingSurfaceInset;
     m.list_inset = kUiFloatingSurfaceInset;
     // Medium (40) and large (48) emoji with 4 DIP padding.

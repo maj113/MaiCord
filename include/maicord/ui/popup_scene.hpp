@@ -20,13 +20,17 @@ inline constexpr float kPopupQuickReactionTop = 10.0f;
 inline constexpr float kPopupQuickReactionBottomGap = 8.0f;
 inline constexpr float kPopupContextSeparatorGap = 16.0f;
 // The command picker (the application command browser): a fixed
-// 420-DIP panel; a 48-DIP rail of 32-DIP section icons 40 DIPs apart below a
-// 16-DIP lead, with 8 more DIPs and a divider before Built-in; a body of
+// 420-DIP panel; a rail card of 32-DIP section icons 40 DIPs apart below an
+// 8-DIP lead, with 8 more DIPs and a divider before Built-in, inset from the
+// panel's left, top and bottom edges by the composer's 8-DIP gap (the body
+// starts the same gap after the card); a body of
 // 32-DIP section headers and 56-DIP rows inset 8 DIPs, sections 16 DIPs apart.
 // Query results drop the rail: a 40-DIP title, then the rows.
 inline constexpr float kCommandPickerHeight = 420.0f;
+inline constexpr float kCommandRailInset = kUiFloatingSurfaceInset;
 inline constexpr float kCommandRailWidth = 48.0f;
-inline constexpr float kCommandRailLead = 16.0f;
+inline constexpr float kCommandRailColumn = kCommandRailInset + kCommandRailWidth + kCommandRailInset;
+inline constexpr float kCommandRailLead = kCommandRailInset;
 inline constexpr float kCommandRailIcon = 32.0f;
 inline constexpr float kCommandRailStride = 40.0f;
 inline constexpr float kCommandRailDivider = 8.0f;
@@ -305,8 +309,10 @@ PopupSceneResult popup_scene_open_below(PopupScene* scene, PopupKind kind, u64 o
                                         ConstSlice<PopupItem> items, const UiRect& anchor, const UiRect& viewport,
                                         float preferred_width) noexcept;
 UiRect popup_feedback_rectangle(const PopupScene&) noexcept;
-// The command picker's scrolling body column (empty for any other popup).
+// The command picker's scrolling body column, after the rail card and its gap
+// (empty for any other popup), and its rail card (empty without a rail).
 UiRect popup_scene_picker_body(const PopupScene&) noexcept;
+UiRect popup_scene_picker_rail(const PopupScene&) noexcept;
 bool popup_scene_set_feedback(PopupScene*, Utf8View text, bool error = false) noexcept;
 // Footer slider track area (empty without a slider) and value update.
 UiRect popup_feedback_slider(const PopupScene&) noexcept;

@@ -364,7 +364,10 @@ inline bool unified_picker_ui_probe(D3D11Renderer& renderer,
         ++content.revision;
         if (!ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor->rectangle) ||
             !scene.tab_widgets[0].generation || !scene.tab_widgets[1].generation ||
-            !scene.tab_widgets[2].generation || scene.body.bottom != scene.footer.top ||
+            !scene.tab_widgets[2].generation ||
+            scene.body.bottom != (ui_rect_has_area(scene.footer)
+                                      ? scene.footer.top - scene.style.metrics.card_gap
+                                      : scene.footer.top) ||
             !clips_current(scene))
             return fail();
         // GIFs have no inspector footer (Discord); Stickers and Emoji share it.
@@ -532,11 +535,17 @@ inline bool unified_picker_ui_probe(D3D11Renderer& renderer,
         !probe_present(&renderer, themed) ||
         (capture && !capture(L"unified-picker-gradient-emoji.bmp", themed)))
         return fail();
+    // The rail and inspector cards on a flat light theme (the gradient capture
+    // above is the background material).
+    if (!renderer_rebuild_content_text(&renderer, kLightTheme) || !probe_present(&renderer, kLightTheme) ||
+        !probe_present(&renderer, kLightTheme) ||
+        (capture && !capture(L"unified-picker-light-emoji.bmp", kLightTheme)))
+        return fail();
     // Fixed cells at two drawer widths: the wider pane fits more columns of
-    // the same cells (Emoji switches to Discord's large size from 538 DIP).
+    // the same cells (Emoji switches to Discord's large size from 554 DIP).
     const UiMediaPickerKind captured[]{UiMediaPickerKind::emoji, UiMediaPickerKind::sticker};
-    const wchar_t* names[2][2]{{L"picker-emoji-498.bmp", L"picker-emoji-760.bmp"},
-                               {L"picker-sticker-498.bmp", L"picker-sticker-760.bmp"}};
+    const wchar_t* names[2][2]{{L"picker-emoji-514.bmp", L"picker-emoji-760.bmp"},
+                               {L"picker-sticker-514.bmp", L"picker-sticker-760.bmp"}};
     const float widths[]{0, 760};
     for (u32 k = 0; k < 2; ++k) {
         u16 columns = 0;

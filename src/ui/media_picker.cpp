@@ -50,9 +50,17 @@ float rail_item_pitch(const UiMediaPickerMetrics& m, ConstSlice<UiMediaPickerSec
         pitch += kRailSeparator;
     return pitch;
 }
+// Server icons and category glyphs: 32 DIP squares centred in the rail card.
+inline float rail_art_extent(const UiMediaPickerMetrics& m) noexcept {
+    return minimum(m.rail_width - m.list_inset * 2, m.rail_pitch - m.list_inset);
+}
+// The rail's scrollable height: the list inset above the first item and the same
+// inset below the last item's art, so scrolled to the end nothing touches the card edge.
 float rail_content_extent(const UiMediaPickerMetrics& m, ConstSlice<UiMediaPickerSection> sections) noexcept {
-    float extent = sections.count ? m.list_inset : 0;
-    for (u32 i = 0; i < sections.count; ++i)
+    if (!sections.count)
+        return 0;
+    float extent = m.list_inset * 2 + rail_art_extent(m);
+    for (u32 i = 0; i + 1 < sections.count; ++i)
         extent += rail_item_pitch(m, sections, i);
     return extent;
 }
@@ -148,14 +156,19 @@ bool picker_layout(const UiMediaPickerStyle& style, const UiMediaPickerSource* s
         layout.text = {layout.field.left + m.icon_extent + m.gap * 2 + (back ? m.icon_extent : 0),
                        layout.field.top + m.text_inset, layout.field.right - m.gap,
                        layout.field.bottom - m.text_inset};
+        // The rail and the inspector bar are cards inset by card_gap from the
+        // panel; the grid starts a gap after the rail and ends a gap above the bar.
         const float body_top = layout.field.bottom + m.header_gap;
-        const float body_left = sections ? left + m.rail_width : left;
+        const float rail_right = left + m.card_gap + m.rail_width;
+        const float body_left = sections ? rail_right + m.card_gap : left;
         // Discord's GIF picker has no inspector; the rail runs beside the footer.
         const float footer_height = kind == UiMediaPickerKind::gif ? 0 : m.footer_height;
-        layout.footer = {body_left, top + height - footer_height, left + width, top + height};
-        layout.body = {body_left, body_top, left + width, layout.footer.top};
+        const float footer_bottom = top + height - (footer_height ? m.card_gap : 0);
+        layout.footer = {sections ? body_left : left + m.card_gap, footer_bottom - footer_height,
+                         left + width - m.card_gap, footer_bottom};
+        layout.body = {body_left, body_top, left + width, footer_height ? layout.footer.top - m.card_gap : footer_bottom};
         if (sections)
-            layout.rail = {left, body_top, body_left, top + height};
+            layout.rail = {left + m.card_gap, body_top + m.card_gap, rail_right, top + height - m.card_gap};
         // Validate the actual available pane, not just the preferred panel width.
         if (!ui_rect_has_area(layout.text) ||
             (!reaction && (ui_rect_width(layout.tabs) - m.gap * 2) / 3 < 24) ||
@@ -768,7 +781,7 @@ bool rebuild(UiMediaPickerScene& scene, bool reuse = false) noexcept {
             }
             // Rail items: 32 DIP art top-aligned in each item, below the list inset.
             float y = scene.rail.top + m.list_inset - scene.rail_scroll_dips;
-            const float extent = minimum(m.rail_width - m.list_inset * 2, m.rail_pitch - m.list_inset);
+            const float extent = rail_art_extent(m);
             for (u32 i = 0; i < scene.source->sections.count && y < scene.rail.bottom; ++i) {
                 const float pitch = rail_item_pitch(m, scene.source->sections, i);
                 const float left = (scene.rail.left + scene.rail.right - extent) * .5f;

@@ -1414,17 +1414,24 @@ bool command_picker_pixels(BackgroundThemeProbeContext c) noexcept {
              .ok() ||
         !renderer_bind_popup_scene(&r, &picker))
         return failure(151);
-    // A rail point below its entries.
-    const UiRect panel = picker.rectangle;
-    const float rail_x = (panel.left + kCommandRailWidth * .5f) / viewport.right,
-                rail_y = (panel.bottom - 24) / viewport.bottom;
-    const auto sample = [&](const Theme& theme, const wchar_t* name, u8 (&rail)[3]) noexcept {
+    // A point inside the rail card below its entries, and the panel showing
+    // through the 8 DIP gaps left of the card and between the card and the body.
+    const UiRect panel = picker.rectangle, card = popup_scene_picker_rail(picker);
+    if (!ui_rect_has_area(card) || card.left <= panel.left || card.top <= panel.top || card.bottom >= panel.bottom ||
+        popup_scene_picker_body(picker).left <= card.right)
+        return failure(158);
+    const float rail_x = (card.left + card.right) * .5f / viewport.right, rail_y = (card.bottom - 24) / viewport.bottom,
+                outer_x = (panel.left + card.left) * .5f / viewport.right,
+                seam_x = (card.right + popup_scene_picker_body(picker).left) * .5f / viewport.right;
+    const auto sample = [&](const Theme& theme, const wchar_t* name, u8 (&rail)[3], u8 (&outer)[3],
+                            u8 (&seam)[3]) noexcept {
         if (!renderer_rebuild_content_text(&r, theme) || !probe_present(&r, theme) ||
             !d3d11_renderer_draw_stream(&r, theme, false, false, nullptr))
             return false;
         {
             PixelReadback pixels{r};
-            if (!pixels.read(rail_x, rail_y, rail))
+            if (!pixels.read(rail_x, rail_y, rail) || !pixels.read(outer_x, rail_y, outer) ||
+                !pixels.read(seam_x, rail_y, seam))
                 return false;
         }
         return !c.capture || c.capture(name, theme);
@@ -1443,9 +1450,12 @@ bool command_picker_pixels(BackgroundThemeProbeContext c) noexcept {
         const Color base = flat[i].base_lowest;
         const u8 expected[3]{static_cast<u8>(base.red * 255.f + .5f), static_cast<u8>(base.green * 255.f + .5f),
                              static_cast<u8>(base.blue * 255.f + .5f)};
-        u8 rail[3]{};
-        if (!sample(flat[i], flat_names[i], rail) || delta(rail, expected) > 6)
+        u8 rail[3]{}, outer[3]{}, seam[3]{};
+        if (!sample(flat[i], flat_names[i], rail, outer, seam) || delta(rail, expected) > 6)
             return failure(152 + i);
+        // The card floats in the lighter panel: both gaps show it, not the rail's tone.
+        if (delta(outer, rail) <= 6 || delta(seam, rail) <= 6 || delta(outer, seam) > 6)
+            return failure(159 + i);
     }
     // Background themes: the rail shows the gradient through the panel's
     // material, so flipping the gradient's direction (same tokens) changes it;
@@ -1453,16 +1463,16 @@ bool command_picker_pixels(BackgroundThemeProbeContext c) noexcept {
     auto preferences = client_preferences_defaults();
     preferences.theme = ClientTheme::custom_gradient;
     preferences.gradient = background_theme_defaults();
-    u8 rail[3]{}, toward_rail[3]{}, away_rail[3]{};
-    if (!sample(client_theme_projection(preferences), L"commands-picker-gradient.bmp", rail))
+    u8 rail[3]{}, toward_rail[3]{}, away_rail[3]{}, outer[3]{}, seam[3]{};
+    if (!sample(client_theme_projection(preferences), L"commands-picker-gradient.bmp", rail, outer, seam))
         return failure(155);
     preferences.gradient = {{0xff00ff, 0x00ffff, 0, 0, 0}, 90, 2, 100, BackgroundEffect::none, 50, 25, 35};
     const Theme toward = client_theme_projection(preferences);
     preferences.gradient.angle_degrees = 270;
     const Theme away = client_theme_projection(preferences);
     if (!bytes_equal(&toward.base_lowest, &away.base_lowest, sizeof(Color)) ||
-        !sample(toward, L"commands-picker-magenta-cyan.bmp", toward_rail) ||
-        !sample(away, L"commands-picker-cyan-magenta.bmp", away_rail))
+        !sample(toward, L"commands-picker-magenta-cyan.bmp", toward_rail, outer, seam) ||
+        !sample(away, L"commands-picker-cyan-magenta.bmp", away_rail, outer, seam))
         return failure(156);
     const u32 rail_change = delta(toward_rail, away_rail);
     log_u64(LogLevel::info, "probe", "command_picker_gradient_rail_rgb_delta", rail_change);
