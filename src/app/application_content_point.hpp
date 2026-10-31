@@ -18,6 +18,17 @@ inline bool application_screen_to_content(POINT* point) noexcept {
     return true;
 }
 
+// Client mouse coordinates (the lParam of a WM_MOUSEFIRST..WM_MOUSELAST message) to content coordinates. Only the
+// application's own routes take the result: DefWindowProc needs the client point it was sent, or the
+// WM_CONTEXTMENU it builds from WM_RBUTTONUP lands a caption above the pointer.
+inline LPARAM application_caption_content_point(LPARAM client) noexcept {
+    const u32 caption = g_app.renderer.caption_height;
+    if (!caption)
+        return client;
+    const int y = static_cast<short>(HIWORD(client)) - static_cast<int>(caption);
+    return MAKELPARAM(LOWORD(client), static_cast<WORD>(static_cast<short>(y)));
+}
+
 // Content pixels of the main window to a screen point.
 inline bool application_content_to_screen(POINT* point) noexcept {
     if (!point)

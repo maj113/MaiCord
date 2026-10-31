@@ -14,6 +14,7 @@
 #include "maicord/ui/guild_card_scene.hpp"
 #include "maicord/ui/message_markdown.hpp"
 #include "maicord/ui/navigation_view.hpp"
+#include "maicord/ui/shell_navigation_scene.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/media/asset.hpp"
@@ -934,6 +935,124 @@ void test_navigation() noexcept {
           "navigation: the label counts events and the row leaves when the host hides it");
 }
 
+// Every row kind of a server's channel list, with and without the leading events row: the pointer lands on the
+// row it is painted on (the layout rectangle of that view row) and the row's id is the channel the menu and the
+// selection act on.
+void test_navigation_rows() noexcept {
+    static GuildRecord guilds[2];
+    static ChannelRecord channels[16];
+    static u16 guild_order[2], channel_order[16];
+    static u8 names[4096];
+    static ChatStateStore state;
+    state = {};
+    chat_state_store_initialize(&state, {guilds, 2}, {guild_order, 2}, {channels, 16}, {channel_order, 16},
+                                {names, sizeof(names)});
+    chat_state_store_upsert_guild(&state, {10, utf8_literal("G"), GuildMutationKind::create, 1});
+    const auto add = [&](u64 id, u64 parent, u8 type, u32 position, Utf8View name) noexcept {
+        ChannelInput input{id, 10, parent, name, position, 0, type};
+        input.name_known = true;
+        if (type == 11) {
+            input.thread_archived_known = true;
+            input.thread_active_known = true;
+            input.thread_listed_active = true;
+            input.thread_self_joined_known = true;
+            input.thread_self_joined = true;
+        }
+        chat_state_store_upsert_channel(&state, input);
+    };
+    add(100, 0, 4, 0, utf8_literal("JAMOSIS"));
+    add(101, 100, 0, 0, utf8_literal("MAIN"));
+    add(102, 100, 0, 1, utf8_literal("ARCHIVES"));
+    add(103, 101, 11, 0, utf8_literal("THREAD"));
+    add(110, 0, 4, 1, utf8_literal("VOICE"));
+    add(111, 110, 2, 0, utf8_literal("VC"));
+    add(112, 110, 2, 1, utf8_literal("RADIO"));
+    add(120, 0, 4, 2, utf8_literal("MODS"));
+    add(121, 120, 0, 0, utf8_literal("MODCHAT"));
+    chat_state_store_select_guild(&state, 10);
+    static GuildViewRow guild_rows[2];
+    static ChannelViewRow channel_rows[16];
+    static u16 channel_scratch[16];
+    static u8 visibility[16];
+    static ChannelSortKey keys[16];
+    static NavigationView view;
+    view = {};
+    navigation_view_initialize(&view, {guild_rows, 2}, {channel_rows, 16}, {channel_scratch, 16}, {visibility, 16},
+                               {keys, 16});
+    static ShellNavigationRowWidget rows[16];
+    static UiWidget widgets[128];
+    static UiLayoutNode nodes[128];
+    static ShellNavigationScene scene;
+    scene = {};
+    check(shell_navigation_scene_initialize(&scene, {rows, 16}, {widgets, 128}, {nodes, 128}),
+          "navigation rows: the scene initializes");
+    for (u32 lead = 0; lead < 2; ++lead) {
+        view.events_row = lead != 0;
+        view.event_count = 2;
+        ++view.events_revision;
+        const auto built = navigation_view_rebuild(&view, state);
+        const auto laid = shell_navigation_scene_update(&scene, &view, {0, 0, 240, 800}, 0);
+        bool rows_ok = built.ok() && laid.ok() && scene.count == view.channel_count &&
+                       view.channel_count == 9 + lead &&
+                       (lead ? view.channel_rows[0].id == kNavigationEventsRowId : view.channel_rows[0].id == 100);
+        u32 threads = 0;
+        for (u32 i = 0; rows_ok && i < scene.count; ++i) {
+            const auto* layout = shell_navigation_scene_layout_node(scene, scene.rows[i]);
+            rows_ok = layout && scene.rows[i].source_index == i && scene.rows[i].view.id == view.channel_rows[i].id;
+            if (!rows_ok)
+                break;
+            threads += view.channel_rows[i].type == 11;
+            const float x = (layout->rectangle.left + layout->rectangle.right) * .5f;
+            const float y = (layout->rectangle.top + layout->rectangle.bottom) * .5f;
+            const auto hit = shell_navigation_scene_hit_test(scene, x, y);
+            // The row above ends where this one starts: a point just inside either edge is still this row.
+            const auto top = shell_navigation_scene_hit_test(scene, x, layout->rectangle.top + 1.0f);
+            const auto bottom = shell_navigation_scene_hit_test(scene, x, layout->rectangle.bottom - 1.0f);
+            rows_ok = hit.id == view.channel_rows[i].id && hit.source_index == i &&
+                      hit.selectable == view.channel_rows[i].selectable && top.id == hit.id &&
+                      bottom.id == hit.id &&
+                      navigation_view_find_channel(view, hit.id) == &view.channel_rows[i] &&
+                      (hit.id == kNavigationEventsRowId || chat_state_store_find_channel(state, hit.id));
+        }
+        check(rows_ok && threads == 1,
+              lead ? "navigation rows: with the events row every row hit resolves to its own channel, "
+                     "category, voice channel, thread and the events row itself"
+                   : "navigation rows: without the events row every row hit resolves to its own channel, "
+                     "category, voice channel and thread");
+    }
+    // The same holds in a viewport shorter than the list, at every scroll position, with a server banner.
+    for (u32 lead = 0; lead < 2; ++lead) {
+        view.events_row = lead != 0;
+        ++view.events_revision;
+        navigation_view_rebuild(&view, state);
+        for (u32 banner = 0; banner < 2; ++banner) {
+            shell_navigation_scene_set_banner(&scene, banner ? 90.0f : 0.0f, false, banner);
+            bool windows_ok = true;
+            for (u32 height = 60; height <= 220; height += 80) {
+                for (u32 scroll = 0; scroll <= 400; scroll += 23) {
+                    const auto laid = shell_navigation_scene_update(&scene, &view, {0, 40, 240, 40.0f + height},
+                                                                    static_cast<float>(scroll));
+                    windows_ok = windows_ok && laid.ok() && scene.count != 0;
+                    for (u32 i = 0; windows_ok && i < scene.count; ++i) {
+                        const auto& row = scene.rows[i];
+                        const auto* layout = shell_navigation_scene_layout_node(scene, row);
+                        windows_ok = layout && row.view.id == view.channel_rows[row.source_index].id &&
+                                     ui_rect_height(layout->rectangle) == shell_navigation_row_height(row.view);
+                        if (!windows_ok)
+                            break;
+                        const float y = (layout->rectangle.top + layout->rectangle.bottom) * .5f;
+                        if (y < 40.0f || y >= 40.0f + height)
+                            continue;
+                        const auto hit = shell_navigation_scene_hit_test(scene, 120.0f, y);
+                        windows_ok = hit.id == row.view.id && hit.source_index == row.source_index;
+                    }
+                }
+            }
+            check(windows_ok, "navigation rows: hits resolve to the painted row in every scrolled window");
+        }
+    }
+}
+
 void run() noexcept {
     test_requests();
     test_verification();
@@ -944,6 +1063,7 @@ void run() noexcept {
     test_guild_profile();
     test_gateway();
     test_navigation();
+    test_navigation_rows();
 }
 } // namespace maicord::guild_community_test
 

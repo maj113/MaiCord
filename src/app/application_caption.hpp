@@ -20,9 +20,7 @@ bool application_caption_window_message(HWND window, UINT message, WPARAM wparam
                                         LRESULT* result) noexcept;
 // Pixels between the client origin and the content.
 u32 application_caption_height() noexcept;
-// Client mouse coordinates to content coordinates.
-LPARAM application_caption_content_point(LPARAM client) noexcept;
-// Screen and content conversions: application_content_point.hpp.
+// Pointer coordinate conversions: application_content_point.hpp.
 // Outer window size for a content size at a DPI (minimum track size).
 SIZE application_caption_window_size(HWND window, u32 dpi, LONG content_width,
                                      LONG content_height) noexcept;

@@ -88,7 +88,9 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
     LRESULT caption_result = 0;
     if (application_caption_window_message(window, message, wparam, lparam, &caption_result))
         return caption_result;
-    // Client pointer coordinates become content coordinates below the caption.
+    // Client pointer coordinates become content coordinates below the caption. The system default procedure
+    // still gets the client point it was sent: it builds WM_CONTEXTMENU's screen point from WM_RBUTTONUP's.
+    const LPARAM native_lparam = lparam;
     if (message >= WM_MOUSEFIRST && message <= WM_MOUSELAST && message != WM_MOUSEWHEEL &&
         message != WM_MOUSEHWHEEL)
         lparam = application_caption_content_point(lparam);
@@ -175,7 +177,7 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
         case WM_DESTROY:
             break;
         default:
-            return DefWindowProcW(window, message, wparam, lparam);
+            return DefWindowProcW(window, message, wparam, native_lparam);
         }
     }
     if (message == kApplicationNotificationMessage) {
@@ -698,7 +700,7 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
         PostQuitMessage(0);
         return 0;
     }
-    return DefWindowProcW(window, message, wparam, lparam);
+    return DefWindowProcW(window, message, wparam, native_lparam);
 }
 
 } // namespace maicord::app_detail

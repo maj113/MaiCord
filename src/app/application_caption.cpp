@@ -355,14 +355,6 @@ u32 application_caption_height() noexcept {
     return g_app.renderer.caption_height;
 }
 
-LPARAM application_caption_content_point(LPARAM client) noexcept {
-    const u32 caption = g_app.renderer.caption_height;
-    if (!caption)
-        return client;
-    const int y = static_cast<short>(HIWORD(client)) - static_cast<int>(caption);
-    return MAKELPARAM(LOWORD(client), static_cast<WORD>(static_cast<short>(y)));
-}
-
 SIZE application_caption_window_size(HWND window, u32 dpi, LONG content_width,
                                      LONG content_height) noexcept {
     if (!g_caption.enabled || g_caption.hidden) {

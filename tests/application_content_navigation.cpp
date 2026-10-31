@@ -2,6 +2,7 @@
 // selection and channel authority. Surrounding presentation/history are thin
 // deterministic boundaries; no cloned navigation helper is used.
 #include "../src/app/application_content_input.cpp"
+#include "../src/app/application_content_point.hpp"
 #include "maicord/core/memory.hpp"
 #include "test_output.hpp"
 
@@ -128,6 +129,53 @@ bool select_home() noexcept {
     g_app.context_focus = &g_app.shell_scene.widgets;
     return activate_focused_navigation();
 }
+// The system turns WM_RBUTTONUP's client point into WM_CONTEXTMENU's screen point. The window procedure hands
+// the application content coordinates, so DefWindowProc must still get the point as sent: with the content
+// point the menu's screen point sat a caption above the pointer and the application subtracted the caption
+// again, so right clicks missed what a left click on the same pixel hit.
+LPARAM context_screen_point;
+bool context_use_content_point;
+LRESULT CALLBACK context_window(HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+    if (message == WM_CONTEXTMENU) {
+        context_screen_point = lparam;
+        return 0;
+    }
+    return DefWindowProcW(window, message, wparam,
+                          message == WM_RBUTTONUP && context_use_content_point
+                              ? application_caption_content_point(lparam)
+                              : lparam);
+}
+void context_point_tests() noexcept {
+    check(reset(), "context point: fixture resets");
+    WNDCLASSEXW type{sizeof(type)};
+    type.lpfnWndProc = context_window;
+    type.hInstance = GetModuleHandleW(nullptr);
+    type.lpszClassName = L"MaiCordContextPointTest";
+    RegisterClassExW(&type);
+    g_app.window = CreateWindowExW(0, type.lpszClassName, L"", WS_POPUP, 40, 60, 800, 600, nullptr, nullptr,
+                                   type.hInstance, nullptr);
+    g_app.renderer.caption_height = 31;
+    const LPARAM client = MAKELPARAM(120, 200); // Pixels in the window's client area, caption rows included.
+    const LPARAM content = application_caption_content_point(client);
+    check(g_app.window && static_cast<short>(HIWORD(content)) == 200 - 31 && LOWORD(content) == 120,
+          "context point: content coordinates start below the caption");
+    for (u32 variant = 0; variant < 2 && g_app.window; ++variant) {
+        context_use_content_point = variant != 0;
+        context_screen_point = 0;
+        SendMessageW(g_app.window, WM_RBUTTONUP, 0, client);
+        POINT point{static_cast<short>(LOWORD(context_screen_point)), static_cast<short>(HIWORD(context_screen_point))};
+        const bool converted = context_screen_point && application_screen_to_content(&point);
+        const bool exact = converted && point.x == 120 && point.y == 200 - 31;
+        check(variant ? !exact && point.y == 200 - 2 * 31 : exact,
+              variant ? "context point: the content point given to DefWindowProc lands a caption too high"
+                      : "context point: the client point given to DefWindowProc maps back to the content point");
+    }
+    g_app.renderer.caption_height = 0;
+    if (g_app.window)
+        DestroyWindow(g_app.window);
+    g_app.window = nullptr;
+    UnregisterClassW(type.lpszClassName, type.hInstance);
+}
 void home_tests() noexcept {
     check(reset() && chat_state_store_upsert_channel(&ui->chat_state, {50, 0, 0, utf8_literal("DM"), 0, 0, 3}).ok(),
           "home navigation: conversation fixture");
@@ -143,6 +191,7 @@ void home_tests() noexcept {
 }
 void tests() noexcept {
     cursor_tests();
+    context_point_tests();
     home_tests();
     check(reset(), "content navigation: real Core fixture initializes");
     g_app.pending_message_jump_channel_id = 21;
