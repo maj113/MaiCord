@@ -885,6 +885,24 @@ void test_video_scene(void (*check)(bool, const char*) noexcept) noexcept {
     ++state.generation;
     check(ui_video_scene_project(&s, state, poster, poster, controls, style, kDefaultTheme) && !s.hover_track && !s.track_title_bytes,
         "replacing the source clears titles and hover identity");
+    // A playlist player scrolled until only the lower half of its track range is visible: the title strip and
+    // the track label no longer overlap the clip. They must project as empty commands, not rejected ones: one
+    // rejected command failed every content text rebuild while the player stayed on screen.
+    const auto scrolled_track = s.projection.controls[9].bounds;
+    const UiRect scrolled_clip{poster.left, (scrolled_track.top + scrolled_track.bottom) * .5f + 1, poster.right,
+                               poster.bottom};
+    check(ui_video_scene_project(&s, state, poster, scrolled_clip, controls, style, kDefaultTheme),
+          "playlist scene projects with its title strip scrolled out of view");
+    ui_video_scene_titles(&s, utf8_literal("Playing - Café"), 0, {});
+    const UiRect title_strip{poster.left + 8, poster.top, poster.right - 8, poster.top + kUiVideoControlBarHeight};
+    UiTextCommand scrolled_commands[kUiVideoControlCount + 2]{};
+    UiTextCommandStream scrolled_stream{};
+    UiTextOutput scrolled_output{&scrolled_stream, nullptr};
+    check(s.track_title_bytes != 0 && !ui_rect_has_area(ui_rect_intersection(title_strip, scrolled_clip)) &&
+              ui_text_command_stream_initialize(&scrolled_stream, {scrolled_commands, kUiVideoControlCount + 2}) &&
+              ui_video_scene_text_output(s, kDefaultTheme, &scrolled_output, text_owner) &&
+              scrolled_stream.rejected == 0,
+          "video scene: title and track text outside the visible clip are empty commands, not rejections");
 
 }
 } // namespace maicord

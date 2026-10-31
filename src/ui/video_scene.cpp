@@ -866,7 +866,8 @@ bool ui_video_scene_text_output(const UiVideoScene& scene, const Theme& theme, U
     if (scene.track_title_bytes) {
         const UiRect title{scene.preview.left + 8, scene.preview.top, scene.preview.right - 8, scene.preview.top + kUiVideoControlBarHeight};
         Color color = kDefaultTheme.text_primary; color.alpha *= scene.controls_transition.value;
-        if (!ui_text_output_push(text, {{scene.track_title, scene.track_title_bytes}, text_owner, title, ui_rect_overlap(title, scene.clip), color, text_style_subtext, UiTextAlignment::start, UiTextAlignment::center, TextWrapping::no_wrap, TextOverflow::ellipsis})) return false;
+        // Clamped: a title strip scrolled out of the visible clip is an empty command, not an invalid one.
+        if (!ui_text_output_push(text, {{scene.track_title, scene.track_title_bytes}, text_owner, title, ui_rect_intersection(title, scene.clip), color, text_style_subtext, UiTextAlignment::start, UiTextAlignment::center, TextWrapping::no_wrap, TextOverflow::ellipsis})) return false;
     }
     if (const auto bubble = ui_video_scene_hover_bubble(scene); ui_rect_has_area(bubble)) {
         Color color = kDefaultTheme.text_primary;
@@ -891,7 +892,7 @@ bool ui_video_scene_text_output(const UiVideoScene& scene, const Theme& theme, U
         color.alpha *= scene.controls_transition.value;
         auto label_bounds = control.bounds;
         if (control.id == UiVideoControl::track) label_bounds.bottom = (label_bounds.top + label_bounds.bottom) * .5f;
-        if (!ui_text_output_push(text, {label, text_owner, label_bounds, ui_rect_overlap(label_bounds, clip), color, control.text_style,
+        if (!ui_text_output_push(text, {label, text_owner, label_bounds, ui_rect_intersection(label_bounds, clip), color, control.text_style,
                                         control.id == UiVideoControl::track ? UiTextAlignment::center
                                                                                    : UiTextAlignment::start,
                                         UiTextAlignment::center, TextWrapping::no_wrap,
