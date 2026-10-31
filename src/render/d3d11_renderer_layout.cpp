@@ -606,6 +606,19 @@ bool queue_avatar(D3D11Renderer* renderer, const MediaAtlasResult& allocation, c
     return true;
 }
 
+// A header line's server tag icon over its chip. A text command's clip is only its row
+// (the text pass adds the scene viewport), so the icon clips to both: a row scrolled
+// under the channel header must not draw it above the viewport.
+bool queue_header_tag_icon(D3D11Renderer* renderer, const MessageScene& scene, const MessageTextCommand& command,
+                           const UserAppearanceRecord& appearance, const UiBadgeWidget& tag) noexcept {
+    ProfileMedia media{};
+    if (!user_guild_badge_media(appearance, ui_badge_geometry(tag, scene.widgets).icon,
+                                ui_rect_intersection(scene.viewport, command.clip), &media))
+        return true;
+    const auto allocation = media_atlas_find(renderer->media_atlas, media.key);
+    return !allocation.ok() || queue_media_quad(renderer, allocation, media.rectangle, media.clip, false);
+}
+
 // Server icons of link chips: the round CDN icon over its cell.
 bool queue_chip_guild_icons(D3D11Renderer* renderer, bool search) noexcept {
     if (!renderer->content_text || !renderer->chat_state || !renderer->media_atlas ||
@@ -1284,6 +1297,10 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
     if (messages_visible && renderer->user_store && renderer->media_atlas &&
         renderer->media_gpu.texture_view) {
         if (renderer->message_text && renderer->chat_state) {
+            // A text command's clip, and its widget's, is only its row: header chips and tag icons clip to
+            // the scene viewport, as the text pass does, so a row under the channel header paints nothing above it.
+            if (!paint_stream_push_clip(&renderer->paint_stream, message_scene->viewport))
+                return layout_step_failed(__LINE__);
             for (u32 i = 0; i < renderer->message_text->command_count; ++i) {
                 const auto& command = renderer->message_text->commands[i];
                 MessageInteractionLayout interaction{};
@@ -1296,16 +1313,10 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
                         continue;
                     if (!ui_badge_paint(interaction.tag, message_scene->widgets, theme, &renderer->paint_stream))
                         return layout_step_failed(__LINE__);
-                    ProfileMedia tag_media{};
                     if (interaction.appearance &&
-                        user_guild_badge_media(*interaction.appearance,
-                                               ui_badge_geometry(interaction.tag, message_scene->widgets).icon,
-                                               command.clip, &tag_media)) {
-                        const auto allocation = media_atlas_find(renderer->media_atlas, tag_media.key);
-                        if (allocation.ok() &&
-                            !queue_media_quad(renderer, allocation, tag_media.rectangle, tag_media.clip, false))
-                            return layout_step_failed(__LINE__);
-                    }
+                        !queue_header_tag_icon(renderer, *message_scene, command, *interaction.appearance,
+                                               interaction.tag))
+                        return layout_step_failed(__LINE__);
                     continue;
                 }
                 MessageAuthorLayout header{};
@@ -1325,17 +1336,12 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
                     continue;
                 if (!ui_badge_paint(header.badge, message_scene->widgets, theme, &renderer->paint_stream))
                     return layout_step_failed(__LINE__);
-                ProfileMedia badge_media{};
                 if (header.badge.leading && header.appearance &&
-                    user_guild_badge_media(*header.appearance,
-                                           ui_badge_geometry(header.badge, message_scene->widgets).icon,
-                                           command.clip, &badge_media)) {
-                    const auto allocation = media_atlas_find(renderer->media_atlas, badge_media.key);
-                    const auto r = badge_media.rectangle;
-                    if (allocation.ok() && !queue_media_quad(renderer, allocation, r, badge_media.clip, false))
-                        return layout_step_failed(__LINE__);
-                }
+                    !queue_header_tag_icon(renderer, *message_scene, command, *header.appearance, header.badge))
+                    return layout_step_failed(__LINE__);
             }
+            if (!paint_stream_pop_clip(&renderer->paint_stream))
+                return layout_step_failed(__LINE__);
         }
         for (u32 index = 0; index < message_scene->count; ++index) {
             const MessageSceneRowWidget& row = message_scene->rows[index];

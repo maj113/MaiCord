@@ -113,6 +113,7 @@
 #include "search_polish_ui_probe.hpp"
 #include "hover_retention_ui_probe.hpp"
 #include "message_components_ui_probe.hpp"
+#include "message_header_clip_ui_probe.hpp"
 #include "post_resize_pacing_ui_probe.hpp"
 #include "unified_picker_ui_probe.hpp"
 #include "maicord/ui/settings_choice.hpp"
@@ -9680,6 +9681,12 @@ int run_probe() noexcept {
                                                            rebuild_probe_content_text,
                                                            +[]() noexcept { return synchronize_probe_shell_layout(); }),
                            "message_components_native_ui_passed", "message_components_native_ui_failed", 305);
+    if (probe_option_enabled(L"MAICORD_UI_MESSAGE_HEADER_CLIP_PROBE"))
+        return finish_gate(initialize_fixture(true) &&
+                               message_header_clip_ui_probe(g_probe.renderer, g_probe.message_view, g_probe.rich_store,
+                                                            g_probe.message_scene, g_probe.users,
+                                                            rebuild_probe_content_text),
+                           "message_header_clip_native_ui_passed", "message_header_clip_native_ui_failed", 306);
     if (probe_option_enabled(L"MAICORD_UI_MEDIA_UNDERLAY_PROBE"))
         return finish_gate(initialize_fixture(true) && probe_media_underlay_and_quick_reactions(),
                            "media_underlay_native_ui_passed", "media_underlay_native_ui_failed", 264);
