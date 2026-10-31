@@ -238,7 +238,7 @@ inline MessageProfileHit message_author_compact_hit(const MessageScene& scene, c
                                   (command.styles[1].flags & text_style_bold)
                               ? 1u
                               : 0u;
-    if (!row || row->grouped || command.owner.manager != &scene.widgets ||
+    if (!row || (row->grouped && !scene.display.compact) || command.owner.manager != &scene.widgets ||
         (command.source_id && !ui_plugin_render_source(command.source_id)) ||
         command.owner.handle.slot != row->content.slot ||
         command.owner.handle.generation != row->content.generation || command.message_id != row->message_id ||
@@ -302,7 +302,7 @@ inline MessageProfileHit message_author_hit_test(const MessageScene& scene,
         !ui_rect_contains(scene.viewport, x, y)) return {};
     for (u32 i = 0; i < scene.count; ++i) {
         const auto& row = scene.rows[i];
-        if (row.grouped) continue;
+        if (row.grouped || scene.display.compact) continue;
         const auto* avatar = message_scene_layout_node(scene, row.avatar);
         const auto* record = message_store_resolve(*scene.timeline->store, row.message);
         if (record && avatar && ui_rect_contains(ui_rect_intersection(avatar->rectangle,

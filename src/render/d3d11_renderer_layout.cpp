@@ -1385,7 +1385,8 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
             const MessageRichRecord* rich =
                 message && rich_store ? message_rich_store_find(*rich_store, message->id) : nullptr;
             const UserRecord* user =
-                rich && rich->message_revision == message->revision && message_rich_has_header(*rich) &&
+                !message_scene->display.compact && rich && rich->message_revision == message->revision &&
+                        message_rich_has_header(*rich) &&
                         (rich->reference.state != GatewayMessageReferenceState::available ||
                          message_rich_reply_leading(rich->reference) == MessageReplyLeading::avatar)
                     ? user_store_find(*renderer->user_store, message_rich_header_user(*rich))

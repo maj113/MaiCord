@@ -213,9 +213,13 @@ inline MessageInteractionHit message_interaction_hit_test(const MessageScene& sc
                        : MessageInteractionHit{};
         };
         const float cy = (command.rectangle.top + command.rectangle.bottom) * .5f;
-        const UiRect avatar{command.rectangle.left - kMessageReplyTextInset, cy - kMessageInteractionAvatar * .5f,
-                            command.rectangle.left - kMessageReplyTextInset + kMessageInteractionAvatar,
-                            cy + kMessageInteractionAvatar * .5f};
+        // The compact display shows a reply badge, not an avatar.
+        const UiRect avatar = scene.display.compact
+                                  ? UiRect{}
+                                  : UiRect{command.rectangle.left - kMessageReplyTextInset,
+                                           cy - kMessageInteractionAvatar * .5f,
+                                           command.rectangle.left - kMessageReplyTextInset + kMessageInteractionAvatar,
+                                           cy + kMessageInteractionAvatar * .5f};
         const UiRect command_rectangle = ui_rect_has_area(layout.chip) ? layout.chip : layout.command.rectangle;
         const MessageInteractionHit hits[4]{
             at(MessageInteractionTarget::avatar, avatar),
@@ -293,9 +297,12 @@ inline MessageInteractionHit message_reply_author_hit_test(const MessageScene& s
                                     minimum(command.rectangle.right,
                                             command.rectangle.left + (measured ? value.size.width + 2.0f : name.bytes * 8.0f)),
                                     command.rectangle.bottom};
-        const UiRect avatar{command.rectangle.left - kMessageReplyTextInset, cy - kMessageInteractionAvatar * .5f,
-                            command.rectangle.left - kMessageReplyTextInset + kMessageInteractionAvatar,
-                            cy + kMessageInteractionAvatar * .5f};
+        const UiRect avatar = scene.display.compact
+                                  ? UiRect{}
+                                  : UiRect{command.rectangle.left - kMessageReplyTextInset,
+                                           cy - kMessageInteractionAvatar * .5f,
+                                           command.rectangle.left - kMessageReplyTextInset + kMessageInteractionAvatar,
+                                           cy + kMessageInteractionAvatar * .5f};
         const UiRect hit_rectangle = ui_rect_contains(avatar, x, y) ? avatar : name_rectangle;
         if (ui_rect_contains(ui_rect_intersection(hit_rectangle, command.clip), x, y))
             return {ui_rect_contains(avatar, x, y) ? MessageInteractionTarget::avatar : MessageInteractionTarget::name,

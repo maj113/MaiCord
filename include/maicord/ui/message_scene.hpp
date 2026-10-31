@@ -175,13 +175,30 @@ struct MessageStickerHit {
 
 // Message display (text_and_images.message_display_compact) and the
 // local group spacing code: 0 = mode default, 1..5 = 0, 4, 8, 16, 24 px.
-// Compact rows drop the avatar, put the timestamp in a 5em hanging-indent
-// gutter and run the author name inline before the content.
+// Compact rows drop the avatar and lay out as one flow: a timestamp column
+// (message_scene_compact_clock_em wide, kMessageSceneCompactGapEm before the
+// name), the bold author name, then the content. Every message of a group
+// shows its name; only a group start or a reply shows its timestamp, the
+// others on hover or focus. `clock` is the shape of the formatted time and
+// picks the column width.
+enum class MessageSceneClock : u8 {
+    meridiem,   // "1:05 PM": 3.1em
+    short_time, // "13:05": 2.25em
+    wide,       // longer locale text, e.g. a day-period prefix: 4.25em
+};
 struct MessageSceneDisplay {
     u8 group_spacing;
     bool compact;
+    MessageSceneClock clock;
 };
-inline constexpr float kMessageSceneCompactIndentEm = 5.0f;
+constexpr float message_scene_compact_clock_em(MessageSceneClock clock) noexcept {
+    return clock == MessageSceneClock::short_time ? 2.25f : clock == MessageSceneClock::wide ? 4.25f : 3.1f;
+}
+// Space between the timestamp column and the name, and between a reply's
+// spine and its leading badge, in em.
+inline constexpr float kMessageSceneCompactGapEm = 0.25f;
+// Compact quoted lines start this far (em) right of the name column.
+inline constexpr float kMessageSceneCompactReplyIndentEm = 0.625f;
 
 // Channel-beginning header (the "empty message" block), shown above the first
 // message once the loaded window reaches the channel start. The host supplies
@@ -381,6 +398,9 @@ bool message_scene_reveal_media(MessageScene* scene, u64 reveal_key) noexcept;
 bool message_scene_set_interaction(MessageScene* scene, const MessageSceneInteraction& interaction) noexcept;
 // Returns true when the display changed; every row is remeasured.
 bool message_scene_set_display(MessageScene*, MessageSceneDisplay) noexcept;
+// Compact rows: how far a quoted line is indented right of the body column;
+// zero in the cozy display.
+float message_scene_reply_indent(const MessageScene&) noexcept;
 // Remeasures every row, e.g. after message_rich_set_display changed geometry.
 void message_scene_invalidate_geometry(MessageScene*) noexcept;
 constexpr bool message_scene_avatar_visible(const MessageScene& scene, const MessageSceneRowWidget& row) noexcept {

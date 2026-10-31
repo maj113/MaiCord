@@ -6840,13 +6840,69 @@ bool probe_message_display() noexcept {
     const float indent = content && row_node ? content->rectangle.left - row_node->rectangle.left -
                                                    ui_theme_metrics(scene.theme_styles).message_left
                                              : 0.f;
+    const float column =
+        em * (message_scene_compact_clock_em(MessageSceneClock::meridiem) + kMessageSceneCompactGapEm);
     valid = valid && row && name.bytes && author && ui_rect_height(author->rectangle) == 0.f &&
-            !message_scene_avatar_visible(scene, *row) && indent > em * kMessageSceneCompactIndentEm - .5f &&
-            indent < em * kMessageSceneCompactIndentEm + .5f && body && body->text.bytes > name.bytes &&
-            bytes_equal(body->text.data, name.data, name.bytes) && body->text.data[name.bytes] == ' ' && stamp &&
-            stamp->text.bytes && probe_capture_frame(L"user-settings-compact.bmp");
+            !message_scene_avatar_visible(scene, *row) && indent > column - .5f && indent < column + .5f && body &&
+            body->text.bytes > name.bytes && bytes_equal(body->text.data, name.data, name.bytes) &&
+            body->text.data[name.bytes] == ' ' && stamp && stamp->text.bytes &&
+            stamp->horizontal_alignment == UiTextAlignment::end && probe_capture_frame(L"user-settings-compact.bmp");
+    // The fixture gives every message its own author; make the message after the first header a follow-up of
+    // that author so grouped compact rows are exercised, and restore it afterwards.
+    MessageRecord* follower = nullptr;
+    u64 saved_author = 0, saved_time = 0;
+    for (u32 i = 0; valid && row && !follower && i + 1 < scene.count; ++i) {
+        if (scene.rows[i].widget.slot != row->widget.slot || scene.rows[i].widget.generation != row->widget.generation)
+            continue;
+        const auto* head = message_store_resolve(g_probe.message_view.store, scene.rows[i].message);
+        auto* next = const_cast<MessageRecord*>(message_store_resolve(g_probe.message_view.store, scene.rows[i + 1].message));
+        if (!head || !next)
+            continue;
+        follower = next;
+        saved_author = next->author_id;
+        saved_time = next->timestamp_ms;
+        next->author_id = head->author_id;
+        next->timestamp_ms = head->timestamp_ms + 1'000;
+        ++next->revision;
+        message_scene_invalidate_geometry(&scene);
+        valid = synchronize_probe_shell_layout() && rebuild_probe_content_text() &&
+                probe_present(&g_probe.renderer, kDefaultTheme);
+    }
+    // A grouped row names its author too; its timestamp appears on hover only.
+    u32 grouped_index = scene.count;
+    for (u32 i = 0; valid && i < scene.count; ++i) {
+        const auto* node = message_scene_layout_node(scene, scene.rows[i].widget);
+        if (scene.rows[i].grouped && !scene.rows[i].forwarded_snapshot && node &&
+            ui_rect_has_area(ui_rect_intersection(node->rectangle, scene.viewport))) {
+            grouped_index = i;
+            break;
+        }
+    }
+    valid = valid && (!follower || grouped_index < scene.count);
+    if (valid && grouped_index < scene.count) {
+        const auto handle = scene.rows[grouped_index].widget;
+        const auto* inline_name = command_for(scene.rows[grouped_index].content);
+        valid = inline_name && inline_name->styles.count &&
+                (inline_name->styles[0].flags & text_style_inline_role_color) &&
+                !command_for(scene.rows[grouped_index].avatar) &&
+                ui_widget_manager_hover(&scene.widgets, handle) && rebuild_probe_content_text() &&
+                probe_present(&g_probe.renderer, kDefaultTheme) && command_for(scene.rows[grouped_index].avatar) &&
+                probe_capture_frame(L"user-settings-compact-grouped-hover.bmp") &&
+                ui_widget_manager_hover(&scene.widgets, ui_widget_invalid_handle()) && rebuild_probe_content_text() &&
+                probe_present(&g_probe.renderer, kDefaultTheme) && !command_for(scene.rows[grouped_index].avatar) &&
+                probe_capture_frame(L"user-settings-compact-grouped.bmp");
+    }
+    if (follower) {
+        follower->author_id = saved_author;
+        follower->timestamp_ms = saved_time;
+        ++follower->revision;
+        message_scene_invalidate_geometry(&scene);
+    }
     if (!valid)
         log_write(LogLevel::error, "probe", "compact_geometry_failed");
+    // The 24-hour clock narrows the column; the name follows it closely.
+    valid = valid && apply({0, true, MessageSceneClock::short_time}) &&
+            probe_capture_frame(L"user-settings-compact-24-hour.bmp") && apply({0, true});
     valid = valid && apply({5, true});
     row = valid ? first_header() : nullptr;
     row_node = row ? message_scene_layout_node(scene, row->widget) : nullptr;

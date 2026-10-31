@@ -1,5 +1,6 @@
 #include "maicord/ui/ansi_text.hpp"
 #include "maicord/ui/theme_style_projection.hpp"
+#include "maicord/ui/theme_styles.hpp"
 #include "maicord/ui/message_text_presentation.hpp"
 #include "maicord/ui/plugin_slots.hpp"
 #include "maicord/ui/foreground_color.hpp"
@@ -670,10 +671,6 @@ constexpr CommandLook kLookStamp{.themed = true, .wrapping = TextWrapping::no_wr
 constexpr CommandLook kLookMiddle{.vertical = UiTextAlignment::center,
                                   .wrapping = TextWrapping::no_wrap,
                                   .overflow = TextOverflow::ellipsis};
-constexpr CommandLook kLookMiddleThemed{.themed = true,
-                                        .vertical = UiTextAlignment::center,
-                                        .wrapping = TextWrapping::no_wrap,
-                                        .overflow = TextOverflow::ellipsis};
 constexpr CommandLook kLookMiddleSecond{.vertical = UiTextAlignment::center,
                                         .wrapping = TextWrapping::no_wrap,
                                         .slot = 1,
@@ -699,6 +696,12 @@ constexpr CommandLook kLookEnd{.horizontal = UiTextAlignment::end,
                                .vertical = UiTextAlignment::center,
                                .wrapping = TextWrapping::no_wrap,
                                .overflow = TextOverflow::ellipsis};
+// The compact timestamp: right-aligned in its column, never ellipsized (a
+// wide time overruns into the row padding like the client's fixed-width box).
+constexpr CommandLook kLookStampEnd{.themed = true,
+                                    .horizontal = UiTextAlignment::end,
+                                    .vertical = UiTextAlignment::center,
+                                    .wrapping = TextWrapping::no_wrap};
 constexpr CommandLook kLookAttachmentName{.kind = MessageTextMeasurementKind::attachment,
                                           .minimum_height = 20.0f,
                                           .wrapping = TextWrapping::no_wrap,
@@ -1433,11 +1436,20 @@ bool compact_content(MessageTextPresentation* presentation, BuildContext* contex
     return true;
 }
 
+// A compact timestamp shows on a group start (or a reply, which always starts
+// one) and, on the other rows of a group, while the row is hovered or focused.
+bool compact_timestamp_shown(const MessageScene& scene, const MessageSceneRowWidget& row) noexcept {
+    return !row.grouped || message_scene_resolve(scene, scene.widgets.hovered) == &row ||
+           message_scene_resolve(scene, scene.widgets.focused) == &row;
+}
+
 bool append_compact_timestamp(MessageTextPresentation* presentation, const MessageScene& scene,
                               const MessageSceneRowWidget& row, const UiRect& clip, const Theme& theme,
                               const MessageRecord& record, u64 now_unix_seconds) noexcept {
     const UiLayoutNode* gutter = message_scene_layout_node(scene, row.avatar);
-    if (!record.timestamp_ms || !gutter || !ui_rect_has_area(gutter->rectangle))
+    const UiLayoutNode* row_layout = message_scene_layout_node(scene, row.widget);
+    if (!record.timestamp_ms || !gutter || !row_layout || !ui_rect_has_area(gutter->rectangle) ||
+        !compact_timestamp_shown(scene, row))
         return true;
     char storage[kMessageMarkdownTimestampMaximumBytes]{};
     const auto formatted = format_timestamp_local(record.timestamp_ms / 1'000u, 't', now_unix_seconds,
@@ -1449,11 +1461,15 @@ bool append_compact_timestamp(MessageTextPresentation* presentation, const Messa
     copy_bytes(presentation->utf8.data + text_begin, storage, formatted.bytes);
     presentation->utf8_count += formatted.bytes;
     TextStyleSpan* style = presentation->styles.data + presentation->style_count++;
-    *style = TextStyleSpan{0, formatted.bytes, text_style_subtext};
+    *style = TextStyleSpan{0, formatted.bytes, text_style_none, text_size_xs};
+    // The column's right edge is the anchor; a longer time grows leftwards
+    // into the row's left padding.
+    UiRect column = gutter->rectangle;
+    column.left = maximum(row_layout->rectangle.left, column.left - ui_theme_metrics(scene.theme_styles).message_left);
     return append_command(presentation, Utf8View{presentation->utf8.data + text_begin, formatted.bytes}, {style, 1},
-                          kNoSemantics, UiWidgetReference{&scene.widgets, row.avatar}, gutter->rectangle, clip,
+                          kNoSemantics, UiWidgetReference{&scene.widgets, row.avatar}, column, clip,
                           ui_background_muted_text_color(theme), &record,
-                          kInvalidMessageTextMeasurement, kLookMiddleThemed);
+                          kInvalidMessageTextMeasurement, kLookStampEnd);
 }
 
 bool parse_content(MessageTextPresentation* presentation, BuildContext* context, Utf8View source,
@@ -3270,7 +3286,9 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                             MessageTextPresentationOperation::initialize_flow);
         const u32 reply_begin = presentation->command_count;
         UiTextFlowLayout flow{};
-        if (!initialize_flow(presentation, *reply, text_left, text_width, row_clip, &flow)) {
+        const float reply_indent = message_scene_reply_indent(scene);
+        if (!initialize_flow(presentation, *reply, text_left + reply_indent, maximum(1.0f, text_width - reply_indent),
+                             row_clip, &flow)) {
             return false;
         }
         Utf8View label{};
@@ -3379,7 +3397,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
     // Compact rows: timestamp in the hanging-indent gutter, name inline.
     Utf8View compact_name{};
     Color compact_color{};
-    if (!forwarded && !row.grouped && users && record->author_id != 0) {
+    if (!forwarded && (!row.grouped || scene.display.compact) && users && record->author_id != 0) {
         set_failure_context(presentation, MessageTextPresentationStage::author,
                             MessageTextPresentationOperation::append_command);
         const UserRecord* user = user_store_find(*users, record->author_id);

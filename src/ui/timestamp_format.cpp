@@ -231,4 +231,21 @@ TimestampFormatResult format_timestamp_local(u64 unix_seconds, char style,
     return TimestampFormatResult{0, written ? used : 0, written};
 }
 
+TimestampClockShape timestamp_clock_shape() noexcept {
+    // The client picks a fixed timestamp column from the formatted time of
+    // day: a trailing AM/PM, a short 24-hour time, or anything longer.
+    constexpr u64 kSample = 1'700'000'000ull;
+    char storage[kMessageMarkdownTimestampMaximumBytes]{};
+    const auto formatted = format_timestamp_local(kSample, 't', kSample, Slice<char>{storage, sizeof(storage)});
+    if (!formatted.ok || formatted.bytes < 2)
+        return TimestampClockShape::meridiem;
+    const char* end = storage + formatted.bytes;
+    if ((end[-1] == 'M' || end[-1] == 'm') && (end[-2] == 'A' || end[-2] == 'P' || end[-2] == 'a' || end[-2] == 'p'))
+        return TimestampClockShape::meridiem;
+    u32 characters = 0;
+    for (u32 i = 0; i < formatted.bytes; ++i)
+        characters += (static_cast<u8>(storage[i]) & 0xC0u) != 0x80u;
+    return characters <= 5 ? TimestampClockShape::short_time : TimestampClockShape::wide;
+}
+
 } // namespace maicord

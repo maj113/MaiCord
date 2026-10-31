@@ -94,7 +94,9 @@ inline u32 visible_author_ids(const MessageScene& scene, u64 channel_id, Slice<u
         const auto* message = message_store_resolve(*scene.timeline->store, row.message);
         if (!message || message->channel_id != channel_id || message->id != row.message_id)
             continue;
-        if (!row.grouped && message->delivery == MessageDeliveryState::authoritative && visible(row.author))
+        // Compact rows name every message inline; cozy rows only a group start.
+        if ((!row.grouped || scene.display.compact) && message->delivery == MessageDeliveryState::authoritative &&
+            visible(scene.display.compact ? row.content : row.author))
             append(message->author_id);
         if (scene.timeline->rich_store && visible(row.reply))
             if (const auto* rich = message_rich_store_find(*scene.timeline->rich_store, message->id))

@@ -333,7 +333,8 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
     const MessageMediaPolicyResult media_policy = message_scene_media_policy(
         scene, message_media_owner(*record, rich_store ? message_rich_store_find(*rich_store, record->id)
                                                        : nullptr));
-    const float text_left = body->content_rectangle.left;
+    // A compact quoted line starts a reply indent right of the name column.
+    const float text_left = body->content_rectangle.left + message_scene_reply_indent(scene);
     if (row.forwarded_snapshot) {
         const UiRect edge{row_layout->rectangle.left, row_layout->rectangle.top,
                           row_layout->rectangle.left + 3, row_layout->rectangle.bottom};
@@ -369,11 +370,16 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
         if (!painted)
             return false;
         if (leading == MessageReplyLeading::avatar) {
-            if (!paint_stream_push_rounded(paint, reference_avatar, theme.avatar_placeholder, reference_extent * 0.5f))
+            // The compact display, and a quote that is gone or not loaded, show
+            // the reply arrow on a dark badge in the avatar's place; the
+            // avatar media pass skips them.
+            const bool badge = scene.display.compact || (reference.state != GatewayMessageReferenceState::available &&
+                                                         reference.state != GatewayMessageReferenceState::none);
+            if (!paint_stream_push_rounded(paint, reference_avatar,
+                                           badge ? theme.base_lowest : theme.avatar_placeholder,
+                                           reference_extent * 0.5f))
                 return false;
-            // A quote that is gone or not loaded shows the reply arrow in the avatar's place.
-            if (reference.state != GatewayMessageReferenceState::available &&
-                reference.state != GatewayMessageReferenceState::none) {
+            if (badge) {
                 const float arrow = 10.0f;
                 const float inset = (reference_extent - arrow) * 0.5f;
                 if (!ui_icon_paint(paint, UiIcon::reply,

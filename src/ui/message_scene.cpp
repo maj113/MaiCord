@@ -46,15 +46,19 @@ const MessageSceneDisplay& display(const MessageScene& scene) noexcept {
 template <typename Scene> bool compact(const Scene& scene) noexcept {
     return display(scene).compact;
 }
-// Compact: the avatar column becomes the timestamp gutter so the content
-// starts one hanging indent from the left padding of the row.
+// Compact: the avatar column becomes the timestamp column (width by clock
+// shape); the name starts one gap after it. Every compact row, grouped or
+// not, owns that column so the hidden timestamp of a grouped row keeps the
+// name aligned.
 template <typename Scene> float avatar_width(const Scene& scene) noexcept {
-    return compact(scene) ? maximum(0.0f, message_em(scene) * kMessageSceneCompactIndentEm -
-                                              metrics(scene).message_avatar_gap)
+    return compact(scene) ? message_em(scene) * message_scene_compact_clock_em(display(scene).clock)
                           : metrics(scene).message_avatar;
 }
+template <typename Scene> float avatar_gap(const Scene& scene) noexcept {
+    return compact(scene) ? message_em(scene) * kMessageSceneCompactGapEm : metrics(scene).message_avatar_gap;
+}
 template <typename Scene> float avatar_height(const Scene& scene, bool grouped) noexcept {
-    return grouped ? 0.0f : compact(scene) ? content_height(scene) : metrics(scene).message_avatar;
+    return compact(scene) ? content_height(scene) : grouped ? 0.0f : metrics(scene).message_avatar;
 }
 template <typename Scene> float group_top(const Scene& scene) noexcept {
     static constexpr float spacing[]{0.0f, 0.0f, 4.0f, 8.0f, 16.0f, 24.0f};
@@ -107,7 +111,7 @@ UiLayoutStyle row_style(const Scene& scene, float height, bool grouped, float le
     style.height = ui_layout_fixed(height);
     style.padding = UiInsets{metrics(scene).message_left, row_top_padding(scene, grouped) + leading,
                              metrics(scene).message_right, row_bottom_padding(scene, grouped)};
-    style.gap = metrics(scene).message_avatar_gap;
+    style.gap = avatar_gap(scene);
     style.horizontal_alignment = UiLayoutAlignment::stretch;
     return style;
 }
@@ -119,8 +123,8 @@ UiLayoutStyle avatar_style(const Scene& scene, bool grouped, float reply_height)
     style.height = ui_layout_fixed(avatar_height(scene, grouped));
     // The large avatar belongs to the current author, so it starts below the
     // reply preview that precedes the header.
-    style.margin.top = grouped ? 0.0f : reply_height + 0.f;
-    if (grouped) {
+    style.margin.top = grouped && !compact(scene) ? 0.0f : reply_height + 0.f;
+    if (grouped && !compact(scene)) {
         style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_allow_zero_size);
     }
     return style;
@@ -502,7 +506,7 @@ bool row_is_grouped(const MessageScene& scene, const MessageRecord& record, cons
 
 template <typename Scene> float available_text_width(const Scene& scene, const UiRect& viewport) noexcept {
     return maximum(0.0f, ui_rect_width(viewport) - metrics(scene).message_left - avatar_width(scene) -
-                             metrics(scene).message_avatar_gap - metrics(scene).message_right);
+                             avatar_gap(scene) - metrics(scene).message_right);
 }
 
 template <typename Scene>
@@ -832,7 +836,7 @@ bool apply_row_specs(MessageScene* scene, MessageSceneRowWidget* row) noexcept {
         return false;
     }
     row_node->spec.style.height = ui_layout_fixed(resident_height);
-    row_node->spec.style.gap = metrics(scene).message_avatar_gap;
+    row_node->spec.style.gap = avatar_gap(scene);
     if (scene->plugin_decorations)
         if (auto* widget = ui_widget_manager_resolve(&scene->widgets, row->widget))
             widget->flags = row->redacted ? static_cast<u16>(widget->flags | ui_widget_block_input)
@@ -849,7 +853,7 @@ bool apply_row_specs(MessageScene* scene, MessageSceneRowWidget* row) noexcept {
     }
     avatar_node->spec.style.width = ui_layout_fixed(avatar_width(scene));
     avatar_node->spec.style.height = ui_layout_fixed(avatar_height(scene, row->grouped));
-    avatar_node->spec.style.margin.top = row->grouped ? 0.0f : reply + 0.f;
+    avatar_node->spec.style.margin.top = row->grouped && !compact(scene) ? 0.0f : reply + 0.f;
     if (row->has_snapshot) {
         auto* child = const_cast<MessageSceneRowWidget*>(message_scene_snapshot_row(*scene, *row));
         const auto* snapshot = snapshot_rich(*scene, row->message_id);
@@ -1356,11 +1360,16 @@ bool message_scene_bind_scheduled_events(MessageScene* scene, const ScheduledEve
 
 bool message_scene_set_display(MessageScene* scene, MessageSceneDisplay value) noexcept {
     if (!scene || value.group_spacing >= 6 ||
-        (scene->display.compact == value.compact && scene->display.group_spacing == value.group_spacing))
+        (scene->display.compact == value.compact && scene->display.group_spacing == value.group_spacing &&
+         scene->display.clock == value.clock))
         return false;
     scene->display = value;
     invalidate_geometry(scene);
     return true;
+}
+
+float message_scene_reply_indent(const MessageScene& scene) noexcept {
+    return scene.display.compact ? message_em(scene) * kMessageSceneCompactReplyIndentEm : 0.0f;
 }
 
 bool message_scene_bind_poll_source(MessageScene* scene, const MessageScenePollBinding* binding) noexcept {

@@ -1105,6 +1105,129 @@ void test_plugin_decorations(Check check) noexcept {
     g_ui_plugin_render_revision = 0;
     message_scene_release(&f.scene);
 }
+
+// Compact display: a timestamp column sized by the clock shape, the name on
+// every row, timestamps on a group start and, for the rest, on hover only.
+const MessageTextCommand* command_of(const SceneFixture& f, u64 message_id, UiWidgetHandle owner) noexcept {
+    for (u32 i = 0; i < f.presentation.command_count; ++i) {
+        const auto& command = f.commands[i];
+        if (command.message_id == message_id && command.owner.handle.slot == owner.slot &&
+            command.owner.handle.generation == owner.generation)
+            return &command;
+    }
+    return nullptr;
+}
+void test_compact_display(Check check) noexcept {
+    auto& f = scene_fixture;
+    f = {};
+    render_users = {};
+    g_ui_plugin_render_query = nullptr;
+    bool ok = message_store_initialize(&f.store, {f.record, kRows}, {f.order, kRows}, {f.text, sizeof(f.text)}) &&
+              message_rich_store_initialize(&f.rich, {f.rich_record, kRows}, {f.rich_order, kRows},
+                                            {f.rich_text, sizeof(f.rich_text)}) &&
+              user_store_initialize(&render_users.store, {render_users.records, 4}, {render_users.order, 4},
+                                    {render_users.names, sizeof(render_users.names)}) &&
+              user_store_upsert(&render_users.store, 11, utf8_literal("Ann")).ok() &&
+              user_store_upsert(&render_users.store, 9, utf8_literal("Bob")).ok();
+    MessageInput first{};
+    first.id = 21ull << 22;
+    first.channel_id = 7;
+    first.author_id = 11;
+    first.timestamp_ms = 1'500'000'000'000ull;
+    first.content = utf8_literal("first line");
+    MessageInput second = first;
+    second.id += 1;
+    second.timestamp_ms += 1'000;
+    second.content = utf8_literal("second line");
+    MessageInput third = second;
+    third.id += 1;
+    third.author_id = 9;
+    third.timestamp_ms += 1'000;
+    third.content = utf8_literal("third line");
+    ok = ok && message_store_upsert(&f.store, first).ok() && message_store_upsert(&f.store, second).ok() &&
+         message_store_upsert(&f.store, third).ok() &&
+         ui_variable_list_initialize(&f.list, {f.heights, kRows}, {f.fenwick, kRows}, 3, ui_extent_units(57)) &&
+         message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(57), ui_extent_units(2000), false) &&
+         message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
+         message_scene_initialize_owned(&f.scene, &f.timeline, kRows, kRows, {f.widget, kWidgets}, {f.node, kWidgets}) &&
+         message_text_presentation_initialize(&f.presentation, {f.commands, 256}, {f.utf8, sizeof(f.utf8)},
+                                              {f.styles, 512}, {f.semantics, 64}, {f.measurements, kRows},
+                                              {f.spoilers, 2}, {f.byte_styles, 4096}) &&
+         ui_text_measure_cache_initialize(&f.cache, {f.cache_records, 256}, measure, nullptr);
+    ChatStateStore state{};
+    NavigationView navigation{};
+    const auto converge = [&]() noexcept {
+        const MessageTextCoordinatorRequest request{&f.scene, &f.presentation, &f.cache, &state, &render_users.store,
+                                                    &navigation, &kDefaultTheme, finish, nullptr, 1, 1};
+        return message_scene_update(&f.scene, {0, 0, 700, 2000}).ok() &&
+               message_text_coordinator_converge(request).ok();
+    };
+    const auto display = [&](MessageSceneClock clock, bool compact) noexcept {
+        message_scene_set_display(&f.scene, {0, compact, clock});
+        return converge();
+    };
+    ok = ok && display(MessageSceneClock::meridiem, true);
+    check(ok, "compact_display_converges");
+    if (!ok) {
+        message_scene_release(&f.scene);
+        return;
+    }
+    const MessageSceneRowWidget* rows[3]{message_scene_find_row(f.scene, 0), message_scene_find_row(f.scene, 1),
+                                         message_scene_find_row(f.scene, 2)};
+    const float em = 16.0f;
+    const auto near = [](float a, float b) noexcept { return a > b - .05f && a < b + .05f; };
+    const auto column = [&](float clock_em) noexcept {
+        for (const auto* row : rows) {
+            const auto* gutter = row ? message_scene_layout_node(f.scene, row->avatar) : nullptr;
+            const auto* content = row ? message_scene_layout_node(f.scene, row->content) : nullptr;
+            if (!gutter || !content || !near(ui_rect_width(gutter->rectangle), em * clock_em) ||
+                !near(content->rectangle.left - gutter->rectangle.right, em * .25f) ||
+                ui_rect_height(gutter->rectangle) <= 0)
+                return false;
+        }
+        return true;
+    };
+    check(rows[0] && rows[1] && rows[2] && !rows[0]->grouped && rows[1]->grouped && !rows[2]->grouped &&
+              column(3.1f),
+          "compact_display_meridiem_column_is_3_1em_and_name_follows_by_a_quarter_em");
+    // The timestamp is right-aligned in its column, 12 px, on a group start only.
+    const auto* stamp = rows[0] ? command_of(f, first.id, rows[0]->avatar) : nullptr;
+    const auto* gutter0 = rows[0] ? message_scene_layout_node(f.scene, rows[0]->avatar) : nullptr;
+    check(stamp && gutter0 && stamp->styles.count == 1 && stamp->styles[0].size == text_size_xs &&
+              stamp->horizontal_alignment == UiTextAlignment::end && near(stamp->rectangle.right, gutter0->rectangle.right) &&
+              command_of(f, third.id, rows[2]->avatar) && !command_of(f, second.id, rows[1]->avatar),
+          "compact_display_timestamp_on_group_start_only_right_aligned_small");
+    // Every message names its author inline, grouped ones included.
+    check(command_text(f, first.id, utf8_literal("Ann first line")) &&
+              command_text(f, second.id, utf8_literal("Ann second line")) &&
+              command_text(f, third.id, utf8_literal("Bob third line")),
+          "compact_display_names_every_message");
+    // A grouped row shows its timestamp while hovered, and loses it after.
+    ok = ui_widget_manager_hover(&f.scene.widgets, rows[1]->widget) && converge();
+    rows[1] = message_scene_find_row(f.scene, 1);
+    check(ok && rows[1] && command_of(f, second.id, rows[1]->avatar), "compact_display_hover_reveals_grouped_timestamp");
+    ok = ui_widget_manager_hover(&f.scene.widgets, ui_widget_invalid_handle()) && converge();
+    rows[1] = message_scene_find_row(f.scene, 1);
+    check(ok && rows[1] && !command_of(f, second.id, rows[1]->avatar), "compact_display_unhover_hides_grouped_timestamp");
+    // The column follows the clock shape; quoted lines indent a reply indent.
+    check(near(message_scene_reply_indent(f.scene), em * .625f), "compact_display_reply_indent");
+    ok = display(MessageSceneClock::short_time, true);
+    rows[0] = message_scene_find_row(f.scene, 0);
+    rows[1] = message_scene_find_row(f.scene, 1);
+    rows[2] = message_scene_find_row(f.scene, 2);
+    check(ok && column(2.25f), "compact_display_24_hour_column_is_2_25em");
+    ok = display(MessageSceneClock::wide, true);
+    rows[0] = message_scene_find_row(f.scene, 0);
+    rows[1] = message_scene_find_row(f.scene, 1);
+    rows[2] = message_scene_find_row(f.scene, 2);
+    check(ok && column(4.25f), "compact_display_wide_clock_column_is_4_25em");
+    ok = display(MessageSceneClock::meridiem, false);
+    rows[1] = message_scene_find_row(f.scene, 1);
+    check(ok && rows[1] && near(message_scene_reply_indent(f.scene), 0.0f) && !command_of(f, second.id, rows[1]->avatar) &&
+              !command_text(f, second.id, utf8_literal("Ann second line")),
+          "compact_display_cozy_restores_avatar_column_and_hides_inline_names");
+    message_scene_release(&f.scene);
+}
 } // namespace
 
 void test_message_content_wave(Check check) noexcept {
@@ -1116,6 +1239,7 @@ void test_message_content_wave(Check check) noexcept {
     test_invite_cache(check);
     test_presentation(check);
     test_plugin_decorations(check);
+    test_compact_display(check);
 }
 
 } // namespace maicord

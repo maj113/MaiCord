@@ -415,8 +415,9 @@ void application_user_settings_release() noexcept {
     application_text_form_cancel_owner(content_confirmation_valid);
     release_bank();
     reset_value(&g_owner);
-    message_scene_set_display(&g_app.message_scene, {g_app.preferences.message_group_spacing, false});
     timestamp_set_hour_cycle(HourCycle::automatic);
+    message_scene_set_display(&g_app.message_scene, {g_app.preferences.message_group_spacing, false,
+                                                     static_cast<MessageSceneClock>(timestamp_clock_shape())});
     if (message_rich_set_display({}))
         message_scene_invalidate_geometry(&g_app.message_scene);
 }
@@ -425,10 +426,12 @@ void application_user_settings_apply_display() noexcept {
     const bool compact = loaded() && read_number(kCompact, 0) != 0;
     const u64 cycle = loaded() ? read_number(kHourCycle, 0) : 0;
     g_owner.applied_revision = store() ? store()->revision : g_owner.applied_revision;
-    const bool display =
-        message_scene_set_display(&g_app.message_scene, {g_app.preferences.message_group_spacing, compact});
+    // The cycle first: it decides the timestamp column's width.
     const bool time = timestamp_set_hour_cycle(cycle <= 2 ? static_cast<HourCycle>(cycle)
                                                                   : HourCycle::automatic);
+    const bool display = message_scene_set_display(
+        &g_app.message_scene, {g_app.preferences.message_group_spacing, compact,
+                               static_cast<MessageSceneClock>(timestamp_clock_shape())});
     const MessageRichDisplay chat = chat_display();
     const MessageRichDisplay previous = message_rich_display();
     const bool chat_changed = !message_rich_display_equal(chat, previous);
