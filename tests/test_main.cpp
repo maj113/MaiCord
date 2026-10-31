@@ -1560,6 +1560,63 @@ void test_message_rich_store() noexcept {
                !video_dimensions_changed,
            "message_video_key_revision_mismatch_rejected");
 
+    // A decoded still refits a frame whose declared dimensions disagree with the
+    // picture (square album art declared 16:9); a still within one percent of
+    // the declared aspect leaves the frame alone.
+    GatewayMessageEmbed music_embeds[1]{};
+    music_embeds[0].type = GatewayMessageEmbedType::video;
+    music_embeds[0].url = utf8_literal("https://music.youtube.com/watch?v=HC1kLPsbOLs");
+    music_embeds[0].thumbnail.url = utf8_literal("https://i.ytimg.com/vi/HC1kLPsbOLs/maxresdefault.jpg");
+    music_embeds[0].thumbnail.proxy_url = utf8_literal("https://images-ext-1.discordapp.net/external/poster.jpg");
+    music_embeds[0].thumbnail.content_type = utf8_literal("image/jpeg");
+    music_embeds[0].thumbnail.width = 1'280;
+    music_embeds[0].thumbnail.height = 720;
+    music_embeds[0].thumbnail.has_width = true;
+    music_embeds[0].thumbnail.has_height = true;
+    music_embeds[0].video.url = utf8_literal("https://www.youtube.com/embed/HC1kLPsbOLs");
+    music_embeds[0].video.width = 1'280;
+    music_embeds[0].video.height = 720;
+    music_embeds[0].video.has_width = true;
+    music_embeds[0].video.has_height = true;
+    GatewayMessageEvent music_event{};
+    music_event.id = 902;
+    music_event.fields = gateway_message_field_embeds;
+    music_event.embeds = ConstSlice<GatewayMessageEmbed>{music_embeds, 1};
+    const MessageRichStoreResult music_inserted = message_rich_store_apply(&store, 902, 1, music_event);
+    const MessageRichRecord* music_record = message_rich_store_find(store, 902);
+    MessageRichEmbedMediaSelection music_media{};
+    expect(music_inserted.ok() && music_record &&
+               message_rich_embed_media_select(store, music_record->embeds[0], &music_media) &&
+               music_media.resource == MediaEmbedResource::thumbnail &&
+               message_rich_embed_media_extent(music_media, 900.0f, &selected_width, &selected_height) &&
+               selected_width == 400.0f && selected_height == 225.0f,
+           "message_embed_declared_sixteen_nine_poster_frames_wide_before_decode");
+    AccountMediaFrame still_frame{};
+    still_frame.kind = AccountMediaFrameKind::straight_rgba8;
+    still_frame.key = media_asset_embed(902, 1, 0, MediaEmbedResource::thumbnail, MediaAttachmentFormat::jpeg);
+    still_frame.source_message_id = 902;
+    still_frame.source_message_revision = 1;
+    still_frame.width = 1'280;
+    still_frame.height = 722;
+    bool still_changed = true;
+    expect(message_media_apply_frame_dimensions(&store, still_frame, &still_changed) && !still_changed &&
+               music_record && music_record->embeds[0].thumbnail.width == 1'280 &&
+               music_record->embeds[0].thumbnail.height == 720,
+           "message_embed_still_within_one_percent_keeps_declared_frame");
+    still_frame.width = 544;
+    still_frame.height = 544;
+    expect(message_media_apply_frame_dimensions(&store, still_frame, &still_changed) && still_changed &&
+               music_record->embeds[0].thumbnail.width == 1'280 && music_record->embeds[0].thumbnail.height == 1'280 &&
+               message_rich_embed_media_select(store, music_record->embeds[0], &music_media) &&
+               message_rich_embed_media_extent(music_media, 900.0f, &selected_width, &selected_height) &&
+               selected_width == 300.0f && selected_height == 300.0f &&
+               message_media_apply_frame_dimensions(&store, still_frame, &still_changed) && !still_changed,
+           "message_embed_decoded_square_poster_refits_frame_to_its_own_aspect_once");
+    still_frame.source_message_revision = 2;
+    expect(message_media_apply_frame_dimensions(&store, still_frame, &still_changed) && !still_changed,
+           "message_embed_stale_still_never_changes_or_fails_layout");
+    message_rich_store_delete(&store, 902);
+
     MessageRichRecord* mutable_record = record ? &store.records[store.order[0]] : nullptr;
     if (mutable_record) {
         mutable_record->attachments[0].width = 0;

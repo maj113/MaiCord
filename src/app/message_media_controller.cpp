@@ -11,27 +11,57 @@
 
 namespace maicord {
 
+namespace {
+// A decoded embed still sets the aspect of its frame. Declared dimensions that
+// disagree with the picture by more than one percent keep their larger side
+// and take the picture's aspect, so the frame fits the image instead of
+// letterboxing it. Always succeeds: a still that cannot be matched is ignored.
+bool fit_embed_still(MessageRichStore* store, const MessageRichRecord& rich, const AccountMediaFrame& frame,
+                     MessageRichEmbedMediaSlot slot, u32 width, u32 height, bool* changed) noexcept {
+    const u32 index = media_asset_embed_index(frame.key);
+    const bool snapshot = media_asset_embed_snapshot(frame.key);
+    const MessageRichRecord* owned = snapshot ? message_rich_store_snapshot(*store, frame.source_message_id) : &rich;
+    if (!owned || owned->message_revision != frame.source_message_revision || index >= owned->embed_count)
+        return true;
+    const auto& embed = owned->embeds[index];
+    const MessageRichEmbedMedia& media = slot == MessageRichEmbedMediaSlot::image ? embed.image : embed.thumbnail;
+    if (!media.width || !media.height)
+        return true;
+    const u64 declared = u64{media.width} * height, actual = u64{width} * media.height;
+    if ((declared > actual ? declared - actual : actual - declared) * 100u <= actual)
+        return true;
+    const u32 side = maximum(media.width, media.height);
+    const u32 fitted_width = width >= height ? side : maximum<u32>(1u, static_cast<u32>((u64{side} * width + height / 2) / height));
+    const u32 fitted_height = width >= height ? maximum<u32>(1u, static_cast<u32>((u64{side} * height + width / 2) / width)) : side;
+    message_rich_store_set_embed_dimensions(store, frame.source_message_id, frame.source_message_revision, index, slot,
+                                            fitted_width, fitted_height, changed, snapshot);
+    return true;
+}
+} // namespace
+
 bool message_media_apply_frame_dimensions(MessageRichStore* store, const AccountMediaFrame& frame,
                                           bool* changed) noexcept {
     if (!changed)
         return false;
     *changed = false;
     const bool video = frame.kind == AccountMediaFrameKind::video_nv12_gpu;
-    if (frame.key.kind != MediaAssetKind::attachment && (frame.key.kind != MediaAssetKind::embed || !video))
+    if (frame.key.kind != MediaAssetKind::attachment && frame.key.kind != MediaAssetKind::embed)
         return true;
+    // An embed still only refines its frame's aspect; it never fails a frame.
+    const bool still = frame.key.kind == MediaAssetKind::embed && !video;
     if (!store)
-        return false;
+        return still;
     const auto* rich = message_rich_store_find(*store, frame.source_message_id);
     if (!rich || rich->message_revision != frame.source_message_revision)
-        return false;
+        return still;
     const u32 width = video ? frame.canvas_width : frame.width;
     const u32 height = video ? frame.canvas_height : frame.height;
     if (!width || !height)
-        return false;
+        return still;
     if (frame.key.kind == MediaAssetKind::embed) {
         if (frame.key.id != frame.source_message_id || frame.key.variant != frame.source_message_revision ||
-            media_asset_embed_format(frame.key) != MediaAttachmentFormat::mp4)
-            return false;
+            (!still && media_asset_embed_format(frame.key) != MediaAttachmentFormat::mp4))
+            return still;
         MessageRichEmbedMediaSlot slot{};
         switch (media_asset_embed_resource(frame.key)) {
         case MediaEmbedResource::image:
@@ -41,11 +71,15 @@ bool message_media_apply_frame_dimensions(MessageRichStore* store, const Account
             slot = MessageRichEmbedMediaSlot::thumbnail;
             break;
         case MediaEmbedResource::video:
+            if (still)
+                return true;
             slot = MessageRichEmbedMediaSlot::video;
             break;
         default:
-            return false;
+            return still;
         }
+        if (still)
+            return fit_embed_still(store, *rich, frame, slot, width, height, changed);
         return message_rich_store_set_embed_dimensions(
             store, frame.source_message_id, frame.source_message_revision,
             media_asset_embed_index(frame.key), slot, width, height, changed,
