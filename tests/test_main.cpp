@@ -737,6 +737,70 @@ void test_message_markdown() noexcept {
     expect(markdown_text_equal(result, utf8_literal("*literal* **open")) && result.transformations == 1,
            "message_markdown_escape_and_unmatched_literal");
 
+    // simple-markdown escape rule /^\\([^0-9A-Za-z\s])/ and the emoticon rule
+    // /^(¯\\_\(ツ\)_\/¯)/ (both verified against the official client's rules).
+    // The official /shrug sends the face unescaped; it renders verbatim.
+    constexpr Utf8View shrug = utf8_literal("\xC2\xAF\\_(\xE3\x83\x84)_/\xC2\xAF");
+    result = parse(shrug);
+    expect(markdown_text_equal(result, shrug) && result.span_count == 0 && result.transformations == 0,
+           "message_markdown_shrug_face_keeps_its_backslash");
+    result = parse(utf8_literal("hi \xC2\xAF\\_(\xE3\x83\x84)_/\xC2\xAF there \xC2\xAF"));
+    expect(markdown_text_equal(result, utf8_literal("hi \xC2\xAF\\_(\xE3\x83\x84)_/\xC2\xAF there \xC2\xAF")) &&
+               result.span_count == 0,
+           "message_markdown_shrug_face_mid_text");
+    result = parse(utf8_literal("**\xC2\xAF\\_(\xE3\x83\x84)_/\xC2\xAF**"));
+    expect(markdown_text_equal(result, shrug) && result.span_count == 1 && spans[0].byte_offset == 0 &&
+               spans[0].byte_count == shrug.bytes && spans[0].flags == text_style_bold,
+           "message_markdown_shrug_face_inside_formatting");
+    // Only the exact face is the emoticon: a variant still escapes "\_".
+    result = parse(utf8_literal("\xC2\xAF\\_(x)_/\xC2\xAF \\\xC2\xAF"));
+    expect(markdown_text_equal(result, utf8_literal("\xC2\xAF_(x)_/\xC2\xAF \xC2\xAF")),
+           "message_markdown_shrug_face_lookalike_still_escapes");
+    // The face the client's shrug command produced before it stopped escaping: \\ is a backslash, \_ an underscore.
+    result = parse(utf8_literal("\xC2\xAF\\\\\\_(\xE3\x83\x84)\\_/\xC2\xAF"));
+    expect(markdown_text_equal(result, shrug) && result.span_count == 0,
+           "message_markdown_escaped_shrug_face_renders_the_same");
+
+    result = parse(utf8_literal(R"(a\\b \\*i* \\\*x* \\\\)"));
+    expect(markdown_text_equal(result, utf8_literal(R"(a\b \i \*x* \\)")) && result.span_count == 1 &&
+               spans[0].byte_offset == 5 && spans[0].byte_count == 1 && spans[0].flags == text_style_italic,
+           "message_markdown_escaped_backslash_then_markers");
+    // (Only ** and the single-marker italics honour escapes; ~~ and __ end at the next marker pair.)
+    result = parse(utf8_literal(R"(**a\*b** _c\_d_)"));
+    expect(markdown_text_equal(result, utf8_literal("a*b c_d")) && result.span_count == 2 &&
+               spans[0].flags == text_style_bold && spans[0].byte_count == 3 &&
+               spans[1].flags == text_style_italic && spans[1].byte_count == 3,
+           "message_markdown_escapes_inside_formatting");
+    result = parse(utf8_literal("`a\\*b` ```\nc\\_d\n``` `e\\`"));
+    expect(markdown_text_equal(result, utf8_literal("a\\*b c\\_d\n e\\")) && result.span_count == 3 &&
+               spans[0].flags == text_style_monospace && spans[0].byte_count == 4 &&
+               spans[1].flags == (text_style_monospace | text_style_code_block) &&
+               spans[2].flags == text_style_monospace && spans[2].byte_count == 2,
+           "message_markdown_code_has_no_escapes_and_a_backslash_does_not_escape_its_close");
+    result = parse(utf8_literal("https://e.test/a\\_b <https://e.test/c\\_d>"));
+    expect(markdown_text_equal(result, utf8_literal("https://e.test/a\\_b https://e.test/c\\_d")),
+           "message_markdown_urls_keep_their_backslashes");
+    result = parse(utf8_literal("[x\\_y](https://e.test)"));
+    expect(markdown_text_equal(result, utf8_literal("x_y")),
+           "message_markdown_escape_inside_masked_link_text");
+    result = parse(utf8_literal("end\\"));
+    expect(markdown_text_equal(result, utf8_literal("end\\")) && result.transformations == 0,
+           "message_markdown_trailing_backslash_is_literal");
+    result = parse(utf8_literal("\\"));
+    expect(markdown_text_equal(result, utf8_literal("\\")), "message_markdown_lone_backslash_is_literal");
+    result = parse(utf8_literal("a\\\\"));
+    expect(markdown_text_equal(result, utf8_literal("a\\")), "message_markdown_trailing_escaped_backslash");
+    // [^0-9A-Za-z\s]: alphanumerics, ASCII whitespace and JavaScript's Unicode spaces stay literal; everything
+    // else escapes, including non-ASCII letters, U+0085 and the other C0 controls.
+    result = parse(utf8_literal("\\a\\Z\\5\\ \\\n\\\t\\\xC2\xA0\\\xE3\x80\x80"));
+    expect(markdown_text_equal(result, utf8_literal("\\a\\Z\\5\\ \\\n\\\t\\\xC2\xA0\\\xE3\x80\x80")) &&
+               result.transformations == 0,
+           "message_markdown_escape_leaves_alphanumerics_and_whitespace");
+    result = parse(utf8_literal("\\\xC3\xA9\\\xC2\x85\\\x01\\\x7F\\\xF0\x9F\x98\x80"));
+    expect(markdown_text_equal(result, utf8_literal("\xC3\xA9\xC2\x85\x01\x7F\xF0\x9F\x98\x80")) &&
+               result.transformations == 5,
+           "message_markdown_escape_takes_any_other_character");
+
     const char invalid_utf8[] = {static_cast<char>(0xC0), static_cast<char>(0xAF)};
     expect(message_markdown_parse(Utf8View{invalid_utf8, 2}, Slice<char>{output, 512},
                                   Slice<u32>{styles, 512}, Slice<TextStyleSpan>{spans, 64})

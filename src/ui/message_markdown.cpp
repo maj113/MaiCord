@@ -310,7 +310,7 @@ bool ascii_identifier(char value) noexcept {
            value == '_' || value == '-' || value == '+' || value == '.' || value == '#';
 }
 
-// JavaScript \s (the escape rule's exclusion), beyond ASCII.
+// JavaScript \s beyond ASCII (U+0085 is not part of it).
 bool unicode_space(u32 cp) noexcept {
     return cp == 0xA0 || cp == 0x1680 || (cp >= 0x2000 && cp <= 0x200A) || cp == 0x2028 || cp == 0x2029 ||
            cp == 0x202F || cp == 0x205F || cp == 0x3000 || cp == 0xFEFF;
@@ -318,11 +318,12 @@ bool unicode_space(u32 cp) noexcept {
 
 // simple-markdown's escape rule /^\\([^0-9A-Za-z\s])/: a backslash escapes any
 // one character that is not ASCII alphanumeric or whitespace ("\!", "\.").
+// ASCII \s is \t \n \v \f \r and space; other controls and DEL escape.
 bool markdown_escape_target(u32 cp) noexcept {
     if (cp < 0x80)
-        return cp > ' ' && cp != 0x7F && !((cp >= '0' && cp <= '9') || (cp >= 'a' && cp <= 'z') ||
-                                           (cp >= 'A' && cp <= 'Z'));
-    return !unicode_space(cp) && cp != 0x85;
+        return !(cp == ' ' || (cp >= '\t' && cp <= '\r')) &&
+               !((cp >= '0' && cp <= '9') || (cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z'));
+    return !unicode_space(cp);
 }
 
 bool starts_with(const Parser& parser, const char* value, u32 bytes) noexcept {
@@ -2028,9 +2029,13 @@ bool emit_closed_source_code(Parser* parser) noexcept {
 constexpr u64 rule_bit(char value) noexcept {
     return u64{1} << (static_cast<u8>(value) & 63u);
 }
+// The one literal the emoticon rule keeps verbatim: the shrug face, whose "\_"
+// is not an escape.
+constexpr char kShrugFace[] = "\xC2\xAF\\_(\xE3\x83\x84)_/\xC2\xAF";
+constexpr u32 kShrugFaceBytes = sizeof(kShrugFace) - 1;
 // ASCII bytes an inline or line rule can start at: \n * : < @ [ \ ] _ ` | ~
-// (h and s only when "http" or "steam" follows). Anything else, and every
-// non-ASCII byte, is emitted unchanged by walk().
+// (h and s only when "http" or "steam" follows), and the 0xC2 0xAF that opens
+// the shrug face. Anything else is emitted unchanged by walk().
 constexpr u64 kRuleStartLow = rule_bit('\n') | rule_bit('*') | rule_bit(':') | rule_bit('<');
 constexpr u64 kRuleStartHigh = rule_bit('@') | rule_bit('[') | rule_bit('\\') | rule_bit(']') | rule_bit('_') |
                                rule_bit('`') | rule_bit('|') | rule_bit('~');
@@ -2038,7 +2043,7 @@ constexpr u64 kRuleStartHigh = rule_bit('@') | rule_bit('[') | rule_bit('\\') | 
 inline bool plain_text_byte(Utf8View input, u32 at) noexcept {
     const u8 value = static_cast<u8>(input.data[at]);
     if (value >= 0x80u)
-        return true;
+        return value != 0xC2u || at + 1 >= input.bytes || static_cast<u8>(input.data[at + 1]) != 0xAFu;
     if (((value < 64u ? kRuleStartLow : kRuleStartHigh) >> (value & 63u)) & 1u)
         return false;
     const u32 left = input.bytes - at;
@@ -2146,6 +2151,13 @@ MessageMarkdownError walk(Parser* state, u32 stop_depth) noexcept {
             continue;
         }
 
+        // The emoticon rule: the shrug face is plain text, its "\_" no escape.
+        if (static_cast<u8>(value) == 0xC2u && starts_with(parser, kShrugFace, kShrugFaceBytes)) {
+            if (!emit_range(&parser, parser.input_offset, parser.input_offset + kShrugFaceBytes))
+                return MessageMarkdownError::output_too_small;
+            parser.input_offset += kShrugFaceBytes;
+            continue;
+        }
         if (value == '\\' && parser.input_offset + 1 < parser.input.bytes) {
             const Utf8DecodeResult escaped =
                 utf8_decode_one(input.data + parser.input_offset + 1, input.bytes - parser.input_offset - 1);
