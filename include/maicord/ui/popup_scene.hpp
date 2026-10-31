@@ -275,7 +275,10 @@ struct PopupScene {
     float picker_scroll_offset;
     float picker_scroll_extent;
     PopupKind kind;
-    bool prefer_above;
+    // selected_index came from the pointer, not the keyboard: the picker rail
+    // shows no keyboard focus ring for it once the pointer leaves.
+    bool prefer_above : 1;
+    bool pointer_selection : 1;
     bool active;
     // Occupies the tail padding after active (see the size assert).
     PopupPanelMaterial panel_material;

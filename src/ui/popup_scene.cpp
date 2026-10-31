@@ -758,6 +758,7 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
     scene->item_count = items.count;
     // The picker's owner places its own keyboard selection (none on open).
     scene->selected_index = picker ? ~0u : first_enabled(*scene);
+    scene->pointer_selection = false;
     scene->preferred_width = preferred_width;
     scene->scroll_offset = 0.0f;
     scene->picker_scroll_offset = scene->picker_scroll_extent = 0.0f;
@@ -821,6 +822,7 @@ bool popup_scene_close(PopupScene* scene) noexcept {
     scene->feedback_reserved = false;
     scene->item_count = 0;
     scene->selected_index = ~0u;
+    scene->pointer_selection = false;
     scene->scroll_offset = 0.0f;
     scene->picker_scroll_offset = scene->picker_scroll_extent = 0.0f;
     scene->scroll_max = 0.0f;
@@ -866,6 +868,7 @@ bool popup_scene_set_hover(PopupScene* scene, float x, float y, bool* changed) n
         !ui_widget_manager_hover(&scene->widgets, target))
         return false;
     scene->selected_index = next;
+    scene->pointer_selection = true;
     return true;
 }
 
@@ -880,6 +883,7 @@ bool popup_scene_move_selection(PopupScene* scene, i32 direction, bool* changed)
                                : (cursor == 0 ? scene->item_count - 1u : cursor - 1u);
         if (item_enabled(scene->items[cursor])) {
             scene->selected_index = cursor;
+            scene->pointer_selection = false;
             ui_widget_manager_focus(&scene->widgets, scene->rows[cursor].widget);
             ui_widget_manager_hover(&scene->widgets, scene->rows[cursor].widget);
             *changed = cursor != old;
@@ -955,6 +959,7 @@ bool popup_scene_page_selection(PopupScene* scene, bool reverse, bool* changed) 
         return false;
     *changed = scrolled || scene->selected_index != index;
     scene->selected_index = index;
+    scene->pointer_selection = false;
     return ui_widget_manager_focus(&scene->widgets, scene->rows[index].widget) &&
            ui_widget_manager_hover(&scene->widgets, scene->rows[index].widget);
 }
@@ -966,6 +971,7 @@ bool popup_scene_select_index(PopupScene* scene, u32 index, bool* changed) noexc
     }
     const u32 previous = scene->selected_index;
     scene->selected_index = index;
+    scene->pointer_selection = false;
     ui_widget_manager_focus(&scene->widgets, scene->rows[index].widget);
     ui_widget_manager_hover(&scene->widgets, scene->rows[index].widget);
     *changed = previous != index;

@@ -441,6 +441,34 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
         }
         paint_stream_release(&card_paint);
         check(card_quad, "the rail paints as one rounded card in the lowest tier with the composer's radius");
+        // The focus ring belongs to keyboard navigation: hovering a rail entry and
+        // moving the pointer off it leaves no ring; the owner's keyboard selection has one.
+        const UiRect built_in = at(2);
+        const auto rail_ring = [&](bool hover_then_leave) noexcept {
+            PaintStream ring_paint{};
+            bool ring = false;
+            bool ok = popup_scene_open(&scene, PopupKind::autocomplete, 7, {picker, 9}, anchor, viewport, 760, true,
+                                       0.f, 0.f)
+                          .ok();
+            bool changed = false;
+            if (ok && hover_then_leave)
+                ok = popup_scene_set_hover(&scene, built_in.left + 4, built_in.top + 4, &changed) && changed &&
+                     scene.selected_index == 2 && popup_scene_set_hover(&scene, -1, -1, &changed) &&
+                     !ui_widget_handle_equal(scene.widgets.hovered, scene.rows[2].widget);
+            else if (ok)
+                scene.selected_index = 2;
+            if (ok && paint_stream_initialize(&ring_paint) && paint_stream_reset(&ring_paint, 800, 600) &&
+                popup_presentation_build(scene, kDefaultTheme, &ring_paint))
+                for (u32 n = 0; n < ring_paint.count; ++n) {
+                    const auto& q = ring_paint.quads[n];
+                    ring = ring || (q.left == built_in.left - 2 && q.top == built_in.top - 2 &&
+                                    q.right == built_in.right + 2 && q.bottom == built_in.bottom + 2);
+                }
+            paint_stream_release(&ring_paint);
+            return ok ? (ring ? 1 : 0) : -1;
+        };
+        check(rail_ring(true) == 0 && rail_ring(false) == 1,
+              "the rail's focus ring shows for keyboard selection and never after the pointer hovers and leaves");
         // Loading: skeleton rows draw bars and no text.
         PopupItem loading[] = {{utf8_literal("COMMANDS MATCHING /B"), 30, popup_item_command_section},
                                popup_placeholder_row(31, 0, popup_item_command_row),

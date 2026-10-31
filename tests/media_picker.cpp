@@ -312,6 +312,19 @@ void test_picker_rail_and_scroll_reuse(void (*check)(bool, const char*) noexcept
               media.clip.top >= scene.rail.top && media.clip.bottom <= scene.rail.bottom &&
               !ui_media_picker_scene_rail_media(scene, 1, &media),
           "media picker rail: guild artwork identity is typed, clipped and fenced separately from emoji");
+    // Hovering a category and leaving it never moves keyboard focus into the rail.
+    const auto rail_slot = scene.projection->rail[1];
+    const float rail_x = (rail_slot.rectangle.left + rail_slot.rectangle.right) * .5f,
+                rail_y = (rail_slot.rectangle.top + rail_slot.rectangle.bottom) * .5f;
+    const bool rail_hovered = ui_media_picker_scene_hover(&scene, rail_x, rail_y, 1) &&
+                              ui_widget_handle_equal(scene.widgets.hovered, rail_slot.widget) &&
+                              !scene.widgets.focused.generation;
+    const bool rail_left = ui_media_picker_scene_hover(&scene, (scene.field.left + scene.field.right) * .5f,
+                                                       scene.panel.top + 2, 2) &&
+                           !ui_widget_handle_equal(scene.widgets.hovered, rail_slot.widget) &&
+                           !scene.widgets.focused.generation && !scene.widgets.captured.generation;
+    check(rail_hovered && rail_left,
+          "media picker rail: hovering a category and moving off it never focuses a rail entry");
     bool square_rail = true;
     for (u32 i = 0; i < scene.rail_count; ++i) {
         const auto& artwork = scene.projection->rail[i].rectangle;

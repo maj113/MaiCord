@@ -161,7 +161,7 @@ float picker_text_left(const PopupItem& item, const UiLayoutNode& row) noexcept 
                                                                                  : 0.f);
 }
 bool picker_keyboard_focus(const PopupScene& scene, u32 index) noexcept {
-    return scene.selected_index == index &&
+    return scene.selected_index == index && !scene.pointer_selection &&
            !ui_widget_handle_equal(scene.widgets.hovered, scene.rows[index].widget);
 }
 float picker_measure(UiTextMeasureCache* measure, const PopupScene& scene, Utf8View value, u32 flags,
