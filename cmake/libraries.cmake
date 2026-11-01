@@ -455,6 +455,12 @@ maicord_library(maicord_plugin_manager
     src/app/plugins/providers.cpp src/app/plugins/manager_state.cpp src/app/plugins/index_service.cpp
     src/app/plugins/manager_install.cpp src/app/plugins/manager_runtime.cpp
     LIBS maicord_core maicord_platform maicord_app_core maicord_plugin_modules kernel32 bcrypt)
+# The native plugin runtime: the pinned-directory loader with its PE checks, per-plugin bindings
+# (state, settings, persisted store, call ledger), the mc_api host table and the hook dispatch lists.
+maicord_library(maicord_plugin_runtime
+    src/app/plugins/loader.cpp src/app/plugins/binding.cpp src/app/plugins/api.cpp src/app/plugins/store.cpp
+    src/app/plugins/dispatch.cpp src/app/plugins/call_watchdog.cpp
+    LIBS maicord_core maicord_plugin_host maicord_plugin_modules kernel32)
 
 maicord_library(maicord_edit_history src/model/chat/edit_history.cpp LIBS maicord_core maicord_platform)
 

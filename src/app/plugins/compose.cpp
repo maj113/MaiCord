@@ -1,12 +1,15 @@
 #include "runtime.hpp"
+#include "maicord/app/plugins/dispatch.hpp"
 #include "../shell/state.hpp"
 #include "../chat/composer/composer.hpp"
+#include "../chat/composer/reply_draft.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/model/chat/message_composer.hpp"
 #include "../account/account_ui_runtime.hpp"
 
-// Composer integration for ABI-5 plugins: local slash commands and the
-// pre-send transform run before application commands and the ordinary send.
+// Composer integration for plugins: ABI-5 local slash commands and the ABI-5
+// pre-send transform, then the ABI-6 pre-send and pre-edit hooks, run before
+// application commands, the ordinary send and the ordinary edit save.
 namespace maicord::app_detail {
 namespace {
 constexpr u64 kComposerNoticeMs = 8000;
@@ -23,9 +26,8 @@ void set_composer_notice(ApplicationPluginsSdk& sdk, Utf8View text) noexcept {
     sdk.composer_notice_tone = 0;
     sdk.composer_refresh = refresh_message_composer_ui;
 }
-} // namespace
 
-bool application_plugins_compose(bool* handled) noexcept {
+bool compose_abi5(bool* handled) noexcept {
     *handled = false;
     auto* sdk = g_app.plugins ? g_app.plugins->sdk : nullptr;
     if (!sdk || !sdk->runtime.enabled || !g_app.account_ui || g_app.message_edit.editor_active) return true;
@@ -67,6 +69,38 @@ bool application_plugins_compose(bool* handled) noexcept {
         *handled = true;
         return composer_apply_result(message_composer_replace_range(&composer, 0, composer.bytes, {}), true);
     }
+}
+
+// The ABI-6 hooks rewrite or cancel the text in the composer (the editor's text while a
+// message is being edited); the ordinary send or save then uses it.
+bool compose_hooks(bool* handled) noexcept {
+    const bool editing = g_app.message_edit.editor_active;
+    const PluginHook hook = editing ? PluginHook::pre_edit : PluginHook::pre_send;
+    if (!plugin_hook_subscribed(hook) || !g_app.account_ui) return true;
+    auto& composer = g_app.message_composer;
+    const Utf8View text = message_composer_text(composer);
+    // Slash text belongs to application commands; hooks see messages only.
+    if (!text.bytes || (!editing && text.data[0] == '/')) return true;
+    const PluginDraft draft{composer.channel_id, channel_guild(composer.channel_id),
+                            editing ? g_app.message_edit.message_id : 0,
+                            editing ? 0 : application_reply_draft().message_id, text};
+    const PluginDraftResult result = plugin_dispatch_draft(hook, draft);
+    if (result.verdict == PluginDraftVerdict::cancel) {
+        *handled = true;
+        if (auto* sdk = g_app.plugins ? application_plugins_sdk_acquire(*g_app.plugins) : nullptr)
+            set_composer_notice(*sdk, editing ? utf8_literal("A plugin stopped this edit from being saved.")
+                                              : utf8_literal("A plugin stopped this message from being sent."));
+        return true;
+    }
+    if (result.verdict != PluginDraftVerdict::replace) return true;
+    return message_composer_replace_range(&composer, 0, composer.bytes, result.text) !=
+           MessageComposerResult::invalid_input;
+}
+} // namespace
+
+bool application_plugins_compose(bool* handled) noexcept {
+    if (!compose_abi5(handled)) return false;
+    return *handled || compose_hooks(handled);
 }
 
 } // namespace maicord::app_detail

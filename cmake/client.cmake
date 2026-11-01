@@ -123,7 +123,8 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/guild/invite_cards.cpp src/app/voice/stream.cpp
     LIBS maicord_compile_contract
     maicord_core maicord_text maicord_ui maicord_model maicord_client_preferences
-    maicord_notification_sound_assets maicord_plugin_host maicord_plugin_modules maicord_plugin_manager maicord_ui_input
+    maicord_notification_sound_assets maicord_plugin_host maicord_plugin_modules maicord_plugin_manager
+    maicord_plugin_runtime maicord_ui_input
     maicord_message_runtime maicord_message_media maicord_account_paths maicord_account_host
     maicord_render_core maicord_atlas_gpu maicord_renderer maicord_media_core maicord_webauthn
     kernel32 user32 shell32 d3d11 dxgi dcomp maicord_uia maicord_app_core ws2_32 maicord_sspicli bcrypt
@@ -375,6 +376,7 @@ maicord_compact_sources(
         src/platform/net/file.cpp src/platform/desktop/file_picker.cpp src/platform/desktop/clipboard_attachment.cpp
         src/platform/desktop/file_identity.cpp src/platform/desktop/timezone.cpp src/platform/crypto/secure_buffer.cpp
     TARGETS MaiCord maicord_protocol maicord_model maicord_plugin_host maicord_plugin_modules maicord_plugin_manager
+        maicord_plugin_runtime
         maicord_account_host maicord_client_preferences maicord_account_paths maicord_webauthn
     # The user store resolves every member name and presence update: member-list
     # model time is 6% lower with it at /O2, for 2 KiB. The guild member store

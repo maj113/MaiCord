@@ -117,6 +117,58 @@ maicord_test(MaiCordPluginSdkTests ENTRY maicord_plugin_sdk_tests_entry SOURCES 
     INCLUDES src/app
     DEPENDS MaiCordPluginSdkFullFixture MaiCordPluginSdkSlowFixture MaiCordShowcasePlugin
     TIMEOUT 15 TEST maicord_plugin_sdk)
+# ABI 6 (include/maicord/sdk/plugin_abi.h, plugin.hpp): the clear-urls sample
+# and a plain C plugin, built the way the SDK documents; MaiCordPluginAbiTests
+# checks their PE shape and descriptors and calls their hooks directly. The
+# compile-failure cases compile tests/app/plugins/plugin_compile_failures.cpp
+# once each: VALID must build cleanly at /W4 /WX, the others must fail with
+# the given diagnostic.
+maicord_plugin(MaiCordClearUrlsPlugin samples/plugins/clear-urls/plugin.cpp)
+set_target_properties(MaiCordClearUrlsPlugin PROPERTIES OUTPUT_NAME clear-urls)
+maicord_plugin(MaiCordPluginAbiCFixture tests/app/plugins/plugin_abi_c.c $<TARGET_OBJECTS:maicord_runtime>)
+maicord_test(MaiCordPluginAbiTests ENTRY maicord_plugin_abi_tests_entry SOURCES tests/app/plugins/plugin_abi.cpp
+    LIBS maicord_core kernel32
+    DEPENDS MaiCordClearUrlsPlugin MaiCordPluginAbiCFixture
+    TEST maicord_plugin_abi)
+foreach(maicord_sdk_case IN ITEMS
+        "VALID|" "DUPLICATE_HOOK|MC_HOOKS: two hooks of the same kind"
+        "UNKNOWN_HOOK|MC_HOOKS: no hook kind takes these parameters"
+        "WRONG_STATE|T must be the type named by MC_STATE"
+        "STATE_NOT_TRIVIAL|the state type must be trivially copyable"
+        "SETTING_KEY|error_setting_key_must_be_1_to_32_bytes"
+        "CHOICE_DEFAULT|error_setting_default_out_of_range"
+        "NO_OWNER|error_plugin_owner_must_be_nonzero")
+    string(REPLACE "|" ";" maicord_sdk_case "${maicord_sdk_case}")
+    list(GET maicord_sdk_case 0 maicord_sdk_case_name)
+    list(GET maicord_sdk_case 1 maicord_sdk_case_expect)
+    string(TOLOWER "${maicord_sdk_case_name}" maicord_sdk_case_test)
+    add_test(NAME maicord_plugin_compile_${maicord_sdk_case_test} COMMAND "${CMAKE_COMMAND}"
+        "-DCOMPILER=${CMAKE_CXX_COMPILER}" "-DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}" "-DCASE=${maicord_sdk_case_name}"
+        "-DEXPECT=${maicord_sdk_case_expect}" -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/app/plugins/plugin_compile_failures.cmake")
+    set_tests_properties(maicord_plugin_compile_${maicord_sdk_case_test} PROPERTIES TIMEOUT 15)
+endforeach()
+# The plugin runtime (src/app/plugins/loader.cpp, binding.cpp, dispatch.cpp): one ABI-6 fixture DLL
+# per scenario built from tests/fixtures/plugin_runtime_fixture.c, the clear-urls sample and the C
+# fixture above, loaded from the test's directory through a pinned plugins directory.
+set(maicord_runtime_fixtures)
+foreach(maicord_runtime_fixture IN ITEMS Full FailStart Entry Tls Extra Bad Level Slow Crash)
+    string(TOUPPER "${maicord_runtime_fixture}" maicord_runtime_define)
+    maicord_plugin(MaiCordPluginRuntime${maicord_runtime_fixture}Fixture tests/fixtures/plugin_runtime_fixture.c
+        $<TARGET_OBJECTS:maicord_runtime>)
+    target_compile_definitions(MaiCordPluginRuntime${maicord_runtime_fixture}Fixture PRIVATE FIXTURE_${maicord_runtime_define})
+    list(APPEND maicord_runtime_fixtures MaiCordPluginRuntime${maicord_runtime_fixture}Fixture)
+endforeach()
+# The entry-point variant is the one DLL with an entry point.
+get_target_property(maicord_entry_options MaiCordPluginRuntimeEntryFixture LINK_OPTIONS)
+list(REMOVE_ITEM maicord_entry_options /NOENTRY)
+set_property(TARGET MaiCordPluginRuntimeEntryFixture PROPERTY LINK_OPTIONS ${maicord_entry_options} /ENTRY:fixture_entry)
+target_link_libraries(MaiCordPluginRuntimeSlowFixture PRIVATE kernel32)
+maicord_test(MaiCordPluginBindingTests ENTRY maicord_plugin_binding_tests_entry
+    SOURCES tests/app/plugins/plugin_binding.cpp src/core/log.cpp
+    LIBS maicord_core maicord_plugin_runtime maicord_plugin_host maicord_plugin_modules kernel32 bcrypt
+    INCLUDES src/app
+    DEPENDS ${maicord_runtime_fixtures} MaiCordClearUrlsPlugin MaiCordPluginAbiCFixture
+    TIMEOUT 15 TEST maicord_plugin_binding)
 maicord_test(MaiCordNativeExtensionTests ENTRY maicord_native_extensions_entry
     SOURCES tests/protocol/gateway/message_poll.cpp tests/model/chat/message_poll_store.cpp tests/protocol/messages/poll_actions.cpp
         tests/app/chat/polls/controller.cpp tests/ui/chat/polls/controls.cpp tests/protocol/messages/poll_presentation.cpp
@@ -459,6 +511,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
         tests/app/chat/messages/live_updates.cpp tests/ui/chat/messages/embed_colors.cpp tests/ui/text/ansi_code_blocks.cpp tests/ui/chat/messages/components.cpp
         tests/ui/chat/messages/content_wave.cpp tests/ui/text/embed_convergence.cpp tests/ui/chat/messages/embed_parity.cpp
         tests/ui/chat/messages/embed_parity_embeds.cpp tests/ui/chat/messages/link_chips.cpp
+        tests/ui/chat/messages/plugin_dispatch.cpp
         tests/app/chat/messages/history_presence_recovery.cpp tests/ui/account/profile_appearance.cpp tests/protocol/user/profile_decode_scratch.cpp
         tests/protocol/gateway/message_rich_index.cpp tests/app/net/cdn_response_storage.cpp tests/protocol/http/rest_response_storage.cpp
         tests/model/chat/engineering_regressions.cpp tests/media/compression/deflate_matches.cpp tests/media/compression/deflate_differential.cpp
@@ -491,7 +544,8 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_webauthn maicord_account_paths
         maicord_account_host maicord_text maicord_ui maicord_ui_input maicord_model maicord_message_runtime
         maicord_message_media maicord_render_core maicord_media_core maicord_media_codec maicord_cdn_media
-        maicord_account_media kernel32 user32 ${maicord_tls_libs} dwrite
+        maicord_account_media maicord_plugin_runtime maicord_plugin_host maicord_plugin_modules bcrypt kernel32 user32
+        ${maicord_tls_libs} dwrite
     INCLUDES src/app
     TEST maicord_core)
 maicord_test(MaiCordCommandUiTests ENTRY maicord_command_ui_tests_entry

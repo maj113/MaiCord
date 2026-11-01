@@ -90,7 +90,11 @@ bool queue_message_send() noexcept {
     if (g_app.startup_shell_provisional) return true;
     if (application_composer_text_input_composing()) return true;
     if (g_app.message_edit.editor_active) {
-        return queue_message_edit();
+        // Plugins may rewrite or cancel the edited text before it is saved; not again while a save is in flight.
+        bool plugin_handled = false;
+        if (g_app.message_edit.phase == MessageEditRequestPhase::idle &&
+            !application_plugins_compose(&plugin_handled)) return false;
+        return plugin_handled ? refresh_message_composer_ui() : queue_message_edit();
     }
     if (!composer_can_send_now())
         return true;

@@ -265,6 +265,23 @@ function(maicord_c_plugin target entry)
     set_target_properties(${target} PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
 endfunction()
 
+# maicord_plugin(<target> <source>...)
+# An ABI-6 plugin DLL built as samples/plugins/clear-urls/README.md documents:
+# only the SDK headers (<stdint.h> and <stddef.h> from sys/libc), /W4 /WX
+# without the client's warning exceptions, no CRT and no entry point. C++
+# sources take memcpy and the other compiler helpers from plugin.hpp
+# (MC_RUNTIME); C sources list $<TARGET_OBJECTS:maicord_runtime> instead.
+function(maicord_plugin target)
+    add_library(${target} SHARED ${ARGN})
+    target_include_directories(${target} PRIVATE include include/maicord/sys/libc)
+    target_compile_definitions(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:MC_RUNTIME>)
+    target_compile_options(${target} PRIVATE /clang:-nostdinc /W4 /WX /utf-8 /Zl /GS- /O2 $<$<COMPILE_LANGUAGE:CXX>:/GR->)
+    target_link_libraries(${target} PRIVATE maicord_link_contract)
+    target_link_options(${target} PRIVATE /NOENTRY /SUBSYSTEM:WINDOWS,6.02)
+    set_target_properties(${target} PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+endfunction()
+
 # Tests that exercise the shipping pair itself (update staging, the account
 # DLL's exports) link after it, unless the caller supplies that pair: CI hands
 # the client job's binaries to the test job, and a local run can keep using a
