@@ -432,6 +432,7 @@ bool ui_settings_scene_focus(UiSettingsScene* scene, UiSettingsTarget target) no
         scene->focus = target;
         ++scene->revision;
     }
+    find_control(*scene, target, &scene->focus_row);
     if (!handle.generation)
         return build(scene);
     return true;
@@ -442,7 +443,9 @@ bool ui_settings_scene_move_focus(UiSettingsScene* scene, bool reverse) noexcept
     const UiSettingsFocusZone zones[]{UiSettingsFocusZone::search, UiSettingsFocusZone::sidebar,
                                       UiSettingsFocusZone::panel, UiSettingsFocusZone::close};
     // Walks the (first 256) focusable targets in order; the second walk picks the one to move to.
-    u32 count = 0, position = ~0u;
+    u32 count = 0, position = ~0u, ahead = ~0u;
+    u32 parked_row = 0;
+    const bool parked = focus_parked(*scene, &parked_row);
     const auto walk = [&](u32 pick, UiSettingsTarget* picked) noexcept {
         count = 0;
         for (const auto zone : zones)
@@ -452,6 +455,9 @@ bool ui_settings_scene_move_focus(UiSettingsScene* scene, bool reverse) noexcept
                         *picked = target;
                     if (ui_settings_target_equal(target, scene->focus))
                         position = count;
+                    // A parked focus continues from its slot: `ahead` is the first target past it.
+                    if (parked && ahead == ~0u && after_parked_focus(*scene, target, parked_row))
+                        ahead = count;
                     ++count;
                 }
                 return false;
@@ -460,9 +466,11 @@ bool ui_settings_scene_move_focus(UiSettingsScene* scene, bool reverse) noexcept
     walk(0, nullptr);
     if (!count)
         return false;
-    const u32 next = position == ~0u ? (reverse ? count - 1 : 0)
-                     : reverse        ? (position ? position - 1 : count - 1)
-                                      : (position + 1 == count ? 0 : position + 1);
+    u32 next = position == ~0u ? (reverse ? count - 1 : 0)
+               : reverse       ? (position ? position - 1 : count - 1)
+                               : (position + 1 == count ? 0 : position + 1);
+    if (parked && ahead != ~0u)
+        next = reverse ? (ahead ? ahead - 1 : count - 1) : ahead;
     UiSettingsTarget chosen{};
     walk(next, &chosen);
     return ui_settings_scene_focus(scene, chosen);
@@ -511,6 +519,8 @@ bool ui_settings_scene_move_within(UiSettingsScene* scene, bool reverse) noexcep
         return false;
     UiSettingsTarget previous{}, chosen{};
     bool found = false;
+    u32 parked_row = 0;
+    const bool parked = focus_parked(*scene, &parked_row);
     visit_targets(*scene, zone, [&](UiSettingsTarget target) noexcept {
         if (!target_exists(*scene, target))
             return false;
@@ -520,6 +530,12 @@ bool ui_settings_scene_move_within(UiSettingsScene* scene, bool reverse) noexcep
                 return true;
             }
             return false;
+        }
+        // A parked focus moves from its slot: to the first row past it, or the last row before it.
+        if (parked && after_parked_focus(*scene, target, parked_row)) {
+            found = true;
+            chosen = reverse ? previous : target;
+            return true;
         }
         if (ui_settings_target_equal(target, scene->focus)) {
             found = true;
@@ -532,6 +548,8 @@ bool ui_settings_scene_move_within(UiSettingsScene* scene, bool reverse) noexcep
         previous = target;
         return false;
     });
+    if (parked && !found && reverse)
+        chosen = previous;
     return chosen.kind != UiSettingsTargetKind::none && ui_settings_scene_focus(scene, chosen);
 }
 void ui_settings_scene_set_focus_visible(UiSettingsScene* scene, bool visible) noexcept {

@@ -373,6 +373,8 @@ struct UiSettingsScene {
     u16 drag_row{}, drop_row{};
     // The shared loading spinner's phase (host frame clock; paint only).
     u8 spinner_phase{};
+    // Control index the focus last sat on: where it lands when that control is removed.
+    u32 focus_row{};
 };
 // True while the page shows a loading notice, whose spinner needs the clock.
 bool ui_settings_scene_spinner_visible(const UiSettingsScene&) noexcept;

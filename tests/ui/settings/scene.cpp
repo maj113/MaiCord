@@ -705,6 +705,121 @@ void test_dialog_scene(Check check) noexcept {
           "settings dialog: the close glyph is a target and no sidebar pages exist");
     ui_settings_scene_release(&scene);
 }
+// Settings > Updates: "Check now" turns into a status row while it works. The focus stays on that slot
+// (no ring, not the search box), carries Tab on from it, returns with the button, and a removed row hands
+// it to its neighbour.
+void test_focus_recovery(Check check) noexcept {
+    static UiPage pages[1]{};
+    static UiPageRegistry registry{};
+    static UiSettingsControl controls[4]{};
+    static UiSettingsPageContent content{};
+    static UiSettingsNavEntry navigation[1]{};
+    UiSettingsScene scene{};
+    const UiPageKey key{1, 1};
+    const UiRect viewport{0, 0, 1400, 900};
+    const UiSettingsTarget automatic{UiSettingsTargetKind::control, key, 1};
+    const UiSettingsTarget check_now{UiSettingsTargetKind::control, key, 2};
+    const UiSettingsTarget preview{UiSettingsTargetKind::control, key, 3};
+    const UiSettingsTarget folder{UiSettingsTargetKind::control, key, 4};
+    const auto idle = [&]() noexcept {
+        controls[0] = {1, utf8_literal("Automatic updates"), {}, UiSettingsControlKind::toggle, true, true};
+        controls[1] = {2, utf8_literal("Check for updates"), {}, UiSettingsControlKind::notice, true, false, {}, 0,
+                       utf8_literal("Check now")};
+        controls[2] = {3, utf8_literal("Preview channel"), {}, UiSettingsControlKind::toggle, true, false};
+        controls[3] = {4, utf8_literal("Open download folder"), {}, UiSettingsControlKind::action, true, false, {}, 0,
+                       utf8_literal("Open")};
+        content.controls = {controls, 4};
+        ++content.revision;
+        return ui_settings_scene_update(&scene, &registry, viewport);
+    };
+    const auto checking = [&]() noexcept {
+        controls[1] = {2, utf8_literal("Checking for updates"), {}, UiSettingsControlKind::notice, true, true};
+        ++content.revision;
+        return ui_settings_scene_update(&scene, &registry, viewport);
+    };
+    // The focus rests on "Check now", then the click turns it into the status row.
+    const auto park = [&]() noexcept {
+        return idle() && ui_settings_scene_focus(&scene, check_now) && checking();
+    };
+    const auto focused_is = [&](const UiSettingsTarget& target) noexcept {
+        return ui_settings_target_equal(ui_settings_scene_focused(scene), target);
+    };
+    content = {utf8_literal("Updates"), {}, {controls, 4}, 1};
+    navigation[0] = {UiSettingsNavKind::page, false, UiIcon::palette, utf8_literal("Updates"), key, 0};
+    check(ui_page_registry_initialize(&registry, {pages, 1}) &&
+              ui_page_registry_register(&registry, {key, utf8_literal("Updates"), &content}).ok() &&
+              ui_settings_scene_set_presentation(&scene, UiSettingsPresentation::modal) &&
+              ui_settings_scene_bind_navigation(&scene, {navigation, 1}, 1) && idle() &&
+              ui_settings_scene_focused(scene).kind == UiSettingsTargetKind::search,
+          "settings focus: the Updates fixture builds with the search box focused");
+    if (!scene.active)
+        return;
+    PaintStream paint{};
+    const auto quads = [&](bool visible) noexcept {
+        ui_settings_scene_set_focus_visible(&scene, visible);
+        return paint_stream_reset(&paint, viewport.right, viewport.bottom) &&
+                       ui_settings_scene_paint(scene, kDefaultTheme, &paint, 96, nullptr)
+                   ? paint.count
+                   : 0u;
+    };
+    // Painted with and without the keyboard ring; the difference is the ring.
+    const auto ring = [&]() noexcept {
+        const u32 without = quads(false), with = quads(true);
+        return with > without;
+    };
+    check(paint_stream_initialize(&paint) && ui_settings_scene_focus(&scene, check_now) && focused_is(check_now) &&
+              scene.widgets.focused.generation && ring(),
+          "settings focus: the Check now button takes the focus and draws a keyboard ring");
+    check(checking() && focused_is(check_now) && !scene.widgets.focused.generation &&
+              ui_settings_scene_focus_zone(scene) == UiSettingsFocusZone::panel && !ring(),
+          "settings focus: Check now turning into the status row keeps the focus on its slot, not the search box, "
+          "and draws no ring on the status row");
+    check(!ui_settings_scene_focus(&scene, check_now) && idle() && focused_is(check_now) &&
+              scene.widgets.focused.generation && ring(),
+          "settings focus: the button takes the focus and its ring back when the check finishes");
+    check(park() && ui_settings_scene_move_focus(&scene, false) && focused_is(preview) && park() &&
+              ui_settings_scene_move_focus(&scene, true) && focused_is(automatic),
+          "settings focus: Tab from the status row continues from its slot in both directions");
+    check(park() && ui_settings_scene_move_within(&scene, false) && focused_is(preview) && park() &&
+              ui_settings_scene_move_within(&scene, true) && focused_is(automatic),
+          "settings focus: arrows from the status row continue from its slot in both directions");
+    ui_settings_scene_set_focus_visible(&scene, false);
+    check(park() && focused_is(check_now) && quads(false) == quads(true),
+          "settings focus: a pointer press on Check now keeps the focus off the search box without a ring");
+    // The row is removed outright: the next focusable row takes the focus, else the previous one.
+    check(idle() && ui_settings_scene_focus(&scene, check_now), "settings focus: Check now is focused again");
+    controls[1] = controls[2];
+    controls[2] = controls[3];
+    content.controls.count = 3;
+    ++content.revision;
+    check(ui_settings_scene_update(&scene, &registry, viewport) && focused_is(preview) &&
+              scene.widgets.focused.generation,
+          "settings focus: a removed row hands the focus to the row that took its place");
+    const bool last = ui_settings_scene_focus(&scene, folder);
+    content.controls.count = 2;
+    ++content.revision;
+    check(last && ui_settings_scene_update(&scene, &registry, viewport) && focused_is(preview),
+          "settings focus: a removed last row hands the focus to the row before it");
+    content.controls.count = 0;
+    ++content.revision;
+    check(ui_settings_scene_update(&scene, &registry, viewport) &&
+              focused_is({UiSettingsTargetKind::page, key, 0}),
+          "settings focus: with no focusable row left the focus goes to the selected page, not the search box");
+    // A disabled text editor gives the focus up (the host owns its text input) to the next plain row.
+    UiSettingsEditor field{{utf8_literal("draft"), 0, 0, true, false, false}, nullptr, utf8_literal("Name")};
+    controls[0] = {5, utf8_literal("Name"), {}, UiSettingsControlKind::edit, true, false, {}, 0, {}, &field};
+    controls[1] = {3, utf8_literal("Preview channel"), {}, UiSettingsControlKind::toggle, true, false};
+    content.controls.count = 2;
+    ++content.revision;
+    const bool editing = ui_settings_scene_update(&scene, &registry, viewport) &&
+                         ui_settings_scene_focus(&scene, {UiSettingsTargetKind::control, key, 5});
+    controls[0].enabled = false;
+    ++content.revision;
+    check(editing && ui_settings_scene_update(&scene, &registry, viewport) && focused_is(preview) &&
+              scene.widgets.focused.generation,
+          "settings focus: a disabled editor hands the focus on instead of keeping it parked");
+    ui_settings_scene_release(&scene);
+}
 } // namespace
 
 void test_settings_scene(void (*check)(bool, const char*) noexcept) noexcept {
@@ -713,5 +828,6 @@ void test_settings_scene(void (*check)(bool, const char*) noexcept) noexcept {
     test_modal_scene(check);
     test_layer_scene(check);
     test_dialog_scene(check);
+    test_focus_recovery(check);
 }
 } // namespace maicord

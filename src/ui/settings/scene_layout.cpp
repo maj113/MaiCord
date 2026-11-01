@@ -788,7 +788,61 @@ UiSettingsTarget fallback_focus(const UiSettingsScene& scene) noexcept {
         return {UiSettingsTargetKind::search, {}, 0};
     return {UiSettingsTargetKind::close, {}, 0};
 }
+// Where the focus goes once its target is gone: the focusable control that took the removed row's place (else the
+// one before it), else the selected page in the sidebar, else the default. Text editors are skipped: the host
+// attaches text input only when it focuses an editor itself.
+UiSettingsTarget recovered_focus(const UiSettingsScene& scene) noexcept {
+    const auto& lost = scene.focus;
+    if (lost.kind == UiSettingsTargetKind::none)
+        return fallback_focus(scene);
+    const u32 count = scene.content.controls.count;
+    if (lost.kind == UiSettingsTargetKind::control && ui_page_key_equal(lost.page, scene.selected_page)) {
+        const u32 row = minimum(scene.focus_row, count);
+        const auto plain = [&](u32 i) noexcept {
+            return focusable_control(scene, i) && !editor_kind(scene.content.controls[i].kind);
+        };
+        for (u32 i = row; i < count; ++i)
+            if (plain(i))
+                return {UiSettingsTargetKind::control, scene.selected_page, scene.content.controls[i].id};
+        for (u32 i = row; i-- > 0;)
+            if (plain(i))
+                return {UiSettingsTargetKind::control, scene.selected_page, scene.content.controls[i].id};
+    }
+    if (scene.presentation == UiSettingsPresentation::modal) {
+        const UiSettingsTarget selected{UiSettingsTargetKind::page, scene.selected_page, 0};
+        if (target_exists(scene, selected))
+            return selected;
+    }
+    return fallback_focus(scene);
+}
 } // namespace
+bool focus_parked(const UiSettingsScene& scene, u32* row) noexcept {
+    if (scene.focus.kind != UiSettingsTargetKind::control || target_exists(scene, scene.focus))
+        return false;
+    // A disabled editor gives up the focus: the host owns the text input attached to it.
+    const auto* control = find_control(scene, scene.focus, row);
+    return control && !editor_kind(control->kind);
+}
+bool after_parked_focus(const UiSettingsScene& scene, const UiSettingsTarget& target, u32 row) noexcept {
+    u32 other = 0;
+    switch (zone_of(target)) {
+    case UiSettingsFocusZone::panel:
+        return target.kind != UiSettingsTargetKind::control || (find_control(scene, target, &other) && other > row);
+    case UiSettingsFocusZone::close:
+        return true;
+    default:
+        return false;
+    }
+}
+void settle_focus(UiSettingsScene& scene) noexcept {
+    const bool parked = focus_parked(scene, &scene.focus_row);
+    if (!parked && !target_exists(scene, scene.focus))
+        scene.focus = recovered_focus(scene);
+    if (!parked && scene.focus.kind == UiSettingsTargetKind::control)
+        find_control(scene, scene.focus, &scene.focus_row);
+    // A parked focus leaves no widget focused, so no ring and no stale handle remain.
+    ui_widget_manager_focus(&scene.widgets, parked ? ui_widget_invalid_handle() : target_handle(scene, scene.focus));
+}
 UiWidgetHandle target_handle(const UiSettingsScene& scene, const UiSettingsTarget& target) noexcept {
     for (u32 i = 0; i < scene.widgets.count; ++i)
         if (ui_settings_target_equal(entries(scene)[i].target, target))
@@ -979,9 +1033,7 @@ bool build(UiSettingsScene* scene) noexcept {
         !ui_widget_manager_set_scroll(&scene->widgets, scene->body, {0, scene->content_offset}) ||
         !ui_widget_manager_layout_rectangle(&scene->widgets, scene->viewport).ok())
         return false;
-    if (!target_exists(*scene, scene->focus))
-        scene->focus = fallback_focus(*scene);
-    ui_widget_manager_focus(&scene->widgets, target_handle(*scene, scene->focus));
+    settle_focus(*scene);
     ++scene->revision;
     return true;
 }
@@ -1095,9 +1147,7 @@ void synchronize_input(UiSettingsScene& scene) noexcept {
             target.kind != UiSettingsTargetKind::none && target_exists(scene, target) ? interactive : ui_widget_none;
     }
     ui_widget_manager_reconcile_input(&scene.widgets);
-    if (!target_exists(scene, scene.focus))
-        scene.focus = fallback_focus(scene);
-    ui_widget_manager_focus(&scene.widgets, target_handle(scene, scene.focus));
+    settle_focus(scene);
 }
 // The control's state as seen by option `index`: hovered only when the pointer is on that option.
 UiControlState hover_option(const UiSettingsScene& scene, UiControlState state, u32 index) noexcept {
@@ -1109,7 +1159,10 @@ UiControlState widget_state(const UiSettingsScene& scene, UiWidgetHandle handle,
     const bool hovered = ui_widget_manager_input_enabled(scene.widgets, handle) &&
                          ui_widget_handle_equal(scene.widgets.hovered, handle);
     const bool pressed = hovered && ui_widget_handle_equal(scene.widgets.captured, handle);
-    return {enabled, hovered, pressed, scene.focus_visible && ui_settings_target_equal(scene.focus, target)};
+    // A parked focus (its control is not focusable now) draws no ring.
+    const bool focused =
+        scene.focus_visible && ui_settings_target_equal(scene.focus, target) && target_exists(scene, target);
+    return {enabled, hovered, pressed, focused};
 }
 float toggle_motion(const UiSettingsScene& scene, const UiSettingsTarget& target, const UiSettingsLayoutTokens& t,
                     bool checked) noexcept {

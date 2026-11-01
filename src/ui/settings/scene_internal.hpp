@@ -106,6 +106,15 @@ bool row_layout_for(const UiSettingsScene& scene, const UiSettingsLayoutTokens& 
 u64 layout_signature(const UiSettingsScene& scene, const UiSettingsPageContent& content, const UiSettingsStyle& style,
                      UiRect viewport, UiPageKey page, u32 registry_revision) noexcept;
 void synchronize_input(UiSettingsScene& scene) noexcept;
+// Keeps the focus valid after the page or its rows changed: a control that stopped being focusable (a button
+// replaced by a status row) keeps the focus parked on its slot, a removed one hands it to the nearest focusable
+// row, and anything else falls back to the selected page, else the search field or the close button.
+void settle_focus(UiSettingsScene& scene) noexcept;
+// True while the focus rests on a control that still exists but is not focusable; its row index goes to `row`.
+bool focus_parked(const UiSettingsScene& scene, u32* row) noexcept;
+// True when `target` comes after the parked control `row` in the panel's tab order (a later row, the footer
+// buttons, the close button).
+bool after_parked_focus(const UiSettingsScene& scene, const UiSettingsTarget& target, u32 row) noexcept;
 UiControlState hover_option(const UiSettingsScene& scene, UiControlState state, u32 index) noexcept;
 UiControlState widget_state(const UiSettingsScene& scene, UiWidgetHandle handle, const UiSettingsTarget& target,
                             bool enabled) noexcept;
