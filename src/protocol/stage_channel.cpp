@@ -25,8 +25,7 @@ u8 privacy(const StageRequest& r) noexcept {
 bool append_timestamp(ProtocolWriter* w, u64 unix_ms) noexcept {
     char text[32];
     const u32 bytes = guild_admin_format_timestamp(unix_ms / 1000, {text, sizeof(text)});
-    return bytes && protocol_writer_append_literal(w, "\"request_to_speak_timestamp\":") &&
-           protocol_writer_append_json_string(w, {text, bytes});
+    return bytes && protocol_write(w, "\"request_to_speak_timestamp\":", json_text({text, bytes}));
 }
 } // namespace
 
@@ -114,19 +113,16 @@ StageWriteResult stage_write_target(const StageRequest& r, Slice<u8> output) noe
         return {0, StageWriteError::input};
     u8 staged[kStageMaximumTargetBytes];
     ProtocolWriter w{{staged, sizeof(staged)}, 0};
-    bool ok = protocol_writer_append_literal(&w, "/api/v9");
+    bool ok = protocol_write(&w, "/api/v9");
     if (self_operation(r.operation) || user_operation(r.operation)) {
-        ok = ok && protocol_writer_append_literal(&w, "/guilds/") && protocol_writer_append_u64(&w, r.guild_id) &&
-             protocol_writer_append_literal(&w, "/voice-states/");
-        ok = ok && (self_operation(r.operation) ? protocol_writer_append_literal(&w, "@me")
-                                                : protocol_writer_append_u64(&w, r.user_id));
+        ok = ok && protocol_write(&w, "/guilds/", r.guild_id, "/voice-states/");
+        ok = ok && (self_operation(r.operation) ? protocol_write(&w, "@me") : protocol_write(&w, r.user_id));
     } else if (r.operation == StageOperation::voice_status) {
-        ok = ok && protocol_writer_append_literal(&w, "/channels/") && protocol_writer_append_u64(&w, r.channel_id) &&
-             protocol_writer_append_literal(&w, "/voice-status");
+        ok = ok && protocol_write(&w, "/channels/", r.channel_id, "/voice-status");
     } else {
-        ok = ok && protocol_writer_append_literal(&w, "/stage-instances");
+        ok = ok && protocol_write(&w, "/stage-instances");
         if (r.operation != StageOperation::start)
-            ok = ok && protocol_writer_append_byte(&w, '/') && protocol_writer_append_u64(&w, r.channel_id);
+            ok = ok && protocol_write(&w, '/', r.channel_id);
     }
     return protocol_writer_finish<StageWriteResult>(w, ok, output, staged);
 }
@@ -136,59 +132,51 @@ StageWriteResult stage_write_body(const StageRequest& r, Slice<u8> output) noexc
         return {0, StageWriteError::input};
     u8 staged[kStageMaximumBodyBytes];
     ProtocolWriter w{{staged, sizeof(staged)}, 0};
-    bool ok = protocol_writer_append_byte(&w, '{');
-    const auto channel = [&]() noexcept {
-        return protocol_writer_append_literal(&w, "\"channel_id\":") &&
-               protocol_writer_append_snowflake(&w, r.channel_id);
-    };
+    bool ok = protocol_write(&w, '{');
+    const auto channel = [&]() noexcept { return protocol_write(&w, "\"channel_id\":", snowflake_text(r.channel_id)); };
     switch (r.operation) {
     case StageOperation::request_to_speak:
-        ok = ok && append_timestamp(&w, r.unix_ms) && protocol_writer_append_byte(&w, ',') && channel();
+        ok = ok && append_timestamp(&w, r.unix_ms) && protocol_write(&w, ',') && channel();
         break;
     case StageOperation::lower_hand:
-        ok = ok && protocol_writer_append_literal(&w, "\"request_to_speak_timestamp\":null,") && channel();
+        ok = ok && protocol_write(&w, "\"request_to_speak_timestamp\":null,") && channel();
         break;
     case StageOperation::become_speaker:
     case StageOperation::decline_invite:
         ok = ok &&
-             (r.operation == StageOperation::become_speaker ? protocol_writer_append_literal(&w, "\"suppress\":false,")
-                                                            : protocol_writer_append_literal(&w, "\"suppress\":true,")) &&
-             protocol_writer_append_literal(&w, "\"request_to_speak_timestamp\":null,") && channel();
+             protocol_write(&w, r.operation == StageOperation::become_speaker ? "\"suppress\":false," : "\"suppress\":true,",
+                            "\"request_to_speak_timestamp\":null,") &&
+             channel();
         if (r.silent && r.operation == StageOperation::become_speaker)
-            ok = ok && protocol_writer_append_literal(&w, ",\"silent\":true");
+            ok = ok && protocol_write(&w, ",\"silent\":true");
         break;
     case StageOperation::move_self_to_audience:
-        ok = ok && protocol_writer_append_literal(&w, "\"suppress\":true,") && channel() &&
-             protocol_writer_append_literal(&w, ",\"self_video\":false,\"self_stream\":false");
+        ok = ok && protocol_write(&w, "\"suppress\":true,") && channel() &&
+             protocol_write(&w, ",\"self_video\":false,\"self_stream\":false");
         break;
     case StageOperation::invite_to_speak:
-        ok = ok && protocol_writer_append_literal(&w, "\"suppress\":false,") && append_timestamp(&w, r.unix_ms) &&
-             protocol_writer_append_byte(&w, ',') && channel();
+        ok = ok && protocol_write(&w, "\"suppress\":false,") && append_timestamp(&w, r.unix_ms) &&
+             protocol_write(&w, ',') && channel();
         break;
     case StageOperation::move_to_audience:
-        ok = ok && protocol_writer_append_literal(&w, "\"suppress\":true,") && channel();
+        ok = ok && protocol_write(&w, "\"suppress\":true,") && channel();
         break;
     case StageOperation::start:
-        ok = ok && channel() && protocol_writer_append_literal(&w, ",\"topic\":") &&
-             protocol_writer_append_json_string(&w, r.topic) &&
-             protocol_writer_append_literal(&w, ",\"privacy_level\":") &&
-             protocol_writer_append_u64(&w, privacy(r)) &&
-             (r.send_start_notification ? protocol_writer_append_literal(&w, ",\"send_start_notification\":true")
-                                        : protocol_writer_append_literal(&w, ",\"send_start_notification\":false"));
+        ok = ok && channel() && protocol_write(&w, ",\"topic\":", json_text(r.topic), ",\"privacy_level\":", privacy(r),
+                                               r.send_start_notification ? ",\"send_start_notification\":true"
+                                                                         : ",\"send_start_notification\":false");
         break;
     case StageOperation::update_topic:
-        ok = ok && protocol_writer_append_literal(&w, "\"topic\":") && protocol_writer_append_json_string(&w, r.topic) &&
-             protocol_writer_append_literal(&w, ",\"privacy_level\":") && protocol_writer_append_u64(&w, privacy(r));
+        ok = ok && protocol_write(&w, "\"topic\":", json_text(r.topic), ",\"privacy_level\":", privacy(r));
         break;
     case StageOperation::voice_status:
-        ok = ok && protocol_writer_append_literal(&w, "\"status\":") &&
-             protocol_writer_append_json_string(&w, r.topic.bytes ? r.topic : utf8_literal(""));
+        ok = ok && protocol_write(&w, "\"status\":", json_text(r.topic.bytes ? r.topic : utf8_literal("")));
         break;
     default:
         ok = false;
         break;
     }
-    ok = ok && protocol_writer_append_byte(&w, '}');
+    ok = ok && protocol_write(&w, '}');
     return protocol_writer_finish<StageWriteResult>(w, ok, output, staged);
 }
 

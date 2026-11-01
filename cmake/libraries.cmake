@@ -375,7 +375,7 @@ maicord_library(maicord_ui
     src/ui/composer_spellcheck.cpp src/ui/text_form.cpp src/ui/text_composition.cpp src/ui/qr_code.cpp
     src/ui/reaction_picker.cpp src/ui/edit_field.cpp src/ui/badge.cpp src/ui/profile_scene.cpp
     src/ui/profile_media.cpp src/ui/profile_dialog_scene.cpp src/ui/reaction_viewer.cpp
-    src/ui/reaction_viewer_presentation.cpp src/ui/scene.cpp src/ui/shell_navigation_scene.cpp
+    src/ui/reaction_viewer_presentation.cpp src/ui/scene.cpp src/ui/scene_kit.cpp src/ui/shell_navigation_scene.cpp
     src/ui/shell_presentation.cpp src/ui/shell_text_presentation.cpp src/ui/private_channel_title.cpp
     src/ui/private_channel_rows.cpp src/ui/smooth_scroll.cpp src/ui/scroll_host.cpp src/ui/text_flow_layout.cpp
     src/ui/text_measure_cache.cpp src/ui/text_presentation.cpp src/ui/virtual_list.cpp src/ui/widget_manager.cpp

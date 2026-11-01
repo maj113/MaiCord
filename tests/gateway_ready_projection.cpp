@@ -1,4 +1,5 @@
 #include "../src/app/gateway_ready_projection.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/app/chat_state_dispatch.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/reserved_bytes.hpp"

@@ -1,4 +1,5 @@
 #include "maicord/model/chat_state.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {

@@ -239,44 +239,31 @@ bool command_data(const ApplicationCommand& command, Utf8View options, ProtocolW
         return false;
     // The key order: version, id, guild_id, name, type, options,
     // application_command, then the staged attachments.
-    if (!protocol_writer_append_literal(w, "{\"version\":\"") ||
-        !protocol_writer_append_u64(w, command.version) ||
-        !protocol_writer_append_literal(w, "\",\"id\":\"") || !protocol_writer_append_u64(w, command.id) ||
-        !protocol_writer_append_byte(w, '"'))
+    if (!protocol_write(w, "{\"version\":", snowflake_text(command.version), ",\"id\":", snowflake_text(command.id)))
         return false;
-    if (command.guild_id &&
-        (!protocol_writer_append_literal(w, ",\"guild_id\":\"") ||
-         !protocol_writer_append_u64(w, command.guild_id) || !protocol_writer_append_byte(w, '"')))
+    if (command.guild_id && !protocol_write(w, ",\"guild_id\":", snowflake_text(command.guild_id)))
         return false;
-    if (!protocol_writer_append_literal(w, ",\"name\":") ||
-        !protocol_writer_append_json_string(w, command.root_name) ||
-        !protocol_writer_append_literal(w, ",\"type\":1,\"options\":"))
+    if (!protocol_write(w, ",\"name\":", json_text(command.root_name), ",\"type\":1,\"options\":"))
         return false;
     const auto wrapper = [&](Utf8View name, u32 type) noexcept {
-        return protocol_writer_append_literal(w, "[{\"type\":") && protocol_writer_append_u64(w, type) &&
-               protocol_writer_append_literal(w, ",\"name\":") &&
-               protocol_writer_append_json_string(w, name) &&
-               protocol_writer_append_literal(w, ",\"options\":");
+        return protocol_write(w, "[{\"type\":", type, ",\"name\":", json_text(name), ",\"options\":");
     };
     if (command.group_name.bytes && !wrapper(command.group_name, 2))
         return false;
     if (command.sub_name.bytes && !wrapper(command.sub_name, 1))
         return false;
-    if (!protocol_writer_append_bytes(w, {reinterpret_cast<const u8*>(options.data), options.bytes}))
+    if (!protocol_write(w, options))
         return false;
-    if (command.sub_name.bytes && !protocol_writer_append_literal(w, "}]"))
+    if (command.sub_name.bytes && !protocol_write(w, "}]"))
         return false;
-    if (command.group_name.bytes && !protocol_writer_append_literal(w, "}]"))
+    if (command.group_name.bytes && !protocol_write(w, "}]"))
         return false;
-    if (!protocol_writer_append_literal(w, ",\"application_command\":") ||
-        !protocol_writer_append_bytes(w, {reinterpret_cast<const u8*>(command.original.source.data),
-                                          command.original.source.bytes}))
+    if (!protocol_write(w, ",\"application_command\":", command.original.source))
         return false;
     if (attachments.bytes &&
-        (!protocol_writer_append_literal(w, ",\"attachments\":") ||
-         !protocol_writer_append_bytes(w, {reinterpret_cast<const u8*>(attachments.data), attachments.bytes})))
+        !protocol_write(w, ",\"attachments\":", attachments))
         return false;
-    return protocol_writer_append_byte(w, '}');
+    return protocol_write(w, '}');
 }
 
 bool command_context_data(const ApplicationCommand& command, u8 type, u64 target_id,
@@ -284,20 +271,12 @@ bool command_context_data(const ApplicationCommand& command, u8 type, u64 target
     if (!w || !command.id || !command.version || !command.root_name.bytes || !target_id ||
         (type != kCommandTypeUser && type != kCommandTypeMessage) || !command.original.source.bytes)
         return false;
-    bool ok = protocol_writer_append_literal(w, "{\"version\":\"") && protocol_writer_append_u64(w, command.version) &&
-              protocol_writer_append_literal(w, "\",\"id\":\"") && protocol_writer_append_u64(w, command.id) &&
-              protocol_writer_append_byte(w, '"');
+    bool ok = protocol_write(w, "{\"version\":", snowflake_text(command.version), ",\"id\":", snowflake_text(command.id));
     if (command.guild_id)
-        ok = ok && protocol_writer_append_literal(w, ",\"guild_id\":\"") &&
-             protocol_writer_append_u64(w, command.guild_id) && protocol_writer_append_byte(w, '"');
-    return ok && protocol_writer_append_literal(w, ",\"name\":") &&
-           protocol_writer_append_json_string(w, command.root_name) &&
-           protocol_writer_append_literal(w, ",\"type\":") && protocol_writer_append_u64(w, type) &&
-           protocol_writer_append_literal(w, ",\"options\":[],\"application_command\":") &&
-           protocol_writer_append_bytes(w, {reinterpret_cast<const u8*>(command.original.source.data),
-                                            command.original.source.bytes}) &&
-           protocol_writer_append_literal(w, ",\"target_id\":\"") && protocol_writer_append_u64(w, target_id) &&
-           protocol_writer_append_literal(w, "\"}");
+        ok = ok && protocol_write(w, ",\"guild_id\":", snowflake_text(command.guild_id));
+    return ok && protocol_write(w, ",\"name\":", json_text(command.root_name), ",\"type\":", type,
+                                ",\"options\":[],\"application_command\":", command.original.source,
+                                ",\"target_id\":", snowflake_text(target_id), '}');
 }
 
 namespace {
@@ -792,7 +771,7 @@ bool command_arguments(const CommandIndex& index, const ApplicationCommand& comm
         writer->used = mark;
         return false;
     };
-    if (!protocol_writer_append_byte(writer, '['))
+    if (!protocol_write(writer, '['))
         return false;
     bool comma = false;
     for (u32 n = 0; n < schema.count; ++n) {
@@ -814,11 +793,9 @@ bool command_arguments(const CommandIndex& index, const ApplicationCommand& comm
             }
             if (chosen == files.count)
                 return fail(utf8_literal("Please attach a file"));
-            if ((comma && !protocol_writer_append_byte(writer, ',')) ||
-                !protocol_writer_append_literal(writer, "{\"name\":") ||
-                !protocol_writer_append_json_string(writer, schema.names[n]) ||
-                !protocol_writer_append_literal(writer, ",\"type\":11,\"value\":") ||
-                !protocol_writer_append_u64(writer, plan->count) || !protocol_writer_append_byte(writer, '}')) {
+            if ((comma && !protocol_write(writer, ',')) ||
+                !protocol_write(writer, "{\"name\":", json_text(schema.names[n]), ",\"type\":11,\"value\":",
+                                plan->count, '}')) {
                 writer->used = mark;
                 return false;
             }
@@ -846,18 +823,15 @@ bool command_arguments(const CommandIndex& index, const ApplicationCommand& comm
         JsonValue choice{};
         const bool chosen =
             n != focused && !taken && find_choice(index.document, schema.options[n], value, &choice);
-        if ((comma && !protocol_writer_append_byte(writer, ',')) || !protocol_writer_append_byte(writer, '{') ||
-            !protocol_writer_append_literal(writer, "\"name\":") ||
-            !protocol_writer_append_json_string(writer, schema.names[n]) ||
-            !protocol_writer_append_literal(writer, ",\"type\":") || !protocol_writer_append_u64(writer, type) ||
-            !protocol_writer_append_literal(writer, ",\"value\":"))
+        if ((comma && !protocol_write(writer, ',')) ||
+            !protocol_write(writer, "{\"name\":", json_text(schema.names[n]), ",\"type\":", type, ",\"value\":"))
             return fail(utf8_literal("Command is too large to send"));
         comma = true;
         bool ok = true;
         char decoded[512];
         char number_text[48];
         if (n == focused) {
-            ok = protocol_writer_append_json_string(writer, value);
+            ok = protocol_write(writer, json_text(value));
         } else if (taken || chosen) {
             // A choice sends its value: a string for STRING, a number otherwise.
             const JsonValueKind kind = taken ? taken->kind : choice.kind;
@@ -865,10 +839,10 @@ bool command_arguments(const CommandIndex& index, const ApplicationCommand& comm
             if (!taken && kind == JsonValueKind::string && !command_json_text(choice, {decoded, sizeof(decoded)}, &mapped))
                 return fail(invalid_text(index.document, schema.options[n], type));
             ok = kind == JsonValueKind::string
-                     ? protocol_writer_append_json_string(writer, mapped)
-                     : protocol_writer_append_bytes(writer, {reinterpret_cast<const u8*>(mapped.data), mapped.bytes});
+                     ? protocol_write(writer, json_text(mapped))
+                     : protocol_write(writer, mapped);
         } else if (type == 3) {
-            ok = protocol_writer_append_json_string(writer, value);
+            ok = protocol_write(writer, json_text(value));
         } else if (type == 4 || type == 10) {
             NumberText number{};
             parse_number(value, &number);
@@ -898,19 +872,18 @@ bool command_arguments(const CommandIndex& index, const ApplicationCommand& comm
                     used += part.bytes;
                 }
             }
-            ok = protocol_writer_append_bytes(writer, {reinterpret_cast<const u8*>(number_text), used});
+            ok = protocol_write(writer, Utf8View{number_text, used});
         } else if (type == 5) {
-            ok = ascii_equal_ignore_case(value, utf8_literal("true")) ? protocol_writer_append_literal(writer, "true")
-                                                                       : protocol_writer_append_literal(writer, "false");
+            ok = protocol_write(writer, ascii_equal_ignore_case(value, utf8_literal("true")) ? "true" : "false");
         } else {
             Utf8View id{};
-            ok = mention_id(value, type, &id) && protocol_writer_append_json_string(writer, id);
+            ok = mention_id(value, type, &id) && protocol_write(writer, json_text(id));
         }
-        if (!ok || (n == focused && !protocol_writer_append_literal(writer, ",\"focused\":true")) ||
-            !protocol_writer_append_byte(writer, '}'))
+        if (!ok || (n == focused && !protocol_write(writer, ",\"focused\":true")) ||
+            !protocol_write(writer, '}'))
             return fail(utf8_literal("Command is too large to send"));
     }
-    return protocol_writer_append_byte(writer, ']');
+    return protocol_write(writer, ']');
 }
 namespace {
 struct SuggestionDecode {

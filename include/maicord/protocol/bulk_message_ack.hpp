@@ -21,13 +21,7 @@ enum class BulkMessageAckWriteError : u8 {
     invalid_input,
     capacity
 };
-struct BulkMessageAckWriteResult {
-    u32 bytes;
-    BulkMessageAckWriteError error;
-    constexpr bool ok() const noexcept {
-        return error == BulkMessageAckWriteError::none;
-    }
-};
+using BulkMessageAckWriteResult = ByteResult<BulkMessageAckWriteError>;
 // Validates the entire batch before writing. Failure leaves every output byte
 // unchanged. Entries, both slice descriptors, and output must not overlap.
 BulkMessageAckWriteResult write_bulk_message_ack_body(const ConstSlice<BulkMessageAckEntry>& entries,

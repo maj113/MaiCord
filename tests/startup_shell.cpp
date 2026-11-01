@@ -1,4 +1,5 @@
 #include "maicord/app/startup_shell.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/app/message_event_pump.hpp"
 #include "maicord/core/byte_order.hpp"

@@ -2,6 +2,7 @@
 // selection and channel authority. Surrounding presentation/history are thin
 // deterministic boundaries; no cloned navigation helper is used.
 #include "../src/app/application_content_input.cpp"
+#include "model_store_fixtures.hpp"
 #include "../src/app/application_content_point.hpp"
 #include "maicord/core/memory.hpp"
 #include "test_output.hpp"

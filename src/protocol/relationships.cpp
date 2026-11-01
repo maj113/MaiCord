@@ -164,12 +164,12 @@ RelationshipWriteResult write_relationship_target(RelationshipOperation operatio
     char temporary[96];
     RouteWriter writer{};
     route_writer_initialize(&writer, {reinterpret_cast<u8*>(temporary), sizeof(temporary)});
-    route_append(&writer, utf8_literal("/api/v10/users/@me/relationships"));
-    if (individual) { route_append_byte(&writer, '/'); route_append_u64(&writer, user_id); }
+    route_write(&writer, "/api/v10/users/@me/relationships");
+    if (individual) route_write(&writer, '/', user_id);
     if (operation == RelationshipOperation::ignore || operation == RelationshipOperation::unignore)
-        route_append(&writer, utf8_literal("/ignore"));
+        route_write(&writer, "/ignore");
     if (operation == RelationshipOperation::clear_incoming || operation == RelationshipOperation::clear_hidden)
-        route_append(&writer, utf8_literal("?relationship_type=3"));
+        route_write(&writer, "?relationship_type=3");
     if (!writer.valid || writer.bytes > output.count) return {0, RelationshipWriteError::output_too_small};
     copy_bytes(output.data, temporary, writer.bytes);
     return {writer.bytes, RelationshipWriteError::none};
@@ -188,15 +188,13 @@ RelationshipWriteResult write_relationship_body(RelationshipOperation operation,
             if (!(ascii_is_alnum(c) || c == '_' || c == '.'))
                 return {0, RelationshipWriteError::invalid_input};
         }
-        route_append(&writer, utf8_literal("{\"username\":\""));
-        route_append(&writer, username);
-        route_append(&writer, utf8_literal("\",\"discriminator\":null}"));
-    } else if (operation == RelationshipOperation::accept) route_append(&writer, utf8_literal("{}"));
-    else if (operation == RelationshipOperation::block) route_append(&writer, utf8_literal("{\"type\":2}"));
+        route_write(&writer, "{\"username\":\"", username, "\",\"discriminator\":null}");
+    } else if (operation == RelationshipOperation::accept) route_write(&writer, "{}");
+    else if (operation == RelationshipOperation::block) route_write(&writer, "{\"type\":2}");
     else if (operation == RelationshipOperation::accept_stranger)
-        route_append(&writer, utf8_literal("{\"confirm_stranger_request\":true}"));
+        route_write(&writer, "{\"confirm_stranger_request\":true}");
     else if (operation == RelationshipOperation::clear_hidden)
-        route_append(&writer, utf8_literal("{\"filters\":[1,2]}"));
+        route_write(&writer, "{\"filters\":[1,2]}");
     if (!writer.valid || writer.bytes > output.count) return {0, RelationshipWriteError::output_too_small};
     copy_bytes(output.data, temporary, writer.bytes);
     return {writer.bytes, RelationshipWriteError::none};

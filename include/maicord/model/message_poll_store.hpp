@@ -81,13 +81,6 @@ struct MessagePollStoreResult {
         return error == MessagePollStoreError::none;
     }
 };
-struct MessagePollStoreMetrics {
-    usize reserved_bytes;
-    usize committed_bytes;
-    u32 commit_count;
-    u32 records;
-    u32 text_bytes;
-};
 inline constexpr u32 kMessagePollPageMaximum = 125;
 struct MessagePollPageInput {
     u64 message_id;
@@ -133,7 +126,6 @@ MessagePollStoreResult message_poll_store_vote(MessagePollStore*, const GatewayM
 MessagePollStoreResult message_poll_store_own_vote(MessagePollStore*, u64 message_id, u64 channel_id,
                                                    u64 actor_id, u16 answer_mask) noexcept;
 bool message_poll_store_delete(MessagePollStore*, u64 message_id) noexcept;
-MessagePollStoreMetrics message_poll_store_metrics(const MessagePollStore&) noexcept;
 // Actual poll inputs only: an ordinary page performs zero allocation. A private
 // sparse clone is committed only after the whole candidate succeeds. Stale
 // input revisions keep the newer loaded poll and do not reject unrelated rows.

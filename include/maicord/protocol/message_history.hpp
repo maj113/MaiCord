@@ -33,14 +33,7 @@ enum class MessageHistoryTargetError : u8 {
     output_capacity,
 };
 
-struct MessageHistoryTargetResult {
-    u32 bytes;
-    MessageHistoryTargetError error;
-
-    constexpr bool ok() const noexcept {
-        return error == MessageHistoryTargetError::none;
-    }
-};
+using MessageHistoryTargetResult = ByteResult<MessageHistoryTargetError>;
 
 struct MessageHistoryPage {
     u64 channel_id;

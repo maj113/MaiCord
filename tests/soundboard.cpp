@@ -1,5 +1,6 @@
 #include "maicord/app/account_soundboard.hpp"
 #include "maicord/core/memory.hpp"
+#include "soundboard_clip_fixture.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "test_output.hpp"

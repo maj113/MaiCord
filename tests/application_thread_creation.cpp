@@ -1,6 +1,7 @@
 // The shipping controller, actual resident message store and Core permissions,
 // with an offline typed exact-ID transport and a native-form boundary stub.
 #include "../src/app/application_thread_creation.hpp"
+#include "model_store_fixtures.hpp"
 #include "../src/app/application_state.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"

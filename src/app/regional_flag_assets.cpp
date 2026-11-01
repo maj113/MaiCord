@@ -85,5 +85,4 @@ ConstSlice<u8> regional_flag_bundled_svg(u16 sequence, Slice<u8> scratch) noexce
     return flag_text({scratch.data+entry.offset,entry.bytes},
                      {scratch.data+group.raw_bytes,scratch.count-group.raw_bytes});
 }
-u64 regional_flag_bundled_text_checksum() noexcept {return kFlagTextChecksum;}
 } // namespace maicord

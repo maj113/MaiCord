@@ -6,6 +6,7 @@
 #include "maicord/protocol/writer.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "json_field_lists.hpp"
+#include "json_helpers.hpp"
 
 namespace maicord {
 namespace {
@@ -28,13 +29,12 @@ bool valid_ids(const u64* ids, u8 count) noexcept {
 }
 
 bool append_parameter(ProtocolWriter* writer, const char* name) noexcept {
-    return protocol_writer_append_byte(writer, '&') && protocol_writer_append_c_string(writer, name) &&
-           protocol_writer_append_byte(writer, '=');
+    return protocol_write(writer, '&', name, '=');
 }
 
 bool append_ids(ProtocolWriter* writer, const char* name, const u64* ids, u8 count) noexcept {
     for (u8 index = 0; index < count; ++index) {
-        if (!append_parameter(writer, name) || !protocol_writer_append_u64(writer, ids[index])) {
+        if (!append_parameter(writer, name) || !protocol_write(writer, ids[index])) {
             return false;
         }
     }
@@ -507,14 +507,13 @@ bool append_terms(ProtocolWriter* writer, const MessageSearchQuery& query) noexc
     for (const auto& term : terms)
         if (term.bytes &&
             (!append_parameter(writer, term.name) ||
-             !protocol_writer_append_percent_encoded(writer, {term.value, term.bytes})))
+             !protocol_write(writer, percent_text({term.value, term.bytes}))))
             return false;
     for (u32 bit = 0; bit < 3; ++bit)
         for (u32 excluded = 0; excluded < 2; ++excluded)
             if (((excluded ? query.author_types_excluded : query.author_types) >> bit) & 1u)
-                if (!append_parameter(writer, "author_type") ||
-                    (excluded && !protocol_writer_append_byte(writer, '-')) ||
-                    !protocol_writer_append_c_string(writer, kAuthorTypeNames[bit]))
+                if (!append_parameter(writer, "author_type") || (excluded && !protocol_write(writer, '-')) ||
+                    !protocol_write(writer, kAuthorTypeNames[bit]))
                     return false;
     return true;
 }
@@ -564,21 +563,16 @@ MessageSearchWriteResult write_message_search_target(const MessageSearchQuery& q
         return {0, MessageSearchWriteError::invalid_input};
     ProtocolWriter writer{output, 0};
     bool written =
-        protocol_writer_append_literal(&writer, "/api/v10/") &&
-        protocol_writer_append_c_string(
-            &writer, query.scope == MessageSearchScope::guild ? "guilds/" : "channels/") &&
-        protocol_writer_append_u64(&writer, query.scope_id) &&
-        protocol_writer_append_literal(&writer, "/messages/search?offset=") &&
-        protocol_writer_append_u64(&writer, query.offset) && append_parameter(&writer, "limit") &&
-        protocol_writer_append_u64(&writer, query.limit) && append_parameter(&writer, "sort_by") &&
-        protocol_writer_append_c_string(
-            &writer, query.sort == MessageSearchSort::relevance ? "relevance" : "timestamp") &&
+        protocol_write(&writer, "/api/v10/", query.scope == MessageSearchScope::guild ? "guilds/" : "channels/",
+                       query.scope_id, "/messages/search?offset=", query.offset) &&
+        append_parameter(&writer, "limit") && protocol_write(&writer, query.limit) &&
+        append_parameter(&writer, "sort_by") &&
+        protocol_write(&writer, query.sort == MessageSearchSort::relevance ? "relevance" : "timestamp") &&
         append_parameter(&writer, "sort_order") &&
-        protocol_writer_append_c_string(&writer,
-                                        query.sort == MessageSearchSort::oldest ? "asc" : "desc");
+        protocol_write(&writer, query.sort == MessageSearchSort::oldest ? "asc" : "desc");
     if (query.content_bytes) {
         written = written && append_parameter(&writer, "content") &&
-                  protocol_writer_append_percent_encoded(&writer, {query.content, query.content_bytes});
+                  protocol_write(&writer, percent_text({query.content, query.content_bytes}));
     }
     written = written && append_ids(&writer, "author_id", query.author_ids, query.author_count) &&
               append_ids(&writer, "mentions", query.mention_ids, query.mention_count) &&
@@ -588,116 +582,77 @@ MessageSearchWriteResult write_message_search_target(const MessageSearchQuery& q
         for (u32 excluded = 0; excluded < 2; ++excluded)
             if (((excluded ? query.has_excluded : has) >> bit) & 1u)
                 written = written && append_parameter(&writer, "has") &&
-                          (!excluded || protocol_writer_append_byte(&writer, '-')) &&
-                          protocol_writer_append_c_string(&writer, kHasNames[bit]);
+                          (!excluded || protocol_write(&writer, '-')) && protocol_write(&writer, kHasNames[bit]);
     written = written && append_terms(&writer, query);
     if (query.min_id) {
-        written = written && append_parameter(&writer, "min_id") &&
-                  protocol_writer_append_u64(&writer, query.min_id);
+        written = written && append_parameter(&writer, "min_id") && protocol_write(&writer, query.min_id);
     }
     if (query.max_id) {
-        written = written && append_parameter(&writer, "max_id") &&
-                  protocol_writer_append_u64(&writer, query.max_id);
+        written = written && append_parameter(&writer, "max_id") && protocol_write(&writer, query.max_id);
     }
     const auto pinned = effective_pinned(query, query.tab);
     if (pinned != MessageSearchPinned::any) {
         written = written && append_parameter(&writer, "pinned") &&
-                  protocol_writer_append_c_string(
-                      &writer, pinned == MessageSearchPinned::pinned ? "true" : "false");
+                  protocol_write(&writer, pinned == MessageSearchPinned::pinned ? "true" : "false");
     }
     written = written && append_parameter(&writer, "include_nsfw") &&
-              protocol_writer_append_c_string(&writer, query.include_nsfw ? "true" : "false");
+              protocol_write(&writer, query.include_nsfw ? "true" : "false");
     return written ? MessageSearchWriteResult{writer.used, MessageSearchWriteError::none}
                    : MessageSearchWriteResult{0, MessageSearchWriteError::output_capacity};
 }
 
 namespace {
-bool json_key(ProtocolWriter* writer, const char* name, bool* first) noexcept {
-    const bool comma = !*first;
-    *first = false;
-    return (!comma || protocol_writer_append_byte(writer, ',')) &&
-           protocol_writer_append_byte(writer, '"') && protocol_writer_append_c_string(writer, name) &&
-           protocol_writer_append_literal(writer, "\":");
-}
-bool json_ids(ProtocolWriter* writer, const char* name, const u64* ids, u8 count, bool* first) noexcept {
+using protocol_detail::JsonBody;
+void json_ids(JsonBody& b, const char* name, const u64* ids, u8 count) noexcept {
     if (!count)
-        return true;
-    if (!json_key(writer, name, first) || !protocol_writer_append_byte(writer, '['))
-        return false;
+        return;
+    b.begin_array(name);
     for (u8 index = 0; index < count; ++index)
-        if ((index && !protocol_writer_append_byte(writer, ',')) ||
-            !protocol_writer_append_byte(writer, '"') || !protocol_writer_append_u64(writer, ids[index]) ||
-            !protocol_writer_append_byte(writer, '"'))
-            return false;
-    return protocol_writer_append_byte(writer, ']');
+        b.element(snowflake_text(ids[index]));
+    b.end_array();
 }
-bool json_flags(ProtocolWriter* writer, const char* name, u32 included, u32 excluded,
-                const char* const* names, u32 count, bool* first) noexcept {
+void json_flags(JsonBody& b, const char* name, u32 included, u32 excluded, const char* const* names,
+                u32 count) noexcept {
     if (!included && !excluded)
-        return true;
-    if (!json_key(writer, name, first) || !protocol_writer_append_byte(writer, '['))
-        return false;
-    bool item = true;
+        return;
+    b.begin_array(name);
     for (u32 bit = 0; bit < count; ++bit)
         for (u32 negated = 0; negated < 2; ++negated)
             if (((negated ? excluded : included) >> bit) & 1u) {
-                if ((!item && !protocol_writer_append_byte(writer, ',')) ||
-                    !protocol_writer_append_byte(writer, '"') ||
-                    (negated && !protocol_writer_append_byte(writer, '-')) ||
-                    !protocol_writer_append_c_string(writer, names[bit]) ||
-                    !protocol_writer_append_byte(writer, '"'))
-                    return false;
-                item = false;
+                b.next();
+                b.put('"');
+                if (negated)
+                    b.put('-');
+                b.put(names[bit], '"');
             }
-    return protocol_writer_append_byte(writer, ']');
+    b.end_array();
 }
-bool json_term(ProtocolWriter* writer, const char* name, const char* value, u8 bytes,
-               bool* first) noexcept {
-    return !bytes || (json_key(writer, name, first) && protocol_writer_append_byte(writer, '[') &&
-                      protocol_writer_append_json_string(writer, {value, bytes}) &&
-                      protocol_writer_append_byte(writer, ']'));
+void json_term(JsonBody& b, const char* name, const char* value, u8 bytes) noexcept {
+    if (!bytes)
+        return;
+    b.begin_array(name);
+    b.element(json_text({value, bytes}));
+    b.end_array();
 }
-bool json_tab(ProtocolWriter* writer, const MessageSearchQuery& query, MessageSearchTab tab,
-              u32 offset, u32 limit) noexcept {
-    bool first = true;
-    bool written = protocol_writer_append_byte(writer, '"') &&
-                   protocol_writer_append_c_string(writer, kTabNames[static_cast<u8>(tab)]) &&
-                   protocol_writer_append_literal(writer, "\":{") && json_key(writer, "sort_by", &first) &&
-                   protocol_writer_append_c_string(writer, query.sort == MessageSearchSort::relevance
-                                                               ? "\"relevance\""
-                                                               : "\"timestamp\"") &&
-                   json_key(writer, "sort_order", &first) &&
-                   protocol_writer_append_c_string(
-                       writer, query.sort == MessageSearchSort::oldest ? "\"asc\"" : "\"desc\"");
-    if (query.content_bytes)
-        written = written && json_key(writer, "content", &first) &&
-                  protocol_writer_append_json_string(writer, {query.content, query.content_bytes});
-    written =
-        written && json_ids(writer, "author_id", query.author_ids, query.author_count, &first) &&
-        json_flags(writer, "author_type", query.author_types, query.author_types_excluded, kAuthorTypeNames,
-                   3, &first) &&
-        json_ids(writer, "mentions", query.mention_ids, query.mention_count, &first) &&
-        json_flags(writer, "has", effective_has(query, tab), query.has_excluded, kHasNames, 9, &first) &&
-        json_term(writer, "link_hostname", query.link_hostname, query.hostname_bytes, &first) &&
-        json_term(writer, "attachment_extension", query.attachment_extension, query.extension_bytes,
-                  &first) &&
-        json_term(writer, "attachment_filename", query.attachment_filename, query.filename_bytes, &first);
+void json_tab(JsonBody& b, const MessageSearchQuery& query, MessageSearchTab tab, u32 offset, u32 limit) noexcept {
+    b.begin_object(kTabNames[static_cast<u8>(tab)]);
+    b.member("sort_by", query.sort == MessageSearchSort::relevance ? "\"relevance\"" : "\"timestamp\"");
+    b.member("sort_order", query.sort == MessageSearchSort::oldest ? "\"asc\"" : "\"desc\"");
+    b.member_if(query.content_bytes, "content", json_text({query.content, query.content_bytes}));
+    json_ids(b, "author_id", query.author_ids, query.author_count);
+    json_flags(b, "author_type", query.author_types, query.author_types_excluded, kAuthorTypeNames, 3);
+    json_ids(b, "mentions", query.mention_ids, query.mention_count);
+    json_flags(b, "has", effective_has(query, tab), query.has_excluded, kHasNames, 9);
+    json_term(b, "link_hostname", query.link_hostname, query.hostname_bytes);
+    json_term(b, "attachment_extension", query.attachment_extension, query.extension_bytes);
+    json_term(b, "attachment_filename", query.attachment_filename, query.filename_bytes);
     const auto pinned = effective_pinned(query, tab);
-    if (pinned != MessageSearchPinned::any)
-        written = written && json_key(writer, "pinned", &first) &&
-                  protocol_writer_append_c_string(
-                      writer, pinned == MessageSearchPinned::pinned ? "true" : "false");
-    const u64 bounds[] = {query.min_id, query.max_id};
-    static constexpr const char* bound_names[] = {"min_id", "max_id"};
-    for (u32 index = 0; index < 2; ++index)
-        if (bounds[index])
-            written = written && json_key(writer, bound_names[index], &first) &&
-                      protocol_writer_append_byte(writer, '"') &&
-                      protocol_writer_append_u64(writer, bounds[index]) &&
-                      protocol_writer_append_byte(writer, '"');
-    return written && json_key(writer, "offset", &first) && protocol_writer_append_u64(writer, offset) &&
-           json_key(writer, "limit", &first) && protocol_writer_append_u64(writer, limit) &&
-           protocol_writer_append_byte(writer, '}');
+    b.member_if(pinned != MessageSearchPinned::any, "pinned", json_bool(pinned == MessageSearchPinned::pinned));
+    b.member_if(query.min_id, "min_id", snowflake_text(query.min_id));
+    b.member_if(query.max_id, "max_id", snowflake_text(query.max_id));
+    b.member("offset", offset);
+    b.member("limit", limit);
+    b.end_object();
 }
 } // namespace
 
@@ -707,33 +662,28 @@ MessageSearchTabsWriteResult write_message_search_tabs_request(
         (!body.data && body.count))
         return {0, 0, MessageSearchWriteError::invalid_input};
     ProtocolWriter path{target, 0};
-    bool written = protocol_writer_append_literal(&path, "/api/v10/");
+    bool written = protocol_write(&path, "/api/v10/");
     if (query.scope == MessageSearchScope::private_channels)
-        written = written && protocol_writer_append_literal(&path, "users/@me");
+        written = written && protocol_write(&path, "users/@me");
     else
         written = written &&
-                  protocol_writer_append_c_string(
-                      &path, query.scope == MessageSearchScope::guild ? "guilds/" : "channels/") &&
-                  protocol_writer_append_u64(&path, query.scope_id);
-    written = written && protocol_writer_append_literal(&path, "/messages/search/tabs");
-    ProtocolWriter json{body, 0};
-    bool first = true;
-    written = written && protocol_writer_append_byte(&json, '{') &&
-              json_key(&json, "include_nsfw", &first) &&
-              protocol_writer_append_c_string(&json, query.include_nsfw ? "true" : "false") &&
-              json_ids(&json, "channel_ids", query.channel_ids, query.channel_count, &first) &&
-              json_key(&json, "tabs", &first) && protocol_writer_append_byte(&json, '{') &&
-              json_tab(&json, query, query.tab, query.offset, query.limit);
+                  protocol_write(&path, query.scope == MessageSearchScope::guild ? "guilds/" : "channels/",
+                                 query.scope_id);
+    written = written && protocol_write(&path, "/messages/search/tabs");
+    JsonBody json{body};
+    json.begin_object();
+    json.member("include_nsfw", json_bool(query.include_nsfw));
+    json_ids(json, "channel_ids", query.channel_ids, query.channel_count);
+    json.begin_object("tabs");
+    json_tab(json, query, query.tab, query.offset, query.limit);
     if (query.tab_counts && !query.offset)
         for (u32 tab = 0; tab < kMessageSearchTabCount; ++tab)
             if (tab != static_cast<u8>(query.tab))
-                written = written && protocol_writer_append_byte(&json, ',') &&
-                          json_tab(&json, query, static_cast<MessageSearchTab>(tab), 0, 1);
-    written = written && protocol_writer_append_byte(&json, '}') &&
-              protocol_writer_append_literal(&json, ",\"track_exact_total_hits\":true}");
-    return written
-               ? MessageSearchTabsWriteResult{path.used, json.used,
-                                              MessageSearchWriteError::none}
+                json_tab(json, query, static_cast<MessageSearchTab>(tab), 0, 1);
+    json.end_object();
+    json.put_text(",\"track_exact_total_hits\":true}");
+    return written && json.ok
+               ? MessageSearchTabsWriteResult{path.used, json.writer.used, MessageSearchWriteError::none}
                : MessageSearchTabsWriteResult{0, 0, MessageSearchWriteError::output_capacity};
 }
 

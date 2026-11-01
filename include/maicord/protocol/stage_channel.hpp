@@ -47,13 +47,7 @@ struct StageRequest {
 static_assert(sizeof(StageRequest) == 56);
 
 enum class StageWriteError : u8 { none, input, capacity };
-struct StageWriteResult {
-    u32 bytes;
-    StageWriteError error;
-    constexpr bool ok() const noexcept {
-        return error == StageWriteError::none;
-    }
-};
+using StageWriteResult = ByteResult<StageWriteError>;
 
 bool stage_topic_valid(Utf8View topic) noexcept;
 // A voice channel status: one line of at most 500 code points; empty clears it.

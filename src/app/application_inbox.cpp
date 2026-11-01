@@ -11,6 +11,7 @@
 #include "application_scrolling.hpp"
 #include "application_panel_cover.hpp"
 #include "application_state.hpp"
+#include "application_account_access.hpp"
 #include "maicord/protocol/message_card_excerpt.hpp"
 #include "maicord/protocol/user_guild_settings.hpp"
 #include "maicord/ui/timestamp_format.hpp"
@@ -559,10 +560,8 @@ bool application_inbox_submit(u64 request_id, u64 now_ms) noexcept {
     value.submitted = {oldest, value.this_server ? server_filter() : 0, kMentionsPageLimit, value.roles,
                        value.everyone};
     const auto submitted = g_app.account.api.mentions(g_app.account.instance, &value.submitted, request_id);
-    if (submitted.error == RestClientSubmitError::busy) {
-        value.retry_at = deadline_after(now_ms, 50);
+    if (submit_busy(submitted, value.retry_at, now_ms, 50))
         return false;
-    }
     value.queued = false;
     if (!submitted.ok()) {
         value.failed = true;

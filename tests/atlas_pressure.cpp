@@ -1,4 +1,5 @@
 #include "maicord/app/message_media_controller.hpp"
+#include "message_media_controller_fixture.hpp"
 #include "maicord/render/animation_frame_cache_gpu.hpp"
 #include "maicord/render/media_atlas.hpp"
 #include "maicord/media/asset.hpp"

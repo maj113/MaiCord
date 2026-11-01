@@ -759,8 +759,7 @@ bool application_read_state_response(const RestClientResponse& response, const u
     if (!owner.queue.inflight_active || response.request_id != owner.ticket.request_id ||
         owner.ticket.generation != owner.queue.generation)
         return true;
-    const bool success =
-        response.transport_ok() && response.status_code >= 200 && response.status_code < 300;
+    const bool success = response.succeeded();
     const auto source = owner.submitted_manual;
     const u64 completed_channel = owner.queue.inflight.channel_id;
     const bool manual = source.manual;

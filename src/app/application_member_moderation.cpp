@@ -4,6 +4,7 @@
 #include "application_guild_settings.hpp"
 #include "application_message_interaction.hpp"
 #include "application_state.hpp"
+#include "application_account_access.hpp"
 #include "application_text_form.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/core/memory.hpp"
@@ -554,10 +555,8 @@ bool application_member_moderation_submit(u64 request_id, u64 now_ms) noexcept {
                                       ? g_app.account.api.guild_moderation(g_app.account.instance, &bulk, request_id)
                                       : RestClientSubmitResult{RestClientSubmitError::invalid_input})
                                : g_app.account.api.guild_admin(g_app.account.instance, &request, request_id);
-    if (submitted.error == RestClientSubmitError::busy) {
-        moderation.retry_at = now_ms + 100;
+    if (submit_busy(submitted, moderation.retry_at, now_ms, 100))
         return false;
-    }
     if (!submitted.ok()) {
         // The ban dialog has closed; a bulk ban reports its failure.
         if (moderation.kind == Kind::bulk_ban)
@@ -579,8 +578,7 @@ bool application_member_moderation_response(const RestClientResponse& response, 
         return true;
     moderation.request_id = 0;
     moderation.http_status = response.status_code;
-    const bool ok = response.error == RestClientError::none && response.status_code >= 200 &&
-                    response.status_code < 300;
+    const bool ok = response.succeeded();
     // A ban's dialog closed as it sent; only a failed bulk ban is reported.
     if (moderation.kind == Kind::ban || moderation.kind == Kind::bulk_ban) {
         if (!ok && moderation.kind == Kind::bulk_ban)

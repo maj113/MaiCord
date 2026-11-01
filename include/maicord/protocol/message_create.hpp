@@ -29,14 +29,7 @@ enum class MessageCreateWriteError : u8 {
     output_too_small,
 };
 
-struct MessageCreateWriteResult {
-    u32 bytes;
-    MessageCreateWriteError error;
-
-    constexpr bool ok() const noexcept {
-        return error == MessageCreateWriteError::none;
-    }
-};
+using MessageCreateWriteResult = ByteResult<MessageCreateWriteError>;
 
 MessageCreateWriteResult write_message_create_target(
     u64 channel_id, Slice<u8> output) noexcept;

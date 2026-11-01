@@ -10,6 +10,7 @@
 #include "application_profile.hpp"
 #include "application_settings.hpp"
 #include "application_settings_layer.hpp"
+#include "application_settings_modal.hpp"
 #include "application_state.hpp"
 #include "application_overlay_input.hpp"
 #include "application_shell_input.hpp"
@@ -109,10 +110,7 @@ struct Picked {
     wchar_t path[kNativeFilePickerMaximumPathUnits + 1];
 };
 
-struct Owner {
-    UiSettingsScene scene;
-    SettingsLayer layer;
-    UiPageRegistry registry;
+struct Owner : SettingsModal {
     UiPage pages[kPageCapacity];
     UiSettingsPageContent content, other;
     UiSettingsControl controls[kControlCapacity];
@@ -886,10 +884,7 @@ bool project() noexcept {
     return true;
 }
 bool repaint() noexcept {
-    if (!project())
-        return false;
-    application_request_frame();
-    return !g_app.renderer_ready || renderer_rebuild_content_text(&g_app.renderer, application_theme());
+    return settings_modal_present(project());
 }
 
 void queue(Op op) noexcept {
@@ -1493,23 +1488,15 @@ void close_hook(SettingsLayer*) noexcept {
     if (guard())
         application_profile_editor_close();
 }
-bool repaint_hook(SettingsLayer*) noexcept {
-    return repaint();
-}
-bool editable_hook(SettingsLayer*) noexcept {
-    return editable();
-}
-constexpr SettingsLayerHooks kHooks{editor_hook, edited, activate, choose, close_hook, repaint_hook, nullptr,
-                                    editable_hook};
+constexpr SettingsLayerHooks kHooks{editor_hook, edited, activate, choose, close_hook,
+                                    settings_hook<repaint>, nullptr, settings_hook<editable>};
 
 bool ensure_owner() noexcept {
     if (owner)
         return true;
-    owner = static_cast<Owner*>(VirtualAlloc(nullptr, sizeof(Owner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    owner = settings_modal_allocate<Owner>(kHooks);
     if (!owner)
         return false;
-    owner->layer.scene = &owner->scene;
-    owner->layer.hooks = &kHooks;
     for (u32 i = 0; i < editor_count; ++i)
         message_composer_initialize(&owner->models[i], {editor_buffer(i), editor_capacity(i)});
     return true;
@@ -1594,9 +1581,7 @@ bool application_profile_editor_open(ProfileEditorTab tab, u64 guild_id) noexcep
     const auto& s = state();
     if (!s.self_user_id || !ensure_owner() || busy())
         return false;
-    application_settings_close(false);
-    application_media_picker_close();
-    application_profile_close();
+    settings_modal_yield();
     auto& p = *owner;
     p.lifetime = ++lifetime_serial;
     p.account_scope = g_app.plugin_account_scope_serial;
@@ -1629,10 +1614,7 @@ bool application_profile_editor_open(ProfileEditorTab tab, u64 guild_id) noexcep
     settings_layer_reset(&p.layer);
     if (!register_pages())
         return false;
-    application_composer_text_input_suspend();
-    dismiss_popup();
-    ui_scroll_host_cancel(&g_app.scroll_host);
-    g_app.message_composer.focused = false;
+    settings_modal_take_input();
     ui_settings_scene_set_presentation(&p.scene, UiSettingsPresentation::modal);
     ui_settings_scene_bind_navigation(&p.scene, settings_catalog_navigation(application_account_logout_available()), 1);
     ui_settings_scene_bind_palette(&p.scene, {owner, palette_resolve, p.lifetime});
@@ -1662,9 +1644,7 @@ void application_profile_editor_close(bool restore_focus) noexcept {
     if (!owner || !owner->scene.active)
         return;
     auto& p = *owner;
-    application_composer_text_input_suspend();
-    settings_layer_close_choice(&p.layer);
-    settings_layer_cancel_pointer(&p.layer);
+    settings_modal_suspend(p);
     application_text_form_cancel_owner(color_valid);
     if (p.picker.runtime) {
         native_file_picker_cancel(&p.picker);
@@ -1684,23 +1664,14 @@ void application_profile_editor_close(bool restore_focus) noexcept {
         profile_scene_release(&p.preview);
         p.preview_open = false;
     }
-    renderer_bind_settings_scene(&g_app.renderer, nullptr);
-    renderer_set_settings_modal_progress(&g_app.renderer, 1);
-    ui_settings_scene_close(&p.scene);
-    if (restore_focus && application_account_available())
-        g_app.context_focus = &g_app.shell_scene.widgets;
-    application_sync_attachment_drop_target();
-    if (g_app.renderer_ready)
-        refresh_account_text(true);
-    application_request_frame();
+    settings_modal_leave(p, restore_focus && application_account_available());
 }
 
 void application_profile_editor_release() noexcept {
     application_profile_editor_close(false);
     if (!owner)
         return;
-    if (owner->request_id && g_app.account.instance && g_app.account.api.profile_edit)
-        g_app.account.api.profile_edit(g_app.account.instance, nullptr, owner->request_id);
+    application_cancel_request(&AccountModuleApi::profile_edit, owner->request_id);
     if (owner->picker.runtime) {
         native_file_picker_cancel(&owner->picker);
         native_file_picker_release(&owner->picker, 5'000);
@@ -1708,12 +1679,9 @@ void application_profile_editor_release() noexcept {
     release_picked(owner->avatar);
     release_picked(owner->banner);
     release_picked(owner->staged);
-    ui_settings_scene_release(&owner->scene);
     for (auto& model : owner->models)
         message_composer_release(&model);
-    SecureZeroMemory(owner, sizeof(*owner));
-    VirtualFree(owner, 0, MEM_RELEASE);
-    owner = nullptr;
+    settings_modal_free(owner);
 }
 
 bool application_profile_editor_synchronize() noexcept {
@@ -1741,8 +1709,7 @@ bool application_profile_editor_synchronize() noexcept {
         return false;
     if (p.dialog_kind != Dialog::none)
         dialog_update();
-    return g_app.renderer.interaction_text_settings_revision == p.scene.revision ||
-           renderer_rebuild_content_text(&g_app.renderer, application_theme());
+    return settings_modal_sync_text(p);
 }
 
 namespace {
@@ -1997,10 +1964,8 @@ bool application_profile_editor_submit(u64 now) noexcept {
     }
     const u64 id = application_next_request_id();
     const auto submitted = g_app.account.api.profile_edit(g_app.account.instance, &request, id);
-    if (submitted.error == RestClientSubmitError::busy) {
-        p.retry_at = deadline_after(now, 50);
+    if (submit_busy(submitted, p.retry_at, now, 50))
         return true;
-    }
     p.queued = false;
     if (!submitted.ok()) {
         log_u64(LogLevel::warning, "profile_editor", "submit_error", static_cast<u64>(submitted.error));
@@ -2031,14 +1996,14 @@ bool application_profile_editor_owns_response(u64 request_id) noexcept {
     return request_id && owner && owner->request_id == request_id;
 }
 
-bool application_profile_editor_response(const RestClientResponse& response, const Utf8View& body) noexcept {
+bool application_profile_editor_response(const RestClientResponse& response, Utf8View body) noexcept {
     if (!application_profile_editor_owns_response(response.request_id))
         return false;
     auto& p = *owner;
     p.request_id = 0;
     if (!p.scene.active || !scope_current())
         return true;
-    const bool ok = response.transport_ok() && response.status_code >= 200 && response.status_code < 300;
+    const bool ok = response.succeeded();
     const Slice<u32> structurals{p.structurals, sizeof(p.structurals) / sizeof(u32)};
     switch (p.op) {
     case Op::fetch:

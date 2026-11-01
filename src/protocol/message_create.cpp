@@ -17,9 +17,7 @@ MessageCreateWriteResult write_message_create_target(u64 channel_id,
         return error(MessageCreateWriteError::invalid_input);
     }
     ProtocolWriter writer{output, 0};
-    if (!protocol_writer_append_literal(&writer, "/api/v10/channels/") ||
-        !protocol_writer_append_u64(&writer, channel_id) ||
-        !protocol_writer_append_literal(&writer, "/messages")) {
+    if (!protocol_write(&writer, "/api/v10/channels/", channel_id, "/messages")) {
         return error(MessageCreateWriteError::output_too_small);
     }
     return MessageCreateWriteResult{writer.used, MessageCreateWriteError::none};
@@ -76,32 +74,22 @@ MessageCreateWriteResult write_message_create_body(Utf8View content, u64 nonce,
     }
     if (!content.bytes) content = utf8_literal("");
     ProtocolWriter writer{output, 0};
-    if (!protocol_writer_append_literal(&writer, "{\"content\":") ||
-        !protocol_writer_append_json_string(&writer, content) ||
-        !protocol_writer_append_literal(&writer, ",\"nonce\":\"") ||
-        !protocol_writer_append_u64(&writer, nonce)) {
+    if (!protocol_write(&writer, "{\"content\":", json_text(content), ",\"nonce\":", snowflake_text(nonce))) {
         return error(MessageCreateWriteError::output_too_small);
     }
     if (reply_message_id != 0 &&
-        (!protocol_writer_append_literal(&writer,
-                                         "\",\"message_reference\":{\"type\":0,\"message_id\":\"") ||
-         !protocol_writer_append_u64(&writer, reply_message_id) ||
-         !protocol_writer_append_literal(&writer, "\",\"channel_id\":\"") ||
-         !protocol_writer_append_u64(&writer, channel_id) ||
-         !protocol_writer_append_literal(&writer,
-                                         "\",\"fail_if_not_exists\":false},\"allowed_mentions\":{\"parse\":"
-                                         "[\"users\",\"roles\",\"everyone\"],\"replied_user\":") ||
-         !protocol_writer_append_c_string(&writer, mention_reply_author ? "true}" : "false}"))) {
+        !protocol_write(&writer, ",\"message_reference\":{\"type\":0,\"message_id\":", snowflake_text(reply_message_id),
+                        ",\"channel_id\":", snowflake_text(channel_id),
+                        ",\"fail_if_not_exists\":false},\"allowed_mentions\":{\"parse\":"
+                        "[\"users\",\"roles\",\"everyone\"],\"replied_user\":",
+                        mention_reply_author ? "true}" : "false}")) {
         return error(MessageCreateWriteError::output_too_small);
     }
-    if (!(reply_message_id != 0
-              ? protocol_writer_append_literal(&writer, ",\"tts\":false,\"flags\":")
-              : protocol_writer_append_literal(&writer, "\",\"tts\":false,\"flags\":")) ||
-        !protocol_writer_append_u64(&writer, flags)) {
+    if (!protocol_write(&writer, ",\"tts\":false,\"flags\":", flags)) {
         return error(MessageCreateWriteError::output_too_small);
     }
     if (attachments.count) {
-        if (!protocol_writer_append_literal(&writer, ",\"attachments\":"))
+        if (!protocol_write(&writer, ",\"attachments\":"))
             return error(MessageCreateWriteError::output_too_small);
         const u32 bytes = attachment_upload_write_references(attachments,
             {output.data + writer.used, output.count - writer.used});
@@ -109,20 +97,17 @@ MessageCreateWriteResult write_message_create_body(Utf8View content, u64 nonce,
         writer.used += bytes;
     }
     if (sticker_ids.count) {
-        if (!protocol_writer_append_literal(&writer, ",\"sticker_ids\":["))
+        if (!protocol_write(&writer, ",\"sticker_ids\":["))
             return error(MessageCreateWriteError::output_too_small);
         for (u32 i = 0; i < sticker_ids.count; ++i) {
-            if ((i && !protocol_writer_append_literal(&writer, ",")) ||
-                !protocol_writer_append_literal(&writer, "\"") ||
-                !protocol_writer_append_u64(&writer, sticker_ids[i]) ||
-                !protocol_writer_append_literal(&writer, "\""))
+            if ((i && !protocol_write(&writer, ',')) || !protocol_write(&writer, snowflake_text(sticker_ids[i])))
                 return error(MessageCreateWriteError::output_too_small);
         }
-        if (!protocol_writer_append_literal(&writer, "]"))
+        if (!protocol_write(&writer, ']'))
             return error(MessageCreateWriteError::output_too_small);
     }
     // Desktop has no mobile-network classification to supply.
-    if (!protocol_writer_append_literal(&writer, ",\"mobile_network_type\":\"unknown\",\"enforce_nonce\":true}")) return error(MessageCreateWriteError::output_too_small);
+    if (!protocol_write(&writer, ",\"mobile_network_type\":\"unknown\",\"enforce_nonce\":true}")) return error(MessageCreateWriteError::output_too_small);
     return MessageCreateWriteResult{writer.used, MessageCreateWriteError::none};
 }
 
@@ -177,34 +162,23 @@ MessageCreateWriteResult write_message_poll_body(const PollCreate& poll, u64 non
     if (!output.data || !nonce || !poll_create_valid(poll))
         return error(MessageCreateWriteError::invalid_input);
     ProtocolWriter writer{output, 0};
-    bool ok = protocol_writer_append_literal(&writer, "{\"content\":\"\",\"nonce\":\"") &&
-              protocol_writer_append_u64(&writer, nonce) &&
-              protocol_writer_append_literal(&writer,
-                                             "\",\"tts\":false,\"flags\":0,\"poll\":{\"question\":{\"text\":") &&
-              protocol_writer_append_json_string(&writer, poll.question) &&
-              protocol_writer_append_literal(&writer, "},\"answers\":[");
+    bool ok = protocol_write(&writer, "{\"content\":\"\",\"nonce\":", snowflake_text(nonce),
+                             ",\"tts\":false,\"flags\":0,\"poll\":{\"question\":{\"text\":", json_text(poll.question),
+                             "},\"answers\":[");
     for (u32 i = 0; ok && i < poll.answer_count; ++i) {
         const auto& answer = poll.answers[i];
-        ok = (!i || protocol_writer_append_literal(&writer, ",")) &&
-             protocol_writer_append_literal(&writer, "{\"poll_media\":{\"text\":") &&
-             protocol_writer_append_json_string(&writer, answer.text);
+        ok = (!i || protocol_write(&writer, ',')) &&
+             protocol_write(&writer, "{\"poll_media\":{\"text\":", json_text(answer.text));
         // Custom emoji carry an empty name.
         if (ok && answer.emoji_id)
-            ok = protocol_writer_append_literal(&writer, ",\"emoji\":{\"id\":\"") &&
-                 protocol_writer_append_u64(&writer, answer.emoji_id) &&
-                 protocol_writer_append_literal(&writer, "\",\"name\":\"\"}");
+            ok = protocol_write(&writer, ",\"emoji\":{\"id\":", snowflake_text(answer.emoji_id), ",\"name\":\"\"}");
         else if (ok && answer.emoji_name.bytes)
-            ok = protocol_writer_append_literal(&writer, ",\"emoji\":{\"name\":") &&
-                 protocol_writer_append_json_string(&writer, answer.emoji_name) &&
-                 protocol_writer_append_literal(&writer, "}");
-        ok = ok && protocol_writer_append_literal(&writer, "}}");
+            ok = protocol_write(&writer, ",\"emoji\":{\"name\":", json_text(answer.emoji_name), '}');
+        ok = ok && protocol_write(&writer, "}}");
     }
-    ok = ok && protocol_writer_append_literal(&writer, "],\"allow_multiselect\":") &&
-         protocol_writer_append_c_string(&writer, poll.allow_multiselect ? "true" : "false") &&
-         protocol_writer_append_literal(&writer, ",\"duration\":") &&
-         protocol_writer_append_u64(&writer, poll.duration_hours) &&
-         protocol_writer_append_literal(
-             &writer, ",\"layout_type\":1},\"mobile_network_type\":\"unknown\",\"enforce_nonce\":true}");
+    ok = ok && protocol_write(&writer, "],\"allow_multiselect\":", poll.allow_multiselect ? "true" : "false",
+                             ",\"duration\":", poll.duration_hours,
+                             ",\"layout_type\":1},\"mobile_network_type\":\"unknown\",\"enforce_nonce\":true}");
     return ok ? MessageCreateWriteResult{writer.used, MessageCreateWriteError::none}
               : error(MessageCreateWriteError::output_too_small);
 }
@@ -219,22 +193,14 @@ MessageCreateWriteResult write_message_forward_body(Utf8View caption, u64 nonce,
         return error(MessageCreateWriteError::invalid_utf8);
     if (!caption.bytes) caption = utf8_literal("");
     ProtocolWriter writer{output, 0};
-    if (!protocol_writer_append_literal(&writer, "{\"content\":") ||
-        !protocol_writer_append_json_string(&writer, caption) ||
-        !protocol_writer_append_literal(&writer, ",\"nonce\":\"") ||
-        !protocol_writer_append_u64(&writer, nonce) ||
-        !protocol_writer_append_literal(&writer, "\",\"message_reference\":{\"type\":1,\"message_id\":\"") ||
-        !protocol_writer_append_u64(&writer, source.message_id) ||
-        !protocol_writer_append_literal(&writer, "\",\"channel_id\":\"") ||
-        !protocol_writer_append_u64(&writer, source.channel_id) ||
-        !protocol_writer_append_literal(&writer, "\""))
+    if (!protocol_write(&writer, "{\"content\":", json_text(caption), ",\"nonce\":", snowflake_text(nonce),
+                        ",\"message_reference\":{\"type\":1,\"message_id\":", snowflake_text(source.message_id),
+                        ",\"channel_id\":", snowflake_text(source.channel_id)))
         return error(MessageCreateWriteError::output_too_small);
-    if (source.guild_id && (!protocol_writer_append_literal(&writer, ",\"guild_id\":\"") ||
-        !protocol_writer_append_u64(&writer, source.guild_id) ||
-        !protocol_writer_append_literal(&writer, "\"")))
+    if (source.guild_id && !protocol_write(&writer, ",\"guild_id\":", snowflake_text(source.guild_id)))
         return error(MessageCreateWriteError::output_too_small);
     // A missing source must fail, and a caption must never create implicit pings.
-    if (!protocol_writer_append_literal(&writer,
+    if (!protocol_write(&writer,
         ",\"fail_if_not_exists\":true},\"allowed_mentions\":{\"parse\":[],\"replied_user\":false},"
         "\"tts\":false,\"flags\":0,\"mobile_network_type\":\"unknown\",\"enforce_nonce\":true}"))
         return error(MessageCreateWriteError::output_too_small);

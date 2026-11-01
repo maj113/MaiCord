@@ -96,33 +96,22 @@ PollWriteResult write_poll_request(const PollRequest& request,
     // reads one message with /messages?limit=1&around={m}, an array whose
     // element must match {m}.
     bool okay=route_writer_initialize(&route,{target,sizeof(target)}) &&
-        route_append(&route,utf8_literal("/api/v10/channels/")) &&
-        route_append_u64(&route,request.channel_id) &&
-        (refresh ? route_append(&route,utf8_literal("/messages?limit=1&around="))
-                 : route_append(&route,utf8_literal("/polls/"))) &&
-        route_append_u64(&route,request.message_id);
+        route_write(&route,"/api/v10/channels/",request.channel_id,
+                    refresh ? utf8_literal("/messages?limit=1&around=") : utf8_literal("/polls/"),request.message_id);
     if (voters) {
-        okay=okay && route_append(&route,utf8_literal("/answers/")) &&
-            route_append_u64(&route,request.answer_id) &&
-            route_append(&route,utf8_literal("?limit=")) &&
-            route_append_u64(&route,request.limit) &&
-            (!request.after_user_id || (route_append(&route,utf8_literal("&after=")) &&
-                                       route_append_u64(&route,request.after_user_id))) &&
-            route_append(&route,utf8_literal("&type=2"));
+        okay=okay && route_write(&route,"/answers/",request.answer_id,"?limit=",request.limit) &&
+            (!request.after_user_id || route_write(&route,"&after=",request.after_user_id)) &&
+            route_write(&route,"&type=2");
         result.method=RestMethod::get; result.route_id=kPollVotersRouteId;
     } else if (refresh) {
         result.method=RestMethod::get; result.route_id=kPollMessageRouteId;
     } else {
-        okay=okay && route_append(&route,utf8_literal("/answers/@me")) &&
-            protocol_writer_append_literal(&payload,"{\"answer_ids\":[");
         // The web client votes with String(answer_id) values (its selection set holds the string ids and
         // parseInt()s them only for analytics), so the body carries decimal strings.
+        okay=okay && route_write(&route,"/answers/@me") && protocol_write(&payload,"{\"answer_ids\":[");
         for (u32 i=0;okay && i<request.answer_count;++i)
-            okay=(!i || protocol_writer_append_byte(&payload,',')) &&
-                protocol_writer_append_byte(&payload,'"') &&
-                protocol_writer_append_u64(&payload,request.answer_ids[i]) &&
-                protocol_writer_append_byte(&payload,'"');
-        okay=okay && protocol_writer_append_literal(&payload,"]}");
+            okay=(!i || protocol_write(&payload,',')) && protocol_write(&payload,snowflake_text(request.answer_ids[i]));
+        okay=okay && protocol_write(&payload,"]}");
         result.method=RestMethod::put; result.route_id=kPollVoteRouteId;
     }
     if (!okay || route.bytes>target_output.count || payload.used>body_output.count ||

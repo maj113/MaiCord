@@ -55,16 +55,9 @@ AttachmentUploadWriteResult attachment_upload_write(u64 channel_id, u32 id, Utf8
     u64 file_bytes, Slice<u8> target, Slice<u8> body) noexcept {
     if (!channel_id || !file_bytes || !attachment_upload_valid_filename(filename)) return {};
     ProtocolWriter path{target, 0}, json{body, 0};
-    if (!protocol_writer_append_literal(&path, "/api/v9/channels/") ||
-        !protocol_writer_append_u64(&path, channel_id) ||
-        !protocol_writer_append_literal(&path, "/attachments") ||
-        !protocol_writer_append_literal(&json, "{\"files\":[{\"filename\":") ||
-        !protocol_writer_append_json_string(&json, filename) ||
-        !protocol_writer_append_literal(&json, ",\"file_size\":") ||
-        !protocol_writer_append_u64(&json, file_bytes) ||
-        !protocol_writer_append_literal(&json, ",\"id\":\"") ||
-        !protocol_writer_append_u64(&json, id) ||
-        !protocol_writer_append_literal(&json, "\",\"is_clip\":false}]}")) return {};
+    if (!protocol_write(&path, "/api/v9/channels/", channel_id, "/attachments") ||
+        !protocol_write(&json, "{\"files\":[{\"filename\":", json_text(filename), ",\"file_size\":", file_bytes,
+                        ",\"id\":", snowflake_text(id), ",\"is_clip\":false}]}")) return {};
     return {path.used, json.used, true};
 }
 RestRouteKey attachment_upload_route(u64 channel_id) noexcept {
@@ -89,14 +82,13 @@ AttachmentUploadResponse attachment_upload_parse_response(Utf8View body, u32 exp
 u32 attachment_upload_write_duration(u32 duration_ms, Slice<char> output) noexcept {
     char text[16];
     ProtocolWriter writer{{reinterpret_cast<u8*>(text), sizeof(text)}, 0};
-    protocol_writer_append_u64(&writer, duration_ms / 1000);
+    protocol_write(&writer, duration_ms / 1000);
     u32 fraction = duration_ms % 1000, digits = 3;
     while (fraction && fraction % 10 == 0) fraction /= 10, --digits;
     if (fraction) {
         char decimals[3];
         for (u32 i = digits; i-- > 0; fraction /= 10) decimals[i] = static_cast<char>('0' + fraction % 10);
-        protocol_writer_append_literal(&writer, ".");
-        protocol_writer_append_bytes(&writer, reinterpret_cast<const u8*>(decimals), digits);
+        protocol_write(&writer, '.', Utf8View{decimals, digits});
     }
     if (!output.data || output.count < writer.used) return 0;
     copy_bytes(output.data, text, writer.used);
@@ -125,29 +117,23 @@ u32 attachment_upload_write_references(ConstSlice<UploadedAttachment> attachment
         for (u32 j = 0; j < i; ++j) if (attachments[i].id == attachments[j].id) return 0;
     }
     ProtocolWriter json{output, 0};
-    if (!protocol_writer_append_literal(&json, "[")) return 0;
+    if (!protocol_write(&json, '[')) return 0;
     for (u32 i = 0; i < attachments.count; ++i) {
         const auto& a = attachments[i];
-        if ((i && !protocol_writer_append_literal(&json, ",")) ||
-            !protocol_writer_append_literal(&json, "{\"id\":\"") ||
-            !protocol_writer_append_u64(&json, a.id) ||
-            !protocol_writer_append_literal(&json, "\",\"filename\":") ||
-            !protocol_writer_append_json_string(&json, a.filename) ||
-            !protocol_writer_append_literal(&json, ",\"uploaded_filename\":") ||
-            !protocol_writer_append_json_string(&json, a.uploaded_filename) ||
-            (a.description.bytes && (!protocol_writer_append_literal(&json, ",\"description\":") ||
-                !protocol_writer_append_json_string(&json, a.description))) ||
-            (a.spoiler && !protocol_writer_append_literal(&json, ",\"is_spoiler\":true"))) return 0;
+        if ((i && !protocol_write(&json, ',')) ||
+            !protocol_write(&json, "{\"id\":", snowflake_text(a.id), ",\"filename\":", json_text(a.filename),
+                            ",\"uploaded_filename\":", json_text(a.uploaded_filename)) ||
+            (a.description.bytes && !protocol_write(&json, ",\"description\":", json_text(a.description))) ||
+            (a.spoiler && !protocol_write(&json, ",\"is_spoiler\":true"))) return 0;
         if (attachment_upload_is_voice(a)) {
             char duration[16];
             const u32 duration_bytes = attachment_upload_write_duration(a.duration_ms, {duration, sizeof(duration)});
-            if (!duration_bytes || !protocol_writer_append_literal(&json, ",\"duration_secs\":") ||
-                !protocol_writer_append_bytes(&json, reinterpret_cast<const u8*>(duration), duration_bytes) ||
-                !protocol_writer_append_literal(&json, ",\"waveform\":") ||
-                !protocol_writer_append_json_string(&json, a.waveform)) return 0;
+            if (!duration_bytes ||
+                !protocol_write(&json, ",\"duration_secs\":", Utf8View{duration, duration_bytes}, ",\"waveform\":",
+                                json_text(a.waveform))) return 0;
         }
-        if (!protocol_writer_append_literal(&json, "}")) return 0;
+        if (!protocol_write(&json, '}')) return 0;
     }
-    return protocol_writer_append_literal(&json, "]") ? json.used : 0;
+    return protocol_write(&json, ']') ? json.used : 0;
 }
 }

@@ -53,11 +53,7 @@ enum class MessagePinsWriteError : u8 {
     output_capacity,
 };
 
-struct MessagePinsWriteResult {
-    u32 bytes;
-    MessagePinsWriteError error;
-    constexpr bool ok() const noexcept { return error == MessagePinsWriteError::none; }
-};
+using MessagePinsWriteResult = ByteResult<MessagePinsWriteError>;
 
 // Validates timestamp syntax through the shared API timestamp parser.
 // Empty is valid only when allow_empty is true. No cursor text is logged.

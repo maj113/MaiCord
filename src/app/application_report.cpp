@@ -9,7 +9,7 @@
 #include "application_message_interaction.hpp"
 #include "application_profile.hpp"
 #include "application_settings.hpp"
-#include "application_settings_layer.hpp"
+#include "application_settings_modal.hpp"
 #include "application_state.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
@@ -48,12 +48,7 @@ struct Answer {
     u64 selected;
 };
 
-struct Owner {
-    UiSettingsScene scene;
-    SettingsLayer layer;
-    UiPageRegistry registry;
-    UiPage page;
-    UiSettingsPageContent content;
+struct Owner : SettingsDialog {
     UiSettingsControl controls[kControlCapacity];
     UiSettingsControlPresentation presentation[kControlCapacity];
     u32 control_count;
@@ -286,14 +281,10 @@ bool project() noexcept {
     p.content.presentation = p.presentation;
     p.content.footer = &p.footer;
     ++p.content.revision;
-    ui_settings_scene_set_focus_visible(&p.scene, g_app.keyboard_focus_visible);
-    return ui_settings_scene_update(&p.scene, &p.registry, application_viewport_dips());
+    return settings_modal_update(p);
 }
 bool repaint() noexcept {
-    if (!project())
-        return false;
-    application_request_frame();
-    return !g_app.renderer_ready || renderer_rebuild_content_text(&g_app.renderer, application_theme());
+    return settings_modal_present(project());
 }
 
 void queue(Op op) noexcept {
@@ -427,34 +418,19 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
         return;
     repaint();
 }
-void choose(SettingsLayer*, u32) noexcept {}
-bool edited(SettingsLayer*, u64) noexcept {
-    return false;
-}
-bool editor_hook(SettingsLayer*, u64, MessageComposer**, BoundedEdit**, bool*) noexcept {
-    return false;
-}
-void close_hook(SettingsLayer*) noexcept {
-    application_report_close();
-}
-bool repaint_hook(SettingsLayer*) noexcept {
-    return repaint();
-}
-bool editable_hook(SettingsLayer*) noexcept {
-    return false;
-}
-constexpr SettingsLayerHooks kHooks{editor_hook, edited, activate, choose, close_hook, repaint_hook, nullptr,
-                                    editable_hook};
+constexpr SettingsLayerHooks kHooks{settings_hook_editor_none,
+                                    settings_hook_edited_none,
+                                    activate,
+                                    settings_hook_ignore_choice,
+                                    settings_hook_close<application_report_close>,
+                                    settings_hook<repaint>,
+                                    nullptr,
+                                    settings_hook_not_editable};
 
 bool ensure_owner() noexcept {
-    if (owner)
-        return true;
-    owner = static_cast<Owner*>(VirtualAlloc(nullptr, sizeof(Owner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!owner)
-        return false;
-    owner->layer.scene = &owner->scene;
-    owner->layer.hooks = &kHooks;
-    return true;
+        owner = settings_modal_allocate<Owner>(kHooks);
+    return owner != nullptr;
 }
 } // namespace
 
@@ -464,9 +440,7 @@ bool application_report_open(const ApplicationReportTarget& target) noexcept {
         target.name >= ReportMenuName::count || (message ? !target.channel_id || !target.message_id : !target.user_id) ||
         !ensure_owner() || busy())
         return false;
-    application_settings_close(false);
-    application_media_picker_close();
-    application_profile_close();
+    settings_modal_yield();
     auto& p = *owner;
     report_menu_release(&p.menu);
     p.lifetime = ++lifetime_serial;
@@ -482,29 +456,13 @@ bool application_report_open(const ApplicationReportTarget& target) noexcept {
     const auto title = message ? utf8_literal("Report message") : utf8_literal("Report user");
     copy_bytes(p.title, title.data, title.bytes);
     p.title_bytes = title.bytes;
-    settings_layer_reset(&p.layer);
-    if (!ui_page_registry_initialize(&p.registry, {&p.page, 1}))
+    if (!settings_dialog_begin(p, kPage, {p.title, p.title_bytes}))
         return false;
-    p.content = {{p.title, p.title_bytes}, {}, {}, 1, kUiSettingsPageFormat, &kUiDefaultSettingsStyle, nullptr};
-    if (!ui_page_registry_register(&p.registry, {kPage, p.content.title, &p.content}).ok())
-        return false;
-    application_composer_text_input_suspend();
-    dismiss_popup();
-    ui_scroll_host_cancel(&g_app.scroll_host);
-    g_app.message_composer.focused = false;
-    ui_settings_scene_set_presentation(&p.scene, UiSettingsPresentation::dialog);
-    p.scene.focus = {UiSettingsTargetKind::control, kPage, control_status};
-    if (!ui_settings_scene_update(&p.scene, &p.registry, application_viewport_dips()) || !project()) {
-        application_report_close(false);
-        return false;
+    if (settings_dialog_show(p, kPage, control_status, false, project)) {
+        queue(Op::menu);
+        if (repaint())
+            return true;
     }
-    renderer_bind_settings_scene(&g_app.renderer, &p.scene);
-    settings_layer_begin_entrance(&p.layer);
-    g_app.context_focus = &p.scene.widgets;
-    application_sync_attachment_drop_target();
-    queue(Op::menu);
-    if (repaint())
-        return true;
     application_report_close(false);
     return false;
 }
@@ -516,21 +474,10 @@ bool application_report_active() noexcept {
 void application_report_close(bool restore_focus) noexcept {
     if (!owner || !owner->scene.active)
         return;
-    application_composer_text_input_suspend();
-    settings_layer_close_choice(&owner->layer);
-    settings_layer_cancel_pointer(&owner->layer);
+    settings_modal_suspend(*owner);
     // A queued request is dropped; one in flight finishes and is discarded.
     owner->queued = false;
-    renderer_bind_settings_scene(&g_app.renderer, nullptr);
-    owner->layer.entrance_started = 0;
-    renderer_set_settings_modal_progress(&g_app.renderer, 1);
-    ui_settings_scene_close(&owner->scene);
-    if (restore_focus && application_account_available())
-        g_app.context_focus = &g_app.shell_scene.widgets;
-    application_sync_attachment_drop_target();
-    if (g_app.renderer_ready)
-        refresh_account_text(true);
-    application_request_frame();
+    settings_modal_leave(*owner, restore_focus && application_account_available());
 }
 
 void application_report_release() noexcept {
@@ -538,10 +485,7 @@ void application_report_release() noexcept {
     if (!owner)
         return;
     report_menu_release(&owner->menu);
-    ui_settings_scene_release(&owner->scene);
-    secure_clear_bytes(owner, sizeof(*owner));
-    VirtualFree(owner, 0, MEM_RELEASE);
-    owner = nullptr;
+    settings_modal_free(owner);
 }
 
 bool application_report_synchronize() noexcept {
@@ -552,10 +496,7 @@ bool application_report_synchronize() noexcept {
         application_report_close(false);
         return true;
     }
-    if (!ui_settings_scene_update(&p.scene, &p.registry, application_viewport_dips()))
-        return false;
-    return g_app.renderer.interaction_text_settings_revision == p.scene.revision ||
-           renderer_rebuild_content_text(&g_app.renderer, application_theme());
+    return settings_modal_refresh(p);
 }
 
 SettingsLayer* application_report_settings_layer() noexcept {
@@ -613,10 +554,8 @@ bool application_report_submit(u64 now) noexcept {
     }
     const u64 id = application_next_request_id();
     const auto result = g_app.account.api.user_social(g_app.account.instance, &request, id);
-    if (result.error == RestClientSubmitError::busy) {
-        p.retry_at = now + 100;
+    if (submit_busy(result, p.retry_at, now, 100))
         return false;
-    }
     if (!result.ok()) {
         p.queued = false;
         p.failed = true;
@@ -641,8 +580,7 @@ bool application_report_response(const RestClientResponse& response, Utf8View bo
         return true;
     auto& p = *owner;
     p.request_id = 0;
-    const bool ok = response.error == RestClientError::none && response.status_code >= 200 &&
-                    response.status_code < 300;
+    const bool ok = response.succeeded();
     if (!p.scene.active || !scope_current())
         return true;
     if (p.op == Op::menu) {

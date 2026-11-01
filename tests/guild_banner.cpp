@@ -3,6 +3,7 @@
 // header geometry and animation rules, the list's banner inset, the header's
 // banner presentation (paint and text) and the server tag popout's banner.
 #include "maicord/app/chat_state_dispatch.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/chat_state.hpp"

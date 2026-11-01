@@ -1,4 +1,5 @@
 #include "../src/app/application_guild_community.cpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/win32_kernel.hpp"
 

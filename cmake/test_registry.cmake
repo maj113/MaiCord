@@ -172,7 +172,7 @@ maicord_test(MaiCordNativeExtensionTests ENTRY maicord_native_extensions_entry
         maicord_account_host maicord_account_paths maicord_account_media maicord_plugin_modules maicord_message_media
         maicord_ui_input maicord_text maicord_render_core maicord_model kernel32 user32 bcrypt crypt32 ws2_32
         maicord_sspicli ole32 ntdll
-    INCLUDES src/app third_party/opus/include
+    INCLUDES src/app third_party/opus/include "${MAICORD_GENERATED_DIRECTORY}"
     DEFINES MAICORD_PLUGIN_BUNDLE_INSTALL_FIXTURE=1
         "MAICORD_THEME_EXAMPLE_PATH=L\"${CMAKE_CURRENT_SOURCE_DIR}/assets/themes/example.maicord-theme.json\""
     DEPENDS MaiCordPluginFixture
@@ -486,7 +486,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
     TEST maicord_core)
 maicord_test(MaiCordCommandUiTests ENTRY maicord_command_ui_tests_entry
     SOURCES tests/application_commands_ui.cpp src/app/application_commands.cpp src/app/application_builtin_commands.cpp
-        src/app/application_state.cpp
+        src/app/application_state.cpp src/app/application_settings_modal.cpp
         src/app/application_message_feedback.cpp tests/application_activity_retry.cpp
         tests/application_custom_status_retry.cpp tests/application_notification_retry.cpp
         tests/application_community_retry.cpp tests/application_invite_retry.cpp src/core/log.cpp
@@ -524,6 +524,7 @@ maicord_test(MaiCordSurfaceMotionTests ENTRY maicord_surface_motion_entry
     DEFINES MAICORD_SURFACE_MOTION_CONTROLLER_TEST=1)
 maicord_test(MaiCordChannelOverviewRuntimeTests ENTRY maicord_application_channel_overview_runtime_entry
     SOURCES tests/application_channel_overview_runtime.cpp src/app/application_settings_layer.cpp
+        src/app/application_settings_modal.cpp
         src/app/application_state.cpp src/core/log.cpp
     LIBS ${maicord_app_ui_test_libs} kernel32 user32 shell32
     INCLUDES src/app

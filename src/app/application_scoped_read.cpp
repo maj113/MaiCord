@@ -456,8 +456,7 @@ bool application_scoped_read_response(const RestClientResponse& response, Utf8Vi
     if (same_actor && response.transport_ok() && response.status_code == 429)
         bulk_read_ack_floor(&o->queue,
                             response.retry_at_ms ? response.retry_at_ms : deadline_after(now, 1000));
-    const bool success =
-        response.transport_ok() && response.status_code >= 200 && response.status_code < 300;
+    const bool success = response.succeeded();
     if (same_actor && success)
         bulk_read_ack_floor(&o->queue, deadline_after(now, 1000));
     if (response.transport_ok() && response.status_code >= 400 && response.status_code < 500)

@@ -10,6 +10,7 @@
 #include "maicord/app/message_composer_controller.hpp"
 #include "application_content_input.hpp"
 #include "application_state.hpp"
+#include "application_account_access.hpp"
 #include "application_account_presentation.hpp"
 #include "application_message_interaction.hpp"
 #include "application_private_conversation.hpp"
@@ -116,10 +117,8 @@ bool submit_activity_request(ApplicationProfile& p, u64 now) noexcept {
         metadata ? host.api.profile_get(host.instance, p.metadata_user, p.metadata_application,
                                         ui.message_history_request_id, 6, p.metadata_session.view())
                  : host.api.profile_get(host.instance, p.data.user_id, 0, ui.message_history_request_id, 5, {ids, used});
-    if (result.error == RestClientSubmitError::busy) {
-        p.retry_at = now + 100;
+    if (submit_busy(result, p.retry_at, now, 100))
         return true;
-    }
     if (!result.ok()) {
         // Not retried: the card keeps its placeholder, the button does nothing.
         if (metadata)
@@ -1111,10 +1110,8 @@ bool application_profile_submit(u64 now) noexcept {
         result = host.api.profile_get(host.instance, effect ? effect_id : p->data.user_id, p->data.guild_id,
                                       ui.message_history_request_id, effect ? 4 : 0, {});
     }
-    if (result.error == RestClientSubmitError::busy) {
-        p->retry_at = now + 100;
+    if (submit_busy(result, p->retry_at, now, 100))
         return true;
-    }
     if (!result.ok()) {
         fail_pending_request(*p);
         return true;
@@ -1150,8 +1147,7 @@ bool application_profile_response(const RestClientResponse& response, Utf8View b
         return repaint();
     }
     if (p->submitted_request == ProfileRequest::roles) {
-        const bool saved = response.error == RestClientError::none && response.status_code >= 200 &&
-                           response.status_code < 300;
+        const bool saved = response.succeeded();
         p->submitted_request = ProfileRequest::profile;
         p->scene.roles_busy = false;
         p->mutation = ProfileRoleChange::none;

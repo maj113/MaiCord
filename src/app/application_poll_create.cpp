@@ -1,5 +1,6 @@
 #include "application_poll_create.hpp"
 #include "application_settings_layer.hpp"
+#include "application_settings_modal.hpp"
 #include "application_channel_overview.hpp"
 #include "maicord/render/layer_presentation.hpp"
 #include "application_state.hpp"
@@ -46,12 +47,7 @@ constexpr Utf8View kDurationLabels[]{utf8_literal("1 hour"),   utf8_literal("4 h
                                      utf8_literal("24 hours"), utf8_literal("3 days"),  utf8_literal("1 week")};
 static_assert(sizeof(kDurationLabels) / sizeof(kDurationLabels[0]) == kPollDurationCount);
 
-struct Form {
-    UiSettingsScene scene;
-    SettingsLayer layer;
-    UiPageRegistry registry;
-    UiPage page;
-    UiSettingsPageContent content;
+struct Form : SettingsDialog {
     UiSettingsControl controls[kControlCapacity];
     u32 control_count;
     UiSettingsEditor editors[kEditorCount];
@@ -222,14 +218,10 @@ bool project() noexcept {
     p.content.controls = {p.controls, p.control_count};
     p.content.footer = &p.footer;
     ++p.content.revision;
-    ui_settings_scene_set_focus_visible(&p.scene, g_app.keyboard_focus_visible);
-    return ui_settings_scene_update(&p.scene, &p.registry, application_viewport_dips());
+    return settings_modal_update(p);
 }
 bool repaint() noexcept {
-    if (!project())
-        return false;
-    application_request_frame();
-    return !g_app.renderer_ready || renderer_rebuild_content_text(&g_app.renderer, application_theme());
+    return settings_modal_present(project());
 }
 
 // Actions -----------------------------------------------------------------
@@ -345,17 +337,14 @@ bool editor_hook(SettingsLayer*, u64 control, MessageComposer** model, BoundedEd
     *multiline = false;
     return true;
 }
-void close_hook(SettingsLayer*) noexcept {
-    application_poll_create_close();
-}
-bool repaint_hook(SettingsLayer*) noexcept {
-    return repaint();
-}
-bool editable_hook(SettingsLayer*) noexcept {
-    return editable();
-}
-constexpr SettingsLayerHooks kHooks{editor_hook, edited, activate, choose, close_hook, repaint_hook, nullptr,
-                                    editable_hook};
+constexpr SettingsLayerHooks kHooks{editor_hook,
+                                    edited,
+                                    activate,
+                                    choose,
+                                    settings_hook_close<application_poll_create_close>,
+                                    settings_hook<repaint>,
+                                    nullptr,
+                                    settings_hook<editable>};
 } // namespace
 
 bool application_poll_create_available(u64 channel_id) noexcept {
@@ -373,15 +362,11 @@ bool application_poll_create_open(u64 channel_id) noexcept {
     if (!available() || !g_app.renderer_ready || g_app.text_form || application_channel_overview_active() ||
         (owner && owner->request_id) || !application_poll_create_available(channel_id))
         return false;
-    application_settings_close(false);
-    application_media_picker_close();
-    application_profile_close();
+    settings_modal_yield();
     if (!owner) {
-        owner = static_cast<Form*>(VirtualAlloc(nullptr, sizeof(Form), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        owner = settings_modal_allocate<Form>(kHooks);
         if (!owner)
             return false;
-        owner->layer.scene = &owner->scene;
-        owner->layer.hooks = &kHooks;
         for (u32 i = 0; i < kEditorCount; ++i)
             message_composer_initialize(&owner->models[i], editor_storage(i));
         nonce_sequence = GetTickCount64();
@@ -397,30 +382,10 @@ bool application_poll_create_open(u64 channel_id) noexcept {
     p.queued = p.failed = false;
     reset_value(&p.status);
     poll_draft_reset(&p.draft);
-    settings_layer_reset(&p.layer);
-    if (!ui_page_registry_initialize(&p.registry, {&p.page, 1}))
+    if (!settings_dialog_begin(p, kPage, utf8_literal("Create poll")))
         return false;
-    p.content = {utf8_literal("Create poll"), {}, {}, 1, kUiSettingsPageFormat, &kUiDefaultSettingsStyle, nullptr};
-    if (!ui_page_registry_register(&p.registry, {kPage, p.content.title, &p.content}).ok())
-        return false;
-    application_composer_text_input_suspend();
-    dismiss_popup();
-    ui_scroll_host_cancel(&g_app.scroll_host);
-    g_app.message_composer.focused = false;
-    ui_settings_scene_set_presentation(&p.scene, UiSettingsPresentation::dialog);
     load_editors();
-    p.scene.focus = {UiSettingsTargetKind::control, kPage, control_question};
-    // project() requires an active scene; the first update activates it.
-    if (!ui_settings_scene_update(&p.scene, &p.registry, application_viewport_dips()) || !project()) {
-        application_poll_create_close(false);
-        return false;
-    }
-    renderer_bind_settings_scene(&g_app.renderer, &p.scene);
-    settings_layer_begin_entrance(&p.layer);
-    g_app.context_focus = &p.scene.widgets;
-    settings_layer_focus(&p.layer, {UiSettingsTargetKind::control, kPage, control_question});
-    application_sync_attachment_drop_target();
-    if (repaint())
+    if (settings_dialog_show(p, kPage, control_question, true, project) && repaint())
         return true;
     application_poll_create_close(false);
     return false;
@@ -429,21 +394,10 @@ bool application_poll_create_open(u64 channel_id) noexcept {
 void application_poll_create_close(bool restore_focus) noexcept {
     if (!owner || !owner->scene.active)
         return;
-    application_composer_text_input_suspend();
-    settings_layer_close_choice(&owner->layer);
-    settings_layer_cancel_pointer(&owner->layer);
+    settings_modal_suspend(*owner);
     // A queued poll is dropped; one in flight finishes and is discarded.
     owner->queued = false;
-    renderer_bind_settings_scene(&g_app.renderer, nullptr);
-    owner->layer.entrance_started = 0;
-    renderer_set_settings_modal_progress(&g_app.renderer, 1);
-    ui_settings_scene_close(&owner->scene);
-    if (restore_focus && available())
-        g_app.context_focus = &g_app.shell_scene.widgets;
-    application_sync_attachment_drop_target();
-    if (g_app.renderer_ready)
-        refresh_account_text(true);
-    application_request_frame();
+    settings_modal_leave(*owner, restore_focus && available());
 }
 
 void application_poll_create_release() noexcept {
@@ -452,12 +406,9 @@ void application_poll_create_release() noexcept {
         return;
     if (owner->request_id && g_app.account.api.poll_create && g_app.account.instance)
         g_app.account.api.poll_create(g_app.account.instance, 0, 0, nullptr, owner->request_id);
-    ui_settings_scene_release(&owner->scene);
     for (auto& model : owner->models)
         message_composer_release(&model);
-    secure_clear_bytes(owner, sizeof(*owner));
-    VirtualFree(owner, 0, MEM_RELEASE);
-    owner = nullptr;
+    settings_modal_free(owner);
 }
 
 bool application_poll_create_synchronize() noexcept {
@@ -472,10 +423,7 @@ bool application_poll_create_synchronize() noexcept {
         p.layer.choice = false;
         return repaint();
     }
-    if (!ui_settings_scene_update(&p.scene, &p.registry, application_viewport_dips()))
-        return false;
-    return g_app.renderer.interaction_text_settings_revision == p.scene.revision ||
-           renderer_rebuild_content_text(&g_app.renderer, application_theme());
+    return settings_modal_refresh(p);
 }
 
 SettingsLayer* application_poll_create_settings_layer() noexcept {
@@ -502,10 +450,8 @@ bool application_poll_create_submit(u64 now) noexcept {
     }
     const u64 id = application_next_request_id();
     const auto submitted = g_app.account.api.poll_create(g_app.account.instance, p.channel_id, p.nonce, &p.poll, id);
-    if (submitted.error == RestClientSubmitError::busy) {
-        p.retry_at = deadline_after(now, 50);
+    if (submit_busy(submitted, p.retry_at, now, 50))
         return true;
-    }
     p.queued = false;
     if (!submitted.ok()) {
         p.failed = true;
@@ -531,7 +477,7 @@ bool application_poll_create_response(const RestClientResponse& response, Utf8Vi
     p.request_id = 0;
     if (!p.scene.active)
         return true;
-    if (response.error == RestClientError::none && response.status_code >= 200 && response.status_code < 300) {
+    if (response.succeeded()) {
         // The message itself arrives through the gateway like any other.
         application_poll_create_close();
         return true;

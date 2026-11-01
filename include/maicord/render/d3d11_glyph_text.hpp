@@ -140,12 +140,6 @@ bool d3d11_glyph_text_rasterize_lottie_program(D3D11GlyphTextOwner* owner, ID3D1
 bool d3d11_glyph_text_rasterize_flag_program(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context,
     const ColrPaintProgram& program, const GlyphAtlasAllocation& allocation, u16 target_width,
     u16 target_height, u16 padding, ID3D11UnorderedAccessView* target) noexcept;
-// Sizes of the descriptor payloads, not the driver's allocation size or actual memory use.
-struct D3D11GlyphGpuFootprint {
-    u64 texture_bytes,buffer_bytes,mono_pixels,mono_commands;
-    u32 mono_dispatches,color_dispatches; // These count raster jobs, not batched Dispatch calls.
-};
-bool d3d11_glyph_text_gpu_footprint(const D3D11GlyphTextOwner&,D3D11GlyphGpuFootprint*) noexcept;
 void d3d11_glyph_text_reset_atlas(D3D11GlyphTextOwner* owner) noexcept;
 void d3d11_glyph_text_release(D3D11GlyphTextOwner* owner) noexcept;
 

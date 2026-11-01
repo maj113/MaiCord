@@ -10,11 +10,7 @@ enum class RelationshipOperation : u8 { list, request, accept, remove, block, ac
     ignore, unignore, clear_incoming, clear_hidden };
 enum class RelationshipEvent : u8 { add, remove, update };
 enum class RelationshipWriteError : u8 { none, invalid_input, output_too_small };
-struct RelationshipWriteResult {
-    u32 bytes;
-    RelationshipWriteError error;
-    constexpr bool ok() const noexcept { return error == RelationshipWriteError::none; }
-};
+using RelationshipWriteResult = ByteResult<RelationshipWriteError>;
 RestMethod relationship_method(RelationshipOperation operation) noexcept;
 RelationshipWriteResult write_relationship_target(RelationshipOperation operation, u64 user_id, Slice<u8> output) noexcept;
 RelationshipWriteResult write_relationship_body(RelationshipOperation operation, Utf8View username, Slice<u8> output) noexcept;

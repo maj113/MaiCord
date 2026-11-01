@@ -9,13 +9,7 @@ enum class SignatureEncodingError : u8 {
     malformed,
     output_capacity
 };
-struct SignatureEncodingResult {
-    u32 bytes;
-    SignatureEncodingError error;
-    constexpr bool ok() const noexcept {
-        return error == SignatureEncodingError::none;
-    }
-};
+using SignatureEncodingResult = ByteResult<SignatureEncodingError>;
 // Strict DER SEQUENCE of two minimally encoded positive, nonzero integers,
 // each at most 256 bits. This validates encoding, not signature arithmetic.
 // Raw representation is 64-byte P1363 r||s. All failures preserve output;

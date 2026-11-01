@@ -1,4 +1,5 @@
 #include "maicord/model/reaction_preferences.hpp"
+#include "model_store_fixtures.hpp"
 #include "test_output.hpp"
 
 #include "maicord/core/win32_kernel.hpp"

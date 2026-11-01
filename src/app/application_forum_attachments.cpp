@@ -289,7 +289,7 @@ void application_forum_attachments_url_response(const ApplicationForumPostTicket
     owner.url_id = 0;
     auto* row = message_attachment_drafts_get(&owner.drafts, id);
     const bool valid = row && source(owner) && authorized(ticket) && row->source.bytes <= application_attachment_limit(ticket.parent_id);
-    const auto decoded = valid && response.transport_ok() && response.status_code >= 200 && response.status_code < 300 &&
+    const auto decoded = valid && response.succeeded() &&
         body.data && body.bytes && body.bytes == response.body_bytes && body.bytes <= kForumPostMaximumResponseBytes ?
         attachment_upload_parse_response(body, static_cast<u32>(id), {owner.url, sizeof(owner.url)}, {owner.uploaded_filename, sizeof(owner.uploaded_filename)}) : AttachmentUploadResponse{};
     if (!decoded.ok) {

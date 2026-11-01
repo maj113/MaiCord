@@ -2095,20 +2095,6 @@ bool rest_client_cancel(RestClient* client, u64 request_id) noexcept {
     return network_client_cancel(client, &runtime->cancel_signal, kCancelSignalValue, request_id);
 }
 
-RestClientResult rest_client_wait_response(RestClient* client,
-                                           u32 timeout_ms) noexcept {
-    if (!client || !client->response_event)
-        return invalid_result();
-    const DWORD waited = WaitForSingleObject(client->response_event, timeout_ms);
-    RestClientResult value = client_result(client);
-    if (waited != WAIT_OBJECT_0 && value.error == RestClientError::none) {
-        value.error =
-            waited == WAIT_TIMEOUT ? RestClientError::timeout : RestClientError::worker;
-        value.native_error = waited == WAIT_TIMEOUT ? WAIT_TIMEOUT : thread_last_error();
-    }
-    return value;
-}
-
 RestClientTakeResult rest_client_take_response(RestClient* client,
                                                RestClientResponse* response,
                                                Slice<u8> body_output) noexcept {

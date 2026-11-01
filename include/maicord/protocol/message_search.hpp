@@ -102,13 +102,7 @@ enum class MessageSearchWriteError : u8 {
     invalid_input,
     output_capacity
 };
-struct MessageSearchWriteResult {
-    u32 bytes;
-    MessageSearchWriteError error;
-    constexpr bool ok() const noexcept {
-        return error == MessageSearchWriteError::none;
-    }
-};
+using MessageSearchWriteResult = ByteResult<MessageSearchWriteError>;
 
 struct MessageSearchMessage {
     GatewayMessageEvent message;

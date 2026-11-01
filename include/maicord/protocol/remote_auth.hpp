@@ -62,14 +62,7 @@ enum class RemoteAuthWriteError : u8 {
     output_too_small,
 };
 
-struct RemoteAuthWriteResult {
-    u32 bytes;
-    RemoteAuthWriteError error;
-
-    constexpr bool ok() const noexcept {
-        return error == RemoteAuthWriteError::none;
-    }
-};
+using RemoteAuthWriteResult = ByteResult<RemoteAuthWriteError>;
 
 enum class RemoteAuthUserPreviewError : u8 {
     none,

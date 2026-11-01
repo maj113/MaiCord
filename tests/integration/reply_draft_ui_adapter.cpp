@@ -1,4 +1,5 @@
 #include "reply_draft_ui_adapter.hpp"
+#include "../model_store_fixtures.hpp"
 #include "application_state.hpp"
 #include "application_message_interaction.hpp"
 #include "application_message_edit.hpp"

@@ -70,14 +70,7 @@ enum class JsonStringDecodeError : u8 {
     output_too_small,
 };
 
-struct JsonStringDecodeResult {
-    u32 bytes;
-    JsonStringDecodeError error;
-
-    constexpr bool ok() const noexcept {
-        return error == JsonStringDecodeError::none;
-    }
-};
+using JsonStringDecodeResult = ByteResult<JsonStringDecodeError>;
 
 using JsonMemberVisitor = bool (*)(void* context, JsonString name, JsonValue value) noexcept;
 using JsonArrayVisitor = bool (*)(void* context, u32 index, JsonValue value) noexcept;

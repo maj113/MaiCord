@@ -1,6 +1,7 @@
 // Exercise the shipping navigation owner and real metadata decoder/model apply.
 // Only account transport, accepted Search authority, and final UI selection are mocked.
 #include "../src/app/application_search_navigation.cpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/core/memory.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"

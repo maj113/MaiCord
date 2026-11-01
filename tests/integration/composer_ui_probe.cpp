@@ -1,4 +1,5 @@
 #include "application_emoji_preferences.hpp"
+#include "../model_store_fixtures.hpp"
 #include "composer_ui_probe.hpp"
 #include "probe_account_ui.hpp"
 #include "probe_present.hpp"

@@ -21,20 +21,16 @@ bool guild_operation(Op op) noexcept {
 bool sound_operation(Op op) noexcept {
     return op == Op::send || op == Op::update || op == Op::remove;
 }
-bool append_optional_id(ProtocolWriter* w, u64 id) noexcept {
-    return id ? protocol_writer_append_snowflake(w, id) : protocol_writer_append_literal(w, "null");
-}
+// The volume as a decimal fraction.
 bool append_volume(ProtocolWriter* w, u32 per_mille) noexcept {
     char text[8];
     const u32 bytes = soundboard_format_volume(per_mille, {text, sizeof(text)});
-    return bytes && protocol_writer_append_bytes(w, reinterpret_cast<const u8*>(text), bytes);
+    return bytes && protocol_write(w, Utf8View{text, bytes});
 }
 // ,"emoji_id":<id|null>,"emoji_name":<name|null>
 bool append_emoji(ProtocolWriter* w, const SoundboardRequest& r) noexcept {
-    return protocol_writer_append_literal(w, ",\"emoji_id\":") && append_optional_id(w, r.emoji_id) &&
-           protocol_writer_append_literal(w, ",\"emoji_name\":") &&
-           (r.emoji_name.bytes ? protocol_writer_append_json_string(w, r.emoji_name)
-                               : protocol_writer_append_literal(w, "null"));
+    return protocol_write(w, ",\"emoji_id\":", nullable_snowflake(r.emoji_id), ",\"emoji_name\":",
+                          nullable_json(r.emoji_name));
 }
 Utf8View soundboard_audio_mime(SoundboardAudioFormat format) noexcept {
     return format == SoundboardAudioFormat::mp3        ? utf8_literal("audio/mpeg")
@@ -45,33 +41,27 @@ Utf8View soundboard_audio_mime(SoundboardAudioFormat format) noexcept {
 // ","volume":..,"emoji_id":..,"emoji_name":..}.
 bool create_prefix(const SoundboardRequest& r, ProtocolWriter* w) noexcept {
     const auto mime = soundboard_audio_mime(r.format);
-    return protocol_writer_append_literal(w, "{\"name\":") && protocol_writer_append_json_string(w, r.name) &&
-           protocol_writer_append_literal(w, ",\"sound\":\"data:") &&
-           protocol_writer_append_bytes(w, reinterpret_cast<const u8*>(mime.data), mime.bytes) &&
-           protocol_writer_append_literal(w, ";base64,");
+    return protocol_write(w, "{\"name\":", json_text(r.name), ",\"sound\":\"data:", mime, ";base64,");
 }
 bool create_suffix(const SoundboardRequest& r, ProtocolWriter* w) noexcept {
-    return protocol_writer_append_literal(w, "\",\"volume\":") && append_volume(w, r.volume) && append_emoji(w, r) &&
-           protocol_writer_append_byte(w, '}');
+    return protocol_write(w, "\",\"volume\":") && append_volume(w, r.volume) && append_emoji(w, r) &&
+           protocol_write(w, '}');
 }
 bool small_body(const SoundboardRequest& r, ProtocolWriter* w) noexcept {
-    bool ok = protocol_writer_append_byte(w, '{');
+    bool ok = protocol_write(w, '{');
     if (r.operation == Op::send) {
         // emoji_name is omitted (not null) when the sound has none.
-        ok = ok && protocol_writer_append_literal(w, "\"sound_id\":") &&
-             protocol_writer_append_snowflake(w, r.sound_id) &&
-             protocol_writer_append_literal(w, ",\"emoji_id\":") && append_optional_id(w, r.emoji_id);
+        ok = ok && protocol_write(w, "\"sound_id\":", snowflake_text(r.sound_id), ",\"emoji_id\":",
+                                  nullable_snowflake(r.emoji_id));
         if (r.emoji_name.bytes)
-            ok = ok && protocol_writer_append_literal(w, ",\"emoji_name\":") &&
-                 protocol_writer_append_json_string(w, r.emoji_name);
+            ok = ok && protocol_write(w, ",\"emoji_name\":", json_text(r.emoji_name));
         if (r.guild_id)
-            ok = ok && protocol_writer_append_literal(w, ",\"source_guild_id\":") &&
-                 protocol_writer_append_snowflake(w, r.guild_id);
+            ok = ok && protocol_write(w, ",\"source_guild_id\":", snowflake_text(r.guild_id));
     } else {
-        ok = ok && protocol_writer_append_literal(w, "\"name\":") && protocol_writer_append_json_string(w, r.name) &&
-             protocol_writer_append_literal(w, ",\"volume\":") && append_volume(w, r.volume) && append_emoji(w, r);
+        ok = ok && protocol_write(w, "\"name\":", json_text(r.name), ",\"volume\":") && append_volume(w, r.volume) &&
+             append_emoji(w, r);
     }
-    return ok && protocol_writer_append_byte(w, '}');
+    return ok && protocol_write(w, '}');
 }
 } // namespace
 
@@ -169,20 +159,18 @@ SoundboardWriteResult soundboard_write_target(const SoundboardRequest& r, Slice<
         return {0, SoundboardWriteError::input};
     u8 staged[kSoundboardMaximumTargetBytes];
     ProtocolWriter w{{staged, sizeof(staged)}, 0};
-    bool ok = protocol_writer_append_literal(&w, "/api/v9");
+    bool ok = protocol_write(&w, "/api/v9");
     switch (r.operation) {
     case Op::send:
-        ok = ok && protocol_writer_append_literal(&w, "/channels/") && protocol_writer_append_u64(&w, r.channel_id) &&
-             protocol_writer_append_literal(&w, "/send-soundboard-sound");
+        ok = ok && protocol_write(&w, "/channels/", r.channel_id, "/send-soundboard-sound");
         break;
     case Op::default_list:
-        ok = ok && protocol_writer_append_literal(&w, "/soundboard-default-sounds");
+        ok = ok && protocol_write(&w, "/soundboard-default-sounds");
         break;
     default:
-        ok = ok && protocol_writer_append_literal(&w, "/guilds/") && protocol_writer_append_u64(&w, r.guild_id) &&
-             protocol_writer_append_literal(&w, "/soundboard-sounds");
+        ok = ok && protocol_write(&w, "/guilds/", r.guild_id, "/soundboard-sounds");
         if (r.operation == Op::update || r.operation == Op::remove)
-            ok = ok && protocol_writer_append_byte(&w, '/') && protocol_writer_append_u64(&w, r.sound_id);
+            ok = ok && protocol_write(&w, '/', r.sound_id);
         break;
     }
     return protocol_writer_finish<SoundboardWriteResult>(w, ok, output, staged);
@@ -222,7 +210,7 @@ SoundboardWriteResult soundboard_write_cdn_target(u64 sound_id, Slice<u8> output
         return {0, SoundboardWriteError::input};
     u8 staged[kSoundboardCdnTargetBytes];
     ProtocolWriter w{{staged, sizeof(staged)}, 0};
-    const bool ok = protocol_writer_append_literal(&w, "/soundboard-sounds/") && protocol_writer_append_u64(&w, sound_id);
+    const bool ok = protocol_write(&w, "/soundboard-sounds/", sound_id);
     return protocol_writer_finish<SoundboardWriteResult>(w, ok, output, staged);
 }
 

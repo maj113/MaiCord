@@ -139,9 +139,6 @@ bool user_activity_find(const UserActivityStore&, u64 user_id, UserActivitySet* 
 u32 user_activity_count(const UserActivityStore&, u64 user_id) noexcept;
 // The first activity's type without decoding the record; false when none.
 bool user_activity_first_type(const UserActivityStore&, u64 user_id, UserActivityType* output) noexcept;
-// Replaces a user's activities; an empty set removes the record. Revision
-// advances only on a change.
-bool user_activity_upsert(UserActivityStore*, const UserActivitySet&) noexcept;
 // One presence's activities from guild `scope` (0: a friend or DM presence).
 // The store keeps one set per user, so scopes merge as the official client's
 // guild-less lookup does: a set with activities replaces the record; an empty

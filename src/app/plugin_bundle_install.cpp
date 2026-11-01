@@ -23,7 +23,9 @@ constexpr bool forced(u32) noexcept {return false;}
 struct Runtime {
     NativePluginBundleInstall* owner{};
     NativePluginBundleInstallResult result{};
+#if defined(MAICORD_PLUGIN_BUNDLE_INSTALL_FIXTURE)
     NativePluginBundleInstallResources resources{};
+#endif
     NativePluginManifest source{},installed{},old{};
     NativePluginCatalog catalog{};
     NativePluginCatalogEntry entries[kNativePluginCatalogMaximumEntries]{};
@@ -83,6 +85,7 @@ bool destination_valid(const Runtime& r) noexcept {
     for(u32 i=0;i<n;++i)if(ascii_lower(r.destination[r.destination_characters-n+i])!=ascii_lower(suffix[i]))return false;
     return true;
 }
+#if defined(MAICORD_PLUGIN_BUNDLE_INSTALL_FIXTURE)
 u32 handles(const NativePluginVerifiedFile& file) noexcept {
     return file.ancestor_count+u32(file.file!=nullptr)+u32(file.scan!=nullptr)+u32(file.hash!=nullptr)+u32(file.algorithm!=nullptr);
 }
@@ -95,6 +98,11 @@ void checkpoint(Runtime& r) noexcept {
     r.resources.attached_handles=count;
     r.resources.peak_checkpoint_handles=maximum(r.resources.peak_checkpoint_handles,count);
 }
+void published(Runtime& r) noexcept {r.resources.published=true;}
+#else
+void checkpoint(Runtime&) noexcept {}
+void published(Runtime&) noexcept {}
+#endif
 bool final_path_equal(const NativePluginVerifiedFile& file) noexcept {
     wchar_t path[kNativePluginCatalogPathCapacity+4]{};
     const DWORD count=GetFinalPathNameByHandleW(file.file,path,kNativePluginCatalogPathCapacity+4,FILE_NAME_NORMALIZED|VOLUME_NAME_DOS);
@@ -469,7 +477,7 @@ DWORD run(Runtime& r,Error (*prepare)(Runtime&),Error (*commit)(Runtime&)) noexc
         if(prepare(r)==Error::none){
             if(cancelled(r))fail(r,Error::cancelled);
             else {
-                checkpoint(r);r.resources.published=true;
+                checkpoint(r);published(r);
                 if(InterlockedCompareExchange(&r.owner->phase,phase_value(Phase::prepared),phase_value(Phase::staging))!=phase_value(Phase::staging)){
                     fail(r,Error::cancelled);
                 }else{
@@ -489,7 +497,7 @@ DWORD run(Runtime& r,Error (*prepare)(Runtime&),Error (*commit)(Runtime&)) noexc
             }
         }
     }
-    cleanup(r);checkpoint(r);r.resources.published=true;
+    cleanup(r);checkpoint(r);published(r);
     InterlockedExchange(&r.owner->phase,phase_value(Phase::complete));SetEvent(r.owner->notification);return 0;
 }
 DWORD WINAPI worker(void* pointer) noexcept {return run(*static_cast<Runtime*>(pointer),stage,publish);}
@@ -506,7 +514,9 @@ Runtime* allocate_runtime() noexcept {
     SYSTEM_INFO system{};GetSystemInfo(&system);if(!system.dwPageSize)return nullptr;
     const usize bytes=(sizeof(Runtime)+system.dwPageSize-1)/system.dwPageSize*system.dwPageSize;
     auto* r=static_cast<Runtime*>(VirtualAlloc(nullptr,bytes,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
+#if defined(MAICORD_PLUGIN_BUNDLE_INSTALL_FIXTURE)
     if(r)r->resources={bytes,sizeof(Runtime),sizeof(r->copy_scratch),3,3,false};
+#endif
     return r;
 }
 struct Launch {
@@ -675,6 +685,7 @@ bool native_plugin_bundle_install_release(NativePluginBundleInstall* owner,u32 t
     if(owner->notification){if(!CloseHandle(owner->notification))return false;owner->notification=nullptr;}
     if(!VirtualFree(owner->runtime,0,MEM_RELEASE))return false;reset_value(owner);return true;
 }
+#if defined(MAICORD_PLUGIN_BUNDLE_INSTALL_FIXTURE)
 NativePluginBundleInstallResources native_plugin_bundle_install_resources(const NativePluginBundleInstall* owner) noexcept {
     if(!owner||!owner->runtime)return {};
     // Worker snapshots are read only after an acquire of a stable
@@ -682,7 +693,6 @@ NativePluginBundleInstallResources native_plugin_bundle_install_resources(const 
     if(!readable(owner))return {0,sizeof(Runtime),8192,0,0,false};
     return static_cast<const Runtime*>(owner->runtime)->resources;
 }
-#if defined(MAICORD_PLUGIN_BUNDLE_INSTALL_FIXTURE)
 void native_plugin_bundle_install_fixture_failures(u32 mask) noexcept {InterlockedExchange(&failure_mask,static_cast<LONG>(mask&15));}
 #endif
 } // namespace maicord

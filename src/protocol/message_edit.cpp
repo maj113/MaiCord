@@ -16,10 +16,7 @@ MessageEditWriteResult write_message_edit_target(u64 channel_id, u64 message_id,
         return error(MessageEditWriteError::invalid_input);
     }
     ProtocolWriter writer{output, 0};
-    if (!protocol_writer_append_literal(&writer, "/api/v10/channels/") ||
-        !protocol_writer_append_u64(&writer, channel_id) ||
-        !protocol_writer_append_literal(&writer, "/messages/") ||
-        !protocol_writer_append_u64(&writer, message_id)) {
+    if (!protocol_write(&writer, "/api/v10/channels/", channel_id, "/messages/", message_id)) {
         return error(MessageEditWriteError::output_too_small);
     }
     return MessageEditWriteResult{writer.used, MessageEditWriteError::none};
@@ -34,9 +31,7 @@ MessageEditWriteResult write_message_edit_body(Utf8View content, Slice<u8> outpu
         return error(MessageEditWriteError::invalid_utf8);
     }
     ProtocolWriter writer{output, 0};
-    if (!protocol_writer_append_literal(&writer, "{\"content\":") ||
-        !protocol_writer_append_json_string(&writer, content) ||
-        !protocol_writer_append_byte(&writer, '}')) {
+    if (!protocol_write(&writer, "{\"content\":", json_text(content), '}')) {
         return error(MessageEditWriteError::output_too_small);
     }
     return MessageEditWriteResult{writer.used, MessageEditWriteError::none};

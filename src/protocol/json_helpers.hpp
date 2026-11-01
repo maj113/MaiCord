@@ -88,43 +88,62 @@ template <typename Error> ScannedJson<Error> scan_json(const Utf8View& body, con
     return {{body, {scratch.data, scanned.count}}, Error::none};
 }
 
-// A JSON body written key by key; ok turns false once any write fails.
-struct JsonBody {
-    ProtocolWriter writer;
-    bool first = true;
-    bool ok = true;
+// A JSON body written part by part (see GuardedWriter). Object members and array elements carry their separating
+// commas; ok turns false once any write fails, and every later write is then skipped.
+struct JsonBody : GuardedWriter {
+    bool comma = false;
 
-    explicit JsonBody(Slice<u8> output) noexcept : writer{output, 0} {}
-    __declspec(noinline) void raw(const char* text) noexcept {
-        ok = ok && protocol_writer_append_c_string(&writer, text);
+    explicit JsonBody(Slice<u8> output) noexcept : GuardedWriter{output} {}
+
+    // The comma that a member or element after the first one needs.
+    __declspec(noinline) void next() noexcept {
+        if (comma)
+            put_byte(',');
+        comma = true;
     }
-    __declspec(noinline) void byte(u8 value) noexcept {
-        ok = ok && protocol_writer_append_byte(&writer, value);
-    }
-    __declspec(noinline) void number(u64 value) noexcept {
-        ok = ok && protocol_writer_append_u64(&writer, value);
-    }
-    __declspec(noinline) void string(const Utf8View& value) noexcept {
-        ok = ok && protocol_writer_append_json_string(&writer, value);
-    }
-    __declspec(noinline) void snowflake(u64 value) noexcept {
-        ok = ok && protocol_writer_append_snowflake(&writer, value);
-    }
+    // `"name":` of the next member.
     __declspec(noinline) void key(const char* name) noexcept {
-        if (!first)
-            byte(',');
-        first = false;
-        byte('"');
-        raw(name);
-        raw("\":");
+        next();
+        put_byte('"');
+        put_text(name);
+        put_text("\":");
+    }
+    template <typename... Parts> __forceinline void member(const char* name, const Parts&... parts) noexcept {
+        key(name);
+        put(parts...);
+    }
+    template <typename... Parts>
+    __forceinline void member_if(bool present, const char* name, const Parts&... parts) noexcept {
+        if (present)
+            member(name, parts...);
+    }
+    template <typename Part> __forceinline void element(const Part& part) noexcept {
+        next();
+        put_one(part);
     }
     __declspec(noinline) void begin_object() noexcept {
-        byte('{');
-        first = true;
+        put_byte('{');
+        comma = false;
     }
     __declspec(noinline) void end_object() noexcept {
-        byte('}');
-        first = false;
+        put_byte('}');
+        comma = true;
+    }
+    __declspec(noinline) void begin_array() noexcept {
+        put_byte('[');
+        comma = false;
+    }
+    __declspec(noinline) void end_array() noexcept {
+        put_byte(']');
+        comma = true;
+    }
+    void begin_object(const char* name) noexcept {
+        key(name);
+        begin_object();
+    }
+    void begin_array(const char* name) noexcept {
+        key(name);
+        begin_array();
     }
 };
 

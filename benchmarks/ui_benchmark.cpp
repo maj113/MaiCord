@@ -1,6 +1,8 @@
 #include "maicord/core/time.hpp"
 #include "../tests/layout_validation.hpp"
 #include "../tests/ui_scene_fixtures.hpp"
+#include "../tests/model_store_fixtures.hpp"
+#include "../tests/message_media_controller_fixture.hpp"
 #include "benchmark_output.hpp"
 #include "maicord/app/message_composer_controller.hpp"
 #include "maicord/app/message_media_controller.hpp"

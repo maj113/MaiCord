@@ -700,10 +700,8 @@ MediaUrlResult external_proxy_webp(ConstSlice<u8> wrapped, u32 path_end, CdnHost
     preview_box(width, height, &w, &h);
     u8 rewritten[kCdnMaximumTargetBytes];
     ProtocolWriter writer{{rewritten, sizeof(rewritten)}, 0};
-    if (!protocol_writer_append_bytes(&writer, wrapped.data, path_end) ||
-        !protocol_writer_append_literal(&writer, "?format=webp&animated=true&width=") ||
-        !protocol_writer_append_u64(&writer, w) || !protocol_writer_append_literal(&writer, "&height=") ||
-        !protocol_writer_append_u64(&writer, h))
+    if (!protocol_write(&writer, ConstSlice<u8>{wrapped.data, path_end}, "?format=webp&animated=true&width=", w,
+                        "&height=", h))
         return media_url_failure(MediaUrlError::invalid_target);
     if (writer.used > output.count)
         return media_url_failure(MediaUrlError::output_capacity);
@@ -989,7 +987,7 @@ CdnTargetResult write_media_proxy_target(ConstSlice<u8> source_target,
         return failure(CdnTargetError::invalid_input);
     }
     ProtocolWriter writer{output, 0};
-    if (!protocol_writer_append_bytes(&writer, ConstSlice<u8>{source_target.data, query})) {
+    if (!protocol_write(&writer, ConstSlice<u8>{source_target.data, query})) {
         return failure(CdnTargetError::output_capacity);
     }
     bool has_query = false;
@@ -1015,30 +1013,23 @@ CdnTargetResult write_media_proxy_target(ConstSlice<u8> source_target,
                          ascii_equal(name.data, name.bytes, "quality");
         }
         if (!proxy_hint && end != cursor) {
-            if (!protocol_writer_append_byte(&writer, has_query ? '&' : '?') ||
-                !protocol_writer_append_bytes(&writer,
-                                              ConstSlice<u8>{source_target.data + cursor, end - cursor})) {
+            if (!protocol_write(&writer, has_query ? '&' : '?',
+                                ConstSlice<u8>{source_target.data + cursor, end - cursor})) {
                 return failure(CdnTargetError::output_capacity);
             }
             has_query = true;
         }
         cursor = end < source_target.count ? end + 1 : end;
     }
-    if (!protocol_writer_append_byte(&writer, has_query ? '&' : '?') ||
-        !protocol_writer_append_c_string(&writer, size_endpoint ? "size=" : "width=") ||
-        !protocol_writer_append_u64(&writer, target_width) ||
-        (!size_endpoint && (!protocol_writer_append_literal(&writer, "&height=") ||
-                            !protocol_writer_append_u64(&writer, target_height)))) {
+    if (!protocol_write(&writer, has_query ? '&' : '?', size_endpoint ? "size=" : "width=", target_width) ||
+        (!size_endpoint && !protocol_write(&writer, "&height=", target_height))) {
         return failure(CdnTargetError::output_capacity);
     }
     if (!size_endpoint && format != CdnMediaFormat::source &&
-        (!protocol_writer_append_literal(&writer, "&format=") ||
-         !(format == CdnMediaFormat::png    ? protocol_writer_append_literal(&writer, "png")
-           : format == CdnMediaFormat::webp ? protocol_writer_append_literal(&writer, "webp")
-                                                : protocol_writer_append_literal(&writer, "jpeg")))) {
+        !protocol_write(&writer, "&format=", format == CdnMediaFormat::png ? "png" : format == CdnMediaFormat::webp ? "webp" : "jpeg")) {
         return failure(CdnTargetError::output_capacity);
     }
-    if (animated && !protocol_writer_append_literal(&writer, "&animated=true")) {
+    if (animated && !protocol_write(&writer, "&animated=true")) {
         return failure(CdnTargetError::output_capacity);
     }
     return CdnTargetResult{writer.used, size_endpoint ? CdnHost::cdn : CdnHost::media,
@@ -1052,11 +1043,8 @@ CdnTargetResult write_custom_emoji_cdn_target(u64 emoji_id, bool animated, u32 s
     }
     u8 target[96];
     ProtocolWriter writer{Slice<u8>{target, sizeof(target)}, 0};
-    const bool written = protocol_writer_append_literal(&writer, "/emojis/") &&
-                         protocol_writer_append_u64(&writer, emoji_id) &&
-                         protocol_writer_append_literal(&writer, ".webp?size=") &&
-                         protocol_writer_append_u64(&writer, size) &&
-                         (!animated || protocol_writer_append_literal(&writer, "&animated=true"));
+    const bool written = protocol_write(&writer, "/emojis/", emoji_id, ".webp?size=", size) &&
+                         (!animated || protocol_write(&writer, "&animated=true"));
     return written ? publish_target(ConstSlice<u8>{target, writer.used}, CdnHost::cdn, output)
                    : failure(CdnTargetError::output_capacity);
 }
@@ -1085,12 +1073,8 @@ CdnTargetResult write_hashed_asset_target(const char* prefix, u64 id, Utf8View h
     ProtocolWriter writer{Slice<u8>{target, sizeof(target)}, 0};
     const bool animated = animate && asset_hash_animated(hash);
     const bool written =
-        protocol_writer_append_c_string(&writer, prefix) &&
-        protocol_writer_append_u64(&writer, id) && protocol_writer_append_byte(&writer, '/') &&
-        protocol_writer_append_bytes(&writer, ConstSlice<u8>{reinterpret_cast<const u8*>(hash.data), hash.bytes}) &&
-        protocol_writer_append_literal(&writer, ".webp?size=") &&
-        protocol_writer_append_u64(&writer, size) &&
-        (!animated || protocol_writer_append_literal(&writer, "&animated=true"));
+        protocol_write(&writer, prefix, id, '/', hash, ".webp?size=", size) &&
+        (!animated || protocol_write(&writer, "&animated=true"));
     return written ? publish_target(ConstSlice<u8>{target, writer.used}, CdnHost::cdn, output)
                    : failure(CdnTargetError::output_capacity);
 }
@@ -1135,9 +1119,7 @@ CdnTargetResult write_sticker_cdn_target(u64 sticker_id, u32 format_type,
     }
     u8 target[64];
     ProtocolWriter writer{Slice<u8>{target, sizeof(target)}, 0};
-    const bool written = protocol_writer_append_literal(&writer, "/stickers/") &&
-                         protocol_writer_append_u64(&writer, sticker_id) &&
-                         protocol_writer_append_c_string(&writer, extension);
+    const bool written = protocol_write(&writer, "/stickers/", sticker_id, extension);
     return written ? publish_target(ConstSlice<u8>{target, writer.used}, host, output)
                    : failure(CdnTargetError::output_capacity);
 }

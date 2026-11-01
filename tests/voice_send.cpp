@@ -3,12 +3,24 @@
 #include "maicord/app/voice_mixer.hpp"
 #include "maicord/app/dave_receive_sender.hpp"
 #include "maicord/core/byte_order.hpp"
+#include "maicord/core/interlocked.hpp"
 #include "maicord/core/memory.hpp"
+#include "../src/app/voice_send_shared.hpp"
 
 #include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 namespace {
+u32 voice_send_queued(const VoiceSend& send) noexcept {
+    return send.shared ? static_cast<u32>(read_acquire(&send.shared->write)) -
+                             static_cast<u32>(read_acquire(&send.shared->read))
+                       : 0;
+}
+// Overrides the push-to-talk key probe (GetAsyncKeyState) the capture pipeline polls.
+void voice_send_set_key_probe(VoiceSend* send, bool (*probe)(void*, u8 key) noexcept, void* context) noexcept {
+    if (send && send->shared)
+        send->shared->probe = probe, send->shared->probe_context = context;
+}
 using Check = void (*)(bool, const char*) noexcept;
 constexpr u32 kSsrc = 0x0a0b0c0d;
 constexpr u64 kUser = 4242;

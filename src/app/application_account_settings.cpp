@@ -1,5 +1,7 @@
 #include "application_account_settings.hpp"
 #include "application_link_trust.hpp"
+#include "application_account_access.hpp"
+#include "application_owner.hpp"
 #include "application_settings.hpp"
 #include "application_state.hpp"
 #include "application_text_form.hpp"
@@ -64,24 +66,17 @@ void changed() noexcept {
     application_settings_refresh_pages();
 }
 void release_bank() noexcept {
-    if (!g_owner.bank)
-        return;
-    secure_clear_bytes(g_owner.bank, sizeof(Bank));
-    VirtualFree(g_owner.bank, 0, MEM_RELEASE);
-    g_owner.bank = nullptr;
+    owner_release(g_owner.bank);
 }
 Bank* bank() noexcept {
-    if (!g_owner.bank)
-        g_owner.bank = static_cast<Bank*>(VirtualAlloc(nullptr, sizeof(Bank), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    return g_owner.bank;
+    return owner_ensure(g_owner.bank);
 }
 void scope() noexcept {
     const u64 profile = g_app.account.status.profile_id;
     const u64 self = g_app.account_ui ? g_app.account_ui->chat_state.self_user_id : 0;
     if (g_owner.profile_id == profile && g_owner.self_user_id == self)
         return;
-    if (g_owner.request_id && g_app.account.api.account_settings && g_app.account.instance)
-        g_app.account.api.account_settings(g_app.account.instance, nullptr, g_owner.request_id);
+    application_cancel_request(&AccountModuleApi::account_settings, g_owner.request_id);
     release_bank();
     const u64 lifetime = g_owner.lifetime + 1;
     const u32 revision = g_owner.revision + 1;
@@ -638,7 +633,7 @@ bool application_account_settings_response(const RestClientResponse& response, U
     auto* b = g_owner.bank;
     if (!b)
         return true;
-    const bool ok = response.transport_ok() && response.status_code >= 200 && response.status_code < 300;
+    const bool ok = response.succeeded();
     const Slice<u32> structurals{b->structurals, sizeof(b->structurals) / sizeof(u32)};
     if (mutation != Mutation::none) {
         if (ok) {

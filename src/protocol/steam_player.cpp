@@ -14,9 +14,7 @@ u32 steam_id(const Utf8View& value) noexcept {
 u32 steam_video_target(Utf8View app, Slice<u8> output) noexcept {
     if (!steam_id(app)) return 0;
     ProtocolWriter w{output, 0};
-    return protocol_writer_append_literal(&w, "/api/appdetails?appids=") &&
-        protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(app.data), app.bytes) &&
-        protocol_writer_append_literal(&w, "&filters=movies") ? w.used : 0;
+    return protocol_write(&w, "/api/appdetails?appids=", app, "&filters=movies") ? w.used : 0;
 }
 namespace {
 bool location(Utf8View url, bool manifest, Utf8View app, EmbedStreamLocation* out) noexcept {

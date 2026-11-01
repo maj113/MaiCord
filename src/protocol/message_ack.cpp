@@ -23,11 +23,8 @@ MessageAckWriteResult write_message_ack_target(
     const u32 required = literals + decimal_digits(channel_id) + decimal_digits(message_id);
     if (required > output.count || required > kMessageAckMaximumTargetBytes) return fail(MessageAckWriteError::capacity);
     ProtocolWriter writer{output, 0};
-    if (!protocol_writer_append_literal(&writer, "/api/v10/channels/") ||
-        !protocol_writer_append_u64(&writer, channel_id) ||
-        !protocol_writer_append_literal(&writer, "/messages/") ||
-        !protocol_writer_append_u64(&writer, message_id) ||
-        !protocol_writer_append_literal(&writer, "/ack")) return fail(MessageAckWriteError::capacity);
+    if (!protocol_write(&writer, "/api/v10/channels/", channel_id, "/messages/", message_id, "/ack"))
+        return fail(MessageAckWriteError::capacity);
     return {writer.used, MessageAckWriteError::none};
 }
 
@@ -42,11 +39,10 @@ MessageAckWriteResult write_message_ack_body(
         if (required > output.count || required > kMessageAckMaximumBodyBytes)
             return fail(MessageAckWriteError::capacity);
         ProtocolWriter writer{output, 0};
-        bool valid = protocol_writer_append_literal(&writer, "{\"manual\":true");
-        if (request.mention_count_known) valid = valid &&
-            protocol_writer_append_literal(&writer, ",\"mention_count\":") &&
-            protocol_writer_append_u64(&writer, request.mention_count);
-        valid = valid && protocol_writer_append_literal(&writer, "}");
+        const bool valid = protocol_write(&writer, "{\"manual\":true") &&
+                           (!request.mention_count_known ||
+                            protocol_write(&writer, ",\"mention_count\":", request.mention_count)) &&
+                           protocol_write(&writer, '}');
         return valid ? MessageAckWriteResult{writer.used, MessageAckWriteError::none} :
             fail(MessageAckWriteError::capacity);
     }
@@ -59,14 +55,12 @@ MessageAckWriteResult write_message_ack_body(
         (request.flags_known ? sizeof(",\"flags\":") - 1 + decimal_digits(request.flags) : 0);
     if (required > output.count || required > kMessageAckMaximumBodyBytes) return fail(MessageAckWriteError::capacity);
     ProtocolWriter writer{output, 0};
-    bool valid = protocol_writer_append_literal(&writer, "{\"token\":");
-    valid = valid && (request.token_known ? protocol_writer_append_json_string(&writer, request.token) :
-        protocol_writer_append_literal(&writer, "null"));
-    if (request.last_viewed_known) valid = valid && protocol_writer_append_literal(&writer, ",\"last_viewed\":") &&
-        protocol_writer_append_u64(&writer, request.last_viewed);
-    if (request.flags_known) valid = valid && protocol_writer_append_literal(&writer, ",\"flags\":") &&
-        protocol_writer_append_u64(&writer, request.flags);
-    valid = valid && protocol_writer_append_literal(&writer, "}");
+    const bool valid = protocol_write(&writer, "{\"token\":") &&
+                       (request.token_known ? protocol_write(&writer, json_text(request.token)) :
+                                              protocol_write(&writer, "null")) &&
+                       (!request.last_viewed_known || protocol_write(&writer, ",\"last_viewed\":", request.last_viewed)) &&
+                       (!request.flags_known || protocol_write(&writer, ",\"flags\":", request.flags)) &&
+                       protocol_write(&writer, '}');
     return valid ? MessageAckWriteResult{writer.used, MessageAckWriteError::none} : fail(MessageAckWriteError::capacity);
 }
 

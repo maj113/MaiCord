@@ -62,6 +62,7 @@
 #include "maicord/ui/caption_bar.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "../model_store_fixtures.hpp"
 
 namespace maicord {
 namespace {

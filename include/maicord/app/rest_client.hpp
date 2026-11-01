@@ -420,8 +420,6 @@ inline RestClientSubmitResult rest_client_cancel_result(RestClient* client,
 // them armed. Empty headers or a zero ID clear. Erased when consumed.
 bool rest_client_arm_headers(RestClient* client, u64 request_id, ConstSlice<u8> headers) noexcept;
 
-RestClientResult rest_client_wait_response(RestClient* client,
-                                           u32 timeout_ms) noexcept;
 RestClientTakeResult rest_client_take_response(RestClient* client,
                                                RestClientResponse* response,
                                                Slice<u8> body_output) noexcept;

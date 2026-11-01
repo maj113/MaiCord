@@ -371,26 +371,6 @@ MediaAttachmentFormat message_media_supported_attachment_format(
     return message_rich_attachment_format(store, attachment);
 }
 
-bool message_media_controller_initialize(MessageMediaController* controller,
-                                         Slice<MessageMediaVisibleRow> rows,
-                                         Slice<MessageMediaAssetMark> asset_marks) noexcept {
-    if (!controller || !rows.data || rows.count == 0 || !asset_marks.data ||
-        !power_of_two(asset_marks.count) || asset_marks.count < 4) {
-        return false;
-    }
-    reset_value<MessageMediaController>(controller);
-    controller->rows = rows.data;
-    controller->asset_marks = asset_marks.data;
-    controller->row_capacity = rows.count;
-    controller->asset_mark_capacity = asset_marks.count;
-    controller->asset_mark_epoch = 1;
-    for (u32 index = 0; index < asset_marks.count; ++index) {
-        reset_value<MessageMediaAssetMark>(&asset_marks[index]);
-    }
-    controller->initialized = true;
-    return true;
-}
-
 bool message_media_controller_initialize_owned(MessageMediaController* controller, u32 row_capacity,
                                                u32 asset_mark_capacity) noexcept {
     if (!controller || controller->owned_rows.arena.base || controller->owned_asset_marks.arena.base ||

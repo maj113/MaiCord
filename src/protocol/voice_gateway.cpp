@@ -75,9 +75,9 @@ using protocol_detail::write_json_command;
 using Writer = protocol_detail::JsonCommandWriter;
 void sequence(Writer& writer, i32 value) noexcept {
     if (value == -1)
-        writer.literal("-1");
+        writer.put("-1");
     else
-        writer.number(static_cast<u32>(value));
+        writer.put(static_cast<u32>(value));
 }
 bool session_fields(const VoiceGatewaySession& session, EncodedString* id, EncodedString* token) noexcept {
     return session.server_id && session.channel_id &&
@@ -89,14 +89,8 @@ bool sequence_valid(i32 value) noexcept {
 }
 void session_fields(Writer& writer, const VoiceGatewaySession& session, const EncodedString& id,
                     const EncodedString& token) noexcept {
-    writer.literal("\"server_id\":");
-    writer.id(session.server_id);
-    writer.literal(",\"channel_id\":");
-    writer.id(session.channel_id);
-    writer.literal(",\"session_id\":");
-    writer.string(id);
-    writer.literal(",\"token\":");
-    writer.string(token);
+    writer.put("\"server_id\":", snowflake_text(session.server_id), ",\"channel_id\":",
+               snowflake_text(session.channel_id), ",\"session_id\":", id, ",\"token\":", token);
 }
 } // namespace
 
@@ -173,30 +167,22 @@ GatewayCommandWriteResult voice_gateway_write_identify(const VoiceGatewayIdentif
             (identify.streams[i].type != VoiceStreamType::video && identify.streams[i].type != VoiceStreamType::screen))
             return {0, GatewayCommandError::invalid_input};
     return write_json_command(output, [&](Writer& writer) noexcept {
-        writer.literal("{\"op\":0,\"d\":{");
+        writer.put("{\"op\":0,\"d\":{");
         session_fields(writer, identify.session, id, token);
-        writer.literal(",\"user_id\":");
-        writer.id(identify.user_id);
-        writer.literal(",\"max_dave_protocol_version\":");
-        writer.number(identify.max_dave_protocol_version);
-        writer.literal(",\"video\":");
-        writer.boolean(identify.video);
         // Unset ssrc/active/rtx_ssrc/limits are omitted.
-        writer.literal(",\"streams\":[");
+        writer.put(",\"user_id\":", snowflake_text(identify.user_id), ",\"max_dave_protocol_version\":",
+                   identify.max_dave_protocol_version, ",\"video\":", identify.video, ",\"streams\":[");
         for (u32 i = 0; i != identify.streams.count; ++i) {
             const auto& stream = identify.streams[i];
             if (i)
-                writer.literal(",");
+                writer.put(',');
             if (stream.type == VoiceStreamType::screen)
-                writer.literal("{\"type\":\"screen\",\"rid\":");
+                writer.put("{\"type\":\"screen\",\"rid\":");
             else
-                writer.literal("{\"type\":\"video\",\"rid\":");
-            writer.id(stream.rid);
-            writer.literal(",\"quality\":");
-            writer.number(stream.quality);
-            writer.literal("}");
+                writer.put("{\"type\":\"video\",\"rid\":");
+            writer.put(snowflake_text(stream.rid), ",\"quality\":", stream.quality, '}');
         }
-        writer.literal("]}}");
+        writer.put("]}}");
     });
 }
 GatewayCommandWriteResult voice_gateway_write_resume(const VoiceGatewaySession& session, i32 sequence_ack,
@@ -205,11 +191,11 @@ GatewayCommandWriteResult voice_gateway_write_resume(const VoiceGatewaySession& 
     if (!sequence_valid(sequence_ack) || !session_fields(session, &id, &token))
         return {0, GatewayCommandError::invalid_input};
     return write_json_command(output, [&](Writer& writer) noexcept {
-        writer.literal("{\"op\":7,\"d\":{");
+        writer.put("{\"op\":7,\"d\":{");
         session_fields(writer, session, id, token);
-        writer.literal(",\"seq_ack\":");
+        writer.put(",\"seq_ack\":");
         sequence(writer, sequence_ack);
-        writer.literal("}}");
+        writer.put("}}");
     });
 }
 GatewayCommandWriteResult voice_gateway_write_heartbeat(u64 nonce, i32 sequence_ack,
@@ -217,22 +203,16 @@ GatewayCommandWriteResult voice_gateway_write_heartbeat(u64 nonce, i32 sequence_
     if (!sequence_valid(sequence_ack))
         return {0, GatewayCommandError::invalid_input};
     return write_json_command(output, [&](Writer& writer) noexcept {
-        writer.literal("{\"op\":3,\"d\":{\"t\":");
-        writer.number(nonce);
-        writer.literal(",\"seq_ack\":");
+        writer.put("{\"op\":3,\"d\":{\"t\":", nonce, ",\"seq_ack\":");
         sequence(writer, sequence_ack);
-        writer.literal("}}");
+        writer.put("}}");
     });
 }
 GatewayCommandWriteResult voice_gateway_write_speaking(u32 flags, u32 ssrc, Slice<u8> output) noexcept {
     if (flags > 7 || !ssrc)
         return {0, GatewayCommandError::invalid_input};
     return write_json_command(output, [&](Writer& writer) noexcept {
-        writer.literal("{\"op\":5,\"d\":{\"speaking\":");
-        writer.number(flags);
-        writer.literal(",\"delay\":0,\"ssrc\":");
-        writer.number(ssrc);
-        writer.literal("}}");
+        writer.put("{\"op\":5,\"d\":{\"speaking\":", flags, ",\"delay\":0,\"ssrc\":", ssrc, "}}");
     });
 }
 VoiceCloseAction voice_gateway_close_action(u16 close_code) noexcept {

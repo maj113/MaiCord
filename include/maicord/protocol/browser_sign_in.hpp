@@ -34,11 +34,7 @@ struct BrowserSignInParseResult {
     BrowserSignInParseState state;
     constexpr bool ok() const noexcept { return state == BrowserSignInParseState::complete; }
 };
-struct BrowserSignInWriteResult {
-    u32 bytes;
-    BrowserSignInError error;
-    constexpr bool ok() const noexcept { return error == BrowserSignInError::none; }
-};
+using BrowserSignInWriteResult = ByteResult<BrowserSignInError>;
 
 // A complete request must be framed exactly: pipelined/trailing bytes are
 // rejected. Query decoding and JSON indexes require disjoint caller storage.

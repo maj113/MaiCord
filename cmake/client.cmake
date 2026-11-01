@@ -71,6 +71,7 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/application_gif_favorite_star.cpp
     src/app/application_emoji_preferences.cpp src/app/application_action_captcha.cpp
     src/app/application_channel_overview.cpp src/app/application_settings_layer.cpp
+    src/app/application_settings_modal.cpp
     src/app/application_guild_settings.cpp src/app/application_guild_settings_profile.cpp
     src/app/application_guild_settings_engagement.cpp src/app/application_guild_settings_expressions.cpp
     src/app/application_guild_settings_members.cpp src/app/application_guild_settings_roles.cpp

@@ -70,14 +70,7 @@ struct CdnByteRange {
     u32 bytes;
 };
 
-struct CdnRequestResult {
-    u32 bytes;
-    CdnHttpError error;
-
-    constexpr bool ok() const noexcept {
-        return error == CdnHttpError::none;
-    }
-};
+using CdnRequestResult = ByteResult<CdnHttpError>;
 
 // Writes a transactional, credential-free GET head. The only conditional
 // state accepted is a bounded ETag; Authorization and Cookie cannot enter this

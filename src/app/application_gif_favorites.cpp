@@ -537,7 +537,7 @@ bool application_gif_favorites_response(const RestClientResponse& response, Utf8
         schedule(p);
     } else if (const u64 retry_at = rest_rate_retry_deadline(response); retry_at && p.attempts < 3) {
         p.due_at = retry_at;
-    } else if (response.transport_ok() && response.status_code >= 200 && response.status_code < 300) {
+    } else if (response.succeeded()) {
         bool conflict = false;
         auto* bank = decode_response(body, &conflict);
         if (bank) {

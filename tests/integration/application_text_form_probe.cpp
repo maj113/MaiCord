@@ -1,4 +1,5 @@
 #include "probe_present.hpp"
+#include "../secure_edit_queries.hpp"
 #include "reaction_intent_ui_adapter.hpp"
 #include "thread_membership_ui_adapter.hpp"
 #include "reply_draft_ui_adapter.hpp"

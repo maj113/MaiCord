@@ -3,6 +3,7 @@
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "json_field_lists.hpp"
+#include "json_helpers.hpp"
 
 namespace maicord {
 namespace {
@@ -79,31 +80,13 @@ bool member(void* opaque, JsonString name, JsonValue value) noexcept {
         parse.fields |= static_cast<u8>(bit);
     return true;
 }
-bool write(const ChannelOverviewPatch& patch, ProtocolWriter* writer) noexcept {
-    if (!protocol_writer_append_byte(writer, '{'))
-        return false;
-    bool first = true;
-    const auto key = [&](u8 bit, const char* name) noexcept {
-        if (!(patch.fields & bit))
-            return true;
-        if (!first && !protocol_writer_append_byte(writer, ','))
-            return false;
-        first = false;
-        return protocol_writer_append_c_string(writer, name);
-    };
-    return (!(patch.fields & channel_overview_name) ||
-            (key(channel_overview_name, "\"name\":") &&
-             protocol_writer_append_json_string(writer, patch.name))) &&
-           (!(patch.fields & channel_overview_topic) ||
-            (key(channel_overview_topic, "\"topic\":") &&
-             protocol_writer_append_json_string(writer, patch.topic))) &&
-           (!(patch.fields & channel_overview_slowmode) ||
-            (key(channel_overview_slowmode, "\"rate_limit_per_user\":") &&
-             protocol_writer_append_u64(writer, patch.slowmode_seconds))) &&
-           (!(patch.fields & channel_overview_nsfw) ||
-            (key(channel_overview_nsfw, "\"nsfw\":") &&
-             protocol_writer_append_c_string(writer, patch.nsfw ? "true" : "false"))) &&
-           protocol_writer_append_byte(writer, '}');
+void write(const ChannelOverviewPatch& patch, protocol_detail::JsonBody& b) noexcept {
+    b.begin_object();
+    b.member_if(patch.fields & channel_overview_name, "name", json_text(patch.name));
+    b.member_if(patch.fields & channel_overview_topic, "topic", json_text(patch.topic));
+    b.member_if(patch.fields & channel_overview_slowmode, "rate_limit_per_user", patch.slowmode_seconds);
+    b.member_if(patch.fields & channel_overview_nsfw, "nsfw", json_bool(patch.nsfw));
+    b.end_object();
 }
 } // namespace
 Utf8View channel_overview_name_view(const ChannelOverviewSnapshot& value) noexcept {
@@ -145,8 +128,7 @@ ChannelOverviewResult channel_overview_write_target(u64 channel_id, Slice<u8> ou
         return {0, ChannelOverviewError::input};
     u8 target[64];
     ProtocolWriter writer{{target, sizeof(target)}, 0};
-    if (!protocol_writer_append_literal(&writer, "/api/v10/channels/") ||
-        !protocol_writer_append_u64(&writer, channel_id))
+    if (!protocol_write(&writer, "/api/v10/channels/", channel_id))
         return {0, ChannelOverviewError::capacity};
     if (output.count < writer.used)
         return {writer.used, ChannelOverviewError::capacity};
@@ -158,12 +140,13 @@ ChannelOverviewResult channel_overview_write_patch(const ChannelOverviewPatch& p
     if (!channel_overview_patch_valid(patch) || !byte_range_valid({output.data, output.count}))
         return {0, ChannelOverviewError::input};
     u8 temporary[kChannelOverviewMaximumBodyBytes];
-    ProtocolWriter writer{{temporary, sizeof(temporary)}, 0};
-    if (!write(patch, &writer))
+    protocol_detail::JsonBody body{{temporary, sizeof(temporary)}};
+    write(patch, body);
+    if (!body.ok)
         return {0, ChannelOverviewError::capacity};
-    if (output.count < writer.used)
-        return {writer.used, ChannelOverviewError::capacity};
-    copy_bytes(output.data, temporary, writer.used);
-    return {writer.used, ChannelOverviewError::none, patch.fields};
+    if (output.count < body.writer.used)
+        return {body.writer.used, ChannelOverviewError::capacity};
+    copy_bytes(output.data, temporary, body.writer.used);
+    return {body.writer.used, ChannelOverviewError::none, patch.fields};
 }
 } // namespace maicord

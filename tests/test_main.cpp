@@ -1,6 +1,8 @@
 #include "application_downloads_inactive.hpp"
 #include "secure_text_store_access.hpp"
 #include "ui_scene_fixtures.hpp"
+#include "model_store_fixtures.hpp"
+#include "message_media_controller_fixture.hpp"
 #include "layout_validation.hpp"
 #include "gateway_message_scratch.hpp"
 #include "maicord/app/account_paths.hpp"

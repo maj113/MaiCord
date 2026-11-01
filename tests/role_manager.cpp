@@ -2,6 +2,7 @@
 // reorder requests and hierarchy, View Server as Role recomputation, role
 // locks and the editor's unsaved state. Synthetic fixtures only.
 #include "maicord/model/guild_settings_model.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/model/permission_compute.hpp"
 #include "maicord/model/permission_grid.hpp"
 #include "maicord/protocol/rest.hpp"

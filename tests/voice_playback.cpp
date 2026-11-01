@@ -2,6 +2,7 @@
 #include "model_store_fixtures.hpp"
 #include "maicord/app/voice_playback.hpp"
 #include "maicord/app/soundboard_audio.hpp"
+#include "soundboard_clip_fixture.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/voice_state_store.hpp"
 

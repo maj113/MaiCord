@@ -1,4 +1,5 @@
 #include "maicord/ui/voice_channel_rows.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/ui/shell_navigation_scene.hpp"
 #include "maicord/model/voice_channel_info_store.hpp"
 #include "maicord/core/memory.hpp"

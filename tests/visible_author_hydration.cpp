@@ -1,4 +1,5 @@
 #include "maicord/app/visible_author_hydration.hpp"
+#include "model_store_fixtures.hpp"
 #include "ui_scene_fixtures.hpp"
 #include "maicord/app/gateway_member_request_owner.hpp"
 #include "maicord/app/message_event_pump.hpp"

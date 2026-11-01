@@ -1,4 +1,5 @@
 #include "thread_membership_ui_adapter.hpp"
+#include "../model_store_fixtures.hpp"
 #include "../ui_scene_fixtures.hpp"
 #include "application_state.hpp"
 #include "maicord/core/memory.hpp"

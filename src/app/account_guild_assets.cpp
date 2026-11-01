@@ -1,8 +1,8 @@
 #include "maicord/app/account_guild_assets.hpp"
 #include "maicord/app/guild_image.hpp"
 
+#include "maicord/app/request_body_bank.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 static_assert(kGuildAssetMaximumTargetBytes <= kRestClientMaximumTargetBytes);
@@ -39,27 +39,24 @@ __declspec(noinline) RestClientSubmitResult submit_with_body(RestClient* rest,
         return {RestClientSubmitError::invalid_input};
     if (bytes > kRestClientMaximumLargeRequestBodyBytes)
         return {RestClientSubmitError::body_capacity};
-    auto* body = static_cast<u8*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!body)
+    RequestBodyBank body{bytes};
+    if (!body.data)
         return {RestClientSubmitError::memory};
-    const auto written = guild_asset_write_body(request, image, chosen, {body, bytes});
+    body.used = bytes;
+    const auto written = guild_asset_write_body(request, image, chosen, body.all());
     RestClientSubmitResult result{RestClientSubmitError::body_capacity};
     if (written.ok() && written.bytes == bytes) {
         const bool large = bytes > kRestClientMaximumRequestBodyBytes;
         RestClientRequest submit{target,
-                                 {body, bytes},
+                                 {body.data, bytes},
                                  guild_asset_route(request),
                                  request_id,
                                  large ? kGuildAssetLargeTimeoutMs : kRestClientDefaultTimeoutMs,
                                  true,
                                  reason};
         submit.multipart_boundary = chosen;
-        result = large ? rest_client_submit_large_owned(rest, submit, &body)
+        result = large ? rest_client_submit_large_owned(rest, submit, &body.data)
                        : rest_client_submit(rest, submit);
-    }
-    if (body) {
-        secure_clear_bytes(body, bytes);
-        VirtualFree(body, 0, MEM_RELEASE);
     }
     return result;
 }

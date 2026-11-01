@@ -3,6 +3,7 @@
 // artwork fallback, the card layout, in-place timer ticks, and the REST
 // targets and responses for application icons and button metadata.
 #include "maicord/core/json_scan.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/user_activity.hpp"
 #include "maicord/model/user_store.hpp"

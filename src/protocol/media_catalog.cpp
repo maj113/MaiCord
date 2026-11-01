@@ -455,67 +455,37 @@ MediaCatalogWriteResult media_catalog_write_target(const MediaCatalogQuery& quer
     RouteWriter w{};
     route_writer_initialize(&w, {temporary, sizeof(temporary)});
     // The target is a complete origin-form path; the REST transport adds no API prefix.
-    route_append(&w, utf8_literal("/api/v10"));
+    route_write(&w, "/api/v10");
     switch (query.operation) {
-    case MediaCatalogOperation::gif_categories:
-        route_append(&w, utf8_literal("/gifs/trending"));
-        break;
-    case MediaCatalogOperation::gif_trending:
-        route_append(&w, utf8_literal("/gifs/trending-gifs"));
-        break;
-    case MediaCatalogOperation::gif_search:
-        route_append(&w, utf8_literal("/gifs/search"));
-        break;
-    case MediaCatalogOperation::gif_suggestions:
-        route_append(&w, utf8_literal("/gifs/suggest"));
-        break;
-    case MediaCatalogOperation::sticker_packs:
-        route_append(&w, utf8_literal("/sticker-packs"));
-        break;
-    case MediaCatalogOperation::guild_stickers:
-        route_append(&w, utf8_literal("/guilds/"));
-        route_append_u64(&w, query.guild_id);
-        route_append(&w, utf8_literal("/stickers"));
-        break;
-    case MediaCatalogOperation::sticker:
-        route_append(&w, utf8_literal("/stickers/"));
-        route_append_u64(&w, query.object_id);
-        break;
-    case MediaCatalogOperation::sticker_pack:
-        route_append(&w, utf8_literal("/sticker-packs/"));
-        route_append_u64(&w, query.object_id);
-        break;
+    case MediaCatalogOperation::gif_categories: route_write(&w, "/gifs/trending"); break;
+    case MediaCatalogOperation::gif_trending: route_write(&w, "/gifs/trending-gifs"); break;
+    case MediaCatalogOperation::gif_search: route_write(&w, "/gifs/search"); break;
+    case MediaCatalogOperation::gif_suggestions: route_write(&w, "/gifs/suggest"); break;
+    case MediaCatalogOperation::sticker_packs: route_write(&w, "/sticker-packs"); break;
+    case MediaCatalogOperation::guild_stickers: route_write(&w, "/guilds/", query.guild_id, "/stickers"); break;
+    case MediaCatalogOperation::sticker: route_write(&w, "/stickers/", query.object_id); break;
+    case MediaCatalogOperation::sticker_pack: route_write(&w, "/sticker-packs/", query.object_id); break;
     }
     if (query.operation != MediaCatalogOperation::guild_stickers && !object_operation(query.operation)) {
         // Each route's parameters in order: trending {locale,
         // media_format}, trending-gifs {media_format, locale, limit}, search
         // {q, media_format, locale, limit}, suggest {q, limit, locale}.
         bool first = true;
-        const auto key = [&](Utf8View name) noexcept {
-            route_append(&w, first ? utf8_literal("?") : utf8_literal("&"));
-            route_append(&w, name);
+        const auto param = [&](const auto& name, const auto& value) noexcept {
+            route_write(&w, first ? '?' : '&', name, value);
             first = false;
         };
-        const auto locale = [&]() noexcept {
-            key(utf8_literal("locale="));
-            route_append_path_component(&w, query.locale);
-        };
-        const auto text = [&]() noexcept {
-            key(utf8_literal("q="));
-            route_append_path_component(&w, query.query);
-        };
+        const auto locale = [&]() noexcept { param("locale=", path_component(query.locale)); };
+        const auto text = [&]() noexcept { param("q=", path_component(query.query)); };
         const auto format = [&]() noexcept {
-            key(utf8_literal("media_format="));
-            route_append(&w, query.format == MediaCatalogFormat::tiny_webp ? utf8_literal("tinywebp")
-                             : query.format == MediaCatalogFormat::webp    ? utf8_literal("webp")
-                                                                           : utf8_literal("webm"));
+            param("media_format=", query.format == MediaCatalogFormat::tiny_webp ? utf8_literal("tinywebp")
+                                   : query.format == MediaCatalogFormat::webp    ? utf8_literal("webp")
+                                                                                 : utf8_literal("webm"));
         };
         // Zero omits the limit (the server default), as the official client does.
         const auto limit = [&]() noexcept {
-            if (!query.limit)
-                return;
-            key(utf8_literal("limit="));
-            route_append_u64(&w, query.limit);
+            if (query.limit)
+                param("limit=", query.limit);
         };
         switch (query.operation) {
         case MediaCatalogOperation::gif_categories:

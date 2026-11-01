@@ -11,8 +11,6 @@ inline constexpr u32 kRegionalFlagSvgMaximumBytes = 64 * 1024;
 // the result borrows it, so concurrent callers need distinct scratch. Absent
 // for unsupported sequences; no network work.
 ConstSlice<u8> regional_flag_bundled_svg(u16 sequence, Slice<u8> scratch) noexcept;
-// The generator's FNV-1a checksum of every rebuilt flag text in sequence order.
-u64 regional_flag_bundled_text_checksum() noexcept;
 
 inline constexpr u32 kRegionalFlagSvgMaximumLayers = 64;
 inline constexpr u32 kRegionalFlagSvgMaximumCommands = 2048;

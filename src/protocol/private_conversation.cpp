@@ -4,28 +4,16 @@
 namespace maicord {
 namespace {
 constexpr u64 kPrivateOpenRouteId = 0x444d4f50454e31ull;
-bool append_ids(ProtocolWriter* json, const u64* ids, u32 count) noexcept {
-    if (!protocol_writer_append_byte(json, '[')) return false;
-    for (u32 i = 0; i < count; ++i)
-        if ((i && !protocol_writer_append_byte(json, ',')) || !protocol_writer_append_byte(json, '"') ||
-            !protocol_writer_append_u64(json, ids[i]) || !protocol_writer_append_byte(json, '"')) return false;
-    return protocol_writer_append_byte(json, ']');
-}
-bool append_channel(ProtocolWriter* path, u64 id) noexcept {
-    return protocol_writer_append_literal(path, "/api/v9/channels/") && protocol_writer_append_u64(path, id);
-}
 }
 PrivateConversationWriteResult private_conversation_write(PrivateConversationOperation operation, u64 id,
     Slice<u8> target, Slice<u8> body) noexcept {
     if (!id) return {};
     ProtocolWriter path{target, 0}, json{body, 0};
     if (operation == PrivateConversationOperation::open) {
-        if (!protocol_writer_append_literal(&path, "/api/v9/users/@me/channels") ||
-            !protocol_writer_append_literal(&json, "{\"recipients\":[\"") || !protocol_writer_append_u64(&json, id) ||
-            !protocol_writer_append_literal(&json, "\"]}")) return {};
+        if (!protocol_write(&path, "/api/v9/users/@me/channels") ||
+            !protocol_write(&json, "{\"recipients\":[", snowflake_text(id), "]}")) return {};
     } else {
-        if (!protocol_writer_append_literal(&path, "/api/v9/channels/") || !protocol_writer_append_u64(&path, id) ||
-            !protocol_writer_append_literal(&path, "?silent=false")) return {};
+        if (!protocol_write(&path, "/api/v9/channels/", id, "?silent=false")) return {};
     }
     return {path.used, json.used, true};
 }
@@ -63,52 +51,46 @@ PrivateConversationWriteResult private_channel_action_write(const PrivateChannel
     if (!private_channel_action_valid(r)) return {};
     ProtocolWriter path{target, 0}, json{body, 0};
     bool ok = false;
+    const auto channel = [&]() __attribute__((noinline)) noexcept {
+        return protocol_write(&path, "/api/v9/channels/", r.channel_id);
+    };
     switch (r.kind) {
     case PrivateChannelActionKind::create:
-        ok = protocol_writer_append_literal(&path, "/api/v9/users/@me/channels") &&
-            protocol_writer_append_literal(&json, "{\"recipients\":") && append_ids(&json, r.recipients, r.recipient_count) &&
-            protocol_writer_append_byte(&json, '}');
+        ok = protocol_write(&path, "/api/v9/users/@me/channels") &&
+            protocol_write(&json, "{\"recipients\":", snowflake_array(r.recipients, r.recipient_count), '}');
         break;
     case PrivateChannelActionKind::add_recipient:
     case PrivateChannelActionKind::remove_recipient:
-        ok = append_channel(&path, r.channel_id) && protocol_writer_append_literal(&path, "/recipients/") &&
-            protocol_writer_append_u64(&path, r.user_id);
+        ok = channel() && protocol_write(&path, "/recipients/", r.user_id);
         break;
     case PrivateChannelActionKind::rename:
-        ok = append_channel(&path, r.channel_id) && protocol_writer_append_literal(&json, "{\"name\":") &&
-            protocol_writer_append_json_string(&json, {r.name, r.name_bytes}) && protocol_writer_append_byte(&json, '}');
+        ok = channel() && protocol_write(&json, "{\"name\":", json_text({r.name, r.name_bytes}), '}');
         break;
     case PrivateChannelActionKind::leave:
-        ok = append_channel(&path, r.channel_id) && (r.silent ? protocol_writer_append_literal(&path, "?silent=true")
-                                                              : protocol_writer_append_literal(&path, "?silent=false"));
+        ok = channel() && protocol_write(&path, r.silent ? "?silent=true" : "?silent=false");
         break;
     case PrivateChannelActionKind::ring:
         // A null recipient list rings every member who is not in the call.
-        ok = append_channel(&path, r.channel_id) && protocol_writer_append_literal(&path, "/call/ring") &&
-            protocol_writer_append_literal(&json, "{\"recipients\":") &&
-            (r.recipient_count ? append_ids(&json, r.recipients, r.recipient_count)
-                               : protocol_writer_append_literal(&json, "null")) &&
-            protocol_writer_append_byte(&json, '}');
+        ok = channel() && protocol_write(&path, "/call/ring") &&
+            protocol_write(&json, "{\"recipients\":",
+                           or_null(r.recipient_count != 0, snowflake_array(r.recipients, r.recipient_count)), '}');
         break;
     case PrivateChannelActionKind::stop_ringing:
-        ok = append_channel(&path, r.channel_id) && protocol_writer_append_literal(&path, "/call/stop-ringing") &&
-            (r.recipient_count ? protocol_writer_append_literal(&json, "{\"recipients\":") &&
-                                     append_ids(&json, r.recipients, r.recipient_count) &&
-                                     protocol_writer_append_byte(&json, '}')
-                               : protocol_writer_append_literal(&json, "{}"));
+        ok = channel() && protocol_write(&path, "/call/stop-ringing") &&
+            (r.recipient_count
+                 ? protocol_write(&json, "{\"recipients\":", snowflake_array(r.recipients, r.recipient_count), '}')
+                 : protocol_write(&json, "{}"));
         break;
     case PrivateChannelActionKind::accept_request:
         // consent_status 2 is ACCEPTED in the message request consent enum.
-        ok = append_channel(&path, r.channel_id) && protocol_writer_append_literal(&path, "/recipients/@me") &&
-            protocol_writer_append_literal(&json, "{\"consent_status\":2}");
+        ok = channel() && protocol_write(&path, "/recipients/@me") && protocol_write(&json, "{\"consent_status\":2}");
         break;
     case PrivateChannelActionKind::ignore_request:
-        ok = append_channel(&path, r.channel_id) && protocol_writer_append_literal(&path, "/recipients/@me");
+        ok = channel() && protocol_write(&path, "/recipients/@me");
         break;
     case PrivateChannelActionKind::acknowledge_safety:
-        ok = append_channel(&path, r.channel_id) && protocol_writer_append_literal(&path, "/safety-warnings/ack") &&
-            protocol_writer_append_literal(&json, "{\"warning_ids\":") &&
-            append_ids(&json, r.recipients, r.recipient_count) && protocol_writer_append_byte(&json, '}');
+        ok = channel() && protocol_write(&path, "/safety-warnings/ack") &&
+            protocol_write(&json, "{\"warning_ids\":", snowflake_array(r.recipients, r.recipient_count), '}');
         break;
     default: break;
     }

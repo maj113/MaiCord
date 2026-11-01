@@ -427,19 +427,14 @@ ThreadBrowserResult thread_browser_write_target(
         return {0, ThreadBrowserError::input};
     u8 temporary[kThreadBrowserMaximumTargetBytes];
     ProtocolWriter writer{{temporary, sizeof(temporary)}, 0};
-    bool valid = protocol_writer_append_literal(&writer, "/api/v10/channels/") &&
-        protocol_writer_append_u64(&writer, request.parent_id) &&
-        protocol_writer_append_literal(&writer, "/threads/search?");
+    bool valid = protocol_write(&writer, "/api/v10/channels/", request.parent_id, "/threads/search?");
     if (request.mode == ThreadBrowserMode::archived)
-        valid = valid && protocol_writer_append_literal(&writer,
-            "archived=true&sort_by=last_message_time&sort_order=desc&limit=25&offset=") &&
-            protocol_writer_append_u64(&writer, request.offset);
+        valid = valid && protocol_write(&writer,
+            "archived=true&sort_by=last_message_time&sort_order=desc&limit=25&offset=", request.offset);
     else if (request.mode == ThreadBrowserMode::active)
-        valid = valid && protocol_writer_append_literal(&writer,
-            "archived=false&sort_by=last_message_time&sort_order=desc&limit=25&offset=") &&
-            protocol_writer_append_u64(&writer, request.offset);
-    else valid = valid && protocol_writer_append_literal(&writer, "name=") &&
-                 protocol_writer_append_percent_encoded(&writer, request.name);
+        valid = valid && protocol_write(&writer,
+            "archived=false&sort_by=last_message_time&sort_order=desc&limit=25&offset=", request.offset);
+    else valid = valid && protocol_write(&writer, "name=", percent_text(request.name));
     if (!valid || writer.used > output.count) return {writer.used, ThreadBrowserError::capacity};
     copy_bytes(output.data, temporary, writer.used);
     return {writer.used};

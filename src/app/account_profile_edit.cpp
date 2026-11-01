@@ -1,8 +1,8 @@
 #include "maicord/app/account_profile_edit.hpp"
 
 #include "maicord/app/original_md5.hpp"
+#include "maicord/app/request_body_bank.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 static_assert(kProfileEditMaximumTargetBytes <= kRestClientMaximumTargetBytes);
@@ -40,27 +40,23 @@ RestClientSubmitResult account_profile_edit_submit(RestClient* rest, const Profi
     }
     if (capacity > kRestClientMaximumLargeRequestBodyBytes + 6 * 1024)
         return {RestClientSubmitError::body_capacity};
-    // Demand-backed body bank; cleared before release (bodies hold the
-    // account's text and images).
-    auto* body = static_cast<u8*>(VirtualAlloc(nullptr, capacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!body)
+    RequestBodyBank body{capacity};
+    if (!body.data)
         return {RestClientSubmitError::memory};
-    const auto written = profile_edit_write_body(*request, {body, capacity});
+    const auto written = profile_edit_write_body(*request, body.all());
+    body.used = written.ok ? written.bytes : 0;
     const bool large = written.ok && written.bytes > kRestClientMaximumRequestBodyBytes;
     RestClientRequest submit{{target, path.bytes},
-                                   {body, written.ok ? written.bytes : 0},
+                                   {body.data, body.used},
                                    profile_edit_route(*request),
                                    request_id,
                                    large ? kLargeTimeoutMs : kRestClientDefaultTimeoutMs,
                                    true};
     submit.extra_headers = {headers, header_bytes};
-    const auto result = !written.ok || written.bytes > kRestClientMaximumLargeRequestBodyBytes
-                            ? RestClientSubmitResult{RestClientSubmitError::body_capacity}
-                        : large ? rest_client_submit_large(rest, submit)
-                                : rest_client_submit(rest, submit);
-    secure_clear_bytes(body, written.ok ? written.bytes : 0);
-    VirtualFree(body, 0, MEM_RELEASE);
-    return result;
+    return !written.ok || written.bytes > kRestClientMaximumLargeRequestBodyBytes
+               ? RestClientSubmitResult{RestClientSubmitError::body_capacity}
+           : large ? rest_client_submit_large(rest, submit)
+                   : rest_client_submit(rest, submit);
 }
 
 bool account_profile_image(ProfileImageRequest* request) noexcept {

@@ -1,6 +1,7 @@
 #include "application_composer_preview.hpp"
 #include "application_attachments_state.hpp"
 #include "application_state.hpp"
+#include "application_owner.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/ui/composer_attachment_strip.hpp"
@@ -170,12 +171,8 @@ bool application_composer_preview_request(u64 now, u64 unix_now) noexcept {
                                                         {ids, kAttachmentUploadMaximumCount});
     if (!count)
         return true;
-    if (!owner) {
-        owner = static_cast<ComposerPreviewOwner*>(
-            VirtualAlloc(nullptr, sizeof(ComposerPreviewOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-        if (!owner)
-            return true; // Thumbnails are optional; uploads never wait for them.
-    }
+    if (!owner_ensure(owner))
+        return true; // Thumbnails are optional; uploads never wait for them.
     for (u32 index = 0; index < minimum(count, kAttachmentUploadMaximumCount); ++index) {
         const u64 id = ids[index];
         const auto* record = message_attachment_drafts_get(&state->drafts, id);
@@ -267,9 +264,7 @@ void application_composer_preview_release() noexcept {
         if (entry.occupied)
             retire(entry, clock_monotonic_milliseconds());
     // Admitted lanes own their retained sources and copied paths.
-    secure_clear_bytes(owner, sizeof(*owner));
-    VirtualFree(owner, 0, MEM_RELEASE);
-    owner = nullptr;
+    owner_release(owner);
     changed();
 }
 

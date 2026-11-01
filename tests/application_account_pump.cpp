@@ -1,4 +1,5 @@
 #include "application_downloads_inactive.hpp"
+#include "model_store_fixtures.hpp"
 #include "gateway_message_scratch.hpp"
 #include "application_poll_inactive.hpp"
 #include "application_member_moderation_inactive.hpp"

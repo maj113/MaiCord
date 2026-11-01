@@ -5,6 +5,8 @@
 #include "application_media_context.hpp"
 #include "application_search.hpp"
 #include "application_state.hpp"
+#include "application_account_access.hpp"
+#include "application_owner.hpp"
 #include "application_text_form.hpp"
 #include "application_text_form_state.hpp"
 #include "application_friends.hpp"
@@ -91,10 +93,7 @@ struct Owner {
 Owner* owner{};
 
 bool ensure_owner() noexcept {
-    if (owner)
-        return true;
-    owner = static_cast<Owner*>(VirtualAlloc(nullptr, sizeof(Owner), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
-    return owner != nullptr;
+    return owner_ensure(owner) != nullptr;
 }
 
 u64 next_nonce() noexcept {
@@ -840,10 +839,8 @@ bool application_message_components_submit(u64 request_id, u64 now_ms) noexcept 
         return false;
     const auto submitted =
         g_app.account.api.message_interaction(g_app.account.instance, &owner->request, request_id);
-    if (submitted.error == RestClientSubmitError::busy) {
-        owner->retry_at_ms = now_ms + kBusyRetryMs;
+    if (submit_busy(submitted, owner->retry_at_ms, now_ms, kBusyRetryMs))
         return false;
-    }
     if (!submitted.ok()) {
         log_u64(LogLevel::warning, "components", "interaction_refused", static_cast<u64>(submitted.error));
         finish(true);
@@ -858,8 +855,7 @@ bool application_message_components_response(const RestClientResponse& response,
     if (!owner || !owner->request_id || response.request_id != owner->request_id)
         return true;
     owner->request_id = 0;
-    const bool ok = response.error == RestClientError::none && response.status_code >= 200 &&
-                    response.status_code < 300;
+    const bool ok = response.succeeded();
     if (!ok) {
         finish(true);
         return true;
@@ -914,9 +910,7 @@ void application_message_components_release() noexcept {
     if (!owner)
         return;
     message_scene_set_interaction(&g_app.message_scene, {});
-    secure_clear_bytes(owner, sizeof(Owner));
-    VirtualFree(owner, 0, MEM_RELEASE);
-    owner = nullptr;
+    owner_release(owner);
 }
 
 } // namespace maicord::app_detail

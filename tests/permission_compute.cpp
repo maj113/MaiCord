@@ -1,4 +1,5 @@
 #include "maicord/model/guild_ban_store.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/model/member_moderation.hpp"
 #include "maicord/model/guild_settings_model.hpp"
 #include "maicord/core/memory.hpp"

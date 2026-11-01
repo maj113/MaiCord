@@ -108,13 +108,7 @@ enum class GuildModerationError : u8 {
     identity,
 };
 
-struct GuildModerationResult {
-    u32 bytes;
-    GuildModerationError error;
-    constexpr bool ok() const noexcept {
-        return error == GuildModerationError::none;
-    }
-};
+using GuildModerationResult = ByteResult<GuildModerationError>;
 
 RestMethod guild_moderation_method(GuildModerationOperation) noexcept;
 bool guild_moderation_request_valid(const GuildModerationRequest&) noexcept;

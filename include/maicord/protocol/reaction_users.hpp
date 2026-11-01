@@ -18,14 +18,7 @@ enum class ReactionUsersWriteError : u8 {
     output_too_small,
 };
 
-struct ReactionUsersWriteResult {
-    u32 bytes;
-    ReactionUsersWriteError error;
-
-    constexpr bool ok() const noexcept {
-        return error == ReactionUsersWriteError::none;
-    }
-};
+using ReactionUsersWriteResult = ByteResult<ReactionUsersWriteError>;
 
 struct ReactionUser {
     u64 id;

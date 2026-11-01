@@ -1,4 +1,5 @@
 #include "account_ui_runtime.hpp"
+#include "model_store_fixtures.hpp"
 #include "account_permission_storage.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"

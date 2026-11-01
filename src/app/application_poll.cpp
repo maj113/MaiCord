@@ -1134,8 +1134,7 @@ bool application_poll_response(const RestClientResponse& response, Utf8View body
     // The official client applies an accepted vote locally and waits for the
     // gateway echo instead of refetching the message; the store update is
     // idempotent against that echo.
-    const bool accepted_2xx =
-        response.transport_ok() && response.status_code >= 200 && response.status_code < 300;
+    const bool accepted_2xx = response.succeeded();
     const bool vote_accepted = fresh && flight.command.kind == PollControllerWorkKind::vote &&
                                value.controller.desired_active && accepted_2xx;
     if (vote_accepted)

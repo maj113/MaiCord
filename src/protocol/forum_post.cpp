@@ -6,6 +6,7 @@
 #include "maicord/core/byte_range.hpp"
 #include "json_field_lists.hpp"
 #include "json_helpers.hpp"
+#include "json_command_writer.hpp"
 #include "json_write.hpp"
 
 namespace maicord {
@@ -548,10 +549,9 @@ ForumPostResult forum_post_write_target(const ForumPostRequest& request, Slice<u
         return {written.target_bytes};
     }
     ProtocolWriter writer{{temporary, sizeof(temporary)}, 0};
-    if (!protocol_writer_append_literal(&writer, "/api/v10/channels/") ||
-        !protocol_writer_append_u64(&writer, request.parent_id) ||
+    if (!protocol_write(&writer, "/api/v10/channels/", request.parent_id) ||
         (request.operation == ForumPostOperation::create &&
-         !protocol_writer_append_literal(&writer, "/threads?use_nested_fields=true")))
+         !protocol_write(&writer, "/threads?use_nested_fields=true")))
         return {0, ForumPostError::capacity};
     if (writer.used > output.count)
         return {writer.used, ForumPostError::capacity};
@@ -559,64 +559,43 @@ ForumPostResult forum_post_write_target(const ForumPostRequest& request, Slice<u
     return {writer.used};
 }
 namespace {
-// One emission path measures and writes the same bytes. The checked second pass
-// writes directly into a disjoint caller bank, without a large stack candidate.
-struct ForumBodyWriter {
-    Slice<u8> output;
-    u32 used;
-    template <usize Count> bool literal(const char (&text)[Count]) noexcept {
-        constexpr u32 size = static_cast<u32>(Count - 1);
-        if (output.data)
-            copy_bytes(output.data + used, text, size);
-        used += size;
-        return true;
-    }
-    bool number(u64 value) noexcept {
-        if (output.data)
-            decimal_write(output.data + used, value);
-        used += decimal_digits(value);
-        return true;
-    }
-    bool string(Utf8View value) noexcept {
-        u32 count{};
-        if (!protocol_detail::measure_json_string(value, &count))
-            return false;
-        if (output.data)
-            protocol_detail::write_json_string(output.data + used, value);
-        used += count;
-        return true;
-    }
-};
-bool emit_body(const ForumPostRequest& request, ForumBodyWriter& writer) noexcept {
+// One emission path measures (no output) and writes the same bytes. The checked second pass writes directly into a
+// disjoint caller bank, without a large stack candidate.
+using Writer = protocol_detail::JsonCommandWriter;
+bool emit_body(const ForumPostRequest& request, Writer& writer) noexcept {
     if (request.operation == ForumPostOperation::parent_metadata)
         return true;
-    if (request.operation == ForumPostOperation::attachment_url)
-        return writer.literal("{\"files\":[{\"filename\":") && writer.string(request.upload_filename) &&
-               writer.literal(",\"file_size\":") && writer.number(request.upload_bytes) &&
-               writer.literal(",\"id\":\"") && writer.number(request.upload_id) &&
-               writer.literal("\",\"is_clip\":false}]}");
-    bool valid = writer.literal("{\"name\":") && writer.string(request.title) &&
-                 writer.literal(",\"auto_archive_duration\":") &&
-                 writer.number(request.auto_archive_duration) && writer.literal(",\"applied_tags\":[");
-    for (u32 at = 0; valid && at < request.tag_count; ++at)
-        valid = (!at || writer.literal(",")) && writer.literal("\"") &&
-                writer.number(request.applied_tag_ids[at]) && writer.literal("\"");
-    valid = valid && writer.literal("],\"message\":{\"content\":") && writer.string(request.content);
-    if (valid && request.attachments.count) {
-        valid = writer.literal(",\"attachments\":[");
-        for (u32 at = 0; valid && at < request.attachments.count; ++at) {
-            const auto& file = request.attachments[at];
-            valid = (!at || writer.literal(",")) && writer.literal("{\"id\":\"") &&
-                    writer.number(file.id) && writer.literal("\",\"filename\":") &&
-                    writer.string(file.filename) && writer.literal(",\"uploaded_filename\":") &&
-                    writer.string(file.uploaded_filename) &&
-                    (!file.description.bytes ||
-                     (writer.literal(",\"description\":") && writer.string(file.description))) &&
-                    (!file.spoiler || writer.literal(",\"is_spoiler\":true")) && writer.literal("}");
-        }
-        valid = valid && writer.literal("]");
+    if (request.operation == ForumPostOperation::attachment_url) {
+        writer.put("{\"files\":[{\"filename\":", json_text(request.upload_filename), ",\"file_size\":",
+                   request.upload_bytes, ",\"id\":", snowflake_text(request.upload_id), ",\"is_clip\":false}]}");
+        return writer.ok;
     }
-    return valid && writer.literal("}}");
+    writer.put("{\"name\":", json_text(request.title), ",\"auto_archive_duration\":", request.auto_archive_duration,
+               ",\"applied_tags\":[");
+    for (u32 at = 0; at < request.tag_count; ++at) {
+        if (at)
+            writer.put(',');
+        writer.put(snowflake_text(request.applied_tag_ids[at]));
+    }
+    writer.put("],\"message\":{\"content\":", json_text(request.content));
+    if (request.attachments.count) {
+        writer.put(",\"attachments\":[");
+        for (u32 at = 0; at < request.attachments.count; ++at) {
+            const auto& file = request.attachments[at];
+            if (at)
+                writer.put(',');
+            writer.put("{\"id\":", snowflake_text(file.id), ",\"filename\":", json_text(file.filename),
+                       ",\"uploaded_filename\":", json_text(file.uploaded_filename));
+            if (file.description.bytes)
+                writer.put(",\"description\":", json_text(file.description));
+            if (file.spoiler)
+                writer.put(",\"is_spoiler\":true");
+            writer.put('}');
+        }
+        writer.put(']');
+    }
+    writer.put("}}");
+    return writer.ok;
 }
 bool writer_inputs_disjoint(const ForumPostRequest& request, Slice<u8> output) noexcept {
     const ConstSlice<u8> destination{output.data, output.count};
@@ -643,11 +622,11 @@ bool writer_inputs_disjoint(const ForumPostRequest& request, Slice<u8> output) n
 ForumPostResult forum_post_body_bytes(const ForumPostRequest& request) noexcept {
     if (!forum_post_request_valid(request))
         return {0, ForumPostError::input};
-    ForumBodyWriter writer{};
+    Writer writer{};
     if (!emit_body(request, writer))
         return {0, ForumPostError::input};
-    return {writer.used,
-            writer.used > kForumPostMaximumBodyBytes ? ForumPostError::capacity : ForumPostError::none};
+    return {static_cast<u32>(writer.at),
+            writer.at > kForumPostMaximumBodyBytes ? ForumPostError::capacity : ForumPostError::none};
 }
 ForumPostResult forum_post_write_body(const ForumPostRequest& request, Slice<u8> output) noexcept {
     const auto size = forum_post_body_bytes(request);
@@ -668,9 +647,9 @@ ForumPostResult forum_post_write_body(const ForumPostRequest& request, Slice<u8>
                    ? ForumPostResult{size.bytes}
                    : ForumPostResult{0, ForumPostError::capacity};
     }
-    ForumBodyWriter writer{output, 0};
-    return emit_body(request, writer) && writer.used == size.bytes
-               ? ForumPostResult{writer.used}
+    Writer writer{output.data, 0};
+    return emit_body(request, writer) && writer.at == size.bytes
+               ? ForumPostResult{size.bytes}
                : ForumPostResult{0, ForumPostError::capacity};
 }
 ForumPostResult forum_parent_decode(Utf8View input, const ForumPostRequest& request, Slice<u32> scratch,

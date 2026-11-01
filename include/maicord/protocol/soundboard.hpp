@@ -85,13 +85,7 @@ struct SoundboardRequest {
 static_assert(sizeof(SoundboardRequest) == 112);
 
 enum class SoundboardWriteError : u8 { none, input, capacity };
-struct SoundboardWriteResult {
-    u32 bytes;
-    SoundboardWriteError error;
-    constexpr bool ok() const noexcept {
-        return error == SoundboardWriteError::none;
-    }
-};
+using SoundboardWriteResult = ByteResult<SoundboardWriteError>;
 
 bool soundboard_name_valid(Utf8View) noexcept;
 bool soundboard_emoji_name_valid(Utf8View) noexcept;

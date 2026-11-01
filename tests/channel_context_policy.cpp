@@ -1,4 +1,5 @@
 #include "maicord/ui/channel_context_policy.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/model/permission_bits.hpp"
 #include "maicord/ui/popup_scene.hpp"
 

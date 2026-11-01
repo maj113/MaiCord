@@ -290,14 +290,10 @@ AccountSettingsWriteResult account_settings_write_request(const AccountSettingsR
         result.route_id = kAccountSessionsRouteId;
         if (r.operation == Op::session_logout) {
             result.method = RestMethod::post;
-            static constexpr char head[] = "{\"session_id_hashes\":[\"";
-            static constexpr char tail[] = "\"]}";
-            if (body.count < sizeof(head) - 1 + r.payload.count + sizeof(tail) - 1)
+            ProtocolWriter w{body, 0};
+            if (!protocol_write(&w, "{\"session_id_hashes\":[\"", r.payload, "\"]}"))
                 return fail_capacity();
-            write_literal(body.data, &at, head);
-            copy_bytes(body.data + at, r.payload.data, r.payload.count);
-            at += r.payload.count;
-            write_literal(body.data, &at, tail);
+            at = w.used;
         }
         break;
     }
@@ -306,16 +302,14 @@ AccountSettingsWriteResult account_settings_write_request(const AccountSettingsR
         result.route_id = kAccountTokensRouteId;
         if (r.operation == Op::token_revoke) {
             result.method = RestMethod::delete_method;
-            if (!route_append(&route, utf8_literal("/api/v10/oauth2/tokens/")) ||
-                !route_append_u64(&route, r.id))
+            if (!route_write(&route, "/api/v10/oauth2/tokens/", r.id))
                 return fail_capacity();
         } else
             path = utf8_literal("/api/v10/oauth2/tokens");
         break;
     case Op::profile:
         result.route_id = kAccountProfileRouteId;
-        if (!route_append(&route, utf8_literal("/api/v10/users/")) ||
-            !route_append_u64(&route, r.id) || !route_append(&route, utf8_literal("/profile")))
+        if (!route_write(&route, "/api/v10/users/", r.id, "/profile"))
             return fail_capacity();
         break;
     case Op::profile_patch:
@@ -332,26 +326,14 @@ AccountSettingsWriteResult account_settings_write_request(const AccountSettingsR
         const bool null_value = name && !r.payload.count;
         if (!measure_json_string(text(r.payload), &encoded))
             return result;
-        const u32 value_bytes = null_value ? 4 : encoded;
-        if (body.count < key.bytes + value_bytes + 5)
+        ProtocolWriter w{body, 0};
+        if (!protocol_write(&w, "{\"", key, "\":", or_null(!null_value, json_text(text(r.payload))), '}'))
             return fail_capacity();
-        body.data[at++] = '{';
-        body.data[at++] = '"';
-        copy_bytes(body.data + at, key.data, key.bytes);
-        at += key.bytes;
-        body.data[at++] = '"';
-        body.data[at++] = ':';
-        if (null_value)
-            write_literal(body.data, &at, "null");
-        else {
-            write_json_string(body.data + at, text(r.payload));
-            at += encoded;
-        }
-        body.data[at++] = '}';
+        at = w.used;
         break;
     }
     }
-    if (path.bytes && !route_append(&route, path))
+    if (path.bytes && !route_write(&route, path))
         return fail_capacity();
     if (!route.valid)
         return fail_capacity();

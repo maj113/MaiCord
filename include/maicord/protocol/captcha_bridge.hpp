@@ -39,11 +39,7 @@ struct CaptchaBridgeParseResult {
     CaptchaBridgeParseState state;
     constexpr bool ok() const noexcept { return state == CaptchaBridgeParseState::complete; }
 };
-struct CaptchaBridgeWriteResult {
-    u32 bytes;
-    CaptchaBridgeProtocolError error;
-    constexpr bool ok() const noexcept { return error == CaptchaBridgeProtocolError::none; }
-};
+using CaptchaBridgeWriteResult = ByteResult<CaptchaBridgeProtocolError>;
 struct CaptchaBridgePage {
     Utf8View sitekey;
     Utf8View rqdata;  // optional

@@ -1,25 +1,9 @@
-#include "maicord/model/edit_history.hpp"
-#include "maicord/platform/secure_buffer.hpp"
+#include "edit_history_state.hpp"
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
-namespace {
-constexpr u32 kHistorySteps = 64;
-struct EditRecord { u32 start, removed, inserted, offset, anchor_before, caret_before, anchor_after, caret_after; };
-}
-struct TextEditHistory {
-    SecureBuffer payload;
-    EditRecord records[kHistorySteps];
-    u32 head, count, cursor, tail, used;
-    SecureBuffer group;
-    u32 group_anchor, group_caret;
-    bool grouping;
-    TextEditHistoryInput input;
-    u32 input_caret;
-    u64 input_time_ms;
-};
 namespace {
 EditRecord& record(TextEditHistory& history, u32 index) noexcept {
     return history.records[(history.head + index) % kHistorySteps];
@@ -194,11 +178,6 @@ void text_edit_break_history_run(TextEditHistoryState* edit) noexcept {
     if (edit && edit->history && edit->history->input != TextEditHistoryInput::isolated)
         text_edit_end_history_group(edit);
 }
-bool text_edit_can_undo(const TextEditHistoryState& edit) noexcept {
-    return edit.history && (edit.history->input != TextEditHistoryInput::isolated ||
-        (!edit.history->grouping && edit.history->cursor));
-}
-bool text_edit_can_redo(const TextEditHistoryState& edit) noexcept { return edit.history && !edit.history->grouping && edit.history->cursor < edit.history->count; }
 TextEditHistoryResult text_edit_undo(TextEditHistoryState* edit) noexcept { return restore(edit, false); }
 TextEditHistoryResult text_edit_redo(TextEditHistoryState* edit) noexcept { return restore(edit, true); }
 TextEditHistoryCosts text_edit_history_costs(const TextEditHistoryState& edit) noexcept {

@@ -206,22 +206,12 @@ ReactionUsersWriteResult write_reaction_users_target(
     }
     RouteWriter writer{};
     if (!route_writer_initialize(&writer, output) ||
-        !route_append(&writer, utf8_literal("/api/v10/channels/")) ||
-        !route_append_u64(&writer, channel_id) ||
-        !route_append(&writer, utf8_literal("/messages/")) ||
-        !route_append_u64(&writer, message_id) ||
-        !route_append(&writer, utf8_literal("/reactions/")) ||
-        !route_append_path_component(&writer, emoji_name) ||
-        (emoji_id != 0 &&
-         (!route_append_byte(&writer, ':') ||
-          !route_append_u64(&writer, emoji_id))) ||
-        !route_append(&writer, utf8_literal("?limit=")) ||
-        !route_append_u64(&writer, limit) ||
-        (after_user_id != 0 &&
-         (!route_append(&writer, utf8_literal("&after=")) ||
-          !route_append_u64(&writer, after_user_id))) ||
-        !route_append(&writer, utf8_literal("&type=")) ||
-        !route_append_u64(&writer, type_value)) {
+        !route_write(&writer, "/api/v10/channels/", channel_id, "/messages/", message_id, "/reactions/",
+                     path_component(emoji_name)) ||
+        (emoji_id != 0 && !route_write(&writer, ':', emoji_id)) ||
+        !route_write(&writer, "?limit=", limit) ||
+        (after_user_id != 0 && !route_write(&writer, "&after=", after_user_id)) ||
+        !route_write(&writer, "&type=", type_value)) {
         return write_error(ReactionUsersWriteError::output_too_small);
     }
     return ReactionUsersWriteResult{

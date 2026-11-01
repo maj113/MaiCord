@@ -130,14 +130,11 @@ ThreadCreationResult thread_creation_write_target(const ThreadCreationRequest& r
         return {0, ThreadCreationError::input};
     u8 temporary[kThreadCreationMaximumTargetBytes];
     ProtocolWriter writer{{temporary, sizeof(temporary)}, 0};
-    if (!protocol_writer_append_literal(&writer, "/api/v10/channels/") ||
-        !protocol_writer_append_u64(&writer, request.operation == ThreadCreationOperation::from_message
-                                                 ? request.parent_id
-                                                 : request.source_message_id) ||
+    if (!protocol_write(&writer, "/api/v10/channels/",
+                        request.operation == ThreadCreationOperation::from_message ? request.parent_id
+                                                                                   : request.source_message_id) ||
         (request.operation == ThreadCreationOperation::from_message &&
-         (!protocol_writer_append_literal(&writer, "/messages/") ||
-          !protocol_writer_append_u64(&writer, request.source_message_id) ||
-          !protocol_writer_append_literal(&writer, "/threads"))))
+         !protocol_write(&writer, "/messages/", request.source_message_id, "/threads")))
         return {0, ThreadCreationError::capacity};
     if (writer.used > output.count)
         return {writer.used, ThreadCreationError::capacity};
@@ -152,13 +149,8 @@ ThreadCreationResult thread_creation_write_body(const ThreadCreationRequest& req
         return {};
     u8 temporary[kThreadCreationMaximumBodyBytes];
     ProtocolWriter writer{{temporary, sizeof(temporary)}, 0};
-    if (!protocol_writer_append_literal(&writer, "{\"name\":") ||
-        !protocol_writer_append_json_string(&writer, request.name) ||
-        !protocol_writer_append_literal(&writer, ",\"type\":") ||
-        !protocol_writer_append_u64(&writer, request.thread_type) ||
-        !protocol_writer_append_literal(&writer, ",\"auto_archive_duration\":") ||
-        !protocol_writer_append_u64(&writer, request.auto_archive_duration) ||
-        !protocol_writer_append_byte(&writer, '}'))
+    if (!protocol_write(&writer, "{\"name\":", json_text(request.name), ",\"type\":", request.thread_type,
+                        ",\"auto_archive_duration\":", request.auto_archive_duration, '}'))
         return {0, ThreadCreationError::capacity};
     if (writer.used > output.count)
         return {writer.used, ThreadCreationError::capacity};

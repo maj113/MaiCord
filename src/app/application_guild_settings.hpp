@@ -38,7 +38,7 @@ struct SettingsLayer;
 SettingsLayer* application_guild_settings_settings_layer() noexcept;
 bool application_guild_settings_submit(u64 now) noexcept;
 bool application_guild_settings_owns_response(u64 request_id) noexcept;
-bool application_guild_settings_response(const RestClientResponse&, const Utf8View&) noexcept;
+bool application_guild_settings_response(const RestClientResponse&, Utf8View) noexcept;
 void application_guild_settings_gateway(const GatewayClientEvent&, const Utf8View&) noexcept;
 u64 application_guild_settings_next_wake() noexcept;
 u64 application_guild_settings_caret_wake() noexcept;

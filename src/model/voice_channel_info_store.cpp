@@ -65,13 +65,6 @@ bool valid(const VoiceChannelInfoStore* s, u64 guild_id, u64 channel_id) noexcep
 }
 } // namespace
 
-void voice_channel_info_store_reset(VoiceChannelInfoStore* s) noexcept {
-    if (!s)
-        return;
-    s->count = s->text_used = s->dropped = 0;
-    ++s->revision;
-}
-
 bool voice_channel_info_store_set_start(VoiceChannelInfoStore* s, u64 guild_id, u64 channel_id,
                                         u64 start_s) noexcept {
     if (!valid(s, guild_id, channel_id) || start_s > ~0u)

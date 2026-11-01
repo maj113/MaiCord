@@ -33,14 +33,7 @@ enum class WebSocketHandshakeState : u8 {
     error,
 };
 
-struct WebSocketHandshakeWriteResult {
-    u32 bytes;
-    WebSocketHandshakeError error;
-
-    constexpr bool ok() const noexcept {
-        return error == WebSocketHandshakeError::none;
-    }
-};
+using WebSocketHandshakeWriteResult = ByteResult<WebSocketHandshakeError>;
 
 struct WebSocketHandshakeValidation {
     u32 header_bytes;

@@ -44,17 +44,14 @@ BulkMessageAckWriteResult write_bulk_message_ack_body(const ConstSlice<BulkMessa
     if (required > output.count)
         return fail(BulkMessageAckWriteError::capacity);
     ProtocolWriter writer{output, 0};
-    bool valid = protocol_writer_append_literal(&writer, "{\"read_states\":[");
+    bool valid = protocol_write(&writer, "{\"read_states\":[");
     for (u32 i = 0; valid && i < entries.count; ++i) {
         const auto& entry = entries.data[i];
-        valid = (!i || protocol_writer_append_literal(&writer, ",")) &&
-                protocol_writer_append_literal(&writer, "{\"channel_id\":\"") &&
-                protocol_writer_append_u64(&writer, entry.channel_id) &&
-                protocol_writer_append_literal(&writer, "\",\"message_id\":\"") &&
-                protocol_writer_append_u64(&writer, entry.message_id) &&
-                protocol_writer_append_literal(&writer, "\",\"read_state_type\":0}");
+        valid = (!i || protocol_write(&writer, ',')) &&
+                protocol_write(&writer, "{\"channel_id\":", snowflake_text(entry.channel_id), ",\"message_id\":",
+                               snowflake_text(entry.message_id), ",\"read_state_type\":0}");
     }
-    valid = valid && protocol_writer_append_literal(&writer, "]}");
+    valid = valid && protocol_write(&writer, "]}");
     return valid ? BulkMessageAckWriteResult{writer.used, BulkMessageAckWriteError::none}
                  : fail(BulkMessageAckWriteError::capacity);
 }

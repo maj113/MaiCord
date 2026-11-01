@@ -13,6 +13,7 @@
 #include "application_profile.hpp"
 #include "application_settings.hpp"
 #include "application_settings_layer.hpp"
+#include "application_settings_modal.hpp"
 #include "application_state.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/log.hpp"
@@ -87,12 +88,7 @@ struct Request {
     GuildCommunityOperation op;
 };
 
-struct Owner {
-    UiSettingsScene scene;
-    SettingsLayer layer;
-    UiPageRegistry registry;
-    UiPage page;
-    UiSettingsPageContent content;
+struct Owner : SettingsDialog {
     UiSettingsControl controls[kControlCapacity];
     UiSettingsControlPresentation presentation[kControlCapacity];
     u32 control_count;
@@ -182,8 +178,7 @@ bool ensure_background() noexcept {
         const u64 request = background->request_id;
         SecureZeroMemory(background, sizeof(Background));
         background->account_scope = g_app.plugin_account_scope_serial;
-        if (request && g_app.account.instance && g_app.account.api.guild_community)
-            g_app.account.api.guild_community(g_app.account.instance, nullptr, request);
+        application_cancel_request(&AccountModuleApi::guild_community, request);
     }
     return true;
 }
@@ -864,14 +859,10 @@ bool project() noexcept {
     p.content.presentation = p.presentation;
     p.content.footer = &p.footer;
     ++p.content.revision;
-    ui_settings_scene_set_focus_visible(&p.scene, g_app.keyboard_focus_visible);
-    return ui_settings_scene_update(&p.scene, &p.registry, application_viewport_dips());
+    return settings_modal_update(p);
 }
 bool repaint() noexcept {
-    if (!project())
-        return false;
-    application_request_frame();
-    return !g_app.renderer_ready || renderer_rebuild_content_text(&g_app.renderer, application_theme());
+    return settings_modal_present(project());
 }
 
 constexpr u64 kWindowsToUnixSeconds = 11'644'473'600ull;
@@ -993,11 +984,9 @@ constexpr SettingsLayerHooks kHooks{editor_hook, edited, activate, choose,
 bool ensure_owner() noexcept {
     if (owner)
         return true;
-    owner = static_cast<Owner*>(VirtualAlloc(nullptr, sizeof(Owner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    owner = settings_modal_allocate<Owner>(kHooks);
     if (!owner)
         return false;
-    owner->layer.scene = &owner->scene;
-    owner->layer.hooks = &kHooks;
     for (u32 i = 0; i < kEditors; ++i)
         message_composer_initialize(&owner->models[i], {owner->editor_text[i], kEditorBytes});
     return true;
@@ -1043,9 +1032,7 @@ bool open_modal(Mode mode, u64 guild_id, Utf8View title, u64 focus) noexcept {
         set_title(title);
         return switch_mode(mode, focus);
     }
-    application_settings_close(false);
-    application_media_picker_close();
-    application_profile_close();
+    settings_modal_yield();
     auto& p = *owner;
     const auto* g = guild(guild_id);
     if (!g)
@@ -1061,30 +1048,10 @@ bool open_modal(Mode mode, u64 guild_id, Utf8View title, u64 focus) noexcept {
     reset_value(&p.status);
     p.copied_until = 0;
     clear_editors();
-    settings_layer_reset(&p.layer);
-    if (!ui_page_registry_initialize(&p.registry, {&p.page, 1}))
-        return false;
     set_title(title);
-    p.content = {p.content.title, {}, {}, 1, kUiSettingsPageFormat, &kUiDefaultSettingsStyle, nullptr};
-    if (!ui_page_registry_register(&p.registry, {kPage, p.content.title, &p.content}).ok())
+    if (!settings_dialog_begin(p, kPage, p.content.title))
         return false;
-    application_composer_text_input_suspend();
-    dismiss_popup();
-    ui_scroll_host_cancel(&g_app.scroll_host);
-    g_app.message_composer.focused = false;
-    ui_settings_scene_set_presentation(&p.scene, UiSettingsPresentation::dialog);
-    p.scene.focus = {UiSettingsTargetKind::control, kPage, focus};
-    if (!ui_settings_scene_update(&p.scene, &p.registry, application_viewport_dips()) || !project()) {
-        application_guild_community_close(false);
-        return false;
-    }
-    renderer_bind_settings_scene(&g_app.renderer, &p.scene);
-    settings_layer_begin_entrance(&p.layer);
-    g_app.context_focus = &p.scene.widgets;
-    if (focus)
-        settings_layer_focus(&p.layer, {UiSettingsTargetKind::control, kPage, focus});
-    application_sync_attachment_drop_target();
-    if (repaint())
+    if (settings_dialog_show(p, kPage, focus, true, project) && repaint())
         return true;
     application_guild_community_close(false);
     return false;
@@ -1720,31 +1687,19 @@ bool application_guild_community_active() noexcept {
 void application_guild_community_close(bool restore_focus) noexcept {
     if (!owner || !owner->scene.active)
         return;
-    application_composer_text_input_suspend();
-    settings_layer_close_choice(&owner->layer);
-    settings_layer_cancel_pointer(&owner->layer);
+    settings_modal_suspend(*owner);
     owner->menu = Menu::none;
     // A queued modal submit is dropped; one in flight finishes and is discarded.
     discard_modal_submissions();
-    renderer_bind_settings_scene(&g_app.renderer, nullptr);
-    owner->layer.entrance_started = 0;
-    renderer_set_settings_modal_progress(&g_app.renderer, 1);
-    ui_settings_scene_close(&owner->scene);
     owner->mode = Mode::none;
     owner->lifetime = ++lifetime_serial;
-    if (restore_focus && application_account_available())
-        g_app.context_focus = &g_app.shell_scene.widgets;
-    application_sync_attachment_drop_target();
-    if (g_app.renderer_ready)
-        refresh_account_text(true);
-    application_request_frame();
+    settings_modal_leave(*owner, restore_focus && application_account_available());
 }
 
 void application_guild_community_release() noexcept {
     application_guild_community_close(false);
     if (background) {
-        if (background->request_id && g_app.account.instance && g_app.account.api.guild_community)
-            g_app.account.api.guild_community(g_app.account.instance, nullptr, background->request_id);
+        application_cancel_request(&AccountModuleApi::guild_community, background->request_id);
         SecureZeroMemory(background, sizeof(Background));
         VirtualFree(background, 0, MEM_RELEASE);
         background = nullptr;
@@ -1757,12 +1712,9 @@ void application_guild_community_release() noexcept {
     published_events_revision = 0;
     if (!owner)
         return;
-    ui_settings_scene_release(&owner->scene);
     for (auto& model : owner->models)
         message_composer_release(&model);
-    SecureZeroMemory(owner, sizeof(*owner));
-    VirtualFree(owner, 0, MEM_RELEASE);
-    owner = nullptr;
+    settings_modal_free(owner);
 }
 
 bool application_guild_community_synchronize() noexcept {
@@ -1790,10 +1742,7 @@ bool application_guild_community_synchronize() noexcept {
     }
     if (changed)
         return repaint();
-    if (!ui_settings_scene_update(&p.scene, &p.registry, application_viewport_dips()))
-        return false;
-    return g_app.renderer.interaction_text_settings_revision == p.scene.revision ||
-           renderer_rebuild_content_text(&g_app.renderer, application_theme());
+    return settings_modal_refresh(p);
 }
 
 SettingsLayer* application_guild_community_settings_layer() noexcept {
@@ -1837,10 +1786,8 @@ bool application_guild_community_submit(u64 now) noexcept {
         !application_action_captcha_arm(ApplicationActionCaptchaKind::guild_join, request.guild_id, id, true))
         log_write(LogLevel::warning, "community", "join_captcha_arm_failed");
     const auto submitted = g_app.account.api.guild_community(g_app.account.instance, &wire, id);
-    if (submitted.error == RestClientSubmitError::busy) {
-        b.retry_at = deadline_after(now, 50);
+    if (submit_busy(submitted, b.retry_at, now, 50))
         return false;
-    }
     pop_request();
     b.retry_at = 0;
     if (wire.body_bytes)

@@ -89,6 +89,8 @@ void native_plugin_bundle_install_acknowledge(NativePluginBundleInstall*) noexce
 // cleanup-only worker; release never performs filesystem IO on the UI thread.
 NativePluginBundleInstallError native_plugin_bundle_install_retry_cleanup(NativePluginBundleInstall*) noexcept;
 bool native_plugin_bundle_install_release(NativePluginBundleInstall*,u32 timeout_ms=0) noexcept;
+#if defined(MAICORD_PLUGIN_BUNDLE_INSTALL_FIXTURE)
+// Test-only resource accounting, compiled only into the backend test.
 struct NativePluginBundleInstallResources {
     u64 committed_bytes{};
     u32 owned_bytes{}, copy_scratch_bytes{}, attached_handles{}, peak_checkpoint_handles{};
@@ -99,7 +101,6 @@ struct NativePluginBundleInstallResources {
 // peak. The hash walker also uses 8KiB of stack scratch and never buffers a
 // whole DLL.
 NativePluginBundleInstallResources native_plugin_bundle_install_resources(const NativePluginBundleInstall*) noexcept;
-#if defined(MAICORD_PLUGIN_BUNDLE_INSTALL_FIXTURE)
 // Test-only control, compiled only into the backend test. Failure1 forces
 // unsupported extended rename; failure2 keeps filesystem cleanup pending;
 // failure4 refuses the final rename (or an uninstall's delete) with access

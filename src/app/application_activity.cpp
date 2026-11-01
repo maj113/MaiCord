@@ -1,5 +1,7 @@
 #include "application_activity.hpp"
 #include "application_state.hpp"
+#include "rest_rate_retry.hpp"
+#include "application_account_access.hpp"
 #include "account_ui_runtime.hpp"
 #include "maicord/app/presence_idle.hpp"
 #include "maicord/core/deadline.hpp"
@@ -265,10 +267,8 @@ bool application_activity_sharing_submit(u64 request_id, u64 now_ms) noexcept {
     const auto self = g_app.account.api.self_status_snapshot(g_app.account.instance);
     const auto submitted = g_app.account.api.activity_sharing(g_app.account.instance, self.profile_id,
                                                               self.self_user_id, g.desired_share, request_id);
-    if (submitted.error == RestClientSubmitError::busy) {
-        g.retry_at = deadline_after(now_ms, 50);
+    if (submit_busy(submitted, g.retry_at, now_ms, 50))
         return false;
-    }
     if (!submitted.ok()) {
         log_u64(LogLevel::warning, "activity", "sharing_submit_error", static_cast<u64>(submitted.error));
         g.queued = false;
@@ -290,10 +290,9 @@ bool application_activity_sharing_response(const RestClientResponse& response, U
                           g_app.account.api.self_status_complete(g_app.account.instance, g.profile_id,
                                                                  g.self_user_id, g.request_id, &response, body);
     g.request_id = 0;
-    const bool ok = consumed && response.transport_ok() && response.status_code >= 200 && response.status_code < 300;
-    if (!ok && response.transport_ok() && response.status_code == 429 && response.rate_limited &&
-        response.retry_at_ms && !api_rejection_requires_action(response.rejection) && g.attempts < 3) {
-        g.retry_at = response.retry_at_ms;
+    const bool ok = consumed && response.succeeded();
+    if (const u64 retry = rest_rate_retry_deadline(response); !ok && retry && g.attempts < 3) {
+        g.retry_at = retry;
     } else {
         if (!ok)
             log_u64(LogLevel::warning, "activity", "sharing_response_status", response.status_code);

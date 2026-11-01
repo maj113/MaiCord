@@ -134,8 +134,6 @@ ReactionPreferenceResult reaction_preferences_track_emoji(ReactionPreferenceStor
                                                           bool pending = true) noexcept;
 ReactionPreferenceResult reaction_preferences_toggle_favorite_emoji(ReactionPreferenceStore* store,
                                                                     ReactionEmojiRef emoji) noexcept;
-bool reaction_preferences_is_favorite_emoji(const ReactionPreferenceStore& store,
-                                            ReactionEmojiRef emoji) noexcept;
 ConstSlice<ReactionEmojiRef> reaction_preferences_favorites(
     const ReactionPreferenceStore& store) noexcept;
 ConstSlice<ReactionEmojiRef> reaction_preferences_frequently(

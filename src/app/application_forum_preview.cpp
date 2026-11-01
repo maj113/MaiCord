@@ -2,6 +2,7 @@
 #include "application_forum_attachments.hpp"
 #include "application_forum_form.hpp"
 #include "application_state.hpp"
+#include "application_owner.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
 
@@ -171,10 +172,7 @@ bool application_forum_preview_request(u64 now, u64 unix_now) noexcept {
     const auto view = application_forum_attachments_view(post.ticket);
     if (!view.rows.count)
         return true;
-    if (!owner)
-        owner = static_cast<PreviewOwner*>(
-            VirtualAlloc(nullptr, sizeof(PreviewOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!owner)
+    if (!owner_ensure(owner))
         return true; // Optional thumbnail allocation never blocks posting.
     for (u32 row_index = 0; row_index < view.rows.count; ++row_index) {
         const auto& row = view.rows[row_index];
@@ -257,9 +255,7 @@ void application_forum_preview_release() noexcept {
         if (entry.occupied)
             retire(entry, clock_monotonic_milliseconds());
     // Lanes own retained sources and copied paths independently after admission.
-    secure_clear_bytes(owner, sizeof(*owner));
-    VirtualFree(owner, 0, MEM_RELEASE);
-    owner = nullptr;
+    owner_release(owner);
     changed();
 }
 u32 application_forum_preview_revision() noexcept {

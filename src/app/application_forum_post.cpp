@@ -1,5 +1,6 @@
 #include "application_forum_post.hpp"
 #include "application_state.hpp"
+#include "application_owner.hpp"
 #include "application_message_feedback.hpp"
 #include "application_content_input.hpp"
 #include "application_account_presentation.hpp"
@@ -208,9 +209,7 @@ void forum_free() noexcept {
         secure_clear_bytes(forum_owner->flight.attachment_bank, forum_owner->flight.attachment_bank_bytes);
         VirtualFree(forum_owner->flight.attachment_bank, 0, MEM_RELEASE);
     }
-    secure_clear_bytes(forum_owner, sizeof(*forum_owner));
-    VirtualFree(forum_owner, 0, MEM_RELEASE);
-    forum_owner = nullptr;
+    owner_release(forum_owner);
 }
 struct ForumPin {
     ForumOwner& owner;
@@ -433,12 +432,8 @@ bool application_forum_post_begin(u64 id, ApplicationForumPostTicket* output) no
         id = g_app.account_ui->chat_state.selected_channel_id;
     if (!application_forum_post_available(id))
         return false;
-    if (!forum_owner) {
-        forum_owner = static_cast<ForumOwner*>(
-            VirtualAlloc(nullptr, sizeof(ForumOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-        if (!forum_owner)
-            return false;
-    }
+    if (!owner_ensure(forum_owner))
+        return false;
     auto& owner = *forum_owner;
     if (!owner.retired && owner.source.parent == id && owner.phase != ForumPhase::settled &&
         forum_source_current(owner.source)) {

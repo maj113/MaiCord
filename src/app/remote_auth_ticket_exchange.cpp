@@ -49,7 +49,7 @@ bool cancelled(HANDLE cancel_event) noexcept {
 bool consume_response(void* context, const RestClientResponse& response,
                       ConstSlice<u8> locked_body) noexcept {
     auto* consumed = static_cast<ConsumeContext*>(context);
-    if (response.transport_ok() && response.status_code >= 200 && response.status_code < 300) {
+    if (response.succeeded()) {
         consumed->handshake = remote_auth_handshake_finish_ticket(
             consumed->handshake_owner,
             Utf8View{reinterpret_cast<const char*>(locked_body.data), locked_body.count},

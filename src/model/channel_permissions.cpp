@@ -139,32 +139,6 @@ void recount_guild_activity(ChatStateStore* store, GuildRecord* guild) noexcept 
 
 } // namespace
 
-bool chat_state_store_bind_permissions(ChatStateStore* store, Slice<RoleRecord> roles,
-                                          Slice<PermissionOverwriteRecord> overwrites) noexcept {
-    if (!store || !store->guilds || !store->channels || !roles.data || roles.count == 0 ||
-        roles.count > 65'535 || !overwrites.data || overwrites.count == 0 || overwrites.count > 65'535 ||
-        store->roles || store->overwrites || store->role_count || store->overwrite_count ||
-        store->permission_reserve || store->permission_reserve_context || store->role_backed_count ||
-        store->overwrite_backed_count) {
-        return false;
-    }
-    store->roles = roles.data;
-    store->overwrites = overwrites.data;
-    store->role_capacity = roles.count;
-    store->overwrite_capacity = overwrites.count;
-    store->role_backed_count = roles.count;
-    store->overwrite_backed_count = overwrites.count;
-    store->permission_reserve = nullptr;
-    store->permission_reserve_context = nullptr;
-    for (u32 index = 0; index < roles.count; ++index) {
-        reset_value<RoleRecord>(&roles[index]);
-    }
-    for (u32 index = 0; index < overwrites.count; ++index) {
-        reset_value<PermissionOverwriteRecord>(&overwrites[index]);
-    }
-    return true;
-}
-
 bool chat_state_store_bind_permissions_reserved(ChatStateStore* store, Slice<RoleRecord> roles,
                                                    Slice<PermissionOverwriteRecord> overwrites,
                                                    PermissionReserve reserve,

@@ -81,13 +81,7 @@ struct GifFavoriteMutation {
     GifFavoriteFormat format;
     GifFavoriteMutationKind kind;
 };
-struct GifFavoritesWriteResult {
-    u32 bytes;
-    GifFavoritesError error;
-    constexpr bool ok() const noexcept {
-        return error == GifFavoritesError::none;
-    }
-};
+using GifFavoritesWriteResult = ByteResult<GifFavoritesError>;
 // Add/re-add uses max(saved order)+1; remove deletes every matching map entry;
 // reorder changes only the supplied key's order. Unknown group/entry/value fields
 // are preserved; the PATCH carries only root group2. required_data_version is

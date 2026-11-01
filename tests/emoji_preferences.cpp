@@ -1,5 +1,6 @@
 #include "maicord/protocol/emoji_preferences.hpp"
 #include "maicord/model/reaction_preferences.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/ui/emoji_catalog.hpp"
 #include "maicord/ui/reaction_picker.hpp"
 #include "maicord/core/memory.hpp"

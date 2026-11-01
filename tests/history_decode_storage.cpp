@@ -1,4 +1,5 @@
 #include "application_emoji_preferences.hpp"
+#include "model_store_fixtures.hpp"
 #include "application_state.hpp"
 #include "application_message_history.hpp"
 #include "application_message_send.hpp"

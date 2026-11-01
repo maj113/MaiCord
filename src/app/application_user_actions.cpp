@@ -947,8 +947,7 @@ bool application_user_actions_response(const RestClientResponse& response, Utf8V
     const u64 user = s.request_user;
     s.request_id = 0;
     s.work = Work::none;
-    const bool ok = response.error == RestClientError::none && response.status_code >= 200 &&
-                    response.status_code < 300;
+    const bool ok = response.succeeded();
     const u64 now = clock_monotonic_milliseconds();
     if (response.error == RestClientError::none && response.status_code == 429)
         s.retry_at = maximum(now + 1000, response.retry_at_ms);

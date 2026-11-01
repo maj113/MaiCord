@@ -93,13 +93,7 @@ enum class MediaCatalogError : u8 {
     schema,
     text_capacity,
 };
-struct MediaCatalogWriteResult {
-    u32 bytes;
-    MediaCatalogError error;
-    constexpr bool ok() const noexcept {
-        return error == MediaCatalogError::none;
-    }
-};
+using MediaCatalogWriteResult = ByteResult<MediaCatalogError>;
 struct MediaCatalogDecodeResult {
     u32 item_count;
     u32 source_count;

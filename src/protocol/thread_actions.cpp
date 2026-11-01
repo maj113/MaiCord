@@ -54,13 +54,11 @@ ThreadActionResult thread_action_write_target(
         return {0, ThreadActionError::input};
     u8 temporary[kThreadActionMaximumTargetBytes];
     ProtocolWriter writer{{temporary, sizeof(temporary)}, 0};
-    if (!protocol_writer_append_literal(&writer, "/api/v10/channels/") ||
-        !protocol_writer_append_u64(&writer, request.thread_id) ||
+    if (!protocol_write(&writer, "/api/v10/channels/", request.thread_id) ||
         (request.operation != ThreadActionOperation::unarchive &&
-         (!protocol_writer_append_literal(&writer, "/thread-members/") ||
-          (request.operation == ThreadActionOperation::fetch_self
-              ? !protocol_writer_append_u64(&writer, request.self_user_id)
-              : !protocol_writer_append_literal(&writer, "@me")))))
+         !(protocol_write(&writer, "/thread-members/") &&
+           (request.operation == ThreadActionOperation::fetch_self ? protocol_write(&writer, request.self_user_id)
+                                                                   : protocol_write(&writer, "@me")))))
         return {0, ThreadActionError::capacity};
     if (writer.used > output.count) return {writer.used, ThreadActionError::capacity};
     copy_bytes(output.data, temporary, writer.used);

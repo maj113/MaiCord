@@ -13,10 +13,6 @@ using namespace protocol_detail;
 
 constexpr u32 kDepth = 16;
 
-bool append_snowflake_member(ProtocolWriter* output, const char* name, u64 value) noexcept {
-    return protocol_writer_append_c_string(output, name) && protocol_writer_append_snowflake(output, value);
-}
-
 struct Pool {
     Slice<char> bytes;
     u32 used;
@@ -262,20 +258,16 @@ bool message_interaction_write_body(const MessageInteractionRequest& request, Ut
     if (!output || !message_interaction_request_valid(request) || !session_id.bytes)
         return false;
     const bool component = request.type == MessageInteractionType::message_component;
-    bool ok = protocol_writer_append_literal(output, "{\"type\":") &&
-              protocol_writer_append_u64(output, static_cast<u64>(request.type)) &&
-              append_snowflake_member(output, ",\"nonce\":", request.nonce) &&
-              (!request.guild_id || append_snowflake_member(output, ",\"guild_id\":", request.guild_id)) &&
-              append_snowflake_member(output, ",\"channel_id\":", request.channel_id);
+    bool ok = protocol_write(output, "{\"type\":", static_cast<u64>(request.type), ",\"nonce\":",
+                             snowflake_text(request.nonce)) &&
+              (!request.guild_id || protocol_write(output, ",\"guild_id\":", snowflake_text(request.guild_id))) &&
+              protocol_write(output, ",\"channel_id\":", snowflake_text(request.channel_id));
     if (component)
-        ok = ok && protocol_writer_append_literal(output, ",\"message_flags\":") &&
-             protocol_writer_append_u64(output, request.message_flags) &&
-             append_snowflake_member(output, ",\"message_id\":", request.message_id);
-    return ok && append_snowflake_member(output, ",\"application_id\":", request.application_id) &&
-           protocol_writer_append_literal(output, ",\"session_id\":") && protocol_writer_append_json_string(output, session_id) &&
-           protocol_writer_append_literal(output, ",\"data\":") &&
-           protocol_writer_append_bytes(output, reinterpret_cast<const u8*>(request.data), request.data_bytes) &&
-           protocol_writer_append_byte(output, '}');
+        ok = ok && protocol_write(output, ",\"message_flags\":", request.message_flags, ",\"message_id\":",
+                                  snowflake_text(request.message_id));
+    return ok && protocol_write(output, ",\"application_id\":", snowflake_text(request.application_id),
+                                ",\"session_id\":", json_text(session_id), ",\"data\":",
+                                Utf8View{request.data, request.data_bytes}, '}');
 }
 
 bool message_interaction_write_component_data(u16 component_type, Utf8View custom_id,
@@ -284,20 +276,16 @@ bool message_interaction_write_component_data(u16 component_type, Utf8View custo
         values.count > kMessageInteractionMaximumValues || (!values.data && values.count))
         return false;
     const bool select = component_type == 3 || (component_type >= 5 && component_type <= 8);
-    bool ok = protocol_writer_append_literal(output, "{\"component_type\":") &&
-              protocol_writer_append_u64(output, component_type) &&
-              protocol_writer_append_literal(output, ",\"custom_id\":") && protocol_writer_append_json_string(output, custom_id);
+    bool ok = protocol_write(output, "{\"component_type\":", component_type, ",\"custom_id\":", json_text(custom_id));
     if (select) {
-        ok = ok && protocol_writer_append_literal(output, ",\"type\":") &&
-             protocol_writer_append_u64(output, component_type) &&
-             protocol_writer_append_literal(output, ",\"values\":[");
+        ok = ok && protocol_write(output, ",\"type\":", component_type, ",\"values\":[");
         for (u32 i = 0; ok && i < values.count; ++i)
-            ok = (i == 0 || protocol_writer_append_byte(output, ',')) && protocol_writer_append_json_string(output, values[i]);
-        ok = ok && protocol_writer_append_byte(output, ']');
+            ok = (i == 0 || protocol_write(output, ',')) && protocol_write(output, json_text(values[i]));
+        ok = ok && protocol_write(output, ']');
     } else if (values.count) {
         return false;
     }
-    return ok && protocol_writer_append_byte(output, '}');
+    return ok && protocol_write(output, '}');
 }
 
 bool message_interaction_event_decode(Utf8View json, Slice<u32> structurals,
@@ -378,25 +366,20 @@ bool message_modal_write_submit_data(const MessageModal& modal, ConstSlice<Utf8V
     if (!output || modal.unsupported || !modal.interaction_id || !modal.custom_id.bytes ||
         values.count != modal.field_count || (!values.data && values.count))
         return false;
-    bool ok = append_snowflake_member(output, "{\"id\":", modal.interaction_id) &&
-              protocol_writer_append_literal(output, ",\"custom_id\":") && protocol_writer_append_json_string(output, modal.custom_id) &&
-              protocol_writer_append_literal(output, ",\"components\":[");
+    bool ok = protocol_write(output, "{\"id\":", snowflake_text(modal.interaction_id), ",\"custom_id\":",
+                             json_text(modal.custom_id), ",\"components\":[");
     for (u32 i = 0; ok && i < modal.field_count; ++i) {
         const MessageModalField& field = modal.fields[i];
         if (!message_modal_value_valid(field, values[i], nullptr))
             return false;
-        ok = (i == 0 || protocol_writer_append_byte(output, ',')) &&
-             protocol_writer_append_c_string(output, field.labelled ? "{\"type\":18,\"component\":"
-                                                                    : "{\"type\":1,\"components\":[") &&
-             protocol_writer_append_literal(output, "{\"type\":4,") &&
-             (!field.id || (protocol_writer_append_literal(output, "\"id\":") &&
-                            protocol_writer_append_u64(output, field.id) && protocol_writer_append_byte(output, ','))) &&
-             protocol_writer_append_literal(output, "\"custom_id\":") && protocol_writer_append_json_string(output, field.custom_id) &&
-             protocol_writer_append_literal(output, ",\"value\":") && protocol_writer_append_json_string(output, values[i]) &&
-             protocol_writer_append_byte(output, '}') &&
-             protocol_writer_append_c_string(output, field.labelled ? "}" : "]}");
+        ok = (i == 0 || protocol_write(output, ',')) &&
+             protocol_write(output, field.labelled ? "{\"type\":18,\"component\":" : "{\"type\":1,\"components\":[",
+                            "{\"type\":4,") &&
+             (!field.id || protocol_write(output, "\"id\":", field.id, ',')) &&
+             protocol_write(output, "\"custom_id\":", json_text(field.custom_id), ",\"value\":", json_text(values[i]), '}',
+                            field.labelled ? "}" : "]}");
     }
-    return ok && protocol_writer_append_literal(output, "]}");
+    return ok && protocol_write(output, "]}");
 }
 
 } // namespace maicord

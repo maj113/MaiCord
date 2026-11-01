@@ -1052,7 +1052,7 @@ bool application_friends_response(const RestClientResponse& response, Utf8View b
         request.phase = FriendsRequestPhase::retry;request.retry_at = response.retry_at_ms;
         friends->status = utf8_literal("You're doing that too fast. Try again in a moment.");return repaint();
     }
-    bool ok = response.transport_ok() && response.status_code >= 200 && response.status_code < 300;
+    bool ok = response.succeeded();
     const bool bulk = request.operation == RelationshipOperation::clear_incoming || request.operation == RelationshipOperation::clear_hidden;
     if (ok && bulk) {
         // Server filter algebra is not assumed. The shared GET lane reconciles

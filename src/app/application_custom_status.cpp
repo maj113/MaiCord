@@ -8,7 +8,10 @@
 #include "application_profile.hpp"
 #include "application_settings.hpp"
 #include "application_settings_layer.hpp"
+#include "application_settings_modal.hpp"
 #include "application_state.hpp"
+#include "rest_rate_retry.hpp"
+#include "application_account_access.hpp"
 #include "maicord/render/layer_presentation.hpp"
 #include "maicord/model/bounded_edit.hpp"
 #include "maicord/core/deadline.hpp"
@@ -104,12 +107,7 @@ constexpr SelfCustomStatusClear kClearChoices[]{SelfCustomStatusClear::today, Se
 constexpr u32 kClearCount = sizeof(kClearLabels) / sizeof(kClearLabels[0]);
 constexpr u32 kEmojiInputBytes = 96;
 
-struct Form {
-    UiSettingsScene scene;
-    SettingsLayer layer;
-    UiPageRegistry registry;
-    UiPage page;
-    UiSettingsPageContent content;
+struct Form : SettingsDialog {
     UiSettingsControl controls[4];
     UiSettingsEditor editors[2];
     UiSettingsFooter footer;
@@ -168,14 +166,10 @@ bool project() noexcept {
     f.content.controls = {f.controls, 3};
     f.content.footer = &f.footer;
     ++f.content.revision;
-    ui_settings_scene_set_focus_visible(&f.scene, g_app.keyboard_focus_visible);
-    return ui_settings_scene_update(&f.scene, &f.registry, application_viewport_dips());
+    return settings_modal_update(f);
 }
 bool repaint() noexcept {
-    if (!project())
-        return false;
-    application_request_frame();
-    return !g_app.renderer_ready || renderer_rebuild_content_text(&g_app.renderer, application_theme());
+    return settings_modal_present(project());
 }
 void save() noexcept {
     auto& f = *form;
@@ -258,17 +252,14 @@ bool editor_hook(SettingsLayer*, u64 control, MessageComposer** model, BoundedEd
     *multiline = false;
     return true;
 }
-void close_hook(SettingsLayer*) noexcept {
-    application_custom_status_close();
-}
-bool repaint_hook(SettingsLayer*) noexcept {
-    return repaint();
-}
-bool editable_hook(SettingsLayer*) noexcept {
-    return application_custom_status_active();
-}
-constexpr SettingsLayerHooks kHooks{editor_hook, edited, activate, choose, close_hook, repaint_hook, nullptr,
-                                    editable_hook};
+constexpr SettingsLayerHooks kHooks{editor_hook,
+                                    edited,
+                                    activate,
+                                    choose,
+                                    settings_hook_close<application_custom_status_close>,
+                                    settings_hook<repaint>,
+                                    nullptr,
+                                    settings_hook<application_custom_status_active>};
 } // namespace
 
 bool application_custom_status_snapshot(SelfCustomStatus* output) noexcept {
@@ -335,10 +326,8 @@ bool application_custom_status_submit(u64 request_id, u64 now_ms) noexcept {
     const auto submitted = g_app.account.api.custom_status_submit(g_app.account.instance, self.profile_id,
                                                                   self.self_user_id, clear ? nullptr : &request.desired,
                                                                   request_id);
-    if (submitted.error == RestClientSubmitError::busy) {
-        request.retry_at = deadline_after(now_ms, 50);
+    if (submit_busy(submitted, request.retry_at, now_ms, 50))
         return false;
-    }
     if (!submitted.ok()) {
         log_u64(LogLevel::warning, "account", "custom_status_submit_error", static_cast<u64>(submitted.error));
         request.queued = false;
@@ -363,10 +352,9 @@ bool application_custom_status_response(const RestClientResponse& response, Utf8
                                                                  request.self_user_id, request.request_id, &response,
                                                                  body);
     request.request_id = 0;
-    const bool ok = consumed && response.transport_ok() && response.status_code >= 200 && response.status_code < 300;
-    if (!ok && response.transport_ok() && response.status_code == 429 && response.rate_limited &&
-        response.retry_at_ms && !api_rejection_requires_action(response.rejection) && request.attempts < 3) {
-        request.retry_at = response.retry_at_ms;
+    const bool ok = consumed && response.succeeded();
+    if (const u64 retry = rest_rate_retry_deadline(response); !ok && retry && request.attempts < 3) {
+        request.retry_at = retry;
     } else if (!ok) {
         // An ambiguous settings write is never silently resent.
         log_u64(LogLevel::warning, "account", "custom_status_response_status", response.status_code);
@@ -406,15 +394,11 @@ bool application_custom_status_open() noexcept {
     if (!g_app.account_ui || g_app.login.visible || !g_app.renderer_ready || g_app.text_form ||
         application_channel_overview_active() || !application_custom_status_available())
         return false;
-    application_settings_close(false);
-    application_media_picker_close();
-    application_profile_close();
+    settings_modal_yield();
     if (!form) {
-        form = static_cast<Form*>(VirtualAlloc(nullptr, sizeof(Form), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        form = settings_modal_allocate<Form>(kHooks);
         if (!form)
             return false;
-        form->layer.scene = &form->scene;
-        form->layer.hooks = &kHooks;
         message_composer_initialize(&form->models[0], {form->emoji, sizeof(form->emoji)});
         message_composer_initialize(&form->models[1], {form->text, sizeof(form->text)});
     }
@@ -449,31 +433,11 @@ bool application_custom_status_open() noexcept {
     if (text)
         copy_bytes(f.text, current.text, text);
     f.clear_index = known && !current.expires_at_ms ? kClearCount - 1 : 0;
-    settings_layer_reset(&f.layer);
-    if (!ui_page_registry_initialize(&f.registry, {&f.page, 1}))
+    if (!settings_dialog_begin(f, kPage, utf8_literal("Set a custom status")))
         return false;
-    f.content = {utf8_literal("Set a custom status"), {}, {}, 1, kUiSettingsPageFormat, &kUiDefaultSettingsStyle,
-                 nullptr};
-    if (!ui_page_registry_register(&f.registry, {kPage, f.content.title, &f.content}).ok())
-        return false;
-    application_composer_text_input_suspend();
-    dismiss_popup();
-    ui_scroll_host_cancel(&g_app.scroll_host);
-    g_app.message_composer.focused = false;
-    ui_settings_scene_set_presentation(&f.scene, UiSettingsPresentation::dialog);
     load_editor(0, emoji);
     load_editor(1, text);
-    f.scene.focus = {UiSettingsTargetKind::control, kPage, control_text};
-    if (!ui_settings_scene_update(&f.scene, &f.registry, application_viewport_dips()) || !project()) {
-        application_custom_status_close(false);
-        return false;
-    }
-    renderer_bind_settings_scene(&g_app.renderer, &f.scene);
-    settings_layer_begin_entrance(&f.layer);
-    g_app.context_focus = &f.scene.widgets;
-    settings_layer_focus(&f.layer, {UiSettingsTargetKind::control, kPage, control_text});
-    application_sync_attachment_drop_target();
-    if (repaint())
+    if (settings_dialog_show(f, kPage, control_text, true, project) && repaint())
         return true;
     application_custom_status_close(false);
     return false;
@@ -486,31 +450,17 @@ bool application_custom_status_active() noexcept {
 void application_custom_status_close(bool restore_focus) noexcept {
     if (!application_custom_status_active())
         return;
-    application_composer_text_input_suspend();
-    settings_layer_close_choice(&form->layer);
-    settings_layer_cancel_pointer(&form->layer);
-    renderer_bind_settings_scene(&g_app.renderer, nullptr);
-    form->layer.entrance_started = 0;
-    renderer_set_settings_modal_progress(&g_app.renderer, 1);
-    ui_settings_scene_close(&form->scene);
-    if (restore_focus && g_app.account_ui && !g_app.login.visible)
-        g_app.context_focus = &g_app.shell_scene.widgets;
-    application_sync_attachment_drop_target();
-    if (g_app.renderer_ready)
-        refresh_account_text(true);
-    application_request_frame();
+    settings_modal_suspend(*form);
+    settings_modal_leave(*form, restore_focus && g_app.account_ui && !g_app.login.visible);
 }
 
 void application_custom_status_release() noexcept {
     application_custom_status_close(false);
     if (!form)
         return;
-    ui_settings_scene_release(&form->scene);
     for (auto& model : form->models)
         message_composer_release(&model);
-    SecureZeroMemory(form, sizeof(*form));
-    VirtualFree(form, 0, MEM_RELEASE);
-    form = nullptr;
+    settings_modal_free(form);
 }
 
 bool application_custom_status_synchronize() noexcept {
@@ -525,10 +475,7 @@ bool application_custom_status_synchronize() noexcept {
         f.layer.choice = false;
         return repaint();
     }
-    if (!ui_settings_scene_update(&f.scene, &f.registry, application_viewport_dips()))
-        return false;
-    return g_app.renderer.interaction_text_settings_revision == f.scene.revision ||
-           renderer_rebuild_content_text(&g_app.renderer, application_theme());
+    return settings_modal_refresh(f);
 }
 
 SettingsLayer* application_custom_status_settings_layer() noexcept {

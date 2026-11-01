@@ -91,6 +91,13 @@ constexpr void saturating_accumulate(u64& value, u64 addend) noexcept {
     value = sum < value ? ~u64{0} : sum;
 }
 
+// A byte count and the error that ended the read or write; Error::none means it succeeded.
+template <typename Error> struct ByteResult {
+    u32 bytes;
+    Error error;
+    constexpr bool ok() const noexcept { return error == Error::none; }
+};
+
 // Float classification reads the bit pattern: /fp:fast may fold NaN and
 // infinity comparisons, so these never compare floating-point values.
 constexpr bool is_finite(float value) noexcept {

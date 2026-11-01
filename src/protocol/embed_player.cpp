@@ -422,9 +422,8 @@ u32 twitch_clip_body(Utf8View id, Slice<u8> out) noexcept {
     u8 staged[1024];
     ProtocolWriter w{{staged, sizeof(staged)}, 0};
     constexpr auto query = utf8_literal("query($id:ID!){clip(slug:$id){slug playbackAccessToken(params:{platform:\"web\",playerType:\"clips-viewing\"}){signature value} assets{videoQualities(params:{supportedCodecs:[AVC]}){videoCodec height width bitrate sourceURL}}}}");
-    if (!protocol_writer_append_literal(&w, "{\"query\":") || !protocol_writer_append_json_string(&w, query) ||
-        !protocol_writer_append_literal(&w, ",\"variables\":{\"id\":") || !protocol_writer_append_json_string(&w, id) ||
-        !protocol_writer_append_literal(&w, "}}") || !out.data || out.count < w.used) return 0;
+    if (!protocol_write(&w, "{\"query\":", json_text(query), ",\"variables\":{\"id\":", json_text(id), "}}") ||
+        !out.data || out.count < w.used) return 0;
     copy_bytes(out.data, staged, w.used);
     return w.used;
 }
@@ -467,9 +466,8 @@ EmbedPlayerError twitch_clip_streams(Utf8View json, Utf8View id, u16 height, u64
         !bool_of(authorization[0], &forbidden)) return E::malformed;
     if (forbidden || expires <= now) return E::unavailable;
     ProtocolWriter w{{reinterpret_cast<u8*>(s.best.url), sizeof(s.best.url)}, s.best.url_bytes};
-    const bool written = protocol_writer_append_literal(&w, "?sig=") &&
-        protocol_writer_append_percent_encoded(&w, {signature_text, sig.bytes}) &&
-        protocol_writer_append_literal(&w, "&token=") && protocol_writer_append_percent_encoded(&w, token_json);
+    const bool written = protocol_write(&w, "?sig=", percent_text({signature_text, sig.bytes}), "&token=",
+                                        percent_text(token_json));
     secure_clear_bytes(token_text, sizeof(token_text));
     secure_clear_bytes(signature_text, sizeof(signature_text));
     if (!written) { secure_clear_bytes(&s.best, sizeof(s.best)); return E::capacity; }
@@ -481,9 +479,7 @@ EmbedPlayerError twitch_clip_streams(Utf8View json, Utf8View id, u16 height, u64
 u32 tiktok_player_target(Utf8View id, Slice<u8> output) noexcept {
     if (!numeric_id(id)) return 0;
     ProtocolWriter w{output, 0};
-    return protocol_writer_append_literal(&w, "/player/api/v1/items?item_ids=") &&
-        protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(id.data), id.bytes) &&
-        protocol_writer_append_literal(&w, "&language=en&aid=1459&data_source=web_core") ? w.used : 0;
+    return protocol_write(&w, "/player/api/v1/items?item_ids=", id, "&language=en&aid=1459&data_source=web_core") ? w.used : 0;
 }
 EmbedPlayerError tiktok_player_streams(Utf8View json, Utf8View id, u16 height, u64 now,
     Slice<u32> scratch, EmbedStreams* out) noexcept {
@@ -649,19 +645,13 @@ u32 embed_stream_get(CdnHost cdn, Utf8View url, u64 first, u32 bytes, Slice<u8> 
         first > kMediaMaximumProgressiveVideoBytes - u64{bytes} || !output.data) return 0;
     u8 staged[kCdnMaximumRequestHeadBytes];
     ProtocolWriter w{{staged, sizeof(staged)}, 0};
-    const auto add = [&](Utf8View text) noexcept {
-        return protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(text.data), text.bytes);
-    };
-    const bool ok = protocol_writer_append_literal(&w, "GET ") && add(location.target) &&
-        protocol_writer_append_literal(&w, " HTTP/1.1\r\nHost: ") && add(location.host) &&
-        protocol_writer_append_literal(&w, "\r\nUser-Agent: ") && add(cdn == CdnHost::google_video ? kYoutubeNativeUserAgent : utf8_literal("Mozilla/5.0")) &&
-        (cdn != CdnHost::tiktok_video || protocol_writer_append_literal(&w, "\r\nReferer: https://www.tiktok.com/")) &&
-        (cdn != CdnHost::pornhub_video || protocol_writer_append_literal(&w, "\r\nReferer: https://www.pornhub.com/")) &&
-        protocol_writer_append_literal(&w, "\r\nAccept: */*\r\nAccept-Encoding: identity") &&
-        (whole_preview || (protocol_writer_append_literal(&w, "\r\nRange: bytes=") &&
-        protocol_writer_append_u64(&w, first) && protocol_writer_append_literal(&w, "-") &&
-          protocol_writer_append_u64(&w, first + bytes - 1))) &&
-        protocol_writer_append_literal(&w, "\r\nConnection: keep-alive\r\n\r\n") && w.used <= output.count;
+    const bool ok = protocol_write(&w, "GET ", location.target, " HTTP/1.1\r\nHost: ", location.host, "\r\nUser-Agent: ",
+            cdn == CdnHost::google_video ? kYoutubeNativeUserAgent : utf8_literal("Mozilla/5.0")) &&
+        (cdn != CdnHost::tiktok_video || protocol_write(&w, "\r\nReferer: https://www.tiktok.com/")) &&
+        (cdn != CdnHost::pornhub_video || protocol_write(&w, "\r\nReferer: https://www.pornhub.com/")) &&
+        protocol_write(&w, "\r\nAccept: */*\r\nAccept-Encoding: identity") &&
+        (whole_preview || protocol_write(&w, "\r\nRange: bytes=", first, '-', first + bytes - 1)) &&
+        protocol_write(&w, "\r\nConnection: keep-alive\r\n\r\n") && w.used <= output.count;
     if (ok) copy_bytes(output.data, staged, w.used);
     secure_clear_bytes(staged, sizeof(staged));
     return ok ? w.used : 0;
@@ -762,9 +752,7 @@ u32 twitter_video_target(Utf8View id,Slice<u8> output) noexcept {
         }
     }
     u8 target[128];ProtocolWriter w{{target,sizeof(target)},0};
-    protocol_writer_append_literal(&w,"/tweet-result?id=");
-    protocol_writer_append_bytes(&w,reinterpret_cast<const u8*>(id.data),id.bytes);
-    protocol_writer_append_literal(&w,"&lang=en&token=");
+    protocol_write(&w,"/tweet-result?id=",id,"&lang=en&token=");
     const auto append=[&](u8 digit) noexcept {
         const u8 byte=static_cast<u8>(digit<10?'0'+digit:'a'+digit-10);
         if(digit) protocol_writer_append_bytes(&w,&byte,1);
@@ -1610,8 +1598,7 @@ EmbedPlayerError soundcloud_hydration(Utf8View html, Utf8View kind, Slice<u32> s
 // Canonical page URL of a SoundCloud track or collection path; 0 bytes when the path is not one.
 u32 soundcloud_permalink(const Utf8View& path, bool collection, char (&out)[544]) noexcept {
     ProtocolWriter canonical{{reinterpret_cast<u8*>(out), sizeof(out)}, 0};
-    if (!protocol_writer_append_literal(&canonical, "https://soundcloud.com") ||
-        !protocol_writer_append_bytes(&canonical, reinterpret_cast<const u8*>(path.data), path.bytes)) return 0;
+    if (!protocol_write(&canonical, "https://soundcloud.com", path)) return 0;
     const Utf8View page{out, canonical.used};
     return (collection ? soundcloud_collection_path(page) : soundcloud_track_path(page)).bytes ? canonical.used : 0;
 }
@@ -1655,8 +1642,7 @@ EmbedPlayerError soundcloud_track_request(Utf8View html, Utf8View path, Slice<u3
     EmbedStream staged{};
     const auto decoded = decode(r.url, staged.url, sizeof(staged.url));
     char prefix[128]; ProtocolWriter head{{reinterpret_cast<u8*>(prefix), sizeof(prefix)}, 0};
-    protocol_writer_append_literal(&head, "https://api-v2.soundcloud.com/media/soundcloud:tracks:");
-    protocol_writer_append_u64(&head, id); protocol_writer_append_literal(&head, "/");
+    protocol_write(&head, "https://api-v2.soundcloud.com/media/soundcloud:tracks:", id, '/');
     bool valid = decoded.ok() && utf8_starts_with({staged.url, decoded.bytes}, {prefix, head.used});
     u32 at = head.used;
     while (valid && at < decoded.bytes && (ascii_is_alnum(staged.url[at]) || staged.url[at] == '-' || staged.url[at] == '_')) ++at;
@@ -1667,10 +1653,8 @@ EmbedPlayerError soundcloud_track_request(Utf8View html, Utf8View path, Slice<u3
     valid = valid && key_decoded.ok() && key_decoded.bytes == 32 && grant_decoded.ok() && grant_decoded.bytes;
     for (u32 i = 0; valid && i < key_decoded.bytes; ++i) valid = ascii_is_alnum(key[i]);
     ProtocolWriter request{{reinterpret_cast<u8*>(staged.url), sizeof(staged.url)}, decoded.ok() ? decoded.bytes : 0};
-    valid = valid && protocol_writer_append_literal(&request, "?client_id=") &&
-        protocol_writer_append_percent_encoded(&request, {key, key_decoded.bytes}) &&
-        protocol_writer_append_literal(&request, "&track_authorization=") &&
-        protocol_writer_append_percent_encoded(&request, {grant, grant_decoded.bytes});
+    valid = valid && protocol_write(&request, "?client_id=", percent_text({key, key_decoded.bytes}),
+        "&track_authorization=", percent_text({grant, grant_decoded.bytes}));
     if (valid) { staged.url_bytes = request.used; staged.bitrate = r.bitrate * 1000; *out = staged; }
     secure_clear_bytes(key, sizeof(key)); secure_clear_bytes(grant, sizeof(grant)); secure_clear_bytes(&staged, sizeof(staged));
     return valid ? E::none : E::malformed;
@@ -1701,12 +1685,10 @@ EmbedPlayerError soundcloud_collection(Utf8View html, Utf8View path, u64 expecte
         char urn[96], seed[64];
         ProtocolWriter identity{{reinterpret_cast<u8*>(urn), sizeof(urn)}, 0},
             origin{{reinterpret_cast<u8*>(seed), sizeof(seed)}, 0};
-        protocol_writer_append_literal(&identity, "soundcloud:system-playlists:");
         const auto type = station.track ? utf8_literal("track-stations:") : utf8_literal("artist-stations:");
-        protocol_writer_append_bytes(&identity,reinterpret_cast<const u8*>(type.data),type.bytes);
-        protocol_writer_append_u64(&identity, station.seed);
+        protocol_write(&identity, "soundcloud:system-playlists:", type, station.seed);
         const auto kind = station.track ? utf8_literal("soundcloud:tracks:") : utf8_literal("soundcloud:users:");
-        protocol_writer_append_bytes(&origin,reinterpret_cast<const u8*>(kind.data),kind.bytes); protocol_writer_append_u64(&origin, station.seed);
+        protocol_write(&origin, kind, station.seed);
         FieldSet<"urn"> seed_fields;
         if (expected_id || !equal(f[0], {urn, identity.used}) || !equal(f[9], {urn, identity.used}) ||
             !equal(f[1], "system-playlist") || !equal(f[10], station.track ? utf8_literal("TRACK_STATION") : utf8_literal("ARTIST_STATION")) ||
@@ -1789,10 +1771,8 @@ u32 youtube_player_body(Utf8View id, Utf8View visitor, Slice<u8> output) noexcep
     if (!video_id(id) || !ascii_graphic_string(visitor, 1024, true)) return 0;
     u8 staged[2048];
     ProtocolWriter w{{staged, sizeof(staged)}, 0};
-    const bool ok = protocol_writer_append_literal(&w, "{\"context\":{\"client\":{\"clientName\":\"VISIONOS\",\"clientVersion\":\"1.02\",\"hl\":\"en\",\"deviceMake\":\"Apple\",\"deviceModel\":\"RealityDevice17,1\",\"osName\":\"visionOS\",\"osVersion\":\"26.5.23O471\",\"visitorData\":") &&
-        protocol_writer_append_json_string(&w, visitor) && protocol_writer_append_literal(&w, ",\"userAgent\":") &&
-        protocol_writer_append_json_string(&w, kYoutubeNativeUserAgent) && protocol_writer_append_literal(&w, "}},\"videoId\":") &&
-        protocol_writer_append_json_string(&w, id) && protocol_writer_append_literal(&w, "}");
+    const bool ok = protocol_write(&w, "{\"context\":{\"client\":{\"clientName\":\"VISIONOS\",\"clientVersion\":\"1.02\",\"hl\":\"en\",\"deviceMake\":\"Apple\",\"deviceModel\":\"RealityDevice17,1\",\"osName\":\"visionOS\",\"osVersion\":\"26.5.23O471\",\"visitorData\":",
+        json_text(visitor), ",\"userAgent\":", json_text(kYoutubeNativeUserAgent), "}},\"videoId\":", json_text(id), '}');
     if (!ok || !output.data || output.count < w.used) return 0;
     copy_bytes(output.data, staged, w.used);
     return w.used;

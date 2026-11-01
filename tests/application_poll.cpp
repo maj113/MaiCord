@@ -2,6 +2,7 @@
 // and strict protocol decoders. Transport, clock, renderer binding and profile
 // opening are explicit offline fixture boundaries; no account/device is used.
 #include "../src/app/application_poll.hpp"
+#include "model_store_fixtures.hpp"
 #include "../src/app/application_state.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"

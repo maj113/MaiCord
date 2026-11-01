@@ -15,14 +15,7 @@ enum class MessageTypingWriteError : u8 {
     capacity,
 };
 
-struct MessageTypingWriteResult {
-    u32 bytes;
-    MessageTypingWriteError error;
-
-    constexpr bool ok() const noexcept {
-        return error == MessageTypingWriteError::none;
-    }
-};
+using MessageTypingWriteResult = ByteResult<MessageTypingWriteError>;
 
 MessageTypingWriteResult write_message_typing_target(
     u64 channel_id, Slice<u8> output) noexcept;

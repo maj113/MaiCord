@@ -16,8 +16,6 @@ namespace {
 
 using Writer = protocol_detail::JsonCommandWriter;
 
-inline constexpr char kApiHost[] = "discord.com";
-
 struct RateHeadContext {
     RateLimitHeaders rate;
     RestRepresentation representation;
@@ -625,92 +623,56 @@ u32 emit_request_head(Writer& writer, const RestRequestHead& request) noexcept {
     const char* const method = method_literal(request.method);
     const RestUserRequestHeaders* const page = request.user_headers;
     writer.raw(method, c_string_length(method));
-    writer.literal(" ");
-    writer.bytes(request.target);
-    writer.literal(" HTTP/1.1\r\nHost: ");
-    writer.literal(kApiHost);
-    writer.literal("\r\nConnection: keep-alive\r\n");
-    if (request.json_body) {
-        writer.literal("Content-Length: ");
-        writer.number(request.content_length);
-        writer.literal("\r\n");
-    } else if (request.method == RestMethod::post || request.method == RestMethod::put) {
-        writer.literal("Content-Length: 0\r\n");
-    }
-    if (page) {
-        writer.literal("sec-ch-ua: ");
-        writer.raw(kClientBrandList.text, kClientBrandList.bytes);
-        writer.literal("\r\nsec-ch-ua-mobile: ?0\r\nsec-ch-ua-platform: \"Windows\"\r\n");
-    }
-    if (request.authorization != RestAuthorization::none) {
-        writer.literal("Authorization: ");
-        writer.bytes(request.token);
-        writer.literal("\r\n");
-    }
+    writer.put(' ', request.target, " HTTP/1.1\r\nHost: discord.com\r\nConnection: keep-alive\r\n");
+    if (request.json_body)
+        writer.put("Content-Length: ", request.content_length, "\r\n");
+    else if (request.method == RestMethod::post || request.method == RestMethod::put)
+        writer.put("Content-Length: 0\r\n");
+    if (page)
+        writer.put("sec-ch-ua: ", Utf8View{kClientBrandList.text, kClientBrandList.bytes},
+                   "\r\nsec-ch-ua-mobile: ?0\r\nsec-ch-ua-platform: \"Windows\"\r\n");
+    if (request.authorization != RestAuthorization::none)
+        writer.put("Authorization: ", request.token, "\r\n");
     if (page) {
         // In the order the desktop client sets them.
-        writer.literal("X-Super-Properties: ");
-        writer.bytes(page->super_properties);
-        writer.literal("\r\nX-Discord-Locale: ");
-        writer.raw(page->locale.data, page->locale.bytes);
-        writer.literal("\r\n");
-        if (page->timezone.bytes) {
-            writer.literal("X-Discord-Timezone: ");
-            writer.raw(page->timezone.data, page->timezone.bytes);
-            writer.literal("\r\n");
-        }
+        writer.put("X-Super-Properties: ", page->super_properties, "\r\nX-Discord-Locale: ", page->locale, "\r\n");
+        if (page->timezone.bytes)
+            writer.put("X-Discord-Timezone: ", page->timezone, "\r\n");
     }
-    if (request.audit_reason.count || request.send_empty_audit_reason) {
-        writer.literal("X-Audit-Log-Reason: ");
-        writer.bytes(request.audit_reason);
-        writer.literal("\r\n");
-    }
-    writer.bytes(request.extra_headers);
-    if (request.failed_requests) {
-        writer.literal("X-Failed-Requests: ");
-        writer.number(request.failed_requests);
-        writer.literal("\r\n");
-    }
+    if (request.audit_reason.count || request.send_empty_audit_reason)
+        writer.put("X-Audit-Log-Reason: ", request.audit_reason, "\r\n");
+    writer.put(request.extra_headers);
+    if (request.failed_requests)
+        writer.put("X-Failed-Requests: ", request.failed_requests, "\r\n");
     const u32 extra_headers_end = static_cast<u32>(writer.at);
-    writer.literal("User-Agent: ");
-    writer.literal(kClientUserAgent);
-    writer.literal("\r\n");
+    writer.put("User-Agent: ", kClientUserAgent, "\r\n");
     if (request.json_body) {
-        if (request.multipart_boundary.count) {
-            writer.literal("Content-Type: multipart/form-data; boundary=");
-            writer.bytes(request.multipart_boundary);
-            writer.literal("\r\n");
-        } else {
-            writer.literal("Content-Type: application/json\r\n");
-        }
+        if (request.multipart_boundary.count)
+            writer.put("Content-Type: multipart/form-data; boundary=", request.multipart_boundary, "\r\n");
+        else
+            writer.put("Content-Type: application/json\r\n");
     }
     // XMLHttpRequest's default; Discord's HTTP wrapper sets no Accept.
-    writer.literal("Accept: */*\r\n");
+    writer.put("Accept: */*\r\n");
     if (page) {
         // Chromium sends the page origin on same-origin requests other than
         // GET and HEAD. The page sets no referrer policy, so the default
         // strict-origin-when-cross-origin sends its whole URL.
         if (request.method != RestMethod::get && request.method != RestMethod::head)
-            writer.literal("Origin: https://discord.com\r\n");
-        writer.literal("Sec-Fetch-Site: same-origin\r\nSec-Fetch-Mode: cors\r\nSec-Fetch-Dest: empty\r\n");
+            writer.put("Origin: https://discord.com\r\n");
+        writer.put("Sec-Fetch-Site: same-origin\r\nSec-Fetch-Mode: cors\r\nSec-Fetch-Dest: empty\r\n");
         if (request.authorization == RestAuthorization::normal_user)
-            writer.literal("Referer: https://discord.com/channels/@me\r\n");
+            writer.put("Referer: https://discord.com/channels/@me\r\n");
         else
-            writer.literal("Referer: https://discord.com/login\r\n");
+            writer.put("Referer: https://discord.com/login\r\n");
     }
     if (request.accept_gzip)
-        writer.literal("Accept-Encoding: gzip\r\n");
-    if (page && page->accept_language.bytes) {
-        writer.literal("Accept-Language: ");
-        writer.raw(page->accept_language.data, page->accept_language.bytes);
-        writer.literal("\r\n");
-    }
-    if (request.cookie.count) {
-        writer.literal("Cookie: ");
-        writer.bytes(request.cookie);
-        writer.literal("\r\n");
-    }
-    writer.literal("\r\n");
+        writer.put("Accept-Encoding: gzip\r\n");
+    if (page && page->accept_language.bytes)
+        writer.put("Accept-Language: ", page->accept_language, "\r\n");
+    if (request.cookie.count)
+        writer.put("Cookie: ", request.cookie, "\r\n");
+    writer.put("\r\n");
     return extra_headers_end;
 }
 } // namespace

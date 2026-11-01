@@ -131,9 +131,6 @@ struct MessageMediaController {
 
 static_assert(sizeof(MessageMediaController) < 384);
 
-bool message_media_controller_initialize(MessageMediaController* controller,
-                                         Slice<MessageMediaVisibleRow> rows,
-                                         Slice<MessageMediaAssetMark> asset_marks) noexcept;
 bool message_media_controller_initialize_owned(MessageMediaController* controller, u32 row_capacity,
                                                u32 asset_mark_capacity) noexcept;
 void message_media_controller_release(MessageMediaController* controller) noexcept;

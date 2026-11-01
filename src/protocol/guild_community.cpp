@@ -436,9 +436,7 @@ bool decode_user(const JsonIndexedDocument& document, JsonValue value, Scheduled
 bool timestamp_string(ProtocolWriter& w, u64 unix_seconds) noexcept {
     char stamp[32];
     const u32 bytes = guild_admin_format_timestamp(unix_seconds, {stamp, sizeof(stamp)});
-    return bytes && protocol_writer_append_byte(&w, '"') &&
-           protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(stamp), bytes) &&
-           protocol_writer_append_byte(&w, '"');
+    return bytes && protocol_write(&w, '"', ConstSlice<u8>{reinterpret_cast<const u8*>(stamp), bytes}, '"');
 }
 u32 codepoints(Utf8View text, bool* valid) noexcept {
     const auto checked = utf8_validate(text);
@@ -503,68 +501,63 @@ GuildCommunityWriteResult guild_community_write_target(const GuildCommunityReque
     }
     RouteWriter route{};
     bool ok = route_writer_initialize(&route, target);
-    const auto guild_path = [&]() noexcept {
-        return route_append(&route, utf8_literal("/api/v10/guilds/")) &&
-               route_append_u64(&route, request.guild_id);
-    };
+    const auto guild_path = [&]() noexcept { return route_write(&route, "/api/v10/guilds/", request.guild_id); };
     const auto event_path = [&]() noexcept {
-        return guild_path() && route_append(&route, utf8_literal("/scheduled-events/")) &&
-               route_append_u64(&route, request.event_id);
+        return guild_path() && route_write(&route, "/scheduled-events/", request.event_id);
     };
     switch (request.operation) {
     case GuildCommunityOperation::verification_get:
-        ok = ok && guild_path() && route_append(&route, utf8_literal("/member-verification?with_guild=false"));
+        ok = ok && guild_path() && route_write(&route, "/member-verification?with_guild=false");
         result.method = RestMethod::get;
         result.route_id = kGuildVerificationGetRouteId;
         break;
     case GuildCommunityOperation::verification_submit:
-        ok = ok && guild_path() && route_append(&route, utf8_literal("/requests/@me"));
+        ok = ok && guild_path() && route_write(&route, "/requests/@me");
         result.method = RestMethod::put;
         result.route_id = kGuildVerificationSubmitRouteId;
         break;
     case GuildCommunityOperation::onboarding_get:
-        ok = ok && guild_path() && route_append(&route, utf8_literal("/onboarding"));
+        ok = ok && guild_path() && route_write(&route, "/onboarding");
         result.method = RestMethod::get;
         result.route_id = kGuildOnboardingGetRouteId;
         break;
     case GuildCommunityOperation::onboarding_submit:
     case GuildCommunityOperation::onboarding_update:
-        ok = ok && guild_path() && route_append(&route, utf8_literal("/onboarding-responses"));
+        ok = ok && guild_path() && route_write(&route, "/onboarding-responses");
         result.method = request.operation == GuildCommunityOperation::onboarding_submit ? RestMethod::post
                                                                                         : RestMethod::put;
         result.route_id = kGuildOnboardingSubmitRouteId;
         break;
     case GuildCommunityOperation::events_list:
-        ok = ok && guild_path() && route_append(&route, utf8_literal("/scheduled-events?with_user_count=true"));
+        ok = ok && guild_path() && route_write(&route, "/scheduled-events?with_user_count=true");
         result.method = RestMethod::get;
         result.route_id = kGuildEventsListRouteId;
         break;
     case GuildCommunityOperation::event_get:
-        ok = ok && event_path() && route_append(&route, utf8_literal("?with_user_count=true"));
+        ok = ok && event_path() && route_write(&route, "?with_user_count=true");
         result.method = RestMethod::get;
         result.route_id = kGuildEventGetRouteId;
         break;
     case GuildCommunityOperation::event_create:
-        ok = ok && guild_path() && route_append(&route, utf8_literal("/scheduled-events"));
+        ok = ok && guild_path() && route_write(&route, "/scheduled-events");
         result.method = RestMethod::post;
         result.route_id = kGuildEventCreateRouteId;
         break;
     case GuildCommunityOperation::event_interested:
     case GuildCommunityOperation::event_uninterested:
-        ok = ok && event_path() && route_append(&route, utf8_literal("/users/@me"));
+        ok = ok && event_path() && route_write(&route, "/users/@me");
         result.method = request.operation == GuildCommunityOperation::event_interested
                             ? RestMethod::put
                             : RestMethod::delete_method;
         result.route_id = kGuildEventInterestRouteId;
         break;
     case GuildCommunityOperation::event_rsvps:
-        ok = ok && route_append(&route, utf8_literal("/api/v10/users/@me/scheduled-events?guild_ids=")) &&
-             route_append_u64(&route, request.guild_id);
+        ok = ok && route_write(&route, "/api/v10/users/@me/scheduled-events?guild_ids=", request.guild_id);
         result.method = RestMethod::get;
         result.route_id = kGuildEventRsvpsRouteId;
         break;
     case GuildCommunityOperation::guild_profile_get:
-        ok = ok && guild_path() && route_append(&route, utf8_literal("/profile"));
+        ok = ok && guild_path() && route_write(&route, "/profile");
         result.method = RestMethod::get;
         result.route_id = kGuildProfileGetRouteId;
         break;
@@ -572,9 +565,8 @@ GuildCommunityWriteResult guild_community_write_target(const GuildCommunityReque
         // Joining a discoverable server from its tag is a lurker join
         // (lurker=true); session_id names the Gateway session that receives the
         // GUILD_CREATE.
-        ok = ok && guild_path() && route_append(&route, utf8_literal("/members/@me?lurker=true")) &&
-             (!session_id.bytes || (route_append(&route, utf8_literal("&session_id=")) &&
-                                    route_append(&route, session_id)));
+        ok = ok && guild_path() && route_write(&route, "/members/@me?lurker=true") &&
+             (!session_id.bytes || route_write(&route, "&session_id=", session_id));
         result.method = RestMethod::put;
         result.route_id = kGuildJoinRouteId;
         break;
@@ -592,12 +584,12 @@ GuildCommunityWriteResult guild_community_write_target(const GuildCommunityReque
 
 u32 guild_community_write_interest_body(Slice<u8> body) noexcept {
     ProtocolWriter w{body, 0};
-    return protocol_writer_append_literal(&w, "{\"response\":1}") ? w.used : 0;
+    return protocol_write(&w, "{\"response\":1}") ? w.used : 0;
 }
 
 u32 guild_community_write_join_body(Slice<u8> body) noexcept {
     ProtocolWriter w{body, 0};
-    return protocol_writer_append_literal(&w, "{}") ? w.used : 0;
+    return protocol_write(&w, "{}") ? w.used : 0;
 }
 
 u32 guild_community_write_join_context(Slice<u8> output) noexcept {
@@ -719,13 +711,12 @@ u32 guild_verification_write_submit(Utf8View form_body, ConstSlice<GuildVerifica
     if (!json_visit_root_object(form_body, s.document.structurals, kDepth, submit_member, &pass).ok() ||
         !pass.fields_seen)
         return 0;
-    bool ok = protocol_writer_append_literal(&w, "{\"version\":");
+    bool ok = protocol_write(&w, "{\"version\":");
     if (pass.version_seen && (pass.version.kind == JsonValueKind::string || pass.version.kind == JsonValueKind::number))
-        ok = ok && protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(pass.version.source.data),
-                                                pass.version.source.bytes);
+        ok = ok && protocol_write(&w, pass.version.source);
     else
-        ok = ok && protocol_writer_append_literal(&w, "null");
-    ok = ok && protocol_writer_append_literal(&w, ",\"form_fields\":[");
+        ok = ok && protocol_write(&w, "null");
+    ok = ok && protocol_write(&w, ",\"form_fields\":[");
     struct FieldPass {
         const JsonIndexedDocument* document;
         ProtocolWriter* writer;
@@ -749,8 +740,8 @@ u32 guild_verification_write_submit(Utf8View form_body, ConstSlice<GuildVerifica
                  while (end > 1 && ascii_is_space(value.source.data[end - 1]))
                      --end;
                  const bool empty = end == 1;
-                 bool ok = (f.index == 0 || protocol_writer_append_byte(f.writer, ',')) &&
-                           protocol_writer_append_bytes(f.writer, reinterpret_cast<const u8*>(value.source.data), end);
+                 bool ok = (f.index == 0 || protocol_write(f.writer, ',')) &&
+                           protocol_write(f.writer, Utf8View{value.source.data, end});
                  const GuildVerificationAnswer answer = f.index < f.answers.count ? f.answers[f.index]
                                                                                    : GuildVerificationAnswer{};
                  // Find this field's type again from the source for the response shape.
@@ -765,29 +756,25 @@ u32 guild_verification_write_submit(Utf8View form_body, ConstSlice<GuildVerifica
                                            },
                                            &type);
                  if (!existing.has_response) {
-                     ok = ok && (empty || protocol_writer_append_byte(f.writer, ',')) &&
-                          protocol_writer_append_literal(f.writer, "\"response\":");
+                     ok = ok && (empty || protocol_write(f.writer, ',')) && protocol_write(f.writer, "\"response\":");
                      switch (type.type) {
                      case GuildVerificationFieldType::terms:
                      case GuildVerificationFieldType::verification:
-                         ok = ok && (answer.agreed ? protocol_writer_append_literal(f.writer, "true")
-                                                   : protocol_writer_append_literal(f.writer, "false"));
+                         ok = ok && protocol_write(f.writer, answer.agreed ? "true" : "false");
                          break;
                      case GuildVerificationFieldType::text_input:
                      case GuildVerificationFieldType::paragraph:
-                         ok = ok && (answer.answered ? protocol_writer_append_json_string(f.writer, answer.text)
-                                                     : protocol_writer_append_literal(f.writer, "null"));
+                         ok = ok && protocol_write(f.writer, or_null(answer.answered, json_text(answer.text)));
                          break;
                      case GuildVerificationFieldType::multiple_choice:
-                         ok = ok && (answer.answered ? protocol_writer_append_u64(f.writer, answer.choice)
-                                                     : protocol_writer_append_literal(f.writer, "null"));
+                         ok = ok && protocol_write(f.writer, or_null(answer.answered, answer.choice));
                          break;
                      default:
-                         ok = ok && protocol_writer_append_literal(f.writer, "null");
+                         ok = ok && protocol_write(f.writer, "null");
                          break;
                      }
                  }
-                 ok = ok && protocol_writer_append_byte(f.writer, '}');
+                 ok = ok && protocol_write(f.writer, '}');
                  ++f.index;
                  f.ok = f.ok && ok;
                  return ok;
@@ -795,7 +782,7 @@ u32 guild_verification_write_submit(Utf8View form_body, ConstSlice<GuildVerifica
              &fields)
              .ok() &&
          fields.ok;
-    ok = ok && protocol_writer_append_literal(&w, "]}");
+    ok = ok && protocol_write(&w, "]}");
     return ok ? w.used : 0;
 }
 
@@ -890,7 +877,7 @@ u32 guild_onboarding_write_responses(const GuildOnboarding& onboarding, u64 seen
     if (!output.data || onboarding.truncated)
         return 0;
     ProtocolWriter w{output, 0};
-    bool ok = protocol_writer_append_literal(&w, "{\"onboarding_responses\":[");
+    bool ok = protocol_write(&w, "{\"onboarding_responses\":[");
     bool first = true;
     for (u32 i = 0; ok && i < onboarding.prompt_count; ++i) {
         const auto& prompt = onboarding.prompts[i];
@@ -900,36 +887,32 @@ u32 guild_onboarding_write_responses(const GuildOnboarding& onboarding, u64 seen
             const auto& option = onboarding.options[prompt.first_option + o];
             if (!option.selected)
                 continue;
-            ok = (first || protocol_writer_append_byte(&w, ',')) &&
-                 protocol_writer_append_snowflake(&w, option.id);
+            ok = (first || protocol_write(&w, ',')) && protocol_write(&w, snowflake_text(option.id));
             first = false;
         }
     }
-    ok = ok && protocol_writer_append_literal(&w, "],\"onboarding_prompts_seen\":{");
+    ok = ok && protocol_write(&w, "],\"onboarding_prompts_seen\":{");
     first = true;
     for (u32 i = 0; ok && i < onboarding.prompt_count; ++i) {
         const auto& prompt = onboarding.prompts[i];
         if (!editing && !prompt.in_onboarding)
             continue;
-        ok = (first || protocol_writer_append_byte(&w, ',')) &&
-             protocol_writer_append_snowflake(&w, prompt.id) && protocol_writer_append_byte(&w, ':') &&
-             protocol_writer_append_u64(&w, seen_ms);
+        ok = (first || protocol_write(&w, ',')) && protocol_write(&w, snowflake_text(prompt.id), ':', seen_ms);
         first = false;
     }
-    ok = ok && protocol_writer_append_literal(&w, "},\"onboarding_responses_seen\":{");
+    ok = ok && protocol_write(&w, "},\"onboarding_responses_seen\":{");
     first = true;
     for (u32 i = 0; ok && i < onboarding.prompt_count; ++i) {
         const auto& prompt = onboarding.prompts[i];
         if (!editing && !prompt.in_onboarding)
             continue;
         for (u32 o = 0; ok && o < prompt.option_count; ++o) {
-            ok = (first || protocol_writer_append_byte(&w, ',')) &&
-                 protocol_writer_append_snowflake(&w, onboarding.options[prompt.first_option + o].id) &&
-                 protocol_writer_append_byte(&w, ':') && protocol_writer_append_u64(&w, seen_ms);
+            ok = (first || protocol_write(&w, ',')) &&
+                 protocol_write(&w, snowflake_text(onboarding.options[prompt.first_option + o].id), ':', seen_ms);
             first = false;
         }
     }
-    ok = ok && protocol_writer_append_literal(&w, "}}");
+    ok = ok && protocol_write(&w, "}}");
     return ok ? w.used : 0;
 }
 
@@ -1044,26 +1027,20 @@ u32 scheduled_event_write_create(const ScheduledEventCreate& create, Slice<u8> o
     if (!output.data || scheduled_event_create_validate(create, 0) != ScheduledEventCreateError::none)
         return 0;
     ProtocolWriter w{output, 0};
-    bool ok = protocol_writer_append_literal(&w, "{\"name\":") && protocol_writer_append_json_string(&w, create.name) &&
-              protocol_writer_append_literal(&w, ",\"description\":") &&
-              (create.description.bytes && !blank(create.description)
-                   ? protocol_writer_append_json_string(&w, create.description)
-                   : protocol_writer_append_literal(&w, "null")) &&
-              protocol_writer_append_literal(&w, ",\"privacy_level\":2,\"scheduled_start_time\":") &&
-              timestamp_string(w, create.start_unix_seconds) &&
-              protocol_writer_append_literal(&w, ",\"scheduled_end_time\":") &&
-              (create.end_unix_seconds ? timestamp_string(w, create.end_unix_seconds)
-                                       : protocol_writer_append_literal(&w, "null")) &&
-              protocol_writer_append_literal(&w, ",\"entity_type\":") &&
-              protocol_writer_append_u64(&w, static_cast<u64>(create.entity));
+    bool ok = protocol_write(&w, "{\"name\":", json_text(create.name), ",\"description\":",
+                             or_null(create.description.bytes && !blank(create.description),
+                                     json_text(create.description)),
+                             ",\"privacy_level\":2,\"scheduled_start_time\":") &&
+              timestamp_string(w, create.start_unix_seconds) && protocol_write(&w, ",\"scheduled_end_time\":") &&
+              (create.end_unix_seconds ? timestamp_string(w, create.end_unix_seconds) : protocol_write(&w, "null")) &&
+              protocol_write(&w, ",\"entity_type\":", static_cast<u64>(create.entity));
     if (create.entity == ScheduledEventEntity::external)
-        ok = ok && protocol_writer_append_literal(&w, ",\"channel_id\":null,\"entity_metadata\":{\"location\":") &&
-             protocol_writer_append_json_string(&w, create.location) && protocol_writer_append_byte(&w, '}');
+        ok = ok && protocol_write(&w, ",\"channel_id\":null,\"entity_metadata\":{\"location\":",
+                                  json_text(create.location), '}');
     else
-        ok = ok && protocol_writer_append_literal(&w, ",\"channel_id\":") &&
-             protocol_writer_append_snowflake(&w, create.channel_id) &&
-             protocol_writer_append_literal(&w, ",\"entity_metadata\":null");
-    ok = ok && protocol_writer_append_byte(&w, '}');
+        ok = ok && protocol_write(&w, ",\"channel_id\":", snowflake_text(create.channel_id),
+                                  ",\"entity_metadata\":null");
+    ok = ok && protocol_write(&w, '}');
     return ok ? w.used : 0;
 }
 
@@ -1071,9 +1048,7 @@ u32 scheduled_event_write_link(u64 guild_id, u64 event_id, Slice<char> output) n
     if (!guild_id || !event_id || !output.data)
         return 0;
     ProtocolWriter w{{reinterpret_cast<u8*>(output.data), output.count}, 0};
-    const bool ok = protocol_writer_append_literal(&w, "https://discord.com/events/") &&
-                    protocol_writer_append_u64(&w, guild_id) && protocol_writer_append_byte(&w, '/') &&
-                    protocol_writer_append_u64(&w, event_id);
+    const bool ok = protocol_write(&w, "https://discord.com/events/", guild_id, '/', event_id);
     return ok ? w.used : 0;
 }
 

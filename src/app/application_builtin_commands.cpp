@@ -434,7 +434,7 @@ bool builtin_commands_response(const RestClientResponse& response, Utf8View body
     auto& s = g_builtins;
     if (!s.sending || response.request_id != s.request_id)
         return true;
-    const bool ok = response.transport_ok() && response.status_code >= 200 && response.status_code < 300;
+    const bool ok = response.succeeded();
     const Action action = s.action;
     const u64 channel = s.channel;
     char line[512];

@@ -92,7 +92,4 @@ void voice_send_close(VoiceSend* send) noexcept;
 void voice_send_set_control(VoiceSend* send, const VoiceSendControl& control) noexcept;
 void voice_send_push(void* send, ConstSlice<i16> mono, u64 now_us) noexcept;
 u64 voice_send_tick(void* send, u64 now_us) noexcept;
-// Overrides the push-to-talk key probe (GetAsyncKeyState) for tests.
-void voice_send_set_key_probe(VoiceSend* send, bool (*probe)(void*, u8 key) noexcept, void* context) noexcept;
-u32 voice_send_queued(const VoiceSend& send) noexcept;
 } // namespace maicord

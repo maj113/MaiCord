@@ -1,4 +1,5 @@
 #include "thread_browser_ui_adapter.hpp"
+#include "../model_store_fixtures.hpp"
 #include "forum_post_ui_adapter.hpp"
 #include "application_state.hpp"
 #include "maicord/protocol/thread_browser.hpp"

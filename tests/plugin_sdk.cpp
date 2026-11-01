@@ -5,6 +5,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/icon.hpp"
 #include "../src/app/application_plugin_settings_projection.hpp"
+#include "../src/app/plugin_sdk_internal.hpp"
 #include "test_output.hpp"
 
 #include "maicord/core/win32_file_info.hpp"
@@ -16,6 +17,10 @@ void check(bool value, const char* label) noexcept {
     ++failures;
     test_write_text("FAIL plugin_sdk: ");
     test_write_line(label);
+}
+u64 native_plugin_sdk_permissions(const NativePluginSdkBinding* binding) noexcept {
+    const auto* bound = plugin_sdk::live(binding);
+    return bound ? bound->definition.permissions : 0;
 }
 
 NativePluginSdkRuntime g_runtime;

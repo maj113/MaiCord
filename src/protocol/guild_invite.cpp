@@ -123,9 +123,8 @@ GuildInviteWriteResult guild_invite_write_request(const GuildInviteRequest& requ
     RouteWriter route{};
     const bool written =
         route_writer_initialize(&route, target) &&
-        route_append(&route, utf8_literal("/api/v10/invites/")) &&
-        route_append(&route, {request.code, request.code_bytes}) &&
-        (accept || route_append(&route, utf8_literal("?with_counts=true&with_expiration=true")));
+        route_write(&route, "/api/v10/invites/", Utf8View{request.code, request.code_bytes}) &&
+        (accept || route_write(&route, "?with_counts=true&with_expiration=true"));
     if (!written || (accept && (!body.data || body.count < 2))) {
         result.error = GuildInviteWriteError::output_capacity;
         return result;
@@ -137,12 +136,8 @@ GuildInviteWriteResult guild_invite_write_request(const GuildInviteRequest& requ
         }
     if (accept) {
         ProtocolWriter json{body, 0};
-        const bool encoded = session_id.bytes
-                                 ? protocol_writer_append_literal(&json, "{\"session_id\":\"") &&
-                                       protocol_writer_append_bytes(
-                                           &json, {reinterpret_cast<const u8*>(session_id.data), session_id.bytes}) &&
-                                       protocol_writer_append_literal(&json, "\"}")
-                                 : protocol_writer_append_literal(&json, "{}");
+        const bool encoded = session_id.bytes ? protocol_write(&json, "{\"session_id\":\"", session_id, "\"}")
+                                              : protocol_write(&json, "{}");
         if (!encoded) {
             result.error = GuildInviteWriteError::output_capacity;
             return result;
@@ -160,17 +155,13 @@ u32 guild_invite_write_context_header(const GuildInviteRequest& request, Slice<u
         return 0;
     u8 json_bytes[192];
     ProtocolWriter json{{json_bytes, sizeof(json_bytes)}, 0};
-    bool ok = protocol_writer_append_literal(&json, "{\"location\":\"Desktop Invite Modal\"");
+    bool ok = protocol_write(&json, "{\"location\":\"Desktop Invite Modal\"");
     if (request.location_guild_id)
-        ok = ok && protocol_writer_append_literal(&json, ",\"location_guild_id\":\"") &&
-             protocol_writer_append_u64(&json, request.location_guild_id) &&
-             protocol_writer_append_byte(&json, '"');
+        ok = ok && protocol_write(&json, ",\"location_guild_id\":", snowflake_text(request.location_guild_id));
     if (request.location_channel_id)
-        ok = ok && protocol_writer_append_literal(&json, ",\"location_channel_id\":\"") &&
-             protocol_writer_append_u64(&json, request.location_channel_id) &&
-             protocol_writer_append_literal(&json, "\",\"location_channel_type\":") &&
-             protocol_writer_append_u64(&json, request.location_channel_type);
-    ok = ok && protocol_writer_append_byte(&json, '}');
+        ok = ok && protocol_write(&json, ",\"location_channel_id\":", snowflake_text(request.location_channel_id),
+                                  ",\"location_channel_type\":", request.location_channel_type);
+    ok = ok && protocol_write(&json, '}');
     u8 encoded[base64_encoded_size(sizeof(json_bytes))];
     const u32 encoded_bytes = base64_encoded_size(json.used);
     if (!ok || !base64_encode({json_bytes, json.used}, {reinterpret_cast<char*>(encoded), encoded_bytes}).ok())

@@ -153,14 +153,7 @@ enum class RestUserPropertiesError : u8 {
     output_capacity,
 };
 
-struct RestUserPropertiesResult {
-    u32 bytes;
-    RestUserPropertiesError error;
-
-    constexpr bool ok() const noexcept {
-        return error == RestUserPropertiesError::none;
-    }
-};
+using RestUserPropertiesResult = ByteResult<RestUserPropertiesError>;
 
 // Writes base64(JSON(properties)) for X-Super-Properties. The property schema
 // is shared with the normal-user Gateway Identify; callers provide scratch so

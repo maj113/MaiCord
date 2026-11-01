@@ -89,9 +89,7 @@ u32 attachment_refresh_body(Utf8View url, Slice<u8> output) noexcept {
     u32 path = 0;
     if (!reference(url, {target, sizeof(target)}, &parsed, &path)) return 0;
     ProtocolWriter writer{output, 0};
-    return protocol_writer_append_literal(&writer, "{\"attachment_urls\":[") &&
-           protocol_writer_append_json_string(&writer, url) &&
-           protocol_writer_append_literal(&writer, "]}") ? writer.used : 0;
+    return protocol_write(&writer, "{\"attachment_urls\":[", json_text(url), "]}") ? writer.used : 0;
 }
 
 u32 attachment_refresh_response(Utf8View body, Utf8View original,

@@ -37,13 +37,7 @@ struct UserSocialRequest {
 static_assert(sizeof(UserSocialRequest) == 48);
 
 enum class UserSocialWriteError : u8 { none, input, capacity };
-struct UserSocialWriteResult {
-    u32 bytes;
-    UserSocialWriteError error;
-    constexpr bool ok() const noexcept {
-        return error == UserSocialWriteError::none;
-    }
-};
+using UserSocialWriteResult = ByteResult<UserSocialWriteError>;
 
 bool user_note_valid(Utf8View note) noexcept;
 bool user_social_request_valid(const UserSocialRequest&) noexcept;

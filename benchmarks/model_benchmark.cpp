@@ -1,4 +1,5 @@
 #include "maicord/core/time.hpp"
+#include "../tests/model_store_fixtures.hpp"
 #include "maicord/model/chat_state.hpp"
 #include "maicord/model/message_rich_store.hpp"
 #include "maicord/model/message_store.hpp"

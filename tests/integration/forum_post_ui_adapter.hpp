@@ -1,6 +1,7 @@
 #pragma once
 #include "application_forum_post.hpp"
 #include "maicord/ui/secure_edit.hpp"
+#include "../secure_edit_queries.hpp"
 #include "maicord/ui/input_router.hpp"
 #include "maicord/protocol/forum_post.hpp"
 #include "maicord/render/d3d11_renderer.hpp"

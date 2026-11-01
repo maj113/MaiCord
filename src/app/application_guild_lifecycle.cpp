@@ -14,6 +14,7 @@
 #include "application_profile.hpp"
 #include "application_settings.hpp"
 #include "application_settings_layer.hpp"
+#include "application_settings_modal.hpp"
 #include "application_state.hpp"
 #include "application_text_form.hpp"
 #include "application_user_settings.hpp"
@@ -93,12 +94,7 @@ struct Picked {
     GuildImageInfo info;
 };
 
-struct Owner {
-    UiSettingsScene scene;
-    SettingsLayer layer;
-    UiPageRegistry registry;
-    UiPage page;
-    UiSettingsPageContent content;
+struct Owner : SettingsDialog {
     UiSettingsControl controls[kControlCapacity];
     UiSettingsControlPresentation presentation[kControlCapacity];
     // Server tiles: an avatar-presented row whose entry is
@@ -524,14 +520,10 @@ bool project() noexcept {
     p.content.avatar_media = p.avatar_media;
     p.content.footer = &p.footer;
     ++p.content.revision;
-    ui_settings_scene_set_focus_visible(&p.scene, g_app.keyboard_focus_visible);
-    return ui_settings_scene_update(&p.scene, &p.registry, application_viewport_dips());
+    return settings_modal_update(p);
 }
 bool repaint() noexcept {
-    if (!project())
-        return false;
-    application_request_frame();
-    return !g_app.renderer_ready || renderer_rebuild_content_text(&g_app.renderer, application_theme());
+    return settings_modal_present(project());
 }
 
 void open_menu(Menu menu, UiRect anchor) noexcept {
@@ -694,11 +686,9 @@ constexpr SettingsLayerHooks kHooks{editor_hook, edited, activate, choose,
 bool ensure_owner() noexcept {
     if (owner)
         return true;
-    owner = static_cast<Owner*>(VirtualAlloc(nullptr, sizeof(Owner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    owner = settings_modal_allocate<Owner>(kHooks);
     if (!owner)
         return false;
-    owner->layer.scene = &owner->scene;
-    owner->layer.hooks = &kHooks;
     message_composer_initialize(&owner->model, {owner->name, kNameBytes});
     return true;
 }
@@ -708,9 +698,7 @@ bool can_open() noexcept {
 }
 // Callers check can_open() and fill their mode's fields first.
 bool open_modal(Mode mode, Utf8View title, u64 focus) noexcept {
-    application_settings_close(false);
-    application_media_picker_close();
-    application_profile_close();
+    settings_modal_yield();
     auto& p = *owner;
     const u32 title_bytes = minimum<u32>(title.bytes, sizeof(p.title));
     if (title.data != p.title)
@@ -726,30 +714,10 @@ bool open_modal(Mode mode, Utf8View title, u64 focus) noexcept {
     p.op = Op::none;
     reset_value(&p.status);
     p.copied_until = 0;
-    settings_layer_reset(&p.layer);
-    if (!ui_page_registry_initialize(&p.registry, {&p.page, 1}))
+    if (!settings_dialog_begin(p, kPage, {p.title, title_bytes}))
         return false;
-    p.content = {{p.title, title_bytes}, {}, {}, 1, kUiSettingsPageFormat, &kUiDefaultSettingsStyle, nullptr};
-    if (!ui_page_registry_register(&p.registry, {kPage, p.content.title, &p.content}).ok())
-        return false;
-    application_composer_text_input_suspend();
-    dismiss_popup();
-    ui_scroll_host_cancel(&g_app.scroll_host);
-    g_app.message_composer.focused = false;
-    ui_settings_scene_set_presentation(&p.scene, UiSettingsPresentation::dialog);
     ui_settings_scene_bind_palette(&p.scene, {owner, resolve_color, ++p.palette_revision});
-    p.scene.focus = {UiSettingsTargetKind::control, kPage, focus};
-    if (!ui_settings_scene_update(&p.scene, &p.registry, application_viewport_dips()) || !project()) {
-        application_guild_lifecycle_close(false);
-        return false;
-    }
-    renderer_bind_settings_scene(&g_app.renderer, &p.scene);
-    settings_layer_begin_entrance(&p.layer);
-    g_app.context_focus = &p.scene.widgets;
-    if (focus)
-        settings_layer_focus(&p.layer, {UiSettingsTargetKind::control, kPage, focus});
-    application_sync_attachment_drop_target();
-    if (repaint())
+    if (settings_dialog_show(p, kPage, focus, true, project) && repaint())
         return true;
     application_guild_lifecycle_close(false);
     return false;
@@ -1082,9 +1050,7 @@ bool application_guild_lifecycle_active() noexcept {
 void application_guild_lifecycle_close(bool restore_focus) noexcept {
     if (!owner || !owner->scene.active)
         return;
-    application_composer_text_input_suspend();
-    settings_layer_close_choice(&owner->layer);
-    settings_layer_cancel_pointer(&owner->layer);
+    settings_modal_suspend(*owner);
     if (owner->picker.runtime) {
         native_file_picker_cancel(&owner->picker);
         native_file_picker_release(&owner->picker, 0);
@@ -1092,46 +1058,28 @@ void application_guild_lifecycle_close(bool restore_focus) noexcept {
     // A queued request is dropped; one in flight finishes and is discarded.
     owner->queued = false;
     owner->menu = Menu::none;
-    renderer_bind_settings_scene(&g_app.renderer, nullptr);
-    owner->layer.entrance_started = 0;
-    renderer_set_settings_modal_progress(&g_app.renderer, 1);
-    ui_settings_scene_close(&owner->scene);
-    if (restore_focus && application_account_available())
-        g_app.context_focus = &g_app.shell_scene.widgets;
-    application_sync_attachment_drop_target();
-    if (g_app.renderer_ready)
-        refresh_account_text(true);
-    application_request_frame();
+    settings_modal_leave(*owner, restore_focus && application_account_available());
 }
 
 void application_guild_lifecycle_release() noexcept {
     application_guild_lifecycle_close(false);
     auto& b = g_background;
-    if (g_app.account.instance && g_app.account.api.guild_admin) {
-        if (b.leave_request)
-            g_app.account.api.guild_admin(g_app.account.instance, nullptr, b.leave_request);
-        if (b.reorder_request)
-            g_app.account.api.guild_admin(g_app.account.instance, nullptr, b.reorder_request);
-    }
+    application_cancel_request(&AccountModuleApi::guild_admin, b.leave_request);
+    application_cancel_request(&AccountModuleApi::guild_admin, b.reorder_request);
     reset_value(&g_background);
     if (!owner)
         return;
-    if (owner->request_id && g_app.account.instance) {
-        if (owner->op == Op::create && g_app.account.api.guild_assets)
-            g_app.account.api.guild_assets(g_app.account.instance, nullptr, owner->request_id);
-        else if (g_app.account.api.guild_admin)
-            g_app.account.api.guild_admin(g_app.account.instance, nullptr, owner->request_id);
-    }
+    if (owner->op == Op::create)
+        application_cancel_request(&AccountModuleApi::guild_assets, owner->request_id);
+    else
+        application_cancel_request(&AccountModuleApi::guild_admin, owner->request_id);
     if (owner->picker.runtime) {
         native_file_picker_cancel(&owner->picker);
         native_file_picker_release(&owner->picker, 5'000);
     }
     release_icon();
-    ui_settings_scene_release(&owner->scene);
     message_composer_release(&owner->model);
-    secure_clear_bytes(owner, sizeof(*owner));
-    VirtualFree(owner, 0, MEM_RELEASE);
-    owner = nullptr;
+    settings_modal_free(owner);
 }
 
 bool application_guild_lifecycle_synchronize() noexcept {
@@ -1162,10 +1110,7 @@ bool application_guild_lifecycle_synchronize() noexcept {
         changed = true;
     if (changed)
         return repaint();
-    if (!ui_settings_scene_update(&p.scene, &p.registry, application_viewport_dips()))
-        return false;
-    return g_app.renderer.interaction_text_settings_revision == p.scene.revision ||
-           renderer_rebuild_content_text(&g_app.renderer, application_theme());
+    return settings_modal_refresh(p);
 }
 
 u64 application_guild_lifecycle_next_wake() noexcept {
@@ -1189,10 +1134,8 @@ static RestClientSubmitResult send_background(const GuildAdminRequest& request, 
                                               u64& request_id) noexcept {
     const u64 id = application_next_request_id();
     const auto submitted = g_app.account.api.guild_admin(g_app.account.instance, &request, id);
-    if (submitted.error == RestClientSubmitError::busy) {
-        retry = deadline_after(now, 50);
+    if (submit_busy(submitted, retry, now, 50))
         return submitted;
-    }
     queued = false;
     if (submitted.ok()) {
         request_id = id;
@@ -1253,10 +1196,8 @@ bool application_guild_lifecycle_submit(u64 now) noexcept {
         request.image = {p.icon.data, p.icon.bytes};
         submitted = g_app.account.api.guild_assets(g_app.account.instance, &request, id);
     }
-    if (submitted.error == RestClientSubmitError::busy) {
-        p.retry_at = deadline_after(now, 50);
+    if (submit_busy(submitted, p.retry_at, now, 50))
         return true;
-    }
     p.queued = false;
     if (!submitted.ok()) {
         p.failed = true;

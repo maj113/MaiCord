@@ -1,7 +1,7 @@
 #include "maicord/app/account_forum_post.hpp"
 
+#include "maicord/app/request_body_bank.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 static_assert(kForumPostMaximumTargetBytes <= kRestClientMaximumTargetBytes);
@@ -16,23 +16,18 @@ __declspec(noinline) RestClientSubmitResult submit_body(RestClient* rest,
     const auto size = forum_post_body_bytes(request);
     if (!size.ok() || !size.bytes)
         return {RestClientSubmitError::body_capacity};
-    auto* body =
-        static_cast<u8*>(VirtualAlloc(nullptr, size.bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!body)
+    RequestBodyBank body{size.bytes};
+    if (!body.data)
         return {RestClientSubmitError::memory};
-    const auto written = forum_post_write_body(request, {body, size.bytes});
+    body.used = size.bytes;
+    const auto written = forum_post_write_body(request, body.all());
     const auto route =
         request.operation == ForumPostOperation::attachment_url
             ? attachment_upload_route(request.parent_id)
             : RestRouteKey{kForumPostRouteId, request.parent_id, RestMethod::post,
                            RestMajorParameter::channel};
-    const auto result = written.ok()
-                            ? rest_client_submit(rest, target, {body, written.bytes}, route,
-                                                 request_id, true)
-                            : RestClientSubmitResult{RestClientSubmitError::body_capacity};
-    secure_clear_bytes(body, size.bytes);
-    VirtualFree(body, 0, MEM_RELEASE);
-    return result;
+    return written.ok() ? rest_client_submit(rest, target, {body.data, written.bytes}, route, request_id, true)
+                        : RestClientSubmitResult{RestClientSubmitError::body_capacity};
 }
 } // namespace
 RestClientSubmitResult account_forum_post_submit(RestClient* rest,

@@ -460,7 +460,7 @@ ClipboardTextResult clipboard_read_utf8(HWND, Slice<char>) noexcept {
     u64 owner##_next_wake() noexcept { return 0; }
 namespace app_detail {
 INACTIVE_MODAL_CORE(application_guild_settings)
-INACTIVE_MODAL_REQUESTS(application_guild_settings, const Utf8View&)
+INACTIVE_MODAL_REQUESTS(application_guild_settings, Utf8View)
 void application_guild_settings_gateway(const GatewayClientEvent&, const Utf8View&) noexcept {}
 void application_media_picker_gateway(const GatewayClientEvent&, Utf8View) noexcept {}
 INACTIVE_MODAL_CORE(application_poll_create)
@@ -468,7 +468,7 @@ INACTIVE_MODAL_REQUESTS(application_poll_create, Utf8View)
 INACTIVE_MODAL_CORE(application_guild_lifecycle)
 INACTIVE_MODAL_REQUESTS(application_guild_lifecycle, Utf8View)
 INACTIVE_MODAL_CORE(application_profile_editor)
-INACTIVE_MODAL_REQUESTS(application_profile_editor, const Utf8View&)
+INACTIVE_MODAL_REQUESTS(application_profile_editor, Utf8View)
 INACTIVE_MODAL_CORE(application_guild_community)
 INACTIVE_MODAL_REQUESTS(application_guild_community, Utf8View)
 INACTIVE_MODAL_CORE(application_custom_status)

@@ -59,7 +59,6 @@ enum class CdnClientTakeError : u8 {
     none,
     invalid_input,
     empty,
-    output_too_small,
     consumer_rejected,
 };
 
@@ -163,9 +162,6 @@ bool cdn_client_cancel(CdnClient* client,
                        u64 request_id) noexcept;
 CdnClientResult cdn_client_wait_response(
     CdnClient* client, u32 timeout_ms) noexcept;
-CdnClientTakeResult cdn_client_take_response(
-    CdnClient* client, CdnClientResponse* response,
-    Slice<u8> body_output) noexcept;
 // Invokes the consumer on the caller thread with the stable in-place body,
 // then clears the published response. A rejected consumer leaves it ready.
 CdnClientTakeResult cdn_client_consume_response(

@@ -1,9 +1,11 @@
 #include "maicord/protocol/user_guild_settings.hpp"
 #include "maicord/protocol/guild_admin.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "json_helpers.hpp"
 
 namespace maicord {
 namespace {
+using protocol_detail::JsonBody;
 constexpr u16 all_fields = user_guild_settings_muted | user_guild_settings_level |
                            user_guild_settings_suppress_everyone | user_guild_settings_suppress_roles |
                            user_guild_settings_hide_muted | user_guild_settings_flags;
@@ -15,65 +17,46 @@ bool window_valid(i32 window) noexcept {
             return true;
     return false;
 }
-bool boolean(ProtocolWriter* w, bool value) noexcept {
-    return value ? protocol_writer_append_literal(w, "true") : protocol_writer_append_literal(w, "false");
-}
 // Fields are written comma-separated in a fixed order inside the caller's braces.
-bool partial(ProtocolWriter* w, const UserGuildSettingsPatch& p) noexcept {
-    bool first = true;
-    const auto key = [&](const char* name) noexcept {
-        const bool ok = (first || protocol_writer_append_byte(w, ',')) && protocol_writer_append_byte(w, '"') &&
-                        protocol_writer_append_c_string(w, name) && protocol_writer_append_literal(w, "\":");
-        first = false;
-        return ok;
-    };
+void partial(JsonBody& b, const UserGuildSettingsPatch& p) noexcept {
     if (p.fields & user_guild_settings_muted) {
-        if (!key("muted") || !boolean(w, p.muted))
-            return false;
+        b.member("muted", json_bool(p.muted));
         if (p.muted && p.mute_window_seconds) {
-            if (!key("mute_config") || !protocol_writer_append_literal(w, "{\"selected_time_window\":"))
-                return false;
-            if (p.mute_window_seconds < 0 ? !protocol_writer_append_literal(w, "-1")
-                                          : !protocol_writer_append_u64(w, static_cast<u64>(p.mute_window_seconds)))
-                return false;
-            if (!protocol_writer_append_literal(w, ",\"end_time\":"))
-                return false;
+            b.begin_object("mute_config");
+            if (p.mute_window_seconds < 0)
+                b.member("selected_time_window", "-1");
+            else
+                b.member("selected_time_window", static_cast<u64>(p.mute_window_seconds));
+            b.key("end_time");
             if (p.mute_end_ms) {
                 char stamp[32];
                 const u32 bytes = guild_admin_format_timestamp(p.mute_end_ms / 1000, {stamp, sizeof(stamp)});
-                if (!bytes || !protocol_writer_append_json_string(w, {stamp, bytes}))
-                    return false;
-            } else if (!protocol_writer_append_literal(w, "null"))
-                return false;
-            if (!protocol_writer_append_byte(w, '}'))
-                return false;
+                b.ok = b.ok && bytes;
+                b.put(json_text({stamp, bytes}));
+            } else
+                b.put("null");
+            b.end_object();
         }
     }
-    if ((p.fields & user_guild_settings_level) &&
-        (!key("message_notifications") || !protocol_writer_append_u64(w, static_cast<u64>(p.level))))
-        return false;
-    if ((p.fields & user_guild_settings_suppress_everyone) &&
-        (!key("suppress_everyone") || !boolean(w, p.suppress_everyone)))
-        return false;
-    if ((p.fields & user_guild_settings_suppress_roles) && (!key("suppress_roles") || !boolean(w, p.suppress_roles)))
-        return false;
-    if ((p.fields & user_guild_settings_hide_muted) &&
-        (!key("hide_muted_channels") || !boolean(w, p.hide_muted_channels)))
-        return false;
-    if ((p.fields & user_guild_settings_flags) && (!key("flags") || !protocol_writer_append_u64(w, p.flags)))
-        return false;
-    return true;
+    b.member_if(p.fields & user_guild_settings_level, "message_notifications", static_cast<u64>(p.level));
+    b.member_if(p.fields & user_guild_settings_suppress_everyone, "suppress_everyone", json_bool(p.suppress_everyone));
+    b.member_if(p.fields & user_guild_settings_suppress_roles, "suppress_roles", json_bool(p.suppress_roles));
+    b.member_if(p.fields & user_guild_settings_hide_muted, "hide_muted_channels", json_bool(p.hide_muted_channels));
+    b.member_if(p.fields & user_guild_settings_flags, "flags", p.flags);
 }
-bool settings_object(ProtocolWriter* w, const UserGuildSettingsPatch& p) noexcept {
-    if (!protocol_writer_append_byte(w, '{'))
-        return false;
+void settings_object(JsonBody& b, const UserGuildSettingsPatch& p) noexcept {
+    b.begin_object();
     if (p.channel_id) {
-        if (!protocol_writer_append_literal(w, "\"channel_overrides\":{\"") || !protocol_writer_append_u64(w, p.channel_id) ||
-            !protocol_writer_append_literal(w, "\":{") || !partial(w, p) || !protocol_writer_append_literal(w, "}}"))
-            return false;
-    } else if (!partial(w, p))
-        return false;
-    return protocol_writer_append_byte(w, '}');
+        b.begin_object("channel_overrides");
+        b.next();
+        b.put(snowflake_text(p.channel_id), ':');
+        b.begin_object();
+        partial(b, p);
+        b.end_object();
+        b.end_object();
+    } else
+        partial(b, p);
+    b.end_object();
 }
 } // namespace
 
@@ -131,17 +114,23 @@ UserGuildSettingsWriteResult user_guild_settings_write(const UserGuildSettingsPa
                                                        Slice<u8> body) noexcept {
     if (!user_guild_settings_patch_valid(p))
         return {};
-    ProtocolWriter t{target, 0}, b{body, 0};
-    bool ok = protocol_writer_append_literal(&t, "/api/v10/users/@me/guilds/");
+    ProtocolWriter t{target, 0};
+    JsonBody b{body};
+    bool ok = protocol_write(&t, "/api/v10/users/@me/guilds/");
     if (p.guild_id) {
-        ok = ok && protocol_writer_append_literal(&t, "settings") &&
-             protocol_writer_append_literal(&b, "{\"guilds\":{\"") && protocol_writer_append_u64(&b, p.guild_id) &&
-             protocol_writer_append_literal(&b, "\":") && settings_object(&b, p) &&
-             protocol_writer_append_literal(&b, "}}");
+        ok = ok && protocol_write(&t, "settings");
+        b.begin_object();
+        b.begin_object("guilds");
+        b.next();
+        b.put(snowflake_text(p.guild_id), ':');
+        settings_object(b, p);
+        b.end_object();
+        b.end_object();
     } else {
-        ok = ok && protocol_writer_append_literal(&t, "@me/settings") && settings_object(&b, p);
+        ok = ok && protocol_write(&t, "@me/settings");
+        settings_object(b, p);
     }
-    return ok ? UserGuildSettingsWriteResult{t.used, b.used, true} : UserGuildSettingsWriteResult{};
+    return ok && b.ok ? UserGuildSettingsWriteResult{t.used, b.writer.used, true} : UserGuildSettingsWriteResult{};
 }
 
 bool mentions_query_valid(const MentionsQuery& q) noexcept {
@@ -152,13 +141,12 @@ u32 write_mentions_target(const MentionsQuery& q, Slice<u8> output) noexcept {
     if (!mentions_query_valid(q))
         return 0;
     ProtocolWriter w{output, 0};
-    bool ok = protocol_writer_append_literal(&w, "/api/v10/users/@me/mentions?limit=") &&
-              protocol_writer_append_u64(&w, q.limit) && protocol_writer_append_literal(&w, "&roles=") &&
-              boolean(&w, q.roles) && protocol_writer_append_literal(&w, "&everyone=") && boolean(&w, q.everyone);
+    bool ok = protocol_write(&w, "/api/v10/users/@me/mentions?limit=", q.limit, "&roles=", json_bool(q.roles),
+                             "&everyone=", json_bool(q.everyone));
     if (q.guild_id)
-        ok = ok && protocol_writer_append_literal(&w, "&guild_id=") && protocol_writer_append_u64(&w, q.guild_id);
+        ok = ok && protocol_write(&w, "&guild_id=", q.guild_id);
     if (q.before)
-        ok = ok && protocol_writer_append_literal(&w, "&before=") && protocol_writer_append_u64(&w, q.before);
+        ok = ok && protocol_write(&w, "&before=", q.before);
     return ok ? w.used : 0;
 }
 

@@ -1,4 +1,5 @@
 #include "maicord/app/member_list_channel_binding.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/ui/member_list_scene.hpp"
 #include "maicord/ui/profile_media.hpp"
 #include "maicord/core/memory.hpp"

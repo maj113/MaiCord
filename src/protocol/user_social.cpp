@@ -92,24 +92,22 @@ UserSocialWriteResult user_social_write_target(const UserSocialRequest& r, Slice
         return {0, UserSocialWriteError::input};
     u8 staged[kUserSocialMaximumTargetBytes];
     ProtocolWriter w{{staged, sizeof(staged)}, 0};
-    bool ok = protocol_writer_append_literal(&w, "/api/v9");
+    bool ok = protocol_write(&w, "/api/v9");
     switch (r.operation) {
     case UserSocialOperation::note_get:
     case UserSocialOperation::note_put:
-        ok = ok && protocol_writer_append_literal(&w, "/users/@me/notes/") && protocol_writer_append_u64(&w, r.user_id);
+        ok = ok && protocol_write(&w, "/users/@me/notes/", r.user_id);
         break;
     case UserSocialOperation::report_menu:
     case UserSocialOperation::report_submit: {
         const auto name = report_menu_name(r.report);
         ok = ok &&
-             (r.operation == UserSocialOperation::report_menu ? protocol_writer_append_literal(&w, "/reporting/menu/")
-                                                              : protocol_writer_append_literal(&w, "/reporting/")) &&
-             protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(name.data), name.bytes);
+             protocol_write(&w, r.operation == UserSocialOperation::report_menu ? "/reporting/menu/" : "/reporting/",
+                            name);
         break;
     }
     default:
-        ok = ok && protocol_writer_append_literal(&w, "/channels/") && protocol_writer_append_u64(&w, r.channel_id) &&
-             protocol_writer_append_literal(&w, "/messages/") && protocol_writer_append_u64(&w, r.message_id);
+        ok = ok && protocol_write(&w, "/channels/", r.channel_id, "/messages/", r.message_id);
         break;
     }
     return protocol_writer_finish<UserSocialWriteResult>(w, ok, output, staged);
@@ -128,11 +126,9 @@ UserSocialWriteResult user_social_write_body(const UserSocialRequest& r, Slice<u
     ProtocolWriter w{{staged, sizeof(staged)}, 0};
     bool ok = false;
     if (r.operation == UserSocialOperation::note_put)
-        ok = protocol_writer_append_literal(&w, "{\"note\":") && protocol_writer_append_json_string(&w, r.text) &&
-             protocol_writer_append_byte(&w, '}');
+        ok = protocol_write(&w, "{\"note\":", json_text(r.text), '}');
     else
-        ok = protocol_writer_append_literal(&w, "{\"flags\":") && protocol_writer_append_u64(&w, r.flags) &&
-             protocol_writer_append_byte(&w, '}');
+        ok = protocol_write(&w, "{\"flags\":", r.flags, '}');
     return protocol_writer_finish<UserSocialWriteResult>(w, ok, output, staged);
 }
 
@@ -439,30 +435,17 @@ UserSocialWriteResult report_write_submit(const ReportMenu& menu, const ReportSu
         if (!report_menu_node(menu, s.breadcrumbs[i]))
             return {0, UserSocialWriteError::input};
     u8 staged[kUserSocialMaximumBodyBytes];
-    ProtocolWriter w{{staged, sizeof(staged)}, 0};
-    bool ok = protocol_writer_append_byte(&w, '{');
-    bool comma = false;
-    const auto key = [&](const char* name) noexcept {
-        const bool written = (!comma || protocol_writer_append_byte(&w, ',')) &&
-                             protocol_writer_append_byte(&w, '"') && protocol_writer_append_c_string(&w, name) &&
-                             protocol_writer_append_literal(&w, "\":");
-        comma = true;
-        return written;
-    };
-    if (menu.version_json.bytes)
-        ok = ok && key("version") &&
-             protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(menu.version_json.data), menu.version_json.bytes);
-    if (menu.variant_json.bytes)
-        ok = ok && key("variant") &&
-             protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(menu.variant_json.data), menu.variant_json.bytes);
-    ok = ok && key("language") &&
-         protocol_writer_append_json_string(&w, menu.language.bytes ? menu.language : utf8_literal("en"));
-    ok = ok && key("breadcrumbs") && protocol_writer_append_byte(&w, '[');
-    for (u32 i = 0; ok && i < s.breadcrumbs.count; ++i)
-        ok = (!i || protocol_writer_append_byte(&w, ',')) && protocol_writer_append_u64(&w, s.breadcrumbs[i]);
-    ok = ok && protocol_writer_append_byte(&w, ']') && key("elements") && protocol_writer_append_byte(&w, '{');
-    bool first_element = true;
-    for (u32 i = 0; ok && i < s.answers.count; ++i) {
+    protocol_detail::JsonBody b{{staged, sizeof(staged)}};
+    b.begin_object();
+    b.member_if(menu.version_json.bytes, "version", menu.version_json);
+    b.member_if(menu.variant_json.bytes, "variant", menu.variant_json);
+    b.member("language", json_text(menu.language.bytes ? menu.language : utf8_literal("en")));
+    b.begin_array("breadcrumbs");
+    for (u32 i = 0; i < s.breadcrumbs.count; ++i)
+        b.element(s.breadcrumbs[i]);
+    b.end_array();
+    b.begin_object("elements");
+    for (u32 i = 0; b.ok && i < s.answers.count; ++i) {
         const auto& answer = s.answers[i];
         if (answer.element >= menu.element_count)
             return {0, UserSocialWriteError::input};
@@ -472,40 +455,32 @@ UserSocialWriteResult report_write_submit(const ReportMenu& menu, const ReportSu
         if (element.kind == ReportElementKind::checkbox) {
             if (!answer.selected)
                 continue;
-            ok = (first_element || protocol_writer_append_byte(&w, ',')) &&
-                 protocol_writer_append_json_string(&w, element.name) && protocol_writer_append_literal(&w, ":[");
-            bool first = true;
-            for (u32 o = 0; ok && o < element.option_count && o < 64; ++o) {
-                if (!(answer.selected & (1ull << o)))
-                    continue;
-                ok = (first || protocol_writer_append_byte(&w, ',')) &&
-                     protocol_writer_append_json_string(&w, menu.options[element.option_first + o].value);
-                first = false;
-            }
-            ok = ok && protocol_writer_append_byte(&w, ']');
-            first_element = false;
+            b.next();
+            b.put(json_text(element.name), ':');
+            b.begin_array();
+            for (u32 o = 0; o < element.option_count && o < 64; ++o)
+                if (answer.selected & (1ull << o))
+                    b.element(json_text(menu.options[element.option_first + o].value));
+            b.end_array();
         } else if (element.kind == ReportElementKind::free_text) {
             if (!answer.text.bytes)
                 continue;
             if (answer.text.bytes > kReportFreeTextMaximumBytes || !utf8_validate(answer.text).valid)
                 return {0, UserSocialWriteError::input};
-            ok = (first_element || protocol_writer_append_byte(&w, ',')) &&
-                 protocol_writer_append_json_string(&w, element.name) && protocol_writer_append_byte(&w, ':') &&
-                 protocol_writer_append_json_string(&w, answer.text);
-            first_element = false;
+            b.next();
+            b.put(json_text(element.name), ':', json_text(answer.text));
         }
     }
-    ok = ok && protocol_writer_append_byte(&w, '}');
-    if (message)
-        ok = ok && key("channel_id") && protocol_writer_append_snowflake(&w, s.channel_id) &&
-             key("message_id") && protocol_writer_append_snowflake(&w, s.message_id);
-    else {
-        if (s.guild_id)
-            ok = ok && key("guild_id") && protocol_writer_append_snowflake(&w, s.guild_id);
-        ok = ok && key("user_id") && protocol_writer_append_snowflake(&w, s.user_id);
+    b.end_object();
+    if (message) {
+        b.member("channel_id", snowflake_text(s.channel_id));
+        b.member("message_id", snowflake_text(s.message_id));
+    } else {
+        b.member_if(s.guild_id, "guild_id", snowflake_text(s.guild_id));
+        b.member("user_id", snowflake_text(s.user_id));
     }
-    ok = ok && key("name") && protocol_writer_append_json_string(&w, report_menu_name(s.name)) &&
-         protocol_writer_append_byte(&w, '}');
-    return protocol_writer_finish<UserSocialWriteResult>(w, ok, output, staged);
+    b.member("name", json_text(report_menu_name(s.name)));
+    b.end_object();
+    return protocol_writer_finish<UserSocialWriteResult>(b.writer, b.ok, output, staged);
 }
 } // namespace maicord

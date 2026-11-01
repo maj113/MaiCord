@@ -1,4 +1,5 @@
 #include "maicord/app/message_event_pump.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/model/read_state.hpp"
 #include "maicord/core/memory.hpp"

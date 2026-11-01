@@ -8,49 +8,37 @@ bool custom_present(const GatewayCustomStatusActivity* custom) noexcept {
     return custom && (custom->text.bytes || custom->emoji_name.bytes || custom->emoji_id);
 }
 bool write_custom(ProtocolWriter* w, const GatewayCustomStatusActivity& custom) noexcept {
-    bool ok = protocol_writer_append_literal(w, "{\"name\":\"Custom Status\",\"type\":4");
+    bool ok = protocol_write(w, "{\"name\":\"Custom Status\",\"type\":4");
     if (custom.text.bytes)
-        ok = ok && protocol_writer_append_literal(w, ",\"state\":") &&
-             protocol_writer_append_json_string(w, custom.text);
+        ok = ok && protocol_write(w, ",\"state\":", json_text(custom.text));
     if (custom.expires_at_ms)
-        ok = ok && protocol_writer_append_literal(w, ",\"timestamps\":{\"end\":") &&
-             protocol_writer_append_u64(w, custom.expires_at_ms) && protocol_writer_append_byte(w, '}');
+        ok = ok && protocol_write(w, ",\"timestamps\":{\"end\":", custom.expires_at_ms, '}');
     if (custom.emoji_name.bytes || custom.emoji_id) {
-        ok = ok && protocol_writer_append_literal(w, ",\"emoji\":{\"id\":");
-        ok = ok && (custom.emoji_id ? protocol_writer_append_byte(w, '"') &&
-                                          protocol_writer_append_u64(w, custom.emoji_id) &&
-                                          protocol_writer_append_byte(w, '"')
-                                    : protocol_writer_append_literal(w, "null"));
-        ok = ok && protocol_writer_append_literal(w, ",\"name\":") &&
-             protocol_writer_append_json_string(w, custom.emoji_name) &&
-             protocol_writer_append_literal(w, ",\"animated\":false}");
+        ok = ok && protocol_write(w, ",\"emoji\":{\"id\":", or_null(custom.emoji_id != 0, snowflake_text(custom.emoji_id)));
+        ok = ok && protocol_write(w, ",\"name\":", json_text(custom.emoji_name), ",\"animated\":false}");
     }
-    return ok && protocol_writer_append_byte(w, '}');
+    return ok && protocol_write(w, '}');
 }
 bool game_type_valid(u8 type) noexcept {
     return type == 0 || type == 2 || type == 3 || type == 5;
 }
 bool write_game(ProtocolWriter* w, const GatewayGameActivity& game) noexcept {
-    bool ok = protocol_writer_append_literal(w, "{\"name\":") && protocol_writer_append_json_string(w, game.name) &&
-              protocol_writer_append_literal(w, ",\"type\":") && protocol_writer_append_u64(w, game.type);
+    bool ok = protocol_write(w, "{\"name\":", json_text(game.name), ",\"type\":", game.type);
     if (game.application_id)
-        ok = ok && protocol_writer_append_literal(w, ",\"application_id\":\"") &&
-             protocol_writer_append_u64(w, game.application_id) && protocol_writer_append_byte(w, '"');
+        ok = ok && protocol_write(w, ",\"application_id\":", snowflake_text(game.application_id));
     if (game.details.bytes)
-        ok = ok && protocol_writer_append_literal(w, ",\"details\":") &&
-             protocol_writer_append_json_string(w, game.details);
+        ok = ok && protocol_write(w, ",\"details\":", json_text(game.details));
     if (game.state.bytes)
-        ok = ok && protocol_writer_append_literal(w, ",\"state\":") && protocol_writer_append_json_string(w, game.state);
+        ok = ok && protocol_write(w, ",\"state\":", json_text(game.state));
     if (game.started_ms || game.ends_ms) {
-        ok = ok && protocol_writer_append_literal(w, ",\"timestamps\":{");
+        ok = ok && protocol_write(w, ",\"timestamps\":{");
         if (game.started_ms)
-            ok = ok && protocol_writer_append_literal(w, "\"start\":") && protocol_writer_append_u64(w, game.started_ms);
+            ok = ok && protocol_write(w, "\"start\":", game.started_ms);
         if (game.ends_ms)
-            ok = ok && (!game.started_ms || protocol_writer_append_byte(w, ',')) &&
-                 protocol_writer_append_literal(w, "\"end\":") && protocol_writer_append_u64(w, game.ends_ms);
-        ok = ok && protocol_writer_append_byte(w, '}');
+            ok = ok && (!game.started_ms || protocol_write(w, ',')) && protocol_write(w, "\"end\":", game.ends_ms);
+        ok = ok && protocol_write(w, '}');
     }
-    return ok && protocol_writer_append_byte(w, '}');
+    return ok && protocol_write(w, '}');
 }
 } // namespace
 
@@ -66,20 +54,14 @@ GatewayCommandWriteResult gateway_write_presence_update(const GatewayPresenceUpd
         return {0, GatewayCommandError::invalid_input};
     // The desktop client's order; since is 0 unless idle.
     ProtocolWriter w{output, 0};
-    bool ok = protocol_writer_append_literal(&w, "{\"op\":3,\"d\":{\"status\":\"") &&
-              protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(status.data), status.bytes) &&
-              protocol_writer_append_literal(&w, "\",\"since\":") &&
-              protocol_writer_append_u64(&w, presence.has_since ? presence.since_ms : 0) &&
-              protocol_writer_append_literal(&w, ",\"activities\":[");
+    bool ok = protocol_write(&w, "{\"op\":3,\"d\":{\"status\":\"", status, "\",\"since\":",
+                             presence.has_since ? presence.since_ms : 0, ",\"activities\":[");
     const bool with_custom = custom_present(custom);
     if (with_custom)
         ok = ok && write_custom(&w, *custom);
     if (game)
-        ok = ok && (!with_custom || protocol_writer_append_byte(&w, ',')) && write_game(&w, *game);
-    ok = ok && protocol_writer_append_literal(&w, "],\"afk\":") &&
-         (presence.afk ? protocol_writer_append_literal(&w, "true")
-                       : protocol_writer_append_literal(&w, "false")) &&
-         protocol_writer_append_literal(&w, "}}");
+        ok = ok && (!with_custom || protocol_write(&w, ',')) && write_game(&w, *game);
+    ok = ok && protocol_write(&w, "],\"afk\":", presence.afk ? "true" : "false", "}}");
     if (!ok)
         return {0, GatewayCommandError::output_too_small};
     return {w.used, GatewayCommandError::none};

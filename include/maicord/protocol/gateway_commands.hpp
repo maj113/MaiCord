@@ -12,14 +12,7 @@ enum class GatewayCommandError : u8 {
     output_too_small,
 };
 
-struct GatewayCommandWriteResult {
-    u32 bytes;
-    GatewayCommandError error;
-
-    constexpr bool ok() const noexcept {
-        return error == GatewayCommandError::none;
-    }
-};
+using GatewayCommandWriteResult = ByteResult<GatewayCommandError>;
 
 struct GatewayResume {
     Utf8View token;

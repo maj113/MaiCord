@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/render/d3d11_renderer.hpp"
+#include "glyph_gpu_footprint.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/process_info.hpp"

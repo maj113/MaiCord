@@ -74,14 +74,8 @@ AttachmentDownloadRequestResult write_get(ConstSlice<u8> target, CdnHost cdn_hos
     u8 request[kCdnMaximumTargetBytes + 384];
     ProtocolWriter writer{{request, sizeof(request)}, 0};
     const auto host = cdn_host_name(cdn_host);
-    if (!protocol_writer_append_literal(&writer, "GET ") ||
-        !protocol_writer_append_bytes(&writer, target) ||
-        !protocol_writer_append_literal(&writer, " HTTP/1.1\r\nHost: ") ||
-        !protocol_writer_append_bytes(&writer, reinterpret_cast<const u8*>(host.data), host.bytes) ||
-        !protocol_writer_append_literal(&writer, "\r\nUser-Agent: ") ||
-        !protocol_writer_append_literal(&writer, kClientUserAgent) ||
-        !protocol_writer_append_literal(
-            &writer, "\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n") ||
+    if (!protocol_write(&writer, "GET ", target, " HTTP/1.1\r\nHost: ", host, "\r\nUser-Agent: ", kClientUserAgent,
+                        "\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n") ||
         writer.used > output.count)
         return {0, CdnHost::none, AttachmentDownloadRequestError::output_capacity};
     copy_bytes(output.data, request, writer.used);
@@ -97,12 +91,8 @@ AttachmentDownloadRequestResult attachment_download_write_request(Utf8View url, 
     const auto parsed = parse_signed_attachment_url(url, attachment, {target, sizeof(target)});
     if (!parsed.ok()) return {0, CdnHost::none, AttachmentDownloadRequestError::invalid_url};
     ProtocolWriter path{{prefix, sizeof(prefix)}, 0};
-    const bool started = parsed.ephemeral
-        ? protocol_writer_append_literal(&path, "/ephemeral-attachments/")
-        : protocol_writer_append_literal(&path, "/attachments/");
-    if (!started || !protocol_writer_append_u64(&path, channel) ||
-        !protocol_writer_append_literal(&path, "/") || !protocol_writer_append_u64(&path, attachment) ||
-        !protocol_writer_append_literal(&path, "/") || parsed.target_bytes <= path.used ||
+    const bool started = protocol_write(&path, parsed.ephemeral ? "/ephemeral-attachments/" : "/attachments/");
+    if (!started || !protocol_write(&path, channel, '/', attachment, '/') || parsed.target_bytes <= path.used ||
         !bytes_equal(prefix, target, path.used))
         return {0, CdnHost::none, AttachmentDownloadRequestError::origin_mismatch};
     if (parsed.expires_at_seconds <= now_seconds)

@@ -2627,7 +2627,7 @@ bool application_commands_response(const RestClientResponse& response, Utf8View 
         const bool save = c.operation == 5;
         const u64 now = clock_monotonic_milliseconds();
         f.fetching = f.saving = false;
-        const bool ok = response.transport_ok() && response.status_code >= 200 && response.status_code < 300 &&
+        const bool ok = response.succeeded() &&
                         frecency_install(body, save ? f.sent_pending : 0);
         f.sent_pending = 0;
         if (!ok) {

@@ -1,6 +1,7 @@
 #include "maicord/app/account_guild_admin.hpp"
 
 #include "maicord/app/original_md5.hpp"
+#include "maicord/app/request_body_bank.hpp"
 
 namespace maicord {
 static_assert(kGuildAdminMaximumTargetBytes <= kRestClientMaximumTargetBytes);
@@ -40,13 +41,14 @@ __declspec(noinline) RestClientSubmitResult submit_with_body(RestClient* rest,
     if (images > kRestClientMaximumLargeRequestBodyBytes - kRestClientMaximumRequestBodyBytes)
         return {RestClientSubmitError::body_capacity};
     const u32 capacity = kRestClientMaximumRequestBodyBytes + images;
-    auto* body = static_cast<u8*>(VirtualAlloc(nullptr, capacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!body)
+    RequestBodyBank body{capacity};
+    if (!body.data)
         return {RestClientSubmitError::memory};
-    const auto written = guild_admin_write_body(request, {body, capacity});
+    const auto written = guild_admin_write_body(request, body.all());
+    body.used = written.ok() ? written.bytes : 0;
     const bool large = written.ok() && written.bytes > kRestClientMaximumRequestBodyBytes;
     RestClientRequest submit{target,
-                             {body, written.ok() ? written.bytes : 0},
+                             {body.data, body.used},
                              guild_admin_route(request),
                              request_id,
                              large ? kLargeTimeoutMs : kRestClientDefaultTimeoutMs,
@@ -55,12 +57,9 @@ __declspec(noinline) RestClientSubmitResult submit_with_body(RestClient* rest,
     submit.send_empty_audit_reason = empty_reason;
     u8 headers[256];
     submit.extra_headers = {headers, md5_header(request, {headers, sizeof(headers)})};
-    const auto result = !written.ok() ? RestClientSubmitResult{RestClientSubmitError::body_capacity}
-                        : large       ? rest_client_submit_large(rest, submit)
-                                      : rest_client_submit(rest, submit);
-    SecureZeroMemory(body, written.ok() ? written.bytes : 0);
-    VirtualFree(body, 0, MEM_RELEASE);
-    return result;
+    return !written.ok() ? RestClientSubmitResult{RestClientSubmitError::body_capacity}
+           : large       ? rest_client_submit_large(rest, submit)
+                         : rest_client_submit(rest, submit);
 }
 } // namespace
 

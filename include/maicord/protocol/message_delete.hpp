@@ -12,14 +12,7 @@ enum class MessageDeleteWriteError : u8 {
     output_too_small,
 };
 
-struct MessageDeleteWriteResult {
-    u32 bytes;
-    MessageDeleteWriteError error;
-
-    constexpr bool ok() const noexcept {
-        return error == MessageDeleteWriteError::none;
-    }
-};
+using MessageDeleteWriteResult = ByteResult<MessageDeleteWriteError>;
 
 MessageDeleteWriteResult write_message_delete_target(
     u64 channel_id, u64 message_id, Slice<u8> output) noexcept;

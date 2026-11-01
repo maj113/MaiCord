@@ -21,14 +21,7 @@ enum class MessageReactionWriteError : u8 {
     output_too_small,
 };
 
-struct MessageReactionWriteResult {
-    u32 bytes;
-    MessageReactionWriteError error;
-
-    constexpr bool ok() const noexcept {
-        return error == MessageReactionWriteError::none;
-    }
-};
+using MessageReactionWriteResult = ByteResult<MessageReactionWriteError>;
 
 MessageReactionWriteResult write_message_reaction_target(
     u64 channel_id, u64 message_id, u64 emoji_id, Utf8View emoji_name,

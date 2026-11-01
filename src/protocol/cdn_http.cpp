@@ -255,39 +255,27 @@ CdnRequestResult write_static_cdn_get_request(CdnImageType image_type,
     }
     u8 request[kCdnMaximumRequestHeadBytes];
     ProtocolWriter writer{Slice<u8>{request, sizeof(request)}, 0};
+    const char* accept = "video/mp4";
+    switch (image_type) {
+    case CdnImageType::png: accept = "image/png"; break;
+    case CdnImageType::webp: accept = "image/webp"; break;
+    case CdnImageType::gif: accept = "image/gif"; break;
+    case CdnImageType::jpeg: accept = "image/jpeg"; break;
+    case CdnImageType::ogg_opus: accept = "audio/ogg"; break;
+    case CdnImageType::mp3: accept = "audio/mpeg"; break;
+    case CdnImageType::wav: accept = "audio/wav"; break;
+    case CdnImageType::m4a: accept = "audio/mp4"; break;
+    case CdnImageType::soundboard_sound: accept = "audio/mpeg, audio/ogg"; break;
+    case CdnImageType::lottie_json: accept = "application/json"; break;
+    default: break;
+    }
     const bool written =
-        protocol_writer_append_literal(&writer, "GET ") && protocol_writer_append_bytes(&writer, target) &&
-        protocol_writer_append_literal(&writer, " HTTP/1.1\r\nHost: ") &&
-        protocol_writer_append_bytes(
-            &writer, ConstSlice<u8>{reinterpret_cast<const u8*>(host_name.data), host_name.bytes}) &&
-        protocol_writer_append_literal(&writer, "\r\nUser-Agent: ") &&
-        protocol_writer_append_literal(&writer, kClientUserAgent) &&
-        protocol_writer_append_literal(&writer, "\r\nAccept: ") &&
-        (image_type == CdnImageType::png    ? protocol_writer_append_literal(&writer, "image/png")
-         : image_type == CdnImageType::webp ? protocol_writer_append_literal(&writer, "image/webp")
-         : image_type == CdnImageType::gif  ? protocol_writer_append_literal(&writer, "image/gif")
-         : image_type == CdnImageType::jpeg ? protocol_writer_append_literal(&writer, "image/jpeg")
-         : image_type == CdnImageType::ogg_opus
-             ? protocol_writer_append_literal(&writer, "audio/ogg")
-         : image_type == CdnImageType::mp3 ? protocol_writer_append_literal(&writer, "audio/mpeg")
-         : image_type == CdnImageType::wav ? protocol_writer_append_literal(&writer, "audio/wav")
-         : image_type == CdnImageType::m4a ? protocol_writer_append_literal(&writer, "audio/mp4")
-         : image_type == CdnImageType::soundboard_sound
-             ? protocol_writer_append_literal(&writer, "audio/mpeg, audio/ogg")
-         : image_type == CdnImageType::lottie_json
-             ? protocol_writer_append_literal(&writer, "application/json")
-             : protocol_writer_append_literal(&writer, "video/mp4")) &&
-        protocol_writer_append_literal(&writer, "\r\nAccept-Encoding: identity"
-                                                "\r\nConnection: keep-alive\r\n") &&
-        (etag.count == 0 || (protocol_writer_append_literal(&writer, "If-None-Match: ") &&
-                             protocol_writer_append_bytes(&writer, etag) &&
-                             protocol_writer_append_literal(&writer, "\r\n"))) &&
-        (range.bytes == 0 || (protocol_writer_append_literal(&writer, "Range: bytes=") &&
-                              protocol_writer_append_u64(&writer, range.first) &&
-                              protocol_writer_append_literal(&writer, "-") &&
-                              protocol_writer_append_u64(&writer, range.first + range.bytes - 1) &&
-                              protocol_writer_append_literal(&writer, "\r\n"))) &&
-        protocol_writer_append_literal(&writer, "\r\n");
+        protocol_write(&writer, "GET ", target, " HTTP/1.1\r\nHost: ", host_name, "\r\nUser-Agent: ", kClientUserAgent,
+                       "\r\nAccept: ", accept, "\r\nAccept-Encoding: identity\r\nConnection: keep-alive\r\n") &&
+        (etag.count == 0 || protocol_write(&writer, "If-None-Match: ", etag, "\r\n")) &&
+        (range.bytes == 0 ||
+         protocol_write(&writer, "Range: bytes=", range.first, '-', range.first + range.bytes - 1, "\r\n")) &&
+        protocol_write(&writer, "\r\n");
     if (!written || writer.used > output.count) {
         return CdnRequestResult{0, CdnHttpError::output_capacity};
     }

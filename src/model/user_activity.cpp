@@ -260,9 +260,6 @@ bool user_activity_first_type(const UserActivityStore& s, u64 user, UserActivity
     *output = static_cast<UserActivityType>(record[2]);
     return true;
 }
-bool user_activity_upsert(UserActivityStore* s, const UserActivitySet& value) noexcept {
-    return user_activity_apply(s, value, 0, false);
-}
 bool user_activity_apply(UserActivityStore* s, const UserActivitySet& value, u64 scope, bool offline) noexcept {
     if (!s || !value.user_id || value.count > kUserActivityMaximum)
         return false;

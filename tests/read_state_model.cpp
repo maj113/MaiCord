@@ -1,4 +1,5 @@
 #include "maicord/model/read_state.hpp"
+#include "model_store_fixtures.hpp"
 
 namespace maicord {
 namespace read_model_probe {

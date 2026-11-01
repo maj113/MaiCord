@@ -262,15 +262,6 @@ SoundboardClip* soundboard_clip_decode(u64 sound_id, ConstSlice<u8> encoded) noe
     }
 }
 
-SoundboardClip* soundboard_clip_from_pcm(u64 sound_id, ConstSlice<i16> stereo) noexcept {
-    if (!stereo.data || stereo.count < 2)
-        return nullptr;
-    auto* clip = allocate_clip(sound_id, stereo.count / 2);
-    if (clip)
-        copy_bytes(clip->pcm, stereo.data, clip->frames * 2 * static_cast<u32>(sizeof(i16)));
-    return clip;
-}
-
 void soundboard_clip_retain(SoundboardClip* clip) noexcept {
     if (clip)
         InterlockedIncrement(&clip->references);

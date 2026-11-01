@@ -780,8 +780,7 @@ bool application_message_reaction_response(const RestClientResponse& response) n
         return false;
     const auto flight = owner->controller.flight;
     const u64 now = clock_monotonic_milliseconds();
-    const bool success =
-        response.transport_ok() && response.status_code >= 200 && response.status_code < 300;
+    const bool success = response.succeeded();
     const bool rate = response.transport_ok() && response.status_code == 429 && response.rate_limited &&
                       response.retry_at_ms && !api_rejection_requires_action(response.rejection);
     const bool server = response.transport_ok() && response.status_code >= 500 &&

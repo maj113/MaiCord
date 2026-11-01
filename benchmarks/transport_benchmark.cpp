@@ -1,4 +1,5 @@
 #include "maicord/app/cdn_client.hpp"
+#include "../tests/cdn_take_response.hpp"
 #include "maicord/app/rest_client.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/protocol/writer.hpp"

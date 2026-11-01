@@ -22,9 +22,8 @@ u32 twitch_playback_body(Utf8View id, Slice<u8> output, bool live) noexcept {
     u8 staged[512]; ProtocolWriter w{{staged, sizeof(staged)}, 0};
     const auto prefix = live ? utf8_literal("{\"query\":\"query { streamPlaybackAccessToken(channelName:\\\"")
                              : utf8_literal("{\"query\":\"query { videoPlaybackAccessToken(id:\\\"");
-    const bool valid = protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(prefix.data), prefix.bytes) &&
-        protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(id.data), id.bytes) &&
-        protocol_writer_append_literal(&w, "\\\", params:{platform:\\\"web\\\",playerBackend:\\\"mediaplayer\\\",playerType:\\\"embed\\\"}) { value signature } }\"}");
+    const bool valid = protocol_write(&w, prefix, id,
+        "\\\", params:{platform:\\\"web\\\",playerBackend:\\\"mediaplayer\\\",playerType:\\\"embed\\\"}) { value signature } }\"}");
     if (!valid || !output.data || output.count < w.used) return 0;
     copy_bytes(output.data, staged, w.used); return w.used;
 }
@@ -96,12 +95,8 @@ EmbedPlayerError twitch_playback_manifest(Utf8View json, Utf8View id, u64 now, S
     const auto parameters = live ? utf8_literal(".m3u8?allow_source=true&allow_audio_only=true&sig=")
                                  : utf8_literal(".m3u8?allow_source=true&allow_audio_only=true&nauthsig=");
     const auto token_parameter = live ? utf8_literal("&token=") : utf8_literal("&nauth=");
-    const bool written = protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(origin.data), origin.bytes) &&
-        protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(id.data), id.bytes) &&
-        protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(parameters.data), parameters.bytes) &&
-        protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(s.signature), sig.bytes) &&
-        protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(token_parameter.data), token_parameter.bytes) &&
-        protocol_writer_append_percent_encoded(&w, token_json);
+    const bool written = protocol_write(&w, origin, id, parameters, Utf8View{s.signature, sig.bytes}, token_parameter,
+                                        percent_text(token_json));
     if (!written) return E::capacity;
     s.result.url_bytes = w.used; *output = s.result; return E::none;
 }

@@ -565,8 +565,6 @@ bool chat_state_store_initialize(ChatStateStore* store, Slice<GuildRecord> guild
                                  Slice<u16> guild_order, Slice<ChannelRecord> channels,
                                  Slice<u16> channel_order, Slice<u8> double_buffered_names,
                                  bool zeroed = false) noexcept;
-bool chat_state_store_bind_permissions(ChatStateStore* store, Slice<RoleRecord> roles,
-                                          Slice<PermissionOverwriteRecord> overwrites) noexcept;
 // Logical slices are stable reserved ranges, initially with zero backed rows.
 // Context is opaque and may be null when the callback supports it. Success
 // guarantees both requested prefixes writable/zeroed, without model mutation.

@@ -27,33 +27,17 @@ MessageReactionWriteResult write_message_reaction_target(
     }
     RouteWriter writer{};
     if (!route_writer_initialize(&writer, output) ||
-        !route_append(&writer, utf8_literal("/api/v10/channels/")) ||
-        !route_append_u64(&writer, channel_id) ||
-        !route_append(&writer, utf8_literal("/messages/")) ||
-        !route_append_u64(&writer, message_id) ||
-        !route_append(&writer, utf8_literal("/reactions/")) ||
-        !route_append_path_component(&writer, emoji_name) ||
-        (emoji_id != 0 &&
-         (!route_append_byte(&writer, ':') ||
-          !route_append_u64(&writer, emoji_id))) ||
-        !route_append_byte(&writer, '/')) {
+        !route_write(&writer, "/api/v10/channels/", channel_id, "/messages/", message_id, "/reactions/",
+                     path_component(emoji_name)) ||
+        (emoji_id != 0 && !route_write(&writer, ':', emoji_id)) || !route_write(&writer, '/')) {
         return error(MessageReactionWriteError::output_too_small);
     }
-    const bool suffix = add
-        ? route_append(
-              &writer, utf8_literal("@me?location=Message&type="))
-        : route_append_byte(
-              &writer, static_cast<u8>('0' + type_value)) &&
-              route_append(
-                  &writer, utf8_literal("/@me?location=Message&burst="));
-    const bool burst_value = add ||
-        (type == MessageReactionType::burst
-             ? route_append(&writer, utf8_literal("true"))
-             : route_append(&writer, utf8_literal("false")));
-    if (!suffix ||
-        (add && !route_append_byte(
-                    &writer, static_cast<u8>('0' + type_value))) ||
-        !burst_value) {
+    const bool suffix = add ? route_write(&writer, "@me?location=Message&type=")
+                            : route_write(&writer, static_cast<char>('0' + type_value),
+                                          "/@me?location=Message&burst=");
+    const bool burst_value =
+        add || route_write(&writer, type == MessageReactionType::burst ? utf8_literal("true") : utf8_literal("false"));
+    if (!suffix || (add && !route_write(&writer, static_cast<char>('0' + type_value))) || !burst_value) {
         return error(MessageReactionWriteError::output_too_small);
     }
     return MessageReactionWriteResult{

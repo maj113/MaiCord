@@ -6,6 +6,7 @@
 #include "maicord/core/json_scan.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "json_field_lists.hpp"
+#include "maicord/protocol/writer.hpp"
 
 namespace maicord {
 namespace {
@@ -15,26 +16,6 @@ u32 field_offset(const UserActivity& a, UserActivityField field) noexcept {
         offset += a.lengths[i];
     return offset;
 }
-struct Writer {
-    char* data;
-    u32 capacity, used;
-    bool ok = true;
-    void put(Utf8View text) noexcept {
-        if (!ok || text.bytes > capacity - used) {
-            ok = false;
-            return;
-        }
-        copy_bytes(data + used, text.data, text.bytes);
-        used += text.bytes;
-    }
-    void number(u64 value) noexcept {
-        char digits[20];
-        put({digits, decimal_write(digits, value)});
-    }
-    u32 finish() const noexcept {
-        return ok ? used : 0;
-    }
-};
 bool digits_only(Utf8View text) noexcept {
     if (!text.bytes || text.bytes > 20)
         return false;
@@ -91,9 +72,9 @@ u32 user_activity_summary(UserActivityType type, Utf8View name, Utf8View details
     Utf8View subject = type == UserActivityType::streaming && details.bytes ? details : name;
     if (!subject.bytes || output.count <= verb.bytes)
         return 0;
-    Writer w{output.data, static_cast<u32>(output.count), 0};
+    GuardedWriter w{output};
     w.put(verb);
-    w.put({subject.data, utf8_truncated_length(subject, w.capacity - w.used)});
+    w.put(Utf8View{subject.data, utf8_truncated_length(subject, w.room())});
     return w.finish();
 }
 u32 user_activity_summary(const UserActivity& a, Slice<char> output) noexcept {
@@ -104,14 +85,14 @@ u32 user_activity_status_text(const UserActivity& a, Slice<char> output) noexcep
     using F = UserActivityField;
     const auto name = user_activity_text(a, F::name), details = user_activity_text(a, F::details),
                state = user_activity_text(a, F::state);
-    Writer w{output.data, static_cast<u32>(output.count), 0};
+    GuardedWriter w{output};
     if (user_activity_is_spotify(a) && state.bytes) {
         // Artists arrive as "A; B".
         for (u32 i = 0; i < state.bytes && w.ok; ++i) {
             if (state.data[i] == ';' && i + 1 < state.bytes && state.data[i + 1] == ' ')
-                w.put(utf8_literal(","));
+                w.put(',');
             else
-                w.put({state.data + i, 1});
+                w.put(Utf8View{state.data + i, 1});
         }
         return w.finish();
     }
@@ -129,7 +110,7 @@ u32 user_activity_status_text(const UserActivity& a, Slice<char> output) noexcep
     if (!value.bytes || output.count <= verb.bytes)
         return 0;
     w.put(verb);
-    w.put({value.data, utf8_truncated_length(value, w.capacity - w.used)});
+    w.put(Utf8View{value.data, utf8_truncated_length(value, w.room())});
     return w.finish();
 }
 namespace {
@@ -161,20 +142,18 @@ Utf8View session_platform(const UserActivity& a) noexcept {
 }
 } // namespace
 u32 user_activity_heading(const UserActivity& a, Slice<char> output) noexcept {
-    Writer w{output.data, static_cast<u32>(output.count), 0};
+    GuardedWriter w{output};
     const auto name = user_activity_text(a, UserActivityField::name);
     const bool details = user_activity_text(a, UserActivityField::details).bytes != 0;
     const bool xbox = a.application_id == kXboxApplicationId || a.platform == UserActivityPlatform::xbox;
     const bool playstation = a.platform == UserActivityPlatform::ps4 || a.platform == UserActivityPlatform::ps5;
     if (a.type == UserActivityType::playing && (xbox || playstation)) {
-        w.put(utf8_literal("Playing on "));
-        w.put(xbox ? utf8_literal("Xbox") : utf8_literal("PlayStation"));
+        w.put("Playing on ", xbox ? "Xbox" : "PlayStation");
         return w.finish();
     }
     if (a.type == UserActivityType::streaming &&
         (utf8_equal(name, utf8_literal("Twitch")) || utf8_equal(name, utf8_literal("YouTube")))) {
-        w.put(utf8_literal("Streaming "));
-        w.put(name);
+        w.put("Streaming ", name);
         return w.finish();
     }
     const auto platform = session_platform(a);
@@ -182,18 +161,17 @@ u32 user_activity_heading(const UserActivity& a, Slice<char> output) noexcept {
         static constexpr Utf8View verbs[] = {utf8_literal("Playing on "),   utf8_literal("Live on "),
                                       utf8_literal("Listening on "), utf8_literal("Watching on "),
                                       {},                            utf8_literal("Competing on ")};
-        w.put(verbs[static_cast<u32>(a.type)]);
-        w.put(platform);
+        w.put(verbs[static_cast<u32>(a.type)], platform);
         return w.finish();
     }
     const Utf8View verb = activity_verb(a.type, true);
     if (!verb.bytes)
         return 0;
-    w.put({verb.data, verb.bytes - 1}); // the verb without its trailing space
+    w.put(Utf8View{verb.data, verb.bytes - 1}); // the verb without its trailing space
     // "Listening to Spotify" names the application only beside details.
     if (a.type != UserActivityType::playing && a.type != UserActivityType::streaming && details && name.bytes) {
-        w.put(utf8_literal(" "));
-        w.put({name.data, utf8_truncated_length(name, w.ok ? w.capacity - w.used : 0)});
+        w.put(' ');
+        w.put(Utf8View{name.data, utf8_truncated_length(name, w.ok ? w.room() : 0)});
     }
     return w.finish();
 }
@@ -214,7 +192,7 @@ bool alphanumeric(Utf8View text, u32 limit) noexcept {
 u32 user_activity_image_url(const UserActivity& a, bool large, Slice<char> output,
                             MediaAttachmentFormat* format) noexcept {
     const auto key = user_activity_text(a, large ? UserActivityField::large_image : UserActivityField::small_image);
-    Writer w{output.data, static_cast<u32>(output.count), 0};
+    GuardedWriter w{output};
     u32 colon = 0;
     while (colon < key.bytes && key.data[colon] != ':')
         ++colon;
@@ -231,18 +209,13 @@ u32 user_activity_image_url(const UserActivity& a, bool large, Slice<char> outpu
             bool query = false;
             for (u32 i = 0; i < value.bytes; ++i)
                 query |= value.data[i] == '?';
-            w.put(utf8_literal("https://media.discordapp.net/"));
-            w.put(value);
-            w.put(query ? utf8_literal("&format=webp&width=") : utf8_literal("?format=webp&width="));
-            w.put(kAssetSize);
-            w.put(utf8_literal("&height="));
-            w.put(kAssetSize);
+            w.put("https://media.discordapp.net/", value,
+                  query ? "&format=webp&width=" : "?format=webp&width=", kAssetSize, "&height=", kAssetSize);
             *format = MediaAttachmentFormat::webp;
             return w.finish();
         }
         if (utf8_equal(prefix, utf8_literal("spotify")) && alphanumeric(value, 64)) {
-            w.put(utf8_literal("https://i.scdn.co/image/"));
-            w.put(value);
+            w.put("https://i.scdn.co/image/", value);
             *format = MediaAttachmentFormat::jpeg;
             return w.finish();
         }
@@ -250,25 +223,15 @@ u32 user_activity_image_url(const UserActivity& a, bool large, Slice<char> outpu
     }
     if (!a.application_id || !digits_only(key))
         return 0;
-    w.put(utf8_literal("https://cdn.discordapp.com/app-assets/"));
-    w.number(a.application_id);
-    w.put(utf8_literal("/"));
-    w.put(key);
-    w.put(utf8_literal(".png?size="));
-    w.put(kAssetSize);
+    w.put("https://cdn.discordapp.com/app-assets/", a.application_id, '/', key, ".png?size=", kAssetSize);
     *format = MediaAttachmentFormat::png;
     return w.finish();
 }
 u32 user_activity_application_icon_url(u64 application_id, Utf8View icon, Slice<char> output) noexcept {
     if (!application_id || !alphanumeric(icon, 64))
         return 0;
-    Writer w{output.data, static_cast<u32>(output.count), 0};
-    w.put(utf8_literal("https://cdn.discordapp.com/app-icons/"));
-    w.number(application_id);
-    w.put(utf8_literal("/"));
-    w.put(icon);
-    w.put(utf8_literal(".png?size="));
-    w.put(kAssetSize);
+    GuardedWriter w{output};
+    w.put("https://cdn.discordapp.com/app-icons/", application_id, '/', icon, ".png?size=", kAssetSize);
     return w.finish();
 }
 UserActivityArtwork user_activity_artwork(const UserActivity& a, bool application_icon) noexcept {
@@ -285,13 +248,12 @@ UserActivityArtwork user_activity_artwork(const UserActivity& a, bool applicatio
 u32 user_activity_applications_target(ConstSlice<u64> ids, Slice<u8> output) noexcept {
     if (!ids.count || ids.count > kUserActivityMaximum)
         return 0;
-    Writer w{reinterpret_cast<char*>(output.data), static_cast<u32>(output.count), 0};
-    w.put(utf8_literal("/api/v10/applications/public"));
+    GuardedWriter w{output};
+    w.put("/api/v10/applications/public");
     for (u32 i = 0; i < ids.count; ++i) {
         if (!ids[i])
             return 0;
-        w.put(i ? utf8_literal("&application_ids=") : utf8_literal("?application_ids="));
-        w.number(ids[i]);
+        w.put(i ? "&application_ids=" : "?application_ids=", ids[i]);
     }
     return w.finish();
 }
@@ -306,14 +268,8 @@ u32 user_activity_metadata_target(u64 user_id, Utf8View session, u64 application
               c == '_' || c == '-' || c == '.'))
             return 0;
     }
-    Writer w{reinterpret_cast<char*>(output.data), static_cast<u32>(output.count), 0};
-    w.put(utf8_literal("/api/v10/users/"));
-    w.number(user_id);
-    w.put(utf8_literal("/sessions/"));
-    w.put(session);
-    w.put(utf8_literal("/activities/"));
-    w.number(application_id);
-    w.put(utf8_literal("/metadata"));
+    GuardedWriter w{output};
+    w.put("/api/v10/users/", user_id, "/sessions/", session, "/activities/", application_id, "/metadata");
     return w.finish();
 }
 namespace {

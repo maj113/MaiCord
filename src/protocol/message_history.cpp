@@ -214,15 +214,9 @@ MessageHistoryTargetResult write_message_history_target(
     }
 
     ProtocolWriter writer{output, 0};
-    const bool written = protocol_writer_append_literal(&writer, "/api/v10/channels/") &&
-                         protocol_writer_append_u64(&writer, channel_id) &&
-                         protocol_writer_append_literal(&writer, "/messages?") &&
-                         (!cursor_name || (protocol_writer_append_c_string(&writer, cursor_name) &&
-                                           protocol_writer_append_byte(&writer, '=') &&
-                                           protocol_writer_append_u64(&writer, query.cursor) &&
-                                           protocol_writer_append_byte(&writer, '&'))) &&
-                         protocol_writer_append_literal(&writer, "limit=") &&
-                         protocol_writer_append_u64(&writer, query.limit);
+    const bool written = protocol_write(&writer, "/api/v10/channels/", channel_id, "/messages?") &&
+                         (!cursor_name || protocol_write(&writer, cursor_name, '=', query.cursor, '&')) &&
+                         protocol_write(&writer, "limit=", query.limit);
     return written
                ? MessageHistoryTargetResult{writer.used, MessageHistoryTargetError::none}
                : MessageHistoryTargetResult{0, MessageHistoryTargetError::output_capacity};

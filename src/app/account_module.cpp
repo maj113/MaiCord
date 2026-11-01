@@ -121,15 +121,92 @@ GatewayClient* module_gateway(void* instance) noexcept {
     return runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
 }
 
-// A null request cancels. The submit entry points validate their own requests.
-template <typename Request>
-RestClientSubmitResult submit_or_cancel(void* instance, const Request* request, u64 request_id,
-                                        RestClientSubmitResult (*submit)(RestClient*, const Request*, u64)) noexcept {
+constexpr RestClientSubmitResult kInvalidSubmit{RestClientSubmitError::invalid_input};
+
+// Module entries that only forward are instantiated from these templates, so each feature names its
+// function and nothing else. Parameters are those of the forwarded function.
+//
+// RestEntry: a REST function taking the runtime's PRIMARY (or, with `Details`, DETAILS) lane first.
+template <auto Fn, bool Details = false>
+struct RestEntry;
+template <typename R, typename... A, R (*Fn)(RestClient*, A...) noexcept, bool Details>
+struct RestEntry<Fn, Details> {
+    static R WINAPI call(void* instance, A... arguments) noexcept {
+        return Fn(module_rest(instance, Details), static_cast<A&&>(arguments)...);
+    }
+};
+// GatewayEntry: a Gateway query answering false without a running Gateway.
+template <auto Fn>
+struct GatewayEntry;
+template <typename Client, typename... A, bool (*Fn)(Client*, A...) noexcept>
+struct GatewayEntry<Fn> {
+    static bool WINAPI call(void* instance, A... arguments) noexcept {
+        auto* gateway = module_gateway(instance);
+        return gateway && Fn(gateway, static_cast<A&&>(arguments)...);
+    }
+};
+
+// The DETAILS lane for a request id; null without a runtime or with no id.
+RestClient* request_lane(void* instance, u64 request_id) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || !request_id)
-        return {RestClientSubmitError::invalid_input};
-    auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
+    return runtime && request_id ? user_account_coordinator_rest(&runtime->coordinator, true) : nullptr;
+}
+
+template <auto Value>
+inline constexpr bool kUnset = false;
+template <>
+inline constexpr bool kUnset<nullptr> = true;
+// The request type of a lane's submit function (its optional last parameter is the Gateway session id).
+template <typename Request>
+Request lane_request(RestClientSubmitResult (*)(RestClient*, const Request*, u64) noexcept);
+template <typename Request>
+Request lane_request(RestClientSubmitResult (*)(RestClient*, const Request*, u64, Utf8View) noexcept);
+
+// The common body of a request entry: a null request cancels `request_id`, any other goes to `submit`,
+// which validates its own requests.
+template <typename Request>
+__declspec(noinline) RestClientSubmitResult lane_submit(
+    void* instance, const Request* request, u64 request_id,
+    RestClientSubmitResult (*submit)(RestClient*, const Request*, u64) noexcept) noexcept {
+    auto* rest = request_lane(instance, request_id);
+    if (!rest)
+        return kInvalidSubmit;
     return request ? submit(rest, request, request_id) : rest_client_cancel_result(rest, request_id);
+}
+
+// A request entry on the DETAILS lane for `Submit`. Optional hooks:
+//   Admit(runtime, request)  false refuses the request before it is sent;
+//   Session(request)         true sends the account's Gateway session id with the request (Submit then
+//                            takes it as its last parameter), as the official client does.
+template <auto Submit, auto Admit = nullptr, auto Session = nullptr>
+RestClientSubmitResult WINAPI module_lane(void* instance, const decltype(lane_request(Submit))* request,
+                                          u64 request_id) noexcept {
+    if constexpr (kUnset<Admit> && kUnset<Session>) {
+        return lane_submit(instance, request, request_id, Submit);
+    } else {
+        auto* rest = request_lane(instance, request_id);
+        if (!rest)
+            return kInvalidSubmit;
+        if (!request)
+            return rest_client_cancel_result(rest, request_id);
+        auto* runtime = static_cast<AccountModuleRuntime*>(instance);
+        if constexpr (!kUnset<Admit>)
+            if (!Admit(*runtime, *request))
+                return kInvalidSubmit;
+        if constexpr (kUnset<Session>) {
+            return Submit(rest, request, request_id);
+        } else {
+            GatewayUserSessionSnapshot session{};
+            const bool known = Session(*request) &&
+                               user_account_coordinator_snapshot_session(&runtime->coordinator, &session) &&
+                               session.has_resume;
+            const auto result =
+                Submit(rest, request, request_id,
+                       known ? Utf8View{session.resume.session_id, session.resume.session_id_bytes} : Utf8View{});
+            SecureZeroMemory(&session, sizeof(session));
+            return result;
+        }
+    }
 }
 
 bool copy_path(const wchar_t* source, wchar_t* destination) noexcept;
@@ -754,13 +831,6 @@ RestClientSubmitResult WINAPI module_private_conversation(void* instance,
                               operation == PrivateConversationOperation::open);
 }
 
-RestClientSubmitResult WINAPI module_relationships(void* instance,
-                                                   RelationshipOperation operation,
-                                                   u64 user_id, Utf8View username,
-                                                   u64 request_id) noexcept {
-    return account_relationship_submit(module_rest(instance), operation, user_id, username, request_id);
-}
-
 RestClientSubmitResult WINAPI module_history_submit(void* instance, u64 channel_id,
                                                     const MessageHistoryQuery* query,
                                                     u64 request_id) noexcept {
@@ -1275,24 +1345,6 @@ RestClientSubmitResult WINAPI module_message_typing(void* instance, u64 channel_
                               false);
 }
 
-RestClientSubmitResult WINAPI module_message_ack(void* instance, u64 channel_id, u64 message_id,
-                                                 ConstSlice<u8> body, u64 request_id) noexcept {
-    return account_message_ack_submit(module_rest(instance), channel_id, message_id, body, request_id);
-}
-
-RestClientSubmitResult WINAPI module_bulk_message_ack(void* instance,
-                                                      const BulkMessageAckEntry* entries,
-                                                      u32 count, u64 request_id) noexcept {
-    return account_bulk_message_ack_submit(module_rest(instance), entries, count, request_id);
-}
-
-RestClientSubmitResult WINAPI module_media_catalog(void* instance,
-                                                   AccountMediaCatalogOperation operation,
-                                                   const MediaCatalogQuery* query,
-                                                   u64 request_id) noexcept {
-    return account_media_catalog(module_rest(instance), operation, query, request_id);
-}
-
 bool WINAPI module_guild_members_request(void* instance,
                                          const GatewayGuildMemberRequest* request) noexcept {
     auto* gateway = module_gateway(instance);
@@ -1315,18 +1367,7 @@ void WINAPI module_client_focus(void* instance, bool focused) noexcept {
     if (runtime && client_session_metadata_set_focus(&runtime->client_metadata, focused))
         gateway_client_activity_changed(module_gateway(instance));
 }
-RestClientSubmitResult WINAPI module_gif_favorites(void* instance,
-                                                   AccountGifFavoritesOperation operation,
-                                                   ConstSlice<u8> patch_json,
-                                                   u64 request_id) noexcept {
-    return account_gif_favorites(module_rest(instance), operation, patch_json, request_id);
-}
-RestClientSubmitResult WINAPI module_emoji_preferences(void* instance,
-                                                       AccountGifFavoritesOperation operation,
-                                                       ConstSlice<u8> patch_json,
-                                                       u64 request_id) noexcept {
-    return account_emoji_preferences(module_rest(instance), operation, patch_json, request_id);
-}
+
 RestClientSubmitResult WINAPI module_account_settings(void* instance, const AccountSettingsRequest* request,
                                                             u64 request_id) noexcept {
     if (!instance || !request_id)
@@ -1342,69 +1383,30 @@ RestClientSubmitResult WINAPI module_account_settings(void* instance, const Acco
     return account_settings_submit(module_rest(instance, !account_settings_primary(request->operation)), *request,
                                    request_id);
 }
-RestClientSubmitResult WINAPI module_pinned_messages(void* instance,
-                                                     const MessagePinsRequest* request,
-                                                     u64 request_id) noexcept {
-    auto* rest = module_rest(instance, true);
-    return request ? account_pinned_messages_submit(rest, request, request_id)
-                   : rest_client_cancel_result(rest, request_id);
+// Thread, forum and poll requests act as the signed-in user of this profile; forum posts and polls also
+// need a published identity.
+bool admit_thread_action(AccountModuleRuntime& runtime, const ThreadActionRequest& request) noexcept {
+    const auto identity = gateway_client_self_status_snapshot(&runtime.coordinator.gateway);
+    return identity.self_user_id && request.self_user_id == identity.self_user_id &&
+           identity.profile_id == runtime.coordinator.metadata.profile_id;
 }
-RestClientSubmitResult WINAPI module_channel_overview(void* instance,
-                                                      ChannelOverviewOperation operation,
-                                                      u64 channel_id,
-                                                      const ChannelOverviewPatch* patch,
-                                                      u64 request_id) noexcept {
-    return account_channel_overview_submit(module_rest(instance, true), operation, channel_id, patch,
-                                           request_id);
+bool admit_thread_creation(AccountModuleRuntime& runtime, const ThreadCreationRequest&) noexcept {
+    const auto identity = gateway_client_self_status_snapshot(&runtime.coordinator.gateway);
+    return identity.self_user_id && identity.profile_id == runtime.coordinator.metadata.profile_id;
 }
-RestClientSubmitResult WINAPI module_thread_action(void* instance,
-                                                   const ThreadActionRequest* request,
-                                                   u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime)
-        return {RestClientSubmitError::invalid_input};
-    if (request) {
-        const auto identity = gateway_client_self_status_snapshot(&runtime->coordinator.gateway);
-        if (!identity.self_user_id || request->self_user_id != identity.self_user_id ||
-            identity.profile_id != runtime->coordinator.metadata.profile_id)
-            return {RestClientSubmitError::invalid_input};
-    }
-    auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
-    return request ? account_thread_action_submit(rest, request, request_id)
-                   : rest_client_cancel_result(rest, request_id);
-}
-RestClientSubmitResult WINAPI module_thread_browser(void* instance,
-                                                    const ThreadBrowserRequest* request,
-                                                    u64 request_id) noexcept {
-    return submit_or_cancel(instance, request, request_id, account_thread_browser_submit);
-}
-RestClientSubmitResult WINAPI module_thread_creation(void* instance,
-                                                     const ThreadCreationRequest* request,
-                                                     u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || !request_id)
-        return {RestClientSubmitError::invalid_input};
-    if (request) {
-        const auto identity = gateway_client_self_status_snapshot(&runtime->coordinator.gateway);
-        if (!identity.self_user_id || identity.profile_id != runtime->coordinator.metadata.profile_id)
-            return {RestClientSubmitError::invalid_input};
-    }
-    auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
-    return request ? account_thread_creation_submit(rest, request, request_id)
-                   : rest_client_cancel_result(rest, request_id);
+template <typename Request>
+bool admit_published_identity(AccountModuleRuntime& runtime, const Request&) noexcept {
+    const auto identity = gateway_client_self_status_snapshot(&runtime.coordinator.gateway);
+    return identity.available && identity.self_user_id && identity.profile_id &&
+           identity.profile_id == runtime.coordinator.metadata.profile_id;
 }
 RestClientSubmitResult WINAPI module_poll_create(void* instance, u64 channel_id, u64 nonce,
                                                  const PollCreate* poll, u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || !request_id)
-        return {RestClientSubmitError::invalid_input};
-    auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
+    auto* rest = request_lane(instance, request_id);
+    if (!rest)
+        return kInvalidSubmit;
     return poll ? account_poll_create_submit(rest, channel_id, nonce, poll, request_id)
                 : rest_client_cancel_result(rest, request_id);
-}
-RestClientSubmitResult WINAPI module_private_channel(void* instance, const PrivateChannelActionRequest* request,
-                                                     u64 request_id) noexcept {
-    return submit_or_cancel(instance, request, request_id, account_private_channel_submit);
 }
 bool WINAPI module_local_presence(void* instance, const GatewayLocalPresence* input,
                                   GatewayActivitySharing* output) noexcept {
@@ -1435,70 +1437,13 @@ RestClientSubmitResult WINAPI module_custom_status_submit(void* instance, u64 pr
                                                          profile_id, self_user_id, custom, request_id)
                    : RestClientSubmitResult{RestClientSubmitError::invalid_input};
 }
-RestClientSubmitResult WINAPI module_guild_settings(void* instance, const UserGuildSettingsPatch* patch,
-                                                    u64 request_id) noexcept {
-    return submit_or_cancel(instance, patch, request_id, account_guild_settings_submit);
-}
-RestClientSubmitResult WINAPI module_mentions(void* instance, const MentionsQuery* query,
-                                              u64 request_id) noexcept {
-    return submit_or_cancel(instance, query, request_id, account_mentions_submit);
-}
-RestClientSubmitResult WINAPI module_forum_post(void* instance,
-                                                const ForumPostRequest* request,
-                                                u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || !request_id)
-        return {RestClientSubmitError::invalid_input};
-    if (request) {
-        const auto identity = gateway_client_self_status_snapshot(&runtime->coordinator.gateway);
-        if (!identity.available || !identity.self_user_id || !identity.profile_id ||
-            identity.profile_id != runtime->coordinator.metadata.profile_id)
-            return {RestClientSubmitError::invalid_input};
-    }
-    auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
-    return request ? account_forum_post_submit(rest, request, request_id)
-                   : rest_client_cancel_result(rest, request_id);
-}
-RestClientSubmitResult WINAPI module_poll(void* instance, const PollRequest* request,
-                                          u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || !request_id)
-        return {RestClientSubmitError::invalid_input};
-    if (request) {
-        const auto identity = gateway_client_self_status_snapshot(&runtime->coordinator.gateway);
-        if (!identity.available || !identity.self_user_id || !identity.profile_id ||
-            identity.profile_id != runtime->coordinator.metadata.profile_id)
-            return {RestClientSubmitError::invalid_input};
-    }
-    auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
-    return request ? account_message_poll_submit(rest, request, request_id)
-                   : rest_client_cancel_result(rest, request_id);
-}
-RestClientSubmitResult WINAPI module_guild_admin(void* instance, const GuildAdminRequest* request,
-                                                 u64 request_id) noexcept {
-    return submit_or_cancel(instance, request, request_id, account_guild_admin_submit);
-}
-RestClientSubmitResult WINAPI module_guild_moderation(void* instance, const GuildModerationRequest* request,
-                                                      u64 request_id) noexcept {
-    return submit_or_cancel(instance, request, request_id, account_guild_moderation_submit);
-}
 RestClientSubmitResult WINAPI module_guild_assets(void* instance, const GuildAssetRequest* request,
                                                   u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime)
-        return {RestClientSubmitError::invalid_input};
-    if (request && request->operation == GuildAssetOperation::image_probe)
+    // The image probe needs no lane or request id.
+    if (instance && request && request->operation == GuildAssetOperation::image_probe)
         return {account_guild_assets_probe(request) ? RestClientSubmitError::none
                                                     : RestClientSubmitError::invalid_input};
-    if (!request_id)
-        return {RestClientSubmitError::invalid_input};
-    auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
-    return request ? account_guild_assets_submit(rest, request, request_id)
-                   : rest_client_cancel_result(rest, request_id);
-}
-RestClientSubmitResult WINAPI module_profile_edit(void* instance, const ProfileEditRequest* request,
-                                                  u64 request_id) noexcept {
-    return submit_or_cancel(instance, request, request_id, account_profile_edit_submit);
+    return module_lane<account_guild_assets_submit>(instance, request, request_id);
 }
 bool WINAPI module_profile_image(void* instance, ProfileImageRequest* request) noexcept {
     return instance && account_profile_image(request);
@@ -1549,10 +1494,6 @@ HANDLE WINAPI module_voice_video_notification(void* instance) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime ? runtime->video.frame_event : nullptr;
 }
-bool WINAPI module_voice_video_wanted(void* instance, u64 user_id, bool wanted) noexcept {
-    auto* gateway = module_gateway(instance);
-    return gateway && gateway_client_voice_video_wanted(gateway, user_id, wanted);
-}
 bool WINAPI module_stream_watch(void* instance, const GatewayStreamKey* key) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
@@ -1562,14 +1503,7 @@ bool WINAPI module_stream_watch(void* instance, const GatewayStreamKey* key) noe
     ensure_video_frames(runtime, gateway);
     return gateway_client_stream_watch(gateway, key ? *key : GatewayStreamKey{});
 }
-bool WINAPI module_stream_snapshot(void* instance, GatewayClientStreamSnapshot* output) noexcept {
-    auto* gateway = module_gateway(instance);
-    return gateway && gateway_client_stream_snapshot(gateway, output);
-}
-bool WINAPI module_stream_volume(void* instance, u32 percent) noexcept {
-    auto* gateway = module_gateway(instance);
-    return gateway && gateway_client_stream_volume(gateway, percent);
-}
+
 RestClientSubmitResult WINAPI module_stream_preview(void* instance, const GatewayStreamKey* key,
                                                     u64 request_id) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
@@ -1590,37 +1524,17 @@ RestClientSubmitResult WINAPI module_stream_preview(void* instance, const Gatewa
         {kGatewayStreamPreviewRouteId, 0, RestMethod::get, RestMajorParameter::none},
         request_id, false);
 }
-RestClientSubmitResult WINAPI module_stage(void* instance, const StageRequest* request,
-                                           u64 request_id) noexcept {
-    return submit_or_cancel(instance, request, request_id, account_stage_submit);
+// The Gateway session id rides a lurking join and an invite accept, as in the official client.
+bool joins_guild(const GuildCommunityRequest& request) noexcept {
+    return request.operation == GuildCommunityOperation::guild_join;
 }
-RestClientSubmitResult WINAPI module_guild_community(void* instance, const GuildCommunityRequest* request,
-                                                     u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || !request_id)
-        return {RestClientSubmitError::invalid_input};
-    auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
-    if (!request)
-        return rest_client_cancel_result(rest, request_id);
-    // A lurking join names this Gateway session, like the official client.
-    GatewayUserSessionSnapshot session{};
-    const bool known = request->operation == GuildCommunityOperation::guild_join &&
-                       user_account_coordinator_snapshot_session(&runtime->coordinator, &session) &&
-                       session.has_resume;
-    const auto result = account_guild_community_submit(
-        rest, request, request_id,
-        known ? Utf8View{session.resume.session_id, session.resume.session_id_bytes} : Utf8View{});
-    SecureZeroMemory(&session, sizeof(session));
-    return result;
+bool accepts_invite(const GuildInviteRequest& request) noexcept {
+    return request.operation == GuildInviteOperation::accept;
 }
-RestClientSubmitResult WINAPI module_user_social(void* instance, const UserSocialRequest* request,
-                                                 u64 request_id) noexcept {
-    return submit_or_cancel(instance, request, request_id, account_user_social_submit);
+bool admit_invite(AccountModuleRuntime&, const GuildInviteRequest& request) noexcept {
+    return guild_invite_request_valid(request);
 }
-bool WINAPI module_voice_user_audio(void* instance, u64 user_id, u32 gain_percent, bool muted) noexcept {
-    auto* gateway = module_gateway(instance);
-    return gateway && gateway_client_voice_user_audio(gateway, user_id, gain_percent, muted);
-}
+
 bool WINAPI module_voice_audio_configure(void* instance, const VoiceAudioSettings* settings) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
@@ -1632,16 +1546,11 @@ bool WINAPI module_voice_audio_configure(void* instance, const VoiceAudioSetting
 }
 RestClientSubmitResult WINAPI module_soundboard(void* instance, const SoundboardRequest* request,
                                                 u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime)
-        return {RestClientSubmitError::invalid_input};
-    if (request && request->operation == SoundboardOperation::probe)
+    // The sound probe needs no lane or request id.
+    if (instance && request && request->operation == SoundboardOperation::probe)
         return {account_soundboard_probe(request) ? RestClientSubmitError::none
                                                   : RestClientSubmitError::invalid_input};
-    if (!request_id)
-        return {RestClientSubmitError::invalid_input};
-    auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
-    return request ? account_soundboard_submit(rest, request, request_id) : rest_client_cancel_result(rest, request_id);
+    return module_lane<account_soundboard_submit>(instance, request, request_id);
 }
 bool WINAPI module_soundboard_audio(void* instance, const SoundboardAudioCommand* command) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
@@ -1654,25 +1563,7 @@ bool WINAPI module_voice_message(void* instance, const VoiceMessageCommand* comm
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime && account_voice_message_command(&runtime->voice_message, command, status);
 }
-RestClientSubmitResult WINAPI module_guild_invite(void* instance, const GuildInviteRequest* request,
-                                                  u64 request_id) noexcept {
-    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || !request_id || (request && !guild_invite_request_valid(*request)))
-        return {RestClientSubmitError::invalid_input};
-    auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
-    if (!request)
-        return rest_client_cancel_result(rest, request_id);
-    // Accept carries the Gateway session like the official client.
-    GatewayUserSessionSnapshot session{};
-    const bool known = request->operation == GuildInviteOperation::accept &&
-                       user_account_coordinator_snapshot_session(&runtime->coordinator, &session) &&
-                       session.has_resume;
-    const auto result = account_guild_invite_submit(
-        rest, request, request_id,
-        known ? Utf8View{session.resume.session_id, session.resume.session_id_bytes} : Utf8View{});
-    SecureZeroMemory(&session, sizeof(session));
-    return result;
-}
+
 CaptchaBridgeStatus WINAPI module_action_captcha(void* instance, const AccountActionCaptchaRequest* request) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime || !request)
@@ -1680,10 +1571,7 @@ CaptchaBridgeStatus WINAPI module_action_captcha(void* instance, const AccountAc
     return account_action_captcha(&runtime->action_captcha, user_account_coordinator_rest(&runtime->coordinator),
                                   user_account_coordinator_rest(&runtime->coordinator, true), *request);
 }
-bool WINAPI module_voice_audio_status(void* instance, VoiceAudioStatus* output) noexcept {
-    auto* gateway = module_gateway(instance);
-    return gateway && gateway_client_voice_audio_status(gateway, output);
-}
+
 AccountMediaRequestResult WINAPI module_collection_title(void* instance, const AccountMediaCollectionTitleRequest* request, MediaTrackTitle* title) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime || !request || !title) {
@@ -1721,12 +1609,6 @@ AccountMediaRequestResult WINAPI module_media_local_preview(void* instance,
     return operation == AccountLocalPreviewOperation::request
                ? account_media_worker_request_local_preview(&runtime->media, *request, now_ms, now_seconds)
                : account_media_worker_retire_local_preview(&runtime->media, *request);
-}
-RestClientSubmitResult WINAPI module_message_search(void* instance,
-                                                    AccountMessageSearchOperation operation,
-                                                    const MessageSearchQuery* query,
-                                                    u64 request_id) noexcept {
-    return account_message_search(module_rest(instance), operation, query, request_id);
 }
 
 RestClientSubmitResult WINAPI module_media_url_refresh(void* instance, Utf8View source,
@@ -1974,8 +1856,8 @@ extern "C" bool WINAPI maicord_account_get_api(maicord::u32 requested_version,
         maicord::module_application_command,
         maicord::module_set_trace,
         maicord::module_login_submit_verification,
-        maicord::module_relationships,
-        maicord::module_message_ack,
+        maicord::RestEntry<maicord::account_relationship_submit>::call,
+        maicord::RestEntry<maicord::account_message_ack_submit>::call,
         maicord::module_login_submit_recovery,
         maicord::module_login_start_reset,
         maicord::module_login_submit_reset,
@@ -1987,69 +1869,69 @@ extern "C" bool WINAPI maicord_account_get_api(maicord::u32 requested_version,
         maicord::module_video_status,
         maicord::module_video_take,
         maicord::module_video_acknowledge,
-        maicord::module_message_search,
+        maicord::RestEntry<maicord::account_message_search>::call,
         maicord::module_login_start_browser,
         maicord::module_login_copy_browser_url,
         maicord::module_self_status_snapshot,
         maicord::module_self_status_submit,
         maicord::module_self_status_complete,
-        maicord::module_media_catalog,
+        maicord::RestEntry<maicord::account_media_catalog>::call,
         maicord::module_catalog_preview_request,
-        maicord::module_gif_favorites,
-        maicord::module_channel_overview,
+        maicord::RestEntry<maicord::account_gif_favorites>::call,
+        maicord::RestEntry<maicord::account_channel_overview_submit, true>::call,
         maicord::module_guild_members_request,
-        maicord::module_pinned_messages,
+        maicord::module_lane<maicord::account_pinned_messages_submit>,
         maicord::module_message_forward,
         maicord::module_download,
-        maicord::module_thread_action,
-        maicord::module_thread_browser,
-        maicord::module_thread_creation,
-        maicord::module_forum_post,
+        maicord::module_lane<maicord::account_thread_action_submit, maicord::admit_thread_action>,
+        maicord::module_lane<maicord::account_thread_browser_submit>,
+        maicord::module_lane<maicord::account_thread_creation_submit, maicord::admit_thread_creation>,
+        maicord::module_lane<maicord::account_forum_post_submit, maicord::admit_published_identity<maicord::ForumPostRequest>>,
         maicord::module_media_local_preview,
         maicord::module_logout,
-        maicord::module_bulk_message_ack,
-        maicord::module_poll,
-        maicord::module_guild_admin,
+        maicord::RestEntry<maicord::account_bulk_message_ack_submit>::call,
+        maicord::module_lane<maicord::account_message_poll_submit, maicord::admit_published_identity<maicord::PollRequest>>,
+        maicord::module_lane<maicord::account_guild_admin_submit>,
         maicord::module_voice_request,
         maicord::module_voice_snapshot,
         maicord::module_login_start_captcha_bridge,
         maicord::module_login_captcha_bridge_status,
         maicord::module_login_copy_captcha_bridge_url,
         maicord::module_login_cancel_captcha_bridge,
-        maicord::module_voice_user_audio,
+        maicord::GatewayEntry<maicord::gateway_client_voice_user_audio>::call,
         maicord::module_voice_audio_configure,
-        maicord::module_voice_audio_status,
-        maicord::module_guild_invite,
-        maicord::module_emoji_preferences,
+        maicord::GatewayEntry<maicord::gateway_client_voice_audio_status>::call,
+        maicord::module_lane<maicord::account_guild_invite_submit, maicord::admit_invite, maicord::accepts_invite>,
+        maicord::RestEntry<maicord::account_emoji_preferences>::call,
         maicord::module_account_settings,
         maicord::module_action_captcha,
         maicord::module_poll_create,
-        maicord::module_private_channel,
+        maicord::module_lane<maicord::account_private_channel_submit>,
         maicord::module_custom_status_snapshot,
         maicord::module_custom_status_submit,
-        maicord::module_guild_settings,
-        maicord::module_mentions,
+        maicord::module_lane<maicord::account_guild_settings_submit>,
+        maicord::module_lane<maicord::account_mentions_submit>,
         maicord::module_guild_assets,
         maicord::module_voice_video_snapshot,
-        maicord::module_voice_video_wanted,
+        maicord::GatewayEntry<maicord::gateway_client_voice_video_wanted>::call,
         maicord::module_voice_video_device,
         maicord::module_voice_video_frame,
         maicord::module_stream_watch,
-        maicord::module_stream_snapshot,
-        maicord::module_stream_volume,
+        maicord::GatewayEntry<maicord::gateway_client_stream_snapshot>::call,
+        maicord::GatewayEntry<maicord::gateway_client_stream_volume>::call,
         maicord::module_stream_preview,
-        maicord::module_stage,
+        maicord::module_lane<maicord::account_stage_submit>,
         maicord::module_message_interaction,
-        maicord::module_user_social,
-        maicord::module_guild_community,
+        maicord::module_lane<maicord::account_user_social_submit>,
+        maicord::module_lane<maicord::account_guild_community_submit, nullptr, maicord::joins_guild>,
         maicord::module_local_presence,
         maicord::module_activity_sharing,
         maicord::module_soundboard,
         maicord::module_soundboard_audio,
         maicord::module_voice_message,
-        maicord::module_profile_edit,
+        maicord::module_lane<maicord::account_profile_edit_submit>,
         maicord::module_profile_image,
-        maicord::module_guild_moderation,
+        maicord::module_lane<maicord::account_guild_moderation_submit>,
         maicord::module_guild_members_query_cancel,
         maicord::module_channel_info,
         maicord::module_collection_title,

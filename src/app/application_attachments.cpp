@@ -455,7 +455,7 @@ bool application_attachment_accept_url(const RestClientResponse& response, Utf8V
     if (response.transport_ok() && response.status_code == 429 && response.retry_at_ms) {
         record->retry_at_ms = response.retry_at_ms; application_upload_lane_release(&state->upload_lease); return true;
     }
-    const auto decoded = response.transport_ok() && response.status_code >= 200 && response.status_code < 300 ?
+    const auto decoded = response.succeeded() ?
         attachment_upload_parse_response(body, static_cast<u32>(id), {state->url, sizeof(state->url)},
             {state->uploaded_filename, sizeof(state->uploaded_filename)}) : AttachmentUploadResponse{};
     if (!decoded.ok) {

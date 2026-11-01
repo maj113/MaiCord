@@ -45,18 +45,9 @@ u32 https_upload_write_head(Utf8View url, u64 file_bytes, Slice<u8> output,
     const auto parsed = https_upload_parse_url(url);
     if (!parsed.valid || !file_bytes) return 0;
     ProtocolWriter writer{output, 0};
-    return protocol_writer_append_literal(&writer, "PUT ") &&
-        protocol_writer_append_bytes(&writer, reinterpret_cast<const u8*>(parsed.target.data), parsed.target.bytes) &&
-        protocol_writer_append_literal(&writer, " HTTP/1.1\r\nHost: ") &&
-        protocol_writer_append_bytes(&writer, reinterpret_cast<const u8*>(parsed.host.data), parsed.host.bytes) &&
-        protocol_writer_append_literal(&writer, "\r\nUser-Agent: ") &&
-        protocol_writer_append_literal(&writer, kClientUserAgent) &&
-        protocol_writer_append_literal(&writer, "\r\nContent-Type: ") &&
-        (content_type == HttpsUploadContentType::audio_ogg
-             ? protocol_writer_append_literal(&writer, "audio/ogg")
-             : protocol_writer_append_literal(&writer, "application/octet-stream")) &&
-        protocol_writer_append_literal(&writer, "\r\nContent-Length: ") &&
-        protocol_writer_append_u64(&writer, file_bytes) &&
-        protocol_writer_append_literal(&writer, "\r\nConnection: close\r\n\r\n") ? writer.used : 0;
+    return protocol_write(&writer, "PUT ", parsed.target, " HTTP/1.1\r\nHost: ", parsed.host, "\r\nUser-Agent: ",
+                          kClientUserAgent, "\r\nContent-Type: ",
+                          content_type == HttpsUploadContentType::audio_ogg ? "audio/ogg" : "application/octet-stream",
+                          "\r\nContent-Length: ", file_bytes, "\r\nConnection: close\r\n\r\n") ? writer.used : 0;
 }
 }

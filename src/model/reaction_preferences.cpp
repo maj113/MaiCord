@@ -278,12 +278,6 @@ ReactionPreferenceResult reaction_preferences_toggle_favorite_emoji(ReactionPref
     return ReactionPreferenceResult{ReactionPreferenceError::none, true, favorite};
 }
 
-bool reaction_preferences_is_favorite_emoji(const ReactionPreferenceStore& store,
-                                            ReactionEmojiRef emoji) noexcept {
-    u32 index = 0;
-    return store_valid(store) && emoji.valid() && favorite_index(store, emoji, &index);
-}
-
 ConstSlice<ReactionEmojiRef> reaction_preferences_favorites(const ReactionPreferenceStore& store) noexcept {
     return store_valid(store) ? ConstSlice<ReactionEmojiRef>{store.favorites, store.favorite_count}
                               : ConstSlice<ReactionEmojiRef>{};

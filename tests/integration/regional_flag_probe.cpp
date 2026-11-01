@@ -1,4 +1,5 @@
 #include "maicord/render/d3d11_renderer.hpp"
+#include "glyph_gpu_footprint.hpp"
 #include "maicord/ui/popup_presentation.hpp"
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/media/regional_flag_svg.hpp"

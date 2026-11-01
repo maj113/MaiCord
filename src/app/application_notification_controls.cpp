@@ -1,5 +1,7 @@
 #include "application_notification_controls.hpp"
 #include "application_account_presentation.hpp"
+#include "rest_rate_retry.hpp"
+#include "application_account_access.hpp"
 #include "application_composer.hpp"
 #include "application_message_interaction.hpp"
 #include "application_notifications.hpp"
@@ -451,10 +453,8 @@ bool application_notification_controls_submit(u64 request_id, u64 now_ms) noexce
         return false;
     auto& front = owner.queue[0];
     const auto submitted = g_app.account.api.guild_settings(g_app.account.instance, &front.patch, request_id);
-    if (submitted.error == RestClientSubmitError::busy) {
-        owner.retry_at = deadline_after(now_ms, 50);
+    if (submit_busy(submitted, owner.retry_at, now_ms, 50))
         return false;
-    }
     if (!submitted.ok()) {
         log_u64(LogLevel::warning, "notifications", "settings_submit_error", static_cast<u64>(submitted.error));
         application_notifications_project(&g_app, front.patch.guild_id, front.patch.channel_id, front.prior);
@@ -476,11 +476,10 @@ bool application_notification_controls_response(const RestClientResponse& respon
     if (!owner.count)
         return true;
     auto& front = owner.queue[0];
-    const bool ok = response.transport_ok() && response.status_code >= 200 && response.status_code < 300;
-    if (!ok && response.transport_ok() && response.status_code == 429 && response.rate_limited &&
-        response.retry_at_ms && !api_rejection_requires_action(response.rejection) && front.attempts < 3) {
+    const bool ok = response.succeeded();
+    if (const u64 retry = rest_rate_retry_deadline(response); !ok && retry && front.attempts < 3) {
         front.submitted = false;
-        owner.retry_at = response.retry_at_ms;
+        owner.retry_at = retry;
         return true;
     }
     if (!ok) {
@@ -495,8 +494,7 @@ bool application_notification_controls_response(const RestClientResponse& respon
 }
 
 void application_notification_controls_clear() noexcept {
-    if (owner.request_id && g_app.account.instance && g_app.account.api.guild_settings)
-        g_app.account.api.guild_settings(g_app.account.instance, nullptr, owner.request_id);
+    application_cancel_request(&AccountModuleApi::guild_settings, owner.request_id);
     reset_value(&owner);
 }
 } // namespace maicord::app_detail

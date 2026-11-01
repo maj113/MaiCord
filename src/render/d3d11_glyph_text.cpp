@@ -1,6 +1,6 @@
 #include "glyph_effect_ordinals.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/render/d3d11_glyph_text.hpp"
+#include "d3d11_color_glyph_owner.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/background_presentation.hpp"
@@ -15,13 +15,6 @@
 #include "maicord/ui/message_markdown.hpp"
 
 namespace maicord {
-struct D3D11ColorGlyphOwner {
-    ColrPaintProgram program;
-    ColrPaintGpu gpu;
-    // Direct-mapped dependency hints. Identity includes face and glyph; a
-    // collision only causes a rebuild, never reuse with the wrong foreground.
-    u32 foreground_hints[256];
-};
 ID3D11ShaderResourceView* d3d11_glyph_text_color_view(const D3D11GlyphTextOwner& owner) noexcept {
     return owner.color ? owner.color->gpu.view : nullptr;
 }
@@ -65,44 +58,6 @@ bool d3d11_glyph_text_rasterize_lottie_program(D3D11GlyphTextOwner* owner, ID3D1
     u16 target_height,u16 padding,ID3D11UnorderedAccessView* target) noexcept {
     return rasterize_program(owner, context, program, allocation, static_cast<u16>(allocation.width),
                              static_cast<float>(allocation.width), target_width, target_height, padding, target);
-}
-bool d3d11_glyph_text_gpu_footprint(const D3D11GlyphTextOwner& owner,
-                                    D3D11GlyphGpuFootprint* output) noexcept {
-    if (!output)
-        return false;
-    reset_value(output);
-    const auto texture = [&](ID3D11Texture2D* resource, DXGI_FORMAT format, u32 bytes) noexcept {
-        if (!resource)
-            return true;
-        D3D11_TEXTURE2D_DESC d{};
-        resource->GetDesc(&d);
-        if (d.Format != format || d.MipLevels != 1 || d.ArraySize != 1 || d.SampleDesc.Count != 1)
-            return false;
-        output->texture_bytes += static_cast<u64>(d.Width) * d.Height * bytes;
-        return true;
-    };
-    const auto buffer = [&](ID3D11Buffer* resource) noexcept {
-        if (resource) {
-            D3D11_BUFFER_DESC d{};
-            resource->GetDesc(&d);
-            output->buffer_bytes += d.ByteWidth;
-        }
-    };
-    if (!texture(owner.gpu.texture, DXGI_FORMAT_R8_UNORM, 1))
-        return false;
-    buffer(owner.gpu.command_buffer);
-    output->mono_pixels = owner.gpu.dispatched_pixels;
-    output->mono_commands = owner.gpu.dispatched_commands;
-    output->mono_dispatches = owner.gpu.raster_count;
-    if (owner.color) {
-        const auto& g = owner.color->gpu;
-        if (!texture(g.texture, DXGI_FORMAT_R8G8B8A8_UNORM, 4))
-            return false;
-        buffer(g.program);
-        buffer(g.constants);
-        output->color_dispatches = g.dispatches;
-    }
-    return true;
 }
 namespace {
 constexpr u16 color_face_flag = 2;

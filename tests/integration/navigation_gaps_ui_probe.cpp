@@ -1,6 +1,7 @@
 #include "navigation_gaps_ui_probe.hpp"
 #include "probe_present.hpp"
 #include "../../src/render/d3d11_renderer_interaction_state.hpp"
+#include "../model_store_fixtures.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/guild_folders.hpp"

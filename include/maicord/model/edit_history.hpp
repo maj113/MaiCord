@@ -28,8 +28,6 @@ inline void text_edit_history_finish(TextEditHistoryState* state) noexcept {
 bool text_edit_begin_history_group(TextEditHistoryState* state) noexcept;
 void text_edit_end_history_group(TextEditHistoryState* state) noexcept;
 void text_edit_break_history_run(TextEditHistoryState* state) noexcept;
-bool text_edit_can_undo(const TextEditHistoryState& state) noexcept;
-bool text_edit_can_redo(const TextEditHistoryState& state) noexcept;
 TextEditHistoryResult text_edit_undo(TextEditHistoryState* state) noexcept;
 TextEditHistoryResult text_edit_redo(TextEditHistoryState* state) noexcept;
 TextEditHistoryCosts text_edit_history_costs(const TextEditHistoryState& state) noexcept;

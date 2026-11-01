@@ -188,12 +188,10 @@ MessagePinsWriteResult write_message_pins_target(const MessagePinsQuery& query,
         !message_pins_cursor_valid(query.before) || !valid_slice(output))
         return {0, MessagePinsWriteError::invalid_input};
     ProtocolWriter writer{output, 0};
-    const bool written = protocol_writer_append_literal(&writer, "/api/v10/channels/") &&
-        protocol_writer_append_u64(&writer, query.channel_id) &&
-        protocol_writer_append_literal(&writer, "/messages/pins?limit=") &&
-        protocol_writer_append_u64(&writer, query.limit) &&
-        (!query.before.bytes || (protocol_writer_append_literal(&writer, "&before=") &&
-         protocol_writer_append_percent_encoded(&writer, {query.before.timestamp, query.before.bytes})));
+    const bool written = protocol_write(&writer, "/api/v10/channels/", query.channel_id, "/messages/pins?limit=",
+                                        query.limit) &&
+        (!query.before.bytes ||
+         protocol_write(&writer, "&before=", percent_text({query.before.timestamp, query.before.bytes})));
     return written ? MessagePinsWriteResult{writer.used, MessagePinsWriteError::none}
                    : MessagePinsWriteResult{0, MessagePinsWriteError::output_capacity};
 }
@@ -202,10 +200,7 @@ MessagePinsWriteResult write_message_pin_target(u64 channel_id, u64 message_id,
                                                 Slice<u8> output) noexcept {
     if (!channel_id || !message_id || !valid_slice(output)) return {0, MessagePinsWriteError::invalid_input};
     ProtocolWriter writer{output, 0};
-    const bool written = protocol_writer_append_literal(&writer, "/api/v10/channels/") &&
-        protocol_writer_append_u64(&writer, channel_id) &&
-        protocol_writer_append_literal(&writer, "/messages/pins/") &&
-        protocol_writer_append_u64(&writer, message_id);
+    const bool written = protocol_write(&writer, "/api/v10/channels/", channel_id, "/messages/pins/", message_id);
     return written ? MessagePinsWriteResult{writer.used, MessagePinsWriteError::none}
                    : MessagePinsWriteResult{0, MessagePinsWriteError::output_capacity};
 }

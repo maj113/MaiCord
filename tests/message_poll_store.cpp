@@ -1,9 +1,39 @@
 #include "maicord/model/message_poll_store.hpp"
 #include "maicord/core/memory.hpp"
+#include "../src/model/message_poll_owned_storage.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
+// Reserved and committed bytes of the store's owned block, which is its only allocation.
+struct MessagePollStoreMetrics {
+    usize reserved_bytes;
+    usize committed_bytes;
+    u32 commit_count;
+    u32 records;
+    u32 text_bytes;
+};
+MessagePollStoreMetrics message_poll_store_metrics(const MessagePollStore& store) noexcept {
+    MessagePollStoreMetrics result{};
+    result.records = store.count;
+    result.text_bytes = store.text_used;
+    if (!store.owned)
+        return result;
+    Win32MemoryInformation owner{};
+    if (VirtualQuery(store.owned, owner.native(), sizeof(owner))) {
+        result.reserved_bytes = result.committed_bytes = owner.RegionSize;
+        result.commit_count = 1;
+    }
+    const auto add = [&](const Arena& bank) noexcept {
+        result.reserved_bytes += bank.reserved;
+        result.committed_bytes += bank.committed;
+        result.commit_count += bank.commit_count;
+    };
+    add(store.owned->records.arena);
+    for (const auto& bank : store.owned->text_banks)
+        add(bank);
+    return result;
+}
 constexpr u32 kFullPoll = gateway_message_poll_field_question | gateway_message_poll_field_answers |
                           gateway_message_poll_field_expiry | gateway_message_poll_field_multiselect |
                           gateway_message_poll_field_layout;

@@ -1,6 +1,7 @@
 #include "application_stage.hpp"
 #include "application_call.hpp"
 #include "application_state.hpp"
+#include "application_account_access.hpp"
 #include "application_text_form.hpp"
 #include "application_voice_channels.hpp"
 #include "maicord/core/log.hpp"
@@ -416,10 +417,8 @@ bool application_stage_submit(u64 request_id, u64 now) noexcept {
     auto& host = g_app.account;
     const auto& queued = stage.queue[stage.head];
     const auto submitted = host.api.stage(host.instance, &queued.request, request_id);
-    if (submitted.error == RestClientSubmitError::busy) {
-        stage.retry_at_ms = now + kBusyRetryMs;
+    if (submit_busy(submitted, stage.retry_at_ms, now, kBusyRetryMs))
         return false;
-    }
     if (!submitted.ok()) {
         log_u64(LogLevel::warning, "stage", "request_refused", static_cast<u64>(submitted.error));
         if (queued.request.operation == StageOperation::voice_status)
@@ -442,8 +441,7 @@ bool application_stage_response(const RestClientResponse& response, Utf8View) no
     const auto operation = stage.in_flight;
     const u64 channel_id = stage.in_flight_channel;
     stage.in_flight_request = 0;
-    const bool ok = response.error == RestClientError::none && response.status_code >= 200 &&
-                    response.status_code < 300;
+    const bool ok = response.succeeded();
     if (operation == StageOperation::voice_status) {
         if (!ok)
             log_u64(LogLevel::warning, "stage", "voice_status_failed", response.status_code);

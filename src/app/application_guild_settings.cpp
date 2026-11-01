@@ -530,10 +530,7 @@ void build_navigation() noexcept {
 } // namespace
 
 bool repaint() noexcept {
-    if (!project_page())
-        return false;
-    application_request_frame();
-    return !g_app.renderer_ready || renderer_rebuild_content_text(&g_app.renderer, application_theme());
+    return settings_modal_present(project_page());
 }
 
 namespace {
@@ -1209,15 +1206,11 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
     if (!application_account_available() || !g_app.renderer_ready || g_app.text_form || application_guild_settings_active() ||
         (owner && owner->request_id) || !application_guild_settings_available(guild_id))
         return false;
-    application_settings_close(false);
-    application_media_picker_close();
-    application_profile_close();
+    settings_modal_yield();
     if (!owner) {
-        owner = static_cast<Settings*>(VirtualAlloc(nullptr, sizeof(Settings), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        owner = settings_modal_allocate<Settings>(kHooks);
         if (!owner)
             return false;
-        owner->layer.scene = &owner->scene;
-        owner->layer.hooks = &kHooks;
         message_composer_initialize(&owner->models[editor_name], {owner->name_text, kGuildAdminNameBytes});
         message_composer_initialize(&owner->models[editor_hex], {owner->hex_text, 16});
         message_composer_initialize(&owner->models[editor_search], {owner->search_text, kSearchBytes});
@@ -1281,10 +1274,7 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
                  : first_page();
     if (p.page == Page::none)
         return false;
-    application_composer_text_input_suspend();
-    dismiss_popup();
-    ui_scroll_host_cancel(&g_app.scroll_host);
-    g_app.message_composer.focused = false;
+    settings_modal_take_input();
     ui_settings_scene_set_presentation(&p.scene, UiSettingsPresentation::layer);
     ui_page_registry_select(&p.registry, page_key(p.page));
     set_editor(editor_search, {});
@@ -1307,9 +1297,7 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
         application_guild_settings_close(false);
         return false;
     }
-    renderer_bind_settings_scene(&g_app.renderer, &p.scene);
-    settings_layer_begin_entrance(&p.layer);
-    g_app.context_focus = &p.scene.widgets;
+    settings_modal_bind(p);
     application_sync_attachment_drop_target();
     synchronize_member_subscription(clock_monotonic_milliseconds());
     ensure_page_data();
@@ -1322,9 +1310,7 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
 void application_guild_settings_close(bool restore_focus) noexcept {
     if (!owner || !owner->scene.active)
         return;
-    application_composer_text_input_suspend();
-    settings_layer_close_choice(&owner->layer);
-    settings_layer_cancel_pointer(&owner->layer);
+    settings_modal_suspend(*owner);
     application_text_form_cancel_owner(form_valid);
     // A queued request is dropped; one in flight finishes and is discarded.
     owner->request.queued = false;
@@ -1339,19 +1325,12 @@ void application_guild_settings_close(bool restore_focus) noexcept {
         release_picked(&owner->upload);
     }
     next_form = 0;
-    renderer_bind_settings_scene(&g_app.renderer, nullptr);
-    owner->layer.entrance_started = 0;
-    renderer_set_settings_modal_progress(&g_app.renderer, 1);
-    ui_settings_scene_close(&owner->scene);
+    settings_modal_unbind(*owner);
     owner->page = Page::none;
     owner->editing_role = 0;
-    if (restore_focus && application_account_available())
-        g_app.context_focus = &g_app.shell_scene.widgets;
-    application_sync_attachment_drop_target();
+    settings_modal_restore_focus(restore_focus && application_account_available());
     synchronize_member_subscription(clock_monotonic_milliseconds());
-    if (g_app.renderer_ready)
-        refresh_account_text(true);
-    application_request_frame();
+    settings_modal_repaint_shell();
 }
 
 void application_guild_settings_release() noexcept {
@@ -1359,8 +1338,7 @@ void application_guild_settings_release() noexcept {
     if (!owner)
         return;
     // A null request cancels this DETAILS request; its receipt is still drained.
-    if (owner->request_id && g_app.account.api.guild_admin && g_app.account.instance)
-        g_app.account.api.guild_admin(g_app.account.instance, nullptr, owner->request_id);
+    application_cancel_request(&AccountModuleApi::guild_admin, owner->request_id);
     members_release();
     if (owner->picker.runtime) {
         native_file_picker_cancel(&owner->picker);
@@ -1368,12 +1346,9 @@ void application_guild_settings_release() noexcept {
     }
     release_picked(&owner->upload);
     release_images();
-    ui_settings_scene_release(&owner->scene);
     for (auto& model : owner->models)
         message_composer_release(&model);
-    secure_clear_bytes(owner, sizeof(*owner));
-    VirtualFree(owner, 0, MEM_RELEASE);
-    owner = nullptr;
+    settings_modal_free(owner);
 }
 
 bool application_guild_settings_synchronize() noexcept {
@@ -1414,10 +1389,7 @@ bool application_guild_settings_synchronize() noexcept {
     }
     if (changed)
         return repaint();
-    if (!ui_settings_scene_update(&p.scene, &p.registry, application_viewport_dips()))
-        return false;
-    return g_app.renderer.interaction_text_settings_revision == p.scene.revision ||
-           renderer_rebuild_content_text(&g_app.renderer, application_theme());
+    return settings_modal_refresh(p);
 }
 
 SettingsLayer* application_guild_settings_settings_layer() noexcept {
@@ -1496,10 +1468,8 @@ bool application_guild_settings_submit(u64 now) noexcept {
         request.channel = &patch;
         const u64 id = application_next_request_id();
         const auto submitted = g_app.account.api.guild_admin(g_app.account.instance, &request, id);
-        if (submitted.error == RestClientSubmitError::busy) {
-            creation.retry_at = deadline_after(now, 50);
+        if (submit_busy(submitted, creation.retry_at, now, 50))
             return false;
-        }
         creation.queued = false;
         ++creation.revision;
         if (!submitted.ok()) {
@@ -1710,10 +1680,8 @@ bool application_guild_settings_submit(u64 now) noexcept {
     const auto submitted = assets         ? g_app.account.api.guild_assets(g_app.account.instance, &asset, id)
                            : moderation_op ? g_app.account.api.guild_moderation(g_app.account.instance, &moderation, id)
                                            : g_app.account.api.guild_admin(g_app.account.instance, &request, id);
-    if (submitted.error == RestClientSubmitError::busy) {
-        p.retry_at = deadline_after(now, 50);
+    if (submit_busy(submitted, p.retry_at, now, 50))
         return false;
-    }
     if (!submitted.ok()) {
         p.request.queued = false;
         p.failed = true;
@@ -1741,7 +1709,7 @@ bool application_guild_settings_owns_response(u64 request_id) noexcept {
     return request_id && ((owner && owner->request_id == request_id) || creation.request_id == request_id);
 }
 
-bool application_guild_settings_response(const RestClientResponse& response, const Utf8View& body) noexcept {
+bool application_guild_settings_response(const RestClientResponse& response, Utf8View body) noexcept {
     if (!application_guild_settings_owns_response(response.request_id))
         return false;
     if (creation.request_id == response.request_id) {

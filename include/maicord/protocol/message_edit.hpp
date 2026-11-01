@@ -15,14 +15,7 @@ enum class MessageEditWriteError : u8 {
     output_too_small,
 };
 
-struct MessageEditWriteResult {
-    u32 bytes;
-    MessageEditWriteError error;
-
-    constexpr bool ok() const noexcept {
-        return error == MessageEditWriteError::none;
-    }
-};
+using MessageEditWriteResult = ByteResult<MessageEditWriteError>;
 
 MessageEditWriteResult write_message_edit_target(
     u64 channel_id, u64 message_id, Slice<u8> output) noexcept;

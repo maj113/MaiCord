@@ -91,164 +91,120 @@ bool reason_valid(const GuildModerationRequest& r) noexcept {
     return audit_reason_encodes(r.reason);
 }
 
-struct Body : JsonBody {
-    using JsonBody::JsonBody;
+void write_strings(JsonBody& b, ConstSlice<Utf8View> values) noexcept {
+    b.begin_array();
+    for (u32 i = 0; i < values.count; ++i)
+        b.element(json_text(values[i]));
+    b.end_array();
+}
+void write_range(JsonBody& b, u64 gte, u64 lte) noexcept {
+    b.begin_object("range");
+    b.member("gte", gte);
+    b.member_if(lte != 0, "lte", lte);
+    b.end_object();
+}
+// A member whose value is the snowflake that opens the given time, as a string.
+void member_snowflake_at(JsonBody& b, const char* name, u64 ms) noexcept {
+    char digits[24];
+    const u32 bytes = guild_member_search_snowflake_at(ms, {digits, sizeof(digits)});
+    b.key(name);
+    b.ok = b.ok && bytes;
+    b.put(json_text({digits, bytes}));
+}
+void write_cursor(JsonBody& b, const char* name, const GuildMemberSearchCursor& c) noexcept {
+    b.begin_object(name);
+    b.member("guild_joined_at", c.guild_joined_at_ms);
+    b.member("user_id", snowflake_text(c.user_id));
+    b.end_object();
+}
 
-    void strings(ConstSlice<Utf8View> values) noexcept {
-        byte('[');
-        for (u32 i = 0; i < values.count; ++i) {
-            if (i)
-                byte(',');
-            string(values[i]);
-        }
-        byte(']');
-    }
-    void range(u64 gte, u64 lte) noexcept {
-        key("range");
-        begin_object();
-        key("gte");
-        number(gte);
-        if (lte) {
-            key("lte");
-            number(lte);
-        }
-        end_object();
-    }
-    void snowflake_at(u64 ms) noexcept {
-        char digits[24];
-        const u32 bytes = guild_member_search_snowflake_at(ms, {digits, sizeof(digits)});
-        ok = ok && bytes;
-        string({digits, bytes});
-    }
-    void cursor(const char* name, const GuildMemberSearchCursor& c) noexcept {
-        key(name);
-        begin_object();
-        key("guild_joined_at");
-        number(c.guild_joined_at_ms);
-        key("user_id");
-        snowflake(c.user_id);
-        end_object();
-    }
-};
-
-void write_search(Body& b, const GuildMemberSearchQuery& q) noexcept {
+void write_search(JsonBody& b, const GuildMemberSearchQuery& q) noexcept {
     b.begin_object();
-    b.key("or_query");
-    b.begin_object();
+    b.begin_object("or_query");
     if (q.signals) {
-        b.key("safety_signals");
-        b.begin_object();
+        b.begin_object("safety_signals");
         if (q.signals & guild_member_signal_unusual_dm) {
-            b.key("unusual_dm_activity_until");
-            b.begin_object();
-            b.range(q.now_ms - kGuildMemberSignalDmWindowMs, 0);
+            b.begin_object("unusual_dm_activity_until");
+            write_range(b, q.now_ms - kGuildMemberSignalDmWindowMs, 0);
             b.end_object();
         }
         if (q.signals & guild_member_signal_timed_out) {
-            b.key("communication_disabled_until");
-            b.begin_object();
-            b.range(q.now_ms, 0);
+            b.begin_object("communication_disabled_until");
+            write_range(b, q.now_ms, 0);
             b.end_object();
         }
-        if (q.signals & guild_member_signal_unusual_account) {
-            b.key("unusual_account_activity");
-            b.raw("true");
-        }
-        if (q.signals & guild_member_signal_quarantined) {
-            b.key("automod_quarantined_username");
-            b.raw("true");
-        }
+        b.member_if(q.signals & guild_member_signal_unusual_account, "unusual_account_activity", "true");
+        b.member_if(q.signals & guild_member_signal_quarantined, "automod_quarantined_username", "true");
         b.end_object();
     }
     b.end_object();
-    b.key("and_query");
-    b.begin_object();
+    b.begin_object("and_query");
     const Utf8View text = guild_member_search_trim(q.text);
     Pieces pieces{};
     if (utf8_utf16_units(text) > 1)
         pieces = split(text);
     if (pieces.text_count) {
-        b.key("usernames");
-        b.begin_object();
+        b.begin_object("usernames");
         b.key("or_query");
-        b.strings({pieces.texts, pieces.text_count});
+        write_strings(b, {pieces.texts, pieces.text_count});
         b.end_object();
     }
     // The account age range joins user_id: after the search IDs when there
     // are any, else as its own key after guild_joined_at.
     const bool created = q.created_after_ms != 0;
     const auto created_range = [&]() noexcept {
-        b.key("range");
-        b.begin_object();
-        b.key("gte");
-        b.snowflake_at(q.created_after_ms);
-        if (q.created_before_ms) {
-            b.key("lte");
-            b.snowflake_at(q.created_before_ms);
-        }
+        b.begin_object("range");
+        member_snowflake_at(b, "gte", q.created_after_ms);
+        if (q.created_before_ms)
+            member_snowflake_at(b, "lte", q.created_before_ms);
         b.end_object();
     };
     if (pieces.id_count) {
-        b.key("user_id");
-        b.begin_object();
+        b.begin_object("user_id");
         b.key("or_query");
-        b.strings({pieces.ids, pieces.id_count});
+        write_strings(b, {pieces.ids, pieces.id_count});
         if (created)
             created_range();
         b.end_object();
     }
     if (q.role_ids.count) {
-        b.key("role_ids");
-        b.begin_object();
-        b.key("and_query");
-        b.byte('[');
-        for (u32 i = 0; i < q.role_ids.count; ++i) {
-            if (i)
-                b.byte(',');
-            b.snowflake(q.role_ids[i]);
-        }
-        b.byte(']');
+        b.begin_object("role_ids");
+        b.begin_array("and_query");
+        for (u32 i = 0; i < q.role_ids.count; ++i)
+            b.element(snowflake_text(q.role_ids[i]));
+        b.end_array();
         b.end_object();
     }
     if (q.joined_after_ms) {
-        b.key("guild_joined_at");
-        b.begin_object();
-        b.range(q.joined_after_ms, q.joined_before_ms);
+        b.begin_object("guild_joined_at");
+        write_range(b, q.joined_after_ms, q.joined_before_ms);
         b.end_object();
     }
     if (created && !pieces.id_count) {
-        b.key("user_id");
-        b.begin_object();
+        b.begin_object("user_id");
         created_range();
         b.end_object();
     }
     if (q.invite_code.bytes) {
-        b.key("source_invite_code");
-        b.begin_object();
+        b.begin_object("source_invite_code");
         b.key("or_query");
-        b.strings({&q.invite_code, 1});
+        write_strings(b, {&q.invite_code, 1});
         b.end_object();
     }
     if (q.join_source_type_set) {
-        b.key("join_source_type");
-        b.begin_object();
-        b.key("or_query");
-        b.byte('[');
-        b.number(q.join_source_type);
-        b.byte(']');
+        b.begin_object("join_source_type");
+        b.begin_array("or_query");
+        b.put(q.join_source_type);
+        b.end_array();
         b.end_object();
     }
     b.end_object();
-    if (q.sort) {
-        b.key("sort");
-        b.number(q.sort);
-    }
-    b.key("limit");
-    b.number(q.limit);
+    b.member_if(q.sort, "sort", q.sort);
+    b.member("limit", q.limit);
     if (q.after.guild_joined_at_ms)
-        b.cursor("after", q.after);
+        write_cursor(b, "after", q.after);
     else if (q.before.guild_joined_at_ms)
-        b.cursor("before", q.before);
+        write_cursor(b, "before", q.before);
     b.end_object();
 }
 
@@ -571,21 +527,19 @@ GuildModerationResult guild_moderation_write_target(const GuildModerationRequest
         return {0, GuildModerationError::input};
     u8 target[kGuildModerationMaximumTargetBytes];
     ProtocolWriter w{{target, sizeof(target)}, 0};
-    bool ok = protocol_writer_append_literal(&w, "/api/v10/guilds/") && protocol_writer_append_u64(&w, r.guild_id);
+    bool ok = protocol_write(&w, "/api/v10/guilds/", r.guild_id);
     switch (r.operation) {
-    case Op::members_search: ok = ok && protocol_writer_append_literal(&w, "/members-search"); break;
-    case Op::bulk_ban: ok = ok && protocol_writer_append_literal(&w, "/bulk-ban/v2"); break;
+    case Op::members_search: ok = ok && protocol_write(&w, "/members-search"); break;
+    case Op::bulk_ban: ok = ok && protocol_write(&w, "/bulk-ban/v2"); break;
     case Op::ban_search: {
         // limit, the IDs (one key each), then the first text piece.
-        ok = ok && protocol_writer_append_literal(&w, "/bans/search?limit=") &&
-             protocol_writer_append_u64(&w, kGuildBanSearchLimit);
+        ok = ok && protocol_write(&w, "/bans/search?limit=", kGuildBanSearchLimit);
         const auto pieces = split(r.query);
         for (u32 i = 0; ok && i < pieces.id_count; ++i)
-            ok = protocol_writer_append_literal(&w, "&user_ids=") &&
-                 protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(pieces.ids[i].data), pieces.ids[i].bytes);
+            ok = protocol_write(&w, "&user_ids=", pieces.ids[i]);
         const Utf8View text = pieces.text_count ? pieces.texts[0] : Utf8View{};
         if (ok && text.bytes) {
-            ok = protocol_writer_append_literal(&w, "&query=");
+            ok = protocol_write(&w, "&query=");
             const auto encoded =
                 ok ? rest_encode_audit_reason(text, {target + w.used, static_cast<u32>(sizeof(target) - w.used)}) : RestAuditReasonResult{};
             ok = ok && encoded.ok;
@@ -610,21 +564,16 @@ GuildModerationResult guild_moderation_write_body(const GuildModerationRequest& 
         return {0, GuildModerationError::none};
     if (!output.data || !output.count)
         return {0, GuildModerationError::capacity};
-    Body b{output};
+    JsonBody b{output};
     if (r.operation == Op::members_search)
         write_search(b, *r.search);
     else {
         b.begin_object();
-        b.key("user_ids");
-        b.byte('[');
-        for (u32 i = 0; i < r.user_ids.count; ++i) {
-            if (i)
-                b.byte(',');
-            b.snowflake(r.user_ids[i]);
-        }
-        b.byte(']');
-        b.key("delete_message_seconds");
-        b.number(r.delete_message_seconds);
+        b.begin_array("user_ids");
+        for (u32 i = 0; i < r.user_ids.count; ++i)
+            b.element(snowflake_text(r.user_ids[i]));
+        b.end_array();
+        b.member("delete_message_seconds", r.delete_message_seconds);
         b.end_object();
     }
     if (!b.ok) {

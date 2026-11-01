@@ -3,6 +3,12 @@
 #include "maicord/media/regional_flag_svg.hpp"
 
 namespace maicord {
+namespace {
+// The generator's verified checksum of every flag's SVG text.
+struct FlagGroup { u32 packed_offset, packed_bytes, raw_bytes; };
+struct FlagEntry { u16 sequence, offset, bytes; u8 group; };
+#include "regional_flag_bundle.inc"
+} // namespace
 void test_regional_flag_media(void (*check)(bool,const char*) noexcept) noexcept {
     AccountMedia media{};
     const auto initialized=account_media_initialize(&media);
@@ -87,7 +93,7 @@ void test_regional_flag_media(void (*check)(bool,const char*) noexcept) noexcept
             reinterpret_cast<const ColrPaintProgram*>(local_frame.bytes.data)->storage.offset &&
             !media.client_started && no_codec_owners() && !media.pipeline.cache->entry_count;
     }
-    check(checksum==regional_flag_bundled_text_checksum(),
+    check(checksum==kFlagTextChecksum,
         "local flags: rebuilt SVG text matches the generator's verified text byte for byte");
     check(local_ok && local_count==262 && !regional_flag_bundled_svg(1,flag_scratch).count &&
         !regional_flag_bundled_svg(680,flag_scratch).count &&

@@ -3,6 +3,7 @@
 // and its pages (application_guild_settings_<page>.cpp). UI thread only.
 #include "application_guild_settings.hpp"
 #include "application_settings_layer.hpp"
+#include "application_settings_modal.hpp"
 #include "application_state.hpp"
 #include "application_text_form.hpp"
 #include "maicord/core/text_bank.hpp"
@@ -263,10 +264,7 @@ struct Picked {
     bool set, clear;
 };
 
-struct Settings {
-    UiSettingsScene scene;
-    SettingsLayer layer;
-    UiPageRegistry registry;
+struct Settings : SettingsModal {
     UiPage pages[kPageCount];
     UiSettingsPageContent content[kPageCount];
     UiSettingsNavEntry nav[24];

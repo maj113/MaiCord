@@ -3,6 +3,7 @@
 #include "application_content_input.hpp"
 #include "application_guild_invite.hpp"
 #include "application_state.hpp"
+#include "application_owner.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/model/invite_card_cache.hpp"
@@ -83,8 +84,7 @@ void application_invite_cards_synchronize(u64 now_ms) noexcept {
         // Allocated on the first invite link on screen.
         if (!visible_invites(false, now_ms))
             return;
-        owner = static_cast<Owner*>(VirtualAlloc(nullptr, sizeof(Owner), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
-        if (!owner)
+        if (!owner_ensure(owner))
             return;
         owner->account_scope = application_account_scope();
         message_scene_bind_invite_cards(&g_app.message_scene, &owner->cache);

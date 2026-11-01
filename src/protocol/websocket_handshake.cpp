@@ -234,22 +234,12 @@ WebSocketHandshakeWriteResult websocket_write_opening_request(ConstSlice<u8> tar
         return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::output_too_small};
     }
     ProtocolWriter writer{output, 0};
-    bool written =
-        protocol_writer_append_literal(&writer, "GET ") && protocol_writer_append_bytes(&writer, target) &&
-        protocol_writer_append_literal(&writer, " HTTP/1.1\r\nHost: ") &&
-        protocol_writer_append_bytes(&writer, host) && protocol_writer_append_literal(&writer, middle) &&
-        protocol_writer_append_literal(&writer, kClientUserAgent) &&
-        protocol_writer_append_literal(&writer, after_agent);
+    bool written = protocol_write(&writer, "GET ", target, " HTTP/1.1\r\nHost: ", host, middle, kClientUserAgent, after_agent);
     if (written && fields.accept_language.count)
-        written = protocol_writer_append_literal(&writer, language) &&
-                  protocol_writer_append_bytes(&writer, fields.accept_language) &&
-                  protocol_writer_append_literal(&writer, "\r\n");
+        written = protocol_write(&writer, language, fields.accept_language, "\r\n");
     if (written && fields.cookie.count)
-        written = protocol_writer_append_literal(&writer, cookie) &&
-                  protocol_writer_append_bytes(&writer, fields.cookie) &&
-                  protocol_writer_append_literal(&writer, "\r\n");
-    written = written && protocol_writer_append_literal(&writer, key) &&
-              protocol_writer_append_bytes(&writer, client_key) && protocol_writer_append_literal(&writer, "\r\n\r\n");
+        written = protocol_write(&writer, cookie, fields.cookie, "\r\n");
+    written = written && protocol_write(&writer, key, client_key, "\r\n\r\n");
     return written ? WebSocketHandshakeWriteResult{writer.used, WebSocketHandshakeError::none}
                    : WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::output_too_small};
 }

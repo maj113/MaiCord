@@ -1,4 +1,5 @@
 #include "application_state.hpp"
+#include "model_store_fixtures.hpp"
 #include "application_tooltip.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/time.hpp"

@@ -80,4 +80,13 @@ bool protocol_writer_append_json_string(ProtocolWriter* writer, const Utf8View& 
     return true;
 }
 
+bool protocol_writer_append_snowflake_array(ProtocolWriter* writer, const u64* ids, u32 count) noexcept {
+    if (!protocol_writer_append_byte(writer, '['))
+        return false;
+    for (u32 i = 0; i < count; ++i)
+        if ((i && !protocol_writer_append_byte(writer, ',')) || !protocol_writer_append_snowflake(writer, ids[i]))
+            return false;
+    return protocol_writer_append_byte(writer, ']');
+}
+
 } // namespace maicord

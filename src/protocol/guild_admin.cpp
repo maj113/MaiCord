@@ -321,233 +321,105 @@ bool reason_valid(const GuildAdminRequest& request) noexcept {
 
 // Body writers ------------------------------------------------------------
 
-struct Body : JsonBody {
-    using JsonBody::JsonBody;
-
-    void nullable_snowflake(u64 value) noexcept {
-        if (value)
-            snowflake(value);
-        else
-            raw("null");
-    }
-    void nullable_string(Utf8View value) noexcept {
-        if (value.bytes)
-            string(value);
-        else
-            raw("null");
-    }
-    void boolean(bool value) noexcept {
-        raw(value ? "true" : "false");
-    }
-};
-
 // Key order is fixed, whichever fields are set.
-void write_guild(Body& b, const GuildSettingsPatch& p) noexcept {
+void write_guild(JsonBody& b, const GuildSettingsPatch& p) noexcept {
+    const u16 f = p.fields;
     b.begin_object();
-    if (p.fields & guild_settings_patch_name) {
-        b.key("name");
-        b.string(p.name);
-    }
-    if (p.fields & guild_settings_patch_icon) {
-        b.key("icon");
-        b.nullable_string(p.icon);
-    }
-    if (p.fields & guild_settings_patch_splash) {
-        b.key("splash");
-        b.nullable_string(p.splash);
-    }
-    if (p.fields & guild_settings_patch_banner) {
-        b.key("banner");
-        b.nullable_string(p.banner);
-    }
-    if (p.fields & guild_settings_patch_features) {
-        b.key("features");
-        b.byte('[');
-        for (u32 cursor = 0, index = 0; cursor < p.feature_names.count; ++index) {
+    b.member_if(f & guild_settings_patch_name, "name", json_text(p.name));
+    b.member_if(f & guild_settings_patch_icon, "icon", nullable_json(p.icon));
+    b.member_if(f & guild_settings_patch_splash, "splash", nullable_json(p.splash));
+    b.member_if(f & guild_settings_patch_banner, "banner", nullable_json(p.banner));
+    if (f & guild_settings_patch_features) {
+        b.begin_array("features");
+        for (u32 cursor = 0; cursor < p.feature_names.count;) {
             const u32 bytes = p.feature_names[cursor];
-            if (index)
-                b.byte(',');
-            b.string({reinterpret_cast<const char*>(p.feature_names.data + cursor + 1), bytes});
+            b.element(json_text({reinterpret_cast<const char*>(p.feature_names.data + cursor + 1), bytes}));
             cursor += 1 + bytes;
         }
-        b.byte(']');
+        b.end_array();
     }
-    if (p.fields & guild_settings_patch_afk_channel) {
-        b.key("afk_channel_id");
-        b.nullable_snowflake(p.afk_channel_id);
-    }
-    if (p.fields & guild_settings_patch_afk_timeout) {
-        b.key("afk_timeout");
-        b.number(p.afk_timeout_seconds);
-    }
-    if (p.fields & guild_settings_patch_system_channel) {
-        b.key("system_channel_id");
-        b.nullable_snowflake(p.system_channel_id);
-    }
-    if (p.fields & guild_settings_patch_verification_level) {
-        b.key("verification_level");
-        b.number(p.verification_level);
-    }
-    if (p.fields & guild_settings_patch_default_notifications) {
-        b.key("default_message_notifications");
-        b.number(p.default_message_notifications);
-    }
-    if (p.fields & guild_settings_patch_explicit_content_filter) {
-        b.key("explicit_content_filter");
-        b.number(p.explicit_content_filter);
-    }
-    if (p.fields & guild_settings_patch_system_channel_flags) {
-        b.key("system_channel_flags");
-        b.number(p.system_channel_flags);
-    }
-    if (p.fields & guild_settings_patch_progress_bar) {
-        b.key("premium_progress_bar_enabled");
-        b.boolean(p.premium_progress_bar_enabled);
-    }
+    b.member_if(f & guild_settings_patch_afk_channel, "afk_channel_id", nullable_snowflake(p.afk_channel_id));
+    b.member_if(f & guild_settings_patch_afk_timeout, "afk_timeout", p.afk_timeout_seconds);
+    b.member_if(f & guild_settings_patch_system_channel, "system_channel_id", nullable_snowflake(p.system_channel_id));
+    b.member_if(f & guild_settings_patch_verification_level, "verification_level", p.verification_level);
+    b.member_if(f & guild_settings_patch_default_notifications, "default_message_notifications",
+                p.default_message_notifications);
+    b.member_if(f & guild_settings_patch_explicit_content_filter, "explicit_content_filter", p.explicit_content_filter);
+    b.member_if(f & guild_settings_patch_system_channel_flags, "system_channel_flags", p.system_channel_flags);
+    b.member_if(f & guild_settings_patch_progress_bar, "premium_progress_bar_enabled",
+                json_bool(p.premium_progress_bar_enabled));
     b.end_object();
 }
 
-void write_server_profile(Body& b, const GuildServerProfileWrite& p) noexcept {
+void write_server_profile(JsonBody& b, const GuildServerProfileWrite& p) noexcept {
     b.begin_object();
-    if (p.fields & guild_profile_write_name) {
-        b.key("name");
-        b.string(p.name);
-    }
-    b.key("description");
-    b.string(p.description);
-    if (p.fields & guild_profile_write_icon) {
-        b.key("icon");
-        b.nullable_string(p.icon);
-    }
-    if (p.fields & guild_profile_write_custom_banner) {
-        b.key("custom_banner");
-        b.nullable_string(p.custom_banner);
-    }
-    if (p.fields & guild_profile_write_visibility) {
-        b.key("visibility");
-        b.number(p.visibility);
-    }
-    b.key("brand_color_primary");
-    b.nullable_string(p.brand_color_primary);
-    b.key("traits");
-    b.byte('[');
-    bool first = true;
+    b.member_if(p.fields & guild_profile_write_name, "name", json_text(p.name));
+    b.member("description", json_text(p.description));
+    b.member_if(p.fields & guild_profile_write_icon, "icon", nullable_json(p.icon));
+    b.member_if(p.fields & guild_profile_write_custom_banner, "custom_banner", nullable_json(p.custom_banner));
+    b.member_if(p.fields & guild_profile_write_visibility, "visibility", p.visibility);
+    b.member("brand_color_primary", nullable_json(p.brand_color_primary));
+    b.begin_array("traits");
     for (u32 i = 0; i < p.traits.count; ++i) {
         const auto& t = p.traits[i];
         if (!t.label.bytes)
             continue;
-        if (!first)
-            b.byte(',');
-        first = false;
+        b.next();
         b.begin_object();
-        b.key("label");
-        b.string(t.label);
-        b.key("position");
-        b.number(t.position);
-        if (t.emoji_id) {
-            b.key("emoji_id");
-            b.snowflake(t.emoji_id);
-        }
-        if (t.emoji_name.bytes) {
-            b.key("emoji_name");
-            b.string(t.emoji_name);
-        }
-        if (t.emoji_animated_set) {
-            b.key("emoji_animated");
-            b.boolean(t.emoji_animated);
-        }
+        b.member("label", json_text(t.label));
+        b.member("position", t.position);
+        b.member_if(t.emoji_id, "emoji_id", snowflake_text(t.emoji_id));
+        b.member_if(t.emoji_name.bytes, "emoji_name", json_text(t.emoji_name));
+        b.member_if(t.emoji_animated_set, "emoji_animated", json_bool(t.emoji_animated));
         b.end_object();
     }
-    b.byte(']');
-    b.key("game_application_ids");
-    b.byte('[');
-    for (u32 i = 0; i < p.game_application_ids.count; ++i) {
-        if (i)
-            b.byte(',');
-        b.snowflake(p.game_application_ids[i]);
-    }
-    b.byte(']');
+    b.end_array();
+    b.begin_array("game_application_ids");
+    for (u32 i = 0; i < p.game_application_ids.count; ++i)
+        b.element(snowflake_text(p.game_application_ids[i]));
+    b.end_array();
     b.end_object();
 }
 
-void write_role(Body& b, const RolePatch& p) noexcept {
+void write_role(JsonBody& b, const RolePatch& p) noexcept {
     b.begin_object();
-    if (p.fields & role_patch_name) {
-        b.key("name");
-        b.string(p.name);
-    }
-    if (p.fields & role_patch_permissions) {
-        b.key("permissions");
-        b.snowflake(p.permissions);
-    }
-    if (p.fields & role_patch_color) {
-        b.key("color");
-        b.number(p.color);
-    }
-    if (p.fields & role_patch_hoist) {
-        b.key("hoist");
-        b.boolean(p.hoist);
-    }
-    if (p.fields & role_patch_mentionable) {
-        b.key("mentionable");
-        b.boolean(p.mentionable);
-    }
-    if (p.fields & role_patch_icon) {
-        b.key("icon");
-        b.nullable_string(p.icon);
-    }
-    if (p.fields & role_patch_unicode_emoji) {
-        b.key("unicode_emoji");
-        b.nullable_string(p.unicode_emoji);
-    }
+    b.member_if(p.fields & role_patch_name, "name", json_text(p.name));
+    b.member_if(p.fields & role_patch_permissions, "permissions", snowflake_text(p.permissions));
+    b.member_if(p.fields & role_patch_color, "color", p.color);
+    b.member_if(p.fields & role_patch_hoist, "hoist", json_bool(p.hoist));
+    b.member_if(p.fields & role_patch_mentionable, "mentionable", json_bool(p.mentionable));
+    b.member_if(p.fields & role_patch_icon, "icon", nullable_json(p.icon));
+    b.member_if(p.fields & role_patch_unicode_emoji, "unicode_emoji", nullable_json(p.unicode_emoji));
     b.end_object();
 }
 
 // The role create body: every key, in this order.
-void write_role_create(Body& b, const RolePatch* p) noexcept {
+void write_role_create(JsonBody& b, const RolePatch* p) noexcept {
     const u8 f = p ? p->fields : 0;
     const u32 color = (f & role_patch_color) ? p->color : 0;
     b.begin_object();
-    b.key("name");
-    b.string((f & role_patch_name) ? p->name : utf8_literal("new role"));
-    b.key("color");
-    b.number(color);
+    b.member("name", json_text((f & role_patch_name) ? p->name : utf8_literal("new role")));
+    b.member("color", color);
     b.key("colors");
     b.begin_object();
-    b.key("primary_color");
-    b.number(color);
-    b.key("secondary_color");
-    b.raw("null");
-    b.key("tertiary_color");
-    b.raw("null");
+    b.member("primary_color", color);
+    b.member("secondary_color", "null");
+    b.member("tertiary_color", "null");
     b.end_object();
-    b.key("permissions");
-    b.snowflake((f & role_patch_permissions) ? p->permissions : 0);
+    b.member("permissions", snowflake_text((f & role_patch_permissions) ? p->permissions : 0));
     b.end_object();
 }
 
-void write_member(Body& b, const MemberPatch& p, bool self) noexcept {
+void write_member(JsonBody& b, const MemberPatch& p, bool self) noexcept {
     b.begin_object();
-    if (p.fields & member_patch_nickname) {
-        b.key("nick");
-        if (self)
-            b.string(p.nickname);
-        else
-            b.nullable_string(p.nickname);
-    }
-    if (p.fields & member_patch_avatar) {
-        b.key("avatar");
-        b.nullable_string(p.avatar);
-    }
+    if (p.fields & member_patch_nickname)
+        b.member("nick", self ? OrNull<JsonText>{true, {p.nickname}} : nullable_json(p.nickname));
+    b.member_if(p.fields & member_patch_avatar, "avatar", nullable_json(p.avatar));
     if (p.fields & member_patch_roles) {
-        b.key("roles");
-        b.byte('[');
-        for (u32 i = 0; i < p.role_ids.count; ++i) {
-            if (i)
-                b.byte(',');
-            b.snowflake(p.role_ids[i]);
-        }
-        b.byte(']');
+        b.begin_array("roles");
+        for (u32 i = 0; i < p.role_ids.count; ++i)
+            b.element(snowflake_text(p.role_ids[i]));
+        b.end_array();
     }
     if (p.fields & member_patch_timeout) {
         b.key("communication_disabled_until");
@@ -556,129 +428,73 @@ void write_member(Body& b, const MemberPatch& p, bool self) noexcept {
             const u32 bytes =
                 guild_admin_format_timestamp_ms(p.communication_disabled_until_ms, {stamp, sizeof(stamp)});
             b.ok = b.ok && bytes;
-            b.string({stamp, bytes});
+            b.put(json_text({stamp, bytes}));
         } else
-            b.raw("null");
+            b.put("null");
     }
-    if (p.fields & member_patch_voice_channel) {
-        b.key("channel_id");
-        b.nullable_snowflake(p.voice_channel_id);
-    }
-    if (p.fields & member_patch_mute) {
-        b.key("mute");
-        b.boolean(p.mute);
-    }
-    if (p.fields & member_patch_deafen) {
-        b.key("deaf");
-        b.boolean(p.deafen);
-    }
+    b.member_if(p.fields & member_patch_voice_channel, "channel_id", nullable_snowflake(p.voice_channel_id));
+    b.member_if(p.fields & member_patch_mute, "mute", json_bool(p.mute));
+    b.member_if(p.fields & member_patch_deafen, "deaf", json_bool(p.deafen));
     b.end_object();
 }
 
-void write_profile(Body& b, const GuildProfilePatch& p) noexcept {
+void write_profile(JsonBody& b, const GuildProfilePatch& p) noexcept {
     b.begin_object();
-    if (p.fields & guild_profile_patch_pronouns) {
-        b.key("pronouns");
-        b.string(p.pronouns);
-    }
-    if (p.fields & guild_profile_patch_bio) {
-        b.key("bio");
-        b.string(p.bio);
-    }
-    if (p.fields & guild_profile_patch_banner) {
-        b.key("banner");
-        b.nullable_string(p.banner);
-    }
+    b.member_if(p.fields & guild_profile_patch_pronouns, "pronouns", json_text(p.pronouns));
+    b.member_if(p.fields & guild_profile_patch_bio, "bio", json_text(p.bio));
+    b.member_if(p.fields & guild_profile_patch_banner, "banner", nullable_json(p.banner));
     b.end_object();
 }
 
-void write_overwrite(Body& b, const PermissionOverwriteWrite& o) noexcept {
+void write_overwrite(JsonBody& b, const PermissionOverwriteWrite& o) noexcept {
     b.begin_object();
-    b.key("id");
-    b.snowflake(o.id);
-    b.key("type");
-    b.number(o.type);
-    b.key("allow");
-    b.snowflake(o.allow);
-    b.key("deny");
-    b.snowflake(o.deny);
+    b.member("id", snowflake_text(o.id));
+    b.member("type", o.type);
+    b.member("allow", snowflake_text(o.allow));
+    b.member("deny", snowflake_text(o.deny));
     b.end_object();
 }
 
-void write_channel(Body& b, const ChannelPatch& p) noexcept {
+void write_channel(JsonBody& b, const ChannelPatch& p) noexcept {
     b.begin_object();
-    if (p.fields & channel_patch_name) {
-        b.key("name");
-        b.string(p.name);
-    }
-    if (p.fields & channel_patch_type) {
-        b.key("type");
-        b.number(p.type);
-    }
-    if (p.fields & channel_patch_topic) {
-        b.key("topic");
-        b.nullable_string(p.topic);
-    }
-    if (p.fields & channel_patch_parent) {
-        b.key("parent_id");
-        b.nullable_snowflake(p.parent_id);
-    }
-    if (p.fields & channel_patch_position) {
-        b.key("position");
-        b.number(p.position);
-    }
-    if (p.fields & channel_patch_nsfw) {
-        b.key("nsfw");
-        b.boolean(p.nsfw);
-    }
-    if (p.fields & channel_patch_slowmode) {
-        b.key("rate_limit_per_user");
-        b.number(p.slowmode_seconds);
-    }
-    if (p.fields & channel_patch_bitrate) {
-        b.key("bitrate");
-        b.number(p.bitrate);
-    }
-    if (p.fields & channel_patch_user_limit) {
-        b.key("user_limit");
-        b.number(p.user_limit);
-    }
+    b.member_if(p.fields & channel_patch_name, "name", json_text(p.name));
+    b.member_if(p.fields & channel_patch_type, "type", p.type);
+    b.member_if(p.fields & channel_patch_topic, "topic", nullable_json(p.topic));
+    b.member_if(p.fields & channel_patch_parent, "parent_id", nullable_snowflake(p.parent_id));
+    b.member_if(p.fields & channel_patch_position, "position", p.position);
+    b.member_if(p.fields & channel_patch_nsfw, "nsfw", json_bool(p.nsfw));
+    b.member_if(p.fields & channel_patch_slowmode, "rate_limit_per_user", p.slowmode_seconds);
+    b.member_if(p.fields & channel_patch_bitrate, "bitrate", p.bitrate);
+    b.member_if(p.fields & channel_patch_user_limit, "user_limit", p.user_limit);
     if (p.fields & channel_patch_overwrites) {
-        b.key("permission_overwrites");
-        b.byte('[');
+        b.begin_array("permission_overwrites");
         for (u32 i = 0; i < p.overwrites.count; ++i) {
-            if (i)
-                b.byte(',');
+            b.next();
             write_overwrite(b, p.overwrites[i]);
         }
-        b.byte(']');
+        b.end_array();
     }
     b.end_object();
 }
 
-void write_positions(Body& b, ConstSlice<GuildAdminPosition> positions, bool channels) noexcept {
-    b.byte('[');
+void write_positions(JsonBody& b, ConstSlice<GuildAdminPosition> positions, bool channels) noexcept {
+    b.begin_array();
     for (u32 i = 0; i < positions.count; ++i) {
         const auto& p = positions[i];
-        if (i)
-            b.byte(',');
+        b.next();
         b.begin_object();
-        b.key("id");
-        b.snowflake(p.id);
-        b.key("position");
-        b.number(p.position);
+        b.member("id", snowflake_text(p.id));
+        b.member("position", p.position);
         if (channels && (p.flags & guild_admin_position_parent)) {
-            b.key("parent_id");
-            b.nullable_snowflake(p.parent_id);
-            b.key("lock_permissions");
-            b.boolean((p.flags & guild_admin_position_lock_permissions) != 0);
+            b.member("parent_id", nullable_snowflake(p.parent_id));
+            b.member("lock_permissions", json_bool((p.flags & guild_admin_position_lock_permissions) != 0));
         }
         b.end_object();
     }
-    b.byte(']');
+    b.end_array();
 }
 
-void write_body(const GuildAdminRequest& r, Body& b) noexcept {
+void write_body(const GuildAdminRequest& r, JsonBody& b) noexcept {
     switch (r.operation) {
     case Op::guild_update:
         write_guild(b, *r.guild);
@@ -688,16 +504,13 @@ void write_body(const GuildAdminRequest& r, Body& b) noexcept {
         break;
     case Op::vanity_update:
         b.begin_object();
-        b.key("code");
-        b.string(r.guild->vanity_code);
+        b.member("code", json_text(r.guild->vanity_code));
         b.end_object();
         break;
     case Op::widget_update:
         b.begin_object();
-        b.key("enabled");
-        b.boolean(r.guild->widget_enabled);
-        b.key("channel_id");
-        b.nullable_snowflake(r.guild->widget_channel_id);
+        b.member("enabled", json_bool(r.guild->widget_enabled));
+        b.member("channel_id", nullable_snowflake(r.guild->widget_channel_id));
         b.end_object();
         break;
     case Op::role_create:
@@ -721,8 +534,7 @@ void write_body(const GuildAdminRequest& r, Body& b) noexcept {
         break;
     case Op::ban_add:
         b.begin_object();
-        b.key("delete_message_seconds");
-        b.number(r.delete_message_seconds);
+        b.member("delete_message_seconds", r.delete_message_seconds);
         b.end_object();
         break;
     case Op::channel_create:
@@ -734,20 +546,16 @@ void write_body(const GuildAdminRequest& r, Body& b) noexcept {
         break;
     case Op::guild_leave:
         // A member is never lurking here.
-        b.raw("{\"lurking\":false}");
+        b.put("{\"lurking\":false}");
         break;
     case Op::invite_create: {
         const InviteCreate defaults{86'400, 0, false, false};
         const auto& i = r.invite ? *r.invite : defaults;
         b.begin_object();
-        b.key("max_age");
-        b.number(i.max_age_seconds);
-        b.key("max_uses");
-        b.number(i.max_uses);
-        b.key("temporary");
-        b.boolean(i.temporary);
-        b.key("unique");
-        b.boolean(i.unique);
+        b.member("max_age", i.max_age_seconds);
+        b.member("max_uses", i.max_uses);
+        b.member("temporary", json_bool(i.temporary));
+        b.member("unique", json_bool(i.unique));
         b.end_object();
         break;
     }
@@ -1476,100 +1284,79 @@ GuildAdminResult guild_admin_write_target(const GuildAdminRequest& r, Slice<u8> 
     if (!byte_range_valid({output.data, output.count}))
         return {0, 0, GuildAdminError::input};
     u8 target[kGuildAdminMaximumTargetBytes];
-    ProtocolWriter w{{target, sizeof(target)}, 0};
-    bool ok = protocol_writer_append_literal(&w, "/api/v10/");
-    const auto text = [&](const char* value) noexcept { ok = ok && protocol_writer_append_c_string(&w, value); };
-    const auto id = [&](u64 value) noexcept { ok = ok && protocol_writer_append_u64(&w, value); };
+    GuardedWriter w{{target, sizeof(target)}};
+    w.put("/api/v10/");
     const Op op = r.operation;
     if (op == Op::guild_leave) {
-        text("users/@me/guilds/");
-        id(r.guild_id);
+        w.put("users/@me/guilds/", r.guild_id);
     } else if (op == Op::invite_delete) {
-        text("invites/");
-        ok = ok && protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(r.invite_code.data), r.invite_code.bytes);
+        w.put("invites/", r.invite_code);
     } else if (channel_major(op)) {
-        text("channels/");
-        id(r.channel_id);
+        w.put("channels/", r.channel_id);
         if (op == Op::overwrite_put || op == Op::overwrite_delete) {
-            text("/permissions/");
-            id(r.target_id);
+            w.put("/permissions/", r.target_id);
         } else if (op == Op::invite_list_channel || op == Op::invite_create)
-            text("/invites");
+            w.put("/invites");
     } else {
-        text("guilds/");
-        id(r.guild_id);
+        w.put("guilds/", r.guild_id);
         switch (op) {
         case Op::role_list:
         case Op::role_create:
-        case Op::role_reorder: text("/roles"); break;
+        case Op::role_reorder: w.put("/roles"); break;
         case Op::role_update:
-        case Op::role_delete: text("/roles/"); id(r.target_id); break;
-        case Op::role_member_counts: text("/roles/member-counts"); break;
+        case Op::role_delete: w.put("/roles/", r.target_id); break;
+        case Op::role_member_counts: w.put("/roles/member-counts"); break;
         case Op::member_update:
-        case Op::member_kick: text("/members/"); id(r.target_id); break;
+        case Op::member_kick: w.put("/members/", r.target_id); break;
         case Op::member_role_add:
-        case Op::member_role_remove:
-            text("/members/");
-            id(r.target_id);
-            text("/roles/");
-            id(r.member->role_ids[0]);
-            break;
-        case Op::member_update_self: text("/members/@me"); break;
-        case Op::member_profile_self: text("/profile/@me"); break;
-        case Op::ban_list: text("/bans"); break;
+        case Op::member_role_remove: w.put("/members/", r.target_id, "/roles/", r.member->role_ids[0]); break;
+        case Op::member_update_self: w.put("/members/@me"); break;
+        case Op::member_profile_self: w.put("/profile/@me"); break;
+        case Op::ban_list: w.put("/bans"); break;
         case Op::ban_add:
-        case Op::ban_remove: text("/bans/"); id(r.target_id); break;
-        case Op::audit_log: text("/audit-logs"); break;
+        case Op::ban_remove: w.put("/bans/", r.target_id); break;
+        case Op::audit_log: w.put("/audit-logs"); break;
         case Op::channel_create:
-        case Op::channel_reorder: text("/channels"); break;
-        case Op::invite_list_guild: text("/invites"); break;
+        case Op::channel_reorder: w.put("/channels"); break;
+        case Op::invite_list_guild: w.put("/invites"); break;
         case Op::widget_get:
-        case Op::widget_update: text("/widget"); break;
+        case Op::widget_update: w.put("/widget"); break;
         case Op::profile_get:
-        case Op::profile_update: text("/profile"); break;
+        case Op::profile_update: w.put("/profile"); break;
         case Op::vanity_get:
-        case Op::vanity_update: text("/vanity-url"); break;
+        case Op::vanity_update: w.put("/vanity-url"); break;
         default: break;
         }
         // A kick's reason is a query parameter (encodeURIComponent), never
         // the audit header; an empty reason still sends "?reason=".
         if (op == Op::member_kick && r.reason.data) {
-            text("?reason=");
-            const Slice<u8> room{target + w.used, kGuildAdminMaximumTargetBytes - w.used};
-            const auto encoded = ok ? rest_encode_audit_reason(r.reason, room) : RestAuditReasonResult{0, false};
-            ok = encoded.ok;
-            w.used += ok ? encoded.bytes : 0;
+            w.put("?reason=");
+            const Slice<u8> room{target + w.writer.used, kGuildAdminMaximumTargetBytes - w.writer.used};
+            const auto encoded = w.ok ? rest_encode_audit_reason(r.reason, room) : RestAuditReasonResult{0, false};
+            w.ok = encoded.ok;
+            w.writer.used += w.ok ? encoded.bytes : 0;
         }
         if ((op == Op::ban_list || op == Op::audit_log)) {
             const GuildAdminPageQuery none{};
             const auto& page = r.page ? *r.page : none;
             const u32 limit = page.limit ? page.limit : (op == Op::audit_log ? 50u : kGuildAdminPageMaximum);
-            text("?limit=");
-            id(limit);
-            if (page.before) {
-                text("&before=");
-                id(page.before);
-            }
-            if (page.after) {
-                text("&after=");
-                id(page.after);
-            }
-            if (page.user_id) {
-                text("&user_id=");
-                id(page.user_id);
-            }
-            if (page.action_type_set) {
-                text("&action_type=");
-                id(page.action_type);
-            }
+            w.put("?limit=", limit);
+            if (page.before)
+                w.put("&before=", page.before);
+            if (page.after)
+                w.put("&after=", page.after);
+            if (page.user_id)
+                w.put("&user_id=", page.user_id);
+            if (page.action_type_set)
+                w.put("&action_type=", page.action_type);
         }
     }
-    if (!ok)
+    if (!w.ok)
         return {0, 0, GuildAdminError::capacity};
-    if (output.count < w.used)
-        return {w.used, 0, GuildAdminError::capacity};
-    copy_bytes(output.data, target, w.used);
-    return {w.used, 0, GuildAdminError::none};
+    if (output.count < w.writer.used)
+        return {w.writer.used, 0, GuildAdminError::capacity};
+    copy_bytes(output.data, target, w.writer.used);
+    return {w.writer.used, 0, GuildAdminError::none};
 }
 
 GuildAdminResult guild_admin_write_body(const GuildAdminRequest& r, Slice<u8> output) noexcept {
@@ -1579,7 +1366,7 @@ GuildAdminResult guild_admin_write_body(const GuildAdminRequest& r, Slice<u8> ou
         return {0, 0, GuildAdminError::none};
     if (!output.data || !output.count)
         return {0, 0, GuildAdminError::capacity};
-    Body body{output};
+    JsonBody body{output};
     write_body(r, body);
     if (!body.ok) {
         secure_clear_bytes(output.data, body.writer.used);
@@ -1638,12 +1425,9 @@ u32 guild_admin_write_md5_header(Utf8View banner_md5, Utf8View splash_md5, Slice
     for (const auto& entry : entries) {
         if (!md5_valid(entry.md5))
             continue;
-        if (any)
-            ok = ok && protocol_writer_append_literal(&w, ", ");
+        ok = ok && (!any || protocol_write(&w, ", ")) &&
+             protocol_write(&w, entry.key, "=\"", Utf8View{entry.md5.data, 32}, '"');
         any = true;
-        ok = ok && protocol_writer_append_c_string(&w, entry.key) && protocol_writer_append_literal(&w, "=\"") &&
-             protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(entry.md5.data), 32) &&
-             protocol_writer_append_byte(&w, '"');
     }
     return ok && any ? w.used : 0;
 }

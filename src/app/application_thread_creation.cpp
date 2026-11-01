@@ -1,5 +1,6 @@
 #include "application_thread_creation.hpp"
 #include "application_state.hpp"
+#include "application_owner.hpp"
 #include "application_message_feedback.hpp"
 #include "application_text_form.hpp"
 #include "application_content_input.hpp"
@@ -183,10 +184,7 @@ void fail(CreationOwner& owner, Utf8View status, bool uncertain = false, bool te
     publish(owner, Phase::failed, status, true);
 }
 void free_owner() noexcept {
-    if (!creation_owner) return;
-    secure_clear_bytes(creation_owner, sizeof(*creation_owner));
-    VirtualFree(creation_owner, 0, MEM_RELEASE);
-    creation_owner = nullptr;
+    owner_release(creation_owner);
 }
 bool form_key(const CreationOwner& owner, TextFormOwnerKey key) noexcept {
     return key.scope == owner.form.scope && key.collection == owner.form.collection && key.item == owner.form.item;
@@ -266,10 +264,7 @@ bool application_thread_creation_available(u64 id) noexcept {
 }
 bool application_thread_creation_begin(u64 id, ApplicationThreadCreationTicket* output) noexcept {
     if (!application_thread_creation_available(id)) return false;
-    if (!creation_owner) {
-        creation_owner = static_cast<CreationOwner*>(VirtualAlloc(nullptr, sizeof(CreationOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-        if (!creation_owner) return false;
-    }
+    if (!owner_ensure(creation_owner)) return false;
     auto& owner = *creation_owner;
     if (!owner.retired && owner.source.message == id && source_current(owner) &&
         (owner.phase == Phase::editing || queued(owner) || owner.flight.active)) {
@@ -491,7 +486,7 @@ bool application_thread_creation_response(const RestClientResponse& response, Ut
         }
         return true;
     }
-    const bool success = response.transport_ok() && response.status_code >= 200 && response.status_code < 300 &&
+    const bool success = response.succeeded() &&
         body.data && body.bytes == response.body_bytes && body.bytes <= kThreadCreationMaximumResponseBytes &&
         thread_creation_decode(body, flight.request, flight.source.self,
             {g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount}, &owner.candidate).ok();

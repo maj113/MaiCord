@@ -89,14 +89,7 @@ struct WebSocketMessageStep {
     }
 };
 
-struct WebSocketWriteResult {
-    u32 bytes;
-    WebSocketError error;
-
-    constexpr bool ok() const noexcept {
-        return error == WebSocketError::none;
-    }
-};
+using WebSocketWriteResult = ByteResult<WebSocketError>;
 
 WebSocketParseResult websocket_parse_frame(ConstSlice<u8> input, u64 maximum_payload_bytes,
                                            WebSocketDirection direction) noexcept;

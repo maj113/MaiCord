@@ -1,4 +1,5 @@
 #include "message_link_ui_probe.hpp"
+#include "../model_store_fixtures.hpp"
 #include "probe_account_ui.hpp"
 #include "probe_present.hpp"
 #include "probe_glyph_ink.hpp"

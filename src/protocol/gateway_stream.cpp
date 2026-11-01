@@ -26,9 +26,7 @@ GatewayCommandWriteResult keyed(const char (&prefix)[Count], const GatewayStream
     u8 built[kCommandBytes];
     ProtocolWriter writer{{built, sizeof(built)}, 0};
     const bool valid =
-        key_bytes && protocol_writer_append_literal(&writer, prefix) &&
-        protocol_writer_append_json_string(&writer, {text, key_bytes}) &&
-        protocol_writer_append_literal(&writer, "}}");
+        key_bytes && protocol_write(&writer, prefix, json_text({text, key_bytes}), "}}");
     return finish(built, writer.used, valid, output);
 }
 
@@ -298,10 +296,8 @@ u32 gateway_stream_preview_target(const GatewayStreamKey& key, u64 version, Slic
     u8 built[kGatewayStreamPreviewMaximumTargetBytes];
     ProtocolWriter writer{{built, sizeof(built)}, 0};
     // Colons are path-safe (RFC 3986 pchar) and sent raw.
-    const bool valid = key_bytes && version && protocol_writer_append_literal(&writer, "/api/v9/streams/") &&
-                       protocol_writer_append_bytes(&writer, reinterpret_cast<const u8*>(text), key_bytes) &&
-                       protocol_writer_append_literal(&writer, "/preview?version=") &&
-                       protocol_writer_append_u64(&writer, version);
+    const bool valid = key_bytes && version &&
+                       protocol_write(&writer, "/api/v9/streams/", Utf8View{text, key_bytes}, "/preview?version=", version);
     if (!valid || !output.data || output.count < writer.used)
         return 0;
     copy_bytes(output.data, built, writer.used);

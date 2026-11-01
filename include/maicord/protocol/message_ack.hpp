@@ -20,11 +20,7 @@ struct MessageAckRequest {
     bool mention_count_known;
 };
 enum class MessageAckWriteError : u8 { none, invalid_input, capacity };
-struct MessageAckWriteResult {
-    u32 bytes;
-    MessageAckWriteError error;
-    constexpr bool ok() const noexcept { return error == MessageAckWriteError::none; }
-};
+using MessageAckWriteResult = ByteResult<MessageAckWriteError>;
 // Failure leaves output bytes unchanged. Caller output must not overlap token.
 // A zero message cursor is legal (the previous-millisecond boundary clamps to
 // zero). Channel IDs must be nonzero; ordinary callers enforce their own cursor.

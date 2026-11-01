@@ -99,13 +99,7 @@ MlsDecodeResult mls_group_info_decode(ConstSlice<u8> input, MlsGroupInfoView* ou
 // Sensitive plaintext views: the backing storage must be protected and erased
 // by the caller. Framing only; no PSK lookup, derivation or group joining.
 MlsDecodeResult mls_group_secrets_decode(ConstSlice<u8> input, MlsGroupSecretsView* output) noexcept;
-struct MlsEncodeResult {
-    u32 bytes;
-    MlsWireError error;
-    constexpr bool ok() const noexcept {
-        return error == MlsWireError::none;
-    }
-};
+using MlsEncodeResult = ByteResult<MlsWireError>;
 // Serializes the fields up to, excluding, the object's own signature vector,
 // ignoring cached serialized/tbs views and the signature field. Only structure
 // is checked. Inactive credential/source arms are ignored. Writes only the

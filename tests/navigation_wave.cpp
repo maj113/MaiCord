@@ -2,6 +2,7 @@
 // list order, drag state machines, text-in-voice capability and the server
 // menu policy.
 #include "maicord/app/chat_state_dispatch.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/channel_reorder.hpp"

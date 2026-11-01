@@ -117,7 +117,7 @@ bool accept_message_send_response(const RestClientResponse& response, Utf8View b
     }
     auto& ui = *g_app.account_ui;
     MessageHistoryDecodeScratch scratch{};
-    if (response.transport_ok() && response.status_code >= 200 && response.status_code < 300 &&
+    if (response.succeeded() &&
         body.data && body.bytes && body.bytes == response.body_bytes &&
         !application_message_decode_scratch(ui, &scratch, body)) {
         log_write(LogLevel::error, "message", "history_decode_storage_admission_failed");
@@ -155,7 +155,7 @@ bool accept_message_send_response(const RestClientResponse& response, Utf8View b
         return false;
     }
     // Delivery starts the prediction even when its body cannot be reconciled.
-    if (request_channel && response.transport_ok() && response.status_code >= 200 && response.status_code < 300)
+    if (request_channel && response.succeeded())
         application_composer_note_sent(request_channel);
     if (accepted.body_expected && !accepted.body_decoded) {
         log_u64(LogLevel::warning, "message", "message_send_response_decode_error", static_cast<u64>(accepted.decode.error));

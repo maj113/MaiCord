@@ -5,6 +5,7 @@
 // projected event must apply; a defective event is skipped and reported
 // without stopping the drain.
 #include "../src/app/gateway_ready_projection.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/app/message_event_pump.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/private_channel_store.hpp"

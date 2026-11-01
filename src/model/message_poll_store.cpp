@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/model/sorted_search.hpp"
+#include "message_poll_owned_storage.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -10,24 +11,7 @@ namespace {
 constexpr u32 kKnownFields = gateway_message_poll_field_question | gateway_message_poll_field_answers |
                              gateway_message_poll_field_expiry | gateway_message_poll_field_multiselect |
                              gateway_message_poll_field_layout | gateway_message_poll_field_results;
-constexpr u32 kVoteObservations = 128;
-struct VoteObservation {
-    u64 message_id;
-    u64 user_id;
-    u32 answer_id;
-    bool voted;
-};
-} // namespace
-struct MessagePollOwnedStorage {
-    StableStorage records;
-    Arena text_banks[2];
-    VoteObservation observations[kVoteObservations];
-    u32 next_observation;
-    u8 active_bank;
-};
-static_assert(sizeof(MessagePollOwnedStorage) <= 4096);
 static_assert(sizeof(MessagePollRecord) <= 512);
-namespace {
 u32 position(const MessagePollStore& store, u64 id) noexcept {
     return sorted_lower_bound(store.count, [&](u32 at) noexcept { return store.records[at].message_id < id; });
 }
@@ -520,27 +504,6 @@ bool message_poll_store_delete(MessagePollStore* store, u64 id) noexcept {
     advance(store->revision);
     advance(store->content_revision);
     return true;
-}
-MessagePollStoreMetrics message_poll_store_metrics(const MessagePollStore& store) noexcept {
-    MessagePollStoreMetrics result{};
-    result.records = store.count;
-    result.text_bytes = store.text_used;
-    if (!store.owned)
-        return result;
-    Win32MemoryInformation owner{};
-    if (VirtualQuery(store.owned, owner.native(), sizeof(owner))) {
-        result.reserved_bytes = result.committed_bytes = owner.RegionSize;
-        result.commit_count = 1;
-    }
-    const auto add = [&](const Arena& bank) noexcept {
-        result.reserved_bytes += bank.reserved;
-        result.committed_bytes += bank.committed;
-        result.commit_count += bank.commit_count;
-    };
-    add(store.owned->records.arena);
-    for (const auto& bank : store.owned->text_banks)
-        add(bank);
-    return result;
 }
 MessagePollPageResult message_poll_store_apply_page(MessagePollStore* store,
                                                     ConstSlice<MessagePollPageInput> inputs) noexcept {

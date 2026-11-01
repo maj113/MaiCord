@@ -30,14 +30,7 @@ enum class UserAuthWriteError : u8 {
     output_too_small,
 };
 
-struct UserAuthWriteResult {
-    u32 bytes;
-    UserAuthWriteError error;
-
-    constexpr bool ok() const noexcept {
-        return error == UserAuthWriteError::none;
-    }
-};
+using UserAuthWriteResult = ByteResult<UserAuthWriteError>;
 
 struct UserAuthPasswordRequest {
     Utf8View login;

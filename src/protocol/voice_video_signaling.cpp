@@ -42,15 +42,11 @@ bool uuid_valid(Utf8View id) noexcept {
     return true;
 }
 void transport_fields(Writer& writer, const EncodedString& address, const VoiceGatewaySelectProtocol& selection) noexcept {
-    writer.literal("\"address\":");
-    writer.string(address);
-    writer.literal(",\"port\":");
-    writer.number(selection.port);
-    writer.literal(",\"mode\":");
+    writer.put("\"address\":", address, ",\"port\":", selection.port, ",\"mode\":");
     if (selection.mode == voice_transport_aes256_gcm_rtpsize)
-        writer.literal("\"aead_aes256_gcm_rtpsize\"");
+        writer.put("\"aead_aes256_gcm_rtpsize\"");
     else
-        writer.literal("\"aead_xchacha20_poly1305_rtpsize\"");
+        writer.put("\"aead_xchacha20_poly1305_rtpsize\"");
 }
 } // namespace
 
@@ -124,33 +120,22 @@ GatewayCommandWriteResult voice_gateway_write_select_protocol_media(const VoiceS
                 return {0, GatewayCommandError::invalid_input};
     }
     return write_json_command(output, [&](Writer& writer) noexcept {
-        writer.literal("{\"op\":1,\"d\":{\"protocol\":\"udp\",\"data\":{");
+        writer.put("{\"op\":1,\"d\":{\"protocol\":\"udp\",\"data\":{");
         transport_fields(writer, address, transport);
-        writer.literal("},");
+        writer.put("},");
         transport_fields(writer, address, transport);
         // Opus carries no RTX type or encode/decode flags (omitted).
-        writer.literal(",\"codecs\":[{\"name\":\"opus\",\"type\":\"audio\",\"priority\":1000,\"payload_type\":120}");
+        writer.put(",\"codecs\":[{\"name\":\"opus\",\"type\":\"audio\",\"priority\":1000,\"payload_type\":120}");
         for (u32 i = 0; i != selection.video.count; ++i) {
             const auto& codec = selection.video[i];
             const auto name = codec_name(codec.codec);
             const u32 payload = kVoiceVideoPayloadTypeBase + 2 * i;
-            writer.literal(",{\"name\":\"");
-            writer.raw(name.text, name.bytes);
-            writer.literal("\",\"type\":\"video\",\"priority\":");
-            writer.number(1000u * (i + 1));
-            writer.literal(",\"payload_type\":");
-            writer.number(payload);
-            writer.literal(",\"rtx_payload_type\":");
-            writer.number(payload + 1);
-            writer.literal(",\"encode\":");
-            writer.boolean(codec.encode);
-            writer.literal(",\"decode\":");
-            writer.boolean(codec.decode);
-            writer.literal("}");
+            writer.put(",{\"name\":\"", Utf8View{name.text, name.bytes}, "\",\"type\":\"video\",\"priority\":",
+                       1000u * (i + 1), ",\"payload_type\":", payload, ",\"rtx_payload_type\":", payload + 1,
+                       ",\"encode\":", codec.encode, ",\"decode\":", codec.decode, '}');
         }
-        writer.literal("],\"rtc_connection_id\":\"");
-        writer.raw(selection.rtc_connection_id.data, kVoiceRtcConnectionIdBytes);
-        writer.literal("\",\"experiments\":[]}}");
+        writer.put("],\"rtc_connection_id\":\"", Utf8View{selection.rtc_connection_id.data, kVoiceRtcConnectionIdBytes},
+                   "\",\"experiments\":[]}}");
     });
 }
 
@@ -171,7 +156,7 @@ GatewayCommandWriteResult voice_gateway_write_media_sink_wants(u8 any_quality, C
                 return {0, GatewayCommandError::invalid_input};
     }
     return write_json_command(output, [&](Writer& writer) noexcept {
-        writer.literal("{\"op\":15,\"d\":{");
+        writer.put("{\"op\":15,\"d\":{");
         // Selection in ascending SSRC order; the list is small and unsorted.
         u32 previous = 0;
         for (u32 written = 0; written != wants.count; ++written) {
@@ -182,16 +167,10 @@ GatewayCommandWriteResult voice_gateway_write_media_sink_wants(u8 any_quality, C
                     best = wants[i].ssrc;
                     quality = wants[i].quality;
                 }
-            writer.literal("\"");
-            writer.number(best);
-            writer.literal("\":");
-            writer.number(quality);
-            writer.literal(",");
+            writer.put('"', best, "\":", quality, ',');
             previous = best;
         }
-        writer.literal("\"any\":");
-        writer.number(any_quality);
-        writer.literal("}}");
+        writer.put("\"any\":", any_quality, "}}");
     });
 }
 

@@ -1,5 +1,7 @@
 #include "application_user_settings.hpp"
 #include "application_guild_folders.hpp"
+#include "application_account_access.hpp"
+#include "application_owner.hpp"
 #include "application_state.hpp"
 #include "application_text_form.hpp"
 #include "application_link_trust.hpp"
@@ -103,17 +105,12 @@ bool content_confirmation_open(TextFormOwnerKey key, Utf8View) noexcept {
     return application_link_open(utf8_literal("https://discord.com/settings/account-status"), true);
 }
 void release_bank() noexcept {
-    if (!g_owner.bank)
-        return;
-    secure_clear_bytes(g_owner.bank, sizeof(Bank));
-    VirtualFree(g_owner.bank, 0, MEM_RELEASE);
-    g_owner.bank = nullptr;
+    owner_release(g_owner.bank);
 }
 bool ensure_bank() noexcept {
     if (g_owner.bank)
         return true;
-    g_owner.bank = static_cast<Bank*>(VirtualAlloc(nullptr, sizeof(Bank), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!g_owner.bank)
+    if (!owner_ensure(g_owner.bank))
         return false;
     user_settings_store_reset(&g_owner.bank->store);
     return true;
@@ -125,8 +122,7 @@ void scope() noexcept {
     if (g_owner.profile_id == profile && g_owner.self_user_id == self)
         return;
     application_text_form_cancel_owner(content_confirmation_valid);
-    if (g_owner.request_id && g_app.account.api.account_settings && g_app.account.instance)
-        g_app.account.api.account_settings(g_app.account.instance, nullptr, g_owner.request_id);
+    application_cancel_request(&AccountModuleApi::account_settings, g_owner.request_id);
     release_bank();
     const u64 applied = g_owner.applied_revision;
     reset_value(&g_owner);
@@ -352,7 +348,7 @@ bool application_user_settings_response(const RestClientResponse& response, Utf8
     if (!s)
         return true;
     const u64 now_ms = clock_monotonic_milliseconds();
-    const bool ok = response.transport_ok() && response.status_code >= 200 && response.status_code < 300;
+    const bool ok = response.succeeded();
     UserSettingsResponse decoded{};
     if (ok)
         decoded = user_settings_proto_decode_response(body, kUserSettingsStoredGroups,

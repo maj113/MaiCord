@@ -3,6 +3,7 @@
 #include "application_composer.hpp"
 #include "application_message_interaction.hpp"
 #include "application_state.hpp"
+#include "application_account_access.hpp"
 #include "application_voice.hpp"
 #include "maicord/app/account_soundboard.hpp"
 #include "maicord/core/log.hpp"
@@ -812,10 +813,8 @@ bool application_soundboard_submit(u64 request_id, u64 now) noexcept {
         next_load(&load);
     const SoundboardRequest& request = write ? board.queue[board.head].request : load;
     const auto submitted = h.api.soundboard(h.instance, &request, request_id);
-    if (submitted.error == RestClientSubmitError::busy) {
-        board.retry_at_ms = now + kBusyRetryMs;
+    if (submit_busy(submitted, board.retry_at_ms, now, kBusyRetryMs))
         return false;
-    }
     board.retry_at_ms = 0;
     if (!submitted.ok()) {
         log_u64(LogLevel::warning, "soundboard", "request_refused", static_cast<u64>(submitted.error));
@@ -851,8 +850,7 @@ bool application_soundboard_response(const RestClientResponse& response, Utf8Vie
     const auto operation = board.in_flight;
     const u64 guild_id = board.in_flight_guild;
     const u64 now = now_ms();
-    const bool ok = response.error == RestClientError::none && response.status_code >= 200 &&
-                    response.status_code < 300;
+    const bool ok = response.succeeded();
     switch (operation) {
     case SoundboardOperation::default_list:
     case SoundboardOperation::guild_list: {

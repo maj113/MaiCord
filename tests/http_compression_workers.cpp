@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/app/user_account_coordinator.hpp"
+#include "rest_wait_response.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
 namespace maicord {

@@ -1,4 +1,5 @@
 #include "maicord/app/read_scope.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/model/permission_bits.hpp"
 
 namespace maicord {

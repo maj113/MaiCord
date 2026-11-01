@@ -20,21 +20,9 @@ bool opaque(Utf8View text, u32 limit) noexcept {
         if (static_cast<u8>(text.data[i]) <= 32 || static_cast<u8>(text.data[i]) >= 127) return false;
     return true;
 }
-bool add_bytes(ProtocolWriter& w, const char* text, u32 bytes) noexcept {
-    return protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(text), bytes);
-}
-// Inlined so that a literal argument travels as a pointer and a length.
-__forceinline bool add(ProtocolWriter& w, Utf8View text) noexcept { return add_bytes(w, text.data, text.bytes); }
-bool parameter_bytes(ProtocolWriter& w, const char* name, u32 name_bytes, const Utf8View& value) noexcept {
-    return add_bytes(w, name, name_bytes) && protocol_writer_append_percent_encoded(&w, value);
-}
-__forceinline bool parameter(ProtocolWriter& w, Utf8View name, const Utf8View& value) noexcept {
-    return parameter_bytes(w, name.data, name.bytes, value);
-}
 u32 redirect(u16 port, Slice<u8> out) noexcept {
     ProtocolWriter w{out, 0};
-    return port >= 1024 && add(w, utf8_literal("http://127.0.0.1:")) && protocol_writer_append_u64(&w, port) &&
-        add(w, utf8_literal("/oauth2callback")) ? w.used : 0;
+    return port >= 1024 && protocol_write(&w, "http://127.0.0.1:", port, "/oauth2callback") ? w.used : 0;
 }
 u32 finish(const ProtocolWriter& w, bool valid, Slice<u8> out) noexcept {
     if (!valid || !out.data || out.count < w.used) return 0;
@@ -97,12 +85,11 @@ u32 oauth_authorize(OAuthProvider provider, Utf8View client, u16 port, Utf8View 
     u8 staged[1024], uri[64]; Erase clear{staged, sizeof(staged)};
     const auto uri_bytes = redirect(port, {uri, sizeof(uri)});
     ProtocolWriter w{{staged, sizeof(staged)}, 0};
-    const bool ok = uri_bytes && add(w, utf8_literal("https://accounts.spotify.com/authorize?response_type=code")) &&
-        parameter(w, utf8_literal("&client_id="), client) &&
-        parameter(w, utf8_literal("&redirect_uri="), {reinterpret_cast<char*>(uri), uri_bytes}) &&
-        parameter(w, utf8_literal("&scope="), oauth_scope(provider)) && parameter(w, utf8_literal("&state="), state) &&
-        parameter(w, utf8_literal("&code_challenge="), challenge) &&
-        add(w, utf8_literal("&code_challenge_method=S256"));
+    const bool ok = uri_bytes &&
+        protocol_write(&w, "https://accounts.spotify.com/authorize?response_type=code&client_id=", percent_text(client),
+                       "&redirect_uri=", percent_text({reinterpret_cast<char*>(uri), uri_bytes}),
+                       "&scope=", percent_text(oauth_scope(provider)), "&state=", percent_text(state),
+                       "&code_challenge=", percent_text(challenge), "&code_challenge_method=S256");
     return finish(w, ok, out);
 }
 u32 oauth_exchange_body(OAuthProvider provider, Utf8View client, u16 port, Utf8View code, Utf8View verifier, Slice<u8> out) noexcept {
@@ -110,18 +97,18 @@ u32 oauth_exchange_body(OAuthProvider provider, Utf8View client, u16 port, Utf8V
     u8 staged[4096], uri[64]; Erase clear{staged, sizeof(staged)};
     const auto uri_bytes = redirect(port, {uri, sizeof(uri)});
     ProtocolWriter w{{staged, sizeof(staged)}, 0};
-    const bool ok = uri_bytes && add(w, utf8_literal("grant_type=authorization_code")) &&
-        parameter(w, utf8_literal("&client_id="), client) &&
-        parameter(w, utf8_literal("&redirect_uri="), {reinterpret_cast<char*>(uri), uri_bytes}) &&
-        parameter(w, utf8_literal("&code="), code) && parameter(w, utf8_literal("&code_verifier="), verifier);
+    const bool ok = uri_bytes &&
+        protocol_write(&w, "grant_type=authorization_code&client_id=", percent_text(client),
+                       "&redirect_uri=", percent_text({reinterpret_cast<char*>(uri), uri_bytes}),
+                       "&code=", percent_text(code), "&code_verifier=", percent_text(verifier));
     return finish(w, ok, out);
 }
 u32 oauth_refresh_body(OAuthProvider provider, Utf8View client, Utf8View refresh, Slice<u8> out) noexcept {
     if (!oauth_client_valid(provider,client) || !opaque(refresh, kOAuthTokenBytes)) return 0;
     u8 staged[4096]; Erase clear{staged, sizeof(staged)};
     ProtocolWriter w{{staged, sizeof(staged)}, 0};
-    return finish(w, add(w, utf8_literal("grant_type=refresh_token")) &&
-        parameter(w, utf8_literal("&client_id="), client) && parameter(w, utf8_literal("&refresh_token="), refresh), out);
+    return finish(w, protocol_write(&w, "grant_type=refresh_token&client_id=", percent_text(client),
+                                    "&refresh_token=", percent_text(refresh)), out);
 }
 OAuthCallback oauth_callback(OAuthProvider provider, Utf8View input, u16 port, Utf8View expected, Slice<u8> output) noexcept {
     const auto reject = [](E e) noexcept { return OAuthCallback{0, e, true}; };
@@ -139,7 +126,7 @@ OAuthCallback oauth_callback(OAuthProvider provider, Utf8View input, u16 port, U
         !utf8_equal({input.data + end - version.bytes, version.bytes}, version)) return reject(E::malformed);
     const Utf8View query{input.data + begin.bytes, end - begin.bytes - version.bytes};
     u8 host[32]; ProtocolWriter host_writer{{host, sizeof(host)}, 0};
-    add(host_writer, utf8_literal("127.0.0.1:")); protocol_writer_append_u64(&host_writer, port);
+    protocol_write(&host_writer, "127.0.0.1:", port);
     bool host_seen = false, length_seen = false;
     u32 fields = 0;
     for (u32 p = end + 2; p < head - 2;) {

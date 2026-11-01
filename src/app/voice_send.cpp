@@ -6,24 +6,9 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_records.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "voice_send_shared.hpp"
 
 namespace maicord {
-struct VoiceSendShared {
-    SrwLock control_lock;
-    VoiceSendControl control;
-    bool (*probe)(void*, u8) noexcept;
-    void* probe_context;
-    volatile LONG write, read, end_lost;
-    VoiceSendPacket packets[kVoiceSendQueue];
-    OpusEncoder encoder;
-    VoiceFramer framer;
-    VoiceActivity activity;
-    VoicePushToTalk push_to_talk;
-    VoiceTransmitter transmitter;
-    u64 wake_us;
-    i16 frame[kVoiceFrameSamples];
-    OpusScratch scratch; // Capture thread's encode scratch.
-};
 namespace {
 constexpr usize kEncoderOffset = (sizeof(VoiceSendShared) + 63) & ~usize{63};
 
@@ -176,11 +161,6 @@ void voice_send_set_control(VoiceSend* send, const VoiceSendControl& control) no
     ReleaseSRWLockExclusive(send->shared->control_lock.native());
 }
 
-void voice_send_set_key_probe(VoiceSend* send, bool (*probe)(void*, u8) noexcept, void* context) noexcept {
-    if (send && send->shared)
-        send->shared->probe = probe, send->shared->probe_context = context;
-}
-
 void voice_send_push(void* context, ConstSlice<i16> mono, u64 now_us) noexcept {
     auto& send = *static_cast<VoiceSend*>(context);
     voice_framer_push(&send.shared->framer, mono);
@@ -191,12 +171,6 @@ u64 voice_send_tick(void* context, u64 now_us) noexcept {
     auto& send = *static_cast<VoiceSend*>(context);
     process(send, now_us);
     return send.shared->wake_us;
-}
-
-u32 voice_send_queued(const VoiceSend& send) noexcept {
-    return send.shared ? static_cast<u32>(read_acquire(&send.shared->write)) -
-                             static_cast<u32>(read_acquire(&send.shared->read))
-                       : 0;
 }
 
 void voice_send_configure(VoiceSend* send, const VoiceAudioSettings& settings) noexcept {

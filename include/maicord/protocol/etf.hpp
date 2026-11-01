@@ -28,14 +28,7 @@ enum class EtfError : u8 {
     output_capacity,
 };
 
-struct EtfResult {
-    u32 bytes;
-    EtfError error;
-
-    constexpr bool ok() const noexcept {
-        return error == EtfError::none;
-    }
-};
+using EtfResult = ByteResult<EtfError>;
 
 inline constexpr u32 kEtfMaximumDepth = 128;
 

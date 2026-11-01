@@ -1,7 +1,7 @@
 #include "maicord/app/account_guild_moderation.hpp"
 
+#include "maicord/app/request_body_bank.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 static_assert(kGuildModerationMaximumTargetBytes <= kRestClientMaximumTargetBytes);
@@ -23,15 +23,15 @@ RestClientSubmitResult account_guild_moderation_submit(RestClient* rest, const G
     const auto encoded = guild_moderation_write_reason(*request, {reason, sizeof(reason)});
     if (!encoded.ok())
         return {RestClientSubmitError::invalid_input};
-    auto* body = static_cast<u8*>(
-        VirtualAlloc(nullptr, kGuildModerationMaximumBodyBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!body)
+    RequestBodyBank body{kGuildModerationMaximumBodyBytes};
+    if (!body.data)
         return {RestClientSubmitError::memory};
-    const auto written = guild_moderation_write_body(*request, {body, kGuildModerationMaximumBodyBytes});
+    const auto written = guild_moderation_write_body(*request, body.all());
+    body.used = written.ok() ? written.bytes : 0;
     RestClientSubmitResult result{RestClientSubmitError::body_capacity};
     if (written.ok()) {
         RestClientRequest submit{{target, path.bytes},
-                                 {written.bytes ? body : nullptr, written.bytes},
+                                 {written.bytes ? body.data : nullptr, written.bytes},
                                  guild_moderation_route(*request),
                                  request_id,
                                  kRestClientDefaultTimeoutMs,
@@ -43,8 +43,6 @@ RestClientSubmitResult account_guild_moderation_submit(RestClient* rest, const G
                      ? rest_client_submit_large_response(rest, submit, kSearchResponseBytes)
                      : rest_client_submit(rest, submit);
     }
-    secure_clear_bytes(body, written.ok() ? written.bytes : 0);
-    VirtualFree(body, 0, MEM_RELEASE);
     secure_clear_bytes(reason, encoded.bytes);
     return result;
 }

@@ -1,4 +1,5 @@
 #include "application_overlay_input.hpp"
+#include "application_owner.hpp"
 #include "application_thread_browser.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_content_point.hpp"
@@ -194,9 +195,7 @@ void free_owner() noexcept {
     browser_owner = nullptr;
 }
 bool ensure_owner() noexcept {
-    if (browser_owner) return true;
-    browser_owner = static_cast<ApplicationThreadBrowser*>(VirtualAlloc(nullptr, sizeof(ApplicationThreadBrowser), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    return browser_owner != nullptr;
+    return owner_ensure(browser_owner) != nullptr;
 }
 bool ensure_bank(BrowserBank& bank, u32 count) noexcept {
     if (!bank.storage) bank.storage = static_cast<u8*>(VirtualAlloc(nullptr, bank_bytes, MEM_RESERVE, PAGE_READWRITE));
@@ -336,10 +335,7 @@ bool forum_meta_active(const ApplicationThreadBrowser& value) noexcept {
 }
 // Keeps the state of the same forum (cache, tag filter, sort, layout) across reopen.
 bool forum_prepare(ApplicationThreadBrowser& value, const ChannelRecord& parent) noexcept {
-    if (!value.forum) {
-        value.forum = static_cast<ForumState*>(VirtualAlloc(nullptr, sizeof(ForumState), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-        if (!value.forum) return false;
-    }
+    if (!owner_ensure(value.forum)) return false;
     auto& forum = *value.forum;
     if (!forum.cache) forum.cache = static_cast<ForumPostEntry*>(VirtualAlloc(nullptr, forum_cache_bytes, MEM_RESERVE, PAGE_READWRITE));
     if (!forum.scratch) forum.scratch = static_cast<u8*>(VirtualAlloc(nullptr, forum_scratch_bytes, MEM_RESERVE, PAGE_READWRITE));
@@ -549,7 +545,7 @@ bool forum_meta_response(ApplicationThreadBrowser& value, const RestClientRespon
     request.operation = ForumPostOperation::parent_metadata;
     ForumParentSnapshot candidate{};
     if (retry_at && forum.meta_busy++ < 2) forum.meta_queued = true;
-    else if (response.transport_ok() && response.status_code >= 200 && response.status_code < 300 && body.data &&
+    else if (response.succeeded() && body.data &&
         body.bytes == response.body_bytes && body.bytes <= kForumPostMaximumResponseBytes &&
         forum_parent_decode(body, request,
             {g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount}, &candidate).ok() &&

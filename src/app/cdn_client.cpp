@@ -933,28 +933,6 @@ CdnClientResult cdn_client_wait_response(CdnClient* client, u32 timeout_ms) noex
     return value;
 }
 
-CdnClientTakeResult cdn_client_take_response(CdnClient* client,
-                                             CdnClientResponse* response,
-                                             Slice<u8> body_output) noexcept {
-    if (!client || !client->runtime || !response || (!body_output.data && body_output.count != 0)) {
-        return CdnClientTakeResult{0, CdnClientTakeError::invalid_input};
-    }
-    if (read_acquire(&client->request_state) != request_state_ready) {
-        return CdnClientTakeResult{0, CdnClientTakeError::empty};
-    }
-    auto* runtime = static_cast<CdnClientRuntime*>(client->runtime);
-    if (runtime->completed.body_bytes > body_output.count) {
-        return CdnClientTakeResult{runtime->completed.body_bytes,
-                                   CdnClientTakeError::output_too_small};
-    }
-    copy_bytes(body_output.data, runtime->response_body, runtime->completed.body_bytes);
-    trim_consumed_response(runtime);
-    copy_value(response, runtime->completed);
-    const u32 body_bytes = runtime->completed.body_bytes;
-    recycle_request(client, runtime);
-    return CdnClientTakeResult{body_bytes, CdnClientTakeError::none};
-}
-
 CdnClientTakeResult cdn_client_consume_response(CdnClient* client,
                                                 CdnClientResponseConsumer consumer,
                                                 void* context) noexcept {

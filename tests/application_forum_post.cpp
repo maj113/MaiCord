@@ -1,6 +1,7 @@
 // Actual shipping host with typed offline transport and native form/navigation
 // seams. No network account, worker, response bank, or test-only host behavior.
 #include "../src/app/application_forum_post.hpp"
+#include "model_store_fixtures.hpp"
 #include "../src/app/application_state.hpp"
 #include "test_output.hpp"
 #include "maicord/model/read_state.hpp"

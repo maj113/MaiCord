@@ -3,11 +3,13 @@
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
 #include "json_fields.hpp"
+#include "json_helpers.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/protocol/rest.hpp"
 
 namespace maicord {
 namespace {
+using protocol_detail::JsonBody;
 bool member_operation(ProfileEditOperation op) noexcept {
     return op == ProfileEditOperation::member_patch || op == ProfileEditOperation::member_profile_patch;
 }
@@ -84,83 +86,46 @@ bool profile_valid(const ProfilePatch& p, bool member) noexcept {
 void escaped(Utf8View value, u32* bytes) noexcept {
     *bytes += 2 + value.bytes * 6;
 }
-struct Body {
-    ProtocolWriter w;
-    bool first = true;
-    bool key(const char* name) noexcept {
-        const bool comma = !first;
-        first = false;
-        return (!comma || protocol_writer_append_byte(&w, ',')) && protocol_writer_append_byte(&w, '"') &&
-               protocol_writer_append_c_string(&w, name) && protocol_writer_append_literal(&w, "\":");
+void write_user(JsonBody& b, const UserPatch& p) noexcept {
+    if (p.fields & user_patch_avatar) {
+        b.member("avatar", nullable_json(p.avatar));
+        b.member_if(p.avatar.bytes && p.avatar_description.bytes, "avatar_description",
+                    json_text(p.avatar_description));
     }
-    bool text(const char* name, Utf8View value) noexcept {
-        return key(name) && protocol_writer_append_json_string(&w, value);
-    }
-    bool image(const char* name, Utf8View value) noexcept {
-        return key(name) && (value.bytes ? protocol_writer_append_json_string(&w, value)
-                                         : protocol_writer_append_literal(&w, "null"));
-    }
-    bool snowflake(u64 value) noexcept {
-        return value ? protocol_writer_append_byte(&w, '"') && protocol_writer_append_u64(&w, value) &&
-                           protocol_writer_append_byte(&w, '"')
-                     : protocol_writer_append_literal(&w, "null");
-    }
-};
-bool write_user(Body& b, const UserPatch& p) noexcept {
-    if ((p.fields & user_patch_avatar) &&
-        (!b.image("avatar", p.avatar) ||
-         (p.avatar.bytes && p.avatar_description.bytes && !b.text("avatar_description", p.avatar_description))))
-        return false;
-    if ((p.fields & user_patch_global_name) && !b.text("global_name", p.global_name))
-        return false;
-    return !(p.fields & user_patch_avatar_decoration) ||
-           (b.key("avatar_decoration_sku_id") && b.snowflake(p.avatar_decoration_sku));
+    b.member_if(p.fields & user_patch_global_name, "global_name", json_text(p.global_name));
+    b.member_if(p.fields & user_patch_avatar_decoration, "avatar_decoration_sku_id",
+                nullable_snowflake(p.avatar_decoration_sku));
 }
-bool write_member(Body& b, const MemberEditPatch& p) noexcept {
-    if ((p.fields & member_edit_nick) && !b.text("nick", p.nick))
-        return false;
-    if ((p.fields & member_edit_avatar) &&
-        (!b.image("avatar", p.avatar) ||
-         (p.avatar.bytes && p.avatar_description.bytes && !b.text("avatar_description", p.avatar_description))))
-        return false;
-    return !(p.fields & member_edit_avatar_decoration) ||
-           (b.key("avatar_decoration_sku_id") && b.snowflake(p.avatar_decoration_sku));
-}
-bool write_profile(Body& b, const ProfilePatch& p) noexcept {
-    if ((p.fields & profile_patch_banner) && !b.image("banner", p.banner))
-        return false;
-    if ((p.fields & profile_patch_bio) && !b.text("bio", p.bio))
-        return false;
-    if ((p.fields & profile_patch_pronouns) && !b.text("pronouns", p.pronouns))
-        return false;
-    if (p.fields & profile_patch_accent) {
-        if (!b.key("accent_color") || !(p.accent_none ? protocol_writer_append_literal(&b.w, "null")
-                                                      : protocol_writer_append_u64(&b.w, p.accent_color)))
-            return false;
+void write_member(JsonBody& b, const MemberEditPatch& p) noexcept {
+    b.member_if(p.fields & member_edit_nick, "nick", json_text(p.nick));
+    if (p.fields & member_edit_avatar) {
+        b.member("avatar", nullable_json(p.avatar));
+        b.member_if(p.avatar.bytes && p.avatar_description.bytes, "avatar_description",
+                    json_text(p.avatar_description));
     }
+    b.member_if(p.fields & member_edit_avatar_decoration, "avatar_decoration_sku_id",
+                nullable_snowflake(p.avatar_decoration_sku));
+}
+void write_profile(JsonBody& b, const ProfilePatch& p) noexcept {
+    b.member_if(p.fields & profile_patch_banner, "banner", nullable_json(p.banner));
+    b.member_if(p.fields & profile_patch_bio, "bio", json_text(p.bio));
+    b.member_if(p.fields & profile_patch_pronouns, "pronouns", json_text(p.pronouns));
+    b.member_if(p.fields & profile_patch_accent, "accent_color", or_null(!p.accent_none, p.accent_color));
     if (p.fields & profile_patch_theme) {
-        bool ok = b.key("theme_colors");
+        b.key("theme_colors");
         if (p.theme == ProfileThemePatch::none)
-            ok = ok && protocol_writer_append_literal(&b.w, "null");
+            b.put("null");
         else if (p.theme == ProfileThemePatch::reset)
-            ok = ok && protocol_writer_append_literal(&b.w, "[null,null]");
+            b.put("[null,null]");
         else
-            ok = ok && protocol_writer_append_byte(&b.w, '[') && protocol_writer_append_u64(&b.w, p.theme_colors[0]) &&
-                 protocol_writer_append_byte(&b.w, ',') && protocol_writer_append_u64(&b.w, p.theme_colors[1]) &&
-                 protocol_writer_append_byte(&b.w, ']');
-        if (!ok)
-            return false;
+            b.put('[', p.theme_colors[0], ',', p.theme_colors[1], ']');
     }
     if (p.fields & profile_patch_collectibles) {
-        if (!b.key("collectibles_sku_ids") || !protocol_writer_append_byte(&b.w, '['))
-            return false;
+        b.begin_array("collectibles_sku_ids");
         for (u32 i = 0; i < p.collectible_count; ++i)
-            if ((i && !protocol_writer_append_byte(&b.w, ',')) || !b.snowflake(p.collectibles[i]))
-                return false;
-        if (!protocol_writer_append_byte(&b.w, ']'))
-            return false;
+            b.element(nullable_snowflake(p.collectibles[i]));
+        b.end_array();
     }
-    return true;
 }
 
 using namespace protocol_detail;
@@ -286,29 +251,26 @@ ProfileEditWriteResult profile_edit_write_target(const ProfileEditRequest& r, Sl
     bool ok = false;
     switch (r.operation) {
     case ProfileEditOperation::user_patch:
-        ok = protocol_writer_append_literal(&w, "/api/v10/users/@me");
+        ok = protocol_write(&w, "/api/v10/users/@me");
         break;
     case ProfileEditOperation::user_profile_patch:
-        ok = protocol_writer_append_literal(&w, "/api/v10/users/@me/profile");
+        ok = protocol_write(&w, "/api/v10/users/@me/profile");
         break;
     case ProfileEditOperation::member_patch:
     case ProfileEditOperation::member_profile_patch:
-        ok = protocol_writer_append_literal(&w, "/api/v10/guilds/") && protocol_writer_append_u64(&w, r.guild_id) &&
-             (r.operation == ProfileEditOperation::member_patch ? protocol_writer_append_literal(&w, "/members/@me")
-                                                                : protocol_writer_append_literal(&w, "/profile/@me"));
+        ok = protocol_write(&w, "/api/v10/guilds/", r.guild_id,
+                            r.operation == ProfileEditOperation::member_patch ? "/members/@me" : "/profile/@me");
         break;
     case ProfileEditOperation::profile_fetch:
-        ok = protocol_writer_append_literal(&w, "/api/v10/users/") && protocol_writer_append_u64(&w, r.id) &&
-             protocol_writer_append_literal(
-                 &w, "/profile?with_mutual_guilds=false&with_mutual_friends=false&with_mutual_friends_count=false") &&
-             (!r.guild_id ||
-              (protocol_writer_append_literal(&w, "&guild_id=") && protocol_writer_append_u64(&w, r.guild_id)));
+        ok = protocol_write(&w, "/api/v10/users/", r.id,
+                            "/profile?with_mutual_guilds=false&with_mutual_friends=false&with_mutual_friends_count=false") &&
+             (!r.guild_id || protocol_write(&w, "&guild_id=", r.guild_id));
         break;
     case ProfileEditOperation::collectibles:
-        ok = protocol_writer_append_literal(&w, "/api/v10/users/@me/collectibles-purchases?variants_return_style=2");
+        ok = protocol_write(&w, "/api/v10/users/@me/collectibles-purchases?variants_return_style=2");
         break;
     case ProfileEditOperation::collectible_product:
-        ok = protocol_writer_append_literal(&w, "/api/v10/collectibles-products/") && protocol_writer_append_u64(&w, r.id);
+        ok = protocol_write(&w, "/api/v10/collectibles-products/", r.id);
         break;
     default:
         break;
@@ -333,11 +295,7 @@ u32 profile_edit_write_md5(const ProfileEditRequest& r, Slice<u8> output) noexce
     if (!md5.bytes)
         return 0;
     ProtocolWriter w{output, 0};
-    return protocol_writer_append_c_string(&w, key) && protocol_writer_append_literal(&w, "=\"") &&
-                   protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(md5.data), 32) &&
-                   protocol_writer_append_byte(&w, '"')
-               ? w.used
-               : 0;
+    return protocol_write(&w, key, "=\"", Utf8View{md5.data, 32}, '"') ? w.used : 0;
 }
 
 u32 profile_edit_body_capacity(const ProfileEditRequest& r) noexcept {
@@ -366,20 +324,20 @@ u32 profile_edit_body_capacity(const ProfileEditRequest& r) noexcept {
 ProfileEditWriteResult profile_edit_write_body(const ProfileEditRequest& r, Slice<u8> output) noexcept {
     if (profile_edit_method(r.operation) == RestMethod::get || !output.data)
         return {};
-    Body b{{output, 0}};
-    bool ok = protocol_writer_append_byte(&b.w, '{');
-    if (ok && r.user)
-        ok = write_user(b, *r.user);
-    if (ok && r.member)
-        ok = write_member(b, *r.member);
-    if (ok && r.profile)
-        ok = write_profile(b, *r.profile);
-    ok = ok && protocol_writer_append_byte(&b.w, '}');
-    if (!ok) {
-        clear_bytes(output.data, b.w.used);
+    JsonBody b{output};
+    b.begin_object();
+    if (r.user)
+        write_user(b, *r.user);
+    if (r.member)
+        write_member(b, *r.member);
+    if (r.profile)
+        write_profile(b, *r.profile);
+    b.end_object();
+    if (!b.ok) {
+        clear_bytes(output.data, b.writer.used);
         return {};
     }
-    return {b.w.used, true};
+    return {b.writer.used, true};
 }
 
 bool profile_edit_decode_profile(Utf8View body, Slice<u32> structurals, u64 user, u64 guild,

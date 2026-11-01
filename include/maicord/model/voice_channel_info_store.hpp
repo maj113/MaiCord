@@ -24,7 +24,6 @@ struct VoiceChannelInfoStore {
     u32 count, text_used, revision, dropped;
 };
 
-void voice_channel_info_store_reset(VoiceChannelInfoStore*) noexcept;
 // Sets or clears (start_s 0, empty status) one value. When full, records of
 // other guilds are evicted first; a value that still does not fit is dropped.
 bool voice_channel_info_store_set_start(VoiceChannelInfoStore*, u64 guild_id, u64 channel_id,

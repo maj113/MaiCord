@@ -51,14 +51,7 @@ struct GatewayLifecycleStep {
     }
 };
 
-struct GatewayWriteResult {
-    u32 bytes;
-    GatewayLifecycleError error;
-
-    constexpr bool ok() const noexcept {
-        return error == GatewayLifecycleError::none;
-    }
-};
+using GatewayWriteResult = ByteResult<GatewayLifecycleError>;
 
 enum class GatewayCloseDisposition : u8 {
     stop,
