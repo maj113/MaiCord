@@ -57,31 +57,37 @@ float curve_ease(float t,float4 p) {
     }
     return ((a.y*u+b.y)*u+c.y)*u;
 }
-float profile_ease(float t) { return curve_ease(t,float4(.44,.29,.48,1));
-}
-float pop_offset(float cycle,bool shadow) {
+static const float4 kProfileCurve=float4(.44,.29,.48,1);
+static const float4 kNeonCurve=float4(.24,.31,.36,.93);
+// A move is (from,to,t): its value is lerp(from,to,curve_ease(t)); a held value
+// has from==to. A vertex solves at most two curves, one per call site below.
+float eased(float3 move,float4 curve) { return lerp(move.x,move.y,curve_ease(move.z,curve)); }
+float3 pop_move(float cycle,bool shadow) {
     float3 offsets=shadow?float3(.08,.13,0):float3(0,-.05,.08);
-    if(cycle>=.5)return offsets.x;
-    float2 endpoints;float t;
-    if(cycle<.18){endpoints=offsets.xy;t=cycle/.18;}
-    else if(cycle<.35){endpoints=offsets.yz;t=(cycle-.18)/.17;}
-    else {endpoints=offsets.zx;t=(cycle-.35)/.15;}
-    return lerp(endpoints.x,endpoints.y,profile_ease(t));
+    if(cycle>=.5)return float3(offsets.x,offsets.x,0);
+    if(cycle<.18)return float3(offsets.xy,cycle/.18);
+    if(cycle<.35)return float3(offsets.yz,(cycle-.18)/.17);
+    return float3(offsets.zx,(cycle-.35)/.15);
 }
 // Four-second cycle shared by the independent front and extrusion transforms.
 float profile_cycle(TextEffectMaterial effect) { return frac((effect_seconds-effect.reserved.x+60)/4); }
 
-float gummy_scale(float cycle) {
-    if(cycle>=.35)return 1;
-    float2 endpoints;float t;
-    if(cycle<.07){endpoints=float2(1,1.28);t=cycle/.07;}
-    else if(cycle<.14){endpoints=float2(1.28,.82);t=(cycle-.07)/.07;}
-    else if(cycle<.21){endpoints=float2(.82,1.1);t=(cycle-.14)/.07;}
-    else if(cycle<.28){endpoints=float2(1.1,.96);t=(cycle-.21)/.07;}
-    else {endpoints=float2(.96,1);t=(cycle-.28)/.07;}
-    return lerp(endpoints.x,endpoints.y,profile_ease(t));
+float3 gummy_move(float cycle) {
+    if(cycle>=.35)return float3(1,1,0);
+    if(cycle<.07)return float3(1,1.28,cycle/.07);
+    if(cycle<.14)return float3(1.28,.82,(cycle-.07)/.07);
+    if(cycle<.21)return float3(.82,1.1,(cycle-.14)/.07);
+    if(cycle<.28)return float3(1.1,.96,(cycle-.21)/.07);
+    return float3(.96,1,(cycle-.28)/.07);
 }
-float neon_flash(float cycle);
+float3 neon_move(float cycle) {
+    const float stops[10]={.15,.16,.18,.20,.22,.23,.25,.28,.50,.51};
+    const float values[10]={0,1,0,0,1,0,0,1,0,0};
+    float3 move=0;
+    [loop]for(uint i=0;i<9;i++)if(cycle>=stops[i]&&cycle<stops[i+1])
+        move=float3(values[i],values[i+1],saturate((cycle-stops[i])/(stops[i+1]-stops[i])));
+    return move;
+}
 GlyphVertexOutput glyph_vertex(GlyphVertexInput input, uint vertex_id : SV_VertexID) {
     GlyphVertexOutput output;
     const float2 corner = kGlyphCorners[vertex_id];
@@ -103,20 +109,26 @@ GlyphVertexOutput glyph_vertex(GlyphVertexInput input, uint vertex_id : SV_Verte
     float2 position=lerp(rectangle.xy,rectangle.zw,corner);
     if(input.color.r<0 && !color_glyph) {
         const TextEffectMaterial effect=effects[min(127u,(uint)(-input.color.r-1))];
-        if(effect.kind==3 && input.texture_rectangle.x>=0)
-            output.glyph_parameters.z=effect.animate*neon_flash(profile_cycle(effect));
-        else if(input.color.b<0 || effect.kind==4) {
-            float progress=input.color.b<0?profile_cycle(effect)*2:(profile_cycle(effect)-.05)/.5;
-            output.glyph_parameters.z=profile_ease(saturate(progress))*effect.animate;
+        const bool neon=effect.kind==3 && input.texture_rectangle.x>=0;
+        if(neon || input.color.b<0 || effect.kind==4) {
+            float3 move=0;
+            if(!neon) {
+                float progress=input.color.b<0?profile_cycle(effect)*2:(profile_cycle(effect)-.05)/.5;
+                move=float3(0,1,saturate(progress));
+            } else move=neon_move(profile_cycle(effect));
+            output.glyph_parameters.z=effect.animate*eased(move,neon?kNeonCurve:kProfileCurve);
         }
-        if(effect.kind==8 && effect.animate>0 && input.texture_rectangle.x>=0) {
-            float cycle=frac((effect_seconds-effect.reserved.x+60-input.color.g*.05)/4);
-            float scale=gummy_scale(cycle);
-            float2 center=float2(input.color.b,effect.reserved.z+effect.reserved.y*.65);
-            position=center+(position-center)*float2(scale,2-scale);
+        const bool gummy=effect.kind==8 && effect.animate>0 && input.texture_rectangle.x>=0;
+        if(gummy || effect.kind==5) {
+            float3 move;
+            if(gummy)move=gummy_move(frac((effect_seconds-effect.reserved.x+60-input.color.g*.05)/4));
+            else move=pop_move(effect.animate>0?profile_cycle(effect):.75,input.color.b<0&&input.color.g>1.5);
+            const float amount=eased(move,kProfileCurve);
+            if(gummy) {
+                float2 center=float2(input.color.b,effect.reserved.z+effect.reserved.y*.65);
+                position=center+(position-center)*float2(amount,2-amount);
+            } else position.y+=amount*effect.reserved.y;
         }
-        if(effect.kind==5) position.y+=pop_offset(effect.animate>0?profile_cycle(effect):.75,
-            input.color.b<0&&input.color.g>1.5)*effect.reserved.y;
     }
     output.position=float4(position*coordinate_scale+coordinate_translation,0,1);
     output.texture_coordinate=lerp(uv.xy,uv.zw,corner);
@@ -129,10 +141,13 @@ Texture2D<float> glyph_atlas : register(t0);
 Texture2D<float4> color_glyph_atlas : register(t1);
 SamplerState glyph_sampler : register(s0);
 
+// Every sample reads mip 0: the sampler's MaxLOD is 0, so an explicit level is
+// exact and spares the pixel quad its implicit-derivative (LOD) work inside the
+// divergent paths below.
 // Keep expanded halo samples within this glyph's allocation, including at atlas edges.
 float glyph_mask(float2 uv,float4 bounds) {
     if(any(uv<bounds.xy)||any(uv>bounds.zw))return 0;
-    return glyph_atlas.Sample(glyph_sampler,uv);
+    return glyph_atlas.SampleLevel(glyph_sampler,uv,0);
 }
 float3 toon_color(TextEffectMaterial effect,float t) {
     const float stops[10]={0,.08,.15,.25,.45,.55,.75,.83,.90,1};
@@ -145,24 +160,18 @@ float3 toon_color(TextEffectMaterial effect,float t) {
     }
     return lerp(a,b,blend);
 }
-float neon_flash(float cycle) {
-    const float stops[10]={.15,.16,.18,.20,.22,.23,.25,.28,.50,.51};
-    const float values[10]={0,1,0,0,1,0,0,1,0,0};
-    float2 endpoints=0;float t=0;
-    [unroll]for(uint i=0;i<9;i++)if(cycle>=stops[i]&&cycle<stops[i+1]) {
-        endpoints=float2(values[i],values[i+1]);
-        t=saturate((cycle-stops[i])/(stops[i+1]-stops[i]));
-    }
-    if(endpoints.x==endpoints.y)return endpoints.x;
-    return lerp(endpoints.x,endpoints.y,curve_ease(t,float4(.24,.31,.36,.93)));
-}
 float4 glyph_pixel(GlyphVertexOutput input) : SV_Target0 {
-    if(input.texture_bounds.x>=2)return color_glyph_atlas.Sample(glyph_sampler,input.texture_coordinate)*input.color.a;
+    if(input.texture_bounds.x>=2)return color_glyph_atlas.SampleLevel(glyph_sampler,input.texture_coordinate,0)*input.color.a;
     float coverage=1;
     if(input.texture_coordinate.x<=-2) {
         float2 local=float2(input.texture_coordinate.x+3,input.texture_coordinate.y)-.5;
         coverage=1-smoothstep(.16,.25,dot(local,local));
-    } else if(input.texture_bounds.x>=0)coverage=glyph_mask(input.texture_coordinate,input.texture_bounds);
+    } else if(input.texture_bounds.x>=0) {
+        // Only a neon effect expands the quad past its allocation; a plain
+        // glyph's interpolated coordinate never leaves its own rectangle.
+        if(input.color.r<0)coverage=glyph_mask(input.texture_coordinate,input.texture_bounds);
+        else coverage=glyph_atlas.SampleLevel(glyph_sampler,input.texture_coordinate,0);
+    }
     float3 color=input.color.rgb;
     if(input.color.r<0) {
         // Published materials have palette counts in [1,8] and widths >= 1.

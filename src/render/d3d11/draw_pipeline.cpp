@@ -15,7 +15,7 @@ struct FrameTransform {
     float translation_x;
     float translation_y;
     float group_opacity;
-    float reserved[3];
+    float backdrop_gradient_axis[3];
 };
 
 static_assert(sizeof(FrameTransform) == kD3D11UiFrameConstantBytes);
@@ -341,7 +341,6 @@ bool d3d11_draw_pipeline_update_opacity(const D3D11DrawPipelineOwner& owner, ID3
 }
 
 namespace {
-// reserved: the backdrop surface's top, width and height in the pass's DIPs.
 bool write_frame(const D3D11DrawPipelineOwner& owner, ID3D11DeviceContext* context, u32 width, u32 height,
                  u32 dpi, float opacity, float scale, float origin_x, float origin_y, float shift_y,
                  float surface_top, float surface_height) noexcept {
@@ -355,12 +354,21 @@ bool write_frame(const D3D11DrawPipelineOwner& owner, ID3D11DeviceContext* conte
     const float dpi_scale = static_cast<float>(dpi) / 96.0f;
     const float x_scale = 2.0f * dpi_scale / static_cast<float>(width);
     const float y_scale = -2.0f * dpi_scale / static_cast<float>(height);
+    // The backdrop gradient spans the surface (window caption and content, of
+    // surface_height DIPs from surface_top, as wide as the target): its position
+    // is 0.5 at the centre and runs along the palette direction to 0 and 1 at the
+    // corners. The shader gets it as saturate(dot(point, xy) + z).
+    const float half_x = static_cast<float>(width) / dpi_scale * 0.5f, half_y = surface_height * 0.5f;
+    const float x = owner.background_constants.controls[0], y = owner.background_constants.controls[1];
+    const float projection =
+        maximum((half_x * (x < 0 ? -x : x) + half_y * (y < 0 ? -y : y)) * 2.0f, 0.0001f);
+    const float axis_x = x / projection, axis_y = y / projection;
     const FrameTransform transform{x_scale * scale,
                                    y_scale * scale,
                                    -1.0f + origin_x * (1.0f - scale) * x_scale,
                                    1.0f + (origin_y * (1.0f - scale) + shift_y) * y_scale,
                                    opacity >= 0.0f && opacity <= 1.0f ? opacity : 1.0f,
-                                   {surface_top, static_cast<float>(width) / dpi_scale, surface_height}};
+                                   {axis_x, axis_y, 0.5f - (half_x * axis_x + (surface_top + half_y) * axis_y)}};
     context->UpdateSubresource(owner.ui_frame_buffer, 0, nullptr, &transform, 0, 0);
     return true;
 }
@@ -433,14 +441,17 @@ bool d3d11_draw_pipeline_update_background(D3D11DrawPipelineOwner* owner, ID3D11
         if (ui_background_active(theme) && !ui_background_palette(theme, colors))
             return false;
         reset_value(&next);
-        for (u32 i = 0; i < background.color_count; ++i) {
+        // The shader's single-colour test needs the raw 0 and 1; more than five
+        // stops never fit the palette.
+        const u32 stops = minimum<u32>(background.color_count, 5);
+        for (u32 i = 0; i < stops; ++i) {
             next.colors[i][0] = colors[i].red;
             next.colors[i][1] = colors[i].green;
             next.colors[i][2] = colors[i].blue;
         }
         next.colors[1][3] = light ? 1.f : 0.f;
         ui_background_direction(background.angle_degrees, &next.controls[0], &next.controls[1]);
-        next.controls[2] = background.color_count;
+        next.controls[2] = stops;
     }
     if (!owner->background_buffer) {
         D3D11_BUFFER_DESC description{};

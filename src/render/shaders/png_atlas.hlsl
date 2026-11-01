@@ -26,6 +26,17 @@ uint load_byte(uint offset) {
     return (packed >> ((offset & 3u) * 8u)) & 255u;
 }
 
+// Four bytes starting at any byte offset, little-endian: one word load when the
+// offset is aligned, two otherwise (the second is only read for its low bytes).
+uint load_word(uint offset) {
+    const uint shift = (offset & 3u) * 8u;
+    uint word = reconstructed_scanlines.Load(offset & ~3u);
+    [branch] if (shift != 0u) {
+        word = (word >> shift) | (reconstructed_scanlines.Load((offset & ~3u) + 4u) << (32u - shift));
+    }
+    return word;
+}
+
 uint load_sample(uint offset) {
     return bit_depth == 16u
                ? (load_byte(offset) << 8u) | load_byte(offset + 1u)
@@ -58,12 +69,19 @@ void png_expand(uint3 dispatch_id : SV_DispatchThreadID) {
     }
 
     const uint x = dispatch_id.x;
+    // Rows of raw RGBA8 (color type 7) carry no filter byte.
     const uint row = dispatch_id.y * row_stride +
                      (color_type == 7u || color_type == 8u ? 0u : 1u);
     const uint sample_bytes = bit_depth == 16u ? 2u : 1u;
     uint4 rgba = uint4(0u, 0u, 0u, 255u);
 
-    if (color_type == 0u) {
+    // 8-bit RGBA rows (PNG color type 6, raw color type 7): one word per pixel
+    // instead of four byte loads.
+    [branch] if (color_type == 7u || (color_type == 6u && bit_depth == 8u)) {
+        const uint packed = load_word(row + x * 4u);
+        rgba = uint4(packed & 255u, (packed >> 8u) & 255u,
+                     (packed >> 16u) & 255u, packed >> 24u);
+    } else if (color_type == 0u) {
         const uint gray = bit_depth < 8u
                               ? packed_sample(row, x)
                               : load_sample(row + x * sample_bytes);
@@ -101,12 +119,18 @@ void png_expand(uint3 dispatch_id : SV_DispatchThreadID) {
                      expand_sample(load_sample(offset + sample_bytes * 3u)));
     }
 
+    // Over-blend onto a premultiplied destination: a transparent source leaves
+    // it unchanged and an opaque one replaces it, so neither reads the atlas.
+    const bool blend_over = reserved0 == 1u;
+    [branch] if (blend_over && rgba.a == 0u) {
+        return;
+    }
     rgba.rgb = (rgba.rgb * rgba.a + 127u) / 255u;
     const uint2 destination =
         uint2(destination_x + x, destination_y + dispatch_id.y);
-    const float4 source = float4(rgba) / 255.0f;
-    media_atlas[destination] = reserved0 == 1u
-                                   ? source + media_atlas[destination] *
-                                                  (1.0f - source.a)
-                                   : source;
+    float4 result = float4(rgba) / 255.0f;
+    [branch] if (blend_over && rgba.a != 255u) {
+        result += media_atlas[destination] * (1.0f - result.a);
+    }
+    media_atlas[destination] = result;
 }

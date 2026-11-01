@@ -97,18 +97,23 @@ void vp8_to_atlas(uint3 dispatch_id : SV_DispatchThreadID) {
     }
     const uint x = dispatch_id.x;
     const uint y = dispatch_id.y;
+    const uint alpha = has_alpha != 0u ? load_alpha(x, y) : 255u;
+    // Over-blend onto a premultiplied destination: a transparent source leaves
+    // it unchanged and an opaque one replaces it, so neither reads the atlas.
+    const bool over = blend_over != 0u;
+    [branch] if (over && alpha == 0u) {
+        return;
+    }
     const uint luma = load_yuv(0u, luma_stride, x, y);
     const uint u = fancy_chroma(u_plane_offset, x, y);
     const uint v = fancy_chroma(v_plane_offset, x, y);
-    const uint alpha = has_alpha != 0u ? load_alpha(x, y) : 255u;
     uint3 rgb = yuv_to_rgb(luma, u, v);
     rgb = (rgb * alpha + 127u) / 255u;
     const uint2 destination =
         uint2(destination_x + x, destination_y + y);
-    const float4 source =
-        float4(float3(rgb), float(alpha)) / 255.0f;
-    media_atlas[destination] =
-        blend_over != 0u
-            ? source + media_atlas[destination] * (1.0f - source.a)
-            : source;
+    float4 result = float4(float3(rgb), float(alpha)) / 255.0f;
+    [branch] if (over && alpha != 255u) {
+        result += media_atlas[destination] * (1.0f - result.a);
+    }
+    media_atlas[destination] = result;
 }

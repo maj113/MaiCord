@@ -28,7 +28,7 @@ constexpr u32 d3d11_ui_instance_capacity_for_count(u32 count) noexcept {
     return capacity;
 }
 // UiBackground (ui.hlsl b1): the stop colours (colors[1].w flags a light
-// theme) and the gradient direction XY and stop count.
+// theme) and the gradient direction XY and stop count (at most five).
 struct D3D11BackgroundConstants {
     float colors[5][4];
     float controls[4];

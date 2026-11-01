@@ -943,8 +943,15 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         renderer->paint_stream.batch_count > kMaxPaintBatches ||
         (renderer->paint_stream.count && !renderer->paint_stream.quads))
         return false;
+    const u32 background_updates = renderer->pipeline.background_updates;
     if (!d3d11_draw_pipeline_update_background(&renderer->pipeline, renderer->graphics.device,
                                                renderer->graphics.context, theme))
+        return false;
+    // The frame constants fold the palette direction into the backdrop gradient
+    // axis; a stream starts and ends on the identity layer, so rewrite that.
+    if (background_updates != renderer->pipeline.background_updates &&
+        !d3d11_draw_pipeline_update_opacity(renderer->pipeline, renderer->graphics.context, renderer->width,
+                                            renderer->height, renderer->dpi, 1))
         return false;
     if (!renderer->content_text && !renderer->login_visible && renderer->glyph_text.ready &&
         !renderer->glyph_text.title_quad_count &&
