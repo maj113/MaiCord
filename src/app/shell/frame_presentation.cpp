@@ -438,6 +438,9 @@ void application_present_pending_frame() noexcept {
     if (!g_app.frame_pending || (g_app.renderer.graphics.frame_latency_waitable &&
                                  !g_app.renderer.live_resize && !g_app.renderer.begin_frame_permit))
         return;
+    // Pointer drags that move a pane follow the pointer once per frame here,
+    // not once per WM_MOUSEMOVE.
+    application_media_picker_drag_tick();
     g_app.frame_pending = false;
     if (!application_present_frame()) {
         application_record_presentation_failure("paint_frame_rejected");

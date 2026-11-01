@@ -1323,14 +1323,20 @@ void run() noexcept {
         const float y = (scrollbar.thumb.top + scrollbar.thumb.bottom) * .5f;
         const auto generation = p.generation;
         const u32 builds_before_drag = text_builds;
+        const auto drag_frame = []() noexcept {
+            application_media_picker_drag_tick();
+            return true;
+        };
         check(application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point(x, y)) &&
                   p.scrollbar_dragging &&
+                  application_media_picker_window_message(WM_MOUSEMOVE, MK_LBUTTON, point(x, y + 30)) &&
                   application_media_picker_window_message(WM_MOUSEMOVE, MK_LBUTTON, point(x, y + 60)) &&
-                  p.scene.scroll_dips > 0 && p.generation == generation &&
+                  p.scrollbar_follow_pending && g_app.frame_pending && drag_frame() &&
+                  !p.scrollbar_follow_pending && p.scene.scroll_dips > 0 && p.generation == generation &&
                   application_media_picker_window_message(WM_LBUTTONUP, 0, point(x, y + 60)) &&
                   !p.scrollbar_dragging,
-              "common picker: thumb drag scrolls real native body without changing source/query or "
-              "activating a cell");
+              "common picker: thumb drag follows the latest pointer once per frame and scrolls real native "
+              "body without changing source/query or activating a cell");
         const auto burst_scrollbar = ui_media_picker_scene_scrollbar(p.scene);
         const float burst_y = (burst_scrollbar.thumb.top + burst_scrollbar.thumb.bottom) * .5f;
         bool burst = application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point(x, burst_y));

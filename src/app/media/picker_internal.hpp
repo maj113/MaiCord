@@ -99,8 +99,9 @@ struct ApplicationMediaPicker {
     bool active, focused, caret_visible, captured, dragging, wanted, admission_busy, sticker_guild_done;
     bool favorites_enabled, favorites_view, gif_favorites_view;
     u64 scrollbar_scope, scrollbar_revision;
-    float scrollbar_grab;
-    bool scrollbar_dragging;
+    // A thumb drag's latest pointer row, applied once per presented frame.
+    float scrollbar_grab, scrollbar_pointer_y;
+    bool scrollbar_dragging, scrollbar_follow_pending;
     float preferred_width, resize_fixed_edge, resize_pointer_offset;
     bool resizing;
     // Reaction popout: the Emoji component targeting one message instead of

@@ -258,7 +258,7 @@ namespace picker_detail {
 
 void revoke_capture(ApplicationMediaPicker& p) noexcept {
     const bool was_resizing = p.resizing;
-    p.captured = p.dragging = p.scrollbar_dragging = p.resizing = false;
+    p.captured = p.dragging = p.scrollbar_dragging = p.scrollbar_follow_pending = p.resizing = false;
     ui_media_picker_scene_set_scrollbar_state(&p.scene, false, UiScrollbarVisualState::normal);
     ui_media_picker_scene_cancel_capture(&p.scene);
     application_release_capture();
@@ -311,8 +311,28 @@ bool scrollbar_follow(ApplicationMediaPicker& p, const UiScrollbarGeometry& geom
     const float next = ui_scrollbar_scroll_from_pointer(geometry, y, p.scrollbar_grab);
     return ui_media_picker_scene_scroll(&p.scene, next - p.scene.scroll_dips);
 }
+// A drag ends once its pane changed: another scope, a new source revision, or no thumb left.
+bool scrollbar_stale(const ApplicationMediaPicker& p, const UiScrollbarGeometry& geometry) noexcept {
+    return p.scrollbar_scope != p.scope ||
+           p.scrollbar_revision != ((static_cast<u64>(p.generation) << 32) | p.source.revision) || !geometry.visible;
+}
 
 } // namespace
+
+void application_media_picker_drag_tick() noexcept {
+    auto* p = g_app.media_picker;
+    if (!p || !p->scrollbar_follow_pending)
+        return;
+    p->scrollbar_follow_pending = false;
+    // A pending follow implies an active drag: revoke_capture clears both together.
+    const auto geometry = ui_media_picker_scene_scrollbar(p->scene);
+    if (scrollbar_stale(*p, geometry)) {
+        revoke_capture(*p);
+        return;
+    }
+    if (scrollbar_follow(*p, geometry, p->scrollbar_pointer_y))
+        repaint(true);
+}
 
 TextInputTarget application_media_picker_edit_target() noexcept {
     const auto* p = g_app.media_picker;
@@ -635,16 +655,21 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
     // The category rail remains wheel/keyboard scrollable without an overlay
     // thumb stealing space and hits from its icons. Only the content has a thumb.
     if (p->scrollbar_dragging) {
-        const u64 revision = (static_cast<u64>(p->generation) << 32) | p->source.revision;
-        if (p->scrollbar_scope != p->scope || p->scrollbar_revision != revision || !geometry.visible) {
+        if (scrollbar_stale(*p, geometry)) {
             revoke_capture(*p);
             application_request_frame();
             return true;
         }
-        if (message == WM_MOUSEMOVE || message == WM_LBUTTONUP) {
+        if (message == WM_MOUSEMOVE) {
+            // Followed once per presented frame (application_media_picker_drag_tick).
+            p->scrollbar_pointer_y = y;
+            p->scrollbar_follow_pending = true;
+            application_request_frame();
+            return true;
+        }
+        if (message == WM_LBUTTONUP) {
             const bool changed = scrollbar_follow(*p, geometry, y);
-            if (message == WM_LBUTTONUP)
-                revoke_capture(*p);
+            revoke_capture(*p);
             if (changed)
                 repaint(true);
             else

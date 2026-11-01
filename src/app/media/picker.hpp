@@ -56,6 +56,9 @@ void application_media_picker_emoji_preferences_changed() noexcept;
 bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept;
 bool application_media_picker_input(UiInputKind kind, u32 key, bool repeated) noexcept;
 void application_media_picker_tick(u64 now_ms) noexcept;
+// Moves a dragged thumb to the latest pointer row; called once per frame that
+// is about to present, so a 1 kHz mouse cannot re-project the pane faster.
+void application_media_picker_drag_tick() noexcept;
 u64 application_media_picker_next_wake() noexcept;
 u64 application_media_picker_caret_wake() noexcept;
 
