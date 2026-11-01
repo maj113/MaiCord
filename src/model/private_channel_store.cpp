@@ -34,17 +34,6 @@ void erase_recipients(PrivateChannelStore* store, u32 index) noexcept {
 }
 } // namespace
 
-bool private_channel_store_initialize(PrivateChannelStore* store,
-    Slice<PrivateChannelRecord> records, Slice<u64> recipients, Slice<PrivateNicknameRecord> nicknames) noexcept {
-    if (!store || !records.data || !records.count || !recipients.data || !recipients.count ||
-        store->record_backing.base || store->recipient_backing.base || store->nickname_backing.base ||
-        (!nicknames.data && nicknames.count)) return false;
-    reset_value(store);
-    store->records = records;
-    store->recipients = recipients;
-    store->nicknames = nicknames;
-    return true;
-}
 bool private_channel_store_initialize_owned(PrivateChannelStore* store, u32 records, u32 recipients) noexcept {
     if (!store || !records || !recipients || records > 65'535 || recipients > 1'000'000 ||
         store->record_backing.base || store->recipient_backing.base || store->nickname_backing.base) return false;

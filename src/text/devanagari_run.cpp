@@ -31,6 +31,8 @@ SfntStatus native_devanagari_run(const SfntShapePlan& plan,const SfntCmap& cmap,
     const auto spend=[&](u64 cost) noexcept {if(cost>limits.lookup_operations-result->lookup_operations)return false;result->lookup_operations+=cost;return true;};
     const auto walked=indic_for_each_cluster(SfntIndicProfile::devanagari,text,{},limits.stage_work,[&](const u32* scalars,u32 count,bool followed) noexcept {
             u32 local_units=0,local_bytes=0,hash=2166136261u;
+            // At most 32 scalars per cluster: a vector body never runs and only adds size.
+#pragma clang loop vectorize(disable) interleave(disable)
             for(u32 i=0;i<count;++i){const u32 scalar=scalars[i];local_units+=scalar>0xffff?2u:1u;
                 local_bytes+=scalar<0x80?1u:scalar<0x800?2u:scalar<0x10000?3u:4u;
                 if(reuse_clusters)hash=(hash^scalar)*16777619u;}

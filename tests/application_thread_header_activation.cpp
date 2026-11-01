@@ -1,4 +1,5 @@
 #include "application_thread_header_activation.hpp"
+#include "ui_scene_fixtures.hpp"
 #include "maicord/ui/scene.hpp"
 #include "maicord/ui/button_keyboard.hpp"
 

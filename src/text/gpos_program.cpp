@@ -6,6 +6,8 @@
 #include "lookup_selection.hpp"
 namespace maicord {namespace {
 template<class T> inline bool valid(Slice<T> s) noexcept {return !s.count || s.data;}
+// Program preparation runs once per plan: compiled for size; the executors below stay at speed.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 SfntStatus require_children(const SfntGposExecutableLookup& lookup,u16 count,ConstSlice<u64> selected,u32& work) noexcept {
     if(!selected.count||lookup.type<7)return SfntStatus::ok;
     for(u32 i=0;i<lookup.tables.context.count;++i){u32 used=0;const auto status=sfnt_context_visit_lookups(lookup.tables.context[i].table,
@@ -96,6 +98,7 @@ SfntStatus sfnt_gpos_program_prepare(const SfntLayout& layout,const SfntGdef& gd
     }
     *output={{compact?nullptr:storage.lookups.data,layout.lookup_count},gdef,limit,compact?storage.entries.data:nullptr};return SfntStatus::ok;
 }
+#pragma clang attribute pop
 namespace {
 struct Executor {
     const SfntGposProgram& program;SfntGlyphView glyphs;ConstSlice<double> nominal;ConstSlice<u8> flags;ConstSlice<SfntMarkAssociation> associations;ConstSlice<u32> targets;Slice<SfntPosition> positions;

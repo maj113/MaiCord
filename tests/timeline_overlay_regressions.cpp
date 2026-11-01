@@ -2,6 +2,7 @@
 // frames, inbox scrolling, the hover toolbar under the unread banner and while
 // scrolling, and Add Reaction opening the picker for its message.
 #include "maicord/app/message_timeline.hpp"
+#include "ui_scene_fixtures.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/model/message_store.hpp"
 #include "maicord/model/reaction_preferences.hpp"

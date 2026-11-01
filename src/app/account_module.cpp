@@ -1832,10 +1832,6 @@ bool WINAPI module_media_take(void* instance, AccountMediaFrame* frame) noexcept
     return runtime && account_media_worker_take_frame(&runtime->media, frame);
 }
 
-u32 WINAPI module_runtime_bytes() noexcept {
-    return sizeof(AccountModuleRuntime);
-}
-
 AccountVideoResult WINAPI module_video_select(void* instance,
                                               const AccountVideoSelection* selection) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
@@ -1959,7 +1955,6 @@ extern "C" bool WINAPI maicord_account_get_api(maicord::u32 requested_version,
         maicord::module_media_attachment_request,
         maicord::module_media_advance,
         maicord::module_media_take,
-        maicord::module_runtime_bytes,
         maicord::module_stop,
         maicord::module_login_start,
         maicord::module_login_submit_password,

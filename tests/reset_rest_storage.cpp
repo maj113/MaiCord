@@ -79,6 +79,13 @@ bool storage_offline(const RestClient& client, const RestClientRuntime& runtime)
         runtime.transport.connection.socket == INVALID_SOCKET;
 }
 
+// Committed owner plus protected request partition of a user-auth client, or zero for an invalid profile.
+u32 rest_client_user_auth_capacity_runtime_bytes(u32 response_capacity, u32 request_capacity) noexcept {
+    const u32 ordinary = allocation_bytes(response_capacity, true, false);
+    const u32 secure = user_auth_secure_bytes(response_capacity, request_capacity);
+    return ordinary != 0 && secure != 0 && secure <= ~0u - ordinary ? ordinary + secure : 0;
+}
+
 void storage_invalid_start(RestClient* client, u32 response, u32 request) noexcept {
     auto* runtime = static_cast<RestClientRuntime*>(client->runtime);
     const auto old_runtime = client->runtime;

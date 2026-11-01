@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ui_surface_motion_measurement.hpp"
+#include "../ui_scene_fixtures.hpp"
 #include "maicord/ui/settings_scene.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
@@ -70,7 +71,7 @@ inline bool guild_roles_ui_probe(D3D11Renderer& renderer) noexcept {
     } restore{renderer, old_settings, old_focus};
     const float scale = static_cast<float>(renderer.dpi) / 96.f;
     const UiRect viewport{0, 0, renderer.width / scale, renderer.height / scale};
-    const auto tokens = ui_settings_tokens(kDefaultTheme);
+    const UiSettingsThemeTokens tokens(kDefaultTheme);
     using K = UiSettingsControlKind;
     constexpr UiIcon none = UiIcon::count;
 

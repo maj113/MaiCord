@@ -63,6 +63,8 @@ SfntStatus sfnt_tibetan_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap
             u32 amount=0,source_units=0;
             status=map_cluster(plan,cmap,{input.data+origin+at,length},rtl,{mapped?mapped+count:nullptr,capacity-count},amount,source_units,&history);if(status!=SfntStatus::ok)return status;
             storage.targets[starts++]=units;
+            // One cluster's glyphs: a vector body never runs and only adds size.
+#pragma clang loop vectorize(disable) interleave(disable)
             for(u32 i=0;i<amount;++i)mapped[count+i].source+=units;
             for(u32 i=0;i<source_units;++i)storage.character_glyphs[units+i]=units;
             count+=amount;units+=source_units;at+=length;first=origin+at;

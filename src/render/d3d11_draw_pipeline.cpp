@@ -279,22 +279,6 @@ void d3d11_draw_pipeline_publish(D3D11DrawPipelineOwner* owner, D3D11DrawPipelin
     reset_value<D3D11DrawPipelineOwner>(staged);
 }
 
-D3D11DrawPipelineResult d3d11_draw_pipeline_initialize(D3D11DrawPipelineOwner* owner, ID3D11Device* device,
-                                                       ID3D11DeviceContext* context, u32 width, u32 height,
-                                                       u32 dpi,
-                                                       const D3D11DrawPipelineConfig& config) noexcept {
-    D3D11DrawPipelineOwner staged{};
-    const D3D11DrawPipelineResult created = d3d11_draw_pipeline_create(&staged, device, config);
-    if (!created.ok())
-        return created;
-    if (!d3d11_draw_pipeline_update_transform(staged, context, width, height, dpi)) {
-        d3d11_draw_pipeline_release(&staged);
-        return pipeline_failure(D3D11DrawPipelineError::invalid_input, E_INVALIDARG);
-    }
-    d3d11_draw_pipeline_publish(owner, &staged);
-    return pipeline_success();
-}
-
 D3D11DrawPipelineResult d3d11_draw_pipeline_reserve_ui_instances(D3D11DrawPipelineOwner* owner,
                                                                  ID3D11Device* device, u32 stride,
                                                                  u32 required_count) noexcept {

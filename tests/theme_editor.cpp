@@ -285,7 +285,7 @@ void test_theme_editor(void (*check)(bool, const char*) noexcept) noexcept {
               text.count < 24 && !text.rejected,
           "theme editor: exact widget references and clipped original labels use shared text output");
     scene.light_mode = true;
-    const auto primary_ink = ui_settings_button_text(ui_settings_tokens(kLightTheme),
+    const auto primary_ink = ui_settings_button_text(UiSettingsThemeTokens(kLightTheme),
                                                      UiSettingsButtonVariant::primary, {});
     bool light_ink = ui_theme_editor_focus(&scene, UiThemeEditorElement::light) &&
                      ui_text_command_stream_initialize(&text, {commands, 24}) &&
@@ -307,7 +307,7 @@ void test_theme_editor(void (*check)(bool, const char*) noexcept) noexcept {
     Theme light_gradient = kLightTheme;
     light_gradient.background = background_theme_defaults();
     light_gradient.background.intensity = 100;
-    const auto gradient_ink = ui_settings_button_text(ui_settings_tokens(light_gradient),
+    const auto gradient_ink = ui_settings_button_text(UiSettingsThemeTokens(light_gradient),
                                                       UiSettingsButtonVariant::primary, {});
     constexpr UiThemeEditorElement accent_targets[]{UiThemeEditorElement::light,
                                                     UiThemeEditorElement::apply};
@@ -380,7 +380,7 @@ void test_theme_editor(void (*check)(bool, const char*) noexcept) noexcept {
                         ui_button_pointer(&scene.widgets,
                                           step == 1 ? UiButtonPointerEvent::move : UiButtonPointerEvent::press,
                                           center);
-                    auto tokens = ui_settings_tokens(*style_theme);
+                    UiSettingsThemeTokens tokens(*style_theme);
                     tokens.metric.control_radius = scene.style.control_radius;
                     const auto variant = target == UiThemeEditorElement::apply ? UiSettingsButtonVariant::primary
                                                                                : UiSettingsButtonVariant::secondary;

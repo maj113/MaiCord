@@ -1,4 +1,5 @@
 #include "probe_present.hpp"
+#include "../ui_scene_fixtures.hpp"
 #include "maicord/ui/inbox_scene.hpp"
 #include "maicord/ui/settings_scene.hpp"
 #include "maicord/core/log.hpp"

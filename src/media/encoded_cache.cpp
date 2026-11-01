@@ -18,9 +18,6 @@ bool power_of_two(u32 value) noexcept {
 }
 
 void rebuild_index_locked(EncodedMediaCache* cache) noexcept {
-    if (!cache->index_buckets || cache->index_bucket_capacity == 0) {
-        return;
-    }
     for (u32 bucket = 0; bucket < cache->index_bucket_capacity; ++bucket) {
         cache->index_buckets[bucket] = 0;
     }
@@ -42,9 +39,6 @@ void rebuild_index_locked(EncodedMediaCache* cache) noexcept {
 }
 
 void insert_index_locked(EncodedMediaCache* cache, u32 index) noexcept {
-    if (!cache->index_buckets || cache->index_bucket_capacity == 0) {
-        return;
-    }
     const u32 mask = cache->index_bucket_capacity - 1;
     u32 bucket = static_cast<u32>(media_asset_hash(cache->entries[index].key)) & mask;
     u32 tombstone = kInvalidIndex;
@@ -67,9 +61,6 @@ void insert_index_locked(EncodedMediaCache* cache, u32 index) noexcept {
 
 void remove_index_locked(EncodedMediaCache* cache, const MediaAssetKey& key_view, u32 index) noexcept {
     const MediaAssetKey key = key_view; // the index is rewritten below
-    if (!cache->index_buckets || cache->index_bucket_capacity == 0) {
-        return;
-    }
     const u32 mask = cache->index_bucket_capacity - 1;
     u32 bucket = static_cast<u32>(media_asset_hash(key)) & mask;
     for (u32 probe = 0; probe < cache->index_bucket_capacity; ++probe) {
@@ -87,37 +78,29 @@ void remove_index_locked(EncodedMediaCache* cache, const MediaAssetKey& key_view
 }
 
 void maintain_index_locked(EncodedMediaCache* cache) noexcept {
-    if (cache->index_bucket_capacity != 0 && cache->index_tombstones > cache->index_bucket_capacity / 4) {
+    if (cache->index_tombstones > cache->index_bucket_capacity / 4) {
         rebuild_index_locked(cache);
     }
 }
 
 u32 find_entry_locked(const EncodedMediaCache& cache, const MediaAssetKey& key) noexcept {
-    if (cache.index_buckets && cache.index_bucket_capacity != 0) {
-        const u32 mask = cache.index_bucket_capacity - 1;
-        u32 bucket = static_cast<u32>(media_asset_hash(key)) & mask;
-        for (u32 probe = 0; probe < cache.index_bucket_capacity; ++probe) {
-            const u32 encoded_index = cache.index_buckets[bucket];
-            if (encoded_index == 0) {
-                return kInvalidIndex;
-            }
-            if (encoded_index == kIndexTombstone) {
-                bucket = (bucket + 1) & mask;
-                continue;
-            }
-            const u32 index = encoded_index - 1;
-            if (index < cache.entry_capacity && cache.entries[index].occupied &&
-                media_asset_key_equal(cache.entries[index].key, key)) {
-                return index;
-            }
-            bucket = (bucket + 1) & mask;
+    const u32 mask = cache.index_bucket_capacity - 1;
+    u32 bucket = static_cast<u32>(media_asset_hash(key)) & mask;
+    for (u32 probe = 0; probe < cache.index_bucket_capacity; ++probe) {
+        const u32 encoded_index = cache.index_buckets[bucket];
+        if (encoded_index == 0) {
+            return kInvalidIndex;
         }
-        return kInvalidIndex;
-    }
-    for (u32 index = 0; index < cache.entry_capacity; ++index) {
-        if (cache.entries[index].occupied && media_asset_key_equal(cache.entries[index].key, key)) {
+        if (encoded_index == kIndexTombstone) {
+            bucket = (bucket + 1) & mask;
+            continue;
+        }
+        const u32 index = encoded_index - 1;
+        if (index < cache.entry_capacity && cache.entries[index].occupied &&
+            media_asset_key_equal(cache.entries[index].key, key)) {
             return index;
         }
+        bucket = (bucket + 1) & mask;
     }
     return kInvalidIndex;
 }
@@ -225,8 +208,7 @@ bool encoded_media_cache_initialize(EncodedMediaCache* cache, Slice<EncodedMedia
                                     Slice<u32> index_buckets) noexcept {
     if (!cache || !entries.data || entries.count == 0 || entries.count >= kEncodedMediaCacheFreePage ||
         !storage.data || storage.count == 0 || storage.count % kEncodedMediaCachePageBytes != 0 ||
-        (index_buckets.count != 0 && (!index_buckets.data || !power_of_two(index_buckets.count) ||
-                                      index_buckets.count < entries.count * 2u))) {
+        !index_buckets.data || !power_of_two(index_buckets.count) || index_buckets.count < entries.count * 2u) {
         return false;
     }
     const u32 pages = storage.count / kEncodedMediaCachePageBytes;

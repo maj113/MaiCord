@@ -874,6 +874,7 @@ u32 autolink_bytes(Utf8View input, u32 begin) noexcept {
         return 0;
     if (input.data[end - 1] == ')') {
         u32 opens = 0, closes = 0;
+#pragma clang loop vectorize(disable) interleave(disable)
         for (u32 at = begin; at < end; ++at) {
             opens += input.data[at] == '(' ? 1u : 0u;
             closes += input.data[at] == ')' ? 1u : 0u;

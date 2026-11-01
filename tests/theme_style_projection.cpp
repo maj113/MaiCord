@@ -1,4 +1,5 @@
 #include "maicord/ui/theme_style_projection.hpp"
+#include "ui_scene_fixtures.hpp"
 #include "maicord/ui/text_form.hpp"
 #include "maicord/ui/message_scene.hpp"
 #include "maicord/core/memory.hpp"

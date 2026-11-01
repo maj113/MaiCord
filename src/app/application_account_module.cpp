@@ -1010,10 +1010,8 @@ void publish_started_account(const AccountPaths& paths, const AccountModuleStart
         application_trace_load_stage("startup_shell_released");
         MAICORD_PERF_MARK("startup_shell_released");
     }
-    const u64 info[] = {started.status.profile_id, host.api.runtime_bytes(), sizeof(AccountUiRuntime),
-                        started.session_loaded ? u64{1} : u64{0}};
-    log_u64_fields(LogLevel::info, "account", "profile_id\0module_runtime_bytes\0ui_runtime_bytes\0session_loaded",
-                   info);
+    log_u64_pair(LogLevel::info, "account", "profile_id\0session_loaded", started.status.profile_id,
+                 started.session_loaded ? u64{1} : u64{0});
     if (!started.session_loaded && !win32_error_is_missing_file(started.status.session_native_error)) {
         log_u64_pair(LogLevel::warning, "account", "session_load_error\0session_load_native_error",
                      started.session_error, started.status.session_native_error);

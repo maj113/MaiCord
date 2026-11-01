@@ -1,4 +1,5 @@
 #include "probe_capture.hpp"
+#include "../ui_scene_fixtures.hpp"
 #include "inline_flags_probe.hpp"
 #include "probe_present.hpp"
 #include "../../src/render/d3d11_renderer_draw.hpp"

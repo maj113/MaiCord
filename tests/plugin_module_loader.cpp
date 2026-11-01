@@ -1,4 +1,5 @@
 #include "maicord/app/plugin_module_loader.hpp"
+#include "ui_scene_fixtures.hpp"
 #include "maicord/app/plugin_settings_projection.hpp"
 #include "fixtures/native_plugin_fixture.hpp"
 #include "maicord/sys/crypto.hpp"

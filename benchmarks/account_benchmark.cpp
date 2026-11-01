@@ -110,13 +110,6 @@ bool profile_benchmark_path(wchar_t* output, u32 capacity) noexcept {
     return true;
 }
 
-u32 account_module_runtime_bytes() noexcept {
-    AccountHost host{};
-    const u32 bytes = account_host_load(&host).ok() ? host.api.runtime_bytes() : 0;
-    account_host_release(&host);
-    return bytes;
-}
-
 u32 run() noexcept {
     const Clock clock = clock_initialize();
     if (clock.frequency <= 0) {
@@ -388,7 +381,6 @@ u32 run() noexcept {
     write_rate("account_auth_mfa_code_prepare", kMfaCodeIterations, mfa_code_us);
     write_metric("account_gateway_session_inline_bytes", sizeof(GatewaySession), "bytes");
     write_metric("account_gateway_zstd_stream_bytes", sizeof(ZstdStreamDecoder), "bytes");
-    write_metric("account_module_runtime_bytes", account_module_runtime_bytes(), "bytes");
     write_metric("account_profile_promotion_owner_bytes", sizeof(AccountProfilePromotion), "bytes");
     return 0;
 }

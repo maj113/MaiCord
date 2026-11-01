@@ -115,6 +115,8 @@ __forceinline u32 write_decimal(u8* out, u64 value) noexcept {
         digits[--at] = static_cast<u8>('0' + value);
     }
     const u32 n = 20 - at;
+    // At most 20 digits: a vector body never runs and only adds size.
+#pragma clang loop vectorize(disable) interleave(disable)
     for (u32 i = 0; i < n; ++i)
         out[i] = digits[at + i];
     return n;
@@ -264,6 +266,8 @@ __forceinline bool write_string(Writer* w, const u8* s, u32 n, bool latin1, u32 
     return write_string_slow(w, s, n, latin1);
 }
 
+// Floats are rare in Gateway payloads and Big only runs for non-integral doubles: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 // ------------------------------------------------------------- doubles
 // Exact decimal digits of a double, rounded half-even to 17 significant
 // digits (always enough to round-trip); integral values below 2^63 exactly.
@@ -423,6 +427,7 @@ bool float_text(const u8* p, u32* length) noexcept {
     *length = n;
     return i == n;
 }
+#pragma clang attribute pop
 
 // ----------------------------------------------------------- ETF input
 struct Reader {
@@ -803,6 +808,8 @@ EtfResult etf_to_json_indexed(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum
     return {w.used, EtfError::none};
 }
 
+// The encoder writes outgoing commands only, one per request: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 // ---------------------------------------------------------- JSON input
 namespace {
 
@@ -1033,5 +1040,7 @@ EtfResult etf_from_json(Utf8View json, Slice<u8> output) noexcept {
         return {0, EtfError::output_capacity};
     return {e.used, EtfError::none};
 }
+
+#pragma clang attribute pop
 
 } // namespace maicord

@@ -443,19 +443,13 @@ void soundboard_mixer_stop(SoundboardMixer* mixer, u64 user_id) noexcept {
 u32 soundboard_mixer_active(SoundboardMixer* mixer) noexcept {
     if (!mixer)
         return 0;
-    AcquireSRWLockShared(mixer->lock.native());
-    const u32 count = mixer->count;
-    ReleaseSRWLockShared(mixer->lock.native());
-    return count;
+    return *static_cast<const volatile u32*>(&mixer->count); // one aligned word: the lock added nothing
 }
 
 bool soundboard_mixer_call_rendering(SoundboardMixer* mixer, u64 now_us) noexcept {
     if (!mixer)
         return false;
-    AcquireSRWLockShared(mixer->lock.native());
-    const bool rendering =
-        mixer->last_call_render_us && now_us < mixer->last_call_render_us + kSoundboardCallRenderHoldUs;
-    ReleaseSRWLockShared(mixer->lock.native());
-    return rendering;
+    const u64 last = *static_cast<const volatile u64*>(&mixer->last_call_render_us); // read once, one aligned word
+    return last && now_us < last + kSoundboardCallRenderHoldUs;
 }
 } // namespace maicord

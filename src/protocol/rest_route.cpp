@@ -22,20 +22,20 @@ bool route_append_byte(RouteWriter* writer, u8 value) noexcept {
     return true;
 }
 
-bool route_append(RouteWriter* writer, const Utf8View& value) noexcept {
-    if (!writer->valid || (!value.data && value.bytes != 0) || writer->bytes > writer->output.count ||
-        value.bytes > writer->output.count - writer->bytes) {
+bool route_append_bytes(RouteWriter* writer, const char* value, u32 bytes) noexcept {
+    if (!writer->valid || (!value && bytes != 0) || writer->bytes > writer->output.count ||
+        bytes > writer->output.count - writer->bytes) {
         writer->valid = false;
         return false;
     }
-    copy_bytes(writer->output.data + writer->bytes, value.data, value.bytes);
-    writer->bytes += value.bytes;
+    copy_bytes(writer->output.data + writer->bytes, value, bytes);
+    writer->bytes += bytes;
     return true;
 }
 
 bool route_append_u64(RouteWriter* writer, u64 value) noexcept {
     char digits[20];
-    return route_append(writer, Utf8View{digits, decimal_write(digits, value)});
+    return route_append_bytes(writer, digits, decimal_write(digits, value));
 }
 
 bool route_append_path_component(RouteWriter* writer, Utf8View value) noexcept {

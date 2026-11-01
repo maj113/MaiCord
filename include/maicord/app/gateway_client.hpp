@@ -1205,7 +1205,6 @@ AccountRequirement gateway_client_required_action(const GatewayClient* client) n
 struct GatewayClient {
     NetworkWorker worker;
     void* runtime;
-    HANDLE state_event;
     HANDLE notification_event;
     volatile LONG phase;
     volatile LONG error;

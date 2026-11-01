@@ -15,7 +15,7 @@ bool empty(const SecureBuffer* b) noexcept {
     return b && !b->data && !b->capacity && !b->bytes && !b->locked;
 }
 bool cancelled(OAuthAuthorization& owner) noexcept {
-    return InterlockedCompareExchange(&owner.native_state, 0, 0) == 3;
+    return ReadAcquire(&owner.native_state) == 3;
 }
 struct Scratch {
     u8 body[4096], response[16384];

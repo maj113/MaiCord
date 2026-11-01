@@ -22,7 +22,15 @@
 
 namespace maicord::app_detail {
 namespace {
-UiUnreadBannerScene g_banner{};
+// A union keeps the zero-initialized scene in .bss: UiUnreadBannerStyle's nonzero defaults would put it
+// in .data. Nothing reads the style before application_unread_banner_synchronize applies it: the scene
+// is not visible (no text owner, no viewport) until ui_unread_banner_update has run there.
+union BannerStorage {
+    u8 zero[sizeof(UiUnreadBannerScene)];
+    UiUnreadBannerScene scene;
+};
+constinit BannerStorage g_banner_storage{};
+constinit UiUnreadBannerScene& g_banner = g_banner_storage.scene;
 bool g_pressed_inside{};
 // The card shows the account's connection notice, which outranks the conversation's.
 bool g_connection_notice{};
@@ -192,6 +200,8 @@ bool perform(UiUnreadBannerAction action) noexcept {
 } // namespace
 
 void application_unread_banner_synchronize(u64 now_ms) noexcept {
+    if (!g_banner.style.banner_height)
+        g_banner.style = UiUnreadBannerStyle{};
     g_app.renderer.unread_banner_scene = &g_banner;
     UnreadBannerInput in{};
     UnreadBannerProjection projection{};

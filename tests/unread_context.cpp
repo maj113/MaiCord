@@ -1,4 +1,5 @@
 #include "maicord/ui/unread_context.hpp"
+#include "ui_scene_fixtures.hpp"
 #include "maicord/ui/message_context_controller.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/app/message_timeline.hpp"

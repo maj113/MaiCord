@@ -142,6 +142,8 @@ void assign_metadata(MessageRecord& record, const MessageInput& input) noexcept 
 
 } // namespace
 
+// Initialization and text compaction run at start-up and when the text storage is full: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 bool message_store_initialize(MessageStore* store, Slice<MessageRecord> records, Slice<u32> order,
                               Slice<u8> text) noexcept {
     if (!store || !records.data || records.count == 0 || records.count > kMaximumMessageRecords ||
@@ -174,6 +176,7 @@ bool message_store_initialize_growing(MessageStore* store, Slice<MessageRecord> 
     store->text_committed = kMessageStoreTextCommitStep;
     return true;
 }
+#pragma clang attribute pop
 
 // Everything but the content's encoding.
 static MessageStoreError validate_fields(const MessageStore* store, const MessageInput& input) noexcept {
@@ -273,9 +276,7 @@ MessageStoreResult message_store_upsert(MessageStore* store, const MessageInput&
         ++store->rejected;
         return store_error(MessageStoreError::record_capacity);
     }
-    for (u32 index = store->count; index > order_index; --index) {
-        store->order[index] = store->order[index - 1];
-    }
+    sorted_insert_gap(store->order, store->count, order_index);
     store->order[order_index] = slot;
     MessageRecord& record = store->records[slot];
     record.id = input.id;
@@ -388,6 +389,7 @@ Utf8View message_store_content(const MessageStore& store, MessageHandle handle) 
                   : Utf8View{};
 }
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 bool message_store_compact_in_place(MessageStore* store) noexcept {
     if (!store || !store->records || !store->order || !store->text ||
         store->text_wasted > store->text_used) {
@@ -516,6 +518,7 @@ bool message_store_compact_in_place(MessageStore* store) noexcept {
     ++store->compactions;
     return true;
 }
+#pragma clang attribute pop
 
 u64 snowflake_timestamp_ms(u64 snowflake) noexcept {
     return (snowflake >> 22) + kSnowflakeEpochMilliseconds;

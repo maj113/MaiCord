@@ -1,4 +1,7 @@
 #include "application_state.hpp"
+#include "../src/app/application_plugin_menus.cpp"
+#include "ui_scene_fixtures.hpp"
+#include "model_store_fixtures.hpp"
 #include "application_settings.hpp"
 #include "application_plugins.hpp"
 #include "application_message_interaction.hpp"
@@ -9,6 +12,10 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/permission_bits.hpp"
 #include "../src/app/account_ui_runtime.hpp"
+
+namespace maicord::app_detail {
+const ApplicationPluginMenu& application_plugins_menu_state() noexcept { return g_menu; }
+} // namespace maicord::app_detail
 
 // Plugin rows in the native user, channel, DM and server menus, through the
 // real SDK registry (an in-process ABI-5 plugin), the shipping projection,

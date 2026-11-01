@@ -1,4 +1,5 @@
 #include "application_state.hpp"
+#include "ui_scene_fixtures.hpp"
 #include "application_settings.hpp"
 #include "application_plugins.hpp"
 #include "maicord/ui/settings_choice.hpp"

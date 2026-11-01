@@ -1,4 +1,5 @@
 #include "maicord/ui/message_text_presentation.hpp"
+#include "ui_scene_fixtures.hpp"
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "test_output.hpp"

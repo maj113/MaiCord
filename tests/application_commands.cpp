@@ -1,4 +1,5 @@
 #include "maicord/protocol/application_commands.hpp"
+#include "ui_scene_fixtures.hpp"
 #include "maicord/media/asset.hpp"
 #include "maicord/ui/popup_scene.hpp"
 #include "maicord/ui/popup_presentation.hpp"

@@ -56,9 +56,6 @@ struct VoiceStateStore {
     StableStorage owned;
 };
 
-// Requires zero live records and writable caller-owned storage. Leaves array
-// bytes unchanged. Readers use count, and apply writes each complete new row.
-bool voice_state_store_initialize_sparse(VoiceStateStore* store, Slice<VoiceState> records) noexcept;
 // Reserves reserved_capacity states; nothing is committed until used.
 bool voice_state_store_initialize_owned(VoiceStateStore* store, u32 reserved_capacity) noexcept;
 void voice_state_store_release(VoiceStateStore* store) noexcept;

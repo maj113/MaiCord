@@ -280,7 +280,10 @@ bool simultaneous_stop_case(Harness& h) noexcept {
     AcquireSRWLockExclusive(lane.poster_lock.native());
     const bool signaled = SetEvent(h.worker->stop_event) && SetEvent(h.fake.event);
     ReleaseSRWLockExclusive(lane.poster_lock.native());
-    CHECK(signaled && account_media_worker_stop(h.worker, 2000)); h.fake.event = nullptr;
+    // The decode-loop stop poll reads the event at most once per clock tick, so it reports the stop within a few ticks.
+    bool stop_seen = false;
+    for (u32 poll = 0; poll < 200 && !(stop_seen = account_media_worker_stop_requested(h.worker)); ++poll) Sleep(1);
+    CHECK(signaled && stop_seen && account_media_worker_stop(h.worker, 2000)); h.fake.event = nullptr;
     CHECK(no_refs(h));
     MEMORY_BASIC_INFORMATION info{};
     CHECK(VirtualQuery(sparse, &info, sizeof(info)) == sizeof(info) && info.State == MEM_FREE);

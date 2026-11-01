@@ -16,7 +16,9 @@ struct SearchContentRequest {
     u64 account{}, profile{}, self{};
 };
 struct SearchContentOwner {
-    SearchContentRequest request{};
+    // Raw bytes, not a SearchContentRequest member: UiSearchTarget's nonzero defaults would put this
+    // owner in .data. Written whole before `intent.pending` can be set and read only while it is.
+    alignas(SearchContentRequest) u8 request[sizeof(SearchContentRequest)];
     ReceivedAttachmentOpen intent{};
 } content_owner{};
 static_assert(sizeof(SearchContentOwner) <= 192);
@@ -32,7 +34,7 @@ bool resolve(const SearchContentRequest& request, bool snapshot,
         view->message && view->store && view->message->id == request.ticket.message_id &&
         view->message->revision == request.ticket.publication_revision;
 }
-SearchContentRequest capture_request(const ApplicationSearchSourceTicket& ticket, UiSearchTarget target = {}) noexcept {
+SearchContentRequest capture_request(const ApplicationSearchSourceTicket& ticket, UiSearchTarget target) noexcept {
     return {ticket, target, account_scope(), g_app.account.status.profile_id,
         g_app.account_ui ? g_app.account_ui->chat_state.self_user_id : 0};
 }
@@ -77,26 +79,6 @@ bool attachment_source(const SearchContentRequest& owner,
     *source = message_rich_store_string(*view.rich_store, attachment.url);
     return source->data && source->bytes;
 }
-bool snapshot_hit(const MessageTextHit& hit) noexcept {
-    return (hit.source_offset & 0x40000000u) != 0;
-}
-// trusted_text: the official client's markdown rule; the link's text is its URL (not a
-// masked [label](url) link) outside a DM with someone who is not a friend.
-bool link_source(const SearchContentRequest& owner, const MessageTextHit& hit, Utf8View* source,
-                 bool* trusted_text) noexcept {
-    ApplicationSearchSourceView view{};
-    if (!hit.valid || hit.message_id != owner.ticket.message_id ||
-        hit.message_revision != owner.ticket.publication_revision ||
-        (hit.kind != MessageMarkdownSemanticKind::link && hit.kind != MessageMarkdownSemanticKind::message_link) ||
-        !resolve(owner, snapshot_hit(hit), &view) ||
-        !application_search_source_link_current(owner.ticket, hit)) return false;
-    *source = message_text_presentation_hit_source(*view.store, view.rich_store, hit);
-    if (source->data) {
-        const bool masked = (hit.source_offset & 0xFFFFu) >= 2 && source->data[-1] == '(' && source->data[-2] == ']';
-        *trusted_text = !masked && application_link_channel_trusted(view.message->channel_id);
-    }
-    return source->data && source->bytes;
-}
 bool embed_source(const SearchContentRequest& owner, Utf8View* source) noexcept {
     ApplicationSearchSourceView view{};
     if (!resolve(owner, owner.target.snapshot, &view) || !view.rich || !view.rich_store ||
@@ -109,8 +91,8 @@ bool embed_source(const SearchContentRequest& owner, Utf8View* source) noexcept 
 }
 // Every result link leaves through the link trust rules and the themed
 // "Leaving Discord" warning, which captures the exact URL it shows.
-bool confirm(const SearchContentRequest& owner, Utf8View url, const ReceivedAttachmentOpenIdentity* attachment,
-             bool trusted_text) noexcept {
+bool confirm(const SearchContentRequest& owner, Utf8View url,
+             const ReceivedAttachmentOpenIdentity* attachment) noexcept {
     if (!message_markdown_url_valid(url) || url.bytes > 2047) {
         notice(owner, utf8_literal("This link could not be opened."));
         return true;
@@ -120,16 +102,16 @@ bool confirm(const SearchContentRequest& owner, Utf8View url, const ReceivedAtta
         return true;
     }
     notice(owner, {});
-    application_link_open(url, !attachment && trusted_text);
+    application_link_open(url, false);
     return true;
 }
 void reset_owner() noexcept {
     reset_value(&content_owner.intent);
-    reset_value(&content_owner.request);
+    clear_bytes(content_owner.request, static_cast<u32>(sizeof(content_owner.request)));
 }
 // A message link jumps to the message; any other link goes through confirm().
 bool open_link(const ApplicationSearchSourceTicket& ticket, const SearchContentRequest& owner,
-               Utf8View source, bool trusted_text) noexcept {
+               Utf8View source) noexcept {
     reset_owner();
     MessageLink link{};
     if (message_markdown_message_link(source, &link)) {
@@ -137,12 +119,12 @@ bool open_link(const ApplicationSearchSourceTicket& ticket, const SearchContentR
             notice(owner, utf8_literal("This message isn't available on this account."));
         return true;
     }
-    return confirm(owner, source, nullptr, trusted_text);
+    return confirm(owner, source, nullptr);
 }
 void attachment_ready(const SearchContentRequest& owner, const ReceivedAttachmentOpenIdentity& identity,
                       Utf8View ready) noexcept {
     if (attachment_media_allowed(owner, false))
-        confirm(owner, ready, &identity, false);
+        confirm(owner, ready, &identity);
 }
 void attachment_notice(const SearchContentRequest& owner, ReceivedAttachmentOpenResult result) noexcept {
     if (result == ReceivedAttachmentOpenResult::pending)
@@ -162,7 +144,7 @@ bool application_search_content_activate(const ApplicationSearchSourceTicket& ti
         target.channel_id != view.message->channel_id || !view.rich || !view.rich_store) return true;
     if (target.rich_kind == MessageSceneRichItemKind::embed) {
         Utf8View source{};
-        return !embed_source(owner, &source) || open_link(ticket, owner, source, false);
+        return !embed_source(owner, &source) || open_link(ticket, owner, source);
     }
     if (target.rich_kind != MessageSceneRichItemKind::attachment ||
         target.rich_index >= view.rich->attachment_count) return true;
@@ -172,23 +154,17 @@ bool application_search_content_activate(const ApplicationSearchSourceTicket& ti
     Utf8View source{}, ready{};
     if (!attachment_source(owner, identity, &source)) return true;
     if (!attachment_media_allowed(owner, true)) return true;
-    content_owner.request = owner;
+    ::new (static_cast<void*>(content_owner.request)) SearchContentRequest(owner);
     const auto result = received_attachment_open_begin(&content_owner.intent, identity, source, &g_app.media_urls,
         clock_monotonic_milliseconds(), clock_unix_milliseconds() / 1000, &ready);
     attachment_notice(owner, result);
     if (result == ReceivedAttachmentOpenResult::ready) attachment_ready(owner, identity, ready);
     return true;
 }
-bool application_search_content_link(const ApplicationSearchSourceTicket& ticket, const MessageTextHit& hit) noexcept {
-    const auto owner = capture_request(ticket);
-    Utf8View source{};
-    bool trusted_text = false;
-    return !link_source(owner, hit, &source, &trusted_text) ||
-           open_link(ticket, owner, source, trusted_text);
-}
 void application_search_content_pump() noexcept {
     if (!content_owner.intent.pending) return;
-    const auto owner = content_owner.request;
+    const SearchContentRequest owner =
+        *__builtin_launder(reinterpret_cast<const SearchContentRequest*>(content_owner.request));
     const auto identity = content_owner.intent.identity;
     Utf8View source{}, ready{};
     if (!attachment_source(owner, identity, &source) || !attachment_media_allowed(owner, false)) {

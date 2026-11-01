@@ -33,8 +33,6 @@ struct RelationshipStoreResult {
     bool changed;
     constexpr bool ok() const noexcept { return error == RelationshipStoreError::none; }
 };
-// Initialize a zeroed or empty caller-owned store; storage stays stable.
-bool relationship_store_initialize(RelationshipStore* store, Slice<RelationshipRecord> records) noexcept;
 const RelationshipRecord* relationship_store_find(const RelationshipStore& store, u64 user_id) noexcept;
 RelationshipStoreResult relationship_store_upsert(RelationshipStore* store, const RelationshipRecord& record) noexcept;
 RelationshipStoreResult relationship_store_remove(RelationshipStore* store, u64 user_id) noexcept;

@@ -3,6 +3,8 @@
 #include "maicord/core/memory.hpp"
 #include "json_field_lists.hpp"
 
+// Voice ready and session description, once per call: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 namespace maicord {
 namespace {
 // Recognized wire names, not a claim that an encryptor is implemented.
@@ -194,3 +196,4 @@ GatewayEventDecodeResult voice_decode_session_description(JsonValue data, Slice<
     return result;
 }
 } // namespace maicord
+#pragma clang attribute pop

@@ -69,7 +69,6 @@ struct MediaAtlasGpu {
     ID3D11ComputeShader* jpeg_idct_shader;
     ID3D11Buffer* jpeg_atlas_constants;
     ID3D11ComputeShader* jpeg_atlas_shader;
-    u64 uploaded_bytes;
     u64 png_uploaded_bytes;
     u64 apng_uploaded_bytes;
     u64 png_dispatched_pixels;
@@ -86,7 +85,6 @@ struct MediaAtlasGpu {
     u64 vp8_alpha_uploaded_bytes;
     u64 jpeg_uploaded_bytes;
     u64 jpeg_reconstructed_pixels;
-    u32 uploads;
     u32 png_uploads;
     u32 straight_rgba8_uploads;
     u32 cleared_regions;
@@ -156,10 +154,6 @@ MediaAtlasGpuResult media_atlas_gpu_initialize(
 MediaAtlasGpuResult media_atlas_gpu_initialize_preview(
     MediaAtlasGpu* gpu, ID3D11Device* device,
     ID3D11DeviceContext1* context, u16 width, u16 height) noexcept;
-MediaAtlasGpuResult media_atlas_gpu_upload_rgba8(
-    MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11DeviceContext1* context,
-    MediaAssetKey key, u16 width, u16 height, u32 row_pitch,
-    ConstSlice<u8> premultiplied_rgba8) noexcept;
 // The straight RGBA8, PNG, JPEG and VP8 keyframe uploads target the primary
 // surface, or the preview surface (large-preview keys only) when `preview` is set.
 MediaAtlasGpuResult media_atlas_gpu_upload_straight_rgba8(
@@ -253,6 +247,6 @@ MediaAtlasGpuResult media_atlas_gpu_present_video(MediaAtlasGpu* gpu, MediaAtlas
     ID3D11Device* device, ID3D11DeviceContext1* context, MediaAssetKey key,
     const GpuVideoFrame& frame, bool preview, u32 maximum_extent = 0) noexcept;
 
-static_assert(sizeof(MediaAtlasGpu) == 744);
+static_assert(sizeof(MediaAtlasGpu) == 736);
 
 } // namespace maicord

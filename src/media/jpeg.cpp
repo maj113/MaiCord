@@ -543,6 +543,7 @@ IccParseOutcome parse_icc_mft(const IccScatter& scatter, const IccTag& tag, u8 e
     }
 
     u64 grid_product = 1;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (u32 channel = 0; channel < input_channels; ++channel) {
         grid_product *= grid_points;
     }
@@ -632,6 +633,7 @@ IccParseOutcome parse_icc_profile(const IccScatter& scatter, const JpegImage& im
     if (!icc_copy(scatter, 100, reserved, sizeof(reserved))) {
         return IccParseOutcome::malformed;
     }
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (u32 index = 0; index < sizeof(reserved); ++index) {
         if (reserved[index] != 0) {
             return IccParseOutcome::malformed;
@@ -808,6 +810,7 @@ void finalize_icc_profile(ConstSlice<u8> encoded, const JpegIccChunk* chunks, u3
         return;
     }
     u64 total = 0;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (u32 index = 0; index < declared_chunk_count; ++index) {
         total += chunks[index].bytes;
     }
@@ -847,6 +850,7 @@ bool build_huffman_table(JpegHuffmanTable* table, const u8* counts, const u8* sy
         code = (code + static_cast<i32>(count)) << 1;
         symbol_offset += count;
     }
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (u32 index = 0; index < symbol_count; ++index) {
         table->symbols[index] = symbols[index];
     }
@@ -869,6 +873,7 @@ JpegError parse_quantization(ConstSlice<u8> encoded, u32 payload, u32 bytes, u8 
         }
         JpegQuantizationTable& table = tables->quantization[identifier];
         reset_value<JpegQuantizationTable>(&table);
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
         for (u32 index = 0; index < 64; ++index) {
             const u8 value = encoded[cursor++];
             if (value == 0) {
@@ -897,6 +902,7 @@ JpegError parse_huffman(ConstSlice<u8> encoded, u32 payload, u32 bytes, JpegTabl
         JpegHuffmanTable* table = table_class == 0 ? &tables->dc[identifier] : &tables->ac[identifier];
         const u8* counts = encoded.data + cursor;
         u32 symbol_count = 0;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
         for (u32 index = 0; index < 16; ++index) {
             symbol_count += counts[index];
         }
@@ -981,6 +987,7 @@ JpegError parse_frame(ConstSlice<u8> encoded, u32 payload, u32 bytes, JpegImage*
     const u32 mcu_columns = (width + mcu_width - 1u) / mcu_width;
     const u32 mcu_rows = (height + mcu_height - 1u) / mcu_height;
     u32 block_offset = 0;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (u32 index = 0; index < components; ++index) {
         JpegComponent& component = image->components[index];
         const u32 columns = mcu_columns * component.horizontal_sampling;
@@ -1371,6 +1378,8 @@ void build_decode_table(const JpegHuffmanTable& table, JpegDecodeTable* decode,
         for (i32 code = table.minimum_code[length]; code <= table.maximum_code[length]; ++code) {
             const u16 entry = static_cast<u16>((length + 1u) << 8 | table.symbols[table.value_offset[length] + code]);
             const u32 first = static_cast<u32>(code) << shift;
+#pragma clang loop vectorize(disable) interleave(disable)
+#pragma clang loop unroll(disable)
             for (u32 fill = 0; fill < (1u << shift); ++fill) {
                 if (decode->lookahead[first + fill] == 0) {
                     decode->lookahead[first + fill] = entry;

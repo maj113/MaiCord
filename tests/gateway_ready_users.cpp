@@ -171,8 +171,6 @@ bool projection_packet(bool malformed) noexcept {
     return gateway_session_push(&runtime.session, {output, writer.used + 4});
 }
 void worker_projection(void (*check)(bool, const char*) noexcept) noexcept {
-    client.state_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (!client.state_event) { check(false, "READY worker projection state event"); return; }
     ReadyProjectionBinding binding{&client, &runtime, AccountRequirement::none};
     runtime.mailbox_deadline_ms = GetTickCount64();
     check(!ready_projection_work(&binding, GatewayReadyProjectionPhase::preflight) &&
@@ -236,7 +234,6 @@ void worker_projection(void (*check)(bool, const char*) noexcept) noexcept {
         runtime.self_user_id == 1 && runtime.resume.session_id_bytes == 17 &&
         load_phase(&client) == GatewayClientPhase::ready,
         "shipping READY checkpoints fresh sequence only after ordered complete projection enters the mailbox");
-    CloseHandle(client.state_event); client.state_event = nullptr;
 }
 
 // The worker's oversized guild record: routed into its reservation, handed to
@@ -316,8 +313,6 @@ void oversized_record(void (*check)(bool, const char*) noexcept) noexcept {
 }
 
 void failure_receipt(void (*check)(bool, const char*) noexcept) noexcept {
-    client.state_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (!client.state_event) { check(false, "Gateway terminal receipt state event"); return; }
     for (u32 full = 0; full < 2; ++full) {
         runtime.stopping = false;
         runtime.failed = false;
@@ -327,7 +322,6 @@ void failure_receipt(void (*check)(bool, const char*) noexcept) noexcept {
         runtime.compression_error = ZstdError::output_capacity;
         InterlockedExchange(&client.error, static_cast<LONG>(GatewayClientError::none));
         InterlockedExchange(&client.phase, static_cast<LONG>(GatewayClientPhase::ready));
-        ResetEvent(client.state_event);
         ResetEvent(client.notification_event);
         ResetEvent(runtime.mailbox_cancel);
         GatewayClientEvent queued{};
@@ -347,15 +341,13 @@ void failure_receipt(void (*check)(bool, const char*) noexcept) noexcept {
                 receipt.session_error == GatewaySessionError::compression && receipt.compression_error == ZstdError::output_capacity);
         }
         check(filled && matching && load_phase(&client) == GatewayClientPhase::failed &&
-            load_error(&client) == GatewayClientError::session && WaitForSingleObject(client.state_event, 0) == WAIT_OBJECT_0 &&
+            load_error(&client) == GatewayClientError::session &&
             WaitForSingleObject(client.notification_event, 0) == WAIT_OBJECT_0 &&
             spsc_mailbox_pop(&runtime.events, &receipt, {output, sizeof(output)}).error == SpscMailboxError::empty,
             "Gateway terminal status retains categorical receipt or full FIFO and wakes consumer after failure publication");
     }
     runtime.stopping = runtime.failed = false;
     ResetEvent(runtime.mailbox_cancel);
-    CloseHandle(client.state_event);
-    client.state_event = nullptr;
 }
 
 struct SpaceProducer {

@@ -840,11 +840,10 @@ bool start_runtime() noexcept {
         !stable_storage_initialize(&runtime->zstd_storage, kZstdStorageBytes, kZstdInitialStorageBytes, sizeof(u8),
                                    alignof(u8)))
         return false;
-    client.state_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     client.notification_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     runtime->mailbox_space = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     runtime->mailbox_cancel = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (!client.state_event || !client.notification_event || !runtime->mailbox_space || !runtime->mailbox_cancel)
+    if (!client.notification_event || !runtime->mailbox_space || !runtime->mailbox_cancel)
         return false;
     runtime->authenticated = true;
     const u8 key[kWebSocketClientKeyBytes]{};
@@ -859,7 +858,6 @@ void stop_runtime() noexcept {
     CloseHandle(runtime->mailbox_space);
     CloseHandle(runtime->mailbox_cancel);
     CloseHandle(client.notification_event);
-    CloseHandle(client.state_event);
     release_runtime_allocation(&client);
     client = GatewayClient{};
     runtime = nullptr;

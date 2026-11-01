@@ -222,7 +222,6 @@ NativePluginSdkMenuContext context_for(const ApplicationPluginMenu& menu, const 
 void clear() noexcept { reset_value(&g_menu); }
 } // namespace
 
-const ApplicationPluginMenu& application_plugins_menu_state() noexcept { return g_menu; }
 bool application_plugins_menu_action_id(u32 action) noexcept {
     return action >= kApplicationPluginPopupActionFirst &&
            action < kApplicationPluginPopupActionFirst + kApplicationPluginMenuRows;

@@ -3,6 +3,14 @@
 #include "maicord/platform/notification_identity.hpp"
 #include "maicord/sys/registry.hpp"
 #include "maicord/sys/winrt.hpp"
+#include "../src/platform/desktop_notifications.cpp"
+namespace maicord {
+// An AddRef'd IClassFactory of an owner that does not register its class (the registry stays untouched), for
+// the nonemitting callback tests here and in the native probe linked beside them.
+DesktopNotificationResult desktop_notifications_factory(DesktopNotifications* n,void** out) noexcept {
+    auto* s=owner(n);if(!ui_owner(s)||!out)return failed(DesktopNotificationError::invalid_input,E_INVALIDARG);return FAILED(s->QueryInterface(__uuidof(IClassFactory),out))?failed(DesktopNotificationError::transport,E_NOINTERFACE):DesktopNotificationResult{};
+}
+}
 namespace maicord {
 namespace {
 template<usize N> constexpr ConstSlice<wchar_t> wide(const wchar_t(&s)[N]) noexcept {return {s,static_cast<u32>(N-1)};}

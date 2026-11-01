@@ -1191,26 +1191,6 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
     return apply_row_specs(scene, &row);
 }
 
-} // namespace
-
-bool message_scene_initialize(MessageScene* scene, MessageTimeline* timeline,
-                              Slice<MessageSceneRowWidget> row_storage, Slice<UiWidget> widget_storage,
-                              Slice<UiLayoutNode> layout_storage) noexcept {
-    if (!scene || !timeline || !timeline->store || !timeline->list || !row_storage.data ||
-        row_storage.count == 0 || !widget_storage.data || !layout_storage.data ||
-        widget_storage.count == 0 || layout_storage.count == 0) {
-        return false;
-    }
-    reset_value<MessageScene>(scene);
-    scene->rows = row_storage;
-    scene->timeline = timeline;
-    scene->root = ui_widget_invalid_handle();
-    scene->unread_divider_style = kDefaultUiUnreadDividerStyle;
-    scene->unread_prepared_height = kDefaultUiUnreadDividerStyle.height;
-    return ui_widget_manager_initialize(&scene->widgets, widget_storage, layout_storage);
-}
-
-namespace {
 void invalidate_geometry(MessageScene* scene) noexcept {
     scene->prepared_signature = 0;
     scene->dirty = true;
@@ -1407,8 +1387,9 @@ bool message_scene_poll_projection(const MessageScene& scene, const MessageScene
 bool message_scene_initialize_owned(MessageScene* scene, MessageTimeline* timeline, u32 maximum_rows,
                                     u32 initial_rows, Slice<UiWidget> widget_storage,
                                     Slice<UiLayoutNode> layout_storage, bool defer_measurements) noexcept {
-    if (!scene || scene->owned_rows.arena.base || maximum_rows == 0 || initial_rows == 0 ||
-        initial_rows > maximum_rows) {
+    if (!scene || scene->owned_rows.arena.base || !timeline || !timeline->store || !timeline->list ||
+        !widget_storage.data || !layout_storage.data || widget_storage.count == 0 ||
+        layout_storage.count == 0 || maximum_rows == 0 || initial_rows == 0 || initial_rows > maximum_rows) {
         return false;
     }
     StableStorage owned_rows{};
@@ -1417,11 +1398,14 @@ bool message_scene_initialize_owned(MessageScene* scene, MessageTimeline* timeli
                                    sizeof(MessageSceneRowWidget), alignof(MessageSceneRowWidget), false)) {
         return false;
     }
-    if (!message_scene_initialize(
-            scene, timeline,
-            Slice<MessageSceneRowWidget>{stable_storage_data<MessageSceneRowWidget>(owned_rows),
-                                         owned_rows.capacity},
-            widget_storage, layout_storage)) {
+    reset_value<MessageScene>(scene);
+    scene->rows = Slice<MessageSceneRowWidget>{stable_storage_data<MessageSceneRowWidget>(owned_rows),
+                                               owned_rows.capacity};
+    scene->timeline = timeline;
+    scene->root = ui_widget_invalid_handle();
+    scene->unread_divider_style = kDefaultUiUnreadDividerStyle;
+    scene->unread_prepared_height = kDefaultUiUnreadDividerStyle.height;
+    if (!ui_widget_manager_initialize(&scene->widgets, widget_storage, layout_storage)) {
         stable_storage_release(&owned_rows);
         return false;
     }
@@ -2201,14 +2185,6 @@ const MessageSceneRowWidget* message_scene_snapshot_row(const MessageScene& scen
                    child->message.generation == outer.message.generation
                ? child
                : nullptr;
-}
-
-bool message_scene_bind_snapshot_rows(MessageScene* scene, Slice<MessageSceneRowWidget> rows) noexcept {
-    if (!scene || scene->active || scene->owns_rows || (!rows.data && rows.count) ||
-        rows.count > kInvalidUiWidgetSlot)
-        return false;
-    scene->snapshot_rows = rows;
-    return true;
 }
 
 bool message_scene_set_snapshot_text_metrics(MessageScene* scene, u32 source_index, float content_height,

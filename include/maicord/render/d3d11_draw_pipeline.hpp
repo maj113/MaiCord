@@ -125,11 +125,6 @@ void d3d11_draw_pipeline_warm(D3D11DrawPipelineOwner* pipeline, ID3D11Device* de
                               const D3D11DrawPipelineConfig& config) noexcept;
 // Moves created objects into the owner, releasing what it held.
 void d3d11_draw_pipeline_publish(D3D11DrawPipelineOwner* owner, D3D11DrawPipelineOwner* staged) noexcept;
-// create + publish + the frame transform; a failure leaves the owner untouched.
-D3D11DrawPipelineResult d3d11_draw_pipeline_initialize(D3D11DrawPipelineOwner* owner, ID3D11Device* device,
-                                                       ID3D11DeviceContext* context, u32 width, u32 height,
-                                                       u32 dpi,
-                                                       const D3D11DrawPipelineConfig& config) noexcept;
 D3D11DrawPipelineResult d3d11_draw_pipeline_reserve_glyph_instances(D3D11DrawPipelineOwner* owner,
                                                                     ID3D11Device* device, u32 stride,
                                                                     u32 capacity) noexcept;

@@ -63,6 +63,7 @@ bool close_obu(RtpVideoAssembly& a) noexcept {
     if (!fits(a, extra))
         return false;
     copy_bytes(obu + header + extra, obu + header, payload); // memmove.
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (u32 i = 0; i < extra; ++i, payload >>= 7)
         obu[header + i] = static_cast<u8>((payload & 0x7f) | (i + 1 < extra ? 0x80 : 0));
     obu[0] |= kSizeBit;
@@ -117,6 +118,7 @@ RtpDepacketize rtp_av1_push(RtpVideoAssembly* assembly, ConstSlice<u8> payload, 
     if (!count && !continues && !(aggregation & kY))
         return reject(a, RtpDepacketize::damaged); // An announced OBU that never arrives.
     u64 needed = 0;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (u32 i = 0; i < count; ++i)
         needed += list[i].size + 5u; // Room for closing the OBU before each element.
     if (needed + 5u > ~u32{0} || !fits(a, static_cast<u32>(needed + 5u))) {

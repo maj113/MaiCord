@@ -1,6 +1,8 @@
 #include "maicord/render/media_atlas_gpu.hpp"
 
 #include "media_atlas_gpu_internal.hpp"
+// Device command recording, once per animation frame: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 
@@ -212,4 +214,5 @@ MediaAtlasGpuResult media_atlas_gpu_advance_animated_webp(
 }
 
 } // namespace maicord
+#pragma clang attribute pop
 

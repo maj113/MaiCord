@@ -1,4 +1,6 @@
 #include "audio_scene_ui_probe.hpp"
+#include "../ui_scene_fixtures.hpp"
+#include "probe_draw_pipeline.hpp"
 #include "probe_present.hpp"
 #include "probe_capture.hpp"
 #include "maicord/core/log.hpp"

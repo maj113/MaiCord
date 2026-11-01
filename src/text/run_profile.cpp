@@ -11,6 +11,8 @@ void native_profile_shape_plan(SfntShapePlan& output,const SfntShapePlan& parent
     output.substitution_roots=substitutions;output.positioning_roots=roots;
     output.refresh_substitution_classes=true;
 }
+// Everything below prepares a cached plan once per font instance: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 SfntStatus native_plan_source(const NativeRunPlanStore& store,NativeRunPlanHandle run,bool independent,const Arena* state,
     const Arena* scratch,NativePlanSource& output) noexcept {
     reset_value(&output);output.parent=native_run_plan_get(store,run,independent);
@@ -128,4 +130,5 @@ SfntStatus native_alphabetic_plan_prepare(const NativeRunPlanStore& store,Native
     const auto status=native_positioning_prepare(*font,*parent,plan.positioning_roots,*state,*scratch,&plan.positioning_program,work);if(status!=SfntStatus::ok)return status;
     saved_state.keep=true;*out=plan;return SfntStatus::ok;
 }
+#pragma clang attribute pop
 }

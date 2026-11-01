@@ -1,4 +1,5 @@
 #include "maicord/app/voice_mixer.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/app/voice_playback.hpp"
 #include "maicord/app/soundboard_audio.hpp"
 #include "maicord/core/memory.hpp"

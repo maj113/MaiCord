@@ -1,4 +1,5 @@
 #include "maicord/app/message_forward_controller.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/private_channel_store.hpp"
 #include "maicord/model/message_rich_store.hpp"

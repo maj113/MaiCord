@@ -1,4 +1,5 @@
 #include "probe_present.hpp"
+#include "../ui_scene_fixtures.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/model/read_state.hpp"
 #include "maicord/ui/channel_context_policy.hpp"

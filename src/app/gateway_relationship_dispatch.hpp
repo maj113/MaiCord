@@ -9,6 +9,9 @@ struct GatewayClientMailbox
     // wait. The consumer's interlocked clear follows its ownership store, so either the producer's
     // re-check sees the freed room or the consumer sees the flag: a wake cannot be lost.
     volatile LONG space_waiting;
+    // Producer only: the clock tick (low 32 bits) at which the cancel event was last seen clear, so the
+    // event is polled once per tick instead of once per published record.
+    u32 cancel_checked_tick;
 };
 // Production producer waits only at full-mailbox boundaries. Consumer signals
 // space after advancing ownership (gateway_mailbox_signal_space); cancellation

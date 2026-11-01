@@ -1,5 +1,6 @@
 #pragma once
 #include "channel_overview_probe.hpp"
+#include "probe_media_upload.hpp"
 #include "maicord/ui/search_scene.hpp"
 #include "maicord/ui/search_avatar_media.hpp"
 #include "maicord/app/client_theme.hpp"

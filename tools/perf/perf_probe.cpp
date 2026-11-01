@@ -1048,11 +1048,11 @@ GpuWork sample_gpu_work() noexcept {
     work.painted = r.painted_frames;
     work.partial_pixels = r.partial_present_pixels;
     const auto& m = r.media_gpu;
-    work.media_upload_bytes = m.uploaded_bytes + m.png_uploaded_bytes + m.apng_uploaded_bytes +
+    work.media_upload_bytes = m.png_uploaded_bytes + m.apng_uploaded_bytes +
                               m.straight_rgba8_uploaded_bytes + m.gif_uploaded_bytes +
                               m.animated_webp_uploaded_bytes + m.vp8_uploaded_bytes +
                               m.vp8_alpha_uploaded_bytes + m.jpeg_uploaded_bytes;
-    work.media_frames = u64{m.uploads} + m.png_uploads + m.straight_rgba8_uploads + m.jpeg_uploads +
+    work.media_frames = u64{m.png_uploads} + m.straight_rgba8_uploads + m.jpeg_uploads +
                         m.apng_frames + m.gif_frames + m.animated_webp_frames + m.vp8_atlas_uploads;
     work.animation_restores = r.animation_gpu.restores + r.preview_animation_gpu.restores;
     work.video_frames = m.video.frames;

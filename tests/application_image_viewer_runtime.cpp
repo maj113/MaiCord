@@ -1,6 +1,7 @@
 // Shipping image host with independent accepted Search/live banks. Renderer,
 // Search authority and Save boundaries are deterministic; no network is used.
 #include "../src/app/application_image_viewer.cpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/core/memory.hpp"
 #include "../src/app/application_media_context.hpp"
 #include "test_output.hpp"

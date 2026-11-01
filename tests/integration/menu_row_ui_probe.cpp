@@ -1,4 +1,5 @@
 #include "menu_row_ui_probe.hpp"
+#include "../ui_scene_fixtures.hpp"
 #include "probe_present.hpp"
 #include "maicord/ui/message_context_menu.hpp"
 #include "maicord/protocol/application_commands.hpp"

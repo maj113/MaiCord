@@ -1,4 +1,5 @@
 #include "maicord/ui/settings_scene.hpp"
+#include "ui_scene_fixtures.hpp"
 #include "maicord/ui/settings_schema.hpp"
 #include "settings_schema_validation.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
@@ -159,7 +160,7 @@ void test_color_hex(Check check) noexcept {
 }
 
 void test_controls(Check check) noexcept {
-    const auto tokens = ui_settings_tokens(kDefaultTheme);
+    const UiSettingsThemeTokens tokens(kDefaultTheme);
     const auto layout_tokens = ui_settings_layout_tokens(kDefaultTheme.styles);
     check(bytes_equal(&layout_tokens, static_cast<const UiSettingsLayoutTokens*>(&tokens),
                       sizeof(layout_tokens)),
@@ -388,7 +389,7 @@ void test_modal_scene(Check check) noexcept {
               ui_settings_scene_slider_hit(scene, slider, center(track.thumb).x, center(track.thumb).y),
           "settings modal: sliders map pointer, arrow and Page keys to clamped choices");
     UiSettingsControlGeometry radio_geometry{};
-    const auto tokens = ui_settings_tokens(kDefaultTheme);
+    const UiSettingsThemeTokens tokens(kDefaultTheme);
     const bool radio_ok = ui_settings_scene_control_geometry(scene, radio, &radio_geometry);
     const auto compact = ui_radio_option(tokens, radio_geometry.field, 1);
     check(radio_ok && ui_settings_scene_radio_pointer(scene, radio, center(compact).x, center(compact).y, &activation) &&
@@ -473,7 +474,7 @@ void test_modal_scene(Check check) noexcept {
                  ui_settings_scene_control_geometry(scene, {UiSettingsTargetKind::control, page, 1}, &themes) &&
                  paint_stream_reset(&paint, viewport.right, viewport.bottom) &&
                  ui_settings_scene_paint(scene, kDefaultTheme, &paint, 96, nullptr);
-    const auto swatch_tokens = ui_settings_tokens(kDefaultTheme);
+    const UiSettingsThemeTokens swatch_tokens(kDefaultTheme);
     const u32 columns = ui_swatch_columns(swatch_tokens, ui_rect_width(themes.field));
     for (u32 choice = 0; solid && choice < 3; ++choice) {
         const auto rect = ui_swatch_rect(swatch_tokens, themes.field, choice, columns);
@@ -640,7 +641,7 @@ void test_layer_scene(Check check) noexcept {
 // Single-page forms (rules, reports, events) present as compact dialogs: no
 // sidebar or search, sized to their rows, with the actions in a footer band.
 void test_dialog_scene(Check check) noexcept {
-    const auto tokens = ui_settings_tokens(kDefaultTheme);
+    const UiSettingsThemeTokens tokens(kDefaultTheme);
     const auto wide = ui_settings_modal_layout(tokens, {0, 0, 1200, 970}, UiSettingsPresentation::dialog);
     const auto narrow = ui_settings_modal_layout(tokens, {0, 0, 632, 720}, UiSettingsPresentation::dialog);
     const auto tiny = ui_settings_modal_layout(tokens, {0, 0, 500, 600}, UiSettingsPresentation::dialog);

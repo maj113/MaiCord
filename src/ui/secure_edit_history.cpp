@@ -34,8 +34,6 @@ void secure_edit_end_history_group(SecureEdit* edit) noexcept {
 void secure_edit_break_history_run(SecureEdit* edit) noexcept {
     if (!edit || !edit->history) return; auto state = project(*edit); text_edit_break_history_run(&state);
 }
-bool secure_edit_can_undo(const SecureEdit& edit) noexcept { return text_edit_can_undo(project(edit)); }
-bool secure_edit_can_redo(const SecureEdit& edit) noexcept { return text_edit_can_redo(project(edit)); }
 SecureEditResult secure_edit_undo(SecureEdit* edit) noexcept { return replay(edit, false); }
 SecureEditResult secure_edit_redo(SecureEdit* edit) noexcept { return replay(edit, true); }
 SecureEditHistoryCosts secure_edit_history_costs(const SecureEdit& edit) noexcept { return text_edit_history_costs(project(edit)); }

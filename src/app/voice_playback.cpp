@@ -275,10 +275,7 @@ void voice_playback_set_effects(VoicePlayback* playback, SoundboardMixer* effect
 SoundboardMixer* voice_playback_effects(VoicePlayback* playback) noexcept {
     if (!playback)
         return nullptr;
-    AcquireSRWLockShared(playback->lock.native());
-    auto* effects = playback->effects;
-    ReleaseSRWLockShared(playback->lock.native());
-    return effects;
+    return *static_cast<SoundboardMixer* const volatile*>(&playback->effects); // one pointer: the lock added nothing
 }
 
 bool voice_playback_set_user(VoicePlayback* playback, u64 user_id, u32 gain_percent, bool muted) noexcept {

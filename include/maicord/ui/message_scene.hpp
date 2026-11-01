@@ -414,9 +414,6 @@ bool message_scene_bind_theme_styles(MessageScene*, const UiResolvedThemeStyles*
 bool message_scene_poll_projection(const MessageScene&, const MessageSceneRowWidget&, const Theme&,
                                    Slice<UiPollAnswer>, UiPollProjection*) noexcept;
 
-bool message_scene_initialize(MessageScene* scene, MessageTimeline* timeline,
-                              Slice<MessageSceneRowWidget> row_storage, Slice<UiWidget> widget_storage,
-                              Slice<UiLayoutNode> layout_storage) noexcept;
 // defer_measurements commits retained measurements on demand (as snapshot
 // slots always do) instead of one per store slot up front; see
 // message_scene_reserve_measurements.
@@ -466,8 +463,6 @@ bool message_scene_set_snapshot_text_metrics(MessageScene* scene, u32 source_ind
                                              const MessageSceneRichLayout* rich_layout,
                                              const MessageSceneRichItemLayout* rich_item_layout,
                                              bool* changed) noexcept;
-// Fixed-storage hosts can supply child rows; the owned host uses its existing row allocator.
-bool message_scene_bind_snapshot_rows(MessageScene* scene, Slice<MessageSceneRowWidget> rows) noexcept;
 UiWidgetHandle message_scene_rich_item_widget(const MessageSceneRowWidget& row,
                                               MessageSceneRichItemKind kind, u32 index) noexcept;
 const UiLayoutNode* message_scene_rich_item_layout_node(const MessageScene& scene,

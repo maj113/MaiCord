@@ -271,7 +271,7 @@ void volume_binding(Check check) noexcept {
     // The tile menu's slider maps its track onto 0..200 % in single steps.
     constexpr u32 steps = kGatewayStreamVolumeMaximum + 1;
     const UiRect track{100, 10, 300, 30};
-    const auto tokens = ui_settings_tokens(kDefaultTheme);
+    const UiSettingsThemeTokens tokens(kDefaultTheme);
     const auto g = ui_slider_geometry(tokens, track, steps, 0, false);
     check(ui_slider_index_at(g, steps, track.left - 50) == 0 &&
               ui_slider_index_at(g, steps, track.right + 50) == kGatewayStreamVolumeMaximum,

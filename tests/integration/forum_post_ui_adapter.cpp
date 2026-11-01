@@ -1,4 +1,5 @@
 #include "forum_post_ui_adapter.hpp"
+#include "../secure_text_store_access.hpp"
 #include "forum_media_ui_adapter.hpp"
 #include "clipboard_attachment_ui_fixture.hpp"
 #include "application_forum_preview.hpp"

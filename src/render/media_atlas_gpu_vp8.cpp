@@ -1,6 +1,8 @@
 #include "maicord/render/media_atlas_gpu.hpp"
 
 #include "media_atlas_gpu_internal.hpp"
+// Device command recording, once per VP8 keyframe: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 
@@ -384,3 +386,4 @@ void media_atlas_gpu_release(MediaAtlasGpu* gpu) noexcept {
 }
 
 } // namespace maicord
+#pragma clang attribute pop

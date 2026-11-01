@@ -1,4 +1,5 @@
 #include "../src/app/application_attachments_state.hpp"
+#include "ui_scene_fixtures.hpp"
 #include "../src/app/application_state.hpp"
 #include "../src/app/application_text_form.hpp"
 #include "maicord/core/memory.hpp"

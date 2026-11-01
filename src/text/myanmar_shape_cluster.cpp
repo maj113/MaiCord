@@ -53,7 +53,10 @@ SfntStatus sfnt_myanmar_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap
     }
     auto* mapped=reinterpret_cast<SfntClusterGlyph*>(expanded);u32 count=0,units=0,starts=0,pieces=0;SelectorSlots selectors{};
     for(u32 first=0;first<input.count;){u32 end=first+1;while(end<input.count&&!storage.flags[end])++end;
-        u32 end_units=units;for(u32 i=first;i<end;++i)end_units+=input[i]>0xffff?2u:1u;
+        // One cluster's scalars: a vector body never runs and only adds size.
+        u32 end_units=units;
+#pragma clang loop vectorize(disable) interleave(disable)
+        for(u32 i=first;i<end;++i)end_units+=input[i]>0xffff?2u:1u;
         u32 end_pieces=pieces;while(end_pieces<sizes.scalar_count&&expanded[end_pieces].source<end_units)++end_pieces;
         if(starts==storage.targets.count)return SfntStatus::output_too_small;storage.targets[starts++]=units;
         for(u32 i=units;i<end_units;++i)storage.character_glyphs[i]=units;

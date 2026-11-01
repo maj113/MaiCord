@@ -643,10 +643,10 @@ bool client_theme_io_poll(ClientThemeIo* io, ClientThemeIoCompletion* completion
     return true;
 }
 bool client_theme_io_completion_pending(ClientThemeIo* io) noexcept {
-    AcquireSRWLockExclusive(&io->lock);
-    const bool ready = io->completion_ready;
-    ReleaseSRWLockExclusive(&io->lock);
-    return ready;
+    // Runs on every main-loop wake. The worker publishes the completion under the lock and then sets the manual-reset
+    // completion event, which stays set until client_theme_io_poll consumes the completion (under the lock), so a
+    // read that misses a just-published completion is repaired by the next wake.
+    return *static_cast<const volatile bool*>(&io->completion_ready);
 }
 void client_theme_io_cancel(ClientThemeIo* io, u64 generation) noexcept {
     if (!io || !generation)

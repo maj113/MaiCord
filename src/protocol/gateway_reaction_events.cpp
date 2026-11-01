@@ -120,6 +120,8 @@ GatewayEventDecodeResult finish_emoji(const EmojiContext& emoji, u32 offset, Sli
     return {};
 }
 
+// Bulk reaction batches arrive once per many reactions, never per reaction: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 struct ReactionBatchRoot {
     ReactionContext header;
     JsonValue reactions;
@@ -225,6 +227,7 @@ bool visit_batch_reaction(void* opaque, u32, JsonValue value) noexcept {
                                                       visit_batch_user, &batch));
 }
 
+#pragma clang attribute pop
 } // namespace
 
 GatewayEventDecodeResult gateway_decode_message_reaction(
@@ -285,6 +288,7 @@ GatewayEventDecodeResult gateway_decode_message_reaction(
     return GatewayEventDecodeResult{};
 }
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 GatewayReactionBatchVisitResult gateway_visit_message_reaction_add_many(
     JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth, Slice<char> name_scratch,
     void* context, bool (*visit)(void*, const GatewayMessageReactionEvent&) noexcept) noexcept {
@@ -333,5 +337,6 @@ GatewayReactionBatchVisitResult gateway_visit_message_reaction_add_many(
     batch_read(batch, replay);
     return batch.result;
 }
+#pragma clang attribute pop
 
 } // namespace maicord

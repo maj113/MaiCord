@@ -1,4 +1,5 @@
 #include "application_user_actions.hpp"
+#include "../src/app/application_friends.cpp"
 #include "application_state.hpp"
 #include "application_friends.hpp"
 #include "application_private_conversation.hpp"
@@ -18,6 +19,25 @@
 
 namespace maicord::friends_runtime_test {
 using namespace app_detail;
+// Commit and admission metrics of the controller's relationship banks, read from its private state.
+struct FriendsStorageBankMetrics {
+    usize reserved_bytes, committed_bytes;
+    u32 admitted_count, commit_count;
+    const void* address;
+};
+struct ApplicationFriendsStorageMetrics {
+    usize controller_bytes;
+    FriendsStorageBankMetrics active, candidate, indices, requests_indices;
+};
+FriendsStorageBankMetrics bank_metrics(const StableStorage& bank) noexcept {
+    return {bank.arena.reserved, bank.arena.committed, bank.capacity, bank.arena.commit_count, bank.arena.base};
+}
+ApplicationFriendsStorageMetrics application_friends_storage_metrics() noexcept {
+    const auto* friends = g_app.friends;
+    if (!friends) return {sizeof(ApplicationFriends), {}, {}, {}, {}};
+    return {sizeof(ApplicationFriends), bank_metrics(friends->storage.active), bank_metrics(friends->storage.candidate),
+        bank_metrics(friends->storage.indices), bank_metrics(friends->requests_indices)};
+}
 struct AccountFixture { RestClient rest; } account{};
 UiWidget popup_widgets[32]{};UiLayoutNode popup_nodes[32]{};u8 modal_token{};
 struct Observations {

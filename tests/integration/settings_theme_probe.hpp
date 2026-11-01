@@ -186,7 +186,7 @@ inline bool settings_theme_ui_probe(BackgroundThemeProbeContext c) noexcept {
         if (labels != 8 ||
             !ui_settings_scene_control_geometry(scene, {UiSettingsTargetKind::control, {1, 1}, 1}, &cards))
             return false;
-        const auto tokens = ui_settings_tokens(theme);
+        const UiSettingsThemeTokens tokens(theme);
         const auto tile = ui_swatch_rect(tokens, cards.field, 2, ui_swatch_columns(tokens, ui_rect_width(cards.field)));
         if (!pixels.point(20, 20, &sidebar) ||
             !pixels.point((tile.left + tile.right) * .5f, (tile.top + tile.bottom) * .5f, &card))
@@ -204,7 +204,7 @@ inline bool settings_theme_ui_probe(BackgroundThemeProbeContext c) noexcept {
         Pixels pixels(r);
         u32 current_sidebar = 0, current_card = 0;
         UiSettingsControlGeometry cards{};
-        const auto tokens = ui_settings_tokens(theme);
+        const UiSettingsThemeTokens tokens(theme);
         const bool cards_valid = ui_settings_scene_control_geometry(scene, {UiSettingsTargetKind::control, {1, 1}, 1},
                                                                     &cards);
         const auto tile = ui_swatch_rect(tokens, cards.field, 2, ui_swatch_columns(tokens, ui_rect_width(cards.field)));

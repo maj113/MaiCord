@@ -2001,10 +2001,6 @@ bool uia_host_listening(const UiaProviderHost& host) noexcept {
     return host.runtime && host.connected && host.runtime->clients_are_listening() != FALSE;
 }
 
-void* uia_host_element(UiaProviderHost* host, u64 key) noexcept {
-    return element_create(host, key, key == 0); // refuses a null or disconnected host
-}
-
 bool uia_host_raise_focus(UiaProviderHost* host, u64 key) noexcept {
     return raise_event(host, key, event_focus_changed);
 }

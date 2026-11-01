@@ -2,6 +2,8 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 
+// Signature framing, once per signature: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 namespace maicord {
 SignatureEncodingResult p256_signature_to_der(ConstSlice<u8> raw, Slice<u8> der) noexcept {
     if (raw.count != 64 || !byte_range_valid(raw) || !byte_range_valid({der.data, der.count}))
@@ -62,3 +64,4 @@ SignatureEncodingResult p256_signature_from_der(ConstSlice<u8> der, Slice<u8> ra
     return {64, SignatureEncodingError::none};
 }
 } // namespace maicord
+#pragma clang attribute pop

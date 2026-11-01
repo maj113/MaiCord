@@ -1,6 +1,7 @@
 #include "maicord/sys/winsock.hpp"
 #include "maicord/core/memory.hpp"
 
+#include "maicord/core/interlocked.hpp"
 #include "maicord/app/update_https.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/protocol/writer.hpp"
@@ -10,13 +11,13 @@ namespace {
 constexpr u32 kHeadBytes = 32 * 1024, kFields = 128;
 using E = UpdateTransportError;
 
-bool cancelled(const UpdateHttpsTransport* t) noexcept { return InterlockedCompareExchange(const_cast<volatile LONG*>(&t->cancelled), 0, 0) != 0; }
+bool cancelled(const UpdateHttpsTransport* t) noexcept { return read_acquire(&t->cancelled) != 0; }
 void close_socket(UpdateHttpsTransport* t) noexcept {
     const auto s = static_cast<SOCKET>(InterlockedExchange64(&t->socket, static_cast<LONG64>(INVALID_SOCKET)));
     if (s != INVALID_SOCKET) closesocket(s);
 }
 SOCKET current(const UpdateHttpsTransport* t) noexcept {
-    return static_cast<SOCKET>(InterlockedCompareExchange64(const_cast<volatile LONG64*>(&t->socket), 0, 0));
+    return static_cast<SOCKET>(read_acquire(&t->socket));
 }
 // Records the first native code behind a failure for the updater log.
 E fail(UpdateHttpsTransport* t, E error, u32 native) noexcept {

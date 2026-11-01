@@ -3,6 +3,7 @@
 // never part of the CTest suite because it talks to the real service.
 #include "maicord/app/rest_client.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/win32_kernel.hpp"
 #include "../test_output.hpp"
 
 namespace maicord {
@@ -267,8 +268,9 @@ maicord_rest_client_probe_entry() noexcept {
         maicord::g_trace_first_bytes < 2 || maicord::g_trace_leaked)) failure_stage = 4500;
     if (!failure_stage && !maicord::probe_shared_workers()) failure_stage = 4600;
     bool ok = failure_stage == 0;
+    MEMORY_BASIC_INFORMATION owner_region{};
     const maicord::u32 runtime_bytes =
-        maicord::rest_client_runtime_bytes(4 * 1024);
+        VirtualQuery(maicord::g_client.runtime, &owner_region, sizeof(owner_region)) ? static_cast<maicord::u32>(owner_region.RegionSize) : 0u;
 
     if (ok) {
         maicord::test_write_text(

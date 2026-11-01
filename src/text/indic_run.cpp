@@ -26,7 +26,10 @@ SfntStatus indic_for_each_cluster_raw(SfntIndicProfile profile,Utf8View text,Con
         while(first<pending){u32 end=first+1;while(end<pending&&!starts[end])++end;
             if(end==pending&&read<text.bytes)break;
             status=cluster(context,window+first,end-first,end<pending||read<text.bytes);if(status!=SfntStatus::ok)return status;first=end;}
-        pending-=first;for(u32 i=0;i<pending;++i)window[i]=window[first+i];
+        pending-=first;
+        // At most 32 scalars move: a vector body never runs and only adds size.
+#pragma clang loop vectorize(disable) interleave(disable)
+        for(u32 i=0;i<pending;++i)window[i]=window[first+i];
     }
     return SfntStatus::ok;
 }

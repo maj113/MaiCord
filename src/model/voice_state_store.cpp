@@ -142,15 +142,6 @@ void sort_by_channel(VoiceState* data, VoiceState* scratch, u32 count) noexcept 
 }
 } // namespace
 
-bool voice_state_store_initialize_sparse(VoiceStateStore* store, Slice<VoiceState> records) noexcept {
-    if (!store || store->count || store->owned.arena.base || !records.data || !records.count ||
-        records.count > kVoiceStateCapacity)
-        return false;
-    reset_value(store);
-    store->records = records;
-    return true;
-}
-
 bool voice_state_store_initialize_owned(VoiceStateStore* store, u32 reserved_capacity) noexcept {
     if (!store || store->count || store->owned.arena.base || !reserved_capacity ||
         reserved_capacity > kVoiceStateCapacity)

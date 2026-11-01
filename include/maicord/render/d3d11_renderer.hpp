@@ -637,7 +637,7 @@ struct D3D11Renderer {
     RendererLoginStatus login_status;
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
-static_assert(sizeof(D3D11Renderer) == 120560);
+static_assert(sizeof(D3D11Renderer) == 120552);
 
 // Starts hardware device and draw-pipeline creation on a worker at process
 // entry; the next renderer_initialize adopts them. Main thread only.
@@ -753,9 +753,6 @@ bool renderer_bind_preview_media_atlas(D3D11Renderer* renderer, MediaAtlas* atla
 bool renderer_read_media_rgba(D3D11Renderer* renderer, MediaAssetKey key, Slice<u8> rgba, u32* width,
                               u32* height) noexcept;
 void renderer_unbind_media_atlas(D3D11Renderer* renderer) noexcept;
-MediaAtlasGpuResult renderer_upload_media_rgba8(D3D11Renderer* renderer, MediaAssetKey key, u16 width,
-                                                u16 height, u32 row_pitch,
-                                                ConstSlice<u8> premultiplied_rgba8) noexcept;
 MediaAtlasGpuResult renderer_upload_media_straight_rgba8(D3D11Renderer* renderer, MediaAssetKey key,
                                                          u16 width, u16 height, u32 row_pitch,
                                                          ConstSlice<u8> straight_rgba8) noexcept;

@@ -1,4 +1,5 @@
 #include "maicord/app/account_logout.hpp"
+#include "../ui_scene_fixtures.hpp"
 #include "account_logout_ui_probe.hpp"
 #include "probe_account_ui.hpp"
 #include "probe_present.hpp"

@@ -182,12 +182,11 @@ void release_local_source(AccountMediaWorkerLane* lane) noexcept {
     }
 }
 bool local_retired(const AccountMediaWorkerLane* lane) noexcept {
-    return ReadAcquire(&lane->local_retired) ||
-           WaitForSingleObject(lane->owner->stop_event, 0) == WAIT_OBJECT_0;
+    return ReadAcquire(&lane->local_retired) || account_media_worker_stop_requested(lane->owner);
 }
 bool audio_source_cancelled(void* opaque) noexcept {
     const auto* lane = static_cast<const AccountMediaWorkerLane*>(opaque);
-    return lane && WaitForSingleObject(lane->owner->stop_event, 0) == WAIT_OBJECT_0;
+    return lane && account_media_worker_stop_requested(lane->owner);
 }
 // Exact random-access reads for the composer video poster; a retirement or
 // account stop cancels between blocks (and CancelSynchronousIo within one).
@@ -688,7 +687,7 @@ AccountMediaRequestResult queue(AccountMediaWorker* worker, const AccountMediaWo
         !media_asset_key_valid(work.key)) {
         return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     }
-    if (WaitForSingleObject(worker->stop_event, 0) == WAIT_OBJECT_0)
+    if (account_media_worker_stop_requested(worker))
         return request_result(AccountMediaRequestState::failed, AccountMediaError::client);
     collect_collection_titles(worker);
     AccountMediaWorkerRetry* retry = work.collection ? nullptr : find_retry(worker, work.key);
@@ -960,11 +959,20 @@ void cleanup_failed_initialize(AccountMediaWorker* worker) noexcept {
 }
 
 } // namespace
+bool account_media_worker_stop_requested(AccountMediaWorker* worker) noexcept {
+    const LONG tick = static_cast<LONG>(GetTickCount64());
+    if (ReadAcquire(&worker->stop_checked_tick) == tick)
+        return false;
+    if (WaitForSingleObject(worker->stop_event, 0) == WAIT_OBJECT_0)
+        return true;
+    WriteRelease(&worker->stop_checked_tick, tick);
+    return false;
+}
 
 AccountMediaRequestResult account_media_worker_collection_title(AccountMediaWorker* worker,
     const AccountMediaCollectionTitleRequest& request, MediaTrackTitle* out) noexcept {
     if (!worker || !worker->initialized || !out || !request.track || !media_asset_key_valid(request.key) ||
-        WaitForSingleObject(worker->stop_event, 0) == WAIT_OBJECT_0)
+        account_media_worker_stop_requested(worker))
         return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     collect_collection_titles(worker);
     MediaTrackTitle title{}; MediaTrackId id{}; u64 retry{};
@@ -1049,7 +1057,7 @@ AccountMediaRequestResult account_media_worker_initialize(AccountMediaWorker* wo
 AccountMediaRequestResult account_media_worker_start_lane(AccountMediaWorker* worker, u32 index) noexcept {
     if (!worker || !worker->initialized || index >= kAccountMediaDecodeLaneCount ||
         load_phase(&worker->lanes[index]) != AccountMediaWorkerPhase::idle ||
-        WaitForSingleObject(worker->stop_event, 0) == WAIT_OBJECT_0)
+        account_media_worker_stop_requested(worker))
         return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
     return start_lane(worker, worker->lanes[index]);
 }
@@ -1262,7 +1270,7 @@ AccountMediaRequestResult account_media_worker_local_preview_uploaded(
     AccountMediaWorker* worker, const AccountMediaLocalPreviewRequest& request) noexcept {
     if (!worker || !worker->initialized || !exact_local_request(request, true))
         return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
-    if (WaitForSingleObject(worker->stop_event, 0) == WAIT_OBJECT_0)
+    if (account_media_worker_stop_requested(worker))
         return request_result(AccountMediaRequestState::failed, AccountMediaError::client);
     for (auto& lane : worker->lanes) {
         if (!exact_local_owner(lane.command, request) || lane.command.lease_serial != request.lease_serial ||
@@ -1310,7 +1318,7 @@ AccountMediaRequestResult account_media_worker_local_preview_uploaded(
 AccountMediaRequestResult account_media_worker_local_previews_presented(AccountMediaWorker* worker) noexcept {
     if (!worker || !worker->initialized)
         return request_result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
-    if (WaitForSingleObject(worker->stop_event, 0) == WAIT_OBJECT_0)
+    if (account_media_worker_stop_requested(worker))
         return request_result(AccountMediaRequestState::failed, AccountMediaError::client);
     u32 pending = worker->poster_present_mask;
     worker->poster_present_mask = 0;

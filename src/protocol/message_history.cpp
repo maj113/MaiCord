@@ -187,6 +187,8 @@ void MessageHistoryRichCursor::advance(const GatewayMessageEvent& message) noexc
     snapshot_mentions += message.snapshot.mention_users.count;
 }
 
+// The request target is written once per page request: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 MessageHistoryTargetResult write_message_history_target(
     u64 channel_id, const MessageHistoryQuery& query, Slice<u8> output) noexcept {
     if (channel_id == 0 || query.limit == 0 || query.limit > kMessageHistoryMaximumMessages ||
@@ -225,6 +227,7 @@ MessageHistoryTargetResult write_message_history_target(
                ? MessageHistoryTargetResult{writer.used, MessageHistoryTargetError::none}
                : MessageHistoryTargetResult{0, MessageHistoryTargetError::output_capacity};
 }
+#pragma clang attribute pop
 
 MessageHistoryDecodeResult decode_message_history_page(
     Utf8View body, Slice<u32> page_structural_scratch, u32 maximum_depth, Slice<char> content_output,

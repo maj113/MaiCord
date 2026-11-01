@@ -69,9 +69,6 @@ struct PrivateChannelInput {
     u64 safety_warning_id;
 };
 
-bool private_channel_store_initialize(PrivateChannelStore* store,
-    Slice<PrivateChannelRecord> records, Slice<u64> recipients,
-    Slice<PrivateNicknameRecord> nicknames = {}) noexcept;
 bool private_channel_store_initialize_owned(PrivateChannelStore* store, u32 records, u32 recipients) noexcept;
 void private_channel_store_release(PrivateChannelStore* store) noexcept;
 void private_channel_store_clear(PrivateChannelStore* store) noexcept;

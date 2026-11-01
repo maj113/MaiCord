@@ -1,4 +1,6 @@
 #include "media_atlas_gpu_internal.hpp"
+// Per-image header validation, once per upload: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord::media_atlas_gpu_detail {
 
@@ -299,3 +301,4 @@ bool animated_webp_frame_valid(const AnimatedWebpFrame& frame, u16 canvas_width,
 
 
 } // namespace maicord::media_atlas_gpu_detail
+#pragma clang attribute pop

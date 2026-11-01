@@ -145,6 +145,7 @@ bool progressive_source_complete(const ProgressiveSource& s) noexcept {
 }
 u32 progressive_source_payload_blocks(const ProgressiveSource& s) noexcept {
     u32 pinned_resident = 0;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (u32 i = 0; i < (s.block_count + 63) / 64; ++i)
         pinned_resident += static_cast<u32>(__popcnt64(s.present[i] & s.pinned[i]));
     return s.resident_blocks - pinned_resident;

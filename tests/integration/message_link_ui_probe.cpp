@@ -48,8 +48,6 @@ struct Fixture {
     UiLayoutNode navigation_nodes[66]{};
     UiWidget message_widgets[kRows * kMessageSceneWidgetsPerRow + 1]{};
     UiLayoutNode message_nodes[kRows * kMessageSceneWidgetsPerRow + 1]{};
-    UiWidget composer_widgets[kMessageComposerWidgetCapacity]{};
-    UiLayoutNode composer_nodes[kMessageComposerWidgetCapacity]{};
     char composer_text[256]{};
     TextHitSpan hit_spans[kTextHitSpanMaximum]{};
     TextHitRegion hit_scratch[kRendererContentHitRegionCapacity]{};
@@ -256,9 +254,7 @@ bool initialize(HWND window) noexcept {
             213))
         return false;
     if (!initialize_step(
-            message_composer_scene_initialize(&g_app.message_composer_scene,
-                                              {fixture->composer_widgets, kMessageComposerWidgetCapacity},
-                                              {fixture->composer_nodes, kMessageComposerWidgetCapacity}),
+            message_composer_scene_initialize_owned(&g_app.message_composer_scene),
             214))
         return false;
     auto& text = probe_bind_renderer_text(ui, fixture->hit_spans, fixture->hit_scratch, fixture->decorations);

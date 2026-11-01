@@ -117,7 +117,8 @@ void run() noexcept {
     key.flags &= ~media_asset_flag_animated;
     const auto attachment = media_asset_attachment(44, MediaAttachmentFormat::mp3);
     const auto wave = media_asset_attachment(45, MediaAttachmentFormat::wav);
-    check(encoded_media_cache_initialize(&cache, {entries, 4}, {owners, 4}, {storage, sizeof(storage)}) &&
+    static u32 buckets[8];
+    check(encoded_media_cache_initialize(&cache, {entries, 4}, {owners, 4}, {storage, sizeof(storage)}, {buckets, 8}) &&
           encoded_media_cache_store(&cache, key, {bytes_fixture, 4}, {{}, 2000, true, false}).stored() &&
           encoded_media_cache_store(&cache, attachment, {bytes_fixture, 4}, {{}, 2000, true, false}).stored() &&
           encoded_media_cache_store(&cache, wave, {bytes_fixture, 4}, {{}, 2000, true, false}).stored(),

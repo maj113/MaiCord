@@ -1,6 +1,8 @@
 #include "maicord/render/media_atlas_gpu.hpp"
 
 #include "media_atlas_gpu_internal.hpp"
+// Device command recording, once per image upload: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 
@@ -68,38 +70,6 @@ MediaAtlasGpuResult media_atlas_gpu_initialize_preview(MediaAtlasGpu* gpu, ID3D1
     gpu->preview_width = width;
     gpu->preview_height = height;
     return MediaAtlasGpuResult{{}, S_OK, MediaAtlasGpuError::none};
-}
-
-MediaAtlasGpuResult media_atlas_gpu_upload_rgba8(MediaAtlasGpu* gpu, MediaAtlas* atlas,
-                                                 ID3D11DeviceContext1* context, MediaAssetKey key,
-                                                 u16 width, u16 height, u32 row_pitch,
-                                                 ConstSlice<u8> premultiplied_rgba8) noexcept {
-    const u64 minimum_pitch = static_cast<u64>(width) * 4;
-    const u64 required = height == 0 ? 0 : static_cast<u64>(height - 1) * row_pitch + minimum_pitch;
-    if (!gpu || !atlas || !context || !gpu->texture || !gpu->texture_view || !gpu->target || width == 0 ||
-        height == 0 || row_pitch < minimum_pitch || required > premultiplied_rgba8.count ||
-        (!premultiplied_rgba8.data && premultiplied_rgba8.count != 0) ||
-        gpu->width != atlas->allocations.width || gpu->height != atlas->allocations.height) {
-        return reject(gpu, MediaAtlasGpuError::invalid_input);
-    }
-
-    const MediaAtlasResult allocation = allocate_and_clear(gpu, atlas, context, key, width, height);
-    if (!allocation.ok()) {
-        return reject(gpu, MediaAtlasGpuError::atlas_failure, S_OK, allocation);
-    }
-
-    const D3D11_BOX destination{
-        allocation.x,
-        allocation.y,
-        0,
-        static_cast<UINT>(allocation.x + allocation.width),
-        static_cast<UINT>(allocation.y + allocation.height),
-        1,
-    };
-    context->UpdateSubresource(gpu->texture, 0, &destination, premultiplied_rgba8.data, row_pitch, 0);
-    ++gpu->uploads;
-    saturating_accumulate(gpu->uploaded_bytes, required);
-    return MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none};
 }
 
 MediaAtlasGpuResult media_atlas_gpu_upload_straight_rgba8(
@@ -472,3 +442,4 @@ void media_atlas_gpu_release_backup(MediaAtlasGpu* gpu, bool preview) noexcept {
 }
 
 } // namespace maicord
+#pragma clang attribute pop

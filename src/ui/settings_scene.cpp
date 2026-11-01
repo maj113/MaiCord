@@ -1861,13 +1861,6 @@ void ui_settings_scene_set_focus_visible(UiSettingsScene* scene, bool visible) n
     scene->focus_visible = visible;
     ++scene->revision;
 }
-bool ui_settings_scene_select(UiSettingsScene* scene, UiPageKey page) noexcept {
-    if (!scene || !current(*scene) || !ui_page_registry_select(scene->registry, page).ok())
-        return false;
-    if (!ui_settings_scene_update(scene, scene->registry, scene->viewport))
-        return false;
-    return ui_settings_scene_focus(scene, {UiSettingsTargetKind::page, page, 0});
-}
 bool ui_settings_scene_scroll(UiSettingsScene* scene, bool sidebar, float delta) noexcept {
     if (!scene || !current(*scene) || !ui_coordinate_valid(delta))
         return false;

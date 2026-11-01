@@ -65,8 +65,6 @@ bool secure_edit_begin_history_group(SecureEdit* edit) noexcept;
 void secure_edit_end_history_group(SecureEdit* edit) noexcept;
 // Finish only an ordinary input run, never an explicit/native group.
 void secure_edit_break_history_run(SecureEdit* edit) noexcept;
-bool secure_edit_can_undo(const SecureEdit& edit) noexcept;
-bool secure_edit_can_redo(const SecureEdit& edit) noexcept;
 SecureEditResult secure_edit_undo(SecureEdit* edit) noexcept;
 SecureEditResult secure_edit_redo(SecureEdit* edit) noexcept;
 using SecureEditHistoryCosts = TextEditHistoryCosts;

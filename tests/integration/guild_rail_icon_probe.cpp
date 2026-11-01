@@ -1,5 +1,6 @@
 #include "guild_rail_icon_probe.hpp"
 #include "probe_present.hpp"
+#include "probe_media_upload.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/media/asset.hpp"
 #include "maicord/model/asset_hash.hpp"

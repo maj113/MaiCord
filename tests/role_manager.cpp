@@ -125,7 +125,7 @@ void test_tristate_bits() noexcept {
 
 // The joined switch: three segments, every point of the group hits one.
 void test_tristate_control() noexcept {
-    const auto tokens = ui_settings_tokens(kDefaultTheme);
+    const UiSettingsThemeTokens tokens(kDefaultTheme);
     const float width = ui_tristate_width(tokens), segment = tokens.metric.tristate_segment;
     const UiRect group{100, 40, 100 + width, 40 + tokens.metric.segment_size};
     bool contiguous = true;

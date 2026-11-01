@@ -1,4 +1,5 @@
 #include "maicord/app/message_interaction_rules.hpp"
+#include "ui_scene_fixtures.hpp"
 #include "maicord/model/chat_state.hpp"
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/message_action_bar.hpp"

@@ -448,19 +448,6 @@ UiListRowBounds page_bounds(void* context, u32 index) noexcept {
 
 } // namespace
 
-bool popup_scene_initialize(PopupScene* scene, Slice<PopupItem> items, Slice<PopupRowWidget> rows,
-                            Slice<UiWidget> widgets, Slice<UiLayoutNode> layout_nodes) noexcept {
-    if (!scene || !items.data || items.count == 0 || !rows.data || rows.count < items.count ||
-        !widgets.data || widgets.count < 2 || !layout_nodes.data || layout_nodes.count < widgets.count) {
-        return false;
-    }
-    reset_value<PopupScene>(scene);
-    scene->items = items;
-    scene->rows = rows;
-    scene->selected_index = ~0u;
-    return ui_widget_manager_initialize(&scene->widgets, widgets, layout_nodes);
-}
-
 bool popup_scene_initialize_owned(PopupScene* scene, u32 item_capacity, Slice<UiWidget> widgets,
                                   Slice<UiLayoutNode> layout_nodes) noexcept {
     usize reserve_bytes = 0;

@@ -1865,9 +1865,13 @@ __declspec(noinline) u64 mix_widget_state(u64 hash, const UiWidgetManager& manag
 // this stamp still catches pointer, layout and composer changes in between.
 u64 shell_scene_stamp(const D3D11Renderer& renderer) noexcept {
     u64 hash = kHash64Seed;
-    const auto mix = [&hash](u64 value) noexcept { hash = hash64_mix(hash, value); };
-    const auto widgets = [&hash](const UiWidgetManager& manager) noexcept { hash = mix_widget_state(hash, manager); };
-    const auto scroll = [&mix](float value) noexcept { mix(float_word(value)); };
+    // Inlined so the running hash stays in a register instead of being reloaded
+    // and stored through its capture at each of the ~60 mixes.
+    const auto mix = [&hash](u64 value) __attribute__((always_inline)) noexcept { hash = hash64_mix(hash, value); };
+    const auto widgets = [&hash](const UiWidgetManager& manager) __attribute__((always_inline)) noexcept {
+        hash = mix_widget_state(hash, manager);
+    };
+    const auto scroll = [&mix](float value) __attribute__((always_inline)) noexcept { mix(float_word(value)); };
     if (const auto* scene = renderer.ui_scene) {
         mix(reinterpret_cast<usize>(scene));
         mix(scene->layout_passes);

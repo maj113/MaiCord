@@ -4,6 +4,10 @@
 #include "../../src/platform/toast_abi.hpp"
 
 namespace maicord {
+DesktopNotificationResult desktop_notifications_factory(DesktopNotifications*, void**) noexcept; // tests/native_notifications.cpp
+}
+
+namespace maicord {
 namespace {
 constexpr GUID kProbeActivator{0x8fbd2e90,0xe59d,0x4cab,{0xb1,0xdf,0x4b,0x98,0x11,0x77,0x84,0x32}};
 template<usize N> constexpr ConstSlice<wchar_t> wide(const wchar_t(&v)[N]) noexcept {return {v,static_cast<u32>(N-1)};}

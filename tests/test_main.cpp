@@ -1,4 +1,6 @@
 #include "application_downloads_inactive.hpp"
+#include "secure_text_store_access.hpp"
+#include "ui_scene_fixtures.hpp"
 #include "layout_validation.hpp"
 #include "gateway_message_scratch.hpp"
 #include "maicord/app/account_paths.hpp"
@@ -2208,8 +2210,6 @@ void test_ui_scene() noexcept {
 
     char shell_composer_text[64]{};
     MessageComposer shell_composer_model{};
-    UiWidget shell_composer_widgets[kMessageComposerWidgetCapacity]{};
-    UiLayoutNode shell_composer_layout[kMessageComposerWidgetCapacity]{};
     MessageComposerScene shell_composer_scene{};
     const bool shell_composer_ready =
         composer &&
@@ -2219,9 +2219,7 @@ void test_ui_scene() noexcept {
         message_composer_insert_utf8(&shell_composer_model, utf8_literal("draft")) ==
             MessageComposerResult::changed &&
         message_composer_set_selection(&shell_composer_model, 1, 4) == MessageComposerResult::changed &&
-        message_composer_scene_initialize(
-            &shell_composer_scene, Slice<UiWidget>{shell_composer_widgets, kMessageComposerWidgetCapacity},
-            Slice<UiLayoutNode>{shell_composer_layout, kMessageComposerWidgetCapacity}) &&
+        message_composer_scene_initialize_owned(&shell_composer_scene) &&
         message_composer_scene_update(&shell_composer_scene, &shell_composer_model, composer->rectangle,
                                       true)
             .ok();
@@ -6570,13 +6568,10 @@ void test_message_composer() noexcept {
                composer.anchor == 10 && composer.caret == 10,
            "message_composer_atomic_token_replacement");
 
-    UiWidget widgets[kMessageComposerWidgetCapacity]{};
-    UiLayoutNode layout[kMessageComposerWidgetCapacity]{};
     MessageComposerScene scene{};
     const UiRect viewport{300.0f, 700.0f, 1'000.0f, 780.0f};
     const MessageComposerSceneResult materialized =
-        message_composer_scene_initialize(&scene, Slice<UiWidget>{widgets, kMessageComposerWidgetCapacity},
-                                          Slice<UiLayoutNode>{layout, kMessageComposerWidgetCapacity})
+        message_composer_scene_initialize_owned(&scene)
             ? message_composer_scene_update(&scene, &composer, viewport, true)
             : MessageComposerSceneResult{};
     const UiLayoutNode* edit = message_composer_scene_layout_node(scene, MessageComposerControl::edit);
@@ -12068,6 +12063,7 @@ void test_cdn_reduced_jpeg_pipeline() noexcept {
     static u8 storage[8 * kEncodedMediaCachePageBytes];
     EncodedMediaCacheEntry entries[4]{};
     u16 owners[8]{};
+    u32 buckets[8]{};
     EncodedMediaCache cache{};
     CdnMediaPipeline pipeline{};
     JpegFixtureResult fixture{};
@@ -12076,7 +12072,7 @@ void test_cdn_reduced_jpeg_pipeline() noexcept {
         build_marked_jpeg_fixture({encoded, sizeof(encoded)}, 640, 480, &fixture) &&
         build_jpeg_exif_orientation_fixture({encoded, fixture.encoded_bytes}, {oriented, sizeof(oriented)}, 6,
                                             false, &oriented_bytes) &&
-        encoded_media_cache_initialize(&cache, {entries, 4}, {owners, 8}, {storage, sizeof(storage)}) &&
+        encoded_media_cache_initialize(&cache, {entries, 4}, {owners, 8}, {storage, sizeof(storage)}, {buckets, 8}) &&
         cdn_media_pipeline_initialize(&pipeline, &cache, {scanlines, sizeof(scanlines)});
     pipeline.jpeg_workspace = &g_jpeg_workspace;
     const auto policy = [](u32 bytes) noexcept {
@@ -12220,10 +12216,11 @@ void test_cdn_reduced_webp_pipeline() noexcept {
     static u8 storage[64 * kEncodedMediaCachePageBytes];
     EncodedMediaCacheEntry entries[8]{};
     u16 owners[64]{};
+    u32 buckets[16]{};
     EncodedMediaCache cache{};
     CdnMediaPipeline pipeline{};
     const bool ready =
-        encoded_media_cache_initialize(&cache, {entries, 8}, {owners, 64}, {storage, sizeof(storage)}) &&
+        encoded_media_cache_initialize(&cache, {entries, 8}, {owners, 64}, {storage, sizeof(storage)}, {buckets, 16}) &&
         cdn_media_pipeline_initialize(&pipeline, &cache, {scanlines, sizeof(scanlines)}) &&
         cdn_media_pipeline_bind_webp_workspace(&pipeline, &g_vp8l_workspace);
     const auto policy = [](u32 bytes) noexcept {
@@ -12280,6 +12277,7 @@ void test_cdn_static_png_pipeline() noexcept {
     EncodedMediaCacheEntry entries[3]{};
     u16 page_owners[5]{};
     u8 storage[5 * kEncodedMediaCachePageBytes]{};
+    u32 buckets[8]{};
     EncodedMediaCache cache{};
     CdnMediaPipeline pipeline{};
     ApngWorkspace apng_workspace{};
@@ -12287,7 +12285,7 @@ void test_cdn_static_png_pipeline() noexcept {
     AnimatedWebpWorkspace animated_webp_workspace{};
     expect(encoded_media_cache_initialize(&cache, Slice<EncodedMediaCacheEntry>{entries, 3},
                                           Slice<u16>{page_owners, 5},
-                                          Slice<u8>{storage, sizeof(storage)}) &&
+                                          Slice<u8>{storage, sizeof(storage)}, Slice<u32>{buckets, 8}) &&
                cdn_media_pipeline_initialize(&pipeline, &cache,
                                              Slice<u8>{g_png_scanlines, sizeof(g_png_scanlines)}) &&
                cdn_media_pipeline_bind_webp_workspace(&pipeline, &g_vp8l_workspace) &&
@@ -12768,8 +12766,9 @@ void test_cdn_gif_metadata_reuse() noexcept {
     if (delay == ~0u) { expect(false, "gif_metadata_control"); return; }
     EncodedMediaCacheEntry entries[4]{}; u16 owners[4]{};
     u8 storage[4 * kEncodedMediaCachePageBytes]{}, output[64]{};
+    u32 buckets[8]{};
     EncodedMediaCache cache{}; CdnMediaPipeline pipeline{}; GifWorkspace workspace{};
-    if (!encoded_media_cache_initialize(&cache, {entries, 4}, {owners, 4}, {storage, sizeof(storage)}) ||
+    if (!encoded_media_cache_initialize(&cache, {entries, 4}, {owners, 4}, {storage, sizeof(storage)}, {buckets, 8}) ||
         !cdn_media_pipeline_initialize(&pipeline, &cache, {output, sizeof(output)}) ||
         !cdn_media_pipeline_bind_gif_workspace(&pipeline, &workspace)) {
         expect(false, "gif_metadata_initialize"); return;
@@ -18985,8 +18984,6 @@ void test_chat_state() noexcept {
         ui_scene_node(shell_text_scene, UiSemantic::composer);
     char shell_composer_text[64]{};
     MessageComposer shell_composer_model{};
-    UiWidget shell_composer_widgets[kMessageComposerWidgetCapacity]{};
-    UiLayoutNode shell_composer_layout[kMessageComposerWidgetCapacity]{};
     MessageComposerScene shell_composer_scene{};
     const MessageComposerProjectionContext shell_composer_projection{nullptr, &store, navigation.selected_guild_id};
     const bool shell_composer_ready =
@@ -18994,9 +18991,7 @@ void test_chat_state() noexcept {
         message_composer_initialize(&shell_composer_model,
                                     Slice<char>{shell_composer_text, sizeof(shell_composer_text)}) &&
         (message_composer_reset(&shell_composer_model, 11, false), true) &&
-        message_composer_scene_initialize(
-            &shell_composer_scene, Slice<UiWidget>{shell_composer_widgets, kMessageComposerWidgetCapacity},
-            Slice<UiLayoutNode>{shell_composer_layout, kMessageComposerWidgetCapacity}) &&
+        message_composer_scene_initialize_owned(&shell_composer_scene) &&
         message_composer_scene_update(&shell_composer_scene, &shell_composer_model,
                                       shell_composer_host->rectangle, true, 0, {}, &shell_composer_projection)
             .ok() &&
@@ -24302,16 +24297,14 @@ void test_rest_transaction() noexcept {
 
     RestClient invalid_client{};
     expect(
-        rest_client_runtime_bytes(kRestClientMinimumResponseBytes) >=
-                kRestClientMinimumResponseBytes &&
-            rest_client_runtime_bytes(kRestClientMinimumResponseBytes - 1) == 0 &&
-            rest_client_user_auth_capacity_runtime_bytes(kRestClientMinimumResponseBytes,
-                                                         kUserAuthMaximumRequestBodyBytes) >=
-                kRestClientMinimumResponseBytes &&
-            rest_client_user_auth_capacity_runtime_bytes(kRestClientMinimumResponseBytes - 1,
-                                                         kUserAuthMaximumRequestBodyBytes) == 0 &&
-            rest_client_user_auth_capacity_runtime_bytes(kUserAuthMaximumResponseBytes + 1,
-                                                         kUserAuthMaximumRequestBodyBytes) == 0 &&
+        rest_client_start_public(&invalid_client, kRestClientMinimumResponseBytes - 1).error ==
+                RestClientError::invalid_input &&
+            rest_client_start_user_auth_capacity(&invalid_client, kRestClientMinimumResponseBytes - 1,
+                                                 kUserAuthMaximumRequestBodyBytes)
+                    .error == RestClientError::invalid_input &&
+            rest_client_start_user_auth_capacity(&invalid_client, kUserAuthMaximumResponseBytes + 1,
+                                                 kUserAuthMaximumRequestBodyBytes)
+                    .error == RestClientError::invalid_input &&
             rest_client_start_user(&invalid_client, nullptr, nullptr, kRestClientMinimumResponseBytes)
                     .error == RestClientError::invalid_input &&
             !invalid_client.worker.thread && !invalid_client.runtime,
@@ -25390,8 +25383,7 @@ void test_account_module_contract() noexcept {
                bytes_equal(&previous_abi, previous_abi_bytes, sizeof(previous_abi)),
            "account_module_reject_previous_abi_without_any_output_write");
     AccountModuleApi api{};
-    expect(get_api && get_api(kAccountModuleApiVersion, &api) && account_host_api_valid(api) &&
-               api.runtime_bytes() >= 1024 && api.runtime_bytes() < 160 * 1024,
+    expect(get_api && get_api(kAccountModuleApiVersion, &api) && account_host_api_valid(api),
            "account_module_api_contract");
     AccountModuleApi previous_contract = api;
     previous_contract.bytes -= sizeof(void*);

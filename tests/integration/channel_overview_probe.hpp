@@ -315,7 +315,7 @@ inline bool channel_overview_ui_probe(D3D11Renderer& renderer, UiTextMeasureCach
         return fail();
     // Footer colors come from the settings tokens: a primary (brand) save
     // button, strong status text, and critical text for a failed save.
-    const auto settings_colors = ui_settings_tokens(kDefaultTheme).color;
+    const auto settings_colors = UiSettingsThemeTokens(kDefaultTheme).color;
     const auto* save_node = ui_widget_manager_layout_node(scene.widgets, scene.footer_save);
     const auto* footer_node = ui_widget_manager_layout_node(scene.widgets, scene.footer_status);
     if (!save_node || !footer_node ||

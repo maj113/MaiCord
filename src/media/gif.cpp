@@ -127,6 +127,7 @@ __forceinline void copy_string(u8* output, u32 position, u32 source, u32 length,
                          _mm_loadl_epi64(reinterpret_cast<const __m128i*>(from)));
         return;
     }
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (u32 index = 0; index < length; ++index) {
         destination[index] = from[index];
     }
@@ -226,6 +227,7 @@ void deinterlace_rows(u8* indices, u32 width, u32 height) noexcept {
     static constexpr u32 starts[4] = {0, 4, 2, 1};
     static constexpr u32 steps[4] = {8, 8, 4, 2};
     for (u32 pass = 0; pass < 4; ++pass) {
+#pragma clang loop unroll(disable)
         for (u32 row = starts[pass]; row < height; row += steps[pass]) {
             source_of[row] = static_cast<u16>(stream++);
         }
@@ -257,6 +259,7 @@ bool read_palette(ConstSlice<u8> encoded, u32 offset, u32 count, GifPalette* pal
     }
     reset_value<GifPalette>(palette);
     palette->count = static_cast<u16>(count);
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (u32 index = 0; index < count; ++index) {
         const u8* color = encoded.data + offset + index * 3u;
         palette->rgba[index] = static_cast<u32>(color[0]) | static_cast<u32>(color[1]) << 8 |

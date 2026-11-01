@@ -818,28 +818,19 @@ void clamp_attachment_scroll(MessageComposerScene* scene) noexcept {
 
 } // namespace
 
-bool message_composer_scene_initialize(MessageComposerScene* scene, Slice<UiWidget> widgets,
-                                       Slice<UiLayoutNode> layout_nodes) noexcept {
-    const bool own_widgets =
-        !widgets.data && widgets.count == 0 && !layout_nodes.data && layout_nodes.count == 0;
-    if (!scene || scene->owned_storage.base ||
-        (!own_widgets && (widgets.count < kMessageComposerWidgetCapacity ||
-                          layout_nodes.count < kMessageComposerWidgetCapacity))) {
+bool message_composer_scene_initialize_owned(MessageComposerScene* scene) noexcept {
+    if (!scene || scene->owned_storage.base)
         return false;
-    }
     reset_value<MessageComposerScene>(scene);
     if (!initialize_owned_storage(scene)) {
         message_composer_scene_release(scene);
         return false;
     }
-    if (own_widgets) {
-        widgets =
-            Slice<UiWidget>{arena_allocate<UiWidget>(&scene->owned_storage, kMessageComposerWidgetCapacity),
-                            kMessageComposerWidgetCapacity};
-        layout_nodes = Slice<UiLayoutNode>{
-            arena_allocate<UiLayoutNode>(&scene->owned_storage, kMessageComposerWidgetCapacity),
-            kMessageComposerWidgetCapacity};
-    }
+    const Slice<UiWidget> widgets{arena_allocate<UiWidget>(&scene->owned_storage, kMessageComposerWidgetCapacity),
+                                  kMessageComposerWidgetCapacity};
+    const Slice<UiLayoutNode> layout_nodes{
+        arena_allocate<UiLayoutNode>(&scene->owned_storage, kMessageComposerWidgetCapacity),
+        kMessageComposerWidgetCapacity};
     if (!widgets.data || !layout_nodes.data ||
         !ui_widget_manager_initialize(&scene->widgets, widgets, layout_nodes)) {
         message_composer_scene_release(scene);
@@ -927,10 +918,6 @@ bool message_composer_scene_initialize(MessageComposerScene* scene, Slice<UiWidg
     for (u32 i = 0; i < kMessageComposerPluginSlots; ++i)
         scene->plugin_slots[i] = plugins[i].handle;
     return true;
-}
-
-bool message_composer_scene_initialize_owned(MessageComposerScene* scene) noexcept {
-    return message_composer_scene_initialize(scene, {}, {});
 }
 
 bool message_composer_scene_bind_theme_styles(MessageComposerScene* scene,

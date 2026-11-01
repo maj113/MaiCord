@@ -1,4 +1,5 @@
 #include "maicord/app/gateway_client.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/model/voice_state_store.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/voice_channel_rows.hpp"

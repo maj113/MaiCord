@@ -43,7 +43,4 @@ bool friends_relationship_storage_upsert(FriendsRelationshipStorage* storage,
     const bool existing = relationship_store_find(store, user_id) != nullptr;
     return friends_relationship_storage_active(storage, store.count + (existing ? 0u : 1u));
 }
-FriendsStorageBankMetrics friends_relationship_storage_metrics(const StableStorage& bank) noexcept {
-    return {bank.arena.reserved, bank.arena.committed, bank.capacity, bank.arena.commit_count, bank.arena.base};
-}
 } // namespace maicord::app_detail

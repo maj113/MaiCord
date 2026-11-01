@@ -8,6 +8,7 @@ __declspec(noinline) void renumber_row_clocks(GlyphAtlasAllocator* atlas) noexce
     u32 maximum_rank = 0;
     for (u32 index = 0; index < atlas->row_count; ++index) {
         u32 rank = 1;
+#pragma clang loop vectorize(disable) interleave(disable)
         for (u32 other = 0; other < atlas->row_count; ++other) {
             if (atlas->rows[other].last_used < atlas->rows[index].last_used) {
                 ++rank;
@@ -137,6 +138,8 @@ u32 find_lru_populated_row(const GlyphAtlasAllocator& atlas) noexcept {
     return result;
 }
 
+// Reclaiming spans and resetting the atlas run under atlas pressure only: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 // Different-height media cannot reuse a shorter shelf. Reclaim a contiguous
 // unpinned span instead of requiring a destructive whole-atlas reset. Handles
 // and pixel coordinates of every surviving (including pinned) entry stay valid.
@@ -202,6 +205,7 @@ void invalidate_all(GlyphAtlasAllocator* atlas) noexcept {
     atlas->evicted_entries += evicted;
     ++atlas->full_resets;
 }
+#pragma clang attribute pop
 
 __forceinline GlyphAtlasAllocation allocation_from_entry(const GlyphAtlasEntry& entry, u32 slot,
                                                          bool cached) noexcept {
@@ -607,6 +611,8 @@ bool glyph_atlas_validate(const GlyphAtlasAllocator& atlas, GlyphAtlasHandle han
     return true;
 }
 
+// Growth and trim run when the atlas resizes, not per glyph: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 namespace {
 
 constexpr u32 kGrowthSamples = 16; // GlyphAtlasGrowth::sample_ms
@@ -792,5 +798,6 @@ u32 glyph_atlas_growth_trim(GlyphAtlasGrowth* growth, GlyphAtlasAllocator* atlas
     }
     return moved;
 }
+#pragma clang attribute pop
 
 } // namespace maicord

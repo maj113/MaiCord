@@ -1,4 +1,5 @@
 #include "maicord/app/client_theme.hpp"
+#include "ui_scene_fixtures.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
@@ -289,7 +290,7 @@ void test_surface_elevation(void (*check)(bool, const char*) noexcept) noexcept 
                 same(theme.tokens.border.focus, theme.accent) && !ui_theme_resolve_emphasis(&theme) &&
                 bytes_equal(&before, &theme, sizeof(Theme)) &&
                 same(ui_emphasis_selected(theme, UiElevation::tooltip), theme.tokens.emphasis.selected) &&
-                same(ui_settings_tokens(theme).color.brand, theme.accent);
+                same(UiSettingsThemeTokens(theme).color.brand, theme.accent);
     }
     check(plain, "accent tokens: flat themes keep their accent and resolution leaves them untouched");
     Theme authored = gradients[0];
@@ -310,7 +311,7 @@ void test_surface_elevation(void (*check)(bool, const char*) noexcept) noexcept 
     grey.background.colors[2] = 0;
     UiThemeEmphasis unused{};
     check(!ui_theme_gradient_emphasis(grey, &unused), "accent tokens: an achromatic gradient keeps the accent");
-    const auto settings = ui_settings_tokens(gradient);
+    const UiSettingsThemeTokens settings(gradient);
     check(same(settings.color.brand, gradient.tokens.emphasis.fill) &&
               same(settings.color.focus_ring, gradient.tokens.border.focus) &&
               same(settings.color.nav_selected, gradient.tokens.emphasis.selected) &&

@@ -83,6 +83,8 @@ struct CallContext {
     GatewayEventDecodeError error;
 };
 
+// Call messages and bulk deletes are rare events: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 bool visit_call_participant(void* opaque, u32, JsonValue value) noexcept {
     auto* context = static_cast<CallContext*>(opaque);
     u64 id = 0;
@@ -131,6 +133,7 @@ GatewayEventDecodeResult decode_call(JsonValue call, const JsonIndexedDocument& 
     *output = GatewayMessageCall{context.ended_timestamp_ms, true, context.ended, context.participated};
     return GatewayEventDecodeResult{};
 }
+#pragma clang attribute pop
 
 struct AuthorContext {
     u64 id;
@@ -775,6 +778,7 @@ bool visit_delete_member(void* opaque, JsonString name, JsonValue value) noexcep
     return true;
 }
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 bool visit_bulk_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<BulkContext*>(opaque);
     if (json_string_equals_ascii(name, utf8_literal("ids"))) {
@@ -806,6 +810,7 @@ bool visit_bulk_id(void* opaque, u32 index, JsonValue value) noexcept {
     }
     return true;
 }
+#pragma clang attribute pop
 
 } // namespace
 
@@ -999,6 +1004,7 @@ GatewayEventDecodeResult gateway_decode_message_delete(JsonValue data, Slice<u32
     return decode_failure(GatewayEventDecodeError::none);
 }
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 GatewayEventDecodeResult gateway_decode_message_bulk_delete(
     JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth, Slice<u64> ids,
     GatewayMessageBulkDeleteEvent* output) noexcept {
@@ -1038,5 +1044,6 @@ GatewayEventDecodeResult gateway_decode_message_bulk_delete(
     *output = context.event;
     return decode_failure(GatewayEventDecodeError::none);
 }
+#pragma clang attribute pop
 
 } // namespace maicord

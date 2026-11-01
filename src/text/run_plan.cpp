@@ -56,6 +56,8 @@ SfntStatus bold_advance(void* context,u16 glyph,double* output) noexcept {
             if(width<0||height<0)return SfntStatus::malformed;if(width&&height)value+=(static_cast<u32>(p.metrics.units_per_em)+25)/50;}
     }*output=value;return SfntStatus::ok;
 }
+// Plan preparation runs once per font instance and kind (not per run): compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 SfntStatus prepare(const NativeFontInstance& instance,const NativeFontFace& native_font,PlanData& p,Arena& state,Arena& scratch,u32 work,usize state_limit,Arena*& substitutions) noexcept {
     const auto& cmap=native_font.cmap;const auto& font=*instance.geometry.font;const auto& face=font.face;ConstSlice<u8> bytes{};
     auto status=sfnt_horizontal_metrics_open(face,&p.metrics);if(status!=SfntStatus::ok)return status;
@@ -179,6 +181,7 @@ NativeFontResult native_run_plan_acquire(NativeRunPlanStore* store,NativeFontIns
     auto& p=store->slots[available];p.instance=instance;p.state=state;reset_value(&state);p.references=1;++p.generation;
     substitutions.keep=true;reset_value(&parent);*output={available+1,p.generation};return {NativeFontError::none,SfntStatus::ok,0};
 }
+#pragma clang attribute pop
 const SfntShapePlan* native_run_plan_get(const NativeRunPlanStore& store,NativeRunPlanHandle h,bool independent) noexcept {
     auto* p=slot(store,h);return p?&reinterpret_cast<const PlanData*>(p->state.base)->plans[independent?1:0]:nullptr;
 }

@@ -81,17 +81,17 @@ bool application_custom_theme_publish(const ClientThemeDocument* document) noexc
     const bool typography_changed = previous_typography != renderer_typography_revision(g_app.renderer);
     const bool geometry_changed = (styles_result.changes & ui_theme_style_geometry) != 0;
     const bool foreground_changed = !publication.ready ||
-                                    !ui_theme_palette_equal(publication.theme, palette) ||
-                                    publication.theme.appearance != palette.appearance;
+                                    !ui_theme_palette_equal(publication.theme(), palette) ||
+                                    publication.theme().appearance != palette.appearance;
     const bool background_changed =
-        !publication.ready || !background_theme_equal(publication.theme.background, palette.background);
+        !publication.ready || !background_theme_equal(publication.theme().background, palette.background);
 
     if (destination)
         copy_bytes(destination, &candidate, sizeof(candidate));
     palette.styles = destination;
     palette.style_revision = destination ? destination->revision : 0;
     publication.styles = destination;
-    publication.theme = palette;
+    publication.set_theme(palette);
     publication.ready = true;
     publication.custom = document != nullptr;
     remember_preferences(publication, g_app.preferences);

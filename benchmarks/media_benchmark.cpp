@@ -88,6 +88,7 @@ LossyWebpWorkspace g_lossy_webp_workspace{};
 JpegWorkspace g_jpeg_workspace{};
 EncodedMediaCacheEntry g_encoded_entries[8];
 u16 g_encoded_page_owners[64];
+u32 g_encoded_buckets[16];
 u8 g_encoded_storage[64 * kEncodedMediaCachePageBytes];
 AnimationTimelineEntry g_animation_entries[kAnimationEntryCapacity];
 u32 g_animation_buckets[kAnimationEntryCapacity * 2];
@@ -831,7 +832,8 @@ int run() noexcept {
     CdnMediaPipeline media_pipeline{};
     if (!encoded_media_cache_initialize(&encoded_cache, Slice<EncodedMediaCacheEntry>{g_encoded_entries, 8},
                                         Slice<u16>{g_encoded_page_owners, 64},
-                                        Slice<u8>{g_encoded_storage, sizeof(g_encoded_storage)}) ||
+                                        Slice<u8>{g_encoded_storage, sizeof(g_encoded_storage)},
+                                        Slice<u32>{g_encoded_buckets, 16}) ||
         !cdn_media_pipeline_initialize(&media_pipeline, &encoded_cache,
                                        Slice<u8>{g_png_scanlines, sizeof(g_png_scanlines)})) {
         return 10;
@@ -1110,13 +1112,16 @@ int run() noexcept {
     const MediaAssetKey upload_key = media_asset_sticker(88, 2);
     const i64 upload_begin = gpu_batch_begin(timers);
     for (u32 iteration = 0; iteration < kUploadIterations; ++iteration) {
-        if (!media_atlas_gpu_upload_rgba8(&gpu, &atlas, context1, upload_key, kAssetExtent, kAssetExtent,
-                                          kAssetExtent * 4, ConstSlice<u8>{g_pixels, sizeof(g_pixels)})
+        if (!media_atlas_gpu_upload_straight_rgba8(&gpu, &atlas, device, context1, upload_key, kAssetExtent,
+                                                   kAssetExtent, kAssetExtent * 4,
+                                                   ConstSlice<u8>{g_pixels, sizeof(g_pixels)})
                  .ok()) {
             return 16;
         }
     }
     const GpuBatchTime upload_batch = gpu_batch_end(clock, timers, upload_begin);
+    const u32 rgba8_upload_count = gpu.straight_rgba8_uploads;
+    const u64 rgba8_uploaded_bytes = gpu.straight_rgba8_uploaded_bytes;
 
     const MediaAssetKey png_upload_key = media_asset_sticker(89, 1);
     const i64 png_upload_begin = gpu_batch_begin(timers);
@@ -1979,11 +1984,11 @@ int run() noexcept {
                  static_cast<u64>(kMissingFindIterations) * 1'000'000 /
                      missing_find_us);
     write_metric("media_missing_find_checksum", missing_find_checksum);
-    write_metric("media_upload_count", gpu.uploads);
+    write_metric("media_upload_count", rgba8_upload_count);
     write_metric("media_upload_cpu_batch_us", upload_batch.cpu_us);
     write_metric("media_upload_gpu_batch_us", upload_batch.gpu_us);
     write_metric("media_upload_gpu_timing_valid", upload_batch.timed ? 1 : 0);
-    write_metric("media_uploaded_bytes", gpu.uploaded_bytes);
+    write_metric("media_uploaded_bytes", rgba8_uploaded_bytes);
     write_metric("media_pixel_checksum", pixel_checksum);
     write_metric("png_decode_count", kPngDecodeIterations);
     write_metric("png_decode_per_second",
@@ -2087,11 +2092,11 @@ int run() noexcept {
     write_metric("png_gpu_dispatched_pixels", gpu.png_dispatched_pixels);
     write_metric("png_gpu_pixel_checksum", png_pixel_checksum);
     write_metric("png_gpu_pixels_exact", png_pixels_exact ? 1 : 0);
-    write_metric("webp_gpu_upload_count", gpu.straight_rgba8_uploads);
+    write_metric("webp_gpu_upload_count", gpu.straight_rgba8_uploads - rgba8_upload_count);
     write_metric("webp_gpu_cpu_batch_us", webp_batch.cpu_us);
     write_metric("webp_gpu_batch_us", webp_batch.gpu_us);
     write_metric("webp_gpu_timing_valid", webp_batch.timed ? 1 : 0);
-    write_metric("webp_gpu_uploaded_bytes", gpu.straight_rgba8_uploaded_bytes);
+    write_metric("webp_gpu_uploaded_bytes", gpu.straight_rgba8_uploaded_bytes - rgba8_uploaded_bytes);
     write_metric("webp_gpu_pixel_checksum", webp_pixel_checksum);
     write_metric("webp_gpu_pixels_exact", webp_pixels_exact ? 1 : 0);
     write_metric("webp_vp8_gpu_upload_count", vp8_static_atlas_uploads);
@@ -2246,8 +2251,8 @@ int run() noexcept {
     write_metric("mixed_animated_webp_gpu_pixels_exact", mixed_webp_pixels_exact ? 1 : 0);
 
     const bool valid =
-        gpu.uploads == kUploadIterations &&
-        gpu.uploaded_bytes == static_cast<u64>(sizeof(g_pixels)) * kUploadIterations &&
+        rgba8_upload_count == kUploadIterations &&
+        rgba8_uploaded_bytes == static_cast<u64>(sizeof(g_pixels)) * kUploadIterations &&
         pixel_checksum != 0 && target_checksum != 0 && attachment_target_checksum != 0 &&
         find_checksum != 0 && churn_checksum != 0 && missing_find_checksum != 0 &&
         presentation_damage_checksum != 0 &&
@@ -2263,8 +2268,8 @@ int run() noexcept {
         gpu.png_dispatched_pixels == static_cast<u64>(kAssetExtent) * kAssetExtent * kPngUploadIterations +
                                          static_cast<u64>(9 * 3) * format_count &&
         png_pixels_exact && png_pixel_checksum != 0 &&
-        gpu.straight_rgba8_uploads == kWebpUploadIterations &&
-        gpu.straight_rgba8_uploaded_bytes ==
+        gpu.straight_rgba8_uploads - rgba8_upload_count == kWebpUploadIterations &&
+        gpu.straight_rgba8_uploaded_bytes - rgba8_uploaded_bytes ==
             static_cast<u64>(sizeof(g_webp_rgba)) * kWebpUploadIterations &&
         webp_pixels_exact && webp_pixel_checksum != 0 &&
         vp8_static_reconstructions == kVp8UploadIterations &&

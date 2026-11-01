@@ -1,4 +1,5 @@
 #include "tsf_composition_fixture.hpp"
+#include "secure_edit_queries.hpp"
 #include "maicord/ui/secure_text_store.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/message_composer.hpp"

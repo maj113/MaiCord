@@ -1,4 +1,6 @@
 #include "media_atlas_gpu_internal.hpp"
+// Device command recording, once per image upload: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord::media_atlas_gpu_detail {
 
@@ -317,3 +319,4 @@ void dispatch_vp8_atlas(MediaAtlasGpu* gpu, ID3D11DeviceContext1* context, const
 }
 
 } // namespace maicord::media_atlas_gpu_detail
+#pragma clang attribute pop

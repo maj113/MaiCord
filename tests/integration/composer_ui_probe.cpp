@@ -50,8 +50,6 @@ struct Fixture {
     UiLayoutNode navigation_nodes[34];
     UiWidget message_widgets[kRows * kMessageSceneWidgetsPerRow + 1];
     UiLayoutNode message_nodes[kRows * kMessageSceneWidgetsPerRow + 1];
-    UiWidget composer_widgets[kMessageComposerWidgetCapacity];
-    UiLayoutNode composer_nodes[kMessageComposerWidgetCapacity];
     char composer_text[1024];
     TextHitSpan hit_spans[kTextHitSpanMaximum];
     TextHitRegion hit_scratch[kRendererContentHitRegionCapacity];
@@ -242,10 +240,7 @@ bool initialize(HWND window) noexcept {
                 message_composer_initialize(&g_app.message_composer,
                                             {fixture->composer_text, sizeof(fixture->composer_text)}) &&
                 message_composer_enable_history(&g_app.message_composer, 8192) &&
-                message_composer_scene_initialize(
-                    &g_app.message_composer_scene,
-                    {fixture->composer_widgets, kMessageComposerWidgetCapacity},
-                    {fixture->composer_nodes, kMessageComposerWidgetCapacity}) &&
+                message_composer_scene_initialize_owned(&g_app.message_composer_scene) &&
                 message_draft_store_initialize(&ui.message_drafts, {ui.message_draft_records, 4},
                                                {ui.message_draft_text, 8192}) &&
                 message_composer_controller_initialize(

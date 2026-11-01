@@ -1,4 +1,5 @@
 #include "maicord/app/call_video_presenter.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/app/call_view_lifecycle.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/call_scene.hpp"

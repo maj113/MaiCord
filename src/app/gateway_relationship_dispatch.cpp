@@ -213,6 +213,16 @@ bool wait_for_space(GatewayClientMailbox* mailbox, HANDLE space, HANDLE cancel, 
     InterlockedExchange(&mailbox->space_waiting, 0);
     return woken;
 }
+// Producer only. A set cancel event is never cached (it stays set, so every later call reports it); a clear one
+// is polled once per clock tick (~16 ms, the READY projection's cadence) rather than with a kernel call per
+// published record. A producer that has to block still sees cancellation at once: the wait includes the event.
+bool cancel_requested(GatewayClientMailbox* mailbox, HANDLE cancel) noexcept {
+    const u32 tick = static_cast<u32>(GetTickCount64());
+    if (mailbox->cancel_checked_tick == tick) return false;
+    if (WaitForSingleObject(cancel, 0) != WAIT_TIMEOUT) return true;
+    mailbox->cancel_checked_tick = tick;
+    return false;
+}
 } // namespace
 void gateway_mailbox_signal_space(GatewayClientMailbox* mailbox, HANDLE space) noexcept {
     if (InterlockedExchange(&mailbox->space_waiting, 0))
@@ -230,7 +240,7 @@ bool gateway_mailbox_publish(GatewayClientMailbox* mailbox, HANDLE space, HANDLE
                payload.count <= kGatewayClientDispatchPayloadCapacity - (payload_write - payload_read);
     };
     for (;;) {
-        if (WaitForSingleObject(cancel, 0) != WAIT_TIMEOUT) return false;
+        if (cancel_requested(mailbox, cancel)) return false;
         const u32 write = spsc_mailbox_load_u32(&mailbox->write_sequence), read = spsc_mailbox_load_u32(&mailbox->read_sequence);
         const u64 payload_write = spsc_mailbox_load_u64(&mailbox->payload_write_sequence), payload_read = spsc_mailbox_load_u64(&mailbox->payload_read_sequence);
         if (payload_write < payload_read || payload_write - payload_read > kGatewayClientDispatchPayloadCapacity || write - read > kGatewayClientEventCapacity)
@@ -249,7 +259,7 @@ bool gateway_mailbox_wait_lease(GatewayClientMailbox* mailbox, HANDLE space, HAN
     if (!mailbox || !space || !cancel || !notification || !lease) return false;
     const auto room = [&]() noexcept { return !read_acquire(lease); };
     for (;;) {
-        if (WaitForSingleObject(cancel, 0) != WAIT_TIMEOUT) return false;
+        if (cancel_requested(mailbox, cancel)) return false;
         if (!read_acquire(lease)) return true;
         if (!wait_for_space(mailbox, space, cancel, notification, deadline_ms, room)) return false;
     }
@@ -265,7 +275,7 @@ bool gateway_mailbox_publish_external(GatewayClientMailbox* mailbox, HANDLE spac
         return write - read < kGatewayClientEventCapacity;
     };
     for (;;) {
-        if (WaitForSingleObject(cancel, 0) != WAIT_TIMEOUT) return false;
+        if (cancel_requested(mailbox, cancel)) return false;
         const u32 write = spsc_mailbox_load_u32(&mailbox->write_sequence), read = spsc_mailbox_load_u32(&mailbox->read_sequence);
         if (write - read > kGatewayClientEventCapacity) return false;
         if (write - read < kGatewayClientEventCapacity) {

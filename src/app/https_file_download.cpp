@@ -1,4 +1,5 @@
 #include "maicord/app/https_file_download.hpp"
+#include "maicord/core/interlocked.hpp"
 #include "https_transfer_owner.hpp"
 #include "maicord/core/win32_process.hpp"
 #include "maicord/platform/tls_stream.hpp"
@@ -40,7 +41,7 @@ void phase(HttpsFileDownload* owner, HttpsFileDownloadPhase value) noexcept {
     InterlockedExchange(&owner->phase, static_cast<LONG>(value));
 }
 bool cancelled(HttpsFileDownload* owner) noexcept {
-    return InterlockedCompareExchange(&owner->cancelled, 0, 0) != 0;
+    return ReadAcquire(&owner->cancelled) != 0;
 }
 void drain(HttpsFileDownload* owner, Runtime* r, HttpsFileDownloadError error, u32 native = 0) noexcept {
     if (r->draining || r->published) return;
@@ -98,7 +99,7 @@ NetworkWorkerStep finish(HttpsFileDownload* owner, Runtime* r) noexcept {
         if (!r->published) {
             r->result.elapsed_us = clock_microseconds(r->clock, r->started, clock_now());
             r->result.file_bytes = known_bytes(r);
-            r->result.committed_bytes = static_cast<u64>(InterlockedCompareExchange64(&owner->committed_bytes, 0, 0));
+            r->result.committed_bytes = static_cast<u64>(ReadAcquire64(&owner->committed_bytes));
             r->result.phase = HttpsFileDownloadPhase::complete;
             if (cleanup && r->result.error == HttpsFileDownloadError::none) r->result.error = HttpsFileDownloadError::file_cleanup;
         }
@@ -255,7 +256,7 @@ NetworkWorkerStep worker(void* context, NetworkLoop* loop, const NetworkWorkerEv
                     drain(owner, r, HttpsFileDownloadError::file_write, static_cast<u32>(completion.native_error));
                 else {
                     const auto consumed = http_response_stream_consume(&r->response, completion.transferred);
-                    InterlockedExchange64(&owner->committed_bytes, static_cast<LONG64>(r->response.body_bytes));
+                    write_release(&owner->committed_bytes, static_cast<LONG64>(r->response.body_bytes)); // worker is the only writer
                     if (event.now_ms >= r->notify_at) { r->notify_at = event.now_ms + 250; SetEvent(owner->notification); }
                     if (!consumed.ok()) drain(owner, r, HttpsFileDownloadError::http);
                     else drive(owner, r, {0, TlsStreamEventKind::read_paused, TlsStreamError::none});
@@ -331,7 +332,7 @@ HttpsFileDownloadError https_file_download_start(HttpsFileDownload* owner, const
 }
 HttpsFileDownloadResult https_file_download_status(const HttpsFileDownload* owner) noexcept {
     if (!owner || !owner->runtime) return {};
-    const auto current = static_cast<HttpsFileDownloadPhase>(InterlockedCompareExchange(const_cast<volatile LONG*>(&owner->phase), 0, 0));
+    const auto current = static_cast<HttpsFileDownloadPhase>(ReadAcquire(&owner->phase));
     auto* r = static_cast<Runtime*>(owner->runtime);
     if (current == HttpsFileDownloadPhase::complete) {
         AcquireSRWLockShared(r->result_lock.native()); const auto result = r->result; ReleaseSRWLockShared(r->result_lock.native()); return result;
@@ -339,7 +340,7 @@ HttpsFileDownloadResult https_file_download_status(const HttpsFileDownload* owne
     HttpsFileDownloadResult result{};
     result.phase = current;
     result.file_bytes = known_bytes(r);
-    result.committed_bytes = static_cast<u64>(InterlockedCompareExchange64(const_cast<volatile LONG64*>(&owner->committed_bytes), 0, 0));
+    result.committed_bytes = static_cast<u64>(ReadAcquire64(&owner->committed_bytes));
     return result;
 }
 bool https_file_download_cancel(HttpsFileDownload* owner) noexcept {

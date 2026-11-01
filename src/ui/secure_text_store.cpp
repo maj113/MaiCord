@@ -1540,10 +1540,5 @@ bool secure_text_store_filter_message(SecureTextStore* store, const MSG& message
     return consumed;
 }
 
-void* secure_text_store_test_interface(SecureTextStore* store) noexcept {
-    auto* value = implementation(store);
-    return value ? static_cast<ITextStoreACP*>(value) : nullptr;
-}
-
 } // namespace maicord
 

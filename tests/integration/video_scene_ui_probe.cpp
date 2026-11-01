@@ -1,4 +1,5 @@
 #include "video_scene_ui_probe.hpp"
+#include "../ui_scene_fixtures.hpp"
 #include "probe_present.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/hash.hpp"

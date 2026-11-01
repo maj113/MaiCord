@@ -38,6 +38,7 @@ __forceinline u64 total_bits(const BitReader& reader) noexcept {
 // only the final eight bytes take this path.
 __declspec(noinline) u64 peek_tail(const u8* data, u64 byte, u64 count) noexcept {
     u64 value = 0;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (u64 index = count; index > byte; --index) {
         value = value << 8 | data[index - 1u];
     }
@@ -117,6 +118,7 @@ bool count_code(const u8* lengths, u32 alphabet_size, u16* counts, u16* symbol_c
 
 // Symbols with a code, by length and then value: the canonical decode order.
 void sort_symbols(const u8* lengths, u32 alphabet_size, u16* output) noexcept {
+#pragma clang loop unroll(disable)
     for (u32 length = 1; length <= 15; ++length) {
         for (u32 symbol = 0; symbol < alphabet_size; ++symbol) {
             if (lengths[symbol] == length) {
@@ -199,6 +201,7 @@ void build_lookup(Vp8lWorkspace* workspace, Vp8lHuffmanCode* code) noexcept {
     for (u32 length = 1; length <= bits; ++length, canonical <<= 1) {
         for (u32 left = code->counts[length]; left != 0; --left, ++canonical, ++sorted) {
             u32 reversed = 0;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
             for (u32 bit = 0; bit < length; ++bit) {
                 reversed |= ((canonical >> bit) & 1u) << (length - 1u - bit);
             }
@@ -356,6 +359,7 @@ bool read_huffman_code(BitReader* reader, u32 alphabet_size, Vp8lWorkspace* work
             return false;
         }
         const u8 repeated = value == 16 ? previous : 0;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
         for (u32 index = 0; index < repeat; ++index) {
             workspace->code_lengths[output++] = repeated;
         }
@@ -867,6 +871,7 @@ void inverse_predictor(const Transform& transform, const Vp8lWorkspace* workspac
     // read_transforms admitted only modes 0..13 and a map within capacity.
     u32 left = add_pixels(pixels[0], 0xFF000000u);
     pixels[0] = left;
+#pragma clang loop unroll(disable)
     for (u32 x = 1; x < width; ++x) {
         left = add_pixels(pixels[x], left);
         pixels[x] = left;
@@ -920,6 +925,7 @@ void inverse_color(const Transform& transform, const Vp8lWorkspace* workspace, u
                 const __m128i kept = _mm_and_si128(pixel, _mm_set1_epi32(static_cast<int>(0xFF00FF00u)));
                 _mm_storeu_si128(slot, _mm_or_si128(_mm_or_si128(kept, _mm_slli_epi32(red, 16)), blue));
             }
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
             for (; x < end; ++x) {
                 const u32 pixel = row[x];
                 const signed char green = static_cast<signed char>(pixel >> 8);
@@ -942,6 +948,7 @@ void inverse_subtract_green(const Transform& transform, u32* pixels) noexcept {
         const __m128i value = _mm_loadu_si128(slot);
         _mm_storeu_si128(slot, _mm_add_epi8(value, _mm_shuffle_epi8(value, spread)));
     }
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (; index < count; ++index) {
         const u32 pixel = pixels[index];
         const u32 green = pixel >> 8 & 0xFFu;
@@ -953,6 +960,7 @@ void inverse_color_indexing(const Transform& transform, const u32* palette, u32 
                             u32* pixels) noexcept {
     // Indices past palette_count decode as transparent black.
     u32 table[256];
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (u32 index = 0; index < 256; ++index) {
         table[index] = index < transform.palette_count ? palette[index] : 0;
     }
@@ -1010,6 +1018,7 @@ bool read_transforms(DecodeState* state, u32 original_width, u32 height, Transfo
                     state->workspace->predictor_modes[index] = mode;
                 }
             } else {
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
                 for (u32 index = 0; index < map_pixels; ++index) {
                     state->workspace->color_elements[index] = state->workspace->subimage_pixels[index];
                 }
@@ -1021,6 +1030,7 @@ bool read_transforms(DecodeState* state, u32 original_width, u32 height, Transfo
                 return false;
             }
             u32 previous = 0;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
             for (u32 index = 0; index < transform.palette_count; ++index) {
                 previous = add_pixels(previous, state->workspace->subimage_pixels[index]);
                 palette[index] = previous;

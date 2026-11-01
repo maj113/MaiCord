@@ -199,10 +199,9 @@ bool is_quoted_pair_value(u8 value) noexcept {
     return value == '\t' || value == ' ' || (value >= 0x21 && value <= 0x7E) || value >= 0x80;
 }
 
-ChunkSizeParse parse_chunk_size(ConstSlice<u8> line, u64* size) noexcept {
-    u32 offset = 0;
-    u64 result = 0;
-    u32 digits = 0;
+// Chunk extensions are rare and short, so their grammar is compiled for size apart from the size digits.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+bool chunk_extensions_valid(ConstSlice<u8> line, u32 offset) noexcept {
     const auto skip_ows = [&]() noexcept {
         while (offset < line.count && is_ows(line[offset]))
             ++offset;
@@ -213,6 +212,56 @@ ChunkSizeParse parse_chunk_size(ConstSlice<u8> line, u64* size) noexcept {
             ++offset;
         return offset != begin;
     };
+    while (offset < line.count) {
+        skip_ows();
+        if (offset == line.count || line[offset++] != ';')
+            return false;
+        skip_ows();
+        if (!skip_token())
+            return false;
+        skip_ows();
+        if (offset == line.count || line[offset] == ';')
+            continue;
+        if (line[offset++] != '=')
+            return false;
+        skip_ows();
+        if (offset == line.count)
+            return false;
+
+        if (line[offset] == '"') {
+            ++offset;
+            bool closed = false;
+            while (offset < line.count) {
+                const u8 current = line[offset++];
+                if (current == '"') {
+                    closed = true;
+                    break;
+                }
+                if (current == '\\') {
+                    if (offset == line.count || !is_quoted_pair_value(line[offset++]))
+                        return false;
+                } else if (!is_quoted_text(current)) {
+                    return false;
+                }
+            }
+            if (!closed)
+                return false;
+        } else if (!skip_token()) {
+            return false;
+        }
+
+        skip_ows();
+        if (offset < line.count && line[offset] != ';')
+            return false;
+    }
+    return true;
+}
+#pragma clang attribute pop
+
+ChunkSizeParse parse_chunk_size(ConstSlice<u8> line, u64* size) noexcept {
+    u32 offset = 0;
+    u64 result = 0;
+    u32 digits = 0;
     while (offset < line.count) {
         const i32 value = ascii_hex_value(static_cast<char>(line[offset]));
         if (value < 0)
@@ -226,49 +275,8 @@ ChunkSizeParse parse_chunk_size(ConstSlice<u8> line, u64* size) noexcept {
     }
     if (digits == 0)
         return ChunkSizeParse::invalid;
-
-    while (offset < line.count) {
-        skip_ows();
-        if (offset == line.count || line[offset++] != ';')
-            return ChunkSizeParse::invalid;
-        skip_ows();
-        if (!skip_token())
-            return ChunkSizeParse::invalid;
-        skip_ows();
-        if (offset == line.count || line[offset] == ';')
-            continue;
-        if (line[offset++] != '=')
-            return ChunkSizeParse::invalid;
-        skip_ows();
-        if (offset == line.count)
-            return ChunkSizeParse::invalid;
-
-        if (line[offset] == '"') {
-            ++offset;
-            bool closed = false;
-            while (offset < line.count) {
-                const u8 current = line[offset++];
-                if (current == '"') {
-                    closed = true;
-                    break;
-                }
-                if (current == '\\') {
-                    if (offset == line.count || !is_quoted_pair_value(line[offset++]))
-                        return ChunkSizeParse::invalid;
-                } else if (!is_quoted_text(current)) {
-                    return ChunkSizeParse::invalid;
-                }
-            }
-            if (!closed)
-                return ChunkSizeParse::invalid;
-        } else if (!skip_token()) {
-            return ChunkSizeParse::invalid;
-        }
-
-        skip_ows();
-        if (offset < line.count && line[offset] != ';')
-            return ChunkSizeParse::invalid;
-    }
+    if (!chunk_extensions_valid(line, offset))
+        return ChunkSizeParse::invalid;
     *size = result;
     return ChunkSizeParse::ok;
 }
@@ -303,6 +311,8 @@ bool http_field_value_valid(ConstSlice<u8> value) noexcept {
     return true;
 }
 
+// The request parser serves only the loopback sign-in and captcha pages, once per sign-in: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 HttpRequestError http_parse_request_line(ConstSlice<u8> input, u32 maximum_head_bytes,
                                          HttpRequestHead* head) noexcept {
     u32 head_bytes = 0;
@@ -391,6 +401,7 @@ HttpRequestError http_parse_request_fields(const HttpRequestHead& head, const ch
     }
     return HttpRequestError::none;
 }
+#pragma clang attribute pop
 
 HttpHeadResult http_parse_response_head(ConstSlice<u8> input, u32 maximum_header_bytes, u32 maximum_fields,
                                         HttpFieldVisitor visitor, void* context) noexcept {

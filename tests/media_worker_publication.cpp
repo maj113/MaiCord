@@ -45,7 +45,7 @@ u32 audio_fixture(u8* bytes) noexcept {
     }
     return count;
 }
-void deferred_cache_checks(void (*check)(bool, const char*) noexcept, bool indexed) noexcept {
+void deferred_cache_checks(void (*check)(bool, const char*) noexcept) noexcept {
     EncodedMediaCacheEntry entries[2]{};
     u16 owners[2]{};
     u8 storage[2 * kEncodedMediaCachePageBytes]{};
@@ -57,9 +57,8 @@ void deferred_cache_checks(void (*check)(bool, const char*) noexcept, bool index
     const auto other = media_asset_attachment(101, MediaAttachmentFormat::ogg_opus);
     const auto replacement = media_asset_attachment(102, MediaAttachmentFormat::ogg_opus);
     const EncodedMediaCachePolicy policy{{}, 200, true, false};
-    check(encoded_media_cache_initialize(&cache, {entries, 2}, {owners, 2}, {storage, sizeof(storage)},
-                                         indexed ? Slice<u32>{buckets, 4} : Slice<u32>{}),
-          "retired cache indexed or linear initialize");
+    check(encoded_media_cache_initialize(&cache, {entries, 2}, {owners, 2}, {storage, sizeof(storage)}, {buckets, 4}),
+          "retired cache initialize");
     const auto stored = encoded_media_cache_store(&cache, key, {bytes, count}, policy);
     auto first = encoded_media_cache_acquire(&cache, key, 1);
     auto second = encoded_media_cache_acquire(&cache, key, 1);
@@ -111,8 +110,10 @@ void retained_audio_checks(void (*check)(bool, const char*) noexcept) noexcept {
     const u32 count = audio_fixture(bytes);
     const auto key = media_asset_attachment(9876, MediaAttachmentFormat::ogg_opus);
     const u8 etag[]{'"', 'a', '"'};
+    u32 buckets[4]{};
     check(count == 120 &&
-              encoded_media_cache_initialize(&cache, {entries, 2}, {owners, 2}, {storage, sizeof(storage)}),
+              encoded_media_cache_initialize(&cache, {entries, 2}, {owners, 2}, {storage, sizeof(storage)},
+                                             {buckets, 4}),
           "audio fixture and bounded shared cache initialize");
     CdnMediaPipeline pipeline{};
     pipeline.cache = &cache;
@@ -285,8 +286,9 @@ void common_audio_checks(void (*check)(bool, const char*) noexcept) noexcept {
     EncodedMediaCacheEntry entries[4]{};
     u16 owners[4]{};
     u8 storage[4 * kEncodedMediaCachePageBytes]{};
+    u32 buckets[8]{};
     EncodedMediaCache cache{};
-    check(encoded_media_cache_initialize(&cache, {entries, 4}, {owners, 4}, {storage, sizeof(storage)}),
+    check(encoded_media_cache_initialize(&cache, {entries, 4}, {owners, 4}, {storage, sizeof(storage)}, {buckets, 8}),
           "common audio bounded encoded cache initializes");
     CdnMediaPipeline pipeline{};
     pipeline.cache = &cache;
@@ -486,8 +488,7 @@ void common_audio_checks(void (*check)(bool, const char*) noexcept) noexcept {
 }
 } // namespace
 void test_media_worker_publication(void (*check)(bool, const char*) noexcept) noexcept {
-    deferred_cache_checks(check, false);
-    deferred_cache_checks(check, true);
+    deferred_cache_checks(check);
     retained_audio_checks(check);
     common_audio_checks(check);
     constexpr u32 page = 4096;

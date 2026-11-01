@@ -1,4 +1,5 @@
 #include "maicord/protocol/relationships.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/protocol/rest.hpp"
 #include "../src/app/gateway_relationship_dispatch.hpp"
@@ -161,6 +162,18 @@ void test_backpressure(void (*check)(bool, const char*) noexcept) noexcept {
     ResetEvent(cancel);
     check(!gateway_mailbox_publish(mailbox, space, cancel, notification, GetTickCount64(), event, {&byte, 1}),
         "friends Gateway: a full mailbox honors its bounded deadline without a lossy push");
+    // The cancel event is polled once per clock tick, but a set one is never cached: with room available every
+    // publication reports it until it is reset, and a cleared one admits again.
+    secure_clear_bytes(mailbox, sizeof(*mailbox));
+    SetEvent(cancel);
+    check(!gateway_mailbox_publish(mailbox, space, cancel, notification, GetTickCount64() + 1000, event, {&byte, 1}) &&
+              !gateway_mailbox_publish(mailbox, space, cancel, notification, GetTickCount64() + 1000, event, {&byte, 1}) &&
+              !spsc_mailbox_size(*mailbox),
+        "friends Gateway: a set cancel event refuses every publication even with room available");
+    ResetEvent(cancel);
+    check(gateway_mailbox_publish(mailbox, space, cancel, notification, GetTickCount64() + 1000, event, {&byte, 1}) &&
+              spsc_mailbox_size(*mailbox) == 1,
+        "friends Gateway: a cleared cancel event admits publication again");
 }
 } // namespace
 

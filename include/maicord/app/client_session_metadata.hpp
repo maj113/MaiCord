@@ -28,7 +28,7 @@ bool client_heartbeat_session_valid(const ClientHeartbeatSession& session) noexc
 // the UI thread. Like the desktop client, each request first adds the current
 // heartbeat session and app state to the super properties, and the header is
 // re-encoded only when one of them changes. The base property views must
-// outlive the object; every function locks it.
+// outlive the object; every function locks it except the reads of one aligned word (focused, refresh due).
 struct ClientSessionMetadata {
     SrwLock lock;
     u32 revision;

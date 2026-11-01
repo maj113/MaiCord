@@ -1,4 +1,5 @@
 #include "application_shortcuts.hpp"
+#include "model_store_fixtures.hpp"
 #include "application_downloads_inactive.hpp"
 #include "application_inbox_inactive.hpp"
 #include "application_poll_inactive.hpp"

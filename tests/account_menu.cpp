@@ -1,4 +1,5 @@
 #include "maicord/ui/surface_elevation.hpp"
+#include "ui_scene_fixtures.hpp"
 #include "maicord/ui/account_menu.hpp"
 #include "maicord/ui/popup_presentation.hpp"
 #include "maicord/core/utf.hpp"

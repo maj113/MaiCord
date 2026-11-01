@@ -1,4 +1,5 @@
 #include "application_downloads_inactive.hpp"
+#include "ui_scene_fixtures.hpp"
 #include "application_account_menu.hpp"
 #include "application_state.hpp"
 #include "application_profile.hpp"

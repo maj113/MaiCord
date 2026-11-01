@@ -142,11 +142,8 @@ void test_widget_input(void (*check)(bool, const char*) noexcept) noexcept {
     MessageComposer model{};
     char text[64]{};
     MessageComposerScene composer{};
-    UiWidget composer_widgets[kMessageComposerWidgetCapacity]{};
-    UiLayoutNode composer_nodes[kMessageComposerWidgetCapacity]{};
-    check(message_composer_initialize(&model, {text, 64}) &&
-          message_composer_scene_initialize(&composer, {composer_widgets, kMessageComposerWidgetCapacity},
-            {composer_nodes, kMessageComposerWidgetCapacity}), "composer input scene ready");
+    check(message_composer_initialize(&model, {text, 64}) && message_composer_scene_initialize_owned(&composer),
+          "composer input scene ready");
     message_composer_reset(&model, 42, false);
     check(message_composer_scene_update(&composer, &model, {0, 0, 600, 100}, true).ok() &&
           message_composer_scene_focus_edit(&composer) &&

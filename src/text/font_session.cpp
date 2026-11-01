@@ -77,6 +77,8 @@ NativeFontSessionStats native_font_session_stats(const NativeFontSession* sessio
     if(!session)return {};NativeFontSessionStats stats{};stats.live=native_font_stats(session->fonts);
     stats.metadata_committed=session->faces.committed+session->instances.committed+session->runs.committed;
     stats.metadata_committed+=session->header_committed;
+    // Cold slot scans (statistics, capacity fallback): vector bodies only add size.
+#pragma clang loop vectorize(disable) interleave(disable)
     for(u32 i=0;i<session->store.slots.count;++i)if(session->store.slots[i].references)++stats.instances;
     stats.peak_files=session->peak_files;stats.peak_faces=session->peak_faces;stats.peak_instances=session->peak_instances;stats.peak_mapped_bytes=session->peak_mapped_bytes;stats.references=session->references;return stats;
 }
@@ -99,7 +101,9 @@ NativeFontResult native_font_session_instance(NativeFontSession* session,NativeF
 NativeFontResult native_font_session_run(NativeFontSession* session,NativeFontInstanceHandle instance,const NativeFontSelection& source,u32 simulations,NativeFontRunHandle* output) noexcept {
     if(output)reset_value(output);if(!session||!output)return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};
     auto result=native_font_run_acquire(&session->run_store,instance,source,simulations,output);
-    if(result.error==NativeFontError::capacity){bool available=false;for(u32 i=0;i<session->run_store.slots.count;++i){const auto& s=session->run_store.slots[i];available|=!s.references&&s.generation!=0xffffffffu;}
+    if(result.error==NativeFontError::capacity){bool available=false;
+#pragma clang loop vectorize(disable) interleave(disable)
+        for(u32 i=0;i<session->run_store.slots.count;++i){const auto& s=session->run_store.slots[i];available|=!s.references&&s.generation!=0xffffffffu;}
         if(!available&&extend(session->runs,session->run_store.slots))result=native_font_run_acquire(&session->run_store,instance,source,simulations,output);}
     return result;
 }

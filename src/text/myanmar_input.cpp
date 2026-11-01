@@ -122,7 +122,10 @@ SfntStatus sfnt_myanmar_prepare_input(ConstSlice<u32> input,Slice<SfntIndicInput
         struct Location {u8 offset,units;} locations[32]{};
         u32 cursor=start,relative_units=0;
         for(u32 i=0;i<info.count;++i){locations[i]={static_cast<u8>(cursor-start),static_cast<u8>(relative_units)};
-            const u32 next=next_scalar(input,cursor);for(;cursor<next;++cursor)relative_units+=input[cursor]>0xffff?2:1;}
+            const u32 next=next_scalar(input,cursor);
+            // One scalar group: a vector body never runs and only adds size.
+#pragma clang loop vectorize(disable) interleave(disable)
+            for(;cursor<next;++cursor)relative_units+=input[cursor]>0xffff?2:1;}
         // A compact inverse permutation gathers each source group once. No
         // temporary normalized scalar array or repeated wide-record moves.
         struct Rotation {u8 begin,count,target;} moves[4]{};u32 move_count=0;

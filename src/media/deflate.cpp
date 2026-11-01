@@ -183,6 +183,7 @@ bool build_table(const u8* lengths, u32 symbol_count, TableKind kind, u32 table_
     if (used == 0) {
         if (!allow_empty)
             return false;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
         for (u32 index = 0; index < root_entries; ++index)
             table[index] = make_entry(0, kEntryEmpty, 0, 0);
         return true;
@@ -212,6 +213,7 @@ bool build_table(const u8* lengths, u32 symbol_count, TableKind kind, u32 table_
     // Validation admits only one one-bit codeword here. Its canonical code
     // is zero; the other half of the root table must reject codeword one.
     const u32 entry = symbol_entry(kind, sorted[0]) | 1u;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (u32 index = 0; index < root_entries; index += 2) {
         table[index] = entry;
         table[index + 1] = make_entry(0, kEntryInvalid, 0, 0);
@@ -419,6 +421,7 @@ __forceinline void copy_match_exact(u8* destination, u32 distance, u32 length) n
         copy_bytes(destination, source, length);
         return;
     }
+#pragma clang loop vectorize(disable) interleave(disable)
     for (u32 index = 0; index < length; ++index)
         destination[index] = source[index];
 }
@@ -446,6 +449,7 @@ __forceinline void copy_match_fast(u8* destination, u32 distance, u32 length) no
     // Extend the period to a multiple of distance >= 16, then copy in chunks.
     const u32 period = distance * ((15 + distance) / distance);
     const u32 head = minimum(period - distance, length);
+#pragma clang loop vectorize(disable) interleave(disable)
     for (u32 index = 0; index < head; ++index)
         destination[index] = source[index];
     destination += head;
@@ -672,6 +676,7 @@ bool build_dynamic_tables(InflateState* state) noexcept {
             state->error = ZlibInflateError::invalid_huffman;
             return false;
         }
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
         for (u32 index = 0; index < repeat; ++index) {
             lengths[cursor++] = value;
         }
@@ -766,6 +771,7 @@ u32 adler32_update(u32 adler, ConstSlice<u8> bytes) noexcept {
         first = (first + static_cast<u32>(_mm_cvtsi128_si32(sum_first))) % 65'521;
         second = static_cast<u32>(_mm_cvtsi128_si32(sum_second)) % 65'521;
     }
+#pragma clang loop unroll(disable)
     for (; remaining != 0; --remaining) {
         first += *data++;
         second += first;

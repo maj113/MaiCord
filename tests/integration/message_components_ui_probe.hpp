@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ui_surface_motion_measurement.hpp"
+#include "probe_media_upload.hpp"
 #include "../../src/render/d3d11_renderer_layout.hpp"
 #include "maicord/app/message_view_runtime.hpp"
 #include "maicord/ui/message_component_layout.hpp"

@@ -91,8 +91,5 @@ bool uia_host_raise_notification(UiaProviderHost* host, u64 key, UiaNotification
                                  UiaNotificationProcessing processing, Utf8View text, Utf8View activity) noexcept;
 // Disconnects every element; later calls on retained elements fail cleanly.
 void uia_host_shutdown(UiaProviderHost* host) noexcept;
-// New IRawElementProviderSimple reference for key (0 = root), as IUnknown*.
-// The caller releases it. Used for events and tests.
-void* uia_host_element(UiaProviderHost* host, u64 key) noexcept;
 
 } // namespace maicord

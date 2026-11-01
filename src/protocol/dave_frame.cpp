@@ -4,6 +4,7 @@ namespace maicord {
 namespace {
 bool leb(ConstSlice<u8> bytes, u32& cursor, u64& value) noexcept {
     value = 0;
+    #pragma clang loop unroll(disable)
     for (u32 group = 0; group != 10; ++group) {
         if (cursor == bytes.count)
             return false;

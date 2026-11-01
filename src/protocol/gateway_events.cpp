@@ -5,6 +5,8 @@
 #include "gateway_decode.hpp"
 #include "json_field_lists.hpp"
 
+// Connection-level events (hello, ready, resumed, rate limits), once per session: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 namespace maicord {
 namespace {
 
@@ -541,3 +543,4 @@ GatewayEventDecodeResult gateway_decode_invalid_session(JsonValue data, bool* re
 }
 
 } // namespace maicord
+#pragma clang attribute pop

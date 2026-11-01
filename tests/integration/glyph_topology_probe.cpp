@@ -4,6 +4,7 @@
 // reference vertex shader), easing, stage or color (reference vertex and pixel
 // shaders); stage and color take MAICORD_GLYPH_STAGE_CONTROL 0-2.
 #include "maicord/render/d3d11_draw_pipeline.hpp"
+#include "probe_draw_pipeline.hpp"
 #include "maicord/render/text_effect.hpp"
 #include "../test_output.hpp"
 

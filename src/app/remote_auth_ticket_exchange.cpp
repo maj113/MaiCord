@@ -331,7 +331,7 @@ RemoteAuthTicketExchangeResult remote_auth_ticket_exchange_run(
                                                                   : 0;
             break;
         }
-        if (InterlockedCompareExchange(&exchange->captcha_submitted, 0, 0) == 0 ||
+        if (ReadAcquire(&exchange->captcha_submitted) == 0 ||
             exchange->captcha_solution.bytes == 0) {
             result.error = RemoteAuthTicketExchangeError::captcha;
             result.native_error = ERROR_INVALID_STATE;

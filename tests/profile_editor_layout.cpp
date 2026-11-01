@@ -127,7 +127,7 @@ void test_page(Check check) noexcept {
             check(card.top >= tabs.bottom && name.top >= card.bottom + 24 - .5f && close_to(ui_rect_width(name), column),
                   "profile editor page: narrow windows stack the preview above full-width sections");
         const auto change = find(&scene, 4, 0), remove = find(&scene, 4, 1);
-        const auto tokens = ui_settings_tokens(kDefaultTheme);
+        const UiSettingsThemeTokens tokens(kDefaultTheme);
         check(close_to(change.left, name.left) && close_to(remove.left, change.right + 4) &&
                   close_to(ui_rect_height(change), tokens.metric.button_small) && close_to(change.top, remove.top),
               "profile editor page: Change and Remove sit side by side, 4 DIP apart, under the section title");

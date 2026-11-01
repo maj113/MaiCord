@@ -1,4 +1,5 @@
 #include "maicord/ui/login_text_presentation.hpp"
+#include "secure_text_store_access.hpp"
 #include "maicord/ui/login_presentation.hpp"
 #include "maicord/ui/secure_text_store.hpp"
 #include "../src/app/application_login_geometry.hpp"

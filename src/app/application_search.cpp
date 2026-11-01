@@ -2102,34 +2102,6 @@ u64 search_text_signature(const ApplicationSearch& s, const MessageScene& scene)
                         p.spoiler_reveal_count * static_cast<u32>(sizeof(MessageTextSpoilerReveal)));
 }
 } // namespace
-bool application_search_source_link_current(const ApplicationSearchSourceTicket& ticket,
-                                            const MessageTextHit& hit) noexcept {
-    if (!front() || !application_search_synchronize())
-        return false;
-    ApplicationSearchSourceView view{};
-    if (!hit.valid || hit.message_id != ticket.message_id ||
-        hit.message_revision != ticket.publication_revision ||
-        !application_search_source_resolve(ticket, (hit.source_offset & 0x40000000u) != 0, &view))
-        return false;
-    auto* s = g_app.search;
-    if (!s->text_owner || !s->text_owner->presentation.active || !ui_search_scene_current(s->scene))
-        return false;
-    const auto& p = s->text_owner->presentation;
-    for (u32 i = 0; i < p.command_count; ++i) {
-        const auto& c = p.commands[i];
-        if (c.message_id != hit.message_id || c.message_revision != hit.message_revision ||
-            c.source_id != (hit.source_offset >> 16) ||
-            !ui_rect_has_area(ui_search_scene_content_clip(s->scene, c.clip)))
-            continue;
-        for (u32 j = 0; j < c.semantics.count; ++j) {
-            const auto& semantic = c.semantics[j];
-            if (semantic.kind == hit.kind && semantic.target == hit.target &&
-                semantic.source_offset == hit.source_offset && semantic.source_bytes == hit.source_bytes)
-                return true;
-        }
-    }
-    return false;
-}
 MessageComposer* application_search_edit_model() noexcept {
     return g_app.search ? &g_app.search->edit : nullptr;
 }

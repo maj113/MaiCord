@@ -2,6 +2,7 @@
 // lists past the inline 16, every guild's voice states, and member roles in
 // messages. Counts and committed bytes, never times.
 #include "maicord/core/memory.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/model/chat_state.hpp"
 #include "maicord/model/guild_member_store.hpp"
 #include "maicord/model/permission_compute.hpp"

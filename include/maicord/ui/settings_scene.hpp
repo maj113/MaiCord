@@ -404,7 +404,6 @@ UiSettingsFocusZone ui_settings_scene_focus_zone(const UiSettingsScene&) noexcep
 bool ui_settings_scene_move_zone(UiSettingsScene* scene, bool reverse) noexcept;
 bool ui_settings_scene_move_within(UiSettingsScene* scene, bool reverse) noexcept;
 void ui_settings_scene_set_focus_visible(UiSettingsScene* scene, bool visible) noexcept;
-bool ui_settings_scene_select(UiSettingsScene* scene, UiPageKey page) noexcept;
 bool ui_settings_scene_scroll(UiSettingsScene* scene, bool sidebar, float delta) noexcept;
 UiScrollbarGeometry ui_settings_scene_scrollbar(const UiSettingsScene& scene, bool sidebar) noexcept;
 // Builds a semantic request; never mutates settings or invokes module code.

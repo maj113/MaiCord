@@ -2,6 +2,10 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/text.hpp"
 
+// Escape-sequence parsing runs only for messages with ANSI code blocks; it is
+// compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+
 namespace maicord {
 namespace {
 
@@ -496,3 +500,4 @@ Color ansi_palette_color(const Theme& theme, u8 index) noexcept {
 }
 
 } // namespace maicord
+#pragma clang attribute pop

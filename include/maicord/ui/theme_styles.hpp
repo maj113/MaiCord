@@ -270,7 +270,7 @@ struct UiThemeIcons {
 };
 // Settings surface tokens. Colours are packed 0xRRGGBBAA and zero derives the
 // colour from the palette; sizes are DIPs, durations milliseconds and ratios
-// percent. Resolve through ui_settings_tokens
+// percent. Resolve through UiSettingsThemeTokens
 // (maicord/ui/controls/settings_tokens.hpp).
 struct UiThemeSettings {
     u32 text_strong{}, text_subtle{}, nav_header{}, border_subtle{}, border_normal{}, mod_subtle{},

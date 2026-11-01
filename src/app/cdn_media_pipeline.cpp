@@ -628,6 +628,8 @@ bool restore_apng_metadata(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded,
             png.transparent_green = byte_load_be16(transparency + 2);
             png.transparent_blue = byte_load_be16(transparency + 4);
         } else {
+            // At most 256 palette entries, once per image: a vector body only adds size.
+#pragma clang loop vectorize(disable) interleave(disable)
             for (u32 index = 0; index < saved.transparency_bytes; ++index) {
                 png.palette_rgba[index] = (png.palette_rgba[index] & 0xffffffu) | u32{transparency[index]} << 24;
             }

@@ -1,5 +1,6 @@
 // mc.read sources and the Gateway event translation over synthetic stores.
 #include "application_state.hpp"
+#include "model_store_fixtures.hpp"
 #include "application_plugins.hpp"
 #include "application_plugins_runtime.hpp"
 #include "maicord/core/byte_order.hpp"

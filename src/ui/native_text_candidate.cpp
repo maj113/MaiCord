@@ -62,7 +62,7 @@ struct NativeFormatFont {ConstSlice<u16> family;u32 scope;NativeFontProperties p
 struct NativeFormat {NativeFormatFont font;float em,tab_stop;u64 identity;bool word_wrap;u32 family_handle;};
 volatile LONG64 format_identity_sequence=0;
 u64 next_format_identity() noexcept {
-    LONG64 previous=InterlockedCompareExchange64(&format_identity_sequence,0,0);
+    LONG64 previous=ReadAcquire64(&format_identity_sequence); // the CAS below validates it
     for(;;){if(previous==0x7fffffffffffffffll)return 0;
         const auto observed=InterlockedCompareExchange64(&format_identity_sequence,previous+1,previous);
         if(observed==previous)return 0x8000000000000000ull|static_cast<u64>(previous+1);previous=observed;}

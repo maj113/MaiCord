@@ -61,8 +61,6 @@ struct ApplicationPluginMenu {
 // dismisses the borrowing popup and revalidates the copy before plugin entry.
 u32 application_plugins_menu_items(ApplicationPluginMenuSurface, u64 id, Slice<PopupItem>, u64 guild_id = 0,
                                    const ApplicationPluginMenuExtra* extra = nullptr) noexcept;
-// The current bank (tests inspect it); cleared with every borrowing popup.
-const ApplicationPluginMenu& application_plugins_menu_state() noexcept;
 bool application_plugins_menu_bind() noexcept;
 void application_plugins_menu_dismissed() noexcept;
 // Called before account teardown/start and accepted fresh READY. Never allocates.

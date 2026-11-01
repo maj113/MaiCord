@@ -1,4 +1,5 @@
 #include "maicord/ui/secure_edit.hpp"
+#include "secure_edit_queries.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {

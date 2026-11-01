@@ -6,12 +6,15 @@
 
 namespace maicord {
 namespace {
-bool equal(const Utf8View& a, const Utf8View& b) noexcept {
-    return a.bytes == b.bytes && (!a.bytes || bytes_equal(a.data, b.data, a.bytes));
+// The Utf8View front ends are inlined so that a literal argument travels as a pointer and a length.
+bool equal_chars(const Utf8View& a, const char* b, u32 bytes) noexcept {
+    return a.bytes == bytes && (!bytes || bytes_equal(a.data, b, bytes));
 }
-bool prefix(const Utf8View& a, const Utf8View& b) noexcept {
-    return a.bytes >= b.bytes && bytes_equal(a.data, b.data, b.bytes);
+__forceinline bool equal(const Utf8View& a, Utf8View b) noexcept { return equal_chars(a, b.data, b.bytes); }
+bool prefix_chars(const Utf8View& a, const char* b, u32 bytes) noexcept {
+    return a.bytes >= bytes && bytes_equal(a.data, b, bytes);
 }
+__forceinline bool prefix(const Utf8View& a, Utf8View b) noexcept { return prefix_chars(a, b.data, b.bytes); }
 struct Url { Utf8View host, path, query, fragment; };
 bool parse(Utf8View text, Url* out) noexcept {
     if (!text.data || text.bytes > 2048 || text.bytes < 9 ||
@@ -37,35 +40,50 @@ bool parse(Utf8View text, Url* out) noexcept {
     if (end < text.bytes && text.data[end] == '#') out->fragment = {text.data + end + 1, text.bytes - end - 1};
     return true;
 }
-bool host(const Url& u, Utf8View value) noexcept { return ascii_equal_ignore_case(u.host, value); }
+bool host_chars(const Url& u, const char* value, u32 bytes) noexcept { return ascii_equal_ignore_case(u.host, {value, bytes}); }
+__forceinline bool host(const Url& u, Utf8View value) noexcept { return host_chars(u, value.data, value.bytes); }
+// Rows of [provider][host name][NUL], ended by a zero provider byte: one table instead of a call per host.
+template <usize N> struct HostRow { char bytes[N]; };
+template <usize N> consteval HostRow<N + 1> row(EmbedProvider provider, const char (&host)[N]) noexcept {
+    HostRow<N + 1> result{};
+    result.bytes[0] = static_cast<char>(provider);
+    for (usize i = 0; i < N; ++i) result.bytes[i + 1] = host[i];
+    return result;
+}
+template <usize... Ns> struct HostTable { char bytes[(Ns + ... + 1)]; };
+template <usize... Ns> consteval HostTable<Ns...> table(const HostRow<Ns>&... rows) noexcept {
+    HostTable<Ns...> result{};
+    usize at = 0;
+    const auto append = [&](const auto& source) noexcept {
+        for (usize i = 0; i < sizeof(source.bytes); ++i) result.bytes[at++] = source.bytes[i];
+    };
+    (append(rows), ...);
+    return result;
+}
+using P = EmbedProvider;
+constexpr auto kHosts = table(
+    row(P::soundcloud, "soundcloud.com"), row(P::soundcloud, "www.soundcloud.com"),
+    row(P::soundcloud, "w.soundcloud.com"), row(P::vimeo, "vimeo.com"), row(P::vimeo, "www.vimeo.com"),
+    row(P::vimeo, "player.vimeo.com"), row(P::pornhub, "www.pornhub.com"), row(P::pornhub, "pornhub.com"),
+    row(P::youtube_music, "music.youtube.com"), row(P::youtube, "youtube.com"),
+    row(P::youtube, "www.youtube.com"), row(P::youtube, "m.youtube.com"), row(P::youtube, "youtu.be"),
+    row(P::youtube, "www.youtube-nocookie.com"), row(P::twitch, "twitch.tv"), row(P::twitch, "www.twitch.tv"),
+    row(P::twitch, "player.twitch.tv"), row(P::twitch, "clips.twitch.tv"), row(P::tiktok, "www.tiktok.com"),
+    row(P::tiktok, "tiktok.com"), row(P::spotify, "open.spotify.com"), row(P::twitter, "x.com"),
+    row(P::twitter, "www.x.com"), row(P::twitter, "twitter.com"), row(P::twitter, "www.twitter.com"),
+    row(P::twitter, "mobile.twitter.com"), row(P::twitter, "platform.twitter.com"), row(P::imgur, "imgur.com"),
+    row(P::imgur, "www.imgur.com"), row(P::imgur, "i.imgur.com"), row(P::steam, "store.steampowered.com"),
+    row(P::streamable, "streamable.com"), row(P::streamable, "www.streamable.com"),
+    row(P::apple_music, "music.apple.com"), row(P::apple_music, "embed.music.apple.com"),
+    row(P::playstation, "session-share.playstation.com"),
+    row(P::playstation, "sessionshare.sp-int.playstation.com"));
 EmbedProvider provider(const Url& u) noexcept {
-    if (host(u, utf8_literal("soundcloud.com")) || host(u, utf8_literal("www.soundcloud.com")) ||
-        host(u, utf8_literal("w.soundcloud.com"))) return EmbedProvider::soundcloud;
-    if (host(u, utf8_literal("vimeo.com")) || host(u, utf8_literal("www.vimeo.com")) ||
-        host(u, utf8_literal("player.vimeo.com"))) return EmbedProvider::vimeo;
-    if (host(u, utf8_literal("www.pornhub.com")) || host(u, utf8_literal("pornhub.com")))
-        return EmbedProvider::pornhub;
-    if (host(u, utf8_literal("music.youtube.com"))) return EmbedProvider::youtube_music;
-    if (host(u, utf8_literal("youtube.com")) || host(u, utf8_literal("www.youtube.com")) ||
-        host(u, utf8_literal("m.youtube.com")) || host(u, utf8_literal("youtu.be")) ||
-        host(u, utf8_literal("www.youtube-nocookie.com"))) return EmbedProvider::youtube;
-    if (host(u, utf8_literal("twitch.tv")) || host(u, utf8_literal("www.twitch.tv")) ||
-        host(u, utf8_literal("player.twitch.tv")) || host(u, utf8_literal("clips.twitch.tv")))
-        return EmbedProvider::twitch;
-    if (host(u, utf8_literal("www.tiktok.com")) || host(u, utf8_literal("tiktok.com")))
-        return EmbedProvider::tiktok;
-    if (host(u, utf8_literal("open.spotify.com"))) return EmbedProvider::spotify;
-    if (host(u, utf8_literal("x.com")) || host(u, utf8_literal("www.x.com")) ||
-        host(u, utf8_literal("twitter.com")) || host(u, utf8_literal("www.twitter.com")) ||
-        host(u, utf8_literal("mobile.twitter.com")) || host(u, utf8_literal("platform.twitter.com")))
-        return EmbedProvider::twitter;
-    if (host(u, utf8_literal("imgur.com")) || host(u, utf8_literal("www.imgur.com")) ||
-        host(u, utf8_literal("i.imgur.com"))) return EmbedProvider::imgur;
-    if (host(u, utf8_literal("store.steampowered.com"))) return EmbedProvider::steam;
-    if (host(u, utf8_literal("streamable.com")) || host(u, utf8_literal("www.streamable.com")))
-        return EmbedProvider::streamable;
-    if (host(u, utf8_literal("music.apple.com")) || host(u, utf8_literal("embed.music.apple.com")))
-        return EmbedProvider::apple_music;
+    for (const char* at = kHosts.bytes; *at;) {
+        const auto found = static_cast<EmbedProvider>(*at++);
+        const u32 bytes = c_string_length(at);
+        if (ascii_equal_ignore_case(u.host, {at, bytes})) return found;
+        at += bytes + 1;
+    }
     static constexpr Utf8View regions[]{utf8_literal("com"), utf8_literal("co.uk"), utf8_literal("de"),
         utf8_literal("co.jp"), utf8_literal("es"), utf8_literal("fr"), utf8_literal("it"),
         utf8_literal("com.au"), utf8_literal("in"), utf8_literal("ca"), utf8_literal("com.mx"),
@@ -75,8 +93,6 @@ EmbedProvider provider(const Url& u) noexcept {
         for (auto region : regions)
             if (ascii_equal_ignore_case({u.host.data + amazon.bytes, u.host.bytes - amazon.bytes}, region))
                 return EmbedProvider::amazon_music;
-    if (host(u, utf8_literal("session-share.playstation.com")) ||
-        host(u, utf8_literal("sessionshare.sp-int.playstation.com"))) return EmbedProvider::playstation;
     return EmbedProvider::none;
 }
 // Percent-decodes input into output; false for a malformed escape or when it does not fit.
@@ -107,14 +123,14 @@ bool id_valid(Utf8View id) noexcept {
 }
 // Duplicate playback parameters are rejected instead of choosing a different
 // video from the page/player. Unrelated parameters remain opaque.
-bool parameter(const Utf8View& query_view, const Utf8View& key, Utf8View* value) noexcept {
+bool parameter_chars(const Utf8View& query_view, const char* key, u32 key_bytes, Utf8View* value) noexcept {
     const Utf8View query = query_view; // *value is stored inside the loop
     bool found = false;
     for (u32 begin = 0; begin < query.bytes;) {
         u32 end = begin, equals = begin;
         while (end < query.bytes && query.data[end] != '&') ++end;
         while (equals < end && query.data[equals] != '=') ++equals;
-        if (equal({query.data + begin, equals - begin}, key)) {
+        if (equal_chars({query.data + begin, equals - begin}, key, key_bytes)) {
             if (found || equals == end) return false;
             *value = {query.data + equals + 1, end - equals - 1};
             found = true;
@@ -122,6 +138,9 @@ bool parameter(const Utf8View& query_view, const Utf8View& key, Utf8View* value)
         begin = end + 1;
     }
     return true;
+}
+__forceinline bool parameter(const Utf8View& query, Utf8View key, Utf8View* value) noexcept {
+    return parameter_chars(query, key.data, key.bytes, value);
 }
 bool seconds(Utf8View input, u32* out) noexcept {
     if (!input.bytes) return true;

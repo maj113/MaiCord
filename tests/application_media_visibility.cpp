@@ -1,4 +1,5 @@
 #include "../src/app/application_media_pump.hpp"
+#include "ui_scene_fixtures.hpp"
 #include "../src/app/application_forum_form.hpp"
 #include "maicord/ui/private_channel_rows.hpp"
 #include "maicord/model/typing_store.hpp"

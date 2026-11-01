@@ -1389,10 +1389,6 @@ bool WINAPI module_media_take(void* instance, AccountMediaFrame* frame) noexcept
     return true;
 }
 
-u32 WINAPI module_runtime_bytes() noexcept {
-    return sizeof(Module);
-}
-
 void stop_call(Module& m) noexcept;
 void release_call_textures(SyntheticCall& call) noexcept;
 
@@ -1689,7 +1685,6 @@ bool fill_api(AccountModuleApi* api) noexcept {
     api->media_attachment_request = module_media_attachment_request;
     api->media_advance = module_media_advance;
     api->media_take = module_media_take;
-    api->runtime_bytes = module_runtime_bytes;
     api->stop = module_stop;
     api->guild_members_request = module_guild_members_request;
     api->voice_snapshot = module_voice_snapshot;

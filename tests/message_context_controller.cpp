@@ -1,4 +1,5 @@
 #include "maicord/ui/message_context_controller.hpp"
+#include "ui_scene_fixtures.hpp"
 #include "maicord/ui/received_attachment_menu.hpp"
 #include "maicord/model/message_store.hpp"
 #include "maicord/model/reaction_preferences.hpp"

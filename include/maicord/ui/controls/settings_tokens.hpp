@@ -65,11 +65,9 @@ struct UiSettingsTokens : UiSettingsLayoutTokens {
 static_assert(sizeof(UiSettingsTokens) ==
               sizeof(UiSettingsLayoutTokens) + sizeof(UiSettingsColors) + sizeof(float));
 
-UiSettingsTokens ui_settings_tokens(const Theme& theme) noexcept;
-// Same values written straight into *output (a by-value result is copied by the caller).
+// The theme's tokens written straight into *output.
 void ui_settings_fill_tokens(const Theme& theme, UiSettingsTokens* output) noexcept;
-// The theme's tokens built in place: `const UiSettingsThemeTokens t(theme);` avoids the copy a
-// by-value ui_settings_tokens() result costs the caller.
+// The theme's tokens built in place: `const UiSettingsThemeTokens t(theme);`.
 struct UiSettingsThemeTokens : UiSettingsTokens {
     explicit UiSettingsThemeTokens(const Theme& theme) noexcept { ui_settings_fill_tokens(theme, this); }
 };

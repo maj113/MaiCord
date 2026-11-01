@@ -276,7 +276,7 @@ void voice_send_flush(VoiceSend* send, const VoiceSendTransport& t) noexcept {
                     return;
                 if (sent == VoiceUdpMediaSend::accepted) {
                     ++send->sequence;
-                    InterlockedIncrement64(&send->sent_packets);
+                    increment_single_writer(&send->sent_packets); // worker only; the UI status read is lock-free
                 } else
                     ++send->dropped_packets;
             } else

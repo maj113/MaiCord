@@ -138,11 +138,17 @@ struct AccountMediaWorker {
     volatile LONG poster_admission_waiter;
     ID3D11Device* poster_disabled_device;
     bool initialized;
-    u8 reserved[7];
+    u8 reserved[3];
+    // Clock tick (low 32 bits) at which stop_event was last seen clear; see account_media_worker_stop_requested.
+    volatile LONG stop_checked_tick;
 };
 
 // Creates the events and lane 0's cache and storage; starts no lane thread.
 AccountMediaRequestResult account_media_worker_initialize(AccountMediaWorker* worker) noexcept;
+// Whether account stop was requested. The poll for decode loops that ask once per MP3 frame, Ogg page or file
+// block: the stop event is read with a kernel call at most once per clock tick (a set event is never cached, so
+// every later call reports it), where a per-call wait costs several times the work between two polls.
+bool account_media_worker_stop_requested(AccountMediaWorker* worker) noexcept;
 // Starts an idle lane ahead of its first command (storage and thread), as
 // admission does. Fails for a busy or stopping worker or a lane out of range.
 AccountMediaRequestResult account_media_worker_start_lane(AccountMediaWorker* worker, u32 index) noexcept;

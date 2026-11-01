@@ -166,10 +166,7 @@ u64 run_check(Worker* w, UpdateChannel channel) noexcept {
     return result.retry_at_unix;
 }
 UpdateCheckInterval current_interval(Worker* w) noexcept {
-    AcquireSRWLockShared(w->lock.native());
-    const UpdateCheckInterval interval = w->view.interval;
-    ReleaseSRWLockShared(w->lock.native());
-    return interval;
+    return *static_cast<const volatile UpdateCheckInterval*>(&w->view.interval); // one byte: the lock added nothing
 }
 DWORD WINAPI worker_main(void* parameter) noexcept {
     auto* w = static_cast<Worker*>(parameter);

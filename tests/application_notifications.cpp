@@ -1,4 +1,5 @@
 #include "test_output.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/core/time.hpp"
 #include "../src/app/application_notifications.hpp"
 #include "../src/app/application_state.hpp"

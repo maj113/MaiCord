@@ -298,7 +298,7 @@ maicord_test(MaiCordSettingsRuntimeTests ENTRY maicord_settings_runtime_entry
         src/app/application_settings.cpp src/app/settings_catalog.cpp src/app/application_theme_editor.cpp
         src/app/application_plugins.cpp src/app/application_desktop_settings.cpp src/app/application_plugins_sdk.cpp
         src/app/application_plugins_read.cpp src/app/application_plugins_fx.cpp src/app/application_plugins_surfaces.cpp
-        src/app/application_plugins_render.cpp src/app/application_plugin_menus.cpp src/app/application_shell_input.cpp
+        src/app/application_plugins_render.cpp src/app/application_shell_input.cpp
         src/render/content_text_retention.cpp src/core/log.cpp src/app/application_updates.cpp
         src/app/application_voice_settings.cpp src/app/voice_settings_binding.cpp
         src/app/application_keybinds_settings.cpp src/app/application_activity.cpp src/app/game_detection.cpp
@@ -414,7 +414,7 @@ maicord_test(MaiCordFriendsStorageTests ENTRY maicord_friends_storage_entry
     SOURCES tests/application_friends_storage.cpp src/app/application_friends_storage.cpp
     BUNDLE MaiCordModelTests TEST maicord_friends_storage)
 maicord_test(MaiCordFriendsRuntimeTests ENTRY maicord_friends_runtime_entry
-    SOURCES tests/application_friends_runtime.cpp src/app/application_state.cpp src/app/application_friends.cpp
+    SOURCES tests/application_friends_runtime.cpp src/app/application_state.cpp
         src/app/application_friends_search.cpp src/app/application_friends_storage.cpp src/app/account_relationships.cpp
         src/core/log.cpp
     LIBS maicord_core maicord_protocol maicord_model maicord_app_core maicord_ui kernel32 user32

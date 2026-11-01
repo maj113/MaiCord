@@ -2,6 +2,8 @@
 
 #include "maicord/render/shader_bytecode.hpp"
 #include "media_atlas_gpu_internal.hpp"
+// Resource creation and decode validation, once per image: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace media_atlas_gpu_detail {
@@ -311,3 +313,4 @@ HRESULT create_media_surface(ID3D11Device* device, ID3D11DeviceContext1* context
 
 } // namespace media_atlas_gpu_detail
 } // namespace maicord
+#pragma clang attribute pop

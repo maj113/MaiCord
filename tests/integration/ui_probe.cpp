@@ -14,9 +14,13 @@
 //   MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY (with MAICORD_REGIONAL_FLAG_SURFACES_PROBE)
 //     the pinned external flag corpus; registered only when the CMake option names it.
 #include "maicord/protocol/gateway_reaction_events.hpp"
+#include "../model_store_fixtures.hpp"
+#include "../ui_scene_fixtures.hpp"
 #include "../application_downloads_inactive.hpp"
 #include "../../tools/perf/probe_window.hpp"
 #include "probe_present.hpp"
+#include "probe_media_upload.hpp"
+#include "probe_draw_pipeline.hpp"
 #include "probe_capture.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "standalone_title_geometry.hpp"
@@ -232,8 +236,6 @@ struct ProbeState {
     MessageComposer message_composer;
     MessageComposerScene message_composer_scene;
     char message_composer_text[128];
-    UiWidget message_composer_widgets[kMessageComposerWidgetCapacity];
-    UiLayoutNode message_composer_layout_nodes[kMessageComposerWidgetCapacity];
     MessageScene message_scene;
     UiWidget message_scene_widgets[kProbeMessageSceneRowCapacity * kMessageSceneWidgetsPerRow + 1];
     UiLayoutNode message_scene_layout_nodes[kProbeMessageSceneRowCapacity * kMessageSceneWidgetsPerRow + 1];
@@ -9669,10 +9671,7 @@ int run_probe() noexcept {
             Slice<ShellNavigationRowWidget>{g_probe.shell_navigation_rows, kProbeChannelCapacity},
             Slice<UiWidget>{g_probe.shell_navigation_widgets, kProbeChannelCapacity * 4 + 2},
             Slice<UiLayoutNode>{g_probe.shell_navigation_layout_nodes, kProbeChannelCapacity * 4 + 2}) ||
-        !message_composer_scene_initialize(
-            &g_probe.message_composer_scene,
-            Slice<UiWidget>{g_probe.message_composer_widgets, kMessageComposerWidgetCapacity},
-            Slice<UiLayoutNode>{g_probe.message_composer_layout_nodes, kMessageComposerWidgetCapacity}) ||
+        !message_composer_scene_initialize_owned(&g_probe.message_composer_scene) ||
         !initialize_probe_message_scene() || !synchronize_probe_shell_layout()) {
         return finish_probe(2);
     }
@@ -10805,7 +10804,7 @@ int run_probe() noexcept {
     const u32 live_partial_presents = g_probe.renderer.partial_present_draws;
     const u32 live_full_presents = g_probe.renderer.full_present_draws;
     const u64 live_partial_pixels = g_probe.renderer.partial_present_pixels;
-    const u32 live_gpu_uploads = g_probe.renderer.media_gpu.uploads;
+    const u32 live_gpu_uploads = g_probe_rgba8_uploads;
     const MediaAtlasGpuResult live_uploaded =
         live_visible_source.ok()
             ? renderer_upload_media_rgba8(&g_probe.renderer, live_visible_key, live_visible_source.width,
@@ -10821,7 +10820,7 @@ int run_probe() noexcept {
         g_probe.renderer.partial_present_pixels - live_partial_pixels >=
             static_cast<u64>(g_probe.renderer.width) * g_probe.renderer.height ||
         g_probe.renderer.media_draws_last_frame == 0 ||
-        g_probe.renderer.media_gpu.uploads != live_gpu_uploads + 1u) {
+        g_probe_rgba8_uploads != live_gpu_uploads + 1u) {
         log_u64(LogLevel::error, "probe", "retained_presentation_stage", 4);
         return finish_probe(4);
     }
@@ -10850,7 +10849,7 @@ int run_probe() noexcept {
         return finish_probe(5);
     }
     // One live media upload and the reaction picker's server-icon fixture.
-    if (g_probe.renderer.media_draws_last_frame != 0 || g_probe.renderer.media_gpu.uploads != 2 ||
+    if (g_probe.renderer.media_draws_last_frame != 0 || g_probe_rgba8_uploads != 2 ||
         g_probe.renderer.media_gpu.png_uploads != 2 ||
         g_probe.renderer.media_gpu.png_uploaded_bytes !=
             (kProbeStickerExtent * 4 + 1) * kProbeStickerExtent * 2 ||
@@ -10878,7 +10877,7 @@ int run_probe() noexcept {
         !g_probe.renderer.media_gpu.apng_backup_texture) {
         log_u64(LogLevel::error, "probe", "media_draws_last_frame",
                 g_probe.renderer.media_draws_last_frame);
-        log_u64(LogLevel::error, "probe", "media_uploads", g_probe.renderer.media_gpu.uploads);
+        log_u64(LogLevel::error, "probe", "media_uploads", g_probe_rgba8_uploads);
         log_u64(LogLevel::error, "probe", "png_uploads", g_probe.renderer.media_gpu.png_uploads);
         log_u64(LogLevel::error, "probe", "png_uploaded_bytes",
                 g_probe.renderer.media_gpu.png_uploaded_bytes);

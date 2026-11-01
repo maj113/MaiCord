@@ -384,22 +384,6 @@ static bool rgba_image_valid(const MediaAtlas& atlas, u32 width, u32 height, u32
            height + atlas.allocations.padding * 2u <= media_atlas_capacity_height(atlas);
 }
 
-MediaAtlasGpuResult renderer_upload_media_rgba8(D3D11Renderer* renderer, MediaAssetKey key, u16 width,
-                                                u16 height, u32 row_pitch,
-                                                ConstSlice<u8> premultiplied_rgba8) noexcept {
-    if (!renderer || !renderer->graphics.device || !renderer->graphics.context1 || !renderer->media_atlas ||
-        !media_asset_key_valid(key) ||
-        !rgba_image_valid(*renderer->media_atlas, width, height, row_pitch, premultiplied_rgba8)) {
-        return kRejectedMediaRequest;
-    }
-    return upload_to_atlas(renderer, key, false, renderer->media_atlas, width, height, "media_atlas_upload_failed",
-        [&]() noexcept {
-            return media_atlas_gpu_upload_rgba8(&renderer->media_gpu, renderer->media_atlas,
-                                                renderer->graphics.context1, key, width, height, row_pitch,
-                                                premultiplied_rgba8);
-        });
-}
-
 using ProgramRasterizer = bool (*)(D3D11GlyphTextOwner*, ID3D11DeviceContext*, const ColrPaintProgram&,
                                    const GlyphAtlasAllocation&, u16, u16, u16, ID3D11UnorderedAccessView*) noexcept;
 

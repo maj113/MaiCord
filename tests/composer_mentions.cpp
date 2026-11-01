@@ -1,4 +1,5 @@
 #include "maicord/app/gateway_member_request_owner.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/app/mention_member_query.hpp"
 #include "maicord/app/message_composer_controller.hpp"
 #include "maicord/core/memory.hpp"

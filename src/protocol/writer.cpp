@@ -28,14 +28,12 @@ bool protocol_writer_append_c_string(ProtocolWriter* writer, const char* value) 
     if (!value) {
         return false;
     }
-    u32 bytes = 0;
+    usize bytes = 0;
     while (value[bytes] != 0) {
-        if (bytes == 0xFFFFFFFFu) {
-            return false;
-        }
         ++bytes;
     }
-    return protocol_writer_append_bytes(writer, reinterpret_cast<const u8*>(value), bytes);
+    return bytes <= 0xFFFFFFFFu &&
+           protocol_writer_append_bytes(writer, reinterpret_cast<const u8*>(value), static_cast<u32>(bytes));
 }
 
 bool protocol_writer_append_u64(ProtocolWriter* writer, u64 value) noexcept {

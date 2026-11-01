@@ -1,3 +1,4 @@
+#include "../src/platform/uia_provider.cpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/platform/uia_provider.hpp"
 #include "maicord/ui/accessibility.hpp"
@@ -292,8 +293,10 @@ float host_scale(void*) noexcept {
     return 1.0f;
 }
 
+// New IRawElementProviderSimple reference for key (0 = root), as IUnknown*; the caller releases it.
+// A null or disconnected host is refused.
 IRawElementProviderSimple* element(UiaProviderHost* host, u64 key) noexcept {
-    return static_cast<IRawElementProviderSimple*>(uia_host_element(host, key));
+    return static_cast<IRawElementProviderSimple*>(element_create(host, key, key == 0));
 }
 
 template <typename T> T* pattern(IRawElementProviderSimple* simple, PATTERNID id) noexcept {
@@ -485,7 +488,7 @@ void test_provider(const Scene& scene, UiAccessTree* tree) noexcept {
             unknown->Release();
     check(host.elements == 1, "every element is released except the cached root");
     uia_host_shutdown(&host);
-    check(host.elements == 0 && !uia_host_element(&host, 0), "shutdown disconnects the root");
+    check(host.elements == 0 && !element(&host, 0), "shutdown disconnects the root");
 }
 
 // ---- event decisions -----------------------------------------------------

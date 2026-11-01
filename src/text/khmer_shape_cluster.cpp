@@ -21,12 +21,16 @@ SfntStatus reorder(Slice<SfntClusterGlyph> glyphs,u64 available,u64* spent) noex
             if(i+1>=n||!(glyphs[i+1].glyph.reserved&ro_last)||protected_prefix>i)return SfntStatus::invalid_input;
             if(!spend(i-protected_prefix+2ull))return SfntStatus::resource_limit;
             const auto a=glyphs[i],b=glyphs[i+1];
+            // Cluster-local moves: a vector body never runs and only adds size.
+#pragma clang loop vectorize(disable) interleave(disable)
             for(u32 j=i;j>protected_prefix;--j)glyphs[j+1]=glyphs[j-1];
             glyphs[protected_prefix]=a;glyphs[protected_prefix+1]=b;moved_ro=true;i+=2;
         }else{
             if(role&pre_role){
                 if(!spend(i+1ull))return SfntStatus::resource_limit;
-                const auto saved=glyphs[i];for(u32 j=i;j;--j)glyphs[j]=glyphs[j-1];glyphs[0]=saved;
+                const auto saved=glyphs[i];
+#pragma clang loop vectorize(disable) interleave(disable)
+                for(u32 j=i;j;--j)glyphs[j]=glyphs[j-1];glyphs[0]=saved;
                 if(role&generated_pre){if(protected_prefix||moved_ro)++protected_prefix;}else protected_prefix=1;
             }++i;
         }
@@ -75,7 +79,10 @@ SfntStatus sfnt_khmer_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,C
     const u32 capacity=static_cast<u32>(minimum<u64>(slots-sizes.scalar_count,0xffffffffu));
     u32 count=0,units=0,starts=0,pieces=0;u64 reorder_work=limits.stage_work;
     for(u32 first=0;first<input.count;){u32 end=first+1;while(end<input.count&&!storage.flags[end])++end;
-        u32 end_units=units;for(u32 i=first;i<end;++i)end_units+=input[i]>0xffff?2u:1u;
+        // One cluster's scalars: a vector body never runs and only adds size.
+        u32 end_units=units;
+#pragma clang loop vectorize(disable) interleave(disable)
+        for(u32 i=first;i<end;++i)end_units+=input[i]>0xffff?2u:1u;
         u32 end_pieces=pieces;while(end_pieces<sizes.scalar_count&&expanded[end_pieces].source<end_units)++end_pieces;
         if(starts==storage.targets.count)return SfntStatus::output_too_small;storage.targets[starts++]=units;
         for(u32 i=units;i<end_units;++i)storage.character_glyphs[i]=units;

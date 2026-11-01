@@ -197,6 +197,8 @@ SfntStatus indic_shape_cluster(SfntIndicProfile profile,const SfntShapePlan& pla
     if(policy.initial.needs_dotted_circle&&!((profile==SfntIndicProfile::odia||profile==SfntIndicProfile::telugu||profile==SfntIndicProfile::kannada||profile==SfntIndicProfile::malayalam)&&n>=31)&&!(n==1&&scalars[0]==0x200d&&followed_by_text)){
         if(n>=(profile==SfntIndicProfile::devanagari?31u:indic_cluster_capacity))return SfntStatus::unsupported_sequence;u16 circle=0;status=sfnt_cmap_glyph(cmap,0x25cc,0,&circle);if(status!=SfntStatus::ok)return status;
         augmented[0]={{circle,sfnt_gdef_glyph_class(plan.gdef,circle),0},input[0].source};augmented_scalars[0]=0x25cc;augmented_forms[0]=static_cast<u8>(forms[0]&indic_default_model);
+        // Fewer than indic_cluster_capacity entries: a vector body only adds size.
+#pragma clang loop vectorize(disable) interleave(disable)
         for(u32 i=0;i<n;++i){augmented[i+1]=input[i];augmented_scalars[i+1]=scalars[i];augmented_forms[i+1]=forms[i];}++n;
         input={augmented,n};scalars={augmented_scalars,n};forms={augmented_forms,n};policy.scalars=scalars;policy.forms=forms;policy.order={permutation.data,n};
         status=indic_initial_order(profile,scalars,forms,permutation,storage.flags,&policy.initial,limits.stage_work,true);if(status!=SfntStatus::ok)return status;

@@ -272,7 +272,7 @@ void publish_completed(CdnClient* client, CdnClientRuntime* runtime,
     runtime->deadline_ms = 0;
     secure_clear_bytes(runtime->request_head, kRequestHeadBytes);
     erase_command(runtime);
-    InterlockedIncrement64(&client->responses);
+    increment_single_writer(&client->responses); // worker thread only
     InterlockedExchange(&client->request_state, request_state_ready);
     publish_phase(client, CdnClientPhase::response_ready);
     SetEvent(client->response_event);
@@ -592,7 +592,7 @@ bool drive_transport_event(CdnClient* client, CdnClientRuntime* runtime, Network
         if (current.kind == TlsStreamEventKind::ready) {
             runtime->transport_ready = true;
             runtime->connection_request_count = 0;
-            InterlockedIncrement64(&client->connections);
+            increment_single_writer(&client->connections);
             current = begin_http_send(client, runtime);
             continue;
         }
@@ -640,9 +640,9 @@ void activate_request(CdnClient* client, CdnClientRuntime* runtime, NetworkLoop*
     runtime->logical_reused_connection = runtime->transport_ready &&
                                          runtime->transport_host == runtime->command.host &&
                                          runtime->connection_request_count != 0;
-    InterlockedIncrement64(&client->requests);
+    increment_single_writer(&client->requests);
     if (runtime->logical_reused_connection) {
-        InterlockedIncrement64(&client->reused_requests);
+        increment_single_writer(&client->reused_requests);
     }
     drive_transport_event(client, runtime, loop, begin_exchange(client, runtime, loop), now_ms);
 }

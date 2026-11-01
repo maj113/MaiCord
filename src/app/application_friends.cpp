@@ -108,13 +108,6 @@ bool application_friends_notification_gates(u64 user_id,u32* gates) noexcept {
     if(row && row->ignored) *gates|=notification_gate_ignored;
     return true;
 }
-ApplicationFriendsStorageMetrics application_friends_storage_metrics() noexcept {
-    const auto* friends = g_app.friends;
-    if (!friends) return {sizeof(ApplicationFriends), {}, {}, {}, {}};
-    return {sizeof(ApplicationFriends), friends_relationship_storage_metrics(friends->storage.active),
-        friends_relationship_storage_metrics(friends->storage.candidate),
-        friends_relationship_storage_metrics(friends->storage.indices), friends_relationship_storage_metrics(friends->requests_indices)};
-}
 namespace {
 void close_requests(ApplicationFriends&) noexcept;
 UiFriendsScene& input_scene(ApplicationFriends& friends) noexcept {

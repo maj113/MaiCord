@@ -1,4 +1,5 @@
 #include "scoped_read_ui_probe.hpp"
+#include "../ui_scene_fixtures.hpp"
 #include "probe_account_ui.hpp"
 #include "probe_present.hpp"
 #include "../../tools/perf/probe_window.hpp"

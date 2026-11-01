@@ -167,6 +167,7 @@ void unfilter_sub(u8* bytes, u32 count, u32 bpp) noexcept {
     default:
         break;
     }
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (x = maximum(x, bpp); x < count; ++x) {
         bytes[x] = static_cast<u8>(bytes[x] + bytes[x - bpp]);
     }
@@ -177,6 +178,7 @@ void unfilter_up(u8* bytes, const u8* previous, u32 count) noexcept {
     for (; x + 16 <= count; x += 16) {
         store16(bytes + x, _mm_add_epi8(load16(bytes + x), load16(previous + x)));
     }
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (; x < count; ++x) {
         bytes[x] = static_cast<u8>(bytes[x] + previous[x]);
     }
@@ -186,6 +188,7 @@ void unfilter_up(u8* bytes, const u8* previous, u32 count) noexcept {
 // byte pixels (pavgb rounds up; subtracting the low bit of left ^ above
 // floors it). Bytes of the next pixel ride along unchanged and are restored.
 void unfilter_average(u8* bytes, const u8* previous, u32 count, u32 bpp) noexcept {
+#pragma clang loop vectorize(disable) interleave(disable)
     for (u32 x = 0; x < bpp && x < count; ++x) {
         bytes[x] = static_cast<u8>(bytes[x] + (previous[x] >> 1));
     }
@@ -216,6 +219,7 @@ void unfilter_average(u8* bytes, const u8* previous, u32 count, u32 bpp) noexcep
             _mm_storel_epi64(reinterpret_cast<__m128i*>(bytes + x), _mm_blendv_epi8(left, raw, keep));
         }
     }
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (; x < count; ++x) {
         bytes[x] = static_cast<u8>(bytes[x] + ((static_cast<u32>(bytes[x - bpp]) + previous[x]) >> 1));
     }
@@ -282,6 +286,7 @@ void unfilter_paeth(u8* bytes, const u8* previous, u32 count, u32 bpp) noexcept 
     default: break;
     }
     // The first pixel has no left or upper-left neighbour: Paeth picks above.
+#pragma clang loop vectorize(disable) interleave(disable)
     for (; x < bpp && x < count; ++x) {
         bytes[x] = static_cast<u8>(bytes[x] + previous[x]);
     }
@@ -290,6 +295,7 @@ void unfilter_paeth(u8* bytes, const u8* previous, u32 count, u32 bpp) noexcept 
         // rather than being reloaded right after it was stored.
         u32 left = bytes[x - 1];
         u32 upper_left = previous[x - 1];
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
         for (; x < count; ++x) {
             const u32 above = previous[x];
             left = static_cast<u8>(bytes[x] + paeth_predictor(static_cast<i32>(left), static_cast<i32>(above),
@@ -299,6 +305,7 @@ void unfilter_paeth(u8* bytes, const u8* previous, u32 count, u32 bpp) noexcept 
         }
         return;
     }
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (; x < count; ++x) {
         bytes[x] = static_cast<u8>(bytes[x] + paeth_predictor(bytes[x - bpp], previous[x], previous[x - bpp]));
     }

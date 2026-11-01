@@ -1,4 +1,5 @@
 #include "profile_editor_ui_probe.hpp"
+#include "../ui_scene_fixtures.hpp"
 #include "probe_present.hpp"
 #include "../../src/app/application_profile_editor.hpp"
 #include "maicord/app/local_draft_preview.hpp"

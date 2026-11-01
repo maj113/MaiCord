@@ -20,11 +20,16 @@ bool opaque(Utf8View text, u32 limit) noexcept {
         if (static_cast<u8>(text.data[i]) <= 32 || static_cast<u8>(text.data[i]) >= 127) return false;
     return true;
 }
-bool add(ProtocolWriter& w, Utf8View text) noexcept {
-    return protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(text.data), text.bytes);
+bool add_bytes(ProtocolWriter& w, const char* text, u32 bytes) noexcept {
+    return protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(text), bytes);
 }
-bool parameter(ProtocolWriter& w, Utf8View name, Utf8View value) noexcept {
-    return add(w, name) && protocol_writer_append_percent_encoded(&w, value);
+// Inlined so that a literal argument travels as a pointer and a length.
+__forceinline bool add(ProtocolWriter& w, Utf8View text) noexcept { return add_bytes(w, text.data, text.bytes); }
+bool parameter_bytes(ProtocolWriter& w, const char* name, u32 name_bytes, const Utf8View& value) noexcept {
+    return add_bytes(w, name, name_bytes) && protocol_writer_append_percent_encoded(&w, value);
+}
+__forceinline bool parameter(ProtocolWriter& w, Utf8View name, const Utf8View& value) noexcept {
+    return parameter_bytes(w, name.data, name.bytes, value);
 }
 u32 redirect(u16 port, Slice<u8> out) noexcept {
     ProtocolWriter w{out, 0};

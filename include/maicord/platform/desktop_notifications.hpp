@@ -72,9 +72,6 @@ DesktopNotificationResult desktop_notifications_setting(DesktopNotifications*, u
 DesktopNotificationResult desktop_notifications_set_wake(DesktopNotifications*, HWND, u32 message) noexcept;
 bool desktop_notifications_take_activation(DesktopNotifications*, DesktopNotificationActivation*) noexcept;
 void desktop_notifications_discard_activations(DesktopNotifications*) noexcept;
-// Returns an AddRef'd IClassFactory for the non-emitting native probe. The caller
-// releases it. This accessor does not modify the class registry.
-DesktopNotificationResult desktop_notifications_factory(DesktopNotifications*, void**) noexcept;
 // Call on the same UI thread. Clears the wake target/queue, revokes the factory and
 // balances its COM apartment initialization. An outstanding COM callback keeps its own
 // inert state alive.

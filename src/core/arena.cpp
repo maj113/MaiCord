@@ -51,6 +51,30 @@ void erase_bytes(u8* memory, usize bytes) noexcept {
     while (bytes--) *output++ = 0;
 }
 
+// Moves the offset past [aligned_offset, end) and returns its start.
+__forceinline void* place(Arena* arena, usize aligned_offset, usize end) noexcept {
+    arena->offset = end;
+    arena->peak = maximum(arena->peak, end);
+    return arena->base + aligned_offset;
+}
+
+// Commits whole steps through `end`, then places the allocation. arena_allocate
+// tail-calls it, so the uncommitted case costs its fast path no stack frame.
+void* commit_and_place(Arena* arena, usize end, usize aligned_offset) noexcept {
+    usize target = 0;
+    if (!align_up(end, arena->commit_step, &target)) {
+        return nullptr;
+    }
+    target = minimum(target, arena->reserved);
+    auto* address = arena->base + arena->committed;
+    if (VirtualAlloc(address, target - arena->committed, MEM_COMMIT, PAGE_READWRITE) != address) {
+        return nullptr;
+    }
+    arena->committed = target;
+    ++arena->commit_count;
+    return place(arena, aligned_offset, end);
+}
+
 } // namespace
 
 bool arena_initialize(Arena* arena, usize reserve_bytes, usize initial_commit_bytes,
@@ -117,23 +141,9 @@ void* arena_allocate(Arena* arena, usize bytes, usize alignment) noexcept {
     const usize new_offset = aligned_offset + bytes;
 
     if (new_offset > arena->committed) {
-        usize commit_target = 0;
-        if (!align_up(new_offset, arena->commit_step, &commit_target)) {
-            return nullptr;
-        }
-        commit_target = minimum(commit_target, arena->reserved);
-        const usize commit_bytes = commit_target - arena->committed;
-        auto* commit_address = arena->base + arena->committed;
-        if (VirtualAlloc(commit_address, commit_bytes, MEM_COMMIT, PAGE_READWRITE) != commit_address) {
-            return nullptr;
-        }
-        arena->committed = commit_target;
-        ++arena->commit_count;
+        return commit_and_place(arena, new_offset, aligned_offset);
     }
-
-    arena->offset = new_offset;
-    arena->peak = maximum(arena->peak, new_offset);
-    return arena->base + aligned_offset;
+    return place(arena, aligned_offset, new_offset);
 }
 
 void* arena_allocate_zero(Arena* arena, usize bytes, usize alignment) noexcept {

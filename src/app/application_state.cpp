@@ -48,13 +48,13 @@ const Theme& application_theme() noexcept {
     if (!publication.custom &&
         (!publication.ready || publication.previous_kind != g_app.preferences.theme ||
          !background_theme_equal(publication.previous_gradient, g_app.preferences.gradient))) {
-        publication.theme = client_theme_projection(g_app.preferences);
-        publication.theme.styles = publication.styles;
-        publication.theme.style_revision = publication.styles ? publication.styles->revision : 0;
+        Theme& theme = publication.set_theme(client_theme_projection(g_app.preferences));
+        theme.styles = publication.styles;
+        theme.style_revision = publication.styles ? publication.styles->revision : 0;
         remember_preferences(publication, g_app.preferences);
         publication.ready = true;
     }
-    return publication.theme;
+    return publication.theme();
 }
 
 // Call after renderer and scene owners retire their borrowed Theme/styles.

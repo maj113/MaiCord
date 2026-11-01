@@ -1,4 +1,5 @@
 #include "maicord/ui/message_scene.hpp"
+#include "ui_scene_fixtures.hpp"
 #include "maicord/ui/message_presentation.hpp"
 #include "maicord/ui/message_text_presentation.hpp"
 #include "maicord/ui/message_action_bar.hpp"

@@ -156,12 +156,6 @@ void ui_settings_fill_tokens(const Theme& theme, UiSettingsTokens* output) noexc
     set_layout_tokens(t, s, theme.scale.space_1, theme.styles);
 }
 
-UiSettingsTokens ui_settings_tokens(const Theme& theme) noexcept {
-    UiSettingsTokens t;
-    ui_settings_fill_tokens(theme, &t);
-    return t;
-}
-
 void ui_settings_fill_layout_tokens(const UiResolvedThemeStyles* styles, UiSettingsLayoutTokens* output) noexcept {
     set_layout_tokens(*output, settings_style(styles), kDefaultTheme.scale.space_1, styles);
 }

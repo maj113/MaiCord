@@ -281,8 +281,6 @@ struct MessageComposerScene {
 // Bot identity replaces the attachment button for a selected command.
 UiRect message_composer_scene_command_avatar(const MessageComposerScene&) noexcept;
 
-bool message_composer_scene_initialize(MessageComposerScene* scene, Slice<UiWidget> widgets,
-                                       Slice<UiLayoutNode> layout_nodes) noexcept;
 bool message_composer_scene_initialize_owned(MessageComposerScene* scene) noexcept;
 // Returns true when geometry must be measured again. An unready bank is rejected;
 // nullptr restores the defaults. Paint-only changes do not invalidate layout.

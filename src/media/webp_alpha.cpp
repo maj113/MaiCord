@@ -34,6 +34,7 @@ void webp_alpha_unfilter_row(WebpAlphaFilter filter, u8* row, const u8* above, u
                                              _mm_loadu_si128(reinterpret_cast<const __m128i*>(above + x)));
             _mm_storeu_si128(reinterpret_cast<__m128i*>(row + x), sum);
         }
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
         for (; x < width; ++x) {
             row[x] = static_cast<u8>(row[x] + above[x]);
         }
@@ -143,6 +144,7 @@ WebpAlphaDecodeResult webp_alpha_decode(
             const __m128i packed = _mm_loadu_si128(reinterpret_cast<const __m128i*>(rgba_scratch.data + index * 4));
             _mm_storeu_si32(alpha_output.data + index, _mm_shuffle_epi8(packed, greens));
         }
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
         for (; index < pixel_count; ++index) {
             alpha_output[index] = rgba_scratch[index * 4 + 1];
         }

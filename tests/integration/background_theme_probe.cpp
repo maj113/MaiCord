@@ -1,4 +1,5 @@
 #include "maicord/ui/activity_status.hpp"
+#include "../ui_scene_fixtures.hpp"
 #include "background_theme_probe.hpp"
 #include "settings_theme_probe.hpp"
 #include "theme_views_probe.hpp"

@@ -1,5 +1,6 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/platform/file_picker.hpp"
+#include "maicord/core/interlocked.hpp"
 #include "maicord/core/arena.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
@@ -34,7 +35,7 @@ struct Runtime {
     u32 maximum_files;
     wchar_t title[256];
 };
-bool cancelled(Runtime* runtime) noexcept { return InterlockedCompareExchange(&runtime->cancelled, 0, 0) != 0; }
+bool cancelled(Runtime* runtime) noexcept { return read_acquire(&runtime->cancelled) != 0; }
 LRESULT CALLBACK cancel_window(HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
     if (message == WM_NCCREATE) {
         const auto* create = reinterpret_cast<const CREATESTRUCTW*>(lparam);
@@ -445,7 +446,7 @@ UploadSource native_file_picker_source(const NativeFilePicker* picker, u32 index
 }
 NativeFilePickerResult native_file_picker_status(const NativeFilePicker* picker) noexcept {
     if (!picker || !picker->runtime) return {};
-    const auto phase = static_cast<NativeFilePickerPhase>(InterlockedCompareExchange(const_cast<volatile LONG*>(&picker->phase), 0, 0));
+    const auto phase = static_cast<NativeFilePickerPhase>(read_acquire(&picker->phase));
     return phase == NativeFilePickerPhase::complete ? static_cast<const Runtime*>(picker->runtime)->result : NativeFilePickerResult{0, 0, NativeFilePickerError::none, phase};
 }
 ConstSlice<wchar_t> native_file_picker_path(const NativeFilePicker* picker, u32 index) noexcept {

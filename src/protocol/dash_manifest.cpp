@@ -8,7 +8,9 @@ namespace maicord {
 namespace {
 using E = DashManifestError;
 constexpr u32 maximum_bytes = 64 * 1024, maximum_segments = 8192;
-bool equal(Utf8View a, Utf8View b) noexcept { return utf8_equal(a, b); }
+bool equal_chars(const Utf8View& a, const char* b, u32 bytes) noexcept { return a.bytes == bytes && bytes_equal(a.data, b, bytes); }
+// The front ends are inlined so that a literal argument travels as a pointer and a length.
+__forceinline bool equal(const Utf8View& a, Utf8View b) noexcept { return equal_chars(a, b.data, b.bytes); }
 bool name_char(char c) noexcept { return ascii_is_alnum(c) || c == '_' || c == '-' || c == '.' || c == ':'; }
 bool name_start(char c) noexcept { return (ascii_is_alnum(c) && !ascii_is_digit(c)) || c == '_'; }
 bool duration(Utf8View s, u64* out, bool allow_zero = false) noexcept {
@@ -107,10 +109,11 @@ E next(Reader& r, Element& e) noexcept {
         e.attributes[e.count++] = a;
     }
 }
-Utf8View attribute(const Element& e, Utf8View name) noexcept {
-    for (u32 i = 0; i < e.count; ++i) if (equal(e.attributes[i].name, name)) return e.attributes[i].value;
+Utf8View attribute_chars(const Element& e, const char* name, u32 bytes) noexcept {
+    for (u32 i = 0; i < e.count; ++i) if (equal_chars(e.attributes[i].name, name, bytes)) return e.attributes[i].value;
     return {};
 }
+__forceinline Utf8View attribute(const Element& e, Utf8View name) noexcept { return attribute_chars(e, name.data, name.bytes); }
 bool identifier(Utf8View s) noexcept {
     if (!s.data || !s.bytes || s.bytes > 32) return false;
     for (u32 i = 0; i < s.bytes; ++i) if (!ascii_is_alnum(s.data[i]) && s.data[i] != '_' && s.data[i] != '-') return false;

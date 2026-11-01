@@ -4,6 +4,7 @@
 // (fetch dedupe, caching, rate limits, toggles, card geometry, activity art,
 // timers, failures). Synthetic fixtures only.
 #include "application_dm_profile.hpp"
+#include "model_store_fixtures.hpp"
 #include "application_commands.hpp"
 #include "application_private_channel.hpp"
 #include "application_profile.hpp"

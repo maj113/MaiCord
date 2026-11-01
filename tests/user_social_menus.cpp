@@ -1,4 +1,6 @@
 #include "maicord/ui/user_context_menu.hpp"
+#include "ui_scene_fixtures.hpp"
+#include "model_store_fixtures.hpp"
 #include "maicord/ui/message_context_menu.hpp"
 #include "maicord/model/user_note_store.hpp"
 #include "maicord/model/active_now.hpp"

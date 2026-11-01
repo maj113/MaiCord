@@ -30,12 +30,11 @@ AccountVideoResult failed(AccountVideoError error, u32 native = 0) noexcept {
 }
 bool cancelled(void* opaque) noexcept {
     auto* v = static_cast<AccountMediaVideoRuntime*>(opaque);
-    return WaitForSingleObject(v->worker->stop_event, 0) == WAIT_OBJECT_0 ||
-           ReadAcquire(&v->command_pending) != 0;
+    return ReadAcquire(&v->command_pending) != 0 || account_media_worker_stop_requested(v->worker);
 }
 bool source_cancelled(void* opaque) noexcept {
-    const auto* worker = static_cast<const AccountMediaWorker*>(opaque);
-    return !worker || WaitForSingleObject(worker->stop_event, 0) == WAIT_OBJECT_0;
+    auto* worker = static_cast<AccountMediaWorker*>(opaque);
+    return !worker || account_media_worker_stop_requested(worker);
 }
 u32 progressive_refresh_delay(const ProgressiveVideoFetch* video, const ProgressiveVideoFetch* audio, u64 now) noexcept {
     // Both tracks share one CDN request. Its completion event wakes this lane;
@@ -251,7 +250,7 @@ AccountVideoResult account_media_worker_video_select(AccountMediaWorker* worker,
                                                      const AccountVideoSelection& requested) noexcept {
     if (!worker || !worker->initialized || !selection_valid(requested))
         return failed(AccountVideoError::invalid_input);
-    if (WaitForSingleObject(worker->stop_event, 0) == WAIT_OBJECT_0)
+    if (account_media_worker_stop_requested(worker))
         return failed(AccountVideoError::busy);
     if (!worker->video_runtime) {
         auto* memory = static_cast<AccountMediaVideoRuntime*>(VirtualAlloc(
@@ -318,8 +317,8 @@ AccountVideoResult account_media_worker_video_select(AccountMediaWorker* worker,
                                    // AAC audio reuses the MP4 session's decoder path.
                                    : format == MediaAttachmentFormat::m4a ? AccountPlaybackKind::mp4
                                                                           : AccountPlaybackKind::ogg_opus;
-        InterlockedExchange(&v.command_pending, 0);
-        InterlockedExchange(&v.selected_lane, static_cast<LONG>(index));
+        WriteRelease(&v.command_pending, 0); // every write is under v.lock; the lock-free readers need only a whole value
+        WriteRelease(&v.selected_lane, static_cast<LONG>(index));
         ReleaseSRWLockExclusive(&v.lock);
         if (!SetEvent(lane.command_event)) {
             AcquireSRWLockExclusive(&v.lock);
@@ -363,7 +362,7 @@ AccountVideoResult account_media_worker_video_control(AccountMediaWorker* worker
     v.last_command = command.command_serial;
     v.stop_requested = stop;
     v.snapshot.playback.desired_command = command.command_serial;
-    InterlockedExchange(&v.command_pending, 1);
+    WriteRelease(&v.command_pending, 1);
     ReleaseSRWLockExclusive(&v.lock);
     if (!SetEvent(worker->lanes[lane].command_event))
         return failed(AccountVideoError::event, GetLastError());
@@ -502,7 +501,7 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
         if (queued && !blocked) {
             has_command = true;
             account_video_commands_pop(v.commands);
-            InterlockedExchange(&v.command_pending, v.commands.count != 0);
+            WriteRelease(&v.command_pending, v.commands.count != 0);
         }
         ReleaseSRWLockExclusive(&v.lock);
         if (ack || discard) {
@@ -616,7 +615,7 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
         v.snapshot.playback.release_pending = false;
         reset_value(&v.frame);
         v.frame_taken = false;
-        InterlockedExchange(&v.selected_lane, -1);
+        WriteRelease(&v.selected_lane, -1);
         InterlockedExchange(&lane->phase, static_cast<LONG>(stopping ? AccountMediaWorkerPhase::stopped
                                                                      : AccountMediaWorkerPhase::idle));
         ReleaseSRWLockExclusive(&v.lock);

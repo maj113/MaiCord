@@ -25,16 +25,6 @@ u32 lower(const RelationshipStore& store, u64 id) noexcept {
 }
 RelationshipStoreResult result(RelationshipStoreError error, bool changed = false) noexcept { return {error, changed}; }
 } // namespace
-bool relationship_store_initialize(RelationshipStore* store, Slice<RelationshipRecord> records) noexcept {
-    if (!store || store->count || !records.data || !records.count || records.count > kRelationshipMaximumRecords ||
-        !byte_range_valid({reinterpret_cast<const u8*>(records.data), records.count * static_cast<u32>(sizeof(*records.data))}) ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(store), sizeof(*store)},
-            {reinterpret_cast<const u8*>(records.data), records.count * static_cast<u32>(sizeof(*records.data))})) return false;
-    const u32 revision = store->revision;
-    *store = {records, 0, revision};
-    for (u32 i = 0; i < records.count; ++i) reset_value(&records[i]);
-    return true;
-}
 const RelationshipRecord* relationship_store_find(const RelationshipStore& store, u64 id) noexcept {
     if (!valid(store) || !id) return nullptr;
     const u32 index = lower(store, id);

@@ -1,5 +1,6 @@
 #pragma once
 #include "probe_present.hpp"
+#include "../ui_scene_fixtures.hpp"
 #include "ui_surface_motion_measurement.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/log.hpp"

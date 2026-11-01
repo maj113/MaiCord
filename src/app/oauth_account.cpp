@@ -62,7 +62,7 @@ bool oauth_account_forget(OAuthProvider provider) noexcept {
 OAuthAuthorizationResult oauth_account_refresh(OAuthAuthorization* owner, SecureBuffer* output,
     OAuthAuthorizationTransport transport, Utf8View client, OAuthProvider provider) noexcept {
     if (!owner || !empty(output) || !oauth_client_valid(provider, client)) return {OAuthError::invalid_input};
-    if (InterlockedCompareExchange(&owner->native_state, 0, 0) == 3) return {OAuthError::cancelled};
+    if (ReadAcquire(&owner->native_state) == 3) return {OAuthError::cancelled};
     Locked grant;
     if (!oauth_account_load(client, &grant.value, provider)) return {OAuthError::invalid_grant};
     return oauth_authorization_refresh(owner, client,

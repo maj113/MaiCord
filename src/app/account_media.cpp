@@ -3093,8 +3093,7 @@ ProgressiveVideoNext account_media_progressive_next(AccountMedia* media, bool re
 }
 void account_media_cancel_provider(AccountMedia* media) noexcept {
     if (!media) return;
-    auto* resolver = static_cast<EmbedResolver*>(InterlockedCompareExchangePointer(
-        reinterpret_cast<void* volatile*>(&media->provider_resolver), nullptr, nullptr));
+    auto* resolver = *static_cast<EmbedResolver* const volatile*>(&media->provider_resolver);
     if (resolver) embed_resolver_cancel(resolver);
 }
 

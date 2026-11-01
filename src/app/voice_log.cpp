@@ -21,8 +21,7 @@ void voice_log_set_sink(VoiceLogSink sink) noexcept {
     InterlockedExchangePointer(&g_sink, reinterpret_cast<void*>(sink));
 }
 void voice_log_fields(VoiceLogLevel level, const char* event, ConstSlice<VoiceLogField> fields) noexcept {
-    const auto sink =
-        reinterpret_cast<VoiceLogSink>(InterlockedCompareExchangePointer(&g_sink, nullptr, nullptr));
+    const auto sink = reinterpret_cast<VoiceLogSink>(g_sink); // an aligned pointer load; nothing else is ordered by it
     if (!sink || !event)
         return;
     char line[256];

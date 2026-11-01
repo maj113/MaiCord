@@ -102,6 +102,8 @@ inline void xor_stream(const u8* input, u8* output, const u8* stream, u32 bytes)
         const auto key_stream = _mm_loadu_si128(reinterpret_cast<const __m128i*>(stream + i));
         _mm_storeu_si128(reinterpret_cast<__m128i*>(output + i), _mm_xor_si128(source, key_stream));
     }
+    // Under 16 bytes remain: a vector body never runs and only adds size.
+#pragma clang loop vectorize(disable) interleave(disable)
     for (; i != bytes; ++i)
         output[i] = input[i] ^ stream[i];
 }

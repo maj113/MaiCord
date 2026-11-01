@@ -1,4 +1,5 @@
 #include "application_profile.hpp"
+#include "ui_scene_fixtures.hpp"
 #include "application_state.hpp"
 #include "application_account_presentation.hpp"
 #include "application_friends.hpp"

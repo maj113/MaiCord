@@ -64,6 +64,7 @@ WavePcmError format(WavePcmSource& s, const u8* p, u32 bytes) noexcept {
 }
 u32 sample_bits(const u8* p, u32 bytes) noexcept {
     u32 v = 0;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (u32 i = 0; i < bytes; ++i)
         v |= u32{p[i]} << (8 * i);
     return v;

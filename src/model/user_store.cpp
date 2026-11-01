@@ -2,6 +2,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/asset_hash.hpp"
+#include "maicord/model/sorted_search.hpp"
 
 namespace maicord {
 namespace {
@@ -29,6 +30,8 @@ u32 active_name_base(const UserStore& store) noexcept {
 }
 
 u32 name_size(const UserRecord& record) noexcept { return record.name_bytes + record.username_bytes; }
+// Name compaction runs only when a name bank fills, initialization once: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 bool compact_names(UserStore* store, u32 skipped_slot) noexcept {
     const u8 target_bank = store->active_name_bank == 0 ? 1 : 0;
     const u32 target_base = static_cast<u32>(target_bank) * store->name_bank_bytes;
@@ -57,6 +60,7 @@ bool compact_names(UserStore* store, u32 skipped_slot) noexcept {
     saturating_increment(store->compactions);
     return true;
 }
+#pragma clang attribute pop
 
 u32 empty_slot(const UserStore& store) noexcept {
     for (u32 slot = 0; slot < store.capacity; ++slot) {
@@ -108,6 +112,7 @@ UserStoreResult store_error(UserStore* store, UserStoreError error) noexcept {
 
 #include "asset_hash_validation.inc"
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 bool initialize_store(UserStore* store, Slice<UserRecord> records, Slice<u32> order,
                       Slice<u8> double_buffered_names, bool zeroed) noexcept {
     if (!store || !records.data || records.count == 0 || records.count > 1'000'000 || !order.data ||
@@ -140,6 +145,7 @@ bool user_store_initialize_sparse(UserStore* store, Slice<UserRecord> records, S
                                   Slice<u8> double_buffered_names) noexcept {
     return initialize_store(store, records, order, double_buffered_names, true);
 }
+#pragma clang attribute pop
 
 // Only occupied records can be pinned (removal resets a record), so the
 // ordered prefix covers them without touching unused slots.
@@ -272,9 +278,7 @@ UserStoreResult user_store_upsert(UserStore* store, u64 id,
 
     UserRecord& record = store->records[slot];
     if (!found) {
-        for (u32 index = store->count; index > order_index; --index) {
-            store->order[index] = store->order[index - 1];
-        }
+        sorted_insert_gap(store->order, store->count, order_index);
         store->order[order_index] = slot;
         ++store->count;
         const u16 generation = next_generation(record.generation);
@@ -292,7 +296,7 @@ UserStoreResult user_store_upsert(UserStore* store, u64 id,
     saturating_increment(record.revision);
     saturating_increment(store->revision);
     saturating_increment(store->mutations);
-    for (u32 i = 0; i < eviction_count; ++i) saturating_increment(store->evictions);
+    store->evictions = eviction_count > ~u32{0} - store->evictions ? ~u32{0} : store->evictions + eviction_count;
     return UserStoreResult{UserStoreError::none, !found, true, evicted};
 }
 
@@ -387,6 +391,7 @@ u32 user_avatar_variant(const Utf8View& avatar_hash) noexcept {
         return 0;
     }
     u32 value = 2'166'136'261u;
+    #pragma clang loop unroll(disable) // a dependent multiply chain: unrolling only adds code
     for (u32 index = 0; index < avatar_hash.bytes; ++index) {
         value ^= static_cast<u8>(avatar_hash.data[index]);
         value *= 16'777'619u;

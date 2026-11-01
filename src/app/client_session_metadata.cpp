@@ -155,10 +155,8 @@ bool client_session_metadata_set_focus(ClientSessionMetadata* metadata, bool foc
 bool client_session_metadata_focused(const ClientSessionMetadata* metadata) noexcept {
     if (!metadata)
         return false;
-    AcquireSRWLockShared(metadata->lock.native());
-    const bool focused = metadata->focused;
-    ReleaseSRWLockShared(metadata->lock.native());
-    return focused;
+    // One aligned flag: nothing to keep consistent with another field, so no lock.
+    return *static_cast<const volatile bool*>(&metadata->focused);
 }
 
 GatewayUserProperties client_session_metadata_properties(
@@ -208,9 +206,7 @@ ClientHeartbeatSession client_session_metadata_session(const ClientSessionMetada
 }
 
 u64 client_session_metadata_refresh_due(const ClientSessionMetadata* metadata) noexcept {
-    AcquireSRWLockShared(metadata->lock.native());
-    const u64 refreshed = metadata->refreshed_at_ms;
-    ReleaseSRWLockShared(metadata->lock.native());
+    const u64 refreshed = *static_cast<const volatile u64*>(&metadata->refreshed_at_ms); // one aligned word
     return refreshed ? refreshed + kClientHeartbeatIntervalMs : 0;
 }
 

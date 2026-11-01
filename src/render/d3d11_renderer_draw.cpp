@@ -619,19 +619,21 @@ struct ShellBackdropView {
             owner->content_text = nullptr;
     }
     ~ShellBackdropView() noexcept {
-        renderer->settings_scene = settings;
-        renderer->theme_editor_scene = editor;
-        renderer->popup_scene = popup;
-        renderer->text_form = text_form;
-        renderer->forum_form = forum_form;
-        renderer->tooltip_scene = tooltip;
-        renderer->toast_scene = toast;
-        renderer->focus_owner = focus;
-        renderer->image_viewer = image;
-        renderer->profile_scene = profile;
-        renderer->message_action_bar = bar;
-        renderer->reaction_viewer = reactions;
-        renderer->content_text = text;
+        // One load of the owner: each store below would otherwise force a reload.
+        D3D11Renderer* const owner = renderer;
+        owner->settings_scene = settings;
+        owner->theme_editor_scene = editor;
+        owner->popup_scene = popup;
+        owner->text_form = text_form;
+        owner->forum_form = forum_form;
+        owner->tooltip_scene = tooltip;
+        owner->toast_scene = toast;
+        owner->focus_owner = focus;
+        owner->image_viewer = image;
+        owner->profile_scene = profile;
+        owner->message_action_bar = bar;
+        owner->reaction_viewer = reactions;
+        owner->content_text = text;
     }
     ShellBackdropView(const ShellBackdropView&) = delete;
     ShellBackdropView& operator=(const ShellBackdropView&) = delete;

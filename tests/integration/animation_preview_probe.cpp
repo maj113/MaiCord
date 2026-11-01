@@ -25,8 +25,9 @@ bool atlas_pressure_pixels(D3D11Renderer& r) noexcept {
     for (u32 i = 0; ok && i < 6; ++i) {
         const u32 color = i == 0 ? 0xff0000ff : i == 5 ? 0xff00ff00 : 0xffffffff;
         for (auto& pixel : pixels) pixel = color;
-        ok = media_atlas_gpu_upload_rgba8(&gpu, &atlas, r.graphics.context1, key(i + 1), 128, heights[i],
-            128 * 4, {reinterpret_cast<const u8*>(pixels), static_cast<u32>(128 * heights[i] * 4)}).ok();
+        ok = media_atlas_gpu_upload_straight_rgba8(&gpu, &atlas, r.graphics.device, r.graphics.context1, key(i + 1),
+            128, heights[i], 128 * 4,
+            {reinterpret_cast<const u8*>(pixels), static_cast<u32>(128 * heights[i] * 4)}).ok();
     }
     media_atlas_begin_visibility(&atlas);
     const auto top = media_atlas_find(&atlas, key(1));

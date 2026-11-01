@@ -19,7 +19,7 @@ MessageScene* native_scene(UiSearchScene*) noexcept;
 namespace maicord::search_content_test {
 using namespace app_detail;
 enum class Mutation : u8 { none, account, profile, self, permission, publication, release, resolver };
-u32 failures{}, launches{}, notices{}, navigations{};
+u32 failures{}, launches{}, notices{};
 u32 account_refreshes{}, confirmations{};
 u32 publication = 1000;
 u32 layout_revision = 700;
@@ -32,7 +32,7 @@ MessageMediaPolicyResult query_media(const void*, const MessageMediaOwner& owner
     return media_policy;
 }
 MessageScene* native_scene(UiSearchScene*) noexcept { return &media_scene; }
-bool allowed = true, visible_link = true, friend_dm = true, last_trusted_text{};
+bool allowed = true;
 Mutation mutation{};
 u8 account_marker{};
 MessageStore bank{};
@@ -43,7 +43,6 @@ u8 text[1024], live_text[1024], rich_text[8192];
 MessageRichRecord rich_records[4];
 u16 rich_order[2];
 char opened[2048]{};
-MessageLink navigated{};
 bool opened_is(const char* url) noexcept {
     u32 i{}; while (url[i] && opened[i] == url[i]) ++i; return url[i] == opened[i];
 }
@@ -63,7 +62,7 @@ void check(bool value, const char* label) noexcept {
 bool seed(Utf8View content = utf8_literal("[masked](https://example.test/accepted)"),
           Utf8View file = fresh_file, u32 flags = 0, u32 child_flags = 0) noexcept {
     application_search_content_release();
-    allowed = visible_link = friend_dm = true; mutation = Mutation::none;
+    allowed = true; mutation = Mutation::none;
     layout_revision = 700;
     media_scene = {};
     g_app.frame_pending = false;
@@ -96,26 +95,6 @@ bool seed(Utf8View content = utf8_literal("[masked](https://example.test/accepte
     event.snapshot.attachments = {&child, 1};
     event.snapshot.embeds = {&child_embed, 1};
     return message_rich_store_apply(&rich, 800, publication, event).ok();
-}
-MessageTextHit parsed_link(bool snapshot = false) noexcept {
-    const auto found = message_store_find(bank, 800);
-    const auto* child = snapshot ? message_rich_store_snapshot(rich, 800) : nullptr;
-    const auto source = child ? message_rich_store_string(rich, child->snapshot.content)
-                              : message_store_content(bank, found.handle);
-    char transformed[1024]{}; u32 scratch[1024]{}; TextStyleSpan styles[128]{};
-    MessageMarkdownSemantic semantics[128]{};
-    MessageMarkdownOptions options{};
-    options.spoiler_revealed = [](void*, u32) noexcept { return true; };
-    const auto parsed = message_markdown_parse(source, {transformed, sizeof(transformed)},
-        {scratch, 1024}, {styles, 128}, options, {semantics, 128});
-    if (!parsed.ok()) return {};
-    for (u32 i = 0; i < parsed.semantic_count; ++i) {
-        const auto& s = semantics[i];
-        if (s.kind == MessageMarkdownSemanticKind::link || s.kind == MessageMarkdownSemanticKind::message_link)
-            return {800, s.target, publication, s.source_offset | (snapshot ? 0xc0010000u : 0),
-                s.source_bytes, s.kind, true};
-    }
-    return {};
 }
 // Mutations land before activation: the themed warning is not modal and
 // captures the exact URL it shows, so nothing changes under it.
@@ -164,36 +143,11 @@ void run() noexcept {
     check(message_store_initialize(&g_app.message_view.store, {live_records, 2}, {live_order, 2}, {live_text, sizeof(live_text)}) &&
         message_store_upsert(&g_app.message_view.store, {800, 999, 3, 1000, 0, utf8_literal("https://evil.test/live")}).ok() && seed(),
         "Search content fixture owns independent accepted and decoy live banks");
-    auto link = parsed_link();
-    check(link.valid && application_search_content_link(ticket(), link) && launches == 1 &&
-        opened_is("https://example.test/accepted") && !last_trusted_text,
-        "Search masked link resolves accepted source and leaves through the themed warning as masked text");
     auto before = launches;
-    check(application_search_content_link(ticket(), parsed_link(true)) && launches == before + 1 &&
-        opened_is("https://example.test/snapshot"),
-        "Search snapshot masked link uses child field selector in accepted rich bank");
-    seed(utf8_literal("see https://example.test/plain now")); before = launches;
-    application_search_content_link(ticket(), parsed_link());
-    check(launches == before + 1 && opened_is("https://example.test/plain") && last_trusted_text,
-        "Search plain link is trusted text under the markdown rule");
-    seed(utf8_literal("see https://example.test/plain now")); friend_dm = false;
-    application_search_content_link(ticket(), parsed_link());
-    check(!last_trusted_text, "Search plain link in a DM with a non-friend is not trusted text");
-    // A captured hit outlives a permission or publication change; both block it.
     const Mutation sync_guards[]{Mutation::permission, Mutation::publication};
     bool fenced = true;
-    for (auto guard : sync_guards) {
-        seed(); link = parsed_link(); before = launches; mutation = guard; mutate();
-        application_search_content_link(ticket(), link);
-        fenced = launches == before && fenced;
-    }
-    check(fenced, "Search link revalidates permission and publication before opening");
-    seed(utf8_literal("||[masked](https://example.test/secret)||")); link = parsed_link();
-    visible_link = false; before = launches;
-    application_search_content_link(ticket(), link);
-    check(launches == before, "Search hidden spoiler link is blocked by current rendered semantic authority");
     seed(); before = launches; application_search_content_activate(ticket(), target());
-    check(launches == before + 1 && !content_owner.intent.pending && !last_trusted_text,
+    check(launches == before + 1 && !content_owner.intent.pending,
         "Search current signed original file admits distinct layout and publication receipts without a resolver owner");
     seed({}, fresh_file, kGatewayMediaExplicitFlag, kGatewayMediaExplicitFlag);
     media_policy = {MessageExplicitFilter::blur, true};
@@ -261,7 +215,7 @@ void run() noexcept {
     seed();
     auto embed_target = target(); embed_target.rich_kind = MessageSceneRichItemKind::embed;
     before = launches; application_search_content_activate(ticket(), embed_target);
-    check(launches == before + 1 && opened_is("https://example.test/embed") && !last_trusted_text,
+    check(launches == before + 1 && opened_is("https://example.test/embed"),
         "Search embed card title URL opens exact outer descriptor through the themed warning");
     embed_target.snapshot = true; before = launches;
     application_search_content_activate(ticket(), embed_target);
@@ -307,14 +261,8 @@ void run() noexcept {
     mutation = Mutation::release; mutate(); before = launches; application_search_content_pump();
     check(!content_owner.intent.pending && launches == before, "Search explicit release retires a pending attachment intent");
     seed({}, unsigned_file); application_search_content_activate(ticket(), target());
-    application_search_content_link(ticket(), parsed_link(true));
-    check(!content_owner.intent.pending, "Search explicit link activation retires prior pending attachment intent");
-    seed(utf8_literal("[internal](https://discord.com/channels/22/333/444)"));
-    before = launches; const auto nav_before = navigations;
-    application_search_content_link(ticket(), parsed_link());
-    check(launches == before && navigations == nav_before + 1 && navigated.guild_id == 22 &&
-        navigated.channel_id == 333 && navigated.message_id == 444,
-        "Search internal masked message link delegates validated target independently of accepted source owner");
+    application_search_content_activate(ticket(), embed_target);
+    check(!content_owner.intent.pending, "Search explicit embed activation retires prior pending attachment intent");
     seed(); auto stale = target(); ++stale.source_revision; before = launches;
     application_search_content_activate(ticket(), stale);
     stale = target(); ++stale.source_index; application_search_content_activate(ticket(), stale);
@@ -343,19 +291,15 @@ bool application_search_source_resolve(const ApplicationSearchSourceTicket& id, 
 bool application_search_source_notice(const ApplicationSearchSourceTicket&, Utf8View) noexcept {
     ++search_content_test::notices; return true;
 }
-bool application_search_source_link_current(const ApplicationSearchSourceTicket&, const MessageTextHit&) noexcept {
-    return search_content_test::visible_link;
-}
-bool application_link_open(Utf8View url, bool trusted_text) noexcept {
+bool application_link_open(Utf8View url, bool) noexcept {
     using namespace search_content_test;
-    ++launches; last_trusted_text = trusted_text;
+    ++launches;
     u32 i{}; for (; i < url.bytes && i < 2047; ++i) opened[i] = url.data[i];
     opened[i] = 0;
     return true;
 }
-bool application_link_channel_trusted(u64) noexcept { return search_content_test::friend_dm; }
-bool application_search_navigation_link(const ApplicationSearchSourceTicket&, const MessageLink& target) noexcept {
-    ++search_content_test::navigations; search_content_test::navigated = target; return true;
+bool application_search_navigation_link(const ApplicationSearchSourceTicket&, const MessageLink&) noexcept {
+    return true;
 }
 } // namespace maicord::app_detail
 extern "C" __declspec(noreturn) void WINAPI maicord_application_search_content_runtime_entry() noexcept {

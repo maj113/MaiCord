@@ -107,6 +107,7 @@ u32 hash_digest(const ZstdStreamDecoder& d) noexcept {
         p += 4;
         left -= 4;
     }
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (; left; ++p, --left)
         h = rotl(h ^ *p * kPrime5, 11) * kPrime1;
     h ^= h >> 33;
@@ -150,6 +151,7 @@ __forceinline u64 back_peek(const BackBits& r, i64 start, u32 count) noexcept {
         value = load64(r.data + byte);
     } else {
         value = 0;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
         for (u32 i = 0; byte + i < r.size; ++i)
             value |= static_cast<u64>(r.data[byte + i]) << (8 * i);
     }
@@ -285,6 +287,7 @@ bool huffman_weights(const u8* source, u32 size, u8* weights, u32* count, u32* c
         const u32 bytes = (n + 1) / 2;
         if (1 + bytes > size)
             return false;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
         for (u32 i = 0; i < n; ++i)
             weights[i] = static_cast<u8>(i & 1 ? source[1 + i / 2] & 15 : source[1 + i / 2] >> 4);
         *count = n;
@@ -346,6 +349,7 @@ bool build_huffman(ZstdStreamDecoder* d, u8* weights, u32 count) noexcept {
     // add up to total + rest = 1 << bits entries, so none is left unfilled.
     u32 span[kHuffmanMaximumBits + 1];
     u32 next = 0;
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (u32 w = 1; w <= bits; ++w) {
         span[w] = next;
         next += ranks[w] << (w - 1);
@@ -363,6 +367,7 @@ bool build_huffman(ZstdStreamDecoder* d, u8* weights, u32 count) noexcept {
             for (u32 k = 0; k < n; k += 8)
                 _mm_storeu_si128(reinterpret_cast<__m128i*>(at + k), pair);
         } else {
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
             for (u32 k = 0; k < n; ++k)
                 at[k] = entry;
         }
@@ -562,9 +567,11 @@ __forceinline void copy_match(u8* output, u32 offset, u32 length) noexcept {
         for (u32 i = 0; i < length; i += 16)
             copy16(output + i, from + i);
     } else if (offset >= 8) {
+#pragma clang loop vectorize(disable) interleave(disable)
         for (u32 i = 0; i < length; i += 8)
             *reinterpret_cast<u64 __unaligned*>(output + i) = *reinterpret_cast<const u64 __unaligned*>(from + i);
     } else {
+#pragma clang loop vectorize(disable) interleave(disable)
         for (u32 i = 0; i < length; ++i)
             output[i] = from[i];
     }

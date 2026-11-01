@@ -1,5 +1,6 @@
 #pragma once
 #include "channel_overview_probe.hpp"
+#include "probe_media_upload.hpp"
 #include "maicord/ui/media_picker_presentation.hpp"
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/app/client_theme.hpp"

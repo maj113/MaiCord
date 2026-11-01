@@ -537,6 +537,8 @@ bool visit_mention_item(void* opaque, u32, JsonValue value) noexcept {
     return !probe->found;
 }
 
+// Media mentions, interactions, threads, Components V2 and forwarded snapshots are rare, small payloads: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 // The "type" of a quoted message's own message_reference (1: it is a forward).
 bool visit_quote_reference_type(void* opaque, JsonString name, JsonValue value) noexcept {
     u32 type = 0;
@@ -615,6 +617,7 @@ u32 format_media_time(u64 milliseconds, char* output) noexcept {
     digits(rest, true);
     return used;
 }
+#pragma clang attribute pop
 
 GatewayEventDecodeResult decode_reference(const RootContext& root, const JsonIndexedDocument& scratch,
                                           u32 maximum_depth, Slice<char> text_output, u32* text_used,
@@ -773,6 +776,7 @@ GatewayEventDecodeResult decode_reference(const RootContext& root, const JsonInd
     return decode_failure(GatewayEventDecodeError::none);
 }
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 struct InteractionContext {
     u64 id;
     JsonValue user;
@@ -933,6 +937,7 @@ GatewayEventDecodeResult decode_thread(const JsonValue& value, const JsonIndexed
         return decode_failure(GatewayEventDecodeError::invalid_data);
     return decode_failure(GatewayEventDecodeError::none);
 }
+#pragma clang attribute pop
 
 struct ArrayGather {
     JsonValue* values;
@@ -1544,6 +1549,7 @@ GatewayMessageEmbedType embed_type(JsonString value) noexcept {
     return GatewayMessageEmbedType::unknown;
 }
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 // A components embed carries one Components V2 tree: containers (17) with an
 // accent colour, sections (9) with a thumbnail accessory (11), text displays
 // (10), media galleries (12) and separators (14). The embed card shows its
@@ -1671,6 +1677,7 @@ bool embed_component_description(const EmbedComponentWalk& walk, Slice<char> tex
         *description = {text_output.data + begin, *text_used - begin};
     return true;
 }
+#pragma clang attribute pop
 
 GatewayEventDecodeResult decode_embeds(JsonValue array, const JsonIndexedDocument& scratch,
                                        u32 maximum_depth, Slice<char> text_output, u32* text_used,
@@ -1922,6 +1929,7 @@ GatewayEventDecodeResult decode_stickers(JsonValue array, const JsonIndexedDocum
     return decode_failure(GatewayEventDecodeError::none);
 }
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 struct UrlObjectContext {
     JsonString url;
     JsonString proxy_url;
@@ -2325,7 +2333,9 @@ GatewayEventDecodeResult decode_components(JsonValue array, const JsonIndexedDoc
     output->components = ConstSlice<GatewayMessageComponent>{output_scratch.components.data, output_count};
     return decode_failure(GatewayEventDecodeError::none);
 }
+#pragma clang attribute pop
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 struct SnapshotWrapperContext {
     JsonValue message;
     GatewayEventDecodeError error;
@@ -2443,6 +2453,7 @@ GatewayEventDecodeResult decode_snapshot(JsonValue value, const JsonIndexedDocum
                true};
     return decode_failure(GatewayEventDecodeError::none);
 }
+#pragma clang attribute pop
 
 } // namespace
 

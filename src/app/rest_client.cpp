@@ -834,7 +834,7 @@ void publish_completed(RestClient* client, RestClientRuntime* runtime,
     const bool response_owns_shared_body = response.error == RestClientError::none &&
                                            response.body_bytes != 0;
     erase_command(runtime, !response_owns_shared_body);
-    InterlockedIncrement64(&client->responses);
+    increment_single_writer(&client->responses); // worker thread only
     publish_worker_phase(client, runtime, RestClientPhase::response_ready);
     runtime->trace_request_id = 0;
     runtime->ready_counter = clock_now();
@@ -1058,9 +1058,9 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
     runtime->write_commit_failed = false;
     runtime->response_callback_failed = false;
     reset_value<RestResponseStep>(&runtime->response_step);
-    InterlockedIncrement64(&client->requests);
+    increment_single_writer(&client->requests); // worker thread only
     if (runtime->transaction.reused_connection) {
-        InterlockedIncrement64(&client->reused_requests);
+        increment_single_writer(&client->reused_requests);
     }
     publish_worker_phase(client, runtime, RestClientPhase::sending);
     ConstSlice<u8> spans[2]{ConstSlice<u8>{runtime->request_head, head_bytes}, {}};
@@ -1298,7 +1298,7 @@ bool drive_transport_event(RestClient* client, RestClientRuntime* runtime,
         if (current.kind == TlsStreamEventKind::ready) {
             runtime->transport_ready = true;
             runtime->connection_request_count = 0;
-            InterlockedIncrement64(&client->connections);
+            increment_single_writer(&client->connections);
             current = begin_request_send(client, runtime);
             continue;
         }
@@ -2284,16 +2284,6 @@ RestClientResult rest_client_stop(RestClient* client, u32 timeout_ms) noexcept {
 RestClientResult rest_client_stop_user_auth(RestClient* client, u32 timeout_ms,
                                             RestClientResponse* receipt) noexcept {
     return stop_client(client, timeout_ms, receipt);
-}
-
-u32 rest_client_runtime_bytes(u32 response_capacity) noexcept {
-    return allocation_bytes(response_capacity, false, false);
-}
-
-u32 rest_client_user_auth_capacity_runtime_bytes(u32 response_capacity, u32 request_capacity) noexcept {
-    const u32 ordinary = allocation_bytes(response_capacity, true, false);
-    const u32 secure = user_auth_secure_bytes(response_capacity, request_capacity);
-    return ordinary != 0 && secure != 0 && secure <= ~0u - ordinary ? ordinary + secure : 0;
 }
 
 } // namespace maicord

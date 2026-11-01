@@ -426,7 +426,7 @@ bool gateway_client_apply_thread_members(const GatewayClientEvent& input_event, 
         if (m.hydration_flags & gateway_thread_member_known) {
             const auto* existing = guild_member_store_find(*members, event.thread_members.guild_id, m.user_id);
             const Utf8View effective_nick = m.hydration_flags & gateway_thread_nickname_known ? nick : existing ? guild_member_store_nickname(*existing) : Utf8View{};
-            u64 ids[256]; for (u32 i = 0; i < m.role_count; ++i) ids[i] = byte_load_le64(roles.data + i * 8);
+            u64 ids[256]; copy_bytes(ids, roles.data, m.role_count * 8);
             guild_member_store_upsert(members, state, event.thread_members.guild_id, m.user_id, effective_nick, {ids, m.role_count},
                 (m.hydration_flags & gateway_thread_roles_known) != 0, static_cast<GuildMemberStatus>(m.status));
         } else if (m.hydration_flags & gateway_thread_presence_known) {

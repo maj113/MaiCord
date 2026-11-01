@@ -1,4 +1,5 @@
 #include "maicord/ui/guild_rail_scene.hpp"
+#include "ui_scene_fixtures.hpp"
 #include "maicord/ui/popup_scene.hpp"
 #include "maicord/ui/scroll_host.hpp"
 

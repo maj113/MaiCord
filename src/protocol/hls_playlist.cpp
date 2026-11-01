@@ -8,8 +8,11 @@
 namespace maicord {
 namespace {
 using E = HlsPlaylistError;
-bool equal(const Utf8View& a, const Utf8View& b) noexcept { return utf8_equal(a, b); }
-bool prefix(const Utf8View& a, const Utf8View& b) noexcept { return utf8_starts_with(a, b); }
+// The front ends are inlined so that a literal argument travels as a pointer and a length.
+bool equal_chars(const Utf8View& a, const char* b, u32 bytes) noexcept { return a.bytes == bytes && bytes_equal(a.data, b, bytes); }
+__forceinline bool equal(const Utf8View& a, Utf8View b) noexcept { return equal_chars(a, b.data, b.bytes); }
+bool prefix_chars(const Utf8View& a, const char* b, u32 bytes) noexcept { return a.bytes >= bytes && bytes_equal(a.data, b, bytes); }
+__forceinline bool prefix(const Utf8View& a, Utf8View b) noexcept { return prefix_chars(a, b.data, b.bytes); }
 bool duration(Utf8View s, u32* output) noexcept {
     u32 at = 0; while (at < s.bytes && ascii_is_digit(s.data[at])) ++at;
     u64 seconds{};

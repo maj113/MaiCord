@@ -114,7 +114,7 @@ u64 encoded_media_new_content_identity() noexcept;
 
 bool encoded_media_cache_initialize(EncodedMediaCache* cache, Slice<EncodedMediaCacheEntry> entries,
                                     Slice<u16> page_owners, Slice<u8> storage,
-                                    Slice<u32> index_buckets = {}) noexcept;
+                                    Slice<u32> index_buckets) noexcept;
 EncodedMediaCacheLookup encoded_media_cache_find(EncodedMediaCache* cache, const MediaAssetKey& key,
                                                  u64 now_seconds) noexcept;
 EncodedMediaCacheLease encoded_media_cache_acquire(EncodedMediaCache* cache, const MediaAssetKey& key,

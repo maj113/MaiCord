@@ -18,7 +18,7 @@ bool current(StagedFile* owner, u32* native) noexcept {
         found.bytes == owner->destination.bytes && file_identity_equal(found.identity, owner->destination.identity);
 }
 StagedFileResult fence(const volatile LONG* cancellation, u64 deadline) noexcept {
-    if (cancellation && InterlockedCompareExchange(const_cast<volatile LONG*>(cancellation), 0, 0))
+    if (cancellation && ReadAcquire(cancellation))
         return {ERROR_OPERATION_ABORTED, StagedFileError::cancelled};
     if (GetTickCount64() >= deadline) return {WAIT_TIMEOUT, StagedFileError::timeout};
     return {};

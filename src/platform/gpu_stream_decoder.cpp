@@ -1,5 +1,6 @@
 #include "gpu_stream_decoder_backend.hpp"
 #include "maicord/media/video_display.hpp"
+#include "maicord/core/interlocked.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/initguid.hpp"
@@ -352,8 +353,7 @@ void gpu_stream_present(GpuStream* stream, u8 surface, u32 rtp_timestamp, bool k
 }
 
 u32 gpu_stream_held(const GpuStream& stream) noexcept {
-    const u32 hold =
-        static_cast<u32>(InterlockedCompareExchange(const_cast<volatile LONG*>(&stream.hold), 0, 0));
+    const u32 hold = static_cast<u32>(read_acquire(&stream.hold));
     u32 mask = stream.presented < 32 ? 1u << stream.presented : 0u;
     if (hold && hold <= 32)
         mask |= 1u << (hold - 1u);

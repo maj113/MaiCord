@@ -232,9 +232,7 @@ void run_check(Worker* w, bool manual, u64 only) noexcept {
     UpdateLog("plugins", "check_done").field("manual", manual).field("reached", reached).field("failed", failed)
         .field("offers", ev.offers).field("staged", staged).field("next", w->next_check).write();
     close_operation(w, op);
-    AcquireSRWLockShared(w->lock.native());
-    const bool want = w->want_snapshot;
-    ReleaseSRWLockShared(w->lock.native());
+    const bool want = *static_cast<const volatile bool*>(&w->want_snapshot); // one flag: the lock added nothing
     if (want) build_snapshot(w);
 }
 
@@ -384,9 +382,7 @@ void run_command(Worker* w, const PluginBrowserCommand& cmd, u64 serial) noexcep
         .hex("owner", cmd.owner).field("manager", static_cast<u8>(manager.error)).field("record", static_cast<u8>(record.error))
         .field("address", static_cast<u8>(address_error)).field("probe", static_cast<u8>(w->probe.error))
         .field("add", static_cast<u8>(add.error)).write(manager.ok() && record.ok() ? LogLevel::info : LogLevel::warning);
-    AcquireSRWLockShared(w->lock.native());
-    const bool want = w->want_snapshot;
-    ReleaseSRWLockShared(w->lock.native());
+    const bool want = *static_cast<const volatile bool*>(&w->want_snapshot);
     if (want && changed) build_snapshot(w);
 }
 

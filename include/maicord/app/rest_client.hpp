@@ -350,8 +350,6 @@ RestClientResult rest_client_start_user_auth(RestClient* client,
 // profiles preserve the request/response alias and synchronous copy contract.
 RestClientResult rest_client_start_user_auth_capacity(
     RestClient* client, u32 response_capacity, u32 request_capacity) noexcept;
-u32 rest_client_user_auth_capacity_runtime_bytes(
-    u32 response_capacity, u32 request_capacity) noexcept;
 
 // One request may be queued or active. Target/body bytes are copied before
 // the request is handed to the worker. The route is a normalized caller-owned identity
@@ -441,8 +439,5 @@ RestClientResult rest_client_stop(RestClient* client, u32 timeout_ms) noexcept;
 // join retains the owner; receipt is empty unless a complete response is ready.
 RestClientResult rest_client_stop_user_auth(RestClient* client, u32 timeout_ms,
                                             RestClientResponse* receipt) noexcept;
-
-// Committed runtime bytes for a configured response body capacity.
-u32 rest_client_runtime_bytes(u32 response_capacity) noexcept;
 
 } // namespace maicord

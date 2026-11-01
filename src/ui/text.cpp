@@ -356,6 +356,8 @@ bool TextNativeFallback::build(const TextSystem& system,Utf8View input,u32 stage
             }
         }
         const char* source=bracket?bracket:replace?native_missing_glyph(cp.width):input.data+at;
+        // One UTF-8 scalar (at most four bytes): a vector body only adds size.
+#pragma clang loop vectorize(disable) interleave(disable)
         for(u32 i=0;i<cp.width;++i)out[at+i]=source[i];
         // Later stages repeat the first stage's replacements; the bracket
         // stage is a new substitute only when it replaces a bracket.

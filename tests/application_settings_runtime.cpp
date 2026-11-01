@@ -1,4 +1,5 @@
 #include "application_state.hpp"
+#include "ui_scene_fixtures.hpp"
 #include "settings_schema_validation.hpp"
 #include "application_settings.hpp"
 #include "application_friends.hpp"
@@ -38,6 +39,8 @@ void test_application_plugin_catalog_runtime(void (*check)(bool, const char*) no
 void test_application_plugins_read_runtime(void (*check)(bool, const char*) noexcept) noexcept;
 void test_application_custom_theme(void (*check)(bool, const char*) noexcept) noexcept;
 namespace app_detail {
+// The captured plugin menu bank, observed by the navigation test that includes its owner.
+const ApplicationPluginMenu& application_plugins_menu_state() noexcept;
 void test_application_user_settings_runtime(void (*check)(bool, const char*) noexcept) noexcept;
 void test_application_account_settings_connection_runtime(void (*check)(bool, const char*) noexcept) noexcept;
 void test_application_keybinds_settings_runtime(void (*check)(bool, const char*) noexcept) noexcept;

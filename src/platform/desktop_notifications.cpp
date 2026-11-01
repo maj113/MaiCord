@@ -334,9 +334,6 @@ bool desktop_notifications_take_activation(DesktopNotifications* n,DesktopNotifi
 void desktop_notifications_discard_activations(DesktopNotifications* n) noexcept {
     auto* s=owner(n);if(!ui_owner(s))return;AcquireSRWLockExclusive(&s->lock);clear_bytes(s->queue,sizeof(s->queue));s->head=s->count=0;ReleaseSRWLockExclusive(&s->lock);
 }
-DesktopNotificationResult desktop_notifications_factory(DesktopNotifications* n,void** out) noexcept {
-    auto* s=owner(n);if(!ui_owner(s)||!out)return failed(DesktopNotificationError::invalid_input,E_INVALIDARG);return FAILED(s->QueryInterface(__uuidof(IClassFactory),out))?failed(DesktopNotificationError::transport,E_NOINTERFACE):DesktopNotificationResult{};
-}
 void desktop_notifications_release(DesktopNotifications* n) noexcept {
     auto* s=owner(n);if(!s||s->thread!=GetCurrentThreadId())return;n->runtime=nullptr;
     AcquireSRWLockExclusive(&s->lock);s->active=false;s->wake_window=nullptr;clear_bytes(s->queue,sizeof(s->queue));s->head=s->count=0;ReleaseSRWLockExclusive(&s->lock);

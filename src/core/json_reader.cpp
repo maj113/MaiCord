@@ -891,14 +891,11 @@ JsonStringDecodeResult json_string_decode_utf8(const JsonString& value, const Sl
     u32 destination_offset = plain;
     while (source_offset < value.encoded.bytes) {
         u32 codepoint = 0;
-        char encoded[4];
         if (!decode_string_scalar(value, &source_offset, &codepoint)) {
             return JsonStringDecodeResult{0, JsonStringDecodeError::invalid_string};
         }
-        const u8 bytes = utf8_encode(codepoint, encoded);
-        for (u8 index = 0; index < bytes; ++index) {
-            output[destination_offset++] = encoded[index];
-        }
+        // The first pass sized this exact scalar sequence, so its bytes fit.
+        destination_offset += utf8_encode(codepoint, output.data + destination_offset);
     }
     return JsonStringDecodeResult{required, JsonStringDecodeError::none};
 }

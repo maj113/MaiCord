@@ -165,7 +165,9 @@ int run_mixed(u32 rest_count) noexcept {
     u64 allocated = sizeof(shared);
     for (u32 n = 0; n < initialized; ++n) {
         if (n < rest_count) {
-            allocated += rest_client_runtime_bytes(sizeof(body));
+            MEMORY_BASIC_INFORMATION owner_region{};
+            if (VirtualQuery(lanes[n].rest.runtime, &owner_region, sizeof(owner_region)))
+                allocated += owner_region.RegionSize;
             rest_client_stop(&lanes[n].rest, 10000);
         } else
             cdn_client_stop(&lanes[n].cdn, 10000);

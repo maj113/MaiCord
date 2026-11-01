@@ -1,6 +1,7 @@
 #pragma once
 
 #include "probe_present.hpp"
+#include "probe_media_upload.hpp"
 #include "maicord/ui/pinned_messages_avatar_media.hpp"
 #include "maicord/ui/message_composer_scene.hpp"
 #include "maicord/ui/surface_geometry.hpp"

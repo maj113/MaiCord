@@ -1,4 +1,5 @@
 #include "account_menu_ui_probe.hpp"
+#include "../ui_scene_fixtures.hpp"
 #include "probe_present.hpp"
 #include "maicord/ui/account_menu.hpp"
 #include "maicord/ui/popup_presentation.hpp"

@@ -1,5 +1,6 @@
 #include "maicord/core/time.hpp"
 #include "../tests/layout_validation.hpp"
+#include "../tests/ui_scene_fixtures.hpp"
 #include "benchmark_output.hpp"
 #include "maicord/app/message_composer_controller.hpp"
 #include "maicord/app/message_media_controller.hpp"
@@ -1220,11 +1221,7 @@ int run() noexcept {
     const u64 message_draft_switch_us = clock_microseconds(clock, begin, clock_now());
 
     MessageComposerScene composer_scene{};
-    UiWidget composer_widgets[kMessageComposerWidgetCapacity]{};
-    UiLayoutNode composer_layout[kMessageComposerWidgetCapacity]{};
-    if (!message_composer_scene_initialize(
-            &composer_scene, Slice<UiWidget>{composer_widgets, kMessageComposerWidgetCapacity},
-            Slice<UiLayoutNode>{composer_layout, kMessageComposerWidgetCapacity}) ||
+    if (!message_composer_scene_initialize_owned(&composer_scene) ||
         !message_composer_scene_update(&composer_scene, &composer, UiRect{300.0f, 700.0f, 1'000.0f, 780.0f},
                                        true)
              .ok()) {
@@ -1301,16 +1298,12 @@ int run() noexcept {
     }
     MessageComposer long_composer{};
     MessageComposerScene long_composer_scene{};
-    UiWidget long_composer_widgets[kMessageComposerWidgetCapacity]{};
-    UiLayoutNode long_composer_layout[kMessageComposerWidgetCapacity]{};
     if (!message_composer_initialize(&long_composer,
                                      Slice<char>{long_composer_storage, kMessageComposerMaximumBytes}) ||
         !message_composer_restore(&long_composer, 7,
                                   Utf8View{long_composer_source, kMessageComposerMaximumBytes},
                                   kMessageComposerMaximumBytes, kMessageComposerMaximumBytes) ||
-        !message_composer_scene_initialize(
-            &long_composer_scene, Slice<UiWidget>{long_composer_widgets, kMessageComposerWidgetCapacity},
-            Slice<UiLayoutNode>{long_composer_layout, kMessageComposerWidgetCapacity}) ||
+        !message_composer_scene_initialize_owned(&long_composer_scene) ||
         !message_composer_scene_update(&long_composer_scene, &long_composer,
                                        UiRect{300.0f, 700.0f, 1'000.0f, 908.0f}, true)
              .ok()) {

@@ -92,8 +92,4 @@ bool secure_text_store_composition(const SecureTextStore& store,
 // Whether a composition is active; false without a store. Skips the span copy.
 bool secure_text_store_composing(const SecureTextStore& store) noexcept;
 
-// Test-only seam returned as void* so Windows COM/TSF headers remain confined
-// to the adapter implementation and tests that exercise the ABI.
-void* secure_text_store_test_interface(SecureTextStore* store) noexcept;
-
 } // namespace maicord

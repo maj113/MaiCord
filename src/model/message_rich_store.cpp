@@ -2,6 +2,7 @@
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/stable_storage.hpp"
+#include "maicord/model/sorted_search.hpp"
 #include "maicord/media/asset_key.hpp"
 
 namespace maicord {
@@ -855,6 +856,7 @@ bool erase_slot(MessageRichStore* store, u32 order_index, u16 slot) noexcept {
     return true;
 }
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 // `keep_side` reuses the store's live side slabs (reset); otherwise they are created, replacing any
 // the same store object held before.
 bool initialize_store(MessageRichStore* store, MessageRichRecord* records, StableStorage* record_storage,
@@ -898,6 +900,7 @@ bool initialize_store(MessageRichStore* store, MessageRichRecord* records, Stabl
             text[index] = 0;
     return true;
 }
+#pragma clang attribute pop
 
 bool extend_records(MessageRichStore* store) noexcept {
     if (!store->record_storage || store->record_extent >= store->record_capacity ||
@@ -1016,6 +1019,7 @@ MediaAttachmentFormat message_rich_attachment_audio_format(
         --type.bytes;
     const bool generic = !type.bytes || equal_lower(type, utf8_literal("application/octet-stream"), false) ||
                          equal_lower(type, utf8_literal("binary/octet-stream"), false);
+    #pragma clang loop unroll(disable)
     for (const AudioRule& rule : kAudioRules) {
         const bool mime = rule.kind == AudioRuleKind::mime;
         if ((rule.kind != AudioRuleKind::generic_suffix || generic) &&
@@ -1134,10 +1138,8 @@ static MessageRichStoreResult apply_body(MessageRichStore* store, u64 message_id
         record->forwarded_snapshot_child = child;
         record->message_id = message_id;
         record->occupied = true;
-        for (u32 index = !child ? store->count : 0; index > search.order_index; --index) {
-            store->order[index] = store->order[index - 1];
-        }
         if (!child) {
+            sorted_insert_gap(store->order, store->count, search.order_index);
             store->order[search.order_index] = slot;
             ++store->count;
         } else
@@ -1271,7 +1273,7 @@ MessageRichStoreResult message_rich_store_apply(MessageRichStore* store, u64 mes
     const u32 needed = (!outer ? 1u : 0u) + (supplied && input.snapshot.present && !previous ? 1u : 0u);
     while (needed) {
         u32 free = 0;
-        for (u32 index = 0; index < store->record_extent; ++index)
+        for (u32 index = 0; index < store->record_extent && free < needed; ++index)
             free += !store->records[index].occupied;
         if (free >= needed)
             break;
@@ -1872,8 +1874,7 @@ bool message_rich_store_unpack(MessageRichStore* store, u64 message_id, u32 mess
     for (u32 index = 0; index < parts; ++index)
         store->records[slots[index]].occupied = true;
     store->text_used = destination - base;
-    for (u32 index = store->count; index > search.order_index; --index)
-        store->order[index] = store->order[index - 1];
+    sorted_insert_gap(store->order, store->count, search.order_index);
     store->order[search.order_index] = static_cast<u16>(slots[0]);
     ++store->count;
     if (has_child)

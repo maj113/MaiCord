@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 
@@ -22,4 +23,10 @@ constexpr u32 sorted_lower_bound(u32 count, Before before) noexcept {
     return first;
 }
 
+// Opens a gap at `at` of a sorted order array of `count` elements (room for one more) by moving
+// [at, count) one place up: one move instead of an element loop.
+template <typename T> inline void sorted_insert_gap(T* elements, u32 count, u32 at) noexcept {
+    if (count > at)
+        copy_bytes(elements + at + 1, elements + at, (count - at) * static_cast<u32>(sizeof(T)));
+}
 } // namespace maicord

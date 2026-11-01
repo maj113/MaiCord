@@ -758,7 +758,6 @@ void publish_failure(GatewayClient* client, GatewayClientError error, u32 native
         InterlockedExchange(&client->native_error, static_cast<LONG>(native_error));
     }
     publish_phase(client, GatewayClientPhase::failed);
-    SetEvent(client->state_event);
 }
 
 void publish_voice_snapshot(GatewayClient* client, GatewayClientRuntime* runtime) noexcept {
@@ -787,6 +786,7 @@ void publish_voice_snapshot(GatewayClient* client, GatewayClientRuntime* runtime
             ++at;
         if ((at == snapshot.speaking_count || snapshot.speaking_users[at] != self) &&
             snapshot.speaking_count < kGatewayVoiceSpeakingUsers) {
+#pragma clang loop vectorize(disable) interleave(disable)
             for (u32 k = snapshot.speaking_count; k > at; --k)
                 snapshot.speaking_users[k] = snapshot.speaking_users[k - 1];
             snapshot.speaking_users[at] = self;
@@ -2302,7 +2302,6 @@ __declspec(noinline) PlaintextDrive process_ready(GatewayClient* client, Gateway
     runtime->deadline_ms = 0;
     InterlockedIncrement64(&client->frecency_settings_revision);
     publish_phase(client, GatewayClientPhase::ready);
-    SetEvent(client->state_event);
     client_session_ready(runtime);
     return PlaintextDrive::receive;
 }
@@ -2351,7 +2350,6 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                                       runtime->clock, runtime->start_counter, clock_now())));
             if (!runtime->authenticated) {
                 publish_phase(client, GatewayClientPhase::hello);
-                SetEvent(client->state_event);
                 return PlaintextDrive::hello;
             }
 
@@ -2409,7 +2407,6 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             resumed.has_sequence = runtime->session.lifecycle.has_sequence;
             publish_event(runtime, resumed);
             publish_phase(client, GatewayClientPhase::ready);
-            SetEvent(client->state_event);
             continue;
         }
         if (event.kind == GatewaySessionEventKind::dispatch) {
@@ -3070,9 +3067,7 @@ void close_start_events(GatewayClient* client, GatewayClientRuntime* runtime) no
         CloseHandle(runtime->mailbox_cancel);
     if (client->notification_event)
         CloseHandle(client->notification_event);
-    if (client->state_event)
-        CloseHandle(client->state_event);
-    client->state_event = client->notification_event = nullptr;
+    client->notification_event = nullptr;
 }
 
 GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential,
@@ -3084,7 +3079,7 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
         credential && credential->data && credential->locked && credential->bytes != 0 &&
         credential->bytes <= kGatewayUserMaximumTokenBytes &&
         utf8_validate(Utf8View{reinterpret_cast<const char*>(credential->data), credential->bytes}).valid;
-    if (!client || client->worker.thread || client->runtime || client->state_event ||
+    if (!client || client->worker.thread || client->runtime ||
         client->notification_event ||
         (resume_state && resume_state->valid && !gateway_resume_validate(*resume_state)) ||
         (gateway_endpoint && (!gateway_endpoint_validate(*gateway_endpoint) ||
@@ -3156,9 +3151,6 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
         client->runtime = nullptr;
         return invalid_input_result();
     }
-    client->state_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (!client->state_event)
-        return fail_start(client, GatewayClientError::event, thread_last_error());
     client->notification_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     if (!client->notification_event) {
         const u32 native_error = thread_last_error();
@@ -3240,9 +3232,6 @@ GatewayClientResult gateway_client_stop_return_user_profile(GatewayClient* clien
         value.native_error = joined.native_error;
         return value;
     }
-    if (client->state_event) {
-        CloseHandle(client->state_event);
-    }
     if (client->notification_event) {
         CloseHandle(client->notification_event);
     }
@@ -3270,8 +3259,7 @@ GatewayClientResult gateway_client_stop_return_user_profile(GatewayClient* clien
 }
 
 AccountRequirement gateway_client_required_action(const GatewayClient* client) noexcept {
-    return client ? static_cast<AccountRequirement>(InterlockedCompareExchange(
-                        const_cast<volatile LONG*>(&client->required_action), 0, 0))
+    return client ? static_cast<AccountRequirement>(ReadAcquire(&client->required_action))
                   : AccountRequirement::none;
 }
 

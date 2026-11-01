@@ -1,4 +1,5 @@
 #include "maicord/ui/secure_text_store.hpp"
+#include "secure_text_store_access.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/tsf.hpp"

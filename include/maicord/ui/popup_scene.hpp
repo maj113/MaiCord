@@ -288,8 +288,6 @@ static_assert(sizeof(PopupScene) ==
                alignof(PopupScene)) *
                   alignof(PopupScene));
 
-bool popup_scene_initialize(PopupScene* scene, Slice<PopupItem> items, Slice<PopupRowWidget> rows,
-                            Slice<UiWidget> widgets, Slice<UiLayoutNode> layout_nodes) noexcept;
 bool popup_scene_initialize_owned(PopupScene* scene, u32 item_capacity, Slice<UiWidget> widgets,
                                   Slice<UiLayoutNode> layout_nodes) noexcept;
 void popup_scene_release(PopupScene* scene) noexcept;
