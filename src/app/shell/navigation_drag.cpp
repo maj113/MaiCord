@@ -54,7 +54,7 @@ bool manage_channels(u64 guild_id) noexcept {
 }
 NavigationDragRowKind channel_kind(const ChannelViewRow& row, u64 guild_id) noexcept {
     const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, row.id);
-    if (!channel || channel->guild_id != guild_id)
+    if (!channel || channel->guild_id != guild_id || row.locked)
         return NavigationDragRowKind::none;
     switch (channel_sort_group(row.type)) {
     case ChannelSortGroup::text:

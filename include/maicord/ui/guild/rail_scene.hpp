@@ -81,6 +81,9 @@ struct GuildRailFolderMotion {
     bool active;
 };
 
+// Plugin tiles (kUiPluginSlotServerTop above the first server, kUiPluginSlotServerBottom after "Add a server").
+inline constexpr u32 kGuildRailPluginTiles = 4;
+
 struct GuildRailHit {
     u64 id;
     UiWidgetHandle widget;
@@ -89,6 +92,8 @@ struct GuildRailHit {
     bool folder; // id is a folder header row id
     bool add_server; // the "Add a server" button after the last row (id is zero)
     bool conversation; // id is a pinned conversation's channel
+    // A plugin tile: 1 above the servers, 2 after "Add a server" (0 none), and its index within that end.
+    u8 plugin_end = 0, plugin_index = 0;
 };
 
 struct GuildRailScene {
@@ -117,10 +122,16 @@ struct GuildRailScene {
     NavigationDragVisual drag;
     // "Add a server" button after the last row (list coordinates).
     UiWidgetHandle add_button;
+    // Plugin tiles: how many each end takes (read from the plugin query on every update, so the list's height
+    // follows), how many are materialized, and their widgets (top first, then bottom).
+    u8 plugin_top, plugin_bottom, materialized_top, materialized_bottom;
+    UiWidgetHandle plugin_tiles[2 * kGuildRailPluginTiles];
 };
 
 // The add button's laid-out rectangle; empty while it is not materialized.
 UiRect guild_rail_scene_add_rectangle(const GuildRailScene& scene) noexcept;
+// A plugin tile's laid-out rectangle (end 1 top, 2 bottom); empty while it is not materialized.
+UiRect guild_rail_scene_plugin_rectangle(const GuildRailScene& scene, u32 end, u32 index) noexcept;
 bool guild_rail_scene_initialize(GuildRailScene* scene, Slice<GuildRailRowWidget> row_storage,
                                  Slice<UiWidget> widget_storage,
                                  Slice<UiLayoutNode> layout_storage) noexcept;

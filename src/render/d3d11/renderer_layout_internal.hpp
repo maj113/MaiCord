@@ -84,6 +84,12 @@ bool find_call_preview(const D3D11Renderer& renderer, const MediaAssetKey& key, 
 bool queue_call_media(D3D11Renderer* renderer, const Theme& theme) noexcept;
 bool queue_toast(D3D11Renderer* renderer, const Theme& theme) noexcept;
 bool queue_inline_flags(D3D11Renderer* renderer) noexcept;
+// The magnifier: a layout step resolves its picture from the quad under the lens
+// (the first that qualifies wins); its frame paints in the form layer, above
+// the other paint, and `seal` opens that layer when nothing else has.
+void resolve_zoom_lens(D3D11Renderer* renderer, const Theme& theme, const MediaAtlasResult& allocation,
+                       const UiRect& picture, u8 domain) noexcept;
+bool queue_zoom_lens_frame(D3D11Renderer* renderer, const Theme& theme, bool seal) noexcept;
 bool split_paint_quad_boundary(PaintStream* paint, u32 quad, u32* batch_index) noexcept;
 u64 shell_segment_key(const RendererPresentationStamp& stamp, const MessageComposerPresentationInput& composer,
                       const PaintStream& paint) noexcept;

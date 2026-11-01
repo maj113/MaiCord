@@ -1,6 +1,7 @@
 #include "ui_probe_internal.hpp"
 #include "../support/model_store_fixtures.hpp"
 #include "probe_capture.hpp"
+#include "maicord/ui/chat/composer/voice_bar.hpp"
 #include "maicord/ui/widgets/presence.hpp"
 #include "maicord/ui/account/profile_appearance.hpp"
 #include "maicord/ui/chat/private_channel_title.hpp"
@@ -3985,6 +3986,166 @@ bool probe_message_display() noexcept {
     return valid && restored;
 }
 
+namespace plugin_surface_probe {
+constexpr u64 kOwner = 0x50524F4245000001ull;
+u64 g_messages[4];
+
+u32 length(const char* text) noexcept {
+    u32 bytes = 0;
+    while (text[bytes]) ++bytes;
+    return bytes;
+}
+
+UiPluginSlotNode node(u64 action, const char* text, u16 icon, u8 kind, u8 tone, u16 badge = 0, u8 state = 0) noexcept {
+    UiPluginSlotNode out{};
+    out.owner_id = kOwner;
+    out.action_id = action;
+    out.text = text ? Utf8View{text, static_cast<u32>(length(text))} : Utf8View{};
+    out.icon = icon;
+    out.kind = kind;
+    out.tone = tone;
+    out.badge = badge;
+    out.state = state;
+    return out;
+}
+
+// What a plugin runtime would answer from its caches, fixed: the scenes under test only read it.
+u32 slot_query(u32 surface, u64, u64, u64, u64, Slice<UiPluginSlotNode> out) noexcept {
+    const u16 puzzle = static_cast<u16>(UiIcon::puzzle);
+    UiPluginSlotNode nodes[4]{};
+    u32 count = 0;
+    switch (surface) {
+    case kUiPluginSlotServerTop:
+        nodes[count++] = node(1, nullptr, puzzle, ui_plugin_node_button, 1, 3);
+        nodes[count++] = node(2, nullptr, puzzle, ui_plugin_node_button, 0, 0, kUiPluginSlotActive);
+        break;
+    case kUiPluginSlotServerBottom:
+        nodes[count++] = node(3, nullptr, puzzle, ui_plugin_node_button, 0, 0, kUiPluginSlotDisabled);
+        break;
+    case kUiPluginSlotComposerToolbar:
+        nodes[count++] = node(4, nullptr, puzzle, ui_plugin_node_button, 0);
+        nodes[count++] = node(5, nullptr, puzzle, ui_plugin_node_button, 1, 0, kUiPluginSlotActive);
+        nodes[count++] = node(6, nullptr, puzzle, ui_plugin_node_button, 0, 5, kUiPluginSlotDisabled);
+        break;
+    case kUiPluginSlotAccountPanel:
+        nodes[count++] = node(7, nullptr, puzzle, ui_plugin_node_button, 0, 2);
+        nodes[count++] = node(8, nullptr, puzzle, ui_plugin_node_button, 3, 0, kUiPluginSlotActive);
+        break;
+    case kUiPluginSlotMessageHover:
+        nodes[count++] = node(9, "Plugin one", puzzle, ui_plugin_node_button, 0);
+        nodes[count++] = node(10, "Plugin two", puzzle, ui_plugin_node_button, 4, 0, kUiPluginSlotDisabled);
+        break;
+    case kUiPluginSlotChannelRow:
+        nodes[count++] = node(0, "new", kUiPluginSlotNoIcon, ui_plugin_node_badge, 2);
+        break;
+    case kUiPluginSlotGuildRail:
+        nodes[count++] = node(0, "mark", puzzle, ui_plugin_node_icon, 3);
+        break;
+    default: return 0;
+    }
+    const u32 used = minimum(count, out.count);
+    for (u32 i = 0; i < used; ++i) out[i] = nodes[i];
+    return used;
+}
+
+// Message 0 carries every kind of addition, 1 is collapsed, 2 replaced, 3 has its media blurred.
+bool render_query(u64 message_id, u32, UiPluginRenderDecoration* out) noexcept {
+    u32 which = 4;
+    for (u32 i = 0; i < 4; ++i)
+        if (g_messages[i] == message_id) which = i;
+    const auto text = [](const char* value) noexcept { return Utf8View{value, static_cast<u32>(length(value))}; };
+    switch (which) {
+    case 0:
+        out->name_prefix = text("[plugin]");
+        out->name_suffix = text("(alias)");
+        out->name_tone = kUiPluginToneRole;
+        out->badge_count = 1;
+        out->badges[0] = {kOwner, 0, text("tag"), {}, {}, static_cast<u16>(UiIcon::puzzle), 2, 1};
+        out->accessory_count = 2;
+        out->accessories[0] = {kOwner, 0, text("Accessory label"), {}, {}, kUiPluginRenderNoIcon, kUiPluginRenderLabel, 0};
+        out->accessories[1] = {kOwner, 11, text("Accessory button"), {}, {}, kUiPluginRenderNoIcon, kUiPluginRenderButton, 0};
+        out->has_card = true;
+        out->card.owner_id = kOwner;
+        out->card.title = text("Translation");
+        out->card.text = text("A card is plain text the application wraps to its own width, so a long answer from a plugin never "
+                              "overflows the message column or runs off the edge.");
+        out->card.caption = text("Translated from French");
+        out->card.buttons[0] = {21, text("Hide"), 0};
+        out->card.buttons[1] = {22, text("Copy"), 0};
+        out->card.button_count = 2;
+        out->card.tone = 1;
+        return true;
+    case 1:
+        out->visibility = ui_plugin_render_collapsed;
+        out->collapsed_label = text("Hidden by a plugin");
+        return true;
+    case 2:
+        out->replace_content = true;
+        out->content = text("This text replaces the message **content**.");
+        return true;
+    case 3:
+        out->media = ui_plugin_media_blur;
+        return true;
+    default: return false;
+    }
+}
+} // namespace plugin_surface_probe
+
+// Every plugin surface the scenes draw, driven by fixed queries (the runtime's own behaviour is covered by
+// MaiCordPluginSurfaceTests): server list tiles, toolbar button states, row and rail badges, the hover bar's
+// per-message buttons, and message decorations: name affixes, badges, accessories, a card, a collapsed message,
+// replaced content.
+bool probe_plugin_surfaces() noexcept {
+    using namespace plugin_surface_probe;
+    auto& scene = g_probe.message_scene;
+    u32 found = 0;
+    for (u32 i = 0; i < scene.count && found < 4; ++i) {
+        const auto* record = message_store_resolve(g_probe.message_view.store, scene.rows[i].message);
+        if (record && !scene.rows[i].forwarded_snapshot) g_messages[found++] = record->id;
+    }
+    if (found < 4) return false;
+    const auto saved_render = g_ui_plugin_render_query;
+    const auto saved_slot = g_ui_plugin_slot_query;
+    const u32 saved_surfaces = g_ui_plugin_slot_surfaces;
+    const bool saved_decorations = scene.plugin_decorations;
+    const u64 saved_revision = g_ui_plugin_render_revision;
+    g_ui_plugin_render_query = render_query;
+    g_ui_plugin_slot_query = slot_query;
+    g_ui_plugin_slot_surfaces = ~0u;
+    scene.plugin_decorations = true;
+    g_ui_plugin_render_revision = saved_revision + 1;
+    message_scene_invalidate_geometry(&scene);
+    const auto& rail = g_probe.guild_rail_scene;
+    bool valid = synchronize_probe_shell_layout() && rebuild_probe_content_text() &&
+                 probe_present(&g_probe.renderer, kDefaultTheme);
+    valid = valid && rail.plugin_top == 2 && rail.plugin_bottom == 1 && probe_capture_frame(L"plugin-surfaces.bmp");
+    // The hover bar lists the message's plugin buttons after its own.
+    const auto* row = &scene.rows[0];
+    for (u32 i = 0; valid && i < scene.count; ++i)
+        if (const auto* record = message_store_resolve(g_probe.message_view.store, scene.rows[i].message);
+            record && record->id == g_messages[0])
+            row = &scene.rows[i];
+    const auto* record = message_store_resolve(g_probe.message_view.store, row->message);
+    valid = valid && record &&
+            message_action_bar_open(&g_probe.message_action_bar, scene, {record->id, row->widget, row->source_index}, *record).ok() &&
+            renderer_bind_message_action_bar(&g_probe.renderer, &g_probe.message_action_bar) &&
+            renderer_refresh_interaction_text(&g_probe.renderer, kDefaultTheme) &&
+            probe_present(&g_probe.renderer, kDefaultTheme) && probe_capture_frame(L"plugin-surfaces-hover-bar.bmp");
+    message_action_bar_close(&g_probe.message_action_bar);
+    renderer_bind_message_action_bar(&g_probe.renderer, nullptr);
+    g_ui_plugin_render_query = saved_render;
+    g_ui_plugin_slot_query = saved_slot;
+    g_ui_plugin_slot_surfaces = saved_surfaces;
+    scene.plugin_decorations = saved_decorations;
+    g_ui_plugin_render_revision = saved_revision + 2;
+    message_scene_invalidate_geometry(&scene);
+    const bool restored = synchronize_probe_shell_layout() && rebuild_probe_content_text() &&
+                          probe_present(&g_probe.renderer, kDefaultTheme) && rail.plugin_top == 0 && rail.plugin_bottom == 0;
+    if (valid && restored) log_write(LogLevel::info, "probe", "plugin_surfaces_passed");
+    else log_write(LogLevel::error, "probe", "plugin_surfaces_failed");
+    return valid && restored;
+}
+
 bool probe_chat_name_styles() noexcept {
     const auto& scene = g_probe.message_scene;
     const MessageSceneRowWidget* row = nullptr;
@@ -5749,6 +5910,56 @@ bool probe_image_viewer() noexcept {
     if (!rebuild_probe_content_text() || !probe_present(&g_probe.renderer, kDefaultTheme) ||
         g_probe.renderer.paint_stream_builds <= viewer_builds || !probe_exact_pixels({&viewed_image, 1}))
         return false;
+    // The magnifier over a left-red, right-blue picture: 40 DIPs left of the
+    // split the bare image is still red, but the lens shows its red half
+    // magnified past where the bare image blends toward blue.
+    g_probe.failure_stage = 136;
+    PngImage split_image{};
+    u8 split_pixels[16 * (32 * 4 + 1)]{};
+    const auto split_key = media_asset_attachment(991992, MediaAttachmentFormat::png, MediaResolutionTier::px2048);
+    for (u32 y = 0; y < 16; ++y)
+        for (u32 x = 0; x < 32; ++x) {
+            const u32 offset = y * 129 + 1 + x * 4;
+            split_pixels[offset + (x < 16 ? 0 : 2)] = 240;
+            split_pixels[offset + 3] = 255;
+        }
+    if (!png_image_configure(&split_image, 32, 16, 8, 6) ||
+        !renderer_upload_png_scanlines(&g_probe.renderer, split_key, split_image,
+                                       {split_pixels, sizeof(split_pixels)})
+             .ok() ||
+        !ui_image_viewer_apply(&image_viewer, UiImageViewerCommand::fit))
+        return false;
+    g_probe.renderer.image_viewer_key = split_key;
+    UiZoomLens lens{};
+    ui_zoom_lens_configure(&lens, 6, 20, false);
+    const float split_x = (image_viewer.image.left + image_viewer.image.right) * .5f;
+    const float middle_y = (image_viewer.image.top + image_viewer.image.bottom) * .5f;
+    lens.active = true;
+    lens.pointer = {split_x - 40, middle_y};
+    ++lens.revision;
+    g_probe.renderer.zoom_lens = &lens;
+    ++image_viewer.revision;
+    const ProbePixelSample lens_samples[]{
+        {{lens.pointer.x + 50, middle_y}, {240.f / 255.f, 0, 0, 1}, 3},
+        {{lens.pointer.x + 80, middle_y + 80}, {0, 0, 240.f / 255.f, 1}, 3}};
+    if (!rebuild_probe_content_text() || !probe_present(&g_probe.renderer, kDefaultTheme) ||
+        !g_probe.renderer.zoom_lens_source.ready || !probe_exact_pixels({lens_samples, 2}) ||
+        !probe_capture_frame(L"viewer-zoom-lens.bmp"))
+        return false;
+    g_probe.failure_stage = 137;
+    lens.square = true;
+    ++lens.revision;
+    if (!rebuild_probe_content_text() || !probe_present(&g_probe.renderer, kDefaultTheme) ||
+        !g_probe.renderer.zoom_lens_source.ready || !probe_capture_frame(L"viewer-zoom-lens-square.bmp"))
+        return false;
+    // A pointer off the picture hides the lens; the bare image remains.
+    lens.pointer = {image_viewer.image.left - 8, middle_y};
+    ++lens.revision;
+    if (!rebuild_probe_content_text() || !probe_present(&g_probe.renderer, kDefaultTheme) ||
+        g_probe.renderer.zoom_lens_source.ready)
+        return false;
+    g_probe.renderer.zoom_lens = nullptr;
+    g_probe.renderer.image_viewer_key = expanded_key;
     g_probe.failure_stage = 135;
     g_probe.renderer.image_viewer = nullptr;
     if (!rebuild_probe_content_text() || !probe_present(&g_probe.renderer, kDefaultTheme) ||
@@ -5756,6 +5967,76 @@ bool probe_image_viewer() noexcept {
         return false;
     log_write(LogLevel::info, "probe", "image_viewer_texture_controls_zoom_and_retention_hardware_passed");
     return true;
+}
+
+// The composer's voice message states over a live renderer: the microphone in
+// place of Send, the recording bar with its timer and live bars, the review
+// bar with the recorded waveform, then the upload and failure states. Each
+// state is captured; the timer's glyphs are checked on screen.
+bool probe_voice_message_bar() noexcept {
+    g_probe.failure_stage = 160;
+    char buffer[256]{};
+    MessageComposer model{};
+    MessageComposerScene scene{};
+    bool valid = message_composer_initialize(&model, {buffer, sizeof(buffer)}) &&
+                 message_composer_scene_initialize_owned(&scene);
+    message_composer_reset(&model, 43, false);
+    UiRect viewport{50, 100, 550, 148};
+    float preferred = 48;
+    UiComposerVoiceView view{};
+    const auto show = [&]() noexcept {
+        message_composer_scene_set_voice(&scene, &view);
+        if (!message_composer_scene_update(&scene, &model, viewport, true).ok() ||
+            !renderer_bind_message_composer_scene(&g_probe.renderer, &scene) ||
+            !renderer_measure_message_composer(&g_probe.renderer, &preferred))
+            return false;
+        return renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme) &&
+               probe_present(&g_probe.renderer, kDefaultTheme);
+    };
+    const auto bar = [&]() noexcept {
+        const auto* edit = message_composer_scene_layout_node(scene, MessageComposerControl::edit);
+        return edit ? edit->content_rectangle : UiRect{};
+    };
+    view.mode = UiComposerVoiceMode::available;
+    valid = valid && show() && message_composer_scene_voice_mode(scene) == UiComposerVoiceMode::available &&
+            probe_capture_frame(L"composer-voice-available.bmp");
+    g_probe.failure_stage = 161;
+    view.mode = UiComposerVoiceMode::recording;
+    view.pulse = true;
+    view.elapsed_ms = 7200;
+    view.level_count = kUiComposerVoiceLevels;
+    for (u32 i = 0; i < kUiComposerVoiceLevels; ++i)
+        view.levels[i] = static_cast<u8>(30 + (i * 53) % 200);
+    view.status = utf8_literal("Click the microphone to stop");
+    valid = valid && show();
+    const auto recording = ui_composer_voice_bar_geometry(bar(), view);
+    valid = valid && ui_rect_has_area(recording.dot) && probe_text_pixels({&recording.time, 1}) &&
+            probe_text_pixels({&recording.status, 1}) && probe_capture_frame(L"composer-voice-recording.bmp");
+    g_probe.failure_stage = 162;
+    view.mode = UiComposerVoiceMode::review;
+    view.pulse = false;
+    view.position_ms = 2300;
+    view.playing = true;
+    for (u32 i = 0; i < kUiComposerVoiceWaveform; ++i)
+        view.waveform[i] = static_cast<u8>(20 + (i * 37) % 220);
+    view.status = {};
+    valid = valid && show();
+    const auto review = ui_composer_voice_bar_geometry(bar(), view);
+    valid = valid && probe_text_pixels({&review.time, 1}) && probe_capture_frame(L"composer-voice-review.bmp");
+    g_probe.failure_stage = 163;
+    view.mode = UiComposerVoiceMode::sending;
+    view.playing = false;
+    view.progress = .6f;
+    valid = valid && show() && probe_capture_frame(L"composer-voice-sending.bmp");
+    view.mode = UiComposerVoiceMode::failed;
+    view.error = true;
+    view.status = utf8_literal("Couldn't upload the voice message");
+    valid = valid && show() && probe_capture_frame(L"composer-voice-failed.bmp");
+    message_composer_scene_set_voice(&scene, nullptr);
+    valid = valid && renderer_bind_message_composer_scene(&g_probe.renderer, &g_probe.message_composer_scene);
+    if (valid)
+        log_write(LogLevel::info, "probe", "composer_voice_message_states_hardware_passed");
+    return valid;
 }
 
 } // namespace ui_probe_detail

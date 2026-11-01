@@ -489,7 +489,8 @@ MessageHistoryApplyResult message_timeline_apply_history_page(
     u32 removed_locals = 0;
     for (u32 i = store.count; i != 0; --i) {
         const auto* record = ordered_record(store, i - 1);
-        if (record && record->delivery != MessageDeliveryState::authoritative) {
+        if (record && record->delivery != MessageDeliveryState::authoritative &&
+            record->delivery != MessageDeliveryState::retained) {
             if (!message_timeline_remove_local(timeline, record->id).ok()) return apply_error(MessageHistoryApplyError::reconcile, true);
             ++removed_locals;
         }

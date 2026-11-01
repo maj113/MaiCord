@@ -33,7 +33,7 @@ MessageTypingPresentationResult failure(MessageTypingPresentationError error) no
 MessageTypingPresentationResult message_typing_presentation_build(const TypingStore& typing,
                                                                   const UserStore& users,
                                                                   u64 channel_id, u64 self_user_id,
-                                                                  Slice<char> output) noexcept {
+                                                                  Slice<char> output, MessageTypingName* names) noexcept {
     if (channel_id == 0 || !typing.records.data || typing.count > typing.records.count || !users.records ||
         !users.order || !users.names || (!output.data && output.count != 0)) {
         return failure(MessageTypingPresentationError::invalid_input);
@@ -67,9 +67,12 @@ MessageTypingPresentationResult message_typing_presentation_build(const TypingSt
                 return failure(MessageTypingPresentationError::capacity);
             }
         }
+        const u32 name_at = writer.used;
         if (!append(&writer, name.bytes != 0 ? name : someone)) {
             return failure(MessageTypingPresentationError::capacity);
         }
+        if (names)
+            names[index] = {ids[index], static_cast<u16>(name_at), static_cast<u16>(writer.used - name_at)};
     }
     if (!append(&writer, written == 1 ? utf8_literal(" is typing…") : utf8_literal(" are typing…"))) {
         return failure(MessageTypingPresentationError::capacity);

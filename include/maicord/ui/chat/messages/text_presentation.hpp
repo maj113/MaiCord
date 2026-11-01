@@ -346,7 +346,7 @@ static_assert(sizeof(MessageTextSemantic) == 32);
 static_assert(sizeof(MessageTextHit) == 32);
 static_assert(sizeof(MessageTextSpoilerReveal) == 16);
 static_assert(sizeof(MessageTextCommand) == 176);
-static_assert(sizeof(MessageTextMeasurement) == 816);
+static_assert(sizeof(MessageTextMeasurement) == 824);
 static_assert(sizeof(MessageTextRichMetrics) == 32);
 static_assert(sizeof(MessageMarkdownCacheEntry) == 72);
 

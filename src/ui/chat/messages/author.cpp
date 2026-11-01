@@ -40,7 +40,7 @@ bool message_author_layout(const MessageScene& scene, const MessageTextCommand& 
         return false;
     reset_value(out);
     out->appearance = global;
-    const auto* decoration = message_scene_plugin_decoration(scene, record->id, record->revision);
+    const auto* decoration = message_scene_row_decoration(scene, *record);
     const auto decoration_width = [&](Utf8View text, u16 salt) noexcept {
         if (!text.bytes)
             return 0.0f;
@@ -154,7 +154,8 @@ bool message_author_layout(const MessageScene& scene, const MessageTextCommand& 
         return true;
     };
     auto& plugin = out->plugin;
-    if (ui_plugin_slot_badge(kUiPluginSlotMessageAccessory, record->channel_id, record->id, 0, command.owner.handle,
+    if (ui_plugin_slot_badge(kUiPluginSlotMessageAccessory, record->channel_id, record->id, record->author_id,
+                             command.owner.handle,
                              &plugin) &&
         !place(plugin.badge.label, plugin.badge.style, &plugin.badge.rectangle))
         reset_value(&plugin);

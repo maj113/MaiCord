@@ -87,13 +87,13 @@ void push(MessageActionBar* bar, MessageActionBarAction action, MessageActionBar
     bar->items[bar->item_count++] = MessageActionBarItem{{}, {}, 0, action, kind};
 }
 
-u32 plugin_count() noexcept {
+u32 plugin_count(u64 message_id) noexcept {
     UiPluginSlotNode nodes[kMessageActionBarPluginItems];
-    return ui_plugin_slot_toolbar(kUiPluginSlotMessageHover, {nodes, kMessageActionBarPluginItems});
+    return ui_plugin_slot_toolbar(kUiPluginSlotMessageHover, message_id, {nodes, kMessageActionBarPluginItems});
 }
 // Plugin buttons sit just before More (Delete when expanded).
-void push_plugins(MessageActionBar* bar) noexcept {
-    const u32 count = plugin_count();
+void push_plugins(MessageActionBar* bar, u64 message_id) noexcept {
+    const u32 count = plugin_count(message_id);
     for (u32 index = 0; index < count && bar->item_count < kMessageActionBarCapacity - 1; ++index)
         bar->items[bar->item_count++] = MessageActionBarItem{
             {}, {}, index, static_cast<MessageActionBarAction>(static_cast<u32>(MessageActionBarAction::plugin_0) + index),
@@ -103,7 +103,7 @@ bool plugins_current(const MessageActionBar& bar, bool failed) noexcept {
     u32 present = 0;
     for (u32 index = 0; index < bar.item_count; ++index)
         present += bar.items[index].kind == MessageActionBarItemKind::plugin ? 1u : 0u;
-    return present == (failed ? 0u : plugin_count());
+    return present == (failed ? 0u : plugin_count(bar.message_id));
 }
 
 // Expanded utilities lead; quick reactions appear only when collapsed.
@@ -134,7 +134,7 @@ bool build_items(MessageActionBar* bar, const MessageRecord& message, const Reac
         push(bar, own ? Action::edit : Action::reply, own ? Kind::edit : Kind::reply);
         if (capabilities & message_action_bar_forward)
             push(bar, Action::forward, Kind::forward);
-        push_plugins(bar);
+        push_plugins(bar, message.id);
         if (capabilities & message_action_bar_delete)
             push(bar, Action::delete_message, Kind::delete_message);
         else
@@ -162,7 +162,7 @@ bool build_items(MessageActionBar* bar, const MessageRecord& message, const Reac
     push(bar, own ? Action::edit : Action::reply, own ? Kind::edit : Kind::reply);
     if (capabilities & message_action_bar_forward)
         push(bar, Action::forward, Kind::forward);
-    push_plugins(bar);
+    push_plugins(bar, message.id);
     push(bar, Action::more, Kind::more);
     return true;
 }

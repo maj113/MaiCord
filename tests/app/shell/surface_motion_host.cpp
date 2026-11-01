@@ -392,6 +392,15 @@ u64 application_unread_banner_next_wake(u64) noexcept {
 u64 application_guild_folders_next_wake(u64) noexcept {
     return 0;
 }
+bool application_effects_selected() noexcept {
+    return false;
+}
+bool application_effects_motion_allowed() noexcept {
+    return true;
+}
+u32 application_effects_interval_ms() noexcept {
+    return 42;
+}
 } // namespace app_detail
 } // namespace maicord
 

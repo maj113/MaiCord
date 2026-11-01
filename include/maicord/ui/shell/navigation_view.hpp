@@ -76,6 +76,9 @@ struct ChannelViewRow {
     bool voice_subtitle; // Voice channel status, or "Set a channel status", under the name.
     bool voice_invite;   // "Invite to Voice" after the users (the connected channel).
     u8 controls;         // ChannelRowControl bits.
+    // "Show hidden channels": a channel the account cannot view, listed read-only
+    // with a lock. It is never selected, fetched or joined.
+    bool locked;
 };
 
 struct ChannelSortKey {
@@ -138,6 +141,11 @@ struct NavigationView {
     // Host-set: show the events row for the selected server with this count
     // ("N Events", or "Events" at zero). Bump events_revision on change.
     bool events_row;
+    // Host-set from the built-in extras (preferences); they fill the padding before event_count.
+    // role_colors: voice participants take their role colour. show_hidden lists locked channels
+    // (bump requests_revision on change).
+    bool role_colors;
+    bool show_hidden;
     u32 event_count;
     u32 events_revision;
     u32 source_events_revision;

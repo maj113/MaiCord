@@ -16,6 +16,7 @@
 #include "maicord/app/chat/unread_banner_projection.hpp"
 #include "maicord/model/guild/permission_compute.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
+#include "../plugins/ui_host.hpp"
 #include "../account/account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"
@@ -34,6 +35,9 @@ constinit UiUnreadBannerScene& g_banner = g_banner_storage.scene;
 bool g_pressed_inside{};
 // The card shows the account's connection notice, which outranks the conversation's.
 bool g_connection_notice{};
+// The card shows a plugin's banner: its action and Dismiss belong to that plugin.
+bool g_plugin_notice{};
+constexpr u64 kPluginNoticeId = 0x504C4E4200000000ull;
 
 bool motion_allowed() noexcept {
     return !g_app.preferences.reduced_motion && !g_app.renderer.reduced_motion && !g_app.renderer.live_resize &&
@@ -169,6 +173,9 @@ bool perform(UiUnreadBannerAction action) noexcept {
         return application_account_reconnect_now();
     if (g_connection_notice && action == UiUnreadBannerAction::notice_secondary)
         return false;
+    if (g_plugin_notice && (action == UiUnreadBannerAction::notice_primary ||
+                            action == UiUnreadBannerAction::notice_secondary))
+        return plugin_banner_resolve(action == UiUnreadBannerAction::notice_primary);
     application_read_state_activity();
     // View as role: back to Roles, or exit.
     if (const u64 guild = action == UiUnreadBannerAction::notice_primary ||
@@ -200,6 +207,7 @@ bool perform(UiUnreadBannerAction action) noexcept {
 } // namespace
 
 void application_unread_banner_synchronize(u64 now_ms) noexcept {
+    application_plugins_ui_install();
     if (!g_banner.style.banner_height)
         g_banner.style = UiUnreadBannerStyle{};
     g_app.renderer.unread_banner_scene = &g_banner;
@@ -217,6 +225,12 @@ void application_unread_banner_synchronize(u64 now_ms) noexcept {
         notice = conversation_notice(in.channel_id);
     if (presented && !notice.id)
         notice = application_view_as_role_notice(in.channel_id, {view_title, sizeof(view_title)});
+    // A plugin's banner shows when nothing of the client's own does.
+    PluginBannerView plugin_banner{};
+    g_plugin_notice = presented && !notice.id && plugin_banner_current(&plugin_banner);
+    if (g_plugin_notice)
+        notice = {kPluginNoticeId | plugin_banner.serial, plugin_banner.title, plugin_banner.text,
+                  plugin_banner.action, utf8_literal("Dismiss"), plugin_banner.warning};
     if (notice.id && !projection.view.channel_id)
         projection.view.channel_id = in.channel_id;
     const bool notice_changed = ui_unread_banner_set_notice(&g_banner, &notice);
@@ -311,7 +325,7 @@ void application_unread_banner_release() noexcept {
     if (g_app.renderer.unread_banner_scene == &g_banner)
         g_app.renderer.unread_banner_scene = nullptr;
     ui_unread_banner_clear(&g_banner);
-    g_pressed_inside = g_connection_notice = false;
+    g_pressed_inside = g_connection_notice = g_plugin_notice = false;
 }
 
 } // namespace maicord::app_detail

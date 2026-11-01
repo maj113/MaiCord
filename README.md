@@ -55,6 +55,8 @@ rasterizes its own text, and draws its own interface on the GPU.
 - Record and send voice messages
 - Emoji, GIF and sticker picker that syncs your Discord favorites
 - Paste screenshots straight from the clipboard; drag and drop files
+- Image zoom: hold <kbd>Ctrl</kbd> over an image in chat, or hold the mouse button
+  on an image in the viewer, to magnify it; scroll for the zoom, <kbd>Shift</kbd>+scroll for the lens size
 - Search with `from:`, `in:`, `has:`, `mentions:` and `pinned:` filters,
   an inbox for mentions, and a Quick Switcher on <kbd>Ctrl</kbd>+<kbd>K</kbd>
 

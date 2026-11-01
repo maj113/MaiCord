@@ -79,6 +79,9 @@ namespace {
 // "\0sub", and ":<guild>" for a server's own command used in that server.
 Utf8View frecency_key(const ApplicationCommand& command, u64 guild, Slice<char> output) noexcept {
     ProtocolWriter w{{reinterpret_cast<u8*>(output.data), output.count}, 0};
+    // Plugin commands are local; their ids are not Discord's and never reach the account's settings.
+    if (plugin_command_application(command.application_id))
+        return {};
     if (command.application_id == kBuiltinCommandApplication) {
         const bool ok = protocol_writer_append_byte(&w, '-') && protocol_writer_append_u64(&w, command.id);
         return ok ? Utf8View{output.data, w.used} : Utf8View{};

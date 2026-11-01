@@ -37,5 +37,7 @@ void d3d11_renderer_caption_note_scrim(D3D11Renderer* renderer, Color color, flo
 // The target lost the caption's pixels (new buffers, clear, height change).
 void d3d11_renderer_caption_invalidate(D3D11Renderer* renderer) noexcept;
 void d3d11_renderer_caption_release(D3D11Renderer* renderer) noexcept;
+// After a device loss: drops the buffers and textures, keeps the text state.
+void d3d11_renderer_caption_release_device(D3D11Renderer* renderer) noexcept;
 
 } // namespace maicord

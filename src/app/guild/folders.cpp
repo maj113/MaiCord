@@ -1,4 +1,5 @@
 #include "folders.hpp"
+#include "maicord/ui/guild/folder_open.hpp"
 #include "../account/account_presentation.hpp"
 #include "../shell/retained_projection.hpp"
 #include "../shell/state.hpp"
@@ -34,6 +35,7 @@ struct ApplicationGuildFolders {
     bool pending;
     bool dirty;    // settings holds an edit not yet sent
     bool edited;   // settings differs from server (sent or not)
+    u64 followed_guild; // the selection "Open the folder of the selected server" last handled
 };
 ApplicationGuildFolders* g_folders;
 
@@ -128,6 +130,31 @@ GuildFolderEditError commit_edit(ApplicationGuildFolders& folders, GuildFolderEd
     invalidate(folders);
     return GuildFolderEditError::none;
 }
+// The open folders as the shared rule set; the observer animates each change in the rail.
+void animate_folder(void*, u64 folder_row_id, bool open) noexcept {
+    guild_rail_scene_folder_toggled(&g_app.guild_rail_scene, folder_row_id, open, clock_monotonic_milliseconds(),
+                                    motion_allowed());
+}
+UiFolderOpenSet open_set(ApplicationGuildFolders& folders) noexcept {
+    return {folders.expanded, folders.expanded_count, kGuildFoldersMaximumFolders};
+}
+// "Open the folder of the selected server": once per selection, the folder holding the
+// selected server opens (a folder the user closed again stays closed until the selection changes).
+void follow_selection(ApplicationGuildFolders& folders) noexcept {
+    const auto& view = g_app.account_ui->navigation_view;
+    if (folders.followed_guild == view.selected_guild_id)
+        return;
+    folders.followed_guild = view.selected_guild_id;
+    if (!g_app.preferences.folders_follow_selection || !view.selected_guild_id)
+        return;
+    UiFolderOpenSet set = open_set(folders);
+    const bool opened =
+        ui_folder_open_for_selection(&set, navigation_view_find_guild(view, view.selected_guild_id),
+                                     g_app.preferences.folders_close_others, animate_folder, nullptr);
+    folders.expanded_count = set.count;
+    if (opened)
+        invalidate(folders);
+}
 } // namespace
 
 void application_guild_folders_gateway(const GatewayClientEvent& event, ConstSlice<u8> payload) noexcept {
@@ -155,6 +182,7 @@ bool application_guild_folders_synchronize(u64 now_ms) noexcept {
     if (!folders)
         return true;
     bind(*folders);
+    follow_selection(*folders);
     bool ok = true;
     if (folders->pending) {
         folders->pending = false;
@@ -177,20 +205,27 @@ bool application_guild_folders_toggle(u64 folder_row_id) noexcept {
     auto* folders = owner();
     if (!folders || !guild_folder_row_id(folder_row_id))
         return false;
+    UiFolderOpenSet set = open_set(*folders);
     bool expanded = false;
-    for (u32 i = 0; i < folders->expanded_count; ++i)
-        if (folders->expanded[i] == folder_row_id) {
-            folders->expanded[i] = folders->expanded[--folders->expanded_count];
-            expanded = true;
-            break;
-        }
-    if (!expanded) {
-        if (folders->expanded_count >= kGuildFoldersMaximumFolders)
-            return false;
-        folders->expanded[folders->expanded_count++] = folder_row_id;
-    }
-    guild_rail_scene_folder_toggled(&g_app.guild_rail_scene, folder_row_id, !expanded,
-                                    clock_monotonic_milliseconds(), motion_allowed());
+    for (u32 i = 0; i < set.count; ++i)
+        expanded = expanded || set.ids[i] == folder_row_id;
+    const bool done = ui_folder_open_set(&set, folder_row_id, !expanded, g_app.preferences.folders_close_others,
+                                         animate_folder, nullptr);
+    folders->expanded_count = set.count;
+    if (!done)
+        return false;
+    invalidate(*folders);
+    folders->pending = false;
+    return rebuild();
+}
+
+bool application_guild_folders_close_all() noexcept {
+    auto* folders = owner();
+    if (!folders || !folders->expanded_count)
+        return true;
+    UiFolderOpenSet set = open_set(*folders);
+    ui_folder_open_close_all(&set, animate_folder, nullptr);
+    folders->expanded_count = set.count;
     invalidate(*folders);
     folders->pending = false;
     return rebuild();

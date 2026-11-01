@@ -20,6 +20,8 @@ enum class BuiltinCommandRun : u8 {
     failed,
     // *text is the message to send in place of the draft.
     text,
+    // *text replaces the draft and stays there unsent (a plugin command's insert).
+    insert,
     handled,
     // Nothing runs and the draft stays: /gif and /sticker had no result to
     // send (the client shakes the app instead of sending).

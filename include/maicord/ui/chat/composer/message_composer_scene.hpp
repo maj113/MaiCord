@@ -180,6 +180,10 @@ struct MessageComposerAttachmentStrip {
     UiComposerAttachmentPart hovered_part;
 };
 
+struct MessageComposerTypingName {
+    u16 offset, bytes; // The name's span in the typing label.
+    u32 color;         // 0xRRGGBB; zero keeps the label's colour.
+};
 struct MessageComposerScene {
     MessageComposerCommand command;
     MessageComposerAtomicSpan* atomic_spans;
@@ -268,6 +272,10 @@ struct MessageComposerScene {
     // typing_phase (typing_indicator.hpp), which the host's frame clock sets.
     bool typing_dots;
     u16 typing_phase;
+    // The typing label's names with their role colours ("Role colors everywhere"): the host
+    // fills them after each update; a name with a colour draws bold in it.
+    MessageComposerTypingName typing_names[3];
+    u8 typing_name_count;
     bool geometry_dirty;
     // Visible plugin_slots, from the composer toolbar plugin query.
     u8 plugin_count;

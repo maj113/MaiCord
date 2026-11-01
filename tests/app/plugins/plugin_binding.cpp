@@ -213,6 +213,17 @@ void test_no_plugins() noexcept {
           "dispatching with no plugin calls nothing and allocates nothing");
 }
 
+// Every entry plugin_abi.h declares is implemented: the table is complete and has no null slot.
+void test_api_table() noexcept {
+    const auto* entries = reinterpret_cast<void* const*>(reinterpret_cast<const u8*>(&kApi) + 8);
+    const u32 count = (sizeof(mc_api) - 8) / sizeof(void*);
+    u32 missing = 0;
+    for (u32 i = 0; i < count; ++i)
+        missing += entries[i] == nullptr;
+    check(kApi.size == sizeof(mc_api) && kApi.level == MC_API_LEVEL && missing == 0,
+          "the host table implements every mc_api entry");
+}
+
 void test_loader_failures(PluginRuntime* runtime, const Root& root) noexcept {
     struct Case {
         const wchar_t* built;
@@ -549,7 +560,8 @@ void test_clear_urls(PluginRuntime* runtime, const Root& root) noexcept {
     // A second plugin sees the first one's output.
     install(root, L"MaiCordPluginAbiCFixture.dll", L"abi-c.dll");
     const u32 allocations = plugin_dispatch_stats().allocations;
-    const PluginEnableResult second = enable(runtime, L"abi-c.dll");
+    // Its message decoration implies MC_PERM_READ_MESSAGES.
+    const PluginEnableResult second = enable(runtime, L"abi-c.dll", MC_PERM_MESSAGE_SEND | MC_PERM_READ_MESSAGES);
     check(second.ok() && second.binding->owner_id == kCOwner && plugin_dispatch_stats().allocations == allocations,
           "a second plugin shares the dispatch buffers");
     if (second.ok()) {
@@ -632,6 +644,7 @@ void run() noexcept {
     check(ledger_ready && opened.ok(), "the plugins directory is pinned once");
     if (opened.ok()) {
         test_no_plugins();
+        test_api_table();
         test_loader_failures(&runtime, root);
         test_full_plugin(&runtime, root, &toasts);
         test_start_failure_and_duplicates(&runtime, root);

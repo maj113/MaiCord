@@ -1,4 +1,5 @@
 #include "plugins.hpp"
+#include "pipeline_host.hpp"
 #include "maicord/core/memory.hpp"
 #include "runtime.hpp"
 #include "../settings/settings.hpp"
@@ -9,6 +10,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/model/chat/message_composer.hpp"
 #include "maicord/ui/plugins/slots.hpp"
+#include "maicord/app/plugins/surfaces.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -162,7 +164,6 @@ void application_plugins_sdk_poll(ApplicationPlugins& plugins) noexcept {
         application_plugins_surfaces_changed();
         application_request_frame();
     }
-    application_plugins_fx_poll(*sdk);
     application_plugins_popover_poll();
     if (sdk->composer_notice_until && monotonic() >= sdk->composer_notice_until) {
         sdk->composer_notice_until = 0;
@@ -187,14 +188,15 @@ Utf8View application_plugins_composer_notice() noexcept {
 }
 
 u32 application_plugins_wait_timeout(u64 now_ms) noexcept {
+    const u32 pipeline = application_plugins_pipeline_wait_timeout(now_ms);
     const auto* sdk = owner();
-    if (!sdk) return INFINITE;
+    if (!sdk) return pipeline;
     if (sdk->events_pending) return 0;
     u64 due = sdk->composer_notice_until;
     const u64 timer = sdk->next_timer;
     if (timer && (!due || timer < due)) due = timer;
-    if (!due) return INFINITE;
-    return due <= now_ms ? 0u : static_cast<u32>(minimum<u64>(due - now_ms, INFINITE - 1u));
+    if (!due) return pipeline;
+    return minimum(pipeline, due <= now_ms ? 0u : static_cast<u32>(minimum<u64>(due - now_ms, INFINITE - 1u)));
 }
 
 bool application_plugins_settings_edit(UiPageKey page, u64 control_id) noexcept {
@@ -236,7 +238,7 @@ void application_plugins_slots_rendered() noexcept {
 
 u64 application_plugins_slot_revision() noexcept {
     const auto* rt = application_plugins_runtime();
-    return rt ? rt->slot_revision : 0;
+    return (rt ? rt->slot_revision : 0) + g_plugin_surface_revision;
 }
 
 bool application_plugins_slot_action(u64 owner_id, NativePluginSdkSlotTarget target, u64 action_id) noexcept {

@@ -1,5 +1,5 @@
 // ABI 5 capabilities: reads, events, decorators, actions, keybinds, slots v2,
-// effects and the in-tree showcase sample. Included by tests/app/plugins/plugin_sdk.cpp
+// and the in-tree showcase sample. Included by tests/app/plugins/plugin_sdk.cpp
 // inside namespace maicord::plugin_sdk_tests (shares its host fixture).
 
 // ---- Fake host sources ---------------------------------------------------------------
@@ -773,75 +773,6 @@ void test_slots_v2() noexcept {
     stop_inproc(plugin);
 }
 
-// ---- mc.fx@1 ---------------------------------------------------------------------------
-
-// Minimal DXBC container: header, one chunk with a program version token.
-u32 fake_dxbc(u8 (&out)[64], const char* fourcc, u32 version) noexcept {
-    clear_bytes(out, sizeof(out));
-    copy_bytes(out, "DXBC", 4);
-    byte_store_le32(out + 20, 1);
-    byte_store_le32(out + 24, 64);
-    byte_store_le32(out + 28, 1);
-    byte_store_le32(out + 32, 36);
-    copy_bytes(out + 36, fourcc, 4);
-    byte_store_le32(out + 40, 16);
-    byte_store_le32(out + 44, version);
-    return 64;
-}
-
-void test_fx() noexcept {
-    u8 code[64];
-    check(native_plugin_sdk_effect_bytecode_valid({code, fake_dxbc(code, "SHEX", 0x0000'0050)}) &&
-              !native_plugin_sdk_effect_bytecode_valid({code, fake_dxbc(code, "SHEX", 0x0001'0050)}) &&
-              !native_plugin_sdk_effect_bytecode_valid({code, fake_dxbc(code, "SHDR", 0x0000'0040)}) &&
-              !native_plugin_sdk_effect_bytecode_valid({code, fake_dxbc(code, "RDEF", 0x0000'0050)}) &&
-              !native_plugin_sdk_effect_bytecode_valid({code, 60}),
-          "effects accept only DXBC ps_5_0 containers with consistent sizes");
-    auto plugin = start_inproc(0x5701, MC_PERM_EFFECTS, MC_PERM_ALL);
-    const auto* fx = table<mc_fx_v1>("mc.fx", 1);
-    check(plugin.enabled && fx, "mc.fx@1 is granted by the effects permission");
-    if (!fx) { stop_inproc(plugin); return; }
-    void* b = g_inproc.binding;
-    const u64 g = g_inproc.generation;
-    fake_dxbc(code, "SHEX", 0x0000'0050);
-    mc_fx_effect effect{};
-    effect.size = sizeof(effect);
-    effect.effect_id = 1;
-    effect.name = {"Aurora", 6};
-    effect.bytecode = code;
-    effect.bytecode_bytes = 64;
-    effect.parameter_count = 2;
-    effect.parameters[0] = 0.5f;
-    effect.parameters[1] = 2.0f;
-    const u64 revision = g_runtime.effect_revision;
-    check(fx->register_effect(b, g, &effect) == MC_OK && g_runtime.effect_revision != revision, "an effect registers");
-    NativePluginSdkEffectView views[4]{};
-    check(native_plugin_sdk_effects(g_runtime, {views, 4}) == 1 && utf8_equal(views[0].name, utf8_literal("Aurora")) &&
-              views[0].bytecode.count == 64 && views[0].parameters[1] == 2.0f,
-          "registered effects are listed with copied bytecode and parameters");
-    code[44] = 0x40; // the plugin's buffer changes after registration
-    NativePluginSdkEffectView view{};
-    check(native_plugin_sdk_effect(g_runtime, 0x5701, 1, &view) && view.bytecode.data[44] == 0x50, "bytecode is copied");
-    u32 nan_bits = 0x7FC0'0000;
-    float values[2]{1.0f, 0.0f};
-    copy_bytes(&values[1], &nan_bits, 4);
-    check(fx->set_parameters(b, g, 1, values, 2) == MC_E_INVALID && fx->set_parameters(b, g, 1, values, 1) == MC_OK &&
-              native_plugin_sdk_effect(g_runtime, 0x5701, 1, &view) && view.parameters[0] == 1.0f,
-          "parameters must be finite");
-    effect.effect_id = 2;
-    effect.bytecode = code;
-    fake_dxbc(code, "SHEX", 0x0000'0050);
-    mc_fx_effect third = effect;
-    third.effect_id = 3;
-    check(fx->register_effect(b, g, &effect) == MC_OK && fx->register_effect(b, g, &third) == MC_E_BUDGET,
-          "two effects per plugin");
-    check(native_plugin_sdk_effect_fault(&g_runtime, 0x5701, 1) && !native_plugin_sdk_effect(g_runtime, 0x5701, 1, &view) &&
-              native_plugin_sdk_effects(g_runtime, {views, 4}) == 1,
-          "a GPU guard fault unregisters only that effect");
-    stop_inproc(plugin);
-    check(!native_plugin_sdk_effects(g_runtime, {views, 4}), "effects leave with their plugin");
-}
-
 // ---- Showcase sample ----------------------------------------------------------------------
 
 constexpr u64 kShowcaseOwner = 0x4D43534844574341ull;
@@ -884,16 +815,12 @@ void test_showcase() noexcept {
         return;
     }
     NativePluginSdkMenuItem items[4]{};
-    NativePluginSdkEffectView effects[2]{};
     NativePluginSdkSlotNode nodes[4]{};
     check(native_plugin_sdk_menu_items(g_runtime, MC_MENU_MESSAGE, {items, 4}) == 1 &&
               native_plugin_sdk_menu_items(g_runtime, MC_MENU_USER, {items, 4}) == 1 &&
               native_plugin_sdk_menu_items(g_runtime, MC_MENU_LINK, {items, 4}) == 1 &&
-              native_plugin_sdk_effects(g_runtime, {effects, 2}) == 1 &&
-              utf8_equal(effects[0].name, utf8_literal("Showcase gradient")) &&
-              native_plugin_sdk_effect_bytecode_valid(effects[0].bytecode) &&
               native_plugin_sdk_slots(g_runtime, {MC_SLOT_COMPOSER_TOOLBAR, 0, 0, 0, 0}, {nodes, 4}) == 1,
-          "the sample registers menus, a composer button and a real ps_5_0 gradient");
+          "the sample registers menus and a composer button");
     // Name suffix decorator, collapse for blocked authors.
     NativePluginSdkDecoration decoration{};
     auto message = render_message(600, 1);
@@ -955,7 +882,7 @@ void test_showcase() noexcept {
     reply.target = MC_MENU_USER;
     check(native_plugin_sdk_menu_activate(&g_runtime, kShowcaseOwner, 2, reply) && sink_says(utf8_literal("6")),
           "Copy user ID copies the decimal id");
-    check(native_plugin_module_unload(&module).ok() && !native_plugin_sdk_effects(g_runtime, {effects, 2}) &&
+    check(native_plugin_module_unload(&module).ok() &&
               !native_plugin_sdk_menu_items(g_runtime, MC_MENU_MESSAGE, {items, 4}),
           "unloading the sample removes everything it registered");
     remove_owner_store(kShowcaseOwner);

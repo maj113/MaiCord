@@ -19,10 +19,17 @@ bool await_revision(ClientPreferencesWriter* writer, u64 requested,
 }
 
 ClientPreferences snapshot(u32 value) noexcept {
-    return {value & 8 ? ClientTheme::amoled : ClientTheme::dark,
-            (value & 1) != 0, (value & 2) != 0, (value & 4) != 0,
-            (value & 16) != 0, (value & 32) != 0, (value & 64) != 0,
-            static_cast<u8>(value % 201),static_cast<NotificationSoundpack>(value % 9)};
+    ClientPreferences preferences = client_preferences_defaults();
+    preferences.theme = value & 8 ? ClientTheme::amoled : ClientTheme::dark;
+    preferences.reduced_motion = (value & 1) != 0;
+    preferences.smooth_scroll = (value & 2) != 0;
+    preferences.member_pane_visible = (value & 4) != 0;
+    preferences.desktop_enabled = (value & 16) != 0;
+    preferences.message_sounds_enabled = (value & 32) != 0;
+    preferences.selected_message_sounds_enabled = (value & 64) != 0;
+    preferences.output_volume = static_cast<u8>(value % 201);
+    preferences.soundpack = static_cast<NotificationSoundpack>(value % 9);
+    return preferences;
 }
 
 } // namespace

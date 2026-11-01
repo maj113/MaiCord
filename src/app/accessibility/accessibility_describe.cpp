@@ -153,7 +153,8 @@ void describe_channel(void*, const UiWidgetManager&, UiWidgetHandle handle, cons
             info->state |= ui_access_selectable;
         if (view.selected)
             info->state |= ui_access_selected;
-        info->actions = ui_access_action_select | ui_access_action_invoke | ui_access_action_focus;
+        info->actions = view.locked ? ui_access_action_focus
+                                    : ui_access_action_select | ui_access_action_invoke | ui_access_action_focus;
     }
     // Conversations without a stored name keep the drawn title (name from content).
     if (!name.bytes)
@@ -165,6 +166,8 @@ void describe_channel(void*, const UiWidgetManager&, UiWidgetHandle handle, cons
         g_name.add(", ").add(kind);
     if (view.voice_count)
         g_name.add(", ").number(view.voice_count).add(" connected");
+    if (view.locked)
+        g_name.add(", locked");
     if (view.muted)
         g_name.add(", muted");
     add_unread(&g_name, view.unread, view.mention_count);

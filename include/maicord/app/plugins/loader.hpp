@@ -44,17 +44,21 @@ enum class PluginDescriptorProblem : u8 {
     owner,
     text,      // a string is empty, too long, not UTF-8 or has control characters
     permission,
-    reserved_capability, // network, commands, menus, buttons, theme or effects at an api level without them
+    reserved_capability, // a reserved field (theme) is in use
     state,
     settings,
     hooks,
+    commands,
+    menus,
+    buttons,
+    network,
 };
 
 struct PluginLoadResult {
     PluginLoadError error;
     PluginDescriptorProblem problem;
     DWORD win32_error;
-    // descriptor/settings errors: the 1-based setting or hook index, else 0.
+    // descriptor errors: the 1-based setting, hook, command, menu, button or host index, else 0.
     u32 index;
     constexpr bool ok() const noexcept { return error == PluginLoadError::none; }
 };
@@ -113,5 +117,8 @@ PluginLoadResult plugin_image_unload(PluginImage*) noexcept;
 PluginLoadResult plugin_pe_check(HANDLE file, u64 file_bytes, PluginImage* output) noexcept;
 PluginLoadResult plugin_descriptor_check(const u8* image, const PluginImage& pe, const mc_descriptor* descriptor,
                                          PluginInfo* info, u64* permissions) noexcept;
+// The permissions a validated descriptor's hooks, buttons and network hosts imply
+// (plugin.hpp computes the same at compile time); *permissions above includes them.
+u64 plugin_implied_permissions(const mc_descriptor& descriptor) noexcept;
 
 } // namespace maicord

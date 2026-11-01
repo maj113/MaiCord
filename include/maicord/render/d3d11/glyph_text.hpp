@@ -16,6 +16,7 @@ struct ID3D11UnorderedAccessView;
 namespace maicord {
 
 struct MessageMarkdownSemantic;
+enum class MessageMarkdownSemanticKind : u8;
 
 inline constexpr u32 kRendererGlyphCapacity = 384;
 inline constexpr u32 kRendererTextRunCapacity = 32;
@@ -94,8 +95,10 @@ struct D3D11GlyphTextInitializeResult {
     }
 };
 
-using D3D11GlyphTextResolveRoleColor = bool (*)(void* context, u64 message_id, u64 role_id,
-                                                Color* color) noexcept;
+// Resolves a mention's colour: a role mention's role colour, or (kind user_mention)
+// the mentioned member's role colour. False leaves the mention's own colour.
+using D3D11GlyphTextResolveRoleColor = bool (*)(void* context, u64 message_id, MessageMarkdownSemanticKind kind,
+                                                u64 target, Color* color) noexcept;
 
 struct D3D11GlyphTextAppendRequest {
     const ShapedText* text;
@@ -149,6 +152,9 @@ bool d3d11_glyph_text_rasterize_flag_program(D3D11GlyphTextOwner* owner, ID3D11D
     const ColrPaintProgram& program, const GlyphAtlasAllocation& allocation, u16 target_width,
     u16 target_height, u16 padding, ID3D11UnorderedAccessView* target) noexcept;
 void d3d11_glyph_text_reset_atlas(D3D11GlyphTextOwner* owner) noexcept;
+// After a device loss: new atlas textures on `device` at the allocator's height, and an empty allocator. The
+// caller rebuilds the retained text.
+bool d3d11_glyph_text_recreate_gpu(D3D11GlyphTextOwner* owner, ID3D11Device* device) noexcept;
 // Idle trim: the earliest deadline (0: none), and the trim itself, true when the
 // texture size or placement changed, so every retained quad is stale and the
 // caller must rebuild text.

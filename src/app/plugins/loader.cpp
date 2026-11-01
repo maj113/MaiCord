@@ -1,3 +1,4 @@
+#include "maicord/app/plugins/http.hpp"
 #include "maicord/app/plugins/loader.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
@@ -111,31 +112,43 @@ u32 setting_bytes(u32 type) noexcept {
     case MC_SET_INT:
     case MC_SET_SLIDER:
     case MC_SET_CHOICE: return 4;
+    case MC_SET_COLOUR:
+    case MC_SET_KEYBIND: return 4;
+    case MC_SET_CHANNEL: return 8;
+    case MC_SET_USER_LIST: return sizeof(mc_ids);
     case MC_SET_TEXT:
+    case MC_SET_SECRET:
     case MC_SET_TEXT_LIST: return sizeof(mc_str);
     default: return 0;
     }
 }
 u32 setting_alignment(u32 type) noexcept {
-    return type == MC_SET_TEXT || type == MC_SET_TEXT_LIST ? 8 : setting_bytes(type);
+    return setting_bytes(type) >= 8 ? 8 : setting_bytes(type);
 }
 
 bool setting_ok(const mc_setting_def& s, u32 index, const mc_setting_def* all, u32 count, u32 block_bytes,
                 const Image& image) noexcept {
     const u32 type = s.type;
-    if (s.reserved || (s.flags & ~(MC_SET_HIDDEN | MC_SET_DANGER | MC_SET_MULTILINE)) ||
+    if ((s.flags & ~(MC_SET_HIDDEN | MC_SET_DANGER | MC_SET_MULTILINE)) ||
         !key_ok(s.key, image) || !image.text(s.label, 1, MC_SETTING_LABEL_MAX) ||
         !image.text(s.description, 0, MC_SETTING_TEXT_MAX, true) || !image.text(s.hint, 0, MC_SETTING_LABEL_MAX))
         return false;
+    // visible_if names another TOGGLE (visible_value 0) or a CHOICE and one of its items.
     if (s.visible_if) {
-        if (s.visible_if > count || s.visible_if == index + 1 || all[s.visible_if - 1].type != MC_SET_TOGGLE)
+        if (s.visible_if > count || s.visible_if == index + 1) return false;
+        const mc_setting_def& gate = all[s.visible_if - 1];
+        if (gate.type == MC_SET_TOGGLE ? s.visible_value != 0
+                                       : gate.type != MC_SET_CHOICE || s.visible_value >= gate.item_count)
             return false;
+    } else if (s.visible_value) {
+        return false;
     }
     const bool lists = type == MC_SET_CHOICE || type == MC_SET_TEXT_LIST;
     if (s.item_count > MC_SETTING_ITEM_MAX || (s.item_count && (!lists || !image.contains(s.items,
             static_cast<u64>(s.item_count) * sizeof(mc_str)))) || (!s.item_count && s.items)) return false;
     const u32 maximum_text = s.max_bytes ? s.max_bytes : MC_SETTING_TEXT_MAX;
-    if (maximum_text > MC_SETTING_TEXT_MAX || (s.max_bytes && type != MC_SET_TEXT && type != MC_SET_TEXT_LIST))
+    if (maximum_text > MC_SETTING_TEXT_MAX ||
+        (s.max_bytes && type != MC_SET_TEXT && type != MC_SET_SECRET && type != MC_SET_TEXT_LIST))
         return false;
     if (type == MC_SET_HEADER) return !s.offset && !s.default_text.bytes && !s.default_int && !s.minimum &&
                                       !s.maximum && !s.step;
@@ -163,6 +176,18 @@ bool setting_ok(const mc_setting_def& s, u32 index, const mc_setting_def* all, u
         return true;
     case MC_SET_TEXT:
         return image.text(s.default_text, 0, maximum_text, s.flags & MC_SET_MULTILINE);
+    case MC_SET_SECRET: // no default, never multi-line
+        return !s.default_text.bytes && !s.default_text.data && !(s.flags & MC_SET_MULTILINE);
+    case MC_SET_COLOUR:
+        return s.default_int >= 0 && s.default_int <= 0xFFFFFF;
+    case MC_SET_KEYBIND: {
+        const u32 key = static_cast<u32>(s.default_int);
+        return !key || ((key & 0xFFu) && !(key & ~(0xFFu | MC_KEY_CTRL | MC_KEY_SHIFT | MC_KEY_ALT)) &&
+                        ((key & (MC_KEY_CTRL | MC_KEY_ALT)) || ((key & 0xFFu) >= 0x70 && (key & 0xFFu) <= 0x87)));
+    }
+    case MC_SET_CHANNEL:
+    case MC_SET_USER_LIST:
+        return !s.default_int;
     default: { // MC_SET_TEXT_LIST
         u32 total = 0;
         for (u32 i = 0; i < s.item_count; ++i) {
@@ -172,6 +197,101 @@ bool setting_ok(const mc_setting_def& s, u32 index, const mc_setting_def* all, u
         return total <= MC_SETTING_LIST_BYTES_MAX;
     }
     }
+}
+
+// A descriptor array: count within its limit, inside the image, and null exactly when empty.
+bool table_ok(const Image& image, const void* table, u32 count, u32 maximum, u32 element) noexcept {
+    return count <= maximum && (count ? image.contains(table, static_cast<u64>(count) * element) : !table);
+}
+
+bool hook_ok(const mc_hook& hook, const Image& image) noexcept {
+    if (!image.code(reinterpret_cast<const void*>(hook.fn.draft))) return false;
+    switch (hook.kind) {
+    case MC_HOOK_MESSAGE_CLICK:
+        return !hook.flags && !(hook.filter & ~u64{MC_CLICK_FILTER_LEFT | MC_CLICK_FILTER_DOUBLE |
+                                                   MC_CLICK_FILTER_MIDDLE});
+    case MC_HOOK_EVENTS: return !hook.flags && hook.filter && !(hook.filter & ~MC_EVENT_KINDS);
+    case MC_HOOK_DECORATE_MESSAGE:
+        return !(hook.flags & ~(MC_NEED_CONTENT | MC_NEED_AUTHOR)) &&
+               !(hook.filter & ~u64{MC_FILTER_GUILD_ONLY | MC_FILTER_DM_ONLY | MC_FILTER_HAS_MEDIA |
+                                    MC_FILTER_NOT_OWN}) &&
+               (hook.filter & (MC_FILTER_GUILD_ONLY | MC_FILTER_DM_ONLY)) !=
+                   (MC_FILTER_GUILD_ONLY | MC_FILTER_DM_ONLY);
+    case MC_HOOK_DECORATE_USER:
+        return !hook.flags && !(hook.filter & ~u64{(1u << MC_USER_MEMBER_ROW) | (1u << MC_USER_MESSAGE_AUTHOR) |
+                                                   (1u << MC_USER_PROFILE)});
+    default: return hook.kind >= 1 && hook.kind <= MC_HOOK_LAST && !hook.flags && !hook.filter;
+    }
+}
+
+// Command and argument names: 1..MC_COMMAND_NAME_MAX bytes of [a-z0-9_-].
+bool command_name_ok(mc_str name, const Image& image) noexcept {
+    if (!image.text(name, 1, MC_COMMAND_NAME_MAX)) return false;
+    for (u32 i = 0; i < name.bytes; ++i) {
+        const char c = name.data[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-')) return false;
+    }
+    return true;
+}
+bool same_text(mc_str a, mc_str b) noexcept {
+    return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes);
+}
+
+bool argument_ok(const mc_arg_def& a, bool required_allowed, const Image& image) noexcept {
+    if (a.reserved || (a.flags & ~MC_ARG_REQUIRED) || (!required_allowed && (a.flags & MC_ARG_REQUIRED)) ||
+        a.type < MC_ARG_TEXT || a.type > MC_ARG_CHANNEL || !command_name_ok(a.name, image) ||
+        !image.text(a.description, 1, MC_COMMAND_DESCRIPTION_MAX))
+        return false;
+    const bool bounded = a.minimum || a.maximum;
+    if (a.type == MC_ARG_INT ? bounded && a.minimum > a.maximum
+                             : bounded && (a.type != MC_ARG_TEXT || a.minimum < 0 || a.minimum > a.maximum))
+        return false;
+    if (!table_ok(image, a.choices, a.choice_count, MC_ARG_CHOICES_MAX, sizeof(mc_str)) ||
+        (a.choice_count && a.type != MC_ARG_TEXT))
+        return false;
+    for (u32 i = 0; i < a.choice_count; ++i)
+        if (!image.text(a.choices[i], 1, MC_COMMAND_DESCRIPTION_MAX)) return false;
+    return true;
+}
+
+bool command_ok(const mc_command_def& c, const mc_command_def* earlier, u32 index, const Image& image) noexcept {
+    if ((c.flags & ~MC_COMMAND_GUILD_ONLY) || !command_name_ok(c.name, image) ||
+        !image.text(c.description, 1, MC_COMMAND_DESCRIPTION_MAX) ||
+        !image.code(reinterpret_cast<const void*>(c.run)) ||
+        !table_ok(image, c.args, c.arg_count, MC_COMMAND_ARGS_MAX, sizeof(mc_arg_def)))
+        return false;
+    for (u32 j = 0; j < index; ++j)
+        if (same_text(earlier[j].name, c.name)) return false;
+    bool required_allowed = true; // required arguments come first
+    for (u32 i = 0; i < c.arg_count; ++i) {
+        if (!argument_ok(c.args[i], required_allowed, image)) return false;
+        required_allowed = (c.args[i].flags & MC_ARG_REQUIRED) != 0;
+        for (u32 j = 0; j < i; ++j)
+            if (same_text(c.args[j].name, c.args[i].name)) return false;
+    }
+    return true;
+}
+
+bool menu_ok(const mc_menu_def& m, const mc_menu_def* all, u32 index, const Image& image) noexcept {
+    const bool submenu = (m.flags & MC_MENU_SUBMENU) != 0;
+    if (m.reserved || (m.flags & ~(MC_MENU_CHECKBOX | MC_MENU_DANGER | MC_MENU_SUBMENU)) ||
+        (submenu && (m.flags & MC_MENU_CHECKBOX)) || !m.targets || (m.targets & ~MC_MENU_TARGETS) ||
+        !image.text(m.label, 1, MC_MENU_LABEL_MAX) ||
+        (m.visible && !image.code(reinterpret_cast<const void*>(m.visible))) ||
+        (submenu ? m.select != nullptr : !image.code(reinterpret_cast<const void*>(m.select))))
+        return false;
+    if (!m.parent) return true;
+    // One level: the parent is an earlier top-level submenu whose targets include the child's.
+    if (submenu || m.parent > index) return false;
+    const mc_menu_def& parent = all[m.parent - 1];
+    return (parent.flags & MC_MENU_SUBMENU) && !parent.parent && !(m.targets & ~parent.targets);
+}
+
+bool button_ok(const mc_button_def& b, const Image& image) noexcept {
+    return b.surface >= MC_SURFACE_CHAT_BAR && b.surface <= MC_SURFACE_SERVER_LIST_BOTTOM &&
+           !(b.flags & ~(MC_BUTTON_TOGGLE | MC_BUTTON_DANGER)) && image.text(b.label, 1, MC_BUTTON_LABEL_MAX) &&
+           image.text(b.icon, 0, MC_BUTTON_LABEL_MAX) && image.code(reinterpret_cast<const void*>(b.click)) &&
+           (!b.visible || image.code(reinterpret_cast<const void*>(b.visible)));
 }
 
 } // namespace
@@ -271,6 +391,31 @@ PluginLoadResult plugin_pe_check(HANDLE file, u64 file_bytes, PluginImage* outpu
     return success();
 }
 
+u64 plugin_implied_permissions(const mc_descriptor& d) noexcept {
+    u64 implied = d.network_count ? MC_PERM_NETWORK : 0;
+    if (d.permissions & MC_PERM_AUTOMATED_ACTIONS) implied |= MC_PERM_ACT_MESSAGES;
+    for (u32 i = 0; i < d.hook_count; ++i) {
+        const mc_hook& hook = d.hooks[i];
+        switch (hook.kind) {
+        case MC_HOOK_PRE_SEND:
+        case MC_HOOK_PRE_EDIT:
+        case MC_HOOK_PRE_TYPING: implied |= MC_PERM_MESSAGE_SEND; break;
+        case MC_HOOK_MESSAGE_CLICK:
+        case MC_HOOK_DECORATE_MESSAGE: implied |= MC_PERM_READ_MESSAGES; break;
+        case MC_HOOK_MESSAGE_DELETED:
+        case MC_HOOK_MESSAGE_EDITED: implied |= MC_PERM_READ_MESSAGES | MC_PERM_MESSAGE_HISTORY; break;
+        case MC_HOOK_EVENTS:
+            if (hook.filter & MC_EVENT_MESSAGE_KINDS) implied |= MC_PERM_READ_MESSAGES;
+            if (hook.filter & ~MC_EVENT_MESSAGE_KINDS) implied |= MC_PERM_READ_ACTIVITY;
+            break;
+        default: break;
+        }
+    }
+    for (u32 i = 0; i < d.button_count; ++i)
+        if (d.buttons[i].surface == MC_SURFACE_MESSAGE_POPOVER) implied |= MC_PERM_READ_MESSAGES;
+    return implied;
+}
+
 PluginLoadResult plugin_descriptor_check(const u8* base, const PluginImage& pe, const mc_descriptor* d,
                                          PluginInfo* info, u64* permissions) noexcept {
     const Image image{base, pe.image_bytes, &pe};
@@ -280,7 +425,7 @@ PluginLoadResult plugin_descriptor_check(const u8* base, const PluginImage& pe, 
     if (d->abi != MC_ABI) return problem(PluginDescriptorProblem::abi);
     if (d->api_level > MC_API_LEVEL) return failure(PluginLoadError::api_level);
     if (!d->api_level) return problem(PluginDescriptorProblem::abi);
-    if (d->flags || d->reserved) return problem(PluginDescriptorProblem::flags);
+    if (d->flags) return problem(PluginDescriptorProblem::flags);
     if (!d->owner_id) return problem(PluginDescriptorProblem::owner);
     if (!image.text(d->name, 1, MC_NAME_MAX) || !image.text(d->author, 0, MC_NAME_MAX) ||
         !image.text(d->version, 1, MC_VERSION_MAX) || !image.text(d->summary, 0, MC_SUMMARY_MAX, true) ||
@@ -289,9 +434,10 @@ PluginLoadResult plugin_descriptor_check(const u8* base, const PluginImage& pe, 
     if (d->homepage.bytes && (d->homepage.bytes < 9 || !bytes_equal(d->homepage.data, "https://", 8)))
         return problem(PluginDescriptorProblem::text);
     if (d->permissions & ~MC_PERM_KNOWN) return problem(PluginDescriptorProblem::permission);
-    if (d->network || d->network_count || d->commands || d->command_count || d->menus || d->menu_count ||
-        d->buttons || d->button_count || d->theme || d->theme_count || d->effects || d->effect_count)
-        return problem(PluginDescriptorProblem::reserved_capability);
+    if (d->theme || d->theme_count) return problem(PluginDescriptorProblem::reserved_capability);
+    if (!table_ok(image, d->network, d->network_count, MC_NETWORK_HOSTS_MAX, sizeof(mc_str))) return problem(PluginDescriptorProblem::network);
+    for (u32 i = 0; i < d->network_count; ++i)
+        if (!image.text(d->network[i], 1, MC_HOST_MAX)) return problem(PluginDescriptorProblem::network, i + 1);
 
     if (d->state_bytes > MC_STATE_MAX || (d->state_bytes ? !power_of_two(d->state_align) ||
             d->state_align > MC_STATE_ALIGN_MAX : d->state_align != 0))
@@ -305,17 +451,33 @@ PluginLoadResult plugin_descriptor_check(const u8* base, const PluginImage& pe, 
         if (!setting_ok(d->settings[i], i, d->settings, d->setting_count, d->settings_bytes, image))
             return problem(PluginDescriptorProblem::settings, i + 1);
 
-    if (d->hook_count > MC_HOOK_LAST || (d->hook_count && !image.contains(d->hooks,
-            static_cast<u64>(d->hook_count) * sizeof(mc_hook))) || (!d->hook_count && d->hooks))
+    if (!table_ok(image, d->hooks, d->hook_count, MC_HOOK_LAST, sizeof(mc_hook)))
         return problem(PluginDescriptorProblem::hooks);
     for (u32 i = 0; i < d->hook_count; ++i) {
-        const mc_hook& hook = d->hooks[i];
-        if (hook.kind < 1 || hook.kind > MC_HOOK_LAST || hook.flags || hook.filter || !image.code(
-                reinterpret_cast<const void*>(hook.fn.draft)))
-            return problem(PluginDescriptorProblem::hooks, i + 1);
+        if (!hook_ok(d->hooks[i], image)) return problem(PluginDescriptorProblem::hooks, i + 1);
         for (u32 j = 0; j < i; ++j)
-            if (d->hooks[j].kind == hook.kind) return problem(PluginDescriptorProblem::hooks, i + 1);
+            if (d->hooks[j].kind == d->hooks[i].kind) return problem(PluginDescriptorProblem::hooks, i + 1);
     }
+    {
+        // Hosts need a completion hook for the answers; NETWORK without a host asks for nothing.
+        bool completion = false;
+        for (u32 i = 0; i < d->hook_count; ++i) completion = completion || d->hooks[i].kind == MC_HOOK_COMPLETION;
+        if (!plugin_network_hosts_valid(d->network, d->network_count, completion) ||
+            ((d->permissions & MC_PERM_NETWORK) && !d->network_count))
+            return problem(PluginDescriptorProblem::network);
+    }
+    if (!table_ok(image, d->commands, d->command_count, MC_COMMAND_MAX, sizeof(mc_command_def)))
+        return problem(PluginDescriptorProblem::commands);
+    for (u32 i = 0; i < d->command_count; ++i)
+        if (!command_ok(d->commands[i], d->commands, i, image)) return problem(PluginDescriptorProblem::commands, i + 1);
+    if (!table_ok(image, d->menus, d->menu_count, MC_MENU_MAX, sizeof(mc_menu_def)))
+        return problem(PluginDescriptorProblem::menus);
+    for (u32 i = 0; i < d->menu_count; ++i)
+        if (!menu_ok(d->menus[i], d->menus, i, image)) return problem(PluginDescriptorProblem::menus, i + 1);
+    if (!table_ok(image, d->buttons, d->button_count, MC_BUTTON_MAX, sizeof(mc_button_def)))
+        return problem(PluginDescriptorProblem::buttons);
+    for (u32 i = 0; i < d->button_count; ++i)
+        if (!button_ok(d->buttons[i], image)) return problem(PluginDescriptorProblem::buttons, i + 1);
     if ((d->start && !image.code(reinterpret_cast<const void*>(d->start))) ||
         (d->stop && !image.code(reinterpret_cast<const void*>(d->stop))))
         return problem(PluginDescriptorProblem::location);
@@ -331,7 +493,7 @@ PluginLoadResult plugin_descriptor_check(const u8* base, const PluginImage& pe, 
     info->version_bytes = static_cast<u8>(keep(info->version, sizeof(info->version), d->version));
     info->summary_bytes = static_cast<u16>(keep(info->summary, sizeof(info->summary), d->summary));
     info->homepage_bytes = static_cast<u16>(keep(info->homepage, sizeof(info->homepage), d->homepage));
-    *permissions = d->permissions | (d->hook_count ? MC_PERM_MESSAGE_SEND : 0);
+    *permissions = d->permissions | plugin_implied_permissions(*d);
     return success();
 }
 

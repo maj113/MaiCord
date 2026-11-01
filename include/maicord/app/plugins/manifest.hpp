@@ -9,7 +9,7 @@ inline constexpr u32 kNativePluginDescriptionCapacity = 256;
 inline constexpr u32 kNativePluginDllNameCapacity = 128;
 inline constexpr u32 kNativePluginPublisherCapacity = 64;
 // Manifest permission names in MC_PERM_* bit order (maicord_plugin.h).
-inline constexpr u32 kNativePluginPermissionCount = 22;
+inline constexpr u32 kNativePluginPermissionCount = 21;
 inline constexpr u64 kNativePluginPermissionsAll = (1ull << kNativePluginPermissionCount) - 1;
 enum class NativePluginManifestError : u8 {
     none, invalid_input, json, unknown_field, duplicate_field, missing_field,

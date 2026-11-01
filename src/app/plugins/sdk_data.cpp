@@ -1,6 +1,5 @@
 // Plugin SDK host, ABI 5: client state reads (mc.read@2), event batches
-// (mc.events@1), host-executed actions (mc.actions@1) and background effect
-// shaders (mc.fx@1).
+// (mc.events@1) and host-executed actions (mc.actions@1).
 #include "sdk_internal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/ascii.hpp"
@@ -518,71 +517,6 @@ mc_status MC_CALL action_open_modal(void* handle, uint64_t generation, const mc_
     if (opened == MC_OK) binding->modal_id = modal.modal_id ? modal.modal_id : ~0ull;
     return opened;
 }
-// ---- mc.fx@1 ---------------------------------------------------------------------------
-
-Effect* find_effect(NativePluginSdkBinding& binding, u64 id) noexcept {
-    for (auto& effect : binding.effects)
-        if (effect.registered && effect.id == id) return &effect;
-    return nullptr;
-}
-mc_status MC_CALL fx_register(void* handle, uint64_t generation, const mc_fx_effect* source) {
-    mc_status status{};
-    auto* binding = gate(handle, generation, MC_PERM_EFFECTS, &status);
-    if (!binding) return status;
-    mc_fx_effect effect{};
-    if (!read_prefix(source, &effect, offsetof(mc_fx_effect, parameter_count)) || !effect.effect_id ||
-        !text_ok(effect.name, kPluginSdkEffectNameBytes, true) || !effect.bytecode || !effect.bytecode_bytes ||
-        effect.parameter_count > MC_FX_PARAMETERS) return MC_E_INVALID;
-    if (effect.bytecode_bytes > kPluginSdkEffectBytecodeBytes) return MC_E_CAPACITY;
-    if (!native_plugin_sdk_effect_bytecode_valid({static_cast<const u8*>(effect.bytecode), effect.bytecode_bytes}))
-        return MC_E_INVALID;
-    for (u32 i = 0; i < effect.parameter_count; ++i)
-        if (!is_finite(effect.parameters[i])) return MC_E_INVALID;
-    Effect* slot = find_effect(*binding, effect.effect_id);
-    if (!slot)
-        for (auto& candidate : binding->effects)
-            if (!candidate.registered) { slot = &candidate; break; }
-    if (!slot) return MC_E_BUDGET;
-    const u32 revision = slot->revision + 1;
-    slot->id = effect.effect_id;
-    slot->registered = true;
-    slot->name_bytes = copy_text(slot->name, kPluginSdkEffectNameBytes, view(effect.name));
-    slot->bytecode_bytes = effect.bytecode_bytes;
-    copy_bytes(slot->bytecode, effect.bytecode, effect.bytecode_bytes);
-    clear_bytes(slot->parameters, sizeof(slot->parameters));
-    copy_bytes(slot->parameters, effect.parameters, effect.parameter_count * 4);
-    slot->revision = revision;
-    ++binding->runtime->effect_revision;
-    return MC_OK;
-}
-mc_status MC_CALL fx_unregister(void* handle, uint64_t generation, uint64_t id) {
-    mc_status status{};
-    auto* binding = gate(handle, generation, MC_PERM_EFFECTS, &status);
-    if (!binding) return status;
-    Effect* effect = find_effect(*binding, id);
-    if (!effect) return MC_E_NOT_FOUND;
-    effect->registered = false;
-    effect->bytecode_bytes = 0;
-    ++binding->runtime->effect_revision;
-    return MC_OK;
-}
-mc_status MC_CALL fx_parameters(void* handle, uint64_t generation, uint64_t id, const float* values, uint32_t count) {
-    mc_status status{};
-    auto* binding = gate(handle, generation, MC_PERM_EFFECTS, &status);
-    if (!binding) return status;
-    if (count > MC_FX_PARAMETERS || (count && !values)) return MC_E_INVALID;
-    float copy[MC_FX_PARAMETERS]{};
-    copy_bytes(copy, values, count * 4);
-    for (u32 i = 0; i < count; ++i)
-        if (!is_finite(copy[i])) return MC_E_INVALID;
-    Effect* effect = find_effect(*binding, id);
-    if (!effect) return MC_E_NOT_FOUND;
-    copy_bytes(effect->parameters, copy, count * 4);
-    ++effect->revision;
-    ++binding->runtime->effect_revision;
-    return MC_OK;
-}
-
 } // namespace
 
 namespace plugin_sdk {
@@ -594,18 +528,9 @@ const mc_actions_v1 kActions{sizeof(mc_actions_v1), 1, action_send, action_edit,
                              action_custom_status, action_activity, action_open_channel, action_open_profile,
                              action_open_page, action_copy, action_open_url, action_notice, action_open_modal,
                              set_handler<&NativePluginSdkBinding::modal_handler, MC_PERM_NOTIFY>};
-const mc_fx_v1 kFx{sizeof(mc_fx_v1), 1, fx_register, fx_unregister, fx_parameters};
 
 void data_reset(NativePluginSdkBinding& binding) noexcept {
     auto& runtime = *binding.runtime;
-    bool effects = false;
-    for (auto& effect : binding.effects)
-        if (effect.registered) {
-            effects = true;
-            effect.registered = false;
-            effect.bytecode_bytes = 0;
-        }
-    if (effects) ++runtime.effect_revision;
     // A plugin's activity never outlives it.
     if (permitted(binding, MC_PERM_ACT_PRESENCE) && runtime.actions.activity)
         runtime.actions.activity(runtime.actions.context, binding.owner_id, nullptr);
@@ -731,68 +656,6 @@ bool native_plugin_sdk_modal_result(NativePluginSdkRuntime* runtime, u64 owner_i
     result.modal_id = modal_id;
     result.text = {runtime->input, bytes};
     return invoke<true>(*binding, PluginCallKind::modal, binding->modal_handler, &result) == MC_OK;
-}
-
-u32 native_plugin_sdk_effects(const NativePluginSdkRuntime& runtime, Slice<NativePluginSdkEffectView> output) noexcept {
-    u32 count = 0;
-    if (!runtime.enabled) return count;
-    for (const auto* binding : g_live) {
-        if (!usable(binding, runtime) || !permitted(*binding, MC_PERM_EFFECTS)) continue;
-        for (const auto& effect : binding->effects)
-            if (effect.registered && count < output.count)
-                output[count++] = {binding->owner_id, effect.id, {effect.name, effect.name_bytes},
-                                   {effect.bytecode, effect.bytecode_bytes}, effect.parameters, effect.revision};
-    }
-    return count;
-}
-
-bool native_plugin_sdk_effect(const NativePluginSdkRuntime& runtime, u64 owner_id, u64 effect_id,
-                              NativePluginSdkEffectView* output) noexcept {
-    if (output) reset_value(output);
-    const auto* binding = binding_for(runtime, owner_id);
-    if (!output || !binding || !usable(binding, runtime) || !permitted(*binding, MC_PERM_EFFECTS)) return false;
-    for (const auto& effect : binding->effects)
-        if (effect.registered && effect.id == effect_id) {
-            *output = {owner_id, effect.id, {effect.name, effect.name_bytes}, {effect.bytecode, effect.bytecode_bytes},
-                       effect.parameters, effect.revision};
-            return true;
-        }
-    return false;
-}
-
-bool native_plugin_sdk_effect_fault(NativePluginSdkRuntime* runtime, u64 owner_id, u64 effect_id) noexcept {
-    auto* binding = runtime ? binding_for(*runtime, owner_id) : nullptr;
-    Effect* effect = binding ? find_effect(*binding, effect_id) : nullptr;
-    if (!effect) return false;
-    effect->registered = false;
-    effect->bytecode_bytes = 0;
-    ++runtime->effect_revision;
-    return true;
-}
-
-bool native_plugin_sdk_effect_bytecode_valid(ConstSlice<u8> code) noexcept {
-    // DXBC: "DXBC", 16-byte checksum, 1, total size, chunk count, chunk offsets.
-    if (!code.data || code.count < 32 || code.count > kPluginSdkEffectBytecodeBytes ||
-        !bytes_equal(code.data, "DXBC", 4) || byte_load_le32(code.data + 20) != 1 ||
-        byte_load_le32(code.data + 24) != code.count) return false;
-    const u32 chunks = byte_load_le32(code.data + 28);
-    if (!chunks || chunks > 32 || 32 + chunks * 4 > code.count) return false;
-    bool shader = false;
-    for (u32 i = 0; i < chunks; ++i) {
-        const u32 offset = byte_load_le32(code.data + 32 + i * 4);
-        if (offset < 32 + chunks * 4 || offset > code.count - 8) return false;
-        const u32 bytes = byte_load_le32(code.data + offset + 4);
-        if (bytes > code.count - offset - 8) return false;
-        const u8* fourcc = code.data + offset;
-        if (bytes_equal(fourcc, "SHEX", 4) || bytes_equal(fourcc, "SHDR", 4)) {
-            if (bytes < 8 || shader) return false;
-            const u32 version = byte_load_le32(code.data + offset + 8);
-            // Program type 0 (pixel), shader model 5.0.
-            if ((version >> 16) != 0 || ((version >> 4) & 0xF) != 5 || (version & 0xF) != 0) return false;
-            shader = true;
-        }
-    }
-    return shader;
 }
 
 } // namespace maicord

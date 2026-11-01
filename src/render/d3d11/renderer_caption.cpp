@@ -529,8 +529,9 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
     // content covered its tooltip or an animated backdrop moved under it.
     // The bar's effect continues the content's: it moves whenever the content
     // drew the effect this frame, full or partial present alike.
-    const bool animated = renderer->background_fx.source != BackgroundFxSource::none &&
-                          (renderer->present_full || renderer->background_fx.drawn_count != 0);
+    const bool animated = (renderer->background_fx.source != BackgroundFxSource::none || renderer->effect.active) &&
+                          (renderer->present_full || renderer->background_fx.drawn_count != 0 ||
+                           renderer->effect.drawn_count != 0);
     if (!d3d11_renderer_caption_pending(renderer, theme) && !animated &&
         !content_covers_tooltip(*renderer, *caption))
         return true;
@@ -628,10 +629,12 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
         ++renderer->draw_calls_last_frame;
         first = 1;
         const float top = -layout.height;
-        if (renderer->background_fx.source != BackgroundFxSource::none && frame(true)) {
+        const bool package = renderer->effect.active;
+        if ((package || renderer->background_fx.source != BackgroundFxSource::none) && frame(true)) {
             // The effect binds its shaders, input, pixel constants, view and blend.
-            if (d3d11_background_fx_draw(&renderer->background_fx, context, {0, top, layout.width, 0},
-                                         kCaptionEffectCanvas)) {
+            const UiRect canvas{0, top, layout.width, 0};
+            if (package ? d3d11_effect_draw(&renderer->effect, context, canvas, kCaptionEffectCanvas)
+                        : d3d11_background_fx_draw(&renderer->background_fx, context, canvas, kCaptionEffectCanvas)) {
                 ++renderer->draw_calls_last_frame;
                 context->OMSetBlendState(pipeline.ui_blend_state, blend_factor, 0xFFFFFFFFu);
                 bind_paint_pipeline();
@@ -764,6 +767,24 @@ u32 d3d11_renderer_caption_builds(const D3D11Renderer& renderer) noexcept {
 
 u32 d3d11_renderer_caption_draws(const D3D11Renderer& renderer) noexcept {
     return renderer.caption ? renderer.caption->draws : 0;
+}
+
+// The device was lost: the caption's buffers and textures went with it. The app icon is not kept (the app sets it
+// again when the renderer's device generation moves); everything else is rebuilt on the next draw.
+void d3d11_renderer_caption_release_device(D3D11Renderer* renderer) noexcept {
+    auto* caption = renderer->caption;
+    if (!caption)
+        return;
+    com_release(caption->paint_buffer);
+    com_release(caption->glyph_buffer);
+    com_release(caption->icon_view);
+    com_release(caption->icon_quad);
+    com_release(caption->image_quad);
+    caption->icon_extent = 0;
+    caption->image_drawn = false;
+    caption->built = false;
+    caption->drawn = false;
+    caption->dirty = caption->dirty_previous = true;
 }
 
 void d3d11_renderer_caption_release(D3D11Renderer* renderer) noexcept {

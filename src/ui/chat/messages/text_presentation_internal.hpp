@@ -145,7 +145,8 @@ bool commit_last_command(MessageTextPresentation* presentation, UiTextFlowLayout
 RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation, BuildContext* context,
                                           Utf8View author, Utf8View content, bool available = false,
                                           u8 content_flags = 0, u8 message_type = 0,
-                                          Utf8View poll_question = {}, u8 quote_flags = 0) noexcept;
+                                          Utf8View poll_question = {}, u8 quote_flags = 0,
+                                          u64 sent_unix_seconds = 0) noexcept;
 RetainedReplySummary retain_reply_placeholder(MessageTextPresentation* presentation, Utf8View text) noexcept;
 RetainedReplySummary retain_reply_plain(MessageTextPresentation* presentation, const MessageSystemText& system) noexcept;
 RetainedReplySummary retain_reply_media_mention(MessageTextPresentation* presentation, Utf8View author,

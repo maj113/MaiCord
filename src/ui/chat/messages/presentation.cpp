@@ -12,6 +12,7 @@
 #include "maicord/ui/chat/messages/component_media.hpp"
 #include "maicord/ui/chat/messages/system_text.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
+#include "maicord/ui/plugins/slots.hpp"
 #include "maicord/ui/chat/messages/unread_divider.hpp"
 #include "maicord/ui/chat/messages/typing_indicator.hpp"
 #include "maicord/model/guild/invite_card_cache.hpp"
@@ -99,6 +100,33 @@ bool push_outline_tint(PaintStream* paint, const UiRect& rectangle, const Theme&
     const Color& outline = theme.tokens.emphasis.outline;
     return paint_stream_push(paint, rectangle,
                              ui_theme_color_alpha({outline.red, outline.green, outline.blue, 1}, alpha));
+}
+
+// A plugin card's panel and accent bar, placed where the text pass put the card (the notice container's
+// top plus the offset it recorded) and as tall as it measured.
+bool append_plugin_card(const MessageScene& scene, const MessageSceneRowWidget& row, const MessageRecord& record,
+                        const Theme& theme, const UiRect& row_clip, PaintStream* paint) noexcept {
+    const float height = row.rich_item_layout.plugin_card_height;
+    if (!(height > 0.0f))
+        return true;
+    const auto* decoration = message_scene_plugin_decoration(scene, record.id, record.revision);
+    if (!decoration || !decoration->has_card || decoration->visibility != ui_plugin_render_normal)
+        return true;
+    const UiLayoutNode* notice = message_scene_layout_node(scene, row.notice);
+    if (!notice)
+        return false;
+    const UiRect region = notice->content_rectangle;
+    const float top = region.top + row.rich_item_layout.plugin_card_top;
+    const UiRect card{region.left, top, region.left + minimum(ui_rect_width(region), kMessagePluginCardMaximumWidth),
+                      top + height};
+    if (!ui_rect_intersects(card, row_clip))
+        return true;
+    const UiRect bar{card.left, card.top + 6.0f, card.left + kMessagePluginCardBar, card.bottom - 6.0f};
+    return push_card(paint, card, theme, 8.0f, UiBackgroundTier::low) &&
+           paint_stream_push_rounded(paint, bar,
+                                     decoration->card.tone ? ui_icon_role_color(theme, ui_plugin_slot_role(decoration->card.tone))
+                                                           : ui_background_line_color(theme),
+                                     kMessagePluginCardBar * 0.5f);
 }
 
 // Invite card chrome and the server icon (fetched by URL like profile art).
@@ -324,6 +352,8 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
         rich = nullptr;
     if (!row.forwarded_snapshot && record && row.invite_item_count &&
         !append_invite_cards(scene, row, *record, theme, row_clip, paint, media))
+        return false;
+    if (!row.forwarded_snapshot && record && !append_plugin_card(scene, row, *record, theme, row_clip, paint))
         return false;
     if (!rich) {
         *geometry_quads += paint->count - geometry_begin;

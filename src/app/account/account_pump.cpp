@@ -647,12 +647,16 @@ bool drain_account_events() noexcept {
             // The account panel shows guild voice channels only.
             const u64 channel = voice.guild_id ? call : 0;
             // Call video decodes on the renderer's device; give it once per
-            // module instance when a call (guild or DM) starts.
+            // module instance when a call (guild or DM) starts, and again on a new device after a reset.
             static void* video_device_instance = nullptr;
-            if (call && video_device_instance != host.instance && host.api.voice_video_device &&
-                g_app.renderer.graphics.device &&
-                host.api.voice_video_device(host.instance, g_app.renderer.graphics.device))
+            static u32 video_device_generation = 0;
+            if (call &&
+                (video_device_instance != host.instance || video_device_generation != g_app.renderer.device_generation) &&
+                host.api.voice_video_device && g_app.renderer.graphics.device &&
+                host.api.voice_video_device(host.instance, g_app.renderer.graphics.device)) {
                 video_device_instance = host.instance;
+                video_device_generation = g_app.renderer.device_generation;
+            }
             repaint = voice_state_store_set_speaking(&ui.voice_states, call,
                                                              {voice.speaking_users, voice.speaking_count}) ||
                       repaint;

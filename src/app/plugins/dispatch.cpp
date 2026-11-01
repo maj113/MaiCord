@@ -8,7 +8,10 @@ namespace maicord {
 
 static_assert(static_cast<u32>(PluginHook::pre_send) == MC_HOOK_PRE_SEND &&
               static_cast<u32>(PluginHook::pre_edit) == MC_HOOK_PRE_EDIT &&
+              static_cast<u32>(PluginHook::completion) == MC_HOOK_COMPLETION &&
               static_cast<u32>(PluginHook::count) == MC_HOOK_LAST + 1);
+static_assert(kPluginDraftSilent == MC_DRAFT_SILENT && kPluginDraftSuppressEmbeds == MC_DRAFT_SUPPRESS_EMBEDS &&
+              kPluginDraftReplyPing == MC_DRAFT_REPLY_PING && kPluginDraftTextMax == MC_DRAFT_TEXT_MAX);
 
 u32 g_plugin_hook_subscribers[static_cast<u32>(PluginHook::count)];
 
@@ -19,10 +22,7 @@ namespace {
 constexpr u32 kBufferBytes = 4096;
 static_assert(kBufferBytes >= MC_DRAFT_TEXT_MAX);
 
-struct Subscriber {
-    PluginBinding* binding;
-    mc_draft_fn function;
-};
+using Subscriber = PluginSubscriber;
 struct List {
     Subscriber entries[kPluginMaximumBindings];
     u32 count;
@@ -51,7 +51,7 @@ bool plugin_dispatch_add(PluginBinding* binding) noexcept {
     const mc_descriptor& descriptor = *binding->image.descriptor;
     if (!descriptor.hook_count) return true;
     if (!g_buffers) {
-        g_buffers = static_cast<u8*>(VirtualAlloc(nullptr, 2 * kBufferBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        g_buffers = static_cast<u8*>(VirtualAlloc(nullptr, 3 * kBufferBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
         if (!g_buffers) return false;
         ++g_stats.allocations;
     }
@@ -59,7 +59,7 @@ bool plugin_dispatch_add(PluginBinding* binding) noexcept {
     for (u32 i = 0; i < descriptor.hook_count; ++i) {
         const mc_hook& hook = descriptor.hooks[i];
         List& list = g_lists[hook.kind];
-        list.entries[list.count++] = {binding, hook.fn.draft};
+        list.entries[list.count++] = {binding, hook.fn, hook.filter};
         g_plugin_hook_subscribers[hook.kind] = list.count;
     }
     return true;
@@ -79,39 +79,64 @@ void plugin_dispatch_remove(PluginBinding* binding) noexcept {
 }
 
 PluginDraftResult plugin_dispatch_draft(PluginHook hook, const PluginDraft& draft) noexcept {
-    PluginDraftResult result{PluginDraftVerdict::keep, {}, 0};
+    PluginDraftResult result{PluginDraftVerdict::keep, {}, 0, draft.flags, {}};
     const List& list = g_lists[static_cast<u32>(hook)];
     if (!list.count || draft.text.bytes > MC_DRAFT_TEXT_MAX) return result;
+    constexpr u32 kFlagsMask = MC_DRAFT_SILENT | MC_DRAFT_SUPPRESS_EMBEDS | MC_DRAFT_REPLY_PING;
     Utf8View current = draft.text;
-    bool replaced = false;
-    u32 next = 0;
+    bool replaced = false, confirm = false;
+    u64 confirm_owner = 0;
+    u32 flags = draft.flags, next = 0;
     for (u32 i = 0; i < list.count; ++i) {
-        const Subscriber& subscriber = list.entries[i];
+        const PluginSubscriber& subscriber = list.entries[i];
         if (subscriber.binding->struck_out) continue;
         char* buffer = reinterpret_cast<char*>(g_buffers) + next * kBufferBytes;
         mc_draft call{draft.channel_id, draft.guild_id, draft.message_id, draft.reply_to,
-                      {current.data, current.bytes, 0}, buffer, kBufferBytes, 0, 0, MC_DRAFT_KEEP};
+                      {current.data, current.bytes, 0}, buffer, kBufferBytes, 0, flags, MC_DRAFT_KEEP};
         const PluginCallResult ran = plugin_binding_run_draft(subscriber.binding, static_cast<u32>(hook),
-                                                              subscriber.function, &call);
+                                                              subscriber.function.draft, &call);
         ++g_stats.calls;
         if (ran.overran) {
             ++g_stats.strikes;
             continue;
         }
         if (ran.status != MC_OK) continue;
-        if (call.verdict == MC_DRAFT_CANCEL) return {PluginDraftVerdict::cancel, {}, subscriber.binding->owner_id};
+        if (hook == PluginHook::pre_send) flags = call.flags & kFlagsMask;
+        if (call.verdict == MC_DRAFT_CANCEL)
+            return {PluginDraftVerdict::cancel, {}, subscriber.binding->owner_id, draft.flags, {}};
         if (call.verdict == MC_DRAFT_REPLACE && replacement_valid(buffer, call.replaced_bytes)) {
             current = {buffer, call.replaced_bytes};
             replaced = true;
             next ^= 1;
+        } else if (call.verdict == MC_DRAFT_CONFIRM && hook == PluginHook::pre_send && !confirm &&
+                   call.replaced_bytes <= MC_CONFIRM_TEXT_MAX && replacement_valid(buffer, call.replaced_bytes)) {
+            // The first question wins; later plugins still run.
+            char* question = reinterpret_cast<char*>(g_buffers) + 2 * kBufferBytes;
+            copy_bytes(question, buffer, call.replaced_bytes);
+            result.question = {question, call.replaced_bytes};
+            confirm = true;
+            confirm_owner = subscriber.binding->owner_id;
         }
     }
-    if (replaced) result = {PluginDraftVerdict::replace, current, 0};
+    result.flags = flags;
+    if (confirm) {
+        result.verdict = PluginDraftVerdict::confirm;
+        result.owner_id = confirm_owner;
+        if (replaced) result.text = current;
+    } else if (replaced) {
+        result.verdict = PluginDraftVerdict::replace;
+        result.text = current;
+    }
     return result;
 }
 
 const PluginDispatchStats& plugin_dispatch_stats() noexcept {
     return g_stats;
+}
+
+ConstSlice<PluginSubscriber> plugin_dispatch_subscribers(PluginHook hook) noexcept {
+    const List& list = g_lists[static_cast<u32>(hook)];
+    return {list.entries, list.count};
 }
 
 } // namespace maicord

@@ -628,7 +628,6 @@ const InterfaceEntry kInterfaces[]{
     {utf8_literal("mc.msg.render"), 1, MC_PERM_MESSAGE_RENDER, &kRender},
     {utf8_literal("mc.actions"), 1, kActionPermissions, &kActions},
     {utf8_literal("mc.timer"), 1, MC_PERM_TIMER, &kTimers},
-    {utf8_literal("mc.fx"), 1, MC_PERM_EFFECTS, &kFx},
 };
 mc_status MC_CALL get_interface(void* handle, uint64_t generation, const char* name, uint32_t version,
                                 const void** table) {

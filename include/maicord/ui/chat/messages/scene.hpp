@@ -190,6 +190,10 @@ struct MessageSceneDisplay {
     u8 group_spacing;
     bool compact;
     MessageSceneClock clock;
+    // Built-in extras (Settings > Appearance): the quoted message's sent time on reply previews,
+    // and role colours on mentions. No nonzero initializers: the scene lives in a global.
+    bool reply_timestamps;
+    bool role_colors;
 };
 constexpr float message_scene_compact_clock_em(MessageSceneClock clock) noexcept {
     return clock == MessageSceneClock::short_time ? 2.25f : clock == MessageSceneClock::wide ? 4.25f : 3.1f;
@@ -381,6 +385,16 @@ MessageMediaObscure message_scene_media_obscure(const MessageScene&, MessageMedi
 inline const UiPluginRenderDecoration* message_scene_plugin_decoration(const MessageScene& scene, u64 message_id,
                                                                       u32 revision) noexcept {
     return scene.plugin_decorations ? ui_plugin_render(message_id, revision) : nullptr;
+}
+// The decoration a row paints: the plugins' verdict, plus the "deleted" name suffix of a kept deleted
+// message (a tombstone). Views stay valid until the next call.
+const UiPluginRenderDecoration* message_scene_tombstone_decoration(const MessageScene& scene,
+                                                                   const MessageRecord& record) noexcept;
+inline const UiPluginRenderDecoration* message_scene_row_decoration(const MessageScene& scene,
+                                                                   const MessageRecord& record) noexcept {
+    return record.delivery == MessageDeliveryState::retained
+               ? message_scene_tombstone_decoration(scene, record)
+               : message_scene_plugin_decoration(scene, record.id, record.revision);
 }
 inline u8 message_scene_plugin_visibility(const MessageScene& scene, const MessageRecord& record) noexcept {
     const auto* decoration = message_scene_plugin_decoration(scene, record.id, record.revision);

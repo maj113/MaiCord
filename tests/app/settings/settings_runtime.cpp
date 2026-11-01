@@ -1444,6 +1444,77 @@ void test_controller() noexcept {
           "settings: member-pane toggle updates visibility and synchronizes live shell geometry");
     check(await_save_retained() && !g_app.preferences_save_failed,
           "settings: member-pane save retains current Appearance scene");
+    // Built-in extras (Appearance): each toggle writes its preference and persists; the display ones reach
+    // the message scene, none rebuilds the hidden shell.
+    const u32 extras_layouts = observed.layout_updates;
+    check(g_app.preferences.role_colors_everywhere && !g_app.preferences.reply_timestamps &&
+              !g_app.preferences.show_hidden_channels && !g_app.preferences.folders_close_others &&
+              !g_app.preferences.folders_close_on_home && !g_app.preferences.folders_follow_selection,
+          "settings extras: role colors default on, the others off");
+    check(activate_control(kAppearancePage, cid("appearance.role_colors_everywhere")) &&
+              !g_app.preferences.role_colors_everywhere && await_save_retained(),
+          "settings extras: Role colors everywhere toggles off and persists");
+    check(activate_control(kAppearancePage, cid("appearance.reply_timestamps")) && g_app.preferences.reply_timestamps &&
+              g_app.message_scene.display.reply_timestamps && !g_app.message_scene.display.role_colors &&
+              await_save_retained(),
+          "settings extras: reply timestamps and role colors reach the message scene display");
+    bool folder_toggles = true;
+    constexpr const char* folder_keys[]{"appearance.show_hidden_channels", "appearance.folders_close_others",
+                                        "appearance.folders_close_on_home", "appearance.folders_follow_selection"};
+    for (const char* key : folder_keys) {
+        folder_toggles = activate_control(kAppearancePage, cid(key)) && folder_toggles;
+        await_save_retained();
+    }
+    check(folder_toggles && g_app.preferences.show_hidden_channels && g_app.preferences.folders_close_others &&
+              g_app.preferences.folders_close_on_home && g_app.preferences.folders_follow_selection,
+          "settings extras: hidden channels and the three folder options toggle and persist");
+    check(observed.layout_updates == extras_layouts, "settings extras: no toggle rebuilds the hidden shell layout");
+    constexpr const char* extras_keys[]{"appearance.role_colors_everywhere", "appearance.reply_timestamps",
+                                        "appearance.show_hidden_channels", "appearance.folders_close_others",
+                                        "appearance.folders_close_on_home", "appearance.folders_follow_selection"};
+    for (const char* key : extras_keys) {
+        activate_control(kAppearancePage, cid(key));
+        await_save_retained();
+    }
+    check(g_app.preferences.role_colors_everywhere && !g_app.preferences.reply_timestamps &&
+              !g_app.preferences.show_hidden_channels && !g_app.preferences.folders_close_others &&
+              !g_app.preferences.folders_close_on_home && !g_app.preferences.folders_follow_selection,
+          "settings extras: toggling each again restores the defaults");
+    // Image zoom (Appearance): the lens toggles persist; the sliders end on the exact stored range
+    // (1x..50x in half steps, 50..1000 DIPs in tens) and their labels are present.
+    check(g_app.preferences.image_zoom && !g_app.preferences.image_zoom_square &&
+              g_app.preferences.image_zoom_factor == 4 && g_app.preferences.image_zoom_size == 20,
+          "settings image zoom: on by default as a 2x, 200 DIP circle");
+    check(activate_control(kAppearancePage, cid("appearance.image_zoom_square")) &&
+              g_app.preferences.image_zoom_square && await_save_retained() &&
+              activate_control(kAppearancePage, cid("appearance.image_zoom")) && !g_app.preferences.image_zoom &&
+              await_save_retained(),
+          "settings image zoom: the lens shape and switch toggle and persist");
+    check(activate_control(kAppearancePage, cid("appearance.image_zoom_factor"), VK_END) &&
+              g_app.preferences.image_zoom_factor == 100 && await_save_retained() &&
+              activate_control(kAppearancePage, cid("appearance.image_zoom_factor"), VK_HOME) &&
+              g_app.preferences.image_zoom_factor == 2 && await_save_retained() &&
+              activate_control(kAppearancePage, cid("appearance.image_zoom_size"), VK_END) &&
+              g_app.preferences.image_zoom_size == 100 && await_save_retained() &&
+              activate_control(kAppearancePage, cid("appearance.image_zoom_size"), VK_HOME) &&
+              g_app.preferences.image_zoom_size == 5 && await_save_retained(),
+          "settings image zoom: the zoom and size sliders span 1x..50x and 50..1000 DIPs");
+    const auto* zoom_slider =
+        ui_settings_scene_control(*scene(), {UiSettingsTargetKind::control, kAppearancePage, cid("appearance.image_zoom_factor")});
+    const auto* size_slider =
+        ui_settings_scene_control(*scene(), {UiSettingsTargetKind::control, kAppearancePage, cid("appearance.image_zoom_size")});
+    check(zoom_slider && size_slider && zoom_slider->selected_choice == 0 && size_slider->selected_choice == 0,
+          "settings image zoom: the sliders read the stored values back");
+    check(activate_control(kAppearancePage, cid("appearance.image_zoom_factor"), VK_RIGHT) &&
+              g_app.preferences.image_zoom_factor == 3 && await_save_retained() &&
+              activate_control(kAppearancePage, cid("appearance.image_zoom_factor"), VK_HOME) &&
+              activate_control(kAppearancePage, cid("appearance.image_zoom_size"), VK_RIGHT) &&
+              g_app.preferences.image_zoom_size == 6 && await_save_retained(),
+          "settings image zoom: one slider step moves half a zoom unit and ten DIPs");
+    g_app.preferences.image_zoom = true;
+    g_app.preferences.image_zoom_square = false;
+    g_app.preferences.image_zoom_factor = 4;
+    g_app.preferences.image_zoom_size = 20;
     g_app.renderer.content_text_retention.valid = true;
     const u32 invalidations = g_app.renderer.content_text_retention.invalidations;
     const u32 motion_layouts = observed.layout_updates;

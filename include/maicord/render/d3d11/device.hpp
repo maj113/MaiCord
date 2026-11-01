@@ -34,6 +34,8 @@ struct D3D11DeviceOwnerResult {
     D3D11DeviceOwnerError error;
     // Initialization adopted the d3d11_device_prestart worker's device.
     bool prestarted;
+    // Identifies the adapter (vendor, device, revision and LUID): what a per-GPU record is keyed by.
+    u64 adapter_key;
 
     constexpr bool ok() const noexcept {
         return error == D3D11DeviceOwnerError::none;

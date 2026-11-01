@@ -987,6 +987,7 @@ void run() noexcept {
         }
 
         builtin_cases();
+        plugin_cases();
         guild_picture_cases();
 
         // Context menu commands (Apps): user (type 2) and message (type 3).

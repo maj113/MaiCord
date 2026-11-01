@@ -8,6 +8,7 @@
 #include "../chat/report.hpp"
 #include "community.hpp"
 #include "../account/custom_status.hpp"
+#include "../plugins/settings_dialog.hpp"
 #include "../settings/modal.hpp"
 #include "../shell/state.hpp"
 #include "../account/account_presentation.hpp"
@@ -166,6 +167,9 @@ constexpr HostedModal kModals[] = {
     {application_custom_status_active, application_custom_status_close, application_custom_status_release,
      application_custom_status_synchronize, application_custom_status_settings_layer,
      application_custom_status_caret_wake, nullptr, nullptr, nullptr, nullptr},
+    {application_plugin_settings_active, application_plugin_settings_close, application_plugin_settings_release,
+     application_plugin_settings_synchronize, application_plugin_settings_settings_layer,
+     application_plugin_settings_caret_wake, nullptr, nullptr, nullptr, nullptr},
 };
 #undef MAICORD_HOSTED_MODAL
 

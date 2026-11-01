@@ -17,6 +17,13 @@ inline constexpr u32 kUiPluginSlotChannelRow = 5;
 inline constexpr u32 kUiPluginSlotGuildRail = 6;
 inline constexpr u32 kUiPluginSlotAccountPanel = 7;
 inline constexpr u32 kUiPluginSlotMessageHover = 8;
+// Plugin tiles in the server list: above the first server and after "Add a server".
+inline constexpr u32 kUiPluginSlotServerTop = 9;
+inline constexpr u32 kUiPluginSlotServerBottom = 10;
+// The label over the member list (counts and similar); the first node's text.
+inline constexpr u32 kUiPluginSlotMemberListHeader = 11;
+// A member row's name prefix and suffix from a plugin: two label nodes, the prefix first (either may be empty).
+inline constexpr u32 kUiPluginSlotMemberName = 12;
 inline constexpr u16 kUiPluginSlotNoIcon = 0xffff;
 enum : u8 {
     ui_plugin_node_label,
@@ -29,6 +36,11 @@ enum : u8 {
 // Square plugin buttons per toolbar: account panel and message hover bar.
 inline constexpr u32 kUiPluginSlotAccountButtons = 2;
 inline constexpr u32 kUiPluginSlotHoverButtons = 2;
+// Plugin tiles per end of the server list.
+inline constexpr u32 kUiPluginSlotServerTiles = 4;
+// UiPluginSlotNode::state
+inline constexpr u8 kUiPluginSlotActive = 1;   // a toggle button that is on
+inline constexpr u8 kUiPluginSlotDisabled = 2; // shown dimmed; clicks do nothing
 
 struct UiPluginSlotNode {
     u64 owner_id, action_id;
@@ -36,6 +48,8 @@ struct UiPluginSlotNode {
     u16 icon;
     u8 kind, tone;
     Utf8View value;
+    u16 badge; // button: a count to show on it, 0 for none
+    u8 state;  // kUiPluginSlot*
 };
 using UiPluginSlotQuery = u32 (*)(u32 surface, u64 channel_id, u64 message_id, u64 user_id, u64 guild_id,
                                   Slice<UiPluginSlotNode> output) noexcept;
@@ -110,16 +124,20 @@ inline bool ui_plugin_slot_badge(u32 surface, u64 channel_id, u64 message_id, u6
     }
     return false;
 }
-// Toolbar surfaces (composer) draw buttons and icons as square controls;
-// labels and badges have no room there. Plugin order, at most output.count.
-inline u32 ui_plugin_slot_toolbar(u32 surface, Slice<UiPluginSlotNode> output) noexcept {
+// Toolbar surfaces (composer, account panel, message hover bar) draw buttons and icons as square controls;
+// labels and badges have no room there. Plugin order, at most output.count. message_id selects the
+// message of the hover bar (the application evaluated each button's visibility for it); 0 elsewhere.
+inline u32 ui_plugin_slot_toolbar(u32 surface, u64 message_id, Slice<UiPluginSlotNode> output) noexcept {
     UiPluginSlotNode nodes[16];
-    const u32 count = ui_plugin_slots(surface, 0, 0, 0, {nodes, 16});
+    const u32 count = ui_plugin_slots(surface, 0, message_id, 0, {nodes, 16});
     u32 used = 0;
     for (u32 i = 0; i < count && used < output.count; ++i)
         if (nodes[i].kind == ui_plugin_node_button || nodes[i].kind == ui_plugin_node_icon)
             output[used++] = nodes[i];
     return used;
+}
+inline u32 ui_plugin_slot_toolbar(u32 surface, Slice<UiPluginSlotNode> output) noexcept {
+    return ui_plugin_slot_toolbar(surface, 0, output);
 }
 // Unknown or missing icon names fall back to the plugin glyph.
 inline UiIcon ui_plugin_slot_icon(const UiPluginSlotNode& node) noexcept {

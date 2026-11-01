@@ -15,6 +15,17 @@ u64 fixture_logout_wake;
 
 } // namespace account_pump_detail
 
+// The background clock asks the effects module (src/app/shell/background.hpp); no effect is ever selected here.
+bool application_effects_selected() noexcept {
+    return false;
+}
+bool application_effects_motion_allowed() noexcept {
+    return true;
+}
+u32 application_effects_interval_ms() noexcept {
+    return 42;
+}
+
 bool application_account_logout_blocked() noexcept {
     return fixture_logout_blocked;
 }

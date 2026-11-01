@@ -1,0 +1,6 @@
+name=Film grain
+uses=noise
+blend=normal
+resolution=100
+fps=15
+knobs=100 1000 12000 0 0 0 0 0 0 0 0 0

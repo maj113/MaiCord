@@ -94,8 +94,9 @@ bool project(Utf8View input) noexcept {
     NativePluginSdkCommandView local[plugin_rows];
     c.plugin_count = application_plugins_commands(command_query(input), {local, plugin_rows});
     const CommandIndex* builtins = builtin_commands_index();
-    const u32 capacity =
-        c.index[0].command_count + c.index[1].command_count + (builtins ? builtins->command_count : 0);
+    const CommandIndex* plugin_index = plugin_commands_index();
+    const u32 capacity = c.index[0].command_count + c.index[1].command_count +
+                         (builtins ? builtins->command_count : 0) + (plugin_index ? plugin_index->command_count : 0);
     // Candidates, their ranks and the apps, then the rows and both section lists.
     const usize bytes = static_cast<usize>(capacity) * (2 * sizeof(Entry) + 2 * sizeof(u32) + sizeof(void*)) +
                         static_cast<usize>(capacity + 3) * 2 * sizeof(Section) + frequently_shown * sizeof(Entry) +
@@ -113,12 +114,14 @@ bool project(Utf8View input) noexcept {
         return false;
     u32 candidate_count = 0, app_count = 0;
     const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, c.channel);
-    for (const auto& source : c.index)
-        for (u32 n = 0; n < source.command_count; ++n) {
+    const CommandIndex* const sources[] = {&c.index[0], &c.index[1], plugin_index};
+    for (const CommandIndex* source_pointer : sources)
+        for (u32 n = 0; source_pointer && n < source_pointer->command_count; ++n) {
+            const auto& source = *source_pointer;
             const auto& command = source.commands[n];
             if ((!c.guild && !command.dm_permission) || (command.guild_id && command.guild_id != c.guild))
                 continue;
-            if (channel && channel->permissions_resolved &&
+            if (source_pointer != plugin_index && channel && channel->permissions_resolved &&
                 !(channel->effective_permissions & (1ull << 31)))
                 continue;
             bool duplicate = false;

@@ -25,7 +25,7 @@ using native_plugin_fixture::Configure;
 struct Observations {
     UiRect viewport{0, 0, 1000, 700};
     u32 text_builds, layout_updates, account_text_updates, forced_account_text_updates, suspends,
-        drop_updates, member_updates;
+        drop_updates, member_updates, navigation_updates;
     u32 resize_sync_presents, resize_finishes, resize_finish_failures;
     bool resize_finish_failed;
     bool fail_text;

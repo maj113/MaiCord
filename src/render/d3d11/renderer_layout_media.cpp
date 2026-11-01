@@ -80,6 +80,23 @@ bool queue_toast(D3D11Renderer* renderer, const Theme& theme) noexcept {
     return !d3d11_renderer_toast_visible(*renderer) ||
            ui_toast_paint(*renderer->toast_scene, theme, &renderer->paint_stream);
 }
+void resolve_zoom_lens(D3D11Renderer* renderer, const Theme& theme, const MediaAtlasResult& allocation,
+                       const UiRect& picture, u8 domain) noexcept {
+    auto& source = renderer->zoom_lens_source;
+    if (source.ready || !renderer->zoom_lens || !allocation.ok() ||
+        !ui_zoom_lens_view(*renderer->zoom_lens, picture, theme.scale.radius_md, &source.view))
+        return;
+    source.allocation = allocation;
+    source.domain = domain;
+    source.ready = true;
+}
+bool queue_zoom_lens_frame(D3D11Renderer* renderer, const Theme& theme, bool seal) noexcept {
+    if (!d3d11_renderer_zoom_lens_visible(*renderer))
+        return true;
+    if (seal)
+        renderer->form_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
+    return ui_zoom_lens_paint(renderer->zoom_lens_source.view, theme, &renderer->paint_stream);
+}
 bool queue_inline_flags(D3D11Renderer* renderer) noexcept {
     renderer->inline_media_first_batch = renderer->media_batch_count;
     for (u32 layer = 0; layer < static_cast<u32>(RendererInlineMediaLayer::count); ++layer) {
@@ -106,6 +123,20 @@ bool queue_inline_flags(D3D11Renderer* renderer) noexcept {
                                     : flag.clip;
             if (!queue_media_quad(renderer, allocation, r, clip, false,
                                   first))
+                return false;
+            first = false;
+        }
+        // The magnifier: the picture magnified about the pointer, through the
+        // lens box, over its frame and every other media.
+        if (layer == static_cast<u32>(RendererInlineMediaLayer::form) && d3d11_renderer_zoom_lens_visible(*renderer) &&
+            renderer->media_quad_count < kRendererMediaQuadCapacity &&
+            renderer->media_batch_count < kRendererMediaBatchCapacity) {
+            const auto& lens = renderer->zoom_lens_source;
+            const float scale = 96.0f / renderer->dpi;
+            const UiRect window{0, 0, renderer->width * scale, renderer->height * scale};
+            if (!queue_media_quad(renderer, lens.allocation, lens.view.source,
+                                  ui_rect_intersection(lens.view.frame, window), false, first,
+                                  MediaQuadStyle{lens.view.frame, 1.f, 0.f, lens.view.radius, 0.f, lens.domain}))
                 return false;
             first = false;
         }
@@ -382,6 +413,11 @@ bool queue_message_media(D3D11Renderer* renderer, const Theme& theme,
                                              domain})) {
             return layout_step_failed(__LINE__);
         }
+        if (large_preview && command.obscure == static_cast<u8>(MessageMediaObscure::none) && renderer->zoom_lens &&
+            renderer->zoom_lens->active && d3d11_renderer_zoom_lens_allowed(*renderer) &&
+            ui_rect_contains(ui_rect_intersection(quad, quad_clip), renderer->zoom_lens->pointer.x,
+                             renderer->zoom_lens->pointer.y))
+            resolve_zoom_lens(renderer, theme, allocation, quad, domain);
         if (large_preview || command.kind == MessageMediaCommandKind::sticker)
             reveal_media_underlay(*renderer, media_before, command.rectangle, theme.surface_high);
         if (renderer->media_quad_count != media_before)

@@ -5,6 +5,7 @@
 #include "maicord/render/media/animation_frame_cache_gpu.hpp"
 #include "maicord/render/text/content_text_retention.hpp"
 #include "maicord/render/d3d11/background_fx.hpp"
+#include "maicord/render/d3d11/effect_renderer.hpp"
 #include "maicord/render/d3d11/device.hpp"
 #include "maicord/render/d3d11/draw_pipeline.hpp"
 #include "maicord/render/d3d11/glyph_text.hpp"
@@ -15,6 +16,7 @@
 #include "maicord/render/media/atlas_gpu.hpp"
 #include "maicord/render/d3d11/presentation_damage.hpp"
 #include "maicord/render/media/renderer_media_draw_storage.hpp"
+#include "maicord/ui/media/zoom_lens.hpp"
 
 #include "maicord/render/text/renderer_text_storage.hpp"
 #include "maicord/ui/text/edit_field.hpp"
@@ -100,6 +102,16 @@ struct RendererTypographyCandidate {
 // custom emoji), so draw capacity is independent of atlas identity capacity.
 inline constexpr u32 kRendererMessageMediaCommandCapacity = 256;
 inline constexpr u32 kRendererLoginCompositionCapacity = kTextCompositionSpanCapacity;
+
+// The picture a magnifier shows and where it lands. Each layout resolves it
+// from the media quad under the lens (the viewer's image or a chat preview);
+// `ready` is false until one qualifies, and no lens draws.
+struct RendererZoomLensSource {
+    MediaAtlasResult allocation;
+    UiZoomLensView view;
+    u8 domain;
+    bool ready;
+};
 
 struct RendererLoginCompositionMetric {
     TextEditMetric metric;
@@ -408,6 +420,9 @@ struct D3D11Renderer {
     UiEditGeometry media_picker_edit_geometry;
     u32 interaction_text_media_picker_revision;
     MediaAssetKey image_viewer_key, image_viewer_fallback;
+    // The magnifier: the app-owned lens state and the picture it magnifies.
+    const UiZoomLens* zoom_lens;
+    RendererZoomLensSource zoom_lens_source;
     // The hovered chat GIF's media widget and its favourite state.
     UiWidgetHandle gif_favorite_owner;
     bool gif_favorite, gif_favorite_pending;
@@ -440,8 +455,9 @@ struct D3D11Renderer {
     RendererTextPrefix content_text_prefix;
     Arena shell_text_storage;
     D3D11GpuTimerOwner gpu_timer;
-    // Background effect pass (Stars/Comets or the selected plugin effect).
+    // Background effect passes: the theme's built-in Stars/Comets, and the selected package effect.
     D3D11BackgroundFxOwner background_fx;
+    D3D11EffectOwner effect;
     TextEditMetric edit_selections[kTextEditSelectionCapacity];
     TextEditLayoutOwner* edit_selection_owner;
     TextEditLayoutOwner composer_layout;
@@ -635,9 +651,15 @@ struct D3D11Renderer {
     bool begin_frame_permit;
     u32 interaction_text_active_mask;
     RendererLoginStatus login_status;
+    // A removal or reset was seen; recovery clears it and counts a new device.
+    bool device_lost;
+    u32 device_generation;
+    // What a recovery re-creates the device from, and the adapter per-GPU records are keyed by.
+    HWND window;
+    u64 adapter_key;
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
-static_assert(sizeof(D3D11Renderer) == 120552);
+static_assert(sizeof(D3D11Renderer) == 121032);
 
 // Starts hardware device and draw-pipeline creation on a worker at process
 // entry; the next renderer_initialize adopts them. Main thread only.
@@ -669,13 +691,25 @@ void renderer_bind_target_origin(D3D11Renderer* renderer, u32 origin_y) noexcept
 // widget, retained paint/text and media generations remain untouched.
 // Returns success, including an unchanged valid phase; invalid input fails.
 bool renderer_set_background_phase(D3D11Renderer*, float seconds) noexcept;
-// The host's selected plugin background effect (validated ps_5_0 bytecode),
-// applied each frame; repaints when the shader or parameters change. Returns
-// the device's CreatePixelShader failure.
-HRESULT renderer_select_plugin_effect(D3D11Renderer*, u64 owner_id, u64 effect_id, u64 revision,
-                                      ConstSlice<u8> bytecode, const float* parameters) noexcept;
+// The selected package background effect (maicord/sdk/background.hlsli), applied every frame: repaints when
+// the package or the user's settings change, and does nothing when neither did. The result carries the
+// device's CreatePixelShader failure, or `refused` when the cost probe judged the effect too heavy here;
+// renderer.effect.verdict says when the renderer later turned it off. A package selected while another is
+// active replaces it.
+EffectSelectResult renderer_select_effect(D3D11Renderer*, const BackgroundEffectSpec&,
+                                          const EffectSettings&) noexcept;
 // Back to the theme's built-in effect.
-void renderer_clear_plugin_effect(D3D11Renderer*) noexcept;
+void renderer_clear_effect(D3D11Renderer*) noexcept;
+// Device loss. renderer_device_lost is true once the device reports a removal or reset (a failed present or
+// draw is checked for one; the flag stays until recovery). renderer_recover_device then rebuilds everything
+// that lived on the lost device on a new one, on the window's swap chain: the draw pipeline, the glyph, icon and
+// media atlases (empty: text rasterizes and media is requested again), the caption, the effect passes and the
+// timers. Scenes and bindings stay. The effect that had a frame in flight becomes the effect verdict. False
+// leaves the renderer lost; the caller tries again on a later frame.
+bool renderer_device_lost(D3D11Renderer* renderer) noexcept;
+bool renderer_recover_device(D3D11Renderer* renderer) noexcept;
+// Drops every media surface and all media residency (the owners request what is visible again).
+void renderer_release_media_surfaces(D3D11Renderer* renderer) noexcept;
 // Resize keeps an acquired swap-chain slot. Only a successful Present consumes it.
 bool renderer_finish_resize(D3D11Renderer* renderer, u32 width, u32 height) noexcept;
 void renderer_set_live_resize(D3D11Renderer* renderer, bool live_resize) noexcept;

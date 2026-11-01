@@ -29,6 +29,9 @@ NumberLabels<361, 6> degree_labels;
 NumberLabels<201, 5> percent_labels;
 NumberLabels<101, 10> decibel_labels;
 NumberLabels<201, 8> millisecond_labels;
+// Image zoom sliders: "1x".."50x" in half steps and "50 px".."1000 px" in tens.
+NumberLabels<99, 6> zoom_labels;
+NumberLabels<96, 8> lens_labels;
 bool number_labels_ready;
 
 template <u32 Count, u32 Width>
@@ -59,6 +62,17 @@ void number_labels_initialize() noexcept {
     for (u32 value = 0; value <= 200; ++value)
         append_suffix(millisecond_labels, value, decimal_write(millisecond_labels.text[value], value * 10),
                       " ms", 3);
+    for (u32 half = 2; half <= 100; ++half) {
+        char* text = zoom_labels.text[half - 2];
+        u32 at = decimal_write(text, half / 2);
+        if (half & 1) {
+            text[at++] = '.';
+            text[at++] = '5';
+        }
+        append_suffix(zoom_labels, half - 2, at, "x", 1);
+    }
+    for (u32 tens = 5; tens <= 100; ++tens)
+        append_suffix(lens_labels, tens - 5, decimal_write(lens_labels.text[tens - 5], tens * 10), " px", 3);
     number_labels_ready = true;
 }
 
@@ -177,6 +191,27 @@ constexpr UiSettingsSchemaNode appearance[]{
     node(utf8_literal("appearance.render_spoilers"), K::choice, utf8_literal("Show spoiler content"), {},
          utf8_literal("spoilers hidden reveal"), SettingBinding::render_spoilers, {spoiler_choices, 3}, none, {},
          dynamic),
+    node(utf8_literal("appearance.role_colors_everywhere"), K::toggle, utf8_literal("Role colors everywhere"),
+         utf8_literal("Color @mentions, voice participants and typing names by the member's role color."),
+         utf8_literal("role colour color mentions voice typing names"), SettingBinding::role_colors_everywhere),
+    node(utf8_literal("appearance.reply_timestamps"), K::toggle, utf8_literal("Show time on reply previews"),
+         utf8_literal("Show when the message being replied to was sent."),
+         utf8_literal("reply timestamp time date quote"), SettingBinding::reply_timestamps),
+    node(utf8_literal("appearance.image_zoom_category"), K::category, utf8_literal("Image Zoom"),
+         utf8_literal("Hold Ctrl over an image to magnify it; in the image viewer, hold the mouse button on the image."),
+         {}),
+    node(utf8_literal("appearance.image_zoom"), K::toggle, utf8_literal("Enable image zoom"),
+         utf8_literal("Scroll to change the zoom and Shift+scroll to resize the lens while it is shown."),
+         utf8_literal("magnifier magnify lens zoom images enlarge"), SettingBinding::image_zoom),
+    node(utf8_literal("appearance.image_zoom_square"), K::toggle, utf8_literal("Square lens"),
+         utf8_literal("Show the lens as a rounded square instead of a circle."),
+         utf8_literal("magnifier lens shape circle square"), SettingBinding::image_zoom_square),
+    node(utf8_literal("appearance.image_zoom_factor"), K::slider, utf8_literal("Zoom"), {},
+         utf8_literal("magnifier magnification zoom level"), SettingBinding::image_zoom_factor,
+         {zoom_labels.values, 99}, 2),
+    node(utf8_literal("appearance.image_zoom_size"), K::slider, utf8_literal("Lens size"), {},
+         utf8_literal("magnifier lens diameter size"), SettingBinding::image_zoom_size, {lens_labels.values, 96},
+         15),
     node(utf8_literal("appearance.chat_box"), K::category, utf8_literal("Chat Box"), {}, {}),
     node(utf8_literal("appearance.convert_emoticons"), K::toggle,
          utf8_literal("Automatically convert emoticons in your messages to emoji"),
@@ -189,6 +224,22 @@ constexpr UiSettingsSchemaNode appearance[]{
     node(utf8_literal("appearance.member_list"), K::toggle, utf8_literal("Show member list"),
          utf8_literal("Show the member list beside server channels."), utf8_literal("members users sidebar"),
          SettingBinding::member_list),
+    node(utf8_literal("appearance.show_hidden_channels"), K::toggle, utf8_literal("Show hidden channels"),
+         utf8_literal("List channels you can't view with a lock. Nothing in them is requested; selecting one "
+                      "shows who can see it."),
+         utf8_literal("locked private channels permissions view"), SettingBinding::show_hidden_channels),
+    node(utf8_literal("appearance.folders"), K::category, utf8_literal("Server Folders"), {}, {}),
+    node(utf8_literal("appearance.folders_close_others"), K::toggle,
+         utf8_literal("Close other folders when opening one"),
+         utf8_literal("Keep at most one server folder open in the server list."),
+         utf8_literal("accordion collapse folders servers"), SettingBinding::folders_close_others),
+    node(utf8_literal("appearance.folders_close_on_home"), K::toggle, utf8_literal("Close folders on Home"),
+         utf8_literal("Opening Home collapses every open server folder."),
+         utf8_literal("collapse folders home servers"), SettingBinding::folders_close_on_home),
+    node(utf8_literal("appearance.folders_follow_selection"), K::toggle,
+         utf8_literal("Open the folder of the selected server"),
+         utf8_literal("Selecting a server opens the folder it is in."),
+         utf8_literal("folder follow selected server open expand"), SettingBinding::folders_follow_selection),
 };
 
 static constexpr Utf8View sticker_animations[]{utf8_literal("Always animate"), utf8_literal("Animate on interaction"),
@@ -637,6 +688,14 @@ constexpr LocalToggle toggles[]{
     {SettingBinding::start_minimized, &ClientPreferences::start_minimized},
     {SettingBinding::minimize_to_tray, &ClientPreferences::minimize_to_tray},
     {SettingBinding::spellcheck, &ClientPreferences::spellcheck},
+    {SettingBinding::role_colors_everywhere, &ClientPreferences::role_colors_everywhere},
+    {SettingBinding::reply_timestamps, &ClientPreferences::reply_timestamps},
+    {SettingBinding::folders_close_others, &ClientPreferences::folders_close_others},
+    {SettingBinding::folders_close_on_home, &ClientPreferences::folders_close_on_home},
+    {SettingBinding::folders_follow_selection, &ClientPreferences::folders_follow_selection},
+    {SettingBinding::show_hidden_channels, &ClientPreferences::show_hidden_channels},
+    {SettingBinding::image_zoom, &ClientPreferences::image_zoom},
+    {SettingBinding::image_zoom_square, &ClientPreferences::image_zoom_square},
     {SettingBinding::game_detection, &ClientPreferences::game_detection},
 };
 bool ClientPreferences::* toggle_field(SettingBinding binding) noexcept {
@@ -675,6 +734,16 @@ SettingBackend settings_binding_backend(SettingBinding binding) noexcept {
     case SettingBinding::start_minimized:
     case SettingBinding::minimize_to_tray:
     case SettingBinding::spellcheck:
+    case SettingBinding::role_colors_everywhere:
+    case SettingBinding::reply_timestamps:
+    case SettingBinding::folders_close_others:
+    case SettingBinding::folders_close_on_home:
+    case SettingBinding::folders_follow_selection:
+    case SettingBinding::show_hidden_channels:
+    case SettingBinding::image_zoom:
+    case SettingBinding::image_zoom_square:
+    case SettingBinding::image_zoom_factor:
+    case SettingBinding::image_zoom_size:
     case SettingBinding::game_detection:
         return SettingBackend::local;
     case SettingBinding::open_on_startup:
@@ -877,6 +946,12 @@ bool settings_store_read(const ClientPreferences& p, SettingBinding binding, Set
     case SettingBinding::group_spacing:
         value->choice = p.message_group_spacing ? p.message_group_spacing - 1u : kUiSettingsNoChoice;
         return true;
+    case SettingBinding::image_zoom_factor:
+        value->choice = p.image_zoom_factor - 2u;
+        return true;
+    case SettingBinding::image_zoom_size:
+        value->choice = p.image_zoom_size - 5u;
+        return true;
     default:
         return false;
     }
@@ -936,6 +1011,16 @@ bool settings_store_write(ClientPreferences* p, SettingBinding binding, SettingV
         if (value.choice >= kClientPreferencesGroupSpacingCount - 1u)
             return false;
         p->message_group_spacing = static_cast<u8>(value.choice + 1);
+        return true;
+    case SettingBinding::image_zoom_factor:
+        if (value.choice > 98)
+            return false;
+        p->image_zoom_factor = static_cast<u8>(value.choice + 2);
+        return true;
+    case SettingBinding::image_zoom_size:
+        if (value.choice > 95)
+            return false;
+        p->image_zoom_size = static_cast<u8>(value.choice + 5);
         return true;
     default:
         return false;

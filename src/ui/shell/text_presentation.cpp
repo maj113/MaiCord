@@ -287,6 +287,58 @@ static __declspec(noinline) bool footer_output(const UiScene& scene, const ChatS
     return true;
 }
 
+// The typing line. Without role colours ("Role colors everywhere") it is one command; with them each name is
+// its own bold command in the member's colour and the text between keeps the label's, laid left to right
+// by measured width.
+static __declspec(noinline) bool typing_output(const MessageComposerScene& composer, const UiLayoutNode& typing,
+                                               Utf8View text, const Color& color, UiTextMeasureCache* measure,
+                                               UiTextOutput* stream) noexcept {
+    if (text.bytes == 0)
+        return true;
+    const u32 names = composer.typing_name_count > 3 ? 0u : composer.typing_name_count;
+    bool colored = false;
+    for (u32 i = 0; i < names; ++i)
+        colored = colored || composer.typing_names[i].color != 0;
+    if (!colored || !measure)
+        return append_command(composer.widgets, composer.typing_indicator, text, typing.content_rectangle,
+                              typing.clip_rectangle, color, stream, kLookSub);
+    UiRect rectangle = typing.content_rectangle;
+    u32 at = 0;
+    const auto emit = [&](u32 bytes, const Color& ink, const TextLook& look) noexcept {
+        if (bytes == 0)
+            return true;
+        const Utf8View part{text.data + at, bytes};
+        const TextStyleSpan style{0, bytes, look.style_flags};
+        UiTextMeasureValue measured{};
+        float width = static_cast<float>(bytes) * 7.0f;
+        if (ui_text_measure_cache_measure(
+                measure,
+                {{0x5459'5049'4E47ull, hash64_mix(hash64_bytes(kHash64Seed, part.data, bytes), look.style_flags), 0, 0,
+                  0},
+                 part,
+                 {&style, 1},
+                 {maximum(1.f, ui_rect_width(rectangle)), ui_rect_height(typing.content_rectangle)},
+                 true},
+                &measured)
+                .ok())
+            width = measured.size.width;
+        const bool pushed = append_command(composer.widgets, composer.typing_indicator, part, rectangle,
+                                           typing.clip_rectangle, ink, stream, look);
+        rectangle.left = minimum(rectangle.right, rectangle.left + width);
+        at += bytes;
+        return pushed;
+    };
+    for (u32 i = 0; i < names; ++i) {
+        const MessageComposerTypingName& name = composer.typing_names[i];
+        if (name.offset < at || name.offset > text.bytes || name.bytes > text.bytes - name.offset)
+            continue;
+        if (!emit(name.offset - at, color, kLookSub) ||
+            !emit(name.bytes, name.color ? ui_role_color(name.color) : color, kLookGroup))
+            return false;
+    }
+    return emit(text.bytes - at, color, kLookSub);
+}
+
 bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateStore& state,
                                           const NavigationView& navigation, const Theme& theme,
                                           const ShellNavigationScene& channel_scene,
@@ -415,6 +467,45 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
             const auto clip = ui_rect_intersection(guild_navigation->rectangle, guild_scene->viewport);
             if (!ui_mention_badge_text_output(row.view.mention_count, guild_scene->widgets, row.widget,
                                               rectangle, clip, stream))
+                return reject(stream);
+        }
+        // Plugin tiles' count badges.
+        if (guild_scene->materialized_top || guild_scene->materialized_bottom)
+            for (u32 end = 1; end <= 2; ++end)
+                for (u32 index = 0; index < kGuildRailPluginTiles; ++index) {
+                    GuildRailPluginTile tile;
+                    if (!guild_rail_plugin_tile(*guild_scene, end, index, &tile) || !tile.node.badge) continue;
+                    if (!ui_mention_badge_text_output(
+                            tile.node.badge, guild_scene->widgets, tile.widget,
+                            ui_mention_badge_guild_rectangle(tile.tile, tile.node.badge),
+                            ui_rect_intersection(guild_navigation->rectangle, guild_scene->viewport), stream))
+                        return reject(stream);
+                }
+    }
+    // Count badges on plugin buttons: the account panel's and the chat bar's.
+    if (ui_plugin_slot_surface_active(kUiPluginSlotAccountPanel) && navigation.voice_panel) {
+        const auto* footer = ui_scene_node(scene, UiSemantic::channel_footer);
+        UiPluginSlotNode nodes[kUiPluginSlotAccountButtons];
+        const u32 count = footer ? ui_plugin_slot_account_buttons({nodes, kUiPluginSlotAccountButtons}) : 0;
+        for (u32 i = 0; i < count; ++i)
+            if (nodes[i].badge &&
+                !ui_mention_badge_text_output(
+                    nodes[i].badge, scene.widgets, ui_scene_widget(scene, UiSemantic::channel_footer),
+                    ui_plugin_slot_count_rectangle(ui_plugin_slot_account_button(footer->rectangle, i), nodes[i].badge),
+                    footer->rectangle, stream))
+                return reject(stream);
+    }
+    if (composer_scene && ui_plugin_slot_surface_active(kUiPluginSlotComposerToolbar)) {
+        UiPluginSlotNode nodes[kMessageComposerPluginSlots];
+        const u32 count = minimum<u32>(composer_scene->plugin_count,
+                                       ui_plugin_slot_toolbar(kUiPluginSlotComposerToolbar, {nodes, kMessageComposerPluginSlots}));
+        for (u32 i = 0; i < count; ++i) {
+            const auto* cell = ui_widget_manager_layout_node(composer_scene->widgets, composer_scene->plugin_slots[i]);
+            if (!cell || !nodes[i].badge) continue;
+            const UiRect badge = ui_plugin_slot_count_rectangle(cell->rectangle, nodes[i].badge);
+            if (!ui_mention_badge_text_output(nodes[i].badge, composer_scene->widgets, composer_scene->plugin_slots[i],
+                                              badge, {badge.left - 1, badge.top - 1, badge.right + 1, badge.bottom + 1},
+                                              stream))
                 return reject(stream);
         }
     }
@@ -591,8 +682,12 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                     const Utf8View voice_name = nickname.bytes ? nickname
                                                 : user         ? user_store_name(*users, *user)
                                                                : utf8_literal("Unknown user");
+                    // "Role colors everywhere": a participant's name takes their colour role.
+                    const Color voice_color = navigation.role_colors && member && member->role_color
+                                                  ? packed_role_color(member->role_color, theme)
+                                                  : ui_background_muted_text_color(theme);
                     if (!append_visible(channel_scene.widgets, row_widget.widget, voice_name, voice.label,
-                                        channel_navigation->rectangle, ui_background_muted_text_color(theme), stream,
+                                        channel_navigation->rectangle, voice_color, stream,
                                         kLookSub) ||
                         !append_visible(channel_scene.widgets, row_widget.widget, utf8_literal("LIVE"), voice.live,
                                         channel_navigation->rectangle, theme.tokens.text.on_accent, stream,
@@ -710,16 +805,14 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                                    composer_scene->model->bytes == 0 ? kLookLine : kLookDraft)) {
             return reject(stream);
         }
-        const Utf8View typing_text = message_composer_scene_typing_label(*composer_scene);
-        if (typing_text.bytes != 0 &&
-            !append_command(composer_scene->widgets, composer_scene->typing_indicator, typing_text,
-                            typing->content_rectangle, typing->clip_rectangle,
-                            (composer_scene->status_is_error || composer_scene->status_tone == 4 ? theme.notification
-                              : composer_scene->status_tone == 3                        ? theme.tokens.text.warning
-                              : composer_scene->status_tone == 2                        ? theme.tokens.text.positive
-                              : composer_scene->status_tone == 1                        ? theme.accent
-                                                                                        : theme.text_primary), stream,
-                            kLookSub))
+        const Color typing_color = composer_scene->status_is_error || composer_scene->status_tone == 4
+                                       ? theme.notification
+                                   : composer_scene->status_tone == 3 ? theme.tokens.text.warning
+                                   : composer_scene->status_tone == 2 ? theme.tokens.text.positive
+                                   : composer_scene->status_tone == 1 ? theme.accent
+                                                                      : theme.text_primary;
+        if (!typing_output(*composer_scene, *typing, message_composer_scene_typing_label(*composer_scene),
+                           typing_color, measure, stream))
             return reject(stream);
     }
     if (!footer_output(scene, state, navigation, theme, stream, users))
@@ -735,6 +828,20 @@ bool shell_text_presentation_member_output(const MemberListScene& member_list, c
     if (!member_scene->active || !member_scene->source || !member_scene->members || !member_scene->users ||
         !member_scene->state)
         return true;
+    // A plugin's label in the strip above the list.
+    {
+        UiPluginSlotNode header;
+        if (ui_plugin_member_list_header(&header)) {
+            const UiRect strip{member_scene->viewport.left, member_scene->viewport.top - kUiPluginMemberListHeaderHeight,
+                               member_scene->viewport.right, member_scene->viewport.top};
+            TextLook look = kLookGroup;
+            look.owned = true;
+            if (!append_command(member_scene->widgets, member_scene->root, ui_plugin_slot_label(header),
+                                {strip.left + 16.0f, strip.top, strip.right - 8.0f, strip.bottom}, strip,
+                                ui_background_muted_text_color(theme), stream, look))
+                return false;
+        }
+    }
     char group_storage[160];
     const auto* hovered_row = member_list_scene_resolve(*member_scene, member_scene->widgets.hovered);
     for (u32 index = 0; index < member_scene->count; ++index) {
@@ -786,7 +893,29 @@ bool shell_text_presentation_member_output(const MemberListScene& member_list, c
         if (!group && name_style)
             look.face = profile_name_face(name_style->name.font_id);
         look.effect = &name_effect;
-        if (!append_command(member_scene->widgets, row.label, name, r, label->clip_rectangle, color, stream, look))
+        // A plugin's name prefix and suffix (a username beside the display name) join the label, which is then
+        // formatted into a local buffer.
+        char joined[224];
+        Utf8View shown = name;
+        UiPluginSlotNode affix[2];
+        if (!group && ui_plugin_slots(kUiPluginSlotMemberName, 0, 0, row.user_id, {affix, 2}) == 2) {
+            u32 used = 0;
+            const auto put = [&](Utf8View text, bool space_before) noexcept {
+                if (!text.bytes) return;
+                const u32 room = sizeof(joined) - used;
+                const u32 take = utf8_truncated_length(text, room > 1 ? room - 1 : 0);
+                if (!take) return;
+                if (space_before && used) joined[used++] = ' ';
+                copy_bytes(joined + used, text.data, minimum(take, static_cast<u32>(sizeof(joined)) - used));
+                used += minimum(take, static_cast<u32>(sizeof(joined)) - used);
+            };
+            put(affix[0].text, false);
+            put(name, true);
+            put(affix[1].text, true);
+            shown = {joined, used};
+            look.owned = true;
+        }
+        if (!append_command(member_scene->widgets, row.label, shown, r, label->clip_rectangle, color, stream, look))
             return false;
         if (subtitle) {
             // The activity glyph (shell_presentation_build_member_status_overlay) leads the line.

@@ -1,6 +1,7 @@
 #pragma once
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/guild/rail_scene.hpp"
+#include "maicord/ui/chat/messages/mention_badge.hpp"
 #include "maicord/ui/plugins/slots.hpp"
 #include "maicord/ui/shell/navigation_scene.hpp"
 
@@ -44,4 +45,41 @@ inline bool guild_rail_plugin_corner(const GuildRailScene& scene, u32 index, UiP
                                            guild_rail_icon_rectangle(layout->rectangle), out);
 }
 
+// A plugin tile at one end of the server list (end 1 above the servers, 2 after "Add a server"): its icon
+// rectangle (a rail tile, like Home) and the plugin's node, read from the query like every slot node.
+struct GuildRailPluginTile {
+    UiRect tile;
+    UiWidgetHandle widget;
+    UiPluginSlotNode node;
+};
+inline bool guild_rail_plugin_tile(const GuildRailScene& scene, u32 end, u32 index, GuildRailPluginTile* out) noexcept {
+    if (!(end == 1 ? scene.materialized_top : scene.materialized_bottom) || index >= kGuildRailPluginTiles) return false;
+    UiPluginSlotNode nodes[kGuildRailPluginTiles];
+    const u32 count = ui_plugin_slot_toolbar(end == 1 ? kUiPluginSlotServerTop : kUiPluginSlotServerBottom,
+                                             {nodes, kGuildRailPluginTiles});
+    const UiRect row = guild_rail_scene_plugin_rectangle(scene, end, index);
+    if (index >= count || !ui_rect_has_area(row)) return false;
+    out->tile = guild_rail_icon_rectangle(row);
+    out->widget = scene.plugin_tiles[(end - 1) * kGuildRailPluginTiles + index];
+    out->node = nodes[index];
+    return true;
+}
+
+// A count badge on the top-right corner of a square toolbar button (chat bar, account panel): the same pill and
+// "99+" label as a mention badge, over the button's corner. Paint here; the text pass draws the label.
+inline UiRect ui_plugin_slot_count_rectangle(UiRect cell, u32 count) noexcept {
+    const float width = ui_mention_badge_width(count);
+    return {cell.right - width + 4.0f, cell.top - 4.0f, cell.right + 4.0f, cell.top - 4.0f + kUiMentionBadgeHeight};
+}
+inline bool ui_plugin_slot_count_paint(PaintStream* paint, UiRect cell, u32 count, const Theme& theme) noexcept {
+    const UiRect badge = ui_plugin_slot_count_rectangle(cell, count);
+    return paint_stream_push_rounded(paint, badge, theme.notification, ui_rect_height(badge) * 0.5f);
+}
+
+// The label a plugin puts over the member list (counts and the like). The strip is this tall; the list starts
+// below it, so its scene viewport begins kUiPluginMemberListHeaderHeight under the sidebar's top.
+inline constexpr float kUiPluginMemberListHeaderHeight = 32.0f;
+inline bool ui_plugin_member_list_header(UiPluginSlotNode* out) noexcept {
+    return ui_plugin_slots(kUiPluginSlotMemberListHeader, 0, 0, 0, {out, 1}) && (out->text.bytes || out->tooltip.bytes);
+}
 } // namespace maicord

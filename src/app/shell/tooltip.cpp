@@ -555,7 +555,8 @@ bool plugin_surface_target(UiPoint point, u64 scope, UiTooltipTarget* target) no
                 0x5700u + hit.target.surface * 4 + hit.index},
                hit.anchor,
                hit.label};
-    if (hit.target.surface == kUiPluginSlotGuildRail)
+    if (hit.target.surface == kUiPluginSlotGuildRail || hit.target.surface == kUiPluginSlotServerTop ||
+        hit.target.surface == kUiPluginSlotServerBottom)
         target->placement = UiTooltipPlacement::right;
     return true;
 }

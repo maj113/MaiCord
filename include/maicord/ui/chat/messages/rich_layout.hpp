@@ -23,6 +23,10 @@ inline constexpr u32 kMessageRichItemMaximum = kMessageRichInviteItemOffset + kM
 inline constexpr float kMessageInviteCardHeight = 106.0f;
 inline constexpr float kMessageInviteCardMaximumWidth = 432.0f;
 inline constexpr float kMessageInviteCardGap = 8.0f;
+// A plugin card (a decoration's card under the message): at most this wide, text inset past a 4-DIP accent bar.
+inline constexpr float kMessagePluginCardMaximumWidth = 432.0f;
+inline constexpr float kMessagePluginCardBar = 4.0f;
+inline constexpr float kMessagePluginCardInset = 14.0f;
 inline constexpr float kDefaultMessageRichBlockGapDips = 8.0f;
 // Thread starter card below the reactions: name line and a metadata line.
 inline constexpr float kMessageThreadCardGapDips = 6.0f;
@@ -104,6 +108,9 @@ struct MessageRichItemLayout {
     // Measured width of the reply preview line (avatar gap excluded); paint
     // puts the trailing attachment/sticker/command/voice icon after it.
     float reply_width;
+    // A plugin card at the start of the notice container: where it starts (below a truncation notice) and how
+    // tall it is, 0 for none. The text pass measures it and paint draws its panel.
+    float plugin_card_top, plugin_card_height;
 };
 
 // Reply preview: the text starts after the 16-DIP avatar and

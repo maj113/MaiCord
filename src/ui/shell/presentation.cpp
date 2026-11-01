@@ -33,6 +33,8 @@
 namespace maicord {
 namespace {
 UiIcon channel_row_icon(const ChannelViewRow& row) noexcept {
+    if (row.locked)
+        return UiIcon::lock;
     switch (row.type) {
     case 2: return UiIcon::speaker;
     case 5: return UiIcon::megaphone;
@@ -150,6 +152,33 @@ bool paint_rail_badge(PaintStream* stream, const UiRect& badge, const Theme& the
     return paint_stream_push_rounded_border(stream, badge.left - cutout, badge.top - cutout, badge.right + cutout,
                                             badge.bottom + cutout, theme.notification, theme.base_lowest,
                                             ui_rect_height(badge) * 0.5f + cutout, cutout);
+}
+
+// Plugin tiles at both ends of the server list: rail tiles holding the plugin's icon; a toggle that is on (or
+// a hover) takes the accent, a disabled one is dimmed, a count becomes a badge cut out of the rail.
+bool paint_plugin_tiles(PaintStream* stream, const GuildRailScene& scene, const Theme& theme) noexcept {
+    if (!scene.materialized_top && !scene.materialized_bottom)
+        return true;
+    for (u32 end = 1; end <= 2; ++end)
+        for (u32 index = 0; index < kGuildRailPluginTiles; ++index) {
+            GuildRailPluginTile tile;
+            if (!guild_rail_plugin_tile(scene, end, index, &tile))
+                continue;
+            const bool hovered = ui_widget_handle_matches(tile.widget, scene.widgets.hovered);
+            const bool disabled = (tile.node.state & kUiPluginSlotDisabled) != 0;
+            const bool accent = !disabled && (hovered || (tile.node.state & kUiPluginSlotActive));
+            const float extent = kUiGuildRailGlyphExtent;
+            const float cx = (tile.tile.left + tile.tile.right) * .5f, cy = (tile.tile.top + tile.tile.bottom) * .5f;
+            if (!paint_rail_tile(stream, tile.tile, accent, theme) ||
+                !ui_icon_paint(stream, ui_plugin_slot_icon(tile.node),
+                               {cx - extent * .5f, cy - extent * .5f, cx + extent * .5f, cy + extent * .5f},
+                               disabled ? ui_background_muted_text_color(theme)
+                               : accent ? rail_tile_ink(true, theme)
+                                        : ui_plugin_slot_ink(theme, tile.node.tone, theme.text_primary)) ||
+                (tile.node.badge && !paint_rail_badge(stream, ui_mention_badge_guild_rectangle(tile.tile, tile.node.badge), theme)))
+                return false;
+        }
+    return true;
 }
 
 bool paint_voice_participants(PaintStream* stream, const ShellNavigationRowWidget& row_widget,
@@ -514,7 +543,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
             // Mention and plugin badges sit above the icon's media:
             // shell_presentation_build_guild_rail_overlay.
         }
-        if (!paint_add_server(stream, *guild_scene, theme) ||
+        if (!paint_add_server(stream, *guild_scene, theme) || !paint_plugin_tiles(stream, *guild_scene, theme) ||
             !paint_drag_visual(stream, guild_scene->drag, theme, theme.scale.radius_lg))
             return false;
         if (!paint_stream_pop_clip(stream)) {
@@ -797,10 +826,19 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
             const bool hovered = g_ui_plugin_slot_hover.active &&
                                  g_ui_plugin_slot_hover.surface == kUiPluginSlotAccountPanel &&
                                  g_ui_plugin_slot_hover.index == i;
-            if ((hovered && !paint_stream_push_rounded(stream, r, ui_background_hover_color(theme, theme.surface_high, .20f), theme.scale.radius_sm)) ||
-                !ui_icon_paint(stream, ui_plugin_slot_icon(plugin_nodes[i]),
-                               {r.left + 7, r.top + 7, r.right - 7, r.bottom - 7},
-                               ui_plugin_slot_ink(theme, plugin_nodes[i].tone, theme.text_secondary)))
+            const UiPluginSlotNode& node = plugin_nodes[i];
+            const bool disabled = (node.state & kUiPluginSlotDisabled) != 0;
+            const bool on = !disabled && (node.state & kUiPluginSlotActive) != 0;
+            if (((hovered && !disabled) || on) &&
+                !paint_stream_push_rounded(stream, r,
+                                           on ? ui_background_hover_color(theme, theme.interactive, .28f)
+                                              : ui_background_hover_color(theme, theme.surface_high, .20f),
+                                           theme.scale.radius_sm))
+                return false;
+            if (!ui_icon_paint(stream, ui_plugin_slot_icon(node), {r.left + 7, r.top + 7, r.right - 7, r.bottom - 7},
+                               disabled ? ui_background_muted_text_color(theme)
+                                        : ui_plugin_slot_ink(theme, node.tone, theme.text_secondary)) ||
+                (node.badge && !ui_plugin_slot_count_paint(stream, r, node.badge, theme)))
                 return false;
         }
     }
@@ -936,10 +974,23 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
     const u32 plugin_count = minimum<u32>(
         composer_scene->plugin_count,
         ui_plugin_slot_toolbar(kUiPluginSlotComposerToolbar, {plugin_nodes, kMessageComposerPluginSlots}));
-    for (u32 i = 0; i < plugin_count; ++i)
-        if (!ui_button_icon_paint(stream, composer_scene->widgets, composer_scene->plugin_slots[i],
-                                  ui_plugin_slot_icon(plugin_nodes[i]), theme))
+    for (u32 i = 0; i < plugin_count; ++i) {
+        const UiPluginSlotNode& node = plugin_nodes[i];
+        const UiLayoutNode* cell = ui_widget_manager_layout_node(composer_scene->widgets, composer_scene->plugin_slots[i]);
+        if (node.state & kUiPluginSlotDisabled) {
+            // A disabled button keeps its place, dimmed, and ignores the pointer.
+            if (!cell || !ui_icon_paint(stream, ui_plugin_slot_icon(node),
+                                        {cell->rectangle.left + 7, cell->rectangle.top + 7, cell->rectangle.right - 7,
+                                         cell->rectangle.bottom - 7},
+                                        ui_background_muted_text_color(theme)))
+                return false;
+        } else if (!ui_button_icon_paint(stream, composer_scene->widgets, composer_scene->plugin_slots[i],
+                                         ui_plugin_slot_icon(node), theme, (node.state & kUiPluginSlotActive) != 0)) {
             return false;
+        }
+        if (node.badge && cell && !ui_plugin_slot_count_paint(stream, cell->rectangle, node.badge, theme))
+            return false;
+    }
     if (message_composer_scene_attachment_row(*composer_scene) == message_composer_attachment_row_strip) {
         if (!ui_composer_attachment_strip_paint_base(message_composer_scene_attachment_view(*composer_scene, true),
                                                      theme, stream))

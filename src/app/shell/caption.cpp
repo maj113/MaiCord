@@ -224,6 +224,12 @@ RECT screen_rect(HWND window, const UiRect& rectangle, u32 dpi) noexcept {
 
 // The icon at the bar's DPI, decoded once per size.
 void synchronize_icon(u32 dpi) noexcept {
+    // A new device (after a reset) holds no icon texture.
+    static u32 device_generation = 0;
+    if (device_generation != g_app.renderer.device_generation) {
+        device_generation = g_app.renderer.device_generation;
+        g_caption.icon_extent = 0;
+    }
     const u32 extent =
         static_cast<u32>(application_theme().scale.caption_icon * static_cast<float>(dpi) / 96.0f + .5f);
     if (extent == g_caption.icon_extent || !g_app.renderer_ready)

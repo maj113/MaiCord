@@ -1,11 +1,13 @@
 #include "interaction_internal.hpp"
 #include "../../guild/folders.hpp"
+#include "../../guild/hidden_channel.hpp"
 #include "../../shell/click_count.hpp"
 #include "../../account/login/action_captcha.hpp"
 #include "feedback.hpp"
 #include "../../shell/retained_projection.hpp"
 #include "maicord/ui/shell/navigation_context.hpp"
 #include "maicord/ui/chat/messages/author.hpp"
+#include "../../plugins/surface_host.hpp"
 
 namespace maicord::app_detail {
 namespace interaction_detail {
@@ -531,6 +533,7 @@ u16 application_message_action_bar_capabilities(u64 message_id) noexcept {
     const MessageRecord* record = g_app.account_ui ? application_message_record(message_id) : nullptr;
     if (!record || record->delivery != MessageDeliveryState::authoritative)
         return 0;
+    application_plugin_surfaces_hover(message_id);
     u16 capabilities = 0;
     const auto add = [&](bool condition, MessageActionBarCapability capability) noexcept {
         if (condition)
@@ -690,6 +693,9 @@ bool open_reaction_context_popup(const MessageSceneHit& hit, UiRect anchor) noex
 bool open_channel_context_popup(u64 channel_id, UiRect anchor) noexcept {
     if (!g_app.account_ui)
         return false;
+    // A locked channel (Show hidden channels) explains itself instead of offering actions.
+    if (application_hidden_channel_open(channel_id, anchor))
+        return true;
     const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, channel_id);
     if (!channel || !channel_context_target_valid(g_app.account_ui->chat_state, channel_id))
         return dismiss_popup();

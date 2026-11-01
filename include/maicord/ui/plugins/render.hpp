@@ -29,6 +29,10 @@ inline constexpr u16 kUiPluginRenderContentSource = 0x2001u;   // replacement ma
 inline constexpr u16 kUiPluginRenderGeneratedSource = 0x2002u; // collapsed label, accessories
 // Semantic targets on generated text: accessories are index + 1.
 inline constexpr u64 kUiPluginRenderShowTarget = 0x100u;
+// A card's title link and buttons: kUiPluginRenderCardTarget + button index; the title link is the first
+// target past the buttons.
+inline constexpr u64 kUiPluginRenderCardTarget = 0x200u;
+inline constexpr u64 kUiPluginRenderCardLinkTarget = 0x210u;
 
 struct UiPluginRenderNode {
     u64 owner_id, action_id;
@@ -36,13 +40,29 @@ struct UiPluginRenderNode {
     u16 icon; // UiIcon value or kUiPluginRenderNoIcon
     u8 kind, tone;
 };
+// The block under a message's accessories: an accent bar, the title (a link when `link` is set), text,
+// caption, an optional thumbnail and up to two buttons. Views borrow plugin host storage like the nodes.
+inline constexpr u32 kUiPluginRenderCardButtons = 2;
+struct UiPluginRenderCardButton {
+    u64 action_id;
+    Utf8View label;
+    u8 tone;
+};
+struct UiPluginRenderCard {
+    u64 owner_id;
+    Utf8View title, text, caption, link, thumbnail;
+    UiPluginRenderCardButton buttons[kUiPluginRenderCardButtons];
+    u32 button_count;
+    u8 tone;
+};
 struct UiPluginRenderDecoration {
     u8 visibility, media, name_tone;
-    bool replace_content;
+    bool replace_content, has_card;
     Utf8View collapsed_label, name_prefix, name_suffix, content;
     u32 badge_count, accessory_count;
     UiPluginRenderNode badges[kUiPluginRenderBadges];
     UiPluginRenderNode accessories[kUiPluginRenderAccessories];
+    UiPluginRenderCard card;
 };
 
 using UiPluginRenderQuery = bool (*)(u64 message_id, u32 revision, UiPluginRenderDecoration* output) noexcept;

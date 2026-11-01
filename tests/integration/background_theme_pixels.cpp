@@ -1,5 +1,4 @@
 #include "background_theme_internal.hpp"
-#include "maicord_fx_plugin_reference_ps.hpp"
 #include "theme_views_probe.hpp"
 #include "maicord/render/d3d11/renderer_presentation.hpp"
 #include "maicord/render/effects/background_fx.hpp"
@@ -34,40 +33,11 @@ void reference(const Theme& theme, float position, float* rgb) noexcept {
 
 } // namespace background_theme_detail
 
-namespace {
-
-// Saves the renderer's paint stream, text and media counts so a probe can draw an isolated
-// stream; restores them, and redraws the retained scene under `theme`, when it goes out of scope.
-struct StreamSwap {
-    D3D11Renderer& r;
-    PaintStream saved;
-    RendererTextStorage* text;
-    u32 quads, batches;
-    PaintStream& isolated;
-    const Theme& theme;
-    bool plugin;
-    StreamSwap(D3D11Renderer& renderer, PaintStream& stream, const Theme& restore_theme,
-               bool clear_plugin = false) noexcept
-        : r(renderer), saved(renderer.paint_stream), text(renderer.content_text),
-          quads(renderer.media_quad_count), batches(renderer.media_batch_count), isolated(stream),
-          theme(restore_theme), plugin(clear_plugin) {}
-    ~StreamSwap() noexcept {
-        if (plugin)
-            renderer_clear_plugin_effect(&r);
-        r.paint_stream = saved;
-        r.content_text = text;
-        r.media_quad_count = quads;
-        r.media_batch_count = batches;
-        paint_stream_release(&isolated);
-        // Restore the original instance buffer before another retained
-        // present; otherwise this temporary one-quad stream could survive.
-        d3d11_renderer_draw_stream(&r, theme, true, true, nullptr);
-    }
-};
-
-} // namespace
-
 namespace background_theme_detail {
+
+void restore_scene(D3D11Renderer& r, const Theme& theme) noexcept {
+    d3d11_renderer_draw_stream(&r, theme, true, true, nullptr);
+}
 
 bool shader_pixels(D3D11Renderer& r, const Theme& theme, float seconds, u64* hash,
                    const Theme& restore_theme, bool canvas,
@@ -517,91 +487,6 @@ bool effect_canvas_pixels(D3D11Renderer& r) noexcept {
     log_write(LogLevel::info, "probe",
               "background_flat_dark_amoled_light_and_bright_stop_dark_six_effects_canvas_ink_phase_root_"
               "isolation_passed");
-    return true;
-}
-// A plugin effect (third-party mc.fx@1 bytecode) on a flat theme with no
-// built-in effect: it draws once per canvas after the canvas fill and under
-// the widget that follows; parameters repaint; None skips the pass; the
-// device's rejection of bad bytecode reaches the host.
-bool plugin_effect_pixels(D3D11Renderer& r) noexcept {
-    PaintStream isolated{};
-    if (!paint_stream_initialize(&isolated))
-        return failure(120);
-    RendererTextStorage empty{};
-    StreamSwap restore{r, isolated, kDefaultTheme, true};
-    const float width = r.width * 96.f / r.dpi, height = r.height * 96.f / r.dpi;
-    const Theme theme = kDefaultTheme;
-    const UiRect canvas{width * .25f, height * .25f, width * .75f, height * .75f};
-    const Color widget{.8f, .05f, .05f, 1};
-    if (!paint_stream_reset(&isolated, width, height) ||
-        !paint_stream_push(&isolated, 0, 0, width, height, theme.base_lowest) ||
-        !ui_background_paint_canvas(&isolated, canvas, theme, theme.base_low) ||
-        !paint_stream_push(&isolated, canvas.left, canvas.top, canvas.left + (canvas.right - canvas.left) * .2f,
-                           canvas.top + (canvas.bottom - canvas.top) * .2f, widget) ||
-        isolated.count != 3 || !ui_background_canvas_quad(isolated.quads[1]) ||
-        ui_background_canvas_quad(isolated.quads[0]) || ui_background_canvas_quad(isolated.quads[2]))
-        return failure(121);
-    r.paint_stream = isolated;
-    r.content_text = &empty;
-    r.media_quad_count = r.media_batch_count = 0;
-    const ConstSlice<u8> code{g_maicord_fx_plugin_reference_shader, sizeof(g_maicord_fx_plugin_reference_shader)};
-    float parameters[kBackgroundFxParameters]{1};
-    if (FAILED(renderer_select_plugin_effect(&r, 0x51, 7, 1, code, parameters)) ||
-        !d3d11_background_fx_plugin_active(r.background_fx) || !renderer_set_background_phase(&r, 0) ||
-        !d3d11_renderer_draw_stream(&r, theme, true, true, nullptr) || r.background_fx.draws_last_frame != 1)
-        return failure(122);
-    const float accent[]{background_fx_linear(theme.accent.red), background_fx_linear(theme.accent.green),
-                         background_fx_linear(theme.accent.blue)};
-    const float base[]{theme.base_low.red, theme.base_low.green, theme.base_low.blue};
-    const float outside[]{theme.base_lowest.red, theme.base_lowest.green, theme.base_lowest.blue};
-    const float ink[]{widget.red, widget.green, widget.blue};
-    {
-        PixelReadback pixels{r};
-        if (!pixels.color(.25f + .5f * .35f, .6f, accent) || !pixels.color(.25f + .5f * .8f, .6f, base) ||
-            !pixels.color(.25f + .5f * .1f, .25f + .5f * .1f, ink) || !pixels.color(.1f, .1f, outside))
-            return failure(123);
-    }
-    // New parameters repaint with the same shader object.
-    auto* const shader = r.background_fx.plugin_shader;
-    parameters[0] = 0;
-    if (FAILED(renderer_select_plugin_effect(&r, 0x51, 7, 2, code, parameters)) ||
-        r.background_fx.plugin_shader != shader || !d3d11_renderer_draw_stream(&r, theme, true, true, nullptr))
-        return failure(124);
-    {
-        PixelReadback pixels{r};
-        if (!pixels.color(.25f + .5f * .35f, .6f, base))
-            return failure(125);
-    }
-    // A few frames feed the GPU guard without tripping it on a cheap effect.
-    parameters[0] = 1;
-    if (FAILED(renderer_select_plugin_effect(&r, 0x51, 7, 3, code, parameters)))
-        return failure(126);
-    for (u32 frame = 0; frame < 8; ++frame)
-        if (!renderer_set_background_phase(&r, frame * .05f) ||
-            !d3d11_renderer_draw_stream(&r, theme, true, true, nullptr) || r.background_fx.draws_last_frame != 1 ||
-            r.background_fx.tripped)
-            return failure(127);
-    // None: no effect pass at all.
-    renderer_clear_plugin_effect(&r);
-    if (d3d11_background_fx_plugin_active(r.background_fx) ||
-        !d3d11_renderer_draw_stream(&r, theme, true, true, nullptr) || r.background_fx.draws_last_frame ||
-        r.background_fx.source != BackgroundFxSource::none)
-        return failure(128);
-    {
-        PixelReadback pixels{r};
-        if (!pixels.color(.25f + .5f * .35f, .6f, base))
-            return failure(129);
-    }
-    // Bytecode the device rejects: the failure reaches the host, nothing draws.
-    u8 corrupt[sizeof(g_maicord_fx_plugin_reference_shader)];
-    copy_bytes(corrupt, g_maicord_fx_plugin_reference_shader, sizeof(corrupt));
-    for (u32 i = 32; i < sizeof(corrupt); ++i)
-        corrupt[i] ^= 0x5a;
-    if (SUCCEEDED(renderer_select_plugin_effect(&r, 0x51, 8, 4, {corrupt, sizeof(corrupt)}, parameters)) ||
-        d3d11_background_fx_plugin_active(r.background_fx))
-        return failure(130);
-    log_write(LogLevel::info, "probe",
-              "background_plugin_effect_once_per_canvas_under_widgets_parameters_none_and_rejection_passed");
     return true;
 }
 bool retained_frames(D3D11Renderer& r, const Theme& theme) noexcept {

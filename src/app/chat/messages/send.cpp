@@ -15,6 +15,7 @@
 #include "../composer/reply_draft.hpp"
 #include "../../settings/emoji_preferences.hpp"
 #include "../../plugins/plugins.hpp"
+#include "../../plugins/pipeline_host.hpp"
 #include "../composer/mention_confirmation.hpp"
 
 #include "maicord/app/chat/composer/message_composer_controller.hpp"
@@ -58,7 +59,8 @@ bool queue_composer_message(bool mention_confirmed) noexcept {
         &g_app.account_ui->message_composer_controller, g_app.message_composer_scene.channel_allows_send,
         g_app.account_ui->chat_state.self_user_id, clock_unix_milliseconds(),
         clock_monotonic_milliseconds(), reply.message_id, {attachments, attachment_count},
-        {attachment_sizes, attachment_count}, nullptr, {}, reply.mention_reply_author, &reply);
+        {attachment_sizes, attachment_count}, nullptr, {}, reply.mention_reply_author, &reply,
+        application_plugins_take_suppress_embeds());
     if (!queued.ok()) {
         log_u64(LogLevel::error, "message", "message_send_queue_error", static_cast<u64>(queued.error));
     } else {

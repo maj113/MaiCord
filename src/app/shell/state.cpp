@@ -27,16 +27,28 @@ constinit Application g_app{.preferences = {ClientTheme::dark,
                                             NotificationSoundpack::classic,
                                             {},
                                             {},
-                                            false,
-                                            false,
-                                            false,
-                                            false,
-                                            false,
-                                            false,
-                                            false,
-                                            0,
-                                            0,
-                                            0},
+                                            false, // developer_mode
+                                            false, // taskbar_flash
+                                            false, // unread_badge
+                                            false, // minimize_to_tray
+                                            false, // start_minimized
+                                            false, // spellcheck
+                                            false, // game_detection
+                                            false, // dm_profile_visible
+                                            false, // role_colors_everywhere
+                                            false, // reply_timestamps
+                                            false, // folders_close_others
+                                            false, // folders_close_on_home
+                                            false, // folders_follow_selection
+                                            false, // show_hidden_channels
+                                            false, // image_zoom
+                                            false, // image_zoom_square
+                                            0,     // image_zoom_factor
+                                            0,     // image_zoom_size
+                                            0,     // message_group_spacing
+                                            0,     // channel_pane_width
+                                            0,     // member_pane_width
+                                            0},    // expression_picker_width
                             .image_viewer = {.reveal = {.style = {0, UiMotionCurve::linear}}}};
 constinit ThemePublication theme_publication{};
 

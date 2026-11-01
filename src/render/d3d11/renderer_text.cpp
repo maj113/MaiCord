@@ -3,6 +3,8 @@
 #include "maicord/render/effects/colr_paint.hpp"
 #include "../text/picker_glyph_cache.hpp"
 #include "../text/shaped_text_cache.hpp"
+#include "maicord/model/guild/member_store.hpp"
+#include "maicord/ui/chat/messages/text_presentation.hpp"
 #include "maicord/model/user/private_channel_store.hpp"
 #include "maicord/render/media/inline_media.hpp"
 #include "maicord/ui/chat/threads/header.hpp"
@@ -34,14 +36,15 @@ struct TextRasterScope {
     }
 };
 
-bool resolve_role_mention_color(const D3D11Renderer* renderer, u64 message_id, u64 role_id,
-                                Color* color) noexcept {
+bool resolve_mention_color(const D3D11Renderer* renderer, u64 message_id, MessageMarkdownSemanticKind kind,
+                           u64 target, Color* color) noexcept {
+    const bool user = kind == MessageMarkdownSemanticKind::user_mention;
     // Message id zero is the composer: its projected role spans carry colours.
-    if (renderer && color && message_id == 0 && role_id != 0 && renderer->message_composer_scene) {
+    if (renderer && color && message_id == 0 && target != 0 && renderer->message_composer_scene) {
         const auto& composer = *renderer->message_composer_scene;
-        for (u32 index = 0; composer.projection_spans && index < composer.projection_span_count; ++index) {
+        for (u32 index = 0; !user && composer.projection_spans && index < composer.projection_span_count; ++index) {
             const auto& span = composer.projection_spans[index];
-            if (span.kind == MessageComposerProjectionKind::role && span.target == role_id && span.color) {
+            if (span.kind == MessageComposerProjectionKind::role && span.target == target && span.color) {
                 *color = color_from_rgb24(span.color);
                 return true;
             }
@@ -50,7 +53,7 @@ bool resolve_role_mention_color(const D3D11Renderer* renderer, u64 message_id, u
     }
     if (!renderer || !renderer->chat_state || !renderer->message_scene ||
         !renderer->message_scene->timeline || !renderer->message_scene->timeline->store || !color ||
-        message_id == 0 || role_id == 0) {
+        message_id == 0 || target == 0) {
         return false;
     }
     const MessageStoreResult found =
@@ -60,9 +63,21 @@ bool resolve_role_mention_color(const D3D11Renderer* renderer, u64 message_id, u
                    : nullptr;
     const ChannelRecord* channel =
         message ? chat_state_store_find_channel(*renderer->chat_state, message->channel_id) : nullptr;
+    if (user) {
+        // "Role colors everywhere": a mention takes the member's colour role.
+        const GuildMemberStore* members = renderer->message_text ? renderer->message_text->guild_members : nullptr;
+        const GuildMemberRecord* member =
+            members && channel && channel->guild_id != 0 && renderer->message_scene->display.role_colors
+                ? guild_member_store_find(*members, channel->guild_id, target)
+                : nullptr;
+        if (!member || member->role_color == 0)
+            return false;
+        *color = color_from_rgb24(member->role_color);
+        return true;
+    }
     const RoleRecord* role =
         channel && channel->guild_id != 0
-            ? chat_state_store_find_role(*renderer->chat_state, channel->guild_id, role_id)
+            ? chat_state_store_find_role(*renderer->chat_state, channel->guild_id, target)
             : nullptr;
     if (!role || role->color == 0) {
         return false;
@@ -71,10 +86,9 @@ bool resolve_role_mention_color(const D3D11Renderer* renderer, u64 message_id, u
     return true;
 }
 
-bool resolve_role_mention_color_callback(void* context, u64 message_id, u64 role_id,
-                                         Color* color) noexcept {
-    return resolve_role_mention_color(static_cast<const D3D11Renderer*>(context), message_id, role_id,
-                                      color);
+bool resolve_mention_color_callback(void* context, u64 message_id, MessageMarkdownSemanticKind kind, u64 target,
+                                    Color* color) noexcept {
+    return resolve_mention_color(static_cast<const D3D11Renderer*>(context), message_id, kind, target, color);
 }
 
 float aligned_text_origin(UiTextAlignment alignment, float start, float available, float used) noexcept {

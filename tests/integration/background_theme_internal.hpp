@@ -190,6 +190,39 @@ struct PixelReadback {
     }
 };
 
+// Draws the retained scene again under `theme` (defined with the pixel probes).
+void restore_scene(D3D11Renderer& r, const Theme& theme) noexcept;
+
+// Saves the renderer's paint stream, text and media counts so a probe can draw an isolated
+// stream; restores them, and redraws the retained scene under `theme`, when it goes out of scope.
+struct StreamSwap {
+    D3D11Renderer& r;
+    PaintStream saved;
+    RendererTextStorage* text;
+    u32 quads, batches;
+    PaintStream& isolated;
+    const Theme& theme;
+    bool effect;
+    StreamSwap(D3D11Renderer& renderer, PaintStream& stream, const Theme& restore_theme,
+               bool clear_effect = false) noexcept
+        : r(renderer), saved(renderer.paint_stream), text(renderer.content_text),
+          quads(renderer.media_quad_count), batches(renderer.media_batch_count), isolated(stream),
+          theme(restore_theme), effect(clear_effect) {}
+    ~StreamSwap() noexcept {
+        if (effect)
+            renderer_clear_effect(&r);
+        r.paint_stream = saved;
+        r.content_text = text;
+        r.media_quad_count = quads;
+        r.media_batch_count = batches;
+        paint_stream_release(&isolated);
+        // Restore the original instance buffer before another retained
+        // present; otherwise this temporary one-quad stream could survive.
+        restore_scene(r, theme);
+    }
+};
+
+
 void reference(const Theme& theme, float position, float* rgb) noexcept;
 
 bool shader_pixels(D3D11Renderer& r, const Theme& theme, float seconds, u64* hash = nullptr,
@@ -212,7 +245,11 @@ bool solid_pixels(D3D11Renderer& r) noexcept;
 
 bool effect_canvas_pixels(D3D11Renderer& r) noexcept;
 
-bool plugin_effect_pixels(D3D11Renderer& r) noexcept;
+// Package background effects against the renderer: the pass draws once per target frame under the frame cap,
+// canvases sample one window-space target (continuity, widgets above), the resolution, pause, blend, opacity and
+// budget behave, a lost device is rebuilt, and the shipped samples render and are timed (captured when
+// MAICORD_UI_PROBE_CAPTURE_DIR is set).
+bool effect_package_pixels(D3D11Renderer& r) noexcept;
 
 bool retained_frames(D3D11Renderer& r, const Theme& theme) noexcept;
 

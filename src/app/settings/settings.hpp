@@ -43,6 +43,8 @@ u64 application_settings_lifetime() noexcept;
 bool application_preferences_member_visibility(bool visible) noexcept;
 // The DM profile panel's remembered choice (dm_profile_panel.hpp).
 bool application_preferences_dm_profile_visibility(bool visible) noexcept;
+// The magnifier's zoom (half units) and size (tens of DIPs) after a wheel change.
+bool application_preferences_image_zoom(u8 factor, u8 size) noexcept;
 // Persists splitter widths once after a completed drag; true when queued.
 bool application_preferences_persist_pane_widths() noexcept;
 bool application_settings_commit_preferences() noexcept;

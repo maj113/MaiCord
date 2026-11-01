@@ -10,6 +10,7 @@
 #include "../chat/private_channel.hpp"
 #include "../guild/invite.hpp"
 #include "../guild/folders.hpp"
+#include "../guild/hidden_channel.hpp"
 #include "../media/downloads.hpp"
 #include "../media/video.hpp"
 #include "../chat/polls/poll.hpp"
@@ -393,6 +394,8 @@ bool home_shows_friends = true;
 bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexcept {
     if (!g_app.account_ui)
         return false;
+    if (home && g_app.preferences.folders_close_on_home)
+        application_guild_folders_close_all();
     if (home && (home_shows_friends || !g_app.account_ui->chat_state.last_private_channel_id))
         return application_friends_show();
     if (!guild && navigation_events_row(id))
@@ -527,7 +530,8 @@ bool select_content_guild(u64 guild) noexcept {
 // in the audience (suppressed by the server).
 static bool join_voice_channel(u64 channel_id) noexcept {
     const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, channel_id);
-    if (!channel || (channel->type != 2 && channel->type != 13) || !channel->guild_id)
+    if (!channel || (channel->type != 2 && channel->type != 13) || !channel->guild_id ||
+        chat_state_store_channel_hidden(g_app.account_ui->chat_state, *channel))
         return false;
     return application_voice_join(channel->guild_id, channel->id);
 }
@@ -598,6 +602,12 @@ bool activate_navigation_press(LPARAM lparam) noexcept {
         application_private_channel_set_requests_mode(!application_private_channel_requests_mode());
         return true;
     }
+    // A locked channel's row (Show hidden channels) only explains itself: it is never selected or joined.
+    if (g_app.account_ui && !hit.selectable && hit.kind == RendererNavigationHitKind::channel &&
+        application_channel_hidden(hit.id))
+        return application_hidden_channel_open(hit.id, {client_dip_x(lparam), client_dip_y(lparam),
+                                                        client_dip_x(lparam) + 1.0f, client_dip_y(lparam) + 1.0f}) ||
+               true;
     if (g_app.account_ui && !hit.selectable && hit.kind == RendererNavigationHitKind::channel)
         join_voice_channel(hit.id);
     if (!hit.selectable || !g_app.account_ui)

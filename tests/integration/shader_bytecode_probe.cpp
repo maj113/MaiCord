@@ -45,13 +45,14 @@ bool create(ID3D11Device* device,ShaderId id) noexcept {
     case ShaderId::ui_vertex: return create_vertex(device,id,{kUiElements,4});
     case ShaderId::glyph_vertex: return create_vertex(device,id,{kGlyphElements,3});
     case ShaderId::media_vertex: return create_vertex(device,id,{kMediaElements,4});
-    case ShaderId::fx_vertex: { // vertex-id driven quad: no input layout
+    case ShaderId::fx_vertex: case ShaderId::fx_target_vertex: case ShaderId::fx_composite_vertex: { // vertex-id driven: no input layout
         ID3D11VertexShader* shader=nullptr;bool layout_failed=false;
         const bool ok=SUCCEEDED(shader_create_vertex(device,id,{},&shader,nullptr,&layout_failed)) && shader && !layout_failed;
         if(shader)shader->Release();
         return ok;
     }
     case ShaderId::ui_pixel: case ShaderId::glyph_pixel: case ShaderId::media_pixel: case ShaderId::fx_builtin:
+    case ShaderId::fx_composite_pixel:
         return create_pixel(device,id);
     default: return create_compute(device,id);
     }

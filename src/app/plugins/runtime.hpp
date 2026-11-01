@@ -67,9 +67,6 @@ void application_plugins_sdk_close(ApplicationPlugins&) noexcept;
 // Points the host at the runtime and ledger before any module load.
 void application_plugins_sdk_bind_host(ApplicationPlugins&, NativePluginHost*) noexcept;
 void application_plugins_sdk_poll(ApplicationPlugins&) noexcept;
-// Effect registrations changed: repaint, and re-list the effect picker
-// (fx.cpp).
-void application_plugins_fx_poll(ApplicationPluginsSdk&) noexcept;
 // Fill the runtime's host sources (read.cpp, actions.cpp).
 void application_plugins_read_install(NativePluginSdkRuntime&) noexcept;
 void application_plugins_actions_install(NativePluginSdkRuntime&) noexcept;

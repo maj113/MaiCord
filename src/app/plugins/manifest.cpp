@@ -35,7 +35,7 @@ constexpr u32 kRequiredFields = (1u << min_host) - 1;
 constexpr char kPermissionNames[] =
     "settings\0menus\0message_send\0commands\0ui_slots\0store\0timer\0read_context\0read_guilds\0read_members\0"
     "read_presence\0read_voice\0read_messages\0message_render\0act_messages\0act_presence\0navigate\0clipboard\0"
-    "open_links\0notify\0keybinds\0effects\0";
+    "open_links\0notify\0keybinds\0";
 constexpr char kPermissionLabels[] =
     "Add settings pages\0Add items to context menus\0Change your messages before they are sent\0"
     "Add slash commands\0Show badges and buttons\0Store its own data\0Run on a timer\0"
@@ -47,7 +47,7 @@ constexpr char kPermissionLabels[] =
     "Change your custom status and shown activity\0"
     "Open channels, profiles and its own pages when you use it\0"
     "Copy text to the clipboard when you use it\0Open links (MaiCord asks first)\0"
-    "Show notices and dialogs\0Add keyboard shortcuts\0Draw a background effect\0";
+    "Show notices and dialogs\0Add keyboard shortcuts\0";
 static_assert(name_list_count(kPermissionNames) == kNativePluginPermissionCount &&
               name_list_count(kPermissionLabels) == kNativePluginPermissionCount);
 struct Parse { NativePluginManifest candidate; u32 seen; NativePluginManifestError error; JsonIndexedDocument document; };

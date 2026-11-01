@@ -51,9 +51,9 @@ struct ProbeState {
     UiScene shell_scene;
     GuildRailScene guild_rail_scene;
     GuildRailRowWidget guild_rail_rows[kProbeGuildCapacity];
-    // Root, top spacer, rows and the trailing "Add a server" button.
-    UiWidget guild_rail_widgets[kProbeGuildCapacity + 3];
-    UiLayoutNode guild_rail_layout_nodes[kProbeGuildCapacity + 3];
+    // Root, top spacer, rows, the trailing "Add a server" button and the plugin tiles at both ends.
+    UiWidget guild_rail_widgets[kProbeGuildCapacity + 3 + 2 * kGuildRailPluginTiles];
+    UiLayoutNode guild_rail_layout_nodes[kProbeGuildCapacity + 3 + 2 * kGuildRailPluginTiles];
     ShellNavigationScene shell_navigation_scene;
     ShellNavigationRowWidget shell_navigation_rows[kProbeChannelCapacity];
     UiWidget shell_navigation_widgets[kProbeChannelCapacity * 4 + 2];
@@ -209,6 +209,7 @@ bool frame_damage_ui_probe() noexcept;
 bool probe_autocomplete_identity() noexcept;
 bool probe_glyph_atlas_gutters() noexcept;
 bool probe_message_display() noexcept;
+bool probe_plugin_surfaces() noexcept;
 bool probe_chat_name_styles() noexcept;
 bool probe_dm_name_styles() noexcept;
 bool probe_transparent_guild_icon() noexcept;
@@ -218,6 +219,7 @@ bool probe_profile_activity_card() noexcept;
 bool probe_rich_composer() noexcept;
 bool probe_attachment_save_affordances() noexcept;
 bool probe_image_viewer() noexcept;
+bool probe_voice_message_bar() noexcept;
 bool probe_reaction_picker_server_icon() noexcept;
 bool probe_popup_overlays() noexcept;
 bool create_probe_window() noexcept;

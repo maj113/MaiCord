@@ -5,6 +5,7 @@
 #include "plugins.hpp"
 #include "maicord/core/memory.hpp"
 #include "runtime.hpp"
+#include "surface_host.hpp"
 #include "../account/account_presentation.hpp"
 #include "../shell/content_input.hpp"
 #include "../account/friends.hpp"
@@ -40,8 +41,10 @@ bool revealed(u64 message_id) noexcept {
 }
 // Revision the UI reads: decorations and reveals both change presentation.
 u64 published(const NativePluginSdkRuntime* rt) noexcept {
-    return decorating(rt) ? hash64_mix(hash64_mix(kHash64Seed, rt->render_revision), g_render.reveal_revision)
-                          : g_render.reveal_revision;
+    const u64 base = decorating(rt) ? hash64_mix(hash64_mix(kHash64Seed, rt->render_revision), g_render.reveal_revision)
+                                    : g_render.reveal_revision;
+    // Decorations of the v6 plugin runtime (which keeps its own reveals).
+    return g_plugin_message_revision ? hash64_mix(base, g_plugin_message_revision) : base;
 }
 void publish() noexcept { g_ui_plugin_render_revision = published(application_plugins_runtime()); }
 
@@ -146,8 +149,13 @@ void application_plugins_render_prepare() noexcept {
     // none, a null query lets every row skip the lookup.
     auto* rt = application_plugins_runtime();
     const bool decorated = decorating(rt);
-    g_ui_plugin_render_query = decorated ? render_query : nullptr;
+    // Plugins of the v6 runtime install their own query; this one answers only for v5 decorators.
+    if (decorated && !g_plugin_surfaces)
+        g_ui_plugin_render_query = render_query;
+    else if (g_ui_plugin_render_query == render_query)
+        g_ui_plugin_render_query = nullptr;
     g_app.message_scene.plugin_decorations = true;
+    application_plugin_surfaces_prepare();
     if (!decorated || !g_app.account_ui || application_plugins_busy()) {
         g_render.pending = false;
         publish();
@@ -196,10 +204,14 @@ void application_plugins_render_prepare() noexcept {
 
 bool application_plugins_render_stale() noexcept {
     publish();
-    return g_render.pending || g_render.rendered_revision != g_ui_plugin_render_revision;
+    return g_render.pending || g_render.rendered_revision != g_ui_plugin_render_revision ||
+           application_plugin_surfaces_stale();
 }
 
-void application_plugins_render_rendered() noexcept { g_render.rendered_revision = g_ui_plugin_render_revision; }
+void application_plugins_render_rendered() noexcept {
+    g_render.rendered_revision = g_ui_plugin_render_revision;
+    application_plugin_surfaces_rendered();
+}
 
 void application_plugins_render_poll() noexcept {
     const auto* rt = application_plugins_runtime();
@@ -207,6 +219,8 @@ void application_plugins_render_poll() noexcept {
         return;
     // Plugin invalidations (from timers and events) and decorators going away
     // both need a prepare pass and a text rebuild without other UI work.
+    if (application_plugin_surfaces_poll())
+        return;
     const bool changed = g_render.pending || published(rt) != g_render.rendered_revision ||
                          (decorating(rt) && g_render.prepared_signature != inputs_signature(*rt, g_app.message_view.store));
     if (changed && refresh_account_text(false))
@@ -217,6 +231,8 @@ bool application_plugins_render_click(const MessageTextHit& hit, UiRect anchor) 
     if (!hit.valid || hit.kind != MessageMarkdownSemanticKind::link ||
         !ui_plugin_render_source(static_cast<u16>(hit.source_offset >> 16u)) || !hit.message_id)
         return false;
+    if (g_plugin_surfaces && application_plugin_surfaces_text_click(hit))
+        return true;
     const auto& store = g_app.message_view.store;
     const MessageStoreResult found = message_store_find(store, hit.message_id);
     const MessageRecord* record = found.ok() ? message_store_resolve(store, found.handle) : nullptr;

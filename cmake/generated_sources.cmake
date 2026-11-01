@@ -171,12 +171,20 @@ maicord_shader(MAICORD_JPEG_ATLAS_HEADER maicord_jpeg_atlas_cs.hpp cs_5_0 jpeg_t
     ${maicord_shaders}/jpeg.hlsl PACK jpeg_atlas)
 maicord_shader(MAICORD_VIDEO_FRAME_HEADER video_frame_cs.hpp cs_5_0 cs_main g_maicord_video_frame_shader
     ${maicord_shaders}/video_frame.hlsl PACK video_frame)
-# Background effect pass: canvas vertex shader and the built-in Stars/Comets
-# effect, a ps_5_0 program against the public mc.fx@1 constant buffer.
+# Background effect pass: the built-in Stars/Comets sprites, and the package effect pass (the target-covering
+# vertex shader, then the canvas composite that samples the effect target).
 maicord_shader(MAICORD_FX_VERTEX_HEADER maicord_fx_vs.hpp vs_5_0 fx_vertex g_maicord_fx_vertex_shader
     ${maicord_shaders}/background_fx.hlsl PACK fx_vertex FX_VERTEX=1)
 maicord_shader(MAICORD_FX_PIXEL_HEADER maicord_fx_ps.hpp ps_5_0 fx_builtin g_maicord_fx_pixel_shader
     ${maicord_shaders}/background_fx.hlsl PACK fx_builtin)
+maicord_shader(MAICORD_FX_TARGET_HEADER maicord_fx_target_vs.hpp vs_5_0 fx_target_vertex
+    g_maicord_fx_target_vertex_shader ${maicord_shaders}/background_fx.hlsl PACK fx_target_vertex FX_TARGET=1)
+maicord_shader(MAICORD_FX_COMPOSITE_VERTEX_HEADER maicord_fx_composite_vs.hpp vs_5_0 fx_composite_vertex
+    g_maicord_fx_composite_vertex_shader ${maicord_shaders}/background_fx.hlsl PACK fx_composite_vertex
+    FX_COMPOSITE_VERTEX=1)
+maicord_shader(MAICORD_FX_COMPOSITE_PIXEL_HEADER maicord_fx_composite_ps.hpp ps_5_0 fx_composite_pixel
+    g_maicord_fx_composite_pixel_shader ${maicord_shaders}/background_fx.hlsl PACK fx_composite_pixel
+    FX_COMPOSITE_PIXEL=1)
 set(MAICORD_SHADER_PACK_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/maicord_shader_pack.inc")
 set(MAICORD_SHADER_PACK_PACKED "${MAICORD_GENERATED_DIRECTORY}/maicord_shader_pack.bin")
 add_custom_command(

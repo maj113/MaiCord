@@ -1,4 +1,5 @@
 #include "settings_internal.hpp"
+#include "../effects/effects.hpp"
 #include "../account/activity.hpp"
 #include "../account/login/ui.hpp"
 #include "../shell/ui_runtime.hpp"
@@ -283,9 +284,9 @@ bool project_node(const ApplicationSettings& settings, u32 panel, u32 index, UiS
         if (control->selected_choice == kUiSettingsNoChoice)
             control->selected_choice = fallback;
     }
-    // Registered plugin effects follow the built-in effects.
+    // Installed package effects follow the built-in effects.
     if (binding == SettingBinding::background_effect)
-        application_plugins_fx_project(control);
+        application_effects_project(control);
     switch (binding) {
     case SettingBinding::theme_base:
     case SettingBinding::theme_color:

@@ -120,7 +120,8 @@ MessageContextMenuResult message_context_menu_build(MessageContextMenuModel* mod
     }
     MessageContextMenuModel candidate{};
     const bool failed = message.delivery == MessageDeliveryState::failed;
-    const bool pending = message.delivery == MessageDeliveryState::pending;
+    // A local send in flight and a kept deleted message can only be copied.
+    const bool pending = message.delivery == MessageDeliveryState::pending || message.delivery == MessageDeliveryState::retained;
     can_message_author = can_message_author && message.author_id != 0;
     const bool can_reply = message.type == 0 || message.type == 19 || message.type == 20 || message.type == 23;
     const u32 required = failed ? 3u

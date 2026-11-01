@@ -7,6 +7,7 @@
 #include "maicord/render/text/form_surface.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
 #include "renderer_caption.hpp"
+#include "effect_inputs.hpp"
 #include "renderer_edit.hpp"
 #include "renderer_layout.hpp"
 #include "renderer_login_form.hpp"
@@ -22,6 +23,12 @@ bool update_frame_transform(D3D11Renderer* renderer) noexcept {
     renderer->pipeline.backdrop_caption = renderer->caption_height;
     return d3d11_draw_pipeline_update_transform(renderer->pipeline, renderer->graphics.context, renderer->width,
                                                 renderer->height, renderer->dpi, renderer->target_origin_y);
+}
+
+// A failure that may be the device's: a removal or reset is remembered for the host, which recovers.
+void note_device_failure(D3D11Renderer* renderer) noexcept {
+    if (renderer->graphics.device && FAILED(renderer->graphics.device->GetDeviceRemovedReason()))
+        renderer->device_lost = true;
 }
 
 bool create_glyph_instance_buffer(D3D11Renderer* renderer, u32 capacity) noexcept {
@@ -146,24 +153,30 @@ bool renderer_set_background_phase(D3D11Renderer* renderer, float seconds) noexc
     return true;
 }
 
-HRESULT renderer_select_plugin_effect(D3D11Renderer* renderer, u64 owner_id, u64 effect_id, u64 revision,
-                                      ConstSlice<u8> bytecode, const float* parameters) noexcept {
+EffectSelectResult renderer_select_effect(D3D11Renderer* renderer, const BackgroundEffectSpec& spec,
+                                          const EffectSettings& settings) noexcept {
     if (!renderer || !renderer->graphics.device)
-        return E_INVALIDARG;
-    bool changed = false;
-    const HRESULT result =
-        d3d11_background_fx_select_plugin(&renderer->background_fx, renderer->graphics.device, owner_id, effect_id,
-                                          revision, bytecode, parameters, renderer->background_phase_seconds,
-                                          &changed);
-    if (changed) {
+        return {E_INVALIDARG, EffectSelect::rejected};
+    // The glyph grid is rasterized only while this device does not hold the package yet.
+    const auto& effect = renderer->effect;
+    ID3D11ShaderResourceView* glyphs = nullptr;
+    if (!(effect.selected && effect.identity == spec.identity && effect.shader) &&
+        (spec.uses & effect_use_glyphs) && !effect_glyph_grid_build(renderer, &glyphs))
+        return {E_FAIL, EffectSelect::rejected};
+    const EffectSelectResult result = d3d11_effect_select(
+        &renderer->effect, renderer->graphics.device, renderer->graphics.context, spec, settings,
+        renderer->adapter_key, glyphs, renderer->width, renderer->height + renderer->caption_height);
+    if (result.state == EffectSelect::rejected)
+        com_release(glyphs);
+    if (result.state == EffectSelect::changed || result.state == EffectSelect::refused) {
         presentation_damage_invalidate_full(&renderer->presentation_damage);
         reset_value(&renderer->settings_backdrop_stamp);
     }
     return result;
 }
 
-void renderer_clear_plugin_effect(D3D11Renderer* renderer) noexcept {
-    if (renderer && d3d11_background_fx_clear_plugin(&renderer->background_fx)) {
+void renderer_clear_effect(D3D11Renderer* renderer) noexcept {
+    if (renderer && d3d11_effect_clear(&renderer->effect)) {
         presentation_damage_invalidate_full(&renderer->presentation_damage);
         reset_value(&renderer->settings_backdrop_stamp);
     }
@@ -246,6 +259,8 @@ bool renderer_initialize(D3D11Renderer* renderer, HWND window, bool content_text
         graphics.height > renderer->caption_height ? graphics.height - renderer->caption_height : 1;
     renderer->target_origin_y = renderer->caption_height;
     renderer->dpi = graphics.dpi;
+    renderer->window = window;
+    renderer->adapter_key = graphics.adapter_key;
     renderer->startup_prestart = graphics.prestarted ? 1 : 0;
     // The icon atlas is created here while the prestart worker still builds the
     // glyph atlas and draw pipeline; the text resources then adopt its atlas.
@@ -322,6 +337,7 @@ bool renderer_resize(D3D11Renderer* renderer, u32 width, u32 height) noexcept {
                                                                             : "swap_chain_resize_failed");
             log_u64(LogLevel::error, "render", "d3d11_resize_native_error",
                     static_cast<u32>(resized.native_error));
+            note_device_failure(renderer);
             return false;
         }
         // ResizeBuffers replaces both images, but not the swap chain's frame
@@ -367,7 +383,7 @@ void renderer_accept_begin_frame(D3D11Renderer* renderer) noexcept {
 }
 
 bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
-    if (!renderer->graphics.target || !renderer->graphics.swap_chain) {
+    if (!renderer->graphics.target || !renderer->graphics.swap_chain || renderer->device_lost) {
         return false;
     }
     if (renderer->has_presented)
@@ -400,6 +416,7 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
     if (first_paint)
         QueryPerformanceCounter(&paint_begin);
     if (!d3d11_renderer_paint_layout(renderer, theme, current)) {
+        note_device_failure(renderer);
         return false;
     }
     if (first_paint) {
@@ -427,6 +444,7 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
                                                       dirty_count);
     if (FAILED(result)) {
         log_write(LogLevel::error, "render", "present_failed_or_device_removed");
+        note_device_failure(renderer);
         return false;
     }
     // A frame-latency permit represents one available swap-chain slot.  The
@@ -749,6 +767,7 @@ void renderer_shutdown(D3D11Renderer* renderer) noexcept {
     }
     d3d11_gpu_timer_release(&renderer->gpu_timer, renderer->graphics.context);
     d3d11_background_fx_release(&renderer->background_fx);
+    d3d11_effect_release(&renderer->effect);
     paint_stream_release(&renderer->paint_stream);
     renderer_paint_diff_release(renderer);
     d3d11_renderer_shell_segment_release(&renderer->shell_segment);
@@ -835,6 +854,93 @@ void renderer_shutdown(D3D11Renderer* renderer) noexcept {
     renderer->has_presented = false;
     renderer->live_resize = false;
     renderer->paint_overflow_reported = false;
+}
+
+bool renderer_device_lost(D3D11Renderer* renderer) noexcept {
+    if (!renderer)
+        return false;
+    note_device_failure(renderer);
+    return renderer->device_lost;
+}
+
+// Everything that lived on the lost device is released, then rebuilt on a new one in the order renderer_initialize
+// builds it. Nothing the host bound (scenes, text storage, atlases' CPU side) is touched; the GPU contents that
+// retained state describes are gone, so the retained frames, uploads and atlas residency are invalidated and the
+// host rebuilds text and requests media again. Cold: runs once per reset.
+bool renderer_recover_device(D3D11Renderer* renderer) noexcept {
+    // A renderer that never finished initialization has nothing to rebuild.
+    if (!renderer || !renderer->window || !renderer->glyph_text.atlas_origins)
+        return false;
+    log_write(LogLevel::warning, "render", "device_recovery_begin");
+    d3d11_effect_release_device(&renderer->effect);
+    d3d11_background_fx_release(&renderer->background_fx);
+    d3d11_renderer_caption_release_device(renderer);
+    renderer_release_settings_backdrop(renderer);
+    com_release(renderer->settings_backdrop_quad);
+    com_release(renderer->text_effect_buffer);
+    renderer->text_effect_uploaded_count = 0;
+    const bool timestamps = renderer->gpu_timer.enabled;
+    d3d11_gpu_timer_release(&renderer->gpu_timer, renderer->graphics.context);
+    renderer_release_media_surfaces(renderer);
+    icon_atlas_release(&renderer->icon_atlas);
+    d3d11_draw_pipeline_release(&renderer->pipeline);
+    if (renderer->graphics.context) {
+        renderer->graphics.context->ClearState();
+        renderer->graphics.context->Flush();
+    }
+    d3d11_device_owner_release(&renderer->graphics);
+
+    const D3D11DeviceOwnerResult graphics =
+        d3d11_device_owner_initialize(&renderer->graphics, renderer->window);
+    if (!graphics.ok()) {
+        log_u64(LogLevel::error, "render", "device_recovery_device_error", static_cast<u32>(graphics.native_error));
+        renderer->device_lost = true;
+        return false;
+    }
+    renderer->width = graphics.width;
+    renderer->height = graphics.height > renderer->caption_height ? graphics.height - renderer->caption_height : 1;
+    renderer->target_origin_y = renderer->caption_height;
+    renderer->dpi = graphics.dpi;
+    renderer->adapter_key = graphics.adapter_key;
+    if (!icon_atlas_initialize(&renderer->icon_atlas, renderer->graphics.device))
+        log_write(LogLevel::error, "render", "icon_atlas_creation_failed");
+    bool ok = d3d11_glyph_text_recreate_gpu(&renderer->glyph_text, renderer->graphics.device);
+    ok = ok && d3d11_gpu_timer_initialize(&renderer->gpu_timer, renderer->graphics.device, timestamps).ok();
+    ok = ok && initialize_pipeline(renderer).ok();
+    // The glyph ring is as large as the bound text needs.
+    const u32 glyph_capacity = renderer->content_text ? renderer->content_text->quad_capacity : 0;
+    ok = ok && (!glyph_capacity || renderer->pipeline.glyph_instance_capacity >= glyph_capacity ||
+                create_glyph_instance_buffer(renderer, glyph_capacity));
+    if (!ok) {
+        log_write(LogLevel::error, "render", "device_recovery_resources_failed");
+        d3d11_device_owner_release(&renderer->graphics);
+        renderer->device_lost = true;
+        return false;
+    }
+    // The new device holds none of what the retained state believes it uploaded.
+    renderer->uploaded_text_storage = nullptr;
+    renderer->uploaded_text_rebuild = 0;
+    renderer->uploaded_text_quad_count = 0;
+    renderer->uploaded_text_prefix = 0;
+    renderer->text_stable_quads = 0;
+    ++renderer->text_ring_epoch;
+    renderer->retained_presentation.valid = false;
+    renderer->paint_diff.valid = renderer->paint_diff.pending = false;
+    renderer->shell_segment.valid = false;
+    renderer->typing_dots.upload_pending = false;
+    renderer->typing_dots.gpu_first = renderer->typing_dots.ring_end = 0;
+    renderer->settings_backdrop_valid = false;
+    reset_value(&renderer->settings_backdrop_stamp);
+    renderer->previous_buffer_damage_valid = renderer->previous_buffer_damage_full = true;
+    renderer->present_required = renderer->present_full = false;
+    renderer->begin_frame_permit = false;
+    renderer->has_presented = false;
+    presentation_damage_invalidate_full(&renderer->presentation_damage);
+    d3d11_renderer_caption_invalidate(renderer);
+    renderer->device_lost = false;
+    ++renderer->device_generation;
+    log_u64(LogLevel::warning, "render", "device_recovery_done", renderer->device_generation);
+    return true;
 }
 
 } // namespace maicord

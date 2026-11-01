@@ -35,26 +35,36 @@ struct ApplicationPluginMenuExtra {
     u64 emoji_id;
     bool animated;
     Utf8View url, text;
+    // MC_MENU_ATTACHMENT only: an image, its attachment id, content type and size. Other
+    // attachments offer plugin rows of the message alone.
+    bool image = false;
+    u64 attachment_id = 0;
+    Utf8View content_type = {};
+    u32 width = 0, height = 0;
 };
-// Labels are host copies: popups borrow them, never SDK binding storage.
+// Labels are host copies: popups borrow them, never SDK binding storage. native rows belong to
+// ABI-6 plugins (maicord/app/plugins/ui.hpp): item_id is the item's index, target a PluginMenuKind
+// and flags kPluginMenuRow*.
 struct ApplicationPluginMenuRow {
     u64 owner_id, item_id;
     u32 target, flags, label_bytes;
     char label[kPluginSdkMenuLabelBytes];
+    bool native;
 };
 // One captured target. Activation tokens are (owner, item, menu_revision).
 struct ApplicationPluginMenu {
     ApplicationPluginMenuRow rows[kApplicationPluginMenuRows];
-    u64 user_id, channel_id, message_id, guild_id, emoji_id, recipient_id;
+    u64 user_id, channel_id, message_id, guild_id, emoji_id, recipient_id, attachment_id;
     u64 popup_owner_id, menu_revision, account_scope, account_serial;
-    u32 attachment_index, flags, popup_opens, target_revision;
-    u16 popup_generation, target_generation, url_bytes, text_bytes;
+    u32 attachment_index, flags, popup_opens, target_revision, native_revision, width, height;
+    u16 popup_generation, target_generation, url_bytes, text_bytes, content_type_bytes;
     ApplicationPluginMenuSurface surface;
     u8 popup_owner; // PopupOwnerKind
     u8 count;
     bool bound;
     char url[kPluginSdkUrlBytes];
     char text[kApplicationPluginMenuTextBytes];
+    char content_type[32];
 };
 // Projection copies rows and target identity; no plugin code runs. id is the
 // user, message, channel or guild; guild_id is a user menu's server. Dispatch
@@ -174,16 +184,6 @@ bool application_plugins_popover_activate(u32 action) noexcept;
 void application_plugins_popover_poll() noexcept;
 // Slot revision changed: re-layout surfaces that cache plugin items.
 void application_plugins_surfaces_changed() noexcept;
-// ---- Background effects (fx.cpp) ----
-// Before each frame: hands the saved plugin effect (when registered) to the
-// renderer, or falls back to the built-in; applies GPU guard verdicts.
-void application_plugins_fx_synchronize() noexcept;
-// Background effect picker: appends registered plugin effects (by name) after
-// the built-ins and selects the saved one. False leaves the control as is.
-bool application_plugins_fx_project(UiSettingsControl*) noexcept;
-// A plugin effect choice is saved here (true, *result = saved); a built-in
-// choice clears the plugin choice and returns false for the caller to write.
-bool application_plugins_fx_activate(u32 choice, bool* result) noexcept;
 // Channel/DM row badges, server rail badges and account panel buttons.
 struct ApplicationPluginSurfaceHit {
     NativePluginSdkSlotTarget target;

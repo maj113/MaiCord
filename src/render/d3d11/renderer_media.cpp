@@ -795,6 +795,15 @@ bool trim_media_atlas(D3D11Renderer* renderer, MediaAtlas* atlas, bool preview, 
 }
 } // namespace
 
+void renderer_release_media_surfaces(D3D11Renderer* renderer) noexcept {
+    if (!renderer)
+        return;
+    release_media_surfaces(renderer);
+    // The surfaces are gone, so the identity frame cache restarts at its initial height too.
+    if (renderer->animation_gpu.growth.maximum_height)
+        renderer->animation_gpu.cache.allocations.height = renderer->animation_gpu.growth.minimum_height;
+}
+
 bool renderer_media_maintain(D3D11Renderer* renderer, u64 now_ms) noexcept {
     if (!renderer || !renderer->graphics.device || !renderer->graphics.context1) {
         return false;

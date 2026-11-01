@@ -4,6 +4,9 @@
 #include "../chat/composer/composer.hpp"
 #include "../chat/composer/reply_draft.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/protocol/messages/create.hpp"
+#include "pipeline_host.hpp"
 #include "maicord/model/chat/message_composer.hpp"
 #include "../account/account_ui_runtime.hpp"
 
@@ -71,8 +74,9 @@ bool compose_abi5(bool* handled) noexcept {
     }
 }
 
-// The ABI-6 hooks rewrite or cancel the text in the composer (the editor's text while a
-// message is being edited); the ordinary send or save then uses it.
+// The ABI-6 hooks rewrite, cancel or question the text in the composer (the editor's text while a
+// message is being edited); the ordinary send or save then uses it. A send's flags travel as the
+// draft's own state: "@silent " in front of the text, and the reply's mention.
 bool compose_hooks(bool* handled) noexcept {
     const bool editing = g_app.message_edit.editor_active;
     const PluginHook hook = editing ? PluginHook::pre_edit : PluginHook::pre_send;
@@ -81,9 +85,15 @@ bool compose_hooks(bool* handled) noexcept {
     const Utf8View text = message_composer_text(composer);
     // Slash text belongs to application commands; hooks see messages only.
     if (!text.bytes || (!editing && text.data[0] == '/')) return true;
+    const MessageComposerReplySnapshot reply = editing ? MessageComposerReplySnapshot{} : application_reply_draft();
+    Utf8View body{};
+    u32 flags = 0;
+    if (!editing) {
+        if (message_silent_prefix(text, &body)) flags |= kPluginDraftSilent;
+        if (reply.message_id && reply.mention_reply_author) flags |= kPluginDraftReplyPing;
+    }
     const PluginDraft draft{composer.channel_id, channel_guild(composer.channel_id),
-                            editing ? g_app.message_edit.message_id : 0,
-                            editing ? 0 : application_reply_draft().message_id, text};
+                            editing ? g_app.message_edit.message_id : 0, reply.message_id, text, flags};
     const PluginDraftResult result = plugin_dispatch_draft(hook, draft);
     if (result.verdict == PluginDraftVerdict::cancel) {
         *handled = true;
@@ -92,9 +102,38 @@ bool compose_hooks(bool* handled) noexcept {
                                               : utf8_literal("A plugin stopped this message from being sent."));
         return true;
     }
-    if (result.verdict != PluginDraftVerdict::replace) return true;
-    return message_composer_replace_range(&composer, 0, composer.bytes, result.text) !=
-           MessageComposerResult::invalid_input;
+    const bool replaced = result.verdict == PluginDraftVerdict::replace ||
+                          (result.verdict == PluginDraftVerdict::confirm && result.text.bytes);
+    // Changed flags: the silent prefix is added or removed on the text that goes on.
+    char storage[kPluginDraftTextMax + 16];
+    Utf8View next = replaced ? result.text : text;
+    bool changed = replaced;
+    if (!editing && ((result.flags ^ flags) & kPluginDraftSilent)) {
+        Utf8View rest = next;
+        const bool prefixed = message_silent_prefix(next, &rest);
+        const Utf8View silent = utf8_literal("@silent ");
+        const Utf8View core = prefixed ? rest : next;
+        if ((result.flags & kPluginDraftSilent) && core.bytes + silent.bytes <= sizeof(storage)) {
+            copy_bytes(storage, silent.data, silent.bytes);
+            copy_bytes(storage + silent.bytes, core.data, core.bytes);
+            next = {storage, silent.bytes + core.bytes};
+        } else if (!(result.flags & kPluginDraftSilent)) {
+            next = core;
+        }
+        changed = true;
+    }
+    if (!editing && reply.message_id && ((result.flags ^ flags) & kPluginDraftReplyPing))
+        application_reply_draft_set(reply.message_id, (result.flags & kPluginDraftReplyPing) != 0);
+    if (!editing) application_plugins_suppress_embeds_next((result.flags & kPluginDraftSuppressEmbeds) != 0);
+    if (changed && message_composer_replace_range(&composer, 0, composer.bytes, next) ==
+                       MessageComposerResult::invalid_input)
+        return false;
+    if (result.verdict == PluginDraftVerdict::confirm) {
+        // The send continues from the dialog's accept; until then the composer keeps the text.
+        *handled = true;
+        application_plugins_send_confirm(result.question);
+    }
+    return true;
 }
 } // namespace
 

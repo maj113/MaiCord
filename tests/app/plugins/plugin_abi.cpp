@@ -1,6 +1,7 @@
-// ABI 6 SDK: the C++ layer's helpers and wrappers, and the clear-urls sample
-// and plain C fixture DLLs: their PE shape (no entry point, no TLS, no
-// imports, one export), their descriptors, and their hooks called directly.
+// ABI 6 SDK: the C++ layer's helpers and wrappers, the sample plugins in
+// samples/plugins and the plain C fixture DLL: their PE shape (no entry point,
+// no TLS, no imports, one export), their descriptors, and their entry points
+// called directly against a recording host table.
 #include "maicord/sdk/plugin.hpp"
 
 #include "maicord/core/byte_order.hpp"
@@ -10,9 +11,10 @@
 // Frozen layouts (the C fixture asserts every field; these guard the C++ view).
 static_assert(sizeof(mc_ctx) == 32 && sizeof(mc_setting_def) == 128 && sizeof(mc_hook) == 24);
 static_assert(sizeof(mc_draft) == 72 && offsetof(mc_draft, verdict) == 68);
-static_assert(sizeof(mc_descriptor) == 248 && offsetof(mc_descriptor, hooks) == 160 &&
-              offsetof(mc_descriptor, start) == 232);
-static_assert(sizeof(mc_api) == 56 && offsetof(mc_api, toast) == 48);
+static_assert(sizeof(mc_descriptor) == 232 && offsetof(mc_descriptor, hooks) == 160 &&
+              offsetof(mc_descriptor, start) == 216);
+static_assert(sizeof(mc_api) == 320 && offsetof(mc_api, toast) == 48 && offsetof(mc_api, http) == 160);
+static_assert(sizeof(mc_message) == 112 && sizeof(mc_decoration) == 1208 && sizeof(mc_completion) == 64);
 
 namespace maicord::plugin_abi_tests {
 namespace {
@@ -32,7 +34,7 @@ bool same(mc::Str text, const char* expected) noexcept {
     return text == view(expected);
 }
 
-// ---- url::strip_params ---------------------------------------------------------
+// ---- url::strip_params, url::encode, json ---------------------------------------
 
 void strip(const char* input, const char* expected, const char* label,
            const mc::StrList& extra = {}) noexcept {
@@ -76,21 +78,47 @@ void url_cases() noexcept {
     check(text.append(view("abc")) && !text.append(view("de")) && text.overflowed() && same(text, "abc") &&
               text.push('d') && same(text, "abcd") && !text.push('e'),
           "Text: bounded appends");
+
+    mc::Text<64> encoded;
+    encoded.append("q=");
+    check(mc::url::encode(view("a b&c/é~"), encoded) && same(encoded, "q=a%20b%26c%2F%C3%A9~"),
+          "url::encode: unreserved bytes stay, others become %XX");
+    mc::Text<4> tight;
+    check(!mc::url::encode(view("a b"), tight) && tight.empty(), "url::encode: no change when it doesn't fit");
+
+    mc::Text<32> found;
+    check(mc::json::find(view(R"({"a":{"text":1,"x":"text"},"text" : "H\u00e9\n\"\ud83d\ude00"})"),
+                         view("text"), found) &&
+              same(found, "H\xC3\xA9\n\"\xF0\x9F\x98\x80"),
+          "json::find: the first string value of the key, unescaped; strings never match keys");
+    check(!mc::json::find(view(R"({"text":5})"), view("text"), found) &&
+              !mc::json::find(view(R"({"text":"unterminated)"), view("text"), found),
+          "json::find: numbers and broken strings are not found");
+    u32 at = 0;
+    check(mc::json::skip(view(R"([1,"]",{"a":[2]}],3)"), at) && at == 17, "json::skip: one nested value");
 }
 
-// ---- Ctx wrappers over a fake host table ----------------------------------------
+// ---- A recording host table ------------------------------------------------------
 
-struct FakeHost {
-    u32 logs, toasts, sets, gets, removes, setting_writes;
-    u32 level, tone, setting_index, setting_bytes;
+struct Host {
+    u32 logs, toasts, sets, gets, removes, setting_writes, https, inserts, opens, copies, buttons, invalidates;
+    u32 level, tone, setting_index, setting_bytes, button_index, button_flags, invalidate_what;
     u8 setting_value[8];
     char key[16];
     u32 key_bytes;
     u8 value[16];
     u32 value_bytes;
     bool stored;
+    u64 http_tag, invalidate_id;
+    u32 http_method, http_headers;
+    mc::Text<256> text; // the last toast, inserted or opened text
+    mc::Text<256> url, body, header_name, header_value, button_tooltip;
 } g_host;
 
+void keep(mc::Text<256>& out, mc_str text) noexcept {
+    out.clear();
+    out.append(mc::Str(text));
+}
 bool host_key_is(mc_str key) noexcept {
     return g_host.stored && mc::Str(key) == mc::Str(g_host.key, g_host.key_bytes);
 }
@@ -134,14 +162,73 @@ mc_status MC_CALL host_store_remove(mc_ctx*, mc_str key) {
     g_host.stored = false;
     return MC_OK;
 }
-mc_status MC_CALL host_toast(mc_ctx*, mc_str, uint32_t tone, uint32_t flags) {
+mc_status MC_CALL host_toast(mc_ctx*, mc_str text, uint32_t tone, uint32_t flags) {
     ++g_host.toasts;
     g_host.tone = tone;
+    keep(g_host.text, text);
     return flags == 0 ? MC_OK : MC_E_INVALID;
 }
+mc_status MC_CALL host_invalidate(mc_ctx*, uint32_t what, uint64_t id) {
+    ++g_host.invalidates;
+    g_host.invalidate_what = what;
+    g_host.invalidate_id = id;
+    return MC_OK;
+}
+mc_status MC_CALL host_button_state(mc_ctx*, uint32_t button, const mc_button_state* state) {
+    ++g_host.buttons;
+    g_host.button_index = button;
+    g_host.button_flags = state->flags;
+    keep(g_host.button_tooltip, state->tooltip);
+    return MC_OK;
+}
+mc_status MC_CALL host_open_url(mc_ctx*, mc_str url) {
+    ++g_host.opens;
+    keep(g_host.text, url);
+    return MC_OK;
+}
+mc_status MC_CALL host_copy_text(mc_ctx*, mc_str text) {
+    ++g_host.copies;
+    keep(g_host.text, text);
+    return MC_OK;
+}
+mc_status MC_CALL host_http(mc_ctx*, const mc_http_request* request, uint64_t tag) {
+    ++g_host.https;
+    g_host.http_tag = tag;
+    g_host.http_method = request->method;
+    g_host.http_headers = request->header_count;
+    keep(g_host.url, request->url);
+    g_host.body.clear();
+    g_host.body.append(mc::Str(static_cast<const char*>(request->body), request->body_bytes));
+    g_host.header_name.clear();
+    g_host.header_value.clear();
+    if (request->header_count) {
+        const mc_http_header& last = request->headers[request->header_count - 1];
+        keep(g_host.header_name, last.name);
+        keep(g_host.header_value, last.value);
+    }
+    return MC_OK;
+}
+mc_status MC_CALL host_composer_insert(mc_ctx*, mc_str text) {
+    ++g_host.inserts;
+    keep(g_host.text, text);
+    return MC_OK;
+}
 constexpr mc_api kApi{
-    sizeof(mc_api),    1,         host_log, host_set_setting, host_store_get, host_store_set,
-    host_store_remove, host_toast};
+    .size = sizeof(mc_api),
+    .level = MC_API_LEVEL,
+    .log = host_log,
+    .set_setting = host_set_setting,
+    .store_get = host_store_get,
+    .store_set = host_store_set,
+    .store_remove = host_store_remove,
+    .toast = host_toast,
+    .invalidate = host_invalidate,
+    .button_state = host_button_state,
+    .open_url = host_open_url,
+    .copy_text = host_copy_text,
+    .http = host_http,
+    .composer_insert = host_composer_insert,
+};
 
 void ctx_wrappers() noexcept {
     g_host = {};
@@ -178,6 +265,28 @@ void ctx_wrappers() noexcept {
     check(ctx.set_setting(0u, mc::i32{-5}) == MC_OK && g_host.setting_bytes == 4 &&
               static_cast<i32>(byte_load_le32(g_host.setting_value)) == -5,
           "Ctx: int setting is four bytes");
+    check(ctx.set_setting(1u, u64{9}) == MC_OK && g_host.setting_bytes == 8 && g_host.setting_value[0] == 9,
+          "Ctx: channel setting is eight bytes");
+    check(ctx.invalidate_message(5) == MC_OK && g_host.invalidate_what == MC_INVALIDATE_MESSAGE &&
+              g_host.invalidate_id == 5 && ctx.invalidate_buttons() == MC_OK &&
+              g_host.invalidate_what == MC_INVALIDATE_BUTTONS,
+          "Ctx: invalidate");
+    check(ctx.open_url("https://a.com") == MC_OK && same(g_host.text, "https://a.com"), "Ctx: open_url");
+
+    mc::Decoration d{};
+    d.collapse("Hidden");
+    d.suffix("x", mc::Tone::role);
+    d.replace_content("**y**");
+    bool badges = true;
+    for (u32 i = 0; i < MC_DECORATION_BADGES; ++i)
+        badges = badges && d.badge(mc::badge("b"));
+    check(d.visibility == MC_VIS_COLLAPSED && same(d.collapsed_label, "Hidden") && same(d.name_suffix, "x") &&
+              d.name_tone == MC_TONE_ROLE && (d.flags & MC_DECO_REPLACE_CONTENT) && badges &&
+              !d.badge(mc::badge("one too many")) && d.badge_count == MC_DECORATION_BADGES,
+          "Decoration: builders fill the fields and stop at the limits");
+    const mc::Card c = mc::card().title("T").button("A", 1).button("B", 2).button("C", 3);
+    check(same(c.mc_card::title, "T") && c.button_count == MC_CARD_BUTTONS && c.buttons[1].tag == 2,
+          "Card: at most two buttons");
 }
 
 // ---- Plugin DLLs ---------------------------------------------------------------
@@ -239,10 +348,38 @@ void check_pe(HMODULE module, const char* label) noexcept {
     check(valid, label);
 }
 
+// Loads a sample and checks its PE shape; null (and a failed check) when it can't.
+const mc_descriptor* open(const wchar_t* leaf, HMODULE* module, const char* label) noexcept {
+    *module = load_sibling(leaf);
+    check(*module != nullptr, label);
+    if (!*module)
+        return nullptr;
+    check_pe(*module, label);
+    const auto* d = reinterpret_cast<const mc_descriptor*>(GetProcAddress(*module, MC_DESCRIPTOR_EXPORT));
+    check(d && d->size == sizeof(mc_descriptor) && d->abi == MC_ABI && d->api_level == MC_API_LEVEL && !d->flags,
+          label);
+    return d;
+}
+const mc_hook* hook_of(const mc_descriptor* d, u32 kind) noexcept {
+    for (u32 i = 0; i < d->hook_count; ++i)
+        if (d->hooks[i].kind == kind)
+            return &d->hooks[i];
+    return nullptr;
+}
+// A settings block filled at the descriptor's offsets.
+struct Block {
+    alignas(8) u8 bytes[MC_SETTINGS_BYTES_MAX];
+    template <class T> void put(const mc_descriptor* d, u32 index, T value) noexcept {
+        copy_bytes(bytes + d->settings[index].offset, &value, sizeof(T));
+    }
+};
+alignas(64) u8 g_state[16384];
+
 char g_buffer[MC_DRAFT_TEXT_MAX];
 struct Run {
     mc_status status;
     u32 verdict;
+    u32 flags;
     mc::Str text;
 };
 Run run(const mc_hook& hook, mc_ctx* ctx, const char* text, u32 capacity = MC_DRAFT_TEXT_MAX) noexcept {
@@ -252,8 +389,20 @@ Run run(const mc_hook& hook, mc_ctx* ctx, const char* text, u32 capacity = MC_DR
     draft.buffer = g_buffer;
     draft.buffer_capacity = capacity;
     const mc_status status = hook.fn.draft(ctx, &draft);
-    return {status, draft.verdict,
-            mc::Str(g_buffer, draft.verdict == MC_DRAFT_REPLACE ? draft.replaced_bytes : 0)};
+    return {status, draft.verdict, draft.flags,
+            mc::Str(g_buffer, draft.verdict == MC_DRAFT_REPLACE || draft.verdict == MC_DRAFT_CONFIRM
+                                  ? draft.replaced_bytes
+                                  : 0)};
+}
+char g_reply[MC_REPLY_TEXT_MAX];
+mc_command_call command_call(const mc_arg* args, u32 count) noexcept {
+    mc_command_call call{};
+    call.channel_id = 10;
+    call.args = args;
+    call.arg_count = count;
+    call.reply = g_reply;
+    call.reply_capacity = sizeof(g_reply);
+    return call;
 }
 
 // The block clear-urls' descriptor describes: on_edit (TOGGLE at 0), extra (TEXT_LIST at 8).
@@ -265,22 +414,17 @@ struct ClearUrlsSettings {
 
 void clear_urls() noexcept {
     g_host = {};
-    const HMODULE module = load_sibling(L"clear-urls.dll");
-    check(module != nullptr, "clear-urls: loads");
-    if (!module)
-        return;
-    check_pe(module, "clear-urls: no entry point, imports or TLS; one export, the descriptor");
-    const auto* d = reinterpret_cast<const mc_descriptor*>(GetProcAddress(module, MC_DESCRIPTOR_EXPORT));
-    check(d && d->size == sizeof(mc_descriptor) && d->abi == MC_ABI && d->api_level == 1 &&
-              d->owner_id == 0x6D63'636C'7572'6C73ull && same(d->name, "Clear URLs") &&
-              same(d->version, "1.0.0") &&
-              same(d->summary, "Removes tracking parameters from links you send.") && d->author.bytes == 0,
-          "clear-urls: descriptor metadata");
+    HMODULE module = nullptr;
+    const mc_descriptor* d = open(L"clear-urls.dll", &module, "clear-urls: loads as a one-export PE");
     if (!d)
         return;
+    check(d->owner_id == 0x6D63'636C'7572'6C73ull && same(d->name, "Clear URLs") && same(d->version, "1.0.0") &&
+              same(d->summary, "Removes tracking parameters from links you send.") && d->author.bytes == 0,
+          "clear-urls: descriptor metadata");
     check(d->permissions == MC_PERM_MESSAGE_SEND && d->state_bytes == 0 && d->state_align == 0 &&
-              d->network_count == 0 && d->command_count == 0 && !d->start && !d->stop && d->flags == 0,
-          "clear-urls: permissions implied by its hooks, no state or lifecycle");
+              d->network_count == 0 && d->command_count == 0 && d->menu_count == 0 && d->button_count == 0 &&
+              !d->start && !d->stop,
+          "clear-urls: permissions implied by its hooks, no state, lifecycle or UI");
     const mc_setting_def* s = d->settings;
     check(d->setting_count == 2 && d->settings_bytes == sizeof(ClearUrlsSettings) &&
               same(s[0].key, "on_edit") && s[0].type == MC_SET_TOGGLE && s[0].offset == 0 &&
@@ -289,10 +433,10 @@ void clear_urls() noexcept {
               s[1].offset == offsetof(ClearUrlsSettings, extra) &&
               same(s[1].hint, "One per line, e.g. si") && !s[1].items && s[1].item_count == 0,
           "clear-urls: settings schema");
-    check(d->hook_count == 2 && d->hooks[0].kind == MC_HOOK_PRE_SEND &&
-              d->hooks[1].kind == MC_HOOK_PRE_EDIT && d->hooks[0].fn.draft && d->hooks[1].fn.draft &&
+    check(d->hook_count == 3 && d->hooks[0].kind == MC_HOOK_PRE_SEND && d->hooks[1].kind == MC_HOOK_PRE_EDIT &&
+              d->hooks[2].kind == MC_HOOK_COMPLETION && d->hooks[0].fn.draft && d->hooks[1].fn.draft &&
               d->hooks[0].flags == 0 && d->hooks[0].filter == 0,
-          "clear-urls: hooks from parameter types");
+          "clear-urls: hooks from parameter types, plus the layer's completion hook");
 
     const mc_str extra_items[] = {MC_S("si")};
     ClearUrlsSettings settings{1, {}, {extra_items, 1, 0}};
@@ -316,29 +460,276 @@ void clear_urls() noexcept {
     settings.on_edit = 0;
     result = run(pre_edit, &ctx, "https://ex.com/?gclid=1");
     check(result.verdict == MC_DRAFT_KEEP, "clear-urls: pre_edit honours on_edit");
-    check(g_host.logs + g_host.toasts + g_host.sets + g_host.gets + g_host.removes +
-                  g_host.setting_writes ==
+    mc_completion stray{};
+    stray.kind = MC_COMPLETION_HTTP;
+    stray.tag = 99;
+    d->hooks[2].fn.completion(&ctx, &stray);
+    check(g_host.logs + g_host.toasts + g_host.sets + g_host.gets + g_host.removes + g_host.setting_writes +
+                  g_host.https ==
               0,
-          "clear-urls: no host calls");
+          "clear-urls: no host calls; a completion nobody asked for is ignored");
     FreeLibrary(module);
 }
 
+// ---- Translate -----------------------------------------------------------------
+
+mc_message message(u64 id, const char* content) noexcept {
+    mc_message m{};
+    m.message_id = id;
+    m.channel_id = 10;
+    m.content = view(content);
+    m.revision = 1;
+    return m;
+}
+void complete_http(const mc_hook& hook, mc_ctx* ctx, u64 tag, u32 status, const char* body,
+                   u32 error = MC_HTTP_OK) noexcept {
+    mc_completion done{};
+    done.kind = MC_COMPLETION_HTTP;
+    done.tag = tag;
+    done.error = error;
+    done.status = status;
+    done.body = body;
+    done.body_bytes = view(body).bytes;
+    hook.fn.completion(ctx, &done);
+}
+
+void translate() noexcept {
+    g_host = {};
+    clear_bytes(g_state, sizeof(g_state));
+    HMODULE module = nullptr;
+    const mc_descriptor* d = open(L"translate.dll", &module, "translate: loads as a one-export PE");
+    if (!d)
+        return;
+    const mc_setting_def* s = d->settings;
+    check(d->setting_count == 4 && s[0].type == MC_SET_CHOICE && s[0].item_count == 5 &&
+              same(s[0].items[3], "Japanese") && s[1].type == MC_SET_TOGGLE && s[2].type == MC_SET_CHOICE &&
+              s[3].type == MC_SET_SECRET && same(s[3].key, "deepl_key") && s[3].visible_if == 3 &&
+              s[3].visible_value == 1,
+          "translate: settings, the DeepL key shown only for DeepL");
+    check(d->network_count == 3 && same(d->network[0], "translate.googleapis.com") &&
+              same(d->network[2], "api.deepl.com"),
+          "translate: the declared hosts");
+    check(d->permissions == (MC_PERM_COMPOSER | MC_PERM_MESSAGE_SEND | MC_PERM_READ_MESSAGES | MC_PERM_NETWORK),
+          "translate: declared and implied permissions");
+    const mc_hook* decorate = hook_of(d, MC_HOOK_DECORATE_MESSAGE);
+    const mc_hook* hide = hook_of(d, MC_HOOK_NODE_ACTION);
+    const mc_hook* pre_send = hook_of(d, MC_HOOK_PRE_SEND);
+    const mc_hook* completion = hook_of(d, MC_HOOK_COMPLETION);
+    check(d->hook_count == 4 && decorate && decorate->flags == (MC_NEED_CONTENT | MC_NEED_AUTHOR) && hide &&
+              pre_send && completion,
+          "translate: hooks");
+    check(d->button_count == 1 && d->buttons[0].surface == MC_SURFACE_MESSAGE_POPOVER &&
+              same(d->buttons[0].label, "Translate") && same(d->buttons[0].icon, "lucide/languages") &&
+              d->buttons[0].visible && d->command_count == 1 && same(d->commands[0].name, "tr") &&
+              d->commands[0].arg_count == 1 && same(d->commands[0].args[0].name, "text") &&
+              d->commands[0].args[0].type == MC_ARG_TEXT && d->commands[0].args[0].flags == MC_ARG_REQUIRED &&
+              same(d->commands[0].args[0].description, "The text to translate"),
+          "translate: a popover button and a typed command");
+    check(d->state_bytes <= sizeof(g_state), "translate: state fits the test's block");
+    if (!decorate || !hide || !pre_send || !completion || !d->button_count || !d->command_count ||
+        d->state_bytes > sizeof(g_state))
+        return;
+
+    Block settings{};
+    settings.put(d, 0, u32{0}); // English
+    mc_ctx ctx{&kApi, g_state, settings.bytes, MC_CTX_GESTURE, 1};
+    const mc_message hello = message(77, "Hallo Welt");
+    const mc_message empty = message(78, "");
+    mc_button_event event{10, 0, &hello, 0, 0};
+    mc_button_event blank{10, 0, &empty, 0, 0};
+    check(d->buttons[0].visible(&ctx, &event) == 1 && d->buttons[0].visible(&ctx, &blank) == 0,
+          "translate: the button shows on messages with text");
+
+    check(d->buttons[0].click(&ctx, &event) == MC_OK && g_host.https == 1 && g_host.http_method == MC_HTTP_POST &&
+              same(g_host.url,
+                   "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&dt=t&tl=en") &&
+              same(g_host.body, "q=Hallo%20Welt") && g_host.http_headers == 1 && g_host.http_tag != 0,
+          "translate: a click posts the text to Google");
+    complete_http(*completion, &ctx, g_host.http_tag, 200,
+                  R"([[["Hello ","Hallo ",null,null,10],["world","Welt",null,null,10]],null,"de"])");
+    mc_decoration out{};
+    check(g_host.invalidates == 1 && g_host.invalidate_id == 77 &&
+              decorate->fn.decorate_message(&ctx, &hello, &out) == MC_OK && out.has_card &&
+              same(out.card.text, "Hello world") && same(out.card.caption, "Translated") &&
+              out.card.button_count == 1 && out.card.buttons[0].tag == 77,
+          "translate: the answer becomes a card under the message");
+    complete_http(*completion, &ctx, g_host.http_tag, 200, "[]");
+    check(g_host.toasts == 0, "translate: a completion is delivered once");
+
+    const mc_node_action press{77, 10, 77, 0, 0, MC_HOOK_DECORATE_MESSAGE, MC_NODE_CARD_BUTTON};
+    out = {};
+    check(hide->fn.node_action(&ctx, &press) == MC_OK && g_host.invalidates == 2 &&
+              decorate->fn.decorate_message(&ctx, &hello, &out) == MC_OK && !out.has_card,
+          "translate: Hide removes the card");
+
+    d->buttons[0].click(&ctx, &event);
+    complete_http(*completion, &ctx, g_host.http_tag, 0, "", MC_HTTP_E_NETWORK);
+    check(g_host.toasts == 1 && g_host.tone == MC_TONE_CRITICAL && same(g_host.text, "Translation failed"),
+          "translate: a failed request is a toast");
+
+    settings.put(d, 2, u32{1}); // DeepL
+    settings.put(d, 3, mc_str MC_S("key:fx"));
+    settings.put(d, 0, u32{1}); // German
+    d->buttons[0].click(&ctx, &event);
+    check(same(g_host.url, "https://api-free.deepl.com/v2/translate") &&
+              same(g_host.body, "target_lang=DE&text=Hallo%20Welt") && g_host.http_headers == 2 &&
+              same(g_host.header_name, "Authorization") && same(g_host.header_value, "DeepL-Auth-Key key:fx"),
+          "translate: DeepL gets the key and the free host for :fx keys");
+    complete_http(*completion, &ctx, g_host.http_tag, 200,
+                  R"({"translations":[{"detected_source_language":"DE","text":"Hallo Welt!"}]})");
+    out = {};
+    check(decorate->fn.decorate_message(&ctx, &hello, &out) == MC_OK && same(out.card.text, "Hallo Welt!"),
+          "translate: DeepL's answer is read from its JSON");
+
+    const mc_arg arg{MC_ARG_TEXT, 1, MC_S("Guten Tag"), 0, 0};
+    mc_command_call call = command_call(&arg, 1);
+    check(d->commands[0].run(&ctx, &call) == MC_OK && call.reply_kind == MC_REPLY_NONE &&
+              same(g_host.body, "target_lang=DE&text=Guten%20Tag"),
+          "translate: /tr starts a request");
+    complete_http(*completion, &ctx, g_host.http_tag, 200, R"({"translations":[{"text":"Good day"}]})");
+    check(g_host.inserts == 1 && same(g_host.text, "Good day"), "translate: /tr's result goes into the composer");
+
+    settings.put(d, 1, u8{1});
+    const Run asked = run(*pre_send, &ctx, "hi");
+    check(asked.verdict == MC_DRAFT_CONFIRM && asked.text.size() != 0,
+          "translate: outgoing messages ask before they're sent untranslated");
+    FreeLibrary(module);
+}
+
+// ---- Show Me Your Name, Reverse Image Search, Silent Toggle --------------------------
+
+void show_me_your_name() noexcept {
+    g_host = {};
+    HMODULE module = nullptr;
+    const mc_descriptor* d = open(L"show-me-your-name.dll", &module, "show-me-your-name: loads as a one-export PE");
+    if (!d)
+        return;
+    const mc_hook* decorate = hook_of(d, MC_HOOK_DECORATE_USER);
+    check(decorate && decorate->filter == ((1u << MC_USER_MESSAGE_AUTHOR) | (1u << MC_USER_MEMBER_ROW)) &&
+              d->permissions == 0 && d->setting_count == 3,
+          "show-me-your-name: a user decoration for authors and member rows, no permissions");
+    if (!decorate)
+        return;
+    Block settings{};
+    settings.put(d, 0, u32{0});
+    settings.put(d, 1, u8{1});
+    settings.put(d, 2, u8{1});
+    mc_ctx ctx{&kApi, nullptr, settings.bytes, 0, 1};
+    mc_user user{};
+    user.where = MC_USER_MESSAGE_AUTHOR;
+    user.name = MC_S("Mai");
+    user.username = MC_S("mai.c");
+    mc_decoration out{};
+    check(decorate->fn.decorate_user(&ctx, &user, &out) == MC_OK && same(out.name_suffix, "mai.c") &&
+              !out.name_prefix.bytes,
+          "show-me-your-name: the username follows the name");
+    user.name = MC_S("MAI.C");
+    out = {};
+    decorate->fn.decorate_user(&ctx, &user, &out);
+    check(!out.name_suffix.bytes, "show-me-your-name: matching names get nothing");
+    settings.put(d, 0, u32{1});
+    user.name = MC_S("Mai");
+    out = {};
+    decorate->fn.decorate_user(&ctx, &user, &out);
+    check(same(out.name_prefix, "mai.c") && out.name_tone == MC_TONE_ROLE,
+          "show-me-your-name: or comes first in the role colour");
+    settings.put(d, 1, u8{0});
+    user.where = MC_USER_MEMBER_ROW;
+    out = {};
+    decorate->fn.decorate_user(&ctx, &user, &out);
+    check(!out.name_prefix.bytes && !out.name_suffix.bytes, "show-me-your-name: member rows follow their setting");
+    FreeLibrary(module);
+}
+
+void reverse_image_search() noexcept {
+    g_host = {};
+    HMODULE module = nullptr;
+    const mc_descriptor* d =
+        open(L"reverse-image-search.dll", &module, "reverse-image-search: loads as a one-export PE");
+    if (!d)
+        return;
+    const mc_menu_def* m = d->menus;
+    check(d->menu_count == 5 && m[0].flags == MC_MENU_SUBMENU && !m[0].select && m[0].visible &&
+              m[0].targets == MC_MENU_IMAGE && same(m[0].label, "Search image") && m[1].parent == 1 &&
+              m[4].parent == 1 && same(m[1].label, "Google Lens") && same(m[4].label, "TinEye") && m[4].visible &&
+              !m[1].visible && m[1].select && d->permissions == 0,
+          "reverse-image-search: a submenu with one item per engine");
+    if (d->menu_count != 5)
+        return;
+    Block settings{};
+    settings.put(d, 0, u8{0});
+    mc_ctx ctx{&kApi, nullptr, settings.bytes, MC_CTX_GESTURE, 1};
+    mc_menu_target target{};
+    target.kind = MC_MENU_IMAGE;
+    check(m[0].visible(&ctx, &target) == MC_MENU_HIDE, "reverse-image-search: hidden without a URL");
+    target.url = MC_S("https://cdn.discordapp.com/a b.png");
+    check(m[0].visible(&ctx, &target) == MC_MENU_SHOW && m[4].visible(&ctx, &target) == MC_MENU_HIDE,
+          "reverse-image-search: shown for images; TinEye follows its setting");
+    check(m[1].select(&ctx, &target) == MC_OK && g_host.opens == 1 &&
+              same(g_host.text, "https://lens.google.com/uploadbyurl?url=https%3A%2F%2Fcdn.discordapp.com%2Fa%20b.png"),
+          "reverse-image-search: opens the engine with the encoded image URL");
+    FreeLibrary(module);
+}
+
+void silent_toggle() noexcept {
+    g_host = {};
+    HMODULE module = nullptr;
+    const mc_descriptor* d = open(L"silent-toggle.dll", &module, "silent-toggle: loads as a one-export PE");
+    if (!d)
+        return;
+    const mc_hook* pre_send = hook_of(d, MC_HOOK_PRE_SEND);
+    check(pre_send && d->button_count == 1 && d->buttons[0].flags == MC_BUTTON_TOGGLE &&
+              d->buttons[0].surface == MC_SURFACE_CHAT_BAR && d->command_count == 1 &&
+              same(d->commands[0].name, "silent") && d->commands[0].arg_count == 1 &&
+              d->commands[0].args[0].type == MC_ARG_BOOL && d->commands[0].args[0].flags == 0 &&
+              (d->settings[0].flags & MC_SET_HIDDEN) && d->start && d->permissions == MC_PERM_MESSAGE_SEND,
+          "silent-toggle: a toggle button, an optional-argument command and pre_send");
+    if (!pre_send || !d->command_count || !d->button_count || !d->start)
+        return;
+    Block settings{};
+    mc_ctx ctx{&kApi, nullptr, settings.bytes, MC_CTX_GESTURE, 1};
+    check(d->start(&ctx) == MC_OK && g_host.buttons == 1 && g_host.button_flags == 0 &&
+              same(g_host.button_tooltip, "Silent messages: off"),
+          "silent-toggle: start shows the saved state");
+    const mc_arg omitted{MC_ARG_BOOL, 0, {}, 0, 0};
+    mc_command_call call = command_call(&omitted, 1);
+    check(d->commands[0].run(&ctx, &call) == MC_OK && call.reply_kind == MC_REPLY_TOAST &&
+              same(mc::Str(call.reply, call.reply_bytes), "Messages are sent silently") &&
+              g_host.setting_index == 0 && g_host.setting_value[0] == 1 && g_host.button_flags == MC_BUTTON_ACTIVE,
+          "silent-toggle: /silent with no argument switches it on");
+    const mc_arg off{MC_ARG_BOOL, 1, {}, 0, 0};
+    call = command_call(&off, 1);
+    check(d->commands[0].run(&ctx, &call) == MC_OK && g_host.setting_value[0] == 0 && g_host.button_flags == 0,
+          "silent-toggle: /silent off");
+    check(run(*pre_send, &ctx, "hi").flags == 0, "silent-toggle: off leaves messages alone");
+    settings.put(d, 0, u8{1});
+    check(run(*pre_send, &ctx, "hi").flags == MC_DRAFT_SILENT, "silent-toggle: on makes messages silent");
+    mc_button_event press{10, 0, nullptr, 0, 0};
+    const u32 writes = g_host.setting_writes;
+    check(d->buttons[0].click(&ctx, &press) == MC_OK && g_host.setting_writes == writes + 1 &&
+              g_host.setting_value[0] == 0,
+          "silent-toggle: the button switches it");
+    FreeLibrary(module);
+}
+
+// ---- The plain C fixture ----------------------------------------------------------
+
 void c_fixture() noexcept {
-    const HMODULE module = load_sibling(L"MaiCordPluginAbiCFixture.dll");
-    check(module != nullptr, "C fixture: loads");
-    if (!module)
+    g_host = {};
+    HMODULE module = nullptr;
+    const mc_descriptor* d = open(L"MaiCordPluginAbiCFixture.dll", &module, "C fixture: loads as a one-export PE");
+    if (!d)
         return;
-    check_pe(module, "C fixture: no entry point, imports or TLS; one export, the descriptor");
-    const auto* d = reinterpret_cast<const mc_descriptor*>(GetProcAddress(module, MC_DESCRIPTOR_EXPORT));
-    check(d && d->abi == MC_ABI && same(d->name, "C fixture") && d->setting_count == 2 &&
-              d->settings_bytes == 8 && d->settings[1].type == MC_SET_CHOICE &&
-              d->settings[1].item_count == 2 && same(d->settings[1].items[1], "Long") &&
-              d->hook_count == 1 && d->state_bytes == 8 && d->start && d->stop,
+    check(same(d->name, "C fixture") && d->setting_count == 3 && d->settings_bytes == 24 &&
+              d->settings[1].type == MC_SET_CHOICE && d->settings[1].item_count == 2 &&
+              same(d->settings[1].items[1], "Long") && d->settings[2].visible_if == 2 &&
+              d->settings[2].visible_value == 1 && d->hook_count == 2 && d->state_bytes == 16 && d->start &&
+              d->stop && d->command_count == 1 && d->menu_count == 2 && d->button_count == 1,
           "C fixture: descriptor");
-    if (!d || !d->start || !d->stop || d->hook_count != 1)
+    if (d->hook_count != 2 || !d->command_count || d->menu_count != 2 || !d->button_count)
         return;
-    u32 state[2] = {};
-    const u8 settings[8] = {1, 0, 0, 0, 1, 0, 0, 0};
+    u32 state[4] = {};
+    const u8 settings[24] = {1, 0, 0, 0, 1};
     mc_ctx ctx{&kApi, state, settings, MC_CTX_FIRST_START, 1};
     check(d->start(&ctx) == MC_OK && state[0] == 1, "C fixture: start");
     Run result = run(d->hooks[0], &ctx, "hi");
@@ -346,6 +737,24 @@ void c_fixture() noexcept {
           "C fixture: pre_send replaces");
     result = run(d->hooks[0], &ctx, "cancel");
     check(result.verdict == MC_DRAFT_CANCEL, "C fixture: pre_send cancels");
+    const mc_message m = message(5, "text");
+    mc_decoration out{};
+    check(d->hooks[1].fn.decorate_message(&ctx, &m, &out) == MC_OK && out.badge_count == 1 &&
+              same(out.badges[0].text, "C"),
+          "C fixture: decorate_message adds a badge");
+    const mc_arg arg{MC_ARG_TEXT, 1, MC_S("hey"), 0, 0};
+    mc_command_call call = command_call(&arg, 1);
+    check(d->commands[0].run(&ctx, &call) == MC_OK && call.reply_kind == MC_REPLY_INSERT &&
+              same(mc::Str(call.reply, call.reply_bytes), "HEY"),
+          "C fixture: /shout");
+    mc_menu_target link{};
+    link.kind = MC_MENU_LINK;
+    link.url = MC_S("https://a.b");
+    check(d->menus[1].visible(&ctx, &link) == MC_MENU_SHOW && d->menus[1].select(&ctx, &link) == MC_OK &&
+              state[2] == 11,
+          "C fixture: the submenu item");
+    mc_button_event press{};
+    check(d->buttons[0].click(&ctx, &press) == MC_OK && state[3] == 1, "C fixture: the button");
     d->stop(&ctx);
     check(state[1] == 1, "C fixture: stop");
     FreeLibrary(module);
@@ -359,6 +768,10 @@ extern "C" __declspec(noreturn) void WINAPI maicord_plugin_abi_tests_entry() noe
     url_cases();
     ctx_wrappers();
     clear_urls();
+    translate();
+    show_me_your_name();
+    reverse_image_search();
+    silent_toggle();
     c_fixture();
     maicord::test_exit(failures, "plugin_abi");
 }

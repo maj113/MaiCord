@@ -891,6 +891,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             return layout_step_failed(__LINE__);
         }
         renderer->media_quad_count = 0;
+        renderer->zoom_lens_source.ready = false;
         renderer->media_batch_count = 0;
         renderer->popup_media_first_batch = 0;
         const LoginScene& login = *renderer->login_scene;
@@ -948,6 +949,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         return layout_step_failed(__LINE__);
     }
     renderer->media_quad_count = 0;
+    renderer->zoom_lens_source.ready = false;
     renderer->media_batch_count = 0;
     renderer->popup_media_first_batch = 0;
     if (renderer->content_text) {
@@ -1723,6 +1725,10 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                                   false, true,
                                   MediaQuadStyle{{}, ui_image_viewer_media_opacity(viewer), 0.f, 0.f, 0.f, domain}))
                 return layout_step_failed(__LINE__);
+            // The magnifier reads the settled picture, not the open/close motion.
+            if (allocation.ok() && !viewer.video && viewer.reveal >= 1 && renderer->zoom_lens &&
+                renderer->zoom_lens->active)
+                resolve_zoom_lens(renderer, theme, allocation, r, domain);
         }
 
         // This exclusive overlay returns before the normal tail initializes
@@ -1740,7 +1746,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         if (d3d11_renderer_tooltip_visible(*renderer) &&
             !ui_tooltip_paint(*renderer->tooltip_scene, theme, &renderer->paint_stream))
             return layout_step_failed(__LINE__);
-        if (!queue_toast(renderer, theme))
+        if (!queue_zoom_lens_frame(renderer, theme, false) || !queue_toast(renderer, theme))
             return layout_step_failed(__LINE__);
         return queue_inline_flags(renderer);
 
@@ -2016,6 +2022,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         if (!ui_tooltip_paint(*renderer->tooltip_scene, theme, &renderer->paint_stream))
             return layout_step_failed(__LINE__);
     }
+    if (!queue_zoom_lens_frame(renderer, theme, !d3d11_renderer_tooltip_visible(*renderer)))
+        return layout_step_failed(__LINE__);
     if (!queue_toast(renderer, theme))
         return layout_step_failed(__LINE__);
     return queue_inline_flags(renderer);

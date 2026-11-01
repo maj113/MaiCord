@@ -6,6 +6,7 @@
 // popover a slot action leaves in the runtime.
 #include "plugins.hpp"
 #include "popover.hpp"
+#include "surface_host.hpp"
 #include "maicord/core/memory.hpp"
 #include "runtime.hpp"
 #include "../shell/state.hpp"
@@ -96,6 +97,22 @@ bool application_plugins_surface_hit(float x, float y, ApplicationPluginSurfaceH
                     0};
             return true;
         }
+    // Server list tiles of plugins (above the first server and below "Add a server").
+    if (rail.active && ui_rect_contains(rail.viewport, x, y)) {
+        const GuildRailHit tile = guild_rail_scene_hit_test(rail, x, y);
+        GuildRailPluginTile plugin{};
+        if (tile.plugin_end && guild_rail_plugin_tile(rail, tile.plugin_end, tile.plugin_index, &plugin)) {
+            *out = {{tile.plugin_end == 1 ? kUiPluginSlotServerTop : kUiPluginSlotServerBottom, 0, 0, 0, 0},
+                    plugin.node.owner_id,
+                    plugin.node.action_id,
+                    plugin.tile,
+                    ui_plugin_slot_label(plugin.node),
+                    &rail.widgets,
+                    plugin.widget,
+                    tile.plugin_index};
+            return true;
+        }
+    }
     const auto& navigation = g_app.shell_navigation_scene;
     if (navigation.active && ui_rect_contains(navigation.viewport, x, y))
         for (u32 i = 0; i < navigation.count; ++i) {
@@ -122,7 +139,8 @@ bool application_plugins_surface_click(float x, float y) noexcept {
     if (hit.action_id) application_plugins_slot_activate(hit.owner_id, hit.target, hit.action_id, hit.anchor);
     // Inert row and rail badges let the click select their row; an account
     // panel square always owns its click.
-    return hit.action_id != 0 || hit.target.surface == kUiPluginSlotAccountPanel;
+    return hit.action_id != 0 || hit.target.surface == kUiPluginSlotAccountPanel ||
+           hit.target.surface == kUiPluginSlotServerTop || hit.target.surface == kUiPluginSlotServerBottom;
 }
 
 bool application_plugins_surface_hover(float x, float y) noexcept {
@@ -139,6 +157,12 @@ bool application_plugins_surface_hover(float x, float y) noexcept {
 
 bool application_plugins_slot_activate(u64 owner_id, NativePluginSdkSlotTarget target, u64 action_id,
                                        UiRect anchor) noexcept {
+    if (g_plugin_surfaces &&
+        application_plugin_surfaces_activate(owner_id,
+                                             {target.surface, target.channel_id, target.message_id, target.user_id,
+                                              target.guild_id},
+                                             action_id))
+        return true;
     if (!application_plugins_slot_action(owner_id, target, action_id)) return false;
     const auto* rt = application_plugins_runtime();
     if (rt && rt->popover_count && rt->popover_owner == owner_id) application_plugins_popover_open(anchor);
@@ -147,7 +171,7 @@ bool application_plugins_slot_activate(u64 owner_id, NativePluginSdkSlotTarget t
 
 bool application_plugins_hover_activate(u32 index, u64 message_id, UiRect anchor) noexcept {
     UiPluginSlotNode nodes[kUiPluginSlotHoverButtons]{};
-    const u32 count = ui_plugin_slot_toolbar(kUiPluginSlotMessageHover, {nodes, kUiPluginSlotHoverButtons});
+    const u32 count = ui_plugin_slot_toolbar(kUiPluginSlotMessageHover, message_id, {nodes, kUiPluginSlotHoverButtons});
     if (index >= count || !nodes[index].action_id || !g_app.account_ui || !message_id) return false;
     const auto* record = application_message_record(message_id);
     if (!record) return false;
@@ -161,7 +185,8 @@ bool application_plugins_hover_activate(u32 index, u64 message_id, UiRect anchor
 
 Utf8View application_plugins_hover_label(u32 index) noexcept {
     UiPluginSlotNode nodes[kUiPluginSlotHoverButtons]{};
-    const u32 count = ui_plugin_slot_toolbar(kUiPluginSlotMessageHover, {nodes, kUiPluginSlotHoverButtons});
+    const u32 count = ui_plugin_slot_toolbar(kUiPluginSlotMessageHover, g_app.message_action_bar.message_id,
+                                             {nodes, kUiPluginSlotHoverButtons});
     return index < count ? ui_plugin_slot_label(nodes[index]) : Utf8View{};
 }
 

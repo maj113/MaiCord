@@ -81,11 +81,15 @@ void renderer_bind_theme_editor_scene(D3D11Renderer* renderer, const UiThemeEdit
     renderer->theme_editor_scene = current;
     renderer->retained_presentation.valid = false;
 }
-// Plugin background effects need a device; settings only list and save them.
-HRESULT renderer_select_plugin_effect(D3D11Renderer*, u64, u64, u64, ConstSlice<u8>, const float*) noexcept {
-    return E_NOTIMPL;
+// Package background effects need a device; settings only list and save them.
+EffectSelectResult renderer_select_effect(D3D11Renderer*, const BackgroundEffectSpec&, const EffectSettings&) noexcept {
+    return {E_NOTIMPL, EffectSelect::rejected};
 }
-void renderer_clear_plugin_effect(D3D11Renderer*) noexcept {
+void renderer_clear_effect(D3D11Renderer*) noexcept {
+}
+void d3d11_effect_set_marker(D3D11EffectOwner*, volatile u64*) noexcept {
+}
+void d3d11_effect_set_pointer(D3D11EffectOwner*, float, float) noexcept {
 }
 // The sign-in backdrop is a GPU image; settings only freeze and release it.
 bool renderer_freeze_login_backdrop(D3D11Renderer* renderer, const Theme&) noexcept {
@@ -172,6 +176,8 @@ bool renderer_finish_resize(D3D11Renderer* renderer, u32 width, u32 height) noex
     return true;
 }
 namespace app_detail {
+// The magnifier follows the stored preferences; this fixture has no lens.
+void application_image_zoom_configure() noexcept {}
 // The Profiles page hands the modal to the profile editor, which is not
 // linked here.
 bool application_profile_editor_open(ProfileEditorTab, u64) noexcept {
@@ -241,6 +247,9 @@ MessageProfileHit application_message_profile_hit_test(float x, float y) noexcep
 void application_surface_motion_retire(RendererLayerSurface) noexcept {
 }
 void application_plugins_actions_install(NativePluginSdkRuntime& runtime) noexcept { runtime.actions = {}; }
+// No plugin pipeline runs in this test.
+void application_plugins_pipeline_poll() noexcept {}
+u32 application_plugins_pipeline_wait_timeout(u64) noexcept { return INFINITE; }
 // Account settings open the service's web pages through the link flow.
 namespace {
 u32 settings_link_opens{};
@@ -390,6 +399,10 @@ UiRect application_viewport_dips() noexcept {
 }
 bool synchronize_shell_layout() noexcept {
     ++settings_runtime_test::observed.layout_updates;
+    return true;
+}
+bool synchronize_navigation_view() noexcept {
+    ++settings_runtime_test::observed.navigation_updates;
     return true;
 }
 bool synchronize_member_subscription(u64) noexcept {

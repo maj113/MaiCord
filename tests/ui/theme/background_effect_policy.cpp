@@ -2,6 +2,7 @@
 #include "maicord/app/shell/background_frame_policy.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/render/text/content_text_retention.hpp"
+#include "maicord/render/effects/background_effect.hpp"
 #include "maicord/render/effects/background_fx.hpp"
 #include "maicord/ui/theme/background_animation.hpp"
 #include "maicord/ui/theme/background_surface.hpp"
@@ -289,40 +290,133 @@ void test_background_effect_policy(void (*check)(bool, const char*) noexcept) no
               background_fx_linear(-1) == 0 && background_fx_linear(nan_value) == 0,
           "effect pass: sRGB to linear stays within the curve and clamps NaN and range");
 
-    BackgroundFxGuard guard{};
-    bool average = true;
-    for (u32 frame = 0; frame < 60; ++frame)
-        average = average && !background_fx_guard_sample(&guard, 1.9f, 1000 + frame * 16);
-    average = average && !background_fx_guard_sample(&guard, 1.9f, 2000);
-    BackgroundFxGuard slow{};
-    bool tripped = false;
-    for (u32 frame = 0; frame <= 62 && !tripped; ++frame)
-        tripped = background_fx_guard_sample(&slow, 2.5f, 1000 + frame * 17);
-    BackgroundFxGuard stalls{};
-    const bool first_stalls = !background_fx_guard_sample(&stalls, 9, 10) && !background_fx_guard_sample(&stalls, 1, 20) &&
-                              !background_fx_guard_sample(&stalls, 8.5f, 30);
-    const bool third_stall = background_fx_guard_sample(&stalls, 20, 40);
-    BackgroundFxGuard nan{};
-    check(average && tripped && slow.window_frames == 0 && first_stalls && third_stall &&
-              !background_fx_guard_sample(&nan, nan_value, 5),
-          "effect pass: GPU guard trips above 2 ms average over a second or on the third 8 ms frame");
+    // ---- Steps and settings: per-shader override > global > the package's request > 50 % at 24 fps ----
+    bool steps = effect_resolve_step(0, 0, 0, kEffectDefaultResolutionStep, kEffectResolutionSteps) == 2 &&
+                 effect_resolve_step(0, 0, 4, 2, 5) == 3 && effect_resolve_step(0, 5, 4, 2, 5) == 4 &&
+                 effect_resolve_step(1, 5, 4, 2, 5) == 0 && effect_resolve_step(9, 0, 0, 2, 5) == 4 &&
+                 kEffectResolutionPercent[kEffectDefaultResolutionStep] == 50 &&
+                 kEffectFramesPerSecond[kEffectDefaultFrameRateStep] == 24;
+    EffectUserSettings user = kEffectUserDefaults;
+    EffectShaderSettings own = effect_shader_defaults(0x77);
+    EffectSettings resolved = effect_resolve_settings(user, own, 0, 0, EffectBlend::screen);
+    steps = steps && resolved.resolution_step == 2 && resolved.frame_rate_step == 2 &&
+            resolved.blend == EffectBlend::screen && close_to(resolved.speed, 1.f) && close_to(resolved.opacity, 1.f) &&
+            resolved.budget == EffectBudget::balanced && !resolved.pointer_allowed;
+    resolved = effect_resolve_settings(user, own, 4, 4, EffectBlend::add);
+    steps = steps && resolved.resolution_step == 3 && resolved.frame_rate_step == 3 && resolved.blend == EffectBlend::add;
+    user.resolution = 1;
+    user.frame_rate = 5;
+    resolved = effect_resolve_settings(user, own, 4, 4, EffectBlend::add);
+    steps = steps && resolved.resolution_step == 0 && resolved.frame_rate_step == 4;
+    own.resolution = 5;
+    own.blend = static_cast<u8>(EffectBlend::normal) + 1;
+    own.speed = 30;
+    own.opacity = 50;
+    own.pointer = 1;
+    resolved = effect_resolve_settings(user, own, 4, 4, EffectBlend::add);
+    steps = steps && resolved.resolution_step == 4 && resolved.frame_rate_step == 4 &&
+            resolved.blend == EffectBlend::normal && close_to(resolved.speed, 1.5f) && close_to(resolved.opacity, .5f) &&
+            resolved.pointer_allowed && effect_settings_valid(resolved);
+    own.opacity = 101;
+    steps = steps && !effect_shader_settings_valid(own) && effect_user_settings_valid(user) &&
+            !effect_user_settings_valid({6, 0, EffectBudget::low, EffectUnfocused::keep}) &&
+            effect_shader_settings_valid(effect_shader_defaults(1)) &&
+            !effect_settings_valid({nan_value, 1, EffectBlend::normal, 0, 0, EffectBudget::low, false}) &&
+            !effect_settings_valid({1, 1, EffectBlend::normal, 5, 0, EffectBudget::low, false});
+    check(steps, "effect pass: steps resolve override over global over request over 50 %/24 fps; settings validate");
 
-    u8 record[kBackgroundFxChoiceBytes]{};
-    background_fx_choice_encode({0x1122334455667788ull, 9}, record);
-    BackgroundFxChoice decoded{};
-    bool choice = background_fx_choice_decode(record, sizeof(record), &decoded) &&
-                  decoded.owner_id == 0x1122334455667788ull && decoded.effect_id == 9;
-    record[4] = 2;
-    choice = choice && !background_fx_choice_decode(record, sizeof(record), &decoded) && !decoded.owner_id;
-    background_fx_choice_encode({1, 0}, record);
-    choice = choice && !background_fx_choice_decode(record, sizeof(record), &decoded) &&
-             !background_fx_choice_decode(record, sizeof(record) - 1, &decoded);
-    choice = choice &&
-             background_fx_choice_before(utf8_literal("aurora"), {9, 1}, utf8_literal("Borealis"), {1, 1}) &&
-             !background_fx_choice_before(utf8_literal("Borealis"), {1, 1}, utf8_literal("aurora"), {9, 1}) &&
-             background_fx_choice_before(utf8_literal("Rain"), {1, 1}, utf8_literal("rain"), {2, 1}) &&
-             background_fx_choice_before(utf8_literal("Rain"), {1, 1}, utf8_literal("Rainbow"), {1, 2});
-    check(choice, "effect pass: saved plugin effect choice round-trips owner+effect, rejects other versions "
-                  "and ids, and the picker orders effects by name");
+    // Frame intervals and the animation clock they drive.
+    const auto sample = background_animation_sample(0, 1.f, false, 1000, true, effect_interval_ms(3, false));
+    const auto later = background_animation_sample(sample.next_frame_ms, sample.phase_seconds, true, 1100, true,
+                                                   effect_interval_ms(3, false));
+    // Steps are 10, 15, 24, 30 and 60 fps.
+    check(effect_interval_ms(2, false) == 42 && effect_interval_ms(3, false) == 33 && effect_interval_ms(4, false) == 17 &&
+              effect_interval_ms(0, false) == 100 && effect_interval_ms(3, true) == 100 &&
+              effect_interval_ms(0, true) == 100 && effect_interval_ms(2, true) == 100 && sample.running &&
+              sample.next_frame_ms == 1033 && later.next_frame_ms == 1133 && later.phase_seconds > 1.0f &&
+              later.phase_seconds <= 1.07f &&
+              background_animation_sample(0, 1.f, false, 1000, true).next_frame_ms == 1000 + kBackgroundAnimationIntervalMs,
+          "effect pass: frame intervals come from the fps steps (slowed to 10 fps when unfocused) and drive the clock");
+
+    // ---- Budget controller ----
+    constexpr float kBalanced = kEffectBudgetMs[1];
+    const auto run_samples = [](EffectBudgetState* state, float gpu_ms, float budget, u64* now, u64 until) noexcept {
+        EffectBudgetAction action = EffectBudgetAction::none;
+        while (action == EffectBudgetAction::none && *now < until) {
+            action = effect_budget_sample(state, gpu_ms, budget, *now);
+            *now += 40;
+        }
+        return action;
+    };
+    EffectBudgetState state{};
+    u64 now = 1000;
+    effect_budget_start(&state, 9, 4);
+    bool controller = state.step == 4 && state.ceiling == 4 && state.warmup == kEffectWarmupSamples;
+    // Warm-up samples are free; a second over budget steps one down; a calm spell steps back, never above the ceiling.
+    controller = controller && effect_budget_sample(&state, 7, kBalanced, now) == EffectBudgetAction::none &&
+                 effect_budget_sample(&state, 7, kBalanced, now) == EffectBudgetAction::none && !state.warmup;
+    controller = controller && run_samples(&state, 2.f, kBalanced, &now, now + 3000) == EffectBudgetAction::step_down &&
+                 state.step == 3 && state.warmup == kEffectWarmupSamples;
+    controller = controller && run_samples(&state, .1f, kBalanced, &now, now + 12000) == EffectBudgetAction::step_up &&
+                 state.step == 4;
+    controller = controller && run_samples(&state, .1f, kBalanced, &now, now + 12000) == EffectBudgetAction::none &&
+                 state.step == 4;
+    // Between a third of the budget and the budget: no change either way.
+    EffectBudgetState steady{};
+    effect_budget_start(&steady, 2, 4);
+    now = 1000;
+    controller = controller && run_samples(&steady, 1.f, kBalanced, &now, now + 12000) == EffectBudgetAction::none &&
+                 steady.step == 2;
+    // One stall goes straight to the lowest step; one runaway frame turns the effect off.
+    EffectBudgetState stalled{};
+    effect_budget_start(&stalled, 3, 3);
+    stalled.warmup = 0;
+    controller = controller && effect_budget_sample(&stalled, 9, kBalanced, 5) == EffectBudgetAction::drop_to_floor &&
+                 stalled.step == 0 && stalled.warmup == kEffectWarmupSamples;
+    stalled.warmup = 0;
+    controller = controller && effect_budget_sample(&stalled, 9, kBalanced, 6) == EffectBudgetAction::none &&
+                 effect_budget_sample(&stalled, 60, kBalanced, 7) == EffectBudgetAction::disable;
+    // Over budget at the lowest step for three seconds turns it off; bad samples do nothing.
+    EffectBudgetState floor{};
+    effect_budget_start(&floor, 0, 4);
+    floor.warmup = 0;
+    now = 1000;
+    controller = controller && run_samples(&floor, 3.f, kBalanced, &now, now + 2500) == EffectBudgetAction::none &&
+                 run_samples(&floor, 3.f, kBalanced, &now, now + 3000) == EffectBudgetAction::disable;
+    controller = controller && effect_budget_sample(&steady, nan_value, kBalanced, 99999) == EffectBudgetAction::none &&
+                 effect_budget_sample(&steady, -1, kBalanced, 99999) == EffectBudgetAction::none &&
+                 effect_budget_sample(&steady, 1, 0, 99999) == EffectBudgetAction::none;
+    check(controller, "effect pass: budget controller warms up, steps down and up, drops on a stall, disables on a "
+                      "runaway or three seconds over at the floor");
+
+    // ---- Selection probe ----
+    const EffectProbe linear{.2f, 1.f, 1000, 5000};
+    const EffectProbe cheap{.05f, .1f, 4096, 16384};
+    const EffectProbe heavy{.5f, 3.f, 4096, 16384};
+    bool refuse = true;
+    const u32 cheap_low = effect_probe_start_step(cheap, 1920, 1080, kEffectBudgetMs[0], 4, &refuse);
+    const bool cheap_refused = refuse;
+    const u32 cheap_high = effect_probe_start_step(cheap, 1920, 1080, kEffectBudgetMs[2], 4, &refuse);
+    const u32 cheap_capped = effect_probe_start_step(cheap, 1920, 1080, kEffectBudgetMs[2], 1, &refuse);
+    const u32 heavy_step = effect_probe_start_step(heavy, 1920, 1080, kEffectBudgetMs[2], 4, &refuse);
+    const bool heavy_refused = refuse;
+    check(close_to(effect_probe_estimate(linear, 3000), .6f) && close_to(effect_probe_estimate(linear, 100), .2f) &&
+              effect_probe_estimate(linear, 9000) > effect_probe_estimate(linear, 3000) && !cheap_refused &&
+              cheap_high >= cheap_low && cheap_high <= 4 && cheap_capped <= 1 &&
+              (cheap_high == 0 || effect_probe_estimate(cheap, effect_step_pixels(1920, 1080, cheap_high)) <=
+                                      kEffectBudgetMs[2]) &&
+              heavy_step == 0 && heavy_refused && effect_scaled_extent(1920, 0) == 480 &&
+              effect_scaled_extent(1080, 2) == 540 && effect_scaled_extent(1, 0) == 1 &&
+              effect_step_pixels(640, 360, 4) == 640u * 360u,
+          "effect pass: the cost probe extrapolates linearly, starts below the ceiling and refuses a hopeless effect");
+
+    // ---- Layout of the constants the shaders read ----
+    float palette[kBackgroundFxPaletteRoles][4]{};
+    effect_palette(starry, palette);
+    EffectFrameConstants frame{};
+    check(sizeof(frame) == 304 && sizeof(EffectCompositeConstants) == 64 && sizeof(EffectShaderSettings) == 16 &&
+              palette[0][0] == starry.base_low.red && palette[4][2] == starry.accent.blue &&
+              palette[7][1] == starry.tokens.accent.danger.green && palette[3][3] == 1,
+          "effect pass: frame and composite constants keep the shader layout; the palette carries the theme's own sRGB");
 }
 } // namespace maicord

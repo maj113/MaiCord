@@ -389,6 +389,7 @@ maicord_library(maicord_ui
     src/ui/chat/messages/scene_measurements.cpp
     src/ui/layout/scrollbar.cpp src/ui/chat/composer/message_composer_scene.cpp src/ui/chat/composer/attachment_strip.cpp
     src/ui/chat/composer/voice_bar.cpp src/ui/chat/messages/presentation.cpp src/ui/media/image_viewer.cpp
+    src/ui/media/zoom_lens.cpp
     src/ui/chat/messages/reaction_presentation.cpp src/ui/chat/messages/typing_presentation.cpp src/ui/core/paint.cpp
     src/ui/widgets/icon.cpp src/ui/widgets/button.cpp src/ui/chat/messages/text_coordinator.cpp src/ui/chat/messages/text_presentation.cpp
     src/ui/chat/messages/text_presentation_reply.cpp src/ui/chat/messages/text_presentation_content.cpp
@@ -423,7 +424,7 @@ maicord_library(maicord_ui
     src/ui/media/picker_presentation.cpp src/ui/chat/search/query.cpp src/ui/chat/search/filter_context.cpp
     src/ui/voice/channel_rows.cpp src/ui/voice/panel.cpp
     src/ui/voice/call_scene.cpp src/ui/voice/call_stage.cpp src/ui/widgets/hover_card.cpp src/ui/voice/stream_card_scene.cpp
-    src/ui/guild/card_scene.cpp
+    src/ui/guild/card_scene.cpp src/ui/guild/folder_open.cpp src/ui/guild/hidden_channel_menu.cpp
     src/ui/guild/banner.cpp src/ui/account/profile_activity.cpp src/ui/shell/caption_bar.cpp src/ui/widgets/activity_status.cpp
     src/ui/chat/messages/typing_indicator.cpp src/ui/account/dm_profile_panel.cpp
     src/ui/widgets/toast.cpp src/ui/theme/theme.cpp src/ui/theme/background_color_math.cpp src/ui/chat/search/message_result_card.cpp
@@ -459,8 +460,13 @@ maicord_library(maicord_plugin_manager
 # (state, settings, persisted store, call ledger), the mc_api host table and the hook dispatch lists.
 maicord_library(maicord_plugin_runtime
     src/app/plugins/loader.cpp src/app/plugins/binding.cpp src/app/plugins/api.cpp src/app/plugins/store.cpp
-    src/app/plugins/dispatch.cpp src/app/plugins/call_watchdog.cpp
-    LIBS maicord_core maicord_plugin_host maicord_plugin_modules kernel32)
+    src/app/plugins/dispatch.cpp src/app/plugins/call_watchdog.cpp src/app/plugins/http.cpp src/app/plugins/secrets.cpp
+    src/app/plugins/consent.cpp src/app/plugins/settings_page.cpp
+    src/app/plugins/ui_registry.cpp src/app/plugins/ui_menu.cpp src/app/plugins/ui_command.cpp
+    src/app/plugins/ui_feedback.cpp src/app/plugins/keep.cpp src/app/plugins/pipeline.cpp
+    src/app/plugins/pipeline_api.cpp
+    src/app/plugins/decorations.cpp src/app/plugins/buttons.cpp src/app/plugins/reads.cpp
+    LIBS maicord_core maicord_protocol maicord_platform maicord_app_core maicord_plugin_host maicord_plugin_modules kernel32)
 
 maicord_library(maicord_edit_history src/model/chat/edit_history.cpp LIBS maicord_core maicord_platform)
 
@@ -535,6 +541,7 @@ maicord_library(maicord_renderer
     src/render/text/shaped_text_cache.cpp src/render/d3d11/device.cpp src/render/d3d11/draw_pipeline.cpp
     src/render/effects/colr_paint.cpp src/render/d3d11/glyph_text.cpp src/render/media/icon_atlas.cpp
     src/render/text/native_glyph_outlines.cpp src/render/d3d11/background_fx.cpp src/render/d3d11/gpu_timer.cpp
+    src/render/d3d11/effect_renderer.cpp src/render/d3d11/effect_inputs.cpp src/render/d3d11/effect_glyphs.cpp
     src/render/d3d11/renderer.cpp src/render/d3d11/renderer_draw.cpp src/render/d3d11/renderer_edit.cpp
     src/render/d3d11/renderer_layout.cpp src/render/d3d11/renderer_layout_media.cpp src/render/d3d11/renderer_text.cpp
     src/render/d3d11/renderer_text_content.cpp src/render/d3d11/renderer_text_overlay.cpp

@@ -41,7 +41,7 @@ struct ApplicationPluginSettingsPage {
 // One bank serves the plugin catalog (its 21-row ceiling), any catalog panel
 // and search results. Keybinds, which lists every default shortcut, projects
 // into its own bank (application_keybinds_settings_bank).
-inline constexpr u32 kSettingsControlCapacity = 28;
+inline constexpr u32 kSettingsControlCapacity = 32;
 
 // Only short pages carry avatar media (the Account card); longer ones have none.
 inline constexpr u32 kSettingsAvatarRows = 12;

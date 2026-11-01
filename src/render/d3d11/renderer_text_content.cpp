@@ -265,7 +265,7 @@ bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest&
         style_theme,
         inline_role_color,
         renderer,
-        resolve_role_mention_color_callback,
+        resolve_mention_color_callback,
         color,
         origin_x,
         origin_y,

@@ -16,6 +16,7 @@ inline constexpr u32 kPluginStagedSettings = 8;
 inline constexpr u32 kPluginStagedBytes = 8192;
 
 struct PluginRuntime;
+struct PluginHttp;
 
 // A persisted key-value table in one reserved region (store.cpp).
 struct PluginKeyValue {
@@ -57,6 +58,16 @@ struct PluginBinding {
     u64 settings_dirty_since;
     bool started, hooks_published, struck_out;
     u32 calls, strikes;
+    // Network: bit i set = the user approved descriptor.network[i]. generation tells this enable from
+    // an earlier one of the same owner, so a finished request never reaches a later enable.
+    u32 approved_hosts;
+    u32 generation;
+    // While ctx.flags has MC_CTX_GESTURE: when the call stops counting as a user gesture. A completion
+    // sets inherit_gesture_until_ms first, which keeps the deadline of the request that began it.
+    u64 gesture_until_ms, inherit_gesture_until_ms;
+    // Requests started in the current rate-limit window (plugin_http_submit).
+    u64 http_window_ms;
+    u32 http_window_count;
 };
 
 // Zero-initialized, caller-owned, stable address. UI thread only.
@@ -73,6 +84,9 @@ struct PluginRuntime {
     PluginBinding* bindings[kPluginMaximumBindings];
     u32 binding_count;
     u32 call_serial;
+    // The HTTP broker; created by the first request (http.cpp).
+    PluginHttp* http;
+    u32 generation_serial;
 };
 
 enum class PluginEnableError : u8 {
@@ -104,7 +118,9 @@ PluginLoadResult plugin_runtime_close(PluginRuntime*) noexcept;
 // Loads leaf from the pinned directory, builds the plugin's state, settings and
 // hook lists, runs start and publishes its hooks. approved must contain every
 // permission the plugin needs (descriptor plus hooks); nothing stays behind on failure.
-PluginEnableResult plugin_runtime_enable(PluginRuntime*, ConstSlice<wchar_t> leaf, u64 approved_permissions) noexcept;
+// approved_hosts: bit i = the user approved descriptor.network[i] (http.hpp).
+PluginEnableResult plugin_runtime_enable(PluginRuntime*, ConstSlice<wchar_t> leaf, u64 approved_permissions,
+                                         u32 approved_hosts = 0) noexcept;
 // Unpublishes the hooks, runs stop, flushes settings and store, then frees the DLL and the
 // binding. False when the DLL could not be freed: the plugin is stopped and silent, and a
 // later disable retries.
@@ -122,13 +138,46 @@ struct PluginCallResult {
     bool overran; // past its class budget: the call's output must be ignored
 };
 PluginCallResult plugin_binding_run_draft(PluginBinding*, u32 hook_kind, mc_draft_fn, mc_draft*) noexcept;
+// One timed call into the plugin for host code that owns the call's argument types (menus,
+// commands, completions): invoke(&context, argument) runs under the ledger with the given
+// context flags (MC_CTX_GESTURE for user-initiated calls).
+using PluginInvoke = mc_status (*)(mc_ctx*, void*) noexcept;
+PluginCallResult plugin_binding_call(PluginBinding*, PluginCallKind, PluginCallClass, u32 context_flags,
+                                     PluginInvoke, void* argument) noexcept;
+
+// Publishes or removes the binding's menus and commands (ui_registry.cpp).
+bool plugin_ui_add(PluginBinding*) noexcept;
+void plugin_ui_remove(PluginBinding*) noexcept;
+
+// Publishes or removes the binding's decoration hooks and buttons (decorations.cpp, buttons.cpp). False when
+// the host has no room for another decorating plugin.
+bool plugin_surfaces_add(PluginBinding*) noexcept;
+void plugin_surfaces_remove(PluginBinding*) noexcept;
 
 // Publishes or removes the binding's hooks in the dispatch lists (dispatch.cpp).
 bool plugin_dispatch_add(PluginBinding*) noexcept;
 void plugin_dispatch_remove(PluginBinding*) noexcept;
 
+// One enabled plugin's hook of a kind (the lists live in dispatch.cpp).
+struct PluginSubscriber {
+    PluginBinding* binding;
+    mc_hook_fn function;
+    u64 filter;
+};
+// The subscribers of hook in enable order; valid until a plugin is enabled or disabled.
+ConstSlice<PluginSubscriber> plugin_dispatch_subscribers(PluginHook) noexcept;
+
+// Publishes or removes the binding's timers and per-plugin pipeline state (pipeline.cpp).
+void plugin_pipeline_add(PluginBinding*) noexcept;
+void plugin_pipeline_remove(PluginBinding*) noexcept;
+
 // Changes a setting from the host (a settings page). Takes effect now, or when the
 // plugin's current call returns. Encodings as mc_api.set_setting.
 mc_status plugin_binding_set_setting(PluginBinding*, u32 index, const void* value, u32 bytes) noexcept;
+// A change the user made: sets the value (as plugin_binding_set_setting) and calls the plugin's
+// SETTING_CHANGED hook with a gesture. MC_E_BUSY inside a call of the plugin.
+mc_status plugin_binding_change_setting(PluginBinding*, u32 index, const void* value, u32 bytes) noexcept;
+// Approves or revokes descriptor.network[index]. A revoked host's waiting requests fail with MC_HTTP_E_DENIED.
+bool plugin_binding_set_host(PluginBinding*, u32 index, bool approved) noexcept;
 
 } // namespace maicord

@@ -257,10 +257,30 @@ bool present_rejected(const char* stage) noexcept {
 }
 } // namespace
 
+// The GPU device was lost (a reset, a driver update, a removed adapter): the renderer rebuilds itself on a new
+// one, the loop rebuilds text for the empty atlas and media owners request their images again. A failed attempt
+// waits a second; the next requested frame tries again.
+bool application_recover_device() noexcept {
+    static u64 retry_ms = 0;
+    const u64 now = clock_monotonic_milliseconds();
+    if (now < retry_ms)
+        return false;
+    if (!renderer_recover_device(&g_app.renderer)) {
+        retry_ms = now + 1000;
+        return false;
+    }
+    retry_ms = 0;
+    application_request_frame();
+    return true;
+}
+
 bool application_present_frame() noexcept {
     if (!g_app.renderer_ready) {
         return true;
     }
+    // A lost device waits for its recovery before anything draws.
+    if (g_app.renderer.device_lost && !application_recover_device())
+        return present_rejected("device_lost");
     MAICORD_PERF_MARK("frame_begin");
     application_caption_synchronize();
     // Consume a due spinner step first: a rejected draw below must not leave
@@ -280,9 +300,8 @@ bool application_present_frame() noexcept {
     // Consume the bounded background deadline before preparing other surfaces.
     // A rejected text/scene publication must not leave its expired visual wake
     // armed and turn retained DXGI permits into a tight retry loop.
-    // The selected plugin effect (or the built-in fallback) decides whether
-    // the background clock runs.
-    application_plugins_fx_synchronize();
+    // The selected package effect (or the built-in fallback) decides whether the background clock runs.
+    application_effects_synchronize();
     if (!application_background_synchronize(clock_monotonic_milliseconds()))
         return present_rejected("background");
     // Reduced motion, live resize, a minimized or inactive window: hold media
@@ -386,8 +405,14 @@ bool application_present_frame() noexcept {
 #endif
     if (g_app.local_poster_presentation.pending)
         application_media_posters_presented(g_app, presented, before, after);
-    if (!presented)
+    if (!presented) {
+        // The GPU was removed or reset during this frame: rebuild on a new device and draw again.
+        if (renderer_device_lost(&g_app.renderer)) {
+            application_recover_device();
+            return true;
+        }
         return present_rejected("renderer");
+    }
     if (after != before)
         MAICORD_PERF_FIRST_PRESENT();
     application_composer_text_input_notify_layout();

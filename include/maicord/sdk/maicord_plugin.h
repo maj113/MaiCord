@@ -48,7 +48,6 @@
  *   "mc.msg.render"  1  message presentation decorators             [message_render]
  *   "mc.actions"     1  host-executed, rate-limited actions         [act_*, navigate, ...]
  *   "mc.timer"       1  coarse UI-thread timers                     [timer]
- *   "mc.fx"          1  background effect shaders                   [effects]
  *   A missing permission yields MC_E_DENIED; an unknown name or another version
  *   yields MC_E_UNSUPPORTED. Pages and commands register during start only;
  *   everything else may be called any time the plugin is enabled.
@@ -143,8 +142,7 @@ enum {
 #define MC_PERM_OPEN_LINKS (1ull << 18)    /* [open_links] open links (with confirmation) */
 #define MC_PERM_NOTIFY (1ull << 19)        /* [notify] notices and dialogs */
 #define MC_PERM_KEYBINDS (1ull << 20)      /* [keybinds] keyboard shortcuts */
-#define MC_PERM_EFFECTS (1ull << 21)       /* [effects] background effects */
-#define MC_PERM_ALL ((1ull << 22) - 1)
+#define MC_PERM_ALL ((1ull << 21) - 1)
 
 /* Tones map to theme roles; plugins never choose colours or draw. */
 enum {
@@ -1101,78 +1099,6 @@ typedef struct mc_timer_v1 {
                                uint32_t repeat);
     mc_status (MC_CALL* cancel)(void* binding, uint64_t generation, uint64_t timer_id);
 } mc_timer_v1;
-
-/* ---- mc.fx@1 ------------------------------------------------------------ */
-/*
- * Background effects drawn where MaiCord's Stars and Comets draw: over the
- * theme's background canvases, under every control. A registered effect
- * appears in Settings > Appearance > Background effect; the host draws only
- * the selected one, at most once per canvas per frame, and pauses time while
- * the window is hidden, minimized or covered, or with reduced motion.
- *
- * Bytecode: a DXBC container with a ps_5_0 pixel shader (fxc /T ps_5_0),
- * <= 64 KiB, validated and copied at registration. Its signature is
- *
- *   cbuffer McFx : register(b0) {
- *       float time, delta, intensity, dark;
- *       float2 resolution, origin;
- *       float4 palette[8];
- *       float4 parameters[2]; // parameters[i / 4][i % 4]; HLSL pads float arrays to rows
- *   };
- *   float4 main(float4 position : SV_Position, float2 uv : TEXCOORD0) : SV_Target
- *
- * position is in window pixels, uv runs 0..1 across the canvas. Return a
- * premultiplied colour; it is composited over the canvas as
- * dst = src.rgb + dst * (1 - src.a). No textures, samplers or UAVs are bound.
- *
- * GPU time is measured per frame; an effect averaging more than 2 ms over a
- * second, or stalling a frame past 8 ms three times, is turned off with a
- * notice and the selection falls back to None.
- */
-enum {
-    MC_FX_BACKGROUND = 0, /* palette indices: theme roles in linear RGB, alpha 1 */
-    MC_FX_SURFACE = 1,
-    MC_FX_TEXT = 2,
-    MC_FX_MUTED = 3,
-    MC_FX_ACCENT = 4,
-    MC_FX_POSITIVE = 5,
-    MC_FX_WARNING = 6,
-    MC_FX_CRITICAL = 7
-};
-#define MC_FX_PARAMETERS 8
-
-/* Mirrors the HLSL cbuffer (16-byte rows); 192 bytes. */
-typedef struct mc_fx_constants {
-    float time;          /* seconds since the effect became active (paused while hidden) */
-    float delta;         /* seconds since the previous frame */
-    float intensity;     /* 0..1 strength; the host lowers it in light themes */
-    float dark;          /* 1 in a dark theme, 0 in a light one */
-    float resolution[2]; /* canvas size in pixels */
-    float origin[2];     /* canvas top-left in window pixels */
-    float palette[8][4]; /* MC_FX_* */
-    float parameters[MC_FX_PARAMETERS]; /* set_parameters values */
-} mc_fx_constants;
-
-typedef struct mc_fx_effect {
-    uint32_t size;
-    uint32_t reserved;
-    uint64_t effect_id; /* non-zero, unique per plugin */
-    mc_str name;        /* 1..48 bytes, shown in the effect picker */
-    const void* bytecode;
-    uint32_t bytecode_bytes;
-    uint32_t parameter_count; /* initial values follow in parameters */
-    float parameters[MC_FX_PARAMETERS];
-} mc_fx_effect;
-
-typedef struct mc_fx_v1 {
-    uint32_t size;
-    uint32_t version;
-    mc_status (MC_CALL* register_effect)(void* binding, uint64_t generation, const mc_fx_effect* effect);
-    mc_status (MC_CALL* unregister_effect)(void* binding, uint64_t generation, uint64_t effect_id);
-    /* count <= MC_FX_PARAMETERS finite values, written to parameters[0..count). */
-    mc_status (MC_CALL* set_parameters)(void* binding, uint64_t generation, uint64_t effect_id, const float* values,
-                                        uint32_t count);
-} mc_fx_v1;
 
 #ifdef __cplusplus
 }

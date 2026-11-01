@@ -140,6 +140,18 @@ enum class SettingBinding : u16 {
     update_problem,
     update_available,
     update_changelog,
+    // Built-in extras (local): colours, reply times, folders, hidden channels.
+    role_colors_everywhere,
+    reply_timestamps,
+    folders_close_others,
+    folders_close_on_home,
+    folders_follow_selection,
+    show_hidden_channels,
+    // Image zoom lens (local): enabled, square shape, zoom and size sliders.
+    image_zoom,
+    image_zoom_square,
+    image_zoom_factor,
+    image_zoom_size,
     spotify_account,
     count
 };

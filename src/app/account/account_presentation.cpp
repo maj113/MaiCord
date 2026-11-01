@@ -51,6 +51,7 @@
 #include "maicord/ui/chat/messages/text_coordinator.hpp"
 #include "maicord/ui/theme/theme.hpp"
 #include "maicord/ui/theme/style_projection.hpp"
+#include "maicord/ui/plugins/slot_surfaces.hpp"
 
 #include "maicord/core/win32_types.hpp"
 #include "maicord/app/gateway/client.hpp"
@@ -167,6 +168,12 @@ bool synchronize_navigation_view() noexcept {
     const bool friends_mode = application_friends_active();
     if (ui.navigation_view.friends_mode != friends_mode) {
         ui.navigation_view.friends_mode = friends_mode;
+        ++ui.navigation_view.requests_revision;
+    }
+    // Built-in extras: voice names take role colours; hidden channels list locked.
+    ui.navigation_view.role_colors = g_app.preferences.role_colors_everywhere;
+    if (ui.navigation_view.show_hidden != g_app.preferences.show_hidden_channels) {
+        ui.navigation_view.show_hidden = g_app.preferences.show_hidden_channels;
         ++ui.navigation_view.requests_revision;
     }
     const bool voice_current = ui.navigation_view.source_voice_revision == ui.voice_states.revision &&
@@ -288,15 +295,18 @@ bool synchronize_shell_widget_scenes() noexcept {
     application_commands_composer(&composer_projection);
     char typing_label_storage[kMessageTypingLabelMaximumBytes]{};
     Utf8View typing_label{};
+    MessageTypingName typing_names[3]{};
+    u32 typing_named = 0;
     if (!friends && g_app.account_ui && g_app.account_ui->active_channel_id != 0) {
         const MessageTypingPresentationResult built = message_typing_presentation_build(
             g_app.account_ui->typing_store, g_app.account_ui->user_store,
             g_app.account_ui->active_channel_id, g_app.account_ui->chat_state.self_user_id,
-            Slice<char>{typing_label_storage, kMessageTypingLabelMaximumBytes});
+            Slice<char>{typing_label_storage, kMessageTypingLabelMaximumBytes}, typing_names);
         if (!built.ok()) {
             log_u64(LogLevel::warning, "ui", "typing_label_error", static_cast<u64>(built.error));
         } else {
             typing_label = Utf8View{typing_label_storage, built.bytes};
+            typing_named = built.users <= 3 ? built.users : 0;
         }
     }
     bool voice_notice_error = false;
@@ -370,6 +380,19 @@ bool synchronize_shell_widget_scenes() noexcept {
                 .ok());
         // Someone typing animates the dots; a notice in that row does not.
         g_app.message_composer_scene.typing_dots = typing_label.bytes && typing_label.data == typing_label_storage;
+        // "Role colors everywhere": each typing name takes its member's colour role.
+        auto& typing_scene = g_app.message_composer_scene;
+        typing_scene.typing_name_count = 0;
+        if (typing_scene.typing_dots && typing_named && g_app.preferences.role_colors_everywhere) {
+            const AccountUiRuntime& ui = *g_app.account_ui;
+            const ChannelRecord* typing_channel = chat_state_store_find_channel(ui.chat_state, ui.active_channel_id);
+            for (u32 i = 0; typing_channel && typing_channel->guild_id && i < typing_named; ++i) {
+                const GuildMemberRecord* member =
+                    guild_member_store_find(ui.guild_member_store, typing_channel->guild_id, typing_names[i].user_id);
+                typing_scene.typing_names[typing_scene.typing_name_count++] = {
+                    typing_names[i].offset, typing_names[i].bytes, member ? member->role_color & 0xFFFFFFu : 0u};
+            }
+        }
         if (g_app.message_composer_pointer_selection &&
             !g_app.message_composer_scene.widgets.captured.generation) {
             end_message_composer_pointer_selection();
@@ -382,12 +405,15 @@ bool synchronize_shell_widget_scenes() noexcept {
         g_app.member_list_scene.media_cache =
             g_app.account_ui ? &g_app.account_ui->member_media_cache : nullptr;
         const u32 member_rebuilds = g_app.member_list_scene.rebuilds;
+        UiRect member_viewport = !friends && members && !g_app.shell_scene.side_panel_profile ? members->rectangle : UiRect{};
+        UiPluginSlotNode member_header;
+        if (ui_rect_has_area(member_viewport) && ui_plugin_member_list_header(&member_header))
+            member_viewport.top = minimum(member_viewport.bottom, member_viewport.top + kUiPluginMemberListHeaderHeight);
         const auto member_scene = member_list_scene_update(
             &g_app.member_list_scene, g_app.account_ui ? &g_app.account_ui->member_list : nullptr,
             g_app.account_ui ? &g_app.account_ui->guild_member_store : nullptr,
             g_app.account_ui ? &g_app.account_ui->user_store : nullptr,
-            g_app.account_ui ? &g_app.account_ui->chat_state : nullptr,
-            !friends && members && !g_app.shell_scene.side_panel_profile ? members->rectangle : UiRect{},
+            g_app.account_ui ? &g_app.account_ui->chat_state : nullptr, member_viewport,
             g_app.member_list_scene.scroll_dips);
         MAICORD_SHELL_SCENE_STEP(member_scene.ok());
         if (g_app.member_list_scene.rebuilds != member_rebuilds)

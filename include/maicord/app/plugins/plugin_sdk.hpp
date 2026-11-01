@@ -48,10 +48,6 @@ inline constexpr u32 kPluginSdkRenderAccessories = 4; // per plugin
 inline constexpr u32 kPluginSdkRenderMergedBadges = 4;
 inline constexpr u32 kPluginSdkRenderMergedAccessories = 8;
 inline constexpr u32 kPluginSdkRenderPerPass = 64;
-// Background effects.
-inline constexpr u32 kPluginSdkEffects = 2;
-inline constexpr u32 kPluginSdkEffectBytecodeBytes = 64 * 1024;
-inline constexpr u32 kPluginSdkEffectNameBytes = 48;
 // Actions.
 inline constexpr u32 kPluginSdkMessageBytes = 2000;
 inline constexpr u32 kPluginSdkClipboardBytes = 16 * 1024;
@@ -188,7 +184,7 @@ struct NativePluginSdkRuntime {
     u32 data_directory_characters;
     NativePluginSdkBinding* pending;
     u64 slot_revision, slot_stamp;
-    u64 menu_revision, keybind_revision, effect_revision;
+    u64 menu_revision, keybind_revision;
     u32 gesture_depth;
     // Events.
     u64 event_head, event_tail; // sequences [tail, head) are queued
@@ -381,23 +377,6 @@ u16 native_plugin_sdk_icon(Utf8View name) noexcept;
 // Delivers a modal result (a gesture). False when the plugin is gone.
 bool native_plugin_sdk_modal_result(NativePluginSdkRuntime*, u64 owner_id, u64 modal_id, bool accepted,
                                     Utf8View text) noexcept;
-
-// ---- Effects --------------------------------------------------------------------------------
-
-struct NativePluginSdkEffectView {
-    u64 owner_id, effect_id;
-    Utf8View name;
-    ConstSlice<u8> bytecode;
-    const float* parameters; // kPluginSdk... MC_FX_PARAMETERS values
-    u32 revision;            // changes when bytecode or parameters change
-};
-u32 native_plugin_sdk_effects(const NativePluginSdkRuntime&, Slice<NativePluginSdkEffectView>) noexcept;
-bool native_plugin_sdk_effect(const NativePluginSdkRuntime&, u64 owner_id, u64 effect_id,
-                              NativePluginSdkEffectView*) noexcept;
-// GPU guard: unregisters the effect after a fault; the owner stays enabled.
-bool native_plugin_sdk_effect_fault(NativePluginSdkRuntime*, u64 owner_id, u64 effect_id) noexcept;
-// DXBC container holding a ps_5_0 program.
-bool native_plugin_sdk_effect_bytecode_valid(ConstSlice<u8>) noexcept;
 
 // ---- Poll ------------------------------------------------------------------------------------
 

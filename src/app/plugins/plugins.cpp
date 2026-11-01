@@ -1,4 +1,5 @@
 #include "plugins.hpp"
+#include "pipeline_host.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "browser.hpp"
@@ -180,6 +181,7 @@ HANDLE application_plugins_notification() noexcept {
 }
 void application_plugins_poll() noexcept {
     auto* plugins = g_app.plugins;
+    application_plugins_pipeline_poll();
     if (plugins && !plugins->closing) application_plugins_sdk_poll(*plugins);
     if (plugins && !plugins->closing) application_plugins_render_poll();
     plugins = g_app.plugins;

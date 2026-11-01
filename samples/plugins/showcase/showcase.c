@@ -13,17 +13,12 @@
  *   Quick reply      a message menu item and a keybind open a host modal;
  *                    the text goes out as a reply through mc.actions.
  *   Menus            copy a user's ID or a link (mc.actions copy_text).
- *   Gradient         an mc.fx background effect with a speed parameter.
  *
  * Build: cl /c /Zl /GS- /W4 showcase.c; link /DLL /NOENTRY (or the entry
- * below) kernel32.lib; gradient.hlsl → fxc /T ps_5_0 /E main /Fh
- * showcase_gradient_ps.h /Vn g_showcase_gradient. The manifest lists the
- * permissions the user approves (showcase.maicord-plugin.json.in).
+ * below) kernel32.lib. The manifest lists the permissions the user approves
+ * (showcase.maicord-plugin.json.in).
  */
 #include "maicord/sdk/maicord_plugin.h"
-
-typedef unsigned char BYTE;
-#include "showcase_gradient_ps.h"
 
 #define OWNER 0x4D43534844574341ull /* "MCSHOWCA" */
 #define PAGE 1
@@ -32,10 +27,9 @@ typedef unsigned char BYTE;
 #define RECENT 32
 #define EDITED 16
 
-enum { CONTROL_SUFFIX = 2, CONTROL_BLOCKED = 3, CONTROL_KEYBIND = 5, CONTROL_SPEED = 6, CONTROL_CLEAR = 8, CONTROL_LOG = 100 };
+enum { CONTROL_SUFFIX = 2, CONTROL_BLOCKED = 3, CONTROL_KEYBIND = 5, CONTROL_CLEAR = 8, CONTROL_LOG = 100 };
 enum { MENU_REPLY = 1, MENU_COPY_USER = 2, MENU_COPY_LINK = 3 };
 enum { ACTION_LOG = 1, ACTION_OPEN_LOG = 2, ACTION_ORIGINAL = 3, ACTION_COPY_ORIGINAL = 4 };
-enum { EFFECT_GRADIENT = 1 };
 
 typedef struct log_entry {
     uint64_t channel_id, message_id;
@@ -53,7 +47,7 @@ typedef struct recent_message {
 } recent_message;
 
 typedef struct prefs {
-    uint32_t suffix, collapse_blocked, speed_tenths, chord_bytes;
+    uint32_t suffix, collapse_blocked, chord_bytes;
     char chord[64];
 } prefs;
 
@@ -65,7 +59,6 @@ typedef struct showcase {
     const mc_actions_v1* actions;
     const mc_render_v1* render;
     const mc_slots_v2* slots;
-    const mc_fx_v1* fx;
     const mc_store_v1* store;
     prefs prefs;
     uint32_t log_count, log_next, recent_next, edited_next;
@@ -144,8 +137,6 @@ static mc_status publish(showcase* s) {
     c[count].kind = MC_SETTING_KEYBIND; c[count].id = CONTROL_KEYBIND; c[count].label = (mc_str)S("Quick reply shortcut");
     c[count].description = (mc_str)S("Replies to the newest message from someone else in the open channel.");
     c[count].text.data = s->prefs.chord; c[count++].text.bytes = s->prefs.chord_bytes;
-    c[count].kind = MC_SETTING_SLIDER; c[count].id = CONTROL_SPEED; c[count].label = (mc_str)S("Gradient speed");
-    c[count].minimum = 0; c[count].maximum = 20; c[count].step = 1; c[count++].value = (int32_t)s->prefs.speed_tenths;
     c[count].kind = MC_SETTING_HEADER; c[count].id = 7; c[count].label = (mc_str)S("Message log");
     c[count++].description = s->log_count ? (mc_str)S("Newest first. Copy puts the logged text on the clipboard.")
                                           : (mc_str)S("Deleted and edited messages appear here.");
@@ -164,10 +155,6 @@ static mc_status publish(showcase* s) {
     page.controls = c;
     page.control_stride = sizeof(mc_setting);
     return s->settings->set_page(s->binding, s->generation, PAGE, &page);
-}
-static void apply_speed(showcase* s) {
-    float value = (float)s->prefs.speed_tenths / 10.0f;
-    if (s->fx) s->fx->set_parameters(s->binding, s->generation, EFFECT_GRADIENT, &value, 1);
 }
 
 /* ---- Message logger (mc.events) ------------------------------------------- */
@@ -418,7 +405,6 @@ static mc_status MC_CALL on_setting(void* state, uint32_t state_bytes, const mc_
     case CONTROL_SUFFIX: s->prefs.suffix = value->checked; break;
     case CONTROL_BLOCKED: s->prefs.collapse_blocked = value->checked; break;
     case CONTROL_KEYBIND: s->prefs.chord_bytes = put(s->prefs.chord, sizeof(s->prefs.chord), value->text.data, value->text.bytes); break;
-    case CONTROL_SPEED: s->prefs.speed_tenths = (uint32_t)value->value; apply_speed(s); break;
     case CONTROL_CLEAR: s->log_count = s->log_next = 0; zero(s->edited, sizeof(s->edited)); break;
     default:
         if (value->control_id >= CONTROL_LOG && value->control_id < CONTROL_LOG + s->log_count) {
@@ -443,7 +429,6 @@ static mc_status MC_CALL start(const mc_host* host, void* state, uint32_t state_
     mc_slot_target toolbar;
     mc_slot_content content;
     mc_slot_node button;
-    mc_fx_effect effect;
     if (state_bytes < sizeof(showcase) || !MC_HAS_FIELD(host, mc_host, get_interface) || host->abi_version < 5)
         return MC_E_UNSUPPORTED;
     s->binding = host->binding;
@@ -459,17 +444,15 @@ static mc_status MC_CALL start(const mc_host* host, void* state, uint32_t state_
     FETCH("mc.actions", 1, s->actions);
     FETCH("mc.ui.slots", 2, s->slots);
     FETCH("mc.store", 1, s->store);
-    FETCH("mc.fx", 1, s->fx);
 #undef FETCH
     /* Defaults, then whatever the user chose last time. */
     s->prefs.suffix = 1;
     s->prefs.collapse_blocked = 1;
-    s->prefs.speed_tenths = 5;
     s->prefs.chord_bytes = put(s->prefs.chord, sizeof(s->prefs.chord), "Ctrl+Shift+R", 12);
     {
         prefs stored;
         if (s->store->get(s->binding, s->generation, (mc_str)S("prefs"), &stored, sizeof(stored), &got) == MC_OK &&
-            got == sizeof(stored) && stored.chord_bytes <= sizeof(stored.chord) && stored.speed_tenths <= 20)
+            got == sizeof(stored) && stored.chord_bytes <= sizeof(stored.chord))
             s->prefs = stored;
     }
     if (pages->register_page(s->binding, s->generation, PAGE, (mc_str)S("Showcase")) != MC_OK) return MC_E_INVALID;
@@ -499,15 +482,6 @@ static mc_status MC_CALL start(const mc_host* host, void* state, uint32_t state_
     content.node_stride = sizeof(button);
     s->slots->set(s->binding, s->generation, &toolbar, &content);
     s->slots->set_handler(s->binding, s->generation, on_slot);
-    zero(&effect, sizeof(effect));
-    effect.size = sizeof(effect);
-    effect.effect_id = EFFECT_GRADIENT;
-    effect.name = (mc_str)S("Showcase gradient");
-    effect.bytecode = g_showcase_gradient;
-    effect.bytecode_bytes = sizeof(g_showcase_gradient);
-    effect.parameter_count = 1;
-    effect.parameters[0] = (float)s->prefs.speed_tenths / 10.0f;
-    if (s->fx->register_effect(s->binding, s->generation, &effect) != MC_OK) return MC_E_INVALID;
     return MC_OK;
 }
 
@@ -524,7 +498,7 @@ MC_EXPORT mc_status MC_CALL maicord_plugin_query_v5(const mc_host_info* host, mc
     local.owner_id = OWNER;
     local.permissions = MC_PERM_SETTINGS | MC_PERM_MENUS | MC_PERM_UI_SLOTS | MC_PERM_STORE | MC_PERM_READ_CONTEXT |
                         MC_PERM_READ_MEMBERS | MC_PERM_READ_MESSAGES | MC_PERM_MESSAGE_RENDER | MC_PERM_ACT_MESSAGES |
-                        MC_PERM_NAVIGATE | MC_PERM_CLIPBOARD | MC_PERM_NOTIFY | MC_PERM_KEYBINDS | MC_PERM_EFFECTS;
+                        MC_PERM_NAVIGATE | MC_PERM_CLIPBOARD | MC_PERM_NOTIFY | MC_PERM_KEYBINDS;
     local.state_bytes = sizeof(showcase);
     local.state_alignment = 8;
     local.min_host_abi = 5;

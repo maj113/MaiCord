@@ -1,4 +1,5 @@
 #include "settings_internal.hpp"
+#include "../effects/effects.hpp"
 #include "../account/profile_editor.hpp"
 #include "../account/activity.hpp"
 #include "../account/account_presentation.hpp"
@@ -482,7 +483,7 @@ bool activate(const UiSettingsTarget& target, bool reverse, const NativePluginUi
     if (backend != SettingBackend::local)
         return false;
     if (bool result = false; binding == SettingBinding::background_effect &&
-                             application_plugins_fx_activate(request.selected_choice, &result))
+                             application_effects_activate(request.selected_choice, &result))
         return settled(*settings, result);
     auto next = g_app.preferences;
     if (binding == SettingBinding::gradient_direction || binding == SettingBinding::gradient_intensity)
@@ -504,6 +505,10 @@ bool activate(const UiSettingsTarget& target, bool reverse, const NativePluginUi
         application_notifications_settings_refresh(&g_app);
     animate_toggle(*settings, target, request);
     application_preferences_apply();
+    // Hidden channels and voice name colours change what the channel list shows.
+    if (g_app.account_ui && g_app.renderer_ready &&
+        (binding == SettingBinding::show_hidden_channels || binding == SettingBinding::role_colors_everywhere))
+        (void)(synchronize_navigation_view() && refresh_account_text(true));
     if (save)
         persist();
     project(*settings);

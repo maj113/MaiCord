@@ -32,6 +32,21 @@ bool anchor_in_range(const UiScrollAnchor& anchor, u32 index, u32 count) noexcep
     return anchor.valid && anchor.index >= index && anchor.index - index < count;
 }
 
+// A deleted resident message a plugin keeps stays in the timeline as a tombstone; the row repaints in place.
+bool retain_resident(MessageTimeline* timeline, const MessageRecord& record, MessageTimelineInvalidation* invalidation,
+                     u32 order_index) noexcept {
+    if (!timeline->retains) return false;
+    // Already a tombstone (a repeated delete): it stays.
+    const bool again = record.delivery == MessageDeliveryState::retained;
+    if (!again && (!g_message_retain_query || record.delivery != MessageDeliveryState::authoritative ||
+                   !g_message_retain_query(record.id) ||
+                   !message_timeline_set_delivery(timeline, record.id, MessageDeliveryState::retained, invalidation)))
+        return false;
+    *invalidation = MessageTimelineInvalidation{order_index, 1, false, false};
+    ++timeline->applied;
+    return true;
+}
+
 MessageTimelineInvalidation structural_invalidation(u32 first, u32 old_count, u32 new_count,
                                                     bool scroll_changed) noexcept {
     const u32 end = maximum(old_count, new_count);
@@ -257,6 +272,7 @@ bool message_timeline_reset(MessageTimeline* timeline) noexcept {
     const u64 viewport_units = timeline->viewport_units;
     const bool follow_bottom = timeline->follow_bottom;
     const u32 reset_generation = timeline->reset_generation + 1u;
+    const bool retains = timeline->retains;
     if (!(text_arena ? message_store_initialize_growing(store, Slice<MessageRecord>{store->records, record_capacity},
                                                         Slice<u32>{store->order, record_capacity}, text_arena)
                      : message_store_initialize(store, Slice<MessageRecord>{store->records, record_capacity},
@@ -272,6 +288,7 @@ bool message_timeline_reset(MessageTimeline* timeline) noexcept {
         return false;
     }
     timeline->reset_generation = reset_generation;
+    timeline->retains = retains;
     return !rich_store || message_timeline_bind_rich_store(timeline, rich_store);
 }
 
@@ -400,11 +417,13 @@ bool message_timeline_set_item_height(MessageTimeline* timeline, u32 index, u32 
     return true;
 }
 
-MessageTimelineApplyResult message_timeline_insert_local(
-    MessageTimeline* timeline, const MessageInput& input,
-    ConstSlice<GatewayMessageAttachment> attachments) noexcept {
+static MessageTimelineApplyResult insert_resident(MessageTimeline* timeline, const MessageInput& input,
+                                                  ConstSlice<GatewayMessageAttachment> attachments,
+                                                  bool retained) noexcept {
     const MessageTimelineError validation = validate_timeline(timeline);
-    if (validation != MessageTimelineError::none || input.delivery == MessageDeliveryState::authoritative ||
+    if (validation != MessageTimelineError::none ||
+        (retained ? input.delivery != MessageDeliveryState::retained
+                  : input.delivery == MessageDeliveryState::authoritative || input.delivery == MessageDeliveryState::retained) ||
         (attachments.count &&
          (!timeline->rich_store || !message_rich_store_validate_attachments(attachments)))) {
         if (timeline) {
@@ -482,6 +501,33 @@ MessageTimelineApplyResult message_timeline_insert_local(
     timeline->compactions += compactions;
     ++timeline->applied;
     return result;
+}
+
+MessageTimelineApplyResult message_timeline_insert_local(
+    MessageTimeline* timeline, const MessageInput& input,
+    ConstSlice<GatewayMessageAttachment> attachments) noexcept {
+    return insert_resident(timeline, input, attachments, false);
+}
+
+MessageTimelineApplyResult message_timeline_insert_retained(MessageTimeline* timeline,
+                                                            const MessageInput& input) noexcept {
+    if (validate_timeline(timeline) != MessageTimelineError::none)
+        return insert_resident(timeline, input, {}, true);
+    const MessageStore& store = *timeline->store;
+    // The window of confirmed messages the tombstone must lie inside.
+    const MessageRecord *first = nullptr, *last = nullptr;
+    for (u32 i = 0; i < store.count && !first; ++i) {
+        const MessageRecord* record = message_store_resolve(store, message_store_ordered_handle(store, i));
+        if (record && record->delivery == MessageDeliveryState::authoritative) first = record;
+    }
+    for (u32 i = store.count; i && !last; --i) {
+        const MessageRecord* record = message_store_resolve(store, message_store_ordered_handle(store, i - 1));
+        if (record && record->delivery == MessageDeliveryState::authoritative) last = record;
+    }
+    const bool inside = first && last && input.id > first->id &&
+                        (input.id < last->id || (timeline->follow_bottom && !timeline->newer_refetch_required));
+    if (!inside || message_store_find(store, input.id).ok()) return {};
+    return insert_resident(timeline, input, {}, true);
 }
 
 MessageTimelineApplyResult message_timeline_remove_local(MessageTimeline* timeline,
@@ -794,6 +840,13 @@ MessageTimelineApplyResult message_timeline_apply(
         const MessageStoreResult found = message_store_find(*timeline->store, message.id);
         const u32 removal_index = found.order_index;
         const bool removed_anchor = found.ok() && anchor_in_range(anchor, removal_index, 1);
+        if (found.ok()) {
+            const MessageRecord* resident = message_store_resolve(*timeline->store, found.handle);
+            if (resident && retain_resident(timeline, *resident, &result.invalidation, removal_index)) {
+                result.kind = GatewayMessageApplyKind::updated;
+                return result;
+            }
+        }
         result.kind = GatewayMessageApplyKind::deleted;
         result.mutation = message_reconcile_delete(timeline->store, message);
         if (!result.mutation.ok()) {
@@ -829,7 +882,7 @@ MessageTimelineApplyResult message_timeline_apply(
         }
         result.kind = GatewayMessageApplyKind::bulk_deleted;
         UiScrollAnchor anchor = message_timeline_capture_anchor(*timeline);
-        u32 first_changed = old_count;
+        u32 first_changed = old_count, retained = 0;
         for (u32 id_index = 0; id_index < message.id_count; ++id_index) {
             const MessageStoreResult found = message_store_find(*timeline->store, bulk_ids[id_index]);
             if (found.error == MessageStoreError::not_found) {
@@ -853,6 +906,11 @@ MessageTimelineApplyResult message_timeline_apply(
                 ++result.bulk.channel_mismatch;
                 continue;
             }
+            if (retain_resident(timeline, *record, &result.invalidation, found.order_index)) {
+                first_changed = minimum(first_changed, found.order_index);
+                ++retained;
+                continue;
+            }
             const bool removed_anchor = anchor_in_range(anchor, found.order_index, 1);
             const MessageReconcileResult deleted = message_reconcile_delete(
                 timeline->store, GatewayMessageDeleteEvent{bulk_ids[id_index], message.channel_id});
@@ -870,7 +928,7 @@ MessageTimelineApplyResult message_timeline_apply(
             first_changed = minimum(first_changed, deleted.order_index);
             ++result.bulk.deleted;
         }
-        if (result.bulk.deleted != 0) {
+        if (result.bulk.deleted != 0 || retained != 0) {
             message_timeline_settle_scroll(timeline, &anchor, previous_scroll);
             result.invalidation = structural_invalidation(first_changed, old_count, timeline->list->count,
                                                           timeline->scroll_units != previous_scroll);

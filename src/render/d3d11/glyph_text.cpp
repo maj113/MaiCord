@@ -351,9 +351,11 @@ Color text_decoration_color(const Theme* theme, const Color& base,
     return theme->surface_high;
 }
 
-bool resolve_role_color(const D3D11GlyphTextAppendRequest& request, u64 role_id, Color* color) noexcept {
-    return request.resolve_role_color && role_id != 0 &&
-           request.resolve_role_color(request.role_context, request.message_id, role_id, color);
+bool resolve_role_color(const D3D11GlyphTextAppendRequest& request, const MessageMarkdownSemantic& semantic,
+                        Color* color) noexcept {
+    return request.resolve_role_color && semantic.target != 0 &&
+           request.resolve_role_color(request.role_context, request.message_id, semantic.kind, semantic.target,
+                                      color);
 }
 
 bool role_color_for_run(const D3D11GlyphTextAppendRequest& request, const TextRun& run,
@@ -364,7 +366,9 @@ bool role_color_for_run(const D3D11GlyphTextAppendRequest& request, const TextRu
     const u32 run_end = run.text_position + run.text_length;
     for (u32 index = 0; index < request.semantics.count; ++index) {
         const MessageMarkdownSemantic& semantic = request.semantics[index];
-        if (semantic.kind != MessageMarkdownSemanticKind::role_mention || semantic.byte_count == 0) {
+        if ((semantic.kind != MessageMarkdownSemanticKind::role_mention &&
+             semantic.kind != MessageMarkdownSemanticKind::user_mention) ||
+            semantic.byte_count == 0) {
             continue;
         }
         u32 first = 0;
@@ -375,7 +379,7 @@ bool role_color_for_run(const D3D11GlyphTextAppendRequest& request, const TextRu
             first >= run_end || last <= run.text_position) {
             continue;
         }
-        return resolve_role_color(request, semantic.target, color);
+        return resolve_role_color(request, semantic, color);
     }
     return false;
 }
@@ -395,8 +399,9 @@ bool role_color_for_decoration(const D3D11GlyphTextAppendRequest& request, const
         }
         const MessageMarkdownSemantic& semantic =
             request.semantics[region.semantic_index - request.semantic_base];
-        if (semantic.kind == MessageMarkdownSemanticKind::role_mention &&
-            resolve_role_color(request, semantic.target, color)) {
+        if ((semantic.kind == MessageMarkdownSemanticKind::role_mention ||
+             semantic.kind == MessageMarkdownSemanticKind::user_mention) &&
+            resolve_role_color(request, semantic, color)) {
             return true;
         }
     }
@@ -912,6 +917,28 @@ void d3d11_glyph_text_reset_atlas(D3D11GlyphTextOwner* owner) noexcept {
             owner->color_batch->reset();
         glyph_atlas_reset(&owner->allocator);
     }
+}
+
+// A lost device took the atlas textures with it: new ones at the height the allocator holds, an empty allocator
+// (every glyph is rasterized again on demand) and the stale-geometry flag so retained quads are rebuilt.
+bool d3d11_glyph_text_recreate_gpu(D3D11GlyphTextOwner* owner, ID3D11Device* device) noexcept {
+    if (!owner || !device || !owner->atlas_origins)
+        return false;
+    if (owner->color_batch)
+        owner->color_batch->reset();
+    owner->color_batch = nullptr;
+    if (owner->color)
+        colr_paint_gpu_release(&owner->color->gpu);
+    glyph_atlas_gpu_release(&owner->gpu);
+    const u16 height = owner->allocator.height;
+    owner->ready = glyph_atlas_gpu_initialize(&owner->gpu, device, kRendererGlyphAtlasExtent, height,
+                                              kRendererPathCapacity)
+                       .ok();
+    glyph_atlas_reset(&owner->allocator);
+    ++owner->allocator.full_resets;
+    text_storage(owner)->geometry_stale = true;
+    owner->title_quad_count = 0;
+    return owner->ready;
 }
 
 u64 d3d11_glyph_text_trim_deadline(const D3D11GlyphTextOwner& owner) noexcept {

@@ -64,7 +64,7 @@ constexpr bool valid_content_availability(MessageContentAvailability availabilit
 
 constexpr bool valid_delivery_state(MessageDeliveryState delivery) noexcept {
     return delivery == MessageDeliveryState::authoritative || delivery == MessageDeliveryState::pending ||
-           delivery == MessageDeliveryState::failed;
+           delivery == MessageDeliveryState::failed || delivery == MessageDeliveryState::retained;
 }
 
 u32 find_order_index(const MessageStore& store, u64 id, bool* found) noexcept {

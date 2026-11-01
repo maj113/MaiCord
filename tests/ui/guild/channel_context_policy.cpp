@@ -4,6 +4,8 @@
 #include "maicord/ui/shell/popup_scene.hpp"
 
 namespace maicord {
+void test_folder_open(void (*check)(bool, const char*) noexcept) noexcept;
+void test_hidden_channel_menu(void (*check)(bool, const char*) noexcept) noexcept;
 void test_channel_context_policy(void (*check)(bool, const char*) noexcept) noexcept {
     ChannelRecord channels[2]{};
     auto& channel = channels[0];
@@ -296,5 +298,8 @@ void test_channel_context_policy(void (*check)(bool, const char*) noexcept) noex
     channel.effective_permissions = 0;
     check(channel_context_policy_build(state, 7, mark, close, {extended, 3}, 0, 0, 0, scoped) == 0,
           "category view permission withdrawal fences scoped menu admission");
+    // The rail's built-in extras share this fixture slot.
+    test_folder_open(check);
+    test_hidden_channel_menu(check);
 }
 } // namespace maicord

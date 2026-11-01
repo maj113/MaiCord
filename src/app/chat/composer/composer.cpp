@@ -7,6 +7,7 @@
 #include "../../shell/state.hpp"
 #include "../../shell/window_state.hpp"
 #include "../../plugins/popup_plugin_owner.hpp"
+#include "../../plugins/pipeline_host.hpp"
 
 #include "maicord/app/guild/mention_member_query.hpp"
 #include "maicord/app/chat/composer/message_composer_controller.hpp"
@@ -312,6 +313,8 @@ bool note_local_typing_input() noexcept {
     if (g_app.message_composer.bytes == 0) {
         return stop_local_typing(channel_id);
     }
+    // A plugin may keep the typing notice from going out.
+    if (application_plugins_typing_suppressed(channel_id)) return true;
     const ChannelRecord* channel = chat_state_store_find_channel(ui.chat_state, channel_id);
     const TypingStoreResult noted = typing_store_note_local_input(
         &ui.typing_store, channel_id, channel ? channel->guild_id : 0, ui.chat_state.self_user_id,

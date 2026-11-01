@@ -289,6 +289,19 @@ __declspec(noinline) inline bool d3d11_renderer_tooltip_visible(const D3D11Rende
 inline u32 d3d11_renderer_tooltip_revision(const D3D11Renderer& renderer) noexcept {
     return d3d11_renderer_tooltip_visible(renderer) ? renderer.tooltip_scene->revision : 0;
 }
+// The magnifier over a chat preview needs the timeline uncovered, as a
+// tooltip does; over the viewer's image it has no other condition.
+inline bool d3d11_renderer_zoom_lens_allowed(const D3D11Renderer& renderer) noexcept {
+    return renderer.zoom_lens && !renderer.login_visible && !d3d11_renderer_active(renderer.poll_voters_scene) &&
+           !d3d11_renderer_message_modal_active(renderer) && !renderer_settings_page_visible(renderer) &&
+           !d3d11_renderer_active(renderer.friends_requests_scene) && !d3d11_renderer_active(renderer.popup_scene) &&
+           !d3d11_renderer_active(renderer.reaction_viewer) && !d3d11_renderer_form_active(renderer) &&
+           !d3d11_renderer_active(renderer.image_viewer);
+}
+// A layout found the picture under the lens (it resets the source each build).
+inline bool d3d11_renderer_zoom_lens_visible(const D3D11Renderer& renderer) noexcept {
+    return renderer.zoom_lens && !renderer.login_visible && renderer.zoom_lens_source.ready;
+}
 // Timeline overlay below every popup/modal layer; covering surfaces hide it.
 __declspec(noinline) inline bool d3d11_renderer_unread_banner_visible(const D3D11Renderer& renderer) noexcept {
     return renderer.unread_banner_scene && !d3d11_renderer_page_open(renderer) &&

@@ -251,6 +251,7 @@ int application_run() noexcept {
         return 3;
     }
     g_app.renderer_ready = true;
+    g_app.renderer.zoom_lens = &g_app.image_zoom.lens;
     application_trace_load_stage("renderer_ready");
     MAICORD_PERF_MARK("renderer_ready");
     if (!initialize_ui_runtime()) {

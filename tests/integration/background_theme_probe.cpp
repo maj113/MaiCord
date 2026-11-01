@@ -673,7 +673,7 @@ bool background_theme_ui_probe(BackgroundThemeProbeContext c) noexcept {
     if (!intensity_pixels(r) || !overlay_surface_pixels(r) || !solid_pixels(r) ||
         !default_effect_pixels(r) || !dither_pixels(r) ||
         !comet_density_pixels(r) || !star_independence_pixels(r) || !effect_canvas_pixels(r) ||
-        !plugin_effect_pixels(r))
+        !effect_package_pixels(r))
         return false;
     theme.background = background_theme_defaults();
     theme.background.intensity = 100;

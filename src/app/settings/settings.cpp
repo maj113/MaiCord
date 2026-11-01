@@ -10,6 +10,7 @@
 #include "../shell/scrolling.hpp"
 #include "../shell/overlay_input.hpp"
 #include "../shell/input.hpp"
+#include "../media/image_zoom.hpp"
 #include "../chat/composer/attachments.hpp"
 #include "../plugins/browser.hpp"
 #include "../account/friends.hpp"
@@ -143,6 +144,7 @@ void application_preferences_initialize() noexcept {
         ui_splitter_restored_width(g_app.preferences.channel_pane_width, g_app.channel_pane_width, pane_limits);
     g_app.member_pane_width =
         ui_splitter_restored_width(g_app.preferences.member_pane_width, g_app.member_pane_width, pane_limits);
+    application_image_zoom_configure();
 }
 bool application_preferences_persist_pane_widths() noexcept {
     if (!g_app.pane_widths_persist_pending || g_app.pane_resize != PaneResizeKind::none)
@@ -197,6 +199,7 @@ void application_preferences_apply() noexcept {
     g_app.renderer.reduced_motion = g_app.preferences.reduced_motion;
     application_animation_activity_synchronize();
     g_app.renderer.retained_presentation.valid = false;
+    application_image_zoom_configure();
 }
 bool application_preferences_member_visibility(bool visible) noexcept {
     g_app.preferences.member_pane_visible = visible;
@@ -210,6 +213,17 @@ bool application_preferences_dm_profile_visibility(bool visible) noexcept {
     g_app.preferences.dm_profile_visible = visible;
     persist();
     return synchronize_shell_layout() && refresh_account_text(true) && application_request_frame();
+}
+bool application_preferences_image_zoom(u8 factor, u8 size) noexcept {
+    auto& preferences = g_app.preferences;
+    if (preferences.image_zoom_factor == factor && preferences.image_zoom_size == size)
+        return true;
+    preferences.image_zoom_factor = factor;
+    preferences.image_zoom_size = size;
+    const bool saved = persist();
+    if (g_app.settings)
+        project(*g_app.settings);
+    return saved;
 }
 bool application_settings_commit_preferences() noexcept {
     const bool accepted = persist();

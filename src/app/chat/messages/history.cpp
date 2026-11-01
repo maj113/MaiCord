@@ -26,6 +26,7 @@
 #include "../polls/poll.hpp"
 #include "../../guild/member_moderation.hpp"
 
+#include "maicord/protocol/user/social.hpp"
 #include "../../account/account_presentation.hpp"
 #include "feedback.hpp"
 #include "../composer/composer.hpp"
@@ -442,6 +443,7 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
                                           (message_submit.suppress_notifications
                                                ? kMessageFlagSuppressNotifications
                                                : 0u) |
+                                              (message_submit.suppress_embeds ? kMessageFlagSuppressEmbeds : 0u) |
                                               // A recorded voice message is its only attachment.
                                               (message_submit.attachment_count == 1 &&
                                                        attachment_upload_is_voice(message_submit.attachments[0])

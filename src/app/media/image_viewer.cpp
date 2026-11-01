@@ -41,6 +41,14 @@ bool current_video() noexcept {
     const auto* item = current_item();
     return item && item->video;
 }
+bool over_image(const UiImageViewer& scene, UiPoint point) noexcept {
+    return !current_video() && ui_rect_contains(scene.image, point.x, point.y) &&
+           ui_rect_contains(scene.body, point.x, point.y);
+}
+// A fitted image has nothing to pan, so a button held on it shows the lens.
+bool fitted_zoom(const UiImageViewer& scene) noexcept {
+    return scene.zoom - 1 < 1e-3f && 1 - scene.zoom < 1e-3f;
+}
 MessageScene* viewer_media_scene(bool searched) noexcept {
     if (!searched)
         return &g_app.message_scene;
@@ -203,6 +211,7 @@ void select_item(u32 index) noexcept {
         return;
     const bool was_video = current_video();
     viewer.item_index = static_cast<u8>(index);
+    application_image_zoom_end();
     auto& item = viewer.items[index];
     viewer.attachment_id = item.attachment_id;
     reset_value(&viewer.failed_key);
@@ -365,6 +374,7 @@ bool begin(const OpenRequest& request) noexcept {
     auto& viewer = g_app.image_viewer;
     ApplicationSearchSourceView source{};
     viewer.item_count = 0;
+    application_image_zoom_end();
     viewer.item_index = 0;
     if (application_image_viewer_source(&source))
         viewer.item_count =
@@ -457,6 +467,7 @@ void application_image_viewer_close() noexcept {
     if (!scene.active)
         return;
     scene.active = false;
+    application_image_zoom_end();
     ++scene.revision;
     g_app.image_viewer.closing = false;
     g_app.image_viewer.item_count = 0;
@@ -918,6 +929,13 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
     if (viewer.closing)
         return (message >= WM_MOUSEFIRST && message <= WM_MOUSELAST) || message == WM_KEYDOWN ||
                message == WM_KEYUP || message == WM_CHAR;
+    if ((message == WM_KEYDOWN || message == WM_KEYUP) && wparam == VK_CONTROL) {
+        UiPoint cursor{};
+        if (application_pointer_dip(&cursor))
+            application_image_zoom_viewer_pointer(cursor, over_image(scene, cursor), g_app.image_zoom.held);
+    }
+    if (message == WM_MOUSELEAVE || message == WM_KILLFOCUS)
+        application_image_zoom_end();
 
     const UiPoint point{client_dip_x(lparam), client_dip_y(lparam)};
     if ((message >= WM_MOUSEFIRST && message <= WM_MOUSELAST) || message == WM_KEYDOWN)
@@ -956,6 +974,7 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
             scene.dragging = true;
             scene.pointer = point;
             SetCapture(g_app.window);
+            application_image_zoom_viewer_pointer(point, true, fitted_zoom(scene));
         } else {
             pointer_tail = true;
             application_image_viewer_dismiss();
@@ -971,6 +990,7 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
             ui_image_viewer_pan(&scene, {point.x - scene.pointer.x, point.y - scene.pointer.y});
             scene.pointer = point;
         }
+        application_image_zoom_viewer_pointer(point, over_image(scene, point), g_app.image_zoom.held);
         application_request_frame();
         return true;
     case WM_LBUTTONUP: {
@@ -979,6 +999,7 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
             application_video_viewer_pointer(message, point);
         scene.dragging = false;
         application_release_capture();
+        application_image_zoom_viewer_pointer(point, over_image(scene, point), false);
         if (button.activate)
             activate(scene.widgets.storage[button.target.slot].id - 10);
         if (button.changed)
@@ -989,6 +1010,7 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
     case WM_CAPTURECHANGED:
     case WM_CANCELMODE:
         scene.dragging = false;
+        application_image_zoom_end();
         if (video)
             application_video_cancel_pointer();
         if (ui_button_pointer(&scene.widgets, UiButtonPointerEvent::cancel, {}).changed)
@@ -997,6 +1019,8 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
     case WM_MOUSEWHEEL: {
         // Plain and Ctrl+wheel both zoom about the pointer.
         if (video)
+            return true;
+        if (application_image_zoom_wheel(wparam))
             return true;
         UiPoint cursor{};
         application_wheel_point(lparam, &cursor);
@@ -1095,9 +1119,20 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
             application_request_frame();
         }
         return true;
-    case WM_CHAR:
     case WM_RBUTTONDOWN:
+        // A right press holds the lens at any zoom.
+        if (over_image(scene, point) && g_app.preferences.image_zoom) {
+            SetCapture(g_app.window);
+            application_image_zoom_viewer_pointer(point, true, true);
+        }
+        return true;
     case WM_RBUTTONUP:
+        if (g_app.image_zoom.held) {
+            application_release_capture();
+            application_image_zoom_viewer_pointer(point, over_image(scene, point), false);
+        }
+        return true;
+    case WM_CHAR:
     case WM_MBUTTONDOWN:
     case WM_MBUTTONUP:
     case WM_CONTEXTMENU:

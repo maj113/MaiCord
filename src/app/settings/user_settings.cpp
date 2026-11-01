@@ -78,6 +78,12 @@ struct Owner {
     bool explicit_cached;
 };
 Owner g_owner{};
+// The message scene's display: the account's compact flag and clock shape with
+// the local group spacing and built-in extras.
+MessageSceneDisplay scene_display(bool compact) noexcept {
+    return {g_app.preferences.message_group_spacing, compact, static_cast<MessageSceneClock>(timestamp_clock_shape()),
+            g_app.preferences.reply_timestamps, g_app.preferences.role_colors_everywhere};
+}
 
 bool online() noexcept {
     return g_app.account.instance && g_app.account_ui && g_app.account.status.profile_id &&
@@ -413,8 +419,7 @@ void application_user_settings_release() noexcept {
     release_bank();
     reset_value(&g_owner);
     timestamp_set_hour_cycle(HourCycle::automatic);
-    message_scene_set_display(&g_app.message_scene, {g_app.preferences.message_group_spacing, false,
-                                                     static_cast<MessageSceneClock>(timestamp_clock_shape())});
+    message_scene_set_display(&g_app.message_scene, scene_display(false));
     if (message_rich_set_display({}))
         message_scene_invalidate_geometry(&g_app.message_scene);
 }
@@ -426,9 +431,7 @@ void application_user_settings_apply_display() noexcept {
     // The cycle first: it decides the timestamp column's width.
     const bool time = timestamp_set_hour_cycle(cycle <= 2 ? static_cast<HourCycle>(cycle)
                                                                   : HourCycle::automatic);
-    const bool display = message_scene_set_display(
-        &g_app.message_scene, {g_app.preferences.message_group_spacing, compact,
-                               static_cast<MessageSceneClock>(timestamp_clock_shape())});
+    const bool display = message_scene_set_display(&g_app.message_scene, scene_display(compact));
     const MessageRichDisplay chat = chat_display();
     const MessageRichDisplay previous = message_rich_display();
     const bool chat_changed = !message_rich_display_equal(chat, previous);

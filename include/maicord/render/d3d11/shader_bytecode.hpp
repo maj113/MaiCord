@@ -22,7 +22,7 @@ enum class ShaderId : u8 {
     glyph_culled_compute,
     colr_compute, colr_wide_compute, colr_layers_compute, png_compute,
     vp8_reconstruct, vp8_idct, vp8_filter, vp8_atlas, jpeg_idct, jpeg_atlas, video_frame,
-    fx_vertex, fx_builtin,
+    fx_vertex, fx_builtin, fx_target_vertex, fx_composite_vertex, fx_composite_pixel,
     count
 };
 

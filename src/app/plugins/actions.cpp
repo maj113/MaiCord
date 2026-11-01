@@ -4,6 +4,7 @@
 #include "plugins.hpp"
 #include "runtime.hpp"
 #include "actions.hpp"
+#include "maicord/app/plugins/dispatch.hpp"
 #include "../shell/state.hpp"
 #include "../shell/window_state.hpp"
 #include "../account/account_presentation.hpp"
@@ -360,7 +361,7 @@ u8 application_plugins_composer_notice_tone() noexcept {
 
 bool application_plugins_keybind_input(UiInputKind kind, u32 code, bool repeated) noexcept {
     auto* rt = application_plugins_runtime();
-    if (!rt || (kind != UiInputKind::key_down && kind != UiInputKind::system_key_down) || code > 0xff ||
+    if ((kind != UiInputKind::key_down && kind != UiInputKind::system_key_down) || code > 0xff ||
         shortcut_key_is_modifier(code) || keybinds_blocked() || application_plugins_busy() ||
         (g_app.window && !application_window_foreground()))
         return false;
@@ -372,6 +373,13 @@ bool application_plugins_keybind_input(UiInputKind kind, u32 code, bool repeated
     if (text_focus && (chord.modifiers & (shortcut_ctrl | shortcut_alt)) == (shortcut_ctrl | shortcut_alt) &&
         altgr_types(chord.key))
         return false;
+    // ABI 6 plugins: keys bound in their settings (once per press).
+    if (!repeated &&
+        plugin_dispatch_keybind(chord.key | (chord.modifiers & shortcut_ctrl ? kPluginKeyControl : 0) |
+                                (chord.modifiers & shortcut_shift ? kPluginKeyShift : 0) |
+                                (chord.modifiers & shortcut_alt ? kPluginKeyAlt : 0)))
+        return true;
+    if (!rt) return false;
     if (repeated) {
         // A held chord fires once; its repeats stay with the plugin.
         NativePluginSdkKeybindView views[64];

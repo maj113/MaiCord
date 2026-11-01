@@ -277,7 +277,7 @@ bool application_commands_send(bool* handled) noexcept {
         return false;
     if (blocked)
         return true;
-    if (c.selected.command->application_id == kBuiltinCommandApplication) {
+    if (local_command_application(c.selected.command->application_id)) {
         char options[16384];
         ProtocolWriter writer{{reinterpret_cast<u8*>(options), sizeof(options)}, 0};
         const u32 start = c.selected.command->name.bytes + 1;
@@ -298,8 +298,11 @@ bool application_commands_send(bool* handled) noexcept {
         };
         char text_storage[kMessageComposerMaximumBytes];
         Utf8View text{};
-        const auto run = builtin_command_run(*c.selected.command, {options, writer.used}, c.channel,
-                                             {text_storage, sizeof(text_storage)}, &text);
+        const auto run = plugin_command_application(c.selected.command->application_id)
+                             ? plugin_command_execute(*c.selected.command, {options, writer.used}, c.channel, c.guild,
+                                                      {text_storage, sizeof(text_storage)}, &text)
+                             : builtin_command_run(*c.selected.command, {options, writer.used}, c.channel,
+                                                   {text_storage, sizeof(text_storage)}, &text);
         if (run == BuiltinCommandRun::failed) {
             c.error = utf8_literal("This command couldn't run. Try again.");
             return reopen();
@@ -314,7 +317,7 @@ bool application_commands_send(bool* handled) noexcept {
             shake_app();
             return reopen() && refresh_message_composer_ui();
         }
-        // A built-in's use is recorded as it runs.
+        // A built-in's use is recorded as it runs (a plugin's is not: its ids are not Discord's).
         frecency_track(*c.selected.command, c.guild);
         builtin_command_results(nullptr, {}, {});
         command_autocomplete_cancel(&c.autocomplete);
@@ -323,14 +326,16 @@ bool application_commands_send(bool* handled) noexcept {
         close_popup();
         if (run == BuiltinCommandRun::handled)
             return composer_apply_result(message_composer_clear(&g_app.message_composer), true);
-        // A text command's result is sent as the message itself.
+        // A text command's result is sent as the message itself; an insert stays in the draft.
         const auto replaced = message_composer_replace_range(&g_app.message_composer, 0,
                                                              g_app.message_composer.bytes, text);
         if (replaced == MessageComposerResult::invalid_input)
             return true;
-        c.builtin_text = true;
-        c.builtin_text_revision = g_app.message_composer.text_revision;
-        *handled = false;
+        if (run == BuiltinCommandRun::text) {
+            c.builtin_text = true;
+            c.builtin_text_revision = g_app.message_composer.text_revision;
+            *handled = false;
+        }
         return composer_apply_result(replaced, true);
     }
     if (c.sending || c.queued)
@@ -962,6 +967,25 @@ bool application_commands_tick(u64 now) noexcept {
         return true;
     auto& c = *commands;
     shake_step(now);
+    // Plugins were enabled or disabled: what points into their index goes, then the index is rebuilt.
+    if (plugin_commands_changed()) {
+        if (c.selected.index == plugin_commands_storage()) {
+            reset_value(&c.selected);
+            reset_value(&c.focused_option);
+            c.choice_count = c.option_count = 0;
+            command_autocomplete_cancel(&c.autocomplete);
+        }
+        arena_release(&c.projection);
+        c.entries = nullptr;
+        c.rail = c.body = nullptr;
+        c.count = c.rail_count = c.body_count = 0;
+        c.filter_app = 0;
+        c.revision = 0;
+        ++c.generation;
+        plugin_commands_refresh();
+        c.catalog_dirty = true;
+        ++c.catalog_revision;
+    }
     // A /msg or /thread message goes out once its channel is there.
     if (!builtin_commands_tick())
         return false;
@@ -1297,6 +1321,7 @@ bool application_commands_insert(u64 application_id, u64 command_id, Utf8View na
 }
 void application_commands_release() noexcept {
     builtin_commands_release();
+    plugin_commands_release();
     if (!commands)
         return;
     command_autocomplete_cancel(&commands->autocomplete);

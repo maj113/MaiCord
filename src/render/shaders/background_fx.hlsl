@@ -1,29 +1,32 @@
-// Background effect pass. fx_vertex covers one canvas rectangle for a plugin
-// effect; for the built-in Stars and Comets it expands one small sprite per
-// comet lane and per star cell (instances of one draw), clipped to the canvas
-// and to the star's own cell, so fx_builtin shades only the pixels a star or
-// comet can touch. Output is premultiplied and composited as
-// dst = src.rgb + dst * (1 - src.a).
-
-struct FxVertexOutput {
-    float4 position : SV_Position;
-    float2 uv : TEXCOORD0; // canvas uv; the only input a plugin effect reads
-    // Built-in sprites: DIP offset from the star center or comet head, and
-    // the sprite's constants. Star: (radius, brightness, 1 / edge width, 0).
-    // Comet: (axis, fade, 1).
-    float2 local : TEXCOORD1;
-    nointerpolation float4 shape : TEXCOORD2;
-};
+// Background effect pass.
+//
+// Built-in Stars and Comets: fx_vertex expands one small sprite per comet lane
+// and per star cell (instances of one draw), clipped to the canvas and to the
+// star's own cell, so fx_builtin shades only the pixels a star or comet can
+// touch. Output is premultiplied and composited as dst = src.rgb + dst * (1 - src.a).
+//
+// Package effects: fx_target_vertex covers the whole effect target for the
+// package's pixel shader (maicord/sdk/background.hlsli). Each background
+// canvas then composites that target: fx_composite_vertex places the canvas
+// rectangle and maps it into the target, fx_composite_pixel samples it.
 
 #if defined(FX_VERTEX)
+struct FxVertexOutput {
+    float4 position : SV_Position;
+    // DIP offset from the star center or comet head, and the sprite's
+    // constants. Star: (radius, brightness, 1 / edge width, 0). Comet: (axis, fade, 1).
+    float2 local : TEXCOORD0;
+    nointerpolation float4 shape : TEXCOORD1;
+};
+
 cbuffer UiFrame : register(b0) {
     float2 coordinate_scale;
     float2 coordinate_translation;
 };
 
-// mc_fx_constants (rows 0..11) plus the host-only rows: the canvas (DIPs) and
-// the built-in sprite grid (first star cell, cells per row, comet lanes; all
-// zero for a plugin effect). The pixel stage sees it at b0, the vertex stage at b2.
+// BackgroundFxConstants (rows 0..11) plus the host-only rows: the canvas (DIPs)
+// and the sprite grid (first star cell, cells per row, comet lanes). The pixel
+// stage sees it at b0, the vertex stage at b2.
 cbuffer McFxVertex : register(b2) {
     float vertex_time : packoffset(c0.x);
     float2 vertex_resolution : packoffset(c1.x);
@@ -55,13 +58,10 @@ FxVertexOutput fx_vertex(uint vertex_id : SV_VertexID, uint instance_id : SV_Ins
     // Triangle strip: (0,0) (1,0) (0,1) (1,1).
     const float2 corner = float2(vertex_id & 1u, vertex_id >> 1);
     FxVertexOutput output;
-    output.uv = corner;
     output.local = 0.0f;
     output.shape = 0.0f;
     float2 position;
-    if (vertex_grid.z + vertex_grid.w == 0.0f) {
-        position = lerp(vertex_canvas.xy, vertex_canvas.zw, corner);
-    } else {
+    {
         const float speed = vertex_parameters[0].x;
         const float density = saturate(vertex_parameters[0].y);
         const float time = vertex_time * speed;
@@ -117,7 +117,59 @@ FxVertexOutput fx_vertex(uint vertex_id : SV_VertexID, uint instance_id : SV_Ins
     output.position = float4(position * coordinate_scale + coordinate_translation, 0.0f, 1.0f);
     return output;
 }
+#elif defined(FX_TARGET)
+// The whole effect target as a triangle strip: (0,0) (1,0) (0,1) (1,1), top-left origin.
+float4 fx_target_vertex(uint vertex_id : SV_VertexID) : SV_Position {
+    const float2 corner = float2(vertex_id & 1u, vertex_id >> 1);
+    return float4(corner.x * 2.0f - 1.0f, 1.0f - corner.y * 2.0f, 0.0f, 1.0f);
+}
+#elif defined(FX_COMPOSITE_VERTEX)
+cbuffer UiFrame : register(b0) {
+    float2 coordinate_scale;
+    float2 coordinate_translation;
+};
+
+// One canvas in DIPs, and the map from a DIP to a position in the effect
+// target: uv = dip * scale + offset.
+cbuffer McFxComposite : register(b2) {
+    float4 composite_canvas : packoffset(c0);
+    float4 composite_uv : packoffset(c1);
+};
+
+struct FxCompositeOutput {
+    float4 position : SV_Position;
+    float2 uv : TEXCOORD0;
+};
+
+FxCompositeOutput fx_composite_vertex(uint vertex_id : SV_VertexID) {
+    const float2 corner = float2(vertex_id & 1u, vertex_id >> 1);
+    const float2 position = lerp(composite_canvas.xy, composite_canvas.zw, corner);
+    FxCompositeOutput output;
+    output.position = float4(position * coordinate_scale + coordinate_translation, 0.0f, 1.0f);
+    output.uv = position * composite_uv.xy + composite_uv.zw;
+    return output;
+}
+#elif defined(FX_COMPOSITE_PIXEL)
+cbuffer McFxCompositePixel : register(b0) {
+    float4 composite_skip[2] : packoffset(c0);
+    float4 composite_clamp : packoffset(c2); // the used part of the target, inset half a texel
+    float composite_opacity : packoffset(c3.x);
+};
+Texture2D<float4> fx_target : register(t0);
+SamplerState fx_sampler : register(s0); // the pipeline's bilinear clamp sampler
+
+// The target holds premultiplied colour; the user's opacity scales all four channels.
+float4 fx_composite_pixel(float4 position : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
+    return fx_target.SampleLevel(fx_sampler, clamp(uv, composite_clamp.xy, composite_clamp.zw), 0.0f) *
+           composite_opacity;
+}
 #else
+struct FxVertexOutput {
+    float4 position : SV_Position;
+    float2 local : TEXCOORD0;
+    nointerpolation float4 shape : TEXCOORD1;
+};
+
 cbuffer McFx : register(b0) {
     float fx_time;
     float fx_delta;

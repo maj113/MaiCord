@@ -271,6 +271,97 @@ bool append_plugin_accessories(MessageTextPresentation* presentation, const UiPl
     return true;
 }
 
+// A plugin card at the head of the notice container: an accent bar (painted from the card's height), then the
+// title, the wrapped text, the caption and up to two buttons, left-aligned in a column at most 432 DIPs wide.
+// The text's height is the previous pass's measurement, like every wrapped block; the pass after a change
+// settles it. *top moves past the card; *height receives the card's own height.
+constexpr float kCardTitleLine = 22.0f, kCardCaptionLine = 18.0f, kCardButtonLine = 26.0f, kCardTextLine = 20.0f,
+                kCardTextMaximum = 100.0f, kCardPadding = 10.0f, kCardButtonGap = 16.0f, kCardGapAfter = 4.0f;
+bool append_plugin_card(MessageTextPresentation* presentation, const UiPluginRenderCard& card, const UiRect& region,
+                        const UiRect& row_clip, const UiWidgetReference& owner, const Theme& theme,
+                        const MessageRecord& record, u16 measurement_index, float* top, float* height) noexcept {
+    const float width = minimum(ui_rect_width(region), kMessagePluginCardMaximumWidth);
+    const float left = region.left + kMessagePluginCardInset;
+    const float inner = maximum(1.0f, width - kMessagePluginCardInset - kCardPadding);
+    const float begin = *top;
+    float y = begin + kCardPadding;
+    const auto append = [&](Utf8View text, u32 style, u64 target, UiRect rectangle, Color color, u8 slot, bool wrap,
+                            MessageTextCommand** placed) noexcept {
+        if (!text.bytes) return true;
+        if ((style && presentation->style_count >= presentation->styles.count) ||
+            (target && presentation->semantic_count >= presentation->semantics.count))
+            return fail(presentation, MessageTextPresentationError::capacity);
+        // Plain text carries no span: a span without a flag is not a style.
+        TextStyleSpan* span = style ? presentation->styles.data + presentation->style_count++ : nullptr;
+        if (span) *span = {0, text.bytes, style};
+        ConstSlice<MessageMarkdownSemantic> semantics{};
+        if (target) {
+            MessageMarkdownSemantic* semantic = presentation->semantics.data + presentation->semantic_count++;
+            *semantic = {target, 0, text.bytes, scoped_source_offset(kUiPluginRenderGeneratedSource, 0), 0,
+                         MessageMarkdownSemanticKind::link, 0};
+            semantics = {semantic, 1};
+        }
+        const UiRect clip = ui_rect_intersection(row_clip, rectangle);
+        const u32 before = presentation->command_count;
+        if (!ui_rect_has_area(clip)) return true;
+        if (!append_command(presentation, text, {span, span ? 1u : 0u}, semantics, owner, rectangle, clip, color, &record,
+                            measurement_index,
+                            {.kind = MessageTextMeasurementKind::notice,
+                             .themed = (style & text_style_link) != 0,
+                             .vertical = wrap ? UiTextAlignment::start : UiTextAlignment::center,
+                             .wrapping = wrap ? TextWrapping::wrap : TextWrapping::no_wrap,
+                             .slot = slot,
+                             .overflow = wrap ? TextOverflow::clip : TextOverflow::ellipsis,
+                             .source_id = kUiPluginRenderGeneratedSource}))
+            return false;
+        *placed = &presentation->commands[before];
+        return true;
+    };
+    MessageTextCommand* command = nullptr;
+    if (card.title.bytes) {
+        const bool link = card.link.bytes != 0;
+        if (!append(card.title, link ? text_style_bold | text_style_link : text_style_bold,
+                    link ? kUiPluginRenderCardLinkTarget : 0, {left, y, left + inner, y + kCardTitleLine},
+                    link ? theme.tokens.text.link : theme.text_primary, 16, false, &command))
+            return false;
+        y += kCardTitleLine;
+    }
+    if (card.text.bytes) {
+        command = nullptr;
+        // Clipped to kCardTextMaximum even when the shaped text is taller; an unmeasured block assumes one line.
+        if (!append(card.text, 0, 0, {left, y, left + inner, y + 4'096.0f}, theme.text_primary, 17, true, &command))
+            return false;
+        const float measured = command ? command->measured_height : 0.0f;
+        const float block = minimum(maximum(measured, kCardTextLine), kCardTextMaximum);
+        if (command) command->clip.bottom = minimum(command->clip.bottom, y + block);
+        y += block;
+    }
+    if (card.caption.bytes) {
+        if (!append(card.caption, text_style_subtext, 0, {left, y, left + inner, y + kCardCaptionLine},
+                    ui_background_muted_text_color(theme), 18, false, &command))
+            return false;
+        y += kCardCaptionLine;
+    }
+    if (card.button_count) {
+        float x = left;
+        y += 4.0f;
+        for (u32 i = 0; i < card.button_count && i < kUiPluginRenderCardButtons; ++i) {
+            const UiPluginRenderCardButton& button = card.buttons[i];
+            command = nullptr;
+            if (!append(button.label, text_style_bold, kUiPluginRenderCardTarget + i,
+                        {x, y, x + maximum(1.0f, left + inner - x), y + kCardButtonLine},
+                        ui_icon_role_color(theme, ui_plugin_slot_role(button.tone ? button.tone : 1)),
+                        static_cast<u8>(19 + i), false, &command))
+                return false;
+            x += (command ? command->measured_width : 0.0f) + kCardButtonGap;
+        }
+        y += kCardButtonLine;
+    }
+    y += kCardPadding;
+    *height = y - begin;
+    *top = y + kCardGapAfter;
+    return true;
+}
 } // namespace
 // The row or section showing this message's failed component error, or
 // kMessageComponentNone when the failure has no control of its own.
@@ -288,6 +379,8 @@ bool append_annotations(MessageTextPresentation* presentation, const MessageScen
                         const MessageSceneRowWidget& row, const MessageRecord& record, const Theme& theme,
                         const UiRect& row_clip, u16 measurement_index, bool forwarded, float offset,
                         const UiPluginRenderDecoration* decoration) noexcept {
+    // The card's height is measured below; it is 0 again whenever nothing paints a card.
+    presentation->measurements[measurement_index].rich_item_layout.plugin_card_height = 0.0f;
     if (forwarded)
         return true;
     // A failure on a control shows under its action row instead.
@@ -295,7 +388,8 @@ bool append_annotations(MessageTextPresentation* presentation, const MessageScen
                         failed_component_host(scene, record) == kMessageComponentNone;
     const bool ephemeral = (record.flags & kMessageFlagEphemeral) != 0;
     const bool accessories = decoration && decoration->accessory_count;
-    if (!failed && !ephemeral && !accessories)
+    const bool card = decoration && decoration->has_card;
+    if (!failed && !ephemeral && !accessories && !card)
         return true;
     const UiLayoutNode* notice = message_scene_layout_node(scene, row.notice);
     if (!notice)
@@ -303,6 +397,15 @@ bool append_annotations(MessageTextPresentation* presentation, const MessageScen
     const UiRect region = notice->content_rectangle;
     float top = region.top + offset;
     const UiWidgetReference owner{&scene.widgets, row.notice};
+    if (card) {
+        float card_height = 0.0f;
+        if (!append_plugin_card(presentation, decoration->card, region, row_clip, owner, theme, record,
+                                measurement_index, &top, &card_height))
+            return false;
+        auto& items = presentation->measurements[measurement_index].rich_item_layout;
+        items.plugin_card_top = offset;
+        items.plugin_card_height = card_height;
+    }
     if (failed) {
         const UiRect line{region.left, top, maximum(region.left + 1.0f, region.right), top + kAnnotationLineHeight};
         if (ui_rect_has_area(ui_rect_intersection(line, row_clip)) &&

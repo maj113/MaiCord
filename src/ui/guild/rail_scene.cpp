@@ -5,6 +5,7 @@
 #include "maicord/ui/layout/list_navigation.hpp"
 #include "maicord/ui/layout/virtual_list.hpp"
 #include "maicord/ui/core/widget_storage.hpp"
+#include "maicord/ui/plugins/slots.hpp"
 
 namespace maicord {
 namespace {
@@ -13,6 +14,9 @@ inline constexpr u32 kGuildRailRootWidgetId = 1;
 inline constexpr u32 kGuildRailSpacerWidgetId = 2;
 // Row widgets use source index + 3; the add button sits above any row ID.
 inline constexpr u32 kGuildRailAddWidgetId = 0x7FFF0000u;
+// Plugin tiles: top ones at kGuildRailPluginWidgetId + index, bottom ones after the top ones' range.
+inline constexpr u32 kGuildRailPluginWidgetId = 0x7FFE0000u;
+static_assert(kGuildRailPluginTiles == kUiPluginSlotServerTiles);
 // One gap below the separator above the list.
 inline constexpr float kGuildRailTopInset = kUiGuildRailGap;
 inline constexpr float kGuildRailRowExtent = kUiGuildRailTileExtent;
@@ -70,6 +74,8 @@ float content_height(const GuildRailScene* scene, const NavigationView* view) no
     if (!view)
         return 0.0f;
     float height = kGuildRailTopInset;
+    if (scene)
+        height += static_cast<float>(scene->plugin_top + scene->plugin_bottom) * kGuildRailRowStride;
     for (u32 i = 0; i < view->guild_count; ++i)
         height += reveal_of(scene, view->guild_rows[i]) * kGuildRailRowStride;
     return height + kGuildRailRowStride; // "Add a server"
@@ -77,7 +83,7 @@ float content_height(const GuildRailScene* scene, const NavigationView* view) no
 
 // Content-space top of a source row, plus its stride.
 float row_top(const GuildRailScene* scene, const NavigationView& view, u32 index) noexcept {
-    float top = kGuildRailTopInset;
+    float top = kGuildRailTopInset + (scene ? static_cast<float>(scene->plugin_top) * kGuildRailRowStride : 0.0f);
     for (u32 i = 0; i < index && i < view.guild_count; ++i)
         top += reveal_of(scene, view.guild_rows[i]) * kGuildRailRowStride;
     return top;
@@ -87,13 +93,15 @@ struct VisibleRange {
     u32 first, count;
     float spacer;
     bool add; // the trailing add button intersects the overscanned viewport
+    u8 tiles_top, tiles_bottom; // plugin tiles materialized at each end
 };
 VisibleRange visible_range(const GuildRailScene& scene, const NavigationView& view, float scroll,
                            float height) noexcept {
-    VisibleRange range{0, 0, kGuildRailTopInset, false};
+    const float tiles_extent = static_cast<float>(scene.plugin_top) * kGuildRailRowStride;
+    VisibleRange range{0, 0, kGuildRailTopInset + tiles_extent, false, 0, 0};
     const float low = scroll - kGuildRailOverscanDips, high = scroll + height + kGuildRailOverscanDips;
-    float top = kGuildRailTopInset;
-    bool started = false;
+    float top = kGuildRailTopInset + tiles_extent;
+    bool started = false, below = true; // below: the rows end inside the window, so the add button may too
     for (u32 i = 0; i < view.guild_count; ++i) {
         const float stride = reveal_of(&scene, view.guild_rows[i]) * kGuildRailRowStride;
         if (stride > 0 && top + stride > low && top < high) {
@@ -104,15 +112,30 @@ VisibleRange visible_range(const GuildRailScene& scene, const NavigationView& vi
             }
             ++range.count;
         } else if (started && top >= high) {
-            return range;
+            below = false;
+            break;
         }
         top += stride;
     }
-    range.add = top + kGuildRailRowStride > low && top < high;
-    if (range.add && !started) {
-        // No row is visible: the spacer reaches the button itself.
-        range.first = view.guild_count;
-        range.spacer = top;
+    if (below) {
+        range.add = top + kGuildRailRowStride > low && top < high;
+        // The bottom tiles follow the add button; either one keeps the button (the tiles' anchor) materialized.
+        const float bottom_top = top + kGuildRailRowStride;
+        if (scene.plugin_bottom && bottom_top + static_cast<float>(scene.plugin_bottom) * kGuildRailRowStride > low &&
+            bottom_top < high) {
+            range.tiles_bottom = scene.plugin_bottom;
+            range.add = true;
+        }
+        if (range.add && !started) {
+            // No row is visible: the spacer reaches the button itself.
+            range.first = view.guild_count;
+            range.spacer = top;
+        }
+    }
+    // The top tiles lead the rows, so the first row materialized is row 0 right behind them.
+    if (scene.plugin_top && kGuildRailTopInset + tiles_extent > low) {
+        range.tiles_top = scene.plugin_top;
+        range.spacer = kGuildRailTopInset;
     }
     return range;
 }
@@ -130,6 +153,9 @@ void clear_materialization(GuildRailScene* scene) noexcept {
     ui_widget_manager_reset(&scene->widgets);
     scene->root = ui_widget_invalid_handle();
     scene->add_button = ui_widget_invalid_handle();
+    for (auto& tile : scene->plugin_tiles)
+        tile = ui_widget_invalid_handle();
+    scene->materialized_top = scene->materialized_bottom = 0;
     scene->first = 0;
     scene->count = 0;
     scene->active = false;
@@ -143,7 +169,8 @@ u64 focused_guild(const GuildRailScene& scene) noexcept {
 bool materialization_matches(const GuildRailScene& scene, const NavigationView& view,
                              VisibleRange range) noexcept {
     if (!scene.active || scene.first != range.first || scene.count != range.count ||
-        scene.spacer_height != range.spacer || (scene.add_button.generation != 0) != range.add)
+        scene.spacer_height != range.spacer || (scene.add_button.generation != 0) != range.add ||
+        scene.materialized_top != range.tiles_top || scene.materialized_bottom != range.tiles_bottom)
         return false;
     bool matches = true;
     each_visible(scene, view, range, [&](u32 local, u32 index) noexcept {
@@ -187,6 +214,12 @@ GuildRailHit hit_of(const GuildRailRowWidget& row) noexcept {
 
 } // namespace
 
+// How many tiles a plugin asks for at one end of the list (null query: none, one test).
+static u8 plugin_tile_count(u32 surface) noexcept {
+    UiPluginSlotNode nodes[kGuildRailPluginTiles];
+    return static_cast<u8>(ui_plugin_slot_toolbar(surface, {nodes, kGuildRailPluginTiles}));
+}
+
 bool guild_rail_scene_initialize(GuildRailScene* scene, Slice<GuildRailRowWidget> row_storage,
                                  Slice<UiWidget> widget_storage,
                                  Slice<UiLayoutNode> layout_storage) noexcept {
@@ -225,12 +258,25 @@ __declspec(noinline) GuildRailSceneResult materialize(GuildRailScene* scene, con
         return scene_error(scene, GuildRailSceneError::widget);
     }
     scene->root = root.handle;
+    for (auto& tile : scene->plugin_tiles)
+        tile = ui_widget_invalid_handle();
     const UiWidgetResult spacer = ui_widget_manager_add_keyed(
         &scene->widgets, root.handle, kGuildRailSpacerWidgetId, UiWidgetKind::container, ui_widget_enabled,
         "TopInset", ui_layout_spacer_style(range.spacer));
     if (!spacer.ok()) {
         clear_materialization(scene);
         return scene_error(scene, GuildRailSceneError::widget);
+    }
+    // Plugin tiles above the servers.
+    for (u32 i = 0; i < range.tiles_top; ++i) {
+        const UiWidgetResult tile = ui_widget_manager_add_keyed(
+            &scene->widgets, root.handle, kGuildRailPluginWidgetId + i, UiWidgetKind::button,
+            static_cast<u16>(ui_widget_enabled | ui_widget_hit_test), "PluginTile", row_style(1.0f));
+        if (!tile.ok()) {
+            clear_materialization(scene);
+            return scene_error(scene, GuildRailSceneError::widget);
+        }
+        scene->plugin_tiles[i] = tile.handle;
     }
     bool added_all = true;
     each_visible(*scene, *view, range, [&](u32 local, u32 index) noexcept {
@@ -267,6 +313,17 @@ __declspec(noinline) GuildRailSceneResult materialize(GuildRailScene* scene, con
         }
         scene->add_button = add.handle;
     }
+    // Plugin tiles after "Add a server".
+    for (u32 i = 0; i < range.tiles_bottom; ++i) {
+        const UiWidgetResult tile = ui_widget_manager_add_keyed(
+            &scene->widgets, root.handle, kGuildRailPluginWidgetId + kGuildRailPluginTiles + i, UiWidgetKind::button,
+            static_cast<u16>(ui_widget_enabled | ui_widget_hit_test), "PluginTile", row_style(1.0f));
+        if (!tile.ok()) {
+            clear_materialization(scene);
+            return scene_error(scene, GuildRailSceneError::widget);
+        }
+        scene->plugin_tiles[kGuildRailPluginTiles + i] = tile.handle;
+    }
 
     if (!ui_widget_manager_set_scroll(&scene->widgets, root.handle, UiPoint{0.0f, scroll}) ||
         !ui_widget_manager_layout_rectangle(&scene->widgets, viewport).ok()) {
@@ -283,6 +340,8 @@ __declspec(noinline) GuildRailSceneResult materialize(GuildRailScene* scene, con
     scene->first = range.first;
     scene->count = range.count;
     scene->spacer_height = range.spacer;
+    scene->materialized_top = range.tiles_top;
+    scene->materialized_bottom = range.tiles_bottom;
     scene->focused_guild_id = restore_focus;
     scene->active = true;
     saturating_increment(scene->rebuilds);
@@ -301,6 +360,9 @@ GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const Naviga
          (view->guild_count > view->guild_capacity || (view->guild_count != 0 && !view->guild_rows)))) {
         return scene_error(scene, GuildRailSceneError::invalid_input);
     }
+    // The tiles take rail rows of their own, so their number is part of every height and offset below.
+    scene->plugin_top = plugin_tile_count(kUiPluginSlotServerTop);
+    scene->plugin_bottom = plugin_tile_count(kUiPluginSlotServerBottom);
 
     if (!view || !ui_rect_has_area(viewport)) {
         const bool materialized =
@@ -342,9 +404,11 @@ GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const Naviga
         scene->rows = ui_virtual_row_storage_rows<GuildRailRowWidget>(*scene->row_storage);
     }
     // Rows come first: storage sized only for them leaves out the add button.
-    if (range.add && !ui_widget_manager_reserve(&scene->widgets, 3 + range.count))
+    if (range.add && !ui_widget_manager_reserve(&scene->widgets, 3 + range.count + range.tiles_top + range.tiles_bottom)) {
         range.add = false;
-    if (range.count > scene->rows.count || !ui_widget_manager_reserve(&scene->widgets, 2 + range.count)) {
+        range.tiles_bottom = 0;
+    }
+    if (range.count > scene->rows.count || !ui_widget_manager_reserve(&scene->widgets, 2 + range.count + range.tiles_top)) {
         return scene_error(scene, GuildRailSceneError::capacity);
     }
 
@@ -404,7 +468,21 @@ GuildRailHit guild_rail_scene_hit_test(const GuildRailScene& scene, float x, flo
     if (!row && scene.add_button.generation && widget.slot == scene.add_button.slot &&
         widget.generation == scene.add_button.generation)
         return {0, widget, 0, false, false, true};
+    if (!row && (scene.materialized_top || scene.materialized_bottom))
+        for (u32 i = 0; i < 2 * kGuildRailPluginTiles; ++i) {
+            const UiWidgetHandle tile = scene.plugin_tiles[i];
+            if (tile.generation && widget.slot == tile.slot && widget.generation == tile.generation)
+                return {0, widget, 0, false, false, false, false, static_cast<u8>(i / kGuildRailPluginTiles + 1),
+                        static_cast<u8>(i % kGuildRailPluginTiles)};
+        }
     return row ? hit_of(*row) : GuildRailHit{};
+}
+
+UiRect guild_rail_scene_plugin_rectangle(const GuildRailScene& scene, u32 end, u32 index) noexcept {
+    if (end < 1 || end > 2 || index >= kGuildRailPluginTiles) return {};
+    const UiWidgetHandle handle = scene.plugin_tiles[(end - 1) * kGuildRailPluginTiles + index];
+    const UiLayoutNode* node = handle.generation ? ui_widget_manager_layout_node(scene.widgets, handle) : nullptr;
+    return node ? node->rectangle : UiRect{};
 }
 
 UiRect guild_rail_scene_add_rectangle(const GuildRailScene& scene) noexcept {
@@ -468,7 +546,7 @@ GuildRailHit guild_rail_scene_page(GuildRailScene* scene, const NavigationView& 
     if (!scratch.data) return {};
     Source& source = *scratch.data;
     source.view = &view;
-    float top = kGuildRailTopInset;
+    float top = kGuildRailTopInset + static_cast<float>(scene->plugin_top) * kGuildRailRowStride;
     for (u32 i = 0; i < view.guild_count; ++i) {
         const float reveal = reveal_of(scene, view.guild_rows[i]);
         source.tops[i] = ui_extent_units(top);

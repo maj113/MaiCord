@@ -716,8 +716,7 @@ void test_manifest() noexcept {
     check(native_plugin_manifest_valid(manifest) && !native_plugin_manifest_valid(old_abi),
           "only ABI 5 records are valid");
     check(utf8_equal(native_plugin_permission_name(3), utf8_literal("commands")) &&
-              utf8_equal(native_plugin_permission_name(21), utf8_literal("effects")) &&
-              native_plugin_permission_label(13).bytes && !native_plugin_permission_name(22).bytes &&
+              native_plugin_permission_label(13).bytes && !native_plugin_permission_name(21).bytes &&
               kNativePluginPermissionsAll == MC_PERM_ALL,
           "permission names follow MC_PERM_* bit order");
 }
@@ -865,7 +864,6 @@ void run() noexcept {
     test_actions();
     test_keybinds();
     test_slots_v2();
-    test_fx();
     test_showcase();
     DeleteFileW(marker);
     DeleteFileW(preferences);

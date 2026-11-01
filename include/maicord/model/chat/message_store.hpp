@@ -19,6 +19,9 @@ enum class MessageDeliveryState : u8 {
     authoritative,
     pending,
     failed,
+    // Confirmed on the server and since deleted; a plugin keeps it on screen as a tombstone.
+    // Counts as non-authoritative everywhere, so no action applies to it.
+    retained,
 };
 
 enum MessagePresentationFlag : u32 {

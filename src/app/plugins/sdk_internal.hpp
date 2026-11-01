@@ -96,14 +96,6 @@ struct Timer {
     u64 id, due, interval;
     bool repeat, active;
 };
-struct Effect {
-    u64 id;
-    u32 name_bytes, bytecode_bytes, revision;
-    bool registered;
-    char name[kPluginSdkEffectNameBytes];
-    float parameters[MC_FX_PARAMETERS];
-    u8 bytecode[kPluginSdkEffectBytecodeBytes];
-};
 // Token buckets: capacity tokens refill over window_ms.
 struct Bucket {
     u64 updated_ms;
@@ -148,7 +140,6 @@ struct NativePluginSdkBinding {
     plugin_sdk::Timer timers[kPluginSdkTimers];
     plugin_sdk::Bucket buckets[plugin_sdk::bucket_count];
     plugin_sdk::Store store;
-    plugin_sdk::Effect effects[kPluginSdkEffects];
     plugin_sdk::SlotEntry slots[kPluginSdkSlotEntries];
 };
 } // namespace maicord
@@ -272,7 +263,6 @@ extern const mc_render_v1 kRender;
 extern const mc_read_v2 kRead;
 extern const mc_events_v1 kEvents;
 extern const mc_actions_v1 kActions;
-extern const mc_fx_v1 kFx;
 extern const mc_store_v1 kStore;
 // Writes a dirty store (plugin_sdk_store.cpp); true when nothing is left to write.
 bool store_save(NativePluginSdkBinding& binding) noexcept;

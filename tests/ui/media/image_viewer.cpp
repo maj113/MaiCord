@@ -1,4 +1,5 @@
 #include "maicord/ui/media/image_viewer.hpp"
+#include "maicord/ui/media/zoom_lens.hpp"
 #include "maicord/app/media/account_media.hpp"
 #include "../../fixtures/png_growth_fixture.hpp"
 #include "maicord/media/image/png.hpp"
@@ -359,8 +360,53 @@ void test_clipboard_publish(void (*check)(bool, const char*) noexcept) noexcept 
           "clipboard publish: invalid images and owners never open the clipboard");
     clipboard_sink_install(previous);
 }
+void test_zoom_lens(void (*check)(bool, const char*) noexcept) noexcept {
+    UiZoomLens lens{};
+    ui_zoom_lens_configure(&lens, 0, 0, false);
+    check(lens.zoom == 2 && lens.size == 200 && !lens.square,
+          "zoom lens: zero stored values select the defaults (2x, 200 DIPs, circle)");
+    ui_zoom_lens_configure(&lens, 7, 33, true);
+    check(lens.zoom == 3.5f && lens.size == 330 && lens.square &&
+              ui_zoom_lens_zoom_halves(lens.zoom) == 7 && ui_zoom_lens_size_tens(lens.size) == 33,
+          "zoom lens: zoom keeps half steps and size tens of DIPs through storage");
+    const UiRect picture{100, 100, 500, 300};
+    UiZoomLensView view{};
+    check(!ui_zoom_lens_view(lens, picture, 8, &view), "zoom lens: an inactive lens has no view");
+    lens.active = true;
+    lens.pointer = {200, 150};
+    check(ui_zoom_lens_view(lens, picture, 8, &view) && view.frame.left == 35 && view.frame.top == -15 &&
+              view.frame.right == 365 && view.frame.bottom == 315 && view.ring.left == 33 && view.ring.bottom == 317 &&
+              view.source.left == -150 && view.source.top == -25 && view.source.right == 1250 &&
+              view.source.bottom == 675 && view.radius == 8 && view.ring_radius == 10,
+          "zoom lens: the picture scales about the pointer, which stays fixed, behind a rounded square");
+    lens.square = false;
+    check(ui_zoom_lens_view(lens, picture, 8, &view) && view.radius == 165 && view.ring_radius == 167,
+          "zoom lens: the circle's radius is half its size");
+    lens.pointer = {50, 50};
+    check(!ui_zoom_lens_view(lens, picture, 8, &view), "zoom lens: a pointer outside the picture shows nothing");
+    const u32 revision = lens.revision;
+    check(ui_zoom_lens_wheel(&lens, 120, false) && lens.zoom == 4 && lens.revision == revision + 1 &&
+              ui_zoom_lens_wheel(&lens, -60, false) && lens.zoom == 3.75f,
+          "zoom lens: a wheel notch zooms by half a unit and a fraction by its share");
+    check(ui_zoom_lens_wheel(&lens, -120 * 100, false) && lens.zoom == kUiZoomLensMinimumZoom &&
+              !ui_zoom_lens_wheel(&lens, -120, false) && ui_zoom_lens_wheel(&lens, 120 * 200, false) &&
+              lens.zoom == kUiZoomLensMaximumZoom && !ui_zoom_lens_wheel(&lens, 120, false),
+          "zoom lens: zoom clamps to 1x..50x and a clamped step reports no change");
+    lens.size = 330;
+    check(ui_zoom_lens_wheel(&lens, 120, true) && lens.size == 350 && lens.zoom == kUiZoomLensMaximumZoom &&
+              ui_zoom_lens_wheel(&lens, -120 * 100, true) && lens.size == kUiZoomLensMinimumSize &&
+              ui_zoom_lens_wheel(&lens, 120 * 100, true) && lens.size == kUiZoomLensMaximumSize &&
+              !ui_zoom_lens_wheel(nullptr, 120, true) && !ui_zoom_lens_wheel(&lens, 0, true),
+          "zoom lens: Shift resizes by 20 DIPs within 50..1000 and leaves the zoom alone");
+    PaintStream paint{};
+    check(paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1200, 800) &&
+              ui_zoom_lens_paint(view, kDefaultTheme, &paint) && paint.count == 2 && paint.clip_depth == 1,
+          "zoom lens: the frame is one ring and one surface from theme tokens");
+    paint_stream_release(&paint);
+}
 } // namespace
 void test_image_viewer(void (*check)(bool, const char*) noexcept) noexcept {
+    test_zoom_lens(check);
     UiImageViewer viewer{};
     check(ui_image_viewer_open(&viewer, {0, 0, 800, 600}, {2048, 1024}) &&
               ui_rect_width(viewer.image) == 752 && ui_rect_height(viewer.image) == 376,

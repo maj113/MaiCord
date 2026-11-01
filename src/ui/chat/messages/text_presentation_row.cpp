@@ -1,6 +1,7 @@
 #include "text_presentation_internal.hpp"
 #include "maicord/ui/chat/polls/presentation.hpp"
 #include "maicord/ui/chat/messages/unread_divider.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/ui/chat/messages/reaction_presentation.hpp"
 #include "maicord/ui/chat/messages/component_layout.hpp"
@@ -230,8 +231,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
 
     // Plugin decoration verdict cached for this revision (no plugin code runs); borrowed from the one-entry
     // memo, which only this message's own lookups touch while the row is built.
-    const auto* decoration =
-        forwarded ? nullptr : message_scene_plugin_decoration(scene, record->id, record->revision);
+    const auto* decoration = forwarded ? nullptr : message_scene_row_decoration(scene, *record);
     const bool collapsed = decoration && decoration->visibility == ui_plugin_render_collapsed;
     const bool replaced = decoration && !collapsed && decoration->replace_content &&
                           record->content_availability == MessageContentAvailability::available;
@@ -251,7 +251,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         content = utf8_literal("Loading…");
         content_color = ui_background_muted_text_color(theme);
     }
-    if (record->delivery == MessageDeliveryState::pending) {
+    if (record->delivery == MessageDeliveryState::pending || record->delivery == MessageDeliveryState::retained) {
         content_color = ui_background_muted_text_color(theme);
     } else if (record->delivery == MessageDeliveryState::failed) {
         content_color = theme.notification;
@@ -372,7 +372,10 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                       : reference_available
                           ? retain_reply_summary(presentation, &reply_context, label, reference_content, true,
                                                  rich->reference.content_flags, rich->reference.message_type,
-                                                 poll_question, rich->reference.quote_flags)
+                                                 poll_question, rich->reference.quote_flags,
+                                                 scene.display.reply_timestamps
+                                                     ? ((rich->reference.message_id >> 22) + kSnowflakeEpochMilliseconds) / 1000u
+                                                     : 0u)
                           : retain_reply_placeholder(presentation, label);
         const MessageReplyIcon reply_icon =
             reference_available && !interaction_header && leading == MessageReplyLeading::avatar && !media_mention

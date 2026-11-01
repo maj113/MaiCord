@@ -31,6 +31,15 @@ bool application_profile_open(u64, const UiRect&, ProfileAnchor) noexcept {
 bool application_plugins_slot_activate(u64, NativePluginSdkSlotTarget, u64, UiRect) noexcept {
     return false;
 }
+bool application_guild_folders_close_all() noexcept {
+    return true;
+}
+bool application_channel_hidden(u64) noexcept {
+    return false;
+}
+bool application_hidden_channel_open(u64, UiRect) noexcept {
+    return false;
+}
 bool application_plugins_render_click(const MessageTextHit&, UiRect) noexcept {
     return false;
 }

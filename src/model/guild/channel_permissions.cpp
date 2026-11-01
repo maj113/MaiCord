@@ -195,6 +195,12 @@ bool chat_state_store_channel_visible(const ChatStateStore& store,
            (channel.effective_permissions & kPermissionViewChannel) != 0;
 }
 
+bool chat_state_store_channel_hidden(const ChatStateStore& store, const ChannelRecord& channel) noexcept {
+    return channel.occupied && channel.guild_id != 0 && channel.type != 4 && !channel_is_private(channel.type) &&
+           !channel_is_thread(channel.type) && (channel.flags & kChannelObfuscatedFlag) == 0 &&
+           channel.permissions_resolved && !chat_state_store_channel_visible(store, channel);
+}
+
 u32 channel_actions(u8 type, u64 permissions, bool resolved) noexcept {
     if (channel_is_private(type)) {
         return resolved

@@ -2061,8 +2061,8 @@ int run_probe() noexcept {
         !guild_rail_scene_initialize(
             &g_probe.guild_rail_scene,
             Slice<GuildRailRowWidget>{g_probe.guild_rail_rows, kProbeGuildCapacity},
-            Slice<UiWidget>{g_probe.guild_rail_widgets, kProbeGuildCapacity + 3},
-            Slice<UiLayoutNode>{g_probe.guild_rail_layout_nodes, kProbeGuildCapacity + 3}) ||
+            Slice<UiWidget>{g_probe.guild_rail_widgets, kProbeGuildCapacity + 3 + 2 * kGuildRailPluginTiles},
+            Slice<UiLayoutNode>{g_probe.guild_rail_layout_nodes, kProbeGuildCapacity + 3 + 2 * kGuildRailPluginTiles}) ||
         !shell_navigation_scene_initialize(
             &g_probe.shell_navigation_scene,
             Slice<ShellNavigationRowWidget>{g_probe.shell_navigation_rows, kProbeChannelCapacity},
@@ -3381,6 +3381,8 @@ int run_probe() noexcept {
             return 236;
         if (!probe_message_display())
             return 731;
+        if (!probe_plugin_surfaces())
+            return 7321;
         if (!member_paging_probe(g_probe.renderer, g_probe.text_measure_cache, probe_capture_frame))
             return 237;
         if (!thread_members_probe(g_probe.renderer, g_probe.text_measure_cache, probe_capture_frame))
@@ -3940,6 +3942,8 @@ int run_probe() noexcept {
         if (!probe_image_viewer())
             return static_cast<int>(g_probe.failure_stage);
         if (!probe_rich_composer())
+            return static_cast<int>(g_probe.failure_stage);
+        if (!probe_voice_message_bar())
             return static_cast<int>(g_probe.failure_stage);
         if (!probe_autocomplete_identity())
             return static_cast<int>(g_probe.failure_stage);

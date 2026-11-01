@@ -37,6 +37,7 @@ bool bind_layer(D3D11Renderer* renderer, float& current_opacity, float opacity, 
         return false;
     current_opacity = opacity;
     renderer->background_fx.layer_opacity = opacity;
+    renderer->effect.layer_opacity = opacity;
     renderer->draw_layer_scale = scale;
     renderer->draw_layer_origin_x = origin_x;
     renderer->draw_layer_origin_y = origin_y;
@@ -510,7 +511,7 @@ bool draw_paint_batches(D3D11Renderer* renderer, DrawSubmissionState* submission
                            dots.gpu_first};
     // The background effect draws over each canvas right after its base fill,
     // before the quads (and later text and media) that follow it.
-    const bool effects = renderer->background_fx.source != BackgroundFxSource::none;
+    const bool effects = renderer->background_fx.source != BackgroundFxSource::none || renderer->effect.active;
     DrawRun run{};
     for (u32 index = first_batch; index < end_batch; ++index) {
         const PaintBatch& batch = renderer->paint_stream.batches[index];
@@ -550,12 +551,14 @@ bool draw_paint_batches(D3D11Renderer* renderer, DrawSubmissionState* submission
             draw_run(target, run);
             reset_value(&run);
             first = quad + 1;
-            if (d3d11_background_fx_draw(&renderer->background_fx, context,
-                                         {canvas.left, canvas.top, canvas.right, canvas.bottom}, quad)) {
+            const UiRect rectangle{canvas.left, canvas.top, canvas.right, canvas.bottom};
+            const bool package = renderer->effect.active;
+            if (package ? d3d11_effect_draw(&renderer->effect, context, rectangle, quad)
+                        : d3d11_background_fx_draw(&renderer->background_fx, context, rectangle, quad)) {
                 ++renderer->draw_calls_last_frame;
-                // The effect bound its own shaders, constants and blend state.
-                draw_submission_reset_pipeline(submission,
-                                               renderer->background_fx.source == BackgroundFxSource::plugin);
+                // The effect bound its own shaders, constants and blend state; a package effect also bound
+                // the pixel views.
+                draw_submission_reset_pipeline(submission, package);
             }
         }
         append_run(target, &run, scissor, first, end);
@@ -1043,10 +1046,20 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     draw_submission_begin(&submission);
     const u64 frame_ms = GetTickCount64();
     // Effects are decoration: without their resources the frame draws plain.
+    static_cast<void>(d3d11_effect_begin_frame(&renderer->effect, renderer->graphics.device,
+                                               renderer->graphics.context, theme,
+                                               renderer->background_phase_seconds, renderer->width,
+                                               renderer->height, renderer->caption_height, renderer->dpi,
+                                               renderer->live_resize, frame_ms));
+    // The package pass bound its own target and viewport; the frame's comes back.
+    if (renderer->effect.rendered)
+        d3d11_draw_pipeline_update_transform(renderer->pipeline, renderer->graphics.context, renderer->width,
+                                             renderer->height, renderer->dpi, renderer->target_origin_y);
     static_cast<void>(d3d11_background_fx_begin_frame(&renderer->background_fx, renderer->graphics.device,
                                                       renderer->graphics.context, theme,
                                                       renderer->background_phase_seconds, renderer->width,
-                                                      renderer->height, renderer->dpi, frame_ms));
+                                                      renderer->height, renderer->dpi,
+                                                      d3d11_effect_selected(renderer->effect)));
     renderer->text_effect_next_ms = frame_ms + 42;
     d3d11_renderer_caption_begin_scrim(renderer);
     renderer->draw_calls_last_frame = 0;
@@ -1071,7 +1084,8 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
           d3d11_renderer_active(renderer->image_viewer) ||
           d3d11_renderer_video_scene_visible(*renderer) || d3d11_renderer_audio_scene_visible(*renderer) ||
           d3d11_renderer_poll_scene_visible(*renderer) || d3d11_renderer_poll_voters_visible(*renderer) ||
-          d3d11_renderer_tooltip_visible(*renderer) || d3d11_renderer_search_visible(*renderer) ||
+          d3d11_renderer_tooltip_visible(*renderer) || d3d11_renderer_zoom_lens_visible(*renderer) ||
+          d3d11_renderer_search_visible(*renderer) ||
           d3d11_renderer_unread_banner_visible(*renderer) || toast ||
           d3d11_renderer_pinned_messages_visible(*renderer) ||
           d3d11_renderer_quick_switcher_visible(*renderer) || d3d11_renderer_inbox_visible(*renderer) ||
@@ -1160,8 +1174,11 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     const bool form_active =
         d3d11_renderer_tooltip_visible(*renderer) || d3d11_renderer_form_active(*renderer) ||
         settings_active;
-    const u32 form_paint =
-        form_active ? minimum(renderer->form_paint_first_batch, paint_batch_count) : paint_batch_count;
+    // The magnifier's frame is the last paint and its picture the last media of
+    // the form layer; it adds no text.
+    const u32 form_paint = form_active || d3d11_renderer_zoom_lens_visible(*renderer)
+                               ? minimum(renderer->form_paint_first_batch, paint_batch_count)
+                               : paint_batch_count;
     const u32 form_text =
         form_active ? minimum(renderer->form_text_first_batch, visible_text_end) : visible_text_end;
     const u32 menu_paint = maximum(base_paint_end, minimum(renderer->menu_paint_first_batch, form_paint));
@@ -1316,7 +1333,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         release_stream_views(renderer, submission);
         if (drawn)
             saturating_accumulate(renderer->media_draws_total, renderer->media_draws_last_frame);
-        d3d11_background_fx_end_frame(&renderer->background_fx, renderer->graphics.context);
+        d3d11_effect_end_frame(&renderer->effect, renderer->graphics.context);
         d3d11_gpu_timer_end(&renderer->gpu_timer, renderer->graphics.context, gpu_timestamp);
         return drawn;
     };

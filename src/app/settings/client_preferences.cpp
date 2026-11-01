@@ -12,6 +12,7 @@ constexpr u8 kMagic[8] = {'M', 'A', 'I', 'C', 'P', 'R', 'E', 'F'};
 constexpr u32 kHeaderBytes = 16;
 constexpr u32 kChecksumOffset = 72;
 constexpr u8 kKnownFlags = 127;
+constexpr u32 kBuiltInFlags = 63;
 
 ClientPreferencesResult failure(ClientPreferencesError error, u32 native_error = 0) noexcept {
     return {native_error, error};
@@ -46,6 +47,8 @@ bool client_preferences_valid(const ClientPreferences& preferences) noexcept {
            preferences.output_volume <= 200 && notification_soundpack_valid(preferences.soundpack) &&
            preferences.message_group_spacing < kClientPreferencesGroupSpacingCount &&
            pane_width_valid(preferences.channel_pane_width) && pane_width_valid(preferences.member_pane_width) &&
+           preferences.image_zoom_factor >= 2 && preferences.image_zoom_factor <= 100 &&
+           preferences.image_zoom_size >= 5 && preferences.image_zoom_size <= 100 &&
            background_theme_valid(preferences.gradient);
 }
 
@@ -67,6 +70,11 @@ bool client_preferences_equal(const ClientPreferences& a, const ClientPreference
            a.message_group_spacing == b.message_group_spacing &&
            a.channel_pane_width == b.channel_pane_width && a.member_pane_width == b.member_pane_width &&
            a.expression_picker_width == b.expression_picker_width &&
+           a.role_colors_everywhere == b.role_colors_everywhere && a.reply_timestamps == b.reply_timestamps &&
+           a.folders_close_others == b.folders_close_others && a.folders_close_on_home == b.folders_close_on_home &&
+           a.folders_follow_selection == b.folders_follow_selection && a.show_hidden_channels == b.show_hidden_channels &&
+           a.image_zoom == b.image_zoom && a.image_zoom_square == b.image_zoom_square &&
+           a.image_zoom_factor == b.image_zoom_factor && a.image_zoom_size == b.image_zoom_size &&
            background_theme_equal(a.gradient, b.gradient);
 }
 
@@ -92,6 +100,14 @@ ClientPreferencesResult client_preferences_encode(const ClientPreferences& prefe
     gradient_record_store(record.data, preferences.gradient, preferences.effect_profiles);
     record.data[58] = static_cast<u8>(preferences.expression_picker_width);
     record.data[59] = static_cast<u8>(preferences.expression_picker_width >> 8);
+    // Image zoom: flags (bit 0 off, bit 1 square lens), zoom in halves, size in tens of DIPs.
+    record.data[60] = static_cast<u8>((preferences.image_zoom ? 0u : 1u) | (preferences.image_zoom_square ? 2u : 0u));
+    record.data[61] = preferences.image_zoom_factor;
+    record.data[62] = preferences.image_zoom_size;
+    record.data[65] = static_cast<u8>(
+        (preferences.role_colors_everywhere ? 0u : 1u) | (preferences.reply_timestamps ? 2u : 0u) |
+        (preferences.folders_close_others ? 4u : 0u) | (preferences.folders_close_on_home ? 8u : 0u) |
+        (preferences.folders_follow_selection ? 16u : 0u) | (preferences.show_hidden_channels ? 32u : 0u));
     record.data[66] =
         static_cast<u8>((preferences.taskbar_flash ? 0u : 1u) | (preferences.unread_badge ? 0u : 2u) |
                         (preferences.minimize_to_tray ? 0u : 4u) | (preferences.start_minimized ? 8u : 0u) |
@@ -125,7 +141,10 @@ ClientPreferencesResult client_preferences_decode(ConstSlice<u8> record,
     if (record.data[16] > static_cast<u8>(ClientTheme::custom_light_gradient) ||
         (record.data[17] & ~kKnownFlags) != 0 || record.data[18] > 200 ||
         !notification_soundpack_valid(static_cast<NotificationSoundpack>(record.data[19])) ||
-        (record.data[66] & ~127u) || record.data[67] >= kClientPreferencesGroupSpacingCount)
+        (record.data[66] & ~127u) || (record.data[65] & ~kBuiltInFlags) ||
+        record.data[67] >= kClientPreferencesGroupSpacingCount || (record.data[60] & ~3u) ||
+        (record.data[61] && (record.data[61] < 2 || record.data[61] > 100)) ||
+        (record.data[62] && (record.data[62] < 5 || record.data[62] > 100)))
         return failure(ClientPreferencesError::format);
     if (byte_load_le64(record.data + kChecksumOffset) !=
         hash64_bytes(kHash64Seed, record.data, kChecksumOffset))
@@ -148,6 +167,16 @@ ClientPreferencesResult client_preferences_decode(ConstSlice<u8> record,
     decoded.spellcheck = !(record.data[66] & 16);
     decoded.game_detection = (record.data[66] & 32) != 0;
     decoded.dm_profile_visible = !(record.data[66] & 64);
+    decoded.role_colors_everywhere = !(record.data[65] & 1);
+    decoded.reply_timestamps = (record.data[65] & 2) != 0;
+    decoded.folders_close_others = (record.data[65] & 4) != 0;
+    decoded.folders_close_on_home = (record.data[65] & 8) != 0;
+    decoded.folders_follow_selection = (record.data[65] & 16) != 0;
+    decoded.show_hidden_channels = (record.data[65] & 32) != 0;
+    decoded.image_zoom = !(record.data[60] & 1);
+    decoded.image_zoom_square = (record.data[60] & 2) != 0;
+    decoded.image_zoom_factor = record.data[61] ? record.data[61] : kClientPreferencesDefaultZoomFactor;
+    decoded.image_zoom_size = record.data[62] ? record.data[62] : kClientPreferencesDefaultZoomSize;
     decoded.message_group_spacing = record.data[67];
     decoded.expression_picker_width = byte_load_le16(record.data + 58);
     decoded.channel_pane_width = byte_load_le16(record.data + 68);

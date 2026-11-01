@@ -34,7 +34,7 @@ bool message_action_bar_presentation_build(const MessageActionBar& bar, const Th
         return false;
     }
     UiPluginSlotNode plugins[kMessageActionBarPluginItems];
-    const u32 plugin_count = ui_plugin_slot_toolbar(kUiPluginSlotMessageHover, {plugins, kMessageActionBarPluginItems});
+    const u32 plugin_count = ui_plugin_slot_toolbar(kUiPluginSlotMessageHover, bar.message_id, {plugins, kMessageActionBarPluginItems});
     // The hover toolbar floats over the timeline like any popover.
     bool success = ui_surface_paint_plate(paint, bar.rectangle, theme, UiElevation::popover, theme.scale.radius_sm);
     for (u32 index = 0; success && index < bar.item_count; ++index) {
@@ -49,10 +49,12 @@ bool message_action_bar_presentation_build(const MessageActionBar& bar, const Th
         if (item.kind == MessageActionBarItemKind::plugin) {
             // A slot change since the bar opened leaves the cell blank until it reconfigures.
             if (item.catalog_index < plugin_count)
-                success = paint_shared_icon(paint, item.rectangle,
-                                            ui_plugin_slot_ink(theme, plugins[item.catalog_index].tone,
-                                                               theme.text_primary),
-                                            ui_plugin_slot_icon(plugins[item.catalog_index]));
+                success = paint_shared_icon(
+                    paint, item.rectangle,
+                    (plugins[item.catalog_index].state & kUiPluginSlotDisabled)
+                        ? ui_background_muted_text_color(theme)
+                        : ui_plugin_slot_ink(theme, plugins[item.catalog_index].tone, theme.text_primary),
+                    ui_plugin_slot_icon(plugins[item.catalog_index]));
         } else if (item.kind != MessageActionBarItemKind::quick_reaction) {
             success = paint_shared_icon(paint, item.rectangle,
                                         item.kind == MessageActionBarItemKind::delete_message ? theme.notification

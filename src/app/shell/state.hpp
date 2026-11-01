@@ -8,6 +8,7 @@
 
 #include "../chat/messages/delete.hpp"
 #include "../media/image_viewer.hpp"
+#include "../media/image_zoom.hpp"
 #include "../chat/messages/reaction.hpp"
 #include "../chat/messages/mutation_notice.hpp"
 
@@ -91,8 +92,8 @@ inline constexpr UINT kApplicationPhoneVerifyMessage = kWindowMessageApp + 0x32;
 inline constexpr u32 kWebAuthnStructuralCapacity = 4 * 1024;
 inline constexpr u32 kGuildRailRowCapacity = 192;
 inline constexpr u32 kInitialVirtualRowCapacity = 32;
-// Root, top spacer, rows and the trailing "Add a server" button.
-inline constexpr u32 kGuildRailWidgetCapacity = kGuildRailRowCapacity + 3;
+// Root, top spacer, rows, the trailing "Add a server" button and the plugin tiles at both ends.
+inline constexpr u32 kGuildRailWidgetCapacity = kGuildRailRowCapacity + 3 + 2 * kGuildRailPluginTiles;
 inline constexpr u32 kGuildRailInitialWidgetCapacity = 32;
 inline constexpr u32 kShellNavigationRowCapacity = 192;
 inline constexpr u32 kShellNavigationWidgetCapacity = kShellNavigationRowCapacity * 4 + 2;
@@ -197,6 +198,7 @@ enum class PopupOwnerKind : u8 {
     soundboard,         // The call bar's soundboard picker (owner_id is the channel).
     plugin_popover,     // A plugin slot popover (owner_id is the plugin).
     profile,            // A profile card menu: Edit Profile, Friend Actions, role picker.
+    hidden_channel,     // The read-only explanation of a locked channel (owner_id is the channel).
 };
 
 enum class PaneResizeKind : u8 {
@@ -393,6 +395,7 @@ struct Application {
     MessageActionBar message_action_bar;
     ReactionViewer reaction_viewer;
     ApplicationImageViewer image_viewer;
+    ApplicationImageZoom image_zoom;
     ReactionViewerController reaction_viewer_controller;
     ReactionViewerStorage reaction_viewer_storage;
     UiWidgetStorageOwner message_scene_storage;

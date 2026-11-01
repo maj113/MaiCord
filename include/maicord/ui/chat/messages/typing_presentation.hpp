@@ -23,8 +23,15 @@ struct MessageTypingPresentationResult {
     }
 };
 
+// One typed-out name inside the label: its byte span and its user id.
+struct MessageTypingName {
+    u64 user_id;
+    u16 offset, bytes;
+};
+// names, when given, receives one span per name (up to three); it is filled only when
+// the result's users <= 3 ("Several people are typing" names nobody).
 MessageTypingPresentationResult message_typing_presentation_build(
     const TypingStore& typing, const UserStore& users,
-    u64 channel_id, u64 self_user_id, Slice<char> output) noexcept;
+    u64 channel_id, u64 self_user_id, Slice<char> output, MessageTypingName* names = nullptr) noexcept;
 
 } // namespace maicord

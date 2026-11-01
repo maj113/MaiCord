@@ -153,7 +153,9 @@ struct __declspec(uuid("1841e5c8-16b0-489b-bcc8-44cfb0d5deae")) __declspec(novta
 enum D3D11_COMPARISON_FUNC {
 };
 enum D3D11_BLEND {
+    D3D11_BLEND_ZERO = 1,
     D3D11_BLEND_ONE = 2,
+    D3D11_BLEND_INV_SRC_COLOR = 4,
     D3D11_BLEND_INV_SRC_ALPHA = 6,
     D3D11_BLEND_BLEND_FACTOR = 14,
 };
@@ -380,9 +382,11 @@ struct __declspec(uuid("4f5b196e-c2bd-495e-bd01-1fded38e4969")) __declspec(novta
 struct __declspec(uuid("e4819ddc-4cf0-4025-bd26-5de82a3e07b7")) __declspec(novtable) ID3D11InputLayout : public ID3D11DeviceChild {
 };
 enum D3D11_FILTER {
+    D3D11_FILTER_MIN_MAG_MIP_POINT = 0,
     D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT = 0x14,
 };
 enum D3D11_TEXTURE_ADDRESS_MODE {
+    D3D11_TEXTURE_ADDRESS_WRAP = 1,
     D3D11_TEXTURE_ADDRESS_CLAMP = 3,
 };
 struct D3D11_SAMPLER_DESC {

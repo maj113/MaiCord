@@ -1,6 +1,7 @@
 #pragma once
 #include "state.hpp"
 #include "window_state.hpp"
+#include "../effects/effects.hpp"
 #include "../settings/settings.hpp"
 #include "../settings/theme_editor.hpp"
 #include "maicord/core/win32_user.hpp"
@@ -11,13 +12,14 @@ inline bool application_background_animate() noexcept {
     const auto& r = g_app.renderer;
     return g_app.renderer_ready && g_app.window &&
            background_animation_allowed(
-               application_theme().background, d3d11_background_fx_plugin_active(r.background_fx),
+               application_theme().background, application_effects_selected(),
                application_window_visible(),
                application_window_minimized(), r.live_resize,
                g_app.preferences.reduced_motion || r.reduced_motion,
                g_app.surface_motion.system_preference_cached && g_app.surface_motion.client_area_animation,
                g_app.login.visible ||
-                   (application_settings_active() && !application_theme_editor_active()));
+                   (application_settings_active() && !application_theme_editor_active())) &&
+           application_effects_motion_allowed();
 }
 inline u64 application_background_next_wake(u64 now_ms) noexcept {
     if (!application_background_animate()) {
@@ -35,9 +37,11 @@ inline u64 application_background_next_wake(u64 now_ms) noexcept {
 }
 inline bool application_background_synchronize(u64 now_ms) noexcept {
     auto& r = g_app.renderer;
+    const u64 interval = application_effects_selected() ? application_effects_interval_ms()
+                                                        : kBackgroundAnimationIntervalMs;
     const auto sample =
         background_animation_sample(r.background_next_frame_ms, r.background_phase_seconds,
-                                    r.background_motion_running, now_ms, application_background_animate());
+                                    r.background_motion_running, now_ms, application_background_animate(), interval);
     if (!renderer_set_background_phase(&r, sample.phase_seconds))
         return false;
     r.background_next_frame_ms = sample.next_frame_ms;

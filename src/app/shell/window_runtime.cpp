@@ -1,5 +1,7 @@
 #include "../account/dm_profile.hpp"
 #include "../account/application_account_module.hpp"
+#include "../plugins/pipeline_host.hpp"
+#include "../effects/effects.hpp"
 #include "navigation_drag.hpp"
 #include "content_point.hpp"
 #include "shortcuts.hpp"
@@ -85,6 +87,8 @@ void update_keyboard_focus_visible(UINT message, WPARAM wparam) noexcept {
 // DPI and pointer departure have their own messages. Runs first, before any
 // handler reads the flags.
 void observe_window_state(HWND window, UINT message, WPARAM wparam) noexcept {
+    if ((message >= WM_KEYFIRST && message <= WM_KEYLAST) || (message >= WM_MOUSEFIRST && message <= WM_MOUSELAST))
+        application_effects_note_input();
     switch (message) {
     case WM_WINDOWPOSCHANGED:
         application_window_observe_position(window);
@@ -295,6 +299,9 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
         }
         if (message == WM_KILLFOCUS)
             application_video_blur();
+        // The image magnifier watches the pointer, Ctrl and focus; only the wheel over a shown lens is its own.
+        if (g_app.renderer_ready && application_image_zoom_message(message, wparam, lparam))
+            return 0;
         // A layer that consumes WM_SETCURSOR must choose a shape. If it did
         // not, present the arrow rather than leaving the previous cursor stuck.
         const u32 cursor_serial = g_application_cursor_serial;
@@ -580,12 +587,16 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
             application_image_viewer_open_at(client_dip_x(lparam), client_dip_y(lparam)) ||
             application_dm_profile_click({client_dip_x(lparam), client_dip_y(lparam)}) ||
             handle_member_click(lparam) || handle_message_click(lparam) || handle_content_click(lparam) ||
-            handle_navigation_click(lparam))
+            handle_navigation_click(lparam) || application_plugins_message_click(lparam, false, 1))
             return 0;
         if (begin_message_text_selection(lparam)) {
             application_focus_window();
             return 0;
         }
+        break;
+
+    case WM_MBUTTONDOWN:
+        if (g_app.renderer_ready && application_plugins_message_click(lparam, true, 1)) return 0;
         break;
 
     case WM_LBUTTONDBLCLK:
@@ -602,6 +613,8 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
             application_focus_window();
             return 0;
         }
+        // A plugin may take a double click on a message before the word selection does.
+        if (g_app.renderer_ready && application_plugins_message_click(lparam, false, 2)) return 0;
         // Message text: double click selects the word under the pointer.
         if (g_app.renderer_ready && begin_message_text_selection(lparam, true)) {
             application_focus_window();

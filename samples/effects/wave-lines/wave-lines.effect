@@ -1,0 +1,5 @@
+name=Wave lines
+blend=screen
+resolution=50
+fps=24
+knobs=11000 450 550 1100 0 0 0 0 0 0 0 0

@@ -13,6 +13,7 @@
 #include "../chat/composer/input.hpp"
 #include "../shell/content_input.hpp"
 #include "../account/custom_status.hpp"
+#include "../plugins/settings_dialog.hpp"
 #include "../guild/settings/settings.hpp"
 #include "../guild/lifecycle.hpp"
 #include "../account/login/input.hpp"
@@ -288,6 +289,7 @@ bool reveal_and_resolve(UiAccessNode* node) noexcept {
 SettingsLayer* active_settings_layer() noexcept {
     SettingsLayer* const layers[]{application_channel_overview_settings_layer(),
                                   application_custom_status_settings_layer(),
+                                  application_plugin_settings_settings_layer(),
                                   application_guild_settings_settings_layer(),
                                   application_guild_lifecycle_settings_layer(),
                                   application_poll_create_settings_layer(),

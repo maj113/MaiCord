@@ -444,6 +444,14 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
     s.pointer(renderer.image_viewer);
     if (renderer.image_viewer)
         s.push(renderer.image_viewer->revision).push(renderer.image_viewer->spinner_phase);
+    // The magnifier follows the pointer and only adds media and paint after
+    // the shell: every change of the lens bumps its revision.
+    {
+        const TimelineInputs timeline(&stamp);
+        s.pointer(renderer.zoom_lens);
+        if (renderer.zoom_lens)
+            s.push(renderer.zoom_lens->active).push(renderer.zoom_lens->revision);
+    }
     s.push(renderer.gif_favorite_owner.slot)
         .push(renderer.gif_favorite_owner.generation)
         .push(renderer.gif_favorite)
@@ -613,6 +621,10 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
             .push(scene.status_tone)
             .push(scene.reply_label_bytes)
             .push(scene.typing_label_bytes)
+            .push(scene.typing_name_count)
+            .push(scene.typing_names[0].color)
+            .push(scene.typing_names[1].color)
+            .push(scene.typing_names[2].color)
             .push(scene.layout_passes)
             .push(scene.channel_allows_send)
             .caret(scene.caret_visible)

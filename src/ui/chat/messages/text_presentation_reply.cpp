@@ -603,7 +603,7 @@ u32 reply_preview_source(Utf8View content, char* output, u32 capacity) noexcept 
 RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation, BuildContext* context,
                                           Utf8View author, Utf8View content, bool available,
                                           u8 content_flags, u8 message_type,
-                                          Utf8View poll_question, u8 quote_flags) noexcept {
+                                          Utf8View poll_question, u8 quote_flags, u64 sent_unix_seconds) noexcept {
     if (!presentation || !context || (!author.data && author.bytes != 0) ||
         (!content.data && content.bytes != 0) || (!poll_question.data && poll_question.bytes != 0)) {
         return RetainedReplySummary{};
@@ -681,6 +681,15 @@ RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation,
     // A reply that pings its quoted author names them "@Author".
     const u32 at_sign = author.bytes != 0 && (content_flags & gateway_reference_mentions_author) ? 1u : 0u;
     const u32 author_bytes = author.bytes + at_sign;
+    // Reply timestamps: the quoted message's sent time follows its author.
+    char time_text[kMessageMarkdownTimestampMaximumBytes];
+    u32 time_bytes = 0;
+    if (sent_unix_seconds != 0 && author.bytes != 0) {
+        const TimestampFormatResult sent = format_timestamp_calendar(
+            sent_unix_seconds, context->now_unix_seconds, Slice<char>{time_text, sizeof(time_text)});
+        time_bytes = sent.ok ? sent.bytes : 0u;
+    }
+    const u32 time_gap = time_bytes != 0 ? 1u + time_bytes : 0u;
     const u32 separator = author.bytes != 0 && display_content.bytes != 0 ? 1u : 0u;
     // A quoted forward leads its text with the forward icon (a 1em cell and
     // a 4 px margin, like a chip icon).
@@ -688,10 +697,11 @@ RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation,
     const u32 forward_bytes =
         (quote_flags & gateway_quote_forwarded) && display_content.bytes != 0 ? forward_cell.bytes : 0u;
     const u32 retained_style_count =
-        (author.bytes != 0 ? 1u : 0u) + display_style_count + (placeholder.bytes ? 1u : 0u);
-    if (author_bytes > presentation->utf8.count - presentation->utf8_count ||
+        (author.bytes != 0 ? 1u : 0u) + (time_bytes != 0 ? 1u : 0u) + display_style_count +
+        (placeholder.bytes ? 1u : 0u);
+    if (author_bytes + time_gap > presentation->utf8.count - presentation->utf8_count ||
         separator + forward_bytes + display_content.bytes >
-            presentation->utf8.count - presentation->utf8_count - author_bytes ||
+            presentation->utf8.count - presentation->utf8_count - author_bytes - time_gap ||
         retained_style_count > presentation->styles.count - presentation->style_count) {
         return RetainedReplySummary{};
     }
@@ -706,6 +716,13 @@ RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation,
         presentation->styles[presentation->style_count++] =
             TextStyleSpan{0, author_bytes, text_style_bold | text_style_inline_role_color};
     }
+    if (time_bytes != 0) {
+        presentation->utf8.data[presentation->utf8_count++] = ' ';
+        copy_bytes(presentation->utf8.data + presentation->utf8_count, time_text, time_bytes);
+        presentation->utf8_count += time_bytes;
+        presentation->styles[presentation->style_count++] =
+            TextStyleSpan{author_bytes + 1u, time_bytes, text_style_subtext};
+    }
     if (separator != 0) {
         presentation->utf8.data[presentation->utf8_count++] = ' ';
     }
@@ -718,7 +735,7 @@ RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation,
         if (content_out[index] == '\n' || content_out[index] == '\r')
             content_out[index] = ' ';
     presentation->utf8_count += display_content.bytes;
-    const u32 content_offset = author_bytes + separator + forward_bytes;
+    const u32 content_offset = author_bytes + time_gap + separator + forward_bytes;
     if (placeholder.bytes) {
         presentation->styles[presentation->style_count++] =
             TextStyleSpan{content_offset, placeholder.bytes, text_style_italic};
@@ -738,7 +755,8 @@ RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation,
     const u32 semantic_begin = presentation->semantic_count;
     if (forward_bytes && presentation->semantic_count < presentation->semantics.count)
         presentation->semantics[presentation->semantic_count++] =
-            MessageMarkdownSemantic{static_cast<u64>(MessageMarkdownChipIcon::forward), author_bytes + separator, 3,
+            MessageMarkdownSemantic{static_cast<u64>(MessageMarkdownChipIcon::forward),
+                                    author_bytes + time_gap + separator, 3,
                                     0, 0, MessageMarkdownSemanticKind::chip_icon, 0};
     for (u32 index = 0; parsed_markdown && parsed.ok() && !placeholder.bytes && index < parsed.semantic_count &&
                         presentation->semantic_count < presentation->semantics.count;

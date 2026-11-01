@@ -3,6 +3,7 @@
 #include "maicord/app/gateway/client_event.hpp"
 #include "maicord/app/chat/visible_author_hydration_plan.hpp"
 #include "../guild/community.hpp"
+#include "../plugins/pipeline_host.hpp"
 #include "activity.hpp"
 #include "../chat/messages/components.hpp"
 #include "../chat/private_channel.hpp"
@@ -517,6 +518,10 @@ GatewayClientPopResult application_pop_account_gateway(void* source, GatewayClie
     application_plugins_gateway(*event, popped.payload_bytes <= payload_output.count
                                             ? ConstSlice<u8>{payload_output.data, popped.payload_bytes}
                                             : ConstSlice<u8>{});
+    // Kept deletions and edits, and the plugin event feed, see the event before the stores apply it.
+    application_plugins_pipeline_gateway(*event, popped.payload_bytes <= payload_output.count
+                                                     ? ConstSlice<u8>{payload_output.data, popped.payload_bytes}
+                                                     : ConstSlice<u8>{});
     application_friends_gateway(*event, {payload_output.data, popped.payload_bytes});
     application_guild_folders_gateway(*event, {payload_output.data, popped.payload_bytes});
     application_user_settings_gateway(*event, {payload_output.data, popped.payload_bytes});

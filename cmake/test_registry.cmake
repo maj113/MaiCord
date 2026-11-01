@@ -90,21 +90,7 @@ foreach(maicord_sdk_fixture IN ITEMS Full Slow)
 endforeach()
 # MaiCordPluginSdkTests loads the sample; its manifest is stamped with the DLL
 # digest after each link.
-set(maicord_showcase_generated "${MAICORD_GENERATED_DIRECTORY}/showcase")
-set(maicord_showcase_shader "${maicord_showcase_generated}/showcase_gradient_ps.h")
-file(MAKE_DIRECTORY "${maicord_showcase_generated}")
-add_custom_command(
-    OUTPUT "${maicord_showcase_shader}"
-    COMMAND "${MAICORD_FXC_EXECUTABLE}"
-        /nologo /T ps_5_0 /E main /O3 /Ges /WX
-        /Qstrip_debug /Qstrip_reflect /Qstrip_priv
-        /Fh "${maicord_showcase_shader}" /Vn g_showcase_gradient
-        "${CMAKE_CURRENT_SOURCE_DIR}/samples/plugins/showcase/gradient.hlsl"
-    DEPENDS samples/plugins/showcase/gradient.hlsl
-    VERBATIM)
-maicord_c_plugin(MaiCordShowcasePlugin maicord_showcase_entry samples/plugins/showcase/showcase.c
-    "${maicord_showcase_shader}")
-target_include_directories(MaiCordShowcasePlugin PRIVATE "${maicord_showcase_generated}")
+maicord_c_plugin(MaiCordShowcasePlugin maicord_showcase_entry samples/plugins/showcase/showcase.c)
 set_target_properties(MaiCordShowcasePlugin PROPERTIES OUTPUT_NAME showcase)
 add_custom_command(TARGET MaiCordShowcasePlugin POST_BUILD
     COMMAND "${CMAKE_COMMAND}" "-DTEMPLATE=${CMAKE_CURRENT_SOURCE_DIR}/samples/plugins/showcase/showcase.maicord-plugin.json.in"
@@ -117,27 +103,39 @@ maicord_test(MaiCordPluginSdkTests ENTRY maicord_plugin_sdk_tests_entry SOURCES 
     INCLUDES src/app
     DEPENDS MaiCordPluginSdkFullFixture MaiCordPluginSdkSlowFixture MaiCordShowcasePlugin
     TIMEOUT 15 TEST maicord_plugin_sdk)
-# ABI 6 (include/maicord/sdk/plugin_abi.h, plugin.hpp): the clear-urls sample
-# and a plain C plugin, built the way the SDK documents; MaiCordPluginAbiTests
-# checks their PE shape and descriptors and calls their hooks directly. The
-# compile-failure cases compile tests/app/plugins/plugin_compile_failures.cpp
-# once each: VALID must build cleanly at /W4 /WX, the others must fail with
-# the given diagnostic.
-maicord_plugin(MaiCordClearUrlsPlugin samples/plugins/clear-urls/plugin.cpp)
-set_target_properties(MaiCordClearUrlsPlugin PROPERTIES OUTPUT_NAME clear-urls)
+# ABI 6 (include/maicord/sdk/plugin_abi.h, plugin.hpp): the samples in
+# samples/plugins and a plain C plugin, built the way the SDK documents;
+# MaiCordPluginAbiTests checks their PE shape and descriptors and calls their
+# entry points directly. The compile-failure cases compile
+# tests/app/plugins/plugin_compile_failures.cpp once each: VALID must build
+# cleanly at /W4 /WX, the others must fail with the given diagnostic.
+set(maicord_plugin_samples)
+foreach(maicord_sample IN ITEMS ClearUrls|clear-urls Translate|translate ShowMeYourName|show-me-your-name
+        ReverseImageSearch|reverse-image-search SilentToggle|silent-toggle)
+    string(REPLACE "|" ";" maicord_sample "${maicord_sample}")
+    list(GET maicord_sample 0 maicord_sample_target)
+    list(GET maicord_sample 1 maicord_sample_folder)
+    maicord_plugin(MaiCord${maicord_sample_target}Plugin samples/plugins/${maicord_sample_folder}/plugin.cpp)
+    set_target_properties(MaiCord${maicord_sample_target}Plugin PROPERTIES OUTPUT_NAME ${maicord_sample_folder})
+    list(APPEND maicord_plugin_samples MaiCord${maicord_sample_target}Plugin)
+endforeach()
 maicord_plugin(MaiCordPluginAbiCFixture tests/app/plugins/plugin_abi_c.c $<TARGET_OBJECTS:maicord_runtime>)
 maicord_test(MaiCordPluginAbiTests ENTRY maicord_plugin_abi_tests_entry SOURCES tests/app/plugins/plugin_abi.cpp
     LIBS maicord_core kernel32
-    DEPENDS MaiCordClearUrlsPlugin MaiCordPluginAbiCFixture
+    DEPENDS ${maicord_plugin_samples} MaiCordPluginAbiCFixture
     TEST maicord_plugin_abi)
 foreach(maicord_sdk_case IN ITEMS
         "VALID|" "DUPLICATE_HOOK|MC_HOOKS: two hooks of the same kind"
         "UNKNOWN_HOOK|MC_HOOKS: no hook kind takes these parameters"
+        "DUPLICATE_EVENT|MC_HOOKS: two handlers for the same event"
+        "FILTER_KIND|mc::filter: this hook kind takes no filter"
         "WRONG_STATE|T must be the type named by MC_STATE"
         "STATE_NOT_TRIVIAL|the state type must be trivially copyable"
         "SETTING_KEY|error_setting_key_must_be_1_to_32_bytes"
         "CHOICE_DEFAULT|error_setting_default_out_of_range"
-        "NO_OWNER|error_plugin_owner_must_be_nonzero")
+        "NO_OWNER|error_plugin_owner_must_be_nonzero"
+        "MISSING_PERMISSION|ctx.copy needs .permissions = MC_PERM_CLIPBOARD"
+        "NO_NETWORK|ctx.http needs .network")
     string(REPLACE "|" ";" maicord_sdk_case "${maicord_sdk_case}")
     list(GET maicord_sdk_case 0 maicord_sdk_case_name)
     list(GET maicord_sdk_case 1 maicord_sdk_case_expect)
@@ -151,7 +149,8 @@ endforeach()
 # per scenario built from tests/fixtures/plugin_runtime_fixture.c, the clear-urls sample and the C
 # fixture above, loaded from the test's directory through a pinned plugins directory.
 set(maicord_runtime_fixtures)
-foreach(maicord_runtime_fixture IN ITEMS Full FailStart Entry Tls Extra Bad Level Slow Crash)
+foreach(maicord_runtime_fixture IN ITEMS Full FailStart Entry Tls Extra Bad Level Slow Crash Net Pipeline PipelineAuto
+        PipelineBare)
     string(TOUPPER "${maicord_runtime_fixture}" maicord_runtime_define)
     maicord_plugin(MaiCordPluginRuntime${maicord_runtime_fixture}Fixture tests/fixtures/plugin_runtime_fixture.c
         $<TARGET_OBJECTS:maicord_runtime>)
@@ -169,6 +168,50 @@ maicord_test(MaiCordPluginBindingTests ENTRY maicord_plugin_binding_tests_entry
     INCLUDES src/app
     DEPENDS ${maicord_runtime_fixtures} MaiCordClearUrlsPlugin MaiCordPluginAbiCFixture
     TIMEOUT 15 TEST maicord_plugin_binding)
+# The HTTP broker, completions and gestures, DPAPI-sealed secrets and the typed settings against the
+# network fixture and a scripted transport.
+maicord_test(MaiCordPluginNetworkTests ENTRY maicord_plugin_network_tests_entry
+    SOURCES tests/app/plugins/plugin_network.cpp src/core/log.cpp
+    LIBS maicord_core maicord_plugin_runtime maicord_plugin_host maicord_plugin_modules maicord_app_core maicord_platform
+        kernel32 bcrypt ws2_32 maicord_sspicli crypt32
+    INCLUDES src/app
+    DEPENDS MaiCordPluginRuntimeNetFixture MaiCordTranslatePlugin
+    TIMEOUT 15 TEST maicord_plugin_network)
+# The message pipeline: click, deleted, edited and typing hooks, the batched event feed, timers, kept
+# messages and the permission, gesture and rate-limit gates of the actions, against the pipeline fixtures.
+maicord_test(MaiCordPluginPipelineTests ENTRY maicord_plugin_pipeline_tests_entry
+    SOURCES tests/app/plugins/plugin_pipeline.cpp src/core/log.cpp
+    LIBS maicord_core maicord_plugin_runtime maicord_plugin_host maicord_plugin_modules maicord_app_core maicord_platform
+        kernel32 bcrypt ws2_32 maicord_sspicli crypt32
+    INCLUDES src/app
+    DEPENDS MaiCordPluginRuntimeFullFixture MaiCordPluginRuntimePipelineFixture MaiCordPluginRuntimePipelineAutoFixture
+        MaiCordPluginRuntimePipelineBareFixture MaiCordClearUrlsPlugin MaiCordSilentTogglePlugin MaiCordTranslatePlugin
+    TIMEOUT 15 TEST maicord_plugin_pipeline)
+# Context menus (targets, a submenu, checkbox, visibility), typed slash commands against the composer's own
+# option parsing, banners, modals and the navigation actions, against the UI fixture and a recording host.
+maicord_plugin(MaiCordPluginUiFixture tests/fixtures/plugin_ui_fixture.c $<TARGET_OBJECTS:maicord_runtime>)
+maicord_test(MaiCordPluginUiTests ENTRY maicord_plugin_ui_tests_entry
+    SOURCES tests/app/plugins/plugin_ui.cpp src/core/log.cpp
+    LIBS maicord_core maicord_protocol maicord_plugin_runtime maicord_plugin_host maicord_plugin_modules maicord_app_core
+        maicord_platform kernel32 bcrypt ws2_32 maicord_sspicli crypt32
+    INCLUDES src/app
+    DEPENDS MaiCordPluginUiFixture MaiCordReverseImageSearchPlugin MaiCordSilentTogglePlugin
+    TIMEOUT 15 TEST maicord_plugin_ui)
+# Decorations and buttons: the surfaces fixture decorates every surface and declares a button for each; the
+# second build of the same file decorates messages after it, to show how verdicts merge.
+maicord_plugin(MaiCordPluginSurfacesFixture tests/fixtures/plugin_surfaces_fixture.c $<TARGET_OBJECTS:maicord_runtime>)
+maicord_plugin(MaiCordPluginSurfacesSecondFixture tests/fixtures/plugin_surfaces_fixture.c
+    $<TARGET_OBJECTS:maicord_runtime>)
+target_compile_definitions(MaiCordPluginSurfacesSecondFixture PRIVATE SURFACES_SECOND)
+target_link_libraries(MaiCordPluginSurfacesFixture PRIVATE kernel32)
+maicord_test(MaiCordPluginSurfaceTests ENTRY maicord_plugin_surfaces_tests_entry
+    SOURCES tests/app/plugins/plugin_surfaces.cpp tests/ui/plugins/surface_scenes.cpp src/core/log.cpp
+    LIBS maicord_core maicord_ui maicord_plugin_runtime maicord_plugin_host maicord_plugin_modules maicord_app_core maicord_platform
+        kernel32 bcrypt ws2_32 maicord_sspicli crypt32
+    INCLUDES src/app
+    DEPENDS MaiCordPluginSurfacesFixture MaiCordPluginSurfacesSecondFixture MaiCordShowMeYourNamePlugin
+        MaiCordTranslatePlugin
+    TIMEOUT 15 TEST maicord_plugin_surfaces)
 maicord_test(MaiCordNativeExtensionTests ENTRY maicord_native_extensions_entry
     SOURCES tests/protocol/gateway/message_poll.cpp tests/model/chat/message_poll_store.cpp tests/protocol/messages/poll_actions.cpp
         tests/app/chat/polls/controller.cpp tests/ui/chat/polls/controls.cpp tests/protocol/messages/poll_presentation.cpp
@@ -189,7 +232,7 @@ maicord_test(MaiCordNativeExtensionTests ENTRY maicord_native_extensions_entry
         tests/model/chat/channel_name_preflight.cpp tests/model/chat/chat_state_backing.cpp tests/model/chat/read_state_model.cpp
         tests/model/chat/read_state_wire.cpp tests/protocol/messages/ack.cpp tests/app/chat/read_ack_controller.cpp tests/protocol/messages/bulk_message_ack.cpp
         tests/app/chat/read_scope.cpp tests/app/chat/bulk_read_ack_controller.cpp tests/model/chat/read_state_pump.cpp
-        tests/ui/guild/channel_context_policy.cpp tests/ui/guild/context_policy.cpp tests/protocol/user/social_menus.cpp
+        tests/ui/guild/channel_context_policy.cpp tests/ui/guild/context_policy.cpp tests/ui/guild/folder_open.cpp tests/ui/guild/hidden_channel_menu.cpp tests/protocol/user/social_menus.cpp
         tests/ui/chat/unread_context.cpp tests/ui/chat/messages/mention_badge_text.cpp tests/app/gateway/ready_projection.cpp tests/ui/text/emitter.cpp
         tests/model/user/member_user_perf.cpp src/render/text/edit_layout.cpp tests/ui/chat/messages/context_controller.cpp
         tests/ui/settings/scene.cpp tests/ui/widgets/settings_choice.cpp tests/ui/account/password_recovery.cpp tests/ui/account/password_reset_ui.cpp
@@ -352,15 +395,16 @@ maicord_test(MaiCordSettingsRuntimeTests ENTRY maicord_settings_runtime_entry
         src/app/settings/settings.cpp src/app/settings/settings_projection.cpp src/app/settings/settings_activation.cpp
         src/app/settings/settings_input.cpp src/app/settings/catalog.cpp src/app/settings/theme_editor.cpp
         src/app/plugins/plugins.cpp src/app/notifications/desktop_settings.cpp src/app/plugins/plugins_sdk.cpp
-        src/app/plugins/read.cpp src/app/plugins/fx.cpp src/app/plugins/surfaces.cpp
-        src/app/plugins/render.cpp src/app/shell/input.cpp
+        src/app/plugins/read.cpp src/app/effects/effects.cpp src/app/plugins/surfaces.cpp
+        src/app/plugins/render.cpp src/app/plugins/surface_host.cpp src/app/shell/input.cpp
         src/render/text/content_text_retention.cpp src/core/log.cpp src/app/update/updates.cpp
         src/app/voice/settings.cpp src/app/voice/settings_binding.cpp
         src/app/settings/keybinds_settings.cpp src/app/account/activity.cpp src/app/account/game_detection.cpp
         src/app/plugins/browser.cpp src/app/plugins/browser_worker.cpp
         src/app/plugins/browser_entry.cpp src/app/plugins/browser_projection.cpp
     LIBS bcrypt ws2_32 maicord_sspicli maicord_compile_contract maicord_core maicord_platform maicord_app_core
-        maicord_ui maicord_client_preferences maicord_plugin_host maicord_plugin_modules maicord_plugin_manager
+        maicord_ui maicord_client_preferences maicord_plugin_runtime maicord_plugin_host maicord_plugin_modules
+        maicord_plugin_manager
         maicord_message_media maicord_ui_input kernel32 user32 shell32 ole32
     INCLUDES src/app
     DEPENDS MaiCordPluginFixture
@@ -408,7 +452,7 @@ maicord_test(MaiCordAccountPermissionStorageTests ENTRY maicord_account_permissi
     BUNDLE MaiCordModelTests TEST maicord_account_permission_storage)
 maicord_test(MaiCordHistoryDecodeStorageTests ENTRY maicord_history_decode_storage_entry
     SOURCES tests/app/chat/messages/history_decode_storage.cpp src/app/chat/messages/send.cpp src/app/chat/threads/actions.cpp
-        src/app/chat/messages/edit.cpp src/app/shell/state.cpp src/core/log.cpp
+        src/app/chat/messages/edit.cpp src/app/shell/state.cpp src/core/log.cpp tests/support/pipeline_host_stubs.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_message_runtime maicord_ui
         maicord_model maicord_render_core kernel32 user32
     INCLUDES src/app
@@ -416,7 +460,7 @@ maicord_test(MaiCordHistoryDecodeStorageTests ENTRY maicord_history_decode_stora
 maicord_test(MaiCordReactionHistoryRuntimeTests ENTRY maicord_application_reaction_history_runtime_entry
     SOURCES tests/app/shell/reaction_history_runtime.cpp src/app/shell/state.cpp src/core/log.cpp
         src/app/chat/threads/actions.cpp src/app/shell/startup_history.cpp
-        src/app/shell/application_startup_shell.cpp
+        src/app/shell/application_startup_shell.cpp tests/support/pipeline_host_stubs.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_message_runtime maicord_message_media
         maicord_ui maicord_model maicord_render_core kernel32 user32
     INCLUDES src/app
@@ -501,6 +545,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
     SOURCES tests/test_main.cpp tests/model/chat/core_stores.cpp tests/ui/core/core_scene.cpp
         tests/ui/chat/messages/core_messages.cpp tests/app/chat/composer/core_composer.cpp
         tests/app/account/login/core_login.cpp tests/app/chat/messages/core_timeline.cpp
+        tests/app/chat/messages/retained_messages.cpp
         tests/media/image/core_codecs.cpp tests/app/media/core_media.cpp tests/protocol/gateway/core_gateway.cpp
         tests/protocol/http/core_transport.cpp tests/core/core_runtime.cpp tests/app/account/core_account.cpp
         tools/font_reference/dwrite_text_system.cpp tests/app/account/login/account_credential_forget.cpp
@@ -550,16 +595,20 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
     TEST maicord_core)
 maicord_test(MaiCordCommandUiTests ENTRY maicord_command_ui_tests_entry
     SOURCES tests/app/chat/composer/commands_ui.cpp tests/app/chat/composer/commands_ui_cases.cpp
+        tests/app/chat/composer/commands_ui_plugin.cpp
         src/app/chat/composer/commands.cpp
         src/app/chat/composer/commands_frecency.cpp src/app/chat/composer/commands_picker.cpp
         src/app/chat/composer/commands_draft.cpp src/app/chat/composer/builtin_commands.cpp
+        src/app/chat/composer/plugin_commands.cpp
         src/app/shell/state.cpp src/app/settings/modal.cpp
         src/app/chat/messages/feedback.cpp tests/app/account/activity_retry.cpp
         tests/app/account/custom_status_retry.cpp tests/app/notifications/retry.cpp
         tests/app/guild/community_retry.cpp tests/app/guild/invite_retry.cpp src/core/log.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_text maicord_ui maicord_ui_input
-        maicord_model maicord_message_runtime kernel32 user32 ${maicord_tls_libs}
+        maicord_model maicord_message_runtime maicord_plugin_runtime maicord_plugin_host maicord_plugin_modules
+        bcrypt kernel32 user32 ${maicord_tls_libs}
     INCLUDES src/app
+    DEPENDS MaiCordPluginUiFixture
     TEST maicord_command_ui)
 maicord_test(MaiCordMediaVisibilityTests ENTRY maicord_media_visibility_tests_entry
     SOURCES tests/app/media/media_visibility.cpp tests/app/media/media_visibility_search.cpp
@@ -818,7 +867,8 @@ maicord_test(MaiCordSearchNavigationRuntimeTests ENTRY maicord_application_searc
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_search_navigation_runtime)
 maicord_test(MaiCordImageViewerRuntimeTests ENTRY maicord_application_image_viewer_runtime_entry
-    SOURCES tests/app/media/image_viewer_runtime.cpp src/app/shell/state.cpp src/core/log.cpp
+    SOURCES tests/app/media/image_viewer_runtime.cpp src/app/media/image_zoom.cpp src/app/shell/state.cpp
+        src/core/log.cpp
     LIBS ${maicord_app_ui_test_libs} maicord_render_core kernel32 user32
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_image_viewer_runtime)
@@ -1483,16 +1533,28 @@ maicord_shader(maicord_vp8_reference_filter_header vp8_reference_filter.hpp cs_5
         g_vp8_reference_filter tests/fixtures/vp8_filter_reference.hlsl)
 maicord_shader(maicord_video_frame_reference_header video_frame_reference.hpp cs_5_0 cs_main
         g_video_frame_reference tests/fixtures/video_frame_reference.hlsl)
-# A third-party style mc.fx@1 effect the background probe draws as a plugin.
-set(MAICORD_FX_PLUGIN_REFERENCE_HEADER "${MAICORD_GENERATED_DIRECTORY}/maicord_fx_plugin_reference_ps.hpp")
-add_custom_command(OUTPUT "${MAICORD_FX_PLUGIN_REFERENCE_HEADER}"
-    COMMAND "${MAICORD_FXC_EXECUTABLE}" /nologo /T ps_5_0 /E main /O3 /Ges /WX
-        /Qstrip_debug /Qstrip_reflect /Qstrip_priv
-        /Fh "${MAICORD_FX_PLUGIN_REFERENCE_HEADER}" /Vn g_maicord_fx_plugin_reference_shader
-        "${CMAKE_CURRENT_SOURCE_DIR}/tests/shaders/background_fx_plugin_reference.hlsl"
-    DEPENDS tests/shaders/background_fx_plugin_reference.hlsl VERBATIM)
+# Background effect packages (include/maicord/sdk/background.hlsli) as byte arrays: the reference effect the probe
+# checks the pass against, and the samples that ship (samples/effects/<name>/<name>.hlsl).
+set(maicord_effect_headers)
+foreach(maicord_effect IN ITEMS reference|tests/shaders/background_effect_reference.hlsl
+        ascii_rain|samples/effects/ascii-rain/ascii-rain.hlsl aurora|samples/effects/aurora/aurora.hlsl
+        starfield|samples/effects/starfield/starfield.hlsl plasma|samples/effects/plasma/plasma.hlsl
+        bokeh|samples/effects/bokeh/bokeh.hlsl wave_lines|samples/effects/wave-lines/wave-lines.hlsl
+        film_grain|samples/effects/film-grain/film-grain.hlsl)
+    string(REPLACE "|" ";" maicord_effect "${maicord_effect}")
+    list(GET maicord_effect 0 maicord_effect_name)
+    list(GET maicord_effect 1 maicord_effect_source)
+    set(maicord_effect_header "${MAICORD_GENERATED_DIRECTORY}/maicord_effect_${maicord_effect_name}.hpp")
+    add_custom_command(OUTPUT "${maicord_effect_header}"
+        COMMAND "${MAICORD_FXC_EXECUTABLE}" /nologo /T ps_5_0 /E main /O3 /Ges /WX
+            /Qstrip_debug /Qstrip_reflect /Qstrip_priv /I "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            /Fh "${maicord_effect_header}" /Vn g_maicord_effect_${maicord_effect_name}
+            "${CMAKE_CURRENT_SOURCE_DIR}/${maicord_effect_source}"
+        DEPENDS ${maicord_effect_source} include/maicord/sdk/background.hlsli VERBATIM)
+    list(APPEND maicord_effect_headers "${maicord_effect_header}")
+endforeach()
 maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
-    SOURCES "${MAICORD_FX_PLUGIN_REFERENCE_HEADER}" config/maicord.manifest tests/integration/ui_probe.cpp
+    SOURCES ${maicord_effect_headers} config/maicord.manifest tests/integration/ui_probe.cpp
         tests/integration/ui_probe_media.cpp tests/integration/ui_probe_scenes.cpp
         tests/integration/ui_probe_renderer.cpp
         tools/font_reference/dwrite_text_system.cpp tests/integration/poll_scene_ui_probe.cpp
@@ -1513,7 +1575,8 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
         tests/integration/channel_overview_ui_adapter.cpp tests/integration/regional_flag_probe.cpp
         tests/integration/regional_flag_surfaces_probe.cpp tests/integration/inline_flags_probe.cpp
         tests/integration/guild_rail_icon_probe.cpp tests/integration/background_theme_probe.cpp
-        tests/integration/background_theme_pixels.cpp tests/integration/frame_damage_probe.cpp
+        tests/integration/background_theme_pixels.cpp tests/integration/background_effect_pixels.cpp
+        tests/integration/frame_damage_probe.cpp
         tests/integration/plugin_ui_probe.cpp tests/integration/plugin_navigation_ui_probe.cpp
         tests/integration/plugin_catalog_ui_probe.cpp src/app/plugins/browser_projection.cpp
         tests/integration/settings_choice_ui_probe.cpp tests/integration/user_settings_ui_probe.cpp
@@ -1575,6 +1638,7 @@ maicord_test(MaiCordComposerUiProbe WIN32 ENTRY maicord_composer_ui_probe_entry
     SOURCES config/maicord.manifest tests/integration/composer_ui_probe.cpp src/app/chat/composer/composer.cpp
         src/app/chat/composer/input.cpp src/app/chat/composer/reply_draft.cpp
         src/app/chat/composer/edit_menu.cpp src/app/chat/messages/send.cpp src/core/log.cpp
+        tests/support/pipeline_host_stubs.cpp
     LIBS ${maicord_scene_probe_libs} ${maicord_scene_probe_system_libs}
     INCLUDES src/app
     TIMEOUT 30 RESOURCE_LOCK native_gpu ENV MAICORD_GPU_METRICS=1
@@ -1599,7 +1663,7 @@ maicord_test(MaiCordScopedReadUiProbe WIN32 ENTRY maicord_scoped_read_ui_probe_e
     TEST maicord_scoped_read_ui_probe)
 maicord_ui_probe_test(maicord_ui_probe UI_PROBE_ONCE LABELS gpu RESOURCE_LOCK native_gpu)
 # Hosted CI renders in software; this probe needs a hardware GPU to finish in time.
-# Background canvases, Stars/Comets and plugin effects (mc.fx) against CPU references.
+# Background canvases, Stars/Comets and package effects against CPU references; the samples' GPU time at 1440p.
 maicord_ui_probe_test(maicord_background_theme_probe UI_BACKGROUND_THEME_PROBE BOOTSTRAP TIMEOUT 20 LABELS gpu display
     RESOURCE_LOCK native_gpu)
 # Every present (scroll, hover, animated media, background effect ticks, theme

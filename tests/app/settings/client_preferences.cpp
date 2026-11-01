@@ -93,8 +93,8 @@ void test_client_preferences(void (*check)(bool, const char*) noexcept) noexcept
         record[45] = 77;
         record[46] = 66;
         record[47] = 55;
-        for (u32 i = 57; i < 66; ++i)
-            if (i != 58 && i != 59)
+        for (u32 i = 57; i < 65; ++i)
+            if (i != 58 && i != 59 && (i < 60 || i > 62))
                 record[i] = static_cast<u8>(0x40 + i);
         byte_store_le64(record + 72, hash64_bytes(kHash64Seed, record, 72));
         const auto none_settings = background_effect_settings_defaults(BackgroundEffect::none);
@@ -186,6 +186,29 @@ void test_client_preferences(void (*check)(bool, const char*) noexcept) noexcept
               client_preferences_decode({record, 80}, &decoded).ok() && !decoded.dm_profile_visible &&
               client_preferences_equal(decoded, panel) && !client_preferences_equal(decoded, defaults),
           "preferences: the DM profile panel defaults shown and its hidden bit roundtrips at byte 66");
+    auto extras = defaults;
+    bool extras_roundtrip = defaults.role_colors_everywhere && !defaults.reply_timestamps &&
+                            !defaults.folders_close_others && !defaults.folders_close_on_home &&
+                            !defaults.folders_follow_selection && !defaults.show_hidden_channels && reset() && record[65] == 0;
+    constexpr u8 extra_bits[]{1, 2, 4, 8, 16, 32};
+    for (u32 bit = 0; bit < 6; ++bit) {
+        extras = defaults;
+        (bit == 0   ? extras.role_colors_everywhere
+         : bit == 1 ? extras.reply_timestamps
+         : bit == 2 ? extras.folders_close_others
+         : bit == 3 ? extras.folders_close_on_home
+         : bit == 4 ? extras.folders_follow_selection
+                    : extras.show_hidden_channels) = bit != 0;
+        extras_roundtrip = extras_roundtrip && client_preferences_encode(extras, {record, 80}).ok() &&
+                           record[65] == extra_bits[bit] && client_preferences_decode({record, 80}, &decoded).ok() &&
+                           client_preferences_equal(decoded, extras) && !client_preferences_equal(decoded, defaults);
+    }
+    check(extras_roundtrip, "preferences: the built-in extras roundtrip bit by bit at byte 65, zero bits keep defaults");
+    decoded = sentinel;
+    reset();
+    record[65] = 64;
+    checksum();
+    check(reject(ClientPreferencesError::format), "preferences: unknown byte 65 bits cannot publish");
     auto picker = defaults;
     picker.expression_picker_width = 750;
     check(reset() && byte_load_le16(record + 58) == 0 &&
@@ -218,6 +241,32 @@ void test_client_preferences(void (*check)(bool, const char*) noexcept) noexcept
     panes.channel_pane_width = 1;
     check(pane_bounds && !client_preferences_encode(panes, {record, 80}).ok(),
           "preferences: checksum-valid out-of-range pane widths are rejected on decode and encode");
+    auto zoom = defaults;
+    zoom.image_zoom = false;
+    zoom.image_zoom_square = true;
+    zoom.image_zoom_factor = 9;
+    zoom.image_zoom_size = 55;
+    check(reset() && record[60] == 0 && record[61] == 4 && record[62] == 20 &&
+              client_preferences_encode(zoom, {record, 80}).ok() && record[60] == 3 && record[61] == 9 &&
+              record[62] == 55 && client_preferences_decode({record, 80}, &decoded).ok() &&
+              client_preferences_equal(decoded, zoom) && !client_preferences_equal(decoded, defaults),
+          "preferences: image zoom roundtrips at bytes 60..62 (off, square, half-unit zoom, size in tens)");
+    check(reset() && (record[61] = 0, record[62] = 0, checksum(), true) &&
+              client_preferences_decode({record, 80}, &decoded).ok() && decoded.image_zoom &&
+              decoded.image_zoom_factor == 4 && decoded.image_zoom_size == 20,
+          "preferences: a record from before image zoom (zero bytes) restores its defaults");
+    decoded = sentinel;
+    bool zoom_bounds = true;
+    constexpr u8 invalid_zoom[][2]{{60, 4}, {60, 0x80}, {61, 1}, {61, 101}, {61, 255}, {62, 4}, {62, 101}, {62, 255}};
+    for (const auto& entry : invalid_zoom) {
+        reset();
+        record[entry[0]] = entry[1];
+        checksum();
+        zoom_bounds = zoom_bounds && reject(ClientPreferencesError::format);
+    }
+    zoom.image_zoom_factor = 1;
+    check(zoom_bounds && !client_preferences_encode(zoom, {record, 80}).ok(),
+          "preferences: checksum-valid out-of-range image zoom bytes are rejected on decode and encode");
     bool profile_bounds = true;
     for (u32 offset = 46; offset <= 56; ++offset) {
         reset();

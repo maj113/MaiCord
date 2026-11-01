@@ -660,6 +660,10 @@ bool chat_state_store_touch_private_channel(ChatStateStore* store, u64 channel_i
 ChatStateSelectionResult chat_state_store_select_home(ChatStateStore* store) noexcept;
 bool chat_state_store_channel_visible(const ChatStateStore& store,
                                          const ChannelRecord& channel) noexcept;
+// A guild channel (not a category or thread) whose View Channel permission is
+// resolved and absent: "Show hidden channels" lists it locked. Nothing about
+// such a channel is ever requested.
+bool chat_state_store_channel_hidden(const ChatStateStore& store, const ChannelRecord& channel) noexcept;
 u32 channel_actions(u8 type, u64 permissions, bool resolved) noexcept;
 bool chat_state_store_channel_unread(const ChatStateStore& store,
                                         const ChannelRecord& channel) noexcept;

@@ -7,6 +7,7 @@
 #include "maicord/app/gateway/client_event.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/guild/channel_reorder.hpp"
+#include "maicord/model/guild/permission_compute.hpp"
 #include "maicord/model/guild/folder_edit.hpp"
 #include "maicord/protocol/guild/admin.hpp"
 #include "maicord/protocol/guild/assets.hpp"
@@ -1061,7 +1062,72 @@ void thread_join_gateway() noexcept {
           "thread joins: THREAD_LIST_SYNC still requires threads");
 }
 
+// "Show hidden channels": channels denied View Channel list locked, unselectable and without actions only
+// while the view asks for them; the permission data still names who can see them.
+Wire g_hidden{};
+void hidden_channels() noexcept {
+    auto& w = g_hidden;
+    check(chat_state_store_initialize(&w.store, {w.guild, 1}, {w.guild_order, 1}, {w.channels, 16},
+                                      {w.channel_order, 16}, {w.names, sizeof(w.names)}) &&
+              chat_state_store_bind_permissions(&w.store, {w.roles, 4}, {w.overwrites, 8}) &&
+              navigation_view_initialize(&w.view, {w.guild_rows, 1}, {w.channel_rows, 16}, {w.sorting, 16},
+                                         {w.visible, 16}, {w.keys, 16}),
+          "hidden channels: fixture");
+    w.store.self_user_id = 1;
+    check(w.apply(utf8_literal(
+              R"({"op":0,"t":"GUILD_CREATE","d":{"id":"7","name":"Guild","owner_id":"2","roles":[)"
+              R"({"id":"7","name":"Everyone","permissions":"1024"},{"id":"8","name":"Mods","permissions":"1024","position":1}],)"
+              R"("members":[{"user":{"id":"1"},"roles":[]}],"channels":[)"
+              R"({"id":"11","type":4,"name":"Cat","position":0,"permission_overwrites":[]},)"
+              R"({"id":"30","type":0,"name":"secret","position":0,"parent_id":"11","permission_overwrites":[)"
+              R"({"id":"7","type":0,"allow":"0","deny":"1024"},{"id":"8","type":0,"allow":"1024","deny":"0"}]},)"
+              R"({"id":"31","type":0,"name":"open","position":1,"parent_id":"11","permission_overwrites":[]},)"
+              R"({"id":"32","type":2,"name":"Staff voice","position":2,"parent_id":"11","permission_overwrites":[)"
+              R"({"id":"7","type":0,"allow":"0","deny":"1024"}]},)"
+              R"({"id":"12","type":4,"name":"Hidden category","position":1,"permission_overwrites":[)"
+              R"({"id":"7","type":0,"allow":"0","deny":"1024"}]},)"
+              R"({"id":"33","type":0,"name":"inside","position":0,"parent_id":"12","permission_overwrites":[)"
+              R"({"id":"7","type":0,"allow":"0","deny":"1024"}]}]}})")) &&
+              chat_state_store_select_guild(&w.store, 7).ok() && chat_state_store_select_channel(&w.store, 31).ok(),
+          "hidden channels: GUILD_CREATE");
+    const auto channel = [&](u64 id) noexcept { return chat_state_store_find_channel(w.store, id); };
+    check(channel(30) && chat_state_store_channel_hidden(w.store, *channel(30)) &&
+              chat_state_store_channel_hidden(w.store, *channel(32)) &&
+              !chat_state_store_channel_hidden(w.store, *channel(31)) &&
+              !chat_state_store_channel_hidden(w.store, *channel(11)) &&
+              !chat_state_store_channel_hidden(w.store, *channel(12)),
+          "hidden channels: only a denied text or voice channel is hidden, never a category or a visible channel");
+    constexpr u64 plain[]{11, 31};
+    check(!w.view.show_hidden && w.listed(plain) && !navigation_view_find_channel(w.view, 30),
+          "hidden channels: off by default, denied channels stay out of the list");
+    w.view.show_hidden = true;
+    check(navigation_view_rebuild(&w.view, w.store).ok(), "hidden channels: rebuild");
+    const auto* secret = navigation_view_find_channel(w.view, 30);
+    const auto* voice = navigation_view_find_channel(w.view, 32);
+    const auto* open = navigation_view_find_channel(w.view, 31);
+    check(secret && secret->locked && !secret->selectable && secret->actions == 0 && voice && voice->locked &&
+              !voice->selectable && voice->actions == 0 && open && !open->locked && open->selectable,
+          "hidden channels: denied channels list locked, unselectable and without actions; visible rows are untouched");
+    // A category listed only for its locked channels keeps its own row, never locked.
+    const auto* hidden_category = navigation_view_find_channel(w.view, 12);
+    const auto* inside = navigation_view_find_channel(w.view, 33);
+    check(inside && inside->locked && (!hidden_category || !hidden_category->locked),
+          "hidden channels: a hidden channel in a hidden category lists, the category itself is never locked");
+    check(!chat_state_store_select_channel(&w.store, 30).ok() && w.store.selected_channel_id == 31,
+          "hidden channels: a locked channel cannot be selected");
+    // Who sees it: a member holding only Mods passes the channel's overwrites, @everyone alone does not.
+    const u64 mods[]{8};
+    const PermissionMember with_role{~0ull, {mods, 1}, 0, false}, without_role{~0ull, {}, 0, false};
+    check(permission_has(chat_state_store_member_permissions(w.store, 7, 30, with_role, {}), kPermissionViewChannel) &&
+              !permission_has(chat_state_store_member_permissions(w.store, 7, 30, without_role, {}), kPermissionViewChannel),
+          "hidden channels: the overwrites name the roles that can see a locked channel");
+    w.view.show_hidden = false;
+    check(w.listed(plain) && !navigation_view_find_channel(w.view, 32),
+          "hidden channels: turning the setting off removes the locked rows again");
+}
+
 void run() noexcept {
+    hidden_channels();
     list_order_kinds();
     list_order_voice_and_uncategorized();
     list_order_threads();

@@ -1,5 +1,6 @@
 #include "maicord/render/d3d11/device.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/hash.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/dcomp.hpp"
@@ -103,6 +104,8 @@ HardwareDevice adopt_prestart() noexcept {
     g_prestart.hardware.device = nullptr;
     g_prestart.hardware.context = nullptr;
     g_prestart.hardware.context1 = nullptr;
+    // A device created later (after a device loss) is made on the calling thread.
+    g_prestart.hardware.result = E_FAIL;
     return hardware;
 }
 
@@ -135,6 +138,7 @@ D3D11DeviceOwnerResult d3d11_device_owner_initialize(
         return D3D11DeviceOwnerResult{
             0, 0, 0, E_INVALIDARG, D3D11DeviceOwnerError::invalid_input};
     }
+    u64 adapter_key = 0;
 
     // MaiCord.exe delay-loads these, so the loader does not map them before the
     // entry point (which the device worker waits for). Map them here, in parallel
@@ -169,6 +173,16 @@ D3D11DeviceOwnerResult d3d11_device_owner_initialize(
         result = dxgi_device->GetAdapter(&adapter);
     }
     if (SUCCEEDED(result)) {
+        DXGI_ADAPTER_DESC description{};
+        if (SUCCEEDED(adapter->GetDesc(&description))) {
+            const u32 parts[]{description.VendorId, description.DeviceId, description.SubSysId,
+                              description.Revision, description.AdapterLuid.LowPart,
+                              static_cast<u32>(description.AdapterLuid.HighPart)};
+            u64 key = kHash64Seed;
+            for (const u32 part : parts)
+                key = hash64_mix(key, part);
+            adapter_key = key;
+        }
         result = adapter->GetParent(__uuidof(IDXGIFactory2),
                                     reinterpret_cast<void**>(&factory));
     }
@@ -257,7 +271,7 @@ D3D11DeviceOwnerResult d3d11_device_owner_initialize(
         dpi = 96;
     }
     return D3D11DeviceOwnerResult{
-        width, height, dpi, S_OK, D3D11DeviceOwnerError::none, prestarted};
+        width, height, dpi, S_OK, D3D11DeviceOwnerError::none, prestarted, adapter_key};
 }
 
 D3D11DeviceOwnerResult d3d11_device_owner_resize(

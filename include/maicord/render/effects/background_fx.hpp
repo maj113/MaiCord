@@ -4,9 +4,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/theme/theme.hpp"
 
-// Background effect pass: CPU-side policy shared by the renderer and the
-// plugin host. Effects draw over each background canvas after its base fill,
-// with a fixed constant buffer (mc.fx@1 mc_fx_constants) and premultiplied
+// Built-in Stars/Comets pass: CPU-side policy shared by the renderer and the tests. The effect
+// draws over each background canvas after its base fill, with a fixed constant buffer and premultiplied
 // output composited as dst = src.rgb + dst * (1 - src.a).
 namespace maicord {
 
@@ -44,7 +43,7 @@ constexpr float background_fx_intensity(const Theme& theme) noexcept {
     return theme.appearance == ThemeAppearance::light ? value * .75f : value;
 }
 
-// Theme roles in mc.fx palette order (MC_FX_BACKGROUND..MC_FX_CRITICAL).
+// Theme roles in palette order (background, surface, text, muted, accent, positive, warning, critical).
 constexpr void background_fx_palette(const Theme& theme, float (&palette)[kBackgroundFxPaletteRoles][4]) noexcept {
     const Color roles[kBackgroundFxPaletteRoles]{
         theme.base_low,           theme.surface,         theme.text_primary,         theme.tokens.text.muted,
@@ -146,77 +145,6 @@ constexpr u32 background_fx_builtin_grid(BackgroundFxConstants* output, UiRect c
     output->grid[2] = static_cast<float>(columns);
     output->grid[3] = static_cast<float>(lanes);
     return lanes + columns * rows;
-}
-
-// One measured frame (its CPU submission time and GPU milliseconds). True
-// when the effect must be turned off.
-constexpr bool background_fx_guard_sample(BackgroundFxGuard* guard, float gpu_ms, u64 frame_ms) noexcept {
-    if (!guard || !is_finite(gpu_ms) || gpu_ms < 0)
-        return false;
-    if (gpu_ms > kBackgroundFxStallMs && ++guard->stalls >= kBackgroundFxStallLimit)
-        return true;
-    if (!guard->window_frames || frame_ms < guard->window_start_ms)
-        guard->window_start_ms = frame_ms, guard->window_total_ms = 0, guard->window_frames = 0;
-    guard->window_total_ms += gpu_ms;
-    ++guard->window_frames;
-    if (frame_ms - guard->window_start_ms < kBackgroundFxWindowMs)
-        return false;
-    const bool slow = guard->window_total_ms > kBackgroundFxAverageLimitMs * guard->window_frames;
-    guard->window_total_ms = 0;
-    guard->window_frames = 0;
-    return slow;
-}
-
-// Plugin effect choice: the picker lists the built-ins, then registered plugin
-// effects ordered by name. A chosen plugin effect persists as owner+effect id,
-// apart from the built-in preference, and applies whenever its plugin has it
-// registered.
-struct BackgroundFxChoice {
-    u64 owner_id, effect_id;
-};
-inline constexpr u32 kBackgroundFxChoiceBytes = 24;
-constexpr bool background_fx_choice_valid(BackgroundFxChoice choice) noexcept {
-    return choice.owner_id && choice.effect_id;
-}
-constexpr void background_fx_choice_encode(BackgroundFxChoice choice, u8 (&output)[kBackgroundFxChoiceBytes]) noexcept {
-    const u8 header[8]{'M', 'C', 'F', 'X', 1, 0, 0, 0};
-    for (u32 i = 0; i < 8; ++i) {
-        output[i] = header[i];
-        output[8 + i] = static_cast<u8>(choice.owner_id >> (i * 8));
-        output[16 + i] = static_cast<u8>(choice.effect_id >> (i * 8));
-    }
-}
-constexpr bool background_fx_choice_decode(const u8* input, u32 bytes, BackgroundFxChoice* output) noexcept {
-    if (!output)
-        return false;
-    *output = {};
-    if (!input || bytes != kBackgroundFxChoiceBytes || input[0] != 'M' || input[1] != 'C' || input[2] != 'F' ||
-        input[3] != 'X' || input[4] != 1 || input[5] || input[6] || input[7])
-        return false;
-    BackgroundFxChoice choice{};
-    for (u32 i = 0; i < 8; ++i) {
-        choice.owner_id |= static_cast<u64>(input[8 + i]) << (i * 8);
-        choice.effect_id |= static_cast<u64>(input[16 + i]) << (i * 8);
-    }
-    if (!background_fx_choice_valid(choice))
-        return false;
-    *output = choice;
-    return true;
-}
-// Picker order: ASCII case-insensitive name, then owner and effect id.
-constexpr bool background_fx_choice_before(Utf8View a_name, BackgroundFxChoice a, Utf8View b_name,
-                                           BackgroundFxChoice b) noexcept {
-    const u32 shared = a_name.bytes < b_name.bytes ? a_name.bytes : b_name.bytes;
-    for (u32 i = 0; i < shared; ++i) {
-        u8 x = static_cast<u8>(a_name.data[i]), y = static_cast<u8>(b_name.data[i]);
-        x = x >= 'A' && x <= 'Z' ? static_cast<u8>(x + 32) : x;
-        y = y >= 'A' && y <= 'Z' ? static_cast<u8>(y + 32) : y;
-        if (x != y)
-            return x < y;
-    }
-    if (a_name.bytes != b_name.bytes)
-        return a_name.bytes < b_name.bytes;
-    return a.owner_id != b.owner_id ? a.owner_id < b.owner_id : a.effect_id < b.effect_id;
 }
 
 } // namespace maicord

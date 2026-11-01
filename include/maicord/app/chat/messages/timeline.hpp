@@ -53,6 +53,9 @@ struct MessageTimelineApplyResult {
     }
 };
 
+// Whether a deleted message stays on screen as a tombstone (plugins that keep deletions); null when none do.
+inline bool (*g_message_retain_query)(u64 message_id) noexcept = nullptr;
+
 struct MessageTimeline {
     MessageStore* store;
     MessageRichStore* rich_store;
@@ -72,6 +75,9 @@ struct MessageTimeline {
     u32 reset_generation;
     bool follow_bottom;
     bool newer_refetch_required;
+    // The live timeline asks g_message_retain_query before it forgets a deleted message; scratch
+    // timelines never do. message_timeline_reset keeps it.
+    bool retains;
 };
 
 bool message_timeline_initialize(MessageTimeline* timeline, MessageStore* store, UiVariableList* list,
@@ -100,6 +106,9 @@ MessageTimelineApplyResult message_timeline_insert_local(
     ConstSlice<GatewayMessageAttachment> attachments = {}) noexcept;
 MessageTimelineApplyResult message_timeline_remove_local(
     MessageTimeline* timeline, u64 message_id) noexcept;
+// Puts a kept deleted message back as a tombstone (delivery retained), at its place in time, when
+// it lies inside the resident window; reports inserted == false when it does not.
+MessageTimelineApplyResult message_timeline_insert_retained(MessageTimeline* timeline, const MessageInput& input) noexcept;
 bool message_timeline_set_delivery(MessageTimeline* timeline, u64 message_id,
                                    MessageDeliveryState delivery,
                                    MessageTimelineInvalidation* invalidation) noexcept;

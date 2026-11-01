@@ -73,6 +73,8 @@ void composer_slowmode_cases() noexcept;
 
 void builtin_cases() noexcept;
 
+void plugin_cases() noexcept;
+
 void guild_picture_cases() noexcept;
 
 } // namespace commands_ui_detail

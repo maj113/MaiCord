@@ -1201,6 +1201,41 @@ void test_message_text_presentation() noexcept {
                nickname_leads(8, MessageTextMeasurementKind::reply),
            "message_text_author_and_reply_headers_use_server_nicknames");
 
+    // "Show time on reply previews": the quoted message's sent time follows its author in a subtext span.
+    const auto reply_line = [&](bool timestamps, Utf8View* text, bool* time_span) noexcept {
+        message_scene_set_display(&scene, {0, false, MessageSceneClock::meridiem, timestamps, true});
+        *time_span = false;
+        *text = {};
+        if (!message_scene_update(&scene, scene.viewport).ok() ||
+            !message_text_presentation_build(&presentation, scene, state, &users, navigation, kDefaultTheme,
+                                             1'700'000'100ull)
+                 .ok())
+            return false;
+        for (u32 index = 0; index < presentation.command_count; ++index) {
+            const MessageTextCommand& command = presentation.commands[index];
+            if (command.measurement_kind != MessageTextMeasurementKind::reply)
+                continue;
+            *text = command.text;
+            for (u32 style = 0; style < command.styles.count; ++style)
+                *time_span = *time_span || (command.styles[style].flags & text_style_subtext) != 0;
+        }
+        return text->bytes != 0;
+    };
+    Utf8View plain_reply{}, timed_reply{};
+    bool plain_time = true, timed_time = false;
+    const bool reply_lines = reply_line(false, &plain_reply, &plain_time);
+    const u32 plain_bytes = plain_reply.bytes;
+    // The text views alias the presentation's buffer: compare before the next build.
+    const bool plain_exact = utf8_equal(plain_reply, utf8_literal("Reply Author \xF0\x9F\x98\x80"));
+    const bool timed_lines = reply_line(true, &timed_reply, &timed_time);
+    expect(reply_lines && timed_lines && plain_exact && !plain_time && timed_time && timed_reply.bytes > plain_bytes + 1 &&
+               utf8_equal(Utf8View{timed_reply.data, 13}, utf8_literal("Reply Author ")) &&
+               utf8_equal(Utf8View{timed_reply.data + timed_reply.bytes - 5, 5}, utf8_literal(" \xF0\x9F\x98\x80")),
+           "message_text_reply_preview_shows_the_quoted_time_only_when_enabled");
+    expect(reply_line(false, &plain_reply, &plain_time) && utf8_equal(plain_reply, utf8_literal("Reply Author \xF0\x9F\x98\x80")) &&
+               !plain_time,
+           "message_text_reply_preview_time_turns_off_again");
+
     u32 embed_command_index = ~0u;
     for (u32 index = 0; index < presentation.command_count; ++index) {
         if (embed_command_index == ~0u && presentation.commands[index].measurement_kind == MessageTextMeasurementKind::embed) {

@@ -439,6 +439,80 @@ void run() noexcept {
     }
     application_image_viewer_close();
     panel = true;
+    // The magnifier: a button held on a fitted image shows the lens, the wheel then
+    // steps the lens instead of the image, and releasing stores the changed values.
+    g_app.preferences.image_zoom = true;
+    g_app.preferences.image_zoom_factor = 4;
+    g_app.preferences.image_zoom_size = 20;
+    application_image_zoom_configure();
+    check(application_image_viewer_open_search(ticket, MessageSceneRichItemKind::attachment, 0, false, preview),
+          "Viewer lens fixture opens");
+    auto& zoom = g_app.image_zoom;
+    const UiRect picture = g_app.image_viewer.scene.image;
+    const i16 px = static_cast<i16>((picture.left + picture.right) * .5f),
+              py = static_cast<i16>((picture.top + picture.bottom) * .5f);
+    const LPARAM on_image = MAKELPARAM(px, py);
+    const WPARAM wheel_up = static_cast<WPARAM>(120u << 16), wheel_up_shift = wheel_up | MK_SHIFT;
+    check(zoom.lens.zoom == 2 && zoom.lens.size == 200 && !zoom.lens.active,
+          "Viewer lens starts hidden with the stored zoom and size");
+    application_image_viewer_message(WM_LBUTTONDOWN, MK_LBUTTON, on_image);
+    check(zoom.lens.active && zoom.held && zoom.lens.pointer.x == px && zoom.lens.pointer.y == py,
+          "Viewer lens: a press on the fitted image shows the lens under the pointer");
+    application_image_viewer_message(WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(px + 5, py + 3));
+    check(zoom.lens.pointer.x == px + 5 && zoom.lens.pointer.y == py + 3,
+          "Viewer lens: the lens follows the pointer while held");
+    const float image_zoom = g_app.image_viewer.scene.zoom;
+    g_app.renderer.zoom_lens_source.ready = false;
+    application_image_viewer_message(WM_MOUSEWHEEL, wheel_up, on_image);
+    check(zoom.lens.zoom == 2 && g_app.image_viewer.scene.zoom > image_zoom,
+          "Viewer lens: a lens with no picture to magnify leaves the wheel to the image");
+    g_app.image_viewer.scene.zoom = image_zoom;
+    ui_image_viewer_apply(&g_app.image_viewer.scene, UiImageViewerCommand::fit);
+    g_app.renderer.zoom_lens_source.ready = true;
+    check(application_image_viewer_message(WM_MOUSEWHEEL, wheel_up, on_image) && zoom.lens.zoom == 2.5f &&
+              g_app.image_viewer.scene.zoom == image_zoom && zoom.changed,
+          "Viewer lens: the wheel zooms the lens by half a unit, not the image");
+    application_image_viewer_message(WM_MOUSEWHEEL, wheel_up_shift, on_image);
+    check(zoom.lens.size == 220 && zoom.lens.zoom == 2.5f, "Viewer lens: Shift+wheel resizes the lens");
+    application_image_viewer_message(WM_LBUTTONUP, 0, on_image);
+    check(!zoom.lens.active && !zoom.held && !zoom.changed && g_app.preferences.image_zoom_factor == 5 &&
+              g_app.preferences.image_zoom_size == 22,
+          "Viewer lens: releasing hides it and stores the changed zoom and size");
+    g_app.renderer.zoom_lens_source.ready = false;
+    application_image_viewer_message(WM_RBUTTONDOWN, 2 /* MK_RBUTTON */, on_image);
+    check(zoom.lens.active && zoom.held, "Viewer lens: a right press shows the lens at any zoom");
+    application_image_viewer_message(WM_RBUTTONUP, 0, on_image);
+    check(!zoom.lens.active && !zoom.held, "Viewer lens: releasing the right button hides it");
+    g_app.preferences.image_zoom = false;
+    application_image_viewer_message(WM_LBUTTONDOWN, MK_LBUTTON, on_image);
+    application_image_viewer_message(WM_LBUTTONUP, 0, on_image);
+    check(!zoom.lens.active && !zoom.held, "Viewer lens: a disabled lens never shows");
+    g_app.preferences.image_zoom = true;
+    application_image_viewer_message(WM_LBUTTONDOWN, MK_LBUTTON, on_image);
+    application_image_viewer_close();
+    check(!zoom.lens.active && !zoom.held, "Viewer lens: closing the viewer hides the lens");
+    application_release_capture();
+    // Chat: the wheel belongs to the lens only while one shows; focus loss hides it and stores the change.
+    g_app.preferences.image_zoom_factor = 4;
+    g_app.preferences.image_zoom_size = 20;
+    application_image_zoom_configure();
+    zoom.lens.active = true;
+    g_app.renderer.zoom_lens_source.ready = false;
+    check(!application_image_zoom_message(WM_MOUSEWHEEL, wheel_up, 0) && zoom.lens.zoom == 2,
+          "Chat lens: the wheel scrolls the timeline while no picture sits under the lens");
+    g_app.renderer.zoom_lens_source.ready = true;
+    check(application_image_zoom_message(WM_MOUSEWHEEL, wheel_up, 0) && zoom.lens.zoom == 2.5f && zoom.changed,
+          "Chat lens: the wheel steps the zoom of a shown lens and is consumed");
+    check(!application_image_zoom_message(WM_KILLFOCUS, 0, 0) && !zoom.lens.active && !zoom.changed &&
+              g_app.preferences.image_zoom_factor == 5,
+          "Chat lens: losing focus hides the lens and stores its zoom");
+    g_app.renderer.zoom_lens_source.ready = false;
+    g_app.preferences.image_zoom = false;
+    zoom.lens.active = true;
+    check(!application_image_zoom_message(WM_MOUSEWHEEL, wheel_up, 0),
+          "Chat lens: a disabled lens never takes the wheel");
+    g_app.preferences.image_zoom = true;
+    zoom.lens.active = false;
     ++publication; ticket.publication_revision = publication;
     check(seed_gifv() && application_image_viewer_open_search(ticket, MessageSceneRichItemKind::embed, 0, false, preview) &&
         g_app.image_viewer.item_count == 1 && !g_app.image_viewer.items[0].video &&
@@ -506,6 +580,12 @@ namespace maicord {
 bool renderer_rebuild_content_text(D3D11Renderer*, const Theme&) noexcept { return true; }
 bool renderer_read_media_rgba(D3D11Renderer*, MediaAssetKey, Slice<u8>, u32*, u32*) noexcept { return false; }
 namespace app_detail {
+// The zoom lens persists its wheel changes through the preferences.
+bool application_preferences_image_zoom(u8 factor, u8 size) noexcept {
+    g_app.preferences.image_zoom_factor = factor;
+    g_app.preferences.image_zoom_size = size;
+    return true;
+}
 UiSearchScene* application_search_scene() noexcept { return &image_viewer_runtime_test::search_scene; }
 bool refresh_account_frame(bool) noexcept {
     ++image_viewer_runtime_test::media_refreshes;

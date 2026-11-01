@@ -53,6 +53,8 @@ struct MessageComposerRequest {
     bool reply_unavailable;
     // A leading "@silent" was stripped from the stored text.
     bool suppress_notifications;
+    // The send suppresses link embeds (SUPPRESS_EMBEDS), asked by a plugin.
+    bool suppress_embeds;
     MessageForwardReference forward_reference;
 };
 
@@ -70,6 +72,7 @@ struct MessageComposerSubmit {
     u32 sticker_count;
     bool mention_reply_author;
     bool suppress_notifications;
+    bool suppress_embeds;
     MessageForwardReference forward_reference;
 };
 static_assert(sizeof(MessageComposerRequest) == 128);
@@ -150,7 +153,7 @@ MessageComposerControllerResult message_composer_controller_queue_send(
     ConstSlice<u64> attachment_sizes = {},
     MessageComposer* source = nullptr, ConstSlice<u64> sticker_ids = {},
     bool mention_reply_author = true,
-    const MessageComposerReplySnapshot* reply_snapshot = nullptr) noexcept;
+    const MessageComposerReplySnapshot* reply_snapshot = nullptr, bool suppress_embeds = false) noexcept;
 // A complete message from outside the composer (plugin actions). The reply
 // target is explicit and independent of the active draft, which is left
 // untouched; silent sends SUPPRESS_NOTIFICATIONS. The caller checked that the
@@ -158,7 +161,7 @@ MessageComposerControllerResult message_composer_controller_queue_send(
 MessageComposerControllerResult message_composer_controller_queue_text(
     MessageComposerController* controller, MessageComposer* source, u64 author_id, u64 now_unix_ms,
     u64 now_monotonic_ms, u64 reply_message_id = 0, bool mention_reply_author = true,
-    bool silent = false) noexcept;
+    bool silent = false, bool suppress_embeds = false) noexcept;
 MessageComposerControllerResult message_composer_controller_prepare_submit(
     MessageComposerController* controller, u64 now_monotonic_ms,
     MessageComposerSubmit* submit) noexcept;

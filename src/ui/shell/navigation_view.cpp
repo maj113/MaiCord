@@ -186,7 +186,7 @@ bool row_changed(const ChannelViewRow& left, const ChannelViewRow& right) noexce
            left.selectable != right.selectable || left.unread != right.unread || left.collapsed != right.collapsed ||
            left.voice_count != right.voice_count || left.muted != right.muted ||
            left.stage_live != right.stage_live || left.voice_subtitle != right.voice_subtitle ||
-           left.voice_invite != right.voice_invite || left.controls != right.controls;
+           left.voice_invite != right.voice_invite || left.controls != right.controls || left.locked != right.locked;
 }
 bool stage_live(const NavigationView& view, u64 channel_id, u8 type) noexcept {
     return type == 13 && view.stage_instances && stage_instance_store_find(*view.stage_instances, channel_id);
@@ -433,7 +433,8 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
         if (channel.guild_id != state.selected_guild_id ||
             (channel_is_private(channel.type) && !state.home_selected) ||
             (channel.flags & kChannelObfuscatedFlag) != 0 ||
-            !chat_state_store_channel_visible(state, channel)) {
+            (!chat_state_store_channel_visible(state, channel) &&
+             !(view->show_hidden && chat_state_store_channel_hidden(state, channel)))) {
             continue;
         }
         // Message requests stay out of the conversation list (and the list
@@ -584,6 +585,7 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
     for (u32 order = 0; order < channel_count; ++order) {
         const ChannelSortKey& key = view->channel_sort_keys[view->channel_scratch[order]];
         const ChannelRecord& channel = state.channels[key.slot];
+        const bool locked = chat_state_store_channel_hidden(state, channel);
         const ChannelViewRow row{
             channel.id,
             channel.parent_id,
@@ -595,9 +597,9 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
             channel.type,
             key.depth,
             channel.id == state.selected_channel_id && !(state.home_selected && view->friends_mode),
-            // Voice rows join the call on click; their chat opens from the call.
-            channel.type == 4 || channel.type == 15 || channel.type == 16 ||
-                (channel_is_message_capable(channel.type) && !channel_is_voice_chat(channel.type)),
+            // Voice rows join the call on click; their chat opens from the call. A locked row only explains itself.
+            !locked && (channel.type == 4 || channel.type == 15 || channel.type == 16 ||
+                        (channel_is_message_capable(channel.type) && !channel_is_voice_chat(channel.type))),
             chat_state_store_channel_unread(state, channel),
             channel.collapsed,
             voice_count(*view, channel.id, channel.type),
@@ -608,6 +610,7 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
             static_cast<u8>((channel_controls_can_invite(state, channel) ? channel_row_invite : 0u) |
                             (channel_controls_can_edit(channel) ? channel_row_settings : 0u) |
                             (channel_controls_can_create_in(channel) ? channel_row_create : 0u)),
+            locked,
         };
         channel_changed = channel_changed || row_changed(view->channel_rows[order + lead], row);
         view->channel_rows[order + lead] = row;

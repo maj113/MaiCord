@@ -2,11 +2,13 @@
 #include "probe_present.hpp"
 #include "../../src/render/d3d11/renderer_interaction_state.hpp"
 #include "../support/model_store_fixtures.hpp"
+#include "../support/ui_scene_fixtures.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/guild/folders.hpp"
 #include "maicord/ui/voice/channel_rows.hpp"
 #include "maicord/model/voice/channel_info_store.hpp"
+#include "maicord/ui/guild/hidden_channel_menu.hpp"
 
 namespace maicord {
 namespace {
@@ -70,6 +72,58 @@ bool navigation_gaps_ui_probe(D3D11Renderer& renderer, NavigationView* view, con
     navigation_view_refresh_voice(view);
     if (!drawn || !captured)
         return fail(6);
+
+    // "Show hidden channels": a channel the account cannot view lists locked under its category, then goes again.
+    u64 hidden_id = 0;
+    for (u32 i = 0; i < state.channel_count && !hidden_id; ++i) {
+        const ChannelRecord& candidate = state.channels[state.channel_order[i]];
+        if (candidate.guild_id == state.selected_guild_id && chat_state_store_channel_hidden(state, candidate))
+            hidden_id = candidate.id;
+    }
+    if (hidden_id) {
+        view->show_hidden = true;
+        bool locked_ok = navigation_view_rebuild(view, state).ok() && present(renderer, sync);
+        const auto* locked_row = navigation_view_find_channel(*view, hidden_id);
+        locked_ok = locked_ok && locked_row && locked_row->locked && !locked_row->selectable &&
+                    locked_row->actions == 0 && (!capture || capture(L"navigation-hidden-channels.bmp"));
+        // Its explanation popup, built from the cached permissions alone.
+        if (locked_ok) {
+            static char popup_text[kHiddenChannelMenuTextBytes];
+            TextBank bank{popup_text, sizeof(popup_text), 0};
+            PopupItem items[kHiddenChannelMenuRows]{};
+            PopupItem storage[16]{};
+            PopupRowWidget popup_rows[16]{};
+            UiWidget widgets[34]{};
+            UiLayoutNode nodes[34]{};
+            PopupScene menu{};
+            const auto* original_popup = renderer.popup_scene;
+            const auto* channel = chat_state_store_find_channel(state, hidden_id);
+            const u32 count = channel && renderer.user_store
+                                  ? hidden_channel_menu_build(state, *renderer.user_store, *channel, 1'790'000'000,
+                                                              &bank, {items, kHiddenChannelMenuRows})
+                                  : 0;
+            const UiRect viewport{0, 0, static_cast<float>(renderer.width) * 96.f / renderer.dpi,
+                                  static_cast<float>(renderer.height) * 96.f / renderer.dpi};
+            const UiRect anchor{viewport.left + 160, viewport.top + 200, viewport.left + 161, viewport.top + 201};
+            locked_ok = count != 0 &&
+                        popup_scene_initialize(&menu, {storage, 16}, {popup_rows, 16}, {widgets, 34}, {nodes, 34}) &&
+                        popup_scene_open(&menu, PopupKind::context_menu, hidden_id, {items, count}, anchor, viewport,
+                                         264.0f)
+                            .ok() &&
+                        renderer_bind_popup_scene(&renderer, &menu) &&
+                        renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
+                        probe_present(&renderer, kDefaultTheme) &&
+                        (!capture || capture(L"navigation-hidden-channel-info.bmp"));
+            renderer_bind_popup_scene(&renderer, original_popup);
+            popup_scene_release(&menu);
+        }
+        view->show_hidden = false;
+        locked_ok = navigation_view_rebuild(view, state).ok() && present(renderer, sync) &&
+                    !navigation_view_find_channel(*view, hidden_id) && locked_ok;
+        log_u64(LogLevel::info, "probe", "navigation_hidden_channels_drawn", locked_ok);
+        if (!locked_ok)
+            return fail(7);
+    }
 
     // One folder holding the first two guilds, collapsed then expanded.
     if (state.guild_count < 2 || state.guild_count + 1 > view->guild_capacity)

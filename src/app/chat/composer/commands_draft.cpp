@@ -135,6 +135,15 @@ bool find_entry(u64 application_id, u64 command_id, Utf8View name, Entry* output
                 return true;
             }
         }
+    if (const CommandIndex* plugins = plugin_commands_index())
+        for (u32 n = 0; n < plugins->command_count; ++n) {
+            const auto& command = plugins->commands[n];
+            if (command.id == command_id && (!application_id || command.application_id == application_id) &&
+                utf8_equal(command.name, name)) {
+                *output = {&command, plugins, find_app(*plugins, command.application_id)};
+                return true;
+            }
+        }
     return false;
 }
 
@@ -236,6 +245,11 @@ bool select_typed(Utf8View input) noexcept {
     for (u32 n = 0; builtins && n < builtins->command_count; ++n)
         if (builtin_command_available(builtins->commands[n], c.channel))
             consider(builtins->commands[n], *builtins);
+    // A plugin's commands need no permission of the channel and no guild.
+    const CommandIndex* plugins = plugin_commands_index();
+    for (u32 n = 0; plugins && n < plugins->command_count; ++n)
+        if (c.guild || plugins->commands[n].dm_permission)
+            consider(plugins->commands[n], *plugins);
     if (matches != 1)
         return false;
     c.selected = found;

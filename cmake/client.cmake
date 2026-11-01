@@ -31,9 +31,11 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/settings/theme_publication.cpp src/app/account/friends.cpp
     src/app/account/friends_search.cpp src/app/account/friends_storage.cpp
     src/app/plugins/plugins.cpp src/app/plugins/plugins_sdk.cpp src/app/plugins/read.cpp
-    src/app/plugins/actions.cpp src/app/plugins/surfaces.cpp
-    src/app/plugins/render.cpp src/app/plugins/fx.cpp
-    src/app/plugins/compose.cpp src/app/plugins/menus.cpp
+    src/app/plugins/actions.cpp src/app/plugins/surfaces.cpp src/app/plugins/consent_dialog.cpp
+    src/app/plugins/settings_dialog.cpp
+    src/app/plugins/render.cpp src/app/effects/effects.cpp
+    src/app/plugins/compose.cpp src/app/plugins/menus.cpp src/app/plugins/ui_host.cpp
+    src/app/plugins/pipeline_host.cpp src/app/plugins/surface_host.cpp
     src/app/shell/window.cpp src/app/shell/window_runtime.cpp src/app/shell/input_routing.cpp
     src/app/shell/caption.cpp src/app/shell/app_icon.cpp
     src/app/shell/keyboard_focus.cpp src/app/account/application_account_module.cpp
@@ -43,19 +45,20 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/chat/threads/starter.cpp src/app/chat/channel_session.cpp
     src/app/chat/channel_snapshots.cpp src/app/chat/composer/commands.cpp src/app/chat/composer/commands_frecency.cpp
     src/app/chat/composer/commands_picker.cpp src/app/chat/composer/commands_draft.cpp src/app/chat/composer/builtin_commands.cpp
+    src/app/chat/composer/plugin_commands.cpp
     src/app/chat/composer/composer.cpp
     src/app/chat/messages/feedback.cpp src/app/chat/composer/reply_draft.cpp
     src/app/chat/composer/input.cpp src/app/shell/button_input.cpp
     src/app/chat/composer/edit_menu.cpp src/app/chat/composer/spellcheck.cpp
     src/app/chat/composer/attachments.cpp src/app/media/attachment_allowance.cpp
     src/app/media/upload_lane.cpp src/app/shell/content_input.cpp src/app/chat/application_link_trust.cpp
-    src/app/media/image_viewer.cpp src/app/shell/frame_presentation.cpp
+    src/app/media/image_viewer.cpp src/app/media/image_zoom.cpp src/app/shell/frame_presentation.cpp
     src/app/chat/unread_banner.cpp src/app/chat/messages/intro.cpp
     src/app/guild/folders.cpp src/app/shell/navigation_drag.cpp
     src/app/guild/lifecycle.cpp src/app/account/profile_editor.cpp src/app/account/profile_editor_preview.cpp
     src/app/account/profile_editor_images.cpp
     src/app/guild/menu.cpp src/app/guild/community.cpp src/app/guild/community_projection.cpp
-    src/app/guild/card.cpp src/app/guild/banner.cpp src/app/guild/invite.cpp
+    src/app/guild/card.cpp src/app/guild/banner.cpp src/app/guild/invite.cpp src/app/guild/hidden_channel.cpp
     src/app/notifications/taskbar_attention.cpp src/app/notifications/desktop.cpp
     src/app/notifications/desktop_settings.cpp src/app/shell/surface_motion.cpp
     src/app/chat/composer/text_form.cpp src/app/chat/composer/text_input.cpp

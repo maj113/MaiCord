@@ -106,6 +106,24 @@ MessageMediaObscure message_scene_media_obscure(const MessageScene& scene, Messa
     return obscure;
 }
 
+namespace {
+UiPluginRenderDecoration g_tombstone_decoration;
+constexpr u8 kTombstoneTone = 4; // MC_TONE_CRITICAL
+} // namespace
+const UiPluginRenderDecoration* message_scene_tombstone_decoration(const MessageScene& scene,
+                                                                   const MessageRecord& record) noexcept {
+    const auto* plugin = message_scene_plugin_decoration(scene, record.id, record.revision);
+    if (plugin)
+        copy_value(&g_tombstone_decoration, *plugin);
+    else
+        reset_value(&g_tombstone_decoration);
+    if (!g_tombstone_decoration.name_suffix.bytes) {
+        g_tombstone_decoration.name_suffix = utf8_literal("deleted");
+        g_tombstone_decoration.name_tone = kTombstoneTone;
+    }
+    return &g_tombstone_decoration;
+}
+
 bool message_scene_reveal_media(MessageScene* scene, u64 reveal_key) noexcept {
     if (!scene || !message_media_reveal(&scene->media_reveals, reveal_key))
         return false;
@@ -171,7 +189,8 @@ bool message_scene_bind_scheduled_events(MessageScene* scene, const ScheduledEve
 bool message_scene_set_display(MessageScene* scene, MessageSceneDisplay value) noexcept {
     if (!scene || value.group_spacing >= 6 ||
         (scene->display.compact == value.compact && scene->display.group_spacing == value.group_spacing &&
-         scene->display.clock == value.clock))
+         scene->display.clock == value.clock && scene->display.reply_timestamps == value.reply_timestamps &&
+         scene->display.role_colors == value.role_colors))
         return false;
     scene->display = value;
     invalidate_geometry(scene);

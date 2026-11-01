@@ -6,6 +6,7 @@
 #include "composer.hpp"
 #include "maicord/protocol/messages/application_commands.hpp"
 #include "builtin_commands.hpp"
+#include "plugin_commands.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/model/user/activity.hpp"
