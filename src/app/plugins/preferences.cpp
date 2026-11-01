@@ -93,8 +93,10 @@ NativePluginPreferencesResult pin(NativePluginPreferencesCleanup& held,u32 paren
         if(dir==INVALID_HANDLE_VALUE) {held.path[end]=saved; return fail(Error::directory,error);}
         held.ancestors[held.ancestor_count++]=dir;
         BY_HANDLE_FILE_INFORMATION info{};
+        // Each ancestor stays open without following a reparse point and is a directory. The canonical
+        // final-path check on the file itself (open_read, temporary file) then covers every ancestor.
         const bool okay=GetFileInformationByHandle(dir,&info) && (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
-            !(info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) && final_path_equal(dir,held.path,end);
+            !(info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT);
         held.path[end]=saved;
         if(!okay) return fail(Error::path);
     }
@@ -307,7 +309,13 @@ NativePluginPreferencesResult native_plugin_preferences_load_file(NativePluginPr
     u32 length=0,parent=0;
     if(!path_valid(path,&length,&parent) || !byte_ranges_disjoint({reinterpret_cast<const u8*>(preferences),sizeof(*preferences)},
         {reinterpret_cast<const u8*>(path),(length+1)*2})) {reset_value(preferences);return fail(Error::path);}
-    reset_value(preferences);auto outcome=begin(io,path,&parent);if(!outcome.ok()) return outcome;
+    reset_value(preferences);
+    // A file the OS cannot find grants nothing: skip the ancestor pins and the cleanup block.
+    if(!io->cleanup && GetFileAttributesW(path)==INVALID_FILE_ATTRIBUTES) {
+        const DWORD absent=GetLastError();
+        if(absent==ERROR_FILE_NOT_FOUND || absent==ERROR_PATH_NOT_FOUND) return {Error::none,absent,true};
+    }
+    auto outcome=begin(io,path,&parent);if(!outcome.ok()) return outcome;
     auto& held=*io->cleanup;outcome=pin(held,parent,false);
     if(!outcome.ok()) {
         if(outcome.error==Error::directory && (outcome.win32_error==ERROR_FILE_NOT_FOUND || outcome.win32_error==ERROR_PATH_NOT_FOUND)) outcome={Error::none,outcome.win32_error,true};

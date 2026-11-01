@@ -79,6 +79,9 @@ bool plugin_manager_paths_build(ConstSlice<wchar_t> base, PluginManagerPaths* pa
 // Creates plugin-manager and its staging, rollback and cache directories
 // under an existing base. False with the Win32 error otherwise.
 bool plugin_manager_paths_ensure(const PluginManagerPaths& paths, u32* native_error = nullptr) noexcept;
+// <directory>\<leaf>, NUL-terminated; characters written, 0 when it does not fit.
+u32 plugin_manager_join(const wchar_t* directory, u32 directory_count, const wchar_t* leaf,
+    wchar_t (&output)[kPluginManagerPathCapacity]) noexcept;
 // <directory>\<16 lowercase hex digits of id><suffix>, NUL-terminated;
 // characters written, 0 when it does not fit.
 u32 plugin_manager_id_path(const wchar_t* directory, u32 directory_count, u64 id, const wchar_t* suffix,

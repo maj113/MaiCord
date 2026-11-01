@@ -146,11 +146,6 @@ struct Emitter {
 } // namespace
 
 // ---- list -------------------------------------------------------------------------------------
-static u32 plugin_browser_filtered(const PluginCatalogSnapshot* snapshot, const PluginBrowserUiState& ui) noexcept {
-    u32 n = 0;
-    for (u32 i = 0; snapshot && i < snapshot->entry_count; ++i) n += matches(*snapshot, snapshot->entries[i], ui) ? 1u : 0u;
-    return n;
-}
 u32 plugin_browser_find(const PluginCatalogSnapshot* snapshot, u64 provider, u64 owner) noexcept {
     for (u32 i = 0; snapshot && i < snapshot->entry_count; ++i) {
         const auto& e = snapshot->entries[i];
@@ -259,15 +254,19 @@ void browse(Emitter& out, const PluginBrowserUiState& ui, const PluginBrowserFac
     auto& category = out.emit(kPluginBrowserCategoryId, utf8_literal("Category"), {}, UiSettingsControlKind::choice, !!s);
     category.choices = {bank.categories, kPluginIndexCategoryCount + 1};
     category.selected_choice = minimum(ui.category, kPluginIndexCategoryCount);
-    const u32 total = plugin_browser_filtered(s, ui);
+    // One filter pass: the count and the page both read these bits.
+    u32 matched[(kPluginCatalogSnapshotEntries + 31) / 32]{};
+    u32 total = 0;
+    for (u32 i = 0; s && i < s->entry_count && i < kPluginCatalogSnapshotEntries; ++i)
+        if (matches(*s, s->entries[i], ui)) { matched[i / 32] |= 1u << (i % 32); ++total; }
     start = bank.used;
     number(bank, total);
     add(bank, total == 1 ? utf8_literal(" plugin") : utf8_literal(" plugins"));
     out.row(kPluginBrowserCountId, since(bank, start), {}, UiSettingsControlKind::category);
     const u32 first = total && ui.first < total ? ui.first / kPluginBrowserRows * kPluginBrowserRows : 0;
     bank.map.row_count = 0;
-    for (u32 index = 0, nth = 0; s && index < s->entry_count && bank.map.row_count < kPluginBrowserRows; ++index) {
-        if (!matches(*s, s->entries[index], ui) || nth++ < first) continue;
+    for (u32 index = 0, nth = 0; s && index < s->entry_count && index < kPluginCatalogSnapshotEntries && bank.map.row_count < kPluginBrowserRows; ++index) {
+        if (!(matched[index / 32] >> (index % 32) & 1) || nth++ < first) continue;
         const u32 row = bank.map.row_count;
         const auto& e = s->entries[index];
         const Utf8View document = plugin_catalog_document(*s, e.provider);

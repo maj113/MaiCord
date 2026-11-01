@@ -104,21 +104,20 @@ AcceptanceRecordResult read_cache(const PluginManagerPaths& paths, u64 provider,
     work->document_bytes = result.ok() ? static_cast<u32>(size.QuadPart) - 64 : 0;
     return result;
 }
-// True when the cache file holds exactly work's record.
-bool cache_current(const PluginManagerPaths& paths, u64 provider, const PluginIndexWork& work) noexcept {
+// True when the cache file holds exactly work's record. The structural scratch is dead
+// once the document is parsed; it holds the file for one read and one compare.
+static_assert(sizeof(PluginIndexWork::scratch) >= 64 + kPluginIndexMaximumBytes);
+bool cache_current(const PluginManagerPaths& paths, u64 provider, PluginIndexWork& work) noexcept {
     wchar_t path[kPluginManagerPathCapacity];
     if (!cache_path(paths, provider, path)) return false;
     const HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
     if (file == INVALID_HANDLE_VALUE) return false;
+    const u32 bytes = 64 + work.document_bytes;
+    u8* const copy = reinterpret_cast<u8*>(work.scratch);
     Win32LargeInteger size{};
-    bool same = acceptance_record_disk_file(file).ok() && GetFileSizeEx(file, size.native()) && size.QuadPart == 64 + work.document_bytes;
-    u8 chunk[4096];
-    for (u32 at = 0; same && at < 64 + work.document_bytes;) {
-        const u32 n = minimum<u32>(sizeof(chunk), 64 + work.document_bytes - at);
-        DWORD got = 0;
-        same = ReadFile(file, chunk, n, &got, nullptr) && got == n && bytes_equal(chunk, work.record + at, n);
-        at += n;
-    }
+    u32 native = 0;
+    const bool same = acceptance_record_disk_file(file).ok() && GetFileSizeEx(file, size.native()) && size.QuadPart == bytes &&
+        file_persistence_read_complete(file, {copy, bytes}, &native) && bytes_equal(copy, work.record, bytes);
     CloseHandle(file);
     return same;
 }
@@ -129,7 +128,7 @@ AcceptanceRecordResult write_cache(const PluginManagerPaths& paths, u64 provider
     return plugin_record_write({path, count}, {work.record, 64 + work.document_bytes});
 }
 // Rewrites the cache only when it is lost or different; false when that write fails.
-bool refresh_cache(const PluginManagerPaths& paths, u64 provider, const PluginIndexWork& work, PluginIndexCheckResult* r) noexcept {
+bool refresh_cache(const PluginManagerPaths& paths, u64 provider, PluginIndexWork& work, PluginIndexCheckResult* r) noexcept {
     if (cache_current(paths, provider, work)) return true;
     const auto written = write_cache(paths, provider, work);
     r->record_error = written.error; r->native_error = written.native_error;

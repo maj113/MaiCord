@@ -81,6 +81,8 @@ bool banned(u32 c) noexcept {
 bool display_text(Utf8View text, u32 maximum, bool required) noexcept {
     if ((!text.data && text.bytes) || text.bytes > maximum || (required && !text.bytes)) return false;
     for (u32 at = 0; at < text.bytes;) {
+        const u8 c = static_cast<u8>(text.data[at]);
+        if (c >= 32 && c < 127) { ++at; continue; } // printable ASCII: valid and never banned
         const auto scalar = utf8_decode_one(text.data + at, text.bytes - at);
         if (!scalar.valid || banned(scalar.codepoint)) return false;
         at += scalar.width;

@@ -19,23 +19,6 @@ constexpr wchar_t kPreviousSuffix[] = L".previous.json"; // staged next rollback
 constexpr wchar_t kDownloadSuffix[] = L".download";
 
 bool exists(const wchar_t* path) noexcept { return GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES; }
-// "<owner16>-<sha64>.dll", the installer's managed DLL name.
-void managed_leaf(u64 owner, const u8* sha256, wchar_t (&leaf)[86]) noexcept {
-    static constexpr wchar_t digits[] = L"0123456789abcdef";
-    for (u32 i = 0; i < 16; ++i) leaf[i] = digits[(owner >> ((15 - i) * 4)) & 15];
-    leaf[16] = L'-';
-    for (u32 i = 0; i < 32; ++i) { leaf[17 + i * 2] = digits[sha256[i] >> 4]; leaf[18 + i * 2] = digits[sha256[i] & 15]; }
-    leaf[81] = L'.'; leaf[82] = L'd'; leaf[83] = L'l'; leaf[84] = L'l'; leaf[85] = 0;
-}
-u32 join(const wchar_t* directory, u32 count, const wchar_t* leaf, Path& output) noexcept {
-    u32 length = 0;
-    if (!count || count >= kPluginManagerPathCapacity) return 0;
-    copy_bytes(output, directory, count * static_cast<u32>(sizeof(wchar_t)));
-    length = count;
-    output[length] = 0;
-    return wide_append(output, kPluginManagerPathCapacity, &length, L"\\") && wide_append(output, kPluginManagerPathCapacity, &length, leaf)
-        ? length : 0;
-}
 u32 append(Path& path, u32 count, const wchar_t* suffix) noexcept {
     u32 length = count;
     return wide_append(path, kPluginManagerPathCapacity, &length, suffix) ? length : 0;
@@ -63,7 +46,7 @@ bool read_file(const wchar_t* path, char* output, u32 capacity, u32* bytes) noex
 // Deletes the regular files directly in a directory; false when its path is too long to scan.
 bool delete_files(const wchar_t* directory, u32 count, u32* removed) noexcept {
     Path pattern{};
-    if (!join(directory, count, L"*", pattern)) return false;
+    if (!plugin_manager_join(directory, count, L"*", pattern)) return false;
     WIN32_FIND_DATAW found{};
     const HANDLE scan = FindFirstFileW(pattern, &found);
     if (scan == INVALID_HANDLE_VALUE) return true;
@@ -72,7 +55,7 @@ bool delete_files(const wchar_t* directory, u32 count, u32* removed) noexcept {
         if (++visited > 256) break;
         if (found.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) continue;
         Path path{};
-        if (join(directory, count, found.cFileName, path) && DeleteFileW(path) && removed) ++*removed;
+        if (plugin_manager_join(directory, count, found.cFileName, path) && DeleteFileW(path) && removed) ++*removed;
     } while (FindNextFileW(scan, &found));
     FindClose(scan);
     return true;
@@ -122,11 +105,6 @@ bool download_sink(void* context, ConstSlice<u8> bytes) noexcept {
 }
 
 // ---- records -----------------------------------------------------------------------
-AcceptanceRecordResult load_journal(const PluginManagerPaths& paths, PluginJournal* journal) noexcept {
-    reset_value(journal);
-    const auto loaded = plugin_journal_load({paths.journal, paths.journal_count}, journal);
-    return loaded.error == AcceptanceRecordError::missing ? AcceptanceRecordResult{} : loaded;
-}
 AcceptanceRecordResult save_journal(const PluginManagerPaths& paths, const PluginJournal& journal) noexcept {
     return plugin_journal_save({paths.journal, paths.journal_count}, journal);
 }
@@ -140,21 +118,15 @@ PluginManagerResult trust_failure(NativePluginPreferencesResult result) noexcept
 // is missing; inventory when the scan fails or the owner's entry is invalid.
 enum class Installed : u8 { absent, present, error };
 Installed installed_manifest(const PluginManagerPaths& paths, u64 owner, PluginManagerWork* work, NativePluginManifest* manifest) noexcept {
-    clear_bytes(&work->catalog, sizeof(work->catalog));
-    auto scanned = native_plugin_catalog_initialize(&work->catalog, {paths.plugins, paths.plugins_count},
-        {work->entries, kNativePluginCatalogMaximumEntries});
-    if (scanned.ok()) scanned = native_plugin_catalog_refresh(&work->catalog);
+    if (!scan_inventory(paths, work)) return Installed::error;
     Installed result = Installed::absent;
-    if (!scanned.ok())
-        result = scanned.win32_error == ERROR_FILE_NOT_FOUND || scanned.win32_error == ERROR_PATH_NOT_FOUND ? Installed::absent : Installed::error;
-    for (u32 i = 0; scanned.ok() && i < work->catalog.count; ++i) {
+    for (u32 i = 0; i < work->catalog.count; ++i) {
         const NativePluginCatalogEntry& entry = work->entries[i];
         if (entry.manifest.owner_id != owner) continue;
-        if (entry.status != NativePluginCatalogError::none || result == Installed::present) { result = Installed::error; break; }
+        if (entry.status != NativePluginCatalogError::none || result == Installed::present) return Installed::error;
         copy_value(manifest, entry.manifest);
         result = Installed::present;
     }
-    if (!native_plugin_catalog_release(&work->catalog).ok()) result = Installed::error;
     return result;
 }
 
@@ -499,9 +471,9 @@ PluginManagerResult prepare_download(const PluginManagerPaths& paths, const Plug
     log_operation("prepare", journal, 0);
     empty_staging(paths);
     wchar_t leaf[86];
-    managed_leaf(request.owner, file.sha256, leaf);
+    native_plugin_managed_leaf(request.owner, file.sha256, leaf);
     Path download{}, staged{};
-    const u32 download_count = join(paths.staging, paths.staging_count, leaf, staged);
+    const u32 download_count = plugin_manager_join(paths.staging, paths.staging_count, leaf, staged);
     if (!download_count || !append(download, 0, staged) || !append(download, download_count, kDownloadSuffix)) return abandon(paths, failure(ME::storage), journal);
     DownloadSink sink{CreateFileW(download, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr)};
     if (sink.file == INVALID_HANDLE_VALUE) { r = failure(ME::storage); r.native_error = GetLastError(); return abandon(paths, r, journal); }
@@ -542,7 +514,7 @@ PluginManagerResult prepare_rollback(const PluginManagerPaths& paths, const Plug
     // The snapshot must describe exactly the retained managed DLL.
     Path snapshot{}, retained{}, staged{};
     wchar_t leaf[86];
-    managed_leaf(request.owner, entry.previous_sha256, leaf);
+    native_plugin_managed_leaf(request.owner, entry.previous_sha256, leaf);
     u32 bytes = 0;
     NativePluginManifest previous{};
     if (!plugin_manager_id_path(paths.rollback, paths.rollback_count, request.owner, kNativePluginManifestSuffix,
@@ -551,7 +523,8 @@ PluginManagerResult prepare_rollback(const PluginManagerPaths& paths, const Plug
         !native_plugin_manifest_parse({work->record, bytes}, &previous).ok() || previous.owner_id != request.owner ||
         !bytes_equal(previous.sha256, entry.previous_sha256, 32) || previous.dll_bytes != 85) return failure(ME::rollback);
     for (u32 i = 0; i < 85; ++i) if (previous.dll[i] != static_cast<char>(leaf[i])) return failure(ME::rollback);
-    if (!join(paths.plugins, paths.plugins_count, leaf, retained) || !join(paths.staging, paths.staging_count, leaf, staged) || !exists(retained))
+    if (!plugin_manager_join(paths.plugins, paths.plugins_count, leaf, retained) ||
+        !plugin_manager_join(paths.staging, paths.staging_count, leaf, staged) || !exists(retained))
         return failure(ME::rollback);
     // A revoked or blocked build is never rolled back to, when a cache says so.
     const auto cached = plugin_index_load_cache(paths, source, workspace, index_work, now);

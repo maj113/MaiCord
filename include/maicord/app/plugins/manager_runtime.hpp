@@ -186,9 +186,13 @@ inline Utf8View plugin_catalog_document(const PluginCatalogSnapshot& s, u32 prov
                                        : Utf8View{};
 }
 // key_changed: providers whose last check served another key (ids), so their rows say so.
+// official_loaded: official_work already holds the official index this result describes
+// (read in the same operation: a fresh check or plugin_index_load_cache), so the cache is
+// neither read nor verified again; null loads it.
 struct PluginCatalogSnapshotInput {
     const PluginCatalogSources* sources;
     const PluginProviders* providers;
+    const PluginIndexCacheResult* official_loaded;
     bool configured;
     u32 key_changed_count;
     u64 key_changed[kPluginProviderMaximum];

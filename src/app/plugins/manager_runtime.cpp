@@ -12,23 +12,6 @@ using namespace plugin_manager_detail;
 using ME = PluginManagerError;
 using Op = PluginJournalOperation;
 
-AcceptanceRecordResult load_providers(const PluginManagerPaths& paths, PluginProviders* providers) noexcept {
-    reset_value(providers);
-    const auto loaded = plugin_providers_load({paths.providers, paths.providers_count}, providers);
-    return loaded.error == AcceptanceRecordError::missing ? AcceptanceRecordResult{} : loaded;
-}
-// The local inventory in work. false only when the directory exists and
-// cannot be read; a missing directory is an empty inventory.
-bool scan_inventory(const PluginManagerPaths& paths, PluginManagerWork* work) noexcept {
-    clear_bytes(&work->catalog, sizeof(work->catalog));
-    auto scanned = native_plugin_catalog_initialize(&work->catalog, {paths.plugins, paths.plugins_count},
-        {work->entries, kNativePluginCatalogMaximumEntries});
-    if (scanned.ok()) scanned = native_plugin_catalog_refresh(&work->catalog);
-    const bool missing = scanned.win32_error == ERROR_FILE_NOT_FOUND || scanned.win32_error == ERROR_PATH_NOT_FOUND;
-    const bool released = native_plugin_catalog_release(&work->catalog).ok();
-    if (!scanned.ok()) work->catalog.count = 0;
-    return (scanned.ok() || missing) && released;
-}
 const NativePluginManifest* inventory_manifest(const PluginManagerWork& work, u64 owner) noexcept {
     for (u32 i = 0; i < work.catalog.count && i < kNativePluginCatalogMaximumEntries; ++i) {
         const auto& entry = work.entries[i];
@@ -628,7 +611,8 @@ PluginCatalogSnapshot* plugin_catalog_snapshot_build(const PluginManagerPaths& p
             copy_bytes(provider.fingerprint, record->fingerprint, 32);
         }
         PluginIndexWork* target = is_official ? official_work : work;
-        const auto cached = plugin_index_load_cache(paths, source, workspace, target, now);
+        const auto cached = is_official && input.official_loaded ? *input.official_loaded
+                                                                  : plugin_index_load_cache(paths, source, workspace, target, now);
         provider.status = cache_status(cached);
         provider.installable = cached.installable;
         for (u32 k = 0; k < input.key_changed_count; ++k)

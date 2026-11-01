@@ -329,6 +329,15 @@ void test_snapshot() noexcept {
         fixture->update.outcome == PluginUpdateOutcome::available && s->installed[0].entry != ~0u,
         "plugin snapshot: providers, entries, versions and the installed plugin merge with its update offer");
     plugin_catalog_snapshot_release(s);
+    // A hint that official_work already holds the index replaces the cache read: its verdict, not the file's, sets the status.
+    PluginIndexCacheResult hint = plugin_index_load_cache(g.paths, g.source, g.workspace, &g.official_work, kNow);
+    hint.admitted = hint.installable = false;
+    input.official_loaded = &hint;
+    s = plugin_catalog_snapshot_build(g.paths, input, plugin_index_current_host(), g.workspace, &g.official_work, &g.index_work, &g.work, kNow);
+    check(hint.error == PluginIndexCheckError::none && s && s->providers[0].status == PluginCatalogStatus::unadmitted && !s->providers[0].installable &&
+        s->entry_count == 3, "plugin snapshot: an official index already loaded in the operation is used without reading its cache again");
+    plugin_catalog_snapshot_release(s);
+    input.official_loaded = nullptr;
     input.key_changed_count = 1;
     input.key_changed[0] = kPluginProviderOfficial;
     s = plugin_catalog_snapshot_build(g.paths, input, plugin_index_current_host(), g.workspace, &g.official_work, &g.index_work, &g.work, kNow);

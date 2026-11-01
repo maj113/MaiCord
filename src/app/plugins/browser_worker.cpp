@@ -58,12 +58,13 @@ Worker* g_worker;
 
 u64 now_unix(const Worker* w) noexcept { return w->options.clock ? w->options.clock() : clock_unix_milliseconds() / 1000; }
 u32 random32() noexcept { u32 value = 0; secure_random_u32(&value); return value; }
-template <typename F> void publish(Worker* w, F&& change) noexcept {
+// notify false: a snapshot build follows and wakes the UI once for both.
+template <typename F> void publish(Worker* w, F&& change, bool notify = true) noexcept {
     AcquireSRWLockExclusive(w->lock.native());
     change(w->view);
     ++w->view.revision;
     ReleaseSRWLockExclusive(w->lock.native());
-    SetEvent(w->notify);
+    if (notify) SetEvent(w->notify);
 }
 template <typename T> T* allocate() noexcept {
     return static_cast<T*>(VirtualAlloc(nullptr, sizeof(T), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -117,13 +118,16 @@ void forget_key_change(PluginBrowserWorkerView& v, u64 provider) noexcept {
         if (v.key_changed[i] == provider) { v.key_changed[i] = v.key_changed[--v.key_changed_count]; v.key_changed[v.key_changed_count] = 0; return; }
 }
 
-void build_snapshot(Worker* w) noexcept {
-    Operation* op = open_operation(w, false);
+// Builds the snapshot in op, or in a fresh operation when null, and closes it.
+// official: the official index op->official already holds, when it is known.
+void build_snapshot(Worker* w, Operation* op = nullptr, const PluginIndexCacheResult* official = nullptr) noexcept {
+    if (!op) op = open_operation(w, false);
     PluginCatalogSnapshot* snapshot = nullptr;
     if (op && ensure_work(op->official) && ensure_work(op->scratch)) {
         PluginCatalogSnapshotInput input{};
         input.sources = &op->sources;
         input.providers = &op->providers;
+        input.official_loaded = official;
         input.configured = w->config.key_count != 0;
         input.key_changed_count = w->view.key_changed_count;
         copy_bytes(input.key_changed, w->view.key_changed, sizeof(input.key_changed));
@@ -131,14 +135,15 @@ void build_snapshot(Worker* w) noexcept {
             &op->manager, now_unix(w));
     }
     close_operation(w, op);
-    if (!snapshot) return;
     AcquireSRWLockExclusive(w->lock.native());
-    plugin_catalog_snapshot_release(w->snapshot);
-    w->snapshot = snapshot;
-    ++w->view.snapshot_serial;
-    ++w->view.revision;
+    if (snapshot) {
+        plugin_catalog_snapshot_release(w->snapshot);
+        w->snapshot = snapshot;
+        ++w->view.snapshot_serial;
+        ++w->view.revision;
+    }
     ReleaseSRWLockExclusive(w->lock.native());
-    SetEvent(w->notify);
+    SetEvent(w->notify); // also after a failure: the publish before it deferred its wake
 }
 
 // Checks the providers due (or asked for), applies each index to installed
@@ -162,6 +167,8 @@ void run_check(Worker* w, bool manual, u64 only) noexcept {
     u32 changed_count = 0, cleared_count = 0;
     u64 cleared[kPluginProviderMaximum]{};
     const PluginIndex* official = nullptr;
+    PluginIndexCacheResult official_cached{}; // what the cache of the official provider reads back as
+    bool official_known = false;
     for (u32 i = 0; i < op->sources.count; ++i) {
         const PluginCatalogSource& source = op->sources.sources[i];
         const bool is_official = source.kind == PluginProviderKind::official;
@@ -171,10 +178,12 @@ void run_check(Worker* w, bool manual, u64 only) noexcept {
         const bool scheduled = is_official ? !(op->providers.official_flags & kPluginOfficialChecksOff)
                                            : source.kind == PluginProviderKind::custom_signed && record && (record->flags & kPluginProviderCheckDaily);
         bool have = false, installable = false;
+        PluginIndexCacheResult cached{};
         if ((scheduled || manual) && (!only || only == source.provider)) {
             const auto r = plugin_index_check(op->paths, source, op->transport, op->workspace, work, now, w->failures, random32());
             if (r.error == PluginIndexCheckError::none) {
                 reached = have = installable = true;
+                cached.admitted = cached.installable = true; // a fresh index is the admitted one
                 if (!is_official && cleared_count < kPluginProviderMaximum) cleared[cleared_count++] = source.provider;
             } else {
                 ++failed;
@@ -183,10 +192,11 @@ void run_check(Worker* w, bool manual, u64 only) noexcept {
             }
         }
         if (!have) {
-            const auto cached = plugin_index_load_cache(op->paths, source, op->workspace, work, now);
+            cached = plugin_index_load_cache(op->paths, source, op->workspace, work, now);
             have = cached.error == PluginIndexCheckError::none;
             installable = cached.installable;
         }
+        if (is_official) { official_cached = cached; official_known = true; }
         PluginCatalogPass pass{};
         pass.provider = source.provider;
         pass.kind = source.kind;
@@ -212,6 +222,7 @@ void run_check(Worker* w, bool manual, u64 only) noexcept {
     else if (failed) ++w->failures;
     w->next_check = w->catalog_used ? update_next_check(now, w->failures, retry_at, random32()) : 0;
     const PluginEvaluation& ev = op->evaluation;
+    const bool want = *static_cast<const volatile bool*>(&w->want_snapshot); // one flag: the lock added nothing
     publish(w, [&](PluginBrowserWorkerView& v) noexcept {
         v.phase = PluginBrowserPhase::idle;
         if (reached) v.checked_unix = now;
@@ -228,12 +239,11 @@ void run_check(Worker* w, bool manual, u64 only) noexcept {
             copy_bytes(v.revoked, ev.revoked, ev.revoked_count * static_cast<u32>(sizeof(PluginRevokedPlugin)));
             ++v.revoked_serial;
         }
-    });
+    }, !want);
     UpdateLog("plugins", "check_done").field("manual", manual).field("reached", reached).field("failed", failed)
         .field("offers", ev.offers).field("staged", staged).field("next", w->next_check).write();
-    close_operation(w, op);
-    const bool want = *static_cast<const volatile bool*>(&w->want_snapshot); // one flag: the lock added nothing
-    if (want) build_snapshot(w);
+    if (want) build_snapshot(w, op, official_known ? &official_cached : nullptr);
+    else close_operation(w, op);
 }
 
 // A staged automatic update for another plugin would block the user's
@@ -364,6 +374,7 @@ void run_command(Worker* w, const PluginBrowserCommand& cmd, u64 serial) noexcep
     case Kind::none: break;
     }
     close_operation(w, op);
+    const bool want = *static_cast<const volatile bool*>(&w->want_snapshot) && changed;
     publish(w, [&](PluginBrowserWorkerView& v) noexcept {
         if (forgotten_provider) forget_key_change(v, forgotten_provider);
         w->command_running = false;
@@ -377,13 +388,12 @@ void run_command(Worker* w, const PluginBrowserCommand& cmd, u64 serial) noexcep
         copy_value(&v.address, w->probe_address);
         v.probe = w->probe;
         v.add = add;
-    });
+    }, !want);
     UpdateLog("plugins", "command").field("kind", static_cast<u8>(cmd.kind)).field("op", static_cast<u8>(cmd.operation))
         .hex("owner", cmd.owner).field("manager", static_cast<u8>(manager.error)).field("record", static_cast<u8>(record.error))
         .field("address", static_cast<u8>(address_error)).field("probe", static_cast<u8>(w->probe.error))
         .field("add", static_cast<u8>(add.error)).write(manager.ok() && record.ok() ? LogLevel::info : LogLevel::warning);
-    const bool want = *static_cast<const volatile bool*>(&w->want_snapshot);
-    if (want && changed) build_snapshot(w);
+    if (want) build_snapshot(w);
 }
 
 // The privacy rule: no scheduled contact unless a catalog plugin is installed.
@@ -483,7 +493,7 @@ bool plugin_browser_worker_running() noexcept { return g_worker != nullptr; }
 HANDLE plugin_browser_worker_notification() noexcept { return g_worker ? g_worker->notify : nullptr; }
 bool plugin_browser_worker_view(PluginBrowserWorkerView* view, u64 seen) noexcept {
     Worker* w = g_worker;
-    if (!w || !view) return false;
+    if (!w || !view || *static_cast<const volatile u64*>(&w->view.revision) == seen) return false; // one aligned load; the lock only guards the copy
     AcquireSRWLockShared(w->lock.native());
     const bool changed = w->view.revision != seen;
     if (changed) *view = w->view;

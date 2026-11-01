@@ -4,6 +4,7 @@
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/sys/ioctl.hpp"
 
 // Test-only imported Win32 wrappers exercise the production source, with no
 // shipping fault seam. No DLL is created or loaded by these fixtures.
@@ -133,6 +134,24 @@ bool preferences_fixture_write(const wchar_t* path,const u8* bytes,u32 count) no
 bool preferences_fixture_committed(void* page) noexcept {
     MEMORY_BASIC_INFORMATION info{};return page && VirtualQuery(page,&info,sizeof(info))==sizeof(info) &&
         info.State==MEM_COMMIT && info.AllocationBase==page && info.RegionSize==4096;
+}
+bool preferences_fixture_junction(const wchar_t* link,const wchar_t* target) noexcept {
+    if(!CreateDirectoryW(link,nullptr)) return false;
+    HANDLE directory=CreateFileW(link,GENERIC_WRITE,0,nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
+    if(directory==INVALID_HANDLE_VALUE) return false;
+    struct JunctionData {DWORD tag;WORD data_bytes,reserved;WORD substitute_offset,substitute_bytes,print_offset,print_bytes;wchar_t names[MAX_PATH*2+8];} data{};
+    data.tag=IO_REPARSE_TAG_MOUNT_POINT;
+    u32 used=0,count=0;while(target[count]) ++count;
+    constexpr wchar_t prefix[]=L"\\??\\";for(u32 i=0;i<4;++i) data.names[used++]=prefix[i];
+    for(u32 i=0;i<count;++i) data.names[used++]=target[i];
+    data.substitute_bytes=static_cast<WORD>(used*sizeof(wchar_t));++used;
+    data.print_offset=static_cast<WORD>(used*sizeof(wchar_t));
+    for(u32 i=0;i<count;++i) data.names[used++]=target[i];
+    data.print_bytes=static_cast<WORD>(count*sizeof(wchar_t));++used;
+    data.data_bytes=static_cast<WORD>(8+used*sizeof(wchar_t));
+    DWORD returned=0;
+    const bool okay=DeviceIoControl(directory,FSCTL_SET_REPARSE_POINT,&data,data.data_bytes+8u,nullptr,0,&returned,nullptr)!=0;
+    return CloseHandle(directory) && okay;
 }
 }
 void test_plugin_preferences(void (*check)(bool,const char*) noexcept) noexcept {
@@ -299,6 +318,32 @@ void test_plugin_preferences(void (*check)(bool,const char*) noexcept) noexcept 
         if(page) check(fault_preferences_release(&io).ok() && !io.cleanup,"plugin preferences: disposition failure retains owned temporary until explicit retry");
         check(GetFileAttributesW(last_temporary)==INVALID_FILE_ATTRIBUTES && native_plugin_preferences_load_file(&io,path,&decoded).ok() && decoded.count==7,
             "plugin preferences: failed atomic edits retain complete prior record and no stray owned sibling");
+    }
+    // A real junction at an intermediate ancestor is refused for reads and writes; a record behind it never grants authority.
+    {
+        wchar_t target[MAX_PATH+8]{},link[MAX_PATH+8]{},real[MAX_PATH+24]{},through[MAX_PATH+24]{};
+        const wchar_t* tails[]{L".dir",L".lnk"};wchar_t* roots[]{target,link};
+        for(u32 i=0;i<2;++i) {u32 at=0;for(;path[at];++at) roots[i][at]=path[at];for(u32 j=0;tails[i][j];++j) roots[i][at++]=tails[i][j];}
+        const auto join=[](const wchar_t* directory,wchar_t* output) noexcept {u32 at=0;for(;directory[at];++at) output[at]=directory[at];
+            constexpr wchar_t leaf[]=L"\\trust.bin";for(u32 j=0;j<sizeof(leaf)/sizeof(leaf[0]);++j) output[at+j]=leaf[j];};
+        join(target,real);join(link,through);
+        const bool made=CreateDirectoryW(target,nullptr) && preferences_fixture_junction(link,target);
+        check(made,"plugin preferences: junction fixture is created");
+        if(made) {
+            decoded=sentinel;loaded=native_plugin_preferences_load_file(&io,through,&decoded);
+            check(loaded.ok() && loaded.missing && !decoded.count && !io.cleanup,
+                "plugin preferences: nothing behind a junction ancestor is no record and grants nothing");
+            check(native_plugin_preferences_save_file(&io,real,sentinel).ok() && native_plugin_preferences_load_file(&io,real,&decoded).ok() &&
+                decoded.count==sentinel.count,"plugin preferences: the real target path loads");
+            decoded=sentinel;loaded=native_plugin_preferences_load_file(&io,through,&decoded);
+            check(loaded.error==NativePluginPreferencesError::path && !decoded.count && !io.cleanup,
+                "plugin preferences: a record behind a junction ancestor is refused and grants nothing");
+            saved=native_plugin_preferences_save_file(&io,through,preferences);
+            check(saved.error==NativePluginPreferencesError::path && !saved.committed && !io.cleanup &&
+                native_plugin_preferences_load_file(&io,real,&decoded).ok() && decoded.count==sentinel.count,
+                "plugin preferences: saving through a junction ancestor is refused and writes nothing");
+        }
+        DeleteFileW(real);RemoveDirectoryW(link);RemoveDirectoryW(target);
     }
     fault=Fault::none;check(native_plugin_preferences_release(&io).ok() && !io.cleanup,"plugin preferences: empty cleanup release is idempotent");
 }

@@ -26,6 +26,8 @@ struct NativePluginBundleInstallOptions {
     // each removal hash-verified against its name and unreferenced.
     bool retain_previous{};
 };
+// "<owner16>-<sha256 hex>.dll" (85 characters, NUL-terminated): the installer's content-addressed DLL leaf.
+void native_plugin_managed_leaf(u64 owner_id, const u8* sha256, wchar_t (&leaf)[86]) noexcept;
 // Stable-address, zero-initialized UI object; do not copy or free before release.
 // One occasional worker stages the local manifest and declared DLL, waits for
 // explicit UI unload/context authorization, then commits. No code is loaded here.

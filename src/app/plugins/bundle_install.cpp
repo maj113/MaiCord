@@ -63,13 +63,14 @@ void hexadecimal(u64 value,wchar_t* out) noexcept {
     static constexpr wchar_t digits[]=L"0123456789abcdef";
     for(u32 i=0;i<16;++i)out[i]=digits[(value>>((15-i)*4))&15];
 }
-void managed_name(const NativePluginManifest& manifest,wchar_t (&name)[128]) noexcept {
-    hexadecimal(manifest.owner_id,name);name[16]=L'-';constexpr wchar_t digits[]=L"0123456789abcdef";
-    for(u32 i=0;i<32;++i){name[17+i*2]=digits[manifest.sha256[i]>>4];name[18+i*2]=digits[manifest.sha256[i]&15];}
-    name[81]=L'.';name[82]=L'd';name[83]=L'l';name[84]=L'l';name[85]=0;
+// Names the content-addressed managed DLL of the manifest's owner and digest, in name and in manifest.dll.
+void set_managed_dll(NativePluginManifest& manifest,wchar_t (&name)[86]) noexcept {
+    native_plugin_managed_leaf(manifest.owner_id,manifest.sha256,name);
+    clear_bytes(manifest.dll,sizeof(manifest.dll));
+    for(u32 i=0;i<85;++i)manifest.dll[i]=static_cast<char>(name[i]);manifest.dll_bytes=85;
 }
 bool managed(const NativePluginManifest& manifest) noexcept {
-    if(manifest.dll_bytes!=85)return false;wchar_t name[128]{};managed_name(manifest,name);
+    if(manifest.dll_bytes!=85)return false;wchar_t name[86];native_plugin_managed_leaf(manifest.owner_id,manifest.sha256,name);
     for(u32 i=0;i<85;++i)if(ascii_lower(manifest.dll[i])!=name[i])return false;
     return true;
 }
@@ -213,6 +214,23 @@ Error lock_owner(Runtime& r,u64 owner_id) noexcept {
         checked.win32_error==ERROR_SHARING_VIOLATION||checked.win32_error==ERROR_ACCESS_DENIED?Error::busy:Error::open,checked);
     return Error::none;
 }
+// The owner's inventory row: absent leaves *present false; a row listed twice or unreadable is a conflict. A present
+// row's manifest is pinned with delete sharing (POSIX replacement preserves the old file's handle but requires it)
+// and read into r.old; only cooperating installers are serialized by our lock, so commit rechecks content, path and identity.
+Error pin_owner_row(Runtime& r,u64 owner,bool* present) noexcept {
+    const NativePluginCatalogEntry* row=nullptr;
+    for(u32 i=0;i<r.catalog.count;++i)if(r.catalog.entries[i].manifest.owner_id==owner){
+        if(row||r.catalog.entries[i].status!=NativePluginCatalogError::none)return fail(r,Error::conflict);row=&r.catalog.entries[i];}
+    *present=row!=nullptr;
+    if(!row)return Error::none;
+    r.manifest_characters=row->filename_characters;
+    for(u32 i=0;i<=r.manifest_characters;++i)r.manifest_leaf[i]=row->filename[i];
+    const auto checked=native_plugin_pinned_manifest_read(r.destination_directory,{r.manifest_leaf,r.manifest_characters},&r.old,&r.target_manifest,
+        FILE_SHARE_READ|FILE_SHARE_DELETE);
+    if(!checked.ok()||!same_manifest(r.old,row->manifest)||!GetFileInformationByHandle(r.target_manifest.file,&r.old_identity))
+        return fail(r,Error::conflict,checked);
+    return Error::none;
+}
 Error stage(Runtime& r) noexcept {
     u32 directory{},leaf{};
     if(!source_path(r,&directory,&leaf)||!destination_valid(r))return fail(r,Error::path);
@@ -221,24 +239,14 @@ Error stage(Runtime& r) noexcept {
     checked=native_plugin_pinned_manifest_read(r.source_directory,{r.input+leaf,r.input_characters-leaf},&r.source,&r.source_manifest);
     checkpoint(r);if(!checked.ok())return fail(r,Error::manifest,checked);
     r.result.owner_id=r.source.owner_id;r.installed=r.source;
-    wchar_t name[128]{};managed_name(r.source,name);clear_bytes(r.installed.dll,sizeof(r.installed.dll));
-    for(u32 i=0;i<85;++i)r.installed.dll[i]=static_cast<char>(name[i]);r.installed.dll_bytes=85;
+    wchar_t name[86];set_managed_dll(r.installed,name);
     checked=native_plugin_directory_pin({r.destination,r.destination_characters},&r.destination_directory,2);
     checkpoint(r);if(!checked.ok())return fail(r,Error::path,checked);
     if(lock_owner(r,r.source.owner_id)!=Error::none)return r.result.error;
     if(inventory(r)!=Error::none)return r.result.error;
-    u32 found=~u32{0};
-    for(u32 i=0;i<r.catalog.count;++i)if(r.catalog.entries[i].manifest.owner_id==r.source.owner_id){
-        if(found!=~u32{0}||r.catalog.entries[i].status!=NativePluginCatalogError::none)return fail(r,Error::conflict);found=i;}
-    if(found!=~u32{0}){
-        const auto& entry=r.catalog.entries[found];r.manifest_characters=entry.filename_characters;
-        for(u32 i=0;i<=r.manifest_characters;++i)r.manifest_leaf[i]=entry.filename[i];
-        // POSIX replacement preserves the old file's handle, but requires
-        // its pin to share deletion. Content/path/identity are rechecked before
-        // the file becomes visible; only cooperating installers are serialized by our lock.
-        checked=native_plugin_pinned_manifest_read(r.destination_directory,{r.manifest_leaf,r.manifest_characters},&r.old,&r.target_manifest,
-            FILE_SHARE_READ|FILE_SHARE_DELETE);
-        if(!checked.ok()||!same_manifest(r.old,entry.manifest)||!GetFileInformationByHandle(r.target_manifest.file,&r.old_identity))return fail(r,Error::conflict,checked);
+    bool present=false;
+    if(pin_owner_row(r,r.source.owner_id,&present)!=Error::none)return r.result.error;
+    if(present){
         BY_HANDLE_FILE_INFORMATION source_identity{};
         if(!GetFileInformationByHandle(r.source_manifest.file,&source_identity))
             return fail(r,Error::conflict,{NativePluginCatalogError::file,GetLastError()});
@@ -377,8 +385,7 @@ Error trim(Runtime& r) noexcept {
     });scanned!=Error::none)return scanned;
     for(u32 i=0;i<found;++i){
         NativePluginManifest candidate{};candidate.owner_id=r.installed.owner_id;copy_bytes(candidate.sha256,r.candidates[i],32);
-        wchar_t name[128]{};managed_name(candidate,name);
-        for(u32 j=0;j<85;++j)candidate.dll[j]=static_cast<char>(name[j]);candidate.dll_bytes=85;
+        wchar_t name[86];set_managed_dll(candidate,name);
         if(other_reference(r,candidate))continue; // an installed manifest (or an unreadable one) holds it
         // Authenticate the DELETE handle against the digest its name claims.
         const auto opened=native_plugin_pinned_file_open(directory,{name,85},&r.retired_dll,GENERIC_READ|DELETE,FILE_SHARE_READ);
@@ -405,18 +412,10 @@ Error stage_uninstall(Runtime& r) noexcept {
     checkpoint(r);if(!checked.ok())return fail(r,Error::path,checked);
     r.result.owner_id=r.installed.owner_id;
     if(lock_owner(r,r.installed.owner_id)!=Error::none||inventory(r)!=Error::none)return r.result.error;
-    u32 found=~u32{0};
-    for(u32 i=0;i<r.catalog.count;++i)if(r.catalog.entries[i].manifest.owner_id==r.installed.owner_id){
-        if(found!=~u32{0}||r.catalog.entries[i].status!=NativePluginCatalogError::none)return fail(r,Error::conflict);found=i;}
-    if(found==~u32{0})return fail(r,Error::manifest,{NativePluginCatalogError::open,ERROR_FILE_NOT_FOUND});
-    const auto& entry=r.catalog.entries[found];r.manifest_characters=entry.filename_characters;
-    for(u32 i=0;i<=r.manifest_characters;++i)r.manifest_leaf[i]=entry.filename[i];
-    // A delete-sharing pin keeps the bytes the user confirmed; commit rechecks them.
-    checked=native_plugin_pinned_manifest_read(r.destination_directory,{r.manifest_leaf,r.manifest_characters},&r.old,&r.target_manifest,
-        FILE_SHARE_READ|FILE_SHARE_DELETE);
+    bool present=false;
+    if(pin_owner_row(r,r.installed.owner_id,&present)!=Error::none)return r.result.error;
     checkpoint(r);
-    if(!checked.ok()||!same_manifest(r.old,entry.manifest)||!GetFileInformationByHandle(r.target_manifest.file,&r.old_identity))
-        return fail(r,Error::conflict,checked);
+    if(!present)return fail(r,Error::manifest,{NativePluginCatalogError::open,ERROR_FILE_NOT_FOUND});
     return Error::none;
 }
 Error publish_uninstall(Runtime& r) noexcept {
@@ -511,11 +510,9 @@ bool readable(const NativePluginBundleInstall* owner) noexcept {
     return owner&&owner->runtime&&(phase(*owner)==Phase::prepared||phase(*owner)==Phase::complete);
 }
 Runtime* allocate_runtime() noexcept {
-    SYSTEM_INFO system{};GetSystemInfo(&system);if(!system.dwPageSize)return nullptr;
-    const usize bytes=(sizeof(Runtime)+system.dwPageSize-1)/system.dwPageSize*system.dwPageSize;
-    auto* r=static_cast<Runtime*>(VirtualAlloc(nullptr,bytes,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
+    auto* r=static_cast<Runtime*>(VirtualAlloc(nullptr,sizeof(Runtime),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
 #if defined(MAICORD_PLUGIN_BUNDLE_INSTALL_FIXTURE)
-    if(r)r->resources={bytes,sizeof(Runtime),sizeof(r->copy_scratch),3,3,false};
+    if(r)r->resources={(sizeof(Runtime)+4095)/4096*4096,sizeof(Runtime),sizeof(r->copy_scratch),3,3,false};
 #endif
     return r;
 }
@@ -574,6 +571,12 @@ Error remove_staged_manifests(Runtime& r,NativePluginBundleRecoveryResult* out) 
     return Error::none;
 }
 } // namespace
+void native_plugin_managed_leaf(u64 owner_id,const u8* sha256,wchar_t (&leaf)[86]) noexcept {
+    static constexpr wchar_t digits[]=L"0123456789abcdef";
+    hexadecimal(owner_id,leaf);leaf[16]=L'-';
+    for(u32 i=0;i<32;++i){leaf[17+i*2]=digits[sha256[i]>>4];leaf[18+i*2]=digits[sha256[i]&15];}
+    leaf[81]=L'.';leaf[82]=L'd';leaf[83]=L'l';leaf[84]=L'l';leaf[85]=0;
+}
 NativePluginBundleInstallError native_plugin_bundle_install_start(NativePluginBundleInstall* owner,
     ConstSlice<wchar_t> manifest_path,ConstSlice<wchar_t> destination) noexcept {
     return launch(owner,manifest_path,destination,{worker,nullptr,0,false});

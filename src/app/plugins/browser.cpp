@@ -712,13 +712,16 @@ bool step_page(u32& first, bool previous) noexcept {
 } // namespace
 
 // ---- public -----------------------------------------------------------------------------------
+// The catalog has been used: its plugin-manager directory exists.
+static bool catalog_present() noexcept {
+    wchar_t manager[kPluginManagerPathCapacity];
+    return data_path(manager, kPluginManagerPathCapacity, L"plugin-manager").ok() && GetFileAttributesW(manager) != INVALID_FILE_ATTRIBUTES;
+}
 void application_plugin_browser_initialize() noexcept {
     g_config = application_plugin_browser_build_config();
     g_initialized = true;
     // Users who never touched the catalog get no thread until Settings > Plugins opens.
-    wchar_t manager[kPluginManagerPathCapacity];
-    if (data_path(manager, kPluginManagerPathCapacity, L"plugin-manager").ok() && GetFileAttributesW(manager) != INVALID_FILE_ATTRIBUTES)
-        ensure_worker();
+    if (catalog_present()) ensure_worker();
 }
 void application_plugin_browser_release() noexcept {
     plugin_browser_worker_stop();
@@ -773,10 +776,11 @@ void application_plugin_browser_poll() noexcept {
     }
     if (g_op.serial && g_view.command_serial == g_op.serial) complete_command();
     if (g_op.stage == Stage::none && !g_op.serial) start_next();
-    refresh();
+    if (g_ui) refresh(); // a check with Settings closed projects and draws nothing
 }
 void application_plugin_browser_startup() noexcept {
     reset_value(&g_gate);
+    if (!catalog_present()) return; // plugin_manager_startup would return at once
     auto* paths = static_cast<PluginManagerPaths*>(VirtualAlloc(nullptr, sizeof(PluginManagerPaths), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     auto* work = static_cast<PluginManagerWork*>(VirtualAlloc(nullptr, sizeof(PluginManagerWork), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     wchar_t base[kPluginManagerBaseMaximumCharacters + 1];

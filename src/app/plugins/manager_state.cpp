@@ -7,18 +7,6 @@
 
 namespace maicord {
 namespace {
-bool child_path(const wchar_t* parent, u32 parent_count, const wchar_t* leaf, wchar_t* output, u32* count) noexcept {
-    u32 length = 0;
-    output[0] = 0;
-    if (parent_count >= kPluginManagerPathCapacity) return false;
-    copy_bytes(output, parent, parent_count * static_cast<u32>(sizeof(wchar_t)));
-    length = parent_count;
-    output[length] = 0;
-    if (!wide_append(output, kPluginManagerPathCapacity, &length, L"\\") || !wide_append(output, kPluginManagerPathCapacity, &length, leaf))
-        return false;
-    *count = length;
-    return true;
-}
 using RE = AcceptanceRecordError;
 constexpr u8 kStateMagic[8]{'M','A','I','P','S','T','A','T'};
 constexpr u8 kJournalMagic[8]{'M','A','I','P','J','R','N','L'};
@@ -60,6 +48,15 @@ void seal(Slice<u8> record) noexcept {
 }
 } // namespace
 
+u32 plugin_manager_join(const wchar_t* directory, u32 count, const wchar_t* leaf, wchar_t (&output)[kPluginManagerPathCapacity]) noexcept {
+    if (!count || count >= kPluginManagerPathCapacity) return 0;
+    copy_bytes(output, directory, count * static_cast<u32>(sizeof(wchar_t)));
+    u32 length = count;
+    output[length] = 0;
+    return wide_append(output, kPluginManagerPathCapacity, &length, L"\\") && wide_append(output, kPluginManagerPathCapacity, &length, leaf)
+        ? length : 0;
+}
+
 bool plugin_manager_paths_build(ConstSlice<wchar_t> base, PluginManagerPaths* paths) noexcept {
     if (!paths || !base.data || !base.count || base.count > kPluginManagerBaseMaximumCharacters || !acceptance_record_path_valid(base) ||
         base[base.count - 1] == L'\\' || base[base.count - 1] == L'/' ||
@@ -70,17 +67,19 @@ bool plugin_manager_paths_build(ConstSlice<wchar_t> base, PluginManagerPaths* pa
     PluginManagerPaths& p = *paths;
     copy_bytes(p.base, base.data, base.count * static_cast<u32>(sizeof(wchar_t)));
     p.base_count = base.count;
-    const bool built = child_path(p.base, p.base_count, L"plugins", p.plugins, &p.plugins_count) &&
-        child_path(p.base, p.base_count, L"plugins.bin", p.trust, &p.trust_count) &&
-        child_path(p.base, p.base_count, L"plugin-data", p.data, &p.data_count) &&
-        child_path(p.base, p.base_count, L"plugin-manager", p.manager, &p.manager_count) &&
-        child_path(p.manager, p.manager_count, L"acceptance.bin", p.acceptance, &p.acceptance_count) &&
-        child_path(p.manager, p.manager_count, L"providers.bin", p.providers, &p.providers_count) &&
-        child_path(p.manager, p.manager_count, L"state.bin", p.state, &p.state_count) &&
-        child_path(p.manager, p.manager_count, L"journal.bin", p.journal, &p.journal_count) &&
-        child_path(p.manager, p.manager_count, L"staging", p.staging, &p.staging_count) &&
-        child_path(p.manager, p.manager_count, L"rollback", p.rollback, &p.rollback_count) &&
-        child_path(p.manager, p.manager_count, L"cache", p.cache, &p.cache_count);
+    const auto join = [](const wchar_t* directory, u32 count, const wchar_t* leaf, wchar_t (&output)[kPluginManagerPathCapacity],
+                         u32& length) noexcept { length = plugin_manager_join(directory, count, leaf, output); return length != 0; };
+    const bool built = join(p.base, p.base_count, L"plugins", p.plugins, p.plugins_count) &&
+        join(p.base, p.base_count, L"plugins.bin", p.trust, p.trust_count) &&
+        join(p.base, p.base_count, L"plugin-data", p.data, p.data_count) &&
+        join(p.base, p.base_count, L"plugin-manager", p.manager, p.manager_count) &&
+        join(p.manager, p.manager_count, L"acceptance.bin", p.acceptance, p.acceptance_count) &&
+        join(p.manager, p.manager_count, L"providers.bin", p.providers, p.providers_count) &&
+        join(p.manager, p.manager_count, L"state.bin", p.state, p.state_count) &&
+        join(p.manager, p.manager_count, L"journal.bin", p.journal, p.journal_count) &&
+        join(p.manager, p.manager_count, L"staging", p.staging, p.staging_count) &&
+        join(p.manager, p.manager_count, L"rollback", p.rollback, p.rollback_count) &&
+        join(p.manager, p.manager_count, L"cache", p.cache, p.cache_count);
     if (!built) clear_bytes(paths, sizeof(*paths));
     return built;
 }

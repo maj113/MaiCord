@@ -42,29 +42,14 @@ bool valid_path(ConstSlice<wchar_t> path) noexcept {
     return true;
 }
 
-NativePluginResult validate_definition(const NativePluginHost& host,
-                                      const NativePluginDefinition& definition) noexcept {
-    if (definition.owner_id == host.policy.reserved_owner_id || native_plugin_host_find(host, definition.owner_id))
-        return {NativePluginError::duplicate_owner};
-    if (definition.required_capabilities & (~host.policy.granted_capabilities | ~native_plugin_known_capabilities))
-        return {NativePluginError::capability_denied};
-    if (definition.page_limit > host.policy.max_pages_per_plugin ||
-        definition.state_bytes > host.policy.max_state_bytes_per_plugin ||
-        host.state_bytes > host.policy.max_total_state_bytes ||
-        definition.state_bytes > host.policy.max_total_state_bytes - host.state_bytes)
-        return {NativePluginError::budget};
-    for (u32 index = 0; index < host.pages->count; ++index) {
-        if (ui_page_registry_at(*host.pages, index)->key.owner_id == definition.owner_id)
-            return {NativePluginError::duplicate_owner};
-    }
-    bool free_slot = false;
-    for (u32 index = 0; index < host.slots.count; ++index) {
-        const auto& slot = host.slots[index];
-        if (slot.phase == NativePluginPhase::empty) free_slot = true;
-        else if (slot.definition.owner_id == definition.owner_id)
-            return {NativePluginError::duplicate_owner};
-    }
-    return {free_slot && host.generation != ~u64{0} ? NativePluginError::none : NativePluginError::capacity};
+// The shared entry checks of both load paths.
+NativePluginModuleResult precheck(const NativePluginModule* module, const NativePluginHost* host) noexcept {
+    if (!module || !host || !host->slots.data || !host->slots.count || !host->pages || !host->pages->storage.data)
+        return result(NativePluginModuleError::invalid_argument);
+    if (module->busy || host->busy) return result(NativePluginModuleError::busy);
+    if (module->module || module->state || module->host || module->enabled || module->integrity || module->sdk)
+        return result(NativePluginModuleError::already_loaded);
+    return result(NativePluginModuleError::none);
 }
 
 // Called only after enable rollback or successful disable has removed every
@@ -109,10 +94,8 @@ NativePluginModuleResult failed_load(NativePluginModule* module, NativePluginMod
 static NativePluginModuleResult allocate_state(NativePluginModule* module, u32 state_bytes) noexcept {
     module->state_bytes = state_bytes;
     if (!state_bytes) return result(NativePluginModuleError::none);
-    Win32SystemInfo system{};
-    GetSystemInfo(system.native());
-    module->allocation_bytes = (static_cast<usize>(state_bytes) + system.dwPageSize - 1) /
-        system.dwPageSize * system.dwPageSize;
+    // x64 pages are 4 KiB; VirtualAlloc rounds the commit to whole pages.
+    module->allocation_bytes = (static_cast<usize>(state_bytes) + 4095) & ~usize{4095};
     module->state = VirtualAlloc(nullptr, static_cast<SIZE_T>(module->allocation_bytes), MEM_RESERVE | MEM_COMMIT,
                                 PAGE_READWRITE);
     return module->state ? result(NativePluginModuleError::none) :
@@ -132,11 +115,6 @@ static NativePluginModuleResult query_error(NativePluginSdkQueryError error) noe
 
 static NativePluginModuleResult load_module(NativePluginModule* module,
     NativePluginHost* host, ConstSlice<wchar_t> absolute_path, u64 expected_owner, u64 approved) noexcept {
-    if (!module || !host || !host->slots.data || !host->slots.count || !host->pages || !host->pages->storage.data)
-        return result(NativePluginModuleError::invalid_argument);
-    if (module->busy || host->busy) return result(NativePluginModuleError::busy);
-    if (module->module || module->state || module->host || module->enabled)
-        return result(NativePluginModuleError::already_loaded);
     if (!valid_path(absolute_path)) return result(NativePluginModuleError::invalid_path);
     wchar_t terminated[kNativePluginModuleMaxPathCharacters + 1];
     for (u32 index = 0; index < absolute_path.count; ++index) terminated[index] = absolute_path[index];
@@ -153,8 +131,6 @@ static NativePluginModuleResult load_module(NativePluginModule* module,
     NativePluginDefinition adapter{};
     const auto queried = native_plugin_sdk_query(module->sdk, query, expected_owner, &adapter);
     if (queried != NativePluginSdkQueryError::none) return failed_load(module, query_error(queried));
-    const auto validation = validate_definition(*host, adapter);
-    if (!validation.ok()) return failed_load(module, host_result(validation));
     module->owner_id = adapter.owner_id;
     const auto allocated = allocate_state(module, adapter.state_bytes);
     if (!allocated.ok()) return failed_load(module, allocated);
@@ -174,16 +150,13 @@ NativePluginModuleResult native_plugin_module_load(NativePluginModule* module,
     if (module && module->busy) return result(NativePluginModuleError::busy);
     if (module && (module->integrity || module->sdk))
         return result(NativePluginModuleError::already_loaded);
+    if (const auto ready = precheck(module, host); !ready.ok()) return ready;
     return load_module(module, host, absolute_path, 0, approved);
 }
 
 NativePluginModuleResult native_plugin_module_load_declared(NativePluginModule* module,
     NativePluginHost* host, ConstSlice<wchar_t> directory, const NativePluginManifest& manifest, u64 approved) noexcept {
-    if (!module || !host || !host->slots.data || !host->slots.count || !host->pages || !host->pages->storage.data)
-        return result(NativePluginModuleError::invalid_argument);
-    if (module->busy || host->busy) return result(NativePluginModuleError::busy);
-    if (module->module || module->state || module->host || module->enabled || module->integrity || module->sdk)
-        return result(NativePluginModuleError::already_loaded);
+    if (const auto ready = precheck(module, host); !ready.ok()) return ready;
     if (!native_plugin_manifest_valid(manifest)) return result(NativePluginModuleError::manifest);
     if (manifest.min_host_abi > kPluginSdkHostAbi) return result(NativePluginModuleError::unsupported);
     const u64 expected_owner = manifest.owner_id;
