@@ -166,11 +166,47 @@ inline bool permitted(const NativePluginSdkBinding& binding, u64 permission) noe
 inline bool permitted_all(const NativePluginSdkBinding& binding, u64 permissions) noexcept {
     return (binding.definition.permissions & permissions) == permissions;
 }
+// Interface-call prologue: the binding for handle when it is current and holds every one of permissions, else
+// null with the status to return in *status.
+NativePluginSdkBinding* gate(void* handle, u64 generation, u64 permissions, mc_status* status,
+                             bool registration = false) noexcept;
+// Moves a binding between phases; runtime->enabled counts the enabled ones.
+inline void set_phase(NativePluginSdkBinding& binding, Phase phase) noexcept {
+    binding.runtime->enabled += (phase == Phase::enabled) - (binding.phase == Phase::enabled);
+    binding.phase = phase;
+}
 // Enabled, not waiting for a budget disable, and the handler is set.
 bool callable(const NativePluginSdkBinding& binding, const void* handler) noexcept;
 NativePluginSdkBinding* binding_for(const NativePluginSdkRuntime& runtime, u64 owner) noexcept;
 // Iteration helper: enabled bindings of this runtime that aren't waiting for a disable.
 bool usable(const NativePluginSdkBinding* binding, const NativePluginSdkRuntime& runtime) noexcept;
+// The enabled binding of owner holding permission whose handler Field is set, or null.
+template <auto Field> inline NativePluginSdkBinding* handler_binding(const NativePluginSdkRuntime* runtime, u64 owner,
+                                                                     u64 permission) noexcept {
+    auto* binding = runtime ? binding_for(*runtime, owner) : nullptr;
+    return binding && permitted_all(*binding, permission) && callable(*binding, reinterpret_cast<const void*>(binding->*Field))
+               ? binding : nullptr;
+}
+
+// Where a handler setter stores, packed into one register so each interface function is a tail call: the
+// permissions it needs, the handler's byte offset in the binding, and the byte offset of a runtime u64 stepped
+// when it changes (kNoBump: none).
+constexpr u32 kNoBump = 0xFFFFF;
+struct HandlerSlot {
+    u64 permissions : 22, field : 20, bump : 20;
+};
+static_assert(sizeof(HandlerSlot) == sizeof(u64) && MC_PERM_ALL < (1ull << 22));
+mc_status set_handler_at(void* handle, u64 generation, const void* handler, HandlerSlot slot) noexcept;
+// Interface functions that store one handler (`Field` of the binding), gated by Permission; Bump names a runtime
+// revision stepped when the handler changes.
+template <typename C, typename T> T handler_type(T C::*) noexcept;
+template <auto Field, u64 Permission, u64 NativePluginSdkRuntime::*Bump = nullptr>
+mc_status MC_CALL set_handler(void* handle, uint64_t generation, decltype(handler_type(Field)) handler) {
+    static_assert(sizeof(Field) == sizeof(u32) && sizeof(Bump) == sizeof(u32), "data member pointers are offsets");
+    const u32 field = __builtin_bit_cast(u32, Field);
+    const u32 bump = Bump != nullptr ? __builtin_bit_cast(u32, Bump) : kNoBump; // offsets stay far below 1 MiB
+    return set_handler_at(handle, generation, reinterpret_cast<const void*>(handler), {Permission, field, bump});
+}
 
 struct Call {
     PluginCallLedger* ledger;
@@ -185,6 +221,17 @@ struct Gesture {
     explicit Gesture(NativePluginSdkRuntime* value) noexcept : runtime(value) { ++runtime->gesture_depth; }
     ~Gesture() noexcept { --runtime->gesture_depth; }
 };
+// Runs a plugin handler under the call ledger, inside a gesture when kGesture.
+template <bool kGesture, typename Handler, typename... Args>
+inline decltype(auto) invoke(NativePluginSdkBinding& binding, PluginCallKind kind, Handler handler, Args... args) {
+    Call call(binding, kind);
+    if constexpr (kGesture) {
+        Gesture gesture(binding.runtime);
+        return handler(binding.plugin_state, binding.plugin_state_bytes, args...);
+    } else {
+        return handler(binding.plugin_state, binding.plugin_state_bytes, args...);
+    }
+}
 
 u64 now_ms(const NativePluginSdkRuntime& runtime) noexcept;
 inline Utf8View view(mc_str text) noexcept { return {text.data, text.bytes}; }
@@ -226,6 +273,9 @@ extern const mc_read_v2 kRead;
 extern const mc_events_v1 kEvents;
 extern const mc_actions_v1 kActions;
 extern const mc_fx_v1 kFx;
+extern const mc_store_v1 kStore;
+// Writes a dirty store (plugin_sdk_store.cpp); true when nothing is left to write.
+bool store_save(NativePluginSdkBinding& binding) noexcept;
 
 // Per-subsystem resets when a binding stops (plugin_sdk_surfaces/data.cpp).
 void surfaces_reset(NativePluginSdkBinding&) noexcept;

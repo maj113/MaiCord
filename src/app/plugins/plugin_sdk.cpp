@@ -1,4 +1,6 @@
-#include "plugin_sdk_internal.hpp"
+#include "sdk_internal.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/color_hex.hpp"
 #include "maicord/core/decimal.hpp"
@@ -22,6 +24,19 @@ NativePluginSdkBinding* active(void* candidate, u64 generation, bool registratio
     if (registration) return binding->phase == Phase::starting ? binding : nullptr;
     return binding->phase == Phase::starting || binding->phase == Phase::enabled ? binding : nullptr;
 }
+NativePluginSdkBinding* gate(void* handle, u64 generation, u64 permissions, mc_status* status, bool registration) noexcept {
+    auto* binding = active(handle, generation, registration);
+    *status = !binding ? MC_E_INACTIVE : !permitted_all(*binding, permissions) ? MC_E_DENIED : MC_OK;
+    return *status == MC_OK ? binding : nullptr;
+}
+mc_status set_handler_at(void* handle, u64 generation, const void* handler, HandlerSlot slot) noexcept {
+    mc_status status{};
+    if (auto* binding = gate(handle, generation, slot.permissions, &status)) {
+        copy_bytes(reinterpret_cast<u8*>(binding) + slot.field, &handler, sizeof(handler));
+        if (slot.bump != kNoBump) ++*reinterpret_cast<u64*>(reinterpret_cast<u8*>(binding->runtime) + slot.bump);
+    }
+    return status;
+}
 bool callable(const NativePluginSdkBinding& binding, const void* handler) noexcept {
     return handler && binding.phase == Phase::enabled &&
            !plugin_call_ledger_disable_requested(binding.runtime->ledger, binding.owner_id);
@@ -31,6 +46,7 @@ bool usable(const NativePluginSdkBinding* binding, const NativePluginSdkRuntime&
            !plugin_call_ledger_disable_requested(runtime.ledger, binding->owner_id);
 }
 NativePluginSdkBinding* binding_for(const NativePluginSdkRuntime& runtime, u64 owner) noexcept {
+    if (!runtime.enabled) return nullptr;
     for (auto* binding : g_live)
         if (binding && binding->runtime == &runtime && binding->phase == Phase::enabled && binding->owner_id == owner)
             return binding;
@@ -41,14 +57,14 @@ u64 now_ms(const NativePluginSdkRuntime& runtime) noexcept {
 }
 bool text_ok(mc_str text, u32 maximum, bool required, bool lines) noexcept {
     if (text.bytes > maximum || (required && !text.bytes) || (text.bytes && !text.data)) return false;
-    if (!text.bytes) return true;
-    const auto checked = utf8_validate(view(text));
-    if (!checked.valid) return false;
+    // One pass over the bytes; only text holding multi-byte scalars needs the UTF-8 decoder.
+    u8 high = 0;
     for (u32 i = 0; i < text.bytes; ++i) {
         const u8 c = static_cast<u8>(text.data[i]);
         if (c < 32 && !(lines && c == '\n')) return false;
+        high |= c;
     }
-    return true;
+    return !(high & 0x80) || utf8_validate(view(text)).valid;
 }
 u32 copy_text(char* output, u32 capacity, Utf8View text) noexcept {
     const u32 bytes = minimum(capacity, text.bytes);
@@ -121,6 +137,7 @@ bool read_node(const mc_slot_node* nodes, u32 stride, u32 index, const NodeLimit
 }
 
 } // namespace plugin_sdk
+using namespace plugin_sdk;
 namespace {
 
 bool command_name_ok(mc_str name) noexcept {
@@ -197,9 +214,9 @@ bool keybind_add(NativePluginSdkBinding& binding, u64 page_id, u64 control_id, N
 // ---- mc.ui.pages@1 ----------------------------------------------------------------
 
 mc_status MC_CALL pages_register(void* handle, uint64_t generation, uint64_t page_id, mc_str label) {
-    auto* binding = active(handle, generation, true);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_SETTINGS)) return MC_E_DENIED;
+    mc_status status{};
+    auto* binding = gate(handle, generation, MC_PERM_SETTINGS, &status, true);
+    if (!binding) return status;
     if (!page_id || !text_ok(label, kLabelBytes - 1, true)) return MC_E_INVALID;
     if (find_page(*binding, page_id)) return MC_E_INVALID;
     Page* page = nullptr;
@@ -224,9 +241,9 @@ mc_status MC_CALL pages_register(void* handle, uint64_t generation, uint64_t pag
     return MC_OK;
 }
 mc_status MC_CALL pages_unregister(void* handle, uint64_t generation, uint64_t page_id) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_SETTINGS)) return MC_E_DENIED;
+    mc_status status{};
+    auto* binding = gate(handle, generation, MC_PERM_SETTINGS, &status);
+    if (!binding) return status;
     Page* page = find_page(*binding, page_id);
     if (!page) return MC_E_NOT_FOUND;
     const auto& services = binding->services;
@@ -447,9 +464,9 @@ void write_setting(NativePluginSdkBinding& binding, Writer& writer, const mc_set
 }
 
 mc_status MC_CALL settings_set_page(void* handle, uint64_t generation, uint64_t page_id, const mc_settings_page* source) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_SETTINGS)) return MC_E_DENIED;
+    mc_status status{};
+    auto* binding = gate(handle, generation, MC_PERM_SETTINGS, &status);
+    if (!binding) return status;
     Page* page = find_page(*binding, page_id);
     if (!page) return MC_E_NOT_FOUND;
     mc_settings_page header{};
@@ -489,41 +506,22 @@ mc_status MC_CALL settings_set_page(void* handle, uint64_t generation, uint64_t 
     ++binding->runtime->keybind_revision;
     return MC_OK;
 }
-mc_status MC_CALL settings_set_handler(void* handle, uint64_t generation, mc_setting_fn handler) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_SETTINGS)) return MC_E_DENIED;
-    binding->setting_handler = handler;
-    return MC_OK;
-}
-mc_status MC_CALL settings_set_keybind_handler(void* handle, uint64_t generation, mc_keybind_fn handler) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted_all(*binding, MC_PERM_SETTINGS | MC_PERM_KEYBINDS)) return MC_E_DENIED;
-    binding->keybind_handler = handler;
-    ++binding->runtime->keybind_revision;
-    return MC_OK;
-}
-constexpr mc_settings_v3 kSettings{sizeof(mc_settings_v3), 3, settings_set_page, settings_set_handler,
-                                   settings_set_keybind_handler};
+constexpr mc_settings_v3 kSettings{
+    sizeof(mc_settings_v3), 3, settings_set_page, set_handler<&NativePluginSdkBinding::setting_handler, MC_PERM_SETTINGS>,
+    set_handler<&NativePluginSdkBinding::keybind_handler, MC_PERM_SETTINGS | MC_PERM_KEYBINDS,
+                &NativePluginSdkRuntime::keybind_revision>};
 
 // ---- mc.msg.hooks@2 ---------------------------------------------------------------
 
-mc_status MC_CALL hooks_set_pre_send(void* handle, uint64_t generation, mc_pre_send_fn handler) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_MESSAGE_SEND)) return MC_E_DENIED;
-    binding->pre_send = handler;
-    return MC_OK;
-}
-constexpr mc_msg_hooks_v2 kHooks{sizeof(mc_msg_hooks_v2), 2, hooks_set_pre_send};
+constexpr mc_msg_hooks_v2 kHooks{sizeof(mc_msg_hooks_v2), 2,
+                                 set_handler<&NativePluginSdkBinding::pre_send, MC_PERM_MESSAGE_SEND>};
 
 // ---- mc.cmd@1 -----------------------------------------------------------------------
 
 mc_status MC_CALL cmd_register(void* handle, uint64_t generation, const mc_command* source) {
-    auto* binding = active(handle, generation, true);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_COMMANDS)) return MC_E_DENIED;
+    mc_status status{};
+    auto* binding = gate(handle, generation, MC_PERM_COMMANDS, &status, true);
+    if (!binding) return status;
     mc_command command{};
     if (!read_prefix(source, &command, offsetof(mc_command, options))) return MC_E_INVALID;
     if (!command.command_id || !command_name_ok(command.name) ||
@@ -559,8 +557,9 @@ mc_status MC_CALL cmd_register(void* handle, uint64_t generation, const mc_comma
     return MC_OK;
 }
 mc_status MC_CALL cmd_unregister(void* handle, uint64_t generation, uint64_t command_id) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
+    mc_status status{};
+    auto* binding = gate(handle, generation, 0, &status);
+    if (!binding) return status;
     for (u32 i = 0; i < binding->command_count; ++i)
         if (binding->commands[i].id == command_id) {
             for (u32 j = i + 1; j < binding->command_count; ++j) binding->commands[j - 1] = binding->commands[j];
@@ -569,28 +568,15 @@ mc_status MC_CALL cmd_unregister(void* handle, uint64_t generation, uint64_t com
         }
     return MC_E_NOT_FOUND;
 }
-mc_status MC_CALL cmd_set_handler(void* handle, uint64_t generation, mc_command_fn handler) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_COMMANDS)) return MC_E_DENIED;
-    binding->command_handler = handler;
-    return MC_OK;
-}
-constexpr mc_cmd_v1 kCommands{sizeof(mc_cmd_v1), 1, cmd_register, cmd_unregister, cmd_set_handler};
+constexpr mc_cmd_v1 kCommands{sizeof(mc_cmd_v1), 1, cmd_register, cmd_unregister,
+                              set_handler<&NativePluginSdkBinding::command_handler, MC_PERM_COMMANDS>};
 
-// ---- mc.store@1 ---------------------------------------------------------------------
+// ---- mc.timer@1 ---------------------------------------------------------------------
 
-mc_status MC_CALL timer_set_handler(void* handle, uint64_t generation, mc_timer_fn handler) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_TIMER)) return MC_E_DENIED;
-    binding->timer_handler = handler;
-    return MC_OK;
-}
 mc_status MC_CALL timer_start(void* handle, uint64_t generation, uint64_t id, uint32_t interval, uint32_t repeat) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_TIMER)) return MC_E_DENIED;
+    mc_status status{};
+    auto* binding = gate(handle, generation, MC_PERM_TIMER, &status);
+    if (!binding) return status;
     if (!id || interval < kPluginSdkTimerMinimumMs) return MC_E_INVALID;
     Timer* timer = nullptr;
     for (auto& candidate : binding->timers)
@@ -603,8 +589,9 @@ mc_status MC_CALL timer_start(void* handle, uint64_t generation, uint64_t id, ui
     return MC_OK;
 }
 mc_status MC_CALL timer_cancel(void* handle, uint64_t generation, uint64_t id) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
+    mc_status status{};
+    auto* binding = gate(handle, generation, 0, &status);
+    if (!binding) return status;
     for (auto& timer : binding->timers)
         if (timer.active && timer.id == id) {
             reset_value(&timer);
@@ -612,7 +599,8 @@ mc_status MC_CALL timer_cancel(void* handle, uint64_t generation, uint64_t id) {
         }
     return MC_E_NOT_FOUND;
 }
-constexpr mc_timer_v1 kTimers{sizeof(mc_timer_v1), 1, timer_set_handler, timer_start, timer_cancel};
+constexpr mc_timer_v1 kTimers{sizeof(mc_timer_v1), 1, set_handler<&NativePluginSdkBinding::timer_handler, MC_PERM_TIMER>,
+                              timer_start, timer_cancel};
 
 // ---- Interface lookup ----------------------------------------------------------------
 
@@ -700,20 +688,20 @@ bool WINAPI adapter_start(NativePluginServices services, void* state, u32 state_
     binding->services = services;
     binding->generation = services.generation;
     binding->plugin_state = static_cast<u8*>(state) + kPluginSdkStateHeaderBytes;
-    binding->phase = Phase::starting;
+    set_phase(*binding, Phase::starting);
     binding->start_attempted = true;
     // Events queued before this plugin started are not its history.
     binding->event_next = runtime->event_head;
     const mc_host host{sizeof(mc_host), kPluginSdkHostAbi, binding, binding->generation, get_interface};
     const mc_status status = binding->definition.start(&host, binding->plugin_state, binding->plugin_state_bytes);
     if (status != MC_OK || binding->phase != Phase::starting) return false;
-    binding->phase = Phase::enabled;
+    set_phase(*binding, Phase::enabled);
     return true;
 }
 void WINAPI adapter_stop(void* state, u32) noexcept {
     auto* binding = from_state(state);
     if (!binding) return;
-    binding->phase = Phase::stopping;
+    set_phase(*binding, Phase::stopping);
     if (binding->start_attempted && binding->definition.stop)
         binding->definition.stop(binding->plugin_state, binding->plugin_state_bytes);
     store_save(*binding);
@@ -723,7 +711,7 @@ void WINAPI adapter_stop(void* state, u32) noexcept {
     binding->plugin_state = nullptr;
     binding->generation = 0;
     reset_value(&binding->services);
-    binding->phase = Phase::empty;
+    set_phase(*binding, Phase::empty);
     clear_bytes(state, sizeof(StateHeader));
 }
 NativePluginActivationResult WINAPI adapter_settings(void* state, u32, NativePluginSettingsActivation activation) noexcept {
@@ -772,7 +760,7 @@ struct CommandMatch {
     const Command* command;
 };
 CommandMatch match_command(const NativePluginSdkRuntime& runtime, Utf8View name) noexcept {
-    if (!name.bytes) return {};
+    if (!name.bytes || !runtime.enabled) return {};
     for (auto* binding : g_live) {
         if (!usable(binding, runtime)) continue;
         for (u32 i = 0; i < binding->command_count; ++i)
@@ -905,7 +893,7 @@ NativePluginSdkQueryError native_plugin_sdk_query(NativePluginSdkBinding* bindin
     binding->definition = definition;
     binding->owner_id = definition.owner_id;
     binding->plugin_state_bytes = definition.state_bytes;
-    binding->phase = Phase::queried;
+    set_phase(*binding, Phase::queried);
     // Menus, slots and everything else are SDK-owned; the slot host keeps pages.
     const u32 capabilities = (definition.permissions & MC_PERM_SETTINGS) ? native_plugin_capability_pages : 0u;
     adapter->owner_id = definition.owner_id;
@@ -958,8 +946,8 @@ NativePluginError native_plugin_sdk_settings_submit(NativePluginSdkRuntime* runt
     if (!runtime) return NativePluginError::invalid_argument;
     NativePluginSdkEdit edit{};
     if (!native_plugin_sdk_settings_edit(*runtime, key, control_id, &edit)) return NativePluginError::stale;
-    auto* binding = binding_for(*runtime, key.owner_id);
-    if (!callable(*binding, reinterpret_cast<const void*>(binding->setting_handler))) return NativePluginError::inactive;
+    auto* binding = handler_binding<&NativePluginSdkBinding::setting_handler>(runtime, key.owner_id, 0);
+    if (!binding) return NativePluginError::inactive;
     mc_setting_value value{};
     value.size = sizeof(value);
     value.kind = edit.kind;
@@ -979,12 +967,7 @@ NativePluginError native_plugin_sdk_settings_submit(NativePluginSdkRuntime* runt
         copy_bytes(runtime->input, text.data, text.bytes);
         value.text = {runtime->input, text.bytes};
     }
-    mc_status status{};
-    {
-        Call call(*binding, PluginCallKind::settings);
-        Gesture gesture(runtime);
-        status = binding->setting_handler(binding->plugin_state, binding->plugin_state_bytes, &value);
-    }
+    const mc_status status = invoke<true>(*binding, PluginCallKind::settings, binding->setting_handler, &value);
     return status == MC_OK ? NativePluginError::none : NativePluginError::activation_failed;
 }
 
@@ -1087,17 +1070,14 @@ bool native_plugin_sdk_keybind_chord(Utf8View normal, NativePluginSdkChord* chor
 }
 
 bool native_plugin_sdk_keybind_press(NativePluginSdkRuntime* runtime, NativePluginSdkChord chord, bool text_focus) noexcept {
-    if (!runtime || !chord.key) return false;
+    if (!runtime || !runtime->enabled || !chord.key) return false;
     if (text_focus && !(chord.modifiers & 3u)) return false;
     for (auto* binding : g_live) {
         if (!usable(binding, *runtime) || !permitted(*binding, MC_PERM_KEYBINDS) ||
             !callable(*binding, reinterpret_cast<const void*>(binding->keybind_handler))) continue;
         for (const auto& keybind : binding->keybinds) {
             if (!keybind.page_id || !keybind.active || !chord_equal(keybind.chord, chord)) continue;
-            const u64 page = keybind.page_id, control = keybind.control_id;
-            Call call(*binding, PluginCallKind::keybind);
-            Gesture gesture(runtime);
-            binding->keybind_handler(binding->plugin_state, binding->plugin_state_bytes, page, control);
+            invoke<true>(*binding, PluginCallKind::keybind, binding->keybind_handler, keybind.page_id, keybind.control_id);
             return true;
         }
     }
@@ -1106,6 +1086,7 @@ bool native_plugin_sdk_keybind_press(NativePluginSdkRuntime* runtime, NativePlug
 
 u32 native_plugin_sdk_keybinds(const NativePluginSdkRuntime& runtime, Slice<NativePluginSdkKeybindView> output) noexcept {
     u32 count = 0;
+    if (!runtime.enabled) return count;
     for (const auto* binding : g_live) {
         if (!usable(binding, runtime) || !permitted(*binding, MC_PERM_KEYBINDS) || !binding->keybind_handler) continue;
         for (const auto& keybind : binding->keybinds)
@@ -1132,6 +1113,7 @@ void native_plugin_sdk_keybinds_recheck(NativePluginSdkRuntime* runtime) noexcep
 u32 native_plugin_sdk_commands(const NativePluginSdkRuntime& runtime, Utf8View prefix,
                               Slice<NativePluginSdkCommandView> output) noexcept {
     u32 count = 0;
+    if (!runtime.enabled) return count;
     for (auto* binding : g_live) {
         if (!usable(binding, runtime)) continue;
         for (u32 i = 0; i < binding->command_count && count < output.count; ++i) {
@@ -1211,12 +1193,8 @@ NativePluginSdkComposeResult native_plugin_sdk_run_command(NativePluginSdkRuntim
     invocation.argument_stride = sizeof(mc_command_argument);
     invocation.raw = {raw.data, raw.bytes};
     mc_text_output output{sizeof(mc_text_output), MC_CMD_DONE, runtime->output[0], kPluginSdkOutputBytes, 0};
-    mc_status status{};
-    {
-        Call call(binding, PluginCallKind::command);
-        Gesture gesture(runtime);
-        status = binding.command_handler(binding.plugin_state, binding.plugin_state_bytes, &invocation, &output);
-    }
+    const mc_status status =
+        invoke<true>(binding, PluginCallKind::command, binding.command_handler, &invocation, &output);
     if (status != MC_OK) return notice(runtime, binding.owner_id, utf8_literal("The command didn't complete."));
     // Only action and length are trusted from the struct; text is read from our buffer.
     const Utf8View text{runtime->output[0], minimum(output.bytes, kPluginSdkOutputBytes)};
@@ -1234,14 +1212,17 @@ NativePluginSdkComposeResult native_plugin_sdk_run_command(NativePluginSdkRuntim
 
 NativePluginSdkComposeResult native_plugin_sdk_pre_send(NativePluginSdkRuntime* runtime,
                                                       const NativePluginSdkDraft& draft) noexcept {
-    if (!runtime || draft.text.bytes > kPluginSdkInputBytes) return {};
-    copy_bytes(runtime->input, draft.text.data, draft.text.bytes);
-    Utf8View current{runtime->input, draft.text.bytes};
+    if (!runtime || !runtime->enabled || draft.text.bytes > kPluginSdkInputBytes) return {};
+    Utf8View current = draft.text; // the first hook gets a copy in the runtime's input buffer
     u32 next = 0;
     u64 owner = 0;
     for (auto* binding : g_live) {
         if (!binding || binding->runtime != runtime || !permitted(*binding, MC_PERM_MESSAGE_SEND) ||
             !callable(*binding, reinterpret_cast<const void*>(binding->pre_send))) continue;
+        if (current.data == draft.text.data) {
+            copy_bytes(runtime->input, draft.text.data, draft.text.bytes);
+            current = {runtime->input, draft.text.bytes};
+        }
         mc_message_view message{};
         message.size = sizeof(message);
         message.flags = MC_MESSAGE_OWN;
@@ -1250,11 +1231,7 @@ NativePluginSdkComposeResult native_plugin_sdk_pre_send(NativePluginSdkRuntime* 
         message.guild_id = draft.guild_id;
         message.content = {current.data, current.bytes};
         mc_text_output output{sizeof(mc_text_output), MC_SEND_UNCHANGED, runtime->output[next], kPluginSdkOutputBytes, 0};
-        mc_status status{};
-        {
-            Call call(*binding, PluginCallKind::pre_send);
-            status = binding->pre_send(binding->plugin_state, binding->plugin_state_bytes, &message, &output);
-        }
+        const mc_status status = invoke<false>(*binding, PluginCallKind::pre_send, binding->pre_send, &message, &output);
         if (status != MC_OK || !output_ok(output, MC_SEND_CANCEL)) continue;
         if (output.action == MC_SEND_CANCEL) return {NativePluginSdkComposeAction::cancel, {}, binding->owner_id};
         const Utf8View replaced{runtime->output[next], output.bytes};
@@ -1269,7 +1246,7 @@ NativePluginSdkComposeResult native_plugin_sdk_pre_send(NativePluginSdkRuntime* 
 
 NativePluginSdkPoll native_plugin_sdk_poll(NativePluginSdkRuntime* runtime) noexcept {
     NativePluginSdkPoll result{};
-    if (!runtime) return result;
+    if (!runtime || !runtime->enabled) return result;
     for (auto* binding : g_live) {
         if (!binding || binding->runtime != runtime || binding->phase != Phase::enabled) continue;
         if (binding->store.dirty) store_save(*binding);
@@ -1281,8 +1258,7 @@ NativePluginSdkPoll native_plugin_sdk_poll(NativePluginSdkRuntime* runtime) noex
                 // Repeats restart from now so a stalled loop never fires a burst.
                 if (timer.repeat) timer.due = now + timer.interval;
                 else reset_value(&timer);
-                Call call(*binding, PluginCallKind::timer);
-                binding->timer_handler(binding->plugin_state, binding->plugin_state_bytes, id);
+                invoke<false>(*binding, PluginCallKind::timer, binding->timer_handler, id);
             }
             if (timer.active && binding->phase == Phase::enabled && (!result.next_timer_ms || timer.due < result.next_timer_ms))
                 result.next_timer_ms = timer.due;

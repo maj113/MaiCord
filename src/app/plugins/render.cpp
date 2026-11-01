@@ -51,15 +51,17 @@ UiPluginRenderNode node_view(const NativePluginSdkSlotNode& node) noexcept {
 // Installed for the UI: cached verdicts only, never a decorator call.
 bool render_query(u64 message_id, u32 revision, UiPluginRenderDecoration* output) noexcept {
     auto* rt = application_plugins_runtime();
-    if (!output || !decorating(rt))
+    if (!output || !rt)
         return false;
+    // Cached verdicts only: an unloaded or replaced decorator bumped the cache epoch, so its entries no longer
+    // answer; the per-row path never rescans the bindings.
     NativePluginSdkRenderMessage message{};
     message.message_id = message_id;
     message.revision = revision;
     NativePluginSdkDecoration decoration{};
     if (!native_plugin_sdk_decorate(rt, message, false, &decoration))
         return false;
-    reset_value(output);
+    // The caller hands in a cleared output.
     output->visibility = decoration.visibility;
     if (output->visibility == ui_plugin_render_collapsed && revealed(message_id))
         output->visibility = ui_plugin_render_normal;
@@ -143,9 +145,10 @@ void application_plugins_render_prepare() noexcept {
     // The scene reads cached verdicts only while a decorator is loaded; with
     // none, a null query lets every row skip the lookup.
     auto* rt = application_plugins_runtime();
-    g_ui_plugin_render_query = decorating(rt) ? render_query : nullptr;
+    const bool decorated = decorating(rt);
+    g_ui_plugin_render_query = decorated ? render_query : nullptr;
     g_app.message_scene.plugin_decorations = true;
-    if (!decorating(rt) || !g_app.account_ui || application_plugins_busy()) {
+    if (!decorated || !g_app.account_ui || application_plugins_busy()) {
         g_render.pending = false;
         publish();
         return;

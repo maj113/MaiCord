@@ -42,9 +42,9 @@ constexpr u32 kind_bit(u32 kind) noexcept { return 1u << kind; }
 
 mc_status MC_CALL menus_register(void* handle, uint64_t generation, uint64_t id, uint32_t target, mc_str label,
                                  uint32_t flags) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_MENUS)) return MC_E_DENIED;
+    mc_status status{};
+    auto* binding = gate(handle, generation, MC_PERM_MENUS, &status);
+    if (!binding) return status;
     if (!id || target >= MC_MENU_TARGET_COUNT || (flags & ~(MC_MENU_ITEM_DANGER | MC_MENU_ITEM_DISABLED)) ||
         !text_ok(label, kPluginSdkMenuLabelBytes, true)) return MC_E_INVALID;
     Menu* menu = nullptr;
@@ -63,9 +63,9 @@ mc_status MC_CALL menus_register(void* handle, uint64_t generation, uint64_t id,
     return MC_OK;
 }
 mc_status MC_CALL menus_unregister(void* handle, uint64_t generation, uint64_t id) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_MENUS)) return MC_E_DENIED;
+    mc_status status{};
+    auto* binding = gate(handle, generation, MC_PERM_MENUS, &status);
+    if (!binding) return status;
     for (auto& menu : binding->menus)
         if (menu.registered && menu.id == id) {
             reset_value(&menu);
@@ -73,14 +73,6 @@ mc_status MC_CALL menus_unregister(void* handle, uint64_t generation, uint64_t i
             return MC_OK;
         }
     return MC_E_NOT_FOUND;
-}
-mc_status MC_CALL menus_set_handler(void* handle, uint64_t generation, mc_menu_fn handler) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_MENUS)) return MC_E_DENIED;
-    binding->menu_handler = handler;
-    ++binding->runtime->menu_revision;
-    return MC_OK;
 }
 
 // ---- mc.ui.slots@2 ----------------------------------------------------------------
@@ -132,7 +124,7 @@ bool read_target(const mc_slot_target* source, NativePluginSdkSlotTarget* target
 void put_node(SlotNode& out, const mc_slot_node& node) noexcept {
     out.kind = static_cast<u8>(node.kind);
     out.tone = static_cast<u8>(node.tone);
-    out.icon = node.icon.bytes ? native_plugin_sdk_icon(view(node.icon)) : kPluginSdkNoIcon;
+    out.icon = native_plugin_sdk_icon(view(node.icon));
     out.action_id = node.action_id;
     out.text_bytes = static_cast<u8>(copy_text(out.text, kSlotTextBytes, view(node.text)));
     out.tooltip_bytes = static_cast<u8>(copy_text(out.tooltip, kSlotTooltipBytes, view(node.tooltip)));
@@ -140,9 +132,9 @@ void put_node(SlotNode& out, const mc_slot_node& node) noexcept {
 }
 mc_status MC_CALL slots_set(void* handle, uint64_t generation, const mc_slot_target* source_target,
                             const mc_slot_content* source_content) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_UI_SLOTS)) return MC_E_DENIED;
+    mc_status status{};
+    auto* binding = gate(handle, generation, MC_PERM_UI_SLOTS, &status);
+    if (!binding) return status;
     NativePluginSdkSlotTarget target{};
     mc_slot_content content{};
     if (!read_target(source_target, &target) || !read_prefix(source_content, &content, offsetof(mc_slot_content, reserved)))
@@ -184,9 +176,9 @@ mc_status MC_CALL slots_set(void* handle, uint64_t generation, const mc_slot_tar
     return MC_OK;
 }
 mc_status MC_CALL slots_clear(void* handle, uint64_t generation, const mc_slot_target* source_target) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_UI_SLOTS)) return MC_E_DENIED;
+    mc_status status{};
+    auto* binding = gate(handle, generation, MC_PERM_UI_SLOTS, &status);
+    if (!binding) return status;
     NativePluginSdkSlotTarget target{};
     if (!read_target(source_target, &target)) return MC_E_INVALID;
     for (auto& entry : binding->slots)
@@ -198,9 +190,9 @@ mc_status MC_CALL slots_clear(void* handle, uint64_t generation, const mc_slot_t
     return MC_E_NOT_FOUND;
 }
 mc_status MC_CALL slots_clear_surface(void* handle, uint64_t generation, uint32_t surface) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_UI_SLOTS)) return MC_E_DENIED;
+    mc_status status{};
+    auto* binding = gate(handle, generation, MC_PERM_UI_SLOTS, &status);
+    if (!binding) return status;
     if (surface > MC_SLOT_SURFACE_COUNT) return MC_E_INVALID;
     bool changed = false;
     for (u32 i = 0; i < binding->slot_high_water; ++i) {
@@ -211,13 +203,6 @@ mc_status MC_CALL slots_clear_surface(void* handle, uint64_t generation, uint32_
         }
     }
     if (changed) ++binding->runtime->slot_revision;
-    return MC_OK;
-}
-mc_status MC_CALL slots_set_handler(void* handle, uint64_t generation, mc_slot_action_fn handler) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_UI_SLOTS)) return MC_E_DENIED;
-    binding->slot_handler = handler;
     return MC_OK;
 }
 
@@ -231,12 +216,7 @@ bool run_action(NativePluginSdkBinding& binding, mc_slot_action_fn handler, cons
     mc_popover popover{};
     popover.size = sizeof(popover);
     mc_slot_event copy = event;
-    mc_status status{};
-    {
-        Call call(binding, PluginCallKind::slot_action);
-        Gesture gesture(&runtime);
-        status = handler(binding.plugin_state, binding.plugin_state_bytes, &copy, &popover);
-    }
+    const mc_status status = invoke<true>(binding, PluginCallKind::slot_action, handler, &copy, &popover);
     runtime.popover_count = 0;
     runtime.popover_owner = 0;
     ++runtime.popover_revision;
@@ -248,19 +228,18 @@ bool run_action(NativePluginSdkBinding& binding, mc_slot_action_fn handler, cons
     const NodeLimits limits{kNodeLabelBytes, kNodeValueBytes,
                             kind_bit(MC_NODE_LABEL) | kind_bit(MC_NODE_BUTTON) | kind_bit(MC_NODE_LINK) |
                                 kind_bit(MC_NODE_SEPARATOR) | kind_bit(MC_NODE_ICON)};
-    NativePluginSdkPopoverNode nodes[kPluginSdkPopoverNodes]{};
+    // Rows are built in place: the count stays zero until every node has checked out.
     for (u32 i = 0; i < checked.node_count; ++i) {
         mc_slot_node node{};
         if (!read_node(checked.nodes, checked.node_stride, i, limits, &node)) return true;
-        auto& out = nodes[i];
+        auto& out = runtime.popover[i];
         out.kind = static_cast<u8>(node.kind);
         out.tone = static_cast<u8>(node.tone);
-        out.icon = node.icon.bytes ? native_plugin_sdk_icon(view(node.icon)) : kPluginSdkNoIcon;
+        out.icon = native_plugin_sdk_icon(view(node.icon));
         out.action_id = node.action_id;
         out.text_bytes = utf8_copy_truncated(out.text, view(node.text.bytes ? node.text : node.tooltip));
         out.value_bytes = utf8_copy_truncated(out.value, view(node.value));
     }
-    copy_bytes(runtime.popover, nodes, sizeof(nodes));
     runtime.popover_count = checked.node_count;
     runtime.popover_owner = binding.owner_id;
     runtime.popover_anchor = event;
@@ -271,48 +250,64 @@ bool run_action(NativePluginSdkBinding& binding, mc_slot_action_fn handler, cons
 // ---- mc.msg.render@1 ------------------------------------------------------------------
 
 mc_status MC_CALL render_set_decorator(void* handle, uint64_t generation, mc_render_fn decorator) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_MESSAGE_RENDER)) return MC_E_DENIED;
+    mc_status status{};
+    auto* binding = gate(handle, generation, MC_PERM_MESSAGE_RENDER, &status);
+    if (!binding) return status;
     binding->decorator = decorator;
     auto& runtime = *binding->runtime;
     ++runtime.render_epoch;
     ++runtime.render_revision;
     return MC_OK;
 }
+NativePluginSdkRenderEntry* render_find(NativePluginSdkRuntime& runtime, u64 message_id) noexcept;
 mc_status MC_CALL render_invalidate(void* handle, uint64_t generation, uint64_t channel_id, uint64_t message_id) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_MESSAGE_RENDER)) return MC_E_DENIED;
+    mc_status status{};
+    auto* binding = gate(handle, generation, MC_PERM_MESSAGE_RENDER, &status);
+    if (!binding) return status;
     auto& runtime = *binding->runtime;
     if (!message_id) {
         ++runtime.render_epoch;
         ++runtime.render_revision;
-        return MC_OK;
+    } else if (auto* entry = render_find(runtime, message_id); entry && (!channel_id || entry->channel_id == channel_id)) {
+        entry->stale = true;
+        ++runtime.render_revision;
     }
-    for (auto& entry : runtime.render)
-        if (entry.used && entry.message_id == message_id && (!channel_id || entry.channel_id == channel_id)) {
-            entry.stale = true;
-            ++runtime.render_revision;
-            return MC_OK;
-        }
     return MC_OK; // not decorated yet: the first evaluation will ask
 }
-mc_status MC_CALL render_set_action_handler(void* handle, uint64_t generation, mc_slot_action_fn handler) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_MESSAGE_RENDER)) return MC_E_DENIED;
-    binding->render_action_handler = handler;
-    return MC_OK;
-}
 
+// Decoration cache: render[0, render_count) are in use; render_index finds one by message id (linear probing at
+// most half full, backward-shift deletion).
+constexpr u32 kIndexMask = kPluginSdkRenderIndex - 1;
+static_assert(kPluginSdkRenderIndex == 1024);
+u32 render_home(u64 message_id) noexcept { return static_cast<u32>((message_id * 0x9E37'79B9'7F4A'7C15ull) >> 54); }
+u32 render_next(u32 at) noexcept { return (at + 1) & kIndexMask; }
+// The index cell holding message_id, or the empty cell where it belongs.
+u16& render_cell(NativePluginSdkRuntime& runtime, u64 message_id) noexcept {
+    u32 at = render_home(message_id);
+    while (runtime.render_index[at] && runtime.render[runtime.render_index[at] - 1].message_id != message_id)
+        at = render_next(at);
+    return runtime.render_index[at];
+}
 NativePluginSdkRenderEntry* render_find(NativePluginSdkRuntime& runtime, u64 message_id) noexcept {
-    for (auto& entry : runtime.render)
-        if (entry.used && entry.message_id == message_id) return &entry;
-    return nullptr;
+    const u16 cell = render_cell(runtime, message_id);
+    return cell ? &runtime.render[cell - 1] : nullptr;
 }
 const NativePluginSdkRenderEntry* render_find(const NativePluginSdkRuntime& runtime, u64 message_id) noexcept {
     return render_find(const_cast<NativePluginSdkRuntime&>(runtime), message_id);
+}
+// Drops the id while its entry still holds it.
+void render_index_erase(NativePluginSdkRuntime& runtime, u64 message_id) noexcept {
+    u32 hole = static_cast<u32>(&render_cell(runtime, message_id) - runtime.render_index);
+    if (!runtime.render_index[hole]) return;
+    for (u32 at = render_next(hole); runtime.render_index[at]; at = render_next(at)) {
+        const u32 home = render_home(runtime.render[runtime.render_index[at] - 1].message_id);
+        // An entry moves back into the hole unless its home lies after the hole.
+        if (((at - home) & kIndexMask) >= ((at - hole) & kIndexMask)) {
+            runtime.render_index[hole] = runtime.render_index[at];
+            hole = at;
+        }
+    }
+    runtime.render_index[hole] = 0;
 }
 bool render_current(const NativePluginSdkRuntime& runtime, const NativePluginSdkRenderEntry& entry, u32 revision) noexcept {
     return entry.revision == revision && entry.epoch == runtime.render_epoch && !entry.stale;
@@ -338,7 +333,7 @@ void put_arena_node(NativePluginSdkRuntime& runtime, NativePluginSdkRenderArenaN
     out.action_id = node.action_id;
     out.kind = static_cast<u8>(node.kind);
     out.tone = static_cast<u8>(node.tone);
-    out.icon = node.icon.bytes ? native_plugin_sdk_icon(view(node.icon)) : kPluginSdkNoIcon;
+    out.icon = native_plugin_sdk_icon(view(node.icon));
     out.text_bytes = static_cast<u16>(node.text.bytes);
     out.text_offset = arena_put(runtime, view(node.text));
     out.tooltip_bytes = static_cast<u16>(node.tooltip.bytes);
@@ -352,8 +347,12 @@ NativePluginSdkSlotNode resolve_arena_node(const NativePluginSdkRuntime& runtime
             arena_view(runtime, node.tooltip_offset, node.tooltip_bytes),
             arena_view(runtime, node.value_offset, node.value_bytes), node.icon, node.kind, node.tone};
 }
-// Validates one plugin's verdict without writing anything.
-bool decoration_ok(const mc_render_decoration& out) noexcept {
+// The checked copies of one verdict's nodes.
+struct VerdictNodes {
+    mc_slot_node badges[kPluginSdkRenderBadges], accessories[kPluginSdkRenderAccessories];
+};
+// Validates one plugin's verdict without writing anything; nodes receives the checked node copies.
+bool decoration_ok(const mc_render_decoration& out, VerdictNodes* nodes) noexcept {
     if (out.visibility > MC_RENDER_HIDDEN || out.media > MC_MEDIA_HIDE || out.name_tone > MC_TONE_ROLE) return false;
     if (!text_ok(out.collapsed_label, 64, false) || !text_ok(out.name_prefix, 32, false) ||
         !text_ok(out.name_suffix, 32, false) || !text_ok(out.content, kPluginSdkRenderContentBytes, false, true))
@@ -364,14 +363,10 @@ bool decoration_ok(const mc_render_decoration& out) noexcept {
     const NodeLimits badge{kSlotTextBytes, 0, kind_bit(MC_NODE_BADGE) | kind_bit(MC_NODE_ICON)};
     const NodeLimits accessory{kNodeLabelBytes, kNodeValueBytes,
                                kind_bit(MC_NODE_LABEL) | kind_bit(MC_NODE_BUTTON) | kind_bit(MC_NODE_LINK)};
-    for (u32 i = 0; i < out.badge_count; ++i) {
-        mc_slot_node node{};
-        if (!read_node(out.badges, out.badge_stride, i, badge, &node)) return false;
-    }
-    for (u32 i = 0; i < out.accessory_count; ++i) {
-        mc_slot_node node{};
-        if (!read_node(out.accessories, out.accessory_stride, i, accessory, &node)) return false;
-    }
+    for (u32 i = 0; i < out.badge_count; ++i)
+        if (!read_node(out.badges, out.badge_stride, i, badge, &nodes->badges[i])) return false;
+    for (u32 i = 0; i < out.accessory_count; ++i)
+        if (!read_node(out.accessories, out.accessory_stride, i, accessory, &nodes->accessories[i])) return false;
     return true;
 }
 // Appends text to a merged prefix/suffix (joined with a space, <= 96 bytes).
@@ -387,9 +382,9 @@ void merge_text(NativePluginSdkRuntime& runtime, u32* offset, u16* bytes, Utf8Vi
     *offset = arena_put(runtime, {joined, at});
     *bytes = static_cast<u16>(at);
 }
+// output arrives cleared (native_plugin_sdk_decorate).
 void fill_output(const NativePluginSdkRuntime& runtime, const NativePluginSdkRenderEntry& entry,
                  NativePluginSdkDecoration* output) noexcept {
-    reset_value(output);
     output->visibility = entry.visibility;
     output->media = entry.media;
     output->name_tone = entry.name_tone;
@@ -414,9 +409,12 @@ bool entry_decorated(const NativePluginSdkRenderEntry& entry) noexcept {
 } // namespace
 
 namespace plugin_sdk {
-const mc_menus_v2 kMenus{sizeof(mc_menus_v2), 2, menus_register, menus_unregister, menus_set_handler};
-const mc_slots_v2 kSlots{sizeof(mc_slots_v2), 2, slots_set, slots_clear, slots_clear_surface, slots_set_handler};
-const mc_render_v1 kRender{sizeof(mc_render_v1), 1, render_set_decorator, render_invalidate, render_set_action_handler};
+const mc_menus_v2 kMenus{sizeof(mc_menus_v2), 2, menus_register, menus_unregister,
+                         set_handler<&NativePluginSdkBinding::menu_handler, MC_PERM_MENUS, &NativePluginSdkRuntime::menu_revision>};
+const mc_slots_v2 kSlots{sizeof(mc_slots_v2), 2, slots_set, slots_clear, slots_clear_surface,
+                         set_handler<&NativePluginSdkBinding::slot_handler, MC_PERM_UI_SLOTS>};
+const mc_render_v1 kRender{sizeof(mc_render_v1), 1, render_set_decorator, render_invalidate,
+                           set_handler<&NativePluginSdkBinding::render_action_handler, MC_PERM_MESSAGE_RENDER>};
 
 void surfaces_reset(NativePluginSdkBinding& binding) noexcept {
     auto& runtime = *binding.runtime;
@@ -450,6 +448,7 @@ void surfaces_reset(NativePluginSdkBinding& binding) noexcept {
 u32 native_plugin_sdk_menu_items(const NativePluginSdkRuntime& runtime, u32 target,
                                  Slice<NativePluginSdkMenuItem> output) noexcept {
     u32 count = 0;
+    if (!runtime.enabled) return count;
     for (const auto* binding : g_live) {
         if (!usable(binding, runtime) || !permitted(*binding, MC_PERM_MENUS) || !binding->menu_handler) continue;
         for (const auto& menu : binding->menus)
@@ -461,9 +460,8 @@ u32 native_plugin_sdk_menu_items(const NativePluginSdkRuntime& runtime, u32 targ
 
 bool native_plugin_sdk_menu_activate(NativePluginSdkRuntime* runtime, u64 owner_id, u64 item_id,
                                      const NativePluginSdkMenuContext& context) noexcept {
-    auto* binding = runtime ? binding_for(*runtime, owner_id) : nullptr;
-    if (!binding || !permitted(*binding, MC_PERM_MENUS) ||
-        !callable(*binding, reinterpret_cast<const void*>(binding->menu_handler))) return false;
+    auto* binding = handler_binding<&NativePluginSdkBinding::menu_handler>(runtime, owner_id, MC_PERM_MENUS);
+    if (!binding) return false;
     const Menu* menu = nullptr;
     for (const auto& candidate : binding->menus)
         if (candidate.registered && candidate.id == item_id && candidate.target == context.target) menu = &candidate;
@@ -486,19 +484,13 @@ bool native_plugin_sdk_menu_activate(NativePluginSdkRuntime* runtime, u64 owner_
     copy.flags = context.flags & (MC_MENU_OWN | MC_MENU_PRIVATE | MC_MENU_ANIMATED);
     copy.url = {runtime->input, url_bytes};
     copy.text = {runtime->input + url_bytes, text_bytes};
-    mc_status status{};
-    {
-        Call call(*binding, PluginCallKind::menu);
-        Gesture gesture(runtime);
-        status = binding->menu_handler(binding->plugin_state, binding->plugin_state_bytes, &copy);
-    }
-    return status == MC_OK;
+    return invoke<true>(*binding, PluginCallKind::menu, binding->menu_handler, &copy) == MC_OK;
 }
 
 u32 native_plugin_sdk_slots(const NativePluginSdkRuntime& runtime, NativePluginSdkSlotTarget target,
                            Slice<NativePluginSdkSlotNode> output) noexcept {
     NativePluginSdkSlotTarget normal{};
-    if (!normalize_target(target, &normal)) return 0;
+    if (!runtime.enabled || !normalize_target(target, &normal)) return 0;
     u32 count = 0;
     for (const auto* binding : g_live) {
         if (!usable(binding, runtime)) continue;
@@ -516,11 +508,21 @@ u32 native_plugin_sdk_slots(const NativePluginSdkRuntime& runtime, NativePluginS
     return count;
 }
 
+u32 native_plugin_sdk_slot_surfaces(const NativePluginSdkRuntime& runtime) noexcept {
+    u32 surfaces = 0;
+    if (!runtime.enabled) return surfaces;
+    for (const auto* binding : g_live)
+        if (usable(binding, runtime))
+            for (u32 e = 0; e < binding->slot_high_water; ++e)
+                if (binding->slots[e].node_count) surfaces |= 1u << binding->slots[e].surface;
+    return surfaces;
+}
+
 bool native_plugin_sdk_slot_action(NativePluginSdkRuntime* runtime, u64 owner, NativePluginSdkSlotTarget target,
                                   u64 action_id) noexcept {
-    auto* binding = runtime && action_id ? binding_for(*runtime, owner) : nullptr;
-    if (!binding || !permitted(*binding, MC_PERM_UI_SLOTS) ||
-        !callable(*binding, reinterpret_cast<const void*>(binding->slot_handler))) return false;
+    auto* binding = action_id ? handler_binding<&NativePluginSdkBinding::slot_handler>(runtime, owner, MC_PERM_UI_SLOTS)
+                              : nullptr;
+    if (!binding) return false;
     NativePluginSdkSlotTarget normal{};
     if (!normalize_target(target, &normal)) return false;
     bool found = false;
@@ -540,16 +542,17 @@ bool native_plugin_sdk_slot_action(NativePluginSdkRuntime* runtime, u64 owner, N
 
 bool native_plugin_sdk_popover_action(NativePluginSdkRuntime* runtime, u64 revision, u32 index) noexcept {
     if (!runtime || revision != runtime->popover_revision || index >= runtime->popover_count) return false;
-    const auto node = runtime->popover[index];
-    auto* binding = binding_for(*runtime, runtime->popover_owner);
-    if (!binding || node.kind != MC_NODE_BUTTON || !node.action_id) return false;
+    const auto& node = runtime->popover[index];
+    if (node.kind != MC_NODE_BUTTON || !node.action_id) return false;
     const bool from_render = runtime->popover_from_render;
-    const auto handler = from_render ? binding->render_action_handler : binding->slot_handler;
-    const u64 permission = from_render ? MC_PERM_MESSAGE_RENDER : MC_PERM_UI_SLOTS;
-    if (!permitted(*binding, permission) || !callable(*binding, reinterpret_cast<const void*>(handler))) return false;
+    auto* binding = from_render ? handler_binding<&NativePluginSdkBinding::render_action_handler>(
+                                      runtime, runtime->popover_owner, MC_PERM_MESSAGE_RENDER)
+                                : handler_binding<&NativePluginSdkBinding::slot_handler>(
+                                      runtime, runtime->popover_owner, MC_PERM_UI_SLOTS);
+    if (!binding) return false;
     mc_slot_event event = runtime->popover_anchor;
     event.action_id = node.action_id;
-    return run_action(*binding, handler, event, from_render);
+    return run_action(*binding, from_render ? binding->render_action_handler : binding->slot_handler, event, from_render);
 }
 
 void native_plugin_sdk_popover_clear(NativePluginSdkRuntime* runtime) noexcept {
@@ -572,15 +575,15 @@ u16 native_plugin_sdk_icon(Utf8View name) noexcept {
 }
 
 bool native_plugin_sdk_has_decorators(const NativePluginSdkRuntime& runtime) noexcept {
+    if (!runtime.enabled) return false;
     for (const auto* binding : g_live)
         if (decorates(binding, runtime)) return true;
     return false;
 }
 
 bool native_plugin_sdk_decoration_current(const NativePluginSdkRuntime& runtime, u64 message_id, u32 revision) noexcept {
-    if (!native_plugin_sdk_has_decorators(runtime)) return true;
     const auto* entry = render_find(runtime, message_id);
-    return entry && render_current(runtime, *entry, revision);
+    return (entry && render_current(runtime, *entry, revision)) || !native_plugin_sdk_has_decorators(runtime);
 }
 
 bool native_plugin_sdk_decorate(NativePluginSdkRuntime* runtime, const NativePluginSdkRenderMessage& message, bool evaluate,
@@ -593,27 +596,31 @@ bool native_plugin_sdk_decorate(NativePluginSdkRuntime* runtime, const NativePlu
         fill_output(*runtime, *entry, output);
         return true;
     }
-    if (!evaluate || !native_plugin_sdk_has_decorators(*runtime)) return false;
     u32 decorators = 0;
-    for (const auto* binding : g_live)
-        decorators += decorates(binding, *runtime);
+    if (evaluate && runtime->enabled)
+        for (const auto* binding : g_live) decorators += decorates(binding, *runtime);
+    if (!decorators) return false;
     if (runtime->render_arena_used + decorators * kRenderPluginBytes > kPluginSdkRenderArenaBytes) {
         // Arena exhausted: start over; every message is decorated again on demand.
-        for (auto& existing : runtime->render) existing.used = false;
+        runtime->render_count = 0;
+        clear_bytes(runtime->render_index, sizeof(runtime->render_index));
         runtime->render_arena_used = 0;
         ++runtime->render_revision;
         entry = nullptr;
     }
-    if (!entry)
-        for (auto& candidate : runtime->render)
-            if (!candidate.used) { entry = &candidate; break; }
-    if (!entry) {
-        entry = &runtime->render[0];
-        for (auto& candidate : runtime->render)
-            if (candidate.stamp < entry->stamp) entry = &candidate;
+    const bool fresh = !entry;
+    if (fresh) {
+        if (runtime->render_count < kPluginSdkRenderEntries) {
+            entry = &runtime->render[runtime->render_count++];
+        } else {
+            // Full: replace the least recently decorated message.
+            entry = &runtime->render[0];
+            for (auto& candidate : runtime->render)
+                if (candidate.stamp < entry->stamp) entry = &candidate;
+            render_index_erase(*runtime, entry->message_id);
+        }
     }
     NativePluginSdkRenderEntry merged{};
-    merged.used = true;
     merged.message_id = message.message_id;
     merged.channel_id = message.channel_id;
     merged.revision = message.revision;
@@ -642,14 +649,11 @@ bool native_plugin_sdk_decorate(NativePluginSdkRuntime* runtime, const NativePlu
         in.author_name = {runtime->input + content_bytes, author_bytes};
         mc_render_decoration out{};
         out.size = sizeof(out);
-        mc_status status{};
-        {
-            Call call(*binding, PluginCallKind::decorate);
-            status = binding->decorator(binding->plugin_state, binding->plugin_state_bytes, &in, &out);
-        }
+        const mc_status status = invoke<false>(*binding, PluginCallKind::decorate, binding->decorator, &in, &out);
         mc_render_decoration checked{};
+        VerdictNodes nodes;
         if (status != MC_OK || !read_prefix(&out, &checked, offsetof(mc_render_decoration, badges)) ||
-            !decoration_ok(checked)) continue;
+            !decoration_ok(checked, &nodes)) continue;
         if (checked.visibility > merged.visibility) {
             merged.visibility = static_cast<u8>(checked.visibility);
             if (checked.collapsed_label.bytes) {
@@ -667,22 +671,14 @@ bool native_plugin_sdk_decorate(NativePluginSdkRuntime* runtime, const NativePlu
             merged.content_bytes = static_cast<u16>(checked.content.bytes);
             merged.content_offset = arena_put(*runtime, view(checked.content));
         }
-        const NodeLimits badge{kSlotTextBytes, 0, kind_bit(MC_NODE_BADGE) | kind_bit(MC_NODE_ICON)};
-        for (u32 i = 0; i < checked.badge_count && merged.badge_count < kPluginSdkRenderMergedBadges; ++i) {
-            mc_slot_node node{};
-            read_node(checked.badges, checked.badge_stride, i, badge, &node);
-            put_arena_node(*runtime, merged.badges[merged.badge_count++], binding->owner_id, node);
-        }
-        const NodeLimits accessory{kNodeLabelBytes, kNodeValueBytes,
-                                   kind_bit(MC_NODE_LABEL) | kind_bit(MC_NODE_BUTTON) | kind_bit(MC_NODE_LINK)};
-        for (u32 i = 0; i < checked.accessory_count && merged.accessory_count < kPluginSdkRenderMergedAccessories; ++i) {
-            mc_slot_node node{};
-            read_node(checked.accessories, checked.accessory_stride, i, accessory, &node);
-            put_arena_node(*runtime, merged.accessories[merged.accessory_count++], binding->owner_id, node);
-        }
+        for (u32 i = 0; i < checked.badge_count && merged.badge_count < kPluginSdkRenderMergedBadges; ++i)
+            put_arena_node(*runtime, merged.badges[merged.badge_count++], binding->owner_id, nodes.badges[i]);
+        for (u32 i = 0; i < checked.accessory_count && merged.accessory_count < kPluginSdkRenderMergedAccessories; ++i)
+            put_arena_node(*runtime, merged.accessories[merged.accessory_count++], binding->owner_id, nodes.accessories[i]);
     }
     merged.stamp = ++runtime->render_stamp;
     copy_value(entry, merged);
+    if (fresh) render_cell(*runtime, message.message_id) = static_cast<u16>(entry - runtime->render + 1);
     ++runtime->render_revision;
     if (!entry_decorated(*entry)) return false;
     fill_output(*runtime, *entry, output);
@@ -691,9 +687,9 @@ bool native_plugin_sdk_decorate(NativePluginSdkRuntime* runtime, const NativePlu
 
 bool native_plugin_sdk_render_action(NativePluginSdkRuntime* runtime, u64 owner, u64 channel_id, u64 message_id,
                                      u64 action_id) noexcept {
-    auto* binding = runtime && action_id ? binding_for(*runtime, owner) : nullptr;
-    if (!binding || !permitted(*binding, MC_PERM_MESSAGE_RENDER) ||
-        !callable(*binding, reinterpret_cast<const void*>(binding->render_action_handler))) return false;
+    auto* binding = action_id ? handler_binding<&NativePluginSdkBinding::render_action_handler>(
+                                    runtime, owner, MC_PERM_MESSAGE_RENDER) : nullptr;
+    if (!binding) return false;
     const auto* entry = render_find(*runtime, message_id);
     if (!entry || entry->epoch != runtime->render_epoch || (channel_id && entry->channel_id != channel_id)) return false;
     bool found = false;

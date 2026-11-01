@@ -13,6 +13,9 @@
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
+static_assert(kUiPluginSlotMessageAccessory == MC_SLOT_MESSAGE_ACCESSORY && kUiPluginSlotGuildRail == MC_SLOT_GUILD_RAIL &&
+              kUiPluginSlotMessageHover == MC_SLOT_MESSAGE_HOVER && MC_SLOT_SURFACE_COUNT <= 32,
+              "the UI and the SDK number surfaces alike; the published mask has one bit each");
 namespace {
 
 ApplicationPluginsSdk* owner() noexcept { return g_app.plugins ? g_app.plugins->sdk : nullptr; }
@@ -52,7 +55,7 @@ u32 slot_query(u32 surface, u64 channel_id, u64 message_id, u64 user_id, u64 gui
                Slice<UiPluginSlotNode> output) noexcept {
     const auto* rt = application_plugins_runtime();
     if (!rt || !output.data) return 0;
-    NativePluginSdkSlotNode nodes[16]{};
+    NativePluginSdkSlotNode nodes[16];
     const u32 count = native_plugin_sdk_slots(*rt, {surface, channel_id, message_id, user_id, guild_id},
                                              {nodes, minimum(output.count, 16u)});
     for (u32 i = 0; i < count; ++i)
@@ -73,19 +76,16 @@ bool edit_save(TextFormOwnerKey key, Utf8View text) noexcept {
     application_settings_refresh_pages();
     return result == NativePluginError::none;
 }
+
 } // namespace
 
-NativePluginSdkRuntime* application_plugins_runtime() noexcept {
-    auto* sdk = owner();
-    return sdk ? &sdk->runtime : nullptr;
-}
-
-bool application_plugins_sdk_open(ApplicationPlugins& plugins, PluginCallMarker* leftover) noexcept {
-    if (leftover) reset_value(leftover);
-    if (plugins.sdk) return true;
+// The runtime and its call marker exist from the first module load, notice or approval to the owner's release;
+// startup with nothing saved never allocates them.
+ApplicationPluginsSdk* application_plugins_sdk_acquire(ApplicationPlugins& plugins) noexcept {
+    if (plugins.sdk) return plugins.sdk;
     auto* sdk = static_cast<ApplicationPluginsSdk*>(
         VirtualAlloc(nullptr, sizeof(ApplicationPluginsSdk), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!sdk) return false;
+    if (!sdk) return nullptr;
     sdk->runtime.ledger = &sdk->ledger;
     application_plugins_read_install(sdk->runtime);
     application_plugins_actions_install(sdk->runtime);
@@ -94,12 +94,23 @@ bool application_plugins_sdk_open(ApplicationPlugins& plugins, PluginCallMarker*
     // %LOCALAPPDATA%\MaiCord\plugin-data, leaving room for each plugin's
     // "\<owner hex>\store.bin" below it.
     sdk->runtime.data_directory_characters = data_path(sdk->runtime.data_directory, 512 - 40, L"plugin-data").length;
-    // Only read a marker here; the marker file exists only while plugins run.
-    wchar_t marker[1024];
-    if (plugin_call_ledger_default_path(marker)) plugin_call_ledger_peek(marker, leftover);
     plugins.sdk = sdk;
     g_ui_plugin_slot_query = slot_query;
-    return true;
+    g_ui_plugin_slot_surfaces = 0;
+    return sdk;
+}
+
+
+NativePluginSdkRuntime* application_plugins_runtime() noexcept {
+    auto* sdk = owner();
+    return sdk ? &sdk->runtime : nullptr;
+}
+
+bool application_plugins_marker_peek(PluginCallMarker* leftover) noexcept {
+    if (leftover) reset_value(leftover);
+    // Only read a marker here; the marker file exists only while plugins run.
+    wchar_t marker[1024];
+    return plugin_call_ledger_default_path(marker) && plugin_call_ledger_peek(marker, leftover);
 }
 
 void application_plugins_sdk_close(ApplicationPlugins& plugins) noexcept {
@@ -112,19 +123,21 @@ void application_plugins_sdk_close(ApplicationPlugins& plugins) noexcept {
     }
     plugin_call_ledger_close(&sdk->ledger);
     g_ui_plugin_slot_query = nullptr;
+    g_ui_plugin_slot_surfaces = ~0u;
     plugins.sdk = nullptr;
     VirtualFree(sdk, 0, MEM_RELEASE);
 }
 
 void application_plugins_sdk_bind_host(ApplicationPlugins& plugins, NativePluginHost* host) noexcept {
-    if (!host || !plugins.sdk) return;
-    if (!plugins.sdk->ledger_open) plugins.sdk->ledger_open = plugin_call_ledger_open_default(&plugins.sdk->ledger, nullptr);
-    host->sdk = &plugins.sdk->runtime;
-    host->ledger = &plugins.sdk->ledger;
+    auto* sdk = host ? application_plugins_sdk_acquire(plugins) : nullptr;
+    if (!sdk) return;
+    if (!sdk->ledger_open) sdk->ledger_open = plugin_call_ledger_open_default(&sdk->ledger, nullptr);
+    host->sdk = &sdk->runtime;
+    host->ledger = &sdk->ledger;
 }
 
 void application_plugins_set_notice(ApplicationPlugins& plugins, Utf8View first, Utf8View second) noexcept {
-    auto* sdk = plugins.sdk;
+    auto* sdk = application_plugins_sdk_acquire(plugins);
     if (!sdk) return;
     u32 at = 0;
     const Utf8View parts[]{first, second};
@@ -145,6 +158,7 @@ void application_plugins_sdk_poll(ApplicationPlugins& plugins) noexcept {
     sdk->events_pending = polled.events_pending;
     if (sdk->slot_revision != sdk->runtime.slot_revision) {
         sdk->slot_revision = sdk->runtime.slot_revision;
+        g_ui_plugin_slot_surfaces = native_plugin_sdk_slot_surfaces(sdk->runtime);
         application_plugins_surfaces_changed();
         application_request_frame();
     }

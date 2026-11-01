@@ -40,11 +40,19 @@ struct UiPluginSlotNode {
 using UiPluginSlotQuery = u32 (*)(u32 surface, u64 channel_id, u64 message_id, u64 user_id, u64 guild_id,
                                   Slice<UiPluginSlotNode> output) noexcept;
 inline UiPluginSlotQuery g_ui_plugin_slot_query = nullptr;
+// Bit (1 << surface) for each surface the application holds plugin nodes for; a clear bit skips the query.
+// All set until the application publishes it.
+inline u32 g_ui_plugin_slot_surfaces = ~0u;
 
+// Whether a query is installed and the application holds nodes for the surface: row scenes test this before
+// they measure anything for a plugin badge.
+inline bool ui_plugin_slot_surface_active(u32 surface) noexcept {
+    return g_ui_plugin_slot_query && (g_ui_plugin_slot_surfaces & (1u << surface));
+}
 inline u32 ui_plugin_slots(u32 surface, u64 channel_id, u64 message_id, u64 user_id, u64 guild_id,
                            Slice<UiPluginSlotNode> output) noexcept {
-    return g_ui_plugin_slot_query ? g_ui_plugin_slot_query(surface, channel_id, message_id, user_id, guild_id, output)
-                                  : 0;
+    return ui_plugin_slot_surface_active(surface)
+               ? g_ui_plugin_slot_query(surface, channel_id, message_id, user_id, guild_id, output) : 0;
 }
 inline u32 ui_plugin_slots(u32 surface, u64 channel_id, u64 message_id, u64 user_id,
                            Slice<UiPluginSlotNode> output) noexcept {
@@ -84,7 +92,7 @@ struct UiPluginSlotBadge {
 inline bool ui_plugin_slot_badge(u32 surface, u64 channel_id, u64 message_id, u64 user_id, UiWidgetHandle owner,
                                  UiPluginSlotBadge* out) noexcept {
     reset_value(out);
-    UiPluginSlotNode nodes[4]{};
+    UiPluginSlotNode nodes[4];
     const u32 count = ui_plugin_slots(surface, channel_id, message_id, user_id, {nodes, 4});
     for (u32 i = 0; i < count; ++i) {
         const auto& node = nodes[i];
@@ -105,7 +113,7 @@ inline bool ui_plugin_slot_badge(u32 surface, u64 channel_id, u64 message_id, u6
 // Toolbar surfaces (composer) draw buttons and icons as square controls;
 // labels and badges have no room there. Plugin order, at most output.count.
 inline u32 ui_plugin_slot_toolbar(u32 surface, Slice<UiPluginSlotNode> output) noexcept {
-    UiPluginSlotNode nodes[16]{};
+    UiPluginSlotNode nodes[16];
     const u32 count = ui_plugin_slots(surface, 0, 0, 0, {nodes, 16});
     u32 used = 0;
     for (u32 i = 0; i < count && used < output.count; ++i)
@@ -175,7 +183,7 @@ inline constexpr float kUiPluginSlotCornerExtent = 16;
 inline bool ui_plugin_slot_corner(u32 surface, u64 guild_id, UiRect icon, UiPluginSlotCorner* out) noexcept {
     reset_value(out);
     if (!guild_id || !ui_rect_has_area(icon)) return false;
-    UiPluginSlotNode nodes[4]{};
+    UiPluginSlotNode nodes[4];
     const u32 count = ui_plugin_slots(surface, 0, 0, 0, guild_id, {nodes, 4});
     for (u32 i = 0; i < count; ++i) {
         const auto& node = nodes[i];
@@ -220,7 +228,7 @@ inline u32 ui_plugin_slot_account_buttons(Slice<UiPluginSlotNode> output) noexce
 }
 // Extra width the account name gives up to the plugin buttons.
 inline float ui_plugin_slot_account_width() noexcept {
-    UiPluginSlotNode nodes[kUiPluginSlotAccountButtons]{};
+    UiPluginSlotNode nodes[kUiPluginSlotAccountButtons];
     return kUiPluginSlotAccountButtonStride * static_cast<float>(ui_plugin_slot_account_buttons({nodes, kUiPluginSlotAccountButtons}));
 }
 

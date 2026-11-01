@@ -86,7 +86,7 @@ ApplicationPlugins* ensure() noexcept {
         // A marker left inside a plugin call means MaiCord exited during it.
         // Keep that plugin off until the user turns it on again.
         PluginCallMarker leftover{};
-        if (application_plugins_sdk_open(plugins, &leftover) && leftover.present) {
+        if (application_plugins_marker_peek(&leftover) && leftover.present) {
             log_u64(LogLevel::warning, "plugins", "exited_during_call_owner", leftover.owner_id);
             NativePluginPreferences flagged = plugins.preferences;
             if (native_plugin_preferences_set_flags(&flagged, leftover.owner_id, native_plugin_preference_crashed)) {
@@ -598,7 +598,7 @@ bool approval_save(TextFormOwnerKey key, Utf8View) noexcept {
 }
 // Lists what an ABI-5 plugin asks for and enables it only after the user agrees.
 bool request_approval(ApplicationPlugins& plugins, u32 index, u64 revision) noexcept {
-    auto* sdk = plugins.sdk;
+    auto* sdk = application_plugins_sdk_acquire(plugins);
     if (!sdk) return false;
     const auto& manifest = plugins.catalog->catalog.entries[index].manifest;
     TextBank text{sdk->approval_text, sizeof(sdk->approval_text), 0};

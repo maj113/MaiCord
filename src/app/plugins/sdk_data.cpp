@@ -14,9 +14,8 @@ using namespace plugin_sdk;
 // ---- mc.read@2 ----------------------------------------------------------------------
 
 const NativePluginSdkReadSource* source_for(void* handle, u64 generation, u64 permission, mc_status* status) noexcept {
-    auto* binding = active(handle, generation);
-    *status = !binding ? MC_E_INACTIVE : !permitted(*binding, permission) ? MC_E_DENIED : MC_OK;
-    return *status == MC_OK ? &binding->runtime->read : nullptr;
+    auto* binding = gate(handle, generation, permission, status);
+    return binding ? &binding->runtime->read : nullptr;
 }
 template <typename T, typename Fill> mc_status read_into(T* info, Fill fill) noexcept {
     if (!info) return MC_E_INVALID;
@@ -76,8 +75,9 @@ mc_status MC_CALL read_member(void* handle, uint64_t generation, uint64_t guild,
     return read_into(info, [&](mc_member_info* value) { return read->member && read->member(read->context, guild, user, value); });
 }
 mc_status MC_CALL read_user(void* handle, uint64_t generation, uint64_t user, mc_user_info* info) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
+    mc_status status{};
+    auto* binding = gate(handle, generation, 0, &status);
+    if (!binding) return status;
     const auto& read = binding->runtime->read;
     if (!user) return MC_E_INVALID;
     if (!permitted(*binding, MC_PERM_READ_MEMBERS)) {
@@ -172,11 +172,11 @@ u64 list_permission(u32 list) noexcept {
 }
 mc_status MC_CALL read_list(void* handle, uint64_t generation, uint32_t list, uint64_t scope, uint32_t cursor,
                             uint64_t* ids, uint32_t capacity, uint32_t* count, uint32_t* next) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
+    mc_status status{};
     const u64 permission = list_permission(list);
+    auto* binding = gate(handle, generation, permission, &status);
+    if (!binding) return status;
     if (!permission) return MC_E_INVALID;
-    if (!permitted(*binding, permission)) return MC_E_DENIED;
     if (!count || !next || (capacity && !ids)) return MC_E_INVALID;
     *count = 0;
     *next = 0;
@@ -192,8 +192,9 @@ mc_status MC_CALL read_list(void* handle, uint64_t generation, uint32_t list, ui
     return MC_OK;
 }
 mc_status MC_CALL read_revisions(void* handle, uint64_t generation, mc_read_revisions* revisions) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
+    mc_status status{};
+    auto* binding = gate(handle, generation, 0, &status);
+    if (!binding) return status;
     const auto& read = binding->runtime->read;
     mc_read_revisions value{};
     value.size = sizeof(value);
@@ -232,8 +233,9 @@ u64 event_permission(u32 kind) noexcept {
 }
 constexpr u64 kEventKindsAll = (1ull << MC_EVENT_KIND_COUNT) - 1;
 mc_status MC_CALL events_subscribe(void* handle, uint64_t generation, uint64_t kinds, mc_event_fn handler) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
+    mc_status status{};
+    auto* binding = gate(handle, generation, 0, &status);
+    if (!binding) return status;
     if (kinds & ~kEventKindsAll) return MC_E_INVALID;
     for (u32 kind = 0; kind < MC_EVENT_KIND_COUNT; ++kind)
         if ((kinds & MC_EVENT_MASK(kind)) && !permitted(*binding, event_permission(kind))) return MC_E_DENIED;
@@ -288,11 +290,12 @@ bool take(NativePluginSdkBinding& binding, BucketKind kind) noexcept {
     return true;
 }
 NativePluginSdkBinding* action_binding(void* handle, u64 generation, u64 permission, bool gesture, mc_status* status) noexcept {
-    auto* binding = active(handle, generation);
-    *status = !binding ? MC_E_INACTIVE : !permitted_all(*binding, permission) ? MC_E_DENIED :
-              binding->phase != Phase::enabled ? MC_E_INACTIVE :
-              gesture && !binding->runtime->gesture_depth ? MC_E_INACTIVE : MC_OK;
-    return *status == MC_OK ? binding : nullptr;
+    auto* binding = gate(handle, generation, permission, status);
+    if (binding && (binding->phase != Phase::enabled || (gesture && !binding->runtime->gesture_depth))) {
+        *status = MC_E_INACTIVE;
+        return nullptr;
+    }
+    return binding;
 }
 // "name:id" custom emoji or a Unicode emoji.
 bool parse_emoji(mc_str emoji, u64* id, Utf8View* name) noexcept {
@@ -515,14 +518,6 @@ mc_status MC_CALL action_open_modal(void* handle, uint64_t generation, const mc_
     if (opened == MC_OK) binding->modal_id = modal.modal_id ? modal.modal_id : ~0ull;
     return opened;
 }
-mc_status MC_CALL action_set_modal_handler(void* handle, uint64_t generation, mc_modal_fn handler) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_NOTIFY)) return MC_E_DENIED;
-    binding->modal_handler = handler;
-    return MC_OK;
-}
-
 // ---- mc.fx@1 ---------------------------------------------------------------------------
 
 Effect* find_effect(NativePluginSdkBinding& binding, u64 id) noexcept {
@@ -531,9 +526,9 @@ Effect* find_effect(NativePluginSdkBinding& binding, u64 id) noexcept {
     return nullptr;
 }
 mc_status MC_CALL fx_register(void* handle, uint64_t generation, const mc_fx_effect* source) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_EFFECTS)) return MC_E_DENIED;
+    mc_status status{};
+    auto* binding = gate(handle, generation, MC_PERM_EFFECTS, &status);
+    if (!binding) return status;
     mc_fx_effect effect{};
     if (!read_prefix(source, &effect, offsetof(mc_fx_effect, parameter_count)) || !effect.effect_id ||
         !text_ok(effect.name, kPluginSdkEffectNameBytes, true) || !effect.bytecode || !effect.bytecode_bytes ||
@@ -561,9 +556,9 @@ mc_status MC_CALL fx_register(void* handle, uint64_t generation, const mc_fx_eff
     return MC_OK;
 }
 mc_status MC_CALL fx_unregister(void* handle, uint64_t generation, uint64_t id) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_EFFECTS)) return MC_E_DENIED;
+    mc_status status{};
+    auto* binding = gate(handle, generation, MC_PERM_EFFECTS, &status);
+    if (!binding) return status;
     Effect* effect = find_effect(*binding, id);
     if (!effect) return MC_E_NOT_FOUND;
     effect->registered = false;
@@ -572,9 +567,9 @@ mc_status MC_CALL fx_unregister(void* handle, uint64_t generation, uint64_t id) 
     return MC_OK;
 }
 mc_status MC_CALL fx_parameters(void* handle, uint64_t generation, uint64_t id, const float* values, uint32_t count) {
-    auto* binding = active(handle, generation);
-    if (!binding) return MC_E_INACTIVE;
-    if (!permitted(*binding, MC_PERM_EFFECTS)) return MC_E_DENIED;
+    mc_status status{};
+    auto* binding = gate(handle, generation, MC_PERM_EFFECTS, &status);
+    if (!binding) return status;
     if (count > MC_FX_PARAMETERS || (count && !values)) return MC_E_INVALID;
     float copy[MC_FX_PARAMETERS]{};
     copy_bytes(copy, values, count * 4);
@@ -598,7 +593,7 @@ const mc_events_v1 kEvents{sizeof(mc_events_v1), 1, events_subscribe};
 const mc_actions_v1 kActions{sizeof(mc_actions_v1), 1, action_send, action_edit, action_react, action_mark_read,
                              action_custom_status, action_activity, action_open_channel, action_open_profile,
                              action_open_page, action_copy, action_open_url, action_notice, action_open_modal,
-                             action_set_modal_handler};
+                             set_handler<&NativePluginSdkBinding::modal_handler, MC_PERM_NOTIFY>};
 const mc_fx_v1 kFx{sizeof(mc_fx_v1), 1, fx_register, fx_unregister, fx_parameters};
 
 void data_reset(NativePluginSdkBinding& binding) noexcept {
@@ -625,13 +620,14 @@ void data_reset(NativePluginSdkBinding& binding) noexcept {
 
 u64 native_plugin_sdk_event_interest(const NativePluginSdkRuntime& runtime) noexcept {
     u64 interest = 0;
+    if (!runtime.enabled) return interest;
     for (const auto* binding : g_live)
         if (usable(binding, runtime) && binding->event_handler) interest |= binding->event_kinds;
     return interest;
 }
 
 bool native_plugin_sdk_event_push(NativePluginSdkRuntime* runtime, const NativePluginSdkEvent& event) noexcept {
-    if (!runtime || event.kind >= MC_EVENT_KIND_COUNT ||
+    if (!runtime || !runtime->enabled || event.kind >= MC_EVENT_KIND_COUNT ||
         !(native_plugin_sdk_event_interest(*runtime) & MC_EVENT_MASK(event.kind))) return false;
     const u32 text_bytes = event.text.data ? utf8_truncated_length(event.text, kPluginSdkEventContentBytes) : 0;
     const u32 name_bytes = event.name.data ? utf8_truncated_length(event.name, 128) : 0;
@@ -663,7 +659,7 @@ bool native_plugin_sdk_event_push(NativePluginSdkRuntime* runtime, const NativeP
 }
 
 bool native_plugin_sdk_event_deliver(NativePluginSdkRuntime* runtime) noexcept {
-    if (!runtime) return false;
+    if (!runtime || !runtime->enabled) return false;
     bool pending = false;
     u64 oldest = runtime->event_head;
     for (auto* binding : g_live) {
@@ -710,8 +706,7 @@ bool native_plugin_sdk_event_deliver(NativePluginSdkRuntime* runtime) noexcept {
                 ++binding->event_next;
             }
             if (!count) break;
-            Call call_scope(*binding, PluginCallKind::event);
-            binding->event_handler(binding->plugin_state, binding->plugin_state_bytes, batch, count, sizeof(mc_event));
+            invoke<false>(*binding, PluginCallKind::event, binding->event_handler, batch, count, static_cast<u32>(sizeof(mc_event)));
         }
         if (binding->event_next < runtime->event_head) pending = true;
         oldest = minimum(oldest, binding->event_next);
@@ -735,17 +730,12 @@ bool native_plugin_sdk_modal_result(NativePluginSdkRuntime* runtime, u64 owner_i
     result.accepted = accepted ? 1u : 0u;
     result.modal_id = modal_id;
     result.text = {runtime->input, bytes};
-    mc_status status{};
-    {
-        Call call(*binding, PluginCallKind::modal);
-        Gesture gesture(runtime);
-        status = binding->modal_handler(binding->plugin_state, binding->plugin_state_bytes, &result);
-    }
-    return status == MC_OK;
+    return invoke<true>(*binding, PluginCallKind::modal, binding->modal_handler, &result) == MC_OK;
 }
 
 u32 native_plugin_sdk_effects(const NativePluginSdkRuntime& runtime, Slice<NativePluginSdkEffectView> output) noexcept {
     u32 count = 0;
+    if (!runtime.enabled) return count;
     for (const auto* binding : g_live) {
         if (!usable(binding, runtime) || !permitted(*binding, MC_PERM_EFFECTS)) continue;
         for (const auto& effect : binding->effects)

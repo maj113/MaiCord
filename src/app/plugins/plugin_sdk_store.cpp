@@ -1,8 +1,11 @@
-#include "plugin_sdk_internal.hpp"
+#include "sdk_internal.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
+using namespace plugin_sdk;
 namespace {
 
 static constexpr u8 kStoreMagic[8]{'M', 'C', 'S', 'T', 'O', 'R', 'E', '1'};
@@ -79,7 +82,7 @@ void store_load(NativePluginSdkBinding& binding) noexcept {
 }
 
 } // namespace
-namespace plugin_sdk_detail {
+namespace plugin_sdk {
 
 bool store_save(NativePluginSdkBinding& binding) noexcept {
     auto& store = binding.store;
@@ -123,7 +126,7 @@ bool store_save(NativePluginSdkBinding& binding) noexcept {
     return true;
 }
 
-} // namespace plugin_sdk_detail
+} // namespace plugin_sdk
 namespace {
 
 u32 store_find(const Store& store, mc_str key) noexcept {
@@ -145,10 +148,8 @@ void store_erase(Store& store, u32 index) noexcept {
             store.entries[i].offset = static_cast<u16>(store.entries[i].offset - bytes);
 }
 NativePluginSdkBinding* store_binding(void* handle, uint64_t generation, mc_status* status) noexcept {
-    auto* binding = active(handle, generation);
-    *status = !binding ? MC_E_INACTIVE : !permitted(*binding, MC_PERM_STORE) ? MC_E_DENIED : MC_OK;
-    if (*status != MC_OK) return nullptr;
-    store_load(*binding);
+    auto* binding = gate(handle, generation, MC_PERM_STORE, status);
+    if (binding) store_load(*binding);
     return binding;
 }
 mc_status MC_CALL store_get(void* handle, uint64_t generation, mc_str key, void* buffer, uint32_t capacity,
@@ -179,12 +180,11 @@ mc_status MC_CALL store_set(void* handle, uint64_t generation, mc_str key, const
     const u32 previous = index == ~0u ? 0 : static_cast<u32>(store.entries[index].key_bytes) + store.entries[index].value_bytes;
     if (store.used - previous + key.bytes + bytes > kPluginSdkStoreBytes ||
         (index == ~0u && store.count == kPluginSdkStoreKeys)) return MC_E_BUDGET;
-    u8 copy[kPluginSdkStoreValueBytes];
-    copy_bytes(copy, value, bytes);
+    // The value is plugin memory, never a view into the store: nothing to copy first.
     if (index != ~0u) store_erase(store, index);
     store.entries[store.count++] = {static_cast<u16>(store.used), static_cast<u16>(bytes), static_cast<u8>(key.bytes)};
     copy_bytes(store.data + store.used, key.data, key.bytes);
-    copy_bytes(store.data + store.used + key.bytes, copy, bytes);
+    copy_bytes(store.data + store.used + key.bytes, value, bytes);
     store.used += key.bytes + bytes;
     store.dirty = true;
     return MC_OK;
@@ -210,11 +210,9 @@ mc_status MC_CALL store_usage(void* handle, uint64_t generation, uint32_t* used,
 }
 
 } // namespace
-namespace plugin_sdk_detail {
+namespace plugin_sdk {
 
-constexpr mc_store_v1 kStore{sizeof(mc_store_v1), 1, store_get, store_set, store_remove, store_usage};
+const mc_store_v1 kStore{sizeof(mc_store_v1), 1, store_get, store_set, store_remove, store_usage};
 
-// ---- mc.timer@1 -------------------------------------------------------------------------
-
-} // namespace plugin_sdk_detail
+} // namespace plugin_sdk
 } // namespace maicord

@@ -28,7 +28,7 @@ void set_composer_notice(ApplicationPluginsSdk& sdk, Utf8View text) noexcept {
 bool application_plugins_compose(bool* handled) noexcept {
     *handled = false;
     auto* sdk = g_app.plugins ? g_app.plugins->sdk : nullptr;
-    if (!sdk || !g_app.account_ui || g_app.message_edit.editor_active) return true;
+    if (!sdk || !sdk->runtime.enabled || !g_app.account_ui || g_app.message_edit.editor_active) return true;
     auto& composer = g_app.message_composer;
     const Utf8View text = message_composer_text(composer);
     const NativePluginSdkDraft draft{composer.channel_id, channel_guild(composer.channel_id),

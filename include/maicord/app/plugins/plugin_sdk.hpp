@@ -40,6 +40,7 @@ inline constexpr u32 kPluginSdkEventTextBytes = 256 * 1024;
 inline constexpr u32 kPluginSdkEventContentBytes = 4000;
 // Decorations: merged per message revision in a host cache.
 inline constexpr u32 kPluginSdkRenderEntries = 512;
+inline constexpr u32 kPluginSdkRenderIndex = 2 * kPluginSdkRenderEntries; // open-addressed index, a power of two
 inline constexpr u32 kPluginSdkRenderArenaBytes = 192 * 1024;
 inline constexpr u32 kPluginSdkRenderContentBytes = 2000;
 inline constexpr u32 kPluginSdkRenderBadges = 2;      // per plugin
@@ -161,7 +162,7 @@ struct NativePluginSdkRenderEntry {
     u32 prefix_offset, suffix_offset, label_offset, content_offset;
     u16 prefix_bytes, suffix_bytes, label_bytes, content_bytes;
     u8 visibility, media, name_tone, badge_count, accessory_count;
-    bool used, replace_content, stale;
+    bool replace_content, stale;
     NativePluginSdkRenderArenaNode badges[kPluginSdkRenderMergedBadges];
     NativePluginSdkRenderArenaNode accessories[kPluginSdkRenderMergedAccessories];
 };
@@ -174,6 +175,7 @@ struct NativePluginSdkPopoverNode {
     char value[512];
 };
 struct NativePluginSdkRuntime {
+    u32 enabled; // bindings in the enabled phase; every hook returns at once when zero
     PluginCallLedger* ledger;
     NativePluginSdkReadSource read;
     NativePluginSdkActionSink actions;
@@ -195,7 +197,8 @@ struct NativePluginSdkRuntime {
     char event_text[kPluginSdkEventTextBytes];
     // Decorations.
     u64 render_revision, render_stamp;
-    u32 render_epoch, render_arena_used;
+    u32 render_epoch, render_arena_used, render_count; // render[0, render_count) are in use
+    u16 render_index[kPluginSdkRenderIndex];           // message id hash -> render[] position + 1; 0 is empty
     NativePluginSdkRenderEntry render[kPluginSdkRenderEntries];
     char render_arena[kPluginSdkRenderArenaBytes];
     // The popover the last slot action produced (application shows it).
@@ -360,6 +363,9 @@ struct NativePluginSdkSlotTarget {
 inline constexpr u16 kPluginSdkNoIcon = 0xffff;
 u32 native_plugin_sdk_slots(const NativePluginSdkRuntime&, NativePluginSdkSlotTarget,
                            Slice<NativePluginSdkSlotNode> output) noexcept;
+// Bit (1 << MC_SLOT_*) for every surface an enabled plugin holds nodes for; a clear bit means
+// native_plugin_sdk_slots finds nothing there.
+u32 native_plugin_sdk_slot_surfaces(const NativePluginSdkRuntime&) noexcept;
 // For global surfaces target carries the click context (MESSAGE_HOVER: the
 // message). A popover the handler produced is left in runtime->popover.
 bool native_plugin_sdk_slot_action(NativePluginSdkRuntime*, u64 owner_id, NativePluginSdkSlotTarget,

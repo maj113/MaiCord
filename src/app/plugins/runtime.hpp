@@ -59,9 +59,10 @@ NativePluginSdkRuntime* application_plugins_runtime() noexcept;
 u32 application_plugins_relationship_kind(RelationshipType) noexcept;
 // Shared between plugins.cpp and plugins_sdk.cpp.
 bool application_plugins_save_choices(ApplicationPlugins&, const NativePluginPreferences&) noexcept;
-// Creates the ABI-5 runtime and opens the call marker; reports a plugin that
-// was running when MaiCord last exited.
-bool application_plugins_sdk_open(ApplicationPlugins&, PluginCallMarker* leftover) noexcept;
+// Reads and removes the call marker a previous process left inside a plugin call (allocates nothing).
+bool application_plugins_marker_peek(PluginCallMarker* leftover) noexcept;
+// The runtime, allocated on first use; null when the allocation fails.
+ApplicationPluginsSdk* application_plugins_sdk_acquire(ApplicationPlugins&) noexcept;
 void application_plugins_sdk_close(ApplicationPlugins&) noexcept;
 // Points the host at the runtime and ledger before any module load.
 void application_plugins_sdk_bind_host(ApplicationPlugins&, NativePluginHost*) noexcept;
