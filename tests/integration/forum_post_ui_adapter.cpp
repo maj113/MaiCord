@@ -27,6 +27,7 @@ struct ForumAdapter {
     D3D11Renderer* renderer;
     UiTextMeasureCache* measure;
     ForumPostRequest flight;
+    UploadedAttachment attachments[kAttachmentUploadMaximumCount];
     char title[400], body[8000];
     u8 response[16384];
     u64 flight_id;
@@ -90,6 +91,11 @@ RestClientSubmitResult WINAPI submit_forum(void*, const ForumPostRequest* reques
     copy_bytes(forum_adapter->body, request->content.data, request->content.bytes);
     forum_adapter->flight.title = {forum_adapter->title, request->title.bytes};
     forum_adapter->flight.content = {forum_adapter->body, request->content.bytes};
+    // The request's attachment views live in the submitter's stack frame; keep a copy for later checks.
+    for (u32 i = 0; i < request->attachments.count; ++i)
+        forum_adapter->attachments[i] = request->attachments[i];
+    forum_adapter->flight.attachments = {request->attachments.count ? forum_adapter->attachments : nullptr,
+                                         request->attachments.count};
     forum_adapter->flight_id = id;
     ++forum_adapter->submissions;
     return {};
