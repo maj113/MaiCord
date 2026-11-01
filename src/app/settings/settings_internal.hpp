@@ -1,0 +1,221 @@
+#pragma once
+// Shared by settings.cpp and its parts (settings_*.cpp); private to them.
+#include "maicord/ui/layout/splitter.hpp"
+#include "../shell/content_point.hpp"
+#include "maicord/app/shell/shortcut_registry.hpp"
+#include "settings.hpp"
+#include "../account/profile_editor.hpp"
+#include "../account/activity.hpp"
+#include "../guild/channel_overview.hpp"
+#include "../shell/state.hpp"
+#include "../account/login/ui.hpp"
+#include "../shell/ui_runtime.hpp"
+#include "../account/account_presentation.hpp"
+#include "../account/application_account_module.hpp"
+#include "../account/application_account_logout.hpp"
+#include "../account/profile.hpp"
+#include "../chat/composer/composer.hpp"
+#include "../chat/composer/text_input.hpp"
+#include "../chat/messages/interaction.hpp"
+#include "../shell/scrolling.hpp"
+#include "../shell/modal_scroll.hpp"
+#include "../shell/overlay_input.hpp"
+#include "../shell/input.hpp"
+#include "../chat/composer/attachments.hpp"
+#include "../plugins/plugins.hpp"
+#include "../plugins/application_plugin_settings_projection.hpp"
+#include "../plugins/browser.hpp"
+#include "../plugins/browser_projection.hpp"
+#include "../account/friends.hpp"
+#include "../notifications/notifications.hpp"
+#include "theme_editor.hpp"
+#include "custom_theme.hpp"
+#include "../update/updates.hpp"
+#include "catalog.hpp"
+#include "../chat/composer/text_edit_keys.hpp"
+#include "../voice/settings.hpp"
+#include "user_settings.hpp"
+#include "account_settings.hpp"
+#include "keybinds_settings.hpp"
+#include "../notifications/desktop.hpp"
+#include "maicord/app/account/login/oauth_sign_in.hpp"
+#include "maicord/app/account/login/oauth_account.hpp"
+#include "maicord/app/plugins/plugin_settings_projection.hpp"
+#include "maicord/core/log.hpp"
+#include "maicord/core/time.hpp"
+#include "maicord/core/hash.hpp"
+#include "maicord/core/utf.hpp"
+#include "maicord/ui/settings/scene.hpp"
+#include "maicord/ui/controls/settings_controls.hpp"
+#include "maicord/ui/guild/icon_media.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/ui/widgets/button.hpp"
+#include "maicord/ui/widgets/settings_choice.hpp"
+#include "maicord/ui/controls/settings_tokens.hpp"
+#include "maicord/render/d3d11/layer_presentation.hpp"
+#include "maicord/render/text/edit_layout.hpp"
+#include "maicord/ui/text/clipboard.hpp"
+#include "../account/account_ui_runtime.hpp"
+#include "maicord/sys/shell.hpp"
+
+namespace maicord::app_detail {
+namespace settings_detail {}
+using namespace settings_detail;
+
+struct ApplicationSettingsChoice {
+    NativePluginUiToken token;
+    u64 control_id, account_serial, profile_id;
+    UiRect anchor;
+    u32 first, control_index, choice_count, popup_opens, pressed_action;
+    u16 popup_generation;
+    bool active;
+};
+
+// Native panels, search and plugin pages share one registry.
+inline constexpr u32 kSettingsPageCapacity = 24;
+struct ApplicationPluginSettingsPage {
+    UiPageRegistry registry;
+    UiPage pages[kSettingsPageCapacity];
+    UiSettingsPageContent content;
+    UiSettingsControl* controls;
+    NativePluginUiToken token;
+    u32 backed_count;
+};
+// One bank serves the plugin catalog (its 21-row ceiling), any catalog panel
+// and search results. Keybinds, which lists every default shortcut, projects
+// into its own bank (application_keybinds_settings_bank).
+inline constexpr u32 kSettingsControlCapacity = 28;
+
+// Only short pages carry avatar media (the Account card); longer ones have none.
+inline constexpr u32 kSettingsAvatarRows = 12;
+
+inline constexpr u32 kSettingsSearchBytes = 40;
+inline constexpr u32 kSettingsSearchPage = kSettingsPanelCount + 1;
+inline constexpr u64 kSettingsPanelLinkFirst = 0x7F000000u;
+struct ApplicationSettings {
+    UiSettingsScene scene;
+    UiPageRegistry registry;
+    UiPage pages[kSettingsPageCapacity];
+    NativePluginHost plugins;
+    NativePluginSlot plugin_slots[8];
+    // One selected native page borrows this descriptor bank. Native panels,
+    // search results and the plugin catalog never borrow it at the same time.
+    UiSettingsControl controls[kSettingsControlCapacity];
+    UiSettingsControlPresentation presentation[kSettingsControlCapacity];
+    UiSettingsAvatarMedia avatar_media[kSettingsAvatarRows];
+    u64 custom_theme_revision;
+    u32 native_page;
+    ApplicationPluginCatalogText catalog_text[kApplicationPluginCatalogWindow];
+    u64 catalog_revision, pressed_catalog_revision, pressed_account_serial, pressed_profile;
+    UiSettingsPageContent content[kSettingsSearchPage];
+    // The search field edits search_text through the shared text model, like
+    // every other single-line field; search_bytes is the applied query.
+    char search_text[kSettingsSearchBytes];
+    u32 search_bytes, search_revision;
+    MessageComposer search_edit;
+    bool search_selecting;
+    // A press on the scrim around the modal; releasing it there closes.
+    bool backdrop_pressed;
+    u64 search_return, flash_started_ms, entrance_started_ms, entrance_opens;
+    UiWidgetManager* previous_focus;
+    UiSettingsTarget pressed;
+    u32 pressed_revision;
+    NativePluginUiToken pressed_token;
+    bool pressed_plugin;
+    bool previous_composer_focus, save_failed;
+    bool notifications_active, notifications_settings_failed;
+    NativePluginError plugin_error;
+    bool scrollbar_dragging, scrollbar_sidebar;
+    bool slider_dragging;
+    u16 slider_generation;
+    u32 preference_key;
+    ClientPreferences slider_baseline;
+    ClientThemeStorageSnapshot* slider_theme_baseline;
+    UiSettingsTarget slider_target;
+    bool slider_preview;
+    UiRect slider_viewport;
+    // Pointer offset from the grabber's centre when the drag started on it.
+    float slider_grab;
+    float scrollbar_grab;
+    ApplicationSettingsChoice choice;
+    ApplicationPluginSettingsPage* plugin_page;
+    bool plugin_page_committed;
+};
+
+namespace settings_detail {
+
+struct MediaAccount {
+    OAuthSignIn sign_in{};
+    u64 generation{};
+    char client[kOAuthClientBytes]{};
+    u32 client_bytes{};
+    bool launched{}, stopping{}, checked{}, saved{};
+    Utf8View message{};
+    Utf8View client_id() const noexcept { return {client, client_bytes}; }
+};
+
+extern MediaAccount g_spotify_account;
+
+constexpr auto provider = OAuthProvider::spotify;
+
+Utf8View saved_account_message() noexcept;
+void media_close(MediaAccount& account) noexcept;
+bool media_account_action() noexcept;
+
+// Settings opened before sign-in: it borrows an account UI runtime for its
+// text and measurement (released again unless an account started meanwhile)
+// and covers the sign-in form until it closes.
+struct SignedOutSession {
+    bool active;
+    bool created_runtime;
+    // Closed: the next frame returns the runtime and the sign-in form, outside
+    // any caller still holding the settings owner.
+    bool ending;
+};
+
+extern SignedOutSession g_signed_out;
+bool settings_allowed() noexcept;
+bool page_allowed(UiPageKey page) noexcept;
+
+constexpr u64 kNativeSettingsOwner = kSettingsNativeOwner;
+constexpr u64 kPluginsPage = static_cast<u64>(SettingsPanel::plugins) + 1;
+
+bool theme_panel(UiPageKey page) noexcept;
+bool option_row(UiSettingsControlKind kind) noexcept;
+bool theme_binding(SettingBinding binding) noexcept;
+const UiSettingsSchemaNode* control_node(u64 id, SettingBinding* binding = nullptr) noexcept;
+bool release_slider_theme(ApplicationSettings& settings) noexcept;
+bool capture_slider_theme(ApplicationSettings& settings, const UiSettingsTarget& target) noexcept;
+bool release_plugin_page(ApplicationSettings& settings) noexcept;
+BackgroundTheme gradient_edit_base() noexcept;
+bool persist() noexcept;
+void project(ApplicationSettings& settings) noexcept;
+bool begin_signed_out() noexcept;
+void end_signed_out() noexcept;
+void finish_signed_out() noexcept;
+ApplicationSettings* ensure() noexcept;
+bool recover_rejected_page(ApplicationSettings& settings) noexcept;
+bool refresh() noexcept;
+bool update_scene(ApplicationSettings& settings, const UiRect& viewport) noexcept;
+bool resolve_palette(void*, u64 control, u32 choice, BackgroundTheme* output) noexcept;
+void close_choice() noexcept;
+const UiSettingsControl* choice_control(const ApplicationSettingsChoice& choice) noexcept;
+bool choice_popup_current(const ApplicationSettingsChoice& choice) noexcept;
+bool project_choice(ApplicationSettingsChoice choice) noexcept;
+void apply_search(ApplicationSettings& settings) noexcept;
+void set_search(ApplicationSettings& settings, const Utf8View& text) noexcept;
+bool navigate(ApplicationSettings& settings, const UiPageKey& page, u64 control_id) noexcept;
+bool open_result(ApplicationSettings& settings, u64 control_id) noexcept;
+bool searching(const ApplicationSettings& settings) noexcept;
+bool settled(ApplicationSettings& settings, bool result) noexcept;
+bool activate(const UiSettingsTarget& target, bool reverse, const NativePluginUiToken* expected = nullptr, bool picker = false,
+              u32 selected = ~0u, bool save = true) noexcept;
+bool choice_action(u32 action, const ApplicationSettingsChoice* captured = nullptr) noexcept;
+bool search_character(ApplicationSettings& settings, u32 code) noexcept;
+bool search_key(ApplicationSettings& settings, u32 key, bool control, bool shift) noexcept;
+bool search_point(ApplicationSettings& settings, float x, float y, bool extend) noexcept;
+void settings_glide_to(bool sidebar, float target) noexcept;
+void settings_glide_reveal(float before) noexcept;
+
+} // namespace settings_detail
+} // namespace maicord::app_detail

@@ -31,7 +31,7 @@ def main():
     report_path=out/'measurement.json'
     if report_path.exists():p.error('Preserve existing evidence')
     exe=args.exe.resolve();binary=identity(exe)
-    report=dict(scope=__doc__,side=args.side,fixture=args.fixture,prewarm=args.prewarm,status='running',executable=binary,runs=[],source=[identity(root/f) for f in ['tests/integration/glyph_cache_probe.cpp','tests/integration/ui_probe.cpp','tests/integration/glyph_cache_measurement.hpp','tests/integration/emoji_gpu_measurement.hpp','tools/measure_glyph_cache.py','tools/measure_emoji_gpu.py']])
+    report=dict(scope=__doc__,side=args.side,fixture=args.fixture,prewarm=args.prewarm,status='running',executable=binary,runs=[],source=[identity(root/f) for f in ['tests/integration/glyph_cache_probe.cpp','tests/integration/ui_probe.cpp','tests/integration/ui_probe_internal.hpp','tests/integration/ui_probe_media.cpp','tests/integration/ui_probe_scenes.cpp','tests/integration/ui_probe_renderer.cpp','tests/integration/glyph_cache_measurement.hpp','tests/integration/emoji_gpu_measurement.hpp','tools/measure_glyph_cache.py','tools/measure_emoji_gpu.py']])
     def save():report_path.write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
     save()
     try:

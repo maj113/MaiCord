@@ -44,7 +44,7 @@ def main():
             if {p.name for p in captures.glob('*.bmp')}!=names:raise RuntimeError('Incomplete capture set')
             if any(prior_times.get(name)==(captures/name).stat().st_mtime_ns for name in names):raise RuntimeError('A capture was not refreshed by this run')
             result.update(status='captured',executable=before,process=process,log=identity(log),log_offset=log_offset,fresh_captures=True,counters=counters,
-                source=identity(root/'tests/integration/ui_probe.cpp'),fixture=identity(root/'tests/integration/thai_wrapped_probe.inc'),captures={name:identity(captures/name) for name in sorted(names)})
+                source=[identity(root/name) for name in ('tests/integration/ui_probe.cpp','tests/integration/ui_probe_internal.hpp','tests/integration/ui_probe_media.cpp','tests/integration/ui_probe_scenes.cpp','tests/integration/ui_probe_renderer.cpp')],fixture=identity(root/'tests/integration/thai_wrapped_probe.inc'),captures={name:identity(captures/name) for name in sorted(names)})
         else:
             directories={'native':out,'reference':args.reference_dir.resolve() if args.reference_dir else out}
             sides={side:json.loads((directories[side]/(side+'.json')).read_text()) for side in ('native','reference')}

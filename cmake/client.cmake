@@ -7,7 +7,8 @@ option(MAICORD_STARTUP_PROBE "Measure isolated production-path startup" OFF)
 # into every test that drives it).
 maicord_library(maicord_account_module
     src/app/chat/polls/account_message_poll.cpp src/app/guild/account_guild_invite.cpp src/app/settings/account_settings_rest.cpp
-    src/app/account/account_module.cpp src/app/chat/search/account_message_search.cpp
+    src/app/account/account_module.cpp src/app/account/account_module_login.cpp src/app/account/account_module_requests.cpp
+    src/app/chat/search/account_message_search.cpp
     src/app/media/account_media_catalog.cpp src/app/guild/account_guild_assets.cpp src/app/media/guild_image.cpp
     src/app/media/profile_image.cpp src/app/account/account_profile_edit.cpp
     LIBS maicord_core maicord_platform maicord_protocol
@@ -23,7 +24,8 @@ target_include_directories(maicord_client_resources PRIVATE "${MAICORD_GENERATED
 
 maicord_program(MaiCord WIN32 ENTRY maicord_entry
     SOURCES src/app/chat/polls/poll.cpp config/maicord.manifest
-    src/app/shell/state.cpp src/app/settings/settings.cpp
+    src/app/shell/state.cpp src/app/settings/settings.cpp src/app/settings/settings_projection.cpp
+    src/app/settings/settings_activation.cpp src/app/settings/settings_input.cpp
     src/app/settings/catalog.cpp src/app/settings/user_settings.cpp src/app/settings/account_settings.cpp
     src/app/settings/theme_editor.cpp src/app/settings/custom_theme.cpp
     src/app/settings/theme_publication.cpp src/app/account/friends.cpp
@@ -39,7 +41,8 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/account/account_pump.cpp src/app/account/account_presentation.cpp
     src/app/account/application_account_reconnect.cpp
     src/app/chat/threads/starter.cpp src/app/chat/channel_session.cpp
-    src/app/chat/channel_snapshots.cpp src/app/chat/composer/commands.cpp src/app/chat/composer/builtin_commands.cpp
+    src/app/chat/channel_snapshots.cpp src/app/chat/composer/commands.cpp src/app/chat/composer/commands_frecency.cpp
+    src/app/chat/composer/commands_picker.cpp src/app/chat/composer/commands_draft.cpp src/app/chat/composer/builtin_commands.cpp
     src/app/chat/composer/composer.cpp
     src/app/chat/messages/feedback.cpp src/app/chat/composer/reply_draft.cpp
     src/app/chat/composer/input.cpp src/app/shell/button_input.cpp
@@ -49,20 +52,24 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/media/image_viewer.cpp src/app/shell/frame_presentation.cpp
     src/app/chat/unread_banner.cpp src/app/chat/messages/intro.cpp
     src/app/guild/folders.cpp src/app/shell/navigation_drag.cpp
-    src/app/guild/lifecycle.cpp src/app/account/profile_editor.cpp
-    src/app/guild/menu.cpp src/app/guild/community.cpp
+    src/app/guild/lifecycle.cpp src/app/account/profile_editor.cpp src/app/account/profile_editor_preview.cpp
+    src/app/account/profile_editor_images.cpp
+    src/app/guild/menu.cpp src/app/guild/community.cpp src/app/guild/community_projection.cpp
     src/app/guild/card.cpp src/app/guild/banner.cpp src/app/guild/invite.cpp
     src/app/notifications/taskbar_attention.cpp src/app/notifications/desktop.cpp
     src/app/notifications/desktop_settings.cpp src/app/shell/surface_motion.cpp
     src/app/chat/composer/text_form.cpp src/app/chat/composer/text_input.cpp
-    src/app/account/login/auth.cpp src/app/account/login/input.cpp src/app/account/login/ui.cpp
+    src/app/account/login/auth.cpp src/app/account/login/auth_recovery.cpp src/app/account/login/input.cpp src/app/account/login/ui.cpp
     src/app/shell/ui_runtime.cpp src/app/guild/account_permission_storage.cpp src/app/media/media.cpp
-    src/app/media/video.cpp src/app/shell/tooltip.cpp src/app/chat/messages/reaction_tooltip.cpp
+    src/app/media/video.cpp src/app/media/video_sources.cpp src/app/media/video_input.cpp
+    src/app/shell/tooltip.cpp src/app/chat/messages/reaction_tooltip.cpp
     src/app/media/emoji_tooltip.cpp src/app/media/expression_card.cpp
     src/app/chat/composer/interaction_card.cpp
     src/app/shell/toast.cpp
     src/app/account/account_menu.cpp
-    src/app/account/application_account_switch.cpp src/app/chat/search/search.cpp src/app/chat/search/content.cpp
+    src/app/account/application_account_switch.cpp src/app/chat/search/search.cpp src/app/chat/search/search_results.cpp
+    src/app/chat/search/search_filters.cpp src/app/chat/search/search_actions.cpp src/app/chat/search/search_input.cpp
+    src/app/chat/search/content.cpp
     src/app/chat/search/navigation.cpp src/app/chat/threads/actions.cpp
     src/app/chat/threads/browser.cpp src/app/chat/threads/creation.cpp
     src/app/chat/threads/forum_post.cpp src/app/chat/threads/forum_form.cpp
@@ -71,14 +78,15 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/media/attachment_probe.cpp src/app/media/attachment_media_probe.cpp
     src/app/chat/threads/header_activation.cpp src/app/chat/threads/header.cpp
     src/app/shell/quick_switcher.cpp src/app/chat/messages/forward.cpp
-    src/app/media/downloads.cpp src/app/shell/shortcuts.cpp
+    src/app/media/downloads.cpp src/app/media/downloads_input.cpp src/app/shell/shortcuts.cpp
     src/app/settings/keybinds_settings.cpp src/app/chat/messages/pinned_messages.cpp
-    src/app/media/picker.cpp src/app/media/gif_favorites.cpp
+    src/app/media/picker.cpp src/app/media/picker_projection.cpp src/app/media/picker_stickers.cpp
+    src/app/media/picker_input.cpp src/app/media/gif_favorites.cpp
     src/app/media/gif_favorite_star.cpp
     src/app/settings/emoji_preferences.cpp src/app/account/login/action_captcha.cpp
-    src/app/guild/channel_overview.cpp src/app/settings/layer.cpp
+    src/app/guild/channel_overview.cpp src/app/guild/channel_overview_projection.cpp src/app/settings/layer.cpp
     src/app/settings/modal.cpp
-    src/app/guild/settings/settings.cpp src/app/guild/settings/profile.cpp
+    src/app/guild/settings/settings.cpp src/app/guild/settings/settings_requests.cpp src/app/guild/settings/profile.cpp
     src/app/guild/settings/engagement.cpp src/app/guild/settings/expressions.cpp
     src/app/guild/settings/members.cpp src/app/guild/settings/roles.cpp
     src/app/guild/settings/invites.cpp src/app/guild/settings/safety.cpp
@@ -87,7 +95,7 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/chat/polls/create.cpp
     src/app/account/self_status.cpp src/app/account/login/browser_auth.cpp
     src/app/account/login/captcha_auth.cpp src/app/media/animation.cpp
-    src/app/media/requests.cpp src/app/chat/messages/delete.cpp
+    src/app/media/requests.cpp src/app/media/requests_message.cpp src/app/chat/messages/delete.cpp
     src/app/chat/application_private_conversation.cpp src/app/chat/private_channel.cpp
     src/app/chat/messages/edit.cpp src/app/chat/messages/mutation_notice.cpp
     src/app/account/profile.cpp src/app/account/dm_profile.cpp src/app/guild/member_moderation.cpp
@@ -97,11 +105,12 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/chat/scoped_read_menu.cpp src/app/notifications/notifications.cpp
     src/app/notifications/controls.cpp src/app/account/custom_status.cpp
     src/app/account/activity.cpp src/app/account/game_detection.cpp src/app/chat/inbox.cpp
-    src/app/chat/messages/interaction.cpp src/app/account/user_actions.cpp
+    src/app/chat/messages/interaction.cpp src/app/chat/messages/interaction_popups.cpp src/app/account/user_actions.cpp
     src/app/chat/report.cpp src/app/shell/scheduler.cpp src/app/shell/shutdown_metrics.cpp
     src/app/shell/scrolling.cpp src/app/shell/scroll_host.cpp src/app/shell/input.cpp
     src/app/shell/pane_resize.cpp src/app/shell/main.cpp $<TARGET_OBJECTS:maicord_runtime>
-    src/app/accessibility/accessibility.cpp src/app/update/updates.cpp src/app/update/entry.cpp
+    src/app/accessibility/accessibility.cpp src/app/accessibility/accessibility_describe.cpp
+    src/app/accessibility/accessibility_actions.cpp src/app/update/updates.cpp src/app/update/entry.cpp
     src/app/plugins/browser.cpp src/app/plugins/browser_worker.cpp
     src/app/plugins/browser_entry.cpp src/app/plugins/browser_projection.cpp
     # Voice calls: soundboard, voice messages, preferences, voice card, mute/deafen,
@@ -358,7 +367,9 @@ endfunction()
 file(GLOB MAICORD_COLD_UPDATE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/app/update/*.cpp")
 maicord_compact_sources(
     SOURCES ${MAICORD_COLD_UPDATE_SOURCES} src/app/account/login/acceptance_record.cpp
-        src/app/media/account_media.cpp src/app/media/account_media_worker.cpp src/app/media/regional_flag_assets.cpp
+        src/app/media/account_media.cpp src/app/media/account_media_fetch.cpp src/app/media/account_media_requests.cpp
+        src/app/media/account_media_local_preview.cpp src/app/media/account_media_worker.cpp
+        src/app/media/account_media_worker_lanes.cpp src/app/media/regional_flag_assets.cpp
         src/app/account/game_detection.cpp src/app/net/file_persistence.cpp src/core/log.cpp src/ui/text/clipboard.cpp
         src/platform/desktop/staged_file.cpp src/platform/desktop/browser_sign_in_launcher.cpp
         src/platform/net/file.cpp src/platform/desktop/file_picker.cpp src/platform/desktop/clipboard_attachment.cpp
@@ -371,9 +382,9 @@ maicord_compact_sources(
     # their sources, which leave their member-list update and rebuild paths /O2.
     EXCLUDE
         "/app/shell/(main|app_icon)\\.cpp$"
-        "/app/(shell/frame_presentation|shell/scheduler|media/video)\\.cpp$"
-        "/model/(chat/message_(rich_)?store|user/store|guild/member_store|guild/member_list)\\.cpp$"
-        "/protocol/(auth/p256_signature|encoding/json_ids|encoding/json_write|encoding/writer|gateway/etf|gateway/events|gateway/message_events|gateway/message_rich|gateway/payload|gateway/reaction_events|gateway/typing_events|http/http1|http/http_response_stream|http/websocket_frame|http/websocket_message|messages/history|voice/dave_frame|voice/dave_replay|voice/media_events|voice/media_packet)\\.cpp$")
+        "/app/(shell/frame_presentation|shell/scheduler|media/video(_sources|_input)?)\\.cpp$"
+        "/model/(chat/message_(rich_)?store(_pack)?|user/store|guild/member_store|guild/member_list)\\.cpp$"
+        "/protocol/(auth/p256_signature|encoding/json_ids|encoding/json_write|encoding/writer|gateway/etf|gateway/events|gateway/message_events|gateway/message_rich(_reference|_attachments|_embeds)?|gateway/payload|gateway/reaction_events|gateway/typing_events|http/http1|http/http_response_stream|http/websocket_frame|http/websocket_message|messages/history|voice/dave_frame|voice/dave_replay|voice/media_events|voice/media_packet)\\.cpp$")
 # UI scenes, presentation, renderer and the message runtime: the offline perf
 # probe measured equal or lower main-thread CPU in every phase at /Os (smaller
 # code and no chained unwind records). The parsers and tokenizers they run per
@@ -385,7 +396,7 @@ maicord_compact_sources(
 # requests. Gateway dispatch, media decode and text shaping stay /O2.
 maicord_compact_sources(
     TARGETS maicord_ui maicord_renderer maicord_message_runtime maicord_message_media
-    EXCLUDE "/ui/(chat/messages/markdown|text/ansi_text|text/code_highlight|text/measure_cache|text/spell_tokenize)\\.cpp$"
+    EXCLUDE "/ui/(chat/messages/markdown(_links)?|text/ansi_text|text/code_highlight|text/measure_cache|text/spell_tokenize)\\.cpp$"
         "/render/(text/native_glyph_outlines|effects/colr_paint)\\.cpp$"
     SOURCES
         src/app/chat/channel_memory.cpp
@@ -397,7 +408,8 @@ maicord_compact_sources(
         src/app/settings/catalog.cpp src/app/voice/settings_binding.cpp
         src/platform/desktop/notifications.cpp src/platform/desktop/notification_identity.cpp
         src/platform/desktop/taskbar_attention.cpp src/platform/desktop/clipboard_image.cpp
-        src/app/account/login/user_auth_coordinator.cpp src/app/account/user_account_coordinator.cpp
+        src/app/account/login/user_auth_coordinator.cpp src/app/account/login/user_auth_coordinator_responses.cpp
+        src/app/account/user_account_coordinator.cpp
         src/app/account/user_client_configuration.cpp src/app/account/login/remote_auth_client.cpp
         src/app/account/login/remote_auth_handshake.cpp src/app/account/login/remote_auth_ticket_exchange.cpp
         src/platform/crypto/remote_auth_crypto.cpp src/app/account/login/captcha_bridge.cpp src/app/account/login/captcha_challenge.cpp
@@ -420,7 +432,7 @@ maicord_compact_sources(
         # Rebuilt on change, not per frame: the UI Automation provider,
         # sign-in secure text input, keybind registry, notification sounds,
         # stage/stream/voice signaling and guild assets.
-        src/platform/uia/provider.cpp
+        src/platform/uia/provider.cpp src/platform/uia/provider_patterns.cpp src/platform/uia/provider_text.cpp
         src/ui/text/secure_text_store.cpp src/ui/text/secure_edit.cpp src/ui/text/secure_edit_history.cpp
         src/ui/text/secure_edit_target.cpp src/app/shell/shortcut_registry.cpp
         src/platform/audio/notification_audio.cpp src/app/voice/stream_preview_cache.cpp src/app/voice/stream_watch_view.cpp
@@ -435,7 +447,9 @@ maicord_compact_sources(
         # paths stay /O2).
         src/app/chat/messages/reaction_controller.cpp
         src/platform/desktop/integration.cpp src/platform/desktop/system_tray.cpp src/platform/net/tls_client.cpp
-        src/app/account/account_module.cpp src/app/net/rest_client.cpp
+        src/app/account/account_module.cpp src/app/account/account_module_login.cpp src/app/account/account_module_requests.cpp
+        src/app/net/rest_client.cpp src/app/net/rest_client_transaction.cpp
+        src/app/net/rest_client_worker.cpp
         src/app/voice/account_soundboard.cpp src/app/voice/account_voice_message.cpp
         src/app/net/https_file_upload.cpp src/app/net/https_file_download.cpp
         src/media/video/h264_parameters.cpp src/media/video/hevc_parameters.cpp src/media/video/h264_configuration.cpp
@@ -493,7 +507,7 @@ get_target_property(maicord_ui_sources maicord_ui SOURCES)
 foreach(source IN LISTS maicord_ui_sources)
     get_source_file_property(options "${source}" COMPILE_OPTIONS)
     if(options MATCHES "${MAICORD_SIZE_OPTION}" AND NOT source MATCHES
-        "/ui/(account/friends_scene|account/menu|account/profile_activity|account/profile_media|chat/composer/message_composer_scene|chat/messages/action_bar|chat/messages/context_menu|chat/messages/rich_widgets|chat/messages/scene|chat/pinned_messages_scene|chat/polls/voters|chat/private_channel_rows|chat/threads/browser_scene|chat/threads/forum_channel_scene|controls/slider|layout/virtual_list|settings/scene|shell/navigation_view|shell/popup_presentation|shell/quick_switcher_scene|theme/style_projection|theme/styles|voice/call_stage|voice/panel|widgets/toast)\\.cpp$")
+        "/ui/(account/friends_scene|account/menu|account/profile_activity|account/profile_media|chat/composer/message_composer_scene|chat/messages/action_bar|chat/messages/context_menu|chat/messages/rich_widgets|chat/messages/scene(_rows)?|chat/pinned_messages_scene|chat/polls/voters|chat/private_channel_rows|chat/threads/browser_scene|chat/threads/forum_channel_scene|controls/slider|layout/virtual_list|settings/scene(_layout|_paint)?|shell/navigation_view|shell/popup_presentation|shell/quick_switcher_scene|theme/style_projection|theme/styles|voice/call_stage|voice/panel|widgets/toast)\\.cpp$")
         set_property(SOURCE "${source}" APPEND PROPERTY COMPILE_OPTIONS /Ob2)
     endif()
 endforeach()

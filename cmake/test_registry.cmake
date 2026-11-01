@@ -204,6 +204,7 @@ add_test(NAME maicord_build_output_guard COMMAND powershell.exe -NoProfile -Exec
 set_tests_properties(maicord_build_output_guard PROPERTIES TIMEOUT 10)
 maicord_test(MaiCordAccountVideoSessionProbe ENTRY maicord_account_video_session_probe_entry
     SOURCES tests/integration/account_video_session_probe.cpp src/app/media/account_video_session.cpp
+        src/app/media/account_video_session_audio.cpp
         src/platform/decode/hevc_gpu_decoder.cpp src/render/media/video_frame_gpu.cpp ${MAICORD_VIDEO_FRAME_HEADER}
     LIBS maicord_account_media maicord_platform maicord_model maicord_shader_bytecode d3d11 dxgi ole32 kernel32 user32
     INCLUDES ${MAICORD_GENERATED_DIRECTORY}
@@ -289,13 +290,15 @@ maicord_test(MaiCordLayoutConsistencyTests ENTRY maicord_layout_consistency_test
 maicord_test(MaiCordWindowCaptionTests ENTRY maicord_window_caption_tests_entry SOURCES tests/platform/desktop/window_caption.cpp
     BUNDLE MaiCordUiUnitTests TIMEOUT 10 TEST maicord_window_caption)
 maicord_test(MaiCordSettingsRuntimeTests ENTRY maicord_settings_runtime_entry
-    SOURCES tests/app/settings/settings_runtime.cpp tests/app/settings/custom_theme.cpp
+    SOURCES tests/app/settings/settings_runtime.cpp tests/app/settings/settings_runtime_stubs.cpp
+        tests/app/settings/custom_theme.cpp
         tests/app/plugins/catalog_runtime.cpp tests/app/plugins/navigation_runtime.cpp
         tests/app/settings/settings_choice_runtime.cpp tests/app/settings/user_settings_runtime.cpp
         tests/app/settings/account_settings_runtime.cpp tests/app/settings/keybinds_settings_runtime.cpp
         tests/app/plugins/read_runtime.cpp tests/app/plugins/actions_runtime.cpp
         src/app/settings/user_settings.cpp src/app/settings/account_settings.cpp src/app/shell/state.cpp
-        src/app/settings/settings.cpp src/app/settings/catalog.cpp src/app/settings/theme_editor.cpp
+        src/app/settings/settings.cpp src/app/settings/settings_projection.cpp src/app/settings/settings_activation.cpp
+        src/app/settings/settings_input.cpp src/app/settings/catalog.cpp src/app/settings/theme_editor.cpp
         src/app/plugins/plugins.cpp src/app/notifications/desktop_settings.cpp src/app/plugins/plugins_sdk.cpp
         src/app/plugins/read.cpp src/app/plugins/fx.cpp src/app/plugins/surfaces.cpp
         src/app/plugins/render.cpp src/app/shell/input.cpp
@@ -339,7 +342,8 @@ maicord_test(MaiCordReadyScalePumpTests ENTRY maicord_ready_scale_pump_entry SOU
     LIBS ${maicord_app_test_libs} maicord_message_runtime kernel32 user32 ole32
     BUNDLE MaiCordAppUnitTests
     TIMEOUT 10 TEST maicord_ready_scale_pump)
-maicord_test(MaiCordAccessibilityTests ENTRY maicord_accessibility_entry SOURCES tests/ui/accessibility/accessibility.cpp
+maicord_test(MaiCordAccessibilityTests ENTRY maicord_accessibility_entry
+    SOURCES tests/ui/accessibility/accessibility.cpp tests/ui/accessibility/accessibility_overlays.cpp
     LIBS maicord_core maicord_ui maicord_message_runtime maicord_uia kernel32 user32 ole32 oleaut32
     BUNDLE MaiCordAppUnitTests
     TIMEOUT 10 TEST maicord_accessibility)
@@ -442,13 +446,19 @@ maicord_test(MaiCordVoiceTests ENTRY maicord_voice_tests_entry
     INCLUDES src/app
     TEST maicord_voice_setup)
 maicord_test(MaiCordTests ENTRY maicord_tests_entry
-    SOURCES tests/test_main.cpp tools/font_reference/dwrite_text_system.cpp tests/app/account/login/account_credential_forget.cpp
+    SOURCES tests/test_main.cpp tests/model/chat/core_stores.cpp tests/ui/core/core_scene.cpp
+        tests/ui/chat/messages/core_messages.cpp tests/app/chat/composer/core_composer.cpp
+        tests/app/account/login/core_login.cpp tests/app/chat/messages/core_timeline.cpp
+        tests/media/image/core_codecs.cpp tests/app/media/core_media.cpp tests/protocol/gateway/core_gateway.cpp
+        tests/protocol/http/core_transport.cpp tests/core/core_runtime.cpp tests/app/account/core_account.cpp
+        tools/font_reference/dwrite_text_system.cpp tests/app/account/login/account_credential_forget.cpp
         tests/app/account/account_logout_stop.cpp tests/app/account/account_module_dormant.cpp tests/app/account/account_inventory.cpp
         tests/app/media/parity.cpp tests/app/media/catalog_media.cpp tests/ui/chat/messages/preparation.cpp tests/render/media/atlas_pressure.cpp
         tests/ui/shell/composer_geometry.cpp tests/ui/chat/messages/reply_grouping.cpp tests/ui/chat/messages/markdown_cache.cpp
         tests/app/chat/messages/interaction_rules.cpp tests/ui/chat/timeline_overlay_regressions.cpp tests/ui/chat/messages/chat_display.cpp
         tests/app/chat/messages/live_updates.cpp tests/ui/chat/messages/embed_colors.cpp tests/ui/text/ansi_code_blocks.cpp tests/ui/chat/messages/components.cpp
-        tests/ui/chat/messages/content_wave.cpp tests/ui/text/embed_convergence.cpp tests/ui/chat/messages/embed_parity.cpp tests/ui/chat/messages/link_chips.cpp
+        tests/ui/chat/messages/content_wave.cpp tests/ui/text/embed_convergence.cpp tests/ui/chat/messages/embed_parity.cpp
+        tests/ui/chat/messages/embed_parity_embeds.cpp tests/ui/chat/messages/link_chips.cpp
         tests/app/chat/messages/history_presence_recovery.cpp tests/ui/account/profile_appearance.cpp tests/protocol/user/profile_decode_scratch.cpp
         tests/protocol/gateway/message_rich_index.cpp tests/app/net/cdn_response_storage.cpp tests/protocol/http/rest_response_storage.cpp
         tests/model/chat/engineering_regressions.cpp tests/media/compression/deflate_matches.cpp tests/media/compression/deflate_differential.cpp
@@ -477,7 +487,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
         tests/app/gateway/private_channel_state.cpp tests/app/gateway/private_membership.cpp tests/app/gateway/private_snapshot.cpp
         tests/app/gateway/state_recovery.cpp tests/app/chat/messages/navigation_restore.cpp tests/app/chat/channel_memory.cpp tests/app/shell/startup_shell.cpp
         tests/app/gateway/private_order.cpp tests/app/shell/private_rail_pins.cpp tests/protocol/user/private_conversation.cpp
-        tests/app/chat/private_channel_actions.cpp tests/support/media_fixture.cpp
+        tests/app/chat/private_channel_actions.cpp tests/support/media_fixture.cpp tests/support/media_fixture_encoders.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_webauthn maicord_account_paths
         maicord_account_host maicord_text maicord_ui maicord_ui_input maicord_model maicord_message_runtime
         maicord_message_media maicord_render_core maicord_media_core maicord_media_codec maicord_cdn_media
@@ -485,7 +495,10 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
     INCLUDES src/app
     TEST maicord_core)
 maicord_test(MaiCordCommandUiTests ENTRY maicord_command_ui_tests_entry
-    SOURCES tests/app/chat/composer/commands_ui.cpp src/app/chat/composer/commands.cpp src/app/chat/composer/builtin_commands.cpp
+    SOURCES tests/app/chat/composer/commands_ui.cpp tests/app/chat/composer/commands_ui_cases.cpp
+        src/app/chat/composer/commands.cpp
+        src/app/chat/composer/commands_frecency.cpp src/app/chat/composer/commands_picker.cpp
+        src/app/chat/composer/commands_draft.cpp src/app/chat/composer/builtin_commands.cpp
         src/app/shell/state.cpp src/app/settings/modal.cpp
         src/app/chat/messages/feedback.cpp tests/app/account/activity_retry.cpp
         tests/app/account/custom_status_retry.cpp tests/app/notifications/retry.cpp
@@ -495,15 +508,16 @@ maicord_test(MaiCordCommandUiTests ENTRY maicord_command_ui_tests_entry
     INCLUDES src/app
     TEST maicord_command_ui)
 maicord_test(MaiCordMediaVisibilityTests ENTRY maicord_media_visibility_tests_entry
-    SOURCES tests/app/media/media_visibility.cpp tests/app/guild/stream_preview_media_stub.cpp src/app/media/media.cpp
-        src/app/media/animation.cpp src/app/media/requests.cpp src/app/shell/state.cpp
+    SOURCES tests/app/media/media_visibility.cpp tests/app/media/media_visibility_search.cpp
+        tests/app/guild/stream_preview_media_stub.cpp src/app/media/media.cpp
+        src/app/media/animation.cpp src/app/media/requests.cpp src/app/media/requests_message.cpp src/app/shell/state.cpp
         src/core/log.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_text maicord_ui maicord_ui_input
         maicord_model maicord_message_runtime maicord_message_media maicord_render_core maicord_media_core
         maicord_account_media maicord_atlas_gpu maicord_renderer kernel32 user32 ${maicord_tls_libs} d3d11 dxgi dcomp
     INCLUDES src/app
     TEST maicord_media_visibility)
-add_executable(MaiCordAccountPumpTests tests/app/account/account_pump.cpp
+add_executable(MaiCordAccountPumpTests tests/app/account/account_pump.cpp tests/app/account/account_pump_stubs.cpp
     src/app/chat/threads/header_activation.cpp
     tests/app/account/application_account_text_retry_runtime.hpp
     src/app/account/account_pump.cpp src/app/shell/scheduler.cpp src/app/chat/application_channel_memory.cpp
@@ -573,7 +587,8 @@ maicord_test(MaiCordGuildAssetsTests ENTRY maicord_guild_assets_entry
     BUNDLE MaiCordAccountRequestTests TIMEOUT 15 TEST maicord_guild_assets)
 # Avatar/banner crop: cropper geometry, PNG/zlib encoder, still and GIF crops.
 maicord_test(MaiCordProfileImageTests ENTRY maicord_profile_image_entry
-    SOURCES tests/app/media/profile_image.cpp tests/support/media_fixture.cpp src/app/media/profile_image.cpp src/app/media/guild_image.cpp
+    SOURCES tests/app/media/profile_image.cpp tests/support/media_fixture.cpp tests/support/media_fixture_encoders.cpp
+        src/app/media/profile_image.cpp src/app/media/guild_image.cpp
         src/app/media/local_preview_thumbnail.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_media_codec maicord_compression kernel32
         user32
@@ -591,7 +606,7 @@ maicord_test(MaiCordMediaWorkerPosterLeaseTests ENTRY maicord_media_worker_poste
 # Media decode lanes: threads start on first use; lane stacks keep a margin
 # over the deepest decode (every image codec and the largest bundled flag).
 maicord_test(MaiCordMediaWorkerLanesTests ENTRY maicord_media_worker_lanes_entry
-    SOURCES tests/app/media/worker_lanes.cpp tests/support/media_fixture.cpp
+    SOURCES tests/app/media/worker_lanes.cpp tests/support/media_fixture.cpp tests/support/media_fixture_encoders.cpp
     LIBS maicord_account_media maicord_media_codec kernel32
     BUNDLE MaiCordCodecUnitTests
     TIMEOUT 10 TEST maicord_media_worker_lanes)
@@ -732,7 +747,8 @@ maicord_test(MaiCordSelfStatusRuntimeTests ENTRY maicord_self_status_runtime_ent
         src/core/log.cpp
     BUNDLE MaiCordAppUnitTests TIMEOUT 10 TEST maicord_self_status_frontend_runtime)
 maicord_test(MaiCordSearchRuntimeTests ENTRY maicord_application_search_runtime_entry
-    SOURCES tests/app/chat/search/search_runtime.cpp src/app/shell/state.cpp src/core/log.cpp
+    SOURCES tests/app/chat/search/search_runtime.cpp tests/app/chat/search/search_runtime_filters.cpp
+        tests/app/chat/search/search_runtime_stubs.cpp src/app/shell/state.cpp src/core/log.cpp
     LIBS ${maicord_app_ui_test_libs} kernel32 user32
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_search_runtime)
@@ -792,7 +808,8 @@ maicord_test(MaiCordPinnedMessagesRuntimeTests ENTRY maicord_application_pinned_
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_pinned_messages_runtime)
 maicord_test(MaiCordMediaPickerRuntimeTests ENTRY maicord_application_media_picker_runtime_entry
-    SOURCES tests/app/media/picker_runtime.cpp src/app/shell/state.cpp src/core/log.cpp
+    SOURCES tests/app/media/picker_runtime.cpp tests/app/media/picker_runtime_stubs.cpp src/app/shell/state.cpp
+        src/core/log.cpp
     LIBS ${maicord_app_test_libs} maicord_ui_input maicord_message_runtime kernel32 user32
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_media_picker_runtime)
@@ -803,14 +820,17 @@ maicord_test(MaiCordGifFavoritesRuntimeTests ENTRY maicord_application_gif_favor
     TIMEOUT 15 TEST maicord_gif_favorites_runtime)
 # Includes collection navigation, canonical embed queue recovery, joined restarts and failure recovery.
 maicord_test(MaiCordVideoFocusRuntimeTests ENTRY maicord_video_focus_runtime_entry
-    SOURCES tests/app/media/video_focus_runtime.cpp src/app/media/video.cpp src/app/shell/state.cpp
+    SOURCES tests/app/media/video_focus_runtime.cpp tests/app/media/video_focus_runtime_stubs.cpp
+        src/app/media/video.cpp src/app/media/video_sources.cpp
+        src/app/media/video_input.cpp src/app/shell/state.cpp
         src/core/log.cpp
     LIBS ${maicord_app_test_libs} maicord_message_runtime kernel32 user32
     INCLUDES src/app
     TIMEOUT 10 TEST maicord_video_focus_runtime)
 maicord_test(MaiCordLoginCancelRuntimeTests ENTRY maicord_login_cancel_runtime_entry
     SOURCES tests/app/account/login/cancel_runtime.cpp src/app/account/login/browser_auth.cpp
-        src/app/account/login/captcha_auth.cpp src/app/account/login/auth.cpp src/app/shell/state.cpp
+        src/app/account/login/captcha_auth.cpp src/app/account/login/auth.cpp src/app/account/login/auth_recovery.cpp
+        src/app/shell/state.cpp
         src/app/account/account_host.cpp src/core/log.cpp
     BUNDLE MaiCordAppUnitTests)
 maicord_test(MaiCordNotificationTests ENTRY maicord_notifications_tests_entry
@@ -1419,6 +1439,8 @@ add_custom_command(OUTPUT "${MAICORD_FX_PLUGIN_REFERENCE_HEADER}"
     DEPENDS tests/shaders/background_fx_plugin_reference.hlsl VERBATIM)
 maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
     SOURCES "${MAICORD_FX_PLUGIN_REFERENCE_HEADER}" config/maicord.manifest tests/integration/ui_probe.cpp
+        tests/integration/ui_probe_media.cpp tests/integration/ui_probe_scenes.cpp
+        tests/integration/ui_probe_renderer.cpp
         tools/font_reference/dwrite_text_system.cpp tests/integration/poll_scene_ui_probe.cpp
         tests/integration/profile_editor_ui_probe.cpp tests/integration/navigation_gaps_ui_probe.cpp
         tests/integration/reaction_intent_ui_adapter.cpp tests/integration/thread_membership_ui_adapter.cpp
@@ -1437,6 +1459,7 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
         tests/integration/channel_overview_ui_adapter.cpp tests/integration/regional_flag_probe.cpp
         tests/integration/regional_flag_surfaces_probe.cpp tests/integration/inline_flags_probe.cpp
         tests/integration/guild_rail_icon_probe.cpp tests/integration/background_theme_probe.cpp
+        tests/integration/background_theme_pixels.cpp
         tests/integration/plugin_ui_probe.cpp tests/integration/plugin_navigation_ui_probe.cpp
         tests/integration/plugin_catalog_ui_probe.cpp src/app/plugins/browser_projection.cpp
         tests/integration/settings_choice_ui_probe.cpp tests/integration/user_settings_ui_probe.cpp
@@ -1444,7 +1467,8 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
         tests/integration/notification_settings_ui_probe.cpp tests/integration/shortcuts_ui_probe.cpp
         tests/integration/call_scene_ui_probe.cpp tests/integration/inbox_ui_probe.cpp
         tests/integration/caption_ui_probe.cpp src/app/shell/app_icon.cpp config/maicord.rc
-        tests/integration/showcase_probe.cpp tests/integration/login_recovery_ui_probe.cpp
+        tests/integration/showcase_probe.cpp tests/integration/showcase_probe_art.cpp
+        tests/integration/login_recovery_ui_probe.cpp
         tests/ui/account/login_reset_ui_probe.cpp tests/integration/login_phone_ui_probe.cpp
         tests/integration/login_browser_ui_probe.cpp tests/integration/member_paging_probe.cpp
         tests/integration/thread_members_probe.cpp tests/integration/read_state_probe.cpp
@@ -1455,13 +1479,14 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
         tests/integration/audio_scene_ui_probe.cpp tests/integration/tooltip_ui_probe.cpp
         tests/integration/account_menu_ui_probe.cpp tests/integration/toast_ui_probe.cpp
         tests/integration/search_ui_probe.cpp tests/integration/application_media_animation_ui_probe.cpp
-        src/app/media/media.cpp src/app/media/animation.cpp src/app/media/requests.cpp
+        src/app/media/media.cpp src/app/media/animation.cpp src/app/media/requests.cpp src/app/media/requests_message.cpp
         tests/integration/menu_row_ui_probe.cpp tests/integration/animation_preview_probe.cpp
         tests/integration/png_preview_probe.cpp tests/integration/gif_scroll_probe.cpp
         tests/integration/media_memory_probe.cpp tests/integration/vp8_tiled_probe.cpp
         "${maicord_vp8_reference_reconstruct_header}" "${maicord_vp8_reference_idct_header}"
         "${maicord_vp8_reference_filter_header}" tests/integration/video_frame_reference_probe.cpp
-        "${maicord_video_frame_reference_header}" tests/support/media_fixture.cpp src/core/log.cpp
+        "${maicord_video_frame_reference_header}" tests/support/media_fixture.cpp
+        tests/support/media_fixture_encoders.cpp src/core/log.cpp
     LIBS maicord_core maicord_text maicord_ui maicord_ui_input maicord_model maicord_plugin_host maicord_plugin_modules
         maicord_plugin_manager maicord_message_runtime maicord_render_core maicord_media_codec maicord_atlas_gpu
         maicord_renderer maicord_platform maicord_protocol maicord_app_core maicord_message_media maicord_account_media
@@ -1473,9 +1498,11 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
 # default constant-evaluation step budget.
 set_source_files_properties(tests/integration/ui_probe.cpp tests/integration/showcase_probe.cpp
     PROPERTIES COMPILE_OPTIONS /clang:-fconstexpr-steps=8388608)
-# These two units are mostly their own code, so unoptimized without the
+# These units are mostly their own code, so unoptimized without the
 # application PCH (which is /O2) compiles them several times faster.
-set_source_files_properties(tests/integration/ui_probe.cpp tests/app/settings/settings_runtime.cpp
+set_source_files_properties(tests/integration/ui_probe.cpp tests/integration/ui_probe_media.cpp
+    tests/integration/ui_probe_scenes.cpp tests/integration/ui_probe_renderer.cpp
+    tests/app/settings/settings_runtime.cpp tests/app/settings/settings_runtime_stubs.cpp
     PROPERTIES MAICORD_NO_APPLICATION_PCH ON)
 # The single-scene WIN32 probes link the renderer stack and run with GPU metrics.
 set(maicord_scene_probe_libs maicord_core maicord_text maicord_ui maicord_ui_input maicord_model

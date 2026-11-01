@@ -83,7 +83,9 @@ maicord_library(maicord_media_codec
     src/media/video/h264_configuration.cpp src/media/video/h264_slice.cpp src/media/video/h264_access_unit.cpp
     src/media/video/h264_output_queue.cpp src/media/video/h264_picture_order.cpp src/media/video/h264_references.cpp
     src/media/video/h264_stream.cpp src/media/video/hevc_parameters.cpp src/media/video/hevc_picture.cpp
-    src/media/containers/hevc_mp4_demux.cpp src/media/video/hevc_references.cpp src/media/image/jpeg.cpp src/media/image/lossy_webp.cpp
+    src/media/containers/hevc_mp4_demux.cpp src/media/video/hevc_references.cpp src/media/image/jpeg.cpp
+    src/media/image/jpeg_icc.cpp src/media/image/jpeg_entropy.cpp src/media/image/jpeg_reconstruct.cpp
+    src/media/image/lossy_webp.cpp
     src/media/containers/mp4_demux.cpp src/media/containers/mp4_audio_demux.cpp src/media/core/progressive_source.cpp src/media/image/png.cpp
     src/media/image/png_stream.cpp src/media/image/png_encode.cpp src/media/image/png_common.cpp src/media/image/vp8.cpp
     src/media/image/webp.cpp src/media/image/webp_thumbnail.cpp src/media/image/webp_alpha.cpp src/media/image/animated_webp.cpp
@@ -184,7 +186,9 @@ maicord_library(maicord_protocol
     src/protocol/voice/session.cpp src/protocol/http/websocket_message.cpp src/protocol/gateway/lifecycle.cpp
     src/protocol/gateway/message_events.cpp src/protocol/gateway/message_validation.cpp
     src/protocol/gateway/reaction_events.cpp src/protocol/gateway/typing_events.cpp
-    src/protocol/gateway/message_rich.cpp src/protocol/messages/interaction.cpp src/protocol/gateway/payload.cpp
+    src/protocol/gateway/message_rich.cpp src/protocol/gateway/message_rich_reference.cpp
+    src/protocol/gateway/message_rich_attachments.cpp src/protocol/gateway/message_rich_embeds.cpp
+    src/protocol/messages/interaction.cpp src/protocol/gateway/payload.cpp
     src/protocol/gateway/runtime.cpp src/protocol/gateway/session.cpp src/protocol/http/http1.cpp
     src/protocol/http/http_response_stream.cpp src/protocol/media/attachment_download.cpp src/protocol/encoding/json_write.cpp
     src/protocol/messages/history.cpp src/protocol/messages/ack.cpp src/protocol/messages/bulk_message_ack.cpp
@@ -200,6 +204,7 @@ maicord_library(maicord_protocol
     src/protocol/user/self_status_settings.cpp src/protocol/guild/folders.cpp src/protocol/guild/invite.cpp
     src/protocol/user/settings_proto.cpp src/protocol/user/account_settings.cpp src/protocol/user/emoji_preferences.cpp
     src/protocol/user/gif_favorites.cpp src/protocol/guild/channel_overview.cpp src/protocol/guild/admin.cpp
+    src/protocol/guild/admin_decode.cpp
     src/protocol/guild/assets.cpp src/protocol/user/profile_edit.cpp src/protocol/voice/video_signaling.cpp
     src/protocol/voice/rtcp_feedback.cpp src/protocol/guild/soundboard.cpp src/protocol/user/notification_settings.cpp
     src/protocol/user/guild_settings.cpp
@@ -208,6 +213,8 @@ maicord_library(maicord_protocol
     src/protocol/media/cdn_icon_hash.cpp src/protocol/guild/moderation.cpp src/protocol/voice/channel_info.cpp
     src/protocol/media/embed_provider.cpp
     src/protocol/media/embed_player.cpp
+    src/protocol/media/embed_player_video.cpp
+    src/protocol/media/embed_player_audio.cpp
     src/protocol/media/dash_manifest.cpp
     src/protocol/media/steam_player.cpp
     src/protocol/auth/oauth.cpp
@@ -223,6 +230,7 @@ maicord_library(maicord_webauthn src/platform/desktop/webauthn.cpp LIBS maicord_
 
 maicord_library(maicord_app_core
     src/app/chat/polls/controller.cpp src/app/chat/polls/draft.cpp src/app/gateway/state_dispatch.cpp
+    src/app/gateway/state_dispatch_objects.cpp src/app/gateway/state_dispatch_records.cpp
     src/app/gateway/payload_writer.cpp src/app/gateway/user_payload.cpp src/app/account/login/browser_login.cpp
     src/app/account/login/browser_sign_in_receiver.cpp src/app/account/login/captcha_bridge.cpp src/app/account/login/loopback_server.cpp
     src/app/account/login/continuations.cpp src/app/shell/input_layers.cpp src/app/shell/navigation_shortcuts.cpp
@@ -230,7 +238,9 @@ maicord_library(maicord_app_core
     src/app/account/account_logout.cpp src/app/account/account_profile_promotion.cpp src/app/account/account_session_store.cpp
     src/app/account/login/captcha_challenge.cpp src/app/net/cdn_client.cpp src/app/media/progressive_video_fetch.cpp
     src/app/net/https_file_upload.cpp src/app/net/https_file_download.cpp src/app/net/rest_client.cpp
-    src/app/gateway/client.cpp src/app/voice/connection_setup.cpp
+    src/app/net/rest_client_transaction.cpp src/app/net/rest_client_worker.cpp
+    src/app/gateway/client.cpp src/app/gateway/client_storage.cpp src/app/gateway/client_transport.cpp
+    src/app/gateway/client_outputs.cpp src/app/gateway/client_session.cpp src/app/voice/connection_setup.cpp
     src/app/voice/connection.cpp src/app/voice/udp_discovery.cpp src/app/voice/media_setup.cpp
     src/app/voice/packet_crypto.cpp src/app/voice/dave/frame_crypto.cpp src/app/voice/dave/key_derivation.cpp
     src/app/voice/mls/exporter.cpp src/app/voice/mls/key_schedule.cpp src/app/voice/mls/signature.cpp src/app/voice/mls/hpke_derivation.cpp
@@ -239,6 +249,7 @@ maicord_library(maicord_app_core
     src/app/voice/udp_media.cpp src/app/voice/participants.cpp src/app/voice/socket.cpp
     src/app/gateway/voice_control.cpp src/app/gateway/voice_dispatch.cpp src/app/gateway/stage_dispatch.cpp
     src/app/gateway/scheduled_event_dispatch.cpp src/app/gateway/stream_control.cpp src/app/gateway/dispatch.cpp
+    src/app/gateway/dispatch_notifications.cpp
     src/app/notifications/gateway_notification_records.cpp src/app/gateway/dispatch_payload.cpp
     src/app/gateway/member_list_dispatch.cpp src/app/gateway/guild_admin_dispatch.cpp
     src/app/gateway/thread_member_dispatch.cpp src/app/gateway/presence_dispatch.cpp
@@ -256,7 +267,8 @@ maicord_library(maicord_app_core
     src/app/media/received_attachment_open.cpp src/app/gateway/state_payload.cpp src/app/account/login/mfa_policy.cpp
     src/app/guild/member_list_channel_binding.cpp src/app/account/login/remote_auth_client.cpp src/app/account/login/remote_auth_handshake.cpp
     src/app/account/login/remote_auth_ticket_exchange.cpp src/app/account/user_client_configuration.cpp
-    src/app/account/user_account_coordinator.cpp src/app/account/login/user_auth_coordinator.cpp src/app/update/manifest.cpp
+    src/app/account/user_account_coordinator.cpp src/app/account/login/user_auth_coordinator.cpp
+    src/app/account/login/user_auth_coordinator_responses.cpp src/app/update/manifest.cpp
     src/app/update/artifact.cpp src/app/update/acceptance.cpp
     src/app/update/prepare.cpp src/app/update/package.cpp
     src/app/update/fetch.cpp src/app/update/https.cpp src/app/update/service.cpp src/app/chat/search/recent.cpp
@@ -283,8 +295,10 @@ maicord_library(maicord_app_core
 
 maicord_library(maicord_account_media
     src/app/media/local_preview_thumbnail.cpp src/app/media/local_video_poster.cpp src/app/media/account_media.cpp
-    src/app/media/regional_flag_assets.cpp src/app/media/account_media_worker.cpp src/app/media/account_media_video.cpp
-    src/app/media/account_video_session.cpp src/platform/decode/mp4_decoder.cpp src/platform/decode/h264_gpu_decoder.cpp
+    src/app/media/account_media_fetch.cpp src/app/media/account_media_requests.cpp src/app/media/account_media_local_preview.cpp
+    src/app/media/regional_flag_assets.cpp src/app/media/account_media_worker.cpp src/app/media/account_media_worker_lanes.cpp
+    src/app/media/account_media_video.cpp src/app/media/account_video_session.cpp src/app/media/account_video_session_audio.cpp
+    src/platform/decode/mp4_decoder.cpp src/platform/decode/h264_gpu_decoder.cpp
     src/platform/decode/hevc_gpu_decoder.cpp src/platform/decode/h264_gpu_configuration.cpp
     src/platform/decode/h264_gpu_stream_decoder.cpp src/app/voice/video_stream_decoders.cpp
     src/platform/decode/gpu_decoder_surfaces.cpp src/platform/decode/gpu_stream_decoder.cpp src/platform/decode/hevc_gpu_stream_decoder.cpp
@@ -361,6 +375,7 @@ maicord_library(maicord_ui
     src/ui/voice/audio_presentation.cpp src/ui/voice/video_controls.cpp src/ui/voice/video_scene.cpp src/ui/widgets/spinner.cpp
     src/ui/core/transition.cpp src/ui/widgets/tooltip.cpp src/ui/media/emoji_presentation.cpp src/ui/text/ansi_text.cpp
     src/ui/text/code_highlight.cpp src/ui/chat/composer/autocomplete.cpp src/ui/chat/messages/markdown.cpp
+    src/ui/chat/messages/markdown_links.cpp
     src/ui/text/timestamp_format.cpp src/ui/shell/navigation_view.cpp src/ui/text/emoji_catalog.cpp src/ui/core/geometry.cpp
     src/ui/guild/rail_scene.cpp src/ui/shell/navigation_drag.cpp src/ui/chat/unread_banner_scene.cpp
     src/app/chat/unread_banner_projection.cpp src/ui/layout/layout_engine.cpp src/ui/account/login_scene.cpp
@@ -370,16 +385,20 @@ maicord_library(maicord_ui
     src/ui/chat/messages/context_menu.cpp src/ui/account/user_context_menu.cpp src/ui/chat/unread_context.cpp
     src/ui/chat/messages/rich_layout.cpp src/ui/chat/messages/component_layout.cpp src/ui/chat/messages/component_media.cpp
     src/ui/chat/messages/media_policy.cpp src/ui/chat/messages/system_text.cpp src/ui/chat/messages/rich_widgets.cpp
-    src/ui/chat/messages/scene.cpp src/ui/chat/messages/scene_navigation.cpp src/ui/chat/messages/scene_measurements.cpp
+    src/ui/chat/messages/scene.cpp src/ui/chat/messages/scene_rows.cpp src/ui/chat/messages/scene_navigation.cpp
+    src/ui/chat/messages/scene_measurements.cpp
     src/ui/layout/scrollbar.cpp src/ui/chat/composer/message_composer_scene.cpp src/ui/chat/composer/attachment_strip.cpp
     src/ui/chat/composer/voice_bar.cpp src/ui/chat/messages/presentation.cpp src/ui/media/image_viewer.cpp
     src/ui/chat/messages/reaction_presentation.cpp src/ui/chat/messages/typing_presentation.cpp src/ui/core/paint.cpp
     src/ui/widgets/icon.cpp src/ui/widgets/button.cpp src/ui/chat/messages/text_coordinator.cpp src/ui/chat/messages/text_presentation.cpp
+    src/ui/chat/messages/text_presentation_reply.cpp src/ui/chat/messages/text_presentation_content.cpp
+    src/ui/chat/messages/text_presentation_cards.cpp src/ui/chat/messages/text_presentation_row.cpp
     src/ui/shell/popup_scene.cpp src/ui/guild/channel_context_policy.cpp src/ui/guild/context_policy.cpp
     src/ui/guild/member_context_policy.cpp src/ui/chat/composer/attachment_menu.cpp src/ui/chat/messages/received_attachment_menu.cpp
     src/ui/shell/popup_presentation.cpp src/ui/text/edit_menu.cpp src/ui/text/spell_tokenize.cpp
     src/ui/chat/composer/spellcheck.cpp src/ui/text/form.cpp src/ui/text/composition.cpp src/ui/widgets/qr_code.cpp
     src/ui/chat/messages/reaction_picker.cpp src/ui/text/edit_field.cpp src/ui/widgets/badge.cpp src/ui/account/profile_scene.cpp
+    src/ui/account/profile_scene_sections.cpp src/ui/account/profile_scene_layout.cpp
     src/ui/account/profile_media.cpp src/ui/account/profile_dialog_scene.cpp src/ui/chat/messages/reaction_viewer.cpp
     src/ui/chat/messages/reaction_viewer_presentation.cpp src/ui/core/scene.cpp src/ui/kit/scene_kit.cpp src/ui/shell/navigation_scene.cpp
     src/ui/shell/presentation.cpp src/ui/shell/text_presentation.cpp src/ui/chat/private_channel_title.cpp
@@ -387,17 +406,20 @@ maicord_library(maicord_ui
     src/ui/text/measure_cache.cpp src/ui/text/presentation.cpp src/ui/layout/virtual_list.cpp src/ui/core/widget_manager.cpp
     src/ui/core/widget_builder.cpp src/ui/widgets/menu_row.cpp src/ui/widgets/button_keyboard.cpp src/ui/core/input_router.cpp
     src/ui/layout/list_navigation.cpp src/ui/layout/list_paging.cpp src/ui/layout/widget_scroll.cpp src/ui/core/widget_storage.cpp
-    src/ui/shell/page_registry.cpp src/ui/settings/scene.cpp src/ui/settings/theme_editor.cpp src/ui/theme/styles.cpp
+    src/ui/shell/page_registry.cpp src/ui/settings/scene.cpp src/ui/settings/scene_layout.cpp
+    src/ui/settings/scene_paint.cpp src/ui/settings/theme_editor.cpp src/ui/theme/styles.cpp
     src/ui/theme/style_projection.cpp src/ui/widgets/settings_choice.cpp src/ui/account/friends_scene.cpp
     src/ui/account/friends_media.cpp src/ui/controls/settings_tokens.cpp src/ui/controls/switch.cpp
     src/ui/controls/radio.cpp src/ui/controls/slider.cpp src/ui/controls/input.cpp src/ui/controls/swatch.cpp
     src/ui/controls/navigation.cpp src/ui/controls/text_metrics.cpp src/ui/settings/schema.cpp
     src/ui/controls/permission_grid.cpp src/ui/controls/admin_list.cpp src/ui/accessibility/accessibility.cpp
     src/ui/accessibility/scenes.cpp src/ui/widgets/icon_pack.cpp src/ui/account/menu.cpp src/ui/account/switcher.cpp
-    src/ui/chat/search/scene.cpp src/ui/chat/pinned_messages_scene.cpp src/ui/chat/inbox_scene.cpp src/ui/chat/threads/header.cpp
+    src/ui/chat/search/scene.cpp src/ui/chat/search/scene_items.cpp src/ui/chat/search/scene_paint.cpp
+    src/ui/chat/pinned_messages_scene.cpp src/ui/chat/inbox_scene.cpp src/ui/chat/threads/header.cpp
     src/ui/chat/threads/browser_scene.cpp src/ui/chat/threads/forum_channel_scene.cpp src/ui/chat/threads/forum_post_scene.cpp
     src/ui/chat/composer/attachment_draft_list.cpp src/ui/shell/quick_switcher_scene.cpp src/ui/chat/messages/forward_scene.cpp
     src/ui/media/download_scene.cpp src/ui/shell/shortcuts_scene.cpp src/ui/media/picker.cpp
+    src/ui/media/picker_layout.cpp
     src/ui/media/picker_presentation.cpp src/ui/chat/search/query.cpp src/ui/chat/search/filter_context.cpp
     src/ui/voice/channel_rows.cpp src/ui/voice/panel.cpp
     src/ui/voice/call_scene.cpp src/ui/voice/call_stage.cpp src/ui/widgets/hover_card.cpp src/ui/voice/stream_card_scene.cpp
@@ -415,13 +437,14 @@ maicord_library(maicord_ui
 
 # UI Automation server over accessibility snapshots. UIAutomationCore and
 # OleAut32 load on the first WM_GETOBJECT, so neither is a static import.
-maicord_library(maicord_uia src/platform/uia/provider.cpp LIBS maicord_core maicord_ui)
+maicord_library(maicord_uia src/platform/uia/provider.cpp src/platform/uia/provider_patterns.cpp
+    src/platform/uia/provider_text.cpp LIBS maicord_core maicord_ui)
 
 # Native extension ownership stays in independent archives. The shell links
 # settings pages and manual session loading; the account module owns no plugin UI.
 maicord_library(maicord_plugin_host
     src/app/plugins/host.cpp src/app/plugins/plugin_settings_projection.cpp src/app/plugins/call_ledger.cpp
-    src/app/plugins/plugin_sdk.cpp src/app/plugins/sdk_surfaces.cpp src/app/plugins/sdk_data.cpp
+    src/app/plugins/plugin_sdk.cpp src/app/plugins/plugin_sdk_store.cpp src/app/plugins/sdk_surfaces.cpp src/app/plugins/sdk_data.cpp
     LIBS maicord_core maicord_ui)
 maicord_library(maicord_plugin_modules
     src/app/plugins/module_loader.cpp src/app/plugins/manifest.cpp src/app/plugins/catalog.cpp
@@ -449,7 +472,8 @@ maicord_library(maicord_model
     src/model/user/private_channel_store.cpp src/model/chat/custom_emoji.cpp src/model/user/profile.cpp
     src/model/user/activity.cpp src/model/user/store.cpp src/model/user/relationship_store.cpp
     src/model/user/note_store.cpp src/model/user/active_now.cpp src/model/user/friend_search.cpp
-    src/model/chat/typing_store.cpp src/model/chat/message_rich_store.cpp src/model/guild/invite_card_cache.cpp
+    src/model/chat/typing_store.cpp src/model/chat/message_rich_store.cpp src/model/chat/message_rich_store_pack.cpp
+    src/model/guild/invite_card_cache.cpp
     src/model/guild/scheduled_event_store.cpp src/model/chat/message_composer.cpp
     src/model/chat/message_composer_input_target.cpp src/model/chat/message_draft_store.cpp
     src/model/chat/reaction_preferences.cpp src/model/chat/message_store.cpp src/model/chat/message_search.cpp
@@ -471,7 +495,8 @@ maicord_library(maicord_message_runtime
     src/app/chat/composer/message_attachment_drafts.cpp src/app/chat/messages/reaction_viewer_controller.cpp
     src/app/chat/messages/reaction_viewer_storage.cpp src/app/chat/composer/message_draft_persistence.cpp src/app/chat/composer/message_draft_session.cpp
     src/app/gateway/chat_state_dispatch.cpp src/app/chat/private_conversation.cpp src/app/chat/private_channel_actions.cpp
-    src/app/gateway/user_store_dispatch.cpp src/app/chat/messages/event_pump.cpp src/app/chat/read_ack_controller.cpp
+    src/app/gateway/user_store_dispatch.cpp src/app/chat/messages/event_pump.cpp src/app/chat/messages/event_pump_observers.cpp
+    src/app/chat/read_ack_controller.cpp
     src/app/chat/read_scope.cpp src/app/chat/bulk_read_ack_controller.cpp src/app/chat/messages/history_sync.cpp
     src/app/media/url_resolver.cpp src/app/chat/messages/send_tracker.cpp src/app/chat/messages/timeline.cpp
     src/app/chat/messages/view_runtime.cpp src/app/chat/messages/snapshot_cache.cpp src/model/chat/message_reconcile.cpp
@@ -505,7 +530,8 @@ maicord_library(maicord_renderer
     src/render/effects/colr_paint.cpp src/render/d3d11/glyph_text.cpp src/render/media/icon_atlas.cpp
     src/render/text/native_glyph_outlines.cpp src/render/d3d11/background_fx.cpp src/render/d3d11/gpu_timer.cpp
     src/render/d3d11/renderer.cpp src/render/d3d11/renderer_draw.cpp src/render/d3d11/renderer_edit.cpp
-    src/render/d3d11/renderer_layout.cpp src/render/d3d11/renderer_text.cpp
+    src/render/d3d11/renderer_layout.cpp src/render/d3d11/renderer_layout_media.cpp src/render/d3d11/renderer_text.cpp
+    src/render/d3d11/renderer_text_content.cpp src/render/d3d11/renderer_text_overlay.cpp
     src/render/d3d11/renderer_interaction.cpp src/render/d3d11/renderer_media.cpp
     src/render/d3d11/navigation.cpp src/render/text/edit_layout.cpp src/render/text/form_surface.cpp
     src/render/text/forum_post_surface.cpp src/render/text/message_hit_test.cpp src/render/d3d11/renderer_presentation.cpp

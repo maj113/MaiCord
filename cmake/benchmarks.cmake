@@ -77,7 +77,7 @@ maicord_program(MaiCordGlyphBenchmark ENTRY maicord_glyph_benchmark_entry
     SOURCES benchmarks/glyph_benchmark.cpp src/render/text/native_glyph_outlines.cpp
     LIBS maicord_core maicord_text maicord_render_core maicord_atlas_gpu maicord_paint_program kernel32 d3d11)
 maicord_program(MaiCordMediaBenchmark ENTRY maicord_media_benchmark_entry
-    SOURCES benchmarks/media_benchmark.cpp tests/support/media_fixture.cpp
+    SOURCES benchmarks/media_benchmark.cpp tests/support/media_fixture.cpp tests/support/media_fixture_encoders.cpp
     LIBS maicord_core maicord_protocol maicord_render_core maicord_media_core maicord_media_codec maicord_cdn_media
         maicord_atlas_gpu kernel32 d3d11)
 # tools/benchmark_opus.ps1: Opus encode/decode CPU per frame and bit-exactness digests.

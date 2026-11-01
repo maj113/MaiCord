@@ -15,6 +15,23 @@
 #include "maicord/app/media/profile_image.hpp"
 #include "maicord/protocol/guild/assets.hpp"
 #include "../../voice/soundboard.hpp"
+#include "../../net/rest_rate_retry.hpp"
+#include "maicord/render/d3d11/layer_presentation.hpp"
+#include "../../account/application_account_module.hpp"
+#include "../../account/account_presentation.hpp"
+#include "../../chat/composer/attachments.hpp"
+#include "../../chat/composer/text_input.hpp"
+#include "maicord/ui/guild/context_policy.hpp"
+#include "maicord/model/guild/channel_settings_model.hpp"
+#include "maicord/core/color_hex.hpp"
+#include "maicord/core/deadline.hpp"
+#include "maicord/core/heap_sort.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
+#include "maicord/app/account/account_profile_edit.hpp"
+#include "../../account/account_access.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/app/gateway/client_dispatch.hpp"
 
 namespace maicord::app_detail::server_settings {
 
@@ -592,3 +609,36 @@ bool form_save(TextFormOwnerKey key, Utf8View) noexcept;
 void open_expression_form(u64 kind, u64 item) noexcept;
 
 } // namespace maicord::app_detail::server_settings
+
+namespace maicord::app_detail::server_settings {
+namespace guild_settings_detail {}
+using namespace guild_settings_detail;
+namespace guild_settings_detail {
+
+bool read_op(Op op) noexcept;
+Op next_save_op() noexcept;
+Utf8View failure_text(const RestClientResponse& response) noexcept;
+Utf8View failure_text(const RestClientResponse& response, const Utf8View& body) noexcept;
+void ensure_page_data() noexcept;
+
+// Channel creation from menus; independent of the open layer.
+struct ChannelCreate {
+    u64 serial, guild_id, parent_id, request_id, retry_at, account_scope;
+    u16 name_bytes;
+    u8 type;
+    bool queued, done;
+    Utf8View status;
+    u32 revision;
+    char name[kGuildAdminNameBytes];
+};
+
+extern ChannelCreate creation;
+void poll_picker() noexcept;
+
+} // namespace guild_settings_detail
+} // namespace maicord::app_detail::server_settings
+namespace maicord::app_detail {
+
+using namespace server_settings;
+
+} // namespace maicord::app_detail

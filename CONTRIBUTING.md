@@ -162,6 +162,10 @@ files instead of re-sorting the lists.
   test, for every behavior change, and register them in
   `cmake/test_registry.cmake` (see [Build files](#build-files)). Helpers shared
   across folders live in `tests/support/`, data in `tests/fixtures/`.
+  A test or probe too large for one file is split beside itself into
+  `<stem>_<part>.cpp` files that share a private `<stem>_internal.hpp`; the
+  core suite's own cases live in the `core_*.cpp` parts listed in
+  `tests/core_test_cases.inc`, with the expectation sink in `tests/test_main.cpp`.
 
 ## Pull requests
 

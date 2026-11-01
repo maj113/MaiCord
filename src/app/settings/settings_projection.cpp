@@ -1,0 +1,877 @@
+#include "settings_internal.hpp"
+
+namespace maicord::app_detail {
+
+static_assert(sizeof(ApplicationSettingsChoice) == 96);
+
+static_assert(kSettingsControlCapacity >= kApplicationPluginSettingsMaximumControls);
+
+inline constexpr u32 kSettingsPanelRowLimit = kKeybindsSettingsBankCapacity;
+static_assert(kSettingsPanelRowLimit >= kSettingsControlCapacity);
+inline constexpr u32 kSettingsSearchHits = 16;
+
+// The bank is allocated lazily; nothing is allocated at application startup.
+static_assert(sizeof(ApplicationSettings) <= 3 * 4096);
+
+namespace settings_detail {
+
+MediaAccount g_spotify_account{};
+
+Utf8View saved_account_message() noexcept {
+    return utf8_literal("Sign-in saved on this device. Spotify playback is limited to previews.");
+}
+
+} // namespace settings_detail
+namespace {
+
+void media_saved_state() noexcept {
+    auto& account = g_spotify_account;
+    if (account.checked) return;
+    account.client_bytes = oauth_account_client(provider, {account.client, sizeof(account.client)});
+    SecureBuffer refresh{};
+    account.saved = oauth_account_load(account.client_id(), &refresh, provider);
+    secure_buffer_release(&refresh);
+    account.checked = true;
+    if (account.saved) account.message = saved_account_message();
+}
+
+} // namespace
+namespace settings_detail {
+
+void media_close(MediaAccount& account) noexcept {
+    account.stopping = !oauth_sign_in_stop(&account.sign_in, 0);
+}
+bool media_account_action() noexcept {
+    media_saved_state();
+    auto& account = g_spotify_account;
+    if (account.saved) {
+        if (!oauth_account_forget(provider)) {
+            account.message = utf8_literal("Could not remove the saved sign-in. Try again.");
+            return false;
+        }
+        account.saved = false;
+        account.message = utf8_literal("Signed out on this device.");
+        return true;
+    }
+    if (account.sign_in.runtime) {
+        media_close(account);
+        account.message = utf8_literal("Sign-in cancelled.");
+        return true;
+    }
+    if (account.generation == ~u64{0}) return false;
+    account.client_bytes = oauth_account_client(provider, {account.client, sizeof(account.client)});
+    if (!account.client_bytes) {
+        account.message = utf8_literal("Configure MaiCord's Spotify client registration before signing in.");
+        return false;
+    }
+    if (!g_app.window) return false;
+    account.launched = false;
+    account.stopping = false;
+    const bool started = oauth_sign_in_start(&account.sign_in, account.client_id(), ++account.generation, 300000, {},
+        provider);
+    account.message = started ? utf8_literal("Opening sign-in in your browser...") : utf8_literal("Could not start sign-in. Try again.");
+    return started;
+}
+
+SignedOutSession g_signed_out;
+
+bool settings_allowed() noexcept {
+    return g_app.account_ui && (!g_app.login.visible || g_signed_out.active);
+}
+
+bool page_allowed(UiPageKey page) noexcept {
+    return !g_signed_out.active ||
+           (page.owner_id == kSettingsNativeOwner && page.page_id >= 1 &&
+            page.page_id <= kSettingsPanelCount &&
+            settings_panel_signed_out(static_cast<SettingsPanel>(page.page_id - 1)));
+}
+
+} // namespace settings_detail
+namespace {
+
+static_assert(kUiSettingsNoDefault == 0xffff, "UiSettingsSchemaNode stores no default as 0xffff");
+SettingBinding binding_of(const UiSettingsSchemaNode& node) noexcept {
+    return node.binding_slot < static_cast<u32>(SettingBinding::count) ? static_cast<SettingBinding>(node.binding_slot)
+                                                                       : SettingBinding::none;
+}
+
+} // namespace
+namespace settings_detail {
+
+bool theme_panel(UiPageKey page) noexcept {
+    return page.owner_id == kNativeSettingsOwner && page.page_id == static_cast<u64>(SettingsPanel::appearance) + 1;
+}
+// Rows of side-by-side options that a click picks directly.
+bool option_row(UiSettingsControlKind kind) noexcept {
+    return kind == UiSettingsControlKind::segments || kind == UiSettingsControlKind::swatches ||
+           kind == UiSettingsControlKind::tabs || kind == UiSettingsControlKind::buttons ||
+           kind == UiSettingsControlKind::colors;
+}
+bool theme_binding(SettingBinding binding) noexcept {
+    return binding == SettingBinding::theme_base || binding == SettingBinding::theme_color ||
+           binding == SettingBinding::background_effect || binding == SettingBinding::gradient_direction ||
+           binding == SettingBinding::gradient_intensity;
+}
+const UiSettingsSchemaNode* control_node(u64 id, SettingBinding* binding) noexcept {
+    UiSettingsSchemaLocation location{};
+    const auto* node = settings_control_location(id, &location) ? settings_catalog_node(location) : nullptr;
+    if (binding)
+        *binding = node ? binding_of(*node) : SettingBinding::none;
+    return node;
+}
+bool release_slider_theme(ApplicationSettings& settings) noexcept {
+    if (!settings.slider_theme_baseline)
+        return true;
+    if (!VirtualFree(settings.slider_theme_baseline, 0, MEM_RELEASE))
+        return false;
+    settings.slider_theme_baseline = nullptr;
+    return true;
+}
+bool capture_slider_theme(ApplicationSettings& settings, const UiSettingsTarget& target) noexcept {
+    if (!release_slider_theme(settings))
+        return false;
+    // Built-in and notification gestures already have a preferences
+    // baseline. Only an active imported background needs a whole document.
+    SettingBinding binding{};
+    control_node(target.control_id, &binding);
+    if (!theme_binding(binding) || !application_custom_theme_document())
+        return true;
+    auto* snapshot = static_cast<ClientThemeStorageSnapshot*>(
+        VirtualAlloc(nullptr, sizeof(ClientThemeStorageSnapshot), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!snapshot)
+        return false;
+    settings.slider_theme_baseline = snapshot;
+    if (application_custom_theme_snapshot(snapshot))
+        return true;
+    release_slider_theme(settings);
+    return false;
+}
+bool release_plugin_page(ApplicationSettings& settings) noexcept {
+    auto* page = settings.plugin_page;
+    if (!page)
+        return true;
+    if (settings.plugin_page_committed) {
+        if (page->controls)
+            clear_bytes(page->controls, page->backed_count * static_cast<u32>(sizeof(UiSettingsControl)));
+        clear_bytes(page, sizeof(*page));
+    }
+    if (!VirtualFree(page, 0, MEM_RELEASE))
+        return false;
+    settings.plugin_page = nullptr;
+    settings.plugin_page_committed = false;
+    return true;
+}
+
+} // namespace settings_detail
+namespace {
+
+void detach_plugin(void*, u64 owner_id) noexcept {
+    application_plugins_detach_owner(owner_id);
+    application_settings_close();
+}
+
+} // namespace
+namespace settings_detail {
+
+BackgroundTheme gradient_edit_base() noexcept {
+    const auto& background = application_theme().background;
+    return static_cast<u8>(g_app.preferences.theme) >= static_cast<u8>(ClientTheme::aurora) &&
+                   background_theme_valid(background)
+               ? background
+               : g_app.preferences.gradient;
+}
+bool persist() noexcept {
+    const bool theme_saved = application_custom_theme_preferences_changed(false, true);
+    const bool result = theme_saved &&
+                        (g_app.preferences_writer || client_preferences_writer_create(&g_app.preferences_writer)) &&
+                        client_preferences_writer_submit(g_app.preferences_writer, g_app.preferences,
+                                                         &g_app.preferences_request_revision);
+    g_app.preferences_save_failed = !result;
+    g_app.preferences_save_pending = result;
+    if (g_app.settings)
+        g_app.settings->save_failed = !result;
+    if (!result)
+        log_u64(LogLevel::warning, "preferences", "save_queue_failed", GetLastError());
+    return result;
+}
+
+} // namespace settings_detail
+namespace {
+
+bool same_control(const UiSettingsControl& a, const UiSettingsControl& b) noexcept {
+    return a.id == b.id && a.kind == b.kind && a.enabled == b.enabled && a.checked == b.checked &&
+           a.choices.data == b.choices.data && a.choices.count == b.choices.count &&
+           a.selected_choice == b.selected_choice && a.editor == b.editor && utf8_equal(a.label, b.label) &&
+           utf8_equal(a.description, b.description) && utf8_equal(a.action_label, b.action_label);
+}
+bool same_presentation(const UiSettingsControlPresentation& a, const UiSettingsControlPresentation& b) noexcept {
+    return a.variant == b.variant && a.flags == b.flags && a.default_choice == b.default_choice;
+}
+Utf8View search_query(const ApplicationSettings& settings) noexcept {
+    return {settings.search_text, settings.search_bytes};
+}
+
+// Live projection of one catalog node. Returns false when the node has no
+// backing in the current state and must be omitted.
+bool project_node(const ApplicationSettings& settings, u32 panel, u32 index, UiSettingsControl* control,
+                  UiSettingsControlPresentation* presentation) noexcept {
+    const auto& node = settings_catalog().panels[panel].nodes[index];
+    const auto binding = binding_of(node);
+    const auto custom = application_custom_theme_view();
+    const bool theme_idle = !custom.busy && !custom.previewing;
+    const bool idle = !custom.candidate_ready && !custom.previewing && !custom.busy;
+    *control = {settings_control_id(panel, index), node.label(), node.description(), node.kind, true, false,
+                node.choices(), 0, node.action_label(), nullptr};
+    *presentation = {static_cast<UiSettingsVariant>(node.variant),
+                     static_cast<u8>(node.flags & ui_settings_schema_marks ? ui_settings_presentation_marks : 0),
+                     node.default_choice_slot}; // 0xffff is kUiSettingsNoDefault
+    if (binding == SettingBinding::spotify_account) {
+        media_saved_state();
+        const auto& account = g_spotify_account;
+        if (account.message.bytes) control->description = account.message;
+        control->action_label = account.saved ? utf8_literal("Sign out")
+                                : account.sign_in.runtime ? utf8_literal("Cancel") : utf8_literal("Sign in");
+    }
+    if (binding == SettingBinding::update_changelog)
+        return application_updates_project(binding, control, presentation);
+    if (node.kind == UiSettingsControlKind::category)
+        return !(node.flags & ui_settings_schema_dynamic) || custom.revision != 0;
+    if (application_desktop_settings_project(binding, control))
+        return true;
+    if (binding != SettingBinding::game_detection && application_activity_settings_project(binding, control))
+        return true;
+    if (settings_binding_backend(binding) == SettingBackend::voice)
+        return application_voice_settings_project(binding, control, presentation);
+    if (settings_binding_backend(binding) == SettingBackend::proto1)
+        return application_user_settings_project(binding, control, presentation);
+    if (settings_binding_backend(binding) == SettingBackend::account)
+        return application_account_settings_project(binding, control, presentation);
+    if (settings_binding_backend(binding) == SettingBackend::keybinds)
+        return application_keybinds_settings_project(binding, control, presentation);
+    auto preferences = g_app.preferences;
+    if (theme_binding(binding))
+        preferences.gradient = gradient_edit_base();
+    SettingValue value{};
+    if (settings_store_read(preferences, binding, &value)) {
+        control->checked = value.checked;
+        control->selected_choice = value.choice;
+    }
+    // The default group spacing, and its highlighted mark, follow the message
+    // display: 16px cozy, 0px compact.
+    if (binding == SettingBinding::group_spacing) {
+        const u16 fallback = g_app.message_scene.display.compact ? 0 : 3;
+        presentation->default_choice = fallback;
+        if (control->selected_choice == kUiSettingsNoChoice)
+            control->selected_choice = fallback;
+    }
+    // Registered plugin effects follow the built-in effects.
+    if (binding == SettingBinding::background_effect)
+        application_plugins_fx_project(control);
+    switch (binding) {
+    case SettingBinding::theme_base:
+    case SettingBinding::theme_color:
+    case SettingBinding::background_effect:
+    case SettingBinding::gradient_direction:
+    case SettingBinding::gradient_intensity:
+    case SettingBinding::customize_theme:
+        control->enabled = theme_idle;
+        return true;
+    case SettingBinding::custom_import:
+        control->description = custom.current;
+        control->action_label =
+            custom.can_retry_read ? utf8_literal("Choose another file…") : utf8_literal("Import theme…");
+        control->enabled = !custom.busy;
+        return custom.revision != 0;
+    case SettingBinding::custom_installed: {
+        const auto installed = application_custom_theme_catalog();
+        control->choices = installed;
+        control->selected_choice = 0;
+        for (u32 i = 0; i < installed.count; ++i)
+            if (custom.custom_active && utf8_equal(installed[i], custom.current))
+                control->selected_choice = i;
+        control->enabled = !custom.busy;
+        return custom.revision && installed.count;
+    }
+    case SettingBinding::custom_preview:
+        control->description = custom.candidate;
+        return custom.revision && custom.candidate_ready && !custom.previewing;
+    case SettingBinding::custom_apply:
+        control->description = custom.candidate;
+        return custom.revision && custom.candidate_ready && custom.previewing;
+    case SettingBinding::custom_cancel:
+        return custom.revision && (custom.candidate_ready || custom.previewing || custom.busy);
+    case SettingBinding::custom_builtin:
+        control->enabled = !custom.busy;
+        return custom.revision && idle && !custom.can_retry_read && custom.custom_active;
+    case SettingBinding::custom_restore:
+        control->enabled = !custom.busy;
+        return custom.revision && idle && !custom.can_retry_read && !custom.custom_active && custom.imported;
+    case SettingBinding::custom_retry_read:
+        control->description = custom.status;
+        control->enabled = !custom.busy;
+        return custom.revision && idle && custom.can_retry_read;
+    case SettingBinding::custom_retry_save:
+        control->description = custom.status;
+        control->enabled = !custom.previewing;
+        return custom.revision && idle && custom.save_failed;
+    case SettingBinding::notification_setup:
+        control->description = application_notifications_status(&g_app);
+        return true;
+    case SettingBinding::windows_notification_settings:
+        if (settings.notifications_settings_failed)
+            control->description = utf8_literal("Windows notification settings couldn't open. Try again.");
+        return true;
+    case SettingBinding::preferences_retry:
+        control->description = g_app.preferences_save_pending ? utf8_literal("Saving…") : node.description();
+        control->enabled = !g_app.preferences_save_pending;
+        return settings.save_failed;
+    case SettingBinding::update_status:
+    case SettingBinding::update_channel:
+    case SettingBinding::update_interval:
+    case SettingBinding::update_notice:
+    case SettingBinding::update_problem:
+    case SettingBinding::update_available:
+        return application_updates_project(binding, control, presentation);
+    default:
+        return true;
+    }
+}
+
+UiSettingsAvatarMedia self_avatar_media() noexcept {
+    return g_app.account_ui ? application_user_avatar_media(g_app.account_ui->chat_state.self_user_id)
+                            : UiSettingsAvatarMedia{};
+}
+bool same_avatar_media(const UiSettingsAvatarMedia& left, const UiSettingsAvatarMedia& right) noexcept {
+    return media_asset_key_equal(left.key, right.key) && left.hash_bytes == right.hash_bytes &&
+           bytes_equal(left.hash, right.hash, left.hash_bytes);
+}
+
+u32 project_panel(ApplicationSettings& settings, u32 panel, bool* changed, UiSettingsControl* bank,
+                  UiSettingsControlPresentation* bank_presentation, u32 capacity) noexcept {
+    // Staging rows (several KiB) on the UI thread, not re-entered; on the stack each projection
+    // walked its guard pages. Value-initialized per call, as the arrays were.
+    static UiSettingsControl controls[kSettingsPanelRowLimit];
+    static UiSettingsControlPresentation presentation[kSettingsPanelRowLimit];
+    for (u32 i = 0; i < kSettingsPanelRowLimit; ++i) {
+        reset_value(&controls[i]);
+        reset_value(&presentation[i]);
+    }
+    capacity = minimum(capacity, kSettingsPanelRowLimit);
+    u32 count = 0;
+    UiSettingsSchemaLocation retry{};
+    if (settings.save_failed && settings_catalog_binding(SettingBinding::preferences_retry, &retry) &&
+        retry.panel != panel && project_node(settings, retry.panel, retry.node, &controls[0], &presentation[0]))
+        ++count;
+    const auto& nodes = settings_catalog().panels[panel].nodes;
+    for (u32 i = 0; i < nodes.count && count < capacity; ++i)
+        if (project_node(settings, panel, i, &controls[count], &presentation[count])) {
+            ++count;
+            const auto binding = binding_of(nodes[i]);
+            if (binding == SettingBinding::devices_list || binding == SettingBinding::apps_list)
+                count += application_account_settings_list(binding, {controls + count, capacity - count},
+                                                           {presentation + count, capacity - count});
+            if (binding == SettingBinding::keybinds_custom || binding == SettingBinding::keybinds_defaults)
+                count += application_keybinds_settings_list(binding, {controls + count, capacity - count},
+                                                            {presentation + count, capacity - count});
+            if (binding == SettingBinding::registered_games)
+                count += application_activity_settings_list({controls + count, capacity - count},
+                                                            {presentation + count, capacity - count});
+            if (binding == SettingBinding::update_changelog)
+                count += application_updates_settings_list({controls + count, capacity - count},
+                                                           {presentation + count, capacity - count});
+        }
+    // A category left without rows (every dynamic row hidden) is dropped.
+    u32 kept = 0;
+    for (u32 i = 0; i < count; ++i) {
+        if (controls[i].kind == UiSettingsControlKind::category &&
+            (i + 1 == count || controls[i + 1].kind == UiSettingsControlKind::category))
+            continue;
+        *changed = *changed || !same_control(bank[kept], controls[i]) ||
+                   !same_presentation(bank_presentation[kept], presentation[i]);
+        bank[kept] = controls[i];
+        bank_presentation[kept++] = presentation[i];
+    }
+    return kept;
+}
+
+u32 project_search(ApplicationSettings& settings, bool* changed) noexcept {
+    UiSettingsSearchHit hits[kSettingsSearchHits]{};
+    const auto& schema = settings_catalog();
+    const u32 found = ui_settings_schema_search(schema, search_query(settings), {hits, kSettingsSearchHits});
+    u32 count = 0;
+    const auto emit = [&](const UiSettingsControl& control, const UiSettingsControlPresentation& presentation) noexcept {
+        if (count >= kSettingsControlCapacity)
+            return;
+        *changed = *changed || !same_control(settings.controls[count], control) ||
+                   !same_presentation(settings.presentation[count], presentation);
+        settings.controls[count] = control;
+        settings.presentation[count++] = presentation;
+    };
+    for (u32 panel = 0; panel < schema.panels.count; ++panel) {
+        if (g_signed_out.active && !settings_panel_signed_out(static_cast<SettingsPanel>(panel)))
+            continue;
+        const auto& source = schema.panels[panel];
+        bool header = false;
+        const auto group = [&]() noexcept {
+            if (header)
+                return;
+            header = true;
+            emit({kSettingsPanelLinkFirst + panel, source.title, {}, UiSettingsControlKind::category, true, false},
+                 {UiSettingsVariant::standard, ui_settings_presentation_link, kUiSettingsNoDefault});
+        };
+        for (u32 node = 0; node < source.nodes.count; ++node) {
+            bool hit = false;
+            for (u32 i = 0; i < found && !hit; ++i)
+                hit = hits[i].panel == panel && hits[i].node == node;
+            UiSettingsControl control{};
+            UiSettingsControlPresentation presentation{};
+            if (!hit || !project_node(settings, panel, node, &control, &presentation))
+                continue;
+            group();
+            emit(control, presentation);
+        }
+        if (!header && (ui_settings_search_text_matches(search_query(settings), source.title) ||
+                        ui_settings_search_text_matches(search_query(settings), source.keywords)))
+            group();
+    }
+    for (u32 page = 0; page < settings.registry.count; ++page) {
+        const auto& entry = settings.registry.storage[page];
+        if (entry.key.owner_id != kNativeSettingsOwner && !g_signed_out.active &&
+            ui_settings_search_text_matches(search_query(settings), entry.label))
+            emit({kSettingsPanelLinkFirst + 0x100 + page, entry.label, {}, UiSettingsControlKind::category, true,
+                  false},
+                 {UiSettingsVariant::standard, ui_settings_presentation_link, kUiSettingsNoDefault});
+    }
+    if (!count)
+        emit({kSettingsPanelLinkFirst - 1, utf8_literal("No results"), utf8_literal("Try a different word."),
+              UiSettingsControlKind::notice, true, false},
+             {UiSettingsVariant::standard, 0, kUiSettingsNoDefault});
+    return count;
+}
+
+} // namespace
+namespace settings_detail {
+
+void project(ApplicationSettings& settings) noexcept {
+    bool changed[kSettingsSearchPage]{};
+    const auto custom = application_custom_theme_view();
+    if (settings.custom_theme_revision != custom.revision) {
+        settings.custom_theme_revision = custom.revision;
+        changed[static_cast<u32>(SettingsPanel::appearance)] = true;
+    }
+    const auto* selected = ui_page_registry_selected(settings.registry);
+    const u32 native = selected && selected->key.owner_id == kNativeSettingsOwner &&
+                               selected->key.page_id >= 1 && selected->key.page_id <= kSettingsSearchPage
+                           ? static_cast<u32>(selected->key.page_id)
+                           : 0;
+    if (settings.native_page != native) {
+        // Release the previous borrow before building the next native page.
+        for (u32 i = 0; i < kSettingsSearchPage; ++i) {
+            if (settings.content[i].controls.count)
+                changed[i] = true;
+            reset_value(&settings.content[i].controls);
+            settings.content[i].presentation = nullptr;
+            settings.content[i].meters = nullptr;
+            settings.content[i].avatar_media = nullptr;
+            settings.content[i].list_items = nullptr;
+        }
+        settings.native_page = native;
+        application_voice_settings_visible(native == static_cast<u32>(SettingsPanel::voice) + 1);
+        application_keybinds_settings_visible(native == static_cast<u32>(SettingsPanel::keybinds) + 1);
+        application_plugin_browser_page_visible(native == kPluginsPage);
+        application_account_settings_visible(native >= 1 && native <= kSettingsPanelCount
+                                                 ? static_cast<SettingsPanel>(native - 1)
+                                                 : SettingsPanel::count);
+    }
+    auto& appearance = settings.content[static_cast<u32>(SettingsPanel::appearance)];
+    const Utf8View status = custom.revision ? custom.status : Utf8View{};
+    if (!utf8_equal(appearance.description, status)) {
+        appearance.description = status;
+        changed[static_cast<u32>(SettingsPanel::appearance)] = true;
+    }
+    UiSettingsControl* browser_controls = nullptr;
+    UiSettingsControlPresentation* browser_presentation = nullptr;
+    bool browser_changed = false;
+    const u32 browser_count = native == kPluginsPage
+                                  ? application_plugin_browser_project(&browser_controls, &browser_presentation,
+                                                                       settings.plugin_error, &browser_changed)
+                                  : 0;
+    if (browser_count) {
+        // The catalog tabs borrow their own bank, like Keybinds.
+        auto& page = changed[kPluginsPage - 1];
+        auto& content = settings.content[kPluginsPage - 1];
+        const u64 catalog_revision = application_plugins_catalog_revision();
+        page = page || browser_changed || settings.catalog_revision != catalog_revision ||
+               content.controls.count != browser_count || content.controls.data != browser_controls;
+        settings.catalog_revision = catalog_revision;
+        content.controls = {browser_controls, browser_count};
+        content.presentation = browser_presentation;
+        content.avatar_media = nullptr;
+        content.meters = nullptr;
+    } else if (native == kPluginsPage) {
+        UiSettingsControl plugin_controls[kApplicationPluginSettingsMaximumControls]{};
+        const u32 plugin_count = application_plugins_settings_controls(
+            {plugin_controls, kApplicationPluginSettingsMaximumControls},
+            {settings.catalog_text, kApplicationPluginCatalogWindow}, settings.plugin_error);
+        auto& page = changed[kPluginsPage - 1];
+        for (u32 i = 0; i < plugin_count; ++i) {
+            page = page || !same_control(settings.controls[i], plugin_controls[i]);
+            settings.controls[i] = plugin_controls[i];
+        }
+        const u64 catalog_revision = application_plugins_catalog_revision();
+        page = page || settings.catalog_revision != catalog_revision ||
+               settings.content[kPluginsPage - 1].controls.count != plugin_count;
+        settings.catalog_revision = catalog_revision;
+        settings.content[kPluginsPage - 1].controls = {settings.controls, plugin_count};
+        settings.content[kPluginsPage - 1].presentation = nullptr;
+        settings.content[kPluginsPage - 1].avatar_media = nullptr;
+    } else if (native == static_cast<u32>(SettingsPanel::updates) + 1 && application_updates_settings_bank()) {
+        // Updates borrows its own bank for the changelog rows, with their
+        // table decorations and the download's progress meter.
+        auto& page = changed[native - 1];
+        auto& content = settings.content[native - 1];
+        auto& bank = *application_updates_settings_bank();
+        const u32 count = project_panel(settings, native - 1, &page, bank.controls, bank.presentation,
+                                        kApplicationUpdatesSettingsRows);
+        UiSettingsSchemaLocation location{};
+        const u64 heading = settings_catalog_binding(SettingBinding::update_changelog, &location)
+                                ? settings_control_id(location.panel, location.node)
+                                : 0;
+        const u64 available = settings_catalog_binding(SettingBinding::update_available, &location)
+                                  ? settings_control_id(location.panel, location.node)
+                                  : 0;
+        for (u32 i = 0; i < count; ++i) {
+            const u64 id = bank.controls[i].id;
+            const auto item = application_updates_list_item(id, id == heading);
+            page = page || item.style != bank.items[i].style;
+            bank.items[i] = item;
+            bank.meters[i] = id == available ? application_updates_meter() : kUiSettingsNoMeter;
+        }
+        page = page || content.controls.count != count || content.controls.data != bank.controls;
+        content.controls = {bank.controls, count};
+        content.presentation = bank.presentation;
+        content.list_items = bank.items;
+        content.meters = bank.meters;
+        content.avatar_media = nullptr;
+    } else if (native == static_cast<u32>(SettingsPanel::keybinds) + 1) {
+        // Keybinds borrows its own bank, sized for every default shortcut.
+        auto& page = changed[native - 1];
+        auto& content = settings.content[native - 1];
+        UiSettingsControl* controls = nullptr;
+        UiSettingsControlPresentation* presentation = nullptr;
+        application_keybinds_settings_bank(&controls, &presentation);
+        const u32 count =
+            project_panel(settings, native - 1, &page, controls, presentation, kKeybindsSettingsBankCapacity);
+        page = page || content.controls.count != count || content.controls.data != controls;
+        content.controls = {controls, count};
+        content.presentation = presentation;
+        content.avatar_media = nullptr;
+        content.meters = nullptr;
+    } else if (native) {
+        auto& page = changed[native - 1];
+        const u32 count = native == kSettingsSearchPage
+                              ? project_search(settings, &page)
+                              : project_panel(settings, native - 1, &page, settings.controls, settings.presentation,
+                                              kSettingsControlCapacity);
+        auto& content = settings.content[native - 1];
+        page = page || content.controls.count != count;
+        content.controls = {settings.controls, count};
+        content.presentation = settings.presentation;
+        // The account card draws the cached self avatar over its initials,
+        // through the same user-avatar key as the footer and message authors.
+        UiSettingsSchemaLocation card{};
+        const u64 card_id =
+            settings_catalog_binding(SettingBinding::account_card, &card) ? settings_control_id(card.panel, card.node) : 0;
+        const auto self = self_avatar_media();
+        const bool avatars = count <= kSettingsAvatarRows;
+        for (u32 i = 0; avatars && i < count; ++i) {
+            const auto media = card_id && settings.controls[i].id == card_id ? self : UiSettingsAvatarMedia{};
+            if (!same_avatar_media(settings.avatar_media[i], media)) {
+                settings.avatar_media[i] = media;
+                page = true;
+            }
+        }
+        page = page || (content.avatar_media != nullptr) != avatars;
+        content.avatar_media = avatars ? settings.avatar_media : nullptr;
+        content.meters = native == static_cast<u32>(SettingsPanel::voice) + 1
+                             ? application_voice_settings_meters({settings.controls, count})
+                             : nullptr;
+    }
+    for (u32 i = 0; i < kSettingsSearchPage; ++i)
+        if (changed[i])
+            ++settings.content[i].revision;
+}
+
+} // namespace settings_detail
+
+UiSettingsAvatarMedia application_user_avatar_media(u64 user_id) noexcept {
+    UiSettingsAvatarMedia media{};
+    if (!g_app.account_ui || !user_id)
+        return media;
+    const auto* user = user_store_find(g_app.account_ui->user_store, user_id);
+    if (!user)
+        return media;
+    const Utf8View hash = user_store_avatar_hash(*user);
+    const u32 variant = user_avatar_variant(hash);
+    if (!variant || !hash.bytes || hash.bytes > kUiSettingsAvatarHashBytes)
+        return media;
+    media.key = media_asset_user_avatar(user->id, variant, asset_hash_animated(hash));
+    media.hash_bytes = static_cast<u8>(hash.bytes);
+    copy_bytes(media.hash, hash.data, hash.bytes);
+    return media;
+}
+
+UiSettingsAvatarMedia application_guild_icon_media(u64 guild_id) noexcept {
+    UiSettingsAvatarMedia media{};
+    if (!g_app.account_ui || !guild_id)
+        return media;
+    MediaAssetKey key{};
+    Utf8View hash{};
+    if (!guild_icon_media_key(g_app.account_ui->chat_state, guild_id, &key, &hash) ||
+        hash.bytes > kUiSettingsAvatarHashBytes)
+        return media;
+    media.key = key;
+    media.hash_bytes = static_cast<u8>(hash.bytes);
+    copy_bytes(media.hash, hash.data, hash.bytes);
+    return media;
+}
+
+UiSettingsAvatarMedia application_listed_user_avatar_media(u64 user_id, const Utf8View& avatar_hash,
+                                                           u16 discriminator) noexcept {
+    UiSettingsAvatarMedia media{};
+    if (!user_id)
+        return media;
+    if (const u32 variant = user_avatar_variant(avatar_hash);
+        variant && avatar_hash.bytes <= kUiSettingsAvatarHashBytes) {
+        media.key = media_asset_user_avatar(user_id, variant, asset_hash_animated(avatar_hash));
+        media.hash_bytes = static_cast<u8>(avatar_hash.bytes);
+        copy_bytes(media.hash, avatar_hash.data, avatar_hash.bytes);
+        return media;
+    }
+    // "embed/avatars/{n}.png", as the profile card requests it.
+    static constexpr char prefix[] = "embed/avatars/";
+    constexpr u32 prefix_bytes = sizeof(prefix) - 1;
+    const u32 index = discriminator ? discriminator % 5u : static_cast<u32>((user_id >> 22) % 6u);
+    copy_bytes(media.hash, prefix, prefix_bytes);
+    media.hash[prefix_bytes] = static_cast<char>('0' + index);
+    copy_bytes(media.hash + prefix_bytes + 1, ".png", 4);
+    media.hash_bytes = static_cast<u8>(prefix_bytes + 5);
+    char url[64];
+    static constexpr char host[] = "https://cdn.discordapp.com/";
+    copy_bytes(url, host, sizeof(host) - 1);
+    copy_bytes(url + sizeof(host) - 1, media.hash, media.hash_bytes);
+    media.key = media_asset_embed(hash64_bytes(kHash64Seed, url, sizeof(host) - 1 + media.hash_bytes), 1, 0,
+                                  MediaEmbedResource::image, MediaAttachmentFormat::png, false,
+                                  MediaResolutionTier::px512);
+    media.key.kind = MediaAssetKind::profile_image;
+    return media;
+}
+
+namespace settings_detail {
+
+bool begin_signed_out() noexcept {
+    if (!g_app.login.visible)
+        return g_app.account_ui != nullptr;
+    if (g_signed_out.active)
+        return true;
+    if (g_signed_out.ending) {
+        // Reopened before the previous session finished: keep its runtime.
+        g_signed_out = {true, g_signed_out.created_runtime, false};
+        return true;
+    }
+    const bool created = !g_app.account_ui;
+    if (!application_initialize_account_ui(g_app))
+        return false;
+    // Settings enters over the sign-in screen, not the empty shell behind it.
+    if (!renderer_freeze_login_backdrop(&g_app.renderer, application_theme()))
+        log_write(LogLevel::warning, "ui", "login_backdrop_unavailable");
+    if (!application_login_view_suspend(true)) {
+        renderer_release_settings_backdrop(&g_app.renderer);
+        if (created)
+            application_release_account_ui(g_app);
+        return false;
+    }
+    g_signed_out = {true, created, false};
+    return true;
+}
+
+void end_signed_out() noexcept {
+    if (g_signed_out.active)
+        g_signed_out = {false, g_signed_out.created_runtime, true};
+    // An open that failed after the sign-in screen was frozen must not lend
+    // it to a later dialog.
+    if (g_app.renderer.settings_backdrop_frozen && !g_app.renderer.settings_scene)
+        renderer_release_settings_backdrop(&g_app.renderer);
+}
+
+void finish_signed_out() noexcept {
+    if (!g_signed_out.ending)
+        return;
+    const bool release = g_signed_out.created_runtime && !g_app.account.instance && g_app.login.visible;
+    reset_value(&g_signed_out);
+    if (release)
+        application_release_account_ui(g_app);
+    if (!application_login_view_suspend(false))
+        log_write(LogLevel::warning, "ui", "login_view_resume_failed");
+}
+
+ApplicationSettings* ensure() noexcept {
+    if (g_app.settings)
+        return g_app.settings;
+    if (g_app.settings_lifetime_serial == ~u64{0})
+        return nullptr;
+    auto* settings = static_cast<ApplicationSettings*>(
+        VirtualAlloc(nullptr, sizeof(ApplicationSettings), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!settings)
+        return nullptr;
+    if (!ui_page_registry_initialize(&settings->registry, {settings->pages, kSettingsPageCapacity})) {
+        VirtualFree(settings, 0, MEM_RELEASE);
+        return nullptr;
+    }
+    if (!native_plugin_host_initialize(&settings->plugins, &settings->registry, {settings->plugin_slots, 8},
+                                       {native_plugin_known_capabilities, 4, 64 * 1024 + kPluginSdkStateHeaderBytes, 256 * 1024, detach_plugin,
+                                        nullptr, kNativeSettingsOwner})) {
+        VirtualFree(settings, 0, MEM_RELEASE);
+        return nullptr;
+    }
+    const auto& schema = settings_catalog();
+    for (u32 i = 0; i < kSettingsSearchPage; ++i) {
+        const Utf8View label = i < kSettingsPanelCount ? schema.panels[i].title : utf8_literal("Search results");
+        const bool plugins = i == kPluginsPage - 1;
+        settings->content[i] = {label, plugins ? kApplicationPluginSettingsDescription : Utf8View{}, {}, 1};
+        if (!ui_page_registry_register(&settings->registry, {{kNativeSettingsOwner, i + 1}, label, &settings->content[i]})
+                 .ok()) {
+            VirtualFree(settings, 0, MEM_RELEASE);
+            return nullptr;
+        }
+    }
+    ui_page_registry_select(&settings->registry, {kNativeSettingsOwner, static_cast<u64>(SettingsPanel::appearance) + 1});
+    message_composer_initialize(&settings->search_edit, {settings->search_text, kSettingsSearchBytes});
+    settings->search_revision = settings->search_edit.text_revision;
+    ui_settings_scene_set_presentation(&settings->scene, UiSettingsPresentation::modal);
+    ++g_app.settings_lifetime_serial;
+    g_app.settings = settings;
+    settings->save_failed = g_app.preferences_save_failed;
+    project(*settings);
+    return settings;
+}
+// A native page whose projection the scene rejects would fail every frame
+// and stall presentation. Fall back to Appearance (then close) instead; a
+// transient rejection (a too-small viewport) keeps failing until it passes.
+bool recover_rejected_page(ApplicationSettings& settings) noexcept {
+    const auto* selected = ui_page_registry_selected(settings.registry);
+    if (!selected || selected->key.owner_id != kNativeSettingsOwner || !selected->context ||
+        ui_settings_page_content_valid(*static_cast<const UiSettingsPageContent*>(selected->context)))
+        return false;
+    log_u64(LogLevel::error, "preferences", "settings_page_rejected", selected->key.page_id);
+    const UiPageKey fallback{kNativeSettingsOwner, static_cast<u64>(SettingsPanel::appearance) + 1};
+    if (!ui_page_key_equal(selected->key, fallback) && ui_page_registry_select(&settings.registry, fallback).ok()) {
+        project(settings);
+        if (update_scene(settings, application_viewport_dips()))
+            return application_request_frame();
+    }
+    application_settings_close(true);
+    return true;
+}
+bool refresh() noexcept {
+    if (!application_settings_synchronize())
+        return false;
+    return application_request_frame();
+}
+
+} // namespace settings_detail
+namespace {
+
+void bind_chrome(ApplicationSettings& settings) noexcept {
+    // Contributed pages expand from the registry, so its revision relayouts;
+    // the signed-out list is a navigation of its own.
+    const bool signed_out = g_signed_out.active;
+    const auto navigation =
+        signed_out ? settings_catalog_navigation_signed_out()
+                   : settings_catalog_navigation(application_account_logout_available());
+    ui_settings_scene_bind_navigation(&settings.scene, navigation,
+                                      settings.registry.revision ^ (signed_out ? 0x8000'0000u : 0u));
+    const bool focused = settings.scene.focus.kind == UiSettingsTargetKind::search &&
+                         application_window_keyboard_focus();
+    ui_settings_scene_set_search(
+        &settings.scene,
+        {{search_query(settings), minimum(settings.search_edit.anchor, settings.search_bytes),
+          minimum(settings.search_edit.caret, settings.search_bytes), true, focused, focused},
+         focused ? &g_app.renderer.media_picker_edit_geometry : nullptr,
+         utf8_literal("Search")});
+}
+
+} // namespace
+namespace settings_detail {
+
+bool update_scene(ApplicationSettings& settings, const UiRect& viewport) noexcept {
+    ui_settings_scene_bind_theme_styles(&settings.scene, application_theme().styles);
+    bind_chrome(settings);
+    const auto* selected = ui_page_registry_selected(settings.registry);
+    if (!selected || selected->key.owner_id == kNativeSettingsOwner) {
+        const bool updated = ui_settings_scene_update(&settings.scene, &settings.registry, viewport);
+        if (updated && !release_plugin_page(settings))
+            log_write(LogLevel::warning, "plugins", "settings_projection_release_pending");
+        return updated;
+    }
+    const auto* slot = native_plugin_host_find(settings.plugins, selected->key.owner_id);
+    NativePluginSettingsSnapshot source{};
+    const auto read = slot ? native_plugin_settings_snapshot(selected->context, &source)
+                           : NativePluginSettingsError::invalid_argument;
+    auto fail = [&](NativePluginSettingsError error) noexcept {
+        close_choice();
+        settings.plugin_error = error == NativePluginSettingsError::unsupported ? NativePluginError::unsupported
+                                : error == NativePluginSettingsError::capacity  ? NativePluginError::capacity
+                                                                                : NativePluginError::invalid_argument;
+        project(settings);
+        if (!ui_page_registry_select(&settings.registry, {kNativeSettingsOwner, kPluginsPage}).ok())
+            return false;
+        return update_scene(settings, viewport);
+    };
+    if (read != NativePluginSettingsError::none)
+        return fail(read);
+    auto* page = settings.plugin_page;
+    if (!page) {
+        const usize maximum_bytes = sizeof(ApplicationPluginSettingsPage) +
+                                    static_cast<usize>(kNativePluginSettingsMaximumControls) * sizeof(UiSettingsControl);
+        page = static_cast<ApplicationPluginSettingsPage*>(VirtualAlloc(nullptr, maximum_bytes, MEM_RESERVE, PAGE_READWRITE));
+        if (!page)
+            return fail(NativePluginSettingsError::capacity);
+        settings.plugin_page = page;
+    }
+    if (!settings.plugin_page_committed) {
+        if (!VirtualAlloc(page, sizeof(*page), MEM_COMMIT, PAGE_READWRITE))
+            return fail(NativePluginSettingsError::capacity);
+        settings.plugin_page_committed = true;
+    }
+    // A failed release leaves an erased holder that can be retried or reused.
+    page->controls = reinterpret_cast<UiSettingsControl*>(reinterpret_cast<u8*>(page) + sizeof(*page));
+    if (source.controls.count > page->backed_count) {
+        const usize bytes = sizeof(*page) + static_cast<usize>(source.controls.count) * sizeof(UiSettingsControl);
+        if (!VirtualAlloc(page, bytes, MEM_COMMIT, PAGE_READWRITE))
+            return fail(NativePluginSettingsError::capacity);
+        page->backed_count = source.controls.count;
+    }
+    const NativePluginUiToken observed{selected->key, slot->generation, settings.registry.revision, source.revision};
+    if (!ui_page_key_equal(page->token.page, observed.page) || page->token.generation != observed.generation ||
+        page->token.registry_revision != observed.registry_revision ||
+        page->token.content_revision != observed.content_revision) {
+        const auto projected =
+            native_plugin_settings_project(source, {page->controls, page->backed_count}, &page->content);
+        if (projected != NativePluginSettingsError::none)
+            return fail(projected);
+        page->registry = settings.registry;
+        page->registry.storage = {page->pages, kSettingsPageCapacity};
+        for (u32 i = 0; i < settings.registry.count; ++i) {
+            page->pages[i] = settings.pages[i];
+            if (page->pages[i].key.owner_id != kNativeSettingsOwner)
+                page->pages[i].context = nullptr;
+        }
+        page->pages[page->registry.selected_index].context = &page->content;
+        page->token = observed;
+    }
+    return ui_settings_scene_update(&settings.scene, &page->registry, viewport);
+}
+
+} // namespace settings_detail
+} // namespace maicord::app_detail

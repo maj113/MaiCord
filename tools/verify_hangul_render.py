@@ -109,7 +109,9 @@ def main():
              else 'four app-field strings; plain, selection, composition; 96/144 DPI')
     result = dict(status='passed' if passed else 'different', script_set=args.script_set, scope=scope,
                   runs=runs, comparisons=comparisons,
-                  source=identity(repo / 'tests/integration/ui_probe.cpp'),
+                  source=[identity(repo / name) for name in ('tests/integration/ui_probe.cpp', 'tests/integration/ui_probe_internal.hpp',
+                                                             'tests/integration/ui_probe_media.cpp', 'tests/integration/ui_probe_scenes.cpp',
+                                                             'tests/integration/ui_probe_renderer.cpp')],
                   fixture=identity(repo / 'tests/integration/thai_wrapped_probe.inc') if args.script_set == 'thai-wrap' else None)
     (output / 'result.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
     print(f"{sum(row['exact'] for row in comparisons)}/{len(comparisons)} exact captures. Evidence: {output}")
