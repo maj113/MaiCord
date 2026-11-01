@@ -1007,7 +1007,7 @@ bool application_user_menu_open(u64, UiRect, u64, UserMenuSource, ConstSlice<Pop
 } // namespace maicord::app_detail
 namespace maicord {
 // The shell text rebuild projects what the renderer would: the bound, active
-// panel's text runs (render/d3d11/renderer_text.cpp project_shell_member_text).
+// panel's text runs (render/d3d11/renderer_text_overlay.cpp project_shell_member_text).
 bool renderer_rebuild_content_text(D3D11Renderer* renderer, const Theme& theme) noexcept {
     using namespace dm_profile_test;
     ++text_builds;

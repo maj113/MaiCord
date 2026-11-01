@@ -1,5 +1,6 @@
 // Ordered core test entry points. Included for declarations and execution.
-// External cases receive the shared expectation callback; local cases are defined in test_main.cpp.
+// External cases receive the shared expectation callback; local cases are defined in the core_*.cpp parts
+// (test_main.cpp holds the expectation sink and the dispatcher).
 CORE_LOCAL_TEST(test_runtime_memory)
 CORE_LOCAL_TEST(test_deadline_policy)
 CORE_LOCAL_TEST(test_spsc_queue)

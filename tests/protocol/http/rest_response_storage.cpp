@@ -1,5 +1,7 @@
 // Exercise the shipping private owner, including publication and transport close.
 #include "../../../src/app/net/rest_client.cpp"
+#include "../../../src/app/net/rest_client_transaction.cpp"
+#include "../../../src/app/net/rest_client_worker.cpp"
 #include "maicord/sys/process_info.hpp"
 #include "../../fixtures/rest_gzip_fixtures.hpp"
 #include "maicord/protocol/encoding/writer.hpp"

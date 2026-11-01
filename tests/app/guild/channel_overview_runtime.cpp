@@ -2,6 +2,7 @@
 // account, network, GPU or shipping diagnostic hooks are involved.
 #include "account/profile_editor.hpp"
 #include "../../../src/app/guild/channel_overview.cpp"
+#include "../../../src/app/guild/channel_overview_projection.cpp"
 #include "maicord/ui/text/clipboard.hpp"
 #include "../../support/test_output.hpp"
 

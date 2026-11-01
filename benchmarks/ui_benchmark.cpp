@@ -1,5 +1,6 @@
 #include "maicord/core/time.hpp"
 #include "../tests/support/layout_validation.hpp"
+#include "../tests/support/secure_text_store_access.hpp"
 #include "../tests/support/ui_scene_fixtures.hpp"
 #include "../tests/support/model_store_fixtures.hpp"
 #include "../tests/support/message_media_controller_fixture.hpp"

@@ -1,5 +1,9 @@
 // Exercise READY's shipping private batching path without opening a connection.
 #include "../../../src/app/gateway/client.cpp"
+#include "../../../src/app/gateway/client_storage.cpp"
+#include "../../../src/app/gateway/client_transport.cpp"
+#include "../../../src/app/gateway/client_outputs.cpp"
+#include "../../../src/app/gateway/client_session.cpp"
 #include "../../support/spsc_mailbox_state.hpp"
 #include "maicord/model/user/profile.hpp"
 #include "maicord/protocol/encoding/writer.hpp"

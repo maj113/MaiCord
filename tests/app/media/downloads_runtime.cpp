@@ -1,6 +1,7 @@
 // Shipping Save host with owned authoritative models and deterministic native
 // dialog/transport boundaries. No chooser, network or filesystem write occurs.
 #include "../../../src/app/media/downloads.cpp"
+#include "../../../src/app/media/downloads_input.cpp"
 #include "../../support/test_output.hpp"
 
 #include "maicord/core/win32_kernel.hpp"

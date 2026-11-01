@@ -1,5 +1,6 @@
 // Actual shipping coordinator with a synchronous, non-network REST boundary.
 #include "../../../../src/app/account/login/user_auth_coordinator.cpp"
+#include "../../../../src/app/account/login/user_auth_coordinator_responses.cpp"
 #include "../../../support/test_output.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"

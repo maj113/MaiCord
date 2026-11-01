@@ -3,6 +3,7 @@
 #include "maicord/app/account/login/browser_login.hpp"
 #include "maicord/app/account/account_profile_promotion.hpp"
 #include "../../../../src/app/account/login/user_auth_coordinator.cpp"
+#include "../../../../src/app/account/login/user_auth_coordinator_responses.cpp"
 #include "../../../support/test_output.hpp"
 
 namespace maicord::browser_exchange_coordinator_test {

@@ -1,4 +1,5 @@
 #include "../../../src/app/guild/community.cpp"
+#include "../../../src/app/guild/community_projection.cpp"
 #include "../../support/model_store_fixtures.hpp"
 #include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/core/win32_kernel.hpp"
