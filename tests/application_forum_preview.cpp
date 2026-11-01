@@ -229,7 +229,7 @@ void run() noexcept {
 cleanup:
     application_forum_preview_release();
     forum_post_release(&scene);
-    check(application_forum_preview_metrics().owner_bytes == 0,
+    check(!owner,
           "preview owner: lazy optional sidecar releases independently of worker source leases");
     g_app.renderer.preview_media_atlas = nullptr;
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);

@@ -123,11 +123,11 @@ void application_plugins_sdk_bind_host(ApplicationPlugins& plugins, NativePlugin
     host->ledger = &plugins.sdk->ledger;
 }
 
-void application_plugins_set_notice(ApplicationPlugins& plugins, Utf8View first, Utf8View second, Utf8View third) noexcept {
+void application_plugins_set_notice(ApplicationPlugins& plugins, Utf8View first, Utf8View second) noexcept {
     auto* sdk = plugins.sdk;
     if (!sdk) return;
     u32 at = 0;
-    const Utf8View parts[]{first, second, third};
+    const Utf8View parts[]{first, second};
     for (auto part : parts)
         at += utf8_copy_truncated(sdk->notice + at, static_cast<u32>(sizeof(sdk->notice)) - at, part);
     plugins.status = {sdk->notice, at};

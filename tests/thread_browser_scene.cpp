@@ -1,4 +1,5 @@
 #include "maicord/ui/thread_browser_scene.hpp"
+#include "layout_validation.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {

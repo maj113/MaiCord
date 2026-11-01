@@ -217,7 +217,7 @@ using Bank = TextBank;
 bool binding_ready(void* model, u64 identity) noexcept {
     MessageComposer* focused = nullptr;
     return owner && owner->lifetime == identity && editable() &&
-           settings_layer_editor(&owner->layer, nullptr, &focused, nullptr, nullptr) && focused == model;
+           settings_layer_editor(&owner->layer, nullptr, &focused, nullptr) && focused == model;
 }
 void load_editor(Utf8View text, u32 limit) noexcept {
     application_composer_text_input_suspend();
@@ -744,7 +744,7 @@ bool open_modal(Mode mode, Utf8View title, u64 focus) noexcept {
         return false;
     }
     renderer_bind_settings_scene(&g_app.renderer, &p.scene);
-    settings_layer_begin_entrance(&p.layer, clock_monotonic_milliseconds(), g_app.preferences.reduced_motion);
+    settings_layer_begin_entrance(&p.layer);
     g_app.context_focus = &p.scene.widgets;
     if (focus)
         settings_layer_focus(&p.layer, {UiSettingsTargetKind::control, kPage, focus});

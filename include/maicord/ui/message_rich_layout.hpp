@@ -31,7 +31,6 @@ inline constexpr float kMessageThreadCardMaximumWidthDips = 432.0f;
 inline constexpr float kMessageThreadCardPaddingDips = 12.0f;
 
 struct MessageReactionLayoutMetrics {
-    float button_width;
     float button_height;
     float gap;
     float content_left_padding;
@@ -43,7 +42,7 @@ struct MessageReactionLayoutMetrics {
 };
 
 inline constexpr MessageReactionLayoutMetrics kDefaultMessageReactionLayoutMetrics{
-    80.0f, 24.0f, 4.0f, 6.0f, 2.0f, 6.0f, 0.0f, 16.0f, 4.0f};
+    24.0f, 4.0f, 6.0f, 2.0f, 6.0f, 0.0f, 16.0f, 4.0f};
 
 // A message's stickers: each a 160 DIP square at the
 // content's start without a caption, 4 DIPs apart (the accessories' row gap),
@@ -281,8 +280,7 @@ bool message_rich_embed_gallery_select(const MessageRichStore&, const MessageRic
                                        MessageRichEmbedMediaSelection*) noexcept;
 // Gallery width for the host: the first image's fitted width plus insets when
 // that is at least 300 DIPs, else 520 wide.
-float message_rich_embed_gallery_width(const MessageRichStore&, const MessageRichEmbed& host,
-                                       float available_width) noexcept;
+float message_rich_embed_gallery_width(const MessageRichEmbed& host, float available_width) noexcept;
 // Tile `ordinal` (< kMessageEmbedGalleryDrawn) of a gallery of `count` images.
 UiRect message_rich_embed_gallery_tile(UiRect gallery, u32 count, u32 ordinal) noexcept;
 // Where embed `index` draws as a gallery tile: its host and ordinal; false when

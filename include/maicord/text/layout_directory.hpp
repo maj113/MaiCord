@@ -10,10 +10,10 @@ struct SfntScript {ConstSlice<u8> table;u16 language_count;};
 struct SfntLanguage {ConstSlice<u8> feature_indices;u16 required_feature;};
 struct SfntLanguageSelection {SfntLanguage language;u32 script_tag,language_tag;};
 static_assert(sizeof(SfntLanguageSelection)==32);
-struct SfntFeature {ConstSlice<u8> table,lookup_indices;u16 params_offset;};
+struct SfntFeature {ConstSlice<u8> table,lookup_indices;};
 struct SfntLookup {ConstSlice<u8> table;u16 type,source_type,flags,subtable_count,mark_set;};
 struct SfntFeatureSubstitutions {ConstSlice<u8> table;u16 count;};
-static_assert(sizeof(SfntLayout)==80 && sizeof(SfntScript)==24 && sizeof(SfntFeature)==40 && sizeof(SfntLookup)==32);
+static_assert(sizeof(SfntLayout)==80 && sizeof(SfntScript)==24 && sizeof(SfntFeature)==32 && sizeof(SfntLookup)==32);
 // Opens prepare directories, not the entire lookup graph. All views borrow the
 // enclosing immutable mapping; queries require successfully prepared views.
 // Feature indices retain their original identity, including duplicate tags and

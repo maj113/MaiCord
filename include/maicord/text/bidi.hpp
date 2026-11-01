@@ -5,9 +5,9 @@ namespace maicord {
 enum class UnicodeBidiStatus : u8 { ok,invalid_input,output_too_small,malformed_paragraph };
 enum class UnicodeParagraphDirection : u8 { ltr,rtl,auto_ltr,auto_rtl };
 inline constexpr u8 unicode_bidi_removed=255;
-// Caller-owned working cells. scalar/original are inputs; classify fills them
-// from Unicode. Supplying explicit classes is intended for higher-level
-// protocols and conformance tests. link/next are private working fields;
+// Caller-owned working cells. scalar/original are inputs, filled from Unicode
+// properties or, for higher-level protocols and conformance tests, explicit
+// classes. link/next are private working fields;
 // resolved, explicit_level and level are read-only outputs after resolution.
 // level==255 marks X9 removal from visual ordering, not deletion from source.
 struct UnicodeBidiCell {
@@ -17,8 +17,6 @@ struct UnicodeBidiCell {
 };
 struct UnicodeBidiParagraph { u32 count;u8 level; };
 static_assert(sizeof(UnicodeBidiCell)==16);
-
-UnicodeBidiStatus unicode_bidi_classify(ConstSlice<u32> scalars,Slice<UnicodeBidiCell> cells) noexcept;
 // P1 boundary on classified cells: include the first B in this paragraph.
 // An empty remainder returns end==first. Higher-level newline conventions
 // remain the caller's policy; this function does not rewrite source text.

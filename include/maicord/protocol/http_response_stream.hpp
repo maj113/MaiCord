@@ -32,7 +32,6 @@ struct HttpResponseStream {
     u32 maximum_fields;
     HttpResponseStreamState state;
     HttpResponseStreamError error;
-    HttpError framing_error;
     bool peer_closed;
 };
 

@@ -23,6 +23,7 @@ struct Batch {
 struct Pass {
     u32 draws, instances, scissor_calls;
 };
+u32 shared_calls{};
 Pass submit_pass(DrawSubmissionState* state, DrawPipeline pipeline, const Batch* batches, u32 count,
                  RasterClipRect damage, u32* pipeline_calls) noexcept {
     Pass pass{};
@@ -30,7 +31,8 @@ Pass submit_pass(DrawSubmissionState* state, DrawPipeline pipeline, const Batch*
     const auto draw = [&](const DrawRun& next) noexcept {
         if (next.end <= next.first)
             return;
-        draw_submission_bind_shared(state);
+        if (draw_submission_bind_shared(state))
+            ++shared_calls;
         if (draw_submission_select(state, pipeline))
             ++*pipeline_calls;
         if (draw_submission_scissor(state, next.scissor))
@@ -70,29 +72,26 @@ void test_runs() noexcept {
 void test_state() noexcept {
     DrawSubmissionState state{};
     draw_submission_begin(&state);
-    check(draw_submission_bind_shared(&state) && !draw_submission_bind_shared(&state) && state.shared_binds == 1,
+    check(draw_submission_bind_shared(&state) && !draw_submission_bind_shared(&state),
           "state: shared state binds once per stream");
     check(draw_submission_select(&state, DrawPipeline::paint) && !draw_submission_select(&state, DrawPipeline::paint) &&
-              draw_submission_select(&state, DrawPipeline::glyph) &&
-              draw_submission_select(&state, DrawPipeline::paint) && state.pipeline_binds == 3,
+              draw_submission_select(&state, DrawPipeline::glyph) && draw_submission_select(&state, DrawPipeline::paint),
           "state: a pipeline binds only when it changes");
     const RasterClipRect clip{1, 2, 3, 4};
     check(draw_submission_scissor(&state, clip) && !draw_submission_scissor(&state, clip) &&
-              draw_submission_scissor(&state, {1, 2, 3, 5}) && state.scissor_sets == 2 && state.scissor_skips == 1,
+              draw_submission_scissor(&state, {1, 2, 3, 5}),
           "state: a repeated scissor is not set again");
     draw_submission_reset(&state);
     check(state.pipeline == DrawPipeline::none && draw_submission_bind_shared(&state) &&
-              draw_submission_select(&state, DrawPipeline::paint) && draw_submission_scissor(&state, clip) &&
-              state.shared_binds == 2 && state.pipeline_binds == 4,
+              draw_submission_select(&state, DrawPipeline::paint) && draw_submission_scissor(&state, clip),
           "state: after another user binds, everything binds again");
     check(!draw_submission_rebind_blend(&state), "state: a full rebind restores the blend state");
     // The background effect: only the pipeline and the blend state bind again.
     draw_submission_reset_pipeline(&state, false);
-    check(
-        !draw_submission_bind_shared(&state) && draw_submission_rebind_blend(&state) &&
-            !draw_submission_rebind_blend(&state) && draw_submission_select(&state, DrawPipeline::paint) &&
-            !draw_submission_scissor(&state, clip) && state.shared_binds == 2 && state.pipeline_binds == 5,
-        "state: after the effect, the pipeline and blend bind again, not the shared state or scissor");
+    check(!draw_submission_bind_shared(&state) && draw_submission_rebind_blend(&state) &&
+              !draw_submission_rebind_blend(&state) && draw_submission_select(&state, DrawPipeline::paint) &&
+              !draw_submission_scissor(&state, clip),
+          "state: after the effect, the pipeline and blend bind again, not the shared state or scissor");
     draw_submission_reset_pipeline(&state, false);
     draw_submission_reset(&state);
     check(draw_submission_bind_shared(&state) && !draw_submission_rebind_blend(&state),
@@ -100,8 +99,7 @@ void test_state() noexcept {
     draw_submission_begin(&state);
     draw_submission_reset_pipeline(&state, true);
     check(!draw_submission_rebind_blend(&state), "state: nothing bound, nothing to restore");
-    check(!state.pipeline_binds && !state.shared_binds && !state.scissor_sets && !state.shared_bound,
-          "state: a new stream restarts its counters");
+    check(!state.shared_bound, "state: a new stream assumes nothing bound");
     // Pixel constants: paint needs slot 0 (frame) and slot 1, glyphs only slot 1.
     int palette = 0, effects = 0;
     draw_submission_begin(&state);
@@ -156,6 +154,7 @@ void test_frame() noexcept {
     DrawSubmissionState state{};
     draw_submission_begin(&state);
     u32 pipelines = 0;
+    shared_calls = 0;
     Pass p = submit_pass(&state, DrawPipeline::paint, paint, 7, full, &pipelines);
     check(p.draws == 7 && p.instances == 455 && p.scissor_calls == 7, "frame: full paint draws each clip");
     p = submit_pass(&state, DrawPipeline::media, media, 3, full, &pipelines);
@@ -164,8 +163,7 @@ void test_frame() noexcept {
     check(p.draws == 4 && p.instances == 2750 && p.scissor_calls == 4, "frame: full glyphs draw each clip");
     p = submit_pass(&state, DrawPipeline::paint, overlay, 2, full, &pipelines);
     check(p.draws == 1 && p.instances == 15 && p.scissor_calls == 1, "frame: two batches under one popup clip draw once");
-    check(pipelines == 4 && state.pipeline_binds == 4 && state.shared_binds == 1,
-          "frame: four passes bind four pipelines and the shared state once");
+    check(pipelines == 4 && shared_calls == 1, "frame: four passes bind four pipelines and the shared state once");
 
     // An animated emoji in the chat: every batch overlapping the damage clips
     // to the same rectangle. The chat background and its rows are contiguous
@@ -181,9 +179,7 @@ void test_frame() noexcept {
     p = submit_pass(&state, DrawPipeline::glyph, glyphs, 4, emoji, &pipelines);
     check(p.draws == 1 && p.instances == 2000 && p.scissor_calls == 0, "damage: glyphs keep the damage scissor");
     p = submit_pass(&state, DrawPipeline::paint, overlay, 2, emoji, &pipelines);
-    check(p.draws == 0 && pipelines == 3 && state.pipeline_binds == 3,
-          "damage: a pass with nothing under the damage binds nothing");
-    check(state.scissor_sets == 1 && state.scissor_skips == 3, "damage: one scissor serves the whole frame");
+    check(p.draws == 0 && pipelines == 3, "damage: a pass with nothing under the damage binds nothing");
 
     // Damage across the chat and member list: each keeps its own scissor.
     const RasterClipRect split{1000, 100, 1100, 140};

@@ -52,12 +52,12 @@ void run_posts(Fixture& fixture, ThreadBrowserRequest archived) noexcept {
         R"({"id":"602","url":"https://cdn.discordapp.com/b.png","content_type":"image/png","width":10,"height":10}]}],"most_recent_messages":null})");
     check(decode(forum).ok() && fixture.page.row_count == 2 && posts.page.post_count == 2 &&
         posts.posts[0].thread_id == 20 && posts.posts[0].owner_id == 77 && posts.posts[0].flags == 2 &&
-        posts.posts[0].message_count == 5 && posts.posts[0].total_message_sent == 7 &&
+        posts.posts[0].message_count == 5 &&
         posts.posts[0].tag_count == 2 && posts.posts[0].tags[0] == 501 && posts.posts[0].tags[1] == 502 &&
-        posts.posts[0].create_timestamp_ms == 1725021296000ull && posts.posts[0].starter_message_id == 20 &&
+        posts.posts[0].create_timestamp_ms == 1725021296000ull &&
         posts.posts[0].author_id == 77 && posts.posts[0].media_id == 601 && posts.posts[0].media_width == 640 &&
         posts.posts[0].media_height == 480 && posts.posts[0].media_type == ThreadBrowserMediaType::png &&
-        posts.posts[0].fields == 511 &&
+        posts.posts[0].fields == 255 &&
         utf8_equal(thread_browser_post_preview(posts.page, 0), utf8_literal("Hello world \xC3\xA9")) &&
         utf8_equal(thread_browser_post_author_name(posts.page, 0), utf8_literal("Rob \xE2\x9C\xA8")) &&
         utf8_equal(thread_browser_post_avatar_hash(posts.page, 0), utf8_literal("a_0123abcd")) &&

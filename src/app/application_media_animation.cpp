@@ -716,9 +716,6 @@ __declspec(noinline) bool ApplicationMediaPump::pump_due_animations(bool* repain
         }
         if (requested.state == AccountMediaRequestState::queued ||
             requested.state == AccountMediaRequestState::pending) {
-            if (requested.state == AccountMediaRequestState::queued) {
-                record_media_animation_advance(advance.key.kind);
-            }
             if (find_pending_animation(advance) == 0xFFFFFFFFu) {
                 application.animations.pending_advances[application.animations.pending_advance_count++] =
                     advance;

@@ -5,7 +5,7 @@ void test_search_filter_context(void (*check)(bool, const char*) noexcept) noexc
     const auto empty = ui_search_filter_context(utf8_literal("from:"), 5, 5);
     check(empty.kind == UiSearchFilterKind::from && empty.token_begin == 0 && empty.token_end == 5 &&
               empty.value_begin == 5 && empty.value_end == 5 && !empty.has_value &&
-              empty.quote_complete && empty.same_kind_occurrences == 1 && empty.other_value_count == 0,
+              empty.quote_complete && empty.other_value_count == 0,
           "search_filter_context_empty_value_is_active_after_colon");
     const auto middle = ui_search_filter_context(utf8_literal("hi from:alice tail"), 10, 10);
     check(middle.kind == UiSearchFilterKind::from && middle.token_begin == 3 && middle.token_end == 13 &&
@@ -80,16 +80,14 @@ void test_search_filter_context(void (*check)(bool, const char*) noexcept) noexc
           "search_filter_context_controls_anywhere_prevent_partial_publication");
     constexpr auto counts_text = utf8_literal("from:1 from:2 in:9 from:3 from:4 from:");
     const auto counts = ui_search_filter_context(counts_text, counts_text.bytes, counts_text.bytes);
-    check(counts.kind == UiSearchFilterKind::from && counts.same_kind_occurrences == 5 &&
-              counts.other_value_count == 4 && !counts.has_value,
+    check(counts.kind == UiSearchFilterKind::from && counts.other_value_count == 4 && !counts.has_value,
           "search_filter_context_fifth_empty_identity_exposes_four_other_populated_values");
     constexpr auto replacing_text = utf8_literal("from:1 from:2 from:3 from:4");
     const auto replacing = ui_search_filter_context(replacing_text, replacing_text.bytes, replacing_text.bytes);
-    check(replacing.same_kind_occurrences == 4 && replacing.other_value_count == 3 && replacing.has_value,
+    check(replacing.other_value_count == 3 && replacing.has_value,
           "search_filter_context_replacing_existing_fourth_value_does_not_add_an_identity_slot");
     const auto empty_counts = ui_search_filter_context(utf8_literal("from:\"\" from: from:\""), 20, 20);
-    check(empty_counts.kind == UiSearchFilterKind::from && empty_counts.same_kind_occurrences == 3 &&
-              empty_counts.other_value_count == 0,
+    check(empty_counts.kind == UiSearchFilterKind::from && empty_counts.other_value_count == 0,
           "search_filter_context_empty_and_unfinished_quotes_are_not_populated_occurrences");
     constexpr auto literal = utf8_literal("\"from:alice\" on:2026-10-05 before:x after:x future:y");
     check(ui_search_filter_context(literal, 8, 8).kind == UiSearchFilterKind::none &&

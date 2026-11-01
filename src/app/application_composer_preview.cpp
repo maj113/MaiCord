@@ -20,7 +20,6 @@ struct ComposerPreviewEntry {
 };
 struct ComposerPreviewOwner {
     ComposerPreviewEntry entries[kComposerPreviewSlots];
-    u64 admissions, retirements;
     u32 next_generation;
 };
 ComposerPreviewOwner* owner;
@@ -66,7 +65,6 @@ void retire(ComposerPreviewEntry& entry, u64 now) noexcept {
     if (!entry.retired) {
         changed();
         unpin(entry.request.key);
-        ++owner->retirements;
     }
     entry.retired = true;
     entry.ready = false;
@@ -241,11 +239,8 @@ bool application_composer_preview_request(u64 now, u64 unix_now) noexcept {
             entry->request.path = message_attachment_drafts_path(&state->drafts, id);
         const auto result = g_app.account.api.media_local_preview(entry->instance, AccountLocalPreviewOperation::request,
                                                                   &entry->request, now, unix_now);
-        if (result.state == AccountMediaRequestState::queued) {
-            entry->admitted = true;
-            ++owner->admissions;
-        } else if (result.state == AccountMediaRequestState::pending ||
-                   result.state == AccountMediaRequestState::ready) {
+        if (result.state == AccountMediaRequestState::queued || result.state == AccountMediaRequestState::pending ||
+            result.state == AccountMediaRequestState::ready) {
             entry->admitted = true;
         } else if (result.state != AccountMediaRequestState::busy) {
             changed();
@@ -289,22 +284,6 @@ u64 application_composer_preview_next_wake() noexcept {
 
 u32 application_composer_preview_revision() noexcept {
     return publication;
-}
-
-ApplicationComposerPreviewMetrics application_composer_preview_metrics() noexcept {
-    ApplicationComposerPreviewMetrics value{};
-    if (!owner)
-        return value;
-    value.admissions = owner->admissions;
-    value.retirements = owner->retirements;
-    for (const auto& entry : owner->entries)
-        if (entry.occupied && !entry.retired) {
-            ++value.active;
-            value.pending += entry.admitted && !entry.ready && !entry.failed;
-            value.ready += entry.ready;
-            value.failed += entry.failed;
-        }
-    return value;
 }
 
 } // namespace maicord::app_detail

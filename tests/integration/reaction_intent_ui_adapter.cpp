@@ -227,9 +227,6 @@ void reaction_intent_ui_adapter_observe(const GatewayMessageReactionEvent& event
 bool reaction_intent_ui_adapter_synchronize() noexcept {
     return application_message_reaction_synchronize();
 }
-ApplicationMessageReactionMetrics reaction_intent_ui_adapter_metrics() noexcept {
-    return application_message_reaction_metrics();
-}
 bool reaction_intent_ui_adapter_flight(u64* id, u64* message, u64* emoji, bool* add) noexcept {
     if (!adapter || !adapter->flight_id)
         return false;

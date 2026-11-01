@@ -34,13 +34,14 @@ struct DrawSubmissionState {
     // `ps_slot1` (the background palette or the text effects, else null).
     bool ps_frame_bound;
     bool ps_slot1_valid;
+    // Some pipeline was bound during this stream.
+    bool pipeline_bound;
     const void* ps_slot1;
-    u32 pipeline_binds, shared_binds, scissor_sets, scissor_skips;
 };
 
-static_assert(sizeof(DrawSubmissionState) == 48);
+static_assert(sizeof(DrawSubmissionState) == 40);
 
-// A new stream: nothing is assumed bound and its counters restart.
+// A new stream: nothing is assumed bound.
 inline void draw_submission_begin(DrawSubmissionState* state) noexcept {
     reset_value<DrawSubmissionState>(state);
 }
@@ -111,7 +112,6 @@ inline bool draw_submission_bind_shared(DrawSubmissionState* state) noexcept {
         return false;
     state->shared_bound = true;
     state->blend_stale = false;
-    ++state->shared_binds;
     return true;
 }
 
@@ -120,7 +120,7 @@ inline bool draw_submission_select(DrawSubmissionState* state, DrawPipeline pipe
     if (state->pipeline == pipeline)
         return false;
     state->pipeline = pipeline;
-    ++state->pipeline_binds;
+    state->pipeline_bound = true;
     return true;
 }
 
@@ -130,13 +130,10 @@ inline bool raster_clip_equal(const RasterClipRect& a, const RasterClipRect& b) 
 
 // True when `scissor` differs from the bound rectangle and must be set.
 inline bool draw_submission_scissor(DrawSubmissionState* state, const RasterClipRect& scissor) noexcept {
-    if (state->scissor_valid && raster_clip_equal(state->scissor, scissor)) {
-        ++state->scissor_skips;
+    if (state->scissor_valid && raster_clip_equal(state->scissor, scissor))
         return false;
-    }
     state->scissor = scissor;
     state->scissor_valid = true;
-    ++state->scissor_sets;
     return true;
 }
 

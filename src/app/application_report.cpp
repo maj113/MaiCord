@@ -499,7 +499,7 @@ bool application_report_open(const ApplicationReportTarget& target) noexcept {
         return false;
     }
     renderer_bind_settings_scene(&g_app.renderer, &p.scene);
-    settings_layer_begin_entrance(&p.layer, clock_monotonic_milliseconds(), g_app.preferences.reduced_motion);
+    settings_layer_begin_entrance(&p.layer);
     g_app.context_focus = &p.scene.widgets;
     application_sync_attachment_drop_target();
     queue(Op::menu);

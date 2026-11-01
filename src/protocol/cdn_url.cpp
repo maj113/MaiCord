@@ -263,7 +263,6 @@ AttachmentUrlResult parse_signed_attachment_url(const Utf8View& url_view, u64 at
     if (target_bytes > target_output.count)
         return attachment_url_failure(AttachmentUrlError::output_capacity);
     copy_bytes(target_output.data, url.data + path_begin, target_bytes);
-    result.issued_at_seconds = issued_at;
     result.expires_at_seconds = expires_at;
     return result;
 }

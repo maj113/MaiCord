@@ -63,7 +63,7 @@ void test_startup_buffered_worker(void (*check)(bool, const char*) noexcept) noe
     while (ReadAcquire(&worker.published) < LONG{kGatewayClientEventCapacity} &&
            WaitForSingleObject(worker.notification, 5'000) == WAIT_OBJECT_0) {
     }
-    check(ReadAcquire(&worker.published) == LONG{kGatewayClientEventCapacity} && mailbox->dropped == 0 &&
+    check(ReadAcquire(&worker.published) == LONG{kGatewayClientEventCapacity} &&
               WaitForSingleObject(thread, 0) == WAIT_TIMEOUT,
           "startup: worker buffers up to capacity and waits without dropping events");
     // Attach: the UI drains in order, signaling space like the Gateway pop.
@@ -83,7 +83,7 @@ void test_startup_buffered_worker(void (*check)(bool, const char*) noexcept) noe
         SetEvent(worker.space);
     }
     const bool joined = WaitForSingleObject(thread, 5'000) == WAIT_OBJECT_0;
-    check(joined && !worker.failed && ordered && received == worker.events && mailbox->dropped == 0,
+    check(joined && !worker.failed && ordered && received == worker.events,
           "startup: buffered dispatches reach the UI complete and in order");
     if (!joined) {
         SetEvent(worker.cancel);

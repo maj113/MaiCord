@@ -24,7 +24,6 @@ struct Decode {
     VoiceChannelInfoVisitor visitor;
     void* context;
     u64 guild_id;
-    u32 count;
     VoiceChannelInfoError error;
 };
 
@@ -79,7 +78,6 @@ bool emit(Decode* d, const Fields& f, u64 guild_id) noexcept {
         }
         entry.status = {d->text.data, bytes};
     }
-    ++d->count;
     return !d->visitor || d->visitor(d->context, entry);
 }
 
@@ -117,36 +115,34 @@ VoiceChannelInfoResult voice_channel_info_decode(VoiceChannelInfoEvent event, Ut
                                                  Slice<u32> scratch, Slice<char> text,
                                                  VoiceChannelInfoVisitor visitor, void* context) noexcept {
     if (!text.data && text.count)
-        return {0, 0, VoiceChannelInfoError::input};
+        return {0, VoiceChannelInfoError::input};
     const auto s = scan_json<VoiceChannelInfoError>(data, scratch);
     if (s.error != VoiceChannelInfoError::none)
-        return {0, 0, s.error};
+        return {0, s.error};
     Fields root{};
     if (!json_visit_root_object(data, s.document.structurals, kDepth, visit_fields, &root).ok())
-        return {0, 0, VoiceChannelInfoError::field};
-    Decode d{&s.document, text, visitor, context, root.guild_id, 0, VoiceChannelInfoError::none};
+        return {0, VoiceChannelInfoError::field};
+    Decode d{&s.document, text, visitor, context, root.guild_id, VoiceChannelInfoError::none};
     if (!root.guild_id)
-        return {0, 0, VoiceChannelInfoError::field};
+        return {0, VoiceChannelInfoError::field};
     if (event == VoiceChannelInfoEvent::channel_info) {
         if (!root.has_channels)
-            return {root.guild_id, 0, VoiceChannelInfoError::field};
+            return {root.guild_id, VoiceChannelInfoError::field};
         if (!json_visit_indexed_array(s.document, root.channels, kDepth, visit_channel, &d).ok())
-            return {root.guild_id, d.count,
-                    d.error == VoiceChannelInfoError::none ? VoiceChannelInfoError::json : d.error};
-        return {root.guild_id, d.count, VoiceChannelInfoError::none};
+            return {root.guild_id, d.error == VoiceChannelInfoError::none ? VoiceChannelInfoError::json : d.error};
+        return {root.guild_id, VoiceChannelInfoError::none};
     }
     // An update names the one field it changes.
     if ((event == VoiceChannelInfoEvent::start_time_update && !root.has_start) ||
         (event == VoiceChannelInfoEvent::status_update && !root.has_status))
-        return {root.guild_id, 0, VoiceChannelInfoError::field};
+        return {root.guild_id, VoiceChannelInfoError::field};
     if (event == VoiceChannelInfoEvent::start_time_update)
         root.has_status = false;
     else
         root.has_start = false;
     if (!emit(&d, root, root.guild_id))
-        return {root.guild_id, 0,
-                d.error == VoiceChannelInfoError::none ? VoiceChannelInfoError::field : d.error};
-    return {root.guild_id, 1, VoiceChannelInfoError::none};
+        return {root.guild_id, d.error == VoiceChannelInfoError::none ? VoiceChannelInfoError::field : d.error};
+    return {root.guild_id, VoiceChannelInfoError::none};
 }
 
 u32 voice_channel_status_display(Utf8View status, Slice<char> output) noexcept {

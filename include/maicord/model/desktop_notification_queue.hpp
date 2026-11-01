@@ -32,7 +32,6 @@ enum class DesktopNotificationQueueError : u8 {
 struct DesktopNotificationQueueResult {
     DesktopNotificationQueueError error{};
     u64 token{};
-    bool wake_required{};
     bool ok() const noexcept { return error == DesktopNotificationQueueError::none; }
 };
 struct DesktopNotificationQueueDispatch {
@@ -47,14 +46,12 @@ struct DesktopNotificationQueueCompletion {
     bool retry_pending{}, canceled{}, removal_required{};
 };
 struct DesktopNotificationQueueMetrics {
-    u64 admitted{}, submitted{}, failed{}, canceled{}, retries{}, capacity_failures{};
-    u32 waiting{}, bytes{}, outstanding{}, high_rows{}, high_bytes{};
+    u32 waiting{}, bytes{}, outstanding{};
 };
 struct DesktopNotificationQueue {
     Slice<DesktopNotificationQueueRow> rows{};
     Slice<char> bytes{}, scratch{};
     DesktopNotificationQueueRow inflight{};
-    DesktopNotificationQueueMetrics counters{};
     u64 profile_id{}, generation{}, next_token{1};
     u32 count{}, used{}, attempt{};
     bool has_inflight{}, dispatching{}, inflight_canceled{};

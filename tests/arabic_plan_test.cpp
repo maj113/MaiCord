@@ -1,6 +1,7 @@
 // Arabic joining plans. No argument runs the built-in corpora with the test's own prepared
 // programs; --run first shapes them through the owned plan store and native_arabic_run.
 #include "gsub_program_fixture.hpp"
+#include "text_seams.hpp"
 #include "maicord/text/shape_run.hpp"
 #include "maicord/text/arabic_shape_run.hpp"
 #include "maicord/text/arabic_joining.hpp"

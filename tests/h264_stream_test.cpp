@@ -293,7 +293,7 @@ int state_tests() noexcept {
     w.clear(); write_p(&w.out, &w.bits, reorder, reorder_pps, 2, 16); run(&r, w.view(), 4);
     w.clear(); write_p(&w.out, &w.bits, reorder, reorder_pps, 3, 12, false); run(&r, w.view(), 5);
     w.clear(); write_p(&w.out, &w.bits, reorder, reorder_pps, 3, 24); run(&r, w.view(), 6);
-    if (state->late != 1 || state->reorder != 1 || r.output_count != 4 || r.outputs[0].poc != 0 ||
+    if (state->reorder != 1 || r.output_count != 4 || r.outputs[0].poc != 0 ||
         r.outputs[1].poc != 8 || r.outputs[2].poc != 12 || r.outputs[3].poc != 16)
         return 168;
     // Declared reordering (max_num_reorder_frames 1) outputs in POC order.
@@ -308,7 +308,7 @@ int state_tests() noexcept {
     w.clear(); write_idr(&w.out, &w.bits, declared, declared_pps, 6, 2); run(&r, w.view(), 6);
     // The first IDR drains the previous stream's held picture (POC 24) first.
     constexpr i32 expected[] = {24, 0, 4, 8, 12, 16};
-    if (r.output_count != 6 || state->late != 1 || state->reorder != 1 || state->output.count != 1) return 169;
+    if (r.output_count != 6 || state->reorder != 1 || state->output.count != 1) return 169;
     for (u32 i = 0; i < 6; ++i)
         if (r.outputs[i].poc != expected[i]) return 170;
     if (r.outputs[2].rtp_timestamp != 3 || r.outputs[3].rtp_timestamp != 2 || !r.outputs[1].keyframe) return 171;

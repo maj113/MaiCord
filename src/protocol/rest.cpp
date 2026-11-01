@@ -30,7 +30,6 @@ struct RateHeadContext {
 struct RateBodyContext {
     u64 retry_after_ms;
     u32 fields;
-    u32 error_offset;
     RateLimitBodyError error;
     bool global;
     bool retry_only;
@@ -213,43 +212,41 @@ bool visit_rate_header(void* opaque, HttpField field) noexcept {
     return true;
 }
 
-bool rate_body_begin(RateBodyContext* context, u32 bit, u32 offset) noexcept {
+bool rate_body_begin(RateBodyContext* context, u32 bit) noexcept {
     if ((context->fields & bit) != 0) {
         context->error = RateLimitBodyError::duplicate_field;
-        context->error_offset = offset;
         return false;
     }
     context->fields |= bit;
     return true;
 }
 
-bool rate_body_failure(RateBodyContext* context, RateLimitBodyError error, u32 offset) noexcept {
+bool rate_body_failure(RateBodyContext* context, RateLimitBodyError error) noexcept {
     context->error = error;
-    context->error_offset = offset;
     return false;
 }
 
 bool visit_rate_body(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<RateBodyContext*>(opaque);
     if (json_string_equals_ascii(name, utf8_literal("retry_after"))) {
-        if (!rate_body_begin(context, rate_body_field_retry_after, name.source_offset))
+        if (!rate_body_begin(context, rate_body_field_retry_after))
             return false;
         if (value.kind != JsonValueKind::number ||
             !parse_decimal_milliseconds(
                 ConstSlice<u8>{reinterpret_cast<const u8*>(value.source.data), value.source.bytes},
                 &context->retry_after_ms))
-            return rate_body_failure(context, RateLimitBodyError::invalid_retry_after, value.source_offset);
+            return rate_body_failure(context, RateLimitBodyError::invalid_retry_after);
     } else if (context->retry_only && json_string_equals_ascii(name, utf8_literal("code"))) {
-        if (!rate_body_begin(context, rate_body_field_code, name.source_offset))
+        if (!rate_body_begin(context, rate_body_field_code))
             return false;
         u64 code = 0;
         if (!json_value_to_u64(value, &code) || code != 110000)
-            return rate_body_failure(context, RateLimitBodyError::invalid_code, value.source_offset);
+            return rate_body_failure(context, RateLimitBodyError::invalid_code);
     } else if (!context->retry_only && json_string_equals_ascii(name, utf8_literal("global"))) {
-        if (!rate_body_begin(context, rate_body_field_global, name.source_offset))
+        if (!rate_body_begin(context, rate_body_field_global))
             return false;
         if (!json_value_to_bool(value, &context->global))
-            return rate_body_failure(context, RateLimitBodyError::invalid_global, value.source_offset);
+            return rate_body_failure(context, RateLimitBodyError::invalid_global);
     }
     return true;
 }
@@ -809,27 +806,22 @@ RestBodyKind rest_classify_body(ConstSlice<u8> body) noexcept {
 static RateLimitBodyResult decode_retry_body(Utf8View body, Slice<u32> structural_scratch, u32 maximum_depth,
                                              bool retry_only) noexcept {
     if (!body.data || body.bytes == 0 || !structural_scratch.data || structural_scratch.count == 0 || maximum_depth == 0)
-        return RateLimitBodyResult{0, 0, RateLimitBodyError::invalid_input, JsonScanError::none, JsonReadError::none, false};
+        return RateLimitBodyResult{0, RateLimitBodyError::invalid_input, false};
     const JsonScanResult scan = json_scan_structurals_avx1(body, structural_scratch);
     if (!scan.ok())
-        return RateLimitBodyResult{0, scan.error_offset, RateLimitBodyError::scan_failed, scan.error, JsonReadError::none, false};
+        return RateLimitBodyResult{0, RateLimitBodyError::scan_failed, false};
     RateBodyContext context{};
     context.retry_only = retry_only;
     const JsonReadResult read = json_visit_root_object(body, ConstSlice<u32>{structural_scratch.data, scan.count},
                                                        maximum_depth, visit_rate_body, &context);
-    if (!read.ok()) {
-        const bool visited = context.error != RateLimitBodyError::none;
-        return RateLimitBodyResult{0, visited ? context.error_offset : read.error_offset,
-                                   visited ? context.error : RateLimitBodyError::invalid_json, JsonScanError::none,
-                                   read.error, false};
-    }
+    if (!read.ok())
+        return RateLimitBodyResult{
+            0, context.error != RateLimitBodyError::none ? context.error : RateLimitBodyError::invalid_json, false};
     const u32 required = rate_body_field_retry_after | rate_body_field_global;
     if (retry_only ? !(context.fields & (rate_body_field_code | rate_body_field_retry_after))
                    : (context.fields & required) != required)
-        return RateLimitBodyResult{0, 0, RateLimitBodyError::missing_required_field, JsonScanError::none,
-                                   JsonReadError::none, false};
-    return RateLimitBodyResult{context.retry_after_ms, 0, RateLimitBodyError::none, JsonScanError::none,
-                               JsonReadError::none, context.global};
+        return RateLimitBodyResult{0, RateLimitBodyError::missing_required_field, false};
+    return RateLimitBodyResult{context.retry_after_ms, RateLimitBodyError::none, context.global};
 }
 
 RateLimitBodyResult decode_rate_limit_body(Utf8View body, Slice<u32> structural_scratch,
@@ -1044,7 +1036,6 @@ bool rest_response_initialize(RestResponse* response, Slice<u8> input_storage, S
         (!body_output.data && body_output.count != 0) || !method_literal(request_method))
         return false;
     reset_value<RestResponse>(response);
-    response->request_method = request_method;
     return http_response_decoder_initialize(&response->http, input_storage, {}, body_output, kRestMaximumHeaderBytes,
                                             kRestMaximumHeaderFields, request_method == RestMethod::head,
                                             rest_response_head_parser, response);

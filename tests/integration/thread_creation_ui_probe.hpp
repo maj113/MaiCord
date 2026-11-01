@@ -142,7 +142,7 @@ inline bool thread_creation_ui_probe(D3D11Renderer& external, UiTextMeasureCache
         const u32 layouts = form->scene.widgets.layout.revision, shell = external.ui_scene->layout_passes,
             shapes = measure.backend_calls, painted = external.painted_frames, skips = external.unchanged_present_skips,
             revision = form->scene.revision, submissions = thread_creation_ui_adapter_submissions();
-        const auto owner = application_thread_creation_metrics();
+        const u32 owner_publication = application_thread_creation_view().ticket.publication_revision;
         const u32 form_shapes = form->scene.measure->backend_calls;
         const usize form_committed = form->scene.storage.arena.committed;
         MEMORY_BASIC_INFORMATION memory{};
@@ -154,12 +154,10 @@ inline bool thread_creation_ui_probe(D3D11Renderer& external, UiTextMeasureCache
             form->scene.widgets.layout.revision == layouts && form->scene.revision == revision &&
             external.ui_scene->layout_passes == shell && measure.backend_calls == shapes && external.painted_frames == painted &&
             external.unchanged_present_skips - skips == 64 && thread_creation_ui_adapter_submissions() == submissions &&
-            application_thread_creation_metrics().publication_revision == owner.publication_revision &&
+            application_thread_creation_view().ticket.publication_revision == owner_publication &&
             form->scene.measure->backend_calls == form_shapes && form->scene.storage.arena.committed == form_committed;
         log_u64(LogLevel::info, "thread_creation_warm", "sample", sample);
         log_u64(LogLevel::info, "thread_creation_warm", "unchanged_skips", external.unchanged_present_skips - skips);
-        log_u64(LogLevel::info, "thread_creation_warm", "owner_bytes", owner.owner_bytes);
-        log_u64(LogLevel::info, "thread_creation_warm", "owner_committed_bytes", owner.owner_committed_bytes);
         log_u64(LogLevel::info, "thread_creation_warm", "form_bytes", sizeof(ApplicationTextForm));
         log_u64(LogLevel::info, "thread_creation_warm", "form_scene_committed_bytes", form_committed);
         log_u64(LogLevel::info, "thread_creation_warm", "form_owner_committed_bytes", memory.RegionSize);
@@ -185,8 +183,7 @@ inline bool thread_creation_ui_probe(D3D11Renderer& external, UiTextMeasureCache
     if (!require(busy && !busy->editable && !busy->can_accept &&
         thread_creation_ui_adapter_input(UiInputKind::character, 'X') && busy->edit.storage.bytes == bytes &&
         show(L"thread-creation-submitting.bmp") && warm(1), 9) ||
-        !require(!thread_creation_ui_adapter_response(200, {}, RestClientError::none, 81002) &&
-            application_thread_creation_metrics().flight_active, 10) ||
+        !require(!thread_creation_ui_adapter_response(200, {}, RestClientError::none, 81002), 10) ||
         !require(thread_creation_ui_adapter_response(0, {}, RestClientError::timeout) &&
             application_thread_creation_view().uncertain && thread_creation_ui_adapter_pointer(TextFormElement::accept) &&
             thread_creation_ui_adapter_submit(81003) && thread_creation_ui_adapter_synchronize() &&
@@ -225,7 +222,7 @@ inline bool thread_creation_ui_probe(D3D11Renderer& external, UiTextMeasureCache
             thread_creation_ui_adapter_retire(reason);
         if (!require(withdrawn && !thread_creation_ui_adapter_form() &&
             thread_creation_ui_adapter_cancellations() == 1 && !application_thread_creation_current(retired) &&
-            thread_creation_ui_adapter_response(201, success) && !application_thread_creation_metrics().flight_active &&
+            thread_creation_ui_adapter_response(201, success) &&
             !chat_state_store_find_channel(*reply_draft_ui_adapter_state(), kReplyDraftProbeMessage) &&
             reply_draft_ui_adapter_state()->selected_channel_id == kReplyDraftProbeChannelA, 30 + reason)) return false;
         if (reason == 1 && !require(thread_creation_ui_adapter_open() && thread_creation_ui_adapter_pointer_up() &&

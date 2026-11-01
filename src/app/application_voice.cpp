@@ -105,7 +105,7 @@ void push() noexcept {
         soundboard.operation = SoundboardAudioOperation::configure;
         soundboard.muted = voice.preferences.soundboard_muted;
         soundboard.volume_percent = voice.preferences.soundboard_volume;
-        h.api.soundboard_audio(h.instance, &soundboard, nullptr);
+        h.api.soundboard_audio(h.instance, &soundboard);
     }
     // A new account session starts with fresh playback: restore user volumes.
     if (h.instance != voice.pushed_instance || user != voice.pushed_user)

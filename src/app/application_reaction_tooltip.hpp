@@ -15,7 +15,6 @@ bool application_reaction_tooltip_target(UiPoint point, u64 scope, UiTooltipTarg
 void application_reaction_tooltip_leave() noexcept;
 // Admits a needed reactor fetch to the history request lane.
 void application_reaction_tooltip_pump() noexcept;
-bool application_reaction_tooltip_pending() noexcept;
 
 struct ReactionTooltipQuery {
     Utf8View emoji_name;

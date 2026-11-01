@@ -1,4 +1,5 @@
 #include "scoped_read_ui_probe.hpp"
+#include "probe_account_ui.hpp"
 #include "probe_present.hpp"
 #include "../../tools/perf/probe_window.hpp"
 #include "probe_glyph_ink.hpp"
@@ -305,26 +306,7 @@ bool account_storage() noexcept {
     if (!chat_state_store_select_channel(&ui.chat_state, kSelected).ok())
         return fail_at(__LINE__);
     ui.active_channel_id = kSelected;
-    auto& text = ui.renderer_text;
-    text.quads = ui.renderer_text_quads;
-    text.batches = ui.renderer_text_batches;
-    text.utf16 = ui.response_shape_scratch.shape.utf16;
-    text.glyphs = ui.response_shape_scratch.shape.glyphs;
-    text.runs = ui.response_shape_scratch.shape.runs;
-    text.clusters = ui.response_shape_scratch.shape.clusters;
-    text.hit_spans = f.hit_spans;
-    text.hit_region_scratch = f.hit_scratch;
-    text.decorations = f.decorations;
-    text.content_semantics = ui.renderer_content_semantics;
-    text.content_hit_regions = ui.renderer_content_hit_regions;
-    text.quad_capacity = kRendererContentGlyphCapacity;
-    text.batch_capacity = kRendererContentBatchCapacity;
-    text.utf16_capacity = text.glyph_capacity = text.cluster_capacity = kRendererContentTextUnitCapacity;
-    text.run_capacity = kRendererContentRunCapacity;
-    text.hit_span_capacity = kTextHitSpanMaximum;
-    text.hit_region_scratch_capacity = text.content_hit_region_capacity = kRendererContentHitRegionCapacity;
-    text.decoration_capacity = kRendererTextDecorationCapacity;
-    text.content_semantic_capacity = kRendererContentSemanticCapacity;
+    auto& text = probe_bind_renderer_text(ui, f.hit_spans, f.hit_scratch, f.decorations);
     renderer_bind_navigation_view(&g_app.renderer, &ui.chat_state, &ui.user_store, &ui.navigation_view);
     g_app.renderer.message_measure_cache = &ui.text_measure_cache;
     g_app.account.instance = fixture;

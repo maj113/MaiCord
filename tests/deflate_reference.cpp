@@ -8,6 +8,8 @@
 namespace maicord::deflate_reference {
 namespace {
 
+constexpr u32 kDeflateCodeSymbolCapacity = 19;
+
 struct DeflatePrefixTable {
     u16 counts[16];
     u16 first_codes[16];

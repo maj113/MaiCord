@@ -75,7 +75,7 @@ bool permission(bool allowed) noexcept {
 } // namespace
 bool thread_creation_ui_adapter_begin(HWND window, D3D11Renderer& renderer, UiTextMeasureCache& cache,
     bool (*refresh)(void*) noexcept, void* context) noexcept {
-    if (creation_adapter || application_thread_creation_metrics().owner_bytes) return false;
+    if (creation_adapter || application_thread_creation_view().ticket.serial) return false;
     auto* value = static_cast<CreationAdapter*>(VirtualAlloc(nullptr, sizeof(CreationAdapter), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!value) return false;
     value->renderer = &renderer; value->measure = &cache; value->refresh = refresh; value->context = context;

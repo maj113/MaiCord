@@ -517,7 +517,6 @@ void test_image_viewer(void (*check)(bool, const char*) noexcept) noexcept {
         const CdnResponseResult policy{{},
                                        {},
                                        2000,
-                                       0,
                                        sizeof(kPngGrowthFixture),
                                        200,
                                        CdnResponseDisposition::accept_body,

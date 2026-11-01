@@ -135,7 +135,6 @@ bool field(void* context, JsonString name, JsonValue value) noexcept {
         valid = result.ok();
         if (bit == users) {
             event.users = value;
-            event.user_count = result.member_count;
         } else {
             event.streams = value;
             event.stream_count = result.member_count;

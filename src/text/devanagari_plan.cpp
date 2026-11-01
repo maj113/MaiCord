@@ -30,7 +30,7 @@ Choice choice(SfntLayoutKind kind,u32 tag,bool initial) noexcept {
     }
 }
 struct Selected {SfntFeature feature;u8 stage,mask,identity;};
-static_assert(sizeof(Selected)==48);
+static_assert(sizeof(Selected)==40);
 struct Builder {
     const SfntLayout& layout;const SfntFeatureSubstitutions& variations;Slice<u16> scratch;Slice<SfntLookupStep> output;
     SfntLookupPlanResult& result;u64 work;Selected features[20]{};u32 count=0;u8 form_stage=255;bool initial=false,ordered_presentation=false;

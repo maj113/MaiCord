@@ -1,11 +1,4 @@
 namespace handle_stat_tests {
-u32 calls=0,attributes=0,device=7,returned=104;LONG status=0;i64 size=17;
-LONG WINAPI query(HANDLE file,font_path_stat::Io* io,void* buffer,u32 bytes,u32 kind) noexcept {
-    ++calls;if(file!=reinterpret_cast<HANDLE>(17)||bytes!=104||kind!=77)return static_cast<LONG>(0xc000000du);
-    auto& s=*static_cast<font_path_stat::Stat*>(buffer);s={};s.bytes=size;s.device_type=device;s.attributes=attributes;
-    s.volume=31;s.write=37;s.change=41;for(u32 i=0;i<16;++i)s.identity.Identifier[i]=static_cast<u8>(i+1);
-    io->bytes=returned;return status;
-}
 // Public-API reference stamp from an already open handle.
 bool public_stamp(HANDLE file,NativeFontFileStamp* out) noexcept {
     *out={};FILE_STANDARD_INFO standard{};FILE_BASIC_INFO basic{};
@@ -28,23 +21,20 @@ bool file_case(const wchar_t* path,bool force_fallback,bool font) noexcept {
     }
     print(projected?"handle stat native identity PASS\n":"handle stat public fallback identity PASS\n");return true;
 }
+// Handles the one-query path must refuse leave the output untouched.
+bool refused(HANDLE handle) noexcept {
+    NativeFontFileStamp out{};out.bytes=123;return !font_path_stat::read_handle(handle,&out)&&out.bytes==123;
+}
 bool run(bool force_fallback=false) noexcept {
-    NativeFontFileStamp out{},zero{};const HANDLE fake=reinterpret_cast<HANDLE>(17);
-    CHECK(font_path_stat::read_handle(query,fake,&out)&&out.identity.VolumeSerialNumber==31&&out.bytes==17&&out.write.dwLowDateTime==37&&out.change.dwLowDateTime==41);
-    for(u32 i=0;i<16;++i)CHECK(out.identity.FileId.Identifier[i]==i+1);
-    const auto decline=[&](font_path_stat::HandleQuery q=query,HANDLE handle=reinterpret_cast<HANDLE>(17)) noexcept {
-        out.bytes=123;return !font_path_stat::read_handle(q,handle,&out)&&bytes_equal(&out,&zero,sizeof(out));
-    };
-    calls=0;CHECK(decline(nullptr)&&decline(query,nullptr)&&decline(query,INVALID_HANDLE_VALUE)&&!calls);
-    CHECK(!font_path_stat::read_handle(query,fake,nullptr)&&!calls);
-    const u32 lengths[]{0,72,103,105},statuses[]{0x103,0xc0000003,0xc000000d};
-    for(u32 n: lengths){returned=n;CHECK(decline());}returned=104;
-    for(u32 code: statuses){status=static_cast<LONG>(code);CHECK(decline());}status=0;
-    device=3;CHECK(decline());device=7;size=-1;CHECK(decline());size=0;CHECK(font_path_stat::read_handle(query,fake,&out)&&!out.bytes);size=17;
-    attributes=FILE_ATTRIBUTE_DIRECTORY;CHECK(decline());attributes=FILE_ATTRIBUTE_REPARSE_POINT;CHECK(decline());attributes=0;
+    wchar_t path[1024]{};u32 n=GetWindowsDirectoryW(path,900);CHECK(n&&n<900);
+    const DWORD share=FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE;
+    HANDLE directory=CreateFileW(path,FILE_READ_ATTRIBUTES,share,nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS,nullptr);CHECK(directory!=INVALID_HANDLE_VALUE);
+    const bool directory_refused=refused(directory);CloseHandle(directory);CHECK(directory_refused);
+    HANDLE null_device=CreateFileW(L"NUL",GENERIC_READ,share,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);CHECK(null_device!=INVALID_HANDLE_VALUE);
+    const bool device_refused=refused(null_device);CloseHandle(null_device);CHECK(device_refused);
     Temporary temporary;CHECK(temporary.open());CHECK(file_case(temporary.paths[0],force_fallback,false));
     const u8 bytes[]{1,2,3};CHECK(write(temporary.paths[0],{bytes,3})&&file_case(temporary.paths[0],force_fallback,false));
-    wchar_t path[1024]{};u32 n=GetWindowsDirectoryW(path,900);CHECK(n&&n<900);copy_bytes(path+n,L"\\Fonts\\segoeui.ttf",sizeof(L"\\Fonts\\segoeui.ttf"));
+    copy_bytes(path+n,L"\\Fonts\\segoeui.ttf",sizeof(L"\\Fonts\\segoeui.ttf"));
     CHECK(file_case(path,force_fallback,true));
     n=GetModuleFileNameW(nullptr,path,900);CHECK(n&&n<900);while(n&&path[n-1]!=L'\\')--n;CHECK(n);copy_bytes(path+n,L"fonts\\BioRhyme.ttf",sizeof(L"fonts\\BioRhyme.ttf"));
     CHECK(file_case(path,force_fallback,true));

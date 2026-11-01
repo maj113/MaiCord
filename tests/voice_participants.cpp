@@ -79,7 +79,13 @@ void decoding(Check check) noexcept {
               event.value == 77,
           "participant decoder preserves outputs at structural/depth capacity failures");
     const auto input = object(utf8_literal(R"({"user_ids":["18446744073709551615","\u0031"]})"));
-    check(voice_decode_participant(11, input, {scratch, 1024}, 64, &event).ok() && event.user_count == 2,
+    u32 counted = 0;
+    const auto count_user = [](void* count, u64) noexcept {
+        ++*static_cast<u32*>(count);
+        return true;
+    };
+    check(voice_decode_participant(11, input, {scratch, 1024}, 64, &event).ok() &&
+              voice_visit_participant_users(event, count_user, &counted) && counted == 2,
           "participant IDs support escaped digits and exact uint64 maximum");
 }
 void state(Check check) noexcept {
@@ -111,10 +117,8 @@ void state(Check check) noexcept {
           "speaking stops preserve source revision for trailing media");
     check(apply(participants, 18, utf8_literal(R"({"user_id":"2","flags":4294967295})")).ok() &&
               apply(participants, 20, utf8_literal(R"({"user_id":"2","platform":4294967295})")).ok() &&
-              voice_participants_user(participants, 2).flags == ~u32{0} &&
-              voice_participants_user(participants, 2).has_flags &&
-              voice_participants_user(participants, 2).has_platform,
-          "participant flags/platform retain future numeric values and presence bits");
+              participants.user_count == 3,
+          "participant flags/platform updates accept future numeric values without changing membership");
     const auto video = utf8_literal(R"({"user_id":"2","audio_ssrc":10,"video_ssrc":20,"streams":[
         {"type":"video","ssrc":20,"rtx_ssrc":21,"active":true,"quality":50},
         {"type":"screen","ssrc":30,"rtx_ssrc":31,"active":false},
@@ -181,10 +185,9 @@ void state(Check check) noexcept {
     voice_participants_clear_sources(&participants);
     check(participants.source_count == 0 && participants.user_count == 3 &&
               voice_participants_user(participants, 2).connected &&
-              voice_participants_user(participants, 2).has_platform &&
               !voice_participants_user(participants, 1).speaking &&
               participants.source_revision == before_ready,
-          "transport Ready clears source/activity state but preserves call membership and metadata");
+          "transport Ready clears source/activity state but preserves call membership");
     check(apply(participants, 5, utf8_literal(R"({"user_id":"2","ssrc":10,"speaking":1})")).ok() &&
               voice_participants_source(participants, 10).revision > before_ready,
           "reannounced source cannot share the revision of pre-Ready media jobs");

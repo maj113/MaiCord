@@ -6,8 +6,6 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
-
 namespace maicord {
 namespace {
 constexpr u8 kMagic[8]{'M', 'A', 'I', 'V', 'O', 'I', 'C', 'E'};

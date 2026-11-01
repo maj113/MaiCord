@@ -52,6 +52,23 @@ u32 body_bytes{};
 void check(bool value, const char* label) noexcept {
     test_check(&failures, value, label);
 }
+bool source_current(const ApplicationPollSource& source) noexcept {
+    return poll(source) != nullptr;
+}
+// Loaded voter page of the open inspector.
+struct PollView {
+    ConstSlice<ReactionUser> voters;
+    u32 voter_page;
+    bool voters_more;
+};
+PollView poll_view() noexcept {
+    if (!application_poll_active())
+        return {};
+    auto& value = *owner;
+    return {value.pages[value.bank] ? ConstSlice<ReactionUser>{value.pages[value.bank]->users, value.user_count}
+                                    : ConstSlice<ReactionUser>{},
+            value.page, value.voters_more};
+}
 bool measure(void*, const UiTextMeasureRequest& r, UiTextMeasureValue* out) noexcept {
     ++measures;
     measured_backend = r.key.backend_revision;
@@ -639,7 +656,7 @@ void run() noexcept {
     message_store_delete(&g_app.message_view.store, 900);
     application_poll_message_deleted(70, 900);
     check(owner->controller.flight.active && owner->controller.flight.retired &&
-              !application_poll_source_current(delete_source),
+              !source_current(delete_source),
           "poll app: deleted source retains copied exact drain while captured handle is retired");
     check(receipt(120, 200) && !application_poll_active(),
           "poll app: held success cannot revive a deleted source");
@@ -652,12 +669,12 @@ void run() noexcept {
     reset();
     state(&value, &source);
     permit(kPermissionViewChannel);
-    check(!application_poll_source_current(source) && !action(UiPollActionKind::vote),
+    check(!source_current(source) && !action(UiPollActionKind::vote),
           "poll app: losing read history rejects source and mutation");
     reset();
     state(&value, &source);
     g_app.account.instance = &other_actor;
-    check(!application_poll_source_current(source),
+    check(!source_current(source),
           "poll app: account instance replacement fences identical message IDs");
     reset();
     seed(900, false, true, 0, 2);
@@ -677,11 +694,11 @@ void run() noexcept {
     reset();
     state(&value, &source);
     blocked = true;
-    check(!application_poll_source_current(source) && !action(UiPollActionKind::vote),
+    check(!source_current(source) && !action(UiPollActionKind::vote),
           "poll app: durable logout blocks poll authority");
     blocked = false;
     host_owned = true;
-    check(!application_poll_source_current(source),
+    check(!source_current(source),
           "poll app: transferred host cannot be accessed through retained poll source");
 
     reset();
@@ -695,7 +712,7 @@ void run() noexcept {
           "poll app: Search outer source_channel_id zero resolves the actual message channel with accepted "
           "publication");
     ++search_publication;
-    check(!application_poll_source_current(source),
+    check(!source_current(source),
           "poll app: replaced Search publication retires identical message and handle authority");
 
     reset();
@@ -726,14 +743,14 @@ void run() noexcept {
                   owner->scene.style.target == 38.f && measured_backend == 37,
               "poll app: voter modal restores defaults without borrowing an expired style bank");
     }
-    check(receipt(140, 200, voters_body(100, 25)) && application_poll_view().voters.count == 25 &&
-              application_poll_view().voters_more,
+    check(receipt(140, 200, voters_body(100, 25)) && poll_view().voters.count == 25 &&
+              poll_view().voters_more,
           "poll app: strict voters object owns labels and proves another page from known count");
     check(application_poll_voters(7, true) && application_poll_submit(141, now) &&
               submitted.after_user_id == 124,
           "poll app: next uses actual last returned voter cursor");
-    check(receipt(141, 200, voters_body(125, 2)) && !application_poll_view().voters_more &&
-              application_poll_view().voter_page == 1,
+    check(receipt(141, 200, voters_body(125, 2)) && !poll_view().voters_more &&
+              poll_view().voter_page == 1,
           "poll app: known final page shows real rows with no invented total or truncation");
     check(application_poll_voters_previous() && application_poll_submit(142, now) &&
               !submitted.after_user_id && receipt(142, 200, voters_body(100, 25)),
@@ -754,8 +771,8 @@ void run() noexcept {
           "poll app: closing inspector consumes exact Escape tail before underlying content");
     const u32 cached_submissions = submissions;
     check(application_poll_voters(7) && !application_poll_pending(now) && submissions == cached_submissions &&
-              application_poll_view().voters.count == 25 && application_poll_view().voters_more &&
-              application_poll_view().voters[24].id == 124,
+              poll_view().voters.count == 25 && poll_view().voters_more &&
+              poll_view().voters[24].id == 124,
           "poll voters cache: reopening an answer with unchanged results shows its first page without a request");
     application_poll_voters_close();
     const GatewayMessagePollVoteEvent counted{70, 900, 99, 7, 42, true, true};
@@ -767,7 +784,7 @@ void run() noexcept {
           "poll voters cache: a vote count change refetches the first page");
     application_poll_voters(42);
     check(owner->controller.flight.active && owner->controller.flight.retired && submitted.answer_id == 7 &&
-              receipt(143, 200, voters_body(100, 25)) && !application_poll_view().voters.count &&
+              receipt(143, 200, voters_body(100, 25)) && !poll_view().voters.count &&
               application_poll_submit(144, now) && submitted.answer_id == 42,
           "poll app: switching answer cancels old page and never retargets its held receipt");
     receipt(144, 200, voters_body(200, 1));

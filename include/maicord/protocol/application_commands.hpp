@@ -92,8 +92,7 @@ struct CommandArgumentSpan {
     // key_first..value_first is "name:"; value_first..value_last the raw value;
     // value_last..end_last the end marker (empty while unterminated).
     u32 key_first, value_first, value_last, end_last;
-    u32 slot, type;
-    bool required, autocomplete;
+    u32 slot;
 };
 u32 command_argument_spans(const CommandIndex&, const ApplicationCommand&, Utf8View arguments,
                            Slice<CommandArgumentSpan> output) noexcept;
@@ -114,7 +113,6 @@ struct CommandChoice {
 struct CommandSuggestions {
     Arena storage;
     CommandChoice choices[25];
-    u64 nonce;
     u32 count;
 };
 bool command_suggestions_decode(Utf8View body, Slice<u32> scratch, u64 expected_nonce,

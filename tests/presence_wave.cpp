@@ -478,7 +478,7 @@ void guild_presences() noexcept {
 
 void idle() noexcept {
     PresenceIdle s{};
-    PresenceIdleInput in{kPresenceIdleTimeoutMs - 1, 1'000'000, kPresenceIdleTimeoutMs, false, false};
+    PresenceIdleInput in{kPresenceIdleTimeoutMs - 1, 1'000'000, false};
     check(!presence_idle_update(&s, in) && !s.idle && presence_idle_next_check_ms(s, in) == 1'000,
           "idle: active input stays online and checks again near the timeout");
     in.input_idle_ms = kPresenceIdleTimeoutMs;
@@ -490,10 +490,6 @@ void idle() noexcept {
     in.input_idle_ms = kPresenceIdleTimeoutMs * 3;
     in.in_call = true;
     check(!presence_idle_update(&s, in) && !s.idle, "idle: never idle during a call");
-    in.in_call = false;
-    in.input_idle_ms = 0;
-    in.locked = true;
-    check(presence_idle_update(&s, in) && s.idle, "idle: a locked session is idle at once");
 
     const GatewayLocalPresence local{1234, 0, 0, {}, 0, true, false, {}};
     const auto online = gateway_presence_effective({0, GatewayUserStatus::online, false, false}, &local);

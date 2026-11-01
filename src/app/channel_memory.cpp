@@ -4,9 +4,6 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/win32_process.hpp"
-
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/chat_state.hpp"
 
 namespace maicord {

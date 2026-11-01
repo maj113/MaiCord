@@ -14,18 +14,6 @@ SfntStatus font_geometry_open(const SfntFace& face,FontGeometry* output) noexcep
     if(status!=SfntStatus::ok)reset_value(output);
     return status;
 }
-SfntStatus font_geometry_instance(const FontGeometry& font,ConstSlice<FontAxisSetting> settings,
-    FontGeometryInstanceStorage storage,FontGeometryInstance* output,u32 work,u32* used) noexcept {
-    WorkReport report{work,work,used};
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!font.face.file.data || (settings.count && !settings.data))return SfntStatus::invalid_input;
-    if(!font.axes.axis_count){*output={&font,nullptr};return SfntStatus::ok;}
-    if(!storage.variation)return SfntStatus::output_too_small;reset_value(&(*storage.variation));
-    FontAxisMappings mappings{};u32 child=0;auto s=font_axis_mappings_open(font.face,font.axes.axis_count,storage.maps,&mappings,work,&child);work-=child;if(s!=SfntStatus::ok)return s;
-    s=font_axis_coordinates(font.axes,mappings,settings,storage.coordinates,{},FontAxisPrecision::fixed16,work,&child);work-=child;if(s!=SfntStatus::ok)return s;
-    if(font.gvar.table.data){s=sfnt_gvar_instance_prepare(font.gvar,{storage.coordinates.data,font.axes.axis_count},storage.shared_scalars,storage.variation,work,&child);work-=child;if(s!=SfntStatus::ok)return s;}
-    else *storage.variation={{},{storage.coordinates.data,font.axes.axis_count},{}};
-    *output={&font,storage.variation};return SfntStatus::ok;
-}
 namespace {
 // Clears a result but keeps the caller's command storage.
 void clear(GlyphOutline* output) noexcept {auto* commands=output->commands;const u32 capacity=output->capacity;reset_value(output);output->commands=commands;output->capacity=capacity;}

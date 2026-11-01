@@ -4,6 +4,7 @@
 #include "../src/app/gateway_relationship_dispatch.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "spsc_mailbox_state.hpp"
 
 namespace maicord {
 namespace {
@@ -109,14 +110,14 @@ void test_backpressure(void (*check)(bool, const char*) noexcept) noexcept {
     check(filled && thread && WaitForSingleObject(entered, 1000) == WAIT_OBJECT_0 && WaitForSingleObject(thread, 20) == WAIT_TIMEOUT,
         "friends Gateway: actual producer blocks on descriptor capacity without dropping a record");
     if (!thread) return;
-    check(spsc_mailbox_discard(mailbox, &event).ok(), "friends Gateway: actual consumer returns descriptor ownership");
+    u8 copied = 0;
+    check(spsc_mailbox_pop(mailbox, &event, {&copied, 1}).ok(), "friends Gateway: actual consumer returns descriptor ownership");
     SetEvent(space);
     const bool joined = WaitForSingleObject(thread, 3000) == WAIT_OBJECT_0;
-    check(joined && task.published && spsc_mailbox_size(*mailbox) == kGatewayClientEventCapacity && !spsc_mailbox_dropped(*mailbox),
+    check(joined && task.published && spsc_mailbox_size(*mailbox) == kGatewayClientEventCapacity,
         "friends Gateway: consumer space wakes the real producer and preserves FIFO without capacity drops");
     if (!joined) { SetEvent(cancel); WaitForSingleObject(thread, 3000); }
     CloseHandle(thread);
-    u8 copied = 0;
     for (u32 i = 0; i < kGatewayClientEventCapacity; ++i) spsc_mailbox_pop(mailbox, &event, {&copied, 1});
     check(copied == byte && !spsc_mailbox_size(*mailbox), "friends Gateway: waited producer payload survives at the FIFO tail");
 
@@ -128,9 +129,9 @@ void test_backpressure(void (*check)(bool, const char*) noexcept) noexcept {
     check(thread && WaitForSingleObject(entered, 1000) == WAIT_OBJECT_0 && WaitForSingleObject(thread, 20) == WAIT_TIMEOUT,
         "friends Gateway: real producer waits for payload bytes even with free descriptor slots");
     if (!thread) return;
-    spsc_mailbox_discard(mailbox, &event); SetEvent(space);
+    spsc_mailbox_pop(mailbox, &event, {body, kGatewayClientDispatchPayloadCapacity}); SetEvent(space);
     const bool payload_joined = WaitForSingleObject(thread, 3000) == WAIT_OBJECT_0;
-    check(payload_joined && task.published && !spsc_mailbox_dropped(*mailbox) && spsc_mailbox_payload_used(*mailbox) == 1,
+    check(payload_joined && task.published && spsc_mailbox_payload_used(*mailbox) == 1,
         "friends Gateway: discarding payload ownership releases pressure without losing the next record");
     if (!payload_joined) { SetEvent(cancel); WaitForSingleObject(thread, 3000); }
     CloseHandle(thread);
@@ -144,29 +145,28 @@ void test_backpressure(void (*check)(bool, const char*) noexcept) noexcept {
     if (!thread) return;
     SetEvent(cancel);
     const bool cancelled = WaitForSingleObject(thread, 1000) == WAIT_OBJECT_0;
-    check(cancelled && !task.published && !spsc_mailbox_dropped(*mailbox) && spsc_mailbox_size(*mailbox) == kGatewayClientEventCapacity,
+    check(cancelled && !task.published && spsc_mailbox_size(*mailbox) == kGatewayClientEventCapacity,
         "friends Gateway: stop cancellation wakes blocked publication promptly and preserves existing FIFO ownership");
     if (!cancelled) WaitForSingleObject(thread, 3000);
     CloseHandle(thread);
     ResetEvent(cancel);
-    spsc_mailbox_discard(mailbox, &event);
+    spsc_mailbox_pop(mailbox, &event, {&copied, 1});
     SetEvent(space); // Consumer wins before producer enters its wait.
     task.published = false;
     thread = start(&task);
     const bool no_lost_wake = thread && WaitForSingleObject(thread, 1000) == WAIT_OBJECT_0;
-    check(no_lost_wake && task.published && !spsc_mailbox_dropped(*mailbox),
+    check(no_lost_wake && task.published,
         "friends Gateway: space published before the wait cannot be lost at the full-mailbox boundary");
     if (thread) { if (!no_lost_wake) { SetEvent(cancel); WaitForSingleObject(thread, 3000); } CloseHandle(thread); }
     ResetEvent(cancel);
-    check(!gateway_mailbox_publish(mailbox, space, cancel, notification, GetTickCount64(), event, {&byte, 1}) &&
-        !spsc_mailbox_dropped(*mailbox), "friends Gateway: a full mailbox honors its bounded deadline without a lossy push");
+    check(!gateway_mailbox_publish(mailbox, space, cancel, notification, GetTickCount64(), event, {&byte, 1}),
+        "friends Gateway: a full mailbox honors its bounded deadline without a lossy push");
 }
 } // namespace
 
 void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept {
     RelationshipRecord records[8]{}, candidates[8]{};
     RelationshipStore store{};
-    RelationshipUser snapshots[8]{};
     u32 scratch[1024]{}, object_scratch[512]{};
     check(relationship_store_initialize(&store, {records, 8}), "friends: caller-owned sorted relationship storage initializes");
     RelationshipRecord record{};
@@ -222,13 +222,14 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
     }
 
     const auto array = utf8_literal(R"([{"id":"30","type":4,"user":{"id":"30","username":"outgoing","global_name":null,"avatar":null}},{"id":"20","type":1,"nickname":"Friend \u2603","user":{"id":"20","username":"friend","global_name":"Friendly","avatar":"0123456789abcdef0123456789abcdef"}},{"id":"10","type":2}])");
-    const auto decoded = relationships_replace(&store, array, {scratch, 1024}, {candidates, 8}, {snapshots, 8});
-    check(decoded.ok() && decoded.changed && decoded.count == 3 && decoded.user_count == 2 &&
+    const u32 initial_revision = store.revision;
+    const auto decoded = relationships_replace(&store, array, {scratch, 1024}, {candidates, 8});
+    check(decoded.ok() && store.revision != initial_revision && store.count == 3 &&
         records[0].user_id == 10 && records[0].type == RelationshipType::blocked && records[1].nickname_bytes == 10 &&
         records[1].presence == RelationshipPresence::online && records[2].type == RelationshipType::outgoing,
         "friends: full decoded snapshot commits sorted owned rows, escaped nickname and preserved known presence");
     const u32 accepted_revision = store.revision;
-    check(relationships_replace(&store, array, {scratch, 1024}, {candidates, 8}, {}).ok() && store.revision == accepted_revision,
+    check(relationships_replace(&store, array, {scratch, 1024}, {candidates, 8}).ok() && store.revision == accepted_revision,
         "friends: unchanged snapshot validates users without retaining duplicate name arrays or bumping revision");
     UserRecord users_storage[8]{}; u32 user_order[8]{}; u8 names[2048]{};
     UserStore users{};
@@ -246,12 +247,12 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
         utf8_literal(R"([{"id":"1","type":1},{"id":"2","type":1,"user":{"id":"2","username":"bad","avatar":"not-a-hash"}}])"),
         utf8_literal(R"([{"id":"1","type":1},{"id":"2","type":1,"type":2}])"),
         utf8_literal(R"([{"id":"1","type":1},])")};
-    for (const auto input : bad) check(!relationships_replace(&store, input, {scratch, 1024}, {candidates, 8}, {}).ok() &&
+    for (const auto input : bad) check(!relationships_replace(&store, input, {scratch, 1024}, {candidates, 8}).ok() &&
         bytes_equal(accepted, records, sizeof(records)) && store.revision == accepted_revision,
         "friends: late malformed, duplicate, unknown type and mismatched user snapshots leave active rows unchanged");
-    check(relationships_replace(&store, array, {scratch, 1024}, {candidates, 1}, {}).error == RelationshipsDecodeError::capacity &&
-        relationships_replace(&store, array, {scratch, 1}, {candidates, 8}, {}).error == RelationshipsDecodeError::scan &&
-        relationships_replace(&store, array, {scratch, 1024}, {records, 8}, {}).error == RelationshipsDecodeError::invalid_input &&
+    check(relationships_replace(&store, array, {scratch, 1024}, {candidates, 1}).error == RelationshipsDecodeError::capacity &&
+        relationships_replace(&store, array, {scratch, 1}, {candidates, 8}).error == RelationshipsDecodeError::scan &&
+        relationships_replace(&store, array, {scratch, 1024}, {records, 8}).error == RelationshipsDecodeError::invalid_input &&
         bytes_equal(accepted, records, sizeof(records)), "friends: candidate/parser exhaustion and active-scratch alias fail without partial replacement");
     check(apply_event(&store, RelationshipEvent::add, utf8_literal(R"({"id":"20","type":1,"nickname":null})"),
         {scratch, 1024}).ok() && records[1].nickname_bytes == 10 && records[1].presence == RelationshipPresence::online,
@@ -262,7 +263,7 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
     check(apply_event(&store, RelationshipEvent::remove, utf8_literal(R"({"id":"30"})"), {scratch, 1024}).changed &&
         !apply_event(&store, RelationshipEvent::remove, utf8_literal(R"({"id":"30"})"), {scratch, 1024}).changed,
         "friends: REMOVE is idempotent and accepts the confirmed ID-only dispatch shape");
-    check(relationships_replace(&store, utf8_literal("[]"), {scratch, 1024}, {candidates, 8}, {}).changed && !store.count,
+    check(relationships_replace(&store, utf8_literal("[]"), {scratch, 1024}, {candidates, 8}).ok() && !store.count,
         "friends: an explicitly complete empty snapshot clears active relationships");
     {
         RelationshipRecord active[2]{}, staged[2]{};
@@ -274,13 +275,13 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
         staged[0].user_id = 99;
         AdmissionCapture capture{}; capture.reject_candidate = true;
         const auto input = utf8_literal(R"([{"id":"2","type":3},{"id":"1","type":4}])");
-        auto admitted = relationships_replace(&admitted_store, input, {scratch, 1024}, {staged, 2}, {}, {&capture, admit_relationships});
+        auto admitted = relationships_replace(&admitted_store, input, {scratch, 1024}, {staged, 2}, {&capture, admit_relationships});
         check(admitted.error == RelationshipsDecodeError::capacity && capture.candidate_calls == 1 &&
             capture.candidate_count == 2 && !capture.active_calls && staged[0].user_id == 99 &&
             admitted_store.count == 1 && admitted_store.revision == previous_revision && active[0].user_id == 77,
             "friends admission: rejected exact candidate prefix is requested before any candidate write and preserves active storage");
         capture = {}; capture.reject_active = true;
-        admitted = relationships_replace(&admitted_store, input, {scratch, 1024}, {staged, 2}, {}, {&capture, admit_relationships});
+        admitted = relationships_replace(&admitted_store, input, {scratch, 1024}, {staged, 2}, {&capture, admit_relationships});
         check(admitted.error == RelationshipsDecodeError::capacity && capture.candidate_count == 2 &&
             capture.active_calls == 1 && capture.active_count == 2 && staged[0].user_id == 1 &&
             admitted_store.count == 1 && admitted_store.revision == previous_revision && active[0].user_id == 77,
@@ -290,31 +291,31 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
                 utf8_literal(R"([{"id":"1","type":1},])")};
         for (const auto malformed : malformed_snapshots) {
             capture = {};
-            check(!relationships_replace(&admitted_store, malformed, {scratch, 1024}, {staged, 2}, {},
+            check(!relationships_replace(&admitted_store, malformed, {scratch, 1024}, {staged, 2},
                     {&capture, admit_relationships}).ok() && !capture.active_calls && active[0].user_id == 77 &&
                 admitted_store.count == 1 && admitted_store.revision == previous_revision,
                 "friends admission: malformed and duplicate snapshots never admit or alter the active destination");
         }
         capture = {};
-        check(relationships_replace(&admitted_store, input, {scratch, 1024}, {staged, 2}, {},
+        check(relationships_replace(&admitted_store, input, {scratch, 1024}, {staged, 2},
                 {&capture, admit_relationships}).ok() && admitted_store.count == 2 && active[0].user_id == 1 &&
             capture.candidate_count == 2 && capture.active_count == 2,
             "friends admission: exact capacity snapshot admits only its two prefixes and commits sorted records");
         capture = {};
-        check(relationships_replace(&admitted_store, utf8_literal("[]"), {scratch, 1024}, {staged, 2}, {},
+        check(relationships_replace(&admitted_store, utf8_literal("[]"), {scratch, 1024}, {staged, 2},
                 {&capture, admit_relationships}).ok() && !admitted_store.count && !active[0].user_id && !active[1].user_id &&
             capture.candidate_count == 0 && capture.active_count == 2,
             "friends admission: empty replacement admits no candidate rows and retains the previous active tail for clearing");
         capture = {};
-        check(relationships_replace(&admitted_store, utf8_literal("[]"), {scratch, 1024}, {staged, 2}, {},
+        check(relationships_replace(&admitted_store, utf8_literal("[]"), {scratch, 1024}, {staged, 2},
                 {&capture, admit_relationships}).ok() && capture.candidate_calls == 1 && capture.active_calls == 1 &&
             !capture.candidate_count && !capture.active_count,
             "friends admission: already empty snapshot requests zero prefixes and needs no committed row capacity");
     }
     UserRecord small_users[2]{}; u32 small_order[2]{}; u8 small_names[4]{}; UserStore small{};
     user_store_initialize(&small, {small_users, 2}, {small_order, 2}, {small_names, 4});
-    check(!relationship_users_apply(&small, {snapshots, decoded.user_count}).ok() &&
-        relationship_users_apply(&small, {snapshots, decoded.user_count}).applied == 0,
+    const auto hydrated = relationships_hydrate(&small, array, {scratch, 1024});
+    check(!hydrated.ok() && hydrated.applied == 0,
         "friends: bounded user-name hydration reports explicit failure rather than dropping relationship rows");
 
     u8 output[128]{};

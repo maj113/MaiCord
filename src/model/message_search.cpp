@@ -104,7 +104,6 @@ bool message_search_complete(MessageSearchController* controller, const MessageS
     } else {
         controller->total_results = page->total_results;
         controller->loaded_groups = page->group_count;
-        controller->has_results = true;
         controller->state = MessageSearchState::ready;
         controller->retry_at_ms = 0;
         controller->indexing_retries = 0;

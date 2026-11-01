@@ -67,7 +67,7 @@ inline MemberRoleDisplay role_member_display(const ChatStateStore& state, u64 gu
 // The guild's role after `previous` in role_before order, for traversals that
 // keep no index.
 inline const RoleRecord* role_display_next(u64 guild_id, ConstSlice<RoleRecord> roles,
-                                           const RoleRecord* previous = nullptr) noexcept {
+                                           const RoleRecord* previous) noexcept {
     const RoleRecord* next = nullptr;
     for (u32 index = 0; index < roles.count; ++index) {
         const auto& role = roles[index];

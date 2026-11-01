@@ -1,5 +1,6 @@
 #pragma once
 #include "thread_browser_ui_adapter.hpp"
+#include "../layout_validation.hpp"
 #include "probe_present.hpp"
 #include "ui_surface_motion_measurement.hpp"
 #include "maicord/core/log.hpp"
@@ -164,7 +165,6 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
         if (!context.project() || !probe_present(&renderer, context.theme) || !probe_present(&renderer, context.theme)) return false;
         auto* scene = application_thread_browser_scene();
         if (!scene) return false;
-        const auto owner = application_thread_browser_metrics();
         struct Counters { u32 values[16]; };
         const auto counters = [&]() noexcept {
             return Counters{{scene->rebuilds, scene->layout_passes, renderer.ui_scene->layout_passes,
@@ -186,10 +186,6 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
             log_u64(LogLevel::info, "thread_browser_warm", labels[i], after.values[i] - before.values[i]);
             unchanged &= after.values[i] - before.values[i] == (i == 15 ? 64u : 0u);
         }
-        const auto current = application_thread_browser_metrics();
-        log_u64(LogLevel::info, "thread_browser_warm", "owner_bytes", current.owner_bytes);
-        log_u64(LogLevel::info, "thread_browser_warm", "owner_committed_bytes", current.owner_committed_bytes);
-        log_u64(LogLevel::info, "thread_browser_warm", "bank_committed_bytes", current.bank_committed_bytes);
         log_u64(LogLevel::info, "thread_browser_warm", "scene_committed_bytes", scene->storage.arena.committed);
         log_u64(LogLevel::info, "thread_browser_warm", "scene_abi_bytes", sizeof(UiThreadBrowserScene));
         log_u64(LogLevel::info, "thread_browser_warm", "view_abi_bytes", sizeof(UiThreadBrowserView));
@@ -198,8 +194,7 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
         log_u64(LogLevel::info, "thread_browser_warm", "sidebar_materialized_rows", context.sidebar.count);
         log_u64(LogLevel::info, "thread_browser_warm", "sidebar_committed_bytes", context.sidebar_rows.rows.arena.committed +
             context.sidebar_widgets.widgets.arena.committed + context.sidebar_widgets.layout_nodes.arena.committed);
-        return unchanged && owner.owner_bytes == current.owner_bytes && owner.bank_committed_bytes == current.bank_committed_bytes &&
-            owner.source_publication == current.source_publication;
+        return unchanged;
     };
     u8 json[64 * 1024]{};
     Utf8View page{};

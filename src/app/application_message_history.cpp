@@ -649,10 +649,6 @@ static bool route_read_state(const RestClientResponse& response, Utf8View body, 
                                            now_ms);
 }
 
-static bool route_scoped_read(const RestClientResponse& response, Utf8View body, u64 now_ms) noexcept {
-    return application_scoped_read_response(response, body, now_ms);
-}
-
 static bool route_message_reaction(const RestClientResponse& response, Utf8View, u64) noexcept {
     return application_message_reaction_response(response);
 }
@@ -689,7 +685,7 @@ static constexpr ResponseRoute kResponseRoutes[] = {
     {MessageHistoryRequestOwner::emoji_preferences, application_emoji_preferences_response},
     {MessageHistoryRequestOwner::message_search, application_search_response},
     {MessageHistoryRequestOwner::read_state_ack, route_read_state},
-    {MessageHistoryRequestOwner::scoped_read, route_scoped_read},
+    {MessageHistoryRequestOwner::scoped_read, application_scoped_read_response},
     {MessageHistoryRequestOwner::friends, application_friends_response},
     {MessageHistoryRequestOwner::commands, application_commands_response},
     {MessageHistoryRequestOwner::user_profile, application_profile_response, true},
@@ -786,7 +782,6 @@ static bool pump_message_history_main(bool admit) noexcept {
             }
             MessageHistoryRequestOwner owner =
                 details ? g_app.details_request_owner : g_app.message_history_request_owner;
-            const i64 apply_started = clock_now();
             const u64 expected_id = details ? g_app.details_request_id : g_app.primary_request_id;
             if (details) {
                 g_app.details_request_owner = MessageHistoryRequestOwner::none;
@@ -1220,14 +1215,6 @@ static bool pump_message_history_main(bool admit) noexcept {
                                    "message_history_retry_http_status\0message_history_retry_reused_connection",
                                    retry);
                 } else if (accepted.disposition == MessageHistoryRestDisposition::applied && g_app.window) {
-                    TraceRecord applied("history_applied");
-                    applied.field("request", response.request_id);
-                    applied.field("work", rest_owner_name(owner));
-                    const u64 fields[] = {accepted.decode.page.count, accepted.apply.inserted,
-                                          accepted.apply.resident, g_app.load_trace.channel_epoch,
-                                          clock_microseconds(g_app.clock, apply_started, clock_now())};
-                    trace_fields(applied, "decoded\0inserted\0resident\0channel_epoch\0decode_apply_us", fields);
-                    applied.write("load_trace");
                     if (owner == MessageHistoryRequestOwner::catchup ||
                         owner == MessageHistoryRequestOwner::message_jump) {
                         g_app.load_trace.history_ready = true;

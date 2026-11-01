@@ -37,7 +37,6 @@ SfntStatus open(ConstSlice<u8> bytes,u16 type,u32 limit,SfntGsubSubtable* output
     }
     *output=result;return SfntStatus::ok;
 }
-bool valid_input(const SfntGlyphView& glyphs,u32 start,Slice<u32> positions) noexcept {return sfnt_glyph_view_valid(glyphs) && start<sfnt_glyph_count(glyphs) && (!positions.count || positions.data);}
 }
 SfntStatus gsub_subtable_match(const SfntGsubSubtable& sub,const SfntGdef& gdef,const SfntLookupFilter& filter,const SfntGlyphView& glyphs,u32 start,u32 alternate,Slice<u32> positions,SfntGsubMatch* output,u32* work,u8 mask) noexcept {
     if(!spend(work))return SfntStatus::resource_limit;if(!sfnt_glyph_valid(sfnt_glyph_at(glyphs,start),sub.glyph_limit))return SfntStatus::invalid_input;
@@ -99,13 +98,5 @@ SfntStatus gsub_subtable_match(const SfntGsubSubtable& sub,const SfntGdef& gdef,
 SfntStatus sfnt_gsub_subtable_open(ConstSlice<u8> bytes,u16 type,u32 glyph_limit,SfntGsubSubtable* output,u32 work,u32* work_used,bool ignore_empty) noexcept {
     const WorkReport report{work,work,work_used};
     if(!output)return SfntStatus::invalid_input;return open(bytes,type,glyph_limit,output,&work,ignore_empty);
-}
-SfntStatus sfnt_gsub_subtable_match_view(const SfntGsubSubtable& sub,const SfntGdef& gdef,const SfntLookupFilter& filter,SfntGlyphView glyphs,u32 start,u32 alternate,Slice<u32> positions,SfntGsubMatch* output,u32 work,u32* work_used,u8 mask) noexcept {
-    const WorkReport report{work,work,work_used};
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!valid_input(glyphs,start,positions))return SfntStatus::invalid_input;return gsub_subtable_match(sub,gdef,filter,glyphs,start,alternate,positions,output,&work,mask);
-}
-SfntStatus sfnt_gsub_replacement(const SfntGsubMatch& match,u16 index,u16* glyph) noexcept {
-    if(!glyph)return SfntStatus::invalid_input;*glyph=0;if(!match.matched || index>=match.output_count)return SfntStatus::invalid_input;
-    *glyph=match.replacements.data?r16(match.replacements,static_cast<u32>(index)*2):match.single;return SfntStatus::ok;
 }
 }

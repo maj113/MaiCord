@@ -131,10 +131,8 @@ void render_preview(void* context, Slice<i16> pcm, u64 now_us) noexcept {
 bool start_cdn(AccountSoundboard* s) noexcept {
     if (s->cdn_started)
         return true;
-    if (!cdn_client_start(&s->cdn, kSoundboardCdnResponseBytes).ok()) {
-        s->last_error = SoundboardAudioError::fetch;
+    if (!cdn_client_start(&s->cdn, kSoundboardCdnResponseBytes).ok())
         return false;
-    }
     s->cdn_started = true;
     return true;
 }
@@ -163,16 +161,13 @@ bool fetch(AccountSoundboard* s, u64 sound_id) noexcept {
 struct Consumed {
     AccountSoundboard* engine;
     SoundboardClip* clip;
-    SoundboardDecodeStatus status;
 };
 bool consume(void* context, const CdnClientResponse& response, ConstSlice<u8> body) noexcept {
     auto& c = *static_cast<Consumed*>(context);
     if (response.request_id != c.engine->fetch_request_id || !response.transport_ok() ||
-        cdn_client_response_policy(response).disposition != CdnResponseDisposition::accept_body) {
-        c.status = SoundboardDecodeStatus::input;
+        cdn_client_response_policy(response).disposition != CdnResponseDisposition::accept_body)
         return true;
-    }
-    c.clip = soundboard_clip_decode(c.engine->fetch_sound_id, body, &c.status);
+    c.clip = soundboard_clip_decode(c.engine->fetch_sound_id, body);
     return true;
 }
 
@@ -183,13 +178,8 @@ void drop_pending(AccountSoundboard* s, u32 index) noexcept {
 
 bool ensure_preview(AccountSoundboard* s, u64 now_ms) noexcept {
     s->preview_idle_since_ms = now_ms;
-    if (s->call_audio || voice_audio_output_running(s->preview))
-        return true;
-    if (!voice_audio_output_start_device(&s->preview, s->output_device, render_preview, s)) {
-        s->last_error = SoundboardAudioError::output;
-        return false;
-    }
-    return true;
+    return s->call_audio || voice_audio_output_running(s->preview) ||
+           voice_audio_output_start_device(&s->preview, s->output_device, render_preview, s);
 }
 
 void start_ready(AccountSoundboard* s, u64 now_ms) noexcept {
@@ -215,18 +205,6 @@ void start_ready(AccountSoundboard* s, u64 now_ms) noexcept {
                 break;
 }
 
-void fill_status(AccountSoundboard* s, SoundboardAudioStatus* status) noexcept {
-    if (!status)
-        return;
-    reset_value(status);
-    status->fetching_sound_id = s->fetch_request_id ? s->fetch_sound_id : 0;
-    status->failed_sound_id = s->failed_sound_id;
-    status->active_voices = soundboard_mixer_active(&s->mixer);
-    status->cached_clips = s->cache.count;
-    status->pending = s->pending_count;
-    status->last_error = s->last_error;
-    status->call_audio = s->call_audio;
-}
 } // namespace
 
 void account_soundboard_initialize(AccountSoundboard* s) noexcept {
@@ -253,52 +231,42 @@ void account_soundboard_output(AccountSoundboard* s, const VoiceAudioSettings& s
 }
 
 bool account_soundboard_command(AccountSoundboard* s, GatewayClient* gateway, const SoundboardAudioCommand* command,
-                                SoundboardAudioStatus* status, u64 now_ms) noexcept {
-    if (!s || !s->initialized)
+                                u64 now_ms) noexcept {
+    if (!s || !s->initialized || !command)
         return false;
     s->call_audio = gateway_client_attach_soundboard(gateway, &s->mixer);
-    bool accepted = true;
-    if (command) {
-        switch (command->operation) {
-        case SoundboardAudioOperation::status:
-            break;
-        case SoundboardAudioOperation::configure:
-            s->muted = command->muted;
-            soundboard_mixer_set_volume(&s->mixer, command->volume_percent);
-            break;
-        case SoundboardAudioOperation::stop:
-            soundboard_mixer_stop(&s->mixer, command->user_id);
-            for (u32 i = 0; i < s->pending_count;)
-                if (!command->user_id || s->pending[i].user_id == command->user_id)
-                    drop_pending(s, i);
-                else
-                    ++i;
-            break;
-        case SoundboardAudioOperation::play:
-        case SoundboardAudioOperation::preview: {
-            const bool preview = command->operation == SoundboardAudioOperation::preview;
-            // Received sounds play only inside a call and never while muted.
-            if (!command->sound_id || command->sound_volume > kSoundboardVolumeScale ||
-                (!preview && (s->muted || !s->call_audio))) {
-                accepted = false;
-                break;
-            }
-            if (s->pending_count == kSoundboardPendingPlays)
-                drop_pending(s, 0);
-            s->pending[s->pending_count++] = {command->sound_id, command->user_id, now_ms, command->sound_volume,
-                                              preview};
-            if (command->sound_id == s->failed_sound_id && now_ms >= s->failed_until_ms)
-                s->failed_sound_id = 0;
-            start_ready(s, now_ms);
-            break;
-        }
-        default:
-            accepted = false;
-            break;
-        }
+    switch (command->operation) {
+    case SoundboardAudioOperation::configure:
+        s->muted = command->muted;
+        soundboard_mixer_set_volume(&s->mixer, command->volume_percent);
+        return true;
+    case SoundboardAudioOperation::stop:
+        soundboard_mixer_stop(&s->mixer, command->user_id);
+        for (u32 i = 0; i < s->pending_count;)
+            if (!command->user_id || s->pending[i].user_id == command->user_id)
+                drop_pending(s, i);
+            else
+                ++i;
+        return true;
+    case SoundboardAudioOperation::play:
+    case SoundboardAudioOperation::preview: {
+        const bool preview = command->operation == SoundboardAudioOperation::preview;
+        // Received sounds play only inside a call and never while muted.
+        if (!command->sound_id || command->sound_volume > kSoundboardVolumeScale ||
+            (!preview && (s->muted || !s->call_audio)))
+            return false;
+        if (s->pending_count == kSoundboardPendingPlays)
+            drop_pending(s, 0);
+        s->pending[s->pending_count++] = {command->sound_id, command->user_id, now_ms, command->sound_volume,
+                                          preview};
+        if (command->sound_id == s->failed_sound_id && now_ms >= s->failed_until_ms)
+            s->failed_sound_id = 0;
+        start_ready(s, now_ms);
+        return true;
     }
-    fill_status(s, status);
-    return accepted;
+    default:
+        return false;
+    }
 }
 
 void account_soundboard_pump(AccountSoundboard* s, GatewayClient* gateway, u64 now_ms) noexcept {
@@ -307,16 +275,13 @@ void account_soundboard_pump(AccountSoundboard* s, GatewayClient* gateway, u64 n
     s->call_audio = gateway_client_attach_soundboard(gateway, &s->mixer);
     if (s->cdn_started && s->fetch_request_id &&
         cdn_client_status(&s->cdn).phase == CdnClientPhase::response_ready) {
-        Consumed consumed{s, nullptr, SoundboardDecodeStatus::none};
+        Consumed consumed{s, nullptr};
         cdn_client_consume_response(&s->cdn, consume, &consumed);
         if (consumed.clip)
             soundboard_cache_insert(&s->cache, consumed.clip);
         else {
             s->failed_sound_id = s->fetch_sound_id;
             s->failed_until_ms = now_ms + kSoundboardFailureHoldMs;
-            s->last_error = consumed.status == SoundboardDecodeStatus::memory ? SoundboardAudioError::memory
-                            : consumed.status == SoundboardDecodeStatus::input ? SoundboardAudioError::fetch
-                                                                               : SoundboardAudioError::decode;
         }
         s->fetch_request_id = 0;
         s->fetch_sound_id = 0;
@@ -327,7 +292,6 @@ void account_soundboard_pump(AccountSoundboard* s, GatewayClient* gateway, u64 n
         s->cdn_started = s->cdn.worker.thread != nullptr;
         s->failed_sound_id = s->fetch_sound_id;
         s->failed_until_ms = now_ms + kSoundboardFailureHoldMs;
-        s->last_error = SoundboardAudioError::fetch;
         s->fetch_request_id = s->fetch_sound_id = 0;
     }
     start_ready(s, now_ms);

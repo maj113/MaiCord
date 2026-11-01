@@ -173,7 +173,7 @@ bool seed_models(ThreadAdapter& fixture) noexcept {
 
 bool thread_membership_ui_adapter_begin(HWND window, bool (*refresh)(void*) noexcept,
                                         void* context) noexcept {
-    if (thread_adapter || !window || application_thread_actions_metrics().owner_bytes)
+    if (thread_adapter || !window || application_thread_actions_publication_revision())
         return false;
     auto* fixture = static_cast<ThreadAdapter*>(VirtualAlloc(nullptr, sizeof(ThreadAdapter),
         MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -349,9 +349,6 @@ bool thread_membership_ui_adapter_flight(u64* request_id, ThreadActionRequest* r
 }
 bool thread_membership_ui_adapter_synchronize() noexcept {
     return thread_adapter && application_thread_actions_synchronize();
-}
-ApplicationThreadActionMetrics thread_membership_ui_adapter_metrics() noexcept {
-    return application_thread_actions_metrics();
 }
 bool thread_membership_ui_adapter_observe_membership(u64 thread_id, bool joined, bool known) noexcept {
     return thread_adapter && chat_state_store_set_thread_self_membership(

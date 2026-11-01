@@ -1,5 +1,6 @@
 #include "maicord/text/bidi.hpp"
 #include "maicord/text/detail/bidi_internal.hpp"
+#include "text_seams.hpp"
 #include "maicord/text/bidi_ltr.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "text_test_support.hpp"

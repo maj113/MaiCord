@@ -23,7 +23,7 @@ void application_account_prestart_cancel() noexcept;
 bool application_account_prestart_pending() noexcept;
 bool application_account_attach_if_present() noexcept;
 bool synchronize_member_subscription(u64 now_ms) noexcept;
-void synchronize_visible_author_hydration(u64 now_ms, bool pins_reset = false) noexcept;
+void synchronize_visible_author_hydration(u64 now_ms) noexcept;
 u64 application_author_hydration_next_wake() noexcept;
 GatewayClientPopResult application_pop_account_gateway(void* source, GatewayClientEvent* event,
                                                        Slice<u8> payload_output) noexcept;

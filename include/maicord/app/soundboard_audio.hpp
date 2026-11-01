@@ -34,9 +34,8 @@ struct SoundboardClip {
     u64 last_use;
     i16* pcm;
 };
-enum class SoundboardDecodeStatus : u8 { none, input, format, decode, memory };
-// Allocates a clip with one reference; null on failure (status says why).
-SoundboardClip* soundboard_clip_decode(u64 sound_id, ConstSlice<u8> encoded, SoundboardDecodeStatus* status) noexcept;
+// Allocates a clip with one reference; null on failure.
+SoundboardClip* soundboard_clip_decode(u64 sound_id, ConstSlice<u8> encoded) noexcept;
 // Test and preview helper: wraps PCM16 stereo frames in a clip with one reference.
 SoundboardClip* soundboard_clip_from_pcm(u64 sound_id, ConstSlice<i16> stereo) noexcept;
 void soundboard_clip_retain(SoundboardClip*) noexcept;

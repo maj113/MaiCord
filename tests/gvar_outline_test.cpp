@@ -1,6 +1,7 @@
 #include "maicord/text/truetype_outline.hpp"
 #include "maicord/text/font_axes.hpp"
 #include "maicord/text/font_geometry.hpp"
+#include "text_seams.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "text_test_support.hpp"
 namespace maicord {namespace {

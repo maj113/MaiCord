@@ -230,7 +230,6 @@ OAuthError oauth_tokens(OAuthProvider provider, Utf8View json, u16 status, Slice
     OAuthTokens staged{}; Erase clear{&staged, sizeof(staged)};
     if (!token(f.values[0], staged.access, &staged.access_bytes) ||
         ((f.seen & 2) && !token(f.values[1], staged.refresh, &staged.refresh_bytes))) return E::malformed;
-    staged.expires_seconds = static_cast<u32>(expires);
     *out = staged;
     return E::none;
 }

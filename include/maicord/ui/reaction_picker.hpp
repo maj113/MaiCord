@@ -39,7 +39,6 @@ enum class ReactionPickerError : u8 {
 struct ReactionPickerGuild {
     u64 id;
     u32 icon_variant;
-    u32 first_result;
     // The server's span of custom_order.
     u32 custom_first, custom_count;
     u16 name_bytes;

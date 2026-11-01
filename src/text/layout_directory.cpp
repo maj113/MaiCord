@@ -21,7 +21,7 @@ SfntStatus feature_open(ConstSlice<u8> table,u16 lookup_limit,SfntFeature* outpu
     if(count>work)return SfntStatus::resource_limit;*used+=count;
     for(u32 i=0;i<count;++i)if(r16(table,4+i*2)>=lookup_limit)return SfntStatus::malformed;
     if(params){ConstSlice<u8> data{};const auto s=tail(table,params,end,&data);if(s!=SfntStatus::ok)return s;}
-    *output={table,{table.data+4,static_cast<u32>(count)*2},params};return SfntStatus::ok;
+    *output={table,{table.data+4,static_cast<u32>(count)*2}};return SfntStatus::ok;
 }
 }
 SfntStatus sfnt_layout_open(ConstSlice<u8> bytes,SfntLayoutKind kind,SfntLayout* output) noexcept {

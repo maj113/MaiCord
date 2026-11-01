@@ -136,7 +136,6 @@ bool corpus(const wchar_t* path) noexcept {
         u32 features=0;ok=ok&&r.word(&features)&&features<=65535;if(l.feature_count!=features)match=false;
         for(u32 i=0;i<features && ok;++i){u32 expected_tag=0,offset=0,params=0,n=0,tag=0;ok=r.word(&expected_tag)&&r.word(&offset)&&r.word(&params)&&r.word(&n)&&n<=65535;if(!ok)break;SfntFeature feature{};
             if(sfnt_layout_feature(l,static_cast<u16>(i),{},&tag,&feature)!=SfntStatus::ok || tag!=expected_tag || offset>size || feature.table.data!=raw+offset)match=false;
-            if(params==0xffffffff){if(feature.params_offset)match=false;}else if(params>size || !feature.table.data || feature.table.data+feature.params_offset!=raw+params)match=false;
             ok=indices(r,n,feature.lookup_indices,&match,&index_checks);++feature_checks;}
         u32 lookups=0;ok=ok&&r.word(&lookups)&&lookups<=65535;if(l.lookup_count!=lookups)match=false;
         for(u32 i=0;i<lookups && ok;++i){u32 type=0,flags=0,set=0,n=0;ok=r.word(&type)&&r.word(&flags)&&r.word(&set)&&r.word(&n)&&n<=65535;if(!ok)break;SfntLookup lookup{};

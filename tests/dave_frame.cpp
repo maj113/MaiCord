@@ -33,9 +33,9 @@ void vectors(Check check) noexcept {
         for (u32 capacity = 0; capacity < vector.ranges; ++capacity) {
             memset(ranges, 0xCC, sizeof(ranges));
             const auto parsed = dave_frame_parse({frame, bytes}, {ranges, capacity}, &view);
-            check(parsed.error == DaveFrameError::range_capacity && parsed.range_count == vector.ranges &&
-                      view.nonce == 123 && filled(ranges, sizeof(ranges), 0xCC),
-                  "DAVE frame range capacity reports complete requirement without partial output");
+            check(parsed.error == DaveFrameError::range_capacity && view.nonce == 123 &&
+                      filled(ranges, sizeof(ranges), 0xCC),
+                  "DAVE frame range capacity reports failure without partial output");
         }
         memset(ranges, 0xCC, sizeof(ranges));
         const auto parsed = dave_frame_parse({frame, bytes}, {ranges, 8}, &view);

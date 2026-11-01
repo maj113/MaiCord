@@ -449,8 +449,7 @@ bool envelope_member(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 } // namespace
 
-UserSettingsResponse user_settings_proto_decode_response(Utf8View body, u32 mask, Slice<char> unescape,
-                                                         Slice<u8> output) noexcept {
+UserSettingsResponse user_settings_proto_decode_response(Utf8View body, u32 mask, Slice<u8> output) noexcept {
     UserSettingsResponse result{{0, 0, E::input}, false, false};
     if (!body.data || !body.bytes)
         return result;
@@ -465,16 +464,12 @@ UserSettingsResponse user_settings_proto_decode_response(Utf8View body, u32 mask
     result.settings_present = envelope.settings_seen;
     if (!envelope.settings_seen)
         return result;
-    Utf8View encoded = envelope.settings.encoded;
+    // A compliant server writes the base64 unescaped; an escaped string is refused.
     if (envelope.settings.has_escapes) {
-        const auto decoded = json_string_decode_utf8(envelope.settings, unescape);
-        if (!decoded.ok()) {
-            result.extracted.error = E::capacity;
-            return result;
-        }
-        encoded = {unescape.data, decoded.bytes};
+        result.extracted.error = E::capacity;
+        return result;
     }
-    result.extracted = user_settings_proto_extract_base64(encoded, mask, {}, output);
+    result.extracted = user_settings_proto_extract_base64(envelope.settings.encoded, mask, {}, output);
     return result;
 }
 
@@ -704,7 +699,6 @@ UserSettingsCompletion user_settings_store_complete(UserSettingsStore* store, Us
         store->dirty_count = count;
         store->due_ms = retry_at_ms ? retry_at_ms : 1;
         store->rate_limited = true;
-        result.retry = true;
     } else {
         const bool snapshot = (outcome == UserSettingsOutcome::saved || outcome == UserSettingsOutcome::out_of_date) &&
                               response.count && user_settings_store_apply(store, response, false);

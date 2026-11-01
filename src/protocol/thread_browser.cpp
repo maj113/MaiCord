@@ -99,11 +99,14 @@ bool thread_field(void* opaque, JsonString name, JsonValue value) noexcept {
     } else if (bit == 512 || bit == 1024 || bit == 4096) {
         u64 number{};
         valid = json_value_to_u64(value, &number) && number <= 0xffffffffull;
-        if (bit == 512) thread.post.message_count = static_cast<u32>(number);
-        else if (bit == 1024) thread.post.total_message_sent = static_cast<u32>(number);
-        else thread.post.flags = static_cast<u32>(number);
-        thread.post.fields |= bit == 512 ? thread_browser_post_message_count
-            : bit == 1024 ? thread_browser_post_total_sent : thread_browser_post_flags;
+        // total_message_sent (bit 1024) is validated but not kept.
+        if (bit == 512) {
+            thread.post.message_count = static_cast<u32>(number);
+            thread.post.fields |= thread_browser_post_message_count;
+        } else if (bit == 4096) {
+            thread.post.flags = static_cast<u32>(number);
+            thread.post.fields |= thread_browser_post_flags;
+        }
     } else if (bit == 2048) {
         valid = json_value_to_snowflake(value, &thread.post.owner_id);
         thread.post.fields |= thread_browser_post_owner;
@@ -334,7 +337,6 @@ __declspec(noinline) bool visit_starter(void* opaque, u32 index, JsonValue value
     if (post->fields & thread_browser_post_starter) return reject(page, ThreadBrowserError::duplicate);
     auto candidate = *post;
     candidate.fields |= thread_browser_post_starter;
-    candidate.starter_message_id = starter.id;
     starter.post = &candidate;
     char content[kThreadBrowserPostContentMaximumBytes];
     const auto decoded = json_string_decode_utf8(starter.content, {content, sizeof(content)});

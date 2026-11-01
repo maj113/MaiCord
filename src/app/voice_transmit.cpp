@@ -69,7 +69,6 @@ void voice_framer_push(VoiceFramer* framer, ConstSlice<i16> mono) noexcept {
             framer->read = (framer->read + kVoiceFrameSamples) % kFramerSamples;
             framer->count -= kVoiceFrameSamples;
             ++framer->index;
-            ++framer->dropped_frames;
         }
         const u32 write = (framer->read + framer->count) % kFramerSamples;
         const u32 take = minimum(minimum(mono.count - at, kFramerSamples - framer->count), kFramerSamples - write);

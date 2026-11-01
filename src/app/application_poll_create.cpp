@@ -111,7 +111,7 @@ u32 editor_bytes(u32 index) noexcept {
 bool binding_ready(void* model, u64 identity) noexcept {
     MessageComposer* focused = nullptr;
     return owner && owner->lifetime == identity && editable() &&
-           settings_layer_editor(&owner->layer, nullptr, &focused, nullptr, nullptr) && focused == model;
+           settings_layer_editor(&owner->layer, nullptr, &focused, nullptr) && focused == model;
 }
 // Adopts the draft's bytes after the draft changed underneath the editor.
 void load_editor(u32 index) noexcept {
@@ -416,7 +416,7 @@ bool application_poll_create_open(u64 channel_id) noexcept {
         return false;
     }
     renderer_bind_settings_scene(&g_app.renderer, &p.scene);
-    settings_layer_begin_entrance(&p.layer, clock_monotonic_milliseconds(), g_app.preferences.reduced_motion);
+    settings_layer_begin_entrance(&p.layer);
     g_app.context_focus = &p.scene.widgets;
     settings_layer_focus(&p.layer, {UiSettingsTargetKind::control, kPage, control_question});
     application_sync_attachment_drop_target();

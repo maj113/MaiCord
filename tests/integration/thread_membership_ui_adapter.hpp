@@ -42,7 +42,6 @@ bool thread_membership_ui_adapter_response(u16 status, Utf8View body = {},
     RestClientError error = RestClientError::none) noexcept;
 bool thread_membership_ui_adapter_flight(u64* request_id, ThreadActionRequest* request) noexcept;
 bool thread_membership_ui_adapter_synchronize() noexcept;
-app_detail::ApplicationThreadActionMetrics thread_membership_ui_adapter_metrics() noexcept;
 bool thread_membership_ui_adapter_observe_membership(u64 thread_id, bool joined,
                                                     bool known = true) noexcept;
 bool thread_membership_ui_adapter_observe_archive(u64 thread_id, bool archived) noexcept;

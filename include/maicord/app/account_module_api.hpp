@@ -104,7 +104,6 @@ struct SecureBufferResult;
 struct SelfCustomStatus;
 enum class SelfStatusSettingsOperation : u8;
 struct SoundboardAudioCommand;
-struct SoundboardAudioStatus;
 struct SoundboardRequest;
 struct StageRequest;
 struct ThreadActionRequest;
@@ -635,8 +634,8 @@ struct AccountModuleApi {
     RestClientSubmitResult(WINAPI* soundboard)(void*, const SoundboardRequest*, u64 request_id) noexcept;
     // v114: local soundboard playback: settings, received sounds (call only),
     // previews and stop. Sounds are fetched from the CDN, decoded and mixed into
-    // the call output (or a preview output outside calls). Null command: status.
-    bool(WINAPI* soundboard_audio)(void*, const SoundboardAudioCommand*, SoundboardAudioStatus*) noexcept;
+    // the call output (or a preview output outside calls).
+    bool(WINAPI* soundboard_audio)(void*, const SoundboardAudioCommand*) noexcept;
     // v115: recorded voice messages: microphone capture (the voice input
     // settings), Opus/Ogg encoding and the preview player run in the module;
     // the client copies the finished stream out to upload it. Null command: status.

@@ -49,7 +49,6 @@ HRESULT output_type(AacDecoder& owner, State& s) noexcept {
     // Enumeration stays bounded and never substitutes another sample format,
     // rate or channel count for the caller's validated PCM configuration.
     HRESULT h = MF_E_INVALIDMEDIATYPE;
-    const u32 wanted = owner.format == AacPcmFormat::float32 ? 2u : 1u;
     for (u32 index = 0; index < 32; ++index) {
         IMFMediaType* type = nullptr;
         const HRESULT found = s.transform->GetOutputAvailableType(s.output_id, index, &type);
@@ -63,15 +62,13 @@ HRESULT output_type(AacDecoder& owner, State& s) noexcept {
         UINT32 rate{}, channels{}, bits{};
         const bool audio = SUCCEEDED(type->GetGUID(MF_MT_MAJOR_TYPE, &major)) && major == MFMediaType_Audio;
         const bool typed = audio && SUCCEEDED(type->GetGUID(MF_MT_SUBTYPE, &subtype)) &&
-                           SUCCEEDED(type->GetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE, &bits));
-        const u32 format = typed && subtype == MFAudioFormat_PCM && bits == 16     ? 1u
-                           : typed && subtype == MFAudioFormat_Float && bits == 32 ? 2u
-                                                                                   : 0u;
-        const bool exact = format && SUCCEEDED(type->GetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, &rate)) &&
+                           SUCCEEDED(type->GetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE, &bits)) &&
+                           subtype == MFAudioFormat_Float && bits == 32;
+        const bool exact = typed && SUCCEEDED(type->GetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, &rate)) &&
                            rate == owner.sample_rate &&
                            SUCCEEDED(type->GetUINT32(MF_MT_AUDIO_NUM_CHANNELS, &channels)) &&
                            channels == owner.channels;
-        if (exact && format == wanted) {
+        if (exact) {
             h = s.transform->SetOutputType(s.output_id, type, 0);
             com_release(type);
             break;
@@ -209,10 +206,8 @@ bool aac_decoder_configuration_valid(ConstSlice<u8> asc, u32 rate, u32 channels)
     return aac_configuration_decode(asc, &configuration) && configuration.sample_rate == rate &&
            configuration.channels == channels;
 }
-AacDecodeResult aac_decoder_initialize(AacDecoder* owner, ConstSlice<u8> asc, u32 rate, u32 channels,
-                                       AacPcmFormat format) noexcept {
+AacDecodeResult aac_decoder_initialize(AacDecoder* owner, ConstSlice<u8> asc, u32 rate, u32 channels) noexcept {
     if (!owner || !aac_decoder_configuration_valid(asc, rate, channels) ||
-        (format != AacPcmFormat::signed16 && format != AacPcmFormat::float32) ||
         !disjoint(owner, sizeof(*owner), asc.data, asc.count))
         return {Error::invalid_input};
     if (owner->initialized || owner->runtime)
@@ -222,7 +217,6 @@ AacDecodeResult aac_decoder_initialize(AacDecoder* owner, ConstSlice<u8> asc, u3
     owner->asc_bytes = asc.count;
     owner->sample_rate = rate;
     owner->channels = channels;
-    owner->format = format;
     owner->initialized = true;
     return {};
 }
@@ -359,7 +353,7 @@ AacDecodedBlock aac_decoder_read(AacDecoder* owner, Slice<u8> pcm) noexcept {
         h = s.output_buffer->Lock(&data, nullptr, &bytes);
         if (FAILED(h))
             return {Error::output, h};
-        const u32 stride = owner->channels * (owner->format == AacPcmFormat::float32 ? 4u : 2u);
+        const u32 stride = owner->channels * sizeof(float);
         const bool valid = data && bytes && bytes <= kAacDecoderMaximumOutputBytes && !(bytes % stride) &&
                            owner->output_frames <= ~u64{0} - bytes / stride;
         if (valid)

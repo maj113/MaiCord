@@ -1,7 +1,6 @@
 #pragma once
 #include "maicord/model/message_composer.hpp"
 #include "maicord/model/profile_editor.hpp"
-#include "maicord/ui/geometry.hpp"
 #include "maicord/ui/input_router.hpp"
 #include "maicord/ui/profile_dialog_scene.hpp"
 #include "maicord/ui/profile_scene.hpp"

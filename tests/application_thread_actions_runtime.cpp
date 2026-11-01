@@ -165,13 +165,11 @@ constexpr auto joined_body = utf8_literal(
     R"({"id":"20","user_id":"5","join_timestamp":"2026-10-05T12:00:00Z","flags":0})");
 void membership_tests() noexcept {
     check(reset(), "thread runtime: authoritative model fixture initialized");
-    check(!application_thread_actions_metrics().owner_bytes && !application_thread_actions_next_wake(),
+    check(!application_thread_actions_publication_revision() && !application_thread_actions_next_wake(),
         "thread runtime: no owner before first explicit request");
     const auto ticket = fetch();
-    const auto metrics = application_thread_actions_metrics();
-    check(metrics.entry_count == 1 && metrics.owner_bytes <= 4096 && metrics.owner_committed_bytes == 4096 &&
-        application_thread_actions_pending(now) && application_thread_actions_membership(ticket) == Membership::pending,
-        "thread runtime: first use commits exactly one bounded lazy page");
+    check(application_thread_actions_pending(now) && application_thread_actions_membership(ticket) == Membership::pending,
+        "thread runtime: first use queues one pending membership fetch");
     ApplicationThreadActionTicket coalesced{};
     check(application_thread_actions_fetch(20, &coalesced) == Admission::coalesced && coalesced.serial == ticket.serial,
         "thread runtime: repeated fetch shares existing intent serial");
@@ -179,22 +177,21 @@ void membership_tests() noexcept {
         !model_channel()->thread_self_joined_known && !application_thread_actions_next_wake(),
         "thread runtime: admission does not forge membership or busy-poll an occupied DETAILS owner");
     RestClientResponse wrong{}; wrong.request_id = accepted_id + 1; wrong.status_code = 200; wrong.body_bytes = joined_body.bytes;
-    check(!application_thread_actions_response(wrong, joined_body) && application_thread_actions_metrics().flight_active,
+    check(!application_thread_actions_response(wrong, joined_body),
         "thread runtime: unrelated response cannot drain current thread flight");
     check(receipt(200, joined_body) && model_channel()->thread_self_joined_known && model_channel()->thread_self_joined &&
         application_thread_actions_membership(ticket) == Membership::joined,
         "thread runtime: exact decoded200 establishes self membership through production model");
     const u32 before_frames = frames, before_alloc = allocations, before_calls = submissions;
-    const auto before_metrics = application_thread_actions_metrics();
+    const u32 before_publication = application_thread_actions_publication_revision();
     const u32 before_revision = model_channel()->revision;
     for (u32 i = 0; i < 8; ++i) {
         application_thread_actions_synchronize();
         application_thread_actions_view(20);
         application_thread_actions_pending(now);
     }
-    const auto quiet = application_thread_actions_metrics();
     check(frames == before_frames && allocations == before_alloc && submissions == before_calls &&
-        quiet.publication_revision == before_metrics.publication_revision && quiet.owner_committed_bytes == 4096 &&
+        application_thread_actions_publication_revision() == before_publication &&
         model_channel()->revision == before_revision && !application_thread_actions_next_wake(),
         "thread runtime: unchanged passes neither allocate repaint submit mutate nor schedule wake");
     fetch(); check(send() && receipt(404) && model_channel()->thread_self_joined_known && !model_channel()->thread_self_joined,
@@ -270,8 +267,7 @@ void cancellation_retry_tests() noexcept {
     const u64 old_id = accepted_id;
     const u32 before_cancel = cancellations;
     const auto replacement = fetch(21);
-    check(cancellations == before_cancel + 1 && cancelled_id == old_id && !application_thread_actions_pending(now) &&
-        application_thread_actions_metrics().flight_active,
+    check(cancellations == before_cancel + 1 && cancelled_id == old_id && !application_thread_actions_pending(now),
         "thread runtime: newer choice cancels exact old flight and waits for immutable drain");
     check(receipt(429, {}, RestClientError::none, 5'000) &&
         application_thread_actions_membership(replacement) == Membership::pending &&
@@ -299,7 +295,7 @@ void cancellation_retry_tests() noexcept {
     const auto cancel_ticket = application_thread_actions_view(20).ticket;
     check(application_thread_actions_cancel(cancel_ticket) && cancelled_id == accepted_id &&
         !application_thread_actions_pending(now), "thread runtime: current cancel retains old flight until matching drain");
-    check(receipt(0, {}, RestClientError::cancelled) && !application_thread_actions_metrics().flight_active,
+    check(receipt(0, {}, RestClientError::cancelled),
         "thread runtime: cancelled transport receipt drains exact immutable flight");
 }
 void terminal_freshness_tests() noexcept {
@@ -357,7 +353,7 @@ void actor_fence_tests() noexcept {
         if (kind == 8) model_channel()->type = 0;
         check(!application_thread_actions_current(ticket) && !application_thread_actions_pending(now) &&
             receipt(200, joined_body) && !model_channel()->thread_self_joined_known &&
-            model_channel()->revision == old_revision && !application_thread_actions_metrics().owner_bytes,
+            model_channel()->revision == old_revision && !application_thread_actions_publication_revision(),
             "thread runtime: account/profile/self/instance/login/stop/generation/type retirement rejects late200 and frees after drain");
     }
     reset(); const auto stale = application_thread_actions_view(20).ticket;
@@ -375,13 +371,13 @@ void actor_fence_tests() noexcept {
     reset(); fail_allocation = true;
     ApplicationThreadActionTicket failed{};
     check(application_thread_actions_fetch(20, &failed) == Admission::storage && !failed.serial &&
-        !application_thread_actions_metrics().owner_bytes,
+        !application_thread_actions_publication_revision(),
         "thread runtime: cold allocation failure leaves no owner and no false receipt");
     fail_allocation = false;
     fetch(); check(send(), "thread runtime: release drain fixture admitted");
     application_thread_actions_release();
-    check(application_thread_actions_metrics().flight_active && receipt(200, joined_body) &&
-        !application_thread_actions_metrics().owner_bytes && !model_channel()->thread_self_joined_known,
+    check(application_thread_actions_publication_revision() && receipt(200, joined_body) &&
+        !application_thread_actions_publication_revision() && !model_channel()->thread_self_joined_known,
         "thread runtime: release keeps owning page alive until exact DETAILS drain without publishing late membership");
 }
 void unarchive_tests() noexcept {

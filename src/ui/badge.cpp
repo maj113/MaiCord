@@ -1,5 +1,4 @@
 #include "maicord/ui/badge.hpp"
-#include "maicord/ui/foreground_color.hpp"
 #include "maicord/ui/paint.hpp"
 #include "maicord/ui/icon.hpp"
 namespace maicord {

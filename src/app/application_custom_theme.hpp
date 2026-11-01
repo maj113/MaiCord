@@ -29,7 +29,6 @@ void application_custom_theme_poll() noexcept;
 bool application_custom_theme_synchronize() noexcept;
 bool application_custom_theme_release(u32 timeout_ms = 0) noexcept;
 const ClientThemeDocument* application_custom_theme_document() noexcept;
-u64 application_custom_theme_revision() noexcept;
 ApplicationCustomThemeView application_custom_theme_view() noexcept;
 bool application_custom_theme_action(ApplicationCustomThemeAction) noexcept;
 void application_custom_theme_cancel_interaction() noexcept;
@@ -39,8 +38,7 @@ ConstSlice<Utf8View> application_custom_theme_catalog() noexcept;
 bool application_custom_theme_select_installed(u32 index) noexcept;
 // Existing background edits retain every custom foreground/font/layout token.
 // choose_builtin is true only for an explicit built-in palette selection.
-bool application_custom_theme_preferences_changed(bool choose_builtin = false,
-                                                  bool persist = false) noexcept;
+bool application_custom_theme_preferences_changed(bool choose_builtin, bool persist) noexcept;
 bool application_custom_theme_snapshot(ClientThemeStorageSnapshot*) noexcept;
-bool application_custom_theme_restore(const ClientThemeStorageSnapshot&, bool persist = false) noexcept;
+bool application_custom_theme_restore(const ClientThemeStorageSnapshot&) noexcept;
 } // namespace maicord::app_detail

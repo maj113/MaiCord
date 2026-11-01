@@ -161,7 +161,7 @@ constexpr Utf8View kForm = utf8_literal(
 void test_verification() noexcept {
     static GuildVerificationForm form;
     const bool decoded = guild_verification_decode(kForm, {scratch, 16384}, &form);
-    check(decoded && form.field_count == 3 && form.version_bytes == 32 &&
+    check(decoded && form.field_count == 3 &&
               utf8_equal(guild_verification_text(form, form.description), utf8_literal("Welcome!")) &&
               form.fields[0].type == GuildVerificationFieldType::terms && form.fields[0].required &&
               form.fields[0].value_count == 2 &&
@@ -289,8 +289,7 @@ void test_onboarding() noexcept {
     check(decoded && onboarding.enabled && onboarding.prompt_count == 3 && onboarding.option_count == 5 &&
               onboarding.default_channel_count == 2 && onboarding.default_channels[1] == 301 &&
               onboarding.prompts[0].option_count == 2 && onboarding.prompts[1].first_option == 2 &&
-              onboarding.prompts[1].single_select && onboarding.options[0].role_count == 1 &&
-              onboarding.options[0].channel_count == 2 &&
+              onboarding.prompts[1].single_select &&
               utf8_equal(guild_onboarding_text(onboarding, onboarding.options[0].emoji),
                          utf8_literal("\xF0\x9F\x8E\xAE")) &&
               !onboarding.options[0].selected && onboarding.options[1].selected &&
@@ -570,7 +569,6 @@ void test_guild_profile() noexcept {
               utf8_equal({profile.tag, profile.tag_bytes}, utf8_literal("GEAR")) && profile.icon_bytes == 34 &&
               profile.badge_bytes == 32 && !profile.banner_bytes && profile.online_count == 1234 &&
               profile.member_count == 56789 && profile.has_brand_color && profile.brand_color == 0x5865F2 &&
-              profile.visibility == GuildProfileVisibility::public_with_recruitment &&
               profile.features == (guild_profile_tags | guild_profile_discoverable) && profile.trait_count == 2 &&
               utf8_equal({profile.traits[0].label, profile.traits[0].label_bytes}, utf8_literal("First")) &&
               utf8_equal({profile.traits[1].label, profile.traits[1].label_bytes}, utf8_literal("Second")),

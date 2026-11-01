@@ -492,7 +492,6 @@ extern "C" __declspec(dllimport) BOOL WINAPI TrackPopupMenuEx(HMENU hMenu, UINT 
     LPTPMPARAMS lptpm);
 extern "C" __declspec(dllimport) BOOL WINAPI SetMenuDefaultItem(HMENU hMenu, UINT uItem, UINT fByPos);
 extern "C" __declspec(dllimport) BOOL WINAPI UpdateWindow(HWND hWnd);
-extern "C" __declspec(dllimport) HWND WINAPI GetForegroundWindow();
 extern "C" __declspec(dllimport) BOOL WINAPI SetForegroundWindow(HWND hWnd);
 extern "C" __declspec(dllimport) BOOL WINAPI AllowSetForegroundWindow(DWORD dwProcessId);
 extern "C" __declspec(dllimport) HDC WINAPI BeginPaint(HWND hWnd, LPPAINTSTRUCT lpPaint);

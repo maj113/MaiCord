@@ -239,7 +239,7 @@ bool page_dirty() noexcept {
 bool binding_ready(void* model, u64 identity) noexcept {
     MessageComposer* focused = nullptr;
     return editable() && owner->lifetime == identity &&
-           settings_layer_editor(&owner->layer, nullptr, &focused, nullptr, nullptr) && focused == model &&
+           settings_layer_editor(&owner->layer, nullptr, &focused, nullptr) && focused == model &&
            channel_overview_scope_equal(scope(owner->identity.channel_id), owner->identity);
 }
 bool import_models() noexcept {
@@ -690,7 +690,7 @@ void queue(Op op) noexcept {
 bool guard_dirty() noexcept {
     if (!page_dirty())
         return false;
-    settings_layer_shake(&owner->layer, clock_monotonic_milliseconds());
+    settings_layer_shake(&owner->layer);
     return true;
 }
 bool form_valid(TextFormOwnerKey key) noexcept {
@@ -1127,7 +1127,7 @@ bool application_channel_overview_open(u64 channel_id) noexcept {
         return false;
     }
     renderer_bind_settings_scene(&g_app.renderer, &p.scene);
-    settings_layer_begin_entrance(&p.layer, clock_monotonic_milliseconds(), g_app.preferences.reduced_motion);
+    settings_layer_begin_entrance(&p.layer);
     g_app.context_focus = &p.scene.widgets;
     application_sync_attachment_drop_target();
     synchronize_member_subscription(clock_monotonic_milliseconds());
@@ -1530,17 +1530,17 @@ static SettingsLayer* edit_layer() noexcept {
 }
 bool application_channel_overview_edit_focused() noexcept {
     auto* layer = edit_layer();
-    return layer && settings_layer_editor(layer, nullptr, nullptr, nullptr, nullptr);
+    return layer && settings_layer_editor(layer, nullptr, nullptr, nullptr);
 }
 MessageComposer* application_channel_overview_edit_model() noexcept {
     MessageComposer* model = nullptr;
     auto* layer = edit_layer();
-    return layer && settings_layer_editor(layer, nullptr, &model, nullptr, nullptr) ? model : nullptr;
+    return layer && settings_layer_editor(layer, nullptr, &model, nullptr) ? model : nullptr;
 }
 TextInputTarget application_channel_overview_edit_target() noexcept {
     BoundedEdit* binding = nullptr;
     auto* layer = edit_layer();
-    return layer && settings_layer_editor(layer, nullptr, nullptr, &binding, nullptr)
+    return layer && settings_layer_editor(layer, nullptr, nullptr, &binding)
                ? bounded_edit_input_target(binding)
                : TextInputTarget{};
 }
@@ -1604,7 +1604,7 @@ void application_channel_overview_tick(u64 now) noexcept {
     const auto layers = host_layers();
     for (auto* layer : layers.layer)
         if (layer && layer->scene && layer->scene->active)
-            settings_layer_tick(layer, now, g_app.preferences.reduced_motion);
+            settings_layer_tick(layer, now);
 }
 bool application_channel_overview_input(UiInputKind kind, u32 key, bool repeated) noexcept {
     auto* layer = modal_layer();

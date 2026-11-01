@@ -39,7 +39,6 @@ struct MessageSearchController {
     u8 indexing_retries;
     MessageSearchState state;
     MessageSearchFailure failure;
-    bool has_results;
     // Set when the tabs endpoint was unavailable and the query moved to the legacy GET.
     bool endpoint_fallback;
 };

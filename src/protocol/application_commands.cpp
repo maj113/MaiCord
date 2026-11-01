@@ -404,9 +404,7 @@ u32 scan_spans(const ArgumentSchema& schema, Utf8View input, CommandArgumentSpan
         spans[count++] = {schema.options[slot],    {input.data + key_first, schema.names[slot].bytes},
                           {},                      key_first,
                           value_first,             value_last,
-                          end_last,                slot,
-                          schema.types[slot],      schema.required[slot],
-                          schema.autocomplete[slot]};
+                          end_last,                slot};
     }
     for (u32 n = 0; n < count; ++n)
         spans[n].value = trimmed(input, spans[n].value_first, spans[n].value_last);
@@ -974,7 +972,6 @@ bool command_suggestions_decode(Utf8View body, Slice<u32> scratch, u64 expected_
     if (!json_value_to_u64_or_string(field(document, root, "nonce"), &nonce) || nonce != expected_nonce)
         return false;
     CommandSuggestions candidate{};
-    candidate.nonce = nonce;
     if (!arena_initialize(&candidate.storage, static_cast<usize>(body.bytes) * 2 + 4096, 0, 4096))
         return false;
     char* bytes = arena_allocate<char>(&candidate.storage, body.bytes);
@@ -1138,7 +1135,7 @@ bool command_frecency_decode_response(Utf8View body, Slice<u8> scratch, Slice<Co
     *count = 0;
     *data_version = 0;
     const auto response =
-        user_settings_proto_decode_response(body, (1u << kVersionsField) | (1u << kFrecencyField), {}, scratch);
+        user_settings_proto_decode_response(body, (1u << kVersionsField) | (1u << kFrecencyField), scratch);
     if (!response.extracted.ok())
         return false;
     const ConstSlice<u8> extracted{scratch.data, response.extracted.bytes};

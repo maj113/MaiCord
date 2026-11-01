@@ -58,12 +58,12 @@ void test_message_forward_controller(void (*check)(bool, const char*) noexcept) 
     check(f.initialize() && f.open(), "forward workflow captures an authoritative source in fixed storage");
     check(f.forward.candidates.count == 8 && f.find(101) != ~0u && f.forward.source.preview_bytes == 14,
         "forward destinations include the active channel and retain a source preview");
-    const auto rebuilds = f.forward.candidates.rebuild_count;
+    const auto rebuilds = f.forward.candidates.revision;
     check(!message_forward_synchronize(&f.forward, f.scope, f.sources(), {}, &f.outbox) &&
-        f.forward.candidates.rebuild_count == rebuilds, "unchanged forward destination sources avoid scans");
+        f.forward.candidates.revision == rebuilds, "unchanged forward destination sources avoid scans");
     ++f.state.activity_mutations; ++f.state.selection_revision;
     check(!message_forward_synchronize(&f.forward, f.scope, f.sources(), {}, &f.outbox) &&
-        f.forward.candidates.rebuild_count == rebuilds, "incoming activity and navigation do not rescan forwarding destinations");
+        f.forward.candidates.revision == rebuilds, "incoming activity and navigation do not rescan forwarding destinations");
     auto* readonly = const_cast<ChannelRecord*>(chat_state_store_find_channel(f.state, 108));
     readonly->actions &= ~channel_action_send_messages; ++f.state.permission_mutations;
     auto* archived = const_cast<ChannelRecord*>(chat_state_store_find_channel(f.state, 107));

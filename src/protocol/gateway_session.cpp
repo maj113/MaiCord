@@ -174,15 +174,15 @@ void process_gateway_message(GatewaySession* session, Utf8View message, u32 hear
             if (event_decode_failed(result, ready)) {
                 return;
             }
-            result.lifecycle_step = gateway_lifecycle_session_ready(&session->lifecycle, true);
+            result.lifecycle_step = gateway_lifecycle_session_ready(&session->lifecycle);
             result.kind = GatewaySessionEventKind::ready;
         } else if (session_event == 1) {
-            const GatewayEventDecodeResult resumed = gateway_decode_resumed(
-                result.envelope.data, session->structural_scratch, 16, &result.resumed);
+            const GatewayEventDecodeResult resumed =
+                gateway_decode_resumed(result.envelope.data, session->structural_scratch, 16);
             if (event_decode_failed(result, resumed)) {
                 return;
             }
-            result.lifecycle_step = gateway_lifecycle_session_ready(&session->lifecycle, true);
+            result.lifecycle_step = gateway_lifecycle_session_ready(&session->lifecycle);
             result.kind = GatewaySessionEventKind::resumed;
         } else {
             result.kind = GatewaySessionEventKind::dispatch;
@@ -346,7 +346,6 @@ void gateway_session_next(GatewaySessionEvent* out, GatewaySession* session, u32
         }
         if (!handshake.ok()) {
             session_error(out, GatewaySessionError::handshake);
-            out->http_error = handshake.http_error;
             out->handshake_error = handshake.error;
             return;
         }

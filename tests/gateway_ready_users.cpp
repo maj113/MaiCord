@@ -1,5 +1,6 @@
 // Exercise READY's shipping private batching path without opening a connection.
 #include "../src/app/gateway_client.cpp"
+#include "spsc_mailbox_state.hpp"
 #include "maicord/model/user_profile.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "fixtures/gateway_growth.hpp"
@@ -334,7 +335,6 @@ void failure_receipt(void (*check)(bool, const char*) noexcept) noexcept {
         bool filled = true;
         if (full) for (u32 i = 0; i < kGatewayClientEventCapacity; ++i)
             filled = spsc_mailbox_push(&runtime.events, queued, {}).ok() && filled;
-        const u32 dropped = spsc_mailbox_load_u32(&runtime.events.dropped);
         fail_and_drain(&client, &runtime, GatewayClientError::session, 0);
         GatewayClientEvent receipt{};
         bool matching = true;
@@ -349,7 +349,6 @@ void failure_receipt(void (*check)(bool, const char*) noexcept) noexcept {
         check(filled && matching && load_phase(&client) == GatewayClientPhase::failed &&
             load_error(&client) == GatewayClientError::session && WaitForSingleObject(client.state_event, 0) == WAIT_OBJECT_0 &&
             WaitForSingleObject(client.notification_event, 0) == WAIT_OBJECT_0 &&
-            spsc_mailbox_load_u32(&runtime.events.dropped) == dropped + full &&
             spsc_mailbox_pop(&runtime.events, &receipt, {output, sizeof(output)}).error == SpscMailboxError::empty,
             "Gateway terminal status retains categorical receipt or full FIFO and wakes consumer after failure publication");
     }

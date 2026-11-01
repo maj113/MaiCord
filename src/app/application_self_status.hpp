@@ -5,7 +5,7 @@ namespace maicord::app_detail {
 struct ApplicationSelfStatusRequest {
     u64 profile_id, self_user_id, request_id, retry_at_ms;
     u32 revision, submitted_revision;
-    GatewayUserStatus desired, submitted_status;
+    GatewayUserStatus desired;
     SelfStatusSettingsOperation operation;
     u8 attempts, refreshes;
     bool queued, fetch_failed, admission_busy;

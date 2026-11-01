@@ -3,7 +3,6 @@
 #include "maicord/text/cluster_run.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/text/myanmar_shape_run.hpp"
-#include "maicord/text/use_plan.hpp"
 #include "maicord/core/arena.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "gsub_program_fixture.hpp"

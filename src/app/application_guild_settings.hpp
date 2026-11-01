@@ -2,7 +2,6 @@
 #include "maicord/app/rest_client.hpp"
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/model/message_composer.hpp"
-#include "maicord/ui/input_router.hpp"
 #include "maicord/protocol/guild_assets.hpp"
 #include "maicord/ui/geometry.hpp"
 #include "maicord/ui/popup_scene.hpp"

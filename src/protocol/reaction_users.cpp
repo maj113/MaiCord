@@ -34,8 +34,6 @@ struct PageContext {
     u32 text_used;
     u32 error_offset;
     ReactionUsersDecodeError error;
-    JsonScanError scan_error;
-    JsonReadError read_error;
 };
 
 ReactionUsersWriteResult write_error(
@@ -45,21 +43,14 @@ ReactionUsersWriteResult write_error(
 
 ReactionUsersDecodeResult decode_error(
     const PageContext* context, ReactionUsersDecodeError error,
-    u32 offset = 0, JsonScanError scan_error = JsonScanError::none,
-    JsonReadError read_error = JsonReadError::none) noexcept {
+    u32 offset = 0) noexcept {
     return ReactionUsersDecodeResult{
         0,
         0,
         context && context->error_offset != 0 ? context->error_offset : offset,
         context && context->error != ReactionUsersDecodeError::none
             ? context->error
-            : error,
-        context && context->scan_error != JsonScanError::none
-            ? context->scan_error
-            : scan_error,
-        context && context->read_error != JsonReadError::none
-            ? context->read_error
-            : read_error};
+            : error};
 }
 
 bool visit_user_member(void* opaque, JsonString name,
@@ -147,7 +138,6 @@ bool visit_user(void* opaque, u32, JsonValue value) noexcept {
         json_scan_structurals_avx1(value.source, page->object_scratch);
     if (!scan.ok()) {
         page->error = ReactionUsersDecodeError::scan;
-        page->scan_error = scan.error;
         page->error_offset = value.source_offset + scan.error_offset;
         return false;
     }
@@ -160,7 +150,6 @@ bool visit_user(void* opaque, u32, JsonValue value) noexcept {
         page->error = user.error != ReactionUsersDecodeError::none
                           ? user.error
                           : ReactionUsersDecodeError::json;
-        page->read_error = read.error;
         page->error_offset = value.source_offset + read.error_offset;
         return false;
     }
@@ -256,24 +245,21 @@ ReactionUsersDecodeResult decode_reaction_users(
         json_scan_structurals_avx1(input, page_structural_scratch);
     if (!scan.ok()) {
         return decode_error(nullptr, ReactionUsersDecodeError::scan,
-                            scan.error_offset, scan.error);
+                            scan.error_offset);
     }
     PageContext page{object_structural_scratch, users, text_output,
                      maximum_depth, 0, 0, 0,
-                     ReactionUsersDecodeError::none,
-                     JsonScanError::none, JsonReadError::none};
+                     ReactionUsersDecodeError::none};
     const JsonReadResult read = json_visit_root_array(
         input, ConstSlice<u32>{page_structural_scratch.data, scan.count},
         maximum_depth, visit_user, &page);
     if (!read.ok()) {
         return decode_error(&page, ReactionUsersDecodeError::json,
-                            read.error_offset, JsonScanError::none,
-                            read.error);
+                            read.error_offset);
     }
     return ReactionUsersDecodeResult{
         page.count, page.text_used, 0,
-        ReactionUsersDecodeError::none, JsonScanError::none,
-        JsonReadError::none};
+        ReactionUsersDecodeError::none};
 }
 
 } // namespace maicord

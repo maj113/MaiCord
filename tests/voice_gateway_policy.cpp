@@ -55,27 +55,23 @@ void close_policy_cases(Check check) noexcept {
 }
 
 void dave_route_cases(Check check) noexcept {
-    VoiceDaveInbox inbox{};
     const u8 welcome[]{0x01, 0x02, 0xAA};
     const u8 short_welcome[]{0x01, 0x02};
-    check(voice_dave_route_binary(&inbox, {{welcome, 3}, 1, 30}) == VoiceDaveRoute::deferred &&
-              inbox.last_transition_id == 0x0102 && inbox.last_opcode == 30,
-          "DAVE welcome is deferred with its transition ID");
-    check(voice_dave_route_binary(&inbox, {{welcome, 3}, 2, 25}) == VoiceDaveRoute::deferred &&
-              voice_dave_route_binary(&inbox, {{welcome, 3}, 3, 27}) == VoiceDaveRoute::deferred &&
-              voice_dave_route_binary(&inbox, {{welcome, 3}, 4, 29}) == VoiceDaveRoute::deferred &&
-              inbox.deferred == 4,
+    check(voice_dave_route_binary({{welcome, 3}, 1, 30}) == VoiceDaveRoute::deferred,
+          "DAVE welcome is deferred");
+    check(voice_dave_route_binary({{welcome, 3}, 2, 25}) == VoiceDaveRoute::deferred &&
+              voice_dave_route_binary({{welcome, 3}, 3, 27}) == VoiceDaveRoute::deferred &&
+              voice_dave_route_binary({{welcome, 3}, 4, 29}) == VoiceDaveRoute::deferred,
           "DAVE external sender, proposals and announced commit are deferred");
-    check(voice_dave_route_binary(&inbox, {{short_welcome, 2}, 5, 30}) == VoiceDaveRoute::rejected &&
-              voice_dave_route_binary(&inbox, {{welcome, 3}, 6, 26}) == VoiceDaveRoute::rejected &&
-              voice_dave_route_binary(&inbox, {{welcome, 0}, 7, 25}) == VoiceDaveRoute::rejected &&
-              inbox.rejected == 3,
+    check(voice_dave_route_binary({{short_welcome, 2}, 5, 30}) == VoiceDaveRoute::rejected &&
+              voice_dave_route_binary({{welcome, 3}, 6, 26}) == VoiceDaveRoute::rejected &&
+              voice_dave_route_binary({{welcome, 0}, 7, 25}) == VoiceDaveRoute::rejected,
           "truncated or client-only DAVE binary frames are rejected");
-    check(voice_dave_route_binary(&inbox, {{welcome, 3}, 8, 5}) == VoiceDaveRoute::not_dave &&
-              voice_dave_route_json(&inbox, 21) == VoiceDaveRoute::deferred &&
-              voice_dave_route_json(&inbox, 24) == VoiceDaveRoute::deferred &&
-              voice_dave_route_json(&inbox, 23) == VoiceDaveRoute::rejected &&
-              voice_dave_route_json(&inbox, 2) == VoiceDaveRoute::not_dave,
+    check(voice_dave_route_binary({{welcome, 3}, 8, 5}) == VoiceDaveRoute::not_dave &&
+              voice_dave_route_json(21) == VoiceDaveRoute::deferred &&
+              voice_dave_route_json(24) == VoiceDaveRoute::deferred &&
+              voice_dave_route_json(23) == VoiceDaveRoute::rejected &&
+              voice_dave_route_json(2) == VoiceDaveRoute::not_dave,
           "DAVE JSON transitions route; non-DAVE opcodes pass through");
 }
 

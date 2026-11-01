@@ -281,10 +281,6 @@ void application_surface_motion_retire(RendererLayerSurface surface) noexcept {
     if (surface == RendererLayerSurface::popup)
         renderer_set_popup_scale(&g_app.renderer, 1, 0, 0);
 }
-void application_surface_motion_retire_all() noexcept {
-    for (u32 i = 0; i < kApplicationSurfaceMotionCount; ++i)
-        application_surface_motion_retire(static_cast<RendererLayerSurface>(i));
-}
 #endif
 
 } // namespace maicord::app_detail

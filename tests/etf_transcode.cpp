@@ -41,6 +41,12 @@ void number(u64 v) noexcept {
         }                                                                                                              \
     } while (0)
 
+// The Gateway path always asks for the structural index; most of these cases only want the JSON.
+EtfResult etf_to_json(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum_output, EtfGrowOutput grow,
+                      void* context) noexcept {
+    u32 marks = 0;
+    return etf_to_json_indexed(etf, output, maximum_output, grow, context, {}, &marks);
+}
 // Builds terms the way Erlang's term_to_binary lays them out.
 struct Term {
     u8 data[4096];

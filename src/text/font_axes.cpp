@@ -19,7 +19,7 @@ SfntStatus font_named_instance(const FontAxes& axes,u32 index,FontNamedInstance*
     if(index>=axes.instance_count)return SfntStatus::invalid_input;
     const auto* p=axes.instances.data+index*axes.instance_stride;
     const u32 size=axes.axis_count*4u;
-    *output={{p+4,size},be16(p),axes.instance_stride>=size+6?be16(p+4+size):static_cast<u16>(0xffff)};
+    *output={{p+4,size},be16(p)};
     return SfntStatus::ok;
 }
 SfntStatus font_axes_table_open(ConstSlice<u8> table,FontAxes* output,u32 work) noexcept {

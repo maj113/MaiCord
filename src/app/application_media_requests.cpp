@@ -19,7 +19,6 @@
 #include "maicord/core/time.hpp"
 #include "maicord/media/animation_timeline.hpp"
 #include "maicord/media/presentation_policy.hpp"
-#include "maicord/model/asset_hash.hpp"
 #include "maicord/ui/geometry.hpp"
 #include "maicord/ui/private_channel_rows.hpp"
 #include "maicord/ui/popup_presentation.hpp"
@@ -145,7 +144,7 @@ __declspec(noinline) FrameTake take_ready_frame(ApplicationMediaPump& pump, cons
 
 __declspec(noinline) void note_frame_uploaded(ApplicationMediaPump& pump) noexcept {
     ++pump.uploads;
-    pump.record_media_frame_uploaded();
+    pump.trace_first_media_upload();
     if (pump.repaint)
         *pump.repaint = true;
 }
@@ -335,8 +334,6 @@ bool ApplicationMediaPump::request_catalog_previews() noexcept {
         request.video_device = application.renderer.graphics.device;
         const auto requested = application.account.api.catalog_preview_request(
             application.account.instance, &request, now_ms, now_seconds);
-        if (requested.state == AccountMediaRequestState::queued)
-            record_media_request_queued();
         if (requested.state == AccountMediaRequestState::failed ||
             requested.state == AccountMediaRequestState::unsupported ||
             requested.state == AccountMediaRequestState::invalid)
@@ -822,8 +819,6 @@ bool ApplicationMediaPump::request_forum_thumbnails(bool* stop) noexcept {
         const AccountMediaRequestResult requested = application.account.api.media_attachment_request(
             application.account.instance, &request, now_ms, now_seconds);
         log_message_media_failure("forum_thumbnail_request_failed", requested, media.key);
-        if (requested.state == AccountMediaRequestState::queued)
-            record_media_request_queued();
         if (requested.state == AccountMediaRequestState::ready) {
             const FrameTake taken = take_ready_frame(*this, media.key, true, false);
             if (taken == FrameTake::failed)
@@ -902,8 +897,6 @@ bool ApplicationMediaPump::request_stream_previews(bool* stop) noexcept {
                                                     application.renderer.graphics.device};
         const auto requested = application.account.api.media_attachment_request(application.account.instance,
                                                                                 &request, now_ms, now_seconds);
-        if (requested.state == AccountMediaRequestState::queued)
-            record_media_request_queued();
         if (requested.state == AccountMediaRequestState::ready) {
             const FrameTake taken = take_ready_frame(*this, key, false, true);
             if (taken == FrameTake::failed)
@@ -975,8 +968,6 @@ bool ApplicationMediaPump::request_profile_media(const ProfileMedia& media, bool
                                                                now_ms, now_seconds);
     if (failure)
         *failure = requested;
-    if (requested.state == AccountMediaRequestState::queued)
-        record_media_request_queued();
     if (requested.state == AccountMediaRequestState::busy) {
         // Admission depends on media type: still-image lanes can be full while
         // the animation reserve is idle. Keep scanning this bounded surface so
@@ -1016,9 +1007,6 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_static_media(
 __declspec(noinline) bool ApplicationMediaPump::settle_media_request(
     const AccountMediaRequestResult& requested, const MediaAssetKey& key,
     bool* stop_scan, bool stop_on_busy) noexcept {
-    if (requested.state == AccountMediaRequestState::queued) {
-        record_media_request_queued();
-    }
     if (requested.state == AccountMediaRequestState::ready) {
         const FrameTake taken = take_ready_frame(*this, key, false, true);
         if (taken == FrameTake::failed)
@@ -1159,66 +1147,10 @@ __declspec(noinline) void ApplicationMediaPump::log_message_media_failure(
         log_u64(LogLevel::warning, "media", "lossy_webp_error", static_cast<u64>(failure.lossy_webp_error));
 }
 
-__declspec(noinline) void ApplicationMediaPump::record_media_request_queued() noexcept {
-    message_media_controller_record_request(&application.message_media);
-}
-
-__declspec(noinline) void ApplicationMediaPump::record_media_animation_advance(MediaAssetKind kind) noexcept {
-    message_media_controller_record_animation_advance(&application.message_media, kind);
-}
-
-__declspec(noinline) void ApplicationMediaPump::record_media_frame_uploaded() noexcept {
-    message_media_controller_record_upload(&application.message_media);
+__declspec(noinline) void ApplicationMediaPump::trace_first_media_upload() noexcept {
     if (application.load_trace.channel_started && !application.load_trace.media_uploaded) {
         application.load_trace.media_uploaded = true;
         application_trace_load_stage("first_media_uploaded");
-    }
-}
-
-__declspec(noinline) void ApplicationMediaPump::flush_media_success_diagnostics(u64 now_ms) noexcept {
-    const MessageMediaControllerDiagnostics diagnostics =
-        message_media_controller_take_diagnostics(&application.message_media, now_ms);
-    if (!diagnostics.ready) {
-        return;
-    }
-    if (diagnostics.requests_queued != 0) {
-        log_u64(LogLevel::info, "media", "requests_queued_5s", diagnostics.requests_queued);
-    }
-    if (diagnostics.frames_uploaded != 0) {
-        log_u64(LogLevel::info, "media", "frames_uploaded_5s", diagnostics.frames_uploaded);
-    }
-    // Playback of visible animations, apart from fetches: the advance count
-    // and the media kind that advanced most (MediaAssetKind), never a URL.
-    if (diagnostics.animation_advances != 0) {
-        log_u64(LogLevel::info, "media", "animation_advances_5s", diagnostics.animation_advances);
-        log_u64(LogLevel::info, "media", "animation_advance_kind", static_cast<u64>(diagnostics.animation_kind));
-        log_u64(LogLevel::info, "media", "animation_advance_kind_5s", diagnostics.animation_kind_advances);
-    }
-    // Opt-in interval diagnostics share the existing five-second media gate.
-    // No extra wake, readback, heap allocation, or per-frame log traffic.
-    if (application.renderer.gpu_timer.enabled) {
-        const D3D11Renderer& r = application.renderer;
-        static u64 previous_ms = 0;
-        log_u64(LogLevel::info, "render", "interval_ms", previous_ms ? now_ms - previous_ms : 0);
-        previous_ms = now_ms;
-#define LOG_RENDER_DELTA(name, value)                                                                      \
-    do {                                                                                                   \
-        static u64 previous = 0;                                                                           \
-        const u64 current = (value);                                                                       \
-        log_u64(LogLevel::info, "render", name, current >= previous ? current - previous : current);       \
-        previous = current;                                                                                \
-    } while (false)
-        LOG_RENDER_DELTA("interval_full_draws", r.full_present_draws);
-        LOG_RENDER_DELTA("interval_partial_draws", r.partial_present_draws);
-        LOG_RENDER_DELTA("interval_idle_presents", r.idle_begin_frame_presents);
-        LOG_RENDER_DELTA("interval_text_builds", r.content_text_retention.builds);
-        LOG_RENDER_DELTA("interval_layout_builds", r.paint_stream_builds);
-        LOG_RENDER_DELTA("interval_video_frames", r.media_gpu.video.frames);
-        LOG_RENDER_DELTA("interval_glyph_uploads", r.text_instance_uploads);
-        LOG_RENDER_DELTA("interval_partial_pixels", r.partial_present_pixels);
-        LOG_RENDER_DELTA("interval_draw_gpu_us", r.gpu_timer.total_microseconds);
-        LOG_RENDER_DELTA("interval_draw_gpu_samples", r.gpu_timer.samples);
-#undef LOG_RENDER_DELTA
     }
 }
 
@@ -1485,7 +1417,6 @@ __declspec(noinline) bool ApplicationMediaPump::settle_message_media(
          (requested.state == AccountMediaRequestState::failed && requested.error != AccountMediaError::target)))
         application_image_viewer_request_failed(key);
     if (requested.state == AccountMediaRequestState::queued) {
-        record_media_request_queued();
         // At most one speculative miss per pump; never fill every free lane
         // ahead of content that becomes visible on the next scroll update.
         if (prefetch_only)

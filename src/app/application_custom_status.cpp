@@ -129,7 +129,7 @@ u64 lifetime_serial;
 bool binding_ready(void* model, u64 identity) noexcept {
     MessageComposer* focused = nullptr;
     return form && form->lifetime == identity && form->scene.active &&
-           settings_layer_editor(&form->layer, nullptr, &focused, nullptr, nullptr) && focused == model;
+           settings_layer_editor(&form->layer, nullptr, &focused, nullptr) && focused == model;
 }
 void load_editor(u32 index, u32 bytes) noexcept {
     auto& model = form->models[index];
@@ -469,7 +469,7 @@ bool application_custom_status_open() noexcept {
         return false;
     }
     renderer_bind_settings_scene(&g_app.renderer, &f.scene);
-    settings_layer_begin_entrance(&f.layer, clock_monotonic_milliseconds(), g_app.preferences.reduced_motion);
+    settings_layer_begin_entrance(&f.layer);
     g_app.context_focus = &f.scene.widgets;
     settings_layer_focus(&f.layer, {UiSettingsTargetKind::control, kPage, control_text});
     application_sync_attachment_drop_target();

@@ -563,28 +563,6 @@ void message_media_controller_observe_retry(MessageMediaController* controller, 
     }
 }
 
-void message_media_controller_record_request(MessageMediaController* controller) noexcept {
-    if (controller_valid(controller)) {
-        saturating_increment(controller->requests_queued);
-    }
-}
-
-void message_media_controller_record_upload(MessageMediaController* controller) noexcept {
-    if (controller_valid(controller)) {
-        saturating_increment(controller->frames_uploaded);
-    }
-}
-
-void message_media_controller_record_animation_advance(MessageMediaController* controller,
-                                                       MediaAssetKind kind) noexcept {
-    if (!controller_valid(controller))
-        return;
-    saturating_increment(controller->animation_advances);
-    const u32 index = static_cast<u32>(kind);
-    if (index < kMessageMediaAdvanceKinds && controller->animation_kind_advances[index] != 0xFFFFu)
-        ++controller->animation_kind_advances[index];
-}
-
 bool message_media_controller_upload_budget_reached(MessageMediaController* controller,
                                                     u32 uploads) noexcept {
     if (!controller_valid(controller) || uploads < kMessageMediaUploadBudget) {
@@ -602,37 +580,6 @@ bool message_media_controller_should_log_capacity(MessageMediaController* contro
     }
     controller->capacity_log_at_ms = deadline_after(now_ms, interval_ms);
     return true;
-}
-
-MessageMediaControllerDiagnostics message_media_controller_take_diagnostics(
-    MessageMediaController* controller, u64 now_ms, u32 interval_ms) noexcept {
-    MessageMediaControllerDiagnostics diagnostics{};
-    if (!controller_valid(controller) || interval_ms == 0) {
-        return diagnostics;
-    }
-    if (controller->summary_at_ms == 0) {
-        controller->summary_at_ms = deadline_after(now_ms, interval_ms);
-        return diagnostics;
-    }
-    if (now_ms < controller->summary_at_ms) {
-        return diagnostics;
-    }
-    diagnostics.requests_queued = controller->requests_queued;
-    diagnostics.frames_uploaded = controller->frames_uploaded;
-    diagnostics.animation_advances = controller->animation_advances;
-    for (u32 index = 0; index < kMessageMediaAdvanceKinds; ++index) {
-        if (controller->animation_kind_advances[index] > diagnostics.animation_kind_advances) {
-            diagnostics.animation_kind_advances = controller->animation_kind_advances[index];
-            diagnostics.animation_kind = static_cast<MediaAssetKind>(index);
-        }
-        controller->animation_kind_advances[index] = 0;
-    }
-    diagnostics.ready = true;
-    controller->requests_queued = 0;
-    controller->frames_uploaded = 0;
-    controller->animation_advances = 0;
-    controller->summary_at_ms = deadline_after(now_ms, interval_ms);
-    return diagnostics;
 }
 
 MessageMediaControllerResult message_media_controller_collect(MessageMediaController* controller,

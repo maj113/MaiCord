@@ -1,4 +1,5 @@
 #include "maicord/ui/friends_scene.hpp"
+#include "layout_validation.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/presence.hpp"
 namespace maicord {

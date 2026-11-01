@@ -234,7 +234,6 @@ enum class RestBodyKind : u8 {
 struct RestRepresentation {
     RestContentType content_type;
     RestContentEncoding content_encoding;
-    RestBodyKind body_kind;
 };
 
 enum class RestHeadError : u8 {
@@ -287,10 +286,7 @@ enum class RateLimitBodyError : u8 {
 
 struct RateLimitBodyResult {
     u64 retry_after_ms;
-    u32 error_offset;
     RateLimitBodyError error;
-    JsonScanError scan_error;
-    JsonReadError read_error;
     bool global;
 
     constexpr bool ok() const noexcept {
@@ -431,7 +427,6 @@ using RestResponseError = HttpResponseDecoderError;
 struct RestResponse {
     HttpResponseDecoder http;
     RestHeadResult parsed_head;
-    RestMethod request_method;
     // Optional: each complete head's Set-Cookie fields are stored here for
     // cookie_request (set after rest_response_initialize).
     CookieJar* cookies;

@@ -51,10 +51,4 @@ bool application_thread_browser_search_scope(ApplicationThreadBrowserSearchScope
 bool application_thread_browser_search(Utf8View name) noexcept;
 bool application_thread_browser_scroll_range(UiScrollRange*) noexcept;
 bool application_thread_browser_scroll_to(double) noexcept;
-struct ApplicationThreadBrowserMetrics {
-    u32 owner_bytes, owner_committed_bytes, bank_committed_bytes, accepted_rows;
-    u64 source_publication;
-    bool flight_active;
-};
-ApplicationThreadBrowserMetrics application_thread_browser_metrics() noexcept;
 } // namespace maicord::app_detail

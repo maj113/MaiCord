@@ -74,9 +74,6 @@ struct CookieRequest {
     bool same_site;
 };
 
-// Applies one Set-Cookie value (RFC 6265bis as Chromium parses it). False
-// when the cookie is rejected or deletes a stored one.
-bool cookie_jar_set(CookieJar* jar, const CookieRequest& request, Utf8View set_cookie, u64 now_ms) noexcept;
 // Applies every Set-Cookie field of a complete response head; returns how
 // many cookies were stored.
 u32 cookie_jar_store_response(CookieJar* jar, const CookieRequest& request, ConstSlice<u8> head,
@@ -86,8 +83,6 @@ u32 cookie_jar_store_response(CookieJar* jar, const CookieRequest& request, Cons
 // bytes, 0 when no cookie matches or output is smaller than
 // kCookieHeaderMaximumBytes. Expired cookies are dropped.
 u32 cookie_jar_header(CookieJar* jar, const CookieRequest& request, u64 now_ms, Slice<u8> output) noexcept;
-// Erases every cookie.
-void cookie_jar_clear(CookieJar* jar) noexcept;
 
 // The unexpired persistent cookies as a self-contained record (session
 // cookies stay in memory only); 0 when output is smaller than

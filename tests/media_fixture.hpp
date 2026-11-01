@@ -1,6 +1,8 @@
 #pragma once
 
 #include "maicord/core/slice.hpp"
+#include "maicord/media/animated_webp.hpp"
+#include "maicord/media/gif.hpp"
 
 namespace maicord {
 
@@ -105,5 +107,44 @@ u32 jpeg_fixture_rgba() noexcept;
 u32 png_fixture_crc32(ConstSlice<u8> bytes) noexcept;
 u32 png_fixture_adler32(ConstSlice<u8> bytes) noexcept;
 void png_fixture_write_be32(u8* output, u32 value) noexcept;
+
+// Parse-then-decode helpers over the decoders' production entry points, which take the parsed image.
+inline GifDecodeResult gif_decode_frame(ConstSlice<u8> encoded, u32 frame_index, GifImage* image,
+                                        GifWorkspace* workspace, Slice<u8> indices) noexcept {
+    GifDecodeResult result{};
+    const GifParseResult parsed = gif_parse(encoded, image, workspace);
+    if (!parsed.ok()) {
+        result.parse = parsed;
+        result.error = parsed.error;
+        return result;
+    }
+    gif_decode_parsed_frame(&result, encoded, *image, frame_index, workspace, indices);
+    result.parse = parsed;
+    return result;
+}
+inline AnimatedWebpDecodeResult animated_webp_decode_frame(
+    ConstSlice<u8> encoded, u32 frame_index, AnimatedWebpImage* image, AnimatedWebpWorkspace* animation_workspace,
+    Vp8lWorkspace* vp8l_workspace, LossyWebpWorkspace* lossy_workspace, Vp8Keyframe* vp8_frame,
+    Vp8ControlHeader* vp8_header, Slice<u8> rgba_output, Slice<u8> alpha_rgba_scratch,
+    Slice<u8> alpha_output) noexcept {
+    AnimatedWebpDecodeResult result{};
+    result.parse = animated_webp_parse(encoded, image, animation_workspace);
+    if (!result.parse.ok()) {
+        result.error = result.parse.error;
+        return result;
+    }
+    const AnimatedWebpParseResult parse = result.parse;
+    result = animated_webp_decode_parsed_frame(encoded, *image, frame_index, vp8l_workspace, lossy_workspace,
+                                               vp8_frame, vp8_header, rgba_output, alpha_rgba_scratch,
+                                               alpha_output);
+    result.parse = parse;
+    return result;
+}
+inline AnimatedWebpDecodeResult animated_webp_decode_frame_rgba8(
+    ConstSlice<u8> encoded, u32 frame_index, AnimatedWebpImage* image, AnimatedWebpWorkspace* animation_workspace,
+    Vp8lWorkspace* vp8l_workspace, Slice<u8> rgba_output) noexcept {
+    return animated_webp_decode_frame(encoded, frame_index, image, animation_workspace, vp8l_workspace, nullptr,
+                                      nullptr, nullptr, rgba_output, {}, {});
+}
 
 } // namespace maicord

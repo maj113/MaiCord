@@ -96,7 +96,6 @@ GuildCommunityOutcome guild_community_classify(u16 http_status) noexcept;
 inline constexpr u32 kGuildVerificationFieldMaximum = 8;
 inline constexpr u32 kGuildVerificationValueMaximum = 32;
 inline constexpr u32 kGuildVerificationTextBytes = 12 * 1024;
-inline constexpr u32 kGuildVerificationVersionBytes = 48;
 
 enum class GuildVerificationFieldType : u8 { unknown, terms, text_input, paragraph, multiple_choice, verification };
 struct GuildVerificationText {
@@ -114,9 +113,7 @@ struct GuildVerificationForm {
     GuildVerificationField fields[kGuildVerificationFieldMaximum];
     GuildVerificationText description;
     u8 field_count;
-    u8 version_bytes;
     bool truncated; // text, values or fields could not be retained completely
-    char version[kGuildVerificationVersionBytes];
     char text[kGuildVerificationTextBytes];
     u32 text_used;
 };
@@ -160,14 +157,12 @@ struct GuildOnboardingOption {
     u64 id;
     GuildVerificationText title, description, emoji;
     u64 emoji_id;
-    u16 role_count, channel_count;
     bool selected; // in the member's saved responses
 };
 struct GuildOnboardingPrompt {
     u64 id;
     GuildVerificationText title;
     u16 first_option, option_count;
-    u8 type; // 0 multiple choice, 1 dropdown
     bool single_select, required, in_onboarding;
 };
 struct GuildOnboarding {
@@ -175,7 +170,6 @@ struct GuildOnboarding {
     GuildOnboardingOption options[kGuildOnboardingOptionMaximum];
     u64 default_channels[kGuildOnboardingDefaultChannelMaximum];
     u32 prompt_count, option_count, default_channel_count;
-    u8 mode;
     bool enabled, truncated; // incomplete display or saved selections; cannot submit
     char text[kGuildOnboardingTextBytes];
     u32 text_used;
@@ -278,7 +272,6 @@ enum GuildProfileFeature : u32 {
     guild_profile_discoverable = 1u << 0,      // DISCOVERABLE: joinable without an invite
     guild_profile_tags = 1u << 1,              // GUILD_TAGS
 };
-enum class GuildProfileVisibility : u8 { not_specified, public_, restricted, public_with_recruitment };
 struct GuildProfileTrait {
     u8 label_bytes;
     char label[kGuildProfileTraitBytes];
@@ -288,7 +281,6 @@ struct GuildProfile {
     u32 online_count, member_count;
     u32 brand_color; // 0xRRGGBB when has_brand_color
     u32 features;    // GuildProfileFeature
-    GuildProfileVisibility visibility;
     bool has_brand_color;
     u8 icon_bytes, banner_bytes, badge_bytes, tag_bytes, trait_count;
     u16 name_bytes, description_bytes;

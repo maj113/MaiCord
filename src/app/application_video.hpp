@@ -31,7 +31,6 @@ void application_video_blur() noexcept;
 void application_video_close() noexcept;
 // Media viewer hosting: the one session moves between inline and viewer
 // geometry; position and play state stay with the session.
-bool application_video_expanded() noexcept;
 void application_video_viewer_detach() noexcept;
 bool application_video_viewer_pointer(UINT message, UiPoint) noexcept;
 bool application_video_viewer_hidden_cursor() noexcept;

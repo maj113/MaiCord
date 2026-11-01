@@ -111,8 +111,8 @@ UiRect ui_settings_nav_label_rect(const UiSettingsLayoutTokens&, const UiRect& i
 bool ui_settings_separator_paint(PaintStream*, const UiSettingsTokens&, const UiRect& row) noexcept;
 bool ui_settings_search_paint(PaintStream*, const UiSettingsTokens&, const UiRect& field, bool has_text,
                               UiControlState) noexcept;
-UiRect ui_settings_search_text_rect(const UiSettingsLayoutTokens&, const UiRect& field) noexcept;
-UiRect ui_settings_search_clear_rect(const UiSettingsLayoutTokens&, const UiRect& field) noexcept;
+UiRect ui_settings_search_text_rect(const UiRect& field) noexcept;
+UiRect ui_settings_search_clear_rect(const UiRect& field) noexcept;
 UiRect ui_settings_close_rect(const UiSettingsLayoutTokens&, float center_x, float top) noexcept;
 UiRect ui_settings_close_caption_rect(const UiSettingsLayoutTokens&, const UiRect& circle) noexcept;
 bool ui_settings_close_paint(PaintStream*, const UiSettingsTokens&, const UiRect& circle, UiControlState) noexcept;

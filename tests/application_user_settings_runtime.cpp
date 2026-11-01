@@ -413,12 +413,9 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
               c.selected_choice == 1 && project(SettingBinding::animate_stickers) && c.selected_choice == 2 &&
               application_user_settings_reveal_spoilers(0),
           "user settings runtime: Chat settings read text_and_images into the display policy");
-    UserSettingsValue chat_value{};
     check(application_user_settings_activate(SettingBinding::render_reactions, true, 0) && shown.reactions &&
               application_user_settings_activate(SettingBinding::render_spoilers, false, 2) &&
               shown.spoilers == MessageSpoilerReveal::moderator && !application_user_settings_reveal_spoilers(0) &&
-              application_user_settings_read({6, 4, 0, UserSettingsKind::string}, &chat_value) &&
-              utf8_equal({chat_value.text, chat_value.text_bytes}, utf8_literal("IF_MODERATOR")) &&
               application_user_settings_activate(SettingBinding::animate_emoji, false, 0) &&
               shown.emoji == MessageMediaAnimation::interaction &&
               application_user_settings_activate(SettingBinding::convert_emoticons, false, 0) &&

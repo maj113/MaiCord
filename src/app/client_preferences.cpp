@@ -5,9 +5,6 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/hash.hpp"
-#include "maicord/core/win32_process.hpp"
-
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

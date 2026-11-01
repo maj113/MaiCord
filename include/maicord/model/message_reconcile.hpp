@@ -44,16 +44,14 @@ MessageReconcileResult message_reconcile_create(
         MessageContentAvailability::available) noexcept;
 MessageReconcileResult message_reconcile_validate_create(
     const MessageStore* store, const GatewayMessageEvent& event,
-    MessageContentAvailability content_availability =
-        MessageContentAvailability::available) noexcept;
+    MessageContentAvailability content_availability) noexcept;
 MessageReconcileResult message_reconcile_update(
     MessageStore* store, const GatewayMessageEvent& event,
     MessageContentAvailability content_availability =
         MessageContentAvailability::available) noexcept;
 MessageReconcileResult message_reconcile_validate_update(
     const MessageStore* store, const GatewayMessageEvent& event,
-    MessageContentAvailability content_availability =
-        MessageContentAvailability::available) noexcept;
+    MessageContentAvailability content_availability) noexcept;
 MessageReconcileResult message_reconcile_delete(
     MessageStore* store, const GatewayMessageDeleteEvent& event) noexcept;
 

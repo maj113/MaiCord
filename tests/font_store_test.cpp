@@ -1,6 +1,7 @@
 #include "maicord/text/font_store.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/text/font_instance.hpp"
+#include "text_seams.hpp"
 #include "maicord/core/byte_order.hpp"
 namespace maicord {namespace {
 #include "generated/tt_outline_fixture.inc"

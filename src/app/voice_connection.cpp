@@ -119,7 +119,7 @@ bool voice_connection_event(VoiceConnection* connection, const VoiceSessionEvent
     case VoiceSessionEventKind::binary: {
         voice_log(kInfo, "gateway_binary", "op", value.binary.opcode, "seq", value.binary.sequence, "bytes",
                   value.binary.data.count);
-        const auto route = voice_dave_route_binary(&connection->dave, value.binary);
+        const auto route = voice_dave_route_binary(value.binary);
         if (route == VoiceDaveRoute::rejected) {
             // Unexpected direction or truncated: logged, never a reason to drop the call.
             voice_log(kWarning, "dave_binary_rejected", "op", value.binary.opcode);
@@ -139,7 +139,7 @@ bool voice_connection_event(VoiceConnection* connection, const VoiceSessionEvent
     if (opcode != 5)
         voice_log(kInfo, "gateway_op", "op", opcode, "seq",
                   value.envelope.has_sequence ? value.envelope.sequence : 0);
-    const auto route = voice_dave_route_json(&connection->dave, opcode);
+    const auto route = voice_dave_route_json(opcode);
     if (route == VoiceDaveRoute::rejected) {
         // Client-direction DAVE opcodes (23, 26, 28, 31) echoed or reported
         // by the server carry nothing we must act on.
@@ -315,7 +315,6 @@ void voice_connection_stop(VoiceConnection* connection) noexcept {
     connection->reconnect_deadline_ms = 0;
     connection->reconnect_pending = connection->resumed = false;
     connection->reconnect_attempts = 0;
-    reset_value(&connection->dave);
     connection->sink_want_count = 0;
     connection->sink_wants_configured = connection->sink_wants_sent = false;
     connection->dave_reconnects = 0;

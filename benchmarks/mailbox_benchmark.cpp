@@ -23,7 +23,6 @@ void reset_mailbox() noexcept {
     InterlockedExchange(&g_mailbox.write_sequence, 0);
     InterlockedExchange64(&g_mailbox.payload_read_sequence, 0);
     InterlockedExchange64(&g_mailbox.payload_write_sequence, 0);
-    InterlockedExchange(&g_mailbox.dropped, 0);
 }
 
 void report(const char* event_metric, const char* byte_metric, u64 iterations, u32 payload_bytes,

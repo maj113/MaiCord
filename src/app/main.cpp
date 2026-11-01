@@ -99,17 +99,6 @@ namespace {
 
 using namespace app_detail;
 
-// Main-thread wakes after startup settles, by cause; logged at shutdown so idle
-// wake rates are measurable without tracing.
-struct LoopWakeLedger {
-    u64 settled_at_ms;
-    u64 wakes;
-    u64 timeouts;
-    u64 messages;
-    u64 frames;
-    u64 handles;
-};
-
 void drain_deferred_text_services() noexcept {
     static bool failed = false;
     const bool next_failed = !secure_text_store_process_deferred();
@@ -222,8 +211,6 @@ int application_run() noexcept {
         log_close();
         return 2;
     }
-    log_u64(LogLevel::info, "model", "message_records", g_app.message_view.store.count);
-    log_u64(LogLevel::info, "model", "message_text_bytes", g_app.message_view.store.text_used);
     MAICORD_PERF_MARK("message_view");
     if (!application_create_main_window(application_window_proc)) {
         renderer_prestart_cancel();
@@ -316,8 +303,6 @@ int application_run() noexcept {
     bool quit = false;
     constexpr u64 kFrameClockWatchdogUs = 100'000;
     constexpr u64 kFrameClockFallbackUs = 16'000;
-    constexpr u64 kWakeLedgerSettleMs = 5'000;
-    LoopWakeLedger wake_ledger{clock_monotonic_milliseconds() + kWakeLedgerSettleMs};
     application_trace_load_stage("loop_entered");
     MAICORD_PERF_MARK("loop_entered");
     // Synchronization timer for tolerant background waits (SetWaitableTimerEx).
@@ -445,17 +430,6 @@ int application_run() noexcept {
                                  waited >= WAIT_OBJECT_0 && waited < WAIT_OBJECT_0 + wait_handle_count);
 #endif
         u64 restart_now_ms = clock_monotonic_milliseconds();
-        if (restart_now_ms >= wake_ledger.settled_at_ms) {
-            ++wake_ledger.wakes;
-            if (waited == WAIT_TIMEOUT)
-                ++wake_ledger.timeouts;
-            else if (waited == WAIT_OBJECT_0 + wait_handle_count)
-                ++wake_ledger.messages;
-            else if (frame_handle_index != 0xFFFFFFFFu && waited == WAIT_OBJECT_0 + frame_handle_index)
-                ++wake_ledger.frames;
-            else
-                ++wake_ledger.handles;
-        }
         application_preferences_poll();
         application_media_auth_poll();
         application_custom_theme_poll();
@@ -766,14 +740,6 @@ int application_run() noexcept {
     g_app.frame_loop_active = false;
     if (wake_timer)
         CloseHandle(wake_timer);
-    const u64 wake_end_ms = clock_monotonic_milliseconds();
-    log_u64(LogLevel::info, "app", "steady_wake_window_ms",
-            wake_end_ms > wake_ledger.settled_at_ms ? wake_end_ms - wake_ledger.settled_at_ms : 0);
-    log_u64(LogLevel::info, "app", "steady_wakes", wake_ledger.wakes);
-    log_u64(LogLevel::info, "app", "steady_wake_timeouts", wake_ledger.timeouts);
-    log_u64(LogLevel::info, "app", "steady_wake_messages", wake_ledger.messages);
-    log_u64(LogLevel::info, "app", "steady_wake_frames", wake_ledger.frames);
-    log_u64(LogLevel::info, "app", "steady_wake_handles", wake_ledger.handles);
     drain_deferred_text_services();
     application_media_picker_close();
     application_preferences_shutdown();
@@ -800,7 +766,7 @@ int application_run() noexcept {
     application_forum_preview_release();
     application_composer_preview_release();
     g_app.renderer_ready = false;
-    application_log_shutdown_metrics();
+    application_persist_drafts_on_exit();
     application_release_account_ui(g_app);
     application_release_login_ui();
     application_release_widget_storage(g_app);

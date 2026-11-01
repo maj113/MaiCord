@@ -111,14 +111,12 @@ ConstSlice<u8> user_settings_proto_group(ConstSlice<u8> extracted, u32 group) no
 bool user_settings_proto_patch_valid(ConstSlice<u8> partial) noexcept;
 u32 user_settings_proto_write_patch_json(ConstSlice<u8> partial, u32 required_data_version,
                                          Slice<u8> output, bool required = false) noexcept;
-// {"settings":"<base64>","out_of_date":bool} from GET/PATCH. Escaped base64
-// must be unescaped by the caller into `unescape` scratch.
+// {"settings":"<base64>","out_of_date":bool} from GET/PATCH. A string with JSON escapes is refused (capacity).
 struct UserSettingsResponse {
     UserSettingsExtractResult extracted;
     bool out_of_date, settings_present;
 };
-UserSettingsResponse user_settings_proto_decode_response(Utf8View body, u32 mask, Slice<char> unescape,
-                                                         Slice<u8> output) noexcept;
+UserSettingsResponse user_settings_proto_decode_response(Utf8View body, u32 mask, Slice<u8> output) noexcept;
 
 // Optimistic store. Single in-flight PATCH; edits made meanwhile wait for its
 // completion. Server snapshots never discard pending edits: they rebase.
@@ -144,7 +142,7 @@ struct UserSettingsStore {
 };
 enum class UserSettingsOutcome : u8 { saved, out_of_date, rate_limited, invalid_data, failed };
 struct UserSettingsCompletion {
-    bool rolled_back, retry;
+    bool rolled_back;
 };
 void user_settings_store_reset(UserSettingsStore*) noexcept;
 // Full snapshots replace every stored group; partial ones replace the groups

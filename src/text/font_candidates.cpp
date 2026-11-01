@@ -63,7 +63,7 @@ SfntStatus native_font_candidates_open(const SfntFace& face,NativeFontCandidates
 SfntStatus native_font_candidate(const NativeFontCandidates& source,u32 index,NativeFontCandidate* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);if(!source.count||index>=source.count)return SfntStatus::invalid_input;
     const u32 named=index<source.axes.instance_count?index:default_named;NativeFontProperties p{};const auto status=properties(source,named,&p);if(status!=SfntStatus::ok)return status;
-    *output={p,named};return SfntStatus::ok;
+    *output={p};return SfntStatus::ok;
 }
 SfntStatus native_font_candidate_settings(const NativeFontCandidates& source,u32 index,Slice<FontAxisSetting> output,u32* count) noexcept {
     if(!count)return SfntStatus::invalid_input;*count=0;if(!source.count||index>=source.count||(output.count&&!output.data))return SfntStatus::invalid_input;

@@ -143,7 +143,6 @@ enum class HttpChunkStepState : u8 {
 struct HttpChunkStep {
     ConstSlice<u8> data;
     u32 consumed;
-    u32 error_offset;
     HttpError error;
     HttpChunkStepState state;
 
@@ -202,8 +201,6 @@ struct HttpResponseDecoder {
 };
 
 struct HttpResponseDecoderStep {
-    u32 accepted;
-    u32 body_bytes;
     u32 extra_bytes;
     HttpResponseDecoderState state;
     HttpResponseDecoderError error;

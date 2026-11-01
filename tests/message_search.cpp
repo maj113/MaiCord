@@ -705,7 +705,7 @@ void test_message_search(void (*check)(bool, const char*) noexcept) noexcept {
           "search controller: busy REST admission waits without creating a retry timer");
     const auto old_token = token;
     check(message_search_complete(&controller, token, 202, true, false, nullptr, 100, 5000) &&
-              controller.state == MessageSearchState::indexing && !controller.has_results &&
+              controller.state == MessageSearchState::indexing && !controller.total_results &&
               message_search_next_wake(&controller) == 5100 &&
               !message_search_submit(&controller, 2, 5100, &token) &&
               !message_search_submit(&controller, 3, 5099, &token) &&
@@ -717,16 +717,16 @@ void test_message_search(void (*check)(bool, const char*) noexcept) noexcept {
     page.group_count = 2;
     page.message_count = 3;
     check(message_search_complete(&controller, token, 200, true, true, &page, 5200, 0) &&
-              controller.has_results && controller.total_results == 41 &&
+              controller.total_results == 41 &&
               controller.state == MessageSearchState::ready && !message_search_next_wake(&controller) &&
               !message_search_complete(&controller, token, 200, true, true, &page, 5201, 0),
           "search controller: successful page settles and duplicate completions cannot republish");
     const auto page_token = token;
-    check(message_search_page(&controller, 25) && controller.has_results &&
+    check(message_search_page(&controller, 25) &&
               message_search_submit(&controller, 3, 5300, &token) &&
               !message_search_accepts(&controller, page_token) &&
               message_search_complete(&controller, token, 403, true, false, nullptr, 5300, 0) &&
-              controller.state == MessageSearchState::failed && controller.has_results,
+              controller.state == MessageSearchState::failed && controller.total_results == 41,
           "search controller: pagination fences prior page and errors retain labelled prior results");
     check(message_search_begin(&controller, 124, query) &&
               message_search_submit(&controller, 4, 5400, &token) &&

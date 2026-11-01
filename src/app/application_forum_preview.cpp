@@ -22,7 +22,6 @@ struct PreviewEntry {
 };
 struct PreviewOwner {
     PreviewEntry entries[kPreviewSlots];
-    u64 admissions;
 };
 PreviewOwner* owner;
 u32 next_generation;
@@ -232,11 +231,8 @@ bool application_forum_preview_request(u64 now, u64 unix_now) noexcept {
             continue;
         const auto result = g_app.account.api.media_local_preview(
             entry->instance, AccountLocalPreviewOperation::request, &entry->request, now, unix_now);
-        if (result.state == AccountMediaRequestState::queued) {
-            entry->admitted = true;
-            ++owner->admissions;
-        } else if (result.state == AccountMediaRequestState::pending ||
-                   result.state == AccountMediaRequestState::ready)
+        if (result.state == AccountMediaRequestState::queued || result.state == AccountMediaRequestState::pending ||
+            result.state == AccountMediaRequestState::ready)
             entry->admitted = true;
         else if (result.state != AccountMediaRequestState::busy) {
             changed();
@@ -276,21 +272,5 @@ u64 application_forum_preview_next_wake() noexcept {
             if (entry.occupied && entry.poll_at && (!wake || entry.poll_at < wake))
                 wake = entry.poll_at;
     return wake;
-}
-ApplicationForumPreviewMetrics application_forum_preview_metrics() noexcept {
-    ApplicationForumPreviewMetrics value{};
-    if (!owner)
-        return value;
-    value.owner_bytes = sizeof(*owner);
-    value.committed_bytes = (sizeof(*owner) + 4095u) & ~4095u;
-    value.admissions = owner->admissions;
-    for (const auto& entry : owner->entries)
-        if (entry.occupied) {
-            ++value.active;
-            value.pending += entry.admitted && !entry.ready && !entry.failed;
-            value.ready += entry.ready;
-            value.failed += entry.failed;
-        }
-    return value;
 }
 } // namespace maicord::app_detail

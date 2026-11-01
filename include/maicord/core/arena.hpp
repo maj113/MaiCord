@@ -14,14 +14,6 @@ struct Arena {
     u32 commit_count;
 };
 
-// Process-wide totals since start: arena initializations, commit calls and bytes
-// committed. Updated only on initialization and commit, never on the bump path.
-struct ArenaProcessCounters {
-    u64 initializations;
-    u64 commits;
-    u64 committed_bytes;
-};
-
 struct ArenaMark {
     usize offset;
 };
@@ -42,7 +34,6 @@ void arena_reset(Arena* arena, ArenaRewindMode mode = ArenaRewindMode::retain) n
 // Rewinds to `offset` (at most the current offset) and decommits the whole
 // pages past it; the reservation stays and later allocations commit again.
 bool arena_trim(Arena* arena, usize offset) noexcept;
-ArenaProcessCounters arena_process_counters() noexcept;
 
 // A zero count yields nullptr, like a zero byte count.
 template <typename T> T* arena_allocate(Arena* arena, u32 count = 1) noexcept {

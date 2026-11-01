@@ -241,8 +241,8 @@ void storage(AccountUiRuntime& ui, usize page) noexcept {
         scratch.rich.snapshot.mention_users.data == bank->snapshot.named_users &&
         scratch.rich.snapshot.mention_users.count == kMessageHistoryNamedUserCapacity,
         "snapshot pools keep full separate limits without new allocation owner or relocating outer arrays");
-    check(application_message_body_may_have_snapshot(utf8_literal(R"({"message_\u0073napshots":[]})")) &&
-        !application_message_body_may_have_snapshot(utf8_literal(R"({"content":"ordinary"})")),
+    check((application_message_body_optional_fields(utf8_literal(R"({"message_\u0073napshots":[]})")) & 2) &&
+        !(application_message_body_optional_fields(utf8_literal(R"({"content":"ordinary"})")) & 2),
         "optional admission conservatively includes escaped property names");
     measurement("MEASURE history_snapshot_additional_committed_bytes=", full_committed - committed);
     application_history_decode_storage_release(ui);

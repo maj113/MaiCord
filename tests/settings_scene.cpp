@@ -1,5 +1,6 @@
 #include "maicord/ui/settings_scene.hpp"
 #include "maicord/ui/settings_schema.hpp"
+#include "settings_schema_validation.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/button.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
@@ -349,8 +350,7 @@ void test_modal_scene(Check check) noexcept {
               search_geometry.text.left > search->rectangle.left,
           "settings modal: the sidebar search field is a hit target with editor geometry");
     UiSettingsEditor query{{utf8_literal("emb"), 3, 3, true, true, true}, nullptr, utf8_literal("Search")};
-    const auto clear = search ? ui_settings_search_clear_rect(ui_settings_tokens(kDefaultTheme), search->rectangle)
-                              : UiRect{};
+    const auto clear = search ? ui_settings_search_clear_rect(search->rectangle) : UiRect{};
     check(ui_settings_scene_set_search(&scene, query) &&
               ui_settings_scene_hit_test(scene, center(clear).x, center(clear).y).kind ==
                   UiSettingsTargetKind::search_clear,

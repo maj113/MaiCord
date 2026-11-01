@@ -73,8 +73,8 @@ void grants() noexcept {
           output.locked && output.bytes == sizeof(OAuthTokens), "exchange publishes locked credentials without a native socket in the injected transport");
     if (output.data) {
         const auto* value = reinterpret_cast<OAuthTokens*>(output.data);
-        check(value->access_bytes == 6 && value->refresh_bytes == 7 && value->expires_seconds == 3600,
-              "exchange preserves token output and expiry");
+        check(value->access_bytes == 6 && value->refresh_bytes == 7,
+              "exchange preserves token output");
         auto* saved = output.data;
         result = oauth_authorization_exchange(owner, client, 49152, utf8_literal("one-use/+="), verifier, &output, transport);
         check(!result.ok() && fake.calls == 1 && output.data == saved, "nonempty output cannot overwrite live credentials or issue a second request");

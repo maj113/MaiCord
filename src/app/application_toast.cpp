@@ -6,8 +6,6 @@
 #include "maicord/render/layer_presentation.hpp"
 #include "account_ui_runtime.hpp"
 
-#include "maicord/core/win32_user.hpp"
-
 namespace maicord::app_detail {
 namespace {
 // Text owner for the toast: one root over the window.

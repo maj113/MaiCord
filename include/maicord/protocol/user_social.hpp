@@ -92,7 +92,6 @@ struct ReportElement {
     Utf8View name, header, body, url;
     u32 option_first, option_count;
     ReportElementKind kind;
-    bool submit; // should_submit_data
 };
 struct ReportChild {
     Utf8View label;
@@ -100,7 +99,7 @@ struct ReportChild {
 };
 struct ReportNode {
     u32 id;
-    Utf8View key, header, subheader, info;
+    Utf8View header, subheader, info;
     ReportButtonKind button;
     u32 button_target;
     u32 child_first, child_count, element_first, element_count;
@@ -109,7 +108,7 @@ struct ReportNode {
 struct ReportMenu {
     Arena storage;
     JsonIndexedDocument document;
-    Utf8View name, language;
+    Utf8View language;
     // Echoed verbatim (string or number) in the submission.
     Utf8View version_json, variant_json;
     u32 root_node_id, success_node_id, fail_node_id;
@@ -117,7 +116,7 @@ struct ReportMenu {
     ReportChild* children;
     ReportElement* elements;
     ReportOption* options;
-    u32 node_count, child_count, element_count, option_count;
+    u32 node_count, element_count;
 };
 bool report_menu_decode(Utf8View body, Slice<u32> scratch, ReportMenu* output) noexcept;
 void report_menu_release(ReportMenu*) noexcept;

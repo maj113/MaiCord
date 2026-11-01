@@ -559,7 +559,11 @@ bool visit_effect_emoji(void* opaque, JsonString name, JsonValue value) noexcept
     switch (member_index<"id", "name", "animated">(name)) {
     case 0: valid = parse_optional_id(value, &e.value.emoji_id); break;
     case 1: valid = decode_text(value, e.value.emoji_name, kSoundboardEmojiNameBytes, &e.value.emoji_name_bytes); break;
-    case 2: valid = value.kind == JsonValueKind::null_value || json_value_to_bool(value, &e.value.emoji_animated); break;
+    case 2: {
+        bool animated = false;
+        valid = value.kind == JsonValueKind::null_value || json_value_to_bool(value, &animated);
+        break;
+    }
     default: break;
     }
     if (!valid)
@@ -574,13 +578,12 @@ bool visit_effect(void* opaque, JsonString name, JsonValue value) noexcept {
     switch (member_index<"channel_id", "guild_id", "user_id", "sound_id", "animation_id", "animation_type",
                          "sound_volume", "emoji">(name)) {
     case 0: valid = json_value_to_u64_or_string(value, &v.channel_id); break;
-    case 1: valid = parse_optional_id(value, &v.guild_id); break;
+    case 1: valid = parse_optional_id(value, &number); break;
     case 2: valid = json_value_to_u64_or_string(value, &v.user_id); break;
     case 3: valid = parse_optional_id(value, &v.sound_id); break;
-    case 4: valid = value.kind == JsonValueKind::null_value || json_value_to_u64_or_string(value, &v.animation_id); break;
+    case 4: valid = value.kind == JsonValueKind::null_value || json_value_to_u64_or_string(value, &number); break;
     case 5:
         valid = value.kind == JsonValueKind::null_value || (json_value_to_u64(value, &number) && number <= 255);
-        v.animation_type = static_cast<u8>(number);
         break;
     case 6: {
         u32 volume = kSoundboardVolumeScale;

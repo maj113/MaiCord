@@ -16,7 +16,7 @@ struct UiVideoSceneStyle {
     float inset{0}, icon_extent{kUiVideoControlIconExtent};
     // The bar sits on video, so it is a black scrim rather than a theme surface.
     float surface_opacity{.6f}, preview_radius{kUiControlCornerRadius};
-    float hover_opacity{kUiMediaHoverOpacity}, track_opacity{.3f};
+    float track_opacity{.3f};
     float spinner_extent{32}, scrim_lead{20};
     UiSpinnerStyle spinner{};
     u32 fade_ms{kUiVideoControlsFadeMs};

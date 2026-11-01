@@ -23,8 +23,6 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "application_log_fields.hpp"
 #include "maicord/core/win32_user.hpp"
-#include "maicord/sys/com.hpp"
-#include <stddef.h>
 
 namespace maicord::app_detail {
 namespace {
@@ -867,7 +865,6 @@ ApplicationNotificationFixtureMetrics application_notifications_fixture_metrics(
     metrics.guilds=n.settings.guild_count; metrics.overrides=n.settings.override_count;
     metrics.threads=n.settings.thread_count; metrics.ready=n.ready; metrics.live=n.live;
     metrics.seen_count=n.seen_next;
-    metrics.owner_sizeof_bytes=static_cast<u32>(sizeof(ApplicationNotifications));
     metrics.audio_epoch=n.audio_epoch; metrics.audio_backend_epoch=n.audio.epoch;
     notification_sound_throttle_deadline(n.sound_throttle,&metrics.sound_deadline);
     metrics.audio_failed=n.audio_failed;
@@ -876,40 +873,8 @@ ApplicationNotificationFixtureMetrics application_notifications_fixture_metrics(
     metrics.audio_pack=n.current_pack;
     metrics.retention_channels=n.retention.count;
     metrics.retention_capacity_channels=n.retention.rows.count;
-    metrics.retention_index_slots=n.retention.index.count;
-    metrics.retention_row_bytes=static_cast<u32>(sizeof(NotificationRetentionRow));
-    // Dense active rows and occupied index entries; handle slack inside each
-    // row is included, while unused capacity and page rounding are separate.
-    metrics.retention_logical_bytes=u64{n.retention.count}*(sizeof(NotificationRetentionRow)+sizeof(u32));
-    metrics.retention_capacity_bytes=u64{n.retention.rows.count}*sizeof(NotificationRetentionRow)+
-        u64{n.retention.index.count}*sizeof(u32);
     for(u32 i=0;i<n.retention.count;++i) saturating_accumulate(metrics.retention_tickets,u64{n.retention.rows[i].count});
-    const auto committed=[](const void* bank) noexcept -> u64 {
-        if(!bank) return 0;
-        MEMORY_BASIC_INFORMATION region{};
-        return VirtualQuery(bank,&region,sizeof(region))==sizeof(region) && region.AllocationBase==bank &&
-            region.BaseAddress==bank && region.State==MEM_COMMIT?static_cast<u64>(region.RegionSize):0;
-    };
-    metrics.retention_rows_committed_bytes=committed(n.retention.rows.data);
-    metrics.retention_index_committed_bytes=committed(n.retention.index.data);
-    if(n.display) {
-        const auto queue=desktop_notification_queue_metrics(&n.display->queue);
-        metrics.display_owner_sizeof_bytes=sizeof(Display); metrics.display_outstanding=queue.outstanding;
-        MEMORY_BASIC_INFORMATION display_region{};
-        if(VirtualQuery(n.display,&display_region,sizeof(display_region))==sizeof(display_region) &&
-            display_region.AllocationBase==n.display && display_region.State==MEM_COMMIT)
-            metrics.display_vm_committed_bytes=display_region.RegionSize;
-    }
-    MEMORY_BASIC_INFORMATION region{};
-    metrics.owner_vm_query_ok=VirtualQuery(&n,&region,sizeof(region))==sizeof(region) &&
-        region.AllocationBase==&n && region.BaseAddress==&n && region.State==MEM_COMMIT;
-    if(metrics.owner_vm_query_ok) metrics.owner_vm_committed_bytes=static_cast<u64>(region.RegionSize);
-    const StableStorage* const storages[]{&n.guilds,&n.overrides,&n.threads,&n.staging,&n.guild_scopes,&n.channel_scopes};
-    for(const StableStorage* storage:storages) {
-        metrics.storage_committed_bytes+=static_cast<u64>(storage->arena.committed);
-        metrics.storage_reserved_bytes+=static_cast<u64>(storage->arena.reserved);
-    }
-    metrics.thread_storage.committed_bytes=static_cast<u64>(n.threads.arena.committed);
+    if(n.display) metrics.display_outstanding=desktop_notification_queue_metrics(&n.display->queue).outstanding;
     return metrics;
 }
 #endif

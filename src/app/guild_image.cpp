@@ -328,7 +328,6 @@ void guild_image_release(GuildImageBuffer* buffer) noexcept {
 GuildImageInfo guild_image_prepare(GuildImageProfile profile, ConstSlice<u8> source, GuildImageBuffer* buffer,
                                    GuildPreparedImage* prepared) noexcept {
     GuildImageInfo info{};
-    info.source_bytes = source.count;
     if (!buffer || !prepared || profile >= GuildImageProfile::count || !byte_range_valid(source) || !source.count ||
         source.count > kGuildImageSourceMaximumBytes)
         return fail(info, GuildImageError::input);

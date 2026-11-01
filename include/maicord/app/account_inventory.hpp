@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/app/account_paths.hpp"
-#include "maicord/core/utf.hpp"
 
 namespace maicord {
 

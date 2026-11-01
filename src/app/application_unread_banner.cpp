@@ -14,7 +14,6 @@
 #include "application_state.hpp"
 #include "application_thread_browser.hpp"
 #include "maicord/app/unread_banner_projection.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/model/permission_compute.hpp"
 #include "maicord/ui/timestamp_format.hpp"
 #include "account_ui_runtime.hpp"

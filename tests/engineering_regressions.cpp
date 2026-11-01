@@ -219,15 +219,16 @@ void test_mailbox_regressions(Check check) noexcept {
         wrap = wrap && spsc_mailbox_push(&mailbox, i, ConstSlice<u8>{payload, 13}).ok() &&
                spsc_mailbox_pop(&mailbox, &value, Slice<u8>{output, 13}).ok() && value == i;
     }
-    check(wrap && spsc_mailbox_size(mailbox) == 0, "mailbox: 32-bit descriptor sequence wraps safely");
-    spsc_mailbox_push(&mailbox, 17u, ConstSlice<u8>{payload, 5});
     u32 value = 0;
+    check(wrap && spsc_mailbox_pop(&mailbox, &value, Slice<u8>{output, 13}).error == SpscMailboxError::empty,
+          "mailbox: 32-bit descriptor sequence wraps safely");
+    spsc_mailbox_push(&mailbox, 17u, ConstSlice<u8>{payload, 5});
     const SpscMailboxResult too_small = spsc_mailbox_pop(&mailbox, &value, Slice<u8>{output, 4});
-    const SpscMailboxResult discarded = spsc_mailbox_discard(&mailbox, &value);
+    const SpscMailboxResult retained = spsc_mailbox_pop(&mailbox, &value, Slice<u8>{output, 5});
     check(too_small.error == SpscMailboxError::output_too_small && too_small.payload_bytes == 5 &&
-              discarded.ok() && discarded.payload_bytes == 5 && value == 17 &&
-              spsc_mailbox_size(mailbox) == 0,
-          "mailbox: failed small output retains ownership until discard");
+              retained.ok() && retained.payload_bytes == 5 && value == 17 &&
+              spsc_mailbox_pop(&mailbox, &value, Slice<u8>{output, 5}).error == SpscMailboxError::empty,
+          "mailbox: failed small output retains ownership until a large enough pop");
 
     // External records keep their payload outside the ring, in FIFO order
     // with ordinary records, and never move the ring's byte sequences.
@@ -257,13 +258,16 @@ void test_mailbox_regressions(Check check) noexcept {
               copied.ok() && copied.external && second == 2 && bytes_equal(large_output, outside, 64) &&
               ring_after_external == ring_read && after.ok() && third == 3 &&
               bytes_equal(output, payload, 9) && !spsc_mailbox_head_external(mailbox) &&
-              spsc_mailbox_size(mailbox) == 0 && spsc_mailbox_payload_used(mailbox) == 0,
+              spsc_mailbox_pop(&mailbox, &third, Slice<u8>{output, 9}).error == SpscMailboxError::empty &&
+              mailbox.payload_read_sequence == mailbox.payload_write_sequence,
           "mailbox: an external record is copied from its producer buffer in FIFO order outside the ring");
     u32 dropped = 0;
-    const bool discarded_external = spsc_mailbox_push_external(&mailbox, 5u, 40).ok() &&
-                                    spsc_mailbox_discard(&mailbox, &dropped).external && dropped == 5 &&
-                                    spsc_mailbox_payload_used(mailbox) == 0 && spsc_mailbox_size(mailbox) == 0;
-    check(discarded_external, "mailbox: discarding an external record releases only its descriptor");
+    const bool released_external = spsc_mailbox_push_external(&mailbox, 5u, 40).ok() &&
+                                   spsc_mailbox_pop(&mailbox, &dropped, Slice<u8>{large_output, 64},
+                                                    ConstSlice<u8>{outside, 64}).external &&
+                                   dropped == 5 && mailbox.payload_read_sequence == mailbox.payload_write_sequence &&
+                                   spsc_mailbox_pop(&mailbox, &dropped, Slice<u8>{output, 9}).error == SpscMailboxError::empty;
+    check(released_external, "mailbox: popping an external record releases only its descriptor");
 }
 
 // reset_value clears the bytes of a kZeroDefault type: its value-initialized form must be all zero bytes.

@@ -86,7 +86,7 @@ struct ClientThemeCatalog {
     ClientThemeCatalogEntry entries[kClientThemeCatalogCapacity];
     u32 count, skipped;
 };
-ClientThemeStorageResult client_theme_catalog_directory(Slice<wchar_t>, bool create_directory = false) noexcept;
+ClientThemeStorageResult client_theme_catalog_directory(Slice<wchar_t>) noexcept;
 // Blocking worker/test boundary. Entries are sorted by file name; a missing
 // directory is an empty catalog. Output is replaced only on success.
 ClientThemeStorageResult client_theme_catalog_scan(const wchar_t* directory, ClientThemeCatalog*) noexcept;

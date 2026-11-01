@@ -17,9 +17,4 @@ void application_forum_preview_retire(const ApplicationForumPostTicket&, u64 dra
 void application_forum_preview_release() noexcept;
 u64 application_forum_preview_next_wake() noexcept;
 u32 application_forum_preview_revision() noexcept;
-struct ApplicationForumPreviewMetrics {
-    u32 owner_bytes, committed_bytes, active, pending, ready, failed;
-    u64 admissions;
-};
-ApplicationForumPreviewMetrics application_forum_preview_metrics() noexcept;
 } // namespace maicord::app_detail

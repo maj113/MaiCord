@@ -125,17 +125,6 @@ struct AnimatedWebpDecodeResult {
 AnimatedWebpParseResult animated_webp_parse(
     ConstSlice<u8> encoded, AnimatedWebpImage* image,
     AnimatedWebpWorkspace* workspace) noexcept;
-AnimatedWebpDecodeResult animated_webp_decode_frame_rgba8(
-    ConstSlice<u8> encoded, u32 frame_index,
-    AnimatedWebpImage* image, AnimatedWebpWorkspace* animation_workspace,
-    Vp8lWorkspace* vp8l_workspace, Slice<u8> rgba_output) noexcept;
-AnimatedWebpDecodeResult animated_webp_decode_frame(
-    ConstSlice<u8> encoded, u32 frame_index, AnimatedWebpImage* image,
-    AnimatedWebpWorkspace* animation_workspace,
-    Vp8lWorkspace* vp8l_workspace,
-    LossyWebpWorkspace* lossy_workspace, Vp8Keyframe* vp8_frame,
-    Vp8ControlHeader* vp8_header, Slice<u8> rgba_output,
-    Slice<u8> alpha_rgba_scratch, Slice<u8> alpha_output) noexcept;
 AnimatedWebpDecodeResult animated_webp_decode_parsed_frame(
     ConstSlice<u8> encoded, const AnimatedWebpImage& image,
     u32 frame_index, Vp8lWorkspace* vp8l_workspace,

@@ -66,11 +66,6 @@ bool application_forum_post_observation_needed() noexcept;
 void application_forum_post_message_observe(const GatewayMessageEvent&) noexcept;
 void application_forum_post_message_deleted(u64 channel_id, u64 message_id) noexcept;
 void application_forum_post_release() noexcept;
-struct ApplicationForumPostMetrics {
-    u32 owner_bytes, owner_committed_bytes, publication_revision;
-    bool flight_active;
-};
-ApplicationForumPostMetrics application_forum_post_metrics() noexcept;
 // Native two-field composer boundary, implemented by application_forum_form.
 bool application_forum_form_open(const ApplicationForumPostTicket&) noexcept;
 // Owner dismissal detaches without cancelling a different or completed intent.

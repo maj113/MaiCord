@@ -102,8 +102,8 @@ void responses() noexcept {
         return oauth_tokens(OAuthProvider::spotify, json, status, {scratch, 256}, &tokens);
     };
     check(parse(utf8_literal(R"({"access_token":"access/+","refresh_token":"refresh/=","expires_in":3600,"token_type":"Bearer","scope":"user-read-private"})")) == OAuthError::none &&
-          tokens.expires_seconds == 3600 && utf8_equal({tokens.access, tokens.access_bytes}, utf8_literal("access/+")) &&
-          utf8_equal({tokens.refresh, tokens.refresh_bytes}, utf8_literal("refresh/=")), "token response preserves opaque credentials and lifetime");
+          utf8_equal({tokens.access, tokens.access_bytes}, utf8_literal("access/+")) &&
+          utf8_equal({tokens.refresh, tokens.refresh_bytes}, utf8_literal("refresh/=")), "token response preserves opaque credentials");
     const auto saved = tokens;
     const Utf8View bad[]{
         utf8_literal(R"({"access_token":"a","access_token":"b","expires_in":3600,"token_type":"Bearer"})"),

@@ -172,8 +172,8 @@ void run() noexcept {
     check(edit(utf8_literal("general")) && q->scene.accepted_count == 1 &&
               q->scene.accepted[0].channel_id == 102,
           "Forward runtime native query publishes send-capable cached destinations");
-    const u32 rebuilds = q->controller.candidates.rebuild_count;
-    check(application_message_forward_synchronize() && q->controller.candidates.rebuild_count == rebuilds &&
+    const u32 rebuilds = q->controller.candidates.revision;
+    check(application_message_forward_synchronize() && q->controller.candidates.revision == rebuilds &&
               q->scene.accepted == accepted_bank,
           "Forward runtime unchanged query avoids scans and result reallocations");
     key(VK_RETURN);

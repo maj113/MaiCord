@@ -7,7 +7,7 @@
 #include "maicord/app/video_stream_decoders.hpp"
 #include "maicord/protocol/voice_video_signaling.hpp"
 #include "maicord/render/video_frame_gpu.hpp"
-#include "maicord/media/yuv_convert_common.hpp"
+#include "yuv_reference.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/dxva.hpp"

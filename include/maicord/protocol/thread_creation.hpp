@@ -57,11 +57,10 @@ enum ThreadCreationField : u8 {
 // field means unknown and must never erase existing self membership in the thread state.
 // The name and every other value are copied; no response pointer is kept.
 struct ThreadCreationSnapshot {
-    u64 id, parent_id, guild_id, last_message_id, archive_timestamp_ms, self_join_timestamp_ms;
-    u32 name_bytes, self_flags;
-    u16 auto_archive_duration;
+    u64 id, parent_id, guild_id, last_message_id, self_join_timestamp_ms;
+    u32 name_bytes;
     u8 type, fields;
-    u8 reserved[4];
+    u8 reserved[2];
     char name[kThreadCreationNameMaximumBytes];
 };
 bool thread_creation_request_valid(const ThreadCreationRequest&) noexcept;
@@ -81,5 +80,5 @@ ThreadCreationResult thread_creation_decode(Utf8View, const ThreadCreationReques
                                             ThreadCreationEnvelope) noexcept;
 Utf8View thread_creation_name_view(const ThreadCreationSnapshot&) noexcept;
 static_assert(sizeof(ThreadCreationRequest) == 48);
-static_assert(sizeof(ThreadCreationSnapshot) == 464);
+static_assert(sizeof(ThreadCreationSnapshot) == 448);
 } // namespace maicord

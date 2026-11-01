@@ -9,7 +9,6 @@
 // at their host boundaries; no account traffic or renderer is created.
 #include "application_quick_switcher.hpp"
 #include "application_private_channel.hpp"
-#include "application_friends.hpp"
 #include "maicord/ui/private_channel_rows.hpp"
 #include "application_input_routing.hpp"
 #include "application_state.hpp"

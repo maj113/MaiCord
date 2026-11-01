@@ -19,7 +19,7 @@ struct VoiceParticipantEvent {
     JsonIndexedDocument document;
     JsonValue users, streams;
     u64 user_id;
-    u32 audio_ssrc, video_ssrc, value, user_count, stream_count, maximum_depth;
+    u32 audio_ssrc, video_ssrc, value, stream_count, maximum_depth;
     u8 opcode;
 };
 // Decode server opcodes 5, 11, 12, 13, 18 and 20. Full validation precedes

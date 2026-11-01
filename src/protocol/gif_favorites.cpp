@@ -532,7 +532,7 @@ void write_group(const ProtoSource& group, const GifFavoriteMutation& mutation, 
 GifFavoritesWriteResult gif_favorites_write_patch(ConstSlice<u8> observed, u32 data_version,
                                                   const GifFavoriteMutation& mutation, Slice<u8> scratch,
                                                   Slice<u8> output) noexcept {
-    const auto fail = [](E error) noexcept { return GifFavoritesWriteResult{0, 0, error}; };
+    const auto fail = [](E error) noexcept { return GifFavoritesWriteResult{0, error}; };
     const ConstSlice<u8> url{reinterpret_cast<const u8*>(mutation.url.data), mutation.url.bytes};
     const ConstSlice<u8> src{reinterpret_cast<const u8*>(mutation.src.data), mutation.src.bytes};
     if (!byte_range_valid(observed) || observed.count > kGifFavoritesMaximumGroupBytes ||
@@ -602,7 +602,7 @@ GifFavoritesWriteResult gif_favorites_write_patch(ConstSlice<u8> observed, u32 d
     encoded.varint(counted.at);
     write_group(group, mutation, plan, encoded);
     proto_write_settings_patch({scratch.data, encoded.at}, data_version, output, true);
-    return {json_bytes, counted.at, E::none};
+    return {json_bytes, E::none};
 }
 GifFavoritesError gif_favorites_validate_patch_json(Utf8View input) noexcept {
     if (input.bytes > kGifFavoritesMaximumPatchBytes ||

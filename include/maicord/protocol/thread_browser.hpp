@@ -70,27 +70,26 @@ enum class ThreadBrowserMediaType : u8 { none, png, jpeg, webp, gif };
 enum ThreadBrowserPostField : u16 {
     thread_browser_post_tags = 1,
     thread_browser_post_message_count = 2,
-    thread_browser_post_total_sent = 4,
-    thread_browser_post_owner = 8,
-    thread_browser_post_flags = 16,
-    thread_browser_post_created = 32,
-    thread_browser_post_starter = 64,
-    thread_browser_post_author = 128,
-    thread_browser_post_media = 256,
+    thread_browser_post_owner = 4,
+    thread_browser_post_flags = 8,
+    thread_browser_post_created = 16,
+    thread_browser_post_starter = 32,
+    thread_browser_post_author = 64,
+    thread_browser_post_media = 128,
 };
 // Text is owned by the caller's bank: [preview][author name][avatar hash][media URL]
 // starting at text_offset. The preview is the starter content with whitespace
 // runs collapsed, cut at a scalar boundary (never mid-codepoint).
 struct ThreadBrowserPost {
-    u64 thread_id, owner_id, create_timestamp_ms, starter_message_id, author_id, media_id;
+    u64 thread_id, owner_id, create_timestamp_ms, author_id, media_id;
     u64 tags[kThreadBrowserPostTagMaximum];
-    u32 message_count, total_message_sent, flags, text_offset;
+    u32 message_count, flags, text_offset;
     u16 preview_bytes, author_name_bytes, avatar_hash_bytes, media_url_bytes;
     u32 media_width, media_height;
     u16 fields;
     u8 tag_count;
     ThreadBrowserMediaType media_type;
-    u8 reserved[4];
+    u8 reserved[8];
 };
 struct ThreadBrowserPostPage {
     Slice<ThreadBrowserPost> posts;
@@ -111,7 +110,7 @@ ThreadBrowserResult thread_browser_decode(
     Slice<u32> structural_scratch, Slice<ThreadBrowserRow> row_scratch,
     Slice<char> name_scratch, ThreadBrowserPage* output) noexcept;
 // Same contract as thread_browser_decode, plus strict post metadata:
-// applied_tags (<=5 unique snowflakes), message_count, total_message_sent,
+// applied_tags (<=5 unique snowflakes), message_count, validated total_message_sent,
 // owner_id, flags, thread_metadata.create_timestamp and first_messages
 // (one starter per page thread: content, author, first image attachment).
 // Both descriptors are published together, only after everything validates.
@@ -128,6 +127,6 @@ Utf8View thread_browser_post_media_url(const ThreadBrowserPostPage&, u32 index) 
 static_assert(sizeof(ThreadBrowserRequest) == 40);
 static_assert(sizeof(ThreadBrowserRow) == 56);
 static_assert(sizeof(ThreadBrowserPage) == 48);
-static_assert(sizeof(ThreadBrowserPost) == 128);
+static_assert(sizeof(ThreadBrowserPost) == 120);
 
 } // namespace maicord

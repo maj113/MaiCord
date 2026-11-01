@@ -31,7 +31,6 @@ struct EmojiPreferencesSnapshot {
     // when malformed; it never makes the decode fail.
     ConstSlice<u8> favorites, frecency, reaction_frecency, sticker_frecency;
     u32 data_version;
-    bool versions_present;
 };
 
 struct EmojiPreferencesResult {

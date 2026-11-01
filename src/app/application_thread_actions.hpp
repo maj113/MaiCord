@@ -77,11 +77,6 @@ bool application_thread_actions_synchronize() noexcept;
 u64 application_thread_actions_next_wake() noexcept;
 void application_thread_actions_release() noexcept;
 u32 application_thread_actions_publication_revision() noexcept;
-struct ApplicationThreadActionMetrics {
-    u32 owner_bytes, owner_committed_bytes, entry_count, publication_revision;
-    bool flight_active;
-};
-ApplicationThreadActionMetrics application_thread_actions_metrics() noexcept;
 // Fresh dispatch checks also used when queued or retried send/edit/delete requests are accepted.
 bool application_thread_actions_channel_readable(u64 channel_id) noexcept;
 bool application_thread_actions_channel_sendable(u64 channel_id) noexcept;

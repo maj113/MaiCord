@@ -76,7 +76,6 @@ enum class GuildImageError : u8 {
 struct GuildImageInfo {
     u32 source_width;
     u32 source_height;
-    u32 source_bytes;
     u32 width;
     u32 height;
     u32 bytes;
@@ -226,7 +225,7 @@ GuildAssetResult guild_asset_decode_stickers(Utf8View body, Slice<u32> scratch,
 // Error code ("code") of a JSON error body; zero when absent or invalid.
 u64 guild_asset_error_code(Utf8View body, Slice<u32> scratch) noexcept;
 
-static_assert(sizeof(GuildImageInfo) == 32);
+static_assert(sizeof(GuildImageInfo) == 28);
 static_assert(sizeof(GuildAssetRequest) == 128);
 
 } // namespace maicord

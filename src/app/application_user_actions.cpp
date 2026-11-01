@@ -527,10 +527,6 @@ u32 application_user_actions_private_channel_items(u64 channel_id, Slice<PopupIt
     return count;
 }
 
-bool application_user_menu_action(u32 action) noexcept {
-    return user_context_action(action);
-}
-
 bool application_user_menu_activate(u32 action) noexcept {
     if (!available() || !g_state || !g_app.popup_scene.active)
         return dismiss_popup();

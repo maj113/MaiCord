@@ -133,7 +133,6 @@ struct AccessibilityRuntime {
     UiAccessAnnouncer announcer;
     StatusObserver status;
     void* storage;
-    usize committed_bytes;
     PendingAction pending[kPendingCapacity];
     char pending_text[kUiAccessValueMaximumBytes];
     u64 listen_sampled_ms;
@@ -1179,11 +1178,7 @@ bool grow_exhausted() noexcept {
     const bool slots = grow(ui_access_exhausted_slots, tree.slot_map.count, kSlotCapacity, kSlotOffset,
                             sizeof(u32));
     const bool text = grow(ui_access_exhausted_text, tree.text.count, kTextCapacity, kTextOffset, 1);
-    if (!nodes && !slots && !text)
-        return false;
-    g_access.committed_bytes = kNodeOffset + sizeof(UiAccessNode) * tree.nodes.count +
-                               sizeof(u32) * tree.slot_map.count + tree.text.count;
-    return true;
+    return nodes || slots || text;
 }
 
 void build_tree() noexcept {
@@ -1218,8 +1213,6 @@ bool ensure_storage() noexcept {
         return false;
     }
     g_access.storage = base;
-    g_access.committed_bytes = kNodeOffset + sizeof(UiAccessNode) * kInitialNodeCapacity +
-                               sizeof(u32) * kInitialSlotCapacity + kInitialTextCapacity;
     g_access.dirty = true;
     return true;
 }
@@ -1422,9 +1415,9 @@ bool set_settings_text(const UiAccessNode& node, Utf8View text) noexcept {
     u64 control = 0;
     MessageComposer* model = nullptr;
     BoundedEdit* binding = nullptr;
-    if (!settings_layer_editor(layer, &control, &model, &binding, nullptr) || control != node.item) {
+    if (!settings_layer_editor(layer, &control, &model, &binding) || control != node.item) {
         click_node(node);
-        if (!settings_layer_editor(layer, &control, &model, &binding, nullptr) || control != node.item)
+        if (!settings_layer_editor(layer, &control, &model, &binding) || control != node.item)
             return false;
     }
     return settings_layer_replace_text(layer, text);
@@ -1435,7 +1428,7 @@ bool select_settings_text(const UiAccessNode& node, u32 anchor, u32 caret) noexc
     u64 control = 0;
     MessageComposer* model = nullptr;
     BoundedEdit* binding = nullptr;
-    if (!layer || !settings_layer_editor(layer, &control, &model, &binding, nullptr) || control != node.item)
+    if (!layer || !settings_layer_editor(layer, &control, &model, &binding) || control != node.item)
         return false;
     message_composer_set_selection(model, anchor, caret);
     return settings_layer_edit_changed(layer, false);
@@ -2078,10 +2071,6 @@ void application_accessibility_frame_presented() noexcept {
         g_access.status.primed = g_access.status.mentions_primed = false;
         return;
     }
-}
-
-usize application_accessibility_committed_bytes() noexcept {
-    return g_access.storage ? g_access.committed_bytes : 0;
 }
 
 void application_accessibility_shutdown() noexcept {

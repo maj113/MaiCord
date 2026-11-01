@@ -108,7 +108,7 @@ struct H264StreamState {
     u8 reorder;       // Current output delay in pictures.
     u8 reorder_limit; // Upper bound for adaptive reorder growth.
     bool active, waiting, drain, output_started, unsupported;
-    u32 decoded, dropped, damaged, gaps, late;
+    u32 decoded, dropped, damaged, gaps;
 };
 // Starts waiting for an IDR without forgetting parameter sets. Also the
 // response to a rejected picture or a lost decoded one: the DPB can no longer

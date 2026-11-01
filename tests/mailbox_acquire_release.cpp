@@ -1,4 +1,4 @@
-#include "maicord/core/spsc_mailbox.hpp"
+#include "spsc_mailbox_state.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 

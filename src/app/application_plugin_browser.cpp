@@ -9,7 +9,6 @@
 #include "maicord/app/update_log.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/hash.hpp"
-#include "maicord/core/time.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 

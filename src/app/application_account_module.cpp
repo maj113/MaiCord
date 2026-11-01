@@ -463,12 +463,12 @@ __declspec(noinline) static void apply_visible_author_interest(AccountUiRuntime&
     retain_interest();
 }
 
-void synchronize_visible_author_hydration(u64 now_ms, bool pins_reset) noexcept {
+void synchronize_visible_author_hydration(u64 now_ms) noexcept {
     if (!g_app.account_ui)
         return;
     auto& ui = *g_app.account_ui;
-    pins_reset = pins_reset || g_author_member_pin_epoch != ui.guild_member_store.user_pin_epoch ||
-                 g_author_user_pin_epoch != ui.user_store.pin_epoch;
+    const bool pins_reset = g_author_member_pin_epoch != ui.guild_member_store.user_pin_epoch ||
+                            g_author_user_pin_epoch != ui.user_store.pin_epoch;
     const auto& owner = ui.author_hydration;
     const auto* selected =
         chat_state_store_find_channel(ui.chat_state, ui.chat_state.selected_channel_id);

@@ -97,7 +97,6 @@ bool decode_settings(Utf8View settings, u8** groups, u32* group_bytes, EmojiPref
         *groups = nullptr;
         *group_bytes = 0;
         reset_value(snapshot);
-        snapshot->versions_present = false;
         return true;
     }
     if (measured.bytes > kRestClientMaximumResponseBytes)

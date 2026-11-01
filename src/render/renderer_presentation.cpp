@@ -902,27 +902,17 @@ bool renderer_paint_diff_damage(D3D11Renderer* renderer, const Theme& theme) noe
     const RendererPresentationStamp structure = renderer_capture_presentation_stamp(*renderer, theme, true);
     const u64 text = text_signature(*renderer);
     const u64 layout = layout_signature(*renderer);
-    u8 reject = !diff.valid ? 1
-                : renderer->login_visible || !renderer->content_text || paint.rejected != 0 ||
-                        paint.batch_count > kMaxPaintBatches || paint.clip_count > kMaxPaintClips
-                    ? 2
-                : !renderer_presentation_stamp_equal(structure, diff.structure) ? 3
-                : text != diff.text_signature                                  ? 4
-                : layout != diff.layout_signature                              ? 5
-                : paint.clip_count != diff.frame.clip_count || paint.batch_count != diff.frame.batch_count ||
-                        !bytes_equal(paint.clips, diff.frame.clips,
-                                     static_cast<usize>(paint.clip_count) * sizeof(PaintClip))
-                    ? 6
-                    : 0;
     // Damage is staged on a copy so a rejected comparison leaves the tracker
     // exactly as it was (the caller then invalidates the whole frame).
     const PresentationDamageTracker staged = renderer->presentation_damage;
-    if (!reject && !add_paint_damage(renderer, diff.frame))
-        reject = 7;
-    if (!reject && !add_media_damage(renderer, diff.frame))
-        reject = 8;
-    const bool partial = reject == 0;
-    diff.reject_reason = reject;
+    const bool partial =
+        diff.valid && !renderer->login_visible && renderer->content_text && paint.rejected == 0 &&
+        paint.batch_count <= kMaxPaintBatches && paint.clip_count <= kMaxPaintClips &&
+        renderer_presentation_stamp_equal(structure, diff.structure) && text == diff.text_signature &&
+        layout == diff.layout_signature && paint.clip_count == diff.frame.clip_count &&
+        paint.batch_count == diff.frame.batch_count &&
+        bytes_equal(paint.clips, diff.frame.clips, static_cast<usize>(paint.clip_count) * sizeof(PaintClip)) &&
+        add_paint_damage(renderer, diff.frame) && add_media_damage(renderer, diff.frame);
     if (!partial)
         copy_value(&renderer->presentation_damage, staged);
     diff.valid = false;

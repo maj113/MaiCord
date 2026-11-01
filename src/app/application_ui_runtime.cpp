@@ -51,7 +51,6 @@
 #include "maicord/app/message_event_pump.hpp"
 #include "maicord/app/message_media_controller.hpp"
 #include "maicord/app/message_view_runtime.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/app/reaction_viewer_storage.hpp"
 #include "maicord/model/typing_store.hpp"
 #include "maicord/render/d3d11_renderer.hpp"
@@ -511,7 +510,7 @@ bool application_initialize_account_ui(Application& application) noexcept {
             Slice<MessageDraftRecord>{runtime->message_draft_records, kMessageDraftCapacity},
             Slice<u8>{runtime->message_draft_text, kMessageDraftTextCapacity}) ||
         !reaction_preferences_initialize(&runtime->reaction_preferences) ||
-        !message_composer_controller_initialize_sparse(
+        !message_composer_controller_initialize(
             &runtime->message_composer_controller, &application.message_composer, &runtime->message_drafts,
             &application.message_view.timeline,
             Slice<u8>{runtime->message_request_text, kMessageRequestTextCapacity}) ||

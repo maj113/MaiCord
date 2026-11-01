@@ -50,8 +50,6 @@ struct ReactionUsersDecodeResult {
     u32 text_bytes;
     u32 error_offset;
     ReactionUsersDecodeError error;
-    JsonScanError scan_error;
-    JsonReadError read_error;
 
     constexpr bool ok() const noexcept {
         return error == ReactionUsersDecodeError::none;

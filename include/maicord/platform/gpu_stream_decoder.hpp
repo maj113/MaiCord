@@ -64,12 +64,11 @@ struct GpuStreamDecoderOptions {
     bool synchronous; // Decode inside push (tests/tools); no thread is created.
 };
 struct GpuStreamDecoderStats {
-    u32 received, decoded, presented, dropped, damaged, gaps, late;
-    u32 keyframe_requests, reinitializations, gpu_failures, overflows;
+    u32 received, decoded, presented, dropped, damaged, gaps;
+    u32 keyframe_requests, reinitializations, gpu_failures;
     u32 coded_width, coded_height, surfaces;
     u32 idle_releases;
     u64 uploaded_bytes; // Picture parameters, matrices, bitstream and slice control sent to the driver.
-    i32 last_status;    // Last failing HRESULT, S_OK when none.
     bool unsupported;   // The stream (or the GPU) cannot decode the current parameter sets.
     bool device_lost;
 };

@@ -6,7 +6,6 @@ namespace maicord {
 
 inline constexpr u32 kDeflateLiteralSymbolCapacity = 288;
 inline constexpr u32 kDeflateDistanceSymbolCapacity = 32;
-inline constexpr u32 kDeflateCodeSymbolCapacity = 19;
 inline constexpr u32 kDeflateDynamicLengthCapacity = 320;
 inline constexpr u32 kZlibStreamWindowBytes = 32 * 1024;
 

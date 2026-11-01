@@ -1,4 +1,5 @@
 #include "probe_present.hpp"
+#include "../layout_validation.hpp"
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/render/renderer_presentation.hpp"
 #include "maicord/ui/secure_edit.hpp"

@@ -530,7 +530,7 @@ void run() noexcept {
           "forum: bounded busy admission stops with retained draft and explicit retry");
     admission = {};
     application_forum_post_release();
-    check(!forum_owner && !form_visible && !application_forum_post_metrics().owner_bytes,
+    check(!forum_owner && !form_visible,
           "forum: lazy owner and native form release without flight or draft leak");
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;

@@ -266,7 +266,7 @@ void audio_hit_tests() noexcept {
 // The message menu host is a boundary here: it records the media rows the
 // downloads owner merges and publishes the controller identity it validates.
 PopupItem menu_rows[8];
-u32 menu_row_count, menu_open_calls;
+u32 menu_row_count;
 // What plugin rows would have received: attachment target, index and filename.
 u32 plugin_target, plugin_index;
 char plugin_text[64];
@@ -1335,7 +1335,6 @@ void application_user_settings_request_content_confirmation() noexcept {
 bool open_message_media_context_popup(u64 message_id, UiRect, ConstSlice<PopupItem> media,
                                       const ApplicationPluginMenuExtra* plugin) noexcept {
     using namespace downloads_runtime_test;
-    ++menu_open_calls;
     plugin_target = plugin ? plugin->target : 0;
     plugin_index = plugin ? plugin->attachment_index : ~0u;
     plugin_text_bytes = plugin ? minimum(plugin->text.bytes, 64u) : 0;

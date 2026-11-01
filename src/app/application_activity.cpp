@@ -169,8 +169,7 @@ void application_activity_tick(u64 now_ms) noexcept {
     if (!module())
         return;
     if (!g.idle_check_at || now_ms >= g.idle_check_at) {
-        const PresenceIdleInput input{input_idle_ms(), clock_unix_milliseconds(), kPresenceIdleTimeoutMs, in_call(),
-                                      false};
+        const PresenceIdleInput input{input_idle_ms(), clock_unix_milliseconds(), in_call()};
         presence_idle_update(&g.idle, input);
         g.idle_check_at = deadline_after(now_ms, presence_idle_next_check_ms(g.idle, input));
     }

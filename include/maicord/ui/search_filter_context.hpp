@@ -25,7 +25,7 @@ struct UiSearchFilterContext {
     char decoded[kUiSearchFilterQueryBytes]{};
     u32 token_begin{}, token_end{}, value_begin{}, value_end{};
     u16 value_bytes{}, prefix_bytes{};
-    u16 same_kind_occurrences{}, other_value_count{};
+    u16 other_value_count{};
     UiSearchFilterKind kind{};
     bool quoted{}, quote_complete{}, has_value{};
     Utf8View value() const noexcept {
@@ -41,9 +41,9 @@ static_assert(sizeof(UiSearchFilterContext) <= 320);
 // selections crossing a value return an entirely empty context. The prefix is
 // decoded only through the caret (an unfinished escape pair is excluded);
 // replacement always covers the whole value, including quote delimiters.
-// Counts are lexical occurrences, not distinct IDs: callers must still run full
-// query validation and identity deduplication when committing.
-// other_value_count excludes this value and empty values; four populated other
+// other_value_count is a lexical count, not distinct IDs: callers must still run
+// full query validation and identity deduplication when committing. It
+// excludes this value and empty values; four populated other
 // values conservatively prevent introducing another identity filter.
 UiSearchFilterContext ui_search_filter_context(Utf8View query, u32 anchor, u32 caret) noexcept;
 

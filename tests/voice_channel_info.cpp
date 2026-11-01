@@ -116,7 +116,7 @@ void decode_cases(Check check) noexcept {
         utf8_literal(R"({"channels":[{"id":"21","status":"Caf\u00e9 \"night\"","voice_start_time":1790000000},)"
                      R"({"id":"22","voice_start_time":null,"status":null},{"id":"23"}],"guild_id":"5"})"),
         &seen);
-    check(result.ok() && result.guild_id == 5 && result.count == 3 && seen.count == 3,
+    check(result.ok() && result.guild_id == 5 && seen.count == 3,
           "decode: CHANNEL_INFO visits every channel with the document's guild");
     const auto& first = seen.entries[0];
     check(first.guild_id == 5 && first.channel_id == 21 && first.has_start &&

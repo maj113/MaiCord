@@ -21,23 +21,15 @@ struct ApplicationPollSource {
     u32 source_publication, source_index;
     UiPollSourceSurface surface;
 };
-// Loaded voter page of the open inspector.
-struct ApplicationPollView {
-    ConstSlice<ReactionUser> voters;
-    u32 voter_page;
-    bool voters_more;
-};
 // The scene owns its answer projection; this read-only query never allocates a
 // selected owner merely to display a received card.
 bool application_poll_state(u64 message_id, Slice<UiPollAnswer>, UiPollState*,
                             ApplicationPollSource* = nullptr) noexcept;
 bool application_poll_search_state(u64 message_id, u32 source_publication, Slice<UiPollAnswer>,
                                    UiPollState*, ApplicationPollSource* = nullptr) noexcept;
-bool application_poll_source_current(const ApplicationPollSource&) noexcept;
 bool application_poll_action(const ApplicationPollSource&, const UiPollAction&) noexcept;
 bool application_poll_open(const ApplicationPollSource&) noexcept;
 bool application_poll_active() noexcept;
-ApplicationPollView application_poll_view() noexcept;
 bool application_poll_voters(u32 answer_id, bool more = false) noexcept;
 bool application_poll_voters_previous() noexcept;
 void application_poll_voters_close() noexcept;

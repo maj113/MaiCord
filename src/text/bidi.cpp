@@ -193,15 +193,6 @@ void neutral_types(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,B sos,B eo
 }
 }
 
-UnicodeBidiStatus unicode_bidi_classify(ConstSlice<u32> scalars,Slice<UnicodeBidiCell> cells) noexcept {
-    if((scalars.count && !scalars.data) || (cells.count && !cells.data))return UnicodeBidiStatus::invalid_input;
-    if(cells.count<scalars.count)return UnicodeBidiStatus::output_too_small;
-    for(u32 i=0;i<scalars.count;++i)if(!unicode_is_scalar(scalars[i]))return UnicodeBidiStatus::invalid_input;
-    for(u32 i=0;i<scalars.count;++i) {
-        const B type=unicode_properties(scalars[i])->bidi_class();cells[i]={scalars[i],none,none,type,type,0,0};
-    }
-    return UnicodeBidiStatus::ok;
-}
 UnicodeBidiStatus unicode_bidi_paragraph_end(ConstSlice<UnicodeBidiCell> cells,u32 first,u32* end) noexcept {
     if(!end)return UnicodeBidiStatus::invalid_input;*end=first;
     if(first>cells.count || (cells.count && !cells.data))return UnicodeBidiStatus::invalid_input;

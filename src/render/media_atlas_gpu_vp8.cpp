@@ -114,15 +114,10 @@ MediaAtlasGpuResult media_atlas_gpu_reconstruct_vp8_keyframe(
 
     const u32 u_plane_offset = luma_samples;
     const u32 v_plane_offset = luma_samples + chroma_samples;
-    const u32 final_wave_rank = (columns - 1u) + 2u * (rows - 1u);
     const Vp8ReconstructionConstants constants{
-        frame.width,
-        frame.height,
         columns,
         rows,
-        final_wave_rank,
         luma_stride,
-        luma_rows,
         chroma_stride,
         chroma_rows,
         u_plane_offset,

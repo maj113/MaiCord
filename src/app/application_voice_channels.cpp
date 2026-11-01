@@ -6,7 +6,6 @@
 #include "application_text_form.hpp"
 #include "application_voice.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/model/permission_bits.hpp"
 #include "maicord/model/voice_channel_info_store.hpp"
 #include "maicord/protocol/stage_channel.hpp"
@@ -16,7 +15,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/render/renderer_settings_visibility.hpp"
 #include "account_ui_runtime.hpp"
-#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {

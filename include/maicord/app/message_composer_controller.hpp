@@ -123,13 +123,9 @@ struct MessageComposerController {
     bool initialized;
 };
 
-bool message_composer_controller_initialize(
-    MessageComposerController* controller, MessageComposer* composer,
-    MessageDraftStore* drafts, MessageTimeline* timeline,
-    Slice<u8> request_text) noexcept;
 // Requires zero-filled request storage (a fresh committed allocation) and
 // leaves it untouched, so its pages commit only when messages are sent.
-bool message_composer_controller_initialize_sparse(
+bool message_composer_controller_initialize(
     MessageComposerController* controller, MessageComposer* composer,
     MessageDraftStore* drafts, MessageTimeline* timeline,
     Slice<u8> request_text) noexcept;

@@ -30,7 +30,6 @@ enum class GatewayDecodeError : u8 {
 };
 
 struct GatewayDecodeResult {
-    u32 error_offset;
     GatewayDecodeError error;
     JsonScanError scan_error;
     JsonReadError read_error;

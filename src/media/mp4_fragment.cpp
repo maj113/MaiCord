@@ -43,10 +43,9 @@ bool index_range(const Mp4FragmentIndex& index, u32 number, u64 time, bool seek,
     u64 at = index.first_offset, ticks = index.first_time;
     for (u32 i = 0; i < index.count; ++i) {
         const auto* p = index.entries.data + i * 12;
-        const u32 bytes = read_u32(p), duration = read_u32(p + 4), sap = read_u32(p + 8);
+        const u32 bytes = read_u32(p), duration = read_u32(p + 4);
         if ((!seek && i == number) || (seek && time >= ticks && time - ticks < duration)) {
-            *output = {at, ticks, duration, bytes, i, sap & 0x0fffffffu,
-                       static_cast<u8>((sap >> 28) & 7), (sap >> 31) != 0};
+            *output = {at, ticks, duration, bytes, i};
             return true;
         }
         at += bytes;
@@ -116,9 +115,7 @@ bool mp4_fragment_index_follow(const Mp4FragmentIndex& index, const Mp4FragmentR
                             {reinterpret_cast<const u8*>(output), sizeof(*output)})) return false;
     const u32 next = prior.index + 1;
     const auto* p = index.entries.data + next * 12;
-    const u32 sap = read_u32(p + 8);
-    *output = {prior.offset + prior.bytes, prior.time + prior.duration, read_u32(p + 4), read_u32(p), next,
-               sap & 0x0fffffffu, static_cast<u8>((sap >> 28) & 7), (sap >> 31) != 0};
+    *output = {prior.offset + prior.bytes, prior.time + prior.duration, read_u32(p + 4), read_u32(p), next};
     return true;
 }
 bool mp4_fragment_index_seek(const Mp4FragmentIndex& index, u64 time, Mp4FragmentRange* output) noexcept {

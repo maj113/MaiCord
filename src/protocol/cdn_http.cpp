@@ -414,7 +414,6 @@ CdnResponseResult validate_response(CdnImageType image_type, ConstSlice<u8> resp
     CdnResponseResult result{};
     result.etag = fields.etag;
     result.location = fields.location;
-    result.header_bytes = head.header_bytes;
     result.body_bytes = decoded_body_bytes;
     result.status_code = head.status_code;
     result.store_allowed = !fields.no_store;

@@ -452,10 +452,8 @@ EmojiPreferencesResult emoji_preferences_decode(ConstSlice<u8> proto, Slice<u8> 
                     return result;
                 }
                 if (f == 1) {
-                    if (!pass) {
-                        snapshot->versions_present = true;
+                    if (!pass)
                         result.error = check_versions({r.data, r.at, stop}, snapshot->data_version);
-                    }
                 } else if (!pass) {
                     const ConstSlice<u8> part{r.data + r.at, stop - r.at};
                     const E checked = slot == 0 ? check_favorites(part) : check_frecency(part);

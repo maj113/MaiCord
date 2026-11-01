@@ -16,7 +16,6 @@ bool application_user_menu_open(u64 user_id, UiRect anchor, u64 guild_id, UserMe
                                 ConstSlice<PopupItem> leading = {}, const UiPopupFeedback* feedback = nullptr) noexcept;
 // The other person's rows for a 1:1 DM row's conversation menu.
 u32 application_user_actions_private_channel_items(u64 channel_id, Slice<PopupItem> output) noexcept;
-bool application_user_menu_action(u32 action) noexcept;
 bool application_user_menu_activate(u32 action) noexcept;
 
 MessageContextMenuExtras application_user_actions_message_extras(const MessageRecord&) noexcept;

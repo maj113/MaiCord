@@ -81,7 +81,6 @@ void h264_gpu_stream_decode(GpuStream* stream, ConstSlice<u8> bytes, u32 rtp_tim
             const HRESULT status = create_decoder(stream, picture.sps, decode.surfaces_needed);
             h264_stream_set_surfaces(state, stream->surfaces.count);
             if (FAILED(status)) {
-                stream->stats.last_status = status;
                 if (status == DXGI_ERROR_UNSUPPORTED || status == E_INVALIDARG) {
                     state->unsupported = true;
                     h264_stream_lost(state);
@@ -121,7 +120,6 @@ void h264_gpu_stream_stats(const GpuStream& stream, GpuStreamDecoderStats* stats
     stats->dropped = state.dropped;
     stats->damaged = state.damaged;
     stats->gaps = state.gaps;
-    stats->late = state.late;
     stats->unsupported = state.unsupported;
 }
 

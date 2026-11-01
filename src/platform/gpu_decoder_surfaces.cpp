@@ -77,8 +77,8 @@ Mp4DecodedFrame gpu_decoder_output_frame(H264OutputQueue* output, GpuVideoFrame*
 
 HRESULT gpu_decoder_surfaces_create(GpuDecoderSurfaces* surfaces, ID3D11Device* device,
                                     ID3D11VideoDevice* video, const GUID& profile, u32 width, u32 height,
-                                    u32 count, u32 output_views) noexcept {
-    if (!surfaces || !device || !video || surfaces->texture || !count || output_views > count)
+                                    u32 count) noexcept {
+    if (!surfaces || !device || !video || surfaces->texture || !count)
         return E_INVALIDARG;
     if (count > kGpuDecoderSurfaceCapacity)
         return DXGI_ERROR_UNSUPPORTED;
@@ -94,7 +94,7 @@ HRESULT gpu_decoder_surfaces_create(GpuDecoderSurfaces* surfaces, ID3D11Device* 
     D3D11_VIDEO_DECODER_OUTPUT_VIEW_DESC output{};
     output.DecodeProfile = profile;
     output.ViewDimension = D3D11_VDOV_DIMENSION_TEXTURE2D;
-    for (u32 i = 0; i < output_views && SUCCEEDED(status); ++i) {
+    for (u32 i = 0; i < count && SUCCEEDED(status); ++i) {
         output.Texture2D.ArraySlice = i;
         status = video->CreateVideoDecoderOutputView(surfaces->texture, &output, &surfaces->views[i]);
     }

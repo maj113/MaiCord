@@ -6,6 +6,7 @@
 // startup cleanup, the Settings rows and changelog sections, and a replay of
 // a synthetic preview build. Nothing here contacts the network.
 #include "maicord/app/update_service.hpp"
+#include "settings_schema_validation.hpp"
 #include "maicord/app/update_https.hpp"
 #include "maicord/app/update_log.hpp"
 #include "application_updates.hpp"

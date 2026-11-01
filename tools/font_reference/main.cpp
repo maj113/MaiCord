@@ -7,6 +7,7 @@
 #include "maicord/text/colr_variations.hpp"
 #include "maicord/text/font_axes.hpp"
 #include "maicord/text/font_geometry.hpp"
+#include "../../tests/text_seams.hpp"
 #include "maicord/text/font_store.hpp"
 #include "maicord/text/font_instance.hpp"
 #include "maicord/text/tt_outline.hpp"

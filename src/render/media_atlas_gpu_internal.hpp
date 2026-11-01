@@ -32,13 +32,9 @@ struct PngAtlasConstants {
 static_assert(sizeof(PngAtlasConstants) == 64);
 
 struct Vp8ReconstructionConstants {
-    u32 image_width;
-    u32 image_height;
     u32 macroblock_columns;
     u32 macroblock_rows;
-    u32 final_wave_rank;
     u32 luma_stride;
-    u32 luma_rows;
     u32 chroma_stride;
     u32 chroma_rows;
     u32 u_plane_offset;
@@ -48,7 +44,7 @@ struct Vp8ReconstructionConstants {
     u32 reserved[3];
 };
 
-static_assert(sizeof(Vp8ReconstructionConstants) == 64);
+static_assert(sizeof(Vp8ReconstructionConstants) == 48);
 
 struct Vp8FilterConstants {
     u32 macroblock_columns;

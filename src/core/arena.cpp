@@ -12,15 +12,6 @@ inline bool is_power_of_two(usize value) noexcept {
 }
 
 volatile LONG g_page_size;
-volatile LONG64 g_arena_initializations;
-volatile LONG64 g_arena_commits;
-volatile LONG64 g_arena_committed_bytes;
-
-void note_commit(usize bytes) noexcept {
-    if (bytes == 0) return;
-    InterlockedIncrement64(&g_arena_commits);
-    InterlockedExchangeAdd64(&g_arena_committed_bytes, static_cast<LONG64>(bytes));
-}
 
 usize system_page_size() noexcept {
     const u32 cached = static_cast<u32>(read_acquire(&g_page_size));
@@ -99,8 +90,6 @@ bool arena_initialize(Arena* arena, usize reserve_bytes, usize initial_commit_by
     *arena = Arena{
         base, reserved, initial_commit, 0, 0, commit_step, initial_commit == 0 ? 0u : 1u,
     };
-    InterlockedIncrement64(&g_arena_initializations);
-    note_commit(initial_commit);
     return true;
 }
 
@@ -140,7 +129,6 @@ void* arena_allocate(Arena* arena, usize bytes, usize alignment) noexcept {
         }
         arena->committed = commit_target;
         ++arena->commit_count;
-        note_commit(commit_bytes);
     }
 
     arena->offset = new_offset;
@@ -200,12 +188,6 @@ bool arena_trim(Arena* arena, usize offset) noexcept {
     // Decommitted pages come back as zero pages.
     arena->peak = minimum(arena->peak, keep);
     return true;
-}
-
-ArenaProcessCounters arena_process_counters() noexcept {
-    return ArenaProcessCounters{static_cast<u64>(read_acquire(&g_arena_initializations)),
-                                static_cast<u64>(read_acquire(&g_arena_commits)),
-                                static_cast<u64>(read_acquire(&g_arena_committed_bytes))};
 }
 
 } // namespace maicord

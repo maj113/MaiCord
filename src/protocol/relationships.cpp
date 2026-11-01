@@ -12,9 +12,8 @@
 namespace maicord {
 namespace {
 using protocol_detail::decode_text;
-RelationshipsDecodeResult failure(RelationshipsDecodeError error) noexcept { return {error, 0, 0, false}; }
+RelationshipsDecodeResult failure(RelationshipsDecodeError error) noexcept { return {error}; }
 struct Parse {
-    const JsonIndexedDocument* document;
     RelationshipMutation mutation;
     JsonValue user;
     u32 seen, user_seen;
@@ -95,7 +94,6 @@ RelationshipsDecodeError decode_record(const JsonIndexedDocument& document, Json
     RelationshipEvent event, RelationshipMutation* output) noexcept {
     if (value.kind != JsonValueKind::object) return RelationshipsDecodeError::record;
     Parse parse{};
-    parse.document = &document;
     parse.mutation.record.presence = RelationshipPresence::unknown;
     const auto read = json_visit_indexed_object(document, value, 64, visit_member, &parse);
     if (!read.ok()) return parse.error == RelationshipsDecodeError::none ? RelationshipsDecodeError::json : parse.error;
@@ -132,8 +130,7 @@ struct Snapshot {
     const JsonIndexedDocument* document;
     RelationshipStore* store;
     Slice<RelationshipRecord> records;
-    Slice<RelationshipUser> users;
-    u32 count, user_count;
+    u32 count;
     RelationshipsDecodeError error;
 };
 bool visit_snapshot(void* opaque, u32, JsonValue value) noexcept {
@@ -144,10 +141,6 @@ bool visit_snapshot(void* opaque, u32, JsonValue value) noexcept {
     if (snapshot.error != RelationshipsDecodeError::none) return false;
     if (const auto* old = relationship_store_find(*snapshot.store, decoded.record.user_id)) decoded.record.presence = old->presence;
     snapshot.records[snapshot.count++] = decoded.record;
-    if (decoded.user.id && snapshot.users.count) {
-        if (snapshot.user_count == snapshot.users.count) { snapshot.error = RelationshipsDecodeError::capacity; return false; }
-        copy_value(&snapshot.users[snapshot.user_count++], decoded.user);
-    }
     return true;
 }
 } // namespace
@@ -221,7 +214,7 @@ RelationshipsDecodeResult relationship_decode_record(Utf8View input, Slice<u32> 
     const auto error = decode_record(document, {input, 0, JsonValueKind::object}, event, &candidate);
     if (error != RelationshipsDecodeError::none) return failure(error);
     *output = candidate;
-    return {RelationshipsDecodeError::none, 1, candidate.user.id ? 1u : 0u, false};
+    return {RelationshipsDecodeError::none};
 }
 RelationshipStoreResult relationship_apply_decoded(RelationshipStore* store,
     RelationshipEvent event, const RelationshipMutation& mutation) noexcept {
@@ -238,17 +231,15 @@ RelationshipStoreResult relationship_apply_decoded(RelationshipStore* store,
     return relationship_store_upsert(store, record);
 }
 RelationshipsDecodeResult relationships_replace(RelationshipStore* store, Utf8View input,
-    Slice<u32> scratch, Slice<RelationshipRecord> candidate, Slice<RelationshipUser> users,
-    RelationshipsAdmission admission) noexcept {
+    Slice<u32> scratch, Slice<RelationshipRecord> candidate, RelationshipsAdmission admission) noexcept {
     if (!store->records.data || !store->records.count || store->records.count > kRelationshipMaximumRecords ||
         store->count > store->records.count || !valid_input(input, scratch) || !candidate.data || !candidate.count ||
-        candidate.count > kRelationshipMaximumRecords || users.count > kRelationshipMaximumRecords)
+        candidate.count > kRelationshipMaximumRecords)
         return failure(RelationshipsDecodeError::invalid_input);
     const ConstSlice<u8> ranges[]{
         {reinterpret_cast<const u8*>(input.data), input.bytes},
         {reinterpret_cast<const u8*>(scratch.data), scratch.count * static_cast<u32>(sizeof(u32))},
         {reinterpret_cast<const u8*>(candidate.data), candidate.count * static_cast<u32>(sizeof(*candidate.data))},
-        {reinterpret_cast<const u8*>(users.data), users.count * static_cast<u32>(sizeof(*users.data))},
         {reinterpret_cast<const u8*>(store), sizeof(*store)},
         {reinterpret_cast<const u8*>(store->records.data), store->records.count * static_cast<u32>(sizeof(*store->records.data))}};
     for (u32 i = 0; i < sizeof(ranges) / sizeof(ranges[0]); ++i) {
@@ -269,7 +260,7 @@ RelationshipsDecodeResult relationships_replace(RelationshipStore* store, Utf8Vi
     if (count.count > store->records.count) return failure(RelationshipsDecodeError::capacity);
     if (admission.admit && !admission.admit(admission.context, count.count, false))
         return failure(RelationshipsDecodeError::capacity);
-    Snapshot snapshot{&document, store, candidate, users};
+    Snapshot snapshot{&document, store, candidate};
     const auto read = json_visit_root_array(input, document.structurals, 64, visit_snapshot, &snapshot);
     if (!read.ok()) return failure(snapshot.error == RelationshipsDecodeError::none ? RelationshipsDecodeError::json : snapshot.error);
     heap_sort(candidate.data, snapshot.count, [](const auto& a, const auto& b) noexcept { return a.user_id < b.user_id; });
@@ -288,7 +279,7 @@ RelationshipsDecodeResult relationships_replace(RelationshipStore* store, Utf8Vi
         return failure(RelationshipsDecodeError::capacity);
     const auto applied = relationship_store_replace(store, {candidate.data, snapshot.count});
     if (!applied.ok()) return failure(applied.error == RelationshipStoreError::capacity ? RelationshipsDecodeError::capacity : RelationshipsDecodeError::store);
-    return {RelationshipsDecodeError::none, snapshot.count, snapshot.user_count, applied.changed};
+    return {RelationshipsDecodeError::none};
 }
 RelationshipUserApplyResult relationship_users_apply(UserStore* users, ConstSlice<RelationshipUser> snapshots) noexcept {
     if (snapshots.count > kRelationshipMaximumRecords ||

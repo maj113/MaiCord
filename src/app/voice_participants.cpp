@@ -257,14 +257,6 @@ VoiceParticipantsResult voice_participants_event(VoiceParticipants* participants
         auto& member = ensure_user(*participants, event.user_id);
         if (opcode == 5)
             member.speaking = event.value;
-        if (opcode == 18) {
-            member.flags = event.value;
-            member.has_flags = true;
-        }
-        if (opcode == 20) {
-            member.platform = event.value;
-            member.has_platform = true;
-        }
     }
     participants->generation = generation;
     return {};

@@ -51,7 +51,6 @@ struct AttachmentDownloadFilenameResult {
     u32 bytes;
     AttachmentDownloadFilenameError error;
     bool risky;
-    bool changed;
     constexpr bool ok() const noexcept { return error == AttachmentDownloadFilenameError::none; }
 };
 

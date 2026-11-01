@@ -151,7 +151,6 @@ void decode_frame(GpuStream* stream, ConstSlice<u8> unit, u32 rtp_timestamp) noe
         if (FAILED(status)) {
             if (status == DXGI_ERROR_UNSUPPORTED || status == E_INVALIDARG) {
                 state->unsupported = true;
-                stream->stats.last_status = status;
                 lose(state);
             } else {
                 gpu_stream_failure(stream, status);

@@ -8,7 +8,7 @@ namespace maicord {
 // projections are unsupported.
 // Views must come from successful open, remain unmodified, and retain the mapping.
 struct NativeFontCandidates {FontAxes axes;NativeFontProperties base;u32 count;};
-struct NativeFontCandidate {NativeFontProperties properties;u32 named_index;};
+struct NativeFontCandidate {NativeFontProperties properties;};
 // A missing explicit default instance is appended. fvar record order is kept;
 // catalog ownership/order and WWS family membership remain caller responsibilities.
 // Integral weights and canonical OS/2 width percentages are required for the
@@ -21,5 +21,5 @@ SfntStatus native_font_candidate(const NativeFontCandidates&,u32 index,NativeFon
 // Output is disjoint from the view, mapping and count pointer. Errors clear count.
 SfntStatus native_font_candidate_settings(const NativeFontCandidates&,u32 index,Slice<FontAxisSetting>,u32* count) noexcept;
 static_assert(sizeof(NativeFontCandidates)==48);
-static_assert(sizeof(NativeFontCandidate)==8);
+static_assert(sizeof(NativeFontCandidate)==4);
 }

@@ -1,4 +1,5 @@
 #include "maicord/ui/forum_post_scene.hpp"
+#include "layout_validation.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/text_measure_cache.hpp"
 

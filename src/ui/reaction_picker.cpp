@@ -347,7 +347,6 @@ ReactionPickerResult rebuild_results(ReactionPickerModel* picker) noexcept {
             const auto& server = picker->guilds[guild];
             if (!push_section(picker, kReactionPickerSectionGuild + guild))
                 return {ReactionPickerError::capacity, false};
-            picker->guilds[guild].first_result = picker->result_count;
             for (u32 p = server.custom_first; p < server.custom_first + server.custom_count; ++p)
                 if (!push_result(picker, kReactionPickerCustomResult | picker->custom_order[p]))
                     return {ReactionPickerError::capacity, false};

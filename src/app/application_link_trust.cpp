@@ -78,10 +78,6 @@ bool pending_accept(TextFormOwnerKey key, bool trust_link) noexcept {
 }
 } // namespace
 
-const LinkTrustStore* application_link_trust_store() noexcept {
-    return current_store();
-}
-
 bool application_link_channel_trusted(u64 channel_id) noexcept {
     if (!g_app.account_ui)
         return false;

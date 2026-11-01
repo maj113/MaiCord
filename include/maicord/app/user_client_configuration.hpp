@@ -2,7 +2,6 @@
 
 #include "maicord/app/gateway_user_configuration.hpp"
 #include "maicord/platform/timezone.hpp"
-#include "maicord/protocol/client_user_agent.hpp"
 #include "maicord/protocol/rest.hpp"
 
 namespace maicord {

@@ -134,10 +134,7 @@ struct ApplicationMediaPump {
     __declspec(noinline) void log_message_media_failure(const char* item,
                                                         const AccountMediaRequestResult& failure,
                                                         const MediaAssetKey& key) noexcept;
-    __declspec(noinline) void record_media_request_queued() noexcept;
-    __declspec(noinline) void record_media_animation_advance(MediaAssetKind kind) noexcept;
-    __declspec(noinline) void record_media_frame_uploaded() noexcept;
-    __declspec(noinline) void flush_media_success_diagnostics(u64 now_ms) noexcept;
+    __declspec(noinline) void trace_first_media_upload() noexcept;
     __declspec(noinline) CdnImageType cdn_image_type(MediaAttachmentFormat format) noexcept;
     __declspec(noinline) bool message_image_frame_is_current(const AccountMediaFrame& frame) noexcept;
     bool message_image_source_is_current(const MediaAssetKey& key, u64 source_message_id,

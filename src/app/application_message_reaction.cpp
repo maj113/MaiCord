@@ -831,24 +831,6 @@ bool application_message_reaction_observation_needed() noexcept {
     return owner && (owner->controller.count || owner->controller.flight.active);
 }
 
-ApplicationMessageReactionMetrics application_message_reaction_metrics() noexcept {
-    ApplicationMessageReactionMetrics result{};
-    if (!owner)
-        return result;
-    Win32MemoryInformation memory{};
-    VirtualQuery(owner, memory.native(), sizeof(memory));
-    result.owner_bytes = sizeof(ReactionOwner);
-    result.owner_committed_bytes = memory.State == MEM_COMMIT ? static_cast<u32>(memory.RegionSize) : 0;
-    result.intent_bytes = kMessageReactionMaximumIntents * sizeof(MessageReactionIntent);
-    result.intent_committed_bytes = static_cast<u32>(owner->storage.arena.committed);
-    result.intent_count = owner->controller.count;
-    result.backed_slots = owner->controller.entries.count;
-    result.revision = owner->controller.revision;
-    result.active = true;
-    result.flight_active = owner->controller.flight.active;
-    return result;
-}
-
 u64 application_message_reaction_next_wake() noexcept {
     if (!owner || owner->closing)
         return 0;

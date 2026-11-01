@@ -21,15 +21,8 @@ enum class VoiceDaveRoute : u8 {
     deferred, // Valid server DAVE message held for the MLS group owner.
     rejected, // Client-only opcode or truncated payload from the server.
 };
-// Classification counters for routed DAVE messages. Holds no key material;
-// deferred messages are handed to the call's DaveSession by the connection.
-struct VoiceDaveInbox {
-    u64 deferred, rejected;
-    u16 last_transition_id;
-    u8 last_opcode;
-};
-VoiceDaveRoute voice_dave_route_binary(VoiceDaveInbox* inbox, const VoiceGatewayBinary& frame) noexcept;
-VoiceDaveRoute voice_dave_route_json(VoiceDaveInbox* inbox, u8 opcode) noexcept;
+VoiceDaveRoute voice_dave_route_binary(const VoiceGatewayBinary& frame) noexcept;
+VoiceDaveRoute voice_dave_route_json(u8 opcode) noexcept;
 
 // Server JSON DAVE commands: prepare_transition (21: transition_id,
 // protocol_version), execute_transition (22: transition_id), prepare_epoch

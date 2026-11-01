@@ -243,15 +243,14 @@ void test_decoding() noexcept {
                                "\"channel_id\":\"444\",\"animation_type\":1,\"animation_id\":5}";
     GatewayVoiceChannelEffect effect{};
     check(soundboard_decode_effect({effect_json, sizeof(effect_json) - 1}, {scratch, 16 * 1024}, &effect).ok() &&
-              effect.user_id == 111 && effect.sound_id == 222 && effect.guild_id == 333 && effect.channel_id == 444 &&
-              effect.sound_volume == 530 && effect.has_sound_volume && effect.animation_type == 1 &&
-              effect.animation_id == 5 && !effect.emoji_id &&
+              effect.user_id == 111 && effect.sound_id == 222 && effect.channel_id == 444 &&
+              effect.sound_volume == 530 && effect.has_sound_volume && !effect.emoji_id &&
               utf8_equal({effect.emoji_name, effect.emoji_name_bytes}, utf8_literal("\xF0\x9F\xA6\x86")),
           "VOICE_CHANNEL_EFFECT_SEND: sender, sound, volume, emoji and animation decode");
     const char emoji_only[] = "{\"channel_id\":\"444\",\"user_id\":\"7\",\"emoji\":{\"id\":\"88\",\"name\":\"pog\","
                               "\"animated\":true},\"animation_type\":0,\"animation_id\":2}";
     check(soundboard_decode_effect({emoji_only, sizeof(emoji_only) - 1}, {scratch, 16 * 1024}, &effect).ok() &&
-              !effect.sound_id && effect.emoji_id == 88 && effect.emoji_animated && effect.sound_volume == 1000 &&
+              !effect.sound_id && effect.emoji_id == 88 && effect.sound_volume == 1000 &&
               !effect.has_sound_volume,
           "VOICE_CHANNEL_EFFECT_SEND: emoji-only effects have no sound");
     const char no_channel[] = "{\"user_id\":\"7\",\"sound_id\":\"1\"}";
@@ -423,8 +422,7 @@ void test_engine() noexcept {
     command.operation = SoundboardAudioOperation::configure;
     command.volume_percent = 40;
     command.muted = true;
-    SoundboardAudioStatus status{};
-    check(account_soundboard_command(&engine, gateway, &command, &status, 100) && engine.muted &&
+    check(account_soundboard_command(&engine, gateway, &command, 100) && engine.muted &&
               engine.mixer.volume_delta == -60,
           "Soundboard engine: volume and mute settings");
     command = {};
@@ -432,18 +430,18 @@ void test_engine() noexcept {
     command.sound_id = 1;
     command.user_id = 7;
     command.sound_volume = 1000;
-    check(!account_soundboard_command(&engine, gateway, &command, &status, 100) && !status.pending,
+    check(!account_soundboard_command(&engine, gateway, &command, 100) && !engine.pending_count,
           "Soundboard engine: received sounds stay silent while muted");
     SoundboardAudioCommand unmute{};
     unmute.operation = SoundboardAudioOperation::configure;
     unmute.volume_percent = 100;
-    account_soundboard_command(&engine, gateway, &unmute, nullptr, 100);
+    account_soundboard_command(&engine, gateway, &unmute, 100);
     call_live = false;
-    check(!account_soundboard_command(&engine, gateway, &command, &status, 100),
+    check(!account_soundboard_command(&engine, gateway, &command, 100),
           "Soundboard engine: received sounds play only during calls");
     call_live = true;
-    check(account_soundboard_command(&engine, gateway, &command, &status, 100) && status.pending == 1 &&
-              status.fetching_sound_id == 1 && cdn.starts == 1 && cdn.submits == 1 &&
+    check(account_soundboard_command(&engine, gateway, &command, 100) && engine.pending_count == 1 &&
+              engine.fetch_sound_id == 1 && engine.fetch_request_id && cdn.starts == 1 && cdn.submits == 1 &&
               same(cdn.target, cdn.target_bytes, utf8_literal("/soundboard-sounds/1")),
           "Soundboard engine: an uncached sound is fetched from the CDN");
     static u8 file[48 * 1024];
@@ -456,19 +454,18 @@ void test_engine() noexcept {
               engine.cache.entries[0]->frames >= 40u * 1152u * 48000u / 44100u,
           "Soundboard engine: the fetched MP3 is decoded at 48 kHz, cached and mixed");
     // A second play of the same sound needs no fetch.
-    check(account_soundboard_command(&engine, gateway, &command, &status, 300) && cdn.submits == 1 &&
-              status.active_voices == 2 && status.cached_clips == 1,
+    check(account_soundboard_command(&engine, gateway, &command, 300) && cdn.submits == 1 &&
+              soundboard_mixer_active(&engine.mixer) == 2 && engine.cache.count == 1,
           "Soundboard engine: cached sounds play at once");
     // A failed fetch is remembered for a while instead of retried every play.
     command.sound_id = 2;
-    account_soundboard_command(&engine, gateway, &command, &status, 400);
+    account_soundboard_command(&engine, gateway, &command, 400);
     cdn.status = 404;
     cdn.ready = true;
     account_soundboard_pump(&engine, gateway, 500);
     const u32 submits = cdn.submits;
-    account_soundboard_command(&engine, gateway, &command, &status, 600);
-    check(status.failed_sound_id == 2 && status.last_error == SoundboardAudioError::fetch && cdn.submits == submits &&
-              !status.pending,
+    account_soundboard_command(&engine, gateway, &command, 600);
+    check(engine.failed_sound_id == 2 && cdn.submits == submits && !engine.pending_count,
           "Soundboard engine: failed sounds back off");
     check(account_soundboard_stop(&engine, gateway, 100) && !engine.cache.count && !soundboard_mixer_active(&engine.mixer) &&
               cdn.stops == 1,

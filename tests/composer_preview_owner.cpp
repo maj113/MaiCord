@@ -110,15 +110,14 @@ void test_composer_preview_owner(void (*check)(bool, const char*) noexcept) noex
         auto frame = receipt();
         const bool uploaded = media_atlas_allocate(&atlas, frame.key, 384, 216).ok();
         application_composer_preview_frame_uploaded(frame);
-        check(uploaded && application_composer_preview_view(movie_id).ready &&
-                  application_composer_preview_metrics().ready == 1,
+        check(uploaded && application_composer_preview_view(movie_id).ready,
               "an uploaded poster frame makes the tile's thumbnail ready");
         message_attachment_drafts_remove(&state->drafts, movie_id);
         application_composer_preview_request(1100, 5);
         check(retires == 1 && media_asset_key_equal(retired.key, frame.key) &&
                   retired.owner_generation == frame.source_catalog_generation &&
                   !application_composer_preview_key_current(frame.key) &&
-                  application_composer_preview_metrics().ready == 0,
+                  !application_composer_preview_view(movie_id).ready,
               "removing a video draft retires its exact poster so the lane and atlas release it");
         u64 sent_id = 0;
         message_attachment_drafts_add(&state->drafts, 7, {&movie, 1}, {&sent_id, 1});
@@ -150,7 +149,9 @@ void test_composer_preview_owner(void (*check)(bool, const char*) noexcept) noex
                   !application_composer_preview_view(deferred_id).failed,
               "a thumbnail deferred for atlas room retries at the shared deadline, not every poll");
         application_composer_preview_release();
-        check(application_composer_preview_metrics().active == 0, "composer preview owner releases every entry");
+        check(!application_composer_preview_view(webm_id).failed && !application_composer_preview_view(deferred_id).failed &&
+                  !application_composer_preview_next_wake(),
+              "composer preview owner releases every entry");
         message_attachment_drafts_release(&state->drafts);
     }
     if (state)

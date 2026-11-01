@@ -134,69 +134,6 @@ struct UiLayoutResult {
     }
 };
 
-enum class UiLayoutDiagnosticKind : u8 {
-    invalid_hierarchy,
-    invalid_extent,
-    unexpected_zero_size,
-    child_overflow,
-    sibling_collision,
-    invalid_clip,
-    text_overflow,
-    invalid_alignment,
-    invalid_baseline,
-    unstable_measurement,
-    invalid_content_owner,
-    content_overflow,
-    content_collision,
-};
-
-enum class UiLayoutContentKind : u8 {
-    text,
-    icon,
-    media,
-    control,
-    decoration,
-};
-
-enum UiLayoutContentBoundsFlag : u16 {
-    ui_layout_content_bounds_none = 0,
-    ui_layout_content_bounds_collision = 1u << 0,
-    ui_layout_content_bounds_allow_overflow = 1u << 1,
-    ui_layout_content_bounds_allow_overlap = 1u << 2,
-};
-
-struct UiLayoutContentBounds {
-    UiLayoutNodeHandle owner;
-    UiRect rectangle;
-    UiLayoutContentKind kind;
-    u16 flags;
-};
-
-struct UiLayoutOverflow {
-    float left;
-    float top;
-    float right;
-    float bottom;
-};
-
-struct UiLayoutDiagnostic {
-    UiLayoutDiagnosticKind kind;
-    UiLayoutNodeHandle node;
-    UiLayoutNodeHandle related;
-    UiRect expected;
-    UiRect actual;
-    UiLayoutOverflow overflow;
-};
-
-struct UiLayoutValidationResult {
-    u32 count;
-    u32 dropped;
-
-    constexpr bool clean() const noexcept {
-        return count == 0 && dropped == 0;
-    }
-};
-
 struct UiLayoutEngine {
     Slice<UiLayoutNode> storage;
     u32 count;
@@ -206,7 +143,6 @@ struct UiLayoutEngine {
     u32 unstable_measurements;
     u32 wrap_nodes;
     u16 generation;
-    UiLayoutNodeHandle unstable_node;
     UiLayoutMeasureCallback measure_callback;
     void* measure_context;
 };
@@ -291,10 +227,5 @@ bool ui_layout_engine_set_scroll(UiLayoutEngine* engine, UiLayoutNodeHandle hand
 const UiLayoutNode* ui_layout_engine_resolve(const UiLayoutEngine& engine,
                                              UiLayoutNodeHandle handle) noexcept;
 UiLayoutNode* ui_layout_engine_resolve(UiLayoutEngine* engine, UiLayoutNodeHandle handle) noexcept;
-UiLayoutValidationResult ui_layout_engine_validate(const UiLayoutEngine& engine,
-                                                   Slice<UiLayoutDiagnostic> output) noexcept;
-UiLayoutValidationResult ui_layout_engine_validate_content_bounds(
-    const UiLayoutEngine& engine, ConstSlice<UiLayoutContentBounds> content,
-    Slice<UiLayoutDiagnostic> output) noexcept;
 
 } // namespace maicord

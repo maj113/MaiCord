@@ -305,34 +305,6 @@ AnimatedWebpParseResult animated_webp_parse(ConstSlice<u8> encoded, AnimatedWebp
     return result;
 }
 
-AnimatedWebpDecodeResult animated_webp_decode_frame_rgba8(ConstSlice<u8> encoded, u32 frame_index,
-                                                          AnimatedWebpImage* image,
-                                                          AnimatedWebpWorkspace* animation_workspace,
-                                                          Vp8lWorkspace* vp8l_workspace,
-                                                          Slice<u8> rgba_output) noexcept {
-    return animated_webp_decode_frame(encoded, frame_index, image, animation_workspace, vp8l_workspace,
-                                      nullptr, nullptr, nullptr, rgba_output, {}, {});
-}
-
-AnimatedWebpDecodeResult animated_webp_decode_frame(
-    ConstSlice<u8> encoded, u32 frame_index, AnimatedWebpImage* image,
-    AnimatedWebpWorkspace* animation_workspace, Vp8lWorkspace* vp8l_workspace,
-    LossyWebpWorkspace* lossy_workspace, Vp8Keyframe* vp8_frame, Vp8ControlHeader* vp8_header,
-    Slice<u8> rgba_output, Slice<u8> alpha_rgba_scratch, Slice<u8> alpha_output) noexcept {
-    AnimatedWebpDecodeResult result{};
-    result.parse = animated_webp_parse(encoded, image, animation_workspace);
-    if (!result.parse.ok()) {
-        result.error = result.parse.error;
-        return result;
-    }
-    const AnimatedWebpParseResult parse = result.parse;
-    result = animated_webp_decode_parsed_frame(encoded, *image, frame_index, vp8l_workspace,
-                                               lossy_workspace, vp8_frame, vp8_header, rgba_output,
-                                               alpha_rgba_scratch, alpha_output);
-    result.parse = parse;
-    return result;
-}
-
 AnimatedWebpDecodeResult animated_webp_decode_parsed_frame(
     ConstSlice<u8> encoded, const AnimatedWebpImage& image, u32 frame_index, Vp8lWorkspace* vp8l_workspace,
     LossyWebpWorkspace* lossy_workspace, Vp8Keyframe* vp8_frame, Vp8ControlHeader* vp8_header,

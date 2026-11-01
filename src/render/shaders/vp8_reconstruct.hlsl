@@ -1,12 +1,8 @@
 // Residual inverse DCT pass (vp8_inverse_dct) for vp8_reconstruct_tiled.hlsl.
 cbuffer Vp8ReconstructionConstants : register(b0) {
-    uint image_width;
-    uint image_height;
     uint macroblock_columns;
     uint macroblock_rows;
-    uint final_wave_rank;
     uint luma_stride;
-    uint luma_rows;
     uint chroma_stride;
     uint chroma_rows;
     uint u_plane_offset;

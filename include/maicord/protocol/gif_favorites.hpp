@@ -82,7 +82,7 @@ struct GifFavoriteMutation {
     GifFavoriteMutationKind kind;
 };
 struct GifFavoritesWriteResult {
-    u32 bytes, group_bytes;
+    u32 bytes;
     GifFavoritesError error;
     constexpr bool ok() const noexcept {
         return error == GifFavoritesError::none;

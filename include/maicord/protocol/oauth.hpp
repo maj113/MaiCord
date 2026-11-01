@@ -16,7 +16,6 @@ enum class OAuthError : u8 {
 };
 struct OAuthTokens {
     char access[kOAuthTokenBytes], refresh[kOAuthTokenBytes];
-    u32 expires_seconds;
     u16 access_bytes, refresh_bytes;
 };
 struct OAuthCallback {

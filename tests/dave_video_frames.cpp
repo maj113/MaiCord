@@ -105,7 +105,7 @@ void oracle_frames(Check check, const Buffers& b) noexcept {
         DaveClearRange parsed[kDaveMaximumClearRanges];
         DaveFrameView view{};
         const auto parse = dave_frame_parse({b.frame, size}, {parsed, kDaveMaximumClearRanges}, &view);
-        bool same = parse.ok() && parse.range_count == vector.range_count && view.body_bytes == vector.size &&
+        bool same = parse.ok() && view.clear_ranges.count == vector.range_count && view.body_bytes == vector.size &&
                     view.nonce == vector.nonce;
         for (u32 i = 0; same && i != vector.range_count; ++i)
             same = parsed[i].offset == ranges[i].offset && parsed[i].bytes == ranges[i].bytes;

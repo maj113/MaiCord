@@ -17,13 +17,11 @@
 #include "maicord/core/win32_user.hpp"
 #include "maicord/model/permission_bits.hpp"
 #include "../src/app/account_ui_runtime.hpp"
-#include "../src/app/application_builtin_commands.hpp"
 #include "../src/app/application_media_picker.hpp"
 #include "../src/app/application_private_channel.hpp"
 #include "../src/app/application_private_conversation.hpp"
 #include "../src/app/application_thread_actions.hpp"
 #include "maicord/protocol/private_conversation.hpp"
-#include "maicord/protocol/guild_admin.hpp"
 #include "maicord/ui/media_picker.hpp"
 
 namespace maicord {
@@ -41,7 +39,6 @@ void test_custom_status_retry(void (*)(bool, const char*) noexcept) noexcept;
 void test_notification_retry(void (*)(bool, const char*) noexcept) noexcept;
 void test_community_retry(void (*)(bool, const char*) noexcept) noexcept;
 void test_invite_retry(void (*)(bool, const char*) noexcept) noexcept;
-u32 edits_committed;
 UiRect command_viewport{0, 0, 800, 600};
 bool refresh_message_composer_ui() noexcept {
     MessageComposerProjectionContext projection{};
@@ -53,7 +50,6 @@ bool refresh_message_composer_ui() noexcept {
 }
 bool composer_apply_result(MessageComposerResult result, bool) noexcept {
     if (result == MessageComposerResult::changed) {
-        ++edits_committed;
         if (!message_composer_controller_commit_draft(&g_app.account_ui->message_composer_controller).ok())
             return false;
     }
@@ -130,16 +126,14 @@ bool application_composer_fill_command(Utf8View name) noexcept {
 // Built-in commands: the inline results, group leave and DM open they start.
 UiMediaPickerKind searched_kind;
 char searched[64];
-u32 searched_bytes, searches, inline_closes;
+u32 searched_bytes, searches;
 bool application_media_picker_inline(UiMediaPickerKind kind, Utf8View query, UiRect) noexcept {
     searched_kind = kind;
     searched_bytes = utf8_copy_truncated(searched, query);
     ++searches;
     return true;
 }
-void application_media_picker_inline_close() noexcept {
-    ++inline_closes;
-}
+void application_media_picker_inline_close() noexcept {}
 bool application_media_picker_inline_key(u32, bool* handled) noexcept {
     *handled = false;
     return true;

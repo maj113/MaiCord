@@ -1,4 +1,5 @@
 #include "application_downloads_inactive.hpp"
+#include "layout_validation.hpp"
 #include "gateway_message_scratch.hpp"
 #include "maicord/app/account_paths.hpp"
 #include "maicord/ui/message_author.hpp"
@@ -1038,13 +1039,11 @@ void test_spsc_mailbox() noexcept {
     const u8 first_payload[] = {1, 2, 3, 4, 5};
     const u8 second_payload[] = {6, 7, 8};
     expect(spsc_mailbox_push(&mailbox, 10, ConstSlice<u8>{first_payload, 5}).ok() &&
-               spsc_mailbox_push(&mailbox, 20, ConstSlice<u8>{second_payload, 3}).ok() &&
-               spsc_mailbox_size(mailbox) == 2 && spsc_mailbox_payload_used(mailbox) == 8,
+               spsc_mailbox_push(&mailbox, 20, ConstSlice<u8>{second_payload, 3}).ok(),
            "spsc_mailbox_fill_payload");
     const u8 overflow_payload[] = {9};
     expect(spsc_mailbox_push(&mailbox, 30, ConstSlice<u8>{overflow_payload, 1}).error ==
-                   SpscMailboxError::payload_capacity &&
-               spsc_mailbox_dropped(mailbox) == 1,
+               SpscMailboxError::payload_capacity,
            "spsc_mailbox_payload_backpressure");
 
     u32 value = 0;
@@ -1054,12 +1053,12 @@ void test_spsc_mailbox() noexcept {
     for (u32 index = 0; index < 5; ++index) {
         first_equal = first_equal && copied[index] == first_payload[index];
     }
-    expect(first_equal && spsc_mailbox_payload_used(mailbox) == 3, "spsc_mailbox_pop_copy");
+    expect(first_equal, "spsc_mailbox_pop_copy");
 
     const u8 wrapped_payload[] = {9, 10, 11, 12};
     expect(spsc_mailbox_push(&mailbox, 30, ConstSlice<u8>{wrapped_payload, 4}).ok(),
            "spsc_mailbox_wrapped_push");
-    const SpscMailboxResult discarded = spsc_mailbox_discard(&mailbox, &value);
+    const SpscMailboxResult discarded = spsc_mailbox_pop(&mailbox, &value, Slice<u8>{copied, 8});
     for (u32 index = 0; index < 8; ++index) {
         copied[index] = 0;
     }
@@ -1069,7 +1068,10 @@ void test_spsc_mailbox() noexcept {
     for (u32 index = 0; index < 4; ++index) {
         wrapped_equal = wrapped_equal && copied[index] == wrapped_payload[index];
     }
-    expect(wrapped_equal && spsc_mailbox_size(mailbox) == 0 && spsc_mailbox_payload_used(mailbox) == 0,
+    // Every payload byte is back: the ring accepts a record of its full capacity.
+    expect(wrapped_equal && spsc_mailbox_push(&mailbox, 40, ConstSlice<u8>{copied, 8}).ok() &&
+               spsc_mailbox_pop(&mailbox, &value, Slice<u8>{copied, 8}).payload_bytes == 8 && value == 40 &&
+               spsc_mailbox_pop(&mailbox, &value, Slice<u8>{copied, 8}).error == SpscMailboxError::empty,
            "spsc_mailbox_wrap_and_discard");
 
     bool descriptor_full = true;
@@ -1079,15 +1081,15 @@ void test_spsc_mailbox() noexcept {
     }
     expect(descriptor_full &&
                spsc_mailbox_push(&mailbox, 999, ConstSlice<u8>{nullptr, 0}).error ==
-                   SpscMailboxError::event_capacity &&
-               spsc_mailbox_dropped(mailbox) == 2,
+                   SpscMailboxError::event_capacity,
            "spsc_mailbox_descriptor_backpressure");
     bool descriptor_order = true;
     for (u32 index = 0; index < 4; ++index) {
         descriptor_order =
-            descriptor_order && spsc_mailbox_discard(&mailbox, &value).ok() && value == 100 + index;
+            descriptor_order && spsc_mailbox_pop(&mailbox, &value, Slice<u8>{copied, 8}).ok() && value == 100 + index;
     }
-    expect(descriptor_order, "spsc_mailbox_descriptor_fifo");
+    expect(descriptor_order && spsc_mailbox_pop(&mailbox, &value, Slice<u8>{copied, 8}).error == SpscMailboxError::empty,
+           "spsc_mailbox_descriptor_fifo");
 }
 
 void test_trace_record() noexcept {
@@ -3919,29 +3921,6 @@ void test_message_text_presentation() noexcept {
         rich_reflowed.ok() ? ui_layout_engine_validate(scene.widgets.layout,
                                                        Slice<UiLayoutDiagnostic>{rich_diagnostics, 32})
                            : UiLayoutValidationResult{};
-    bool rich_item_misalignment_reported = false;
-    UiLayoutNode* displaced_rich_item = nullptr;
-    if (rich_row) {
-        UiWidget* item_widget = ui_widget_manager_resolve(
-            &scene.widgets, message_scene_rich_item_widget(*rich_row, MessageSceneRichItemKind::embed, 0));
-        displaced_rich_item =
-            item_widget ? ui_widget_manager_layout_node(
-                              &scene.widgets, message_scene_rich_item_widget(*rich_row, MessageSceneRichItemKind::embed, 0))
-                        : nullptr;
-    }
-    if (displaced_rich_item) {
-        displaced_rich_item->rectangle.left += 3.0f;
-        displaced_rich_item->rectangle.right += 3.0f;
-        const UiLayoutValidationResult displaced_validation = ui_layout_engine_validate(
-            scene.widgets.layout, Slice<UiLayoutDiagnostic>{rich_diagnostics, 32});
-        for (u32 index = 0; index < displaced_validation.count; ++index) {
-            rich_item_misalignment_reported =
-                rich_item_misalignment_reported ||
-                rich_diagnostics[index].kind == UiLayoutDiagnosticKind::invalid_alignment;
-        }
-        displaced_rich_item->rectangle.left -= 3.0f;
-        displaced_rich_item->rectangle.right -= 3.0f;
-    }
     expect(rich_flowed.ok() && rich_measurement_applied && rich_measurement_changed && rich_reflowed.ok() &&
                rich_row && embed_layout && component_layout && rich_attachment_items[0] &&
                rich_attachment_items[1] && rich_embed_items[0] && rich_embed_items[1] &&
@@ -3956,8 +3935,6 @@ void test_message_text_presentation() noexcept {
                embed_layout->rectangle.bottom <= component_layout->rectangle.top && rich_settled.ok() &&
                presentation.rich.flow_overflow_regions == 0 && rich_validation.clean(),
            "message_text_rich_item_flow_reflows_every_retained_sibling_without_overlap");
-    expect(rich_item_misalignment_reported,
-           "message_rich_item_layout_diagnostic_reports_manual_displacement");
 
     UiWidgetHandle retained_reaction_buttons[5]{};
     if (rich_row && rich_row->reaction_button_count == 5) {
@@ -4094,8 +4071,7 @@ void test_message_text_presentation() noexcept {
                reaction_nodes[0]->rectangle.top == reaction_nodes[1]->rectangle.top &&
                reaction_nodes[2]->rectangle.top == reaction_nodes[0]->rectangle.top &&
                reaction_nodes[4]->rectangle.top == reaction_nodes[0]->rectangle.top + 28.0f &&
-               ui_rect_width(reaction_nodes[0]->rectangle) <
-                   kDefaultMessageReactionLayoutMetrics.button_width &&
+               ui_rect_width(reaction_nodes[0]->rectangle) < 80.0f &&
                reaction_visuals[0].emoji_rectangle.left ==
                    reaction_visuals[0].control_rectangle.left +
                        kDefaultMessageReactionLayoutMetrics.content_left_padding &&
@@ -4829,19 +4805,6 @@ void test_layout_engine_and_widget_manager() noexcept {
     }
     expect(found_rendered_text_overflow && found_rendered_collision,
            "layout_engine_reports_actual_render_bounds_failures");
-    UiLayoutNode* mutable_button = ui_widget_manager_layout_node(&manager, button.handle);
-    mutable_button->rectangle.left -= 5.0f;
-    mutable_button->rectangle.right -= 5.0f;
-    const UiLayoutValidationResult misaligned =
-        ui_layout_engine_validate(manager.layout, Slice<UiLayoutDiagnostic>{diagnostics, 16});
-    bool found_misalignment = false;
-    for (u32 index = 0; index < misaligned.count; ++index) {
-        found_misalignment =
-            found_misalignment || diagnostics[index].kind == UiLayoutDiagnosticKind::invalid_alignment;
-    }
-    expect(found_misalignment, "layout_engine_reports_incorrect_center_alignment");
-    mutable_button->rectangle.left += 5.0f;
-    mutable_button->rectangle.right += 5.0f;
     UiLayoutNode* mutable_header = ui_widget_manager_layout_node(&manager, header.handle);
     mutable_header->rectangle.bottom = 30.0f;
     const UiLayoutValidationResult collision =
@@ -4928,17 +4891,9 @@ void test_layout_engine_and_widget_manager() noexcept {
         UiWidgetDesc{21, UiWidgetKind::text, ui_widget_enabled,
                      UiLayoutNodeSpec{utf8_literal("UnstableText"), text_style, UiSize{}, 0.0f, 21}});
     const UiLayoutResult unstable_result = ui_widget_manager_layout_rectangle(&manager, {0, 0, 100.0f, 100.0f});
-    const UiLayoutValidationResult unstable_validation =
-        ui_layout_engine_validate(manager.layout, Slice<UiLayoutDiagnostic>{diagnostics, 16});
-    bool found_unstable_measurement = false;
-    for (u32 index = 0; index < unstable_validation.count; ++index) {
-        found_unstable_measurement =
-            found_unstable_measurement ||
-            diagnostics[index].kind == UiLayoutDiagnosticKind::unstable_measurement;
-    }
     expect(unstable_root.ok() && unstable_text.ok() &&
                unstable_result.error == UiLayoutError::unstable_layout &&
-               manager.layout.unstable_measurements == 1 && found_unstable_measurement,
+               manager.layout.unstable_measurements == 1,
            "layout_engine_reports_nonconvergent_measurement");
 
     ui_widget_manager_reset(&manager);
@@ -4997,17 +4952,6 @@ void test_layout_engine_and_widget_manager() noexcept {
             ui_rect_height(wrap_layout->rectangle) == 114.0f && wrap_fourth->rectangle.top == 90.0f &&
             ui_layout_engine_validate(manager.layout, Slice<UiLayoutDiagnostic>{diagnostics, 16}).clean(),
         "layout_engine_horizontal_wrap_width_reflow");
-    UiLayoutNode* displaced_wrap_item = ui_widget_manager_layout_node(&manager, wrap_items[2].handle);
-    displaced_wrap_item->rectangle.left += 3.0f;
-    displaced_wrap_item->rectangle.right += 3.0f;
-    const UiLayoutValidationResult wrap_displaced =
-        ui_layout_engine_validate(manager.layout, Slice<UiLayoutDiagnostic>{diagnostics, 16});
-    bool found_wrap_misalignment = false;
-    for (u32 index = 0; index < wrap_displaced.count; ++index) {
-        found_wrap_misalignment =
-            found_wrap_misalignment || diagnostics[index].kind == UiLayoutDiagnosticKind::invalid_alignment;
-    }
-    expect(found_wrap_misalignment, "layout_engine_horizontal_wrap_reports_displaced_child");
 }
 
 void test_widget_storage_growth() noexcept {
@@ -7336,12 +7280,12 @@ void test_message_composer_controller() noexcept {
         for (u8& byte : untouched)
             byte = 0x5A;
         MessageComposerController sparse{};
-        bool kept = message_composer_controller_initialize_sparse(
+        bool kept = message_composer_controller_initialize(
             &sparse, &composer, &drafts, &timeline, Slice<u8>{untouched, kMessageComposerMaximumBytes});
         for (const u8 byte : untouched)
             kept = kept && byte == 0x5A;
         expect(kept && sparse.initialized && sparse.request_text == untouched,
-               "message_composer_controller_initialize_sparse_leaves_request_bank_untouched");
+               "message_composer_controller_initialize_leaves_request_bank_untouched");
     }
 
     const bool channel_seven_draft =
@@ -9108,7 +9052,6 @@ void test_emoji_category_rail() noexcept {
     for (u32 i = 0; server_order && i < 8; ++i)
         server_order = picker.sections[1 + i].local == kReactionPickerSectionGuild &&
                        picker.sections[1 + i].guild_id == picker.guilds[i].id &&
-                       picker.sections[1 + i].first == picker.guilds[i].first_result &&
                        utf8_equal(reaction_picker_section_label(picker, 1 + i), utf8_literal("Studio"));
     expect(server_order && picker.guild_count == 8 && picker.custom_emoji_count == 8 &&
                picker.guilds[0].id == 103 && picker.guilds[0].icon_variant,
@@ -11303,7 +11246,6 @@ void test_cdn_targets() noexcept {
     expect(
         attachment.ok() && attachment.host == CdnHost::cdn && !attachment.ephemeral &&
             attachment.expires_at_seconds == 0x66d3ef00ull &&
-            attachment.issued_at_seconds == 0x66d3ee00ull &&
             bytes_equal(ConstSlice<u8>{attachment_target, attachment.target_bytes},
                         byte_literal("/attachments/123/456/image%20one.jpg"
                                      "?ex=66d3ef00&is=66d3ee00&hm="
@@ -11356,7 +11298,6 @@ void test_cdn_targets() noexcept {
         parse_signed_attachment_url(unsigned_attachment, 1'732'050'807'568'877'293ull,
                                     Slice<u8>{attachment_target, sizeof(attachment_target)});
     expect(unsigned_parsed.ok() && unsigned_parsed.expires_at_seconds == 0 &&
-               unsigned_parsed.issued_at_seconds == 0 &&
                bytes_equal(ConstSlice<u8>{attachment_target, unsigned_parsed.target_bytes},
                            byte_literal("/attachments/1618033988749894848/"
                                         "1732050807568877293/picture.png")),
@@ -11377,8 +11318,7 @@ void test_cdn_targets() noexcept {
                      "&is=1&ex=2");
     const AttachmentUrlResult ephemeral = parse_signed_attachment_url(
         ephemeral_attachment, 456, Slice<u8>{attachment_target, sizeof(attachment_target)});
-    expect(ephemeral.ok() && ephemeral.ephemeral && ephemeral.issued_at_seconds == 1 &&
-               ephemeral.expires_at_seconds == 2,
+    expect(ephemeral.ok() && ephemeral.ephemeral && ephemeral.expires_at_seconds == 2,
            "cdn_signed_ephemeral_attachment");
 
     expect(
@@ -12117,7 +12057,7 @@ void test_encoded_media_cache_dense_index() noexcept {
 }
 
 CdnResponseResult accepted_cdn_response(ConstSlice<u8> etag, u64 expires_at_seconds, u32 body_bytes) noexcept {
-    return CdnResponseResult{etag, {}, expires_at_seconds, 0, body_bytes, 200,
+    return CdnResponseResult{etag, {}, expires_at_seconds, body_bytes, 200,
                              CdnResponseDisposition::accept_body, CdnHttpError::none, true, false};
 }
 
@@ -12961,7 +12901,6 @@ void test_account_media_cached_frame() noexcept {
     const CdnResponseResult policy{byte_literal("\"account-media\""),
                                    {},
                                    2'000,
-                                   0,
                                    fixture.encoded_bytes,
                                    200,
                                    CdnResponseDisposition::accept_body,
@@ -16584,8 +16523,6 @@ void test_message_media_controller() noexcept {
         &small_controller, messages, rich_store, scene, UiVariableRange{0, 2, 0});
     message_media_controller_observe_retry(&small_controller, 900);
     message_media_controller_observe_retry(&small_controller, 700);
-    message_media_controller_record_request(&small_controller);
-    message_media_controller_record_upload(&small_controller);
     const bool budget_before = message_media_controller_upload_budget_reached(&small_controller, 3);
     const bool budget_after = message_media_controller_upload_budget_reached(&small_controller, 4);
     const bool first_log = message_media_controller_should_log_capacity(&small_controller, 1'000, 500);
@@ -16593,7 +16530,6 @@ void test_message_media_controller() noexcept {
     const bool next_log = message_media_controller_should_log_capacity(&small_controller, 1'500, 500);
     expect(small_ready && capacity.error == MessageMediaControllerError::capacity &&
                small_controller.rejected == 1 && small_controller.retry_at_ms == 700 &&
-               small_controller.requests_queued == 1 && small_controller.frames_uploaded == 1 &&
                !budget_before && budget_after && small_controller.scan_pending && first_log &&
                !throttled_log && next_log,
            "message_media_controller_capacity_retry_budget_and_throttle");
@@ -16606,28 +16542,6 @@ void test_message_media_controller() noexcept {
     message_media_controller_release(&owned);
     expect(!owned.initialized && owned.rows == nullptr && owned.owned_rows.arena.base == nullptr,
            "message_media_controller_owned_storage_releases");
-
-    // A steady call view plays an animated avatar: its frame advances are
-    // playback, reported apart from fetches with the busiest kind, so the
-    // fetch counter of an idle view stays at zero.
-    MessageMediaController steady{};
-    MessageMediaVisibleRow steady_rows[1]{};
-    MessageMediaAssetMark steady_marks[4]{};
-    const bool steady_ready = message_media_controller_initialize(
-        &steady, Slice<MessageMediaVisibleRow>{steady_rows, 1}, Slice<MessageMediaAssetMark>{steady_marks, 4});
-    (void)message_media_controller_take_diagnostics(&steady, 0, 5'000);
-    for (u32 frame = 0; frame < 250; ++frame)
-        message_media_controller_record_animation_advance(&steady, MediaAssetKind::user_avatar);
-    for (u32 frame = 0; frame < 120; ++frame)
-        message_media_controller_record_animation_advance(&steady, MediaAssetKind::custom_emoji);
-    const auto early = message_media_controller_take_diagnostics(&steady, 4'000, 5'000);
-    const auto window = message_media_controller_take_diagnostics(&steady, 5'000, 5'000);
-    const auto idle = message_media_controller_take_diagnostics(&steady, 10'000, 5'000);
-    expect(steady_ready && !early.ready && window.ready && window.requests_queued == 0 &&
-               window.animation_advances == 370 && window.animation_kind == MediaAssetKind::user_avatar &&
-               window.animation_kind_advances == 250 && idle.ready && idle.animation_advances == 0 &&
-               idle.animation_kind_advances == 0 && idle.requests_queued == 0,
-           "message_media_controller_animation_advances_are_not_fetch_requests");
 }
 
 void test_media_presentation_policy() noexcept {
@@ -18306,15 +18220,13 @@ void test_json_reader_and_gateway() noexcept {
             gateway_decode_ready(envelope.data, Slice<u32>{hello_scratch, 64}, 16, &ready).error ==
                 GatewayEventDecodeError::invalid_resume_gateway_url,
         "gateway_ready_resume_url_type");
-    GatewayResumed resumed{};
     expect(
         decode_gateway(utf8_literal(R"({"op":0,"d":{"_trace":[]},"s":8,"t":"RESUMED"})"), &envelope).ok() &&
-            gateway_decode_resumed(envelope.data, Slice<u32>{hello_scratch, 64}, 8, &resumed).ok() &&
-            resumed.has_trace,
+            gateway_decode_resumed(envelope.data, Slice<u32>{hello_scratch, 64}, 8).ok(),
         "gateway_resumed_typed_decode");
     expect(
         decode_gateway(utf8_literal(R"({"op":0,"d":{"_trace":4},"s":8,"t":"RESUMED"})"), &envelope).ok() &&
-            gateway_decode_resumed(envelope.data, Slice<u32>{hello_scratch, 64}, 8, &resumed).error ==
+            gateway_decode_resumed(envelope.data, Slice<u32>{hello_scratch, 64}, 8).error ==
                 GatewayEventDecodeError::invalid_trace,
         "gateway_resumed_trace_type");
 
@@ -21424,7 +21336,7 @@ void test_gateway_lifecycle() noexcept {
                lifecycle.next_heartbeat_ms == regular_deadline,
            "gateway_server_heartbeat_request");
     expect(gateway_lifecycle_heartbeat_acknowledged(&lifecycle).ok(), "gateway_server_heartbeat_ack");
-    expect(gateway_lifecycle_session_ready(&lifecycle, true).ok() &&
+    expect(gateway_lifecycle_session_ready(&lifecycle).ok() &&
                lifecycle.phase == GatewayLifecyclePhase::ready && lifecycle.resume_available,
            "gateway_session_ready");
     expect(gateway_lifecycle_tick(&lifecycle, regular_deadline).action ==
@@ -22860,7 +22772,7 @@ void test_gateway_session() noexcept {
     expect(gateway_cookies.count == 1 &&
                bytes_equal(ConstSlice<u8>{gateway_cookie, gateway_cookie_bytes}, byte_literal("__cf_bm=bot")),
            "gateway_session_opening_stores_cookies");
-    cookie_jar_clear(&gateway_cookies);
+    reset_value(&gateway_cookies);
 
     const ConstSlice<u8> hello_payload = byte_literal(R"({"op":10,"d":{"heartbeat_interval":45000}})");
     u8 frames[512]{};
@@ -23826,7 +23738,7 @@ void test_rest() noexcept {
         expect(initialized && fed.ok() && fed.state == RestResponseState::complete &&
                    bytes_equal(ConstSlice<u8>{cookie_output, cookie_bytes}, byte_literal("_cfuvid=session")),
                "rest_response_stores_cookies");
-        cookie_jar_clear(&rest_cookies);
+        reset_value(&rest_cookies);
     }
 
     // The client page origin goes on user requests other than GET and HEAD.

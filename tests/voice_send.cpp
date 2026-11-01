@@ -83,7 +83,7 @@ void test_blocks(Check check) noexcept {
     while (voice_framer_pop(&framer, kStart + 500'000, {frame, 960}, &index, &wake))
         first_after_stall = first_after_stall == ~0u ? static_cast<u32>(index) : first_after_stall,
         dropped_index = static_cast<u32>(index);
-    check(released == 2 && framer.dropped_frames == 3 && first_after_stall == 5 && dropped_index == 10,
+    check(released == 2 && first_after_stall == 5 && dropped_index == 10,
           "Voice send pacing: backlog beyond two frames drains, a stalled ring drops the oldest audio and keeps "
           "capture time");
 
@@ -132,7 +132,7 @@ void test_blocks(Check check) noexcept {
 // Fake transport: records Speaking and RTP packets; DAVE passthrough.
 struct Recorder {
     bool ready, busy_once;
-    u32 packets, speaking_calls, last_speaking;
+    u32 packets, speaking_calls;
     u32 order[64]; // 1000 + flags for Speaking, else payload bytes.
     u16 sequences[64];
     u32 timestamps[64];
@@ -165,7 +165,6 @@ VoiceUdpMediaSend recorder_send(void* c, ConstSlice<u8> packet) noexcept {
 VoiceSocketSend recorder_speaking(void* c, u32 flags) noexcept {
     auto& r = *static_cast<Recorder*>(c);
     ++r.speaking_calls;
-    r.last_speaking = flags;
     if (r.count < 64)
         r.order[r.count++] = 1000 + flags;
     return VoiceSocketSend::accepted;
@@ -404,7 +403,7 @@ void loopback_case(Check check, bool synthetic_group) noexcept {
             VoiceReceivedPacket packet{};
             packet.transport = opened;
             packet.source = {kUser, 1, kSsrc, kSsrc, VoiceSourceKind::audio, true};
-            packet.member = {kUser, 1, 0, 0, true, false, false};
+            packet.member = {kUser, 1, true};
             packet.setup_generation = packet.ready_revision = 1;
             ok = voice_receive_packet(&v->receive, packet, {plain, opened.bytes}, loop_open, v,
                                       kStart + u64{received} * 20'000) == VoiceReceiveResult::queued;

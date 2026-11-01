@@ -8,7 +8,6 @@
 #include "application_friends.hpp"
 #include "application_profile.hpp"
 #include "application_state.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/model/relationship_store.hpp"
 #include "maicord/protocol/client_status.hpp"
 #include "account_ui_runtime.hpp"

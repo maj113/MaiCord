@@ -131,23 +131,22 @@ void group_info(MlsReader& reader, MlsGroupInfoView& view) noexcept {
         view.tbs = {reader.input.data + start, tbs_end - start};
     }
 }
-void psk_id(MlsReader& reader, MlsPreSharedKeyIdView& view) noexcept {
+// A PreSharedKeyID is only framed and checked here; group secrets keep its bytes inside `psks`.
+void psk_id(MlsReader& reader) noexcept {
     const u32 start = reader.used;
-    view.type = static_cast<u8>(reader.integer(1));
-    if (view.type == 1)
-        view.id = reader.vector();
-    else if (view.type == 2) {
+    const u8 type = static_cast<u8>(reader.integer(1));
+    if (type == 1)
+        reader.vector();
+    else if (type == 2) {
         const u32 usage_offset = reader.used;
-        view.usage = static_cast<u8>(reader.integer(1));
-        if (view.usage < 1 || view.usage > 3)
+        const u8 usage = static_cast<u8>(reader.integer(1));
+        if (usage < 1 || usage > 3)
             reader.fail(MlsWireError::invalid_psk_usage, usage_offset);
-        view.group_id = reader.vector();
-        view.epoch = reader.integer(8);
+        reader.vector();
+        reader.integer(8);
     } else
         reader.fail(MlsWireError::invalid_psk_type, start);
-    view.nonce = reader.vector();
-    if (reader.error == MlsWireError::none)
-        view.serialized = {reader.input.data + start, reader.used - start};
+    reader.vector();
 }
 void group_secrets(MlsReader& reader, MlsGroupSecretsView& view) noexcept {
     const u32 start = reader.used;
@@ -162,10 +161,8 @@ void group_secrets(MlsReader& reader, MlsGroupSecretsView& view) noexcept {
     view.psks = reader.vector();
     if (reader.error == MlsWireError::none) {
         MlsReader list{view.psks};
-        while (list.error == MlsWireError::none && list.used < view.psks.count) {
-            MlsPreSharedKeyIdView id{};
-            psk_id(list, id);
-        }
+        while (list.error == MlsWireError::none && list.used < view.psks.count)
+            psk_id(list);
         propagate(reader, list, reader.used - view.psks.count);
     }
     if (reader.error == MlsWireError::none)

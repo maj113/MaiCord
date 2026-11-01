@@ -1,4 +1,5 @@
 #include "gsub_program_fixture.hpp"
+#include "text_seams.hpp"
 #include "maicord/text/gpos_ligature_execute.hpp"
 #include "maicord/text/gpos_cursive_execute.hpp"
 #include "maicord/text/gpos_program.hpp"

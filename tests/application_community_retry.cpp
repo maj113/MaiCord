@@ -57,7 +57,7 @@ void application_guild_card_join_poll(u64) noexcept {
 }
 void settings_layer_reset(SettingsLayer*) noexcept {
 }
-bool settings_layer_editor(SettingsLayer*, u64*, MessageComposer**, BoundedEdit**, bool*) noexcept {
+bool settings_layer_editor(SettingsLayer*, u64*, MessageComposer**, BoundedEdit**) noexcept {
     return false;
 }
 UiSettingsEditor settings_layer_editor_view(SettingsLayer*, u64, MessageComposer&, Utf8View,
@@ -72,15 +72,14 @@ bool settings_layer_open_choice(SettingsLayer*, u64, const ConstSlice<PopupItem>
 }
 void settings_layer_close_choice(SettingsLayer*) noexcept {
 }
-void settings_layer_begin_entrance(SettingsLayer*, u64, bool) noexcept {
+void settings_layer_begin_entrance(SettingsLayer*) noexcept {
 }
 void settings_layer_cancel_pointer(SettingsLayer*) noexcept {
 }
 bool settings_layer_choice_current(const SettingsLayer&) noexcept {
     return false;
 }
-u64 settings_layer_tick(SettingsLayer*, u64, bool) noexcept {
-    return 0;
+void settings_layer_tick(SettingsLayer*, u64) noexcept {
 }
 u64 settings_layer_next_wake(const SettingsLayer&) noexcept {
     return 0;

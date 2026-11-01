@@ -48,11 +48,6 @@ struct GatewayReady {
     bool notification_policy_invalid;
 };
 
-struct GatewayResumed {
-    JsonValue trace;
-    bool has_trace;
-};
-
 enum class GatewayEventDecodeError : u8 {
     none,
     invalid_input,
@@ -83,7 +78,6 @@ enum class GatewayEventDecodeError : u8 {
     invalid_message_ids,
     message_id_capacity,
     mention_role_capacity,
-    mention_user_capacity,
     invalid_user_name,
     invalid_message_nonce,
 };
@@ -118,8 +112,9 @@ GatewayEventDecodeResult gateway_decode_ready(JsonValue data, Slice<u32> structu
                                               const JsonIndexedDocument* document = nullptr) noexcept;
 GatewayEventDecodeResult gateway_decode_supplemental_private_channels(JsonValue data, Slice<u32> scratch,
     u32 maximum_depth, JsonValue* channels) noexcept;
+// Validates the optional _trace array; RESUMED carries nothing else that is kept.
 GatewayEventDecodeResult gateway_decode_resumed(JsonValue data, Slice<u32> structural_scratch,
-                                                u32 maximum_depth, GatewayResumed* output) noexcept;
+                                                u32 maximum_depth) noexcept;
 GatewayEventDecodeResult gateway_decode_invalid_session(JsonValue data, bool* resumable) noexcept;
 
 } // namespace maicord

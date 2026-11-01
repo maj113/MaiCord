@@ -1,21 +1,14 @@
-
-#include "application_accessibility.hpp"
-
 #include "account_ui_runtime.hpp"
 #include "application_state.hpp"
 
 #include "maicord/app/message_draft_session.hpp"
-#include "maicord/core/arena.hpp"
-#include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
-
-#include "maicord/sys/d3d11.hpp"
-#include "maicord/sys/process_info.hpp"
 
 #if defined(MAICORD_STARTUP_PROBE)
 #include "application_desktop.hpp"
 #include "maicord/core/trace_record.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/sys/process_info.hpp"
 #endif
 
 namespace maicord::app_detail {
@@ -64,58 +57,6 @@ bool startup_probe_profile_marked() noexcept {
            !(attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT));
 }
 #endif
-
-// Process commit/working-set peaks, GPU residency and arena commit totals.
-// Peaks cover the whole session; current values are sampled before teardown.
-void log_memory_metrics() noexcept {
-#define LOG_MEMORY(name, value) log_u64(LogLevel::info, "memory", name, static_cast<u64>(value))
-    PROCESS_MEMORY_COUNTERS_EX counters{};
-    counters.cb = sizeof(counters);
-    if (GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters),
-                             sizeof(counters))) {
-        LOG_MEMORY("private_bytes", counters.PrivateUsage);
-        LOG_MEMORY("peak_private_bytes", counters.PeakPagefileUsage);
-        LOG_MEMORY("working_set_bytes", counters.WorkingSetSize);
-        LOG_MEMORY("peak_working_set_bytes", counters.PeakWorkingSetSize);
-    }
-    if (ID3D11Device* device = g_app.renderer.graphics.device) {
-        IDXGIDevice* dxgi = nullptr;
-        IDXGIAdapter* adapter = nullptr;
-        IDXGIAdapter3* adapter3 = nullptr;
-        if (SUCCEEDED(device->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgi))) &&
-            SUCCEEDED(dxgi->GetAdapter(&adapter)) &&
-            SUCCEEDED(adapter->QueryInterface(__uuidof(IDXGIAdapter3), reinterpret_cast<void**>(&adapter3)))) {
-            DXGI_QUERY_VIDEO_MEMORY_INFO local{}, shared{};
-            if (SUCCEEDED(adapter3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &local)))
-                LOG_MEMORY("gpu_local_bytes", local.CurrentUsage);
-            if (SUCCEEDED(adapter3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, &shared)))
-                LOG_MEMORY("gpu_non_local_bytes", shared.CurrentUsage);
-        }
-        com_release(adapter3);
-        com_release(adapter);
-        com_release(dxgi);
-    }
-    const ArenaProcessCounters arenas = arena_process_counters();
-    LOG_MEMORY("arena_initializations", arenas.initializations);
-    LOG_MEMORY("arena_commits", arenas.commits);
-    LOG_MEMORY("arena_committed_bytes", arenas.committed_bytes);
-    LOG_MEMORY("message_scene_widget_peak_bytes",
-               g_app.message_scene_storage.widgets.arena.peak + g_app.message_scene_storage.layout_nodes.arena.peak);
-    LOG_MEMORY("message_scene_row_peak_bytes", g_app.message_scene.owned_rows.arena.peak);
-    LOG_MEMORY("message_scene_measurement_peak_bytes", g_app.message_scene.owned_measurements.arena.peak);
-    LOG_MEMORY("shell_navigation_widget_peak_bytes", g_app.shell_navigation_storage.widgets.arena.peak +
-                                                         g_app.shell_navigation_storage.layout_nodes.arena.peak);
-    LOG_MEMORY("member_list_widget_peak_bytes",
-               g_app.member_list_storage.widgets.arena.peak + g_app.member_list_storage.layout_nodes.arena.peak);
-    LOG_MEMORY("accessibility_committed_bytes", application_accessibility_committed_bytes());
-    if (const AccountUiRuntime* ui = g_app.account_ui) {
-        LOG_MEMORY("history_decode_peak_bytes", ui->history_decode_storage.arena.peak);
-        LOG_MEMORY("message_rich_record_peak_bytes", ui->message_rich_record_storage.arena.peak);
-        LOG_MEMORY("read_state_peak_bytes", ui->read_state_bank.arena.peak);
-    }
-#undef LOG_MEMORY
-}
-
 } // namespace
 
 #if defined(MAICORD_STARTUP_PROBE)
@@ -208,8 +149,7 @@ void application_startup_probe_first_present() noexcept {
 }
 #endif
 
-void application_log_shutdown_metrics() noexcept {
-    log_memory_metrics();
+void application_persist_drafts_on_exit() noexcept {
     if (g_app.account_ui)
         message_draft_session_persist(g_app.account_ui->message_draft_session, g_app.account_ui->message_drafts,
                                       clock_monotonic_milliseconds(), true);

@@ -158,14 +158,9 @@ bool form_field(void* opaque, u32, JsonValue value) noexcept {
 }
 bool form_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<FormPass*>(opaque);
-    switch (member_index<"version", "description", "form_fields">(name)) {
-    case 0:
-        if (value.kind == JsonValueKind::string)
-            p.form->version_bytes =
-                static_cast<u8>(decode_text(value, p.form->version, kGuildVerificationVersionBytes));
-        break;
-    case 1: p.form->description = p.bank.add(value, 2048); break;
-    case 2:
+    switch (member_index<"description", "form_fields">(name)) {
+    case 0: p.form->description = p.bank.add(value, 2048); break;
+    case 1:
         if (value.kind != JsonValueKind::array)
             return false;
         p.fields = value;
@@ -233,26 +228,13 @@ bool emoji_member(void* opaque, JsonString name, JsonValue value) noexcept {
 bool option_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<OnboardingPass*>(opaque);
     auto& o = *p.option;
-    u32 count = 0;
-    switch (member_index<"id", "title", "description", "emoji", "role_ids", "channel_ids">(name)) {
+    switch (member_index<"id", "title", "description", "emoji">(name)) {
     case 0: return json_value_to_snowflake(value, &o.id);
     case 1: o.title = p.bank.add(value, 512); break;
     case 2: o.description = p.bank.add(value, 512); break;
     case 3:
         if (value.kind == JsonValueKind::object)
             return json_visit_indexed_object(p.document, value, kDepth, emoji_member, &p).ok();
-        break;
-    case 4:
-        if (value.kind == JsonValueKind::array) {
-            snowflake_string_array(p.document, value, nullptr, 0, &count);
-            o.role_count = static_cast<u16>(minimum<u32>(count, 0xFFFF));
-        }
-        break;
-    case 5:
-        if (value.kind == JsonValueKind::array) {
-            snowflake_string_array(p.document, value, nullptr, 0, &count);
-            o.channel_count = static_cast<u16>(minimum<u32>(count, 0xFFFF));
-        }
         break;
     default: break;
     }
@@ -282,18 +264,13 @@ bool prompt_option(void* opaque, u32, JsonValue value) noexcept {
 bool prompt_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<OnboardingPass*>(opaque);
     auto& prompt = *p.prompt;
-    u64 number = 0;
-    switch (member_index<"id", "title", "type", "single_select", "required", "in_onboarding", "options">(name)) {
+    switch (member_index<"id", "title", "single_select", "required", "in_onboarding", "options">(name)) {
     case 0: return json_value_to_snowflake(value, &prompt.id);
     case 1: prompt.title = p.bank.add(value, 512); break;
-    case 2:
-        if (json_value_to_u64(value, &number))
-            prompt.type = static_cast<u8>(minimum<u64>(number, 255));
-        break;
-    case 3: json_value_to_bool(value, &prompt.single_select); break;
-    case 4: json_value_to_bool(value, &prompt.required); break;
-    case 5: json_value_to_bool(value, &prompt.in_onboarding); break;
-    case 6:
+    case 2: json_value_to_bool(value, &prompt.single_select); break;
+    case 3: json_value_to_bool(value, &prompt.required); break;
+    case 4: json_value_to_bool(value, &prompt.in_onboarding); break;
+    case 5:
         if (value.kind != JsonValueKind::array) {
             p.onboarding->truncated = true;
             return true;
@@ -331,8 +308,7 @@ bool onboarding_prompt(void* opaque, u32, JsonValue value) noexcept {
 bool onboarding_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<OnboardingPass*>(opaque);
     auto& o = *p.onboarding;
-    u64 number = 0;
-    switch (member_index<"prompts", "default_channel_ids", "responses", "enabled", "mode">(name)) {
+    switch (member_index<"prompts", "default_channel_ids", "responses", "enabled">(name)) {
     case 0:
         if (value.kind != JsonValueKind::array) {
             o.truncated = true;
@@ -354,10 +330,6 @@ bool onboarding_member(void* opaque, JsonString name, JsonValue value) noexcept 
         p.responses = value;
         break;
     case 3: json_value_to_bool(value, &o.enabled); break;
-    case 4:
-        if (json_value_to_u64(value, &number))
-            o.mode = static_cast<u8>(minimum<u64>(number, 255));
-        break;
     default: break;
     }
     return true;
@@ -1173,7 +1145,7 @@ bool visit_profile(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& o = *p.output;
     u64 number = 0;
     switch (member_index<"id", "name", "description", "icon_hash", "custom_banner_hash", "badge_hash", "tag",
-                         "online_count", "member_count", "visibility", "brand_color_primary", "features", "traits">(name)) {
+                         "online_count", "member_count", "brand_color_primary", "features", "traits">(name)) {
     case 0: json_value_to_snowflake(value, &o.id); break;
     case 1: o.name_bytes = static_cast<u16>(decode_text(value, o.name, kGuildProfileNameBytes)); break;
     case 2: o.description_bytes = static_cast<u16>(decode_text(value, o.description, kGuildProfileDescriptionBytes)); break;
@@ -1189,21 +1161,17 @@ bool visit_profile(void* opaque, JsonString name, JsonValue value) noexcept {
         if (json_value_to_u64(value, &number))
             o.member_count = static_cast<u32>(minimum<u64>(number, 0xFFFFFFFFull));
         break;
-    case 9:
-        if (json_value_to_u64(value, &number))
-            o.visibility = number <= 3 ? static_cast<GuildProfileVisibility>(number) : GuildProfileVisibility::not_specified;
-        break;
-    case 10: {
+    case 9: {
         const u32 color = profile_color(value);
         o.has_brand_color = color != ~0u;
         o.brand_color = o.has_brand_color ? color : 0;
         break;
     }
-    case 11:
+    case 10:
         if (value.kind == JsonValueKind::array)
             json_visit_indexed_array(*p.document, value, kDepth, visit_profile_feature, &o.features);
         break;
-    case 12:
+    case 11:
         if (value.kind == JsonValueKind::array) {
             // Up to five {label, position}, laid out by position.
             ProfileTraits traits{p.document, {}};

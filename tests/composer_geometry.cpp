@@ -1,4 +1,5 @@
 #include "maicord/ui/message_composer_scene.hpp"
+#include "layout_validation.hpp"
 #include "maicord/ui/message_markdown.hpp"
 #include "maicord/ui/scene.hpp"
 #include "maicord/ui/shell_text_presentation.hpp"

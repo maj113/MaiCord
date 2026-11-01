@@ -1643,12 +1643,11 @@ RestClientSubmitResult WINAPI module_soundboard(void* instance, const Soundboard
     auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
     return request ? account_soundboard_submit(rest, request, request_id) : rest_client_cancel_result(rest, request_id);
 }
-bool WINAPI module_soundboard_audio(void* instance, const SoundboardAudioCommand* command,
-                                    SoundboardAudioStatus* status) noexcept {
+bool WINAPI module_soundboard_audio(void* instance, const SoundboardAudioCommand* command) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime && account_soundboard_command(&runtime->soundboard,
                                                  user_account_coordinator_gateway(&runtime->coordinator), command,
-                                                 status, GetTickCount64());
+                                                 GetTickCount64());
 }
 bool WINAPI module_voice_message(void* instance, const VoiceMessageCommand* command,
                                  VoiceMessageStatus* status) noexcept {

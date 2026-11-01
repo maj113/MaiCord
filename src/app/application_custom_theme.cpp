@@ -260,9 +260,6 @@ HANDLE application_custom_theme_notification() noexcept {
 const ClientThemeDocument* application_custom_theme_document() noexcept {
     return owner && owner->effective.custom_active ? &owner->effective.custom : nullptr;
 }
-u64 application_custom_theme_revision() noexcept {
-    return owner ? owner->revision : 0;
-}
 ApplicationCustomThemeView application_custom_theme_view() noexcept {
     const auto* o = owner;
     if (!o)
@@ -409,12 +406,12 @@ bool application_custom_theme_snapshot(ClientThemeStorageSnapshot* out) noexcept
     *out = owner->effective;
     return true;
 }
-bool application_custom_theme_restore(const ClientThemeStorageSnapshot& snapshot, bool persist) noexcept {
+bool application_custom_theme_restore(const ClientThemeStorageSnapshot& snapshot) noexcept {
     auto* o = ensure();
     if (!o || !publish(*o, snapshot))
         return false;
     adopt_effective(*o);
-    return !persist || save(*o);
+    return true;
 }
 namespace {
 // Out of line: the completion holds a whole theme snapshot, and the poll runs on every loop wake.

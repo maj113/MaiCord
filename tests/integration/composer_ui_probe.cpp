@@ -1,5 +1,6 @@
 #include "application_emoji_preferences.hpp"
 #include "composer_ui_probe.hpp"
+#include "probe_account_ui.hpp"
 #include "probe_present.hpp"
 #include "../../tools/perf/probe_window.hpp"
 #include "probe_glyph_ink.hpp"
@@ -13,7 +14,6 @@
 #include "application_plugins.hpp"
 #include "maicord/ui/message_text_coordinator.hpp"
 #include "maicord/ui/background_color_math.hpp"
-#include "maicord/ui/foreground_color.hpp"
 #include "maicord/ui/message_author.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
@@ -253,26 +253,7 @@ bool initialize(HWND window) noexcept {
                     &g_app.message_view.timeline, {ui.message_request_text, kMessageRequestTextCapacity}),
             202))
         return false;
-    auto& text = ui.renderer_text;
-    text.quads = ui.renderer_text_quads;
-    text.batches = ui.renderer_text_batches;
-    text.utf16 = ui.response_shape_scratch.shape.utf16;
-    text.glyphs = ui.response_shape_scratch.shape.glyphs;
-    text.runs = ui.response_shape_scratch.shape.runs;
-    text.clusters = ui.response_shape_scratch.shape.clusters;
-    text.hit_spans = fixture->hit_spans;
-    text.hit_region_scratch = fixture->hit_scratch;
-    text.decorations = fixture->decorations;
-    text.content_semantics = ui.renderer_content_semantics;
-    text.content_hit_regions = ui.renderer_content_hit_regions;
-    text.quad_capacity = kRendererContentGlyphCapacity;
-    text.batch_capacity = kRendererContentBatchCapacity;
-    text.utf16_capacity = text.glyph_capacity = text.cluster_capacity = kRendererContentTextUnitCapacity;
-    text.run_capacity = kRendererContentRunCapacity;
-    text.hit_span_capacity = kTextHitSpanMaximum;
-    text.hit_region_scratch_capacity = text.content_hit_region_capacity = kRendererContentHitRegionCapacity;
-    text.decoration_capacity = kRendererTextDecorationCapacity;
-    text.content_semantic_capacity = kRendererContentSemanticCapacity;
+    auto& text = probe_bind_renderer_text(ui, fixture->hit_spans, fixture->hit_scratch, fixture->decorations);
     if (!require(message_text_presentation_initialize(
                      &ui.message_text, {ui.message_text_commands, kMaximumMessageTextCommands},
                      {ui.message_text_utf8, kMaximumMessageTextUtf8Bytes},
@@ -641,63 +622,9 @@ bool visual_contract(const D3D11_MAPPED_SUBRESOURCE& mapped) noexcept {
 }
 
 bool capture(const wchar_t* filename) noexcept {
-    if (!project())
-        return false;
-    auto& r = g_app.renderer;
-    // Flip-model Present advances to another back buffer. Build and draw the
-    // current shipping frame, then read this exact target before any Present.
-    if (!d3d11_renderer_paint_layout(&r, fixture->theme,
-                                     renderer_capture_presentation_stamp(r, fixture->theme)) ||
-        !d3d11_renderer_draw_stream(&r, fixture->theme, true, true, nullptr, 10000))
-        return require(false, 103);
-    const auto notice = fixture->typing;
-    UiRect notice_bounds{};
-    if (notice.bytes) {
-        const auto* node = message_composer_scene_layout_node(g_app.message_composer_scene,
-                                                              MessageComposerControl::typing_indicator);
-        if (!node)
-            return false;
-        const auto bounds = ui_rect_intersection(node->content_rectangle, node->clip_rectangle);
-        notice_bounds = bounds;
-        if (!utf8_equal(message_composer_scene_typing_label(g_app.message_composer_scene), notice))
-            return require(false, 104);
-        const TextStyleSpan style{0, notice.bytes, text_style_subtext};
-        UiTextMeasureValue measured{};
-        const UiTextMeasureRequest request{{0x4d53474c494e4b55ull, 1, 1, 0, 1},
-                                           notice,
-                                           {&style, 1},
-                                           {ui_rect_width(bounds), ui_rect_height(bounds)},
-                                           true};
-        if (!ui_rect_has_area(bounds) ||
-            !renderer_text_measure_backend(&g_app.renderer, request, &measured) ||
-            measured.line_count != 1 || measured.size.width > ui_rect_width(bounds) + .01f ||
-            measured.size.height > ui_rect_height(bounds) + .01f)
-            return require(false, 101);
-    }
-    ProbeTargetReadback readback;
-    if (const u32 failure = probe_target_readback(r, &readback))
-        return failure == 2 ? require(false, 102) : false;
-    const auto& mapped = readback.mapped;
-    if (notice.bytes && !probe_glyph_ink(mapped, notice_bounds))
-        return require(false, 105);
-    bool body_present{}, body_pixels{};
-    const auto& text = g_app.account_ui->message_text;
-    for (u32 i = 0; i < text.command_count; ++i) {
-        const auto& command = text.commands[i];
-        if (command.measurement_kind != MessageTextMeasurementKind::content || !command.text.bytes ||
-            (command.message_id != kSourceMessage && command.message_id != kTargetMessage))
-            continue;
-        const auto bounds = ui_rect_intersection(command.rectangle, command.clip);
-        if (!ui_rect_has_area(bounds))
-            continue;
-        body_present = true;
-        body_pixels = body_pixels || probe_glyph_ink(mapped, bounds);
-    }
-    if (g_app.message_view.store.count && (!body_present || !body_pixels))
-        return require(false, 106);
-    if (!visual_contract(mapped))
-        return false;
-    return probe_write_capture(readback, filename);
+    return probe_capture_composer_frame(
+        filename, fixture->theme, fixture->typing, kSourceMessage, kTargetMessage, project,
+        [](bool value, u32 stage) noexcept { return require(value, stage); }, visual_contract);
 }
 
 struct Keyboard {

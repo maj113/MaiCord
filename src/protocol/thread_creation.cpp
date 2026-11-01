@@ -89,13 +89,9 @@ bool metadata_field(void* opaque, JsonString name, JsonValue value) noexcept {
     } else if (bit == 4) {
         u64 duration{};
         valid = json_value_to_u64(value, &duration) && protocol_detail::thread_archive_duration(duration);
-        if (valid)
-            parse.value.auto_archive_duration = static_cast<u16>(duration);
     } else {
         u64 parsed{};
         valid = (bit == 16 && value.kind == JsonValueKind::null_value) || json_value_to_timestamp(value, &parsed);
-        if (valid && bit == 8)
-            parse.value.archive_timestamp_ms = parsed;
     }
     return valid || reject(parse, ThreadCreationError::field);
 }
@@ -220,7 +216,6 @@ ThreadCreationResult decode_bounded_response(Utf8View input, const ThreadCreatio
             return {0, member_error(decoded.error)};
         parse.value.fields |= thread_creation_self_joined;
         parse.value.self_join_timestamp_ms = member.join_timestamp_ms;
-        parse.value.self_flags = member.flags;
     }
     copy_value(output, parse.value);
     return {input.bytes};

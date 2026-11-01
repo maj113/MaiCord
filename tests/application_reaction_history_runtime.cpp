@@ -993,9 +993,6 @@ bool application_profile_response(const RestClientResponse&, Utf8View) noexcept 
     return true;
 }
 INACTIVE_REQUEST_OWNER(friends, true)
-bool application_reaction_tooltip_pending() noexcept {
-    return false;
-}
 bool application_reaction_tooltip_query(ReactionTooltipQuery*) noexcept {
     return false;
 }

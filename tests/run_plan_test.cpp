@@ -1,6 +1,7 @@
 // Native run plans (MaiCordRunPlanTests). No argument runs the built-in corpora; the
 // registry also runs `<font> <weight> lazy-units` and `... profiles`.
 #include "maicord/text/run_plan.hpp"
+#include "text_seams.hpp"
 #include "../src/text/nominal_placements.hpp"
 #include "maicord/text/nominal_sources.hpp"
 #include "maicord/text/ascii_run.hpp"

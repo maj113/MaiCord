@@ -1,5 +1,4 @@
 #include "application_profile_editor.hpp"
-#include "application_content_point.hpp"
 #include "application_account_logout.hpp"
 #include "application_account_presentation.hpp"
 #include "application_attachments.hpp"
@@ -267,7 +266,7 @@ template <u32 N> void assign(ProfileString<N>* to, const Utf8View& from) noexcep
 bool binding_ready(void* model, u64 identity) noexcept {
     MessageComposer* focused = nullptr;
     return owner && owner->lifetime == identity && editable() &&
-           settings_layer_editor(&owner->layer, nullptr, &focused, nullptr, nullptr) && focused == model;
+           settings_layer_editor(&owner->layer, nullptr, &focused, nullptr) && focused == model;
 }
 char* editor_buffer(u32 index) noexcept {
     return index == editor_name ? owner->name : index == editor_pronouns ? owner->pronouns : owner->bio;
@@ -1273,7 +1272,7 @@ void edit_color(ColorSlot slot) noexcept {
 bool guard() noexcept {
     // Unsaved changes hold the page, as the official client's settings do.
     if (owner && changes() && !saving()) {
-        settings_layer_shake(&owner->layer, clock_monotonic_milliseconds());
+        settings_layer_shake(&owner->layer);
         repaint();
         return false;
     }

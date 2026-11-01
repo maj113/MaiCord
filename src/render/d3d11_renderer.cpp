@@ -570,14 +570,6 @@ void renderer_release_login_form_text(D3D11Renderer* renderer) noexcept {
     arena_release(&arena);
 }
 
-RendererLoginFormTextMetrics renderer_login_form_text_metrics(const D3D11Renderer& renderer) noexcept {
-    const auto* owned = renderer.login_form_text;
-    return owned
-               ? RendererLoginFormTextMetrics{sizeof(*owned), owned->arena.reserved, owned->arena.committed,
-                                              owned->projection.count, owned->projection.owned_bytes}
-               : RendererLoginFormTextMetrics{};
-}
-
 bool renderer_bind_text_storage(D3D11Renderer* renderer, RendererTextStorage* storage) noexcept {
     if (!renderer || !storage || !storage->quads || storage->quad_capacity == 0 || !storage->batches ||
         storage->batch_capacity == 0 || !storage->utf16 || storage->utf16_capacity == 0 ||
@@ -814,7 +806,6 @@ void renderer_shutdown(D3D11Renderer* renderer) noexcept {
     renderer->background_next_frame_ms = 0;
     renderer->background_motion_running = false;
     renderer->draw_calls_last_frame = 0;
-    renderer->draw_calls_max = 0;
     renderer->login_caret_visible = false;
     renderer->uploaded_text_storage = nullptr;
     renderer->uploaded_text_rebuild = 0;

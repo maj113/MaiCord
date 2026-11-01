@@ -263,7 +263,7 @@ void run() noexcept {
         "forum media: completed retained close posts centralized WM_CLOSE instead of bypassing other owners");
     if (g_app.window) DestroyWindow(g_app.window); g_app.window = nullptr;
     clean();
-    check(!memory.references && !application_forum_attachments_metrics().committed_bytes,
+    check(!memory.references && (!forum_attachments || !forum_attachments->drafts.committed_bytes),
         "forum media: zero retained source references or lazy media pages after teardown");
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE); g_app.account_ui = nullptr;
 }

@@ -81,7 +81,6 @@ void d3d11_gpu_timer_collect(D3D11GpuTimerOwner* owner, ID3D11DeviceContext* con
         }
         if (FAILED(disjoint_result)) {
             frame.pending = false;
-            saturating_increment(owner->errors);
             continue;
         }
         const HRESULT begin_result =
@@ -93,18 +92,13 @@ void d3d11_gpu_timer_collect(D3D11GpuTimerOwner* owner, ID3D11DeviceContext* con
         }
         frame.pending = false;
         if (FAILED(begin_result) || FAILED(end_result)) {
-            saturating_increment(owner->errors);
             continue;
         }
         if (disjoint.Disjoint || disjoint.Frequency == 0 ||
             disjoint.Frequency > ~0ull / kGpuTimestampScale || end < begin) {
-            saturating_increment(owner->disjoint);
             continue;
         }
-        const u64 elapsed = gpu_timestamp_microseconds(end - begin, disjoint.Frequency);
-        owner->last_microseconds = elapsed;
-        saturating_accumulate(owner->total_microseconds, elapsed);
-        owner->maximum_microseconds = maximum(owner->maximum_microseconds, elapsed);
+        saturating_accumulate(owner->total_microseconds, gpu_timestamp_microseconds(end - begin, disjoint.Frequency));
         saturating_increment(owner->samples);
     }
 }
@@ -126,7 +120,6 @@ D3D11GpuTimerFrame* d3d11_gpu_timer_begin(D3D11GpuTimerOwner* owner,
         owner->cursor = (index + 1) % kD3D11GpuTimerFrameCount;
         return &frame;
     }
-    saturating_increment(owner->skipped);
     return nullptr;
 }
 

@@ -72,7 +72,7 @@ struct LayoutScratch {
     UiRect composer_selections[kMessageComposerSelectionRectangleCapacity];
     TextCompositionMark composer_marks[kTextCompositionSpanCapacity];
     MessageComposerChipGeometry composer_chips[kMessageComposerChipGeometryCapacity];
-    UiRect login_selections[kRendererLoginSelectionCapacity];
+    UiRect login_selections[kTextEditSelectionCapacity];
     LoginCompositionGeometry login_composition[kRendererLoginCompositionCapacity];
 };
 
@@ -479,7 +479,6 @@ bool queue_media_quad(D3D11Renderer* renderer, const MediaAtlasResult& allocatio
         renderer->media_quad_count >= kRendererMediaQuadCapacity ||
         !renderer_media_draw_storage_reserve_quads(&renderer->media_draw,
                                                    renderer->media_quad_count + 1u)) {
-        ++renderer->media_rejected;
         return false;
     }
     MediaAtlas* atlas = domain == 0 ? renderer->media_atlas : renderer->preview_media_atlas;
@@ -496,7 +495,6 @@ bool queue_media_quad(D3D11Renderer* renderer, const MediaAtlasResult& allocatio
         if (renderer->media_batch_count >= kRendererMediaBatchCapacity ||
             !renderer_media_draw_storage_reserve_batches(&renderer->media_draw,
                                                          renderer->media_batch_count + 1u)) {
-            ++renderer->media_rejected;
             return false;
         }
         batch = &renderer->media_draw.batch_data[renderer->media_batch_count++];
@@ -984,10 +982,8 @@ bool queue_inline_flags(D3D11Renderer* renderer) noexcept {
             if (!allocation.ok())
                 continue;
             if (renderer->media_quad_count == kRendererMediaQuadCapacity ||
-                renderer->media_batch_count == kRendererMediaBatchCapacity) {
-                saturating_increment(renderer->inline_media.rejected);
+                renderer->media_batch_count == kRendererMediaBatchCapacity)
                 break;
-            }
             const auto r = flag.rectangle;
             // Message rows clip to themselves; the viewport bounds their flags.
             const UiRect clip = renderer->message_scene && flag.owner.manager == &renderer->message_scene->widgets
@@ -2782,7 +2778,6 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 continue;
             }
             if (resolved != PopupMediaPresentationStatus::ready) {
-                saturating_increment(renderer->media_rejected);
                 log_u64(LogLevel::warning, "render", "popup_emoji_layout_rejected", index);
                 continue;
             }

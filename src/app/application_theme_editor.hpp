@@ -16,5 +16,4 @@ UiScrollBinding application_theme_editor_scroll_binding() noexcept;
 bool application_theme_editor_publish_foreground() noexcept;
 bool application_theme_editor_input(UiInputKind, u32 code, bool repeated) noexcept;
 bool application_theme_editor_window_message(UINT, WPARAM, LPARAM) noexcept;
-const UiThemeEditorScene* application_theme_editor_scene() noexcept;
 } // namespace maicord::app_detail

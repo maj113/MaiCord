@@ -13,10 +13,6 @@ inline constexpr u32 kAacDecoderMaximumNativeOutputBytes = 65536;
 inline constexpr u32 aac_decoder_seek_preroll_packets(u32 frames_per_packet) noexcept {
     return frames_per_packet == 2048 ? 32u : 4u;
 }
-enum class AacPcmFormat : u8 {
-    signed16,
-    float32
-};
 enum class AacDecodeError : u8 {
     none,
     invalid_input,
@@ -54,7 +50,6 @@ struct AacDecoder {
     void* runtime{};
     u8 asc[16]{};
     u32 asc_bytes{}, sample_rate{}, channels{}, thread_id{};
-    AacPcmFormat format{};
     i32 native_status{};
     u64 accepted_frames{}, output_frames{};
     bool initialized{}, draining{}, ended{};
@@ -69,8 +64,7 @@ bool aac_decoder_configuration_valid(ConstSlice<u8> asc, u32 rate, u32 channels)
 // Reject non-power-of-two or >4096 byte requirements without changing output.
 bool aac_decoder_alignment_mask(u32 byte_alignment, u32* mask) noexcept;
 bool aac_decoder_output_capacity(u32 minimum_bytes, u32* capacity) noexcept;
-AacDecodeResult aac_decoder_initialize(AacDecoder*, ConstSlice<u8> asc, u32 rate, u32 channels,
-                                       AacPcmFormat format = AacPcmFormat::float32) noexcept;
+AacDecodeResult aac_decoder_initialize(AacDecoder*, ConstSlice<u8> asc, u32 rate, u32 channels) noexcept;
 // Decode-worker only and serial. Caller owns an initialized MTA on that thread
 // through release; this wrapper does not change the caller's COM apartment.
 // First submit lazily opens the system MFT and balances its own MFStartup/LITE

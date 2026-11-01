@@ -19,12 +19,11 @@ struct H264GpuDecoder {
     void* state;
     i32 status;
     H264Error parse_error;
-    bool submitted;
     // Demux rejection reason; sits in the struct's padding so the size stays 16 bytes.
     Mp4DemuxError demux_error;
 };
 static_assert(sizeof(H264GpuDecoder) == 16);
-static_assert(offsetof(H264GpuDecoder, demux_error) == 14);
+static_assert(offsetof(H264GpuDecoder, demux_error) == 13);
 struct H264GpuMovie {
     u64 duration_us;
     u32 samples;
@@ -58,8 +57,7 @@ bool h264_gpu_decoder_seek_start(H264GpuDecoder*) noexcept;
 // previous output lease has already expired because a new read is starting.
 bool h264_gpu_decoder_rewind(H264GpuDecoder*) noexcept;
 bool h264_gpu_decoder_initialize(H264GpuDecoder* probe, ConstSlice<u8> encoded, ID3D11Device* device,
-                                 ID3D11DeviceContext* context, bool full_stream = true,
-                                 Mp4SourceAvailability availability = {}) noexcept;
+                                 ID3D11DeviceContext* context, Mp4SourceAvailability availability = {}) noexcept;
 // Empty decoder and borrowed indexed fragment source at its initial packet; never copies the
 // encoded entity. Source and metadata outlive decoder release. Sequential reads
 // share the same GPU path and acknowledgement fence; missing bytes return
@@ -73,8 +71,7 @@ bool h264_gpu_decoder_initialize_fragmented(H264GpuDecoder*, Mp4FragmentSource*,
 // A zero submission budget means no limit. A nonzero budget accepts at most
 // that many decoded access units, then returns needs_service, which is not GPU
 // backpressure. Budgeted callers must acknowledge the prior frame before reading again.
-Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, bool loop_at_end = false,
-                                      u32 max_submissions = 0) noexcept;
+Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, u32 max_submissions = 0) noexcept;
 bool h264_gpu_decoder_busy(const H264GpuDecoder& decoder) noexcept;
 // Worker-only wait for GPU backpressure. Creates its fence/event on first use, never waits
 // with the shared context lock held and never spins on a busy driver.

@@ -298,7 +298,6 @@ bool draw_gpu_media(D3D11Renderer* renderer, DrawSubmissionState* submission, u3
         !renderer->pipeline.media_pixel_shader || !renderer->pipeline.media_instance_buffer ||
         renderer->media_quad_count > kRendererMediaQuadCapacity || first_batch > end_batch ||
         end_batch > renderer->media_batch_count) {
-        ++renderer->media_rejected;
         return false;
     }
     if (upload) {
@@ -309,7 +308,6 @@ bool draw_gpu_media(D3D11Renderer* renderer, DrawSubmissionState* submission, u3
             const MediaDrawBatch& batch = renderer->media_draw.batch_data[index];
             if (batch.quad_count == 0 || batch.first_quad > renderer->media_quad_count ||
                 batch.quad_count > renderer->media_quad_count - batch.first_quad) {
-                ++renderer->media_rejected;
                 return false;
             }
         }
@@ -317,7 +315,6 @@ bool draw_gpu_media(D3D11Renderer* renderer, DrawSubmissionState* submission, u3
         const HRESULT map_result = renderer->graphics.context->Map(renderer->pipeline.media_instance_buffer,
                                                                    0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
         if (FAILED(map_result)) {
-            ++renderer->media_rejected;
             log_write(LogLevel::error, "render", "media_instance_buffer_map_failed");
             return false;
         }
@@ -896,7 +893,7 @@ namespace {
 // Views stay bound across passes and are released once per stream: the icon,
 // glyph and media atlases become compute targets between frames.
 void release_stream_views(D3D11Renderer* renderer, const DrawSubmissionState& submission) noexcept {
-    if (!submission.pipeline_binds)
+    if (!submission.pipeline_bound)
         return;
     ID3D11ShaderResourceView* null_views[3]{};
     renderer->graphics.context->PSSetShaderResources(0, 3, null_views);
@@ -1312,8 +1309,6 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
             saturating_accumulate(renderer->media_draws_total, renderer->media_draws_last_frame);
         d3d11_background_fx_end_frame(&renderer->background_fx, renderer->graphics.context);
         d3d11_gpu_timer_end(&renderer->gpu_timer, renderer->graphics.context, gpu_timestamp);
-        if (drawn)
-            renderer->draw_calls_max = maximum(renderer->draw_calls_max, renderer->draw_calls_last_frame);
         return drawn;
     };
     const auto paint = [&, renderer](u32 first, u32 end) noexcept {

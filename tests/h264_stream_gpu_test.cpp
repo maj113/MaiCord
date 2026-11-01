@@ -360,7 +360,6 @@ int run(ID3D11Device* device, ID3D11DeviceContext* context) noexcept {
             test_write_metric("mismatches ", capture.mismatches);
             test_write_metric("unsupported ", stats.unsupported);
             test_write_metric("gpu_failures ", stats.gpu_failures);
-            test_write_metric("last_status ", static_cast<u32>(stats.last_status));
             test_write_metric("damaged ", stats.damaged);
             test_write_metric("dropped ", stats.dropped);
             test_write_metric("reinitializations ", stats.reinitializations);

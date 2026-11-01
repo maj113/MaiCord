@@ -76,10 +76,9 @@ enum ForumParentField : u8 {
 // An absent default auto-archive duration falls back to 4320 minutes.
 struct ForumParentSnapshot {
     u64 id, guild_id;
-    u32 flags, name_bytes;
+    u32 flags;
     u16 default_auto_archive_duration;
     u8 tag_count, fields, type, default_sort_order, default_forum_layout, default_tag_setting;
-    char name[kForumPostTitleMaximumBytes];
     ForumTagSnapshot tags[kForumPostAvailableTagMaximum];
 };
 // The channel and initial message form one validated response. No view borrows
@@ -137,8 +136,8 @@ Utf8View forum_tag_name_view(const ForumTagSnapshot&) noexcept;
 Utf8View forum_post_content_view(const ForumPostSnapshot&) noexcept;
 static_assert(sizeof(ForumPostRequest) == 144);
 static_assert(sizeof(ForumTagSnapshot) == 96);
-static_assert(sizeof(ForumParentSnapshot) == 2352);
-static_assert(sizeof(ForumPostSnapshot) == 8560);
+static_assert(sizeof(ForumParentSnapshot) == 1952);
+static_assert(sizeof(ForumPostSnapshot) == 8544);
 static_assert(sizeof(ForumPostAttachmentSnapshot) == 80);
-static_assert(sizeof(ForumPostMediaSnapshot) == 74904);
+static_assert(sizeof(ForumPostMediaSnapshot) == 74888);
 } // namespace maicord

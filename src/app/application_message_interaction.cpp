@@ -1070,7 +1070,7 @@ static bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
         return application_downloads_context_action(action);
     if (message_link_menu_action(action))
         return activate_message_link_action(action);
-    if (application_user_menu_action(action))
+    if (user_context_action(action))
         return application_user_menu_activate(action);
     if (application_member_moderation_action(action))
         return application_member_moderation_activate(action);

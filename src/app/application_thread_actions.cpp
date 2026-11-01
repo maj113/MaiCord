@@ -532,15 +532,6 @@ void application_thread_actions_release() noexcept {
 u32 application_thread_actions_publication_revision() noexcept {
     return owner ? owner->revision : 0;
 }
-ApplicationThreadActionMetrics application_thread_actions_metrics() noexcept {
-    if (!owner)
-        return {};
-    Win32MemoryInformation memory{};
-    const auto bytes = VirtualQuery(owner, memory.native(), sizeof(memory));
-    return {sizeof(ThreadOwner),
-            bytes && memory.State == MEM_COMMIT ? static_cast<u32>(memory.RegionSize) : 0, 1,
-            owner->revision, owner->flight.active};
-}
 bool application_thread_actions_channel_readable(u64 id) noexcept {
     const auto* value = actor_live() ? application_channel_record(id) : nullptr;
     return value && readable(*value);

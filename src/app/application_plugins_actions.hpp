@@ -1,6 +1,5 @@
 #pragma once
 #include "maicord/app/plugin_sdk.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord::app_detail {

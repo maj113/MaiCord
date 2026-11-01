@@ -32,12 +32,7 @@ void note_media_mutation(D3D11Renderer* renderer, const MediaAtlasGpuResult& res
         note_media_mutation(renderer, result.allocation.handle, domain);
 }
 
-MediaAtlasGpuResult reject_media_request(D3D11Renderer* renderer) noexcept {
-    if (renderer) {
-        ++renderer->media_rejected;
-    }
-    return MediaAtlasGpuResult{{}, E_INVALIDARG, MediaAtlasGpuError::invalid_input};
-}
+constexpr MediaAtlasGpuResult kRejectedMediaRequest{{}, E_INVALIDARG, MediaAtlasGpuError::invalid_input};
 
 bool media_request_ready(const D3D11Renderer* renderer, const MediaAssetKey& key) noexcept {
     return renderer && renderer->graphics.device && renderer->graphics.context1 && renderer->media_atlas &&
@@ -62,7 +57,6 @@ MediaAtlasGpuResult ensure_primary_media_gpu(D3D11Renderer* renderer) noexcept {
         &renderer->media_gpu, renderer->graphics.device, renderer->graphics.context1,
         renderer->media_atlas->allocations.width, renderer->media_atlas->allocations.height);
     if (!initialized.ok()) {
-        ++renderer->media_rejected;
         log_write(LogLevel::error, "render", "media_atlas_gpu_initialization_failed");
     }
     return initialized;
@@ -80,7 +74,6 @@ MediaAtlasGpuResult ensure_preview_media_gpu(D3D11Renderer* renderer, const Medi
         &renderer->media_gpu, renderer->graphics.device, renderer->graphics.context1,
         atlas.allocations.width, atlas.allocations.height);
     if (!initialized.ok()) {
-        ++renderer->media_rejected;
         log_write(LogLevel::error, "render", "preview_media_atlas_gpu_initialization_failed");
     }
     return initialized;
@@ -107,7 +100,6 @@ MediaAtlasGpuResult prepare_media_surface(D3D11Renderer* renderer, MediaAtlas* a
                                                                atlas->allocations.height);
     if (!resized.ok()) {
         media_atlas_revert_growth(atlas, before);
-        ++renderer->media_rejected;
         log_write(LogLevel::warning, "render", "media_atlas_growth_failed");
         return resized;
     }
@@ -188,7 +180,6 @@ MediaAtlasGpuResult run_atlas_upload(D3D11Renderer* renderer, const MediaAssetKe
     if (!prepared.ok()) return prepared;
     const MediaAtlasGpuResult uploaded = upload.run(upload.context, atlas);
     if (!uploaded.ok()) {
-        ++renderer->media_rejected;
         log_media_upload_failure(uploaded, failure_event);
     } else if (preview) {
         ++renderer->preview_media_uploads;
@@ -206,7 +197,6 @@ MediaAtlasGpuResult run_animation_upload(D3D11Renderer* renderer, const MediaAss
     if (!target.initialized.ok()) return target.initialized;
     const MediaAtlasGpuResult uploaded = upload.run(upload.context, target.atlas);
     if (!uploaded.ok()) {
-        ++renderer->media_rejected;
         log_media_upload_failure(uploaded, failure_event);
     }
     note_media_mutation(renderer, uploaded, target.preview ? 1 : 0);
@@ -233,10 +223,10 @@ __forceinline MediaAtlasGpuResult upload_animation(D3D11Renderer* renderer, cons
 MediaAtlasGpuResult renderer_present_video_frame(D3D11Renderer* renderer,
     MediaAssetKey key, const GpuVideoFrame& frame, u32 maximum_extent) noexcept {
     if (!renderer || !renderer->graphics.device || !renderer->graphics.context1 ||
-        !renderer->media_atlas || !media_asset_key_valid(key)) return reject_media_request(renderer);
+        !renderer->media_atlas || !media_asset_key_valid(key)) return kRejectedMediaRequest;
     // Call video lives in the large preview atlas, reduced to its tile.
     const bool call = key.kind == MediaAssetKind::call_video;
-    if (call && !renderer->preview_media_atlas) return reject_media_request(renderer);
+    if (call && !renderer->preview_media_atlas) return kRejectedMediaRequest;
     const bool preview = call || uses_preview_atlas(renderer, key);
     MediaAtlas* atlas = preview ? renderer->preview_media_atlas : renderer->media_atlas;
     const MediaAtlasGpuResult primary = ensure_primary_media_gpu(renderer);
@@ -400,7 +390,7 @@ MediaAtlasGpuResult renderer_upload_media_rgba8(D3D11Renderer* renderer, MediaAs
     if (!renderer || !renderer->graphics.device || !renderer->graphics.context1 || !renderer->media_atlas ||
         !media_asset_key_valid(key) ||
         !rgba_image_valid(*renderer->media_atlas, width, height, row_pitch, premultiplied_rgba8)) {
-        return reject_media_request(renderer);
+        return kRejectedMediaRequest;
     }
     return upload_to_atlas(renderer, key, false, renderer->media_atlas, width, height, "media_atlas_upload_failed",
         [&]() noexcept {
@@ -440,10 +430,10 @@ MediaAtlasGpuResult renderer_upload_regional_flag(D3D11Renderer* renderer, Media
     const ColrPaintProgram& program) noexcept {
     if (!renderer || !renderer->media_atlas || !media_asset_key_valid(key) ||
         key.kind != MediaAssetKind::regional_flag || !program.storage.base || !program.storage.offset)
-        return reject_media_request(renderer);
+        return kRejectedMediaRequest;
     char metadata_target[kRegionalFlagSvgTargetBytes];
     if (!regional_flag_svg_target(static_cast<u16>(key.id),{metadata_target,sizeof(metadata_target)}))
-        return reject_media_request(renderer);
+        return kRejectedMediaRequest;
     const auto initialized = ensure_primary_media_gpu(renderer);if (!initialized.ok()) return initialized;
     const auto prepared = prepare_media_surface(renderer, renderer->media_atlas, false, key, 64, 64);
     if (!prepared.ok()) return prepared;
@@ -457,7 +447,7 @@ MediaAtlasGpuResult renderer_upload_lottie_program(D3D11Renderer* renderer, Medi
         !((key.kind == MediaAssetKind::catalog_preview &&
            media_asset_catalog_format(key) == MediaAttachmentFormat::lottie) ||
           (key.kind == MediaAssetKind::sticker && key.variant == 3)) ||
-        !program.storage.base || !program.storage.offset) return reject_media_request(renderer);
+        !program.storage.base || !program.storage.offset) return kRejectedMediaRequest;
     const u16 extent = static_cast<u16>(lottie_raster_pixels(key));
     AnimationAtlasTarget surface(renderer, key, extent, extent);
     if (!surface.initialized.ok()) return surface.initialized;
@@ -471,7 +461,7 @@ MediaAtlasGpuResult renderer_upload_media_straight_rgba8(D3D11Renderer* renderer
     MediaAtlas* atlas = upload_atlas(renderer, preview);
     if (!renderer || !renderer->graphics.device || !renderer->graphics.context1 || !atlas ||
         !media_asset_key_valid(key) || !rgba_image_valid(*atlas, width, height, row_pitch, straight_rgba8)) {
-        return reject_media_request(renderer);
+        return kRejectedMediaRequest;
     }
     return upload_to_atlas(renderer, key, preview, atlas, width, height, "straight_rgba8_atlas_upload_failed",
         [&]() noexcept {
@@ -488,7 +478,7 @@ MediaAtlasGpuResult renderer_upload_png_scanlines(D3D11Renderer* renderer, Media
     MediaAtlas* atlas = upload_atlas(renderer, preview);
     if (!renderer || !renderer->graphics.device || !renderer->graphics.context1 || !atlas ||
         !media_asset_key_valid(key)) {
-        return reject_media_request(renderer);
+        return kRejectedMediaRequest;
     }
     return upload_to_atlas(renderer, key, preview, atlas, image.width, image.height, "png_atlas_upload_failed",
         [&]() noexcept {
@@ -504,7 +494,7 @@ MediaAtlasGpuResult renderer_upload_jpeg(D3D11Renderer* renderer, MediaAssetKey 
     MediaAtlas* atlas = upload_atlas(renderer, preview);
     if (!renderer || !renderer->graphics.device || !renderer->graphics.context1 || !atlas ||
         !media_asset_key_valid(key)) {
-        return reject_media_request(renderer);
+        return kRejectedMediaRequest;
     }
     return upload_to_atlas(renderer, key, preview, atlas, jpeg_display_width(image), jpeg_display_height(image),
         "jpeg_atlas_upload_failed", [&]() noexcept {
@@ -518,7 +508,7 @@ MediaAtlasGpuResult renderer_begin_apng(D3D11Renderer* renderer, MediaAssetKey k
                                         const PngImage& frame_image,
                                         ConstSlice<u8> reconstructed_scanlines) noexcept {
     if (!media_request_ready(renderer, key)) {
-        return reject_media_request(renderer);
+        return kRejectedMediaRequest;
     }
     return upload_animation(renderer, key, canvas_width, canvas_height, "apng_atlas_begin_failed",
         [&](MediaAtlas* atlas) noexcept {
@@ -533,7 +523,7 @@ MediaAtlasGpuResult renderer_advance_apng(D3D11Renderer* renderer, MediaAssetKey
                                           const PngImage& frame_image,
                                           ConstSlice<u8> reconstructed_scanlines) noexcept {
     if (!media_request_ready(renderer, key) || !renderer->media_gpu.texture) {
-        return reject_media_request(renderer);
+        return kRejectedMediaRequest;
     }
     return upload_animation(renderer, key, 0, 0, "apng_atlas_advance_failed", [&](MediaAtlas* atlas) noexcept {
         return media_atlas_gpu_advance_apng(&renderer->media_gpu, atlas, renderer->graphics.device,
@@ -546,7 +536,7 @@ MediaAtlasGpuResult renderer_begin_gif(D3D11Renderer* renderer, MediaAssetKey ke
                                        u16 canvas_height, const GifFrame& frame, const GifPalette& palette,
                                        ConstSlice<u8> indices) noexcept {
     if (!media_request_ready(renderer, key)) {
-        return reject_media_request(renderer);
+        return kRejectedMediaRequest;
     }
     return upload_animation(renderer, key, canvas_width, canvas_height, "gif_atlas_begin_failed",
         [&](MediaAtlas* atlas) noexcept {
@@ -560,7 +550,7 @@ MediaAtlasGpuResult renderer_advance_gif(D3D11Renderer* renderer, MediaAssetKey 
                                          const GifFrame& previous_frame, const GifFrame& frame,
                                          const GifPalette& palette, ConstSlice<u8> indices) noexcept {
     if (!media_request_ready(renderer, key)) {
-        return reject_media_request(renderer);
+        return kRejectedMediaRequest;
     }
     return upload_animation(renderer, key, 0, 0, "gif_atlas_advance_failed", [&](MediaAtlas* atlas) noexcept {
         return media_atlas_gpu_advance_gif(&renderer->media_gpu, atlas, renderer->graphics.device,
@@ -574,7 +564,7 @@ MediaAtlasGpuResult renderer_begin_animated_webp(D3D11Renderer* renderer, MediaA
                                                  const AnimatedWebpFrame& frame,
                                                  ConstSlice<u8> straight_rgba8) noexcept {
     if (!media_request_ready(renderer, key)) {
-        return reject_media_request(renderer);
+        return kRejectedMediaRequest;
     }
     return upload_animation(renderer, key, canvas_width, canvas_height, "animated_webp_atlas_begin_failed",
         [&](MediaAtlas* atlas) noexcept {
@@ -590,7 +580,7 @@ MediaAtlasGpuResult renderer_advance_animated_webp(D3D11Renderer* renderer, Medi
                                                    const AnimatedWebpFrame& frame,
                                                    ConstSlice<u8> straight_rgba8) noexcept {
     if (!media_request_ready(renderer, key)) {
-        return reject_media_request(renderer);
+        return kRejectedMediaRequest;
     }
     return upload_animation(renderer, key, 0, 0, "animated_webp_atlas_advance_failed",
         [&](MediaAtlas* atlas) noexcept {
@@ -605,7 +595,7 @@ MediaAtlasGpuResult renderer_reconstruct_vp8_keyframe(
     D3D11Renderer* renderer, const Vp8Keyframe& frame, const Vp8ModeWorkspace& modes,
     const Vp8CoefficientWorkspace& coefficients) noexcept {
     if (!renderer || !renderer->graphics.device || !renderer->graphics.context1 || !renderer->media_atlas) {
-        return reject_media_request(renderer);
+        return kRejectedMediaRequest;
     }
     const MediaAtlasGpuResult initialized = ensure_primary_media_gpu(renderer);
     if (!initialized.ok()) {
@@ -615,7 +605,6 @@ MediaAtlasGpuResult renderer_reconstruct_vp8_keyframe(
         media_atlas_gpu_reconstruct_vp8_keyframe(&renderer->media_gpu, renderer->graphics.device,
                                                  renderer->graphics.context1, frame, modes, coefficients);
     if (!reconstructed.ok()) {
-        ++renderer->media_rejected;
         log_write(LogLevel::error, "render", "vp8_gpu_reconstruction_failed");
     }
     return reconstructed;
@@ -627,13 +616,12 @@ MediaAtlasGpuResult renderer_filter_vp8_keyframe(D3D11Renderer* renderer, const 
                                                  const Vp8CoefficientWorkspace& coefficients) noexcept {
     if (!renderer || !renderer->graphics.device || !renderer->graphics.context1 || !renderer->media_atlas ||
         !renderer->media_gpu.texture) {
-        return reject_media_request(renderer);
+        return kRejectedMediaRequest;
     }
     const MediaAtlasGpuResult filtered = media_atlas_gpu_filter_vp8_keyframe(
         &renderer->media_gpu, renderer->graphics.device, renderer->graphics.context1, frame, header, modes,
         coefficients);
     if (!filtered.ok()) {
-        ++renderer->media_rejected;
         log_write(LogLevel::error, "render", "vp8_gpu_filter_failed");
     }
     return filtered;
@@ -656,7 +644,7 @@ MediaAtlasGpuResult renderer_upload_vp8_keyframe(D3D11Renderer* renderer, MediaA
     MediaAtlas* atlas = upload_atlas(renderer, preview);
     if (!renderer || !renderer->graphics.device || !renderer->graphics.context1 || !atlas ||
         !media_asset_key_valid(key)) {
-        return reject_media_request(renderer);
+        return kRejectedMediaRequest;
     }
     const MediaAtlasGpuResult decoded = reconstruct_and_filter_vp8(renderer, frame, header, modes, coefficients);
     if (!decoded.ok()) {
@@ -675,7 +663,7 @@ MediaAtlasGpuResult renderer_begin_animated_webp_vp8(
     const Vp8ModeWorkspace& modes, const Vp8CoefficientWorkspace& coefficients,
     ConstSlice<u8> alpha) noexcept {
     if (!renderer || !media_asset_key_valid(key)) {
-        return reject_media_request(renderer);
+        return kRejectedMediaRequest;
     }
     const MediaAtlasGpuResult decoded =
         reconstruct_and_filter_vp8(renderer, vp8_frame, header, modes, coefficients);
@@ -696,7 +684,7 @@ MediaAtlasGpuResult renderer_advance_animated_webp_vp8(
     const Vp8Keyframe& vp8_frame, const Vp8ControlHeader& header, const Vp8ModeWorkspace& modes,
     const Vp8CoefficientWorkspace& coefficients, ConstSlice<u8> alpha) noexcept {
     if (!renderer || !media_asset_key_valid(key)) {
-        return reject_media_request(renderer);
+        return kRejectedMediaRequest;
     }
     const MediaAtlasGpuResult decoded =
         reconstruct_and_filter_vp8(renderer, vp8_frame, header, modes, coefficients);

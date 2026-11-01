@@ -26,7 +26,6 @@ struct MpegTsReader {
 struct MpegTsPes {
     ConstSlice<u8> payload{};
     u64 pts{}, dts{}; // Original 33-bit, 90 kHz timestamps; no invented duration.
-    bool random_access{}; // Transport hint only; codec must still validate an IDR.
 };
 // Initialize the reader with the same immutable source validated above and a
 // selected program PID. Collects one complete PES into caller-owned storage;

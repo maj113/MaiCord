@@ -172,11 +172,6 @@ void application_reaction_tooltip_pump() noexcept {
         pump_message_history();
 }
 
-bool application_reaction_tooltip_pending() noexcept {
-    synchronize_source();
-    return hovered.phase == Phase::required;
-}
-
 bool application_reaction_tooltip_query(ReactionTooltipQuery* query) noexcept {
     synchronize_source();
     auto& s = hovered;

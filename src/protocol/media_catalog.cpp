@@ -92,17 +92,15 @@ struct Context {
     bool pack_name_copied;
     bool write, page_closed;
 };
-bool fail(Context& c, E error, u32 offset = 0) noexcept {
+bool fail(Context& c, E error) noexcept {
     c.result.error = error;
-    c.result.error_offset = offset;
     return false;
 }
-bool read_failed(Context& c, const JsonReadResult& read, u32 offset) noexcept {
+bool read_failed(Context& c, const JsonReadResult& read) noexcept {
     if (read.ok())
         return true;
     if (c.result.error == E::none)
-        fail(c, E::json, offset);
-    c.result.read_error = read.error;
+        fail(c, E::json);
     return false;
 }
 bool member(void* opaque, JsonString name, JsonValue value) noexcept {
@@ -165,23 +163,23 @@ bool member(void* opaque, JsonString name, JsonValue value) noexcept {
 bool string(Context& c, JsonString input, Utf8View* output, u32 maximum, bool required, bool url,
             bool publish, bool whitespace = false) noexcept {
     if (!input.encoded.data)
-        return required ? fail(c, E::schema, input.source_offset) : true;
+        return required ? fail(c, E::schema) : true;
     char decoded[kMediaCatalogMaximumUrlBytes];
     const auto read = json_string_decode_utf8(input, {decoded, sizeof(decoded)});
     if (!read.ok() || read.bytes > maximum || (required && !read.bytes))
-        return fail(c, E::schema, input.source_offset);
+        return fail(c, E::schema);
     bool relative = false;
     const Utf8View value{decoded, read.bytes};
     if (!(url ? (!read.bytes || url_valid(value, &relative))
               : text_valid(value, maximum, required, whitespace)))
-        return fail(c, E::schema, input.source_offset);
+        return fail(c, E::schema);
     const u32 bytes = read.bytes + (relative ? 6 : 0);
     if (bytes > maximum)
-        return fail(c, E::schema, input.source_offset);
+        return fail(c, E::schema);
     if (!publish)
         return true;
     if (bytes > c.text.count - c.used)
-        return fail(c, E::text_capacity, input.source_offset);
+        return fail(c, E::text_capacity);
     if (c.write && bytes) {
         if (relative)
             copy_bytes(c.text.data + c.used, "https:", 6);
@@ -197,15 +195,15 @@ bool item(void* opaque, u32, JsonValue value) noexcept {
     w.available = true;
     if (c.kind == MediaCatalogItemKind::suggestion) {
         if (!json_value_as_string(value, &w.name))
-            return fail(c, E::schema, value.source_offset);
+            return fail(c, E::schema);
     } else {
         if (value.kind != JsonValueKind::object)
-            return fail(c, E::schema, value.source_offset);
+            return fail(c, E::schema);
         const auto read = json_visit_indexed_object(c.document, value, c.depth, member, &w);
         if (!read.ok()) {
             if (w.error != E::none)
-                fail(c, w.error, value.source_offset);
-            return read_failed(c, read, value.source_offset);
+                fail(c, w.error);
+            return read_failed(c, read);
         }
         const u32 required = c.kind == MediaCatalogItemKind::category ? 2 | 8
                              : c.kind == MediaCatalogItemKind::gif    ? 1 | 8 | 32 | 64 | 128
@@ -216,7 +214,7 @@ bool item(void* opaque, u32, JsonValue value) noexcept {
             (c.kind == MediaCatalogItemKind::sticker &&
              (!w.sticker_id || !w.format || w.format > 4 ||
               (c.pack_id && w.pack_id && c.pack_id != w.pack_id))))
-            return fail(c, E::schema, value.source_offset);
+            return fail(c, E::schema);
     }
     ++c.result.source_count;
     const bool publish = c.selected < c.limit && !c.page_closed;
@@ -268,7 +266,6 @@ bool item(void* opaque, u32, JsonValue value) noexcept {
         if (c.result.error != E::text_capacity || !c.selected || c.write)
             return false;
         c.result.error = E::none;
-        c.result.error_offset = 0;
         c.used = saved;
         c.page_closed = true;
         return true;
@@ -282,10 +279,9 @@ bool item(void* opaque, u32, JsonValue value) noexcept {
 }
 bool array(Context& c, JsonValue value, MediaCatalogItemKind kind) noexcept {
     if (value.kind != JsonValueKind::array)
-        return fail(c, E::schema, value.source_offset);
+        return fail(c, E::schema);
     c.kind = kind;
-    return read_failed(c, json_visit_indexed_array(c.document, value, c.depth, item, &c),
-                       value.source_offset);
+    return read_failed(c, json_visit_indexed_array(c.document, value, c.depth, item, &c));
 }
 bool trending_preview(void* opaque, u32 index, JsonValue value) noexcept {
     auto& c = *static_cast<Context*>(opaque);
@@ -314,28 +310,28 @@ bool pack_member(void* opaque, JsonString name, JsonValue value) noexcept {
     if (!bit)
         return true;
     if (p.seen & bit)
-        return fail(*p.context, E::schema, value.source_offset);
+        return fail(*p.context, E::schema);
     p.seen |= bit;
     if (bit == 1)
-        return json_value_to_snowflake(value, &p.id) || fail(*p.context, E::schema, value.source_offset);
+        return json_value_to_snowflake(value, &p.id) || fail(*p.context, E::schema);
     if (bit == 4)
-        return json_value_as_string(value, &p.name) || fail(*p.context, E::schema, value.source_offset);
+        return json_value_as_string(value, &p.name) || fail(*p.context, E::schema);
     if (bit == 8)
         return value.kind == JsonValueKind::null_value || json_value_to_snowflake(value, &p.cover) ||
-               fail(*p.context, E::schema, value.source_offset);
+               fail(*p.context, E::schema);
     p.stickers = value;
     return true;
 }
 bool pack(void* opaque, u32, JsonValue value) noexcept {
     auto& c = *static_cast<Context*>(opaque);
     if (value.kind != JsonValueKind::object)
-        return fail(c, E::schema, value.source_offset);
+        return fail(c, E::schema);
     Pack p{&c};
     const auto read = json_visit_indexed_object(c.document, value, c.depth, pack_member, &p);
-    if (!read_failed(c, read, value.source_offset))
+    if (!read_failed(c, read))
         return false;
     if ((p.seen & 7) != 7 || !p.id)
-        return fail(c, E::schema, value.source_offset);
+        return fail(c, E::schema);
     c.pack_id = p.id;
     c.cover_id = p.cover;
     c.pack_name = p.name;
@@ -366,7 +362,7 @@ bool root_member(void* opaque, JsonString name, JsonValue value) noexcept {
         return true;
     const u32 bit = payload ? 1u : 2u;
     if (root.seen & bit)
-        return fail(*root.context, E::schema, value.source_offset);
+        return fail(*root.context, E::schema);
     root.seen |= bit;
     (payload ? root.payload : root.gifs) = value;
     return true;
@@ -375,7 +371,7 @@ bool visit(Context& c, MediaCatalogOperation operation) noexcept {
     if (object_operation(operation)) {
         // The root object itself is the sticker or the pack.
         if (!c.document.structurals.count || c.document.input.data[c.document.structurals[0]] != '{')
-            return fail(c, E::schema, 0);
+            return fail(c, E::schema);
         const u32 at = c.document.structurals[0];
         const JsonValue root{{c.document.input.data + at, c.document.input.bytes - at}, at, JsonValueKind::object};
         if (operation == MediaCatalogOperation::sticker_pack)
@@ -388,32 +384,30 @@ bool visit(Context& c, MediaCatalogOperation operation) noexcept {
         Root root{&c, operation};
         const auto read =
             json_visit_root_object(c.document.input, c.document.structurals, c.depth, root_member, &root);
-        if (!read_failed(c, read, read.error_offset))
+        if (!read_failed(c, read))
             return false;
         if (!(root.seen & 1) || root.payload.kind != JsonValueKind::array)
-            return fail(c, E::schema, root.payload.source_offset);
+            return fail(c, E::schema);
         if (operation == MediaCatalogOperation::gif_categories) {
             // The provider supplies the Trending tile's preview separately
             // from the named categories. Validate both arrays before publish.
             if (root.seen & 2) {
                 if (root.gifs.kind != JsonValueKind::array)
-                    return fail(c, E::schema, root.gifs.source_offset);
+                    return fail(c, E::schema);
                 c.kind = MediaCatalogItemKind::gif;
                 if (!read_failed(
-                        c, json_visit_indexed_array(c.document, root.gifs, c.depth, trending_preview, &c),
-                        root.gifs.source_offset))
+                        c, json_visit_indexed_array(c.document, root.gifs, c.depth, trending_preview, &c)))
                     return false;
             }
             return array(c, root.payload, MediaCatalogItemKind::category);
         }
-        return read_failed(c, json_visit_indexed_array(c.document, root.payload, c.depth, pack, &c),
-                           root.payload.source_offset);
+        return read_failed(c, json_visit_indexed_array(c.document, root.payload, c.depth, pack, &c));
     }
     c.kind = operation == MediaCatalogOperation::gif_suggestions  ? MediaCatalogItemKind::suggestion
              : operation == MediaCatalogOperation::guild_stickers ? MediaCatalogItemKind::sticker
                                                                   : MediaCatalogItemKind::gif;
     const auto read = json_visit_root_array(c.document.input, c.document.structurals, c.depth, item, &c);
-    return read_failed(c, read, read.error_offset);
+    return read_failed(c, read);
 }
 } // namespace
 
@@ -574,8 +568,6 @@ MediaCatalogDecodeResult media_catalog_measure(MediaCatalogOperation operation, 
     const auto scanned = json_scan_structurals_avx1(input, scratch);
     if (!scanned.ok()) {
         invalid.error = E::scan;
-        invalid.scan_error = scanned.error;
-        invalid.error_offset = scanned.error_offset;
         return invalid;
     }
     Context c{};
@@ -620,8 +612,6 @@ MediaCatalogDecodeResult media_catalog_decode(MediaCatalogOperation operation, U
     const auto scanned = json_scan_structurals_avx1(input, scratch);
     if (!scanned.ok()) {
         invalid.error = E::scan;
-        invalid.scan_error = scanned.error;
-        invalid.error_offset = scanned.error_offset;
         return invalid;
     }
     Context c{};

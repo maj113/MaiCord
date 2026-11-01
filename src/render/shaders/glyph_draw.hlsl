@@ -2,7 +2,6 @@ cbuffer UiFrame : register(b0) {
     float2 coordinate_scale;
     float2 coordinate_translation;
     float group_opacity;
-    float3 frame_reserved;
 };
 struct TextEffectMaterial {
     float4 colors[8];

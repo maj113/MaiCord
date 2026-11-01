@@ -126,9 +126,6 @@ u32 rtcp_read_sender_reports(ConstSlice<u8> compound, Slice<RtcpSenderInfo> outp
             info.ssrc = byte_load_be32(part + 4);
             info.ntp_seconds = byte_load_be32(part + 8);
             info.ntp_fraction = byte_load_be32(part + 12);
-            info.rtp_timestamp = byte_load_be32(part + 16);
-            info.packet_count = byte_load_be32(part + 20);
-            info.octet_count = byte_load_be32(part + 24);
         }
         offset += bytes;
     }

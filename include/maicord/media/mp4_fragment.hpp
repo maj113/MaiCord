@@ -6,9 +6,7 @@ namespace maicord {
 // Offsets and timestamps remain in source bytes / track ticks, without rounding.
 struct Mp4FragmentRange {
     u64 offset{}, time{}, duration{};
-    u32 bytes{}, index{}, sap_delta{};
-    u8 sap_type{};
-    bool starts_with_sap{};
+    u32 bytes{}, index{};
 };
 struct Mp4FragmentIndex {
     ConstSlice<u8> entries{};
@@ -24,7 +22,7 @@ bool mp4_fragment_index_range(const Mp4FragmentIndex&, u32 index, Mp4FragmentRan
 // caller preserves the previous range and the immutable index it belongs to.
 bool mp4_fragment_index_follow(const Mp4FragmentIndex&, const Mp4FragmentRange&, Mp4FragmentRange*) noexcept;
 // Returns the containing segment, not a guarantee of an independently decodable
-// picture. The decoder must inspect SAP metadata and verify its random-access NAL.
+// picture. The decoder must verify the random-access NAL.
 bool mp4_fragment_index_seek(const Mp4FragmentIndex&, u64 track_time, Mp4FragmentRange*) noexcept;
 
 struct Mp4FragmentDefaults {

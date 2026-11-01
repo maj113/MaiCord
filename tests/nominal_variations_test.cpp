@@ -4,6 +4,7 @@
 #include "maicord/text/nominal_participation.hpp"
 #include "gsub_program_fixture.hpp"
 #include "gpos_lookup_fixture.hpp"
+#include "text_seams.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "text_test_support.hpp"

@@ -936,14 +936,14 @@ void test_embed_gallery(Check check) noexcept {
              gallery.members[0] == 1 && message_rich_embed_gallery_place(store, *rich, 1, &place) &&
              place.host == 0 && place.ordinal == 0 &&
              same_rect(message_rich_embed_gallery_tile(block, 1, 0), {0, 0, 198, 300}) &&
-             message_rich_embed_gallery_width(store, rich->embeds[0], 1000) == 488;
+             message_rich_embed_gallery_width(rich->embeds[0], 1000) == 488;
     // A portrait first image narrower than 300 keeps the 520-wide card.
     reset(2);
     embeds[0].image.width = 900;
     embeds[0].image.height = 1200;
     rich = apply(2);
-    merges = merges && rich && message_rich_embed_gallery_width(store, rich->embeds[0], 1000) == 488 &&
-             message_rich_embed_gallery_width(store, rich->embeds[0], 300) == 300;
+    merges = merges && rich && message_rich_embed_gallery_width(rich->embeds[0], 1000) == 488 &&
+             message_rich_embed_gallery_width(rich->embeds[0], 300) == 300;
     check(merges, "embed_gallery_merges_one_to_four_images");
 
     // Different urls never merge; an image-less same-url embed is dropped.

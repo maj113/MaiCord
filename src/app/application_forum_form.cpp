@@ -673,21 +673,8 @@ bool application_forum_form_active() noexcept {
 ForumPostScene* application_forum_form_scene() noexcept {
     return owner ? &owner->scene : nullptr;
 }
-ForumPostSurface* application_forum_form_surface() noexcept {
-    return owner ? &owner->surface : nullptr;
-}
 ApplicationForumForm* application_forum_form_state() noexcept {
     return owner;
-}
-SecureEdit* application_forum_form_edit(ApplicationForumField field) noexcept {
-    const u32 index = static_cast<u32>(field);
-    return owner && index < 2 ? &owner->fields[index].edit : nullptr;
-}
-ApplicationForumFormMetrics application_forum_form_metrics() noexcept {
-    return owner ? ApplicationForumFormMetrics{sizeof(*owner),
-                                               static_cast<u32>((sizeof(*owner) + 4095) & ~4095u),
-                                               owner->ticket.serial, owner->scene.revision}
-                 : ApplicationForumFormMetrics{};
 }
 void application_forum_form_theme_changed() noexcept {
     // This form borrows the shared account measure cache. The theme code

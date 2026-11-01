@@ -1510,13 +1510,12 @@ bool ui_settings_scene_search_geometry(const UiSettingsScene& scene, UiSettingsC
                            : nullptr;
     if (!node)
         return false;
-    const SceneTokens t(scene);
     const UiSettingsTarget target{UiSettingsTargetKind::search, {}, 0};
     *output = {target,
                {&scene.widgets, scene.search_field},
                node->rectangle,
                node->rectangle,
-               ui_settings_search_text_rect(t, node->rectangle),
+               ui_settings_search_text_rect(node->rectangle),
                node->clip_rectangle,
                scene.revision,
                scene.content_revision,
@@ -1707,9 +1706,8 @@ UiSettingsTarget ui_settings_scene_hit_test(const UiSettingsScene& scene, float 
         return {};
     const auto target = entries(scene)[handle.slot].target;
     if (target.kind == UiSettingsTargetKind::search && scene.search.view.text.bytes) {
-        const SceneTokens t(scene);
         const auto* node = ui_widget_manager_layout_node(scene.widgets, handle);
-        if (node && ui_rect_contains(ui_settings_search_clear_rect(t, node->rectangle), x, y))
+        if (node && ui_rect_contains(ui_settings_search_clear_rect(node->rectangle), x, y))
             return {UiSettingsTargetKind::search_clear, {}, 0};
     }
     return target;

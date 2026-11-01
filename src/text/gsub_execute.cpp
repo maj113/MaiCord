@@ -92,7 +92,7 @@ struct Executor {
             }
             if(total>scratch.positions.count)return SfntStatus::output_too_small;
             frame.positions=total-out_count;frame.count=out_count;u32 end=0;
-            const auto s=sfnt_glyph_edit_boundary(edit,frame.input_end,true,&end);if(s!=SfntStatus::ok)return s;frame.input_end=end;
+            const auto s=sfnt_glyph_edit_boundary(edit,frame.input_end,&end);if(s!=SfntStatus::ok)return s;frame.input_end=end;
         }
         used=total;
         return SfntStatus::ok;
@@ -134,10 +134,10 @@ struct Executor {
         if(component_change && type==2)for(u32 i=1;i<match.output_count;++i){const u32 boundary_source=byte_load_le32(scratch.replacements.data+i*stride+4);
             if(boundary_source!=byte_load_le32(scratch.replacements.data+(i-1)*stride+4))sfnt_cluster_map_split(clusters,boundary_source,clusters->levels);}
         copy_bytes(scratch.positions.data,scratch.rebased.data,used*sizeof(u32));
-        u32 end=0;s=sfnt_glyph_edit_boundary(edit,result.input_end,true,&end);if(s!=SfntStatus::ok)return s;result.input_end=end;
+        u32 end=0;s=sfnt_glyph_edit_boundary(edit,result.input_end,&end);if(s!=SfntStatus::ok)return s;result.input_end=end;
         ++result.edits;result.moved_records+=edit.moved_records;
         // Resume after the entire consumed span, retaining skipped survivors.
-        return sfnt_glyph_edit_boundary(edit,match.last_input+1,true,resume);
+        return sfnt_glyph_edit_boundary(edit,match.last_input+1,resume);
     }
     // view is the current buffer; it is unchanged until a matching edit
     // returns, so it serves all rejected subtables of this lookup.

@@ -183,7 +183,7 @@ u32 reclaim_unpinned_span(GlyphAtlasAllocator* atlas, u16 height) noexcept {
     return atlas->row_capacity;
 }
 
-void invalidate_all(GlyphAtlasAllocator* atlas, bool count_reset) noexcept {
+void invalidate_all(GlyphAtlasAllocator* atlas) noexcept {
     u32 evicted = 0;
     for (u32 index = 0; index < atlas->entry_capacity && evicted < atlas->entry_count; ++index) {
         if (atlas->entries[index].occupied) {
@@ -200,9 +200,7 @@ void invalidate_all(GlyphAtlasAllocator* atlas, bool count_reset) noexcept {
     atlas->next_y = 0;
     atlas->free_cursor = 0;
     atlas->evicted_entries += evicted;
-    if (count_reset) {
-        ++atlas->full_resets;
-    }
+    ++atlas->full_resets;
 }
 
 __forceinline GlyphAtlasAllocation allocation_from_entry(const GlyphAtlasEntry& entry, u32 slot,
@@ -254,7 +252,7 @@ void glyph_atlas_reset(GlyphAtlasAllocator* atlas) noexcept {
     if (!atlas || !atlas->entries || !atlas->rows) {
         return;
     }
-    invalidate_all(atlas, true);
+    invalidate_all(atlas);
 }
 
 void glyph_atlas_clear_pins(GlyphAtlasAllocator* atlas) noexcept {
@@ -423,7 +421,7 @@ static GlyphAtlasAllocation glyph_atlas_allocate_internal(
                                         GlyphAtlasError::no_capacity, false,
                                         false};
         }
-        invalidate_all(atlas, true);
+        invalidate_all(atlas);
         atlas_reset = true;
         evicted = atlas->evicted_entries - evicted_before;
         row_index = 0;

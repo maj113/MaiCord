@@ -200,7 +200,6 @@ int small_stream(ID3D11Device* device, ID3D11DeviceContext* context, Bits* bits,
         test_write_metric("hevc decoded ", stats.decoded);
         test_write_metric("hevc damaged ", stats.damaged);
         test_write_metric("hevc gpu_failures ", stats.gpu_failures);
-        test_write_metric("hevc last_status ", static_cast<u32>(stats.last_status));
         test_write_metric("hevc uploaded ", stats.uploaded_bytes - uploaded);
         test_write_metric("hevc expected ", 3 * p_upload);
         fail(51);
@@ -241,7 +240,6 @@ int small_stream(ID3D11Device* device, ID3D11DeviceContext* context, Bits* bits,
             test_write_metric("hevc resize reinitializations ", stats.reinitializations);
             test_write_metric("hevc resize texture ", capture.texture_width * 10000u + capture.texture_height);
             test_write_metric("hevc resize damaged ", stats.damaged);
-            test_write_metric("hevc resize last_status ", static_cast<u32>(stats.last_status));
             fail(53);
         }
     }
@@ -344,7 +342,6 @@ int large_streams(ID3D11Device* device, ID3D11DeviceContext* context, Bits* bits
             test_write_metric("hevc large mismatches ", capture.mismatches);
             test_write_metric("hevc large unsupported ", stats.unsupported);
             test_write_metric("hevc large gpu_failures ", stats.gpu_failures);
-            test_write_metric("hevc large last_status ", static_cast<u32>(stats.last_status));
             test_write_metric("hevc large damaged ", stats.damaged);
             status = 61 + static_cast<int>(i);
             break;

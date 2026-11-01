@@ -44,12 +44,4 @@ static_assert(sizeof(SfntGposSubtable)==80 && sizeof(SfntGposMatch)==64 && sizeo
 // Prepared views and mappings remain immutable; work reports share a caller budget.
 SfntStatus sfnt_gpos_subtable_open(ConstSlice<u8> table,u16 type,u32 glyph_limit,SfntGposSubtable* output,
                                    u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
-// Logical glyph order, bounded input range; first input is always tested, and
-// intervening filtered glyphs survive. An empty second value format leaves the
-// second glyph available as the next input; a present zero value still consumes
-// that input. Class indices outside encoded matrices produce no match.
-// No positions mutate.
-SfntStatus sfnt_gpos_subtable_match_view(const SfntGposSubtable& subtable,const SfntGdef& gdef,const SfntLookupFilter& filter,
-                                        SfntGlyphView glyphs,u32 start,u32 input_end,SfntGposMatch* output,
-                                        u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
 }

@@ -3,7 +3,6 @@
 #include "application_frame_presentation.hpp"
 #include "application_settings.hpp"
 #include "application_state.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/core/win32_records.hpp"
 #include "maicord/core/win32_user.hpp"
 

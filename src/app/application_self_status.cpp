@@ -117,7 +117,6 @@ bool application_self_status_submit(u64 id, u64 now_ms) noexcept {
     request.request_id = id;
     request.operation = operation;
     request.submitted_revision = request.revision;
-    request.submitted_status = request.desired;
     request.retry_at_ms = 0;
     request.admission_busy = false;
     ++request.attempts;

@@ -469,7 +469,7 @@ void gpu_replay(bool full) noexcept {
             const RECT damage = *renderer.present_dirty_rect.native();
             ID3D11RenderTargetView* presented = renderer.graphics.target;
             const u32 draws = renderer.draw_calls_last_frame, media = renderer.media_draws_last_frame;
-            const u32 draws_max = renderer.draw_calls_max, media_total = renderer.media_draws_total;
+            const u32 media_total = renderer.media_draws_total;
             const u64 effect_next = renderer.text_effect_next_ms;
             // The replay's own context calls stay out of the per-frame counts.
             const GpuApiCounters api = g_gpu_api;
@@ -494,7 +494,6 @@ void gpu_replay(bool full) noexcept {
             ++g_replay.replays;
             renderer.draw_calls_last_frame = draws;
             renderer.media_draws_last_frame = media;
-            renderer.draw_calls_max = draws_max;
             renderer.media_draws_total = media_total;
             if (drawn) {
                 frame.pending = true;

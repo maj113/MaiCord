@@ -1,4 +1,5 @@
 #include "maicord/app/chat_state_dispatch.hpp"
+#include "layout_validation.hpp"
 #include "maicord/model/read_state.hpp"
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/scene.hpp"

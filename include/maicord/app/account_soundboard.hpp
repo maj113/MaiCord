@@ -17,9 +17,8 @@ RestClientSubmitResult account_soundboard_submit(RestClient*, const SoundboardRe
 bool account_soundboard_probe(const SoundboardRequest*) noexcept;
 inline constexpr u32 kSoundboardLargeTimeoutMs = 60 * 1000;
 
-// Local soundboard playback (crosses the module ABI, append-only).
+// Local soundboard playback (crosses the module ABI).
 enum class SoundboardAudioOperation : u8 {
-    status,    // no change; fills the status
     configure, // volume_percent and muted
     play,      // a received sound from user_id (dropped while muted)
     preview,   // local only (the picker, the settings page, own sends)
@@ -29,25 +28,11 @@ struct SoundboardAudioCommand {
     SoundboardAudioOperation operation;
     bool muted;         // configure: received sounds stay silent
     u8 volume_percent;  // configure: soundboard volume 0..100
-    u8 reserved;
     u16 sound_volume;   // play/preview: the sound's volume, per-mille
-    u16 reserved2;
     u64 sound_id;
     u64 user_id;
 };
 static_assert(sizeof(SoundboardAudioCommand) == 24);
-enum class SoundboardAudioError : u8 { none, fetch, decode, memory, output };
-struct SoundboardAudioStatus {
-    u64 fetching_sound_id;
-    u64 failed_sound_id;
-    u32 active_voices;
-    u32 cached_clips;
-    u32 pending;
-    SoundboardAudioError last_error;
-    bool call_audio;
-    u8 reserved[2];
-};
-static_assert(sizeof(SoundboardAudioStatus) == 32);
 
 inline constexpr u32 kSoundboardPendingPlays = 8;
 inline constexpr u64 kSoundboardPendingTimeoutMs = 8'000;
@@ -76,14 +61,13 @@ struct AccountSoundboard {
     u64 failed_sound_id, failed_until_ms;
     u64 preview_idle_since_ms;
     wchar_t output_device[kVoiceDeviceIdCharacters];
-    SoundboardAudioError last_error;
     bool muted, cdn_started, initialized, call_audio;
 };
 void account_soundboard_initialize(AccountSoundboard*) noexcept;
 // Keeps the output endpoint and volume of the preview output in step with calls.
 void account_soundboard_output(AccountSoundboard*, const VoiceAudioSettings&) noexcept;
 bool account_soundboard_command(AccountSoundboard*, GatewayClient*, const SoundboardAudioCommand*,
-                                SoundboardAudioStatus*, u64 now_ms) noexcept;
+                                u64 now_ms) noexcept;
 // Takes CDN responses, starts ready plays and closes an idle preview output.
 void account_soundboard_pump(AccountSoundboard*, GatewayClient*, u64 now_ms) noexcept;
 HANDLE account_soundboard_notification_handle(const AccountSoundboard*) noexcept;

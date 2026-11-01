@@ -187,7 +187,7 @@ namespace {
 bool binding_ready(void* model, u64 identity) noexcept {
     MessageComposer* focused = nullptr;
     return owner && owner->lifetime == identity && editable() &&
-           settings_layer_editor(&owner->layer, nullptr, &focused, nullptr, nullptr) && focused == model;
+           settings_layer_editor(&owner->layer, nullptr, &focused, nullptr) && focused == model;
 }
 } // namespace
 namespace {
@@ -668,7 +668,7 @@ void creation_closed(TextFormOwnerKey key) noexcept {
 bool guard_dirty() noexcept {
     if (!page_dirty())
         return false;
-    settings_layer_shake(&owner->layer, clock_monotonic_milliseconds());
+    settings_layer_shake(&owner->layer);
     return true;
 }
 TextFormOwnerKey form_key(u64 kind, u64 item) noexcept {
@@ -1308,7 +1308,7 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
         return false;
     }
     renderer_bind_settings_scene(&g_app.renderer, &p.scene);
-    settings_layer_begin_entrance(&p.layer, clock_monotonic_milliseconds(), g_app.preferences.reduced_motion);
+    settings_layer_begin_entrance(&p.layer);
     g_app.context_focus = &p.scene.widgets;
     application_sync_attachment_drop_target();
     synchronize_member_subscription(clock_monotonic_milliseconds());
@@ -2068,7 +2068,7 @@ void application_guild_settings_tick(u64 now) noexcept {
         members_tick(now);
         if (audit_load_visible())
             repaint();
-        settings_layer_tick(&owner->layer, now, g_app.preferences.reduced_motion);
+        settings_layer_tick(&owner->layer, now);
         return;
     }
     // Every page reloads on open, so the closed owner (~2.7 MB of ban, audit,

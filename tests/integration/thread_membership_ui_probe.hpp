@@ -1,5 +1,6 @@
 #pragma once
 #include "probe_present.hpp"
+#include "../layout_validation.hpp"
 #include "ui_surface_motion_measurement.hpp"
 #include "thread_membership_ui_adapter.hpp"
 #include "maicord/core/log.hpp"
@@ -303,7 +304,7 @@ inline bool thread_membership_ui_probe(D3D11Renderer& renderer, UiTextMeasureCac
                 thread_membership_ui_adapter_rich_store()->updated, popup.revision, popup.widgets.layout.revision}};
         };
         const Counters before = counters();
-        const auto owner = thread_membership_ui_adapter_metrics();
+        const u32 owner_publication = application_thread_actions_publication_revision();
         for (u32 index = 0; index < 64; ++index)
             if (!thread_membership_ui_adapter_synchronize() || !context.project() ||
                 !probe_present(&renderer, context.theme)) return false;
@@ -320,17 +321,12 @@ inline bool thread_membership_ui_probe(D3D11Renderer& renderer, UiTextMeasureCac
             log_u64(LogLevel::info, "thread_membership_warm", names[index], delta);
             valid &= delta == (index == 20 ? 64u : 0u);
         }
-        const auto current = thread_membership_ui_adapter_metrics();
-        log_u64(LogLevel::info, "thread_membership_warm", "owner_bytes", current.owner_bytes);
-        log_u64(LogLevel::info, "thread_membership_warm", "owner_committed_bytes", current.owner_committed_bytes);
-        log_u64(LogLevel::info, "thread_membership_warm", "entries", current.entry_count);
-        log_u64(LogLevel::info, "thread_membership_warm", "owner_publication", current.publication_revision);
+        const u32 current_publication = application_thread_actions_publication_revision();
+        log_u64(LogLevel::info, "thread_membership_warm", "owner_publication", current_publication);
         log_u64(LogLevel::info, "thread_membership_warm", "native_widgets", scene.widgets.count);
         log_u64(LogLevel::info, "thread_membership_warm", "native_rows", scene.owned_rows.capacity);
         log_u64(LogLevel::info, "thread_membership_warm", "model_records", thread_membership_ui_adapter_store()->count);
-        return valid && current.owner_bytes == owner.owner_bytes &&
-            current.owner_committed_bytes == owner.owner_committed_bytes && current.entry_count == owner.entry_count &&
-            current.publication_revision == owner.publication_revision && current.flight_active == owner.flight_active;
+        return valid && current_publication == owner_publication;
     };
     const auto menu_click = [&](u32 action) noexcept {
         auto& popup = *thread_membership_ui_adapter_popup();

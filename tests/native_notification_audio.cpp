@@ -1,5 +1,6 @@
 #include "maicord/platform/notification_audio.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "../src/platform/audio_endpoint_watch.hpp"
 #include "test_output.hpp"
 
 namespace maicord {
@@ -29,15 +30,15 @@ void test_native_notification_audio(void(*check)(bool,const char*) noexcept) noe
     constexpr wchar_t endpoint[]=L"render-id-\u03bb";
     constexpr wchar_t short_id[]{L'r',0};
     constexpr usize endpoint_chars=sizeof(endpoint)/sizeof(endpoint[0])-1;
-    check(notification_audio_endpoint_matches(L"render-id-\u03bb",endpoint,endpoint_chars)&&
-        !notification_audio_endpoint_matches(L"capture-id-\u03bb",endpoint,endpoint_chars)&&
-        !notification_audio_endpoint_matches(L"render-id-\u039b",endpoint,endpoint_chars)&&
-        !notification_audio_endpoint_matches(L"render-id-\u03bb-extra",endpoint,endpoint_chars),
+    check(audio_endpoint_id_matches(L"render-id-\u03bb",endpoint,endpoint_chars)&&
+        !audio_endpoint_id_matches(L"capture-id-\u03bb",endpoint,endpoint_chars)&&
+        !audio_endpoint_id_matches(L"render-id-\u039b",endpoint,endpoint_chars)&&
+        !audio_endpoint_id_matches(L"render-id-\u03bb-extra",endpoint,endpoint_chars),
         "notification endpoint filtering compares full opaque IDs exactly, including Unicode and suffixes");
-    check(!notification_audio_endpoint_matches(short_id,endpoint,endpoint_chars)&&
-        !notification_audio_endpoint_matches(nullptr,endpoint,endpoint_chars)&&
-        !notification_audio_endpoint_matches(endpoint,nullptr,endpoint_chars)&&
-        !notification_audio_endpoint_matches(endpoint,endpoint,0),
+    check(!audio_endpoint_id_matches(short_id,endpoint,endpoint_chars)&&
+        !audio_endpoint_id_matches(nullptr,endpoint,endpoint_chars)&&
+        !audio_endpoint_id_matches(endpoint,nullptr,endpoint_chars)&&
+        !audio_endpoint_id_matches(endpoint,endpoint,0),
         "notification callback identity comparison stops at a short event terminator and rejects absent identities");
     NotificationAudioStatus failure_status{};
     failure_status.desired_epoch=2;failure_status.observed_epoch=1;

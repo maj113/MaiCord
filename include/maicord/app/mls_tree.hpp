@@ -121,7 +121,6 @@ MlsStatus mls_tree_resolution(const MlsTreeIndex& index, u32 subtree_root, Slice
 MlsStatus mls_tree_filtered_direct_path(const MlsRatchetTree& tree, u32 leaf_index, Slice<u32> nodes,
                                         u32* count) noexcept;
 // RFC 9420 tree hashes, computed in one flat walk with a fixed depth stack.
-MlsStatus mls_tree_root_hash(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, u8* hash) noexcept;
 MlsStatus mls_leaf_tree_hash(KdfSha256Workspace& kdf, u32 leaf_index, ConstSlice<u8> leaf,
                              u8* hash) noexcept;
 MlsStatus mls_parent_tree_hash(KdfSha256Workspace& kdf, ConstSlice<u8> parent, const u8* left_hash,

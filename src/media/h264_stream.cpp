@@ -428,7 +428,6 @@ bool h264_stream_pop(H264StreamState* state, H264StreamOutput* output) noexcept 
         if (!h264_output_pop(&state->output, &picture)) break;
         state->output.leased = 255;
         if (state->output_started && picture.poc < state->last_output_poc) {
-            ++state->late;
             if (state->reorder < state->reorder_limit) ++state->reorder;
             continue;
         }

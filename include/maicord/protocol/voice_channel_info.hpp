@@ -38,7 +38,6 @@ enum class VoiceChannelInfoError : u8 {
 };
 struct VoiceChannelInfoResult {
     u64 guild_id;
-    u32 count;
     VoiceChannelInfoError error;
     constexpr bool ok() const noexcept {
         return error == VoiceChannelInfoError::none;

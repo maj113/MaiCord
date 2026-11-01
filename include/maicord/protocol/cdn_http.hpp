@@ -118,7 +118,6 @@ struct CdnResponseResult {
     ConstSlice<u8> etag;
     ConstSlice<u8> location;
     u64 expires_at_seconds;
-    u32 header_bytes;
     u32 body_bytes;
     u16 status_code;
     CdnResponseDisposition disposition;

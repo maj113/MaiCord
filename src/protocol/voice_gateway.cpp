@@ -39,14 +39,13 @@ namespace {
 struct EnvelopeRead {
     VoiceGatewayEnvelope envelope;
     GatewayDecodeError error;
-    u32 seen, offset;
+    u32 seen;
 };
 bool field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& read = *static_cast<EnvelopeRead*>(opaque);
     const u32 bit = protocol_detail::member_bit<"op", "d", "seq">(name);
     if (!bit)
         return true;
-    read.offset = value.source_offset;
     if (read.seen & bit) {
         read.error = GatewayDecodeError::duplicate_field;
         return false;
@@ -105,19 +104,17 @@ GatewayDecodeResult voice_gateway_decode_json(Utf8View input, Slice<u32> scratch
                                               VoiceGatewayEnvelope* output) noexcept {
     const auto scan = json_scan_structurals_avx1(input, scratch);
     if (!scan.ok())
-        return {scan.error_offset, GatewayDecodeError::scan_failed, scan.error};
+        return {GatewayDecodeError::scan_failed, scan.error};
     EnvelopeRead context{};
     const auto read =
         json_visit_root_object(input, {scratch.data, scan.count}, maximum_depth, field, &context);
     if (!read.ok())
-        return {context.error != GatewayDecodeError::none ? context.offset : read.error_offset,
-                context.error != GatewayDecodeError::none ? context.error
-                                                          : GatewayDecodeError::invalid_json,
+        return {context.error != GatewayDecodeError::none ? context.error : GatewayDecodeError::invalid_json,
                 JsonScanError::none, read.error};
     if (!(context.seen & 1))
-        return {input.bytes, GatewayDecodeError::missing_opcode};
+        return {GatewayDecodeError::missing_opcode};
     if (!(context.seen & 2))
-        return {input.bytes, GatewayDecodeError::missing_data};
+        return {GatewayDecodeError::missing_data};
     *output = context.envelope;
     return {};
 }

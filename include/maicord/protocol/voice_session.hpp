@@ -39,7 +39,6 @@ struct VoiceSessionEvent {
     u16 close_code;
     VoiceSessionEventKind kind;
     VoiceSessionError error;
-    WebSocketHandshakeError handshake_error;
     WebSocketError websocket_error;
     bool ok() const noexcept {
         return kind != VoiceSessionEventKind::error;

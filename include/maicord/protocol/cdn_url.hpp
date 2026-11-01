@@ -135,7 +135,6 @@ enum class AttachmentQueryError : u8 {
 };
 
 struct AttachmentUrlResult {
-    u64 issued_at_seconds;
     u64 expires_at_seconds;
     u32 target_bytes;
     CdnHost host;
@@ -148,8 +147,8 @@ struct AttachmentUrlResult {
     }
 };
 
-static_assert(sizeof(AttachmentUrlResult) == 24);
-static_assert(offsetof(AttachmentUrlResult, query_error) == 23);
+static_assert(sizeof(AttachmentUrlResult) == 16);
+static_assert(offsetof(AttachmentUrlResult, query_error) == 15);
 
 enum class MediaUrlError : u8 {
     none,

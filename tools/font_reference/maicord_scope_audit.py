@@ -27,7 +27,7 @@ def audit(repo,out):
                 seen.add(str(p).casefold());record=describe(p)
                 if record['family'] not in families and not any(name.casefold().startswith(family.casefold()+' (') for family in families):continue
                 registered.append(dict(hive=hive_name,name=name,value=value));system.append(record)
-    paths=['src/ui/text.cpp','include/maicord/ui/text.hpp','src/render/d3d11_renderer_text.cpp','src/render/d3d11_glyph_text.cpp','src/render/dwrite_edit_layout.cpp','src/render/dwrite_message_hit_test.cpp','include/maicord/ui/text_style.hpp']
+    paths=['src/ui/text.cpp','include/maicord/ui/text.hpp','src/render/d3d11_renderer_text.cpp','src/render/d3d11_glyph_text.cpp','include/maicord/ui/text_style.hpp']
     patterns=['CreateTextFormat','text_system_initialize','SetLocaleName','AddFontFeature','GetGlyphRunOutline','CreatePaintReader','SetReadingDirection','SetFlowDirection','SetVerticalGlyphOrientation','CreateGdiCompatible','SetFontAxisValues']
     calls=[]
     for p in sorted((repo/'src').rglob('*.cpp')):

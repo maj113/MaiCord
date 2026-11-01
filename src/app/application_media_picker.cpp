@@ -1,5 +1,4 @@
 #include "application_reply_draft.hpp"
-#include "application_content_point.hpp"
 #include "text_edit_keys.hpp"
 #include "application_media_picker.hpp"
 #include "application_cursor.hpp"

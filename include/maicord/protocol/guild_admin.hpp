@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/core/json_reader.hpp"
 #include "maicord/model/permission_bits.hpp"
 #include "maicord/protocol/rest.hpp"
 

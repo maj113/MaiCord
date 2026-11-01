@@ -58,18 +58,6 @@ struct MessageMediaControllerResult {
     }
 };
 
-struct MessageMediaControllerDiagnostics {
-    u32 requests_queued;  // Fetches handed to the media workers (not animation frames).
-    u32 frames_uploaded;
-    // Animation frame advances (decoded GIF/WebP/APNG/video frames of visible
-    // media) are playback, not fetches; counted apart with the busiest kind.
-    u32 animation_advances;
-    u32 animation_kind_advances;
-    MediaAssetKind animation_kind;
-    bool ready;
-};
-inline constexpr u32 kMessageMediaAdvanceKinds = 13;
-
 using MessageMediaAttachmentCallback = bool (*)(void* context, const MessageRecord& message,
                                                 const MessageRichAttachment& attachment,
                                                 float preview_width, float preview_height,
@@ -130,7 +118,6 @@ struct MessageMediaController {
     u64 avatar_message_id;      // group head whose author avatar plays (on group hover)
     u64 avatar_hover_message_id; // message whose avatar is under the pointer
     u64 capacity_log_at_ms;
-    u64 summary_at_ms;
     u64 source_rows_visited;
     u64 rows_collected;
     u64 primary_candidates;
@@ -138,10 +125,6 @@ struct MessageMediaController {
     u64 duplicate_assets_skipped;
     u64 dedupe_saturations;
     u32 collections;
-    u32 requests_queued;
-    u32 frames_uploaded;
-    u32 animation_advances;
-    u16 animation_kind_advances[kMessageMediaAdvanceKinds];
     u32 rejected;
     bool owns_storage;
 };
@@ -177,16 +160,10 @@ void message_media_controller_defer_preview(MessageMediaController* controller, 
 bool message_media_primary_visible(const MessageScene& scene, u64 message_id, MediaAssetKey key) noexcept;
 void message_media_controller_defer_scan(MessageMediaController* controller) noexcept;
 void message_media_controller_observe_retry(MessageMediaController* controller, u64 retry_at_ms) noexcept;
-void message_media_controller_record_request(MessageMediaController* controller) noexcept;
-void message_media_controller_record_upload(MessageMediaController* controller) noexcept;
-void message_media_controller_record_animation_advance(MessageMediaController* controller,
-                                                       MediaAssetKind kind) noexcept;
 bool message_media_controller_upload_budget_reached(MessageMediaController* controller,
                                                     u32 uploads) noexcept;
 bool message_media_controller_should_log_capacity(MessageMediaController* controller, u64 now_ms,
                                                   u32 interval_ms = 5'000) noexcept;
-MessageMediaControllerDiagnostics message_media_controller_take_diagnostics(
-    MessageMediaController* controller, u64 now_ms, u32 interval_ms = 5'000) noexcept;
 MediaAttachmentFormat message_media_supported_attachment_format(
     const MessageRichStore& store, const MessageRichAttachment& attachment) noexcept;
 

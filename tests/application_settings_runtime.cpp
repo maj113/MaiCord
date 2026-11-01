@@ -1,4 +1,5 @@
 #include "application_state.hpp"
+#include "settings_schema_validation.hpp"
 #include "application_settings.hpp"
 #include "application_friends.hpp"
 #include "application_plugins.hpp"
@@ -956,7 +957,7 @@ void test_controller() noexcept {
             flat_effects_preserved = flat_effects_preserved && application_theme_editor_open() &&
                                      g_app.preferences.theme == base &&
                                      g_app.preferences_request_revision == open_revision;
-            auto* flat_editor = const_cast<UiThemeEditorScene*>(application_theme_editor_scene());
+            auto* flat_editor = const_cast<UiThemeEditorScene*>(g_app.renderer.theme_editor_scene);
             const auto range_control = effect % 3 == 0   ? UiThemeEditorElement::density
                                        : effect % 3 == 1 ? UiThemeEditorElement::speed
                                                          : UiThemeEditorElement::strength;
@@ -970,7 +971,7 @@ void test_controller() noexcept {
             application_theme_editor_close(true);
             flat_effects_preserved = flat_effects_preserved && !application_theme_editor_active() &&
                                      application_theme_editor_open() && g_app.preferences.theme == base;
-            flat_editor = const_cast<UiThemeEditorScene*>(application_theme_editor_scene());
+            flat_editor = const_cast<UiThemeEditorScene*>(g_app.renderer.theme_editor_scene);
             flat_effects_preserved =
                 flat_effects_preserved && flat_editor &&
                 ui_theme_editor_focus(flat_editor, UiThemeEditorElement::effect_none) &&
@@ -1004,7 +1005,7 @@ void test_controller() noexcept {
         const bool opposite_light = base != ClientTheme::light;
         const auto opposite_flat = opposite_light ? ClientTheme::light : ClientTheme::dark;
         flat_effects_preserved = flat_effects_preserved && application_theme_editor_open();
-        auto* mode_editor = const_cast<UiThemeEditorScene*>(application_theme_editor_scene());
+        auto* mode_editor = const_cast<UiThemeEditorScene*>(g_app.renderer.theme_editor_scene);
         flat_effects_preserved =
             flat_effects_preserved && mode_editor &&
             ui_theme_editor_focus(mode_editor, opposite_light ? UiThemeEditorElement::light
@@ -1064,7 +1065,7 @@ void test_controller() noexcept {
             raw_palette_equal(g_app.preferences.gradient) && await_save_retained() &&
             client_preferences_load_file(cleanup.path, &loaded).ok() && loaded.theme == base &&
             raw_palette_equal(loaded.gradient) && application_theme_editor_open();
-        auto* preset_editor = const_cast<UiThemeEditorScene*>(application_theme_editor_scene());
+        auto* preset_editor = const_cast<UiThemeEditorScene*>(g_app.renderer.theme_editor_scene);
         named_effects_preserve_raw =
             named_effects_preserve_raw && preset_editor &&
             ui_theme_editor_focus(preset_editor, UiThemeEditorElement::speed) &&
@@ -1151,9 +1152,9 @@ void test_controller() noexcept {
     }
     check(angles, "settings gradient: native sliders borrow every exact integer0..360 angle");
     check(activate_control(kAppearancePage, cid("appearance.customize")) && application_theme_editor_active() &&
-              g_app.renderer.theme_editor_scene == application_theme_editor_scene(),
+              g_app.renderer.theme_editor_scene != nullptr,
           "theme editor host: actual Appearance action opens bounded visual drawer");
-    auto* editor = const_cast<UiThemeEditorScene*>(application_theme_editor_scene());
+    auto* editor = const_cast<UiThemeEditorScene*>(g_app.renderer.theme_editor_scene);
     const HWND previous_window = g_app.window;
     const u32 previous_dpi = g_app.renderer.dpi;
     HWND editor_window = CreateWindowExW(0, L"STATIC", L"", WS_POPUP, 0, 0, 1000, 700, nullptr, nullptr,
@@ -1444,7 +1445,7 @@ void test_controller() noexcept {
     check(application_theme_editor_open() && g_app.theme_editor_lifetime_serial > first_editor_lifetime &&
               old_hex.valid && !old_hex.valid(old_hex.owner),
           "theme editor host: close and reopen cannot retarget captured hex callback");
-    editor = const_cast<UiThemeEditorScene*>(application_theme_editor_scene());
+    editor = const_cast<UiThemeEditorScene*>(g_app.renderer.theme_editor_scene);
     const u32 before_light_forced = observed.forced_account_text_updates;
     check(editor && ui_theme_editor_focus(editor, UiThemeEditorElement::light) && editor_key(VK_RETURN) &&
               g_app.preferences.theme == ClientTheme::custom_light_gradient &&
@@ -1457,7 +1458,7 @@ void test_controller() noexcept {
     for (const u32 close_key : close_keys) {
         if (!application_theme_editor_active())
             application_theme_editor_open();
-        editor = const_cast<UiThemeEditorScene*>(application_theme_editor_scene());
+        editor = const_cast<UiThemeEditorScene*>(g_app.renderer.theme_editor_scene);
         const bool focus_apply = editor && ui_theme_editor_focus(editor, UiThemeEditorElement::apply);
         const u64 revision = g_app.preferences_request_revision;
         const bool closed = focus_apply &&
@@ -2390,7 +2391,7 @@ bool application_custom_theme_preferences_changed(bool, bool) noexcept {
 bool application_custom_theme_snapshot(ClientThemeStorageSnapshot*) noexcept {
     return false;
 }
-bool application_custom_theme_restore(const ClientThemeStorageSnapshot&, bool) noexcept {
+bool application_custom_theme_restore(const ClientThemeStorageSnapshot&) noexcept {
     return true;
 }
 bool application_custom_theme_synchronize() noexcept {

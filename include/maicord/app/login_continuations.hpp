@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/platform/secure_buffer.hpp"
-#include "maicord/core/utf.hpp"
 
 namespace maicord {
 inline constexpr u32 kLoginVerificationMaximumLinkBytes = 3 * 4096 + 1024;

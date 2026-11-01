@@ -83,7 +83,7 @@ UiSearchFilterContext ui_search_filter_context(Utf8View query, u32 anchor, u32 c
         at += scalar.width;
     }
     UiSearchFilterContext result{};
-    u16 occurrences[10]{}, populated[10]{};
+    u16 populated[10]{};
     for (u32 at = 0; at < query.bytes;) {
         while (at < query.bytes && query.data[at] == ' ') ++at;
         if (at == query.bytes) break;
@@ -102,7 +102,6 @@ UiSearchFilterContext ui_search_filter_context(Utf8View query, u32 anchor, u32 c
         const auto kind = filter_kind({query.data + first, colon - first});
         if (kind == UiSearchFilterKind::none) continue;
         const auto index = static_cast<u8>(kind);
-        ++occurrences[index];
         const u32 value_begin = colon + 1;
         // An empty quoted value is not an already populated identity slot.
         const bool has_value = at > value_begin &&
@@ -121,7 +120,6 @@ UiSearchFilterContext ui_search_filter_context(Utf8View query, u32 anchor, u32 c
     }
     if (result.kind == UiSearchFilterKind::none) return {};
     const auto index = static_cast<u8>(result.kind);
-    result.same_kind_occurrences = occurrences[index];
     result.other_value_count = static_cast<u16>(populated[index] - (result.has_value ? 1u : 0u));
     return result;
 }

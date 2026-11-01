@@ -8,22 +8,15 @@ namespace maicord {
 // Bits AudioEndpointNotify::dirty accumulates until the audio thread takes them.
 inline constexpr LONG kAudioEndpointDefaultChanged = 1, kAudioEndpointTopologyChanged = 2;
 
-// COM-owned endpoint observer for the voice capture and playback threads. It
-// owns a duplicate of the thread's wake event, so a callback racing
-// unregistration never touches the thread's runtime.
-struct AudioEndpointNotify final : IMMNotificationClient {
+// IUnknown of the COM-owned endpoint observers, which live in CoTaskMem storage. Each owns a
+// duplicate of its audio thread's wake event, so a callback racing unregistration never touches the
+// thread's runtime. Self releases its own members in release_members before the final destruction.
+template <class Self> struct EndpointNotifyBase : IMMNotificationClient {
     static void* operator new(usize, void* p) noexcept {
         return p;
     }
     volatile LONG references{1}, dirty{};
     HANDLE event{};
-    EDataFlow flow{};
-    ERole role{};
-    bool follow_default{};
-    void signal(LONG flags) noexcept {
-        InterlockedOr(&dirty, flags);
-        SetEvent(event);
-    }
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** p) override {
         if (!p)
             return E_POINTER;
@@ -40,13 +33,27 @@ struct AudioEndpointNotify final : IMMNotificationClient {
     ULONG STDMETHODCALLTYPE Release() override {
         const LONG count = InterlockedDecrement(&references);
         if (!count) {
+            auto* self = static_cast<Self*>(this);
             if (event)
                 CloseHandle(event);
-            this->~AudioEndpointNotify();
-            CoTaskMemFree(this);
+            self->release_members();
+            self->~Self();
+            CoTaskMemFree(self);
         }
         return static_cast<ULONG>(count);
     }
+    void signal(LONG flags) noexcept {
+        InterlockedOr(&dirty, flags);
+        SetEvent(event);
+    }
+};
+
+// Endpoint observer for the voice capture and playback threads.
+struct AudioEndpointNotify final : EndpointNotifyBase<AudioEndpointNotify> {
+    EDataFlow flow{};
+    ERole role{};
+    bool follow_default{};
+    void release_members() noexcept {}
     HRESULT STDMETHODCALLTYPE OnDefaultDeviceChanged(EDataFlow changed_flow, ERole changed_role,
                                                      LPCWSTR) override {
         if (follow_default && changed_flow == flow && changed_role == role)
@@ -80,51 +87,23 @@ inline bool audio_endpoint_id_matches(const wchar_t* event_id, const wchar_t* ow
     return !event_id[owned_chars];
 }
 
-// COM-owned observer pinned to one render endpoint (the media and notification playback threads). It
-// owns a duplicate of the thread's wake event and the endpoint ID, which are written before
-// registration and immutable through the final Release; `active` gates signals after unregistration.
-// Signals the default-endpoint change for the console render role and that endpoint's state change,
-// removal or device-format property change.
-struct PinnedEndpointNotify final : IMMNotificationClient {
-    static void* operator new(usize, void* p) noexcept {
-        return p;
-    }
-    volatile LONG references{1}, active{1}, dirty{};
-    HANDLE event{};
+// COM-owned observer pinned to one render endpoint (the media and notification playback threads). The
+// endpoint ID is written before registration and immutable through the final Release; `active` gates
+// signals after unregistration. Signals the default-endpoint change for the console render role and
+// that endpoint's state change, removal or device-format property change.
+struct PinnedEndpointNotify final : EndpointNotifyBase<PinnedEndpointNotify> {
+    volatile LONG active{1};
     LPWSTR id{};
     usize id_chars{};
+    void release_members() noexcept {
+        CoTaskMemFree(id);
+    }
     void signal(LONG flags) noexcept {
-        if (InterlockedCompareExchange(&active, 0, 0)) {
-            InterlockedOr(&dirty, flags);
-            SetEvent(event);
-        }
+        if (InterlockedCompareExchange(&active, 0, 0))
+            EndpointNotifyBase::signal(flags);
     }
     bool matches(LPCWSTR value) const noexcept {
         return audio_endpoint_id_matches(value, id, id_chars);
-    }
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** p) override {
-        if (!p)
-            return E_POINTER;
-        *p = nullptr;
-        if (iid != __uuidof(IUnknown) && iid != __uuidof(IMMNotificationClient))
-            return E_NOINTERFACE;
-        *p = static_cast<IMMNotificationClient*>(this);
-        AddRef();
-        return S_OK;
-    }
-    ULONG STDMETHODCALLTYPE AddRef() override {
-        return static_cast<ULONG>(InterlockedIncrement(&references));
-    }
-    ULONG STDMETHODCALLTYPE Release() override {
-        const LONG count = InterlockedDecrement(&references);
-        if (!count) {
-            if (event)
-                CloseHandle(event);
-            CoTaskMemFree(id);
-            this->~PinnedEndpointNotify();
-            CoTaskMemFree(this);
-        }
-        return static_cast<ULONG>(count);
     }
     HRESULT STDMETHODCALLTYPE OnDefaultDeviceChanged(EDataFlow flow, ERole role, LPCWSTR) override {
         if (flow == eRender && role == eConsole)

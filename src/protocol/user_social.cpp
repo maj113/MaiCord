@@ -270,9 +270,6 @@ bool element_item(void* p, u32, JsonValue value) noexcept {
     if (!d.counting) {
         element->kind = kind;
         element->name = named(menu, value, "name");
-        bool submit = false;
-        json_value_to_bool(field(menu.document, value, "should_submit_data"), &submit);
-        element->submit = submit;
         element->option_first = d.options;
         if (data.kind == JsonValueKind::string)
             element->body = text(menu, data);
@@ -319,7 +316,6 @@ bool node_member(void* p, JsonString, JsonValue value) noexcept {
     ReportNode* node = d.counting ? &scratch : &menu.nodes[d.nodes];
     if (!d.counting) {
         node->id = static_cast<u32>(id);
-        node->key = named(menu, value, "key");
         node->header = named(menu, value, "header");
         node->subheader = named(menu, value, "subheader");
         node->info = named(menu, value, "info");
@@ -393,7 +389,6 @@ bool report_menu_decode(Utf8View body, Slice<u32> scratch, ReportMenu* output) n
     menu.root_node_id = static_cast<u32>(root_id);
     menu.success_node_id = static_cast<u32>(success);
     menu.fail_node_id = static_cast<u32>(fail);
-    menu.name = named(menu, root, "name");
     menu.language = named(menu, root, "language");
     const auto version = field(menu.document, root, "version");
     const auto variant = field(menu.document, root, "variant");
@@ -416,9 +411,7 @@ bool report_menu_decode(Utf8View body, Slice<u32> scratch, ReportMenu* output) n
         return false;
     }
     menu.node_count = decoder.nodes;
-    menu.child_count = decoder.children;
     menu.element_count = decoder.elements;
-    menu.option_count = decoder.options;
     if (!report_menu_node(menu, menu.root_node_id)) {
         report_menu_release(&menu);
         return false;

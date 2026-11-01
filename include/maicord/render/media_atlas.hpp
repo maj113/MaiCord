@@ -32,7 +32,6 @@ struct MediaAtlas {
     u32 free_cursor;
     u32 insertions;
     u32 stale_entries;
-    u32 rejected;
     u64 next_allocation_key;
     // Height growth/idle trim (zero maximum: fixed size). The renderer resizes
     // the GPU surface whenever allocations.height changes.

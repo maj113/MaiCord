@@ -18,9 +18,7 @@ struct FakeMessage {
     const char* text;
 };
 constexpr FakeMessage kMessages[]{{601, kSelf, "my own words"}, {600, kAlice, "hello there, friend \xC3\xA9t\xC3\xA9"}};
-u32 g_reads;
 bool fake_context(void*, mc_context_info* info) noexcept {
-    ++g_reads;
     info->channel_id = kChannel;
     info->guild_id = kGuild;
     info->user_id = kSelf;
@@ -127,7 +125,7 @@ void install_fake_read() noexcept {
 }
 
 struct SinkLog {
-    u32 sends, edits, reacts, reads, statuses, activities, cleared, opens, profiles, pages, copies, urls, notices, modals;
+    u32 sends, edits, reads, statuses, activities, cleared, opens, profiles, pages, copies, urls, notices, modals;
     u64 last_owner, last_channel, last_reply, last_emoji;
     u32 last_flags, last_tone, last_type;
     char text[2048];
@@ -151,7 +149,6 @@ mc_status sink_send(void*, u64 owner, const NativePluginSdkSend& send) noexcept 
 }
 mc_status sink_edit(void*, u64, u64, u64, Utf8View text) noexcept { ++g_sink.edits; sink_text(text); return MC_OK; }
 mc_status sink_react(void*, u64, u64, u64, u64 emoji, Utf8View name) noexcept {
-    ++g_sink.reacts;
     g_sink.last_emoji = emoji;
     sink_text(name);
     return MC_OK;

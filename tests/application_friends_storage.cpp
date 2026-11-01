@@ -87,7 +87,7 @@ void test_rest_preflight() noexcept {
         }};
     const auto replace = [&](Utf8View body) noexcept {
         return relationships_replace(&store, body, {scratch, 16384},
-            {candidate, kFriendsRelationshipCapacity}, {}, admission);
+            {candidate, kFriendsRelationshipCapacity}, admission);
     };
     check(!replace(utf8_literal("[{\"id\":\"1\"},]")).ok() && !storage.active.arena.committed && !storage.candidate.arena.committed,
         "friends storage: malformed JSON preflight leaves all record banks uncommitted");

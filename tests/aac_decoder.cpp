@@ -82,7 +82,7 @@ void test_aac_decoder(void (*check)(bool, const char*) noexcept) noexcept {
     const HMODULE before = GetModuleHandleW(L"mfplat.dll");
     AacDecoder decoder{};
     check(aac_decoder_initialize(&decoder, {stereo44, 2}, 44100, 2).ok() && decoder.initialized &&
-              !decoder.runtime && !decoder.thread_id && decoder.format == AacPcmFormat::float32,
+              !decoder.runtime && !decoder.thread_id,
           "AAC lifecycle: initialization is copied metadata with no native decoder allocation");
     check(aac_decoder_initialize(&decoder, {stereo44, 2}, 44100, 2).error == AacDecodeError::busy &&
               aac_decoder_submit(&decoder, {}, 0, 1024).error == AacDecodeError::invalid_input,

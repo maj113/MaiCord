@@ -187,7 +187,7 @@ void test_http_response_stream(void (*check)(bool, const char*) noexcept) noexce
     http_response_stream_initialize(&d, {storage, sizeof(storage)}, 5, 5, sizeof(storage), 32);
     for (u32 i = sizeof(storage) - 4; i < sizeof(storage); ++i) wire[i] = 'a';
     const auto oversized = http_response_stream_feed(&d, {wire, sizeof(storage)});
-    check(oversized.error == HttpResponseStreamError::head && d.framing_error == HttpError::header_too_large,
+    check(oversized.error == HttpResponseStreamError::head,
         "full buffer with incomplete oversized header fails rather than losing bytes or waiting forever");
 }
 } // namespace maicord

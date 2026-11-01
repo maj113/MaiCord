@@ -217,12 +217,9 @@ bool parent_field(void* opaque, JsonString name, JsonValue value) noexcept {
         JsonString text{};
         valid = json_value_as_string(value, &text);
         if (valid) {
-            const auto decoded =
-                json_string_decode_utf8(text, {parse.value.name, sizeof(parse.value.name)});
-            valid = decoded.ok() && text_valid({parse.value.name, decoded.bytes}, sizeof(parse.value.name),
-                                               100, false, true);
-            if (valid)
-                parse.value.name_bytes = decoded.bytes;
+            char name[kForumPostTitleMaximumBytes];
+            const auto decoded = json_string_decode_utf8(text, {name, sizeof(name)});
+            valid = decoded.ok() && text_valid({name, decoded.bytes}, sizeof(name), 100, false, true);
         }
     } else {
         valid = value.kind == JsonValueKind::array;

@@ -1,6 +1,5 @@
 #pragma once
 #include "maicord/core/slice.hpp"
-#include "maicord/ui/geometry.hpp"
 
 namespace maicord {
 // The side slot beside a conversation: a server channel or group DM shows the
@@ -24,9 +23,8 @@ struct UiSidePanelPlan {
     // The slot's content (the shell still drops a slot that would leave the
     // chat narrower than kUiShellMinimumMessageWidthDips).
     UiSidePanel panel;
-    // Slot width; nonzero whenever the header offers the toggle.
+    // Slot width; nonzero exactly when the header offers the toggle.
     float width;
-    bool toggle;
     // The profile cannot show at this window width: the toggle is disabled.
     bool unavailable;
 };

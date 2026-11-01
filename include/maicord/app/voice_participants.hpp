@@ -4,8 +4,8 @@
 namespace maicord {
 struct VoiceParticipant {
     u64 user_id;
-    u32 speaking, flags, platform;
-    bool connected, has_flags, has_platform;
+    u32 speaking;
+    bool connected;
 };
 struct VoiceSsrcBinding {
     u64 user_id, revision;

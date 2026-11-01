@@ -41,8 +41,6 @@ static_assert(offsetof(RelationshipMutation, preserve_nickname) == 448);
 enum class RelationshipsDecodeError : u8 { none, invalid_input, scan, json, record, capacity, duplicate, store };
 struct RelationshipsDecodeResult {
     RelationshipsDecodeError error;
-    u32 count, user_count;
-    bool changed;
     constexpr bool ok() const noexcept { return error == RelationshipsDecodeError::none; }
 };
 RelationshipsDecodeResult relationship_decode_record(Utf8View input,
@@ -59,11 +57,11 @@ struct RelationshipsAdmission {
     bool (*admit)(void* context, u32 record_count, bool active) noexcept;
 };
 // Parses a complete REST/READY relationships array into caller scratch, sorts,
-// rejects duplicate IDs and only then replaces the active rows. User snapshots go to
-// `users`; an empty slice skips collecting them but still validates every user.
+// rejects duplicate IDs and only then replaces the active rows. Every embedded user is validated; user
+// names reach the user store through relationships_hydrate.
 RelationshipsDecodeResult relationships_replace(RelationshipStore* store, Utf8View input,
     Slice<u32> structural_scratch, Slice<RelationshipRecord> candidate,
-    Slice<RelationshipUser> users, RelationshipsAdmission admission = {}) noexcept;
+    RelationshipsAdmission admission = {}) noexcept;
 // Apply only after successful decode. Reports the first user-store error and the
 // count applied; relationship decode never silently drops rows on name capacity.
 struct RelationshipUserApplyResult {

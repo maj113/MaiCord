@@ -16,9 +16,9 @@ UiSidePanelPlan ui_side_panel_plan(const UiSidePanelInput& in) noexcept {
     if (one_to_one(in)) {
         const bool unavailable = in.window_width < kUiDmProfilePanelMinimumWindowWidth;
         return {in.profile_visible && !unavailable ? UiSidePanel::profile : UiSidePanel::none, kUiDmProfilePanelWidth,
-                true, unavailable};
+                unavailable};
     }
-    return {in.members_visible ? UiSidePanel::members : UiSidePanel::none, member_width(in), true, false};
+    return {in.members_visible ? UiSidePanel::members : UiSidePanel::none, member_width(in), false};
 }
 Utf8View ui_side_panel_toggle_label(bool profile, bool unavailable, bool shown) noexcept {
     if (profile)

@@ -49,11 +49,11 @@ bool native_thai_primitive_cases() noexcept {
     };
     for(const auto& sample:syllables){
         ++cases;const u32 count=decode(sample.text);CHECK(count);
-        const i32 result=native_thai_syllable_result({scalars,count},0);const u32 recovery=native_thai_unknown_recovery({scalars,count},0);
+        const i32 result=native_thai_syllable_result({scalars,count},0);const u32 recovery=native_thai_unknown_recovery({scalars,count},0,result);
         if(result!=sample.result||recovery!=sample.recovery){
             print("Thai syllable case/result/recovery=");number(cases);print("/");number(static_cast<u32>(result));print("/");number(recovery);print("\n");return false;}
     }
-    CHECK(native_thai_syllable_result({},0)==0&&native_thai_unknown_recovery({},0)==0);
+    CHECK(native_thai_syllable_result({},0)==0&&native_thai_unknown_recovery({},0,0)==0);
     CHECK(native_thai_lexical_candidates({scalars,2},2).lengths[0]==0);
     const u32 attached[]{0xe30,0xe31,0xe32,0xe33,0xe34,0xe3a,0xe45,0xe47,0xe48,0xe4c,0xe4e};
     const u32 begins[]{0,0x20,0xe01,0xe2e,0xe2f,0xe3b,0xe3f,0xe40,0xe44,0xe46,0xe4f,0xe5b,0xe80};

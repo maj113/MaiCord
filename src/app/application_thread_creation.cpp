@@ -384,10 +384,6 @@ bool application_thread_creation_retry(const ApplicationThreadCreationTicket& va
     queue(owner, owner.uncertain ? Operation::reconcile : Operation::from_message);
     return true;
 }
-bool application_thread_creation_cancel(const ApplicationThreadCreationTicket& value) noexcept {
-    if (!creation_owner || !ticket_equal(*creation_owner, value) || creation_owner->phase == Phase::settled) return false;
-    retire(*creation_owner); return true;
-}
 bool application_thread_creation_synchronize() noexcept {
     auto* owner = creation_owner;
     if (!owner) return true;
@@ -545,10 +541,5 @@ void application_thread_creation_release() noexcept {
     retire(*creation_owner);
     creation_owner->release_pending = true;
     if (!creation_owner->flight.active || !g_app.account.instance || (!g_app.account.status.running && !g_app.account.stop_failed)) free_owner();
-}
-ApplicationThreadCreationMetrics application_thread_creation_metrics() noexcept {
-    if (!creation_owner) return {};
-    return {sizeof(CreationOwner), (sizeof(CreationOwner) + 4095u) & ~4095u,
-        creation_owner->publication, creation_owner->flight.active};
 }
 } // namespace maicord::app_detail

@@ -31,7 +31,7 @@ struct ForumAdapter {
     u64 flight_id;
     LPARAM pressed;
     u32 submissions, cancellations;
-    bool transferred, manage_threads;
+    bool transferred;
     bool media_enabled;
     AccountMediaWorker* media_worker;
     AccountUploadResult upload;
@@ -109,10 +109,14 @@ bool permissions(bool allowed, bool manage) noexcept {
     chat_state_store_recompute_guild_permissions(state, kReplyDraftProbeGuild);
     return true;
 }
+ForumPostSurface* form_surface() noexcept {
+    auto* form = application_forum_form_state();
+    return form ? &form->surface : nullptr;
+}
 } // namespace
 bool forum_post_ui_adapter_begin(HWND window, D3D11Renderer& r, UiTextMeasureCache& measure,
                                  bool (*refresh)(void*) noexcept, void* context) noexcept {
-    if (forum_adapter || application_forum_post_metrics().owner_bytes || application_forum_form_active())
+    if (forum_adapter || application_forum_post_view().ticket.serial || application_forum_form_active())
         return false;
     auto* value = static_cast<ForumAdapter*>(
         VirtualAlloc(nullptr, sizeof(ForumAdapter), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -213,7 +217,7 @@ void forum_post_ui_adapter_viewport(D3D11Renderer& r, const UiScene& shell) noex
         g_app.renderer.height = r.height;
         g_app.renderer.dpi = r.dpi;
     }
-    renderer_bind_forum_form(&r, application_forum_form_surface());
+    renderer_bind_forum_form(&r, form_surface());
     auto* child = g_app.text_form ? &g_app.text_form->surface : nullptr;
     if (r.text_form != child)
         renderer_bind_text_form(&r, child);
@@ -419,27 +423,25 @@ ForumPostScene* forum_post_ui_adapter_scene() noexcept {
     return forum_adapter ? application_forum_form_scene() : nullptr;
 }
 ForumPostSurface* forum_post_ui_adapter_surface() noexcept {
-    return forum_adapter ? application_forum_form_surface() : nullptr;
+    return forum_adapter ? form_surface() : nullptr;
 }
 SecureEdit* forum_post_ui_adapter_edit(u32 field) noexcept {
-    return forum_adapter && field < 2
-               ? application_forum_form_edit(static_cast<ApplicationForumField>(field))
-               : nullptr;
+    auto* form = application_forum_form_state();
+    return forum_adapter && form && field < 2 ? &form->fields[field].edit : nullptr;
 }
 bool forum_post_ui_adapter_costs(ForumPostProbeCosts* costs) noexcept {
     auto* form = application_forum_form_state();
     if (!forum_adapter || !form || !costs)
         return false;
-    const auto metrics = application_forum_form_metrics();
     *costs = {};
     MEMORY_BASIC_INFORMATION form_memory{};
     if (!VirtualQuery(form, &form_memory, sizeof(form_memory)) || form_memory.State != MEM_COMMIT ||
-        form_memory.RegionSize != metrics.committed_bytes)
+        form_memory.RegionSize != ((sizeof(*form) + 4095u) & ~4095u))
         return false;
-    costs->form_bytes = metrics.owner_bytes;
+    costs->form_bytes = static_cast<u32>(sizeof(*form));
     costs->form_committed_bytes = static_cast<u32>(form_memory.RegionSize);
-    costs->form_revision = metrics.revision;
-    costs->form_serial = metrics.serial;
+    costs->form_revision = form->scene.revision;
+    costs->form_serial = form->ticket.serial;
     costs->scene_committed_bytes = static_cast<u32>(form->scene.storage.arena.committed);
     costs->scene_commit_count = form->scene.storage.arena.commit_count;
     costs->scene_revision = form->scene.revision;
@@ -463,7 +465,6 @@ bool forum_post_ui_adapter_manage_threads(bool manage) noexcept {
     return call(
         +[](void* opaque) noexcept {
             const bool value = *static_cast<bool*>(opaque);
-            forum_adapter->manage_threads = value;
             return permissions(true, value) && application_forum_post_synchronize() &&
                    application_forum_form_synchronize();
         },

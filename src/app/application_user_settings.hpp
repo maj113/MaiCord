@@ -27,9 +27,7 @@ bool application_user_settings_content_confirmation_required() noexcept;
 // Explains how to confirm age in Discord; never changes account eligibility.
 void application_user_settings_request_content_confirmation() noexcept;
 
-// Reusable group API for other settings owners (reaction preferences etc.):
-// typed reads and optimistic writes of any field in a stored group.
-bool application_user_settings_read(UserSettingsField, UserSettingsValue*) noexcept;
+// Revision of the synced settings store; zero before the first READY.
 u64 application_user_settings_revision() noexcept;
 // READY auth_session_id_hash of this session; empty before READY.
 Utf8View application_user_settings_session_hash() noexcept;

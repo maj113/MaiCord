@@ -28,15 +28,20 @@ bool header_is(const CookieRequest& request, u64 now, const char* expected) noex
     return bytes == length && bytes_equal(header, expected, length);
 }
 
+// One Set-Cookie field in a response head, as the REST and Gateway paths feed the jar.
 bool set(const CookieRequest& request, const char* line, u64 now = kNow) noexcept {
-    u32 length = 0;
-    while (line[length])
-        ++length;
-    return cookie_jar_set(&jar, request, {line, length}, now);
+    static char head[kCookieMaximumNameValueBytes + 256];
+    constexpr char prefix[] = "HTTP/1.1 200 OK\r\nSet-Cookie: ";
+    u32 length = sizeof(prefix) - 1;
+    copy_bytes(head, prefix, length);
+    while (*line)
+        head[length++] = *line++;
+    copy_bytes(head + length, "\r\n\r\n", 4);
+    return cookie_jar_store_response(&jar, request, {reinterpret_cast<const u8*>(head), length + 4}, now) == 1;
 }
 
 void test_attributes() noexcept {
-    cookie_jar_clear(&jar);
+    reset_value(&jar);
     check(set(kApi, "__dcfduid=visitor1; Expires=Sun, 25 Oct 2026 18:16:15 GMT; Secure; HttpOnly; Path=/; "
                     "Domain=.discord.com; SameSite=Lax") &&
               set(kApi, "_cfuvid=session1; HttpOnly; SameSite=None; Secure; Path=/; Domain=discord.com") &&
@@ -63,7 +68,7 @@ void test_attributes() noexcept {
               cookie_jar_header(&jar, kApi, kNow, {header, sizeof(header)}) == 0,
           "cookies: Max-Age=0 or a past Expires deletes the stored cookie");
 
-    cookie_jar_clear(&jar);
+    reset_value(&jar);
     check(set(kApi, "__cfruid=route1") && set(kApi, "wide=1; Path=/api") &&
               header_is(kApi, kNow, "__cfruid=route1; wide=1") &&
               header_is({utf8_literal("discord.com"), utf8_literal("/api/v9/users"), true}, kNow,
@@ -78,7 +83,7 @@ void test_attributes() noexcept {
 }
 
 void test_rejections() noexcept {
-    cookie_jar_clear(&jar);
+    reset_value(&jar);
     check(!set(kApi, "a=1; Domain=discord.gg") && !set(kApi, "a=1; Domain=com") &&
               !set(kApi, "a=1; Domain=xdiscord.com") && !set(kApi, "a=1; SameSite=None") &&
               !set(kApi, "__Secure-a=1") && !set(kApi, "__Host-a=1; Secure; Domain=discord.com; Path=/") &&
@@ -103,7 +108,7 @@ void test_rejections() noexcept {
 }
 
 void test_cross_site() noexcept {
-    cookie_jar_clear(&jar);
+    reset_value(&jar);
     const char head[] = "HTTP/1.1 101 Switching Protocols\r\nConnection: upgrade\r\nupgrade: websocket\r\n"
                         "Set-Cookie: __cf_bm=bot1; HttpOnly; SameSite=None; Secure; Path=/; Domain=discord.gg; "
                         "Expires=Sun, 25 Oct 2026 18:16:15 GMT\r\n"
@@ -119,7 +124,7 @@ void test_cross_site() noexcept {
 }
 
 void test_capacity() noexcept {
-    cookie_jar_clear(&jar);
+    reset_value(&jar);
     char line[] = "cA=1";
     bool stored = true;
     for (u32 i = 0; i < kCookieJarCapacity; ++i) {
@@ -142,7 +147,7 @@ void test_capacity() noexcept {
 }
 
 void test_persistence() noexcept {
-    cookie_jar_clear(&jar);
+    reset_value(&jar);
     set(kApi, "__sdcfduid=visitor2; Max-Age=31536000; Secure; HttpOnly; Path=/; Domain=discord.com");
     set(kApi, "_cfuvid=session2; Secure; SameSite=None; Path=/; Domain=discord.com");
     set(kGateway, "__cf_bm=bot2; Secure; SameSite=None; Path=/; Domain=discord.gg; Max-Age=1800");
@@ -165,11 +170,6 @@ void test_persistence() noexcept {
     check(!cookie_jar_decode_persistent(&restored, {record, bytes}, kNow) && restored.count == 0 &&
               !cookie_jar_decode_persistent(&restored, {record, 3}, kNow),
           "cookies: an inconsistent record restores nothing");
-    cookie_jar_clear(&jar);
-    u32 cleared = 0;
-    check(!cookie_jar_has_persistent(&jar, &cleared) && cleared != revision && jar.text_bytes == 0 &&
-              bytes_zero(jar.text, sizeof(jar.text)),
-          "cookies: clearing erases every value and marks the persistent set changed");
 }
 
 } // namespace cookie_jar_test

@@ -6,6 +6,7 @@
 #include "maicord/media/video_display.hpp"
 #include "../src/media/mp4_demux_detail.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/byte_range.hpp"
 
 namespace maicord {
 namespace {
@@ -14,13 +15,32 @@ struct Writer {
     u8 bytes[4'096];
     u32 count;
     bool ok;
-    u32 edit_span_offset, edit_media_offset, composition_count_offset, alias_flags_offset;
+    u32 edit_span_offset, composition_count_offset, alias_flags_offset;
 };
 // QuickTime movie shape for the shared fixtures: 'qt  ' brand, an 'alis'
 // self-reference, SoundDescription v1/v2 and a 'wave'-wrapped esds.
 bool g_quicktime;
 u16 g_sound_version;
 bool g_sound_wave;
+
+// Frame times through the demuxer's timeline; the output must not overlap the demuxer or its source.
+bool demux_output_valid(const Mp4AudioDemuxer& d, const void* output, u32 bytes) noexcept {
+    const ConstSlice<u8> range{static_cast<const u8*>(output), bytes};
+    return output && byte_range_valid(range) &&
+           !byte_ranges_overlap(range, {reinterpret_cast<const u8*>(&d), sizeof(d)}) &&
+           !byte_ranges_overlap(range, d.samples.encoded);
+}
+bool mp4_audio_demux_frame_time_100ns(const Mp4AudioDemuxer& d, u64 frame, i64* output) noexcept {
+    Mp4AudioTimeline clock{};
+    return demux_output_valid(d, output, sizeof(*output)) && mp4_audio_demux_timeline(d, &clock) &&
+           mp4_audio_frame_time_100ns(clock, frame, output);
+}
+bool mp4_audio_demux_frame_time_bounds_100ns(const Mp4AudioDemuxer& d, u64 frame,
+                                             Mp4AudioFrameTimeBounds* output) noexcept {
+    Mp4AudioTimeline clock{};
+    return demux_output_valid(d, output, sizeof(*output)) && mp4_audio_demux_timeline(d, &clock) &&
+           mp4_audio_frame_time_bounds_100ns(clock, frame, output);
+}
 
 void put_u8(Writer* writer, u8 value) noexcept {
     if (!writer->ok || writer->count >= sizeof(writer->bytes)) {
@@ -112,7 +132,6 @@ bool fixture(Writer* writer, u32 sar_width = 0, u32 sar_height = 0, u32 pasp_cou
         }
         writer->edit_span_offset = writer->count;
         put_u32(writer, edit_span ? edit_span : duration - static_cast<u32>(trim));
-        writer->edit_media_offset = writer->count;
         put_u32(writer, static_cast<u32>(trim));
         put_u32(writer, 0x00010000);
         end_box(writer, elst);

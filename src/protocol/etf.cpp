@@ -619,26 +619,20 @@ bool write_key(Reader* r, Writer* w, EtfError* error, Quoting* quoting) noexcept
 
 } // namespace
 
-EtfResult etf_to_json(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum_output, EtfGrowOutput grow,
-                      void* context) noexcept {
-    u32 marks = 0;
-    return etf_to_json_indexed(etf, output, maximum_output, grow, context, {}, &marks);
-}
-
 EtfResult etf_to_json_indexed(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum_output, EtfGrowOutput grow,
                               void* context, Slice<u32> index, u32* index_count) noexcept {
     *index_count = ~0u;
     if (!etf.data || !etf.count || !output || (!output->data && output->count) || (!index.data && index.count))
-        return {0, 0, EtfError::invalid_input};
+        return {0, EtfError::invalid_input};
     if (etf[0] != kVersion)
-        return {0, 0, EtfError::bad_version};
+        return {0, EtfError::bad_version};
     Reader r{etf.data, etf.count, 1};
     Writer w{output, 0, maximum_output, grow, context, index.data, index.count, 0};
     Frame stack[kEtfMaximumDepth];
     u32 depth = 0;
     bool started = false;
     Quoting quoting = Quoting::none;
-    const auto failed = [&](EtfError error) noexcept { return EtfResult{0, r.at, error}; };
+    const auto failed = [](EtfError error) noexcept { return EtfResult{0, error}; };
     for (;;) {
         if (depth) {
             Frame& f = stack[depth - 1];
@@ -806,7 +800,7 @@ EtfResult etf_to_json_indexed(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum
     if (r.at != r.size)
         return failed(EtfError::trailing_data);
     *index_count = w.marks <= index.count ? w.marks : ~0u;
-    return {w.used, 0, EtfError::none};
+    return {w.used, EtfError::none};
 }
 
 // ---------------------------------------------------------- JSON input
@@ -1028,16 +1022,16 @@ struct Encoder {
 
 EtfResult etf_from_json(Utf8View json, Slice<u8> output) noexcept {
     if (!json.data || !json.bytes || (!output.data && output.count))
-        return {0, 0, EtfError::invalid_input};
+        return {0, EtfError::invalid_input};
     Encoder e{json.data, json.data + json.bytes, output.data, output.count, 0, false};
     e.put(kVersion);
     const bool valid = e.value(0);
     e.skip_space();
     if (!valid || e.p != e.end)
-        return {0, static_cast<u32>(e.p - json.data), EtfError::invalid_json};
+        return {0, EtfError::invalid_json};
     if (e.overflow)
-        return {0, 0, EtfError::output_capacity};
-    return {e.used, 0, EtfError::none};
+        return {0, EtfError::output_capacity};
+    return {e.used, EtfError::none};
 }
 
 } // namespace maicord

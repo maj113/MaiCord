@@ -1,6 +1,7 @@
 // QA-only differential adapter: compare flat input with a strided, poisoned-gap
 // view at every split position. Corpus expectations are still checked by callers.
 #include "maicord/text/context.hpp"
+#include "text_seams.hpp"
 struct QaGapRecord {maicord::SfntGsubGlyph glyph;maicord::u32 marker[3];};
 static QaGapRecord qa_gap_records[65543];
 static maicord::u32 qa_gap_positions[65536];

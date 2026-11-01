@@ -476,7 +476,7 @@ int run() noexcept {
             return 32;
         }
         attachment_target_checksum +=
-            parsed.target_bytes + parsed.issued_at_seconds + attachment_target[iteration & 63u];
+            parsed.target_bytes + parsed.expires_at_seconds + attachment_target[iteration & 63u];
     }
     const u64 attachment_target_us =
         maximum<u64>(1, clock_microseconds(clock, attachment_target_begin, clock_now()));

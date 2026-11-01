@@ -129,8 +129,8 @@ bool decode_webp_animated(const ImageCorpusEntry& entry, Arena arena) noexcept {
         image.width != entry.width || image.height != entry.height)
         return false;
     for (u32 index = 0; index < image.frame_count; ++index) {
-        const auto decoded = animated_webp_decode_frame({entry.data, entry.bytes}, index, &image, animation, lossless, lossy, frame,
-                                                        header, {rgba, pixels * 4}, {scratch, pixels * 4}, {alpha, pixels});
+        const auto decoded = animated_webp_decode_parsed_frame({entry.data, entry.bytes}, image, index, lossless, lossy, frame,
+                                                               header, {rgba, pixels * 4}, {scratch, pixels * 4}, {alpha, pixels});
         if (!decoded.ok()) return false;
         if (index == 0 && entry.expected && fnv(0x811C9DC5u, rgba, u64{pixels} * 4) != entry.expected) return false;
     }

@@ -9,6 +9,10 @@ void offer_reaction() noexcept {
                                                         : g_app.account.status.profile_id;
     track(scope, 8, 43, 0, utf8_literal("like"), MessageReactionType::normal, 2);
 }
+bool reaction_pending() noexcept {
+    synchronize_source();
+    return hovered.phase == Phase::required;
+}
 } // namespace
 
 // Existing PRIMARY admission is injected; the shipping reaction owner still
@@ -50,11 +54,11 @@ void test_reaction_tooltip_owner(void (*check)(bool, const char*) noexcept) noex
     g_app.message_history_request_owner = MessageHistoryRequestOwner::none;
     tooltip_requests = 0;
     offer_reaction();
-    check(application_reaction_tooltip_pending(), "reaction hover creates one current read interest");
+    check(reaction_pending(), "reaction hover creates one current read interest");
     application_tooltip_clear();
     ReactionTooltipQuery query{};
     application_reaction_tooltip_pump();
-    check(!application_reaction_tooltip_pending() && !application_reaction_tooltip_query(&query) &&
+    check(!reaction_pending() && !application_reaction_tooltip_query(&query) &&
               !tooltip_requests,
           "tooltip clear before admission withdraws interest even with no overlay owner");
 
@@ -63,7 +67,7 @@ void test_reaction_tooltip_owner(void (*check)(bool, const char*) noexcept) noex
     check(tooltip_requests == 1 && hovered.phase == Phase::submitted,
           "current reaction interest admits once through the existing lane");
     application_reaction_tooltip_leave();
-    check(!application_reaction_tooltip_query(&query) && !application_reaction_tooltip_pending(),
+    check(!application_reaction_tooltip_query(&query) && !reaction_pending(),
           "leaving a submitted reaction cannot revive it when PRIMARY resets");
     RestClientResponse rejected{};
     rejected.status_code = 429;
@@ -87,7 +91,7 @@ void test_reaction_tooltip_owner(void (*check)(bool, const char*) noexcept) noex
             response.status_code = 403;
         application_reaction_tooltip_response(response, {}, {}, {});
         application_reaction_tooltip_pump();
-        check(!application_reaction_tooltip_pending() && !application_reaction_tooltip_query(&query) &&
+        check(!reaction_pending() && !application_reaction_tooltip_query(&query) &&
                   tooltip_requests == before && hovered.phase == Phase::failed,
               "reaction tooltip challenge, unknown429 and denied reads remain terminal");
         application_reaction_tooltip_leave();
@@ -105,7 +109,7 @@ void test_reaction_tooltip_owner(void (*check)(bool, const char*) noexcept) noex
     auto* channel = const_cast<ChannelRecord*>(chat_state_store_find_channel(ui.chat_state, 8));
     if (channel)
         channel->actions = 0;
-    check(channel && !application_reaction_tooltip_pending(),
+    check(channel && !reaction_pending(),
           "reaction permission withdrawal prevents admission");
     application_reaction_tooltip_leave();
     ui.chat_state = saved_state;

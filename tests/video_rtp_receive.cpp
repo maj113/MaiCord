@@ -272,9 +272,8 @@ void test_rtcp(Check check) noexcept {
     const u32 compound_bytes = test_unhex(rtcp_sr_compound, compound);
     RtcpSenderInfo info[2]{};
     check(rtcp_read_sender_reports({compound, compound_bytes}, {info, 2}) == 1 && info[0].ssrc == kOracleSsrc &&
-              rtcp_compact_ntp(info[0].ntp_seconds, info[0].ntp_fraction) == 0x456789ab &&
-              info[0].rtp_timestamp == 90000 && info[0].packet_count == 10 && info[0].octet_count == 9000,
-          "RTCP sender report parsing yields LSR and counters");
+              rtcp_compact_ntp(info[0].ntp_seconds, info[0].ntp_fraction) == 0x456789ab,
+          "RTCP sender report parsing yields LSR");
 }
 
 // Transport-wide CC feedback (RTPFB FMT 15) and RTP header extension lookup.

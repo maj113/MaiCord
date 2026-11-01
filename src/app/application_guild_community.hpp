@@ -4,7 +4,6 @@
 #include "maicord/model/message_composer.hpp"
 #include "maicord/model/scheduled_event_store.hpp"
 #include "maicord/ui/geometry.hpp"
-#include "maicord/ui/input_router.hpp"
 #include "maicord/ui/popup_scene.hpp"
 #include "maicord/core/win32_types.hpp"
 

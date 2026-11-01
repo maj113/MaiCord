@@ -561,18 +561,4 @@ GifDecodeResult gif_decode_parsed_frame(ConstSlice<u8> encoded, const GifImage& 
     return result;
 }
 
-GifDecodeResult gif_decode_frame(ConstSlice<u8> encoded, u32 frame_index, GifImage* image,
-                                 GifWorkspace* workspace, Slice<u8> indices) noexcept {
-    GifDecodeResult result{};
-    const GifParseResult parsed = gif_parse(encoded, image, workspace);
-    result.parse = parsed;
-    if (!parsed.ok()) {
-        result.error = parsed.error;
-        return result;
-    }
-    gif_decode_parsed_frame(&result, encoded, *image, frame_index, workspace, indices);
-    result.parse = parsed;
-    return result;
-}
-
 } // namespace maicord

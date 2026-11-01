@@ -28,11 +28,6 @@ void application_composer_preview_retire(u64 draft_id = 0) noexcept;
 void application_composer_preview_release() noexcept;
 u64 application_composer_preview_next_wake() noexcept;
 u32 application_composer_preview_revision() noexcept;
-struct ApplicationComposerPreviewMetrics {
-    u32 active, pending, ready, failed;
-    u64 admissions, retirements;
-};
-ApplicationComposerPreviewMetrics application_composer_preview_metrics() noexcept;
 
 // Local-preview routing shared by the forum form and the composer strip.
 bool application_local_preview_key_current(MediaAssetKey) noexcept;

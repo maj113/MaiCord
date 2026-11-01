@@ -65,7 +65,6 @@ struct VoiceConnection {
     u64 ready_revision, udp_revision;
     u64 protocol_deadline_ms;
     u64 reconnect_deadline_ms;
-    VoiceDaveInbox dave;
     // DAVE E2EE for this call. Gateway callbacks may not send, so replies are
     // queued as complete WebSocket payloads and flushed by drive in order.
     DaveSession dave_session;

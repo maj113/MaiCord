@@ -31,9 +31,8 @@ void clear_entry(MediaAtlasEntry* entry) noexcept {
     entry->generation = generation;
 }
 
-MediaAtlasResult rejected_allocation(MediaAtlas* atlas, const GlyphAtlasAllocation& allocation, u16 width, u16 height,
+MediaAtlasResult rejected_allocation(const GlyphAtlasAllocation& allocation, u16 width, u16 height,
                                      MediaAtlasError error) noexcept {
-    ++atlas->rejected;
     return MediaAtlasResult{{}, 0, 0, width, height, allocation.evicted_entries, error, false, allocation.atlas_reset};
 }
 
@@ -178,7 +177,6 @@ bool media_atlas_initialize(MediaAtlas* atlas, u16 width, u16 height,
     atlas->free_cursor = 0;
     atlas->insertions = 0;
     atlas->stale_entries = 0;
-    atlas->rejected = 0;
     atlas->next_allocation_key = 0;
     reset_value<GlyphAtlasGrowth>(&atlas->growth);
     atlas->disposal_backup_used_ms = 0;
@@ -219,9 +217,6 @@ void media_atlas_begin_visibility(MediaAtlas* atlas) noexcept {
 
 MediaAtlasResult media_atlas_peek(MediaAtlas* atlas, const MediaAssetKey& key) noexcept {
     if (!atlas || !atlas->entries || !media_asset_key_valid(key)) {
-        if (atlas) {
-            ++atlas->rejected;
-        }
         return failure(MediaAtlasError::invalid_input);
     }
     const u32 bucket = find_bucket(atlas, key);
@@ -279,15 +274,11 @@ MediaAtlasResult media_atlas_allocate(MediaAtlas* atlas, MediaAssetKey key,
                                       u16 width, u16 height) noexcept {
     if (!atlas || !atlas->entries || !media_asset_key_valid(key) || width == 0 ||
         height == 0) {
-        if (atlas) {
-            ++atlas->rejected;
-        }
         return failure(MediaAtlasError::invalid_input, width, height);
     }
     MediaAtlasResult cached = media_atlas_find(atlas, key);
     if (cached.ok()) {
         if (cached.width != width || cached.height != height) {
-            ++atlas->rejected;
             cached.error = MediaAtlasError::invalid_input;
         }
         return cached;
@@ -317,12 +308,11 @@ MediaAtlasResult media_atlas_allocate(MediaAtlas* atlas, MediaAssetKey key,
         allocation = glyph_atlas_allocate_unique(&atlas->allocations, allocation_key, width, height);
     }
     if (!allocation.ok())
-        return rejected_allocation(atlas, allocation, width, height, static_cast<MediaAtlasError>(allocation.error));
+        return rejected_allocation(allocation, width, height, static_cast<MediaAtlasError>(allocation.error));
 
     if ((allocation.evicted_entries != 0 || allocation.atlas_reset ||
          atlas->entry_count >= atlas->entry_capacity) &&
         !rebuild_buckets_and_clear_stale(atlas)) {
-        ++atlas->rejected;
         return failure(MediaAtlasError::corrupt_state, width, height);
     }
 
@@ -330,7 +320,7 @@ MediaAtlasResult media_atlas_allocate(MediaAtlas* atlas, MediaAssetKey key,
     // A bookkeeping-capacity miss must not reset the shared GPU atlas: that
     // would invalidate unrelated visible media.
     if (slot == 0xFFFFFFFFu || !insert_bucket(atlas, key, slot))
-        return rejected_allocation(atlas, allocation, width, height, MediaAtlasError::corrupt_state);
+        return rejected_allocation(allocation, width, height, MediaAtlasError::corrupt_state);
     MediaAtlasEntry& entry = atlas->entries[slot];
     clear_entry(&entry);
     entry.key = key;
@@ -343,7 +333,7 @@ MediaAtlasResult media_atlas_allocate(MediaAtlas* atlas, MediaAssetKey key,
             atlas->buckets[bucket] = kTombstoneBucket;
         }
         entry.occupied = false;
-        return rejected_allocation(atlas, allocation, width, height, MediaAtlasError::corrupt_state);
+        return rejected_allocation(allocation, width, height, MediaAtlasError::corrupt_state);
     }
     ++atlas->entry_count;
     ++atlas->insertions;

@@ -14,21 +14,4 @@ static_assert(sizeof(SfntGsubSubtable)==40 && sizeof(SfntGsubGlyph)==4 && sizeof
 // budget. Validation is strict by default; ignore_empty_sequences skips empty
 // MultipleSubst rules without deleting input or blocking later subtables.
 SfntStatus sfnt_gsub_subtable_open(ConstSlice<u8> bytes,u16 type,u32 glyph_limit,SfntGsubSubtable* output,u32 work_limit=1000000,u32* work_used=nullptr,bool ignore_empty_sequences=false) noexcept;
-// Input is logical glyph order, limited to the applicable feature range; the
-// caller maintains glyph classes, including when GDEF omits classification.
-// The first glyph is tested regardless of filter flags. Glyphs skipped between
-// ligature components are not consumed, and positions lists only consumed
-// glyphs. The first matching ligature wins; alternate is zero-based.
-// No match returns ok with matched=false. On output_too_small, input_count holds
-// the required position capacity and other result fields are empty. Position
-// scratch is valid only after a successful match and must not overlap the input,
-// font mapping or prepared storage. Matching requires a prepared subtable and
-// unchanged font bytes/views. Work charged per candidate is unaffected by reuse
-// of a filtered input prefix. A nonzero feature_mask requires intersecting
-// eligibility bits in the glyphs' reserved byte across the whole input span,
-// including glyphs skipped by lookup filtering; zero disables the check.
-SfntStatus sfnt_gsub_subtable_match_view(const SfntGsubSubtable& subtable,const SfntGdef& gdef,const SfntLookupFilter& filter,
-                                  SfntGlyphView glyphs,u32 start,u32 alternate,Slice<u32> positions,
-                                  SfntGsubMatch* output,u32 work_limit=1000000,u32* work_used=nullptr,u8 feature_mask=0) noexcept;
-SfntStatus sfnt_gsub_replacement(const SfntGsubMatch& match,u16 index,u16* glyph) noexcept;
 }

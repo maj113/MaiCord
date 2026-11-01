@@ -86,7 +86,7 @@ void cancel_capture(ApplicationThemeEditor& e, bool rollback = true) noexcept {
     if (restore) {
         g_app.preferences = e.gesture_preferences;
         if (e.gesture_theme_captured)
-            application_custom_theme_restore(e.gesture_theme, false);
+            application_custom_theme_restore(e.gesture_theme);
         const auto style = ui_theme_editor_style(application_theme());
         ui_theme_editor_update(&e.scene, e.gesture_draft, e.gesture_selected_stop,
                                application_viewport_dips(), &style, e.gesture_profiles);
@@ -253,9 +253,6 @@ UiThemeEditorElement focused(const UiThemeEditorScene& scene) noexcept {
 bool application_theme_editor_active() noexcept {
     return g_app.theme_editor && current(*g_app.theme_editor);
 }
-const UiThemeEditorScene* application_theme_editor_scene() noexcept {
-    return application_theme_editor_active() ? &g_app.theme_editor->scene : nullptr;
-}
 bool application_theme_editor_open() noexcept {
     if (g_app.theme_editor)
         return application_theme_editor_active();
@@ -316,7 +313,7 @@ void application_theme_editor_close(bool save) noexcept {
     if (!save && current(*e)) {
         g_app.preferences = e->baseline;
         if (e->theme_captured)
-            application_custom_theme_restore(e->theme_baseline, false);
+            application_custom_theme_restore(e->theme_baseline);
         application_preferences_apply();
     }
     // Closing releases the lazily created editor, so carry its final foreground

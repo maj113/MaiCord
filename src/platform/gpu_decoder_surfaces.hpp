@@ -26,12 +26,11 @@ struct GpuDecoderSurfaces {
 // Hardware decode requires shader-readable NV12 decoder output. Without it the
 // decoders fail with DXGI_ERROR_UNSUPPORTED, as on a GPU without the codec.
 bool gpu_decoder_surfaces_supported(ID3D11Device* device) noexcept;
-// output_views: decoder output views to create (all slices for a stream, one
-// for a single picture); plane views cover every slice. A refused array is
-// DXGI_ERROR_UNSUPPORTED.
+// Every slice gets a decoder output view and single-slice plane views, so the renderer converts a
+// decoded picture in place. A refused array is DXGI_ERROR_UNSUPPORTED.
 HRESULT gpu_decoder_surfaces_create(GpuDecoderSurfaces* surfaces, ID3D11Device* device,
                                     ID3D11VideoDevice* video, const GUID& profile, u32 width, u32 height,
-                                    u32 count, u32 output_views) noexcept;
+                                    u32 count) noexcept;
 void gpu_decoder_surfaces_release(GpuDecoderSurfaces* surfaces) noexcept;
 // First decoder configuration for description that uses bitstream_raw (H.264 short slices 2, HEVC and AV1 1)
 // without encryption; DXGI_ERROR_UNSUPPORTED when the driver offers none.

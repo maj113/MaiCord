@@ -30,7 +30,6 @@ enum class EtfError : u8 {
 
 struct EtfResult {
     u32 bytes;
-    u32 error_offset;
     EtfError error;
 
     constexpr bool ok() const noexcept {
@@ -43,12 +42,8 @@ inline constexpr u32 kEtfMaximumDepth = 128;
 // Grows output to at least required bytes at the same base, keeping its contents.
 using EtfGrowOutput = bool (*)(void* context, u32 required_bytes, Slice<u8>* output) noexcept;
 
-// Transcodes one term (version byte 131 first) into *output, growing it
-// through grow (optional) up to maximum_output bytes.
-EtfResult etf_to_json(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum_output, EtfGrowOutput grow,
-                      void* context) noexcept;
-
-// As etf_to_json, and writes the JSON's structural index to `index` as json_scan_structurals_avx1 would
+// Transcodes one term (version byte 131 first) into *output, growing it through grow (optional) up to
+// maximum_output bytes, and writes the JSON's structural index to `index` as json_scan_structurals_avx1 would
 // produce it, since every structural byte is written here. *index_count is the number of entries, or ~0u when
 // `index` was too small (or on error); the JSON is complete either way. Needs no index: pass an empty slice.
 // The text is valid JSON by construction (strings escaped, invalid UTF-8 replaced, numbers canonical), so a

@@ -105,13 +105,12 @@ GatewayLifecycleStep gateway_lifecycle_dispatch(GatewayLifecycle* lifecycle, u64
     return step(GatewayLifecycleAction::none);
 }
 
-GatewayLifecycleStep gateway_lifecycle_session_ready(GatewayLifecycle* lifecycle,
-                                                     bool resume_available) noexcept {
+GatewayLifecycleStep gateway_lifecycle_session_ready(GatewayLifecycle* lifecycle) noexcept {
     if (lifecycle->phase != GatewayLifecyclePhase::awaiting_session) {
         return invalid_state();
     }
     lifecycle->phase = GatewayLifecyclePhase::ready;
-    lifecycle->resume_available = resume_available && lifecycle->has_sequence;
+    lifecycle->resume_available = lifecycle->has_sequence;
     lifecycle->attempting_resume = false;
     return step(GatewayLifecycleAction::none);
 }

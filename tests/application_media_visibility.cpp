@@ -679,7 +679,7 @@ void run_picker_emoji_visibility_test(ApplicationMediaPump& pump) noexcept {
     inline_flags[2].clip = {};
     inline_flags[3] = inline_flags[0];
     inline_flags[3].owner.manager = reinterpret_cast<UiWidgetManager*>(static_cast<usize>(1));
-    g_app.renderer.inline_media = {inline_flags, 4, 0};
+    g_app.renderer.inline_media = {inline_flags, 4};
     picker_emoji_requests = 0;
     uploads = 0;
     check(pump.pass(1'000, 1'000, 0, &repaint).request_inline_flags() && picker_emoji_requests == 1 &&
@@ -2182,8 +2182,7 @@ void run_query_diagnostics_test() noexcept {
                                      {target, valid_animated.target_bytes}, valid_animated.host, 64, 64,
                                      CdnMediaFormat::source, {proxy, sizeof(proxy)}, true)
                                : CdnTargetResult{};
-    check(valid_animated.ok() && valid_animated.expires_at_seconds == 2 &&
-              valid_animated.issued_at_seconds == 1 && canonical.ok(),
+    check(valid_animated.ok() && valid_animated.expires_at_seconds == 2 && canonical.ok(),
           "media diagnostics: public-client animated boolean retains validated signed authority and proxy "
           "routing");
     const auto routed = parse_signed_attachment_url(
@@ -2197,7 +2196,7 @@ void run_query_diagnostics_test() noexcept {
     const auto expected_proxy = utf8_literal(
         "/attachments/7/200/a.png?backend=b2&ex=2&is=1&hm="
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&width=64&height=64&format=png");
-    check(routed.ok() && routed.expires_at_seconds == 2 && routed.issued_at_seconds == 1 &&
+    check(routed.ok() && routed.expires_at_seconds == 2 &&
               routed_proxy.ok() && routed_proxy.host == CdnHost::media &&
               routed_proxy.bytes == expected_proxy.bytes &&
               bytes_equal(proxy, expected_proxy.data, expected_proxy.bytes),

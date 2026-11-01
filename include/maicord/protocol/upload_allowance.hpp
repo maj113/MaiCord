@@ -1,7 +1,6 @@
 #pragma once
 #include "maicord/model/upload_allowance.hpp"
 #include "maicord/core/json_reader.hpp"
-#include "maicord/core/json_scan.hpp"
 namespace maicord {
 // Server-assigned experiment assignments (apex_experiments), scoped to this
 // authenticated user.

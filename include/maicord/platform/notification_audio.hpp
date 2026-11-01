@@ -95,10 +95,6 @@ struct NotificationAudioMixResult {NotificationAudioError error{};u32 frames{};b
 bool notification_audio_clip_valid(NotificationAudioClip) noexcept;
 bool notification_audio_gain_valid(float) noexcept;
 // Offline helpers shared with the worker/callback; no owner/device operations.
-// owned_id is a terminated string with owned_chars characters. The event ID is
-// OS-provided and terminated; comparison reads at most that length plus the
-// terminator and treats endpoint IDs as opaque, case-sensitive values.
-bool notification_audio_endpoint_matches(const wchar_t* event_id,const wchar_t* owned_id,usize owned_chars) noexcept;
 // The caller serializes status access. A late Stop/Reset failure from an old stream
 // must not change the current epoch's status. Returns true only for the current epoch.
 bool notification_audio_record_stream_failure(NotificationAudioStatus*,u64 closed_epoch,u32 native_error) noexcept;

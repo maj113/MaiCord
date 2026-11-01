@@ -1,6 +1,5 @@
 #include "maicord/app/embed_resolver.hpp"
 #include "maicord/app/segmented_video_fetch.hpp"
-#include "maicord/app/cdn_client.hpp"
 #include "maicord/protocol/embed_provider.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "test_output.hpp"

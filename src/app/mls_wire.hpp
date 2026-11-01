@@ -8,8 +8,6 @@
 #include "maicord/protocol/mls_reader.hpp"
 #include "byte_views.hpp"
 
-#include "maicord/core/win32_types.hpp"
-
 namespace maicord {
 inline u32 mls_varint_size(u32 value) noexcept {
     return value < 64 ? 1u : value < 16384 ? 2u : 4u;

@@ -42,9 +42,8 @@ bool mp4_decoder_initialize(Mp4Decoder* decoder, ConstSlice<u8> encoded, u16 req
     decoder->ready =
         context &&
         (decoder->hevc
-             ? hevc_gpu_decoder_initialize(&decoder->native, encoded, video_device, context, true, availability)
-             : h264_gpu_decoder_initialize(&decoder->native, encoded, video_device, context, true,
-                                           availability));
+             ? hevc_gpu_decoder_initialize(&decoder->native, encoded, video_device, context, availability)
+             : h264_gpu_decoder_initialize(&decoder->native, encoded, video_device, context, availability));
     com_release(context);
     return decoder->ready;
 }
@@ -100,8 +99,8 @@ Mp4DecodedFrame mp4_decoder_read_selected(Mp4Decoder* decoder) noexcept {
     frame.error = Mp4DecodeError::invalid_input;
     if (!decoder || !decoder->ready || decoder->gpu)
         return frame;
-    frame = decoder->hevc ? hevc_gpu_decoder_read(&decoder->native, false, 4)
-                          : h264_gpu_decoder_read(&decoder->native, false, 4);
+    frame = decoder->hevc ? hevc_gpu_decoder_read(&decoder->native, 4)
+                          : h264_gpu_decoder_read(&decoder->native, 4);
     if (frame.ok())
         decoder->gpu = frame.gpu;
     return frame;
@@ -123,8 +122,8 @@ Mp4DecodedFrame mp4_decoder_read(Mp4Decoder* decoder, bool loop_at_end) noexcept
             frame.error = decoder->fragmented ? Mp4DecodeError::needs_service : Mp4DecodeError::end_of_stream;
         } else {
             for (u32 attempt = 0; attempt < 4; ++attempt) {
-                frame = decoder->hevc ? hevc_gpu_decoder_read(&decoder->native, false)
-                                      : h264_gpu_decoder_read(&decoder->native, false, decoder->fragmented ? 4u : 0u);
+                frame = decoder->hevc ? hevc_gpu_decoder_read(&decoder->native)
+                                      : h264_gpu_decoder_read(&decoder->native, decoder->fragmented ? 4u : 0u);
                 if (frame.ok())
                     break;
                 if (!mp4_decoder_busy(*decoder) || attempt == 3 || !mp4_decoder_wait(decoder, 16))

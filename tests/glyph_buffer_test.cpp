@@ -33,8 +33,8 @@ bool exercise(u32 initial,u32 seed) noexcept {
         u32 n=0,p=0;for(u32 old=0;old<=count;++old){if(old==start)for(u32 i=0;i<inserted;++i){next[n]=replacement[i];origins[n++]=inserted_origin;}if(old==count)break;
             if(p<consumed && positions[p]==old){++p;continue;}next[n]=expected[old];origins[n++]=old;}
         if(n!=after || !equal(buffer,next,n))return false;
-        for(u32 boundary=0;boundary<=count;++boundary)for(u32 affinity=0;affinity<2;++affinity){u32 found=0;for(u32 i=0;i<n;++i)if(origins[i]!=inserted_origin && origins[i]<boundary)++found;
-            if(start<boundary || (start==boundary && affinity))found+=inserted;u32 actual=0;if(sfnt_glyph_edit_boundary(edit,boundary,affinity!=0,&actual)!=SfntStatus::ok || actual!=found)return false;++boundary_checks;}
+        for(u32 boundary=0;boundary<=count;++boundary){u32 found=0;for(u32 i=0;i<n;++i)if(origins[i]!=inserted_origin && origins[i]<boundary)++found;
+            if(start<=boundary)found+=inserted;u32 actual=0;if(sfnt_glyph_edit_boundary(edit,boundary,&actual)!=SfntStatus::ok || actual!=found)return false;++boundary_checks;}
         for(u32 i=0;i<n;++i)expected[i]=next[i];count=n;++edit_checks;
         for(u32 i=0;i<sizeof(Record);++i)if(reinterpret_cast<u8*>(storage)[i]!=0xa5 || reinterpret_cast<u8*>(storage+capacity+1)[i]!=0xa5)return false;
     }

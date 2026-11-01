@@ -440,13 +440,6 @@ bool visit_set_cookie(void* opaque, HttpField field) noexcept {
 
 } // namespace
 
-bool cookie_jar_set(CookieJar* jar, const CookieRequest& request, Utf8View set_cookie, u64 now_ms) noexcept {
-    if (!jar)
-        return false;
-    JarLock guard(jar);
-    return set_locked(jar, request, set_cookie, now_ms);
-}
-
 u32 cookie_jar_store_response(CookieJar* jar, const CookieRequest& request, ConstSlice<u8> head,
                               u64 now_ms) noexcept {
     if (!jar || !head.data || !head.count)
@@ -506,21 +499,6 @@ u32 cookie_jar_header(CookieJar* jar, const CookieRequest& request, u64 now_ms, 
         used += value.bytes;
     }
     return used;
-}
-
-void cookie_jar_clear(CookieJar* jar) noexcept {
-    if (!jar)
-        return;
-    JarLock guard(jar);
-    const bool persistent = [&] {
-        for (u32 i = 0; i < jar->count; ++i)
-            if (jar->entries[i].expires_ms)
-                return true;
-        return false;
-    }();
-    reset_jar(jar);
-    if (persistent)
-        ++jar->persistent_revision;
 }
 
 u32 cookie_jar_encode_persistent(CookieJar* jar, u64 now_ms, Slice<u8> output) noexcept {

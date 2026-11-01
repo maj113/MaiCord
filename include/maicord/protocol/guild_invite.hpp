@@ -49,12 +49,11 @@ u32 guild_invite_write_context_header(const GuildInviteRequest&, Slice<u8> outpu
 struct GuildInvite {
     u64 guild_id, channel_id;
     u32 member_count, presence_count;
-    u8 channel_type, name_bytes, icon_bytes, channel_name_bytes, code_bytes;
+    u8 channel_type, name_bytes, icon_bytes, code_bytes;
     bool counts_known;
     char code[kGuildInviteCodeMaximumBytes];
     char name[kGuildInviteNameBytes];
     char icon[kGuildInviteIconBytes];
-    char channel_name[kGuildInviteNameBytes];
 };
 enum class GuildInviteOutcome : u8 {
     resolved,
@@ -66,7 +65,7 @@ enum class GuildInviteOutcome : u8 {
     malformed,
 };
 // Classifies a completed response and decodes the invite object on success.
-// Name, icon hash and channel name are truncated at code point boundaries.
+// Name and icon hash are truncated at code point boundaries.
 GuildInviteOutcome guild_invite_decode_response(u16 http_status, Utf8View body, Slice<u32> structural_scratch,
                                                 GuildInvite* output) noexcept;
 

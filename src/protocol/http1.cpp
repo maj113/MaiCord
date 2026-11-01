@@ -176,13 +176,12 @@ bool token_list_contains(ConstSlice<u8> value, const char* expected) noexcept {
 }
 
 HttpChunkStep chunk_step(HttpChunkStepState state, u32 consumed) noexcept {
-    return HttpChunkStep{{nullptr, 0}, consumed, 0, HttpError::none, state};
+    return HttpChunkStep{{nullptr, 0}, consumed, HttpError::none, state};
 }
 
-HttpChunkStep chunk_error(HttpChunkDecoder* decoder, HttpError error, u32 consumed,
-                          u32 error_offset) noexcept {
+HttpChunkStep chunk_error(HttpChunkDecoder* decoder, HttpError error, u32 consumed) noexcept {
     decoder->state = HttpChunkState::failed;
-    return HttpChunkStep{{nullptr, 0}, consumed, error_offset, error, HttpChunkStepState::error};
+    return HttpChunkStep{{nullptr, 0}, consumed, error, HttpChunkStepState::error};
 }
 
 enum class ChunkSizeParse : u8 {
@@ -495,7 +494,7 @@ bool http_chunk_decoder_initialize(HttpChunkDecoder* decoder, u64 maximum_body_b
 HttpChunkStep http_chunk_decode(HttpChunkDecoder* decoder, ConstSlice<u8> input) noexcept {
     if ((!input.data && input.count != 0) || decoder->state == HttpChunkState::failed) {
         decoder->state = HttpChunkState::failed;
-        return HttpChunkStep{{nullptr, 0}, 0, 0, HttpError::invalid_input, HttpChunkStepState::error};
+        return HttpChunkStep{{nullptr, 0}, 0, HttpError::invalid_input, HttpChunkStepState::error};
     }
     if (decoder->state == HttpChunkState::complete)
         return chunk_step(HttpChunkStepState::complete, 0);
@@ -505,24 +504,24 @@ HttpChunkStep http_chunk_decode(HttpChunkDecoder* decoder, ConstSlice<u8> input)
         if (decoder->state == HttpChunkState::size) {
             const LineResult line = find_line(input, offset);
             if (line.state == LineState::error)
-                return chunk_error(decoder, HttpError::invalid_line_ending, offset, line.error_offset);
+                return chunk_error(decoder, HttpError::invalid_line_ending, offset);
             if (line.state == LineState::need_more) {
                 if (input.count - offset > decoder->maximum_line_bytes)
-                    return chunk_error(decoder, HttpError::invalid_chunk_size, offset, offset);
+                    return chunk_error(decoder, HttpError::invalid_chunk_size, offset);
                 return chunk_step(HttpChunkStepState::need_more, offset);
             }
             if (line.end - offset > decoder->maximum_line_bytes)
-                return chunk_error(decoder, HttpError::invalid_chunk_size, offset, offset);
+                return chunk_error(decoder, HttpError::invalid_chunk_size, offset);
             u64 chunk_size = 0;
             const ChunkSizeParse size_parse =
                 parse_chunk_size(ConstSlice<u8>{input.data + offset, line.end - offset}, &chunk_size);
             if (size_parse == ChunkSizeParse::overflow)
-                return chunk_error(decoder, HttpError::chunk_size_overflow, offset, offset);
+                return chunk_error(decoder, HttpError::chunk_size_overflow, offset);
             if (size_parse != ChunkSizeParse::ok)
-                return chunk_error(decoder, HttpError::invalid_chunk_size, offset, offset);
+                return chunk_error(decoder, HttpError::invalid_chunk_size, offset);
             if (decoder->body_bytes > decoder->maximum_body_bytes ||
                 chunk_size > decoder->maximum_body_bytes - decoder->body_bytes)
-                return chunk_error(decoder, HttpError::chunk_too_large, offset, offset);
+                return chunk_error(decoder, HttpError::chunk_too_large, offset);
             decoder->chunk_remaining = chunk_size;
             decoder->body_bytes += chunk_size;
             offset = line.next;
@@ -539,18 +538,18 @@ HttpChunkStep http_chunk_decode(HttpChunkDecoder* decoder, ConstSlice<u8> input)
             decoder->chunk_remaining -= bytes;
             if (decoder->chunk_remaining == 0)
                 decoder->state = HttpChunkState::data_terminator;
-            return HttpChunkStep{ConstSlice<u8>{input.data + offset, bytes}, offset + bytes, 0, HttpError::none,
+            return HttpChunkStep{ConstSlice<u8>{input.data + offset, bytes}, offset + bytes, HttpError::none,
                                  HttpChunkStepState::data};
         }
 
         if (decoder->state == HttpChunkState::data_terminator) {
             if (input.count - offset < 2) {
                 if (input.count != offset && input[offset] != '\r')
-                    return chunk_error(decoder, HttpError::invalid_chunk_terminator, offset, offset);
+                    return chunk_error(decoder, HttpError::invalid_chunk_terminator, offset);
                 return chunk_step(HttpChunkStepState::need_more, offset);
             }
             if (input[offset] != '\r' || input[offset + 1] != '\n')
-                return chunk_error(decoder, HttpError::invalid_chunk_terminator, offset, offset);
+                return chunk_error(decoder, HttpError::invalid_chunk_terminator, offset);
             offset += 2;
             decoder->state = HttpChunkState::size;
             continue;
@@ -559,17 +558,17 @@ HttpChunkStep http_chunk_decode(HttpChunkDecoder* decoder, ConstSlice<u8> input)
         if (decoder->state == HttpChunkState::trailers) {
             const LineResult line = find_line(input, offset);
             if (line.state == LineState::error)
-                return chunk_error(decoder, HttpError::invalid_line_ending, offset, line.error_offset);
+                return chunk_error(decoder, HttpError::invalid_line_ending, offset);
             if (line.state == LineState::need_more) {
                 if (decoder->trailer_bytes + input.count - offset > decoder->maximum_trailer_bytes ||
                     input.count - offset > decoder->maximum_line_bytes)
-                    return chunk_error(decoder, HttpError::trailer_too_large, offset, offset);
+                    return chunk_error(decoder, HttpError::trailer_too_large, offset);
                 return chunk_step(HttpChunkStepState::need_more, offset);
             }
             const u32 line_bytes = line.next - offset;
             if (line_bytes > decoder->maximum_trailer_bytes ||
                 decoder->trailer_bytes > decoder->maximum_trailer_bytes - line_bytes)
-                return chunk_error(decoder, HttpError::trailer_too_large, offset, offset);
+                return chunk_error(decoder, HttpError::trailer_too_large, offset);
             decoder->trailer_bytes += line_bytes;
             if (line.end == offset) {
                 offset = line.next;
@@ -577,10 +576,10 @@ HttpChunkStep http_chunk_decode(HttpChunkDecoder* decoder, ConstSlice<u8> input)
                 return chunk_step(HttpChunkStepState::complete, offset);
             }
             if (decoder->trailer_count >= decoder->maximum_trailers)
-                return chunk_error(decoder, HttpError::too_many_trailers, offset, offset);
+                return chunk_error(decoder, HttpError::too_many_trailers, offset);
             u32 colon = 0;
             if (validate_field_line(ConstSlice<u8>{input.data + offset, line.end - offset}, &colon) != HttpError::none)
-                return chunk_error(decoder, HttpError::invalid_trailer, offset, offset);
+                return chunk_error(decoder, HttpError::invalid_trailer, offset);
             ++decoder->trailer_count;
             offset = line.next;
             continue;
@@ -590,17 +589,15 @@ HttpChunkStep http_chunk_decode(HttpChunkDecoder* decoder, ConstSlice<u8> input)
 
 namespace {
 
-HttpResponseDecoderStep decoder_step(const HttpResponseDecoder& decoder, u32 accepted) noexcept {
-    return HttpResponseDecoderStep{accepted, decoder.body_bytes, byte_queue_size(decoder.input),
-                                   decoder.state, decoder.error};
+HttpResponseDecoderStep decoder_step(const HttpResponseDecoder& decoder) noexcept {
+    return HttpResponseDecoderStep{byte_queue_size(decoder.input), decoder.state, decoder.error};
 }
 
-HttpResponseDecoderStep decoder_failure(HttpResponseDecoder* decoder, HttpResponseDecoderError error,
-                                        u32 accepted) noexcept {
+HttpResponseDecoderStep decoder_failure(HttpResponseDecoder* decoder, HttpResponseDecoderError error) noexcept {
     decoder->state = HttpResponseDecoderState::failed;
     decoder->error = error;
     decoder->connection_reusable = false;
-    return decoder_step(*decoder, accepted);
+    return decoder_step(*decoder);
 }
 
 bool decoder_copy_body(HttpResponseDecoder* decoder, ConstSlice<u8> bytes) noexcept {
@@ -662,21 +659,20 @@ bool http_response_decoder_initialize(HttpResponseDecoder* decoder, Slice<u8> in
 HttpResponseDecoderStep http_response_decoder_feed(HttpResponseDecoder* decoder, ConstSlice<u8> input,
                                                    bool peer_closed) noexcept {
     if ((!input.data && input.count != 0) || decoder->state == HttpResponseDecoderState::failed)
-        return decoder_failure(decoder, HttpResponseDecoderError::invalid_input, 0);
+        return decoder_failure(decoder, HttpResponseDecoderError::invalid_input);
     if (decoder->state == HttpResponseDecoderState::complete) {
         if (input.count != 0)
-            return decoder_failure(decoder, HttpResponseDecoderError::unexpected_data, 0);
+            return decoder_failure(decoder, HttpResponseDecoderError::unexpected_data);
         if (peer_closed)
             decoder->connection_reusable = false;
-        return decoder_step(*decoder, 0);
+        return decoder_step(*decoder);
     }
     if (!byte_queue_append(&decoder->input, input))
-        return decoder_failure(decoder, HttpResponseDecoderError::input_capacity, 0);
-    const u32 accepted = input.count;
+        return decoder_failure(decoder, HttpResponseDecoderError::input_capacity);
     // More input is needed: a peer that closed first leaves the response truncated.
     const auto wait = [&]() noexcept {
-        return peer_closed ? decoder_failure(decoder, HttpResponseDecoderError::unexpected_close, accepted)
-                           : decoder_step(*decoder, accepted);
+        return peer_closed ? decoder_failure(decoder, HttpResponseDecoderError::unexpected_close)
+                           : decoder_step(*decoder);
     };
 
     for (;;) {
@@ -687,34 +683,34 @@ HttpResponseDecoderStep http_response_decoder_feed(HttpResponseDecoder* decoder,
             if (parsed.state == HttpParseState::need_more)
                 return wait();
             if (!parsed.ok())
-                return decoder_failure(decoder, HttpResponseDecoderError::head, accepted);
+                return decoder_failure(decoder, HttpResponseDecoderError::head);
             if (parsed.head.status_code >= 100 && parsed.head.status_code < 200 && parsed.head.status_code != 101) {
                 if (!byte_queue_consume(&decoder->input, parsed.head.header_bytes) ||
                     ++decoder->informational_responses > 8)
-                    return decoder_failure(decoder, HttpResponseDecoderError::head, accepted);
+                    return decoder_failure(decoder, HttpResponseDecoderError::head);
                 continue;
             }
             if (!retain_final_head(decoder, ConstSlice<u8>{readable.data, parsed.head.header_bytes}))
-                return decoder_failure(decoder, HttpResponseDecoderError::head_capacity, accepted);
+                return decoder_failure(decoder, HttpResponseDecoderError::head_capacity);
             if (!byte_queue_consume(&decoder->input, parsed.head.header_bytes))
-                return decoder_failure(decoder, HttpResponseDecoderError::body_framing, accepted);
+                return decoder_failure(decoder, HttpResponseDecoderError::body_framing);
             decoder->parsed_head = parsed.head;
             decoder->connection_reusable = decoder_connection_reusable(parsed.head);
             body_kind = http_response_body_kind(parsed.head, decoder->request_was_head);
             if (parsed.head.status_code == 101)
-                return decoder_failure(decoder, HttpResponseDecoderError::unsupported_tunnel, accepted);
+                return decoder_failure(decoder, HttpResponseDecoderError::unsupported_tunnel);
             if (body_kind == HttpBodyKind::none) {
                 decoder->state = HttpResponseDecoderState::complete;
-                return decoder_step(*decoder, accepted);
+                return decoder_step(*decoder);
             }
             if (body_kind == HttpBodyKind::content_length) {
                 if (parsed.head.content_length > decoder->body.count)
-                    return decoder_failure(decoder, HttpResponseDecoderError::body_capacity, accepted);
+                    return decoder_failure(decoder, HttpResponseDecoderError::body_capacity);
                 decoder->expected_body_bytes = parsed.head.content_length;
             } else if (body_kind == HttpBodyKind::chunked) {
                 if (!http_chunk_decoder_initialize(&decoder->chunk_decoder, decoder->body.count, 8 * 1024,
                                                    decoder->maximum_header_bytes, decoder->maximum_fields))
-                    return decoder_failure(decoder, HttpResponseDecoderError::body_framing, accepted);
+                    return decoder_failure(decoder, HttpResponseDecoderError::body_framing);
             } else {
                 decoder->connection_reusable = false;
             }
@@ -729,10 +725,10 @@ HttpResponseDecoderStep http_response_decoder_feed(HttpResponseDecoder* decoder,
             const u32 copied = static_cast<u32>(minimum<u64>(remaining, static_cast<u64>(readable.count)));
             if (!decoder_copy_body(decoder, ConstSlice<u8>{readable.data, copied}) ||
                 !byte_queue_consume(&decoder->input, copied))
-                return decoder_failure(decoder, HttpResponseDecoderError::body_capacity, accepted);
+                return decoder_failure(decoder, HttpResponseDecoderError::body_capacity);
             if (decoder->body_bytes == decoder->expected_body_bytes) {
                 decoder->state = HttpResponseDecoderState::complete;
-                return decoder_step(*decoder, accepted);
+                return decoder_step(*decoder);
             }
             return wait();
         }
@@ -741,18 +737,18 @@ HttpResponseDecoderStep http_response_decoder_feed(HttpResponseDecoder* decoder,
                 const HttpChunkStep chunk =
                     http_chunk_decode(&decoder->chunk_decoder, byte_queue_readable(decoder->input));
                 if (!chunk.ok())
-                    return decoder_failure(decoder, HttpResponseDecoderError::body_framing, accepted);
+                    return decoder_failure(decoder, HttpResponseDecoderError::body_framing);
                 if (chunk.state == HttpChunkStepState::data) {
                     if (!decoder_copy_body(decoder, chunk.data) ||
                         !byte_queue_consume(&decoder->input, chunk.consumed))
-                        return decoder_failure(decoder, HttpResponseDecoderError::body_capacity, accepted);
+                        return decoder_failure(decoder, HttpResponseDecoderError::body_capacity);
                     continue;
                 }
                 if (!byte_queue_consume(&decoder->input, chunk.consumed))
-                    return decoder_failure(decoder, HttpResponseDecoderError::body_framing, accepted);
+                    return decoder_failure(decoder, HttpResponseDecoderError::body_framing);
                 if (chunk.state == HttpChunkStepState::complete) {
                     decoder->state = HttpResponseDecoderState::complete;
-                    return decoder_step(*decoder, accepted);
+                    return decoder_step(*decoder);
                 }
                 return wait();
             }
@@ -760,10 +756,10 @@ HttpResponseDecoderStep http_response_decoder_feed(HttpResponseDecoder* decoder,
 
         const ConstSlice<u8> readable = byte_queue_readable(decoder->input);
         if (!decoder_copy_body(decoder, readable) || !byte_queue_consume(&decoder->input, readable.count))
-            return decoder_failure(decoder, HttpResponseDecoderError::body_capacity, accepted);
+            return decoder_failure(decoder, HttpResponseDecoderError::body_capacity);
         if (peer_closed)
             decoder->state = HttpResponseDecoderState::complete;
-        return decoder_step(*decoder, accepted);
+        return decoder_step(*decoder);
     }
 }
 

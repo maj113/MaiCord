@@ -1487,7 +1487,7 @@ maicord_test(MaiCordMessageLinkUiProbe WIN32 ENTRY maicord_message_link_ui_probe
         src/app/application_thread_actions.cpp src/core/log.cpp src/app/application_channel_memory.cpp
     LIBS ${maicord_scene_probe_libs} ${maicord_scene_probe_system_libs}
     INCLUDES src/app
-    TIMEOUT 30 RESOURCE_LOCK native_gpu ENV MAICORD_UI_MESSAGE_LINK_PROBE=1 MAICORD_GPU_METRICS=1
+    TIMEOUT 30 RESOURCE_LOCK native_gpu ENV MAICORD_GPU_METRICS=1
     TEST maicord_message_link_ui_probe)
 maicord_test(MaiCordComposerUiProbe WIN32 ENTRY maicord_composer_ui_probe_entry
     SOURCES config/maicord.manifest tests/integration/composer_ui_probe.cpp src/app/application_composer.cpp
@@ -1495,7 +1495,7 @@ maicord_test(MaiCordComposerUiProbe WIN32 ENTRY maicord_composer_ui_probe_entry
         src/app/application_composer_edit_menu.cpp src/app/application_message_send.cpp src/core/log.cpp
     LIBS ${maicord_scene_probe_libs} ${maicord_scene_probe_system_libs}
     INCLUDES src/app
-    TIMEOUT 30 RESOURCE_LOCK native_gpu ENV MAICORD_UI_COMPOSER_PROBE=1 MAICORD_GPU_METRICS=1
+    TIMEOUT 30 RESOURCE_LOCK native_gpu ENV MAICORD_GPU_METRICS=1
     TEST maicord_composer_ui_probe)
 maicord_test(MaiCordAccountLogoutUiProbe WIN32 ENTRY maicord_account_logout_ui_probe_entry
     SOURCES config/maicord.manifest tests/integration/account_logout_ui_probe.cpp src/app/application_text_form.cpp
@@ -1620,12 +1620,6 @@ if(MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY)
         ENV MAICORD_REGIONAL_FLAG_SURFACES_PROBE=1
             MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY=${MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY} MAICORD_GPU_METRICS=1
         TEST maicord_regional_flag_surfaces_probe)
-endif()
-if(MAICORD_TEST_AUDIO_PLAYBACK)
-    maicord_add_tests(MaiCordVoiceTests TIMEOUT 15 RESOURCE_LOCK native_audio ENV MAICORD_VOICE_AUDIO_OUTPUT=1
-        TEST maicord_voice_audio_output)
-    maicord_add_tests(MaiCordVoiceTests TIMEOUT 15 RESOURCE_LOCK native_audio ENV MAICORD_VOICE_AUDIO_CAPTURE=1
-        TEST maicord_voice_audio_capture)
 endif()
 # Fast CPU decode paths (PNG filters, GIF LZW, JPEG entropy) against bit-serial references.
 maicord_test(MaiCordMediaDecodeReferenceTests ENTRY maicord_media_decode_reference_tests_entry

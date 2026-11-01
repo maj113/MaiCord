@@ -31,7 +31,7 @@ inline constexpr u64 kVoicePacingToleranceUs = 2'000;
 struct VoiceFramer {
     i16 samples[kVoiceFramerFrames * kVoiceFrameSamples];
     u32 read, count;
-    u64 index, next_due_us, dropped_frames;
+    u64 index, next_due_us;
 };
 void voice_framer_push(VoiceFramer* framer, ConstSlice<i16> mono) noexcept;
 // One frame when a whole frame is buffered and pacing allows it at now_us.

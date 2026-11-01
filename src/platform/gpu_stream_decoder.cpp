@@ -181,7 +181,7 @@ HRESULT gpu_stream_create_decoder(GpuStream* stream, const GpuStreamDecoderDesc&
         const u32 count = maximum<u32>(selected.ConfigMinRenderTargetBuffCount, desc.surfaces);
         status =
             gpu_decoder_surfaces_create(&stream->surfaces, stream->device, stream->video, *desc.profile,
-                                        desc.surface_width, desc.surface_height, count, count);
+                                        desc.surface_width, desc.surface_height, count);
     }
     if (FAILED(status)) {
         gpu_stream_release_decoder(stream);
@@ -374,7 +374,6 @@ void gpu_stream_request_keyframe(GpuStream* stream, bool unsupported) noexcept {
 
 bool gpu_stream_failure(GpuStream* stream, HRESULT status) noexcept {
     saturating_increment(stream->stats.gpu_failures);
-    stream->stats.last_status = status;
     if (status == DXGI_ERROR_DEVICE_REMOVED || status == DXGI_ERROR_DEVICE_RESET ||
         (stream->device && stream->device->GetDeviceRemovedReason() != S_OK))
         stream->stats.device_lost = true;
@@ -464,7 +463,6 @@ bool gpu_stream_decoder_push(GpuStreamDecoder* stream, ConstSlice<u8> annexb, u3
     if (stream->count == kGpuStreamQueueFrames) {
         // The decoder fell behind: queued latency is worse than a freeze.
         stream->count = 0;
-        saturating_increment(stream->stats.overflows);
         resynchronize = true;
     }
     GpuStreamInput& slot = stream->queue[(stream->head + stream->count) % kGpuStreamQueueFrames];

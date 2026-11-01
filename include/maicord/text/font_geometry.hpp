@@ -18,13 +18,6 @@ struct FontGeometryInstance {
     // only font->gvar.table.data allows calling outline-variation routines.
     const SfntGvarInstance* variation;
 };
-struct FontGeometryInstanceStorage {
-    // Maps are temporary preparation scratch. Coordinates, scalars and the
-    // variation object must stay unchanged for the resulting instance.
-    Slice<AxisSegmentMap> maps;
-    Slice<double> coordinates,shared_scalars;
-    SfntGvarInstance* variation;
-};
 struct FontGeometryScratch {
     SfntOutlineScratch truetype;
     SfntGvarScratch variation;
@@ -36,9 +29,6 @@ struct FontGeometryScratch {
 // Parse once per file face, prepare once per chosen axis instance. Base instances
 // are shared by draw styles with equivalent preparation requirements.
 SfntStatus font_geometry_open(const SfntFace& face,FontGeometry* output) noexcept;
-// Instances without fvar axes need no variation storage and ignore axis settings.
-SfntStatus font_geometry_instance(const FontGeometry& font,ConstSlice<FontAxisSetting> settings,
-    FontGeometryInstanceStorage storage,FontGeometryInstance* output,u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
 // Output is normalized one-em raw/varied text contours; no rasterization or
 // shaping. Scratch belongs to one active decode and can be reused across
 // faces/instances. An optional prepared instruction context in scratch applies

@@ -18,7 +18,6 @@
 #include "../../src/render/d3d11_renderer_draw.hpp"
 
 namespace maicord {
-u32 caption_ui_probe_stage;
 namespace {
 
 struct Pixel {
@@ -51,7 +50,6 @@ bool equal(Pixel a, Pixel b) noexcept {
 }
 
 bool fail(u32 stage) noexcept {
-    caption_ui_probe_stage = stage;
     log_u64(LogLevel::error, "probe", "caption_ui_probe_stage", stage);
     return false;
 }

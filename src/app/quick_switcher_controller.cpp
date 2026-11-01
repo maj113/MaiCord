@@ -208,10 +208,8 @@ void insert(QuickSwitcherController* c, QuickSwitcherRow& row, u32 limit) noexce
     copy_value(&c->rows[position], row);
 }
 void consider(QuickSwitcherController* c, QuickSwitcherRow& row, Utf8View query, Utf8View alternate, u32 limit) noexcept {
-    ++c->stats.visited_candidates;
     row.score = match_score(query, {row.label, row.label_bytes}, {row.detail, row.detail_bytes}, alternate, row.target.id);
     if (!row.score) return;
-    ++c->stats.matched_candidates;
     for (u32 i = 0; i < c->recent_count; ++i) if (row.target.channel_id == c->recent_channels[i]) {
         row.score += 40 - i; row.recent = true; break;
     }
@@ -300,11 +298,10 @@ bool quick_switcher_synchronize(QuickSwitcherController* c, QuickSwitcherScope s
     c->scope = scope; c->stamp = versions; c->initialized = true;
     c->mode = mode;
     c->forwarding_age_restricted = forwarding_age_restricted;
-    c->count = 0; c->overflow = false; reset_value(&c->stats); c->phase = QuickSwitcherPhase::ready;
+    c->count = 0; c->overflow = false; c->phase = QuickSwitcherPhase::ready;
     c->query_bytes = valid ? static_cast<u16>(query.bytes) : 0;
     if (valid) copy_bytes(c->query, query.data, query.bytes);
     ++c->revision; if (!c->revision) ++c->revision;
-    ++c->rebuild_count;
     if (!valid) { c->phase = QuickSwitcherPhase::invalid_query; return true; }
     u32 first = 0, last = query.bytes;
     while (first < last && ascii_is_space(query.data[first])) ++first;
@@ -323,7 +320,6 @@ bool quick_switcher_synchronize(QuickSwitcherController* c, QuickSwitcherScope s
             if (!channel || channel->id == state.selected_channel_id || !selectable(state, *channel)) continue;
             QuickSwitcherRow row{}; Utf8View alternate{}; channel_row(sources, *channel, &row, &alternate);
             row.score = 1000 - i; row.recent = true; insert(c, row, 7);
-            ++c->stats.visited_candidates; ++c->stats.matched_candidates;
         }
         if (c->count) return true;
     }

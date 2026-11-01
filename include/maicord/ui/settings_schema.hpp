@@ -92,9 +92,6 @@ struct UiSettingsSchemaLocation {
     u32 panel, node;
 };
 
-// Unique non-empty keys, valid UTF-8, panel sections in range, choices present
-// for choice-like kinds and default choices in range.
-bool ui_settings_schema_valid(const UiSettingsSchema&) noexcept;
 // A panel key resolves with node kUiSettingsNoChoice.
 bool ui_settings_schema_find(const UiSettingsSchema&, Utf8View key, UiSettingsSchemaLocation*) noexcept;
 // Index of the category node that precedes node, or kUiSettingsNoChoice.

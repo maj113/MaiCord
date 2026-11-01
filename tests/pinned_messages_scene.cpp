@@ -1,4 +1,5 @@
 #include "maicord/ui/pinned_messages_scene.hpp"
+#include "layout_validation.hpp"
 #include "maicord/ui/pinned_messages_avatar_media.hpp"
 #include "maicord/ui/scene.hpp"
 #include "maicord/ui/background_surface.hpp"

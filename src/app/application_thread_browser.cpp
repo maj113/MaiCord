@@ -1164,11 +1164,4 @@ bool application_thread_browser_input(UiInputKind kind, u32 code, bool repeated)
 bool application_thread_browser_consume_key_tail(UiInputKind kind, u32 code, bool repeated) noexcept {
     return browser_owner && ui_input_consume_key_tail(&browser_owner->held_key, {kind, code, repeated});
 }
-ApplicationThreadBrowserMetrics application_thread_browser_metrics() noexcept {
-    if (!browser_owner) return {};
-    return {sizeof(ApplicationThreadBrowser), (sizeof(ApplicationThreadBrowser) + 4095u) & ~4095u,
-        browser_owner->banks[0].committed + browser_owner->banks[1].committed,
-        browser_owner->has_page && browser_owner->tab != UiThreadBrowserTab::active ? browser_owner->banks[browser_owner->bank].page.row_count : browser_owner->total,
-        browser_owner->publication, browser_owner->flight.active};
-}
 } // namespace maicord::app_detail

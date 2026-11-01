@@ -28,7 +28,7 @@ struct RtcpNackItem {
     u16 packet_id, bitmask; // PID and BLP (bit i: PID + i + 1 also lost).
 };
 struct RtcpSenderInfo {
-    u32 ssrc, ntp_seconds, ntp_fraction, rtp_timestamp, packet_count, octet_count;
+    u32 ssrc, ntp_seconds, ntp_fraction;
 };
 
 // Each writer appends one packet at `offset` and returns the new end offset,

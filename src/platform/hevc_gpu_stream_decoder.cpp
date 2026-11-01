@@ -86,7 +86,6 @@ void hevc_gpu_stream_decode(GpuStream* stream, ConstSlice<u8> bytes, u32 rtp_tim
                                                                       decode.surfaces_needed});
             hevc_stream_set_surfaces(state, stream->surfaces.count);
             if (FAILED(status)) {
-                stream->stats.last_status = status;
                 if (status == DXGI_ERROR_UNSUPPORTED || status == E_INVALIDARG)
                     state->unsupported = true;
                 else

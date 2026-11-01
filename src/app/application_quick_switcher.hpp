@@ -1,5 +1,4 @@
 #pragma once
-#include "maicord/core/win32_process.hpp"
 #include "maicord/model/message_composer.hpp"
 #include "maicord/ui/input_router.hpp"
 #include "maicord/ui/geometry.hpp"

@@ -349,7 +349,7 @@ inline constexpr usize kAccountUiFixedBytes = offsetof(AccountUiRuntime, channel
 // overflow, the 2,048 voice states that moved to their own owned storage, and dead presentation and
 // cache counters removed since (see the base literal).
 static_assert(kAccountUiFixedBytes ==
-              4'261'092 + 16 + 8 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
+              4'261'068 + 16 + 8 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
                   sizeof(MemberMediaCache) +
                   kMaximumMessageTextMeasurements * (sizeof(MessageTextMeasurement) - 808) +
                   kChatStateGuildCapacity * (sizeof(GuildRecord) - 120) +
@@ -395,9 +395,6 @@ inline u8 application_message_body_optional_fields(Utf8View body) noexcept {
             fields |= 1;
     }
     return fields;
-}
-inline bool application_message_body_may_have_snapshot(Utf8View body) noexcept {
-    return (application_message_body_optional_fields(body) & 2) != 0;
 }
 
 inline bool application_message_decode_scratch(AccountUiRuntime& ui, MessageHistoryDecodeScratch* output,

@@ -178,8 +178,6 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
             log_u64(LogLevel::error, "forum_post_failure", "selected_tags", view.selected_tags.count);
             log_u64(LogLevel::error, "forum_post_failure", "submissions",
                     forum_post_ui_adapter_submissions());
-            log_u64(LogLevel::error, "forum_post_failure", "flight_active",
-                    application_forum_post_metrics().flight_active);
             for (u32 tag = 0; tag < view.tags.count; ++tag) {
                 log_u64(LogLevel::error, "forum_post_failure", "tag_id", view.tags[tag].id);
                 log_u64(LogLevel::error, "forum_post_failure", "tag_selected", view.tags[tag].selected);
@@ -329,9 +327,10 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
         if (!forum_post_ui_adapter_costs(&before_costs))
             return false;
         const auto before = surface_motion_probe_detail::snapshot(external);
-        const auto owner = application_forum_post_metrics();
-        const auto preview_before = application_forum_preview_metrics();
-        const auto files_before = application_forum_attachments_metrics();
+        const auto warm_ticket = application_forum_post_view().ticket;
+        const u32 publication = warm_ticket.publication_revision,
+                  preview_revision = application_forum_preview_revision(),
+                  files_revision = application_forum_attachments_view(warm_ticket).revision;
         const auto view_revision = application_forum_post_view().revision;
         const u32 source_before[]{context.native.scene.rebuilds,
                                   context.native.scene.layout_passes,
@@ -376,13 +375,10 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
                 a.used_bytes == b.used_bytes && a.undo_steps == b.undo_steps &&
                 a.redo_steps == b.redo_steps && a.group_bytes == b.group_bytes;
         }
-        const auto preview_after = application_forum_preview_metrics();
-        const auto files_after = application_forum_attachments_metrics();
+        const u32 preview_after = application_forum_preview_revision(),
+                  files_after = application_forum_attachments_view(warm_ticket).revision;
         const bool passed =
-            preview_before.admissions == preview_after.admissions &&
-            preview_before.committed_bytes == preview_after.committed_bytes &&
-            files_before.committed_bytes == files_after.committed_bytes &&
-            files_before.draft_bytes == files_after.draft_bytes &&
+            preview_after == preview_revision && files_after == files_revision &&
             surface_motion_probe_detail::same(before, after) &&
             before.source_refreshes == after.source_refreshes && stable_costs &&
             bytes_equal(source_before, source_after, sizeof(source_before)) &&
@@ -390,9 +386,7 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
             external.painted_frames == painted && external.unchanged_present_skips - skips == 64 &&
             forum_post_ui_adapter_submissions() == submits &&
             forum_post_ui_adapter_cancellations() == cancels &&
-            application_forum_post_metrics().publication_revision == owner.publication_revision &&
-            application_forum_post_metrics().owner_bytes == owner.owner_bytes &&
-            application_forum_post_metrics().owner_committed_bytes == owner.owner_committed_bytes &&
+            application_forum_post_view().ticket.publication_revision == publication &&
             application_forum_post_view().revision == view_revision;
         const char* const scope = media_probe ? "forum_media_warm" : "forum_post_warm";
         const auto report = [scope](const char* name, u64 value) noexcept {
@@ -400,10 +394,8 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
         };
         report("sample", sample);
         if (media_probe) {
-            report("preview_admission_delta", preview_after.admissions - preview_before.admissions);
-            report("preview_committed_bytes", preview_before.committed_bytes);
-            report("attachment_committed_bytes", files_before.committed_bytes);
-            report("attachment_draft_bytes", files_before.draft_bytes);
+            report("preview_revision_delta", preview_after - preview_revision);
+            report("attachment_revision_delta", files_after - files_revision);
         }
         const char* source_labels[]{"message_rebuild_delta", "message_layout_delta",
                                     "composer_layout_delta", "rail_layout_delta",
@@ -424,8 +416,6 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
         report("transport_submit_delta", forum_post_ui_adapter_submissions() - submits);
         report("painted_frame_delta", external.painted_frames - painted);
         report("unchanged_skips", external.unchanged_present_skips - skips);
-        report("owner_bytes", owner.owner_bytes);
-        report("owner_committed_bytes", owner.owner_committed_bytes);
         report("form_bytes", before_costs.form_bytes);
         report("form_committed_bytes", before_costs.form_committed_bytes);
         report("scene_committed_bytes", before_costs.scene_committed_bytes);
@@ -504,7 +494,6 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
     if (!require(forum_post_ui_adapter_flight(&flight, &id) &&
                      flight.operation == ForumPostOperation::parent_metadata &&
                      !forum_post_ui_adapter_response(200, {}, RestClientError::none, 90099) &&
-                     application_forum_post_metrics().flight_active &&
                      forum_post_ui_adapter_metadata(true, &body) &&
                      forum_post_ui_adapter_response(200, body) &&
                      application_forum_post_view().require_tag && type(),
@@ -679,9 +668,7 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
                 withdrawn && !forum_post_ui_adapter_scene() && forum_post_ui_adapter_cancellations() == 1 &&
                     !application_forum_post_current(retired) &&
                     !forum_post_ui_adapter_response(201, body, RestClientError::none, 99999) &&
-                    application_forum_post_metrics().flight_active &&
                     forum_post_ui_adapter_response(201, body) &&
-                    !application_forum_post_metrics().flight_active &&
                     !chat_state_store_find_channel(*reply_draft_ui_adapter_state(),
                                                       kForumPostProbeThread) &&
                     !message_store_find(*reply_draft_ui_adapter_timeline()->store, kForumPostProbeMessage)

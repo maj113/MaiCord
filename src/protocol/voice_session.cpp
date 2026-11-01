@@ -66,11 +66,8 @@ VoiceSessionEvent voice_session_next(VoiceSession* session, u64 now_ms) noexcept
             minimum(session->input.capacity, 16'384u), 64);
         if (opening.state == WebSocketHandshakeState::need_more)
             return {};
-        if (!opening.ok()) {
-            auto result = fail(session, VoiceSessionError::handshake);
-            result.handshake_error = opening.error;
-            return result;
-        }
+        if (!opening.ok())
+            return fail(session, VoiceSessionError::handshake);
         if (!byte_queue_consume(&session->input, opening.header_bytes))
             return fail(session, VoiceSessionError::invalid_input);
         session->opened = true;

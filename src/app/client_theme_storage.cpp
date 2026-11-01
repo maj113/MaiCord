@@ -338,19 +338,16 @@ bool wide_less(const wchar_t* a, u32 an, const wchar_t* b, u32 bn) noexcept {
     return an < bn;
 }
 } // namespace
-ClientThemeStorageResult client_theme_catalog_directory(Slice<wchar_t> output, bool create_directory) noexcept {
+ClientThemeStorageResult client_theme_catalog_directory(Slice<wchar_t> output) noexcept {
     if (!output.data || output.count < kClientThemeIoMaximumPathUnits)
         return failure(ClientThemeStorageError::invalid_input);
     wchar_t storage[kClientThemeIoMaximumPathUnits]{};
-    auto result = client_theme_storage_user_path({storage, kClientThemeIoMaximumPathUnits}, create_directory);
+    auto result = client_theme_storage_user_path({storage, kClientThemeIoMaximumPathUnits});
     if (!result.ok())
         return result;
     wchar_t directory[kClientThemeIoMaximumPathUnits]{};
     if (!catalog_directory_beside(storage, directory))
         return failure(ClientThemeStorageError::path, ERROR_BAD_PATHNAME);
-    u32 native_error = 0;
-    if (create_directory && !directory_ensure(directory, &native_error))
-        return failure(ClientThemeStorageError::directory, native_error);
     copy_bytes(output.data, directory, sizeof(directory));
     return {};
 }

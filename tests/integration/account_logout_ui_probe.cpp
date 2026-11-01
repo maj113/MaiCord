@@ -1,5 +1,6 @@
 #include "maicord/app/account_logout.hpp"
 #include "account_logout_ui_probe.hpp"
+#include "probe_account_ui.hpp"
 #include "probe_present.hpp"
 #include "../../tools/perf/probe_window.hpp"
 #include "probe_glyph_ink.hpp"
@@ -26,6 +27,7 @@
 #include "maicord/ui/account_menu.hpp"
 #include "../../src/render/d3d11_renderer_draw.hpp"
 #include "../../src/render/d3d11_renderer_layout.hpp"
+#include "../../src/render/d3d11_renderer_login_form.hpp"
 #include "maicord/render/renderer_presentation.hpp"
 #include "../../src/app/account_ui_runtime.hpp"
 
@@ -306,26 +308,7 @@ bool account_storage() noexcept {
                                   {fixture->message_nodes, kMessageSceneWidgetsPerRow + 1}))
         return false;
     ui.chat_state.self_user_id = 99;
-    auto& text = ui.renderer_text;
-    text.quads = ui.renderer_text_quads;
-    text.batches = ui.renderer_text_batches;
-    text.utf16 = ui.response_shape_scratch.shape.utf16;
-    text.glyphs = ui.response_shape_scratch.shape.glyphs;
-    text.runs = ui.response_shape_scratch.shape.runs;
-    text.clusters = ui.response_shape_scratch.shape.clusters;
-    text.hit_spans = fixture->hit_spans;
-    text.hit_region_scratch = fixture->hit_scratch;
-    text.decorations = fixture->decorations;
-    text.content_semantics = ui.renderer_content_semantics;
-    text.content_hit_regions = ui.renderer_content_hit_regions;
-    text.quad_capacity = kRendererContentGlyphCapacity;
-    text.batch_capacity = kRendererContentBatchCapacity;
-    text.utf16_capacity = text.glyph_capacity = text.cluster_capacity = kRendererContentTextUnitCapacity;
-    text.run_capacity = kRendererContentRunCapacity;
-    text.hit_span_capacity = kTextHitSpanMaximum;
-    text.hit_region_scratch_capacity = text.content_hit_region_capacity = kRendererContentHitRegionCapacity;
-    text.decoration_capacity = kRendererTextDecorationCapacity;
-    text.content_semantic_capacity = kRendererContentSemanticCapacity;
+    auto& text = probe_bind_renderer_text(ui, fixture->hit_spans, fixture->hit_scratch, fixture->decorations);
     renderer_bind_navigation_view(&g_app.renderer, &ui.chat_state, &ui.user_store, &ui.navigation_view);
     g_app.renderer.message_measure_cache = &ui.text_measure_cache;
     return ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::friends,
@@ -572,11 +555,10 @@ bool visual(const D3D11_MAPPED_SUBRESOURCE& mapped) noexcept {
         if (!require(probe_ink(mapped, heading, fixture->theme.text_primary, modal), 221))
             return false;
         if (modal) {
-            const auto metrics = renderer_login_form_text_metrics(r);
             if (!require(!g_app.account_ui && !r.chat_state && !r.user_store && !r.navigation_view &&
-                             !r.ui_scene && r.login_form_text && r.content_text && metrics.owner_bytes &&
-                             metrics.committed_bytes && metrics.commands && r.form_text_first_batch > 0 &&
-                             r.form_text_first_batch < r.content_text->batch_count,
+                             !r.ui_scene && r.login_form_text && r.content_text &&
+                             r.login_form_text->arena.committed && r.login_form_text->projection.count &&
+                             r.form_text_first_batch > 0 && r.form_text_first_batch < r.content_text->batch_count,
                          222))
                 return false;
         } else {
@@ -632,13 +614,12 @@ struct WarmSnapshot {
 };
 WarmSnapshot snapshot() noexcept {
     auto& r = g_app.renderer;
-    const auto metrics = renderer_login_form_text_metrics(r);
     return {{g_app.shell_scene.layout_passes, g_app.login_scene.layout_passes,
              g_app.text_form->scene.revision, r.content_text->rebuilds, r.glyph_text.cache_builds,
              r.paint_stream_builds, r.paint_instance_uploads, r.text_instance_uploads,
              r.media_instance_uploads, r.painted_frames, fixture->frames,
              g_app.text_form->measure->backend_calls},
-            metrics.committed_bytes,
+            r.login_form_text ? r.login_form_text->arena.committed : 0,
             g_app.text_form->scene.text_signature};
 }
 bool warm(u32 sample) noexcept {

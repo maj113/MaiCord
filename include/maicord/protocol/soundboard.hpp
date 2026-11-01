@@ -152,16 +152,13 @@ SoundboardDecodeResult soundboard_decode_delete(Utf8View object, Slice<u32> scra
 // VOICE_CHANNEL_EFFECT_SEND: a soundboard sound or an emoji reaction in a
 // voice channel. sound_id is zero for emoji-only effects.
 struct GatewayVoiceChannelEffect {
-    u64 channel_id, guild_id, user_id;
+    u64 channel_id, user_id;
     u64 sound_id;
     u64 emoji_id;
-    u64 animation_id;
     u16 sound_volume; // per-mille; 1000 when absent.
-    u8 animation_type;
     u8 emoji_name_bytes;
-    bool emoji_animated;
     bool has_sound_volume;
-    u8 reserved[2];
+    u8 reserved[4];
     char emoji_name[kSoundboardEmojiNameBytes];
 };
 SoundboardDecodeResult soundboard_decode_effect(Utf8View object, Slice<u32> scratch,

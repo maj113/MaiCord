@@ -78,12 +78,6 @@ struct MlsGroupInfoView {
     u32 signer;
     ConstSlice<u8> signature, serialized, tbs;
 };
-struct MlsPreSharedKeyIdView {
-    u8 type, usage; // External=1; resumption=2 with application/reinit/branch=1/2/3.
-    ConstSlice<u8> id, group_id;
-    u64 epoch;
-    ConstSlice<u8> nonce, serialized;
-};
 struct MlsGroupSecretsView {
     ConstSlice<u8> joiner_secret;
     bool has_path_secret;

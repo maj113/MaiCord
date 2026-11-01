@@ -45,6 +45,5 @@ bool application_surface_motion_request_frame_if_due(u64 now_ms, bool frame_avai
 void application_surface_motion_refresh_system_preference() noexcept;
 // Call before closing/releasing an owner, including close/reopen between frames.
 void application_surface_motion_retire(RendererLayerSurface) noexcept;
-void application_surface_motion_retire_all() noexcept;
 
 } // namespace maicord::app_detail

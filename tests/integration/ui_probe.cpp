@@ -172,7 +172,6 @@ bool inbox_ui_probe(D3D11Renderer& renderer, PopupScene& popup, bool (*capture)(
 extern u32 inbox_ui_probe_stage;
 bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_height) noexcept,
                       bool (*show_login)(bool visible) noexcept) noexcept;
-extern u32 caption_ui_probe_stage;
 bool showcase_ui_probe(D3D11Renderer& renderer, MessageTextPresentation& presentation) noexcept;
 bool login_recovery_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) noexcept,
                              bool (*text_pixels)(ConstSlice<UiRect>) noexcept) noexcept;
@@ -8420,7 +8419,6 @@ bool probe_rich_composer() noexcept {
             log_u64(LogLevel::error, "probe", "caret_blink_builds", r.paint_stream_builds - builds);
             log_u64(LogLevel::error, "probe", "caret_blink_diff_partials", r.paint_diff.partial_rebuilds - diffs);
             log_u64(LogLevel::error, "probe", "caret_blink_full_presents", r.full_present_draws - full);
-            log_u64(LogLevel::error, "probe", "caret_blink_diff_reject", r.paint_diff.reject_reason);
         }
     }
     g_probe.failure_stage = 151;
@@ -9170,9 +9168,7 @@ bool glyph_text_owner_ready(const D3D11Renderer& renderer) noexcept {
 }
 
 bool gpu_timer_empty(const D3D11GpuTimerOwner& owner) noexcept {
-    bool empty = !owner.enabled && owner.total_microseconds == 0 && owner.maximum_microseconds == 0 &&
-                 owner.last_microseconds == 0 && owner.cursor == 0 && owner.samples == 0 &&
-                 owner.skipped == 0 && owner.disjoint == 0 && owner.errors == 0;
+    bool empty = !owner.enabled && owner.total_microseconds == 0 && owner.cursor == 0 && owner.samples == 0;
     for (u32 index = 0; index < kD3D11GpuTimerFrameCount; ++index) {
         const D3D11GpuTimerFrame& frame = owner.frames[index];
         empty = empty && !frame.disjoint && !frame.begin && !frame.end && !frame.pending;
@@ -10717,8 +10713,8 @@ int run_probe() noexcept {
         const MediaAtlasHandle handle = g_probe.renderer.media_draw.handle_data[index];
         if (g_probe.renderer.media_draw.quad_data[index].u0 >= 0.0f &&
             media_atlas_validate(g_probe.media_atlas, handle, &candidate) &&
-            candidate.width <= kRendererAnimationFrameCacheMaximumFrameExtent &&
-            candidate.height <= kRendererAnimationFrameCacheMaximumFrameExtent) {
+            candidate.width <= kAnimationFrameCacheGpuMaximumFrameExtent &&
+            candidate.height <= kAnimationFrameCacheGpuMaximumFrameExtent) {
             cached_visible_source = candidate;
             cached_visible_key = g_probe.media_atlas.entries[handle.slot].key;
             break;
@@ -10788,15 +10784,15 @@ int run_probe() noexcept {
         const MediaAtlasHandle handle = g_probe.renderer.media_draw.handle_data[index];
         if (g_probe.renderer.media_draw.quad_data[index].u0 >= 0.0f &&
             media_atlas_validate(g_probe.media_atlas, handle, &candidate) &&
-            candidate.width <= kRendererAnimationFrameCacheMaximumFrameExtent &&
-            candidate.height <= kRendererAnimationFrameCacheMaximumFrameExtent) {
+            candidate.width <= kAnimationFrameCacheGpuMaximumFrameExtent &&
+            candidate.height <= kAnimationFrameCacheGpuMaximumFrameExtent) {
             live_visible_source = candidate;
             live_visible_key = g_probe.media_atlas.entries[handle.slot].key;
             break;
         }
     }
-    u8 live_pixels[kRendererAnimationFrameCacheMaximumFrameExtent *
-                   kRendererAnimationFrameCacheMaximumFrameExtent * 4]{};
+    u8 live_pixels[kAnimationFrameCacheGpuMaximumFrameExtent *
+                   kAnimationFrameCacheGpuMaximumFrameExtent * 4]{};
     const u32 live_row_pitch = static_cast<u32>(live_visible_source.width) * 4u;
     const u32 live_pixel_bytes = live_row_pitch * static_cast<u32>(live_visible_source.height);
     for (u32 index = 0; index < live_pixel_bytes; index += 4) {

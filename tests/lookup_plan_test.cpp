@@ -3,6 +3,7 @@
 #include "maicord/text/nominal_sources.hpp"
 #include "gsub_program_fixture.hpp"
 #include "gpos_lookup_fixture.hpp"
+#include "text_seams.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "../src/text/lookup_plan_finish.hpp"
 #include "text_test_support.hpp"

@@ -101,11 +101,9 @@ struct GatewaySessionEvent {
     GatewayEnvelope envelope;
     GatewayReady ready;
     GatewayHello hello;
-    GatewayResumed resumed;
     ConstSlice<u8> control_payload;
     GatewayLifecycleStep lifecycle_step;
     u16 close_code;
-    HttpError http_error;
     WebSocketHandshakeError handshake_error;
     WebSocketError websocket_error;
     GatewayDecodeError gateway_error;

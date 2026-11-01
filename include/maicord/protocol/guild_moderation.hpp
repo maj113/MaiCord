@@ -110,7 +110,6 @@ enum class GuildModerationError : u8 {
 
 struct GuildModerationResult {
     u32 bytes;
-    u32 count;
     GuildModerationError error;
     constexpr bool ok() const noexcept {
         return error == GuildModerationError::none;

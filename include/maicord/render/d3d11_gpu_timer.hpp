@@ -35,25 +35,20 @@ struct D3D11GpuTimerFrame {
     bool pending;
 };
 
-// Owns the bounded asynchronous timestamp ring and its diagnostic projection.
+// Owns the bounded asynchronous timestamp ring and its sample totals.
 // Collection always uses DONOTFLUSH, so enabling metrics cannot force the GPU
 // to complete work on the UI thread.
 struct D3D11GpuTimerOwner {
     D3D11GpuTimerFrame frames[kD3D11GpuTimerFrameCount];
     u64 total_microseconds;
-    u64 maximum_microseconds;
-    u64 last_microseconds;
     u32 cursor;
     u32 samples;
-    u32 skipped;
-    u32 disjoint;
-    u32 errors;
     bool enabled;
 };
 
 static_assert(sizeof(D3D11GpuTimerResult) == 8);
 static_assert(sizeof(D3D11GpuTimerFrame) == 32);
-static_assert(sizeof(D3D11GpuTimerOwner) == 112);
+static_assert(sizeof(D3D11GpuTimerOwner) == 88);
 
 D3D11GpuTimerResult d3d11_gpu_timer_initialize(D3D11GpuTimerOwner* owner, ID3D11Device* device,
                                                bool enabled) noexcept;

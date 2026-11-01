@@ -59,8 +59,7 @@ struct SettingsLayer {
 
 void settings_layer_reset(SettingsLayer*) noexcept;
 // Focused text control, if editable.
-bool settings_layer_editor(SettingsLayer*, u64* control_id, MessageComposer** model, BoundedEdit** binding,
-                           bool* multiline) noexcept;
+bool settings_layer_editor(SettingsLayer*, u64* control_id, MessageComposer** model, BoundedEdit** binding) noexcept;
 UiSettingsEditor settings_layer_editor_view(SettingsLayer*, u64 control_id, MessageComposer& model,
                                             Utf8View placeholder, bool editable) noexcept;
 bool settings_layer_focus(SettingsLayer*, UiSettingsTarget) noexcept;
@@ -71,11 +70,11 @@ bool settings_layer_open_choice(SettingsLayer*, u64 owner_id, const ConstSlice<P
 void settings_layer_close_choice(SettingsLayer*) noexcept;
 bool settings_layer_choice_current(const SettingsLayer&) noexcept;
 // Starts the layer entrance: the layer fades in from 110% over the receding shell.
-void settings_layer_begin_entrance(SettingsLayer*, u64 now_ms, bool reduced_motion) noexcept;
+void settings_layer_begin_entrance(SettingsLayer*) noexcept;
 // Shakes the unsaved-changes bar (300 ms, 5 DIP) and tints it briefly.
-void settings_layer_shake(SettingsLayer*, u64 now_ms) noexcept;
-// Caret blink and bar motion; returns the next wake or zero.
-u64 settings_layer_tick(SettingsLayer*, u64 now_ms, bool reduced_motion) noexcept;
+void settings_layer_shake(SettingsLayer*) noexcept;
+// Caret blink and bar motion on the application clock.
+void settings_layer_tick(SettingsLayer*, u64 now_ms) noexcept;
 u64 settings_layer_next_wake(const SettingsLayer&) noexcept;
 bool settings_layer_input(SettingsLayer*, UiInputKind, u32 key, bool repeated) noexcept;
 bool settings_layer_window_message(SettingsLayer*, UINT, WPARAM, LPARAM) noexcept;

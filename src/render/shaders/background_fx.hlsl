@@ -7,8 +7,6 @@
 cbuffer UiFrame : register(b0) {
     float2 coordinate_scale;
     float2 coordinate_translation;
-    float group_opacity;
-    float3 frame_reserved;
 };
 
 // mc_fx_constants (rows 0..11) plus the host-only canvas row (DIPs). The

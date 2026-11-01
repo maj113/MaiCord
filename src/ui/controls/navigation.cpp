@@ -60,7 +60,7 @@ bool ui_settings_search_paint(PaintStream* paint, const UiSettingsTokens& tokens
         const float x = field.right - 8 - icon;
         ok = ui_icon_paint(paint, UiIcon::search, {x, cy - icon * .5f, x + icon, cy + icon * .5f}, c.text_subtle);
     } else if (ok) {
-        const auto clear = ui_settings_search_clear_rect(tokens, field);
+        const auto clear = ui_settings_search_clear_rect(field);
         if (state.hovered)
             ok = paint_stream_push_rounded(paint, clear, c.mod_normal, ui_rect_width(clear) * .5f);
         const float cx = (clear.left + clear.right) * .5f;
@@ -71,11 +71,11 @@ bool ui_settings_search_paint(PaintStream* paint, const UiSettingsTokens& tokens
     return ok;
 }
 
-UiRect ui_settings_search_text_rect(const UiSettingsLayoutTokens&, const UiRect& field) noexcept {
+UiRect ui_settings_search_text_rect(const UiRect& field) noexcept {
     return {field.left + 10, field.top, field.right - 32, field.bottom};
 }
 
-UiRect ui_settings_search_clear_rect(const UiSettingsLayoutTokens&, const UiRect& field) noexcept {
+UiRect ui_settings_search_clear_rect(const UiRect& field) noexcept {
     const float size = 24, cy = (field.top + field.bottom) * .5f;
     return {field.right - 4 - size, cy - size * .5f, field.right - 4, cy + size * .5f};
 }

@@ -5,9 +5,8 @@
 #define RESIDUAL_BLOCK_BYTES 64u
 
 cbuffer Vp8ReconstructionConstants : register(b0) {
-    uint image_width; uint image_height;
     uint macroblock_columns; uint macroblock_rows;
-    uint final_wave_rank; uint luma_stride; uint luma_rows; uint chroma_stride;
+    uint luma_stride; uint chroma_stride;
     uint chroma_rows; uint u_plane_offset; uint v_plane_offset; uint mode_record_bytes;
     uint coefficient_record_bytes; uint reserved0; uint reserved1; uint reserved2;
 };

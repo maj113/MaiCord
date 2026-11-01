@@ -31,7 +31,6 @@ struct State {
     GpuVideoFrame frame;
     VideoDisplayExtent display;
     u32 feedback;
-    bool full_stream;
 };
 static_assert(sizeof(State) <= 16384);
 H264Error mapped(HevcError error) noexcept {
@@ -119,7 +118,6 @@ bool reset(H264GpuDecoder& handle) noexcept {
     copy_value(&s.demux, cursor);
     reset_value(&s.references);
     reset_value(&s.output);
-    handle.submitted = false;
     return true;
 }
 Mp4DecodedFrame output_frame(State& s) noexcept {
@@ -128,8 +126,7 @@ Mp4DecodedFrame output_frame(State& s) noexcept {
 } // namespace
 
 bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded, ID3D11Device* device,
-                                 ID3D11DeviceContext* context, bool full_stream,
-                                 Mp4SourceAvailability availability) noexcept {
+                                 ID3D11DeviceContext* context, Mp4SourceAvailability availability) noexcept {
     if (!handle || !device || !context || !encoded.data || !encoded.count)
         return false;
     hevc_gpu_decoder_release(handle);
@@ -149,7 +146,6 @@ bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded,
         return false;
     }
     handle->state = s;
-    s->full_stream = full_stream;
     s->output.leased = 255;
     const u8* owned = encoded.data;
     if (!borrowed) {
@@ -216,8 +212,7 @@ bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded,
         const u32 count =
             maximum<u32>(selected.ConfigMinRenderTargetBuffCount, maximum<u32>(a.max_buffering, 1) + 2);
         result = gpu_decoder_surfaces_create(&s->surfaces, device, s->device, desc.Guid,
-                                             surface_extent.width, surface_extent.height, count,
-                                             full_stream ? count : 1u);
+                                             surface_extent.width, surface_extent.height, count);
     }
     handle->status = result;
     if (FAILED(result)) {
@@ -234,7 +229,7 @@ bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded,
     return true;
 }
 
-Mp4DecodedFrame hevc_gpu_decoder_read(H264GpuDecoder* handle, bool loop, u32 budget) noexcept {
+Mp4DecodedFrame hevc_gpu_decoder_read(H264GpuDecoder* handle, u32 budget) noexcept {
     Mp4DecodedFrame frame{};
     frame.error = Mp4DecodeError::invalid_input;
     if (!handle || !handle->state)
@@ -242,31 +237,17 @@ Mp4DecodedFrame hevc_gpu_decoder_read(H264GpuDecoder* handle, bool loop, u32 bud
     auto& s = *static_cast<State*>(handle->state);
     if (budget && s.output.leased != 255)
         return frame;
-    if (!s.full_stream && handle->submitted) {
-        frame.error = Mp4DecodeError::end_of_stream;
-        return frame;
-    }
     s.output.leased = 255;
     u32 submissions{};
-    bool restarted{};
     for (;;) {
-        if (s.output.count &&
-            (!s.full_stream || h264_output_ready(s.output, hevc_reference_surfaces(s.references),
-                                                 s.config.sps.max_reorder, s.config.sps.max_buffering))) {
-            handle->submitted = true;
+        if (s.output.count && h264_output_ready(s.output, hevc_reference_surfaces(s.references),
+                                                s.config.sps.max_reorder, s.config.sps.max_buffering))
             return output_frame(s);
-        }
         auto next = s.demux;
         const auto unit = mp4_demux_next(&next);
         if (unit.error == Mp4DemuxError::end_of_stream) {
-            if (s.output.count) {
-                handle->submitted = true;
+            if (s.output.count)
                 return output_frame(s);
-            }
-            if (loop && !restarted && s.full_stream && reset(*handle)) {
-                restarted = true;
-                continue;
-            }
             frame.error = Mp4DecodeError::end_of_stream;
             return frame;
         }
@@ -290,14 +271,12 @@ Mp4DecodedFrame hevc_gpu_decoder_read(H264GpuDecoder* handle, bool loop, u32 bud
         if (picture.irap && s.output.count) {
             if (picture.no_output_prior)
                 reset_value(&s.output);
-            else {
-                handle->submitted = true;
+            else
                 return output_frame(s);
-            }
         }
         const u8 surface =
             h264_free_surface(s.output, picture.idr ? 0 : hevc_reference_surfaces(s.references),
-                              s.full_stream ? s.surfaces.count : 1);
+                              s.surfaces.count);
         HevcReferencePlan plan{};
         handle->parse_error =
             mapped(hevc_reference_plan(s.references, s.config.sps, picture, surface, &plan));
@@ -359,7 +338,7 @@ Mp4DemuxError hevc_gpu_decoder_seek(H264GpuDecoder* handle, i64 target, Mp4SeekP
         return Mp4DemuxError::invalid_input;
     auto& s = *static_cast<State*>(handle->state);
     const ConstSlice<u8> out{reinterpret_cast<const u8*>(point), sizeof(*point)};
-    if (!s.full_stream || s.output.leased != 255 || !byte_range_valid(out) ||
+    if (s.output.leased != 255 || !byte_range_valid(out) ||
         byte_ranges_overlap(out, {reinterpret_cast<const u8*>(handle), sizeof(*handle)}) ||
         byte_ranges_overlap(out, {reinterpret_cast<const u8*>(&s), sizeof(s)}) ||
         byte_ranges_overlap(out, s.demux.encoded))
@@ -380,7 +359,6 @@ Mp4DemuxError hevc_gpu_decoder_seek(H264GpuDecoder* handle, i64 target, Mp4SeekP
     copy_value(&s.demux, next);
     reset_value(&s.references);
     reset_value(&s.output);
-    handle->submitted = false;
     handle->status = S_OK;
     handle->parse_error = H264Error::none;
     *point = selected;

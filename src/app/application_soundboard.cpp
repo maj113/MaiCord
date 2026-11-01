@@ -269,7 +269,7 @@ bool audio(SoundboardAudioOperation operation, u64 sound_id, u64 user_id, u16 vo
     command.sound_id = sound_id;
     command.user_id = user_id;
     command.sound_volume = volume;
-    return h.api.soundboard_audio(h.instance, &command, nullptr);
+    return h.api.soundboard_audio(h.instance, &command);
 }
 
 // Queue -------------------------------------------------------------------------

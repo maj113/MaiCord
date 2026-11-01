@@ -99,9 +99,6 @@ struct RendererTypographyCandidate {
 // One resident asset can be instanced many times (for example a repeated
 // custom emoji), so draw capacity is independent of atlas identity capacity.
 inline constexpr u32 kRendererMessageMediaCommandCapacity = 256;
-inline constexpr u16 kRendererAnimationFrameCacheMaximumFrameExtent =
-    kAnimationFrameCacheGpuMaximumFrameExtent;
-inline constexpr u32 kRendererLoginSelectionCapacity = kTextEditSelectionCapacity;
 inline constexpr u32 kRendererLoginCompositionCapacity = kTextCompositionSpanCapacity;
 
 struct RendererLoginCompositionMetric {
@@ -130,10 +127,6 @@ using RendererLoginStatus = LoginStatus;
 using RendererLoginView = LoginView;
 
 struct RendererLoginFormTextStorage;
-struct RendererLoginFormTextMetrics {
-    usize owner_bytes, reserved_bytes, committed_bytes;
-    u32 commands, display_bytes;
-};
 
 enum class RendererInlineMediaLayer : u8 {
     base,
@@ -158,7 +151,7 @@ struct RendererInlineFlag {
 };
 struct RendererInlineMediaStorage {
     RendererInlineFlag* flags;
-    u32 count, rejected;
+    u32 count;
 };
 
 // Cursors into existing storage; no second glyph, semantic or source bank.
@@ -247,8 +240,6 @@ struct RendererPaintDiff {
     u64 text_signature;
     u64 layout_signature;
     u32 partial_rebuilds;
-    // Diagnostic: the first failed condition of the last comparison (0 = partial).
-    u8 reject_reason;
     bool pending;
     bool valid;
 };
@@ -482,13 +473,11 @@ struct D3D11Renderer {
     u8 startup_prestart;
     u32 painted_frames;
     u32 draw_calls_last_frame;
-    u32 draw_calls_max;
     u32 resize_clipped_updates;
     u32 media_draws_last_frame;
     u32 media_draws_total;
     u64 preview_media_uploaded_pixels;
     u32 preview_media_uploads;
-    u32 media_rejected;
     u32 media_instance_uploads;
     u32 text_instance_uploads;
     u32 paint_instance_uploads;
@@ -648,7 +637,7 @@ struct D3D11Renderer {
     RendererLoginStatus login_status;
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
-static_assert(sizeof(D3D11Renderer) == 120600);
+static_assert(sizeof(D3D11Renderer) == 120560);
 
 // Starts hardware device and draw-pipeline creation on a worker at process
 // entry; the next renderer_initialize adopts them. Main thread only.
@@ -717,7 +706,6 @@ void renderer_bind_text_form(D3D11Renderer* renderer, TextFormSurface* surface) 
 // before releasing; ordinary login never allocates this storage.
 bool renderer_prepare_login_form_text(D3D11Renderer* renderer) noexcept;
 void renderer_release_login_form_text(D3D11Renderer* renderer) noexcept;
-RendererLoginFormTextMetrics renderer_login_form_text_metrics(const D3D11Renderer& renderer) noexcept;
 bool renderer_bind_reaction_viewer(D3D11Renderer* renderer, const ReactionViewer* viewer) noexcept;
 bool renderer_measure_message_composer(D3D11Renderer* renderer, float* preferred_height) noexcept;
 bool renderer_bind_message_text_presentation(D3D11Renderer* renderer,

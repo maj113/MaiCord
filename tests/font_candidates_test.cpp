@@ -33,7 +33,7 @@ bool basic() noexcept {
     u8 bytes[font_size];font(bytes);SfntFace face{};CHECK(sfnt_open({bytes,font_size},0,&face)==SfntStatus::ok);NativeFontCandidates source{};
     CHECK(native_font_candidates_open(face,&source)==SfntStatus::ok&&source.count==3&&source.axes.axis_count==2);
     NativeFontCandidate value{};FontAxisSetting settings[2]{};u32 count=99;
-    CHECK(native_font_candidate(source,1,&value)==SfntStatus::ok&&value.named_index==1&&value.properties.weight==600&&value.properties.width==5);
+    CHECK(native_font_candidate(source,1,&value)==SfntStatus::ok&&value.properties.weight==600&&value.properties.width==5);
     CHECK(native_font_candidate_settings(source,1,{settings,2},&count)==SfntStatus::ok&&count==2&&settings[0].value==600&&settings[1].value==100);
     settings[0].value=123;CHECK(native_font_candidate_settings(source,1,{settings,1},&count)==SfntStatus::output_too_small&&!count&&settings[0].value==123);
     CHECK(native_font_candidate(source,3,&value)==SfntStatus::invalid_input&&!value.properties.weight);
@@ -43,10 +43,10 @@ bool basic() noexcept {
     byte_store_be32(bytes+fvar_at+60,1000*65536);CHECK(native_font_candidates_open(face,&source)==SfntStatus::ok&&source.count==4);
     CHECK(native_font_candidate(source,0,&value)==SfntStatus::ok&&value.properties.weight==700);
     CHECK(native_font_candidate_settings(source,0,{settings,2},&count)==SfntStatus::ok&&settings[0].value==700);
-    CHECK(native_font_candidate(source,3,&value)==SfntStatus::ok&&value.named_index==0xffffffff&&value.properties.weight==400);
+    CHECK(native_font_candidate(source,3,&value)==SfntStatus::ok&&value.properties.weight==400);
     CHECK(native_font_candidate_settings(source,3,{settings,2},&count)==SfntStatus::ok&&count==2&&settings[0].value==400&&settings[1].value==100);
     w16(bytes+fvar_at+12,0);CHECK(native_font_candidates_open(face,&source)==SfntStatus::ok&&source.count==1&&source.axes.instance_count==0);
-    CHECK(native_font_candidate(source,0,&value)==SfntStatus::ok&&value.properties.weight==400&&value.named_index==0xffffffff);
+    CHECK(native_font_candidate(source,0,&value)==SfntStatus::ok&&value.properties.weight==400);
     font(bytes);byte_store_be32(bytes+fvar_at+72,600*65536+32768);CHECK(native_font_candidates_open(face,&source)==SfntStatus::unsupported&&!source.count);
     font(bytes);byte_store_be32(bytes+fvar_at+76,80*65536);CHECK(native_font_candidates_open(face,&source)==SfntStatus::unsupported&&!source.count);
     font(bytes);byte_store_be32(bytes+fvar_at+16,sfnt_tag('o','p','s','z'));byte_store_be32(bytes+stat_at+20,sfnt_tag('o','p','s','z'));CHECK(native_font_candidates_open(face,&source)==SfntStatus::unsupported&&!source.count);
@@ -61,7 +61,7 @@ bool basic() noexcept {
     font(bytes);w16(bytes+stat_at+4,7);CHECK(native_font_candidates_open(face,&source)==SfntStatus::unsupported&&!source.count);
     font(bytes);w16(bytes+4,1);w16(bytes+os2_at+62,512);CHECK(sfnt_open({bytes,font_size},0,&face)==SfntStatus::ok);
     CHECK(native_font_candidates_open(face,&source)==SfntStatus::ok&&source.count==1&&!source.axes.axis_count);
-    CHECK(native_font_candidate(source,0,&value)==SfntStatus::ok&&value.named_index==0xffffffff&&value.properties.style==1);
+    CHECK(native_font_candidate(source,0,&value)==SfntStatus::ok&&value.properties.style==1);
     CHECK(native_font_candidate_settings(source,0,{},&count)==SfntStatus::ok&&!count);
     CHECK(native_font_candidate({},0,&value)==SfntStatus::invalid_input&&native_font_candidates_open(face,nullptr)==SfntStatus::invalid_input);
     return true;
@@ -95,7 +95,7 @@ bool audit(const wchar_t* path,u32 index) noexcept {
     const auto status=native_font_candidates_open(face,&source);print("{\"status\":");number(static_cast<u32>(status));print(",\"candidates\":[");
 #endif
     if(status==SfntStatus::ok)for(u32 i=0;i<source.count;++i){NativeFontCandidate candidate{};FontAxisSetting values[2];u32 count=0;CHECK(native_font_candidate(source,i,&candidate)==SfntStatus::ok&&native_font_candidate_settings(source,i,{values,2},&count)==SfntStatus::ok);
-        if(i)ch(',');print("{\"named_index\":");number(candidate.named_index);print(",\"properties\":[");number(candidate.properties.weight);ch(',');number(candidate.properties.width);ch(',');number(candidate.properties.style);print("],\"settings\":[");
+        if(i)ch(',');print("{\"properties\":[");number(candidate.properties.weight);ch(',');number(candidate.properties.width);ch(',');number(candidate.properties.style);print("],\"settings\":[");
         for(u32 j=0;j<count;++j){if(j)ch(',');ch('[');number(values[j].tag);ch(',');const float f=static_cast<float>(values[j].value);u32 bits=0;copy_bytes(&bits,&f,4);number(bits);ch(']');}print("]} ");}
     print("]}\n");return true;
 }

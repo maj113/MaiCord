@@ -173,7 +173,7 @@ bool attachment_download_risk_extension(Utf8View name) noexcept {
 AttachmentDownloadFilenameResult attachment_download_safe_filename(Utf8View name, Slice<char> output) noexcept {
     if ((!name.data && name.bytes) || name.bytes > kAttachmentDownloadMaximumFilenameBytes ||
         !utf8_validate(name).valid || !output.data)
-        return {0, AttachmentDownloadFilenameError::invalid_input, false, false};
+        return {0, AttachmentDownloadFilenameError::invalid_input, false};
     char safe[kAttachmentDownloadMaximumFilenameBytes + 2];
     u32 used = 0;
     for (u32 i = 0; i < name.bytes;) {
@@ -203,12 +203,10 @@ AttachmentDownloadFilenameResult attachment_download_safe_filename(Utf8View name
         while (used && (safe[used - 1] == '.' || safe[used - 1] == ' ')) --used;
     }
     if (used >= output.count)
-        return {0, AttachmentDownloadFilenameError::output_capacity, false, false};
-    const bool changed = used != name.bytes || !bytes_equal(safe, name.data, used);
+        return {0, AttachmentDownloadFilenameError::output_capacity, false};
     copy_bytes(output.data, safe, used);
     output.data[used] = 0;
-    return {used, AttachmentDownloadFilenameError::none, attachment_download_risk_extension({safe, used}),
-        changed};
+    return {used, AttachmentDownloadFilenameError::none, attachment_download_risk_extension({safe, used})};
 }
 
 } // namespace maicord

@@ -1,11 +1,9 @@
 #include "maicord/media/mpeg_ts.hpp"
 #include "maicord/media/mpeg_ts_codec.hpp"
 #include "maicord/media/mpeg_ts_segment_store.hpp"
-#include "maicord/app/account_video_session.hpp"
 #include "maicord/app/account_media.hpp"
 #include "maicord/app/segmented_video_fetch.hpp"
 #include "maicord/media/h264_parameters.hpp"
-#include "maicord/media/h264_slice.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "test_output.hpp"
@@ -89,7 +87,7 @@ void run() noexcept {
         "Twitch audio may precede the video PID's first PCR within a complete segment");
     MpegTsReader reader{bytes.view(),0,~u32{0},257}; MpegTsPes result{}; u8 storage[1024]{};
     check(mpeg_ts_next(&reader,{storage,sizeof(storage)},&result) == E::none && result.pts == 93000 && result.dts == 90000 &&
-        result.random_access && result.payload.count == 250 && result.payload.data[249] == 249 && reader.offset == 4 * 188,
+        result.payload.count == 250 && result.payload.data[249] == 249 && reader.offset == 4 * 188,
         "PES spans transport packets and preserves independent DTS/PTS plus exact payload bytes");
     check(mpeg_ts_next(&reader,{storage,sizeof(storage)},&result) == E::none && result.pts == 96000 && result.payload.count == 12,
         "following PES starts at the retained lookahead packet");

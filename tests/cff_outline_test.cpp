@@ -1,5 +1,6 @@
 #include "maicord/text/cff_outline.hpp"
 #include "maicord/text/font_geometry.hpp"
+#include "text_seams.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "../src/text/cff_internal.hpp"
 #include "maicord/core/win32_kernel.hpp"

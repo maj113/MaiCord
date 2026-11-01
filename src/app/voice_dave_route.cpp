@@ -1,40 +1,23 @@
 #include "maicord/app/voice_dave_route.hpp"
-#include "maicord/core/byte_order.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/gateway_events.hpp"
 
 namespace maicord {
-namespace {
-VoiceDaveRoute record(VoiceDaveInbox* inbox, u8 opcode, VoiceDaveRoute route) noexcept {
-    if (route == VoiceDaveRoute::deferred) {
-        ++inbox->deferred;
-        inbox->last_opcode = opcode;
-    } else if (route == VoiceDaveRoute::rejected)
-        ++inbox->rejected;
-    return route;
-}
-} // namespace
-
-VoiceDaveRoute voice_dave_route_binary(VoiceDaveInbox* inbox, const VoiceGatewayBinary& frame) noexcept {
-    if (!inbox || frame.opcode < 21 || frame.opcode > 31)
+VoiceDaveRoute voice_dave_route_binary(const VoiceGatewayBinary& frame) noexcept {
+    if (frame.opcode < 21 || frame.opcode > 31)
         return VoiceDaveRoute::not_dave;
-    const auto opcode = static_cast<VoiceDaveOpcode>(frame.opcode);
-    switch (opcode) {
+    switch (static_cast<VoiceDaveOpcode>(frame.opcode)) {
     case VoiceDaveOpcode::mls_external_sender:
     case VoiceDaveOpcode::mls_proposals:
-        return record(inbox, frame.opcode,
-                      frame.data.count ? VoiceDaveRoute::deferred : VoiceDaveRoute::rejected);
+        return frame.data.count ? VoiceDaveRoute::deferred : VoiceDaveRoute::rejected;
     case VoiceDaveOpcode::mls_announce_commit_transition:
     case VoiceDaveOpcode::mls_welcome:
         // Both begin with a big-endian uint16 transition ID.
-        if (frame.data.count <= 2)
-            return record(inbox, frame.opcode, VoiceDaveRoute::rejected);
-        inbox->last_transition_id = byte_load_be16(frame.data.data);
-        return record(inbox, frame.opcode, VoiceDaveRoute::deferred);
+        return frame.data.count > 2 ? VoiceDaveRoute::deferred : VoiceDaveRoute::rejected;
     default:
-        return record(inbox, frame.opcode, VoiceDaveRoute::rejected);
+        return VoiceDaveRoute::rejected;
     }
 }
 
@@ -120,16 +103,16 @@ GatewayCommandWriteResult voice_dave_write_transition(VoiceDaveOpcode opcode, u1
     copy_bytes(output.data, text, used);
     return {used, GatewayCommandError::none};
 }
-VoiceDaveRoute voice_dave_route_json(VoiceDaveInbox* inbox, u8 opcode) noexcept {
-    if (!inbox || opcode < 21 || opcode > 31)
+VoiceDaveRoute voice_dave_route_json(u8 opcode) noexcept {
+    if (opcode < 21 || opcode > 31)
         return VoiceDaveRoute::not_dave;
     switch (static_cast<VoiceDaveOpcode>(opcode)) {
     case VoiceDaveOpcode::prepare_transition:
     case VoiceDaveOpcode::execute_transition:
     case VoiceDaveOpcode::prepare_epoch:
-        return record(inbox, opcode, VoiceDaveRoute::deferred);
+        return VoiceDaveRoute::deferred;
     default:
-        return record(inbox, opcode, VoiceDaveRoute::rejected);
+        return VoiceDaveRoute::rejected;
     }
 }
 } // namespace maicord

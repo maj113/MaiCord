@@ -215,7 +215,7 @@ E fill(Mp4SegmentStore& s,u32 number,ConstSlice<u8> body,u64 duration_us,u64 ini
     }
     if(duration>0x7fffffffffffffffull-first) return E::malformed;
     Mp4MediaSegment media{};
-    media.range={0,first,duration,used,number,0,1,true}; media.samples=count; media.next_fragment=used;
+    media.range={0,first,duration,used,number}; media.samples=count; media.next_fragment=used;
     auto& fragment=media.fragment; fragment.metadata={data,table}; fragment.defaults=s.track.defaults;
     fragment.first_time=first; fragment.duration=duration; fragment.count=count; fragment.run_count=1;
     fragment.runs[0]={table,0,count,s.track.audio?0x200u:0x01000f00u,0}; mp4_fragment_reset(&fragment);

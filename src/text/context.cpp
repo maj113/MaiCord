@@ -106,7 +106,7 @@ SfntStatus sfnt_context_open(ConstSlice<u8> bytes,SfntContextKind kind,u32 limit
     if(!output)return SfntStatus::invalid_input;reset_value(output);if(!limit || limit>65536)return SfntStatus::invalid_input;Header h{};auto s=header(bytes,kind,&h);if(s!=SfntStatus::ok)return s;
     const u32 coverage_count=h.format==3?static_cast<u32>(h.back)+h.input+h.look:1u;if(coverages.count<coverage_count || classes.count<h.classes)return SfntStatus::output_too_small;if(!coverages.data || (h.classes && !classes.data))return SfntStatus::invalid_input;
     if(!spend(&work,coverage_count+h.classes))return SfntStatus::resource_limit;
-    SfntContext result{bytes,{coverages.data,coverage_count},{classes.data,h.classes},limit,lookup_limit,h.format,0,kind};
+    SfntContext result{bytes,{coverages.data,coverage_count},{classes.data,h.classes},limit,h.format,0,kind};
     if(h.format==3){u32 index=0;const u32 counts[]{h.back,h.input,h.look},arrays[]{h.back_at,h.input_at,h.look_at};
         for(u32 part=0;part<3;++part)for(u32 i=0;i<counts[part];++i){s=coverage_open(bytes,r16(bytes,arrays[part]+i*2),h.end,limit,&coverages.data[index++],&work);if(s!=SfntStatus::ok)return s;}
         s=actions_valid(view(bytes,h.actions_at,static_cast<u32>(h.actions)*4),h.input,lookup_limit,&work);if(s!=SfntStatus::ok)return s;result.max_inputs=h.input;
@@ -138,14 +138,6 @@ SfntStatus context_match(const SfntContext& c,const SfntGdef& gdef,const SfntLoo
     for(u32 i=0;i<count;++i){if(!spend(work))return SfntStatus::resource_limit;
         const auto s=match_pattern(c,prepared_pattern(set+byte_load_be16(set+2+i*2),chained),gdef,filter,glyphs,start,input_end,positions,output,work,mask);if(s!=SfntStatus::ok || output->matched)return s;}
     return SfntStatus::ok;
-}
-SfntStatus sfnt_context_match_view(const SfntContext& c,const SfntGdef& gdef,const SfntLookupFilter& filter,SfntGlyphView glyphs,u32 start,u32 input_end,Slice<u32> positions,SfntContextMatch* output,u32 work,u32* work_used,u8 mask,u32 first_coverage_index) noexcept {
-    const WorkReport report{work,work,work_used};
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!sfnt_glyph_view_valid(glyphs) || start>=input_end || input_end>sfnt_glyph_count(glyphs) || (positions.count && !positions.data))return SfntStatus::invalid_input;
-    return context_match(c,gdef,filter,glyphs,start,input_end,positions,output,&work,mask,first_coverage_index);
-}
-SfntStatus sfnt_context_action(const SfntContextMatch& match,u32 index,SfntSequenceAction* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!match.matched || index>=match.actions.count/4)return SfntStatus::invalid_input;*output={r16(match.actions,index*4),r16(match.actions,index*4+2)};return SfntStatus::ok;
 }
 SfntStatus sfnt_gsub_reverse_requirements(ConstSlice<u8> bytes,u32* count) noexcept {
     if(!count)return SfntStatus::invalid_input;*count=0;ReverseHeader h{};const auto s=reverse_header(bytes,&h);if(s==SfntStatus::ok)*count=1u+h.back+h.look;return s;

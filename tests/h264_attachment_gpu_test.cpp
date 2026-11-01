@@ -4,7 +4,7 @@
 // output (WARP) refuses decoding like a GPU without the codec.
 #include "maicord/platform/mp4_decoder.hpp"
 #include "maicord/render/video_frame_gpu.hpp"
-#include "maicord/media/yuv_convert_common.hpp"
+#include "yuv_reference.hpp"
 #include "../src/platform/gpu_decoder_surfaces.hpp"
 #include "h264_stream_fixture.hpp"
 #include "maicord/sys/d3d11.hpp"

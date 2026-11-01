@@ -363,8 +363,7 @@ bool visit_member_object(void* opaque, JsonString name, JsonValue value) noexcep
 struct ResultParse {
     const JsonIndexedDocument* document;
     GuildSearchMember member;
-    bool member_seen, type_known;
-    GuildModerationError error;
+    bool member_seen;
 };
 
 bool visit_result(void* opaque, JsonString name, JsonValue value) noexcept {
@@ -417,7 +416,7 @@ bool visit_result_item(void* opaque, u32, JsonValue value) noexcept {
         p.error = GuildModerationError::field;
         return false;
     }
-    ResultParse result{p.document, {}, false, false, GuildModerationError::none};
+    ResultParse result{p.document, {}, false};
     if (!json_visit_indexed_object(*p.document, value, kDepth, visit_result, &result).ok() || !result.member_seen) {
         p.error = GuildModerationError::field;
         return false;
@@ -569,7 +568,7 @@ RestRouteKey guild_moderation_route(const GuildModerationRequest& r) noexcept {
 
 GuildModerationResult guild_moderation_write_target(const GuildModerationRequest& r, Slice<u8> output) noexcept {
     if (!guild_moderation_request_valid(r) || !byte_range_valid({output.data, output.count}))
-        return {0, 0, GuildModerationError::input};
+        return {0, GuildModerationError::input};
     u8 target[kGuildModerationMaximumTargetBytes];
     ProtocolWriter w{{target, sizeof(target)}, 0};
     bool ok = protocol_writer_append_literal(&w, "/api/v10/guilds/") && protocol_writer_append_u64(&w, r.guild_id);
@@ -597,20 +596,20 @@ GuildModerationResult guild_moderation_write_target(const GuildModerationRequest
     default: ok = false; break;
     }
     if (!ok)
-        return {0, 0, GuildModerationError::capacity};
+        return {0, GuildModerationError::capacity};
     if (output.count < w.used)
-        return {w.used, 0, GuildModerationError::capacity};
+        return {w.used, GuildModerationError::capacity};
     copy_bytes(output.data, target, w.used);
-    return {w.used, 0, GuildModerationError::none};
+    return {w.used, GuildModerationError::none};
 }
 
 GuildModerationResult guild_moderation_write_body(const GuildModerationRequest& r, Slice<u8> output) noexcept {
     if (!guild_moderation_request_valid(r) || !byte_range_valid({output.data, output.count}))
-        return {0, 0, GuildModerationError::input};
+        return {0, GuildModerationError::input};
     if (r.operation == Op::ban_search)
-        return {0, 0, GuildModerationError::none};
+        return {0, GuildModerationError::none};
     if (!output.data || !output.count)
-        return {0, 0, GuildModerationError::capacity};
+        return {0, GuildModerationError::capacity};
     Body b{output};
     if (r.operation == Op::members_search)
         write_search(b, *r.search);
@@ -630,18 +629,18 @@ GuildModerationResult guild_moderation_write_body(const GuildModerationRequest& 
     }
     if (!b.ok) {
         secure_clear_bytes(output.data, b.writer.used);
-        return {0, 0, GuildModerationError::capacity};
+        return {0, GuildModerationError::capacity};
     }
-    return {b.writer.used, 0, GuildModerationError::none};
+    return {b.writer.used, GuildModerationError::none};
 }
 
 GuildModerationResult guild_moderation_write_reason(const GuildModerationRequest& r, Slice<u8> output) noexcept {
     if (!guild_moderation_request_valid(r) || !byte_range_valid({output.data, output.count}))
-        return {0, 0, GuildModerationError::input};
+        return {0, GuildModerationError::input};
     if (!r.reason.bytes)
-        return {0, 0, GuildModerationError::none};
+        return {0, GuildModerationError::none};
     const auto encoded = rest_encode_audit_reason(r.reason, output);
-    return {encoded.bytes, 0, encoded.ok ? GuildModerationError::none : GuildModerationError::capacity};
+    return {encoded.bytes, encoded.ok ? GuildModerationError::none : GuildModerationError::capacity};
 }
 
 bool guild_moderation_reason_header(const GuildModerationRequest& r) noexcept {
@@ -670,20 +669,20 @@ u32 guild_member_search_snowflake_at(u64 unix_ms, Slice<char> output) noexcept {
 GuildModerationResult guild_member_search_decode(Utf8View body, Slice<u32> scratch,
                                                  GuildMemberSearchPage* page) noexcept {
     if (!page || (!page->members.data && page->members.count))
-        return {0, 0, GuildModerationError::input};
+        return {0, GuildModerationError::input};
     const auto s = scan_json<GuildModerationError>(body, scratch);
     if (s.error != GuildModerationError::none)
-        return {0, 0, s.error};
+        return {0, s.error};
     page->member_count = page->total_result_count = 0;
     page->total_known = false;
     PageParse p{&s.document, page, 0, false, GuildModerationError::none};
     const auto read = json_visit_root_object(s.document.input, s.document.structurals, kDepth, visit_page, &p);
     if (!read.ok() || !p.members_seen)
-        return {0, 0, p.error != GuildModerationError::none ? p.error
-                      : read.ok()                            ? GuildModerationError::identity
-                                                             : GuildModerationError::json};
+        return {0, p.error != GuildModerationError::none ? p.error
+                  : read.ok()                            ? GuildModerationError::identity
+                                                         : GuildModerationError::json};
     page->member_count = p.count;
-    return {body.bytes, p.count, GuildModerationError::none};
+    return {body.bytes, GuildModerationError::none};
 }
 
 u64 guild_member_search_retry_after_ms(Utf8View body, Slice<u32> scratch) noexcept {

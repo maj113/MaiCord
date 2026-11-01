@@ -27,9 +27,6 @@ bool notification_audio_clip_valid(NotificationAudioClip clip) noexcept {
         !(reinterpret_cast<usize>(s.data)&1u) && reinterpret_cast<usize>(s.data)<=~usize{0}-usize(s.count)*sizeof(i16);
 }
 bool notification_audio_gain_valid(float gain) noexcept {return gain>=0.0f&&gain<=1.0f;}
-bool notification_audio_endpoint_matches(const wchar_t* event_id,const wchar_t* owned_id,usize owned_chars) noexcept {
-    return audio_endpoint_id_matches(event_id,owned_id,owned_chars);
-}
 bool notification_audio_record_stream_failure(NotificationAudioStatus* status,u64 closed_epoch,u32 native_error) noexcept {
     if(!status||!closed_epoch||status->desired_epoch!=closed_epoch)return false;
     status->error=NotificationAudioError::stream;status->native_error=native_error;return true;

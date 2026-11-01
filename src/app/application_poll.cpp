@@ -705,9 +705,6 @@ static bool project_source(const ApplicationPollSource& s, Slice<UiPollAnswer> a
         *source = s;
     return true;
 }
-bool application_poll_source_current(const ApplicationPollSource& source) noexcept {
-    return poll(source) != nullptr;
-}
 bool application_poll_state(u64 id, Slice<UiPollAnswer> answers, UiPollState* out,
                             ApplicationPollSource* source) noexcept {
     ApplicationPollSource s{};
@@ -778,14 +775,6 @@ bool application_poll_open(const ApplicationPollSource& source) noexcept {
 }
 bool application_poll_active() noexcept {
     return owner && owner->controller.source_active && poll(owner->source);
-}
-ApplicationPollView application_poll_view() noexcept {
-    if (!application_poll_active())
-        return {};
-    auto& value = *owner;
-    return {value.pages[value.bank] ? ConstSlice<ReactionUser>{value.pages[value.bank]->users, value.user_count}
-                                    : ConstSlice<ReactionUser>{},
-            value.page, value.voters_more};
 }
 bool application_poll_action(const ApplicationPollSource& source, const UiPollAction& action) noexcept {
     const auto* p = poll(source);

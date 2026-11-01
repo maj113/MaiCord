@@ -11,7 +11,7 @@ struct Packet {
     ConstSlice<u8> payload{};
     u16 pid{};
     u8 counter{};
-    bool start{}, random{}, discontinuity{}, pcr{};
+    bool start{}, discontinuity{}, pcr{};
 };
 bool stuffing(ConstSlice<u8> b) noexcept {
     for (u32 i = 0; i < b.count; ++i) if (b.data[i] != 255) return false;
@@ -31,7 +31,7 @@ E packet(ConstSlice<u8> bytes, u32 offset, Packet* output) noexcept {
             ((p[3]&16) && end==188 && ((p[1]&64) || p[5]))) return E::malformed;
         at = 5;
         if (at < end) {
-            const u8 flags = p[at++]; v.random = (flags & 64) != 0;
+            const u8 flags = p[at++];
             v.discontinuity = (flags & 128) != 0; v.pcr = (flags & 16) != 0;
             for (u8 clock = 16; clock >= 8; clock /= 2) if (flags & clock) {
                 if (end - at < 6 || (p[at + 4] & 126) != 126 ||
@@ -215,7 +215,7 @@ MpegTsError mpeg_ts_next(MpegTsReader* reader, Slice<u8> scratch, MpegTsPes* out
     const ConstSlice<u8> spans[]{reader->source, {scratch.data, scratch.count},
         {reinterpret_cast<const u8*>(reader), sizeof(*reader)}, {reinterpret_cast<const u8*>(output), sizeof(*output)}};
     if (!byte_ranges_all_disjoint({spans, 4})) return E::invalid_input;
-    auto next = *reader; u32 used = 0; bool started = false, random = false;
+    auto next = *reader; u32 used = 0; bool started = false;
     while (next.offset < next.source.count) {
         Packet p{}; auto error = packet(next.source, next.offset, &p); if (error != E::none) return error;
         if (p.pid == next.pid) {
@@ -225,7 +225,7 @@ MpegTsError mpeg_ts_next(MpegTsReader* reader, Slice<u8> scratch, MpegTsPes* out
             error = continuity(next.source, next.offset, p, next.previous, next.counter, next.duplicated, &duplicate);
             if (error != E::none) return error;
             if (!duplicate && p.payload.count) {
-                if (!started) { if (!p.start) return E::malformed; started = true; random = p.random; }
+                if (!started) { if (!p.start) return E::malformed; started = true; }
                 if (p.payload.count > scratch.count - used) return E::capacity;
                 copy_bytes(scratch.data + used, p.payload.data, p.payload.count); used += p.payload.count;
             }
@@ -240,7 +240,7 @@ MpegTsError mpeg_ts_next(MpegTsReader* reader, Slice<u8> scratch, MpegTsPes* out
     const u32 declared = (b[4] << 8) | b[5], header = 9u + b[8];
     if ((declared && declared + 6 != used) || (!declared && b[3] < 224) || header >= used) return E::malformed;
     const u8 flags = b[7] >> 6; const u32 timestamps = flags == 3 ? 10 : 5;
-    MpegTsPes value{}; value.random_access = random;
+    MpegTsPes value{};
     if (flags < 2 || b[8] < timestamps || !stamp(b + 9, flags == 3 ? 48 : 32, &value.pts)) return E::malformed;
     value.dts = value.pts;
     if (flags == 3 && !stamp(b + 14, 16, &value.dts)) return E::malformed;

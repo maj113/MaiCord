@@ -59,12 +59,6 @@ bool application_message_reaction_submit(u64 request_id, u64 now_ms) noexcept;
 bool application_message_reaction_response(const RestClientResponse&) noexcept;
 bool application_message_reaction_synchronize() noexcept;
 bool application_message_reaction_observation_needed() noexcept;
-struct ApplicationMessageReactionMetrics {
-    u32 owner_bytes, owner_committed_bytes, intent_bytes, intent_committed_bytes;
-    u32 intent_count, backed_slots, revision;
-    bool active, flight_active;
-};
-ApplicationMessageReactionMetrics application_message_reaction_metrics() noexcept;
 u64 application_message_reaction_next_wake() noexcept;
 void application_message_reaction_observe(const GatewayMessageReactionEvent&, MessageHandle source,
                                           u32 message_revision, bool model_applied) noexcept;

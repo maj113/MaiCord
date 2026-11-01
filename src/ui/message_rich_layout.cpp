@@ -708,8 +708,7 @@ bool message_rich_embed_gallery_select(const MessageRichStore& store, const Mess
                                         false, selection);
 }
 
-float message_rich_embed_gallery_width(const MessageRichStore&, const MessageRichEmbed& host,
-                                       float available_width) noexcept {
+float message_rich_embed_gallery_width(const MessageRichEmbed& host, float available_width) noexcept {
     constexpr float insets = kMessageEmbedContentInset + kMessageEmbedEndInset;
     float target = kMessageEmbedMaximumWidth - insets;
     if (message_rich_embed_media_only(host)) {
@@ -911,7 +910,7 @@ void message_rich_fill_item_layout(const MessageRichStore* store, const MessageR
             maximum(0.0f, minimum(available_width, kMessageEmbedMaximumWidth) -
                               (media_only ? 0.0f : kMessageEmbedContentInset + kMessageEmbedEndInset));
         if (message_rich_embed_gallery(*store, *rich, index, &gallery)) {
-            media_width = message_rich_embed_gallery_width(*store, rich->embeds[index], media_available);
+            media_width = message_rich_embed_gallery_width(rich->embeds[index], media_available);
             media_height = kMessageEmbedGalleryHeight;
         }
         if ((media_width > 0.0f && media_height > 0.0f) ||

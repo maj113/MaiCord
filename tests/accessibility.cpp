@@ -268,13 +268,11 @@ struct HostContext {
     UiAccessTree* tree;
     ActRecord act;
     DWORD tree_thread;
-    u32 tree_calls;
 };
 
 const UiAccessTree* host_tree(void* context) noexcept {
     auto* host = static_cast<HostContext*>(context);
     host->tree_thread = GetCurrentThreadId();
-    ++host->tree_calls;
     return host->tree;
 }
 
@@ -335,7 +333,7 @@ IRawElementProviderSimple* simple_of(IRawElementProviderFragment* fragment) noex
 
 void test_provider(const Scene& scene, UiAccessTree* tree) noexcept {
     check(build_tree(tree, scene), "provider snapshot");
-    HostContext context{tree, {}, 0, 0};
+    HostContext context{tree, {}, 0};
     UiaProviderHost host{};
     check(uia_host_initialize(&host, nullptr, {&context, host_tree, host_act, host_scale}) && !host.runtime &&
               !uia_host_listening(host),
@@ -1037,7 +1035,7 @@ void test_picker(UiAccessTree* tree) noexcept {
         return;
     }
     // Grid and GridItem patterns through the provider.
-    HostContext context{tree, {}, 0, 0};
+    HostContext context{tree, {}, 0};
     UiaProviderHost host{};
     check(uia_host_initialize(&host, nullptr, {&context, host_tree, host_act, host_scale}) && uia_host_load(&host),
           "picker provider host");
@@ -1195,7 +1193,7 @@ void test_text_pattern(UiAccessTree* tree) noexcept {
     check(ui_access_add(tree, 0, edit) != kUiAccessNone && ui_access_add(tree, 0, password) != kUiAccessNone &&
               ui_access_tree_finish(tree),
           "text snapshot");
-    HostContext context{tree, {}, 0, 0};
+    HostContext context{tree, {}, 0};
     UiaProviderHost host{};
     check(uia_host_initialize(&host, nullptr, {&context, host_tree, host_act, host_scale}) && uia_host_load(&host),
           "text provider host");
@@ -1350,7 +1348,7 @@ void test_scroll_and_radio(UiAccessTree* tree) noexcept {
     check(ui_access_needs_reveal(partial) && !ui_access_needs_reveal(mostly),
           "items clipped below half their height need a reveal");
 
-    HostContext context{tree, {}, 0, 0};
+    HostContext context{tree, {}, 0};
     UiaProviderHost host{};
     check(uia_host_initialize(&host, nullptr, {&context, host_tree, host_act, host_scale}) && uia_host_load(&host),
           "scroll provider host");
@@ -1588,7 +1586,7 @@ DWORD WINAPI probe_client(void* parameter) noexcept {
 
 int run_probe(UiAccessTree* tree) noexcept {
     static Probe probe{};
-    probe.context = {tree, {}, 0, 0};
+    probe.context = {tree, {}, 0};
     g_probe = &probe;
     WNDCLASSEXW type{};
     type.cbSize = sizeof(type);

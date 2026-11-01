@@ -111,7 +111,4 @@ SfntStatus sfnt_position_value_resolve(const SfntPositionValue& value,const Sfnt
 SfntStatus sfnt_gpos_subtable_open(ConstSlice<u8> table,u16 type,u32 limit,SfntGposSubtable* output,u32 work,u32* used) noexcept {
     const WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;return open(table,type,limit,output,&work);
 }
-SfntStatus sfnt_gpos_subtable_match_view(const SfntGposSubtable& sub,const SfntGdef& gdef,const SfntLookupFilter& filter,SfntGlyphView glyphs,u32 start,u32 end,SfntGposMatch* output,u32 work,u32* used) noexcept {
-    const WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;reset_value(output);if(!sfnt_glyph_view_valid(glyphs) || start>=end || end>sfnt_glyph_count(glyphs))return SfntStatus::invalid_input;return gpos_subtable_match(sub,gdef,filter,glyphs,start,end,output,&work);
-}
 }

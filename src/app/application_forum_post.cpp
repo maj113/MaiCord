@@ -1003,10 +1003,4 @@ void application_forum_post_release() noexcept {
     forum_retire(*forum_owner);
     forum_owner->release_pending = true;
 }
-ApplicationForumPostMetrics application_forum_post_metrics() noexcept {
-    if (!forum_owner)
-        return {};
-    return {sizeof(ForumOwner), (sizeof(ForumOwner) + 4095u) & ~4095u, forum_owner->publication,
-            forum_owner->flight.active};
-}
 } // namespace maicord::app_detail

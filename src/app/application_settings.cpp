@@ -46,7 +46,6 @@
 #include "maicord/ui/settings_scene.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/guild_icon_media.hpp"
-#include "maicord/model/asset_hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/button.hpp"
 #include "maicord/ui/settings_choice.hpp"
@@ -1639,7 +1638,7 @@ void application_settings_cancel_pointer() noexcept {
             copy_bytes(g_app.preferences.effect_profiles, settings->slider_baseline.effect_profiles,
                        sizeof(g_app.preferences.effect_profiles));
             if (settings->slider_theme_baseline)
-                application_custom_theme_restore(*settings->slider_theme_baseline, false);
+                application_custom_theme_restore(*settings->slider_theme_baseline);
             else
                 application_custom_theme_preferences_changed(false, false);
         } else if (binding == SettingBinding::output_volume)

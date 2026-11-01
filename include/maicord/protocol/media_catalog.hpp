@@ -104,10 +104,7 @@ struct MediaCatalogDecodeResult {
     u32 item_count;
     u32 source_count;
     u32 text_bytes;
-    u32 error_offset;
     MediaCatalogError error;
-    JsonScanError scan_error;
-    JsonReadError read_error;
     bool truncated;
     constexpr bool ok() const noexcept {
         return error == MediaCatalogError::none;

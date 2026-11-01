@@ -1,6 +1,5 @@
 #include "application_settings_layer.hpp"
 #include "maicord/core/memory.hpp"
-#include "application_content_point.hpp"
 #include "application_cursor.hpp"
 #include "maicord/ui/scene_cursor.hpp"
 #include "application_state.hpp"
@@ -226,12 +225,12 @@ void settings_layer_reset(SettingsLayer* layer) noexcept {
     layer->hooks = hooks;
 }
 
-bool settings_layer_editor(SettingsLayer* layer, u64* control_id, MessageComposer** model, BoundedEdit** binding,
-                           bool* multiline) noexcept {
+bool settings_layer_editor(SettingsLayer* layer, u64* control_id, MessageComposer** model,
+                           BoundedEdit** binding) noexcept {
     MessageComposer* m = nullptr;
     BoundedEdit* b = nullptr;
     u64 id = 0;
-    if (!layer || !layer->scene || !layer->scene->active || !focused_editor(layer, &m, &b, multiline, &id))
+    if (!layer || !layer->scene || !layer->scene->active || !focused_editor(layer, &m, &b, nullptr, &id))
         return false;
     if (control_id)
         *control_id = id;
@@ -310,23 +309,25 @@ bool settings_layer_choice_current(const SettingsLayer& layer) noexcept {
     return layer.choice && g_app.popup_scene.active && layer.popup_opens == g_app.popup_scene.opens;
 }
 
-void settings_layer_begin_entrance(SettingsLayer* layer, u64 now_ms, bool reduced_motion) noexcept {
-    const bool motion = g_app.window && !reduced_motion && !g_app.renderer.live_resize &&
+void settings_layer_begin_entrance(SettingsLayer* layer) noexcept {
+    const bool motion = g_app.window && !g_app.preferences.reduced_motion && !g_app.renderer.live_resize &&
                         (!g_app.surface_motion.system_preference_cached || g_app.surface_motion.client_area_animation);
+    const u64 now_ms = clock_monotonic_milliseconds();
     layer->entrance_started = motion ? (now_ms ? now_ms : 1) : 0;
     renderer_set_settings_modal_progress(&g_app.renderer, motion ? 0.f : 1.f);
     application_request_frame();
 }
 
-void settings_layer_shake(SettingsLayer* layer, u64 now_ms) noexcept {
+void settings_layer_shake(SettingsLayer* layer) noexcept {
+    const u64 now_ms = clock_monotonic_milliseconds();
     layer->shake_started = now_ms ? now_ms : 1;
     application_request_frame();
 }
 
-u64 settings_layer_tick(SettingsLayer* layer, u64 now_ms, bool reduced_motion) noexcept {
+void settings_layer_tick(SettingsLayer* layer, u64 now_ms) noexcept {
     if (!layer->scene || !layer->scene->active)
-        return 0;
-    u64 wake = 0;
+        return;
+    const bool reduced_motion = g_app.preferences.reduced_motion;
     MessageComposer* model = nullptr;
     BoundedEdit* binding = nullptr;
     if (focused_editor(layer, &model, &binding, nullptr)) {
@@ -337,14 +338,11 @@ u64 settings_layer_tick(SettingsLayer* layer, u64 now_ms, bool reduced_motion) n
             layer->blink_at = deadline_after(now_ms, kBlinkMs);
             repaint(layer);
         }
-        wake = layer->blink_at;
     } else
         layer->blink_at = 0;
     // Switch thumbs animate on the scene clock.
-    if (ui_settings_scene_tick(layer->scene, now_ms, reduced_motion)) {
+    if (ui_settings_scene_tick(layer->scene, now_ms, reduced_motion))
         application_request_frame();
-        wake = wake ? minimum(wake, now_ms + 16) : now_ms + 16;
-    }
     if (layer->entrance_started) {
         const auto durations = ui_settings_layout_tokens(application_theme().styles).duration;
         const u64 duration = maximum<u64>(1, durations.modal_enter_ms);
@@ -359,10 +357,9 @@ u64 settings_layer_tick(SettingsLayer* layer, u64 now_ms, bool reduced_motion) n
             : dialog ? ui_settings_modal_entrance(durations, elapsed)
                      : ui_motion_curve_sample(UiMotionCurve::css_ease_out,
                                               static_cast<float>(elapsed) / static_cast<float>(duration)));
-        if (running) {
+        if (running)
             application_request_frame();
-            wake = wake ? minimum(wake, now_ms + 16) : now_ms + 16;
-        } else
+        else
             layer->entrance_started = 0;
     }
     if (layer->shake_started) {
@@ -378,12 +375,9 @@ u64 settings_layer_tick(SettingsLayer* layer, u64 now_ms, bool reduced_motion) n
             layer->shake_started = 0;
         if (ui_settings_scene_set_footer_motion(layer->scene, shift, alert))
             repaint(layer);
-        if (layer->shake_started) {
+        if (layer->shake_started)
             application_request_frame();
-            wake = wake ? minimum(wake, now_ms + 16) : now_ms + 16;
-        }
     }
-    return wake;
 }
 
 u64 settings_layer_next_wake(const SettingsLayer& layer) noexcept {

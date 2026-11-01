@@ -5,11 +5,9 @@ namespace maicord { namespace {
 HttpResponseStreamStep step(const HttpResponseStream& d, u32 accepted = 0) noexcept {
     return {d.pending, d.body_bytes, accepted, d.state, d.error};
 }
-HttpResponseStreamStep fail(HttpResponseStream* d, HttpResponseStreamError error,
-                            u32 accepted = 0, HttpError framing = HttpError::none) noexcept {
+HttpResponseStreamStep fail(HttpResponseStream* d, HttpResponseStreamError error, u32 accepted = 0) noexcept {
     d->state = HttpResponseStreamState::failed;
     d->error = error;
-    d->framing_error = framing;
     reset_value(&d->pending);
     return step(*d, accepted);
 }
@@ -25,7 +23,7 @@ HttpResponseStreamStep pump(HttpResponseStream* d, u32 accepted) noexcept {
                 // Admission callbacks may reject a syntactically valid head
                 // while preserving its safe status/length diagnostics.
                 if (parsed.head.header_bytes) d->parsed_head = parsed.head;
-                return fail(d, HttpResponseStreamError::head, accepted, parsed.error);
+                return fail(d, HttpResponseStreamError::head, accepted);
             }
             if (parsed.state == HttpParseState::need_more) {
                 if (d->peer_closed) return fail(d, HttpResponseStreamError::unexpected_close, accepted);
@@ -67,7 +65,7 @@ HttpResponseStreamStep pump(HttpResponseStream* d, u32 accepted) noexcept {
                             open && chunk.error == HttpError::chunk_too_large
                                 ? HttpResponseStreamError::size_limit
                                 : HttpResponseStreamError::body_framing,
-                            accepted, chunk.error);
+                            accepted);
             if (d->chunk_decoder.body_bytes > d->expected_body_bytes)
                 return fail(d, HttpResponseStreamError::size_mismatch, accepted);
             if (chunk.state == HttpChunkStepState::data) {

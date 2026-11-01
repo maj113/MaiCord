@@ -202,9 +202,11 @@ MessageComposerControllerResult save_active_draft(MessageComposerController* con
     return MessageComposerControllerResult{{}, 0, MessageComposerControllerError::none, saved.changed};
 }
 
-bool initialize_controller(MessageComposerController* controller, MessageComposer* composer,
-                           MessageDraftStore* drafts, MessageTimeline* timeline, Slice<u8> request_text,
-                           bool clear_requests) noexcept {
+} // namespace
+
+bool message_composer_controller_initialize(MessageComposerController* controller,
+                                            MessageComposer* composer, MessageDraftStore* drafts,
+                                            MessageTimeline* timeline, Slice<u8> request_text) noexcept {
     if (!controller || !composer || !composer->text || !drafts || !drafts->records || !drafts->text ||
         !timeline || !timeline->store || !request_text.data ||
         request_text.count < kMessageComposerMaximumBytes) {
@@ -217,8 +219,6 @@ bool initialize_controller(MessageComposerController* controller, MessageCompose
     controller->timeline = timeline;
     controller->request_text = request_text.data;
     controller->request_text_capacity = request_text.count;
-    if (clear_requests)
-        clear_bytes(request_text.data, request_text.count);
     if (!message_send_tracker_initialize(&controller->sends)) {
         reset_value<MessageComposerController>(controller);
         return false;
@@ -226,20 +226,6 @@ bool initialize_controller(MessageComposerController* controller, MessageCompose
     controller->initialized = true;
     controller->reply_revision = 1;
     return true;
-}
-
-} // namespace
-
-bool message_composer_controller_initialize(MessageComposerController* controller,
-                                            MessageComposer* composer, MessageDraftStore* drafts,
-                                            MessageTimeline* timeline, Slice<u8> request_text) noexcept {
-    return initialize_controller(controller, composer, drafts, timeline, request_text, true);
-}
-
-bool message_composer_controller_initialize_sparse(MessageComposerController* controller,
-                                                   MessageComposer* composer, MessageDraftStore* drafts,
-                                                   MessageTimeline* timeline, Slice<u8> request_text) noexcept {
-    return initialize_controller(controller, composer, drafts, timeline, request_text, false);
 }
 
 MessageComposerControllerResult message_composer_controller_commit_draft(

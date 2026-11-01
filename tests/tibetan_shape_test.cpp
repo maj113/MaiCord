@@ -2,10 +2,8 @@
 #include "maicord/text/tibetan_shape_run.hpp"
 #include "maicord/text/cluster_run.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/text/use_plan.hpp"
 #include "maicord/core/arena.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "gsub_program_fixture.hpp"
 #include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 u32 checks=0;

@@ -536,12 +536,6 @@ MlsStatus subtree_hashes(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, co
     return done == count ? MlsStatus::ok : MlsStatus::invalid_argument;
 }
 } // namespace
-MlsStatus mls_tree_root_hash(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, u8* hash) noexcept {
-    u32 root = 0;
-    if (const auto status = mls_tree_root(tree.leaf_count, &root); status != MlsStatus::ok)
-        return status;
-    return subtree_hashes(kdf, tree, &root, 1, reinterpret_cast<u8(*)[kMlsHashBytes]>(hash));
-}
 MlsStatus mls_tree_parent_hash_chain(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, u32 leaf_index,
                                      const u8 (*path_keys)[kMlsPointBytes], u32 path_count,
                                      u8 (*hashes)[kMlsHashBytes]) noexcept {

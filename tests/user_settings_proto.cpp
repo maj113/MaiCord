@@ -130,10 +130,9 @@ void test_user_settings_proto(void (*check)(bool, const char*) noexcept) noexcep
           "user settings: a pinned data version 0 is still sent, as JSON.stringify writes it");
 
     constexpr char response[] = "{\"settings\":\"agJIAQ==\",\"out_of_date\":true}";
-    char unescape[64];
     u8 decoded[64]{};
     const auto parsed = user_settings_proto_decode_response({response, sizeof(response) - 1}, kUserSettingsStoredGroups,
-                                                            {unescape, sizeof(unescape)}, {decoded, sizeof(decoded)});
+                                                            {decoded, sizeof(decoded)});
     check(parsed.extracted.ok() && parsed.out_of_date && parsed.settings_present && parsed.extracted.bytes == 4 &&
               bytes_equal(decoded, partial, 4),
           "user settings: GET/PATCH response envelope decodes settings and out_of_date");
@@ -193,7 +192,7 @@ void test_user_settings_proto(void (*check)(bool, const char*) noexcept) noexcep
           "user settings: a failed PATCH rolls back in-flight edits but keeps newer pending ones");
     const u32 again = user_settings_store_begin(store, {patch, sizeof(patch)}, &required);
     completion = user_settings_store_complete(store, UserSettingsOutcome::rate_limited, {}, 5000);
-    check(again && completion.retry && store->dirty_count == 1 && store->due_ms == 5000 &&
+    check(again && store->dirty_count == 1 && store->due_ms == 5000 &&
               user_settings_store_read(*store, emoticons, &v) && v.number == 1,
           "user settings: rate limiting re-queues the edits for the retry time");
     user_settings_store_begin(store, {patch, sizeof(patch)}, &required);

@@ -69,7 +69,7 @@ VoiceReceivedPacket received(ConstSlice<u8> plain, VoiceSourceKind kind = VoiceS
         packet.transport.error = VoicePacketError::malformed_packet;
     packet.transport.bytes = plain.count;
     packet.source = {kUser, 1, kSsrc, kSsrc, kind, true};
-    packet.member = {kUser, 1, 0, 0, true, false, false};
+    packet.member = {kUser, 1, true};
     packet.setup_generation = packet.ready_revision = 1;
     return packet;
 }

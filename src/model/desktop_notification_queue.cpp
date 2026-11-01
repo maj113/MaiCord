@@ -15,7 +15,6 @@ bool valid_text(Utf8View text) noexcept {
     return true;
 }
 u32 size(const DesktopNotificationQueueRow& row) noexcept {return row.title_bytes+row.body_bytes+row.avatar_bytes;}
-void increment(u64& n) noexcept {if(n!=~u64{0})++n;}
 bool initialized(const DesktopNotificationQueue* q) noexcept {return q && q->rows.data && q->bytes.data && q->scratch.data;}
 void clear_inflight(DesktopNotificationQueue& q) noexcept {
     clear_bytes(q.scratch.data,size(q.inflight));reset_value(&q.inflight);q.has_inflight=q.dispatching=q.inflight_canceled=false;q.attempt=0;
@@ -35,13 +34,13 @@ u32 purge(DesktopNotificationQueue* q,Purge kind,u64 p=0,u64 g=0,u64 c=0,u64 m=0
     if(!initialized(q))return 0;
     u32 kept=0,used=0,removed=0;
     for(u32 i=0;i<q->count;++i){auto row=q->rows[i];
-        if(matches(row,kind,p,g,c,m)){++removed;increment(q->counters.canceled);continue;}
+        if(matches(row,kind,p,g,c,m)){++removed;continue;}
         const u32 n=size(row);copy_bytes(q->bytes.data+used,q->bytes.data+row.offset,n);row.offset=used;used+=n;q->rows[kept++]=row;
     }
     clear_bytes(q->bytes.data+used,q->used-used);
     for(u32 i=kept;i<q->count;++i)reset_value(&q->rows[i]);q->count=kept;q->used=used;
     if(q->has_inflight && !q->inflight_canceled && matches(q->inflight,kind,p,g,c,m)){
-        ++removed;increment(q->counters.canceled);q->inflight_canceled=true;
+        ++removed;q->inflight_canceled=true;
         // Preserve borrowed scratch while the native call is in progress.
         if(!q->dispatching)clear_inflight(*q);
     }
@@ -81,18 +80,16 @@ DesktopNotificationQueueResult desktop_notification_queue_enqueue(DesktopNotific
     if(q->has_inflight && duplicate(q->inflight))return {DesktopNotificationQueueError::duplicate,q->inflight.token};
     for(u32 i=0;i<q->count;++i)if(duplicate(q->rows[i]))return {DesktopNotificationQueueError::duplicate,q->rows[i].token};
     if(!q->next_token)return {DesktopNotificationQueueError::token_exhausted};
-    if(q->count+u32(q->has_inflight)==q->rows.count){increment(q->counters.capacity_failures);return {DesktopNotificationQueueError::full_rows};}
-    if(total>q->bytes.count-q->used){increment(q->counters.capacity_failures);return {DesktopNotificationQueueError::full_bytes};}
-    const bool wake=q->count==0 && !q->has_inflight;
+    if(q->count+u32(q->has_inflight)==q->rows.count)return {DesktopNotificationQueueError::full_rows};
+    if(total>q->bytes.count-q->used)return {DesktopNotificationQueueError::full_bytes};
     DesktopNotificationQueueRow row{q->next_token,value.profile_id,value.generation,value.channel_id,value.message_id,
         value.source_sequence,q->used,value.title.bytes,value.body.bytes,value.avatar_file_uri.bytes,value.silent,value.suppress_popup,
         value.policy_channel_id,value.sound_epoch,value.sound_id};
     u32 at=q->used;copy_bytes(q->bytes.data+at,value.title.data,value.title.bytes);at+=value.title.bytes;
     copy_bytes(q->bytes.data+at,value.body.data,value.body.bytes);at+=value.body.bytes;
     copy_bytes(q->bytes.data+at,value.avatar_file_uri.data,value.avatar_file_uri.bytes);at+=value.avatar_file_uri.bytes;
-    q->rows[q->count++]=row;q->used=at;++q->next_token;increment(q->counters.admitted);
-    q->counters.high_rows=maximum(q->counters.high_rows,q->count+u32(q->has_inflight));q->counters.high_bytes=maximum(q->counters.high_bytes,q->used);
-    return {DesktopNotificationQueueError::none,row.token,wake};
+    q->rows[q->count++]=row;q->used=at;++q->next_token;
+    return {DesktopNotificationQueueError::none,row.token};
 }
 bool desktop_notification_queue_front(const DesktopNotificationQueue* q,DesktopNotificationQueueRow* row) noexcept {
     if(!initialized(q) || !row || aliases(*q,row,sizeof(*row)))return false;
@@ -101,7 +98,8 @@ bool desktop_notification_queue_front(const DesktopNotificationQueue* q,DesktopN
 }
 bool desktop_notification_queue_pending(const DesktopNotificationQueue* q) noexcept {return initialized(q) && (q->count || q->has_inflight);}
 DesktopNotificationQueueMetrics desktop_notification_queue_metrics(const DesktopNotificationQueue* q) noexcept {
-    if(!initialized(q))return {};auto out=q->counters;out.waiting=q->count;out.bytes=q->used;out.outstanding=q->count+u32(q->has_inflight);return out;
+    if(!initialized(q))return {};
+    return {q->count,q->used,q->count+u32(q->has_inflight)};
 }
 DesktopNotificationQueueResult desktop_notification_queue_begin(DesktopNotificationQueue* q,DesktopNotificationQueueDispatch* out) noexcept {
     if(!initialized(q) || !out || aliases(*q,out,sizeof(*out)))return {DesktopNotificationQueueError::invalid_input};
@@ -125,9 +123,7 @@ DesktopNotificationQueueCompletion desktop_notification_queue_complete(DesktopNo
     DesktopNotificationQueueCompletion result{DesktopNotificationQueueError::none,q->inflight,false,q->inflight_canceled,
         q->inflight_canceled && outcome==DesktopNotificationQueueOutcome::submitted};
     q->dispatching=false;
-    if(outcome==DesktopNotificationQueueOutcome::retry && !q->inflight_canceled){increment(q->counters.retries);result.retry_pending=true;return result;}
-    if(outcome==DesktopNotificationQueueOutcome::submitted)increment(q->counters.submitted);
-    else if(outcome==DesktopNotificationQueueOutcome::failed)increment(q->counters.failed);
+    if(outcome==DesktopNotificationQueueOutcome::retry && !q->inflight_canceled){result.retry_pending=true;return result;}
     clear_inflight(*q);return result;
 }
 u32 desktop_notification_queue_purge_channel(DesktopNotificationQueue* q,u64 p,u64 g,u64 c) noexcept {return p&&g&&c?purge(q,Purge::channel,p,g,c):0;}

@@ -1181,9 +1181,6 @@ void close_video_session(AccountVideoIdentity* retired_identity) noexcept {
 void application_video_close() noexcept {
     close_video_session(nullptr);
 }
-bool application_video_expanded() noexcept {
-    return g_app.video && g_app.video->expanded;
-}
 void application_video_viewer_detach() noexcept {
     auto* video = g_app.video;
     if (!video || !video->expanded)

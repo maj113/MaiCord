@@ -36,6 +36,14 @@ u8 message_text[16384]{};
 void check(bool ok, const char* label) noexcept {
     test_check(&failures, ok, label);
 }
+// The native form's close path retires the intent through retire(); production has no ticket-keyed entry for it.
+bool cancel_intent(const ApplicationThreadCreationTicket& value) noexcept {
+    if (!creation_owner || !ticket_equal(*creation_owner, value) ||
+        creation_owner->phase == ApplicationThreadCreationPhase::settled)
+        return false;
+    retire(*creation_owner);
+    return true;
+}
 ChannelRecord* row(u64 id) noexcept {
     return const_cast<ChannelRecord*>(chat_state_store_find_channel(g_app.account_ui->chat_state, id));
 }
@@ -188,7 +196,7 @@ void run() noexcept {
         "creation: retry is explicit and respects actor floor");
     now += 500; reset_owner(); ticket = begin(904); check(start(ticket, 40), "creation: cancel floor fixture starts");
     const auto cancel_nav = navigations;
-    check(application_thread_creation_cancel(ticket) && cancelled == 40 && creation_owner->flight.retired &&
+    check(cancel_intent(ticket) && cancelled == 40 && creation_owner->flight.retired &&
         !application_thread_creation_pending(now), "creation: cancellation retires exact accepted flight without lane reuse");
     auto replacement = begin(905);
     check(application_thread_creation_name_submit(replacement, utf8_literal("Latest choice")) && !application_thread_creation_pending(now) &&
@@ -203,7 +211,7 @@ void run() noexcept {
     now += 700; check(application_thread_creation_submit(41, now) && submitted.source_message_id == 905 &&
         receipt(41, 500), "creation: drained latest intent gets exact new flight");
     reset_owner(); ticket = begin(906); check(start(ticket, 50), "creation: cancelled uncertain fixture starts");
-    application_thread_creation_cancel(ticket); check(receipt(50, 200, payload(906)) && !row(906),
+    cancel_intent(ticket); check(receipt(50, 200, payload(906)) && !row(906),
         "creation: late cancelled success cannot hydrate or navigate");
     ticket = begin(906);
     check(application_thread_creation_name_submit(ticket, utf8_literal("Changed local choice")) &&
@@ -306,7 +314,7 @@ void run() noexcept {
         "creation: native form closure cancels but drains accepted work and never late-navigates");
     reset_owner();
     for (u64 id = 10000; id < 10009; ++id) {
-        ticket = begin(id); check(start(ticket, id) && application_thread_creation_cancel(ticket) && receipt(id, 500),
+        ticket = begin(id); check(start(ticket, id) && cancel_intent(ticket) && receipt(id, 500),
             "creation: uncertainty ledger bounded receipt fixture");
     }
     ticket = begin(10009);
@@ -314,7 +322,7 @@ void run() noexcept {
         application_thread_creation_submit(90, now) && submitted.operation == Operation::reconcile,
         "creation: eight-entry uncertainty overflow conservatively requires GET for later sources");
     receipt(90, 404); application_thread_creation_release();
-    check(!creation_owner && application_thread_creation_metrics().owner_bytes == 0 && !g_app.text_form,
+    check(!creation_owner && !g_app.text_form,
         "creation: idle teardown frees lazy bounded owner without native-form lifetime leak");
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE); g_app.account_ui = nullptr;
 }

@@ -1,4 +1,5 @@
 #include "maicord/ui/text_form.hpp"
+#include "layout_validation.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/memory.hpp"
 #include "fake_text_measure.hpp"

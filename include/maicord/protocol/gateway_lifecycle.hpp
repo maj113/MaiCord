@@ -75,8 +75,7 @@ GatewayLifecycleStep gateway_lifecycle_tick(GatewayLifecycle* lifecycle, u64 now
 GatewayLifecycleStep gateway_lifecycle_heartbeat_requested(GatewayLifecycle* lifecycle) noexcept;
 GatewayLifecycleStep gateway_lifecycle_heartbeat_acknowledged(GatewayLifecycle* lifecycle) noexcept;
 GatewayLifecycleStep gateway_lifecycle_dispatch(GatewayLifecycle* lifecycle, u64 sequence) noexcept;
-GatewayLifecycleStep gateway_lifecycle_session_ready(GatewayLifecycle* lifecycle,
-                                                     bool resume_available) noexcept;
+GatewayLifecycleStep gateway_lifecycle_session_ready(GatewayLifecycle* lifecycle) noexcept;
 GatewayLifecycleStep gateway_lifecycle_reconnect_requested(GatewayLifecycle* lifecycle) noexcept;
 GatewayLifecycleStep gateway_lifecycle_invalid_session(GatewayLifecycle* lifecycle,
                                                        bool resumable) noexcept;

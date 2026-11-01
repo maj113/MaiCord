@@ -22,7 +22,6 @@ def main():
     report = dict(status='running', executable=identity(exe), font=identity(font))
     try:
         env = dict(os.environ, MAICORD_DEVANAGARI_MEMO_BENCH='1')
-        env.pop('MAICORD_DEVANAGARI_BATCH', None)
         report['execution'] = run_check('memo', [str(exe), str(font)],
             Path(__file__).resolve().parents[1], output, 5, threading.Event(), env=env)
         if identity(exe) != report['executable'] or identity(font) != report['font']:

@@ -101,8 +101,7 @@ void run() noexcept {
     };
     check(decode(receipt).ok() && snapshot.id == 20 && snapshot.parent_id == 10 && snapshot.guild_id == 40 &&
         snapshot.type == 11 && snapshot.last_message_id == 22 && snapshot.fields == 9 &&
-        snapshot.auto_archive_duration == 4320 && snapshot.archive_timestamp_ms && snapshot.self_join_timestamp_ms &&
-        snapshot.self_flags == 4 && utf8_equal(thread_creation_name_view(snapshot), utf8_literal("A\xC3\xA9")),
+        snapshot.self_join_timestamp_ms && utf8_equal(thread_creation_name_view(snapshot), utf8_literal("A\xC3\xA9")),
         "thread creation: receipt requires exact source identity complete thread metadata and positive self proof");
     auto owned = snapshot;
     check(decode(receipt, &reconcile).ok() && bytes_equal(&owned, &snapshot, sizeof(snapshot)),
@@ -110,7 +109,7 @@ void run() noexcept {
     const auto member_null = replace(receipt, utf8_literal(R"("member":{"id":"20","user_id":"30","join_timestamp":"2026-10-05T12:34:56Z","flags":4})"),
         utf8_literal(R"("member":null)"));
     check(decode(member_null).ok() && !(snapshot.fields & thread_creation_self_joined) &&
-        !snapshot.self_flags && !snapshot.self_join_timestamp_ms,
+        !snapshot.self_join_timestamp_ms,
         "thread creation: null optional member is unknown and never a negative membership observation");
     const auto member_absent = replace(receipt,
         utf8_literal(R"(,"member":{"id":"20","user_id":"30","join_timestamp":"2026-10-05T12:34:56Z","flags":4})"), {});

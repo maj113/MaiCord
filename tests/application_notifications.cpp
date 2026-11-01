@@ -472,9 +472,8 @@ void retention_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     auto& f=fixture;
     check(initialize() && hydrate(ready,1),"notification retention: production owner starts with empty successful history");
     auto m=application_notifications_fixture_metrics(&g_app);
-    check(!m.retention_channels && !m.retention_tickets && !m.retention_capacity_channels &&
-        !m.retention_rows_committed_bytes && !m.retention_index_committed_bytes,
-        "notification retention: initialization and READY allocate zero ledger VM");
+    check(!m.retention_channels && !m.retention_tickets && !m.retention_capacity_channels,
+        "notification retention: initialization and READY allocate no ledger");
     g_app.preferences.message_sounds_enabled=false; application_notifications_settings_refresh(&g_app);
     bool twenty=true;
     for(u32 i=0;i<20;++i) {
@@ -483,14 +482,10 @@ void retention_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     }
     application_notifications_fixture_suppress_popup(&g_app,false);
     m=application_notifications_fixture_metrics(&g_app);
-    Win32SystemInfo system{};GetSystemInfo(system.native());
     check(twenty && f.delivered==20 && f.last.silent && f.last.suppress_popup && m.retention_channels==1 && m.retention_tickets==20 &&
-        m.retention_row_bytes==176 && m.retention_logical_bytes==180 &&
-        m.retention_rows_committed_bytes%system.dwPageSize==0 && m.retention_rows_committed_bytes>0 &&
-        m.retention_index_committed_bytes%system.dwPageSize==0 && m.retention_index_committed_bytes>0 &&
         application_notifications_fixture_retained(&g_app,21,0)==2000 &&
         application_notifications_fixture_retained(&g_app,21,19)==2019 && !f.removal_count,
-        "notification retention: exactly20 successful silent and ActionCenter-only Shows keep actual-channel FIFO in page-rounded sparse banks");
+        "notification retention: exactly20 successful silent and ActionCenter-only Shows keep actual-channel FIFO");
     f.removal_result={DesktopNotificationError::transport,5};
     check(message(2020,22) && f.removal_count==1 && f.removals[0].profile_id==77 &&
         f.removals[0].channel_id==21 && f.removals[0].message_id==2000 &&
@@ -537,7 +532,7 @@ void retention_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     check(initialize() && hydrate(ready,1) && message(2100,2),"notification retention: fresh success prepares same-profile READY");
     const auto before_ready=application_notifications_fixture_metrics(&g_app);
     check(hydrate(ready,1) && application_notifications_fixture_metrics(&g_app).retention_tickets==1 &&
-        application_notifications_fixture_metrics(&g_app).retention_rows_committed_bytes==before_ready.retention_rows_committed_bytes &&
+        application_notifications_fixture_metrics(&g_app).retention_capacity_channels==before_ready.retention_capacity_channels &&
         !application_notifications_fixture_metrics(&g_app).seen_count && message(2100,2) &&
         application_notifications_fixture_retained(&g_app,21,0)==2100 &&
         application_notifications_fixture_retained(&g_app,21,1)==2100,
@@ -551,15 +546,14 @@ void retention_regressions(void(*check)(bool,const char*) noexcept) noexcept {
         "notification retention: source permits duplicate tickets whose Windows stable-tag eviction also identifies newest replacement");
     g_app.account.status.profile_id=88;
     check(hydrate(ready,1) && !application_notifications_fixture_metrics(&g_app).retention_tickets &&
-        !application_notifications_fixture_metrics(&g_app).retention_rows_committed_bytes &&
-        !application_notifications_fixture_metrics(&g_app).retention_index_committed_bytes,
+        !application_notifications_fixture_metrics(&g_app).retention_capacity_channels,
         "notification retention: native profile change frees prior private success metadata");
 
     check(initialize() && hydrate(ready,1) && message(2300,2),"notification retention: first success prepares geometric growth");
     bool populated=true;
     for(u32 i=0;i<15;++i) populated=retention_channel(100+i) && message(2301+i,3+i,100+i) && populated;
     m=application_notifications_fixture_metrics(&g_app);
-    check(populated && m.retention_channels==16 && m.retention_capacity_channels==16 && m.retention_index_slots==32,
+    check(populated && m.retention_channels==16 && m.retention_capacity_channels==16,
         "notification retention: separate successful channels fill initial geometry without global FIFO eviction");
     application_notifications_fixture_retention_oom(&g_app,true);
     check(message(2400,18) && retention_channel(115) && message(2316,19,115),
@@ -567,14 +561,13 @@ void retention_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     auto failed_growth=application_notifications_fixture_metrics(&g_app);
     check(f.delivered==17 && failed_growth.retention_channels==16 && failed_growth.retention_tickets==17 &&
         notification_unavailable() && !failed_growth.display_outstanding &&
-        failed_growth.retention_rows_committed_bytes==m.retention_rows_committed_bytes &&
+        failed_growth.retention_capacity_channels==m.retention_capacity_channels &&
         application_notifications_fixture_retained(&g_app,21,0)==2300 &&
         application_notifications_fixture_retained(&g_app,21,1)==2400 && application_notifications_can_pop(&g_app),
         "notification retention: failed growth preserves both banks and tickets; existing capacity works and failed intent retires before Show");
     application_notifications_fixture_retention_oom(&g_app,2);
     check(message(2317,20,115) && f.delivered==17 &&
-        application_notifications_fixture_metrics(&g_app).retention_rows_committed_bytes==m.retention_rows_committed_bytes &&
-        application_notifications_fixture_metrics(&g_app).retention_index_committed_bytes==m.retention_index_committed_bytes &&
+        application_notifications_fixture_metrics(&g_app).retention_capacity_channels==m.retention_capacity_channels &&
         application_notifications_fixture_retained(&g_app,21,1)==2400,
         "notification retention: second-bank OOM frees replacement rows while preserving old index and successful history");
     application_notifications_fixture_retention_oom(&g_app,false);
@@ -594,8 +587,7 @@ void retention_regressions(void(*check)(bool,const char*) noexcept) noexcept {
         "notification retention: historical success owners grow beyond current channel-store capacity without global eviction");
     application_notifications_account_stop(&g_app);
     m=application_notifications_fixture_metrics(&g_app);
-    check(!m.retention_channels && !m.retention_tickets && !m.retention_capacity_bytes &&
-        !m.retention_rows_committed_bytes && !m.retention_index_committed_bytes,
+    check(!m.retention_channels && !m.retention_tickets && !m.retention_capacity_channels,
         "notification retention: account stop frees both successful metadata banks");
 
     check(initialize() && enable_sound() && hydrate(ready,1),"notification retention: full queue prepares pre-Show OOM fallback");
@@ -607,7 +599,7 @@ void retention_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     f.sound_now=2000;
     for(u32 i=0;i<32;++i) application_notifications_drain(&g_app);
     m=application_notifications_fixture_metrics(&g_app);
-    check(!f.delivered && !m.display_outstanding && !m.retention_channels && !m.retention_rows_committed_bytes &&
+    check(!f.delivered && !m.display_outstanding && !m.retention_channels && !m.retention_capacity_channels &&
         notification_unavailable() && application_notifications_can_pop(&g_app) && f.sound_count==3 &&
         application_notifications_next_wake(&g_app)==3000,
         "notification retention: preflight OOM retires every full-queue intent with no untracked Show and preserves trailing failure fallback");
@@ -789,19 +781,10 @@ void test_application_notifications(void (*check)(bool, const char*) noexcept) n
     const bool owner_initialized=initialize();
     check(owner_initialized,"notification application: nonemitting owner initializes");
     if(!owner_initialized) { application_notifications_release(&g_app); return; }
-    auto initial_metrics=application_notifications_fixture_metrics(&g_app);
-    Win32SystemInfo info{}; GetSystemInfo(info.native());
-    check(initial_metrics.owner_vm_query_ok &&
-        initial_metrics.owner_vm_committed_bytes==((initial_metrics.owner_sizeof_bytes+info.dwPageSize-1)/info.dwPageSize)*info.dwPageSize &&
-        initial_metrics.storage_committed_bytes==0 && initial_metrics.storage_reserved_bytes>0 &&
-        !initial_metrics.display_owner_sizeof_bytes && !initial_metrics.display_vm_committed_bytes,
-        "notification application: compiled owner commits its page-rounded size and six stable banks initially reserve without commit");
     const bool initialized = hydrate(ready, 10, true);
     check(initialized, "notification application: nonemitting owner and actual READY projection hydrate");
     if (!initialized) { application_notifications_release(&g_app); return; }
     auto metrics = application_notifications_fixture_metrics(&g_app);
-    check(metrics.storage_committed_bytes>0 && metrics.storage_committed_bytes<metrics.storage_reserved_bytes &&
-        !metrics.thread_storage.committed_bytes,"notification application: small READY commits only populated notification prefixes");
     check(!metrics.ready && metrics.live && metrics.guilds == 1 && metrics.overrides == 1,
         "notification application: copied READY settings do not arm before completion");
     check(message(100, 11) && f.delivered == 0,
@@ -1015,7 +998,6 @@ void test_application_notifications(void (*check)(bool, const char*) noexcept) n
         message(700+i,2+i,21,i?utf8_literal("\"later\""):utf8_literal("\"first copied body\""));
     metrics=application_notifications_fixture_metrics(&g_app);
     check(burst && f.delivered==before_burst && metrics.display_outstanding==32 &&
-        metrics.display_owner_sizeof_bytes<24*1024 && metrics.display_vm_committed_bytes==24*1024 &&
         !application_notifications_can_pop(&g_app) && application_notifications_gateway_pending(&g_app),
         "notification application: copied burst fills exactly32 rows and pre-pop admission applies backpressure");
     application_notifications_drain(&g_app);

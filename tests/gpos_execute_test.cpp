@@ -1,4 +1,5 @@
 #include "gpos_lookup_fixture.hpp"
+#include "text_seams.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "text_test_support.hpp"
 #include "maicord/text/gpos_mark_execute.hpp"

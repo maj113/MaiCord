@@ -946,7 +946,7 @@ bool replay_once(PhaseTotals (&totals)[kPhases], u64* committed_peak) noexcept {
         const u64 producer_after = thread_cycles(self);
         const i64 produced = clock_now();
         // Wait (outside the producer's cycle count) until the consumer drained the phase.
-        while (spsc_mailbox_size(runtime->events) != 0) SwitchToThread();
+        while (runtime->events.read_sequence != runtime->events.write_sequence) SwitchToThread();
         for (u32 spin = 0; spin < 64; ++spin) SwitchToThread();
         const i64 last = ReadAcquire64(&consumer.last_event_counter);
         auto& t = totals[phase];
@@ -1013,7 +1013,8 @@ bool stage_decode(DecodeTotals* totals) noexcept {
                                                    kGatewaySessionMaximumDecodedMessageBytes, &etf);
         const u64 middle = thread_cycles(self);
         Slice<u8> output{decoded + cursor, kFixtureBytes - cursor};
-        const auto json = etf_to_json(etf, &output, output.count, nullptr, nullptr);
+        u32 marks = 0;
+        const auto json = etf_to_json_indexed(etf, &output, output.count, nullptr, nullptr, {}, &marks);
         totals->decompress[chunks[i].phase] += middle - before;
         totals->transcode[chunks[i].phase] += thread_cycles(self) - middle;
         if (!result.ok() || etf.count != chunks[i].raw_bytes || !json.ok()) return false;

@@ -18,6 +18,10 @@ bool settings_active{};
 void check(bool passed, const char* label) noexcept {
     test_check(&failures, passed, label);
 }
+void retire_all() noexcept {
+    for (u32 i = 0; i < kApplicationSurfaceMotionCount; ++i)
+        application_surface_motion_retire(static_cast<RendererLayerSurface>(i));
+}
 
 // The native show state reaches the application through the window procedure's
 // position messages; this fixture window has none, so it reports them itself.
@@ -293,7 +297,7 @@ void run() noexcept {
           "host motion: actual minimized HWND has no visual deadline");
     application_surface_motion_synchronize(601);
     check(g_app.renderer.layer_opacity.gallery == 1, "host motion: minimized trajectory settles");
-    application_surface_motion_retire_all();
+    retire_all();
     g_app.renderer.media_picker_scene = nullptr;
     g_app.renderer.popup_scene = nullptr;
     show(window, SW_SHOWNOACTIVATE);
@@ -356,7 +360,7 @@ void run() noexcept {
     check(g_app.renderer.popup_layer_scale == 1 && g_app.renderer.layer_opacity.popup == 0,
           "host motion: ordinary popups fade without scaling");
     popup.active = false;
-    application_surface_motion_retire_all();
+    retire_all();
     g_app.renderer.popup_scene = nullptr;
     background_host(window);
     g_app.renderer_ready = false;

@@ -1,7 +1,5 @@
 #pragma once
 
-#include "maicord/core/slice.hpp"
-
 #include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
@@ -16,7 +14,5 @@ bool application_accessibility_window_message(UINT message, WPARAM wparam, LPARA
 // A single flag test until a UI Automation client first asks for the window.
 void application_accessibility_frame_presented() noexcept;
 void application_accessibility_shutdown() noexcept;
-// Committed snapshot storage (zero until a UI Automation client first asks).
-usize application_accessibility_committed_bytes() noexcept;
 
 } // namespace maicord::app_detail

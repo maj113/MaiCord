@@ -35,7 +35,6 @@ enum class RendererTextBuildError : u8 {
     shape,
     capacity,
     atlas,
-    composer,
 };
 
 struct RendererTextStorage {
@@ -67,7 +66,6 @@ struct RendererTextStorage {
     u32 content_hit_region_count;
     u32 rebuilds;
     u32 rejected;
-    u32 semantic_truncations;
     u32 message_geometry_quads;
     HRESULT native_error;
     RendererTextBuildError last_error;

@@ -2,7 +2,6 @@
 // browser is launched and nothing leaves 127.0.0.1.
 #include "maicord/sys/winsock.hpp"
 #include "maicord/app/captcha_bridge.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_process.hpp"

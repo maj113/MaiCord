@@ -5,7 +5,6 @@ namespace maicord {
 namespace {
 
 constexpr float kLayoutEpsilon = 0.01f;
-constexpr float kRenderedContentTolerance = 2.5f;
 
 bool has_flag(const UiLayoutStyle& style, UiLayoutNodeFlag flag) noexcept {
     return (style.flags & static_cast<u16>(flag)) != 0;
@@ -91,7 +90,6 @@ UiLayoutError measure_intrinsic_content(UiLayoutEngine* engine, UiSize viewport)
                                              node.spec.key, node.measure_constraint};
         if (!engine->measure_callback(engine->measure_context, request, &measured, &baseline) ||
             !ui_size_valid_or_empty(measured) || !ui_extent_valid(baseline) || baseline > measured.height) {
-            engine->unstable_node = request.node;
             return UiLayoutError::measurement_failed;
         }
         node.spec.intrinsic_size = measured;
@@ -511,7 +509,7 @@ void arrange_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcept {
     }
 }
 
-bool update_measure_constraints(UiLayoutEngine* engine, UiLayoutNodeHandle* changed_node) noexcept {
+bool update_measure_constraints(UiLayoutEngine* engine) noexcept {
     if (!engine->measure_callback && engine->wrap_nodes == 0) {
         return false;
     }
@@ -533,127 +531,10 @@ bool update_measure_constraints(UiLayoutEngine* engine, UiLayoutNodeHandle* chan
         }
         if (!extents_match(constraint, node.measure_constraint)) {
             node.measure_constraint = constraint;
-            if (!changed && changed_node) {
-                *changed_node = UiLayoutNodeHandle{static_cast<u16>(index), node.generation};
-            }
             changed = true;
         }
     }
     return changed;
-}
-
-UiLayoutOverflow calculate_overflow(const UiRect& expected, const UiRect& actual) noexcept {
-    return UiLayoutOverflow{
-        maximum(0.0f, expected.left - actual.left),
-        maximum(0.0f, expected.top - actual.top),
-        maximum(0.0f, actual.right - expected.right),
-        maximum(0.0f, actual.bottom - expected.bottom),
-    };
-}
-
-bool has_overflow(const UiLayoutOverflow& overflow) noexcept {
-    return overflow.left > kLayoutEpsilon || overflow.top > kLayoutEpsilon ||
-           overflow.right > kLayoutEpsilon || overflow.bottom > kLayoutEpsilon;
-}
-
-UiLayoutNodeHandle handle_for(const UiLayoutNode& node, u32 slot) noexcept {
-    return UiLayoutNodeHandle{static_cast<u16>(slot), node.generation};
-}
-
-void push_diagnostic(UiLayoutValidationResult* result, Slice<UiLayoutDiagnostic> output,
-                     const UiLayoutDiagnostic& diagnostic) noexcept {
-    if (result->count < output.count && output.data) {
-        output[result->count] = diagnostic;
-        ++result->count;
-    } else {
-        ++result->dropped;
-    }
-}
-
-bool rectangles_intersect(const UiRect& left, const UiRect& right) noexcept {
-    return left.left < right.right - kLayoutEpsilon && left.right > right.left + kLayoutEpsilon &&
-           left.top < right.bottom - kLayoutEpsilon && left.bottom > right.top + kLayoutEpsilon;
-}
-
-bool rectangles_match(const UiRect& left, const UiRect& right) noexcept {
-    return absolute_value(left.left - right.left) <= kLayoutEpsilon &&
-           absolute_value(left.top - right.top) <= kLayoutEpsilon &&
-           absolute_value(left.right - right.right) <= kLayoutEpsilon &&
-           absolute_value(left.bottom - right.bottom) <= kLayoutEpsilon;
-}
-
-UiRect expected_wrap_rectangle(const UiLayoutEngine& engine, const UiLayoutNode& parent,
-                               const UiLayoutNode& target) noexcept {
-    UiRect expected = target.rectangle;
-    place_wrap_children(engine, parent, [&](u16 slot, const UiRect& rectangle) noexcept {
-        if (&engine.storage[slot] != &target) {
-            return false;
-        }
-        expected = rectangle;
-        return true;
-    });
-    return expected;
-}
-
-UiRect expected_alignment_rectangle(const UiLayoutEngine& engine, const UiLayoutNode& parent,
-                                    const UiLayoutNode& child) noexcept {
-    const UiRect available = parent.content_rectangle;
-    const UiLayoutStyle& style = child.spec.style;
-    if (parent.spec.style.flow == UiLayoutFlow::horizontal_wrap) {
-        return expected_wrap_rectangle(engine, parent, child);
-    }
-    if (parent.spec.style.flow == UiLayoutFlow::overlay) {
-        return overlay_child_rectangle(parent, child);
-    }
-
-    const bool horizontal = parent.spec.style.flow == UiLayoutFlow::horizontal;
-    const float available_cross = horizontal ? ui_rect_height(available) : ui_rect_width(available);
-    const float extent = arranged_cross_extent(child, horizontal, available_cross);
-    const float margin_start = horizontal ? style.margin.top : style.margin.left;
-    const float margin_end = horizontal ? style.margin.bottom : style.margin.right;
-    const UiLayoutAlignment alignment = horizontal ? style.vertical_alignment : style.horizontal_alignment;
-    const float scroll_cross = horizontal ? parent.scroll_offset.y : parent.scroll_offset.x;
-    float position = aligned_position(horizontal ? available.top : available.left, available_cross, extent,
-                                      margin_start, margin_end, alignment) -
-                     scroll_cross;
-    if (horizontal && alignment == UiLayoutAlignment::baseline) {
-        float maximum_baseline = 0.0f;
-        for (u16 slot = parent.first_child; slot != kInvalidUiLayoutSlot;
-             slot = engine.storage[slot].next_sibling) {
-            const UiLayoutNode& peer = engine.storage[slot];
-            if (peer.visible && peer.spec.style.vertical_alignment == UiLayoutAlignment::baseline) {
-                maximum_baseline =
-                    maximum(maximum_baseline, peer.spec.style.margin.top + peer.measured_baseline);
-            }
-        }
-        position = available.top + maximum_baseline - child.measured_baseline - scroll_cross;
-    }
-    UiRect expected = child.rectangle;
-    if (horizontal) {
-        expected.top = position;
-        expected.bottom = position + extent;
-    } else {
-        expected.left = position;
-        expected.right = position + extent;
-    }
-    return expected;
-}
-
-bool layout_node_is_ancestor(const UiLayoutEngine& engine, u16 ancestor, u16 node) noexcept {
-    if (ancestor >= engine.count || node >= engine.count || ancestor == node) {
-        return false;
-    }
-    u16 cursor = engine.storage[node].parent;
-    while (cursor != kInvalidUiLayoutSlot) {
-        if (cursor == ancestor) {
-            return true;
-        }
-        if (cursor >= engine.count) {
-            return false;
-        }
-        cursor = engine.storage[cursor].parent;
-    }
-    return false;
 }
 
 } // namespace
@@ -687,7 +568,6 @@ bool ui_layout_engine_set_measure_callback(UiLayoutEngine* engine, UiLayoutMeasu
     }
     engine->measure_callback = callback;
     engine->measure_context = context;
-    engine->unstable_node = ui_layout_invalid_handle();
     for (u32 index = 0; index < engine->count; ++index) {
         reset_value<UiSize>(&engine->storage[index].measure_constraint);
     }
@@ -767,7 +647,6 @@ UiLayoutResult ui_layout_engine_layout_rectangle(UiLayoutEngine* engine,
         return UiLayoutResult{UiLayoutError::missing_root, engine->count, engine->revision};
     }
     const UiSize viewport{ui_rect_width(viewport_rectangle), ui_rect_height(viewport_rectangle)};
-    engine->unstable_node = ui_layout_invalid_handle();
     for (u32 pass = 0; pass < kMaximumUiLayoutMeasurePasses; ++pass) {
         const UiLayoutError measured = measure_intrinsic_content(engine, viewport);
         if (measured != UiLayoutError::none) {
@@ -792,13 +671,10 @@ UiLayoutResult ui_layout_engine_layout_rectangle(UiLayoutEngine* engine,
             }
         }
         ++engine->measure_passes;
-        UiLayoutNodeHandle changed = ui_layout_invalid_handle();
-        if (!update_measure_constraints(engine, &changed)) {
-            engine->unstable_node = ui_layout_invalid_handle();
+        if (!update_measure_constraints(engine)) {
             ++engine->revision;
             return UiLayoutResult{UiLayoutError::none, engine->count, engine->revision};
         }
-        engine->unstable_node = changed;
     }
     ++engine->unstable_measurements;
     ++engine->rejected;
@@ -831,239 +707,6 @@ UiLayoutNode* ui_layout_engine_resolve(UiLayoutEngine* engine, UiLayoutNodeHandl
         return nullptr;
     }
     return const_cast<UiLayoutNode*>(ui_layout_engine_resolve(*engine, handle));
-}
-
-UiLayoutValidationResult ui_layout_engine_validate(const UiLayoutEngine& engine,
-                                                   Slice<UiLayoutDiagnostic> output) noexcept {
-    UiLayoutValidationResult result{};
-    if (!engine.storage.data || engine.count == 0 || (!output.data && output.count != 0)) {
-        result.dropped = 1;
-        return result;
-    }
-    if (engine.unstable_node.generation != 0 && engine.unstable_node.slot < engine.count) {
-        const UiLayoutNode& unstable = engine.storage[engine.unstable_node.slot];
-        push_diagnostic(&result, output,
-                        UiLayoutDiagnostic{UiLayoutDiagnosticKind::unstable_measurement,
-                                           engine.unstable_node, ui_layout_invalid_handle(),
-                                           UiRect{0.0f, 0.0f, unstable.measure_constraint.width,
-                                                  unstable.measure_constraint.height},
-                                           UiRect{0.0f, 0.0f, unstable.spec.intrinsic_size.width,
-                                                  unstable.spec.intrinsic_size.height},
-                                           UiLayoutOverflow{}});
-    }
-    for (u32 index = 0; index < engine.count; ++index) {
-        const UiLayoutNode& node = engine.storage[index];
-        if (node.generation != engine.generation || (index == 0 && node.parent != kInvalidUiLayoutSlot) ||
-            (index != 0 && (node.parent >= index || node.depth != engine.storage[node.parent].depth + 1))) {
-            push_diagnostic(&result, output,
-                            UiLayoutDiagnostic{UiLayoutDiagnosticKind::invalid_hierarchy,
-                                               handle_for(node, index), ui_layout_invalid_handle(),
-                                               UiRect{}, node.rectangle, UiLayoutOverflow{}});
-            continue;
-        }
-        if (!node.visible) {
-            continue;
-        }
-        if (!ui_rect_valid_or_empty(node.rectangle)) {
-            push_diagnostic(&result, output,
-                            UiLayoutDiagnostic{UiLayoutDiagnosticKind::invalid_extent,
-                                               handle_for(node, index), ui_layout_invalid_handle(),
-                                               UiRect{}, node.rectangle, UiLayoutOverflow{}});
-            continue;
-        }
-        if (!ui_rect_has_area(node.rectangle) &&
-            !has_flag(node.spec.style, ui_layout_node_allow_zero_size)) {
-            push_diagnostic(&result, output,
-                            UiLayoutDiagnostic{UiLayoutDiagnosticKind::unexpected_zero_size,
-                                               handle_for(node, index), ui_layout_invalid_handle(),
-                                               UiRect{}, node.rectangle, UiLayoutOverflow{}});
-        }
-        if (!ui_coordinate_valid(node.clip_rectangle.left) ||
-            !ui_coordinate_valid(node.clip_rectangle.top) ||
-            !ui_coordinate_valid(node.clip_rectangle.right) ||
-            !ui_coordinate_valid(node.clip_rectangle.bottom) ||
-            node.clip_rectangle.right < node.clip_rectangle.left ||
-            node.clip_rectangle.bottom < node.clip_rectangle.top) {
-            push_diagnostic(&result, output,
-                            UiLayoutDiagnostic{UiLayoutDiagnosticKind::invalid_clip,
-                                               handle_for(node, index), ui_layout_invalid_handle(),
-                                               UiRect{}, node.clip_rectangle, UiLayoutOverflow{}});
-        }
-        if (index != 0) {
-            const UiLayoutNode& parent = engine.storage[node.parent];
-            const bool scrolling = has_flag(parent.spec.style, ui_layout_node_scroll_horizontal) ||
-                                   has_flag(parent.spec.style, ui_layout_node_scroll_vertical);
-            const UiLayoutOverflow overflow = calculate_overflow(parent.content_rectangle, node.rectangle);
-            if (has_overflow(overflow) && !scrolling &&
-                !has_flag(node.spec.style, ui_layout_node_allow_overflow)) {
-                push_diagnostic(&result, output,
-                                UiLayoutDiagnostic{UiLayoutDiagnosticKind::child_overflow,
-                                                   handle_for(node, index), handle_for(parent, node.parent),
-                                                   parent.content_rectangle, node.rectangle, overflow});
-            }
-            if (scrolling && !has_flag(parent.spec.style, ui_layout_node_clip_children)) {
-                push_diagnostic(&result, output,
-                                UiLayoutDiagnostic{UiLayoutDiagnosticKind::invalid_clip,
-                                                   handle_for(parent, node.parent), handle_for(node, index),
-                                                   parent.content_rectangle, node.clip_rectangle,
-                                                   UiLayoutOverflow{}});
-            }
-            const UiRect expected = expected_alignment_rectangle(engine, parent, node);
-            if (!rectangles_match(expected, node.rectangle)) {
-                push_diagnostic(&result, output,
-                                UiLayoutDiagnostic{UiLayoutDiagnosticKind::invalid_alignment,
-                                                   handle_for(node, index), handle_for(parent, node.parent),
-                                                   expected, node.rectangle, UiLayoutOverflow{}});
-            }
-        }
-        if (has_flag(node.spec.style, ui_layout_node_text_content)) {
-            const UiRect& content = node.content_rectangle;
-            const UiRect intrinsic{content.left, content.top,
-                                   content.left + node.spec.intrinsic_size.width,
-                                   content.top + node.spec.intrinsic_size.height};
-            const UiLayoutOverflow overflow = calculate_overflow(content, intrinsic);
-            if (has_overflow(overflow)) {
-                push_diagnostic(&result, output,
-                                UiLayoutDiagnostic{UiLayoutDiagnosticKind::text_overflow,
-                                                   handle_for(node, index), ui_layout_invalid_handle(),
-                                                   content, intrinsic, overflow});
-            }
-        }
-        if ((has_flag(node.spec.style, ui_layout_node_scroll_horizontal) ||
-             has_flag(node.spec.style, ui_layout_node_scroll_vertical)) &&
-            !has_flag(node.spec.style, ui_layout_node_clip_children)) {
-            push_diagnostic(&result, output,
-                            UiLayoutDiagnostic{UiLayoutDiagnosticKind::invalid_clip,
-                                               handle_for(node, index), ui_layout_invalid_handle(),
-                                               node.content_rectangle, node.clip_rectangle,
-                                               UiLayoutOverflow{}});
-        }
-    }
-    for (u32 parent_index = 0; parent_index < engine.count; ++parent_index) {
-        const UiLayoutNode& parent = engine.storage[parent_index];
-        if (!parent.visible || parent.spec.style.flow == UiLayoutFlow::overlay ||
-            has_flag(parent.spec.style, ui_layout_node_allow_overlap)) {
-            continue;
-        }
-        for (u16 left_slot = parent.first_child; left_slot != kInvalidUiLayoutSlot;
-             left_slot = engine.storage[left_slot].next_sibling) {
-            const UiLayoutNode& left = engine.storage[left_slot];
-            if (!left.visible || has_flag(left.spec.style, ui_layout_node_allow_overlap)) {
-                continue;
-            }
-            if (parent.spec.style.flow == UiLayoutFlow::horizontal &&
-                left.spec.style.vertical_alignment == UiLayoutAlignment::baseline) {
-                const float expected = left.rectangle.top + left.measured_baseline;
-                for (u16 peer_slot = left.next_sibling; peer_slot != kInvalidUiLayoutSlot;
-                     peer_slot = engine.storage[peer_slot].next_sibling) {
-                    const UiLayoutNode& peer = engine.storage[peer_slot];
-                    if (peer.visible && peer.spec.style.vertical_alignment == UiLayoutAlignment::baseline &&
-                        absolute_value(expected - (peer.rectangle.top + peer.measured_baseline)) >
-                            kLayoutEpsilon) {
-                        push_diagnostic(&result, output,
-                                        UiLayoutDiagnostic{UiLayoutDiagnosticKind::invalid_baseline,
-                                                           handle_for(left, left_slot),
-                                                           handle_for(peer, peer_slot), left.rectangle,
-                                                           peer.rectangle, UiLayoutOverflow{}});
-                    }
-                }
-            }
-            for (u16 right_slot = left.next_sibling; right_slot != kInvalidUiLayoutSlot;
-                 right_slot = engine.storage[right_slot].next_sibling) {
-                const UiLayoutNode& right = engine.storage[right_slot];
-                if (right.visible && !has_flag(right.spec.style, ui_layout_node_allow_overlap) &&
-                    rectangles_intersect(left.rectangle, right.rectangle)) {
-                    const UiRect collision = ui_rect_intersection(left.rectangle, right.rectangle);
-                    push_diagnostic(&result, output,
-                                    UiLayoutDiagnostic{UiLayoutDiagnosticKind::sibling_collision,
-                                                       handle_for(left, left_slot),
-                                                       handle_for(right, right_slot), UiRect{}, collision,
-                                                       UiLayoutOverflow{}});
-                }
-            }
-        }
-    }
-    return result;
-}
-
-UiLayoutValidationResult ui_layout_engine_validate_content_bounds(
-    const UiLayoutEngine& engine, ConstSlice<UiLayoutContentBounds> content,
-    Slice<UiLayoutDiagnostic> output) noexcept {
-    UiLayoutValidationResult result{};
-    if (!engine.storage.data || engine.count == 0 || (!content.data && content.count != 0) ||
-        (!output.data && output.count != 0)) {
-        result.dropped = 1;
-        return result;
-    }
-    for (u32 index = 0; index < content.count; ++index) {
-        const UiLayoutContentBounds& bounds = content[index];
-        const UiLayoutNode* owner = ui_layout_engine_resolve(engine, bounds.owner);
-        if (!owner) {
-            push_diagnostic(&result, output,
-                            UiLayoutDiagnostic{UiLayoutDiagnosticKind::invalid_content_owner, bounds.owner,
-                                               ui_layout_invalid_handle(), UiRect{}, bounds.rectangle,
-                                               UiLayoutOverflow{}});
-            continue;
-        }
-        if (!ui_rect_valid(bounds.rectangle)) {
-            push_diagnostic(&result, output,
-                            UiLayoutDiagnostic{UiLayoutDiagnosticKind::invalid_extent, bounds.owner,
-                                               ui_layout_invalid_handle(), UiRect{}, bounds.rectangle,
-                                               UiLayoutOverflow{}});
-            continue;
-        }
-        const UiRect expected =
-            bounds.kind == UiLayoutContentKind::control ? owner->rectangle : owner->content_rectangle;
-        const UiRect tolerated_content{
-            expected.left - kRenderedContentTolerance, expected.top - kRenderedContentTolerance,
-            expected.right + kRenderedContentTolerance, expected.bottom + kRenderedContentTolerance};
-        const UiLayoutOverflow overflow = calculate_overflow(tolerated_content, bounds.rectangle);
-        if (has_overflow(overflow) && (bounds.flags & ui_layout_content_bounds_allow_overflow) == 0 &&
-            !has_flag(owner->spec.style, ui_layout_node_allow_overflow)) {
-            push_diagnostic(&result, output,
-                            UiLayoutDiagnostic{bounds.kind == UiLayoutContentKind::text
-                                                   ? UiLayoutDiagnosticKind::text_overflow
-                                                   : UiLayoutDiagnosticKind::content_overflow,
-                                               bounds.owner, ui_layout_invalid_handle(), tolerated_content,
-                                               bounds.rectangle, overflow});
-        }
-    }
-    for (u32 left_index = 0; left_index < content.count; ++left_index) {
-        const UiLayoutContentBounds& left = content[left_index];
-        if ((left.flags & ui_layout_content_bounds_collision) == 0 ||
-            (left.flags & ui_layout_content_bounds_allow_overlap) != 0) {
-            continue;
-        }
-        const UiLayoutNode* left_owner = ui_layout_engine_resolve(engine, left.owner);
-        if (!left_owner || !ui_rect_valid_or_empty(left.rectangle)) {
-            continue;
-        }
-        for (u32 right_index = left_index + 1; right_index < content.count; ++right_index) {
-            const UiLayoutContentBounds& right = content[right_index];
-            if ((right.flags & ui_layout_content_bounds_collision) == 0 ||
-                (right.flags & ui_layout_content_bounds_allow_overlap) != 0) {
-                continue;
-            }
-            const UiLayoutNode* right_owner = ui_layout_engine_resolve(engine, right.owner);
-            if (!right_owner || !ui_rect_valid_or_empty(right.rectangle) ||
-                has_flag(left_owner->spec.style, ui_layout_node_allow_overlap) ||
-                has_flag(right_owner->spec.style, ui_layout_node_allow_overlap) ||
-                layout_node_is_ancestor(engine, left.owner.slot, right.owner.slot) ||
-                layout_node_is_ancestor(engine, right.owner.slot, left.owner.slot)) {
-                continue;
-            }
-            const UiRect visible_left = ui_rect_intersection(left.rectangle, left_owner->clip_rectangle);
-            const UiRect visible_right = ui_rect_intersection(right.rectangle, right_owner->clip_rectangle);
-            if (!rectangles_intersect(visible_left, visible_right)) {
-                continue;
-            }
-            const UiRect collision = ui_rect_intersection(visible_left, visible_right);
-            push_diagnostic(&result, output,
-                            UiLayoutDiagnostic{UiLayoutDiagnosticKind::content_collision, left.owner,
-                                               right.owner, UiRect{}, collision, UiLayoutOverflow{}});
-        }
-    }
-    return result;
 }
 
 } // namespace maicord

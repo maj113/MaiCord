@@ -91,7 +91,7 @@ LPARAM point(UiPoint p) noexcept {
 
 bool thread_browser_ui_adapter_begin(HWND window, D3D11Renderer& renderer,
     bool (*refresh)(void*) noexcept, void* context) noexcept {
-    if (browser_adapter || application_thread_browser_metrics().owner_bytes) return false;
+    if (browser_adapter || application_thread_browser_active()) return false;
     auto* value = static_cast<BrowserAdapter*>(VirtualAlloc(nullptr, sizeof(BrowserAdapter), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!value) return false;
     value->prior = g_app;

@@ -1,4 +1,5 @@
 #include "maicord/ui/scene.hpp"
+#include "layout_validation.hpp"
 
 namespace maicord {
 

@@ -181,7 +181,6 @@ struct ReadyContext {
 };
 
 struct ResumedContext {
-    GatewayResumed resumed;
     GatewayEventDecodeError error;
     u32 seen;
 };
@@ -378,13 +377,8 @@ bool visit_resumed_member(void* opaque, JsonString name, JsonValue value) noexce
     if (!json_string_equals_ascii(name, utf8_literal("_trace"))) {
         return true;
     }
-    if (!accept_member(&context->seen, 1, value.kind == JsonValueKind::array, &context->error,
-                       GatewayEventDecodeError::invalid_trace)) {
-        return false;
-    }
-    context->resumed.trace = value;
-    context->resumed.has_trace = true;
-    return true;
+    return accept_member(&context->seen, 1, value.kind == JsonValueKind::array, &context->error,
+                         GatewayEventDecodeError::invalid_trace);
 }
 
 // Scans and visits the members of an object value.
@@ -514,18 +508,14 @@ GatewayEventDecodeResult gateway_decode_ready(JsonValue data, Slice<u32> structu
 }
 
 GatewayEventDecodeResult gateway_decode_resumed(JsonValue data, Slice<u32> structural_scratch,
-                                                u32 maximum_depth, GatewayResumed* output) noexcept {
+                                                u32 maximum_depth) noexcept {
     if (data.kind != JsonValueKind::object) {
         return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
     }
     ResumedContext context{};
     const auto result = visit_object(data, structural_scratch, maximum_depth, visit_resumed_member,
                                      &context, &context.error, GatewayEventDecodeError::invalid_json);
-    if (!result.ok()) {
-        return result;
-    }
-    *output = context.resumed;
-    return decode_failure(GatewayEventDecodeError::none);
+    return result.ok() ? decode_failure(GatewayEventDecodeError::none) : result;
 }
 
 GatewayEventDecodeResult gateway_decode_supplemental_private_channels(JsonValue data, Slice<u32> scratch,

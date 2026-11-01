@@ -29,11 +29,9 @@ bool custom_fixture_picker_snapshot(const NativeFilePicker*, u32, FileSnapshot*)
 void custom_fixture_picker_cancel(NativeFilePicker*) noexcept;
 bool custom_fixture_picker_release(NativeFilePicker*, u32) noexcept;
 namespace app_detail {
-UiPageRegistry* custom_fixture_pages() noexcept;
 bool custom_fixture_appearance_selected() noexcept;
 bool custom_fixture_settings_active() noexcept;
 u64 custom_fixture_settings_lifetime() noexcept;
-void custom_fixture_refresh_pages() noexcept;
 bool custom_fixture_editor_active() noexcept;
 bool custom_fixture_logout_blocked() noexcept;
 void custom_fixture_preferences_apply() noexcept;
@@ -47,7 +45,6 @@ bool custom_fixture_request_frame() noexcept;
 #define application_custom_theme_synchronize custom_fixture_synchronize
 #define application_custom_theme_release custom_fixture_release
 #define application_custom_theme_document custom_fixture_document
-#define application_custom_theme_revision custom_fixture_revision
 #define application_custom_theme_view custom_fixture_view
 #define application_custom_theme_action custom_fixture_action
 #define application_custom_theme_cancel_interaction custom_fixture_cancel_interaction
@@ -56,11 +53,9 @@ bool custom_fixture_request_frame() noexcept;
 #define application_custom_theme_restore custom_fixture_restore
 #define application_custom_theme_catalog custom_fixture_catalog
 #define application_custom_theme_select_installed custom_fixture_select_installed
-#define application_settings_pages custom_fixture_pages
 #define application_settings_appearance_selected custom_fixture_appearance_selected
 #define application_settings_active custom_fixture_settings_active
 #define application_settings_lifetime custom_fixture_settings_lifetime
-#define application_settings_refresh_pages custom_fixture_refresh_pages
 #define application_theme_editor_active custom_fixture_editor_active
 #define application_account_logout_blocked custom_fixture_logout_blocked
 #define application_preferences_apply custom_fixture_preferences_apply
@@ -91,7 +86,7 @@ struct Transport {
     ClientThemeStorageSnapshot requested{};
     FileSnapshot imported_identity{};
     u64 serial{}, generation{}, cancelled{};
-    u32 loads{}, imports{}, saves{}, publications{}, frames{}, refreshes{}, preparations{};
+    u32 loads{}, imports{}, saves{}, publications{}, frames{}, preparations{};
     ClientThemeIoOperation operation{};
     bool ready{}, picker_ready{}, publication_failed{}, stop_failed{}, blocked{};
     bool settings_active{true};
@@ -213,9 +208,6 @@ bool custom_fixture_picker_release(NativeFilePicker* picker, u32) noexcept {
     return true;
 }
 namespace app_detail {
-UiPageRegistry* custom_fixture_pages() noexcept {
-    return &custom_theme_test::registry;
-}
 bool custom_fixture_settings_active() noexcept {
     return custom_theme_test::transport.settings_active;
 }
@@ -226,9 +218,6 @@ bool custom_fixture_appearance_selected() noexcept {
 }
 u64 custom_fixture_settings_lifetime() noexcept {
     return custom_theme_test::transport.settings_lifetime;
-}
-void custom_fixture_refresh_pages() noexcept {
-    ++custom_theme_test::transport.refreshes;
 }
 bool custom_fixture_editor_active() noexcept {
     return false;
@@ -408,12 +397,12 @@ void test_application_custom_theme(void (*check)(bool, const char*) noexcept) no
             application_custom_theme_document() && g_app.preferences.output_volume == 37,
         "custom theme owner: restoring imported theme leaves independent notification preferences intact");
     receipt(ClientThemeStorageError::none);
-    const auto revision = application_custom_theme_revision();
+    const auto revision = application_custom_theme_view().revision;
     const auto publications = transport.publications, frames = transport.frames, saves = transport.saves;
     bool warm = true;
     for (u32 i = 0; i < 64; ++i)
         warm = application_custom_theme_synchronize() && warm;
-    check(warm && application_custom_theme_revision() == revision &&
+    check(warm && application_custom_theme_view().revision == revision &&
               transport.publications == publications && transport.frames == frames &&
               transport.saves == saves,
           "custom theme owner: 64 unchanged synchronizations add no publication repaint or IO admission");
@@ -467,11 +456,11 @@ void test_application_custom_theme(void (*check)(bool, const char*) noexcept) no
           "custom theme owner: durable logout admission blocks new native picker actions");
     transport.blocked = false;
     transport.stop_failed = true;
-    check(!application_custom_theme_release() && application_custom_theme_revision() != 0 &&
+    check(!application_custom_theme_release() && application_custom_theme_view().revision != 0 &&
               !application_custom_theme_action(ApplicationCustomThemeAction::import_file),
           "custom theme owner: failed worker join retains the owner and rejects new actions");
     transport.stop_failed = false;
-    check(application_custom_theme_release() && application_custom_theme_revision() == 0,
+    check(application_custom_theme_release() && application_custom_theme_view().revision == 0,
           "custom theme owner: joined shutdown releases all retained snapshots");
     g_app.preferences = prior_preferences;
     g_app.plugin_account_scope_serial = prior_scope;

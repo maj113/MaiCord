@@ -28,6 +28,5 @@ bool reaction_intent_ui_adapter_response(
     u16 status, RestClientError error = RestClientError::none) noexcept;
 void reaction_intent_ui_adapter_observe(const GatewayMessageReactionEvent&) noexcept;
 bool reaction_intent_ui_adapter_synchronize() noexcept;
-app_detail::ApplicationMessageReactionMetrics reaction_intent_ui_adapter_metrics() noexcept;
 bool reaction_intent_ui_adapter_flight(u64* request_id, u64* message_id, u64* emoji_id, bool* add) noexcept;
 } // namespace maicord

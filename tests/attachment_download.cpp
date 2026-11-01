@@ -132,16 +132,16 @@ void test_attachment_download(void (*check)(bool, const char*) noexcept) noexcep
 
     char filename[514]{};
     const auto unchanged = attachment_download_safe_filename(utf8_literal("holiday photo.png"), {filename, sizeof(filename)});
-    check(unchanged.ok() && !unchanged.changed && !unchanged.risky && same({filename, unchanged.bytes}, utf8_literal("holiday photo.png")),
+    check(unchanged.ok() && !unchanged.risky && same({filename, unchanged.bytes}, utf8_literal("holiday photo.png")),
         "attachment filename preserves ordinary metadata spelling");
     const auto unsafe = attachment_download_safe_filename(utf8_literal("..\\dir/report.exe:stream?* \r\n"), {filename, sizeof(filename)});
-    check(unsafe.ok() && unsafe.changed && same({filename, unsafe.bytes}, utf8_literal(".._dir_report.exe_stream__ __")) &&
+    check(unsafe.ok() && same({filename, unsafe.bytes}, utf8_literal(".._dir_report.exe_stream__ __")) &&
         filename[unsafe.bytes] == 0, "attachment filename flattens traversal/separators, ADS and control punctuation to one component");
     bool devices = true;
     for (const auto device : {utf8_literal("CON.txt"), utf8_literal("prn"), utf8_literal("aux.log"), utf8_literal("NUL.tar.gz"),
             utf8_literal("COM1.exe"), utf8_literal("lpt9"), utf8_literal("CON .txt"), utf8_literal("COM\xc2\xb9.log"), utf8_literal("LPT\xc2\xb2.txt")}) {
         const auto renamed = attachment_download_safe_filename(device, {filename, sizeof(filename)});
-        devices = devices && renamed.ok() && renamed.changed && filename[0] == '_';
+        devices = devices && renamed.ok() && filename[0] == '_';
     }
     check(devices, "attachment filename avoids case-insensitive Windows devices including extensions and superscript COM/LPT digits");
     const auto trailing = attachment_download_safe_filename(utf8_literal("run.EXE.  "), {filename, sizeof(filename)});
@@ -153,7 +153,8 @@ void test_attachment_download(void (*check)(bool, const char*) noexcept) noexcep
     check(bidi.ok() && bidi.risky && same({filename, bidi.bytes}, utf8_literal("photo_.exe")),
         "attachment filename removes bidi override that could disguise risky extension");
     const auto encoded = attachment_download_safe_filename(utf8_literal("file%2Fname%20final.txt"), {filename, sizeof(filename)});
-    check(encoded.ok() && !encoded.changed, "attachment metadata filename is not URL-decoded a second time");
+    check(encoded.ok() && same({filename, encoded.bytes}, utf8_literal("file%2Fname%20final.txt")),
+        "attachment metadata filename is not URL-decoded a second time");
     char long_name[504]{};
     for (u32 i = 0; i < 500; ++i) long_name[i] = 'a';
     copy_bytes(long_name + 500, ".EXE", 4);
@@ -179,8 +180,8 @@ void test_attachment_download(void (*check)(bool, const char*) noexcept) noexcep
     char aliased[32]{};
     copy_bytes(aliased, "name:file.txt", 13);
     const auto alias = attachment_download_safe_filename({aliased, 13}, {aliased, sizeof(aliased)});
-    check(alias.ok() && alias.changed && same({aliased, alias.bytes}, utf8_literal("name_file.txt")),
-        "filename sanitizer safely supports shared input/output and retains change diagnostic");
+    check(alias.ok() && same({aliased, alias.bytes}, utf8_literal("name_file.txt")),
+        "filename sanitizer safely supports shared input/output");
     bool extensions = true;
     for (const auto name : {utf8_literal("file.ExE"), utf8_literal("file.zip"), utf8_literal("file.ps1"), utf8_literal("file.docm"),
             utf8_literal("file.printerexport"), utf8_literal(".lnk"), utf8_literal("file.msixbundle")})

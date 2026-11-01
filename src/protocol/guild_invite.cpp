@@ -39,14 +39,9 @@ bool guild_member(void* opaque, JsonString name, JsonValue value) noexcept {
 bool channel_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& m = *static_cast<Members*>(opaque);
     u64 type = 0;
-    switch (protocol_detail::member_index<"id", "name", "type">(name)) {
+    switch (protocol_detail::member_index<"id", "type">(name)) {
     case 0: return json_value_to_snowflake(value, &m.invite->channel_id);
     case 1:
-        m.invite->channel_name_bytes = value.kind == JsonValueKind::string
-                                           ? copy_text(value, m.invite->channel_name, kGuildInviteNameBytes)
-                                           : 0;
-        break;
-    case 2:
         if (json_value_to_u64(value, &type))
             m.invite->channel_type = static_cast<u8>(minimum<u64>(type, 255));
         break;

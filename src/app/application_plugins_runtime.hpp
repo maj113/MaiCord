@@ -3,7 +3,6 @@
 #include "maicord/app/plugin_preferences.hpp"
 #include "maicord/platform/file_picker.hpp"
 #include "maicord/app/plugin_bundle_install.hpp"
-#include "maicord/core/utf.hpp"
 
 namespace maicord {
 enum class RelationshipType : u8;
@@ -73,6 +72,5 @@ void application_plugins_fx_poll(ApplicationPluginsSdk&) noexcept;
 // Fill the runtime's host sources (application_plugins_read.cpp, _actions.cpp).
 void application_plugins_read_install(NativePluginSdkRuntime&) noexcept;
 void application_plugins_actions_install(NativePluginSdkRuntime&) noexcept;
-void application_plugins_set_notice(ApplicationPlugins&, Utf8View first, Utf8View second = {},
-                                    Utf8View third = {}) noexcept;
+void application_plugins_set_notice(ApplicationPlugins&, Utf8View first, Utf8View second = {}) noexcept;
 } // namespace maicord::app_detail

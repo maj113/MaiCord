@@ -1,4 +1,4 @@
-cbuffer UiFrame : register(b0) {float2 coordinate_scale;float2 coordinate_translation;float group_opacity;float3 frame_reserved;};
+cbuffer UiFrame : register(b0) {float2 coordinate_scale;float2 coordinate_translation;float group_opacity;};
 struct MediaVertexInput {float4 rectangle:RECT;float4 texture_rectangle:TEXCOORD0;float4 parameters:TEXCOORD1;float4 rounded_clip:TEXCOORD2;};
 struct MediaVertexOutput {
     float4 position : SV_Position;

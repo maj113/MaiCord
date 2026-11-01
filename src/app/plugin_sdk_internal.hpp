@@ -2,9 +2,6 @@
 // Private to the plugin SDK host (plugin_sdk*.cpp): the binding layout and the
 // helpers every interface shares. Nothing outside these files includes it.
 #include "maicord/app/plugin_sdk.hpp"
-#include "maicord/app/plugin_settings_projection.hpp"
-#include "maicord/core/ascii.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/app/plugin_host.hpp"
 #include <stddef.h>
 

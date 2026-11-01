@@ -1091,7 +1091,7 @@ void run() noexcept {
         const u32 selections = account.selections;
         const bool was_playing = account.status.playback.playing;
         const i64 position = account.status.playback.position_100ns;
-        check(application_video_key('F', false, false) && viewer_opens == 1 && application_video_expanded() &&
+        check(application_video_key('F', false, false) && viewer_opens == 1 && g_app.image_viewer.scene.active &&
                   pump() && g_app.renderer.video_scene && g_app.renderer.video_scene_viewer &&
                   ui_rect_equal(g_app.renderer.video_scene->preview, viewer_preview) &&
                   account.selections == selections && account.status.playback.playing == was_playing &&
@@ -1102,14 +1102,14 @@ void run() noexcept {
               "video expand runtime: the hosted player uses the expanded idle delay and collapse control");
         terminal_buffering();
         retry_range_commands(true);
-        check(application_video_key(VK_ESCAPE, false, false) && !application_video_expanded() &&
+        check(application_video_key(VK_ESCAPE, false, false) &&
                   !g_app.image_viewer.scene.active && pump() && g_app.renderer.video_scene &&
                   !g_app.renderer.video_scene_viewer &&
                   ui_rect_equal(g_app.renderer.video_scene->preview, inline_preview) &&
                   account.selections == selections && account.status.playback.playing == was_playing,
               "video expand runtime: Esc returns the session to its inline preview with the same play state");
         viewer_allowed = false;
-        check(application_video_key('F', false, false) && !application_video_expanded() && pump() &&
+        check(application_video_key('F', false, false) && pump() &&
                   !g_app.renderer.video_scene_viewer && !g_app.image_viewer.scene.active,
               "video expand runtime: a refused viewer leaves the inline player in place");
         viewer_allowed = true;
@@ -1670,7 +1670,7 @@ void run() noexcept {
             }
             auto selected_before = account.selections, requested_before = account.network_requests;
             auto position_before = account.status.playback.position_100ns;
-            check(application_video_key('F', false, false) && application_video_expanded() && pump() &&
+            check(application_video_key('F', false, false) && g_app.image_viewer.scene.active && pump() &&
                   g_app.renderer.video_scene_viewer && g_app.renderer.video_scene && account.status.playback.playing &&
                   account.status.playback.muted && account.selections == selected_before &&
                   account.network_requests == requested_before && account.status.playback.position_100ns == position_before &&
@@ -1690,12 +1690,12 @@ void run() noexcept {
                 account.status.playback.desired_volume = account.status.playback.applied_volume = .37f;
                 check(pump() && application_video_key(VK_SPACE, false, false) && pump() && !account.status.playback.playing,
                     "live pause retains the current selection without resolving or polling");
-                check(application_video_key(VK_SPACE, false, false) && pump() && application_video_expanded() &&
+                check(application_video_key(VK_SPACE, false, false) && pump() && g_app.image_viewer.scene.active &&
                     !account.status.selected && selection_busy && pump() && account.network_requests == requested_before + 1,
                     "live resume joins the old owner and requests fresh media while preserving maximized geometry");
                 selection_busy = false;
                 check(pump() && account.status.playback.identity.session_epoch > epoch && account.status.playback.playing &&
-                    account.status.playback.muted && account.status.playback.desired_volume == .37f && application_video_expanded(),
+                    account.status.playback.muted && account.status.playback.desired_volume == .37f && g_app.image_viewer.scene.active,
                     "fresh live playback restores volume and mute before playing on a new fenced epoch");
                 account.queued_frame = {account.status.key, account.status.playback.identity, &provider_frame};
                 account.frame_pending = true; provider_upload = true;
@@ -1704,7 +1704,7 @@ void run() noexcept {
                 selected_before = account.selections; requested_before = account.network_requests;
                 position_before = account.status.playback.position_100ns;
             }
-            check(application_video_key(VK_ESCAPE, false, false) && pump() && !application_video_expanded() &&
+            check(application_video_key(VK_ESCAPE, false, false) && pump() && !g_app.image_viewer.scene.active &&
                   media_asset_key_equal(g_app.renderer.inline_embed_video, account.status.key) &&
                   account.selections == selected_before && account.network_requests == requested_before,
                   "provider collapse restores the decoded inline frame without another request or decoder");

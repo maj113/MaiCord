@@ -2,7 +2,8 @@
 
 namespace maicord::app_detail {
 
-void application_log_shutdown_metrics() noexcept;
+// Writes the open message drafts at exit.
+void application_persist_drafts_on_exit() noexcept;
 
 #if defined(MAICORD_STARTUP_PROBE)
 // Requires the explicit benchmark flag and an isolated runner profile marker.

@@ -16,38 +16,35 @@ bool leb(ConstSlice<u8> bytes, u32& cursor, u64& value) noexcept {
     }
     return false;
 }
-DaveFrameParseResult failure(DaveFrameError error) noexcept {
-    return {0, error};
-}
 } // namespace
 DaveFrameParseResult dave_frame_parse(ConstSlice<u8> frame, Slice<DaveClearRange> ranges,
                                       DaveFrameView* output) noexcept {
     if (frame.count < 2 || frame.data[frame.count - 2] != 0xFA || frame.data[frame.count - 1] != 0xFA)
-        return failure(DaveFrameError::not_encrypted);
+        return {DaveFrameError::not_encrypted};
     if (frame.count < 12)
-        return failure(DaveFrameError::malformed);
+        return {DaveFrameError::malformed};
     const u32 extra = frame.data[frame.count - 3];
     if (extra < 12 || extra > frame.count)
-        return failure(DaveFrameError::malformed);
+        return {DaveFrameError::malformed};
     const u32 body = frame.count - extra;
     const ConstSlice<u8> encoded{frame.data + body + kDaveFrameTagBytes, extra - kDaveFrameTagBytes - 3};
     u32 cursor = 0;
     u64 nonce = 0;
     if (!leb(encoded, cursor, nonce) || nonce > ~u32{0})
-        return failure(DaveFrameError::malformed);
+        return {DaveFrameError::malformed};
     const u32 ranges_begin = cursor;
     u32 count = 0, previous_end = 0, clear = 0;
     while (cursor != encoded.count) {
         u64 offset = 0, bytes = 0;
         if (!leb(encoded, cursor, offset) || !leb(encoded, cursor, bytes) || offset < previous_end ||
             offset > body || bytes > body - offset)
-            return failure(DaveFrameError::malformed);
+            return {DaveFrameError::malformed};
         previous_end = static_cast<u32>(offset + bytes);
         clear += static_cast<u32>(bytes);
         ++count;
     }
     if (count > ranges.count)
-        return {count, DaveFrameError::range_capacity};
+        return {DaveFrameError::range_capacity};
     // Metadata is at most 244 bytes. Revisit it to publish ranges atomically,
     // without a private maximum-sized range array or touching frame contents.
     cursor = ranges_begin;
@@ -58,7 +55,7 @@ DaveFrameParseResult dave_frame_parse(ConstSlice<u8> frame, Slice<DaveClearRange
         ranges.data[i] = {static_cast<u32>(offset), static_cast<u32>(bytes)};
     }
     *output = {frame, {ranges.data, count}, body, clear, static_cast<u32>(nonce)};
-    return {count, DaveFrameError::none};
+    return {DaveFrameError::none};
 }
 void dave_frame_gather(const DaveFrameView& view, u8* aad, u8* cipher) noexcept {
     u32 read = 0;

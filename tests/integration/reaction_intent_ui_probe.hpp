@@ -453,7 +453,7 @@ inline bool reaction_intent_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache
                   tu = renderer.text_instance_uploads, mu = renderer.media_instance_uploads,
                   draws = renderer.painted_frames, skips = renderer.unchanged_present_skips;
         const auto rich_updated = reaction_intent_ui_adapter_rich_store()->updated;
-        const auto owner = reaction_intent_ui_adapter_metrics();
+        const bool owner_active = app_detail::application_message_reaction_observation_needed();
         const u32 shell_layout = renderer.ui_scene->layout_passes,
                   shell_rebuilds = renderer.ui_scene->layout_rebuilds,
                   rail_layout = renderer.guild_rail_scene->layout_passes,
@@ -505,16 +505,8 @@ inline bool reaction_intent_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache
                             "reaction_intent_warm_composer_layout",
                             "reaction_intent_warm_navigation_revision"};
         log_u64(LogLevel::info, "probe", "reaction_intent_warm_case", case_index);
-        const auto current_owner = reaction_intent_ui_adapter_metrics();
         bool valid = reaction_intent_ui_adapter_rich_store()->updated == rich_updated &&
-                     owner.owner_bytes == current_owner.owner_bytes &&
-                     owner.owner_committed_bytes == current_owner.owner_committed_bytes &&
-                     owner.intent_bytes == current_owner.intent_bytes &&
-                     owner.intent_committed_bytes == current_owner.intent_committed_bytes &&
-                     owner.intent_count == current_owner.intent_count &&
-                     owner.backed_slots == current_owner.backed_slots &&
-                     owner.revision == current_owner.revision && owner.active == current_owner.active &&
-                     owner.flight_active == current_owner.flight_active;
+                     owner_active == app_detail::application_message_reaction_observation_needed();
         for (u32 i = 0; i < 19; ++i) {
             log_u64(LogLevel::info, "probe", names[i], values[i]);
             valid &= values[i] == (i == 10 ? 64u : 0u);
@@ -523,15 +515,6 @@ inline bool reaction_intent_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache
         log_u64(LogLevel::info, "probe", "reaction_intent_warm_native_rows_committed",
                 scene.owned_rows.capacity);
         log_u64(LogLevel::info, "probe", "reaction_intent_warm_model_records", store->count);
-        log_u64(LogLevel::info, "probe", "reaction_intent_warm_owner_bytes", owner.owner_bytes);
-        log_u64(LogLevel::info, "probe", "reaction_intent_warm_owner_committed_bytes",
-                owner.owner_committed_bytes);
-        log_u64(LogLevel::info, "probe", "reaction_intent_warm_intent_bytes", owner.intent_bytes);
-        log_u64(LogLevel::info, "probe", "reaction_intent_warm_intent_committed_bytes",
-                owner.intent_committed_bytes);
-        log_u64(LogLevel::info, "probe", "reaction_intent_warm_intent_count", owner.intent_count);
-        log_u64(LogLevel::info, "probe", "reaction_intent_warm_backed_slots", owner.backed_slots);
-        log_u64(LogLevel::info, "probe", "reaction_intent_warm_owner_revision", owner.revision);
         return valid;
     };
     renderer_set_dpi(&renderer, 96);

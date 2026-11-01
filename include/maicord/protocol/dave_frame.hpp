@@ -21,7 +21,6 @@ enum class DaveFrameError : u8 {
     range_capacity
 };
 struct DaveFrameParseResult {
-    u32 range_count;
     DaveFrameError error;
     constexpr bool ok() const noexcept {
         return error == DaveFrameError::none;
@@ -29,7 +28,7 @@ struct DaveFrameParseResult {
 };
 // Borrow input and caller range storage; frame, ranges and output are distinct
 // valid caller objects. Full validation precedes writes to either output;
-// range_capacity reports the required count after validation. Keep
+// range_capacity reports too little range storage after validation. Keep
 // metadata/ranges alive and unchanged through the cryptographic operation.
 // not_encrypted is classification only, NOT permission for plaintext playback.
 // Noncanonical ULEB encodings are accepted as in libdave; overflow is rejected.

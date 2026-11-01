@@ -456,7 +456,6 @@ bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest&
         if (!projected || flag_projection.count > storage->hit_span_capacity ||
             flag_projection.count > kRendererInlineFlagCapacity - renderer->inline_media.count) {
             flag_projection.count = 0;
-            saturating_increment(renderer->inline_media.rejected);
         }
         if (flag_projection.count && !renderer->inline_media.flags) {
             renderer->inline_media.flags = static_cast<RendererInlineFlag*>(
@@ -464,7 +463,6 @@ bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest&
                              MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
             if (!renderer->inline_media.flags) {
                 flag_projection.count = 0;
-                saturating_increment(renderer->inline_media.rejected);
             }
         }
         if (flag_projection.count)
@@ -535,7 +533,6 @@ bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest&
     const u32 semantic_span_capacity =
         storage->hit_span_capacity - (selection_active && storage->hit_span_capacity != 0 ? 1u : 0u);
     semantic_count = minimum(semantic_count, semantic_span_capacity);
-    saturating_increment_if(semantic_count != semantics.count, storage->semantic_truncations);
     const u32 semantic_base = storage->content_semantic_count;
     // Hit spans carry command-local semantic indices so a shaped result does
     // not depend on where it lands in the frame; publication adds semantic_base.
@@ -603,12 +600,10 @@ bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest&
         if (flag_projection.count) {
             styles = original_styles;
             flag_projection.count = 0;
-            saturating_increment(renderer->inline_media.rejected);
         }
         interactive_count = 0;
         semantic_count = 0;
         selection_active = false;
-        saturating_increment(storage->semantic_truncations);
         shaped = shape(input, styles, 0);
     }
     if (shaped.error == TextShapeError::output_too_small) {
@@ -748,10 +743,8 @@ bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest&
             const UiRect rectangle{x - extent * .5f, y - extent * .5f, x + extent * .5f, y + extent * .5f};
             if (!ui_rect_intersects(rectangle, clip))
                 continue;
-            if (renderer->inline_media.count == kRendererInlineFlagCapacity) {
-                saturating_increment(renderer->inline_media.rejected);
+            if (renderer->inline_media.count == kRendererInlineFlagCapacity)
                 break;
-            }
             renderer->inline_media.flags[renderer->inline_media.count++] = {
                 layout_owner, rectangle, clip, flag_projection.flags[hit.semantic_index].sequence,
                 flag_layer};

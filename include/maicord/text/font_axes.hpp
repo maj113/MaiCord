@@ -13,7 +13,7 @@ struct FontAxis {
 };
 struct FontNamedInstance {
     ConstSlice<u8> coordinates; // Big-endian 16.16, in fvar axis order.
-    u16 name, postscript_name;
+    u16 name;
 };
 struct AxisSegmentMap { ConstSlice<u8> pairs; bool enabled; };
 struct FontAxisMappings { ConstSlice<AxisSegmentMap> axes; };

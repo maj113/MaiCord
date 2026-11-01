@@ -43,18 +43,16 @@ struct QuickSwitcherSourceStamp {
     u64 selected_channel_id, selected_guild_id, self_user_id;
     u32 guilds, channels, permissions, activity, selection, users, user_revision, private_channels, relationships;
 };
-struct QuickSwitcherStats { u32 visited_candidates, matched_candidates; };
 struct QuickSwitcherController {
     QuickSwitcherScope scope;
     QuickSwitcherSourceStamp stamp;
     QuickSwitcherRow rows[kQuickSwitcherMaximumResults];
     u64 recent_channels[kQuickSwitcherRecentMaximum];
     char query[kQuickSwitcherQueryMaximumBytes];
-    u32 count, revision, rebuild_count;
+    u32 count, revision;
     u16 query_bytes;
     u8 recent_count;
     QuickSwitcherPhase phase;
-    QuickSwitcherStats stats;
     bool initialized, overflow;
     QuickSwitcherMode mode;
     bool forwarding_age_restricted;

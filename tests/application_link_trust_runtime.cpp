@@ -124,7 +124,7 @@ void run(Check check, UiTextMeasureBackend measure) noexcept {
               text_form_focused(g_app.text_form->scene) == TextFormElement::accept,
           "link trust: the warning names the URL and the host, with Visit Site and Go Back");
     check(click(TextFormElement::cancel) && !g_app.text_form && launches == 2 &&
-              !link_trust_has_host(*application_link_trust_store(), utf8_literal("example.com")),
+              !link_trust_has_host(*current_store(), utf8_literal("example.com")),
           "link trust: Go Back opens nothing and trusts nothing");
 
     // Checking "Trust example.com" (keyboard) then Visit Site launches the
@@ -137,7 +137,7 @@ void run(Check check, UiTextMeasureBackend measure) noexcept {
           "link trust: the trust checkbox toggles from the keyboard");
     check(click(TextFormElement::accept) && !g_app.text_form && launches == 3 &&
               launched_is(L"https://user:secret@example.com/b") &&
-              link_trust_has_host(*application_link_trust_store(), utf8_literal("example.com")),
+              link_trust_has_host(*current_store(), utf8_literal("example.com")),
           "link trust: Visit Site launches the link and trusts its host");
     check(application_link_open(utf8_literal("https://example.com/c"), false) && launches == 4 && !g_app.text_form &&
               application_link_open(utf8_literal("https://sub.example.com/c"), false) && g_app.text_form,

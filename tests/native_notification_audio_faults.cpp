@@ -2,7 +2,6 @@
 #include "test_output.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/wasapi.hpp"
-#include "maicord/sys/winrt.hpp"
 #if !defined(MAICORD_NOTIFICATION_AUDIO_FIXTURE)
 #error This test must use the isolated nonemitting audio fixture copy.
 #endif

@@ -355,7 +355,7 @@ bool application_user_settings_response(const RestClientResponse& response, Utf8
     const bool ok = response.transport_ok() && response.status_code >= 200 && response.status_code < 300;
     UserSettingsResponse decoded{};
     if (ok)
-        decoded = user_settings_proto_decode_response(body, kUserSettingsStoredGroups, {},
+        decoded = user_settings_proto_decode_response(body, kUserSettingsStoredGroups,
                                                       {g_owner.bank->response, kUserSettingsProtoArenaBytes});
     const ConstSlice<u8> extracted{g_owner.bank->response, decoded.extracted.ok() ? decoded.extracted.bytes : 0};
     if (g_owner.fetching) {
@@ -505,9 +505,6 @@ void application_user_settings_request_content_confirmation() noexcept {
     application_text_form_open(request);
 }
 
-bool application_user_settings_read(UserSettingsField field, UserSettingsValue* value) noexcept {
-    return value && loaded() && user_settings_store_read(*store(), field, value);
-}
 u64 application_user_settings_revision() noexcept {
     return store() ? store()->revision : 0;
 }

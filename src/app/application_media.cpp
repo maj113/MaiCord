@@ -20,7 +20,6 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/media/animation_timeline.hpp"
 #include "maicord/media/presentation_policy.hpp"
-#include "maicord/model/asset_hash.hpp"
 #include "maicord/ui/geometry.hpp"
 #include "maicord/ui/private_channel_rows.hpp"
 #include "maicord/ui/popup_presentation.hpp"
@@ -74,7 +73,6 @@ __declspec(noinline) bool ApplicationMediaPump::pump_visible_static_media(bool* 
     }
     const u64 now_ms = clock_monotonic_milliseconds(), now_seconds = clock_unix_milliseconds() / 1'000;
     pass(now_ms, now_seconds, 0, repaint);
-    flush_media_success_diagnostics(now_ms);
     // Interaction-only chat animations play for the hovered, else focused, message.
     message_media_controller_set_interaction(&application.message_media,
                                              application.message_action_bar.message_id
@@ -174,7 +172,7 @@ __declspec(noinline) bool ApplicationMediaPump::pump_visible_static_media(bool* 
                 continue;
             application_local_preview_frame_uploaded(pending);
             ++uploads;
-            record_media_frame_uploaded();
+            trace_first_media_upload();
             if (repaint)
                 *repaint = true;
             continue;
@@ -220,7 +218,7 @@ __declspec(noinline) bool ApplicationMediaPump::pump_visible_static_media(bool* 
             return false;
         }
         ++uploads;
-        record_media_frame_uploaded();
+        trace_first_media_upload();
         if (geometry_changed) {
             message_media_controller_defer_scan(&application.message_media);
         }
@@ -1109,7 +1107,7 @@ __declspec(noinline) bool ApplicationMediaPump::pump_covered_animations(bool* re
                 return false;
             if (upload == MediaFrameUploadResult::uploaded) {
                 ++uploads;
-                record_media_frame_uploaded();
+                trace_first_media_upload();
                 if (repaint)
                     *repaint = true;
             }
@@ -1192,7 +1190,7 @@ ApplicationMediaPumpResult application_pump_forum_preview_media(Application* app
         if (local)
             application_local_preview_frame_uploaded(frame);
         ++uploads;
-        pump.record_media_frame_uploaded();
+        pump.trace_first_media_upload();
         result.repaint = true;
     }
     return result;

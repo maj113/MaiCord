@@ -39,7 +39,7 @@ def main():
             rows=[];steps=[];stop=threading.Event()
             for script in ('bengali','gujarati'):
                 env={k:v for k,v in os.environ.items() if not k.startswith('MAICORD_')}
-                env.update(MAICORD_INDIC_RUN_BENCH='1');env['MAICORD_'+script.upper()+'_RUN']='1'
+                env['MAICORD_'+script.upper()+'_RUN']='1'
                 step=run_check(args.side+'-'+script,[str(executable),str(font)],root,out,2,stop,env=env);steps.append(step)
                 measured=[json.loads(line) for line in Path(step['log']).read_text(encoding='utf-8').splitlines() if line.startswith('{')]
                 if len(measured)!=6 or any(r['script']!=script or len(r['batches'])!=7 for r in measured):raise ValueError('Incomplete measurements')

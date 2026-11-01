@@ -23,8 +23,6 @@
 #include "maicord/model/user_store.hpp"
 #include "maicord/ui/navigation_view.hpp"
 
-#include "maicord/sys/winsock.hpp"
-
 namespace maicord {
 namespace {
 
@@ -2910,7 +2908,7 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
             // A gallery sits in the text column, beside any corner thumbnail.
             if (message_rich_embed_gallery(*rich_store, *rich, index, &gallery)) {
                 media_width = message_rich_embed_gallery_width(
-                    *rich_store, embed, maximum(0.0f, body_width - (media_only ? 0.0f : text_insets)));
+                    embed, maximum(0.0f, body_width - (media_only ? 0.0f : text_insets)));
                 media_height = kMessageEmbedGalleryHeight;
             }
             if ((media_width > 0.0f && media_height > 0.0f) ||

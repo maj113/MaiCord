@@ -2,7 +2,18 @@
 #include "maicord/text/gsub_execute.hpp"
 namespace maicord {
 // Prepared type 1-4 subtable match at start of a validated view with position
-// scratch. Charges *work; see sfnt_gsub_subtable_match_view for the result.
+// scratch. Input is logical glyph order, limited to the applicable feature range;
+// the caller maintains glyph classes, including when GDEF omits classification.
+// The first glyph is tested regardless of filter flags. Glyphs skipped between
+// ligature components are not consumed, and positions lists only consumed
+// glyphs. The first matching ligature wins; alternate is zero-based. No match
+// returns ok with matched=false. On output_too_small, input_count holds the
+// required position capacity and other result fields are empty. Position scratch
+// is valid only after a successful match and must not overlap the input, font
+// mapping or prepared storage. Work charged per candidate is unaffected by reuse
+// of a filtered input prefix. A nonzero mask requires intersecting eligibility
+// bits in the glyphs' reserved byte across the whole input span, including
+// glyphs skipped by lookup filtering; zero disables the check. Charges *work.
 SfntStatus gsub_subtable_match(const SfntGsubSubtable&,const SfntGdef&,const SfntLookupFilter&,const SfntGlyphView&,
     u32 start,u32 alternate,Slice<u32> positions,SfntGsubMatch*,u32* work,u8 mask) noexcept;
 // Internal continuation that skips the argument and run validation of

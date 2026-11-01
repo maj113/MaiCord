@@ -3,7 +3,6 @@
 #include "maicord/media/mp4_fragment_audio.hpp"
 #include "maicord/media/mp4_segment_store.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/platform/aac_decoder.hpp"
 #include "maicord/platform/h264_gpu_decoder.hpp"
 #include "maicord/platform/mp4_decoder.hpp"
 #include "maicord/app/account_video_session.hpp"
@@ -1279,10 +1278,8 @@ void run() noexcept {
               "flat sidx bounds exact track ticks and 32/64-bit absolute byte offsets");
         Mp4FragmentRange range{};
         check(mp4_fragment_index_range(index, 0, &range) && range.offset == first && range.bytes == 1000 &&
-              range.starts_with_sap && range.sap_type == 1 && !range.sap_delta &&
-              mp4_fragment_index_seek(index, 1500, &range) && range.offset == first + 1000 && range.index == 1 &&
-              !range.starts_with_sap && !range.sap_type,
-              "sidx lookup finds the containing segment and reports random-access evidence without inventing it");
+              mp4_fragment_index_seek(index, 1500, &range) && range.offset == first + 1000 && range.index == 1,
+              "sidx lookup finds the containing segment");
         const auto previous = range; const auto old = index;
         check(!mp4_fragment_index_seek(index, 2000, &range) && !mp4_fragment_index_seek(index, 999, &range) &&
               !mp4_fragment_index_range(index, 2, &range) && bytes_equal(&range, &previous, sizeof(range)),

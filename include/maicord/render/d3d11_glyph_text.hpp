@@ -149,7 +149,6 @@ bool d3d11_glyph_text_gpu_footprint(const D3D11GlyphTextOwner&,D3D11GlyphGpuFoot
 void d3d11_glyph_text_reset_atlas(D3D11GlyphTextOwner* owner) noexcept;
 void d3d11_glyph_text_release(D3D11GlyphTextOwner* owner) noexcept;
 
-static_assert(sizeof(D3D11GlyphTextFontFace) == 16);
 // Size limit for the owner, including TextSystem's 8-byte typography pointer
 // and the allocator's 8-byte recency threshold.
 static_assert(sizeof(D3D11GlyphTextOwner) <= 496);

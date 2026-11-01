@@ -1772,12 +1772,12 @@ bool application_downloads_defer_close() noexcept {
     q->close_window = true;
     return !application_downloads_release();
 }
-bool application_downloads_release(u32 timeout) noexcept {
+bool application_downloads_release() noexcept {
     auto* q = g_app.downloads;
     if (!q)
         return true;
     application_downloads_prepare_account_stop();
-    if (!native_file_picker_release(&q->picker, timeout))
+    if (!native_file_picker_release(&q->picker, 0))
         return false;
     q->picker_job = kNoDownload;
     if (q->active_job != kNoDownload && q->account_instance == g_app.account.instance &&

@@ -1077,7 +1077,7 @@ bool application_friends_response(const RestClientResponse& response, Utf8View b
         }
         const auto decoded = relationships_replace(&friends->store, body,
             {g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount},
-            {friends->candidate, relationship_capacity}, {}, {&friends->storage,
+            {friends->candidate, relationship_capacity}, {&friends->storage,
                 +[](void* opaque, u32 count, bool active) noexcept {
                     auto* storage = static_cast<FriendsRelationshipStorage*>(opaque);
                     return active ? friends_relationship_storage_active(storage, count) :

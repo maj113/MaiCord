@@ -196,9 +196,12 @@ void test_account_session_identity(void (*check)(bool, const char*) noexcept) no
     const CookieRequest api{utf8_literal("discord.com"), utf8_literal("/api/v9/users/@me"), true};
     u8 cookie[kCookieHeaderMaximumBytes];
     constexpr char visitor[] = "__sdcfduid=visitor3";
-    check(cookie_jar_set(&jar, api, utf8_literal("__sdcfduid=visitor3; Max-Age=3600; Secure; Domain=discord.com; Path=/"),
-                         now) &&
-              cookie_jar_set(&jar, api, utf8_literal("_cfuvid=session3; Secure; SameSite=None; Path=/"), now) &&
+    const char cookie_head[] =
+        "HTTP/1.1 200 OK\r\n"
+        "Set-Cookie: __sdcfduid=visitor3; Max-Age=3600; Secure; Domain=discord.com; Path=/\r\n"
+        "Set-Cookie: _cfuvid=session3; Secure; SameSite=None; Path=/\r\n\r\n";
+    check(cookie_jar_store_response(&jar, api, {reinterpret_cast<const u8*>(cookie_head), sizeof(cookie_head) - 1},
+                                    now) == 2 &&
               account_user_session_store_save(path, current, &heartbeat, &jar).ok() &&
               account_user_session_store_load(path, profile_id, &restored, &loaded, &reloaded).ok() &&
               restored.has_resume && loaded.valid &&
@@ -242,8 +245,8 @@ void test_account_session_identity(void (*check)(bool, const char*) noexcept) no
     check(account_session_save_state_current(save_state, advanced, &heartbeat, 0, true) &&
               !account_session_save_state_current(save_state, current, &heartbeat, 0, true),
           "recording the final save makes the same sequence current");
-    cookie_jar_clear(&jar);
-    cookie_jar_clear(&reloaded);
+    reset_value(&jar);
+    reset_value(&reloaded);
     secure_clear_bytes(cookie, sizeof(cookie));
     SecureZeroMemory(&legacy, sizeof(legacy));
     SecureZeroMemory(&current, sizeof(current));

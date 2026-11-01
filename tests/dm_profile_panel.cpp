@@ -86,7 +86,7 @@ UiShellLayoutMetrics shell_metrics(const UiSidePanelInput& in, float window) noe
 void side_panel_cases() noexcept {
     UiSidePanelInput dm{1, true, false, true, true, 0, 1280};
     auto plan = ui_side_panel_plan(dm);
-    check(plan.panel == UiSidePanel::profile && plan.width == kUiDmProfilePanelWidth && plan.toggle &&
+    check(plan.panel == UiSidePanel::profile && plan.width == kUiDmProfilePanelWidth &&
               !plan.unavailable,
           "side panel: a one-to-one DM shows the recipient's 316 DIP profile slot");
     check(utf8_equal(ui_side_panel_toggle_label(true, false, true), utf8_literal("Hide User Profile")) &&
@@ -97,7 +97,7 @@ void side_panel_cases() noexcept {
           "side panel: the header toggle names what it switches");
     dm.profile_visible = false;
     plan = ui_side_panel_plan(dm);
-    check(plan.panel == UiSidePanel::none && plan.toggle && plan.width == kUiDmProfilePanelWidth,
+    check(plan.panel == UiSidePanel::none && plan.width == kUiDmProfilePanelWidth,
           "side panel: the hidden profile keeps its toggle");
     dm.profile_visible = true;
     dm.members_visible = false;
@@ -105,7 +105,7 @@ void side_panel_cases() noexcept {
           "side panel: the profile choice is independent of the member list's");
     dm.window_width = kUiDmProfilePanelMinimumWindowWidth - 1;
     plan = ui_side_panel_plan(dm);
-    check(plan.panel == UiSidePanel::none && plan.unavailable && plan.toggle,
+    check(plan.panel == UiSidePanel::none && plan.unavailable && plan.width > 0,
           "side panel: below 1132 DIPs the profile gives way and its toggle is unavailable");
     const UiSidePanelInput group{3, true, false, true, true, 0, 1280};
     const UiSidePanelInput server{0xFE, false, false, false, true, 260, 1280};
@@ -113,7 +113,7 @@ void side_panel_cases() noexcept {
     const UiSidePanelInput empty_home{0, true, false, true, true, 0, 1280};
     check(ui_side_panel_plan(group).panel == UiSidePanel::members &&
               ui_side_panel_plan(server).panel == UiSidePanel::none && ui_side_panel_plan(server).width == 260 &&
-              !ui_side_panel_plan(friends).toggle && !ui_side_panel_plan(empty_home).toggle,
+              !ui_side_panel_plan(friends).width && !ui_side_panel_plan(empty_home).width,
           "side panel: group DMs and servers keep the member list; Friends and an empty Home have no toggle");
 }
 

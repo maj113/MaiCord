@@ -1,11 +1,7 @@
 cbuffer Vp8ReconstructionConstants : register(b0) {
-    uint image_width;
-    uint image_height;
     uint macroblock_columns;
     uint macroblock_rows;
-    uint final_wave_rank;
     uint luma_stride;
-    uint luma_rows;
     uint chroma_stride;
     uint chroma_rows;
     uint u_plane_offset;
@@ -342,6 +338,7 @@ void reconstruct_macroblock(uint macroblock_x, uint macroblock_y, bool active) {
 void vp8_reconstruct(uint3 group_thread_id : SV_GroupThreadID) {
     pixel_lane = group_thread_id.x;
     const uint macroblock_y = group_thread_id.y;
+    const uint final_wave_rank = (macroblock_columns - 1u) + 2u * (macroblock_rows - 1u);
     for (uint rank = 0u; rank <= final_wave_rank; ++rank) {
         const uint macroblock_x = rank - macroblock_y * 2u;
         const bool active = macroblock_y < macroblock_rows && rank >= macroblock_y * 2u &&

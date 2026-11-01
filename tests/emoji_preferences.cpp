@@ -264,7 +264,7 @@ void test_protocol(Check check) noexcept {
     const auto measured = emoji_preferences_decode(root.view(), {}, &snapshot);
     u8 bank[1024]{};
     const auto decoded = emoji_preferences_decode(root.view(), {bank, measured.group_bytes}, &snapshot);
-    check(measured.ok() && decoded.ok() && snapshot.data_version == 41 && snapshot.versions_present &&
+    check(measured.ok() && decoded.ok() && snapshot.data_version == 41 &&
               snapshot.favorites.count == favorites.used && snapshot.frecency.count == frecency.used &&
               snapshot.reaction_frecency.count == reaction.used && snapshot.sticker_frecency.count == stickers.used,
           "emoji preferences: decode isolates groups 4, 5, 6 and 13 with the data version");
@@ -341,7 +341,7 @@ void test_protocol(Check check) noexcept {
         unknown_group_field |= sent.frecency[i] == 9 * 8 && sent.frecency[i + 1] == 3;
     for (u32 i = 0; i < written.proto_bytes; ++i)
         gif_sent |= scratch[i] == 'g' && i + 3 < written.proto_bytes && scratch[i + 1] == 'i' && scratch[i + 2] == 'f';
-    check(sent_result.ok() && !sent.versions_present && !gif_sent && sent_favorites.count == 2 &&
+    check(sent_result.ok() && !sent.data_version && !gif_sent && sent_favorites.count == 2 &&
               has(sent_favorites, utf8_literal("thumbsup")) && has(sent_favorites, utf8_literal("123456789012345678")) &&
               !has(sent_favorites, utf8_literal("heart")) && unknown_favorite_field,
           "emoji preferences: favorite edits rebase on observed entries and keep unknown fields");
