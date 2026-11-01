@@ -1,4 +1,5 @@
 #pragma once
+#include "maicord/ui/paint.hpp"
 #include "maicord/ui/transition.hpp"
 #include "maicord/ui/widget_manager.hpp"
 
@@ -47,5 +48,10 @@ bool ui_hover_card_contains(const UiHoverCard& card, float x, float y) noexcept;
 // True when the flag changed.
 bool ui_hover_card_set_hovered(UiHoverCard* card, bool hovered) noexcept;
 bool ui_hover_card_set_pressed(UiHoverCard* card, bool pressed) noexcept;
+// The card's popover surface in the floating-card colours at its entrance opacity.
+bool ui_hover_card_paint_surface(PaintStream* paint, const UiHoverCard& card, const Theme& theme,
+                                 float radius) noexcept;
+// The accent button's colour for the card's hover and press state, before the entrance opacity.
+Color ui_hover_card_button_color(const UiHoverCard& card, const Theme& theme) noexcept;
 
 } // namespace maicord

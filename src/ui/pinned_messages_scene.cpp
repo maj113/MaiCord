@@ -1,18 +1,15 @@
 #include "maicord/ui/pinned_messages_scene.hpp"
-#include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/rect_edges.hpp"
-#include "maicord/ui/popout_scene.hpp"
-#include "maicord/ui/icon.hpp"
-#include "maicord/ui/spinner.hpp"
-#include "maicord/core/decimal.hpp"
+#include "maicord/ui/scene_kit.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/ui/text_presentation.hpp"
 
 namespace maicord {
 namespace {
-using namespace popout;
 constexpr float card_gap = 10.f, card_inset = 12.f;
+constexpr UiLook kFooterButton{.fill = UI_TOKEN(surface_high), .border = UI_TOKEN(interactive), .radius = 6};
+constexpr UiLook kCard{.fill = UI_TOKEN(surface), .hover = UI_TOKEN(surface_high), .border = UI_TOKEN(surface_high),
+                       .focus = UI_TOKEN(tokens.emphasis.outline)};
 float excerpt_height(const UiPinnedMessagesRow& row) noexcept {
     return row.body_height ? row.body_height : 48.f;
 }
@@ -37,31 +34,22 @@ bool current(const UiPinnedMessagesScene& s) noexcept {
                           s.source->count == s.measured_count &&
                           (!s.source->current || s.source->current(s.source->context))));
 }
-UiWidgetHandle add(UiPinnedMessagesScene& s, const UiRect& r, const UiPinnedMessagesTarget& target,
-                   const Utf8View& name, bool enabled, UiWidgetHandle parent) noexcept {
-    return popout::add(s, r, target, name, enabled, parent);
-}
 bool rebuild(UiPinnedMessagesScene& s) noexcept {
-    ui_widget_manager_reset(&s.widgets);
     clear_bytes(s.targets, sizeof(s.targets));
     clear_bytes(s.rows, sizeof(s.rows));
     clear_bytes(s.unpin, sizeof(s.unpin));
-    reset_value(&s.body_owner);
-    reset_value(&s.retry);
-    s.previous = s.next = {};
+    s.body_owner = s.retry = s.previous = s.next = {};
     s.first = s.count = 0;
-    auto style = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_allow_overlap |
-                                      ui_layout_node_clip_children);
-    const auto root = ui_widget_manager_add_prevalidated(&s.widgets, ui_widget_invalid_handle(),
-        {1, UiWidgetKind::container, ui_widget_none, {utf8_literal("Pinned messages"), style}});
-    if (!root.ok()) return false;
-    s.root = root.handle;
-    s.close = add(s, {s.panel.right - 44, s.panel.top + 12, s.panel.right - 12, s.panel.top + 44},
-                  {UiPinnedMessagesAction::close, s.content->channel_id}, utf8_literal("Close pins"), true, s.root);
-    s.refresh = add(s, {s.panel.right - 80, s.panel.top + 12, s.panel.right - 48, s.panel.top + 44},
-                    {UiPinnedMessagesAction::refresh, s.content->channel_id}, utf8_literal("Refresh pins"),
-                    s.content->phase != UiPinnedMessagesPhase::loading && !s.content->loading_more, s.root);
-    s.body_owner = add(s, s.body, {}, utf8_literal("Pinned messages viewport"), false, s.root);
+    s.root = ui_scene_root(&s.widgets, utf8_literal("Pinned messages"));
+    if (!s.root.generation) return false;
+    const auto& c = *s.content;
+    const auto p = s.panel;
+    s.close = ui_scene_add(s, ui_rect_edges(p, ui_end(-44), ui_start(12), ui_end(-12), ui_start(44)),
+                           {UiPinnedMessagesAction::close, c.channel_id}, utf8_literal("Close pins"), true, s.root);
+    s.refresh = ui_scene_add(s, ui_rect_edges(p, ui_end(-80), ui_start(12), ui_end(-48), ui_start(44)),
+                             {UiPinnedMessagesAction::refresh, c.channel_id}, utf8_literal("Refresh pins"),
+                             c.phase != UiPinnedMessagesPhase::loading && !c.loading_more, s.root);
+    s.body_owner = ui_scene_add(s, s.body, {}, utf8_literal("Pinned messages viewport"), false, s.root);
     if (!s.close.generation || !s.refresh.generation || !s.body_owner.generation) return false;
     while (s.first < s.measured_count && s.offsets[s.first + 1] <= s.scroll_dips)
         ++s.first;
@@ -69,53 +57,42 @@ bool rebuild(UiPinnedMessagesScene& s) noexcept {
         const float top = s.body.top + s.offsets[i] - s.scroll_dips + card_gap;
         if (top >= s.body.bottom) break;
         UiPinnedMessagesRow row{};
-        if (!s.source->resolve(s.source->context, i, &row) || !row_valid(row, s.content->channel_id)) return false;
-        const UiRect card{s.body.left + card_inset, top, s.body.right - 24,
-                          top + card_height(row)};
+        if (!s.source->resolve(s.source->context, i, &row) || !row_valid(row, c.channel_id)) return false;
+        const UiRect card{s.body.left + card_inset, top, s.body.right - 24, top + card_height(row)};
         if (!ui_rect_intersects(card, s.body)) continue;
         const u32 slot = s.count++;
         s.visible[slot] = row;
         s.cards[slot] = card;
         // The whole card jumps; the later child target owns only its unpin slot.
-        s.rows[slot] = add(s, ui_rect_intersection(card, s.body), {UiPinnedMessagesAction::jump, row.channel_id, row.message_id},
-                           utf8_literal("Jump to pinned message"), row.jump_enabled, s.body_owner);
+        s.rows[slot] = ui_scene_add(s, ui_rect_intersection(card, s.body),
+                                    {UiPinnedMessagesAction::jump, row.channel_id, row.message_id},
+                                    utf8_literal("Jump to pinned message"), row.jump_enabled, s.body_owner);
         if (!s.rows[slot].generation) return false;
-        if (row.can_unpin) {
-            const auto control = ui_rect_intersection({card.right - 40, card.top + 8, card.right - 8, card.top + 40}, s.body);
-            if (!ui_rect_has_area(control)) continue;
-            s.unpin[slot] = add(s, control,
-                                {UiPinnedMessagesAction::unpin, row.channel_id, row.message_id},
-                                utf8_literal("Unpin message"), true, s.body_owner);
-            if (!s.unpin[slot].generation) return false;
-            if (row.unpin_pending)
-                s.widgets.storage[s.unpin[slot].slot].flags &= static_cast<u16>(~ui_widget_focusable);
-        }
+        if (!row.can_unpin) continue;
+        const auto control = ui_rect_intersection(ui_rect_edges(card, ui_end(-40), ui_start(8), ui_end(-8), ui_start(40)),
+                                                  s.body);
+        if (!ui_rect_has_area(control)) continue;
+        s.unpin[slot] = ui_scene_add(s, control, {UiPinnedMessagesAction::unpin, row.channel_id, row.message_id},
+                                     utf8_literal("Unpin message"), true, s.body_owner);
+        if (!s.unpin[slot].generation) return false;
+        if (row.unpin_pending)
+            s.widgets.storage[s.unpin[slot].slot].flags &= static_cast<u16>(~ui_widget_focusable);
     }
-    if (s.content->phase == UiPinnedMessagesPhase::failed) {
-        const UiRect r{s.footer.left + 12, s.footer.top + 10,
-                       s.footer.right - 12, s.footer.bottom - 10};
-        s.retry = add(s, r, {UiPinnedMessagesAction::retry, s.content->channel_id},
-                      utf8_literal("Retry loading pins"), !s.content->loading_more, s.root);
-    } else if (s.measured_count || (s.content->phase == UiPinnedMessagesPhase::ready &&
-                                  (s.content->has_previous || s.content->has_next))) {
+    const auto f = ui_rect_edges(s.footer, ui_start(12), ui_start(10), ui_end(-12), ui_end(-10));
+    const bool ready = c.phase == UiPinnedMessagesPhase::ready && !c.loading_more;
+    if (c.phase == UiPinnedMessagesPhase::failed) {
+        s.retry = ui_scene_add(s, f, {UiPinnedMessagesAction::retry, c.channel_id}, utf8_literal("Retry loading pins"),
+                               !c.loading_more, s.root);
+    } else if (s.measured_count || (c.phase == UiPinnedMessagesPhase::ready && (c.has_previous || c.has_next))) {
         const float button_width = minimum(88.f, ui_rect_width(s.footer) * .3f);
-        s.previous = add(s, {s.footer.left + 12, s.footer.top + 10,
-                            s.footer.left + 12 + button_width, s.footer.bottom - 10},
-                         {UiPinnedMessagesAction::previous, s.content->channel_id},
-                         utf8_literal("Newer pins"), s.content->has_previous &&
-                         s.content->phase == UiPinnedMessagesPhase::ready && !s.content->loading_more, s.root);
-        s.next = add(s, {s.footer.right - 12 - button_width, s.footer.top + 10,
-                        s.footer.right - 12, s.footer.bottom - 10},
-                     {UiPinnedMessagesAction::next, s.content->channel_id},
-                     utf8_literal("Older pins"), s.content->has_next &&
-                     s.content->phase == UiPinnedMessagesPhase::ready && !s.content->loading_more, s.root);
+        s.previous = ui_scene_add(s, {f.left, f.top, f.left + button_width, f.bottom},
+                                  {UiPinnedMessagesAction::previous, c.channel_id}, utf8_literal("Newer pins"),
+                                  c.has_previous && ready, s.root);
+        s.next = ui_scene_add(s, {f.right - button_width, f.top, f.right, f.bottom},
+                              {UiPinnedMessagesAction::next, c.channel_id}, utf8_literal("Older pins"),
+                              c.has_next && ready, s.root);
     }
-    if (!ui_widget_manager_layout_rectangle(&s.widgets, s.panel).ok()) return false;
-    for (u32 i = 1; i < s.widgets.count; ++i)
-        if (ui_pinned_messages_target_equal(s.targets[i], s.focused))
-            ui_widget_manager_focus(&s.widgets, {static_cast<u16>(i), s.widgets.generation});
-    ++s.revision;
-    return true;
+    return ui_scene_commit(&s.widgets, s.panel, s.targets, s.focused, ui_pinned_messages_target_equal, &s.revision);
 }
 
 } // namespace
@@ -155,8 +132,8 @@ bool ui_pinned_messages_scene_update(UiPinnedMessagesScene* s, const UiPinnedMes
                 ? UiPinnedMessagesTarget{UiPinnedMessagesAction::jump, content->channel_id, first_message}
                 : UiPinnedMessagesTarget{UiPinnedMessagesAction::close, content->channel_id};
     }
-    if (!s->storage.arena.base && (!ui_fixed_widget_storage_initialize(&s->storage, kUiPinnedMessagesWidgetCapacity) ||
-        !ui_widget_manager_initialize(&s->widgets, s->storage.widgets, s->storage.layout_nodes))) return false;
+    if (!s->storage.arena.base && !ui_scene_open(&s->storage, &s->widgets, kUiPinnedMessagesWidgetCapacity))
+        return false;
     s->viewport = viewport;
     const float width = minimum(kUiPinnedMessagesPreferredWidth, ui_rect_width(viewport));
     s->panel = {viewport.right - width, viewport.top, viewport.right, viewport.bottom};
@@ -176,13 +153,7 @@ bool ui_pinned_messages_scene_update(UiPinnedMessagesScene* s, const UiPinnedMes
     s->channel_id = content->channel_id;
     s->page_index = content->page_index;
     s->page_first_message_id = first_message;
-    constexpr auto page_prefix = utf8_literal("Page ");
-    copy_bytes(s->page_text, page_prefix.data, page_prefix.bytes);
-    s->page_bytes = static_cast<u8>(page_prefix.bytes);
-    char digits[20];
-    const u32 digit_count = decimal_write(digits, static_cast<u64>(content->page_index) + 1);
-    for (u32 i = 0; i < digit_count; ++i)
-        s->page_text[s->page_bytes++] = digits[i];
+    UiLabelWriter{s->page_text, &s->page_bytes} << utf8_literal("Page ") << static_cast<u64>(content->page_index) + 1;
     copy_bytes(s->offsets, offsets, sizeof(offsets));
     s->scroll_dips = minimum(maximum(0.f, s->scroll_dips), ui_pinned_messages_scene_scroll_maximum(*s));
     s->overlay = ui_rect_width(viewport) < 720;
@@ -190,11 +161,7 @@ bool ui_pinned_messages_scene_update(UiPinnedMessagesScene* s, const UiPinnedMes
     if (!rebuild(*s)) { s->active = false; return false; }
     return true;
 }
-void ui_pinned_messages_scene_release(UiPinnedMessagesScene* s) noexcept {
-    if (!s) return;
-    ui_fixed_widget_storage_release(&s->storage);
-    reset_value(s);
-}
+void ui_pinned_messages_scene_release(UiPinnedMessagesScene* s) noexcept { ui_scene_release(s); }
 bool ui_pinned_messages_scene_contains(const UiPinnedMessagesScene& s, float x, float y) noexcept {
     return current(s) && ui_rect_contains(s.panel, x, y);
 }
@@ -215,7 +182,7 @@ UiPinnedMessagesTarget ui_pinned_messages_scene_focused_target(const UiPinnedMes
     return ui_pinned_messages_scene_target(s, s.widgets.focused);
 }
 bool ui_pinned_messages_scene_set_hover(UiPinnedMessagesScene* s, float x, float y, bool* changed) noexcept {
-    return s && current(*s) && set_hover(&s->widgets, &s->revision, x, y, changed);
+    return s && current(*s) && ui_scene_hover(&s->widgets, &s->revision, x, y, changed);
 }
 bool ui_pinned_messages_scene_scroll(UiPinnedMessagesScene* s, float offset) noexcept {
     if (!s || !current(*s) || !ui_coordinate_valid(offset)) return false;
@@ -226,25 +193,23 @@ bool ui_pinned_messages_scene_focus(UiPinnedMessagesScene* s, UiPinnedMessagesTa
     if (!s || !current(*s) || target.channel_id != s->content->channel_id || target.action == UiPinnedMessagesAction::none)
         return false;
     if (target.action == UiPinnedMessagesAction::jump || target.action == UiPinnedMessagesAction::unpin) {
-        bool found = false;
-        for (u32 i = 0; i < s->measured_count; ++i) {
+        u32 i = 0;
+        for (; i < s->measured_count; ++i) {
             UiPinnedMessagesRow row{};
             if (!s->source->resolve(s->source->context, i, &row)) return false;
             if (row.message_id != target.message_id) continue;
-            if (target.action == UiPinnedMessagesAction::jump && !row.jump_enabled) return false;
-            if (target.action == UiPinnedMessagesAction::unpin && (!row.can_unpin || row.unpin_pending)) return false;
-            const float first = s->offsets[i], last = s->offsets[i + 1];
-            const float height = ui_rect_height(s->body);
+            if (target.action == UiPinnedMessagesAction::jump ? !row.jump_enabled : !row.can_unpin || row.unpin_pending)
+                return false;
+            const float first = s->offsets[i], last = s->offsets[i + 1], height = ui_rect_height(s->body);
             const float offset = first < s->scroll_dips ? first
                 : last > s->scroll_dips + height ? (last - first > height ? first : last - height) : s->scroll_dips;
             s->focused = target;
             if (!ui_pinned_messages_scene_scroll(s, offset)) return false;
-            found = true;
             break;
         }
-        if (!found) return false;
+        if (i == s->measured_count) return false;
     }
-    if (!focus_target(&s->widgets, s->targets, target, ui_pinned_messages_target_equal)) return false;
+    if (!ui_scene_focus_target(&s->widgets, s->targets, target, ui_pinned_messages_target_equal)) return false;
     s->focused = target;
     ++s->revision;
     return true;
@@ -264,7 +229,7 @@ bool ui_pinned_messages_scene_move_focus(UiPinnedMessagesScene* s, UiPinnedMessa
     const bool idle = !content.loading_more;
     UiPinnedMessagesTarget pick{};
     // Close, Refresh, each row's Jump and Unpin, then the footer buttons.
-    return ring_pick(
+    return ui_ring_pick(
                [&](auto emit) noexcept {
                    emit({UiPinnedMessagesAction::close, content.channel_id});
                    if (content.phase != UiPinnedMessagesPhase::loading && idle)
@@ -284,17 +249,12 @@ bool ui_pinned_messages_scene_move_focus(UiPinnedMessagesScene* s, UiPinnedMessa
                    }
                    return true;
                },
-               ui_pinned_messages_target_equal, ui_pinned_messages_scene_focused_target(*s),
-               move == UiPinnedMessagesFocusMove::first ? Ring::first
-               : move == UiPinnedMessagesFocusMove::last ? Ring::last
-               : move == UiPinnedMessagesFocusMove::previous ? Ring::previous : Ring::next,
-               &pick) &&
+               ui_pinned_messages_target_equal, ui_pinned_messages_scene_focused_target(*s), ui_ring(move), &pick) &&
            ui_pinned_messages_scene_focus(s, pick);
 }
 bool ui_pinned_messages_scene_avatar(const UiPinnedMessagesScene& s, u32 slot, UiRect* rectangle, UiRect* clip) noexcept {
     if (!rectangle || !clip || !current(s) || slot >= s.count) return false;
-    const auto r = s.cards[slot];
-    *rectangle = {r.left + 12, r.top + 12, r.left + 40, r.top + 40};
+    *rectangle = ui_rect_edges(s.cards[slot], ui_start(12), ui_start(12), ui_start(40), ui_start(40));
     *clip = ui_rect_intersection(*rectangle, s.body);
     return ui_rect_has_area(*clip);
 }
@@ -307,140 +267,114 @@ bool ui_pinned_messages_scene_spinner_visible(const UiPinnedMessagesScene& s) no
             ui_rect_intersects(s.cards[i], s.body)) return true;
     return false;
 }
-bool ui_pinned_messages_scene_paint(const UiPinnedMessagesScene& s, const Theme& theme,
-                                    PaintStream* out) noexcept {
+bool ui_pinned_messages_scene_paint(const UiPinnedMessagesScene& s, const Theme& theme, PaintStream* out) noexcept {
     if (!current(s)) return true;
-    if (!out || !ui_surface_shadow_paint_isolated(out, s.panel, theme, UiElevation::popover, 0) ||
-        !paint_stream_push_clip(out, s.panel)) return false;
-    bool ok = ui_surface_paint_plate(out, s.panel, theme, UiElevation::popover, 0, nullptr, &theme.surface_high) &&
-        paint_stream_push(out, ui_rect_edges(s.header, ui_start(0), ui_end(-1), ui_end(0), ui_end(0)),
-                          ui_separator_color(theme)) &&
-        paint_stream_push(out, ui_rect_edges(s.footer, ui_start(0), ui_start(0), ui_end(0), ui_start(1)),
-                          ui_separator_color(theme)) &&
-        ui_icon_paint(out, UiIcon::pin, ui_rect_edges(s.panel, ui_start(12), ui_start(16), ui_start(36), ui_start(40)), theme.text_secondary);
-    const UiWidgetHandle header_buttons[]{s.refresh, s.close};
-    for (u32 i = 0; ok && i < 2; ++i) {
-        const auto r = bounds(s, header_buttons[i]);
-        if (hovered(s, header_buttons[i]) || focused(s, header_buttons[i]))
-            ok = surface(out, r, theme, theme.surface_high, focused(s, header_buttons[i]) ? theme.tokens.border.focus : theme.surface_high, 6);
-        ok = ok && ui_icon_paint(out, i ? UiIcon::close : UiIcon::refresh,
-            ui_rect_shrink(r, 6), theme.text_secondary);
+    UiPaint p{out, theme};
+    p.popover(s.panel, 0).rule_below(s.header).rule_above(s.footer)
+        .icon(UiIcon::pin, ui_rect_edges(s.panel, ui_start(12), ui_start(16), ui_start(36), ui_start(40)), theme.text_secondary)
+        .icon_control<kUiGhostButton>(s.widgets, s.refresh, UiIcon::refresh, 6, theme.text_secondary)
+        .icon_control<kUiGhostButton>(s.widgets, s.close, UiIcon::close, 6, theme.text_secondary)
+        .clip(s.body);
+    for (u32 i = 0; p && i < s.count; ++i) {
+        const auto r = s.cards[i];
+        const auto& row = s.visible[i];
+        const bool selected = ui_focused(s, s.rows[i]) || ui_focused(s, s.unpin[i]);
+        p.look<kCard>(r, static_cast<u8>((ui_hovered(s, s.rows[i]) ? ui_state_hovered : 0) |
+                                         (selected ? ui_state_focused : 0)));
+        UiRect avatar{}, clip{};
+        if (ui_pinned_messages_scene_avatar(s, i, &avatar, &clip))
+            p.rounded(avatar, theme.avatar_placeholder, theme.scale.radius_full)
+                .rounded(ui_rect_edges(avatar, ui_start(10), ui_start(6), ui_end(-10), ui_start(14)), theme.text_secondary,
+                         theme.scale.radius_sm)
+                .rounded(ui_rect_edges(avatar, ui_start(6), ui_start(16), ui_end(-6), ui_end(-4)), theme.text_secondary, 6);
+        const float action_top = r.bottom - 38;
+        p.separator({r.left + 12, action_top - 3, r.right - 12, action_top - 2})
+            .icon(UiIcon::reply, {r.left + 12, action_top + 5, r.left + 30, action_top + 23},
+                  row.jump_enabled ? theme.tokens.emphasis.outline : theme.interactive);
+        if (!row.can_unpin) continue;
+        const auto unpin = ui_rect_edges(r, ui_end(-40), ui_start(8), ui_end(-8), ui_start(40));
+        p.look<kUiGhostButton>(unpin, ui_widget_state(s.widgets, s.unpin[i]));
+        if (row.unpin_pending)
+            p.spinner(ui_rect_shrink(unpin, 8), theme.text_secondary, s.spinner_phase);
+        else
+            p.icon(UiIcon::unpin, ui_rect_shrink(unpin, 6), ui_hovered(s, s.unpin[i]) ? theme.notification : theme.text_secondary);
     }
-    if (ok && !paint_stream_push_clip(out, s.body)) ok = false;
-    if (ok) {
-        for (u32 i = 0; ok && i < s.count; ++i) {
-            const auto r = s.cards[i];
-            const bool selected = focused(s, s.rows[i]) || focused(s, s.unpin[i]);
-            ok = surface(out, r, theme, hovered(s, s.rows[i]) ? theme.surface_high : theme.surface,
-                         selected ? theme.tokens.emphasis.outline : theme.surface_high);
-            UiRect avatar{}, clip{};
-            if (ok && ui_pinned_messages_scene_avatar(s, i, &avatar, &clip))
-                ok = paint_stream_push_rounded(out, avatar, theme.avatar_placeholder, theme.scale.radius_full) &&
-                    paint_stream_push_rounded(out, ui_rect_edges(avatar, ui_start(10), ui_start(6), ui_end(-10), ui_start(14)),
-                                              theme.text_secondary, theme.scale.radius_sm) &&
-                    paint_stream_push_rounded(out, ui_rect_edges(avatar, ui_start(6), ui_start(16), ui_end(-6), ui_end(-4)),
-                                              theme.text_secondary, 6);
-            const float action_top = r.bottom - 38;
-            ok = ok && paint_stream_push(out, r.left + 12, action_top - 3, r.right - 12, action_top - 2,
-                                         ui_separator_color(theme)) &&
-                ui_icon_paint(out, UiIcon::reply, {r.left + 12, action_top + 5, r.left + 30, action_top + 23},
-                              s.visible[i].jump_enabled ? theme.tokens.emphasis.outline : theme.interactive);
-            if (s.visible[i].can_unpin) {
-                const auto unpin = ui_rect_edges(r, ui_end(-40), ui_start(8), ui_end(-8), ui_start(40));
-                if (hovered(s, s.unpin[i]) || focused(s, s.unpin[i]))
-                    ok = ok && surface(out, unpin, theme, theme.surface_high, focused(s, s.unpin[i]) ? theme.tokens.border.focus : theme.surface_high, 6);
-                ok = ok && (s.visible[i].unpin_pending
-                    ? ui_spinner_paint(out, ui_rect_shrink(unpin, 8), theme.text_secondary, s.spinner_phase)
-                    : ui_icon_paint(out, UiIcon::unpin, ui_rect_shrink(unpin, 6),
-                        hovered(s, s.unpin[i]) ? theme.notification : theme.text_secondary));
-            }
-        }
-        if (!s.measured_count) {
-            const auto r = s.body;
-            const float x = (r.left + r.right) * .5f, y = r.top + minimum(40.f, ui_rect_height(r) * .2f);
-            ok = ok && (s.content->phase == UiPinnedMessagesPhase::loading
-                ? ui_spinner_paint(out, {x - 12, y - 12, x + 12, y + 12}, theme.tokens.emphasis.outline, s.spinner_phase)
-                : ui_icon_paint(out, s.content->phase == UiPinnedMessagesPhase::failed ? UiIcon::warning : UiIcon::pin,
-                    {x - 16, y - 16, x + 16, y + 16}, theme.text_secondary));
-        }
-        ok = paint_stream_pop_clip(out) && ok;
+    if (!s.measured_count) {
+        const auto r = s.body;
+        const float x = (r.left + r.right) * .5f, y = r.top + minimum(40.f, ui_rect_height(r) * .2f);
+        if (s.content->phase == UiPinnedMessagesPhase::loading)
+            p.spinner({x - 12, y - 12, x + 12, y + 12}, theme.tokens.emphasis.outline, s.spinner_phase);
+        else
+            p.icon(s.content->phase == UiPinnedMessagesPhase::failed ? UiIcon::warning : UiIcon::pin,
+                   {x - 16, y - 16, x + 16, y + 16}, theme.text_secondary);
     }
-    const UiWidgetHandle footer_buttons[]{s.retry, s.previous, s.next};
-    for (const auto button : footer_buttons)
-        if (ok && button.generation)
-            ok = surface(out, bounds(s, button), theme, theme.surface_high,
-                         focused(s, button) ? theme.tokens.border.focus : theme.interactive, 6);
-    if (ok && ui_rect_has_area(s.status_rectangle))
-        ok = paint_stream_push(out, s.status_rectangle, theme.base_lowest);
-    if (ok) ok = ui_scrollbar_paint(out, ui_scrollbar_geometry(s.body, s.scroll_dips,
-        s.offsets[s.measured_count]), theme);
-    return paint_stream_pop_clip(out) && ok;
+    p.unclip().control<kFooterButton>(s.widgets, s.retry).control<kFooterButton>(s.widgets, s.previous)
+        .control<kFooterButton>(s.widgets, s.next);
+    if (ui_rect_has_area(s.status_rectangle)) p.fill(s.status_rectangle, theme.base_lowest);
+    return p.scrollbar(ui_scrollbar_geometry(s.body, s.scroll_dips, s.offsets[s.measured_count])).end();
 }
 bool ui_pinned_messages_scene_text_output(const UiPinnedMessagesScene& s, const Theme& theme, UiTextOutput* out) noexcept {
     if (!current(s)) return true;
-    if (!ui_text_output_valid(out)) return false;
+    UiTextPen text{out, s.widgets, s.panel, s.body};
+    const auto& c = *s.content;
     const auto p = s.panel;
-    if (!text(out, s, s.root, utf8_literal("Pins"), ui_rect_edges(p, ui_start(44), ui_start(10), ui_end(-84), ui_start(36)),
-              theme.text_primary, text_style_bold) ||
-        !text(out, s, s.root, s.content->channel, ui_rect_edges(p, ui_start(16), ui_start(38), ui_end(-16), ui_start(58)),
-              theme.text_secondary, text_style_subtext)) return false;
+    text(s.root, utf8_literal("Pins"), ui_rect_edges(p, ui_start(44), ui_start(10), ui_end(-84), ui_start(36)),
+         theme.text_primary, text_style_bold);
+    text(s.root, c.channel, ui_rect_edges(p, ui_start(16), ui_start(38), ui_end(-16), ui_start(58)), theme.text_secondary,
+         text_style_subtext);
     for (u32 i = 0; i < s.count; ++i) {
         const auto& row = s.visible[i];
         const auto r = s.cards[i];
+        const auto card = s.rows[i];
         const float body_bottom = r.top + 56 + excerpt_height(row);
-        if (!text(out, s, s.rows[i], row.author.bytes ? row.author : utf8_literal("Unknown author"),
-                  {r.left + 50, r.top + 8, r.right - (row.can_unpin ? 44 : 12), r.top + 30},
-                  theme.text_primary, text_style_bold, ui_text_in_body) ||
-            !text(out, s, s.rows[i], row.timestamp, ui_rect_edges(r, ui_start(50), ui_start(30), ui_end(-12), ui_start(48)),
-                  theme.text_secondary, text_style_subtext, ui_text_in_body) ||
-            !text(out, s, s.rows[i], row.body.bytes ? row.body : utf8_literal("Message has no text"),
-                  {r.left + 12, r.top + 56, r.right - 12, body_bottom}, theme.text_primary, 0, ui_text_wrap | ui_text_in_body) ||
-            !text(out, s, s.rows[i], row.detail, {r.left + 12, body_bottom + 2, r.right - 12, body_bottom + 22},
-                  theme.text_secondary, text_style_subtext, ui_text_in_body) ||
-            !text(out, s, s.rows[i], utf8_literal("Jump to message"),
-                  ui_rect_edges(r, ui_start(36), ui_end(-33), ui_end(-12), ui_end(-9)),
-                  row.jump_enabled ? theme.tokens.emphasis.outline : theme.interactive,
-                  text_style_subtext | text_style_bold, ui_text_in_body)) return false;
+        text(card, row.author.bytes ? row.author : utf8_literal("Unknown author"),
+             {r.left + 50, r.top + 8, r.right - (row.can_unpin ? 44 : 12), r.top + 30}, theme.text_primary,
+             text_style_bold, ui_text_in_body);
+        text(card, row.timestamp, ui_rect_edges(r, ui_start(50), ui_start(30), ui_end(-12), ui_start(48)),
+             theme.text_secondary, text_style_subtext, ui_text_in_body);
+        text(card, row.body.bytes ? row.body : utf8_literal("Message has no text"),
+             {r.left + 12, r.top + 56, r.right - 12, body_bottom}, theme.text_primary, 0, ui_text_wrap | ui_text_in_body);
+        text(card, row.detail, {r.left + 12, body_bottom + 2, r.right - 12, body_bottom + 22}, theme.text_secondary,
+             text_style_subtext, ui_text_in_body);
+        text(card, utf8_literal("Jump to message"), ui_rect_edges(r, ui_start(36), ui_end(-33), ui_end(-12), ui_end(-9)),
+             row.jump_enabled ? theme.tokens.emphasis.outline : theme.interactive, text_style_subtext | text_style_bold,
+             ui_text_in_body);
     }
     if (!s.measured_count) {
         const auto r = s.body;
         const float top = r.top + minimum(68.f, ui_rect_height(r) * .35f);
-        const auto title = s.content->phase == UiPinnedMessagesPhase::loading ? utf8_literal("Loading pins…")
-            : s.content->phase == UiPinnedMessagesPhase::failed ? utf8_literal("Couldn't load pins")
-            : utf8_literal("No pinned messages");
-        const auto detail = s.content->status.bytes ? s.content->status
-            : s.content->phase == UiPinnedMessagesPhase::failed
-                ? Utf8View{}
-                : utf8_literal("Pinned messages will appear here.");
-        if (!text(out, s, s.root, title, {r.left + 20, top, r.right - 20, top + 28}, theme.text_primary,
-                  text_style_bold, ui_text_in_body | ui_text_center) ||
-            (s.content->phase != UiPinnedMessagesPhase::loading &&
-             !text(out, s, s.root, detail, {r.left + 24, top + 36, r.right - 24, top + 108},
-                   theme.text_secondary, 0, ui_text_wrap | ui_text_in_body | ui_text_center))) return false;
+        text(s.root, c.phase == UiPinnedMessagesPhase::loading ? utf8_literal("Loading pins…")
+                     : c.phase == UiPinnedMessagesPhase::failed ? utf8_literal("Couldn't load pins")
+                                                                 : utf8_literal("No pinned messages"),
+             {r.left + 20, top, r.right - 20, top + 28}, theme.text_primary, text_style_bold,
+             ui_text_in_body | ui_text_center);
+        if (c.phase != UiPinnedMessagesPhase::loading)
+            text(s.root, c.status.bytes ? c.status
+                         : c.phase == UiPinnedMessagesPhase::failed ? Utf8View{}
+                                                                     : utf8_literal("Pinned messages will appear here."),
+                 {r.left + 24, top + 36, r.right - 24, top + 108}, theme.text_secondary, 0,
+                 ui_text_wrap | ui_text_in_body | ui_text_center);
     }
-    if (ui_rect_has_area(s.status_rectangle) && !text(out, s, s.root, s.content->status.bytes ? s.content->status
-        : utf8_literal("Couldn't update this pin. Try again."),
-        ui_rect_edges(s.status_rectangle, ui_start(12), ui_start(4), ui_end(-12), ui_end(-4)),
-        theme.notification, text_style_subtext)) return false;
+    if (ui_rect_has_area(s.status_rectangle))
+        text(s.root, c.status.bytes ? c.status : utf8_literal("Couldn't update this pin. Try again."),
+             ui_rect_edges(s.status_rectangle, ui_start(12), ui_start(4), ui_end(-12), ui_end(-4)), theme.notification,
+             text_style_subtext);
     if (s.retry.generation)
-        return text(out, s, s.retry, utf8_literal("Retry"), bounds(s, s.retry), theme.text_primary,
-                    text_style_bold, ui_text_center);
+        return text(s.retry, utf8_literal("Retry"), ui_bounds(s, s.retry), theme.text_primary, text_style_bold,
+                    ui_text_center).ok();
     if (s.previous.generation || s.next.generation) {
-        const bool ready = s.content->phase == UiPinnedMessagesPhase::ready && !s.content->loading_more;
-        const Color previous_color = s.content->has_previous && ready ? theme.text_primary : theme.interactive;
-        const Color next_color = s.content->has_next && ready ? theme.text_primary : theme.interactive;
-        return text(out, s, s.previous, utf8_literal("Newer"), bounds(s, s.previous), previous_color,
-                    text_style_bold, ui_text_center) &&
-            text(out, s, s.next, utf8_literal("Older"), bounds(s, s.next), next_color,
-                 text_style_bold, ui_text_center) &&
-            text(out, s, s.root, s.content->loading_more ? utf8_literal("Loading…") : Utf8View{s.page_text, s.page_bytes},
-                 {bounds(s, s.previous).right + 4, s.footer.top + 10,
-                  bounds(s, s.next).left - 4, s.footer.bottom - 10}, theme.text_secondary,
-                 text_style_subtext, ui_text_center);
+        const bool ready = c.phase == UiPinnedMessagesPhase::ready && !c.loading_more;
+        text(s.previous, utf8_literal("Newer"), ui_bounds(s, s.previous),
+             c.has_previous && ready ? theme.text_primary : theme.interactive, text_style_bold, ui_text_center);
+        text(s.next, utf8_literal("Older"), ui_bounds(s, s.next), c.has_next && ready ? theme.text_primary : theme.interactive,
+             text_style_bold, ui_text_center);
+        return text(s.root, c.loading_more ? utf8_literal("Loading…") : Utf8View{s.page_text, s.page_bytes},
+                    {ui_bounds(s, s.previous).right + 4, s.footer.top + 10, ui_bounds(s, s.next).left - 4,
+                     s.footer.bottom - 10}, theme.text_secondary, text_style_subtext, ui_text_center).ok();
     }
-    if (s.content->phase == UiPinnedMessagesPhase::loading && !s.measured_count) return true;
-    return text(out, s, s.root, s.content->status.bytes ? s.content->status : utf8_literal("Pinned in this channel"),
-        ui_rect_edges(s.footer, ui_start(16), ui_start(10), ui_end(-16), ui_end(-10)),
-        s.content->mutation_failed ? theme.notification : theme.text_secondary, text_style_subtext);
+    if (c.phase == UiPinnedMessagesPhase::loading && !s.measured_count) return text.ok();
+    return text(s.root, c.status.bytes ? c.status : utf8_literal("Pinned in this channel"),
+                ui_rect_edges(s.footer, ui_start(16), ui_start(10), ui_end(-16), ui_end(-10)),
+                c.mutation_failed ? theme.notification : theme.text_secondary, text_style_subtext).ok();
 }
 } // namespace maicord

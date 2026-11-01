@@ -1,15 +1,13 @@
 #include "maicord/ui/download_scene.hpp"
-#include "maicord/ui/surface_elevation.hpp"
-#include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/rect_edges.hpp"
-#include "maicord/ui/scene_text.hpp"
+#include "maicord/ui/scene_kit.hpp"
 #include "maicord/ui/foreground_color.hpp"
-#include "maicord/ui/icon.hpp"
-#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
+constexpr UiLook kClose{.fill = UI_TOKEN(surface_high), .border = UI_TOKEN(interactive), .focus = UI_TOKEN(interactive),
+                        .radius = 6, .flags = ui_look_hot_only | ui_look_dialog};
 bool current(const UiDownloadScene& s) noexcept {
     return s.active && s.content && s.content->revision == s.content_revision &&
         (!s.source || (s.source->revision == s.source_revision && s.source->count == s.accepted_count &&
@@ -59,53 +57,38 @@ bool valid_row(const UiDownloadRow& r) noexcept {
 }
 bool initialize(UiDownloadScene& s) noexcept {
     if (s.storage.arena.base) return true;
-    if (!ui_fixed_widget_storage_initialize(&s.storage, kUiDownloadWidgetCapacity,
-        sizeof(UiDownloadRow) * kUiDownloadMaximumRows, alignof(UiDownloadRow)) ||
-        !ui_widget_manager_initialize(&s.widgets, s.storage.widgets, s.storage.layout_nodes)) return false;
+    if (!ui_scene_open(&s.storage, &s.widgets, kUiDownloadWidgetCapacity, sizeof(UiDownloadRow) * kUiDownloadMaximumRows,
+                       alignof(UiDownloadRow))) return false;
     s.accepted = ui_fixed_widget_storage_sidecar<UiDownloadRow>(s.storage);
-    const auto add = [&](UiWidgetHandle parent, UiWidgetKind kind, Utf8View name) noexcept {
-        return ui_widget_manager_add_part(&s.widgets, parent, kind, name);
-    };
-    const auto root = add(ui_widget_invalid_handle(), UiWidgetKind::container, utf8_literal("Downloads"));
-    if (!root.ok()) return false;
-    s.root = root.handle;
-    auto* node = ui_widget_manager_layout_node(&s.widgets, s.root);
-    node->spec.style.width = node->spec.style.height = ui_layout_fill();
-    const auto close = add(s.root, UiWidgetKind::button, utf8_literal("Hide downloads"));
-    const auto previous = add(s.root, UiWidgetKind::button, utf8_literal("Previous downloads"));
-    const auto next = add(s.root, UiWidgetKind::button, utf8_literal("Next downloads"));
-    const auto confirm = add(s.root, UiWidgetKind::button, utf8_literal("Save file anyway"));
-    const auto cancel = add(s.root, UiWidgetKind::button, utf8_literal("Cancel file save"));
-    if (!close.ok() || !previous.ok() || !next.ok() || !confirm.ok() || !cancel.ok()) return false;
-    s.close = close.handle; s.previous = previous.handle; s.next = next.handle;
-    s.confirm = confirm.handle; s.cancel = cancel.handle;
+    s.root = ui_scene_part_root(&s.widgets, utf8_literal("Downloads"));
+    if (!s.root.generation) return false;
+    const auto add = [&](Utf8View name) noexcept { return ui_scene_part(&s.widgets, s.root, UiWidgetKind::button, name); };
+    s.close = add(utf8_literal("Hide downloads"));
+    s.previous = add(utf8_literal("Previous downloads"));
+    s.next = add(utf8_literal("Next downloads"));
+    s.confirm = add(utf8_literal("Save file anyway"));
+    s.cancel = add(utf8_literal("Cancel file save"));
+    if (!s.close.generation || !s.previous.generation || !s.next.generation || !s.confirm.generation ||
+        !s.cancel.generation) return false;
     for (u32 i = 0; i < kUiDownloadVisibleRows; ++i) {
-        const auto primary = add(s.root, UiWidgetKind::button, utf8_literal("Download action"));
-        const auto secondary = add(s.root, UiWidgetKind::button, utf8_literal("Dismiss download"));
-        if (!primary.ok() || !secondary.ok()) return false;
-        s.primary[i] = primary.handle; s.secondary[i] = secondary.handle;
+        s.primary[i] = add(utf8_literal("Download action"));
+        s.secondary[i] = add(utf8_literal("Dismiss download"));
+        if (!s.primary[i].generation || !s.secondary[i].generation) return false;
     }
     return true;
 }
 bool rectangle(UiDownloadScene& s, UiWidgetHandle handle, UiRect r, bool visible, bool enabled) noexcept {
     return ui_widget_manager_place_part(&s.widgets, handle, r, s.panel, visible, enabled);
 }
-void append(char* out, u8& used, const char* value) noexcept {
-    while (*value) out[used++] = *value++;
-}
-void append_number(char* out, u8& used, u64 number) noexcept {
-    used = static_cast<u8>(used + decimal_write(out + used, number));
-}
 void progress_label(UiDownloadScene& s, u32 slot, const UiDownloadRow& r) noexcept {
-    auto& used = s.progress_bytes[slot]; used = 0;
-    auto* out = s.progress[slot]; append_number(out, used, r.bytes);
-    if (r.total) { append(out, used, " / "); append_number(out, used, r.total); }
-    append(out, used, " bytes");
-    if (!r.indeterminate && r.total) {
-        append(out, used, " • ");
-        const auto percentage = static_cast<u32>(minimum(100., static_cast<double>(r.bytes) * 100. / static_cast<double>(r.total)));
-        append_number(out, used, percentage); append(out, used, "%");
-    }
+    UiLabelWriter label{s.progress[slot], &s.progress_bytes[slot]};
+    label << r.bytes;
+    if (r.total) label << utf8_literal(" / ") << r.total;
+    label << utf8_literal(" bytes");
+    if (!r.indeterminate && r.total)
+        label << utf8_literal(" • ")
+              << static_cast<u32>(minimum(100., static_cast<double>(r.bytes) * 100. / static_cast<double>(r.total)))
+              << utf8_literal("%");
 }
 bool layout(UiDownloadScene& s, bool force = false) noexcept {
     bool dirty = force;
@@ -143,36 +126,27 @@ bool layout(UiDownloadScene& s, bool force = false) noexcept {
         dirty |= rectangle(s, s.secondary[i], secondary, visible && terminal(row->phase) && row->dismiss,
             visible && terminal(row->phase) && row->dismiss);
     }
-    s.page_label_bytes = 0;
+    UiLabelWriter page{s.page_label, &s.page_label_bytes};
     if (s.accepted_count) {
-        append_number(s.page_label, s.page_label_bytes, s.first + 1);
-        if (s.count > 1) { append(s.page_label, s.page_label_bytes, "–"); append_number(s.page_label, s.page_label_bytes, s.first + s.count); }
-        append(s.page_label, s.page_label_bytes, " of "); append_number(s.page_label, s.page_label_bytes, s.accepted_count);
+        page << s.first + 1;
+        if (s.count > 1) page << utf8_literal("–") << s.first + s.count;
+        page << utf8_literal(" of ") << s.accepted_count;
     }
     if (dirty && !ui_widget_manager_layout_rectangle(&s.widgets, s.panel).ok()) return false;
     ui_widget_manager_reconcile_input(&s.widgets); return true;
 }
-bool surface(PaintStream* out, const UiRect& r, const Theme& t, const Color& fill, const Color& border, float radius = 8) noexcept {
-    return ui_background_paint_surface(out,r,t,fill,border,radius,1,1,
-        UiBackgroundSurfaceMode::gradient,UiBackgroundTier::highest);
-}
 // Disabled pager buttons (Previous on the first page, Next on the last)
 // fade to half opacity.
 constexpr float kDisabledOpacity = .5f;
-bool button(PaintStream* out, const UiDownloadScene& s, UiWidgetHandle handle, const UiRect& r,
-    const Theme& t, bool enabled, bool filled = false) noexcept {
-    const bool hover = enabled && ui_widget_handle_matches(s.widgets.hovered, handle);
-    const bool focus = enabled && ui_widget_handle_matches(s.widgets.focused, handle);
+void button(UiPaint& p, const UiDownloadScene& s, UiWidgetHandle handle, const UiRect& r, bool enabled,
+    bool filled = false) noexcept {
+    const auto& t = p.theme();
+    const bool hover = enabled && ui_hovered(s, handle), focus = enabled && ui_focused(s, handle);
     const float opacity = enabled ? 1.f : kDisabledOpacity;
-    return surface(out,r,t,ui_theme_color_alpha(filled ? t.tokens.emphasis.fill : hover ? t.surface_high : t.base_low, opacity),
-        ui_theme_color_alpha(focus ? ui_foreground_color(t,t.tokens.border.focus) : filled ? t.tokens.emphasis.fill : t.interactive, opacity),6);
-}
-bool emit(UiTextOutput* out, const UiDownloadScene& s, UiWidgetHandle owner, const Utf8View& value,
-    const UiRect& r, const Color& color, u32 flags = 0, u32 mode = 0) noexcept {
-    if (!value.bytes || !ui_rect_has_area(r)) return true;
-    return ui_text_output_push(out,{value,{&s.widgets,owner},r,s.panel,color,flags,
-        static_cast<UiTextAlignment>(mode >> 2),UiTextAlignment::center,
-        mode & ui_text_wrap ? TextWrapping::wrap : TextWrapping::no_wrap,TextOverflow::ellipsis,UiTextFace::normal});
+    p.surface(r, ui_theme_color_alpha(filled ? t.tokens.emphasis.fill : hover ? t.surface_high : t.base_low, opacity),
+        ui_theme_color_alpha(focus ? ui_foreground_color(t, t.tokens.border.focus) : filled ? t.tokens.emphasis.fill
+                                                                                         : t.interactive, opacity),
+        6, true);
 }
 } // namespace
 
@@ -246,10 +220,7 @@ bool ui_download_scene_update(UiDownloadScene* s, const UiDownloadSource* source
     if (entering_confirmation) ui_widget_manager_focus(&s->widgets,s->cancel);
     ++s->revision; return true;
 }
-void ui_download_scene_release(UiDownloadScene* s) noexcept {
-    if (!s) return;
-    ui_fixed_widget_storage_release(&s->storage); reset_value(s);
-}
+void ui_download_scene_release(UiDownloadScene* s) noexcept { ui_scene_release(s); }
 UiDownloadTarget ui_download_scene_target(const UiDownloadScene& s, UiWidgetHandle handle) noexcept {
     if (!current(s)) return {};
     if (ui_widget_handle_matches(handle, s.close)) return {UiDownloadAction::close};
@@ -283,115 +254,116 @@ bool ui_download_scene_page(UiDownloadScene* s, u32 page) noexcept {
 }
 bool ui_download_scene_set_hover(UiDownloadScene* s, float x, float y, bool* changed) noexcept {
     if (changed) *changed = false;
-    if (!s || !current(*s)) return false;
-    bool delta = false;
-    if (!ui_widget_manager_hover_at(&s->widgets,x,y,&delta)) return false;
-    if (delta) ++s->revision;
-    if (changed) *changed = delta;
-    return true;
+    return s && current(*s) && ui_scene_hover(&s->widgets, &s->revision, x, y, changed);
 }
 bool ui_download_scene_paint(const UiDownloadScene& s, const Theme& t, PaintStream* out) noexcept {
     if (!current(s)) return true;
-    if (!out || !paint_stream_push_clip(out, s.viewport)) return false;
-    const auto p = s.panel;
-    bool ok = paint_stream_push(out, s.viewport, t.tokens.overlay.scrim) &&
-        ui_surface_paint(out,p,t,UiElevation::dialog,t.scale.radius_lg + t.scale.space_1,nullptr,
-                         &t.interactive_hover) &&
-        ui_icon_paint(out,s.mode == UiDownloadMode::confirmation ? UiIcon::warning : UiIcon::download,
-            ui_rect_edges(p, ui_start(20), ui_start(16), ui_start(40), ui_start(36)),ui_foreground_color(t,t.tokens.emphasis.outline));
-    if (ok && (ui_widget_handle_matches(s.widgets.hovered, s.close) || ui_widget_handle_matches(s.widgets.focused, s.close)))
-        ok = surface(out,ui_rect_edges(p, ui_end(-44), ui_start(8), ui_end(-12), ui_start(40)),t,t.surface_high,t.interactive,6);
-    ok = ok && ui_icon_paint(out,UiIcon::close,ui_rect_edges(p, ui_end(-38), ui_start(14), ui_end(-18), ui_start(34)),t.text_secondary);
+    const auto panel = s.panel;
+    UiPaint p{out, t};
+    p.dialog(s.viewport, panel)
+        .icon(s.mode == UiDownloadMode::confirmation ? UiIcon::warning : UiIcon::download,
+              ui_rect_edges(panel, ui_start(20), ui_start(16), ui_start(40), ui_start(36)),
+              ui_foreground_color(t, t.tokens.emphasis.outline))
+        .look<kClose>(ui_rect_edges(panel, ui_end(-44), ui_start(8), ui_end(-12), ui_start(40)),
+                      ui_widget_state(s.widgets, s.close))
+        .icon(UiIcon::close, ui_rect_edges(panel, ui_end(-38), ui_start(14), ui_end(-18), ui_start(34)), t.text_secondary);
     if (s.mode == UiDownloadMode::confirmation) {
-        ok = ok && surface(out,s.confirmation_filename,t,t.base_lowest,t.surface_high,6) &&
-            button(out,s,s.cancel,s.cancel_rectangle,t,true) && button(out,s,s.confirm,s.confirm_rectangle,t,true,true);
-    } else {
-        for (u32 i = 0; ok && i < s.count; ++i) {
-            const auto& r = s.accepted[s.first + i]; const auto card = s.cards[i];
-            const auto color = phase_color(t,r.phase);
-            ok = surface(out,card,t,t.base_lowest,t.surface_high,9) &&
-                ui_icon_paint(out,r.phase == UiDownloadPhase::failed ? UiIcon::warning : UiIcon::download,
-                    ui_rect_edges(card, ui_start(12), ui_start(12), ui_start(32), ui_start(32)),color);
-            const UiRect track = ui_rect_edges(card, ui_start(12), ui_end(-42), ui_end(-12), ui_end(-38));
-            ok = ok && paint_stream_push_rounded(out, track, t.interactive, t.scale.radius_xs);
-            // A row still waiting (choosing a location, refreshing the link)
-            // shows the bare track: there is no progress to draw yet.
-            if ((terminal(r.phase) || !r.indeterminate) && r.total && r.bytes) {
-                const float ratio = static_cast<float>(minimum(1.,static_cast<double>(r.bytes) / static_cast<double>(r.total)));
-                ok = ok && paint_stream_push_rounded(out,track.left,track.top,
-                    track.left + ui_rect_width(track) * ratio,track.bottom,color,t.scale.radius_xs);
-            }
-            if (primary_action(r) != UiDownloadAction::none)
-                ok = ok && button(out,s,s.primary[i],s.primary_rectangles[i],t,true,r.phase == UiDownloadPhase::failed);
-            if (terminal(r.phase) && r.dismiss) {
-                ok = ok && button(out,s,s.secondary[i],s.secondary_rectangles[i],t,true);
-                if (ui_rect_width(card) < 350) {
-                    const auto x = s.secondary_rectangles[i];
-                    ok = ok && ui_icon_paint(out,UiIcon::close,ui_rect_edges(x, ui_start(6), ui_start(5), ui_end(-6), ui_end(-5)),t.text_secondary);
-                }
-            }
-        }
-        if (ok && s.accepted_count) ok = button(out,s,s.previous,s.previous_rectangle,t,s.page != 0) &&
-            button(out,s,s.next,s.next_rectangle,t,(s.page + 1) * s.page_size < s.accepted_count);
-        if (ok && !s.accepted_count) {
-            const float mid = (s.body.top + s.body.bottom) * .5f;
-            ok = ui_icon_paint(out,UiIcon::download,{s.body.left + ui_rect_width(s.body) * .5f - 22,mid - 62,
-                s.body.left + ui_rect_width(s.body) * .5f + 22,mid - 18},ui_foreground_color(t,t.tokens.emphasis.outline));
-        }
+        p.surface(s.confirmation_filename, t.base_lowest, t.surface_high, 6, true);
+        button(p, s, s.cancel, s.cancel_rectangle, true);
+        button(p, s, s.confirm, s.confirm_rectangle, true, true);
+        return p.end();
     }
-    return paint_stream_pop_clip(out) && ok;
+    for (u32 i = 0; p && i < s.count; ++i) {
+        const auto& r = s.accepted[s.first + i];
+        const auto card = s.cards[i];
+        const auto color = phase_color(t, r.phase);
+        const UiRect track = ui_rect_edges(card, ui_start(12), ui_end(-42), ui_end(-12), ui_end(-38));
+        p.surface(card, t.base_lowest, t.surface_high, 9, true)
+            .icon(r.phase == UiDownloadPhase::failed ? UiIcon::warning : UiIcon::download,
+                  ui_rect_edges(card, ui_start(12), ui_start(12), ui_start(32), ui_start(32)), color)
+            .rounded(track, t.interactive, t.scale.radius_xs);
+        // A row still waiting (choosing a location, refreshing the link)
+        // shows the bare track: there is no progress to draw yet.
+        if ((terminal(r.phase) || !r.indeterminate) && r.total && r.bytes) {
+            const float ratio = static_cast<float>(minimum(1., static_cast<double>(r.bytes) / static_cast<double>(r.total)));
+            p.rounded({track.left, track.top, track.left + ui_rect_width(track) * ratio, track.bottom}, color,
+                      t.scale.radius_xs);
+        }
+        if (primary_action(r) != UiDownloadAction::none)
+            button(p, s, s.primary[i], s.primary_rectangles[i], true, r.phase == UiDownloadPhase::failed);
+        if (!terminal(r.phase) || !r.dismiss) continue;
+        button(p, s, s.secondary[i], s.secondary_rectangles[i], true);
+        if (ui_rect_width(card) < 350)
+            p.icon(UiIcon::close, ui_rect_edges(s.secondary_rectangles[i], ui_start(6), ui_start(5), ui_end(-6), ui_end(-5)),
+                   t.text_secondary);
+    }
+    if (s.accepted_count) {
+        button(p, s, s.previous, s.previous_rectangle, s.page != 0);
+        button(p, s, s.next, s.next_rectangle, (s.page + 1) * s.page_size < s.accepted_count);
+    } else {
+        const float mid = (s.body.top + s.body.bottom) * .5f;
+        p.icon(UiIcon::download, {s.body.left + ui_rect_width(s.body) * .5f - 22, mid - 62,
+                                  s.body.left + ui_rect_width(s.body) * .5f + 22, mid - 18},
+               ui_foreground_color(t, t.tokens.emphasis.outline));
+    }
+    return p.end();
 }
 bool ui_download_scene_text_output(const UiDownloadScene& s, const Theme& t, UiTextOutput* out) noexcept {
     if (!current(s)) return true;
-    if (!ui_text_output_valid(out)) return false;
-    const auto p = s.panel;
-    if (!emit(out,s,s.root,s.content->heading.bytes ? s.content->heading :
-        s.mode == UiDownloadMode::confirmation ? utf8_literal("Save this file?") : utf8_literal("Downloads"),
-        ui_rect_edges(p, ui_start(48), ui_start(10), ui_end(-48), ui_start(40)),t.text_primary,text_style_bold)) return false;
+    UiTextPen<UiTextClip::region> text{out, s.widgets, s.panel};
+    const auto& c = *s.content;
+    text(s.root, c.heading.bytes ? c.heading
+                 : s.mode == UiDownloadMode::confirmation ? utf8_literal("Save this file?") : utf8_literal("Downloads"),
+         ui_rect_edges(s.panel, ui_start(48), ui_start(10), ui_end(-48), ui_start(40)), t.text_primary, text_style_bold);
     if (s.mode == UiDownloadMode::confirmation) {
-        const auto f = s.confirmation_filename;
-        return emit(out,s,s.root,s.content->filename,ui_rect_edges(f, ui_start(10), ui_start(0), ui_end(-10), ui_end(0)),t.text_primary,text_style_bold | text_style_subtext) &&
-            emit(out,s,s.root,s.content->warning,s.warning,t.text_primary,0,ui_text_wrap) &&
-            emit(out,s,s.cancel,utf8_literal("Cancel"),s.cancel_rectangle,t.text_primary,0,ui_text_center) &&
-            emit(out,s,s.confirm,utf8_literal("Save anyway"),s.confirm_rectangle,ui_surface_foreground(t,t.tokens.emphasis.fill),
-                text_style_bold | text_style_subtext,ui_text_center);
+        text(s.root, c.filename, ui_rect_edges(s.confirmation_filename, ui_start(10), ui_start(0), ui_end(-10), ui_end(0)),
+             t.text_primary, text_style_bold | text_style_subtext);
+        text(s.root, c.warning, s.warning, t.text_primary, 0, ui_text_wrap | ui_text_middle);
+        text(s.cancel, utf8_literal("Cancel"), s.cancel_rectangle, t.text_primary, 0, ui_text_center);
+        return text(s.confirm, utf8_literal("Save anyway"), s.confirm_rectangle,
+                    ui_surface_foreground(t, t.tokens.emphasis.fill), text_style_bold | text_style_subtext,
+                    ui_text_center).ok();
     }
-    if (!emit(out,s,s.root,s.content->status,
-        s.hint,t.text_secondary,text_style_subtext)) return false;
-    for (u32 i = 0; i < s.count; ++i) {
-        const auto& r = s.accepted[s.first + i]; const auto c = s.cards[i];
-        const bool short_card = ui_rect_height(c) < 144;
-        const float source_top = c.top + 34;
-        const float status_top = c.top + (short_card ? 50.f : 58.f);
-        const float bytes_top = c.bottom - 66;
-        if (!emit(out,s,s.root,r.filename,ui_rect_edges(c, ui_start(42), ui_start(8), ui_end(-12), ui_start(34)),t.text_primary,text_style_bold) ||
-            !emit(out,s,s.root,r.source,{c.left + 42,source_top,c.right - 12,source_top + (short_card ? 16.f : 18.f)},t.text_secondary,text_style_subtext) ||
-            !emit(out,s,s.root,r.status.bytes ? r.status : phase_label(r.phase),
-                {c.left + 12,status_top,c.right - 12,status_top + (short_card ? 18.f : 20.f)},phase_color(t,r.phase),text_style_subtext) ||
-            !emit(out,s,s.root,{s.progress[i],s.progress_bytes[i]},
-                {c.left + 12,bytes_top,c.right - 12,bytes_top + 20},t.text_secondary,text_style_subtext)) return false;
-        if (primary_action(r) != UiDownloadAction::none && !emit(out,s,s.primary[i],primary_label(r),s.primary_rectangles[i],
-            r.phase == UiDownloadPhase::failed ? ui_surface_foreground(t,t.tokens.emphasis.fill) : t.text_primary,
-            text_style_subtext,ui_text_center)) return false;
-        if (terminal(r.phase) && r.dismiss && ui_rect_width(c) >= 350 &&
-            !emit(out,s,s.secondary[i],utf8_literal("Dismiss"),s.secondary_rectangles[i],t.text_primary,
-                text_style_subtext,ui_text_center)) return false;
+    text(s.root, c.status, s.hint, t.text_secondary, text_style_subtext);
+    for (u32 i = 0; text.ok() && i < s.count; ++i) {
+        const auto& r = s.accepted[s.first + i];
+        const auto card = s.cards[i];
+        const bool short_card = ui_rect_height(card) < 144;
+        const float source_top = card.top + 34;
+        const float status_top = card.top + (short_card ? 50.f : 58.f);
+        const float bytes_top = card.bottom - 66;
+        text(s.root, r.filename, ui_rect_edges(card, ui_start(42), ui_start(8), ui_end(-12), ui_start(34)), t.text_primary,
+             text_style_bold);
+        text(s.root, r.source, {card.left + 42, source_top, card.right - 12, source_top + (short_card ? 16.f : 18.f)},
+             t.text_secondary, text_style_subtext);
+        text(s.root, r.status.bytes ? r.status : phase_label(r.phase),
+             {card.left + 12, status_top, card.right - 12, status_top + (short_card ? 18.f : 20.f)}, phase_color(t, r.phase),
+             text_style_subtext);
+        text(s.root, {s.progress[i], s.progress_bytes[i]}, {card.left + 12, bytes_top, card.right - 12, bytes_top + 20},
+             t.text_secondary, text_style_subtext);
+        if (primary_action(r) != UiDownloadAction::none)
+            text(s.primary[i], primary_label(r), s.primary_rectangles[i],
+                 r.phase == UiDownloadPhase::failed ? ui_surface_foreground(t, t.tokens.emphasis.fill) : t.text_primary,
+                 text_style_subtext, ui_text_center);
+        if (terminal(r.phase) && r.dismiss && ui_rect_width(card) >= 350)
+            text(s.secondary[i], utf8_literal("Dismiss"), s.secondary_rectangles[i], t.text_primary, text_style_subtext,
+                 ui_text_center);
     }
     if (!s.accepted_count) {
         const float mid = (s.body.top + s.body.bottom) * .5f;
-        return emit(out,s,s.root,utf8_literal("No downloads yet"),{s.body.left,mid - 8,s.body.right,mid + 18},
-            t.text_primary,text_style_bold,ui_text_center) &&
-            emit(out,s,s.root,utf8_literal("Save an attachment to see its progress here."),
-                {s.body.left,mid + 20,s.body.right,mid + 60},t.text_secondary,text_style_subtext,
-                ui_text_center | ui_text_wrap);
+        text(s.root, utf8_literal("No downloads yet"), {s.body.left, mid - 8, s.body.right, mid + 18}, t.text_primary,
+             text_style_bold, ui_text_center);
+        return text(s.root, utf8_literal("Save an attachment to see its progress here."),
+                    {s.body.left, mid + 20, s.body.right, mid + 60}, t.text_secondary, text_style_subtext,
+                    ui_text_center | ui_text_wrap | ui_text_middle).ok();
     }
     const Color disabled = ui_theme_color_alpha(t.text_secondary, kDisabledOpacity);
-    return emit(out,s,s.previous,utf8_literal("Previous"),s.previous_rectangle,s.page ? t.text_primary : disabled,
-        text_style_subtext,ui_text_center) &&
-        emit(out,s,s.next,utf8_literal("Next"),s.next_rectangle,(s.page + 1) * s.page_size < s.accepted_count ?
-            t.text_primary : disabled,text_style_subtext,ui_text_center) &&
-        emit(out,s,s.root,{s.page_label,s.page_label_bytes},
-            {s.previous_rectangle.right + 6,s.footer.top,s.next_rectangle.left - 6,s.footer.bottom},
-            t.text_secondary,text_style_subtext,ui_text_center);
+    text(s.previous, utf8_literal("Previous"), s.previous_rectangle, s.page ? t.text_primary : disabled, text_style_subtext,
+         ui_text_center);
+    text(s.next, utf8_literal("Next"), s.next_rectangle,
+         (s.page + 1) * s.page_size < s.accepted_count ? t.text_primary : disabled, text_style_subtext, ui_text_center);
+    return text(s.root, {s.page_label, s.page_label_bytes},
+                {s.previous_rectangle.right + 6, s.footer.top, s.next_rectangle.left - 6, s.footer.bottom},
+                t.text_secondary, text_style_subtext, ui_text_center).ok();
 }
 } // namespace maicord

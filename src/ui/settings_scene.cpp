@@ -6,12 +6,10 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/background_presentation.hpp"
-#include "maicord/ui/background_surface.hpp"
+#include "maicord/ui/scene_kit.hpp"
 #include "maicord/ui/transition.hpp"
-#include "maicord/ui/spinner.hpp"
 #include "maicord/ui/text_style.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
-#include "maicord/ui/icon.hpp"
 #include "maicord/ui/theme_styles.hpp"
 #include "maicord/ui/visit_ref.hpp"
 
@@ -1219,33 +1217,6 @@ void synchronize_input(UiSettingsScene& scene) noexcept {
         scene.focus = fallback_focus(scene);
     ui_widget_manager_focus(&scene.widgets, target_handle(scene, scene.focus));
 }
-bool text(UiTextOutput* stream, const UiSettingsScene& scene, UiWidgetHandle handle, const Utf8View& label, const UiRect& rectangle,
-          const Color& color, u32 style = text_style_none, UiTextAlignment alignment = UiTextAlignment::start,
-          TextWrapping wrapping = TextWrapping::no_wrap,
-          UiTextAlignment vertical = UiTextAlignment::center) noexcept {
-    const auto* node = ui_widget_manager_layout_node(scene.widgets, handle);
-    if (!node)
-        return false;
-    const auto clip = ui_rect_overlap(rectangle, node->clip_rectangle);
-    if (!label.bytes || !ui_rect_has_area(clip))
-        return true;
-    return ui_text_output_push(stream, {label,
-                                        {&scene.widgets, handle},
-                                        rectangle,
-                                        clip,
-                                        color,
-                                        style,
-                                        alignment,
-                                        vertical,
-                                        wrapping,
-                                        TextOverflow::ellipsis});
-}
-// A wrapped, top-aligned description.
-bool describe(UiTextOutput* stream, const UiSettingsScene& scene, UiWidgetHandle handle, const Utf8View& label,
-              const UiRect& rectangle, const Color& color) noexcept {
-    return text(stream, scene, handle, label, rectangle, color, text_description, UiTextAlignment::start,
-                TextWrapping::wrap, UiTextAlignment::start);
-}
 // The control's state as seen by option `index`: hovered only when the pointer is on that option.
 UiControlState hover_option(const UiSettingsScene& scene, UiControlState state, u32 index) noexcept {
     state.hovered = state.hovered && scene.palette_hovered_index == index;
@@ -2405,261 +2376,228 @@ bool paint_list_row(const UiSettingsScene& scene, const Theme& theme, const UiSe
     const float alpha = c.enabled ? 1.f : t.disabled_alpha;
     const auto parts = list_parts(t, scene.content, index, r.row);
     const u32 hovered_part = state.hovered ? scene.palette_hovered_index : ~0u;
-    bool ok = true;
+    UiPaint p{paint, theme};
     if (item.style == UiSettingsListStyle::card) {
         const auto box = parts.content;
         const float radius = t.metric.control_radius;
-        const float tile_radius = maximum(radius - t.metric.notice_padding, theme.scale.radius_sm);
-        ok = paint_stream_push_rounded_border(paint, box,
-                                              state.hovered && c.enabled ? tc.mod_normal : tc.mod_subtle,
-                                              tc.border_subtle, radius, 1) &&
-             paint_stream_push_rounded(paint, parts.icon,
-                                       tc.mod_strong, tile_radius);
-        if (ok && item.lead != UiIcon::count) {
-            const float inset = (ui_rect_width(parts.icon) - t.metric.list_icon) * .5f;
-            ok = ui_icon_paint(paint, item.lead,
-                               {parts.icon.left + inset, parts.icon.top + inset, parts.icon.right - inset,
-                                parts.icon.bottom - inset},
-                               ui_settings_color_alpha(tc.text_strong, alpha));
-        }
-        if (ok)
-            ok = ui_icon_paint(paint, UiIcon::chevron_right, parts.chevron,
-                               ui_settings_color_alpha(state.hovered ? tc.text_strong : tc.text_subtle, alpha));
         const float ring = t.metric.focus_gap + t.metric.focus_width;
-        if (ok && state.focused)
-            ok = ui_settings_focus_paint(paint, t, {box.left + ring, box.top + ring, box.right - ring,
-                                                    box.bottom - ring},
-                                         maximum(0.f, radius - ring));
-        return ok;
+        p.rounded_border(box, state.hovered && c.enabled ? tc.mod_normal : tc.mod_subtle, tc.border_subtle, radius, 1)
+            .rounded(parts.icon, tc.mod_strong, maximum(radius - t.metric.notice_padding, theme.scale.radius_sm));
+        if (item.lead != UiIcon::count)
+            p.icon(item.lead, ui_rect_shrink(parts.icon, (ui_rect_width(parts.icon) - t.metric.list_icon) * .5f),
+                   ui_settings_color_alpha(tc.text_strong, alpha));
+        p.icon(UiIcon::chevron_right, parts.chevron,
+               ui_settings_color_alpha(state.hovered ? tc.text_strong : tc.text_subtle, alpha));
+        if (state.focused)
+            p.use<ui_settings_focus_paint>(t, ui_rect_shrink(box, ring), maximum(0.f, radius - ring));
+        return p.ok();
     }
     if (!highlighted && state.hovered && c.enabled)
-        ok = paint_stream_push_rounded(paint, r.row.left, r.row.top + theme.scale.space_1, r.row.right,
-                                       r.row.bottom - theme.scale.space_1, ui_settings_color_alpha(tc.mod_subtle, .7f),
-                                       t.metric.control_radius);
+        p.rounded({r.row.left, r.row.top + theme.scale.space_1, r.row.right, r.row.bottom - theme.scale.space_1},
+                  ui_settings_color_alpha(tc.mod_subtle, .7f), t.metric.control_radius);
     // Draggable rows always show their handle; it brightens on hover.
-    if (ok && has_flag(scene.content, index, ui_settings_presentation_grip))
-        ok = ui_admin_grip_paint(paint, t, {parts.content.left, r.row.top, parts.icon.left, r.row.bottom},
-                                 state.hovered, c.enabled);
-    if (ok && item.lead != UiIcon::count) {
+    if (has_flag(scene.content, index, ui_settings_presentation_grip))
+        p.use<ui_admin_grip_paint>(t, UiRect{parts.content.left, r.row.top, parts.icon.left, r.row.bottom}, state.hovered,
+                                   c.enabled);
+    if (p && item.lead != UiIcon::count) {
         // The lead glyph wears the row accent (a role's colour) as ink and a
         // light underlay.
         Color ink = tc.text_subtle;
         if (accent(scene.content, index))
             resolve_color(scene, c.id, kUiSettingsAccentChoice, &ink);
-        ok = ui_icon_paint_styled(paint, item.lead, parts.icon,
-                                  {ui_settings_color_alpha(ink, alpha), ui_settings_color_alpha(ink, .35f * alpha), 0});
+        p.use<ui_icon_paint_styled>(item.lead, parts.icon,
+                                    UiIconStyle{ui_settings_color_alpha(ink, alpha),
+                                                ui_settings_color_alpha(ink, .35f * alpha), 0});
     }
-    if (ok && item.locked)
-        ok = ui_icon_paint(paint, UiIcon::lock, parts.lock, ui_settings_color_alpha(tc.text_subtle, alpha));
-    if (ok && item.count_icon != UiIcon::count)
-        ok = ui_icon_paint(paint, item.count_icon, list_count_icon(t, c, parts.column),
-                           ui_settings_color_alpha(hovered_part == ui_settings_list_count ? tc.text_strong
-                                                                                          : tc.text_subtle,
-                                                   alpha));
+    if (item.locked)
+        p.icon(UiIcon::lock, parts.lock, ui_settings_color_alpha(tc.text_subtle, alpha));
+    if (item.count_icon != UiIcon::count)
+        p.icon(item.count_icon, list_count_icon(t, c, parts.column),
+               ui_settings_color_alpha(hovered_part == ui_settings_list_count ? tc.text_strong : tc.text_subtle, alpha));
     // Icon buttons appear with the pointer or keyboard focus on the row.
-    for (u32 i = 0; ok && (state.hovered || state.focused) && i < kUiSettingsListActions; ++i) {
+    for (u32 i = 0; p && (state.hovered || state.focused) && i < kUiSettingsListActions; ++i) {
         if (item.actions[i] == UiIcon::count)
             continue;
         const auto b = parts.actions[i];
         const bool hot = hovered_part == ui_settings_list_action + i;
-        ok = paint_stream_push_rounded(paint, b,
-                                       hot ? (state.pressed ? tc.mod_strong : tc.mod_normal) : tc.mod_subtle,
-                                       t.metric.control_radius);
-        const float inset = (ui_rect_width(b) - t.metric.list_icon * .75f) * .5f;
-        if (ok)
-            ok = ui_icon_paint(paint, item.actions[i], {b.left + inset, b.top + inset, b.right - inset, b.bottom - inset},
-                               ui_settings_color_alpha(hot ? tc.text_strong : tc.text_default, alpha));
+        p.rounded(b, hot ? (state.pressed ? tc.mod_strong : tc.mod_normal) : tc.mod_subtle, t.metric.control_radius)
+            .icon(item.actions[i], ui_rect_shrink(b, (ui_rect_width(b) - t.metric.list_icon * .75f) * .5f),
+                  ui_settings_color_alpha(hot ? tc.text_strong : tc.text_default, alpha));
     }
     // The ring stays inside the row so the list's clip keeps all of it.
-    const float ring = t.metric.focus_gap + t.metric.focus_width;
-    if (ok && state.focused)
-        ok = ui_settings_focus_paint(paint, t, {r.row.left + ring, r.row.top + ring, r.row.right - ring,
-                                                r.row.bottom - ring},
-                                     t.metric.control_radius);
+    if (state.focused) {
+        const float ring = t.metric.focus_gap + t.metric.focus_width;
+        p.use<ui_settings_focus_paint>(t, ui_rect_shrink(r.row, ring), t.metric.control_radius);
+    }
     // Rows of one list are divided by hairlines inside their content edges.
-    if (ok && list_style(scene.content, index + 1, UiSettingsListStyle::row))
-        ok = paint_stream_push(paint, parts.content.left, r.row.bottom - 1, parts.content.right, r.row.bottom,
-                               tc.separator);
-    return ok;
+    if (list_style(scene.content, index + 1, UiSettingsListStyle::row))
+        p.fill({parts.content.left, r.row.bottom - 1, parts.content.right, r.row.bottom}, tc.separator);
+    return p.ok();
 }
 
 bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSettingsTokens& t, PaintStream* paint,
                UiWidgetHandle handle, const Entry& entry, u32 dpi) noexcept {
-    const auto& c = scene.content.controls[entry.source_index];
+    const u32 index = entry.source_index;
+    const auto& c = scene.content.controls[index];
     RowLayout r{};
     UiRect clip{};
-    if (!row_layout_for(scene, t, handle, entry.source_index, &r, &clip) ||
-        !ui_rect_has_area(ui_rect_overlap(r.row, clip)))
+    if (!row_layout_for(scene, t, handle, index, &r, &clip) || !ui_rect_has_area(ui_rect_overlap(r.row, clip)))
         return true;
     const auto& tc = t.color;
-    auto state = widget_state(scene, handle, entry.target, c.enabled);
-    bool ok = true;
+    const auto state = widget_state(scene, handle, entry.target, c.enabled);
+    const u32 hovered_option = state.hovered ? scene.palette_hovered_index : ~0u;
+    UiPaint p{paint, theme};
     // The flash covers the same box as the selection fill.
     if (scene.flash_control == c.id && scene.flash > 0)
-        ok = paint_stream_push_rounded(paint, r.row.left, r.row.top + theme.scale.space_1, r.row.right,
-                                       r.row.bottom - theme.scale.space_1,
-                                       ui_settings_color_alpha(tc.brand, .16f * scene.flash), t.metric.control_radius);
-    const u32 index = entry.source_index;
+        p.rounded({r.row.left, r.row.top + theme.scale.space_1, r.row.right, r.row.bottom - theme.scale.space_1},
+                  ui_settings_color_alpha(tc.brand, .16f * scene.flash), t.metric.control_radius);
     const bool dragged = scene.drag_row == index + 1;
-    if (ok && (has_flag(scene.content, index, ui_settings_presentation_selected) || dragged))
-        ok = paint_stream_push_rounded(paint, r.row.left, r.row.top + 2, r.row.right, r.row.bottom - 2,
-                                       dragged ? ui_settings_color_alpha(tc.brand, .14f) : tc.mod_subtle,
-                                       t.metric.control_radius);
+    const bool selected = has_flag(scene.content, index, ui_settings_presentation_selected);
+    const UiRect band{r.row.left, r.row.top + 2, r.row.right, r.row.bottom - 2};
+    if (selected || dragged)
+        p.rounded(band, dragged ? ui_settings_color_alpha(tc.brand, .14f) : tc.mod_subtle, t.metric.control_radius);
     // Only list rows that are themselves the action get a hover fill; a row
     // with its own button highlights just that button.
-    else if (ok && c.kind == UiSettingsControlKind::action && has_flag(scene.content, index, ui_settings_presentation_compact) &&
+    else if (c.kind == UiSettingsControlKind::action && has_flag(scene.content, index, ui_settings_presentation_compact) &&
              !c.action_label.bytes && state.hovered && c.enabled && !list_item(scene.content, index))
-        ok = paint_stream_push_rounded(paint, r.row.left, r.row.top + 2, r.row.right, r.row.bottom - 2,
-                                       ui_settings_color_alpha(tc.mod_subtle, .7f), t.metric.control_radius);
-    if (ok && scene.drop_row == index + 1 && !dragged) {
+        p.rounded(band, ui_settings_color_alpha(tc.mod_subtle, .7f), t.metric.control_radius);
+    if (scene.drop_row == index + 1 && !dragged) {
         const float y = scene.drop_after ? r.row.bottom - 1 : r.row.top + 1;
-        ok = paint_stream_push_rounded(paint, r.row.left, y - 1.5f, r.row.right, y + 1.5f, tc.brand, 1.5f);
+        p.rounded({r.row.left, y - 1.5f, r.row.right, y + 1.5f}, tc.brand, 1.5f);
     }
     if (const auto* item = c.kind == UiSettingsControlKind::action ? list_item(scene.content, index) : nullptr)
-        return ok && paint_list_row(scene, theme, t, paint, r, index, *item, state,
-                                    dragged || has_flag(scene.content, index, ui_settings_presentation_selected));
-    if (ok && c.kind == UiSettingsControlKind::action && ui_rect_has_area(r.lead)) {
+        return p.ok() && paint_list_row(scene, theme, t, paint, r, index, *item, state, dragged || selected);
+    if (p && c.kind == UiSettingsControlKind::action && ui_rect_has_area(r.lead)) {
         const float alpha = c.enabled ? 1.f : .5f;
         UiRect lead = r.lead;
         if (has_flag(scene.content, index, ui_settings_presentation_grip)) {
-            ok = ui_admin_grip_paint(paint, t, lead, state.hovered, c.enabled);
+            p.use<ui_admin_grip_paint>(t, lead, state.hovered, c.enabled);
             lead.left += t.metric.grip_width + 4;
         }
         Color fill = tc.brand;
         if (accent(scene.content, index))
             resolve_color(scene, c.id, kUiSettingsAccentChoice, &fill);
-        if (ok && has_flag(scene.content, index, ui_settings_presentation_avatar)) {
+        if (has_flag(scene.content, index, ui_settings_presentation_avatar)) {
             const float size = t.metric.avatar_size, cy = (lead.top + lead.bottom) * .5f;
             const UiRect avatar{lead.left, cy - size * .5f, lead.left + size, cy + size * .5f};
             // The renderer hides this placeholder under the loaded image.
-            ok = avatar_backed(scene.content, index)
-                     ? paint_stream_push_rounded(paint, avatar,
-                                                 theme.avatar_placeholder, size * .5f)
-                     : ui_admin_avatar_paint(paint, t, avatar, fill, alpha);
-        } else if (ok && accent(scene.content, index)) {
+            if (avatar_backed(scene.content, index))
+                p.rounded(avatar, theme.avatar_placeholder, size * .5f);
+            else
+                p.use<ui_admin_avatar_paint>(t, avatar, fill, alpha);
+        } else if (accent(scene.content, index)) {
             // The reserved lead always shows its dot: host colour, else brand.
             // Keep the dot on the label line when a description follows.
-            const UiRect line{lead.left, r.label.top, lead.right, r.label.bottom};
-            ok = ui_admin_dot_paint(paint, t, line, fill, alpha);
+            p.use<ui_admin_dot_paint>(t, UiRect{lead.left, r.label.top, lead.right, r.label.bottom}, fill, alpha);
         }
     }
-    if (ok && ui_rect_has_area(r.chips)) {
+    if (p && ui_rect_has_area(r.chips)) {
         // Accent rows (role lists) lead each chip with its colour dot, a
         // neutral one for colourless roles; plain chips (keybinds) have none.
         const bool dots = accent(scene.content, index);
-        for (u32 i = 0; ok && i < c.choices.count; ++i) {
+        for (u32 i = 0; p && i < c.choices.count; ++i) {
             const auto chip = ui_admin_chip_rect(t, c.choices, dots, r.chips, i);
             Color dot = tc.text_subtle;
             const bool has_dot = ui_admin_chip_dot(c.choices[i], dots);
             if (has_dot)
                 (void)resolve_color(scene, c.id, i, &dot);
             if (ui_rect_has_area(chip))
-                ok = ui_admin_chip_paint(paint, t, chip, dot, has_dot, c.enabled ? 1.f : .5f);
+                p.use<ui_admin_chip_paint>(t, chip, dot, has_dot, c.enabled ? 1.f : .5f);
         }
     }
-    if (ok && progress(scene.content, index) && ui_rect_has_area(r.value)) {
+    if (progress(scene.content, index) && ui_rect_has_area(r.value)) {
         const float level = static_cast<float>(minimum<u16>(scene.content.meters[index], 1000)) / 1000.f;
         const float radius = ui_rect_height(r.value) * .5f;
-        ok = paint_stream_push_rounded(paint, r.value, tc.slider_track,
-                                       radius);
-        if (ok && level > 0)
-            ok = paint_stream_push_rounded(paint, r.value.left, r.value.top,
-                                           maximum(r.value.left + radius * 2, r.value.left + ui_rect_width(r.value) * level),
-                                           r.value.bottom, tc.brand, radius);
+        p.rounded(r.value, tc.slider_track, radius);
+        if (level > 0)
+            p.rounded({r.value.left, r.value.top, maximum(r.value.left + radius * 2, r.value.left + ui_rect_width(r.value) * level),
+                       r.value.bottom},
+                      tc.brand, radius);
     }
     // Rows inside one category are separated by hairline dividers; sections
     // end with a divider halfway through their trailing space.
-    const u32 next = entry.source_index + 1;
-    if (ok && !scene.content.sectioned && field_row(c.kind) && next < scene.content.controls.count &&
+    const u32 next = index + 1;
+    if (!scene.content.sectioned && field_row(c.kind) && next < scene.content.controls.count &&
         field_row(scene.content.controls[next].kind))
-        ok = paint_stream_push(paint, r.row.left, r.row.bottom - 1, r.row.right, r.row.bottom, tc.separator);
-    if (ok && scene.content.sectioned && c.kind != UiSettingsControlKind::tabs &&
-        section_trailing(scene.content, entry.source_index) > 0) {
+        p.fill({r.row.left, r.row.bottom - 1, r.row.right, r.row.bottom}, tc.separator);
+    if (scene.content.sectioned && c.kind != UiSettingsControlKind::tabs && section_trailing(scene.content, index) > 0) {
         const float y = r.row.bottom - kSectionGap - 1;
-        ok = paint_stream_push(paint, r.row.left, y, r.row.right, y + 1, tc.separator);
+        p.fill({r.row.left, y, r.row.right, y + 1}, tc.separator);
     }
-    if (!ok)
+    if (!p)
         return false;
     switch (c.kind) {
-    case UiSettingsControlKind::toggle: {
-        const float motion = toggle_motion(scene, entry.target, t, c.checked);
-        return ui_switch_paint(paint, t, r.control, c.checked, motion, scene.reduced_motion, state);
-    }
+    case UiSettingsControlKind::toggle:
+        p.use<ui_switch_paint>(t, r.control, c.checked, toggle_motion(scene, entry.target, t, c.checked),
+                               scene.reduced_motion, state);
+        break;
     case UiSettingsControlKind::segments:
         if (has_flag(scene.content, index, ui_settings_presentation_tristate))
-            return ui_tristate_paint(paint, t, r.control, c.selected_choice,
-                                     state.hovered ? scene.palette_hovered_index : ~0u, state);
-        return ui_segments_paint(paint, t, r.control, c.choices.count, c.selected_choice,
-                                 state.hovered ? scene.palette_hovered_index : ~0u, state);
+            p.use<ui_tristate_paint>(t, r.control, c.selected_choice, hovered_option, state);
+        else
+            p.use<ui_segments_paint>(t, r.control, c.choices.count, c.selected_choice, hovered_option, state);
+        break;
     case UiSettingsControlKind::swatches:
-        for (u32 i = 0; i < c.choices.count; ++i) {
+        for (u32 i = 0; p && i < c.choices.count; ++i) {
             UiControlState option = hover_option(scene, state, i);
             option.focused = state.focused && i == focus_choice(c);
             Color fill = tc.mod_strong;
             resolve_color(scene, c.id, i, &fill);
-            if (!ui_color_grid_paint(paint, t, ui_color_grid_cell(t, r.control, i), fill, c.selected_choice == i,
-                                     option))
-                return false;
+            p.use<ui_color_grid_paint>(t, ui_color_grid_cell(t, r.control, i), fill, c.selected_choice == i, option);
         }
-        return true;
+        break;
     case UiSettingsControlKind::tabs: {
         // The brand tab bar: a hairline under every tab and a 2 DIP
         // brand underline under the active one.
-        ok = paint_stream_push(paint, r.control.left, r.control.bottom - 1, r.control.right, r.control.bottom,
-                               tc.separator);
+        p.fill({r.control.left, r.control.bottom - 1, r.control.right, r.control.bottom}, tc.separator);
         const auto tab = option_rect(t, c, r.control, c.selected_choice);
-        if (ok && c.selected_choice < c.choices.count && ui_rect_has_area(tab))
-            ok = paint_stream_push_rounded(paint, tab.left, r.control.bottom - 2, tab.right, r.control.bottom,
-                                           tc.brand, theme.scale.radius_xs);
-        if (ok && state.focused && scene.focus_visible && ui_rect_has_area(tab))
-            ok = ui_settings_focus_paint(paint, t,
-                                         {tab.left - theme.scale.space_2, tab.top, tab.right + theme.scale.space_2,
-                                          tab.top + kUiSettingsLabelLine},
-                                         theme.scale.radius_sm);
-        return ok;
+        if (c.selected_choice < c.choices.count && ui_rect_has_area(tab))
+            p.rounded({tab.left, r.control.bottom - 2, tab.right, r.control.bottom}, tc.brand, theme.scale.radius_xs);
+        if (state.focused && scene.focus_visible && ui_rect_has_area(tab))
+            p.use<ui_settings_focus_paint>(t,
+                                           UiRect{tab.left - theme.scale.space_2, tab.top, tab.right + theme.scale.space_2,
+                                                  tab.top + kUiSettingsLabelLine},
+                                           theme.scale.radius_sm);
+        break;
     }
     case UiSettingsControlKind::buttons:
-        for (u32 i = 0; i < c.choices.count; ++i) {
+        for (u32 i = 0; p && i < c.choices.count; ++i) {
             UiControlState option = hover_option(scene, state, i);
             option.focused = state.focused && i == focus_choice(c);
-            if (!ui_settings_button_paint(paint, t, option_rect(t, c, r.control, i),
-                                          i ? UiSettingsButtonVariant::secondary : UiSettingsButtonVariant::primary,
-                                          option))
-                return false;
+            p.use<ui_settings_button_paint>(t, option_rect(t, c, r.control, i),
+                                            i ? UiSettingsButtonVariant::secondary : UiSettingsButtonVariant::primary,
+                                            option);
         }
-        return true;
-    case UiSettingsControlKind::colors: {
+        break;
+    case UiSettingsControlKind::colors:
         // Profile theme swatches: the colour with a matching
         // border and a pencil at the top end, its caption below.
-        for (u32 i = 0; ok && i < c.choices.count; ++i) {
+        for (u32 i = 0; p && i < c.choices.count; ++i) {
             const auto swatch = option_rect(t, c, r.control, i);
             Color fill = tc.mod_strong;
             resolve_color(scene, c.id, i, &fill);
             if (!c.enabled)
                 fill.alpha *= .3f;
             const bool focused = state.focused && scene.focus_visible && i == focus_choice(c);
-            ok = paint_stream_push_rounded_border(paint, swatch, fill,
-                                                  focused ? tc.focus_ring : ui_settings_color_alpha(fill, 1),
-                                                  theme.scale.radius_sm, focused ? 2.f : 1.f);
             const float icon = 14;
-            ok = ok && ui_icon_paint(paint, UiIcon::edit,
-                                     {swatch.right - 4 - icon, swatch.top + 4, swatch.right - 4, swatch.top + 4 + icon},
-                                     ui_settings_color_alpha(ui_surface_foreground(theme, ui_settings_color_alpha(fill, 1)),
-                                                             c.enabled ? 1.f : .3f));
+            p.rounded_border(swatch, fill, focused ? tc.focus_ring : ui_settings_color_alpha(fill, 1),
+                             theme.scale.radius_sm, focused ? 2.f : 1.f)
+                .icon(UiIcon::edit, {swatch.right - 4 - icon, swatch.top + 4, swatch.right - 4, swatch.top + 4 + icon},
+                      ui_settings_color_alpha(ui_surface_foreground(theme, ui_settings_color_alpha(fill, 1)),
+                                              c.enabled ? 1.f : .3f));
         }
-        if (ok && c.action_label.bytes) {
-            const UiControlState option = hover_option(scene, state, c.choices.count);
-            ok = ui_settings_button_paint(paint, t, option_rect(t, c, r.control, c.choices.count),
-                                          UiSettingsButtonVariant::secondary, option);
-        }
-        return ok;
-    }
+        if (c.action_label.bytes)
+            p.use<ui_settings_button_paint>(t, option_rect(t, c, r.control, c.choices.count),
+                                            UiSettingsButtonVariant::secondary,
+                                            hover_option(scene, state, c.choices.count));
+        break;
     case UiSettingsControlKind::action:
-        if (!c.action_label.bytes)
-            return true;
-        return ui_settings_button_paint(paint, t, r.control, button_variant(scene.content, entry.source_index), state);
+        if (c.action_label.bytes)
+            p.use<ui_settings_button_paint>(t, r.control, button_variant(scene.content, index), state);
+        break;
     case UiSettingsControlKind::choice:
-        return ui_select_paint(paint, t, r.control, false, state, field_error(scene.content, entry.source_index));
+        p.use<ui_select_paint>(t, r.control, false, state, field_error(scene.content, index));
+        break;
     case UiSettingsControlKind::edit:
     case UiSettingsControlKind::multiline: {
         auto view = c.editor->view;
@@ -2668,39 +2606,38 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         view.caret_visible = view.caret_visible && view.focused;
         UiSettingsControlGeometry geometry{};
         if (!ui_settings_scene_control_geometry(scene, entry.target, &geometry))
-            return true;
+            break;
         if (ui_rect_has_area(r.value)) {
             UiControlState button = hover_option(scene, state, 0);
             button.focused = false;
-            if (!ui_settings_button_paint(paint, t, r.value, UiSettingsButtonVariant::primary, button))
-                return false;
+            p.use<ui_settings_button_paint>(t, r.value, UiSettingsButtonVariant::primary, button);
         }
-        return ui_input_shell_paint(paint, t, r.control, {c.enabled, state.hovered, false, view.focused},
-                                    field_error(scene.content, entry.source_index)) &&
-               ui_edit_field_paint_content(paint, ui_rect_overlap(geometry.text, geometry.clip), view,
-                                           c.editor->geometry, theme, dpi);
+        p.use<ui_input_shell_paint>(t, r.control, UiControlState{c.enabled, state.hovered, false, view.focused},
+                                    field_error(scene.content, index))
+            .use<ui_edit_field_paint_content>(ui_rect_overlap(geometry.text, geometry.clip), view, c.editor->geometry,
+                                              theme, dpi);
+        break;
     }
     case UiSettingsControlKind::slider: {
-        const auto g = ui_slider_geometry(t, r.control, c.choices.count, c.selected_choice,
-                                          marks(scene.content, entry.source_index));
-        if (scene.content.meters && scene.content.meters[entry.source_index] != kUiSettingsNoMeter)
-            return ui_slider_meter_paint(paint, t, g, c.choices.count, scene.content.meters[entry.source_index],
-                                         state);
-        return ui_slider_paint(paint, t, g, c.choices.count, default_choice(scene.content, entry.source_index), state);
+        const auto g = ui_slider_geometry(t, r.control, c.choices.count, c.selected_choice, marks(scene.content, index));
+        if (scene.content.meters && scene.content.meters[index] != kUiSettingsNoMeter)
+            p.use<ui_slider_meter_paint>(t, g, c.choices.count, scene.content.meters[index], state);
+        else
+            p.use<ui_slider_paint>(t, g, c.choices.count, default_choice(scene.content, index), state);
+        break;
     }
     case UiSettingsControlKind::radio:
-        for (u32 i = 0; i < c.choices.count; ++i) {
-            const auto option = ui_radio_option(t, r.control, i);
+        for (u32 i = 0; p && i < c.choices.count; ++i) {
             UiControlState option_state = hover_option(scene, state, i);
             option_state.focused = state.focused && i == focus_choice(c);
-            if (!ui_radio_paint(paint, t, ui_radio_indicator(t, option), c.selected_choice == i, option_state))
-                return false;
+            p.use<ui_radio_paint>(t, ui_radio_indicator(t, ui_radio_option(t, r.control, i)), c.selected_choice == i,
+                                  option_state);
         }
-        return true;
+        break;
     case UiSettingsControlKind::palette: {
         const u32 columns = ui_swatch_columns(t, ui_rect_width(r.control));
         const auto palette = scene.palette;
-        for (u32 i = 0; i < c.choices.count; ++i) {
+        for (u32 i = 0; p && i < c.choices.count; ++i) {
             const auto swatch = ui_swatch_rect(t, r.control, i, columns);
             BackgroundTheme colors{};
             const u32 before_resolve = scene.revision;
@@ -2717,54 +2654,47 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
                 colors.colors[0] == colors.colors[1])
                 fill = color_from_rgb24(colors.colors[0]);
             const bool gradient = resolved && background_theme_valid(colors) && colors.colors[0] != colors.colors[1];
-            if (!ui_swatch_paint(paint, t, swatch, fill, gradient ? &colors : nullptr, c.selected_choice == i,
-                                 option_state))
-                return false;
+            p.use<ui_swatch_paint>(t, swatch, fill, gradient ? &colors : nullptr, c.selected_choice == i, option_state);
         }
-        return true;
+        break;
     }
     case UiSettingsControlKind::notice: {
-        const auto tone = variant(scene.content, entry.source_index);
+        const auto tone = variant(scene.content, index);
         const Color fill = tone == UiSettingsVariant::critical   ? tc.critical_tint
                            : tone == UiSettingsVariant::positive ? ui_settings_color_alpha(tc.positive, .12f)
                                                                  : tc.mod_subtle;
         const UiRect box{r.row.left, r.row.top + t.metric.row_padding * .5f, r.row.right,
                          r.row.bottom - t.metric.row_padding * .5f};
         // Critical notices outline the tinted box, sharing its corners.
-        ok = tone == UiSettingsVariant::critical
-                 ? paint_stream_push_rounded_border(paint, box, fill,
-                                                    ui_settings_color_alpha(tc.critical_text, .5f),
-                                                    t.metric.control_radius, 1)
-                 : paint_stream_push_rounded(paint, box, fill,
-                                             t.metric.control_radius);
-        if (ok && c.action_label.bytes)
-            ok = ui_settings_button_paint(paint, t, r.control, UiSettingsButtonVariant::secondary, state);
-        if (ok && c.checked) {
+        if (tone == UiSettingsVariant::critical)
+            p.rounded_border(box, fill, ui_settings_color_alpha(tc.critical_text, .5f), t.metric.control_radius, 1);
+        else
+            p.rounded(box, fill, t.metric.control_radius);
+        if (c.action_label.bytes)
+            p.use<ui_settings_button_paint>(t, r.control, UiSettingsButtonVariant::secondary, state);
+        if (c.checked) {
             const float size = ui_rect_height(box) - theme.scale.space_4 * 2;
             const float side = minimum(size, 20.f), cy = (box.top + box.bottom) * .5f;
             const float right = box.right - theme.scale.space_4;
-            ok = ui_spinner_paint(paint, {right - side, cy - side * .5f, right, cy + side * .5f}, tc.text_subtle,
-                                  scene.spinner_phase);
+            p.spinner({right - side, cy - side * .5f, right, cy + side * .5f}, tc.text_subtle, scene.spinner_phase);
         }
-        return ok;
+        break;
     }
     case UiSettingsControlKind::category:
-        if (link(scene.content, entry.source_index)) {
+        if (link(scene.content, index)) {
             const float icon = 18, cy = (r.label.top + r.label.bottom) * .5f;
-            ok = ui_icon_paint(paint, UiIcon::chevron_right,
-                               {r.row.right - icon, cy - icon * .5f, r.row.right, cy + icon * .5f},
-                               state.hovered ? tc.text_strong : tc.text_subtle);
             const float ring = theme.scale.space_2;
-            if (ok && state.focused)
-                ok = paint_stream_push_rounded_border(paint, r.row.left - ring, r.label.top - ring, r.row.right + ring,
-                                                      r.label.bottom + ring, {}, tc.focus_ring, theme.scale.radius_sm,
-                                                      2);
+            p.icon(UiIcon::chevron_right, {r.row.right - icon, cy - icon * .5f, r.row.right, cy + icon * .5f},
+                   state.hovered ? tc.text_strong : tc.text_subtle);
+            if (state.focused)
+                p.rounded_border({r.row.left - ring, r.label.top - ring, r.row.right + ring, r.label.bottom + ring}, {},
+                                 tc.focus_ring, theme.scale.radius_sm, 2);
         }
-        return ok;
+        break;
     case UiSettingsControlKind::error:
         break;
     }
-    return true;
+    return p.ok();
 }
 // The sidebar row of widget slot `i` when it is a navigation entry in view:
 // its handle, laid-out node and row.
@@ -2779,32 +2709,31 @@ const UiLayoutNode* visible_nav(const UiSettingsScene& scene, u32 i, UiWidgetHan
                ? node
                : nullptr;
 }
-bool paint_nav(const UiSettingsScene& scene, const UiSettingsTokens& t, PaintStream* paint) noexcept {
+bool paint_nav(const UiSettingsScene& scene, const Theme& theme, const UiSettingsTokens& t, PaintStream* paint) noexcept {
     const auto* nav = ui_widget_manager_layout_node(scene.widgets, scene.sidebar);
     if (!nav)
         return false;
-    const auto clip = ui_rect_overlap(nav->rectangle, nav->clip_rectangle);
-    if (!paint_stream_push_clip(paint, clip.left, clip.top, clip.right, clip.bottom))
+    UiPaint p{paint, theme};
+    if (!p.clip(ui_rect_overlap(nav->rectangle, nav->clip_rectangle)))
         return false;
-    bool ok = true;
-    for (u32 i = 0; ok && i < scene.widgets.count; ++i) {
+    for (u32 i = 0; p && i < scene.widgets.count; ++i) {
         UiWidgetHandle handle{};
         NavRow row{};
         const auto* node = visible_nav(scene, i, &handle, &row);
         if (!node || row.kind == UiSettingsNavKind::header)
             continue;
         if (row.kind == UiSettingsNavKind::separator) {
-            ok = ui_settings_separator_paint(paint, t, node->rectangle);
+            p.use<ui_settings_separator_paint>(t, node->rectangle);
             continue;
         }
         const bool selected = row.kind == UiSettingsNavKind::page && ui_page_key_equal(row.target.page, scene.selected_page);
         const auto state = widget_state(scene, handle, row.target, true);
-        ok = ui_settings_nav_item_paint(paint, t, node->rectangle, selected, row.destructive, state);
-        if (ok && row.icon < UiIcon::count)
-            ok = ui_icon_paint(paint, row.icon, ui_settings_nav_icon_rect(t, node->rectangle),
-                               ui_settings_nav_item_text(t, selected, row.destructive, state));
+        p.use<ui_settings_nav_item_paint>(t, node->rectangle, selected, row.destructive, state);
+        if (row.icon < UiIcon::count)
+            p.icon(row.icon, ui_settings_nav_icon_rect(t, node->rectangle),
+                   ui_settings_nav_item_text(t, selected, row.destructive, state));
     }
-    return paint_stream_pop_clip(paint) && ok;
+    return p.end();
 }
 } // namespace
 
@@ -2823,82 +2752,78 @@ bool ui_settings_scene_paint(const UiSettingsScene& scene, const Theme& theme, P
     const bool dialog = scene.presentation == UiSettingsPresentation::dialog;
     const bool modal = scene.presentation == UiSettingsPresentation::modal || dialog;
     const auto viewport = scene.viewport;
-    if (!paint_stream_push_clip(paint, viewport.left, viewport.top, viewport.right, viewport.bottom))
+    UiPaint p{paint, theme};
+    if (!p.clip(viewport))
         return false;
-    bool ok = true;
     if (modal && !l.compact)
-        ok = paint_stream_push(paint, viewport.left, viewport.top, viewport.right, viewport.bottom, tc.scrim);
+        p.fill(viewport, tc.scrim);
     if (ranges)
         ranges->modal_first_quad = paint->count;
     const float radius = modal && !l.compact ? t.metric.modal_radius : 0;
     if (modal) {
-        if (ok && !l.compact)
-            ok = ui_settings_shadow_paint(paint, l.modal, radius, 12, .3f);
-        ok = ok && ui_background_paint_surface(paint, l.modal, theme, tc.modal_background,
-                                               !l.compact ? tc.border_subtle : Color{}, radius, !l.compact ? 1.f : 0.f,
-                                               .9f, UiBackgroundSurfaceMode::gradient, UiBackgroundTier::higher,
-                                               UiBackgroundBorderTone::palette);
+        if (!l.compact)
+            p.use<ui_settings_shadow_paint>(l.modal, radius, 12.f, .3f);
+        p.use<ui_background_paint_surface>(l.modal, theme, tc.modal_background, !l.compact ? tc.border_subtle : Color{},
+                                           radius, !l.compact ? 1.f : 0.f, .9f, UiBackgroundSurfaceMode::gradient,
+                                           UiBackgroundTier::higher, UiBackgroundBorderTone::palette);
         // The sidebar keeps the modal's rounded left corners and a square inner edge.
-        ok = ok && (dialog ||
-             (ui_background_paint_surface(paint, l.sidebar, theme, tc.sidebar_background, {}, radius, 0, .9f,
-                                         UiBackgroundSurfaceMode::gradient, UiBackgroundTier::high) &&
-             (radius <= 0 ||
-              ui_background_paint_surface(paint, {l.sidebar.right - radius, l.sidebar.top, l.sidebar.right,
-                                                  l.sidebar.bottom},
-                                          theme, tc.sidebar_background, {}, 0, 0, .9f, UiBackgroundSurfaceMode::gradient,
-                                          UiBackgroundTier::high))));
+        if (!dialog) {
+            p.use<ui_background_paint_surface>(l.sidebar, theme, tc.sidebar_background, Color{}, radius, 0.f, .9f,
+                                               UiBackgroundSurfaceMode::gradient, UiBackgroundTier::high,
+                                               UiBackgroundBorderTone::semantic);
+            if (radius > 0)
+                p.use<ui_background_paint_surface>(
+                    UiRect{l.sidebar.right - radius, l.sidebar.top, l.sidebar.right, l.sidebar.bottom}, theme,
+                    tc.sidebar_background, Color{}, 0.f, 0.f, .9f, UiBackgroundSurfaceMode::gradient,
+                    UiBackgroundTier::high, UiBackgroundBorderTone::semantic);
+        }
     } else {
         // Full-window layers sit on the app canvas with a lifted sidebar region.
-        ok = ok &&
-             ui_background_paint_surface(paint, viewport, theme, theme.base_lowest, {}, 0, 0, 1,
-                                         UiBackgroundSurfaceMode::gradient, UiBackgroundTier::chat) &&
-             ui_background_paint_surface(paint, l.sidebar, theme, theme.base_lower, {}, 0, 0, 1,
-                                         UiBackgroundSurfaceMode::gradient, UiBackgroundTier::app_frame);
+        p.use<ui_background_paint_surface>(viewport, theme, theme.base_lowest, Color{}, 0.f, 0.f, 1.f,
+                                           UiBackgroundSurfaceMode::gradient, UiBackgroundTier::chat,
+                                           UiBackgroundBorderTone::semantic)
+            .use<ui_background_paint_surface>(l.sidebar, theme, theme.base_lower, Color{}, 0.f, 0.f, 1.f,
+                                              UiBackgroundSurfaceMode::gradient, UiBackgroundTier::app_frame,
+                                              UiBackgroundBorderTone::semantic);
     }
-    if (ok && scene.search_field.generation) {
-        const auto* node = ui_widget_manager_layout_node(scene.widgets, scene.search_field);
-        if (node) {
+    if (p && scene.search_field.generation) {
+        if (const auto* node = ui_widget_manager_layout_node(scene.widgets, scene.search_field)) {
             const UiSettingsTarget target{UiSettingsTargetKind::search, {}, 0};
             auto state = widget_state(scene, scene.search_field, target, true);
             state.focused = scene.search.view.focused || state.focused;
-            ok = ui_settings_search_paint(paint, t, node->rectangle, scene.search.view.text.bytes != 0, state);
-            if (ok && scene.search.view.focused) {
-                UiSettingsControlGeometry geometry{};
-                if (ui_settings_scene_search_geometry(scene, &geometry)) {
-                    auto view = scene.search.view;
-                    view.active = true;
-                    ok = ui_edit_field_paint(paint, node->rectangle, geometry.text, view, scene.search.geometry,
-                                             {0, 0, 0, 0}, theme, dpi, t.metric.control_radius);
-                }
+            p.use<ui_settings_search_paint>(t, node->rectangle, scene.search.view.text.bytes != 0, state);
+            UiSettingsControlGeometry geometry{};
+            if (p && scene.search.view.focused && ui_settings_scene_search_geometry(scene, &geometry)) {
+                auto view = scene.search.view;
+                view.active = true;
+                p.use<ui_edit_field_paint>(node->rectangle, geometry.text, view, scene.search.geometry, Color{}, theme,
+                                           dpi, t.metric.control_radius);
             }
         }
     }
-    ok = ok && paint_nav(scene, t, paint);
-    if (ok) {
-        const UiSettingsTarget target{UiSettingsTargetKind::close, {}, 0};
-        const auto state = widget_state(scene, scene.close, target, true);
-        ok = dialog ? ui_settings_dialog_close_paint(paint, t, l.close, state)
-                    : ui_settings_close_paint(paint, t, l.close, state);
-    }
+    if (p && !paint_nav(scene, theme, t, paint))
+        p.fail();
+    const auto close_state =
+        widget_state(scene, scene.close, UiSettingsTarget{UiSettingsTargetKind::close, {}, 0}, true);
+    if (dialog)
+        p.use<ui_settings_dialog_close_paint>(t, l.close, close_state);
+    else
+        p.use<ui_settings_close_paint>(t, l.close, close_state);
     if (ranges)
         ranges->page_first_quad = paint->count;
-    const auto* body = ui_widget_manager_layout_node(scene.widgets, scene.body);
-    if (ok && body) {
-        const auto clip = ui_rect_overlap(body->rectangle, body->clip_rectangle);
-        ok = paint_stream_push_clip(paint, clip.left, clip.top, clip.right, clip.bottom);
-        for (u32 i = 0; ok && i < scene.widgets.count; ++i) {
+    if (const auto* body = ui_widget_manager_layout_node(scene.widgets, scene.body); p && body) {
+        p.clip(ui_rect_overlap(body->rectangle, body->clip_rectangle));
+        for (u32 i = 0; p && i < scene.widgets.count; ++i) {
             const auto& entry = entries(scene)[i];
-            if (entry.role != EntryRole::row || entry.source_index >= scene.content.controls.count)
-                continue;
-            ok = paint_row(scene, theme, t, paint, {static_cast<u16>(i), scene.widgets.generation}, entry,
-                           dpi);
+            if (entry.role == EntryRole::row && entry.source_index < scene.content.controls.count &&
+                !paint_row(scene, theme, t, paint, {static_cast<u16>(i), scene.widgets.generation}, entry, dpi))
+                p.fail();
         }
-        ok = paint_stream_pop_clip(paint) && ok;
+        p.unclip();
     }
-    if (ok && scene.footer.visible) {
-        const auto* footer = ui_widget_manager_layout_node(
-            scene.widgets, ui_widget_manager_parent(scene.widgets, scene.footer_status));
-        if (footer) {
+    if (p && scene.footer.visible) {
+        if (const auto* footer = ui_widget_manager_layout_node(
+                scene.widgets, ui_widget_manager_parent(scene.widgets, scene.footer_status))) {
             const float dx = scene.footer_shift_q / 16.f, alert = scene.footer_alert_q / 255.f;
             const UiRect f{footer->rectangle.left + dx, footer->rectangle.top, footer->rectangle.right + dx,
                            footer->rectangle.bottom};
@@ -2906,101 +2831,101 @@ bool ui_settings_scene_paint(const UiSettingsScene& scene, const Theme& theme, P
                 // The band takes the modal's lower corners; its top edge stays square.
                 const UiRect band = footer->rectangle;
                 const Color fill = ui_settings_color_mix(tc.sidebar_background, tc.critical, alert * .5f);
-                ok = ui_background_paint_surface(paint, band, theme, fill, {}, radius, 0, .9f,
-                                                 UiBackgroundSurfaceMode::gradient, UiBackgroundTier::high) &&
-                     (radius <= 0 ||
-                      ui_background_paint_surface(paint, {band.left, band.top, band.right, band.top + radius}, theme,
-                                                  fill, {}, 0, 0, .9f, UiBackgroundSurfaceMode::gradient,
-                                                  UiBackgroundTier::high));
+                p.use<ui_background_paint_surface>(band, theme, fill, Color{}, radius, 0.f, .9f,
+                                                   UiBackgroundSurfaceMode::gradient, UiBackgroundTier::high,
+                                                   UiBackgroundBorderTone::semantic);
+                if (radius > 0)
+                    p.use<ui_background_paint_surface>(UiRect{band.left, band.top, band.right, band.top + radius}, theme,
+                                                       fill, Color{}, 0.f, 0.f, .9f, UiBackgroundSurfaceMode::gradient,
+                                                       UiBackgroundTier::high, UiBackgroundBorderTone::semantic);
             } else {
-                ok = ui_settings_shadow_paint(paint, f, t.metric.control_radius, 6, .25f) &&
-                     paint_stream_push_rounded_border(
-                         paint, f.left, f.top, f.right, f.bottom,
-                         ui_settings_color_mix(theme.base_lowest, tc.critical, alert),
-                         scene.footer.failed || alert > 0 ? tc.critical_text : tc.border_subtle,
-                         t.metric.control_radius, 1);
+                p.use<ui_settings_shadow_paint>(f, t.metric.control_radius, 6.f, .25f)
+                    .rounded_border(f, ui_settings_color_mix(theme.base_lowest, tc.critical, alert),
+                                    scene.footer.failed || alert > 0 ? tc.critical_text : tc.border_subtle,
+                                    t.metric.control_radius, 1);
             }
             const UiSettingsTarget reset{UiSettingsTargetKind::reset, scene.selected_page, 0};
             const UiSettingsTarget save{UiSettingsTargetKind::save, scene.selected_page, 0};
-            const auto* reset_node = ui_widget_manager_layout_node(scene.widgets, scene.footer_reset);
-            const auto* save_node = ui_widget_manager_layout_node(scene.widgets, scene.footer_save);
             const auto moved = [dx](UiRect r) noexcept { return UiRect{r.left + dx, r.top, r.right + dx, r.bottom}; };
-            if (ok && reset_node) {
-                auto state = widget_state(scene, scene.footer_reset, reset, target_exists(scene, reset));
+            if (const auto* reset_node = ui_widget_manager_layout_node(scene.widgets, scene.footer_reset)) {
+                const auto state = widget_state(scene, scene.footer_reset, reset, target_exists(scene, reset));
                 if (state.hovered || state.focused)
-                    ok = ui_settings_button_paint(paint, t, moved(reset_node->rectangle),
-                                                  UiSettingsButtonVariant::secondary, state);
+                    p.use<ui_settings_button_paint>(t, moved(reset_node->rectangle), UiSettingsButtonVariant::secondary,
+                                                    state);
             }
-            if (ok && save_node)
-                ok = ui_settings_button_paint(paint, t, moved(save_node->rectangle), UiSettingsButtonVariant::primary,
-                                              widget_state(scene, scene.footer_save, save, target_exists(scene, save)));
+            if (const auto* save_node = ui_widget_manager_layout_node(scene.widgets, scene.footer_save))
+                p.use<ui_settings_button_paint>(t, moved(save_node->rectangle), UiSettingsButtonVariant::primary,
+                                                widget_state(scene, scene.footer_save, save, target_exists(scene, save)));
         }
     }
     if (ranges)
         ranges->page_end_quad = paint->count;
-    if (ok)
-        ok = ui_scrollbar_paint(paint, ui_settings_scene_scrollbar(scene, true), theme) &&
-             ui_scrollbar_paint(paint, ui_settings_scene_scrollbar(scene, false), theme);
+    p.scrollbar(ui_settings_scene_scrollbar(scene, true)).scrollbar(ui_settings_scene_scrollbar(scene, false));
     if (ranges)
         ranges->modal_end_quad = paint->count;
-    return paint_stream_pop_clip(paint) && ok;
+    return p.end();
 }
 
 namespace {
-bool row_text(const UiSettingsScene& scene, const UiSettingsTokens& t, UiTextOutput* stream, UiWidgetHandle handle,
+void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTokens& t, UiWidgetHandle handle,
               const Entry& entry) noexcept {
-    const auto& c = scene.content.controls[entry.source_index];
+    const u32 index = entry.source_index;
+    const auto& c = scene.content.controls[index];
     RowLayout r{};
     UiRect clip{};
-    if (!row_layout_for(scene, t, handle, entry.source_index, &r, &clip) || !ui_rect_has_area(ui_rect_overlap(r.row, clip)))
-        return true;
+    if (!row_layout_for(scene, t, handle, index, &r, &clip) || !ui_rect_has_area(ui_rect_overlap(r.row, clip)))
+        return;
+    auto text = pen.in(clip);
     const auto& tc = t.color;
     const auto state = widget_state(scene, handle, entry.target, c.enabled);
     const float dim = c.enabled ? 1.f : .5f;
     if (c.kind == UiSettingsControlKind::category) {
-        const bool is_link = link(scene.content, entry.source_index);
-        if (ui_rect_has_area(r.value) && c.choices.count &&
-            !text(stream, scene, handle, c.choices[0], r.value, tc.text_subtle, text_eyebrow))
-            return false;
-        return text(stream, scene, handle, c.label, r.label,
-                    is_link && state.hovered ? tc.text_strong : ui_settings_color_alpha(tc.text_strong, dim),
-                    text_heading) &&
-               describe(stream, scene, handle, c.description, r.description, tc.text_subtle);
+        if (c.choices.count && ui_rect_has_area(r.value))
+            text(handle, c.choices[0], r.value, tc.text_subtle, text_eyebrow);
+        text(handle, c.label, r.label,
+             link(scene.content, index) && state.hovered ? tc.text_strong : ui_settings_color_alpha(tc.text_strong, dim),
+             text_heading);
+        text(handle, c.description, r.description, tc.text_subtle, text_description, ui_text_wrap);
+        return;
     }
-    if (c.kind == UiSettingsControlKind::error)
-        return describe(stream, scene, handle, c.label, r.label, tc.critical_text);
+    if (c.kind == UiSettingsControlKind::error) {
+        text(handle, c.label, r.label, tc.critical_text, text_description, ui_text_wrap);
+        return;
+    }
     if (c.kind == UiSettingsControlKind::tabs) {
         for (u32 i = 0; i < c.choices.count; ++i) {
             const auto tab = option_rect(t, c, r.control, i);
             const bool hovered = state.hovered && scene.palette_hovered_index == i;
-            if (!text(stream, scene, handle, c.choices[i], {tab.left, tab.top, tab.right, tab.top + kUiSettingsLabelLine},
-                      ui_settings_color_alpha(c.selected_choice == i ? tc.text_strong
-                                              : hovered               ? tc.text_default
-                                                                      : tc.text_subtle,
-                                              dim),
-                      text_label, UiTextAlignment::center))
-                return false;
+            text(handle, c.choices[i], {tab.left, tab.top, tab.right, tab.top + kUiSettingsLabelLine},
+                 ui_settings_color_alpha(c.selected_choice == i ? tc.text_strong
+                                         : hovered               ? tc.text_default
+                                                                 : tc.text_subtle,
+                                         dim),
+                 text_label, ui_text_center);
         }
-        return true;
+        return;
     }
-    if (list_style(scene.content, entry.source_index, UiSettingsListStyle::card))
-        return text(stream, scene, handle, c.label, r.label, ui_settings_color_alpha(tc.text_strong, dim), text_heading) &&
-               describe(stream, scene, handle, c.description, r.description, ui_settings_color_alpha(tc.text_subtle, dim));
-    if (list_style(scene.content, entry.source_index, UiSettingsListStyle::row)) {
+    if (list_style(scene.content, index, UiSettingsListStyle::card)) {
+        text(handle, c.label, r.label, ui_settings_color_alpha(tc.text_strong, dim), text_heading);
+        text(handle, c.description, r.description, ui_settings_color_alpha(tc.text_subtle, dim), text_description,
+             ui_text_wrap);
+        return;
+    }
+    if (list_style(scene.content, index, UiSettingsListStyle::row)) {
         const bool count_hovered = state.hovered && scene.palette_hovered_index == ui_settings_list_count;
-        return text(stream, scene, handle, c.label, r.label, ui_settings_color_alpha(tc.text_strong, dim), text_label) &&
-               (!c.choices.count ||
-                text(stream, scene, handle, c.choices[0], r.value,
-                     ui_settings_color_alpha(count_hovered ? tc.text_strong : tc.text_default, dim), text_label));
+        text(handle, c.label, r.label, ui_settings_color_alpha(tc.text_strong, dim), text_label);
+        if (c.choices.count)
+            text(handle, c.choices[0], r.value,
+                 ui_settings_color_alpha(count_hovered ? tc.text_strong : tc.text_default, dim), text_label);
+        return;
     }
-    const Color label_color = c.kind == UiSettingsControlKind::notice &&
-                                      variant(scene.content, entry.source_index) == UiSettingsVariant::critical
-                                  ? tc.critical_text
-                                  : ui_settings_color_alpha(tc.text_strong, dim);
-    if (!text(stream, scene, handle, c.label, r.label, label_color, text_label) ||
-        !describe(stream, scene, handle, c.description, r.description, ui_settings_color_alpha(tc.text_subtle, dim)))
-        return false;
-    const u32 index = entry.source_index;
+    text(handle, c.label, r.label,
+         c.kind == UiSettingsControlKind::notice && variant(scene.content, index) == UiSettingsVariant::critical
+             ? tc.critical_text
+             : ui_settings_color_alpha(tc.text_strong, dim),
+         text_label);
+    text(handle, c.description, r.description, ui_settings_color_alpha(tc.text_subtle, dim), text_description,
+         ui_text_wrap);
     // Initials only for avatar rows without an image to draw.
     if (c.kind == UiSettingsControlKind::action && has_flag(scene.content, index, ui_settings_presentation_avatar) &&
         !avatar_backed(scene.content, index)) {
@@ -3009,158 +2934,132 @@ bool row_text(const UiSettingsScene& scene, const UiSettingsTokens& t, UiTextOut
         if (has_flag(scene.content, index, ui_settings_presentation_grip))
             lead.left += t.metric.grip_width + 4;
         const float size = t.metric.avatar_size, cy = (lead.top + lead.bottom) * .5f;
-        if (!text(stream, scene, handle, ui_admin_initials(c.label, {storage, sizeof(storage)}),
-                  {lead.left, cy - size * .5f, lead.left + size, cy + size * .5f}, tc.on_brand, text_heading,
-                  UiTextAlignment::center))
-            return false;
+        text(handle, ui_admin_initials(c.label, {storage, sizeof(storage)}),
+             {lead.left, cy - size * .5f, lead.left + size, cy + size * .5f}, tc.on_brand, text_heading,
+             ui_text_center);
     }
     if (ui_rect_has_area(r.chips)) {
         const bool dots = accent(scene.content, index);
         for (u32 i = 0; i < c.choices.count; ++i) {
             const auto chip = ui_admin_chip_rect(t, c.choices, dots, r.chips, i);
-            if (ui_rect_has_area(chip) &&
-                !text(stream, scene, handle, c.choices[i],
-                      ui_admin_chip_label_rect(t, chip, ui_admin_chip_dot(c.choices[i], dots)),
-                      ui_settings_color_alpha(tc.text_default, dim), text_description))
-                return false;
+            if (ui_rect_has_area(chip))
+                text(handle, c.choices[i], ui_admin_chip_label_rect(t, chip, ui_admin_chip_dot(c.choices[i], dots)),
+                     ui_settings_color_alpha(tc.text_default, dim), text_description);
         }
     }
     switch (c.kind) {
     case UiSettingsControlKind::segments:
-        if (has_flag(scene.content, index, ui_settings_presentation_tristate))
-            return true;
-        for (u32 i = 0; i < c.choices.count; ++i)
-            if (!text(stream, scene, handle, c.choices[i], ui_segments_option(t, r.control, c.choices.count, i),
-                      ui_settings_color_alpha(c.selected_choice == i ? tc.on_brand : tc.text_default, dim),
-                      text_button, UiTextAlignment::center))
-                return false;
-        return true;
+        if (!has_flag(scene.content, index, ui_settings_presentation_tristate))
+            for (u32 i = 0; i < c.choices.count; ++i)
+                text(handle, c.choices[i], ui_segments_option(t, r.control, c.choices.count, i),
+                     ui_settings_color_alpha(c.selected_choice == i ? tc.on_brand : tc.text_default, dim), text_button,
+                     ui_text_center);
+        break;
     case UiSettingsControlKind::buttons:
-        for (u32 i = 0; i < c.choices.count; ++i) {
-            const UiControlState option = hover_option(scene, state, i);
-            if (!text(stream, scene, handle, c.choices[i], option_rect(t, c, r.control, i),
-                      ui_settings_button_text(t, i ? UiSettingsButtonVariant::secondary : UiSettingsButtonVariant::primary,
-                                              option),
-                      text_button, UiTextAlignment::center))
-                return false;
-        }
-        return true;
+        for (u32 i = 0; i < c.choices.count; ++i)
+            text(handle, c.choices[i], option_rect(t, c, r.control, i),
+                 ui_settings_button_text(t, i ? UiSettingsButtonVariant::secondary : UiSettingsButtonVariant::primary,
+                                         hover_option(scene, state, i)),
+                 text_button, ui_text_center);
+        break;
     case UiSettingsControlKind::colors:
         for (u32 i = 0; i < c.choices.count; ++i) {
             const auto swatch = option_rect(t, c, r.control, i);
-            if (!text(stream, scene, handle, c.choices[i],
-                      {swatch.left - 8, swatch.bottom + 4, swatch.right + 8, swatch.bottom + kColorCaption},
-                      ui_settings_color_alpha(tc.text_default, dim), text_description, UiTextAlignment::center))
-                return false;
+            text(handle, c.choices[i], {swatch.left - 8, swatch.bottom + 4, swatch.right + 8, swatch.bottom + kColorCaption},
+                 ui_settings_color_alpha(tc.text_default, dim), text_description, ui_text_center);
         }
-        if (c.action_label.bytes) {
-            const UiControlState option = hover_option(scene, state, c.choices.count);
-            if (!text(stream, scene, handle, c.action_label, option_rect(t, c, r.control, c.choices.count),
-                      ui_settings_button_text(t, UiSettingsButtonVariant::secondary, option), text_button,
-                      UiTextAlignment::center))
-                return false;
-        }
-        return true;
+        if (c.action_label.bytes)
+            text(handle, c.action_label, option_rect(t, c, r.control, c.choices.count),
+                 ui_settings_button_text(t, UiSettingsButtonVariant::secondary, hover_option(scene, state, c.choices.count)),
+                 text_button, ui_text_center);
+        break;
     case UiSettingsControlKind::action:
-    case UiSettingsControlKind::notice: {
-        if (!c.action_label.bytes || !ui_rect_has_area(r.control))
-            return true;
-        const auto button = c.kind == UiSettingsControlKind::notice ? UiSettingsButtonVariant::secondary
-                                                                    : button_variant(scene.content, entry.source_index);
-        return text(stream, scene, handle, c.action_label, r.control, ui_settings_button_text(t, button, state),
-                    text_button, UiTextAlignment::center);
-    }
-    case UiSettingsControlKind::choice:
+    case UiSettingsControlKind::notice:
+        if (c.action_label.bytes && ui_rect_has_area(r.control))
+            text(handle, c.action_label, r.control,
+                 ui_settings_button_text(t,
+                                         c.kind == UiSettingsControlKind::notice ? UiSettingsButtonVariant::secondary
+                                                                                 : button_variant(scene.content, index),
+                                         state),
+                 text_button, ui_text_center);
+        break;
+    case UiSettingsControlKind::choice: {
         // An unselected dropdown shows the "Select…" placeholder.
-        return c.selected_choice >= c.choices.count
-                   ? text(stream, scene, handle, utf8_literal("Select\xE2\x80\xA6"), ui_select_text_rect(t, r.control),
-                          ui_settings_color_alpha(tc.text_subtle, dim), text_label)
-                   : text(stream, scene, handle, c.choices[c.selected_choice], ui_select_text_rect(t, r.control),
-                          ui_settings_color_alpha(tc.text_strong, dim), text_label);
+        const bool none = c.selected_choice >= c.choices.count;
+        text(handle, none ? utf8_literal("Select\xE2\x80\xA6") : c.choices[c.selected_choice],
+             ui_select_text_rect(t, r.control), ui_settings_color_alpha(none ? tc.text_subtle : tc.text_strong, dim),
+             text_label);
+        break;
+    }
     case UiSettingsControlKind::radio:
         for (u32 i = 0; i < c.choices.count; ++i)
-            if (!text(stream, scene, handle, c.choices[i], ui_radio_label(t, ui_radio_option(t, r.control, i)),
-                      ui_settings_color_alpha(c.selected_choice == i ? tc.text_strong : tc.text_default, dim),
-                      text_label))
-                return false;
-        return true;
-    case UiSettingsControlKind::slider: {
-        const bool with_marks = marks(scene.content, entry.source_index);
-        if (with_marks) {
+            text(handle, c.choices[i], ui_radio_label(t, ui_radio_option(t, r.control, i)),
+                 ui_settings_color_alpha(c.selected_choice == i ? tc.text_strong : tc.text_default, dim), text_label);
+        break;
+    case UiSettingsControlKind::slider:
+        if (marks(scene.content, index)) {
             const auto g = ui_slider_geometry(t, r.control, c.choices.count, c.selected_choice, true);
-            const u32 fallback = default_choice(scene.content, entry.source_index);
+            const u32 fallback = default_choice(scene.content, index);
             for (u32 i = 0; i < c.choices.count; ++i)
-                if (!text(stream, scene, handle, c.choices[i], ui_slider_mark_label(t, g, c.choices.count, i),
-                          ui_settings_color_alpha(i == fallback ? tc.positive
-                                                  : i == c.selected_choice ? tc.text_strong
-                                                                           : tc.text_subtle,
-                                                  dim),
-                          text_description, UiTextAlignment::center))
-                    return false;
-            return true;
-        }
-        return c.selected_choice >= c.choices.count ||
-               text(stream, scene, handle, c.choices[c.selected_choice], r.value,
-                    ui_settings_color_alpha(tc.text_default, dim), text_description, UiTextAlignment::end);
-    }
+                text(handle, c.choices[i], ui_slider_mark_label(t, g, c.choices.count, i),
+                     ui_settings_color_alpha(i == fallback                ? tc.positive
+                                             : i == c.selected_choice ? tc.text_strong
+                                                                      : tc.text_subtle,
+                                             dim),
+                     text_description, ui_text_center);
+        } else if (c.selected_choice < c.choices.count)
+            text(handle, c.choices[c.selected_choice], r.value, ui_settings_color_alpha(tc.text_default, dim),
+                 text_description, ui_text_end);
+        break;
     case UiSettingsControlKind::palette: {
         const u32 columns = ui_swatch_columns(t, ui_rect_width(r.control));
         for (u32 i = 0; i < c.choices.count; ++i) {
             const auto swatch = ui_swatch_rect(t, r.control, i, columns);
-            const UiRect label{swatch.left - 8, swatch.bottom + 6, swatch.right + 8,
-                               swatch.bottom + ui_swatch_label_height()};
-            if (!text(stream, scene, handle, c.choices[i], label,
-                      ui_settings_color_alpha(c.selected_choice == i ? tc.text_strong : tc.text_subtle, dim),
-                      text_description, UiTextAlignment::center, TextWrapping::wrap, UiTextAlignment::start))
-                return false;
+            text(handle, c.choices[i], {swatch.left - 8, swatch.bottom + 6, swatch.right + 8, swatch.bottom + ui_swatch_label_height()},
+                 ui_settings_color_alpha(c.selected_choice == i ? tc.text_strong : tc.text_subtle, dim), text_description,
+                 ui_text_wrap | ui_text_center);
         }
-        return true;
+        break;
     }
     case UiSettingsControlKind::edit:
     case UiSettingsControlKind::multiline: {
-        if (ui_rect_has_area(r.value) && c.action_label.bytes) {
-            const UiControlState button = hover_option(scene, state, 0);
-            if (!text(stream, scene, handle, c.action_label, r.value,
-                      ui_settings_button_text(t, UiSettingsButtonVariant::primary, button), text_button,
-                      UiTextAlignment::center))
-                return false;
-        }
+        if (ui_rect_has_area(r.value) && c.action_label.bytes)
+            text(handle, c.action_label, r.value,
+                 ui_settings_button_text(t, UiSettingsButtonVariant::primary, hover_option(scene, state, 0)), text_button,
+                 ui_text_center);
         const auto& editor = *c.editor;
-        if (!geometry_valid(editor.geometry))
-            return false;
+        if (!geometry_valid(editor.geometry)) {
+            pen.fail();
+            return;
+        }
         UiSettingsControlGeometry geometry{};
         if (!ui_settings_scene_control_geometry(scene, entry.target, &geometry))
-            return true;
+            return;
         const bool entered = editor.view.text.bytes != 0;
         const bool measured = entered && editor.geometry && ui_rect_has_area(editor.geometry->text);
-        const auto rectangle = measured ? editor.geometry->text : geometry.text;
         const auto text_clip = ui_rect_overlap(geometry.text, geometry.clip);
-        if (c.kind == UiSettingsControlKind::multiline && scene.content.sectioned && c.action_label.bytes) {
-            const UiRect counter{geometry.field.right - 14 - 64, geometry.field.bottom - 10 - kUiSettingsLabelLine,
-                                 geometry.field.right - 14, geometry.field.bottom - 10};
-            if (!text(stream, scene, handle, c.action_label, counter,
-                      variant(scene.content, entry.source_index) == UiSettingsVariant::critical ? tc.critical_text
-                                                                                                : tc.text_default,
-                      text_button, UiTextAlignment::end))
-                return false;
-        }
-        if (!ui_rect_has_area(text_clip))
-            return true;
-        return ui_text_output_push(
-            stream, {entered ? editor.view.text : editor.placeholder,
-                     {&scene.widgets, handle},
-                     rectangle,
-                     text_clip,
-                     entered ? ui_settings_color_alpha(tc.text_strong, dim) : tc.text_subtle,
-                     0,
-                     UiTextAlignment::start,
-                     c.kind == UiSettingsControlKind::multiline || measured ? UiTextAlignment::start
-                                                                            : UiTextAlignment::center,
-                     c.kind == UiSettingsControlKind::multiline ? TextWrapping::wrap : TextWrapping::no_wrap,
-                     TextOverflow::clip});
+        if (c.kind == UiSettingsControlKind::multiline && scene.content.sectioned && c.action_label.bytes)
+            text(handle, c.action_label,
+                 {geometry.field.right - 14 - 64, geometry.field.bottom - 10 - kUiSettingsLabelLine,
+                  geometry.field.right - 14, geometry.field.bottom - 10},
+                 variant(scene.content, index) == UiSettingsVariant::critical ? tc.critical_text : tc.text_default,
+                 text_button, ui_text_end);
+        if (ui_rect_has_area(text_clip))
+            pen.emit({entered ? editor.view.text : editor.placeholder,
+                      {&scene.widgets, handle},
+                      measured ? editor.geometry->text : geometry.text,
+                      text_clip,
+                      entered ? ui_settings_color_alpha(tc.text_strong, dim) : tc.text_subtle,
+                      0,
+                      UiTextAlignment::start,
+                      c.kind == UiSettingsControlKind::multiline || measured ? UiTextAlignment::start
+                                                                             : UiTextAlignment::center,
+                      c.kind == UiSettingsControlKind::multiline ? TextWrapping::wrap : TextWrapping::no_wrap,
+                      TextOverflow::clip});
+        break;
     }
     default:
-        return true;
+        break;
     }
 }
 } // namespace
@@ -3172,6 +3071,7 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
         return false;
     const UiSettingsThemeTokens t(theme);
     const auto& tc = t.color;
+    UiTextPen text{stream, scene.widgets, kUiNoRect};
     // Chrome text first; page-owned text stays contiguous for the page layer.
     for (u32 i = 0; i < scene.widgets.count; ++i) {
         UiWidgetHandle handle{};
@@ -3179,22 +3079,20 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
         const auto* node = visible_nav(scene, i, &handle, &row);
         if (!node || row.kind == UiSettingsNavKind::separator)
             continue;
+        auto nav = text.in(node->clip_rectangle);
         if (row.kind == UiSettingsNavKind::header) {
             const float inset = t.metric.nav_item_padding;
             // Bottom-aligned: the group gap stays above the label.
-            if (!text(stream, scene, handle, row.label,
-                      {node->rectangle.left + inset, node->rectangle.bottom - t.metric.nav_header_height + 4,
-                       node->rectangle.right - inset, node->rectangle.bottom - 4},
-                      tc.nav_header, text_eyebrow))
-                return false;
+            nav(handle, row.label,
+                {node->rectangle.left + inset, node->rectangle.bottom - t.metric.nav_header_height + 4,
+                 node->rectangle.right - inset, node->rectangle.bottom - 4},
+                tc.nav_header, text_eyebrow);
             continue;
         }
         const bool selected = row.kind == UiSettingsNavKind::page && ui_page_key_equal(row.target.page, scene.selected_page);
         const auto state = widget_state(scene, handle, row.target, true);
-        if (!text(stream, scene, handle, row.label,
-                  ui_settings_nav_label_rect(t, node->rectangle, row.icon < UiIcon::count),
-                  ui_settings_nav_item_text(t, selected, row.destructive, state), text_label))
-            return false;
+        nav(handle, row.label, ui_settings_nav_label_rect(t, node->rectangle, row.icon < UiIcon::count),
+            ui_settings_nav_item_text(t, selected, row.destructive, state), text_label);
     }
     if (scene.search_field.generation) {
         UiSettingsControlGeometry geometry{};
@@ -3204,66 +3102,47 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
             const bool measured = entered && search.view.focused && search.geometry &&
                                   ui_rect_has_area(search.geometry->text);
             const auto clip = ui_rect_overlap(geometry.text, geometry.clip);
-            if (ui_rect_has_area(clip) &&
-                !ui_text_output_push(stream, {entered ? search.view.text
-                                                      : (search.placeholder.bytes ? search.placeholder
-                                                                                  : utf8_literal("Search")),
-                                              {&scene.widgets, scene.search_field},
-                                              measured ? search.geometry->text : geometry.text,
-                                              clip,
-                                              entered ? tc.text_strong : tc.text_subtle,
-                                              text_label,
-                                              UiTextAlignment::start,
-                                              measured ? UiTextAlignment::start : UiTextAlignment::center,
-                                              TextWrapping::no_wrap,
-                                              TextOverflow::clip}))
-                return false;
+            if (ui_rect_has_area(clip))
+                text.emit({entered ? search.view.text
+                                   : (search.placeholder.bytes ? search.placeholder : utf8_literal("Search")),
+                           {&scene.widgets, scene.search_field},
+                           measured ? search.geometry->text : geometry.text,
+                           clip,
+                           entered ? tc.text_strong : tc.text_subtle,
+                           text_label,
+                           UiTextAlignment::start,
+                           measured ? UiTextAlignment::start : UiTextAlignment::center,
+                           TextWrapping::no_wrap,
+                           TextOverflow::clip});
         }
     }
     if (scene.presentation != UiSettingsPresentation::dialog) {
         const UiSettingsTarget target{UiSettingsTargetKind::close, {}, 0};
-        const auto state = widget_state(scene, scene.close, target, true);
-        if (!text(stream, scene, scene.close, utf8_literal("ESC"),
-                  ui_settings_close_caption_rect(t, scene.layout.close), ui_settings_close_color(t, state),
-                  text_eyebrow, UiTextAlignment::center))
-            return false;
+        text.at(scene.close)(scene.close, utf8_literal("ESC"), ui_settings_close_caption_rect(t, scene.layout.close),
+                             ui_settings_close_color(t, widget_state(scene, scene.close, target, true)), text_eyebrow,
+                             ui_text_center);
     }
     const auto* title = ui_widget_manager_layout_node(scene.widgets, scene.title);
     const auto* description = ui_widget_manager_layout_node(scene.widgets, scene.description);
-    if (!title || !description ||
-        !text(stream, scene, scene.title, scene.content.title, title->rectangle, tc.text_strong,
-              text_style_heading_2 | text_style_bold) ||
-        !describe(stream, scene, scene.description, scene.content.description, description->rectangle, tc.text_subtle))
+    if (!title || !description)
         return false;
+    text.in(title->clip_rectangle)(scene.title, scene.content.title, title->rectangle, tc.text_strong,
+                                   text_style_heading_2 | text_style_bold);
+    text.in(description->clip_rectangle)(scene.description, scene.content.description, description->rectangle,
+                                         tc.text_subtle, text_description, ui_text_wrap);
     for (u32 i = 0; i < scene.widgets.count; ++i) {
         const auto& entry = entries(scene)[i];
-        if (entry.role != EntryRole::row || entry.source_index >= scene.content.controls.count)
-            continue;
-        if (!row_text(scene, t, stream, {static_cast<u16>(i), scene.widgets.generation}, entry))
-            return false;
+        if (entry.role == EntryRole::row && entry.source_index < scene.content.controls.count)
+            row_text(text, scene, t, {static_cast<u16>(i), scene.widgets.generation}, entry);
     }
     UiRect aside_heading{}, aside_clip{};
-    if (scene.content.aside_label.bytes && ui_settings_scene_aside(scene, &aside_heading, nullptr, &aside_clip)) {
-        const auto clip = ui_rect_overlap(aside_heading, aside_clip);
-        if (ui_rect_has_area(clip) &&
-            !ui_text_output_push(stream, {scene.content.aside_label,
-                                          {&scene.widgets, scene.body},
-                                          aside_heading,
-                                          clip,
-                                          tc.text_strong,
-                                          text_label,
-                                          UiTextAlignment::start,
-                                          UiTextAlignment::center,
-                                          TextWrapping::no_wrap,
-                                          TextOverflow::ellipsis}))
-            return false;
-    }
+    if (scene.content.aside_label.bytes && ui_settings_scene_aside(scene, &aside_heading, nullptr, &aside_clip))
+        text.in(aside_clip)(scene.body, scene.content.aside_label, aside_heading, tc.text_strong, text_label);
     if (scene.footer.visible) {
         const float dx = scene.footer_shift_q / 16.f, alert = scene.footer_alert_q / 255.f;
         const auto moved = [dx](UiRect r) noexcept { return UiRect{r.left + dx, r.top, r.right + dx, r.bottom}; };
         const Color on_alert = ui_settings_color_mix(tc.text_strong, tc.on_brand, alert);
-        const auto* status = ui_widget_manager_layout_node(scene.widgets, scene.footer_status);
-        if (status) {
+        if (const auto* status = ui_widget_manager_layout_node(scene.widgets, scene.footer_status)) {
             // Dialog footers carry actions, not a draft: no unsaved-changes prompt.
             const auto label = scene.footer.status.bytes ? scene.footer.status
                                : scene.footer.saving     ? utf8_literal("Saving…")
@@ -3271,34 +3150,28 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
                                : scene.presentation == UiSettingsPresentation::dialog
                                    ? Utf8View{}
                                    : utf8_literal("Careful — you have unsaved changes!");
-            if (!text(stream, scene, scene.footer_status, label, moved(status->rectangle),
-                      scene.footer.failed && !scene.footer.saving && !scene.footer_alert_q ? tc.critical_text
-                                                                                              : on_alert,
-                      text_label))
-                return false;
+            text.in(status->clip_rectangle)(
+                scene.footer_status, label, moved(status->rectangle),
+                scene.footer.failed && !scene.footer.saving && !scene.footer_alert_q ? tc.critical_text : on_alert,
+                text_label);
         }
         const UiSettingsTarget reset{UiSettingsTargetKind::reset, scene.selected_page, 0};
         const UiSettingsTarget save{UiSettingsTargetKind::save, scene.selected_page, 0};
-        const auto* reset_node = ui_widget_manager_layout_node(scene.widgets, scene.footer_reset);
-        const auto* save_node = ui_widget_manager_layout_node(scene.widgets, scene.footer_save);
-        if (reset_node &&
-            !text(stream, scene, scene.footer_reset,
-                  scene.footer.reset_label.bytes ? scene.footer.reset_label : utf8_literal("Reset"),
-                  moved(reset_node->rectangle),
-                  target_exists(scene, reset) ? on_alert : ui_settings_color_alpha(on_alert, .5f),
-                  text_button, UiTextAlignment::center))
-            return false;
-        if (save_node &&
-            !text(stream, scene, scene.footer_save,
-                  scene.footer.saving               ? utf8_literal("Saving…")
-                  : scene.footer.save_label.bytes ? scene.footer.save_label
-                                                  : utf8_literal("Save changes"),
-                  moved(save_node->rectangle),
-                  ui_settings_button_text(t, UiSettingsButtonVariant::primary,
-                                          {target_exists(scene, save), false, false, false}),
-                  text_button, UiTextAlignment::center))
-            return false;
+        if (const auto* reset_node = ui_widget_manager_layout_node(scene.widgets, scene.footer_reset))
+            text.in(reset_node->clip_rectangle)(
+                scene.footer_reset, scene.footer.reset_label.bytes ? scene.footer.reset_label : utf8_literal("Reset"),
+                moved(reset_node->rectangle), target_exists(scene, reset) ? on_alert : ui_settings_color_alpha(on_alert, .5f),
+                text_button, ui_text_center);
+        if (const auto* save_node = ui_widget_manager_layout_node(scene.widgets, scene.footer_save))
+            text.in(save_node->clip_rectangle)(
+                scene.footer_save,
+                scene.footer.saving               ? utf8_literal("Saving…")
+                : scene.footer.save_label.bytes ? scene.footer.save_label
+                                                : utf8_literal("Save changes"),
+                moved(save_node->rectangle),
+                ui_settings_button_text(t, UiSettingsButtonVariant::primary, {target_exists(scene, save), false, false, false}),
+                text_button, ui_text_center);
     }
-    return true;
+    return text.ok();
 }
 } // namespace maicord

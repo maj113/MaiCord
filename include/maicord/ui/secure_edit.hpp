@@ -67,8 +67,6 @@ void secure_edit_end_history_group(SecureEdit* edit) noexcept;
 void secure_edit_break_history_run(SecureEdit* edit) noexcept;
 SecureEditResult secure_edit_undo(SecureEdit* edit) noexcept;
 SecureEditResult secure_edit_redo(SecureEdit* edit) noexcept;
-using SecureEditHistoryCosts = TextEditHistoryCosts;
-SecureEditHistoryCosts secure_edit_history_costs(const SecureEdit& edit) noexcept;
 SecureEditResult secure_edit_assign(SecureEdit* edit, Utf8View text) noexcept;
 SecureEditResult secure_edit_clear(SecureEdit* edit) noexcept;
 // Nonzero monotonic milliseconds opts into contiguous typing/deletion runs.

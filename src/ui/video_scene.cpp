@@ -5,7 +5,7 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
-#include "maicord/ui/icon.hpp"
+#include "maicord/ui/scene_kit.hpp"
 
 namespace maicord {
 namespace {
@@ -173,11 +173,8 @@ bool range_request(UiVideoScene& scene, UiVideoControl id, UiPoint point,
     *out = request;
     return true;
 }
-inline bool quad(PaintStream* paint, const UiRect& bounds, const Color& color, float radius) noexcept {
-    return paint_stream_push_rounded(paint, bounds, color, radius);
-}
 bool symbol(PaintStream* paint, const UiRect& bounds, UiVideoControl id, const UiVideoPlaybackState& playback,
-            float extent, const Color& color, bool error = false, float offset = 0) noexcept {
+            float extent, const Color& color, bool error, float offset) noexcept {
     const float size = minimum(extent, minimum(ui_rect_width(bounds), ui_rect_height(bounds)));
     const float left = (bounds.left + bounds.right - size) * .5f;
     const float top = (bounds.top + bounds.bottom - size) * .5f + offset;
@@ -340,16 +337,16 @@ bool ui_video_play_affordance_paint(UiRect preview, UiRect clip, const UiVideoPl
                  visible = ui_rect_overlap(preview, clip);
     if (!rectangle(button) || !rectangle(visible) || !rectangle(ui_rect_overlap(button, visible)))
         return true;
-    if (!paint_stream_push_clip(paint, visible))
+    UiPaint p{paint, theme};
+    if (!p.clip(visible))
         return false;
     // The media scrim's black at the affordance's own opacity.
     Color background = theme.tokens.overlay.media;
     background.alpha = style.opacity;
-    const bool ok = quad(paint, button, background, style.radius) &&
-                    symbol(paint, button, UiVideoControl::play_pause, {}, kUiMediaControlTarget,
-                           kDefaultTheme.text_primary);
-
-    return paint_stream_pop_clip(paint) && ok;
+    return p.rounded(button, background, style.radius)
+        .use<symbol>(button, UiVideoControl::play_pause, UiVideoPlaybackState{}, kUiMediaControlTarget,
+                     kDefaultTheme.text_primary, false, 0.f)
+        .end();
 }
 UiVideoEmbedActions ui_video_embed_actions(UiRect preview, bool open_link, const UiVideoEmbedActionsStyle& style) noexcept {
     if (!rectangle(preview))
@@ -376,17 +373,19 @@ bool ui_video_embed_actions_paint(UiRect preview, UiRect clip, bool open_link, c
     const UiRect visible = ui_rect_overlap(preview, clip);
     if (!rectangle(actions.pill) || !rectangle(visible) || !rectangle(ui_rect_overlap(actions.pill, visible)))
         return true;
-    if (!paint_stream_push_clip(paint, visible))
+    UiPaint p{paint, theme};
+    if (!p.clip(visible))
         return false;
     // The media scrim's black at the pill's own opacity; the controls rest at
     // the client's idle icon opacity.
     Color background = theme.tokens.overlay.media;
     background.alpha = style.opacity;
     const Color icon = ui_theme_color_alpha(kDefaultTheme.text_primary, style.icon_opacity);
-    const bool ok = quad(paint, actions.pill, background, style.height * .5f) &&
-                    symbol(paint, actions.play, UiVideoControl::play_pause, {}, style.icon, icon) &&
-                    (!open_link || ui_icon_paint(paint, UiIcon::external_link, actions.open, icon));
-    return paint_stream_pop_clip(paint) && ok;
+    p.rounded(actions.pill, background, style.height * .5f)
+        .use<symbol>(actions.play, UiVideoControl::play_pause, UiVideoPlaybackState{}, style.icon, icon, false, 0.f);
+    if (p && open_link)
+        p.icon(UiIcon::external_link, actions.open, icon);
+    return p.end();
 }
 bool ui_video_scene_covers_preview(const UiVideoScene& scene, UiRect preview) noexcept {
     const auto bounds = scene.projection.bounds;
@@ -747,7 +746,8 @@ bool ui_video_scene_tick(UiVideoScene* scene, u64 now_ms, bool reduced_motion) n
 bool ui_video_scene_paint(const UiVideoScene& scene, const Theme& theme, PaintStream* paint) noexcept {
     if (!scene.active)
         return true;
-    if (!paint_stream_push_clip(paint, scene.clip))
+    UiPaint p{paint, theme};
+    if (!p.clip(scene.clip))
         return false;
     const float opacity =
         scene.play_only && (!scene.projection.playback.playing || scene.projection.playback.error ||
@@ -760,42 +760,39 @@ bool ui_video_scene_paint(const UiVideoScene& scene, const Theme& theme, PaintSt
     Color surface = theme.tokens.overlay.media;
     surface.alpha = scene.style.surface_opacity * opacity;
     const auto bar = scene.projection.bounds;
-    bool ok = true;
-    if (scene.track_title_bytes) {
-        const UiRect title{scene.preview.left, scene.preview.top, scene.preview.right, scene.preview.top + kUiVideoControlBarHeight};
-        ok = quad(paint, title, surface, scene.style.radius);
-    }
+    if (scene.track_title_bytes)
+        p.rounded({scene.preview.left, scene.preview.top, scene.preview.right,
+                   scene.preview.top + kUiVideoControlBarHeight},
+                  surface, scene.style.radius);
     if (!scene.play_only && opacity > 0) {
         const float lead = minimum(scene.style.scrim_lead, maximum(0.0f, bar.top - scene.preview.top));
         // The bar shares the preview's rounded bottom edge; its top stays square.
         const float radius = bar.bottom >= scene.preview.bottom - .5f ? scene.style.preview_radius : 0;
-        ok = (lead <= 0 || paint_stream_push_gradient(paint, {bar.left, bar.top - lead, bar.right, bar.top},
-                                                      {0, 0, 0, 0}, surface)) &&
-             paint_stream_push_clip(paint, bar) &&
-             quad(paint, {bar.left, bar.top - radius, bar.right, bar.bottom}, surface, radius) &&
-             paint_stream_pop_clip(paint);
+        if (lead > 0)
+            p.use<paint_stream_push_gradient>(UiRect{bar.left, bar.top - lead, bar.right, bar.top}, Color{}, surface, 0.f);
+        p.clip(bar).rounded({bar.left, bar.top - radius, bar.right, bar.bottom}, surface, radius).unclip();
     }
     for (const auto& control : scene.projection.controls) {
-        if (!ok || opacity == 0 || !control.visible || !rectangle(ui_rect_overlap(control.bounds, scene.clip)))
+        if (!p || opacity == 0 || !control.visible || !rectangle(ui_rect_overlap(control.bounds, scene.clip)))
             continue;
         const bool engaged = scene.hover == control.id || scene.capture == control.id;
         if (control.kind == UiVideoControlKind::button) {
             if (scene.play_only && !rectangle(scene.buffering_indicator)) {
                 Color fill = theme.base_lowest;
                 fill.alpha = scene.play_opacity * opacity;
-                ok = quad(paint, control.bounds, fill, scene.style.radius);
+                p.rounded(control.bounds, fill, scene.style.radius);
             }
-            if (ok && !(scene.play_only && rectangle(scene.buffering_indicator))) {
+            if (p && !(scene.play_only && rectangle(scene.buffering_indicator))) {
                 // The glyph brightens on hover and nudges while pressed.
                 Color color = scene.play_only && scene.projection.playback.error ? theme.notification
                               : control.enabled                                  ? ink.text_primary
                                                                                  : ink.text_secondary;
                 if (control.enabled && !engaged && !scene.play_only)
                     color.alpha *= .82f;
-                ok = symbol(paint, control.bounds, control.id, scene.projection.playback,
-                            scene.play_only ? kUiMediaControlTarget : scene.style.icon_extent,
-                            ui_theme_color_alpha(color, opacity), scene.play_only && scene.projection.playback.error,
-                            scene.capture == control.id && scene.hover == control.id ? 1.0f : 0.0f);
+                p.use<symbol>(control.bounds, control.id, scene.projection.playback,
+                              scene.play_only ? kUiMediaControlTarget : scene.style.icon_extent,
+                              ui_theme_color_alpha(color, opacity), scene.play_only && scene.projection.playback.error,
+                              scene.capture == control.id && scene.hover == control.id ? 1.0f : 0.0f);
             }
         } else if (control.kind == UiVideoControlKind::range) {
             const float center_y = control.id == UiVideoControl::track ? (control.bounds.top + 3 * control.bounds.bottom) * .25f :
@@ -820,13 +817,12 @@ bool ui_video_scene_paint(const UiVideoScene& scene, const Theme& theme, PaintSt
                 // grabber would leave the pill.
                 const u32 first = paint->count;
                 const float radius = ui_rect_height(pill) * .5f;
-                ok = quad(paint, pill, theme.tokens.overlay.dense, radius) &&
-                     ui_slider_paint(paint, tokens, slider, kVolumeSteps, kVolumeSteps, {control.enabled});
-                if (ok && scene.keyboard_focus && scene.focus == control.id) {
+                p.rounded(pill, theme.tokens.overlay.dense, radius)
+                    .use<ui_slider_paint>(tokens, slider, kVolumeSteps, kVolumeSteps, UiControlState{control.enabled});
+                if (p && scene.keyboard_focus && scene.focus == control.id) {
                     const float gap = scene.style.focus_width;
-                    ok = paint_stream_push_rounded_border(paint, pill.left - gap, pill.top - gap, pill.right + gap,
-                                                          pill.bottom + gap, {}, theme.tokens.border.focus,
-                                                          radius + gap, scene.style.focus_width);
+                    p.rounded_border({pill.left - gap, pill.top - gap, pill.right + gap, pill.bottom + gap}, Color{},
+                                     theme.tokens.border.focus, radius + gap, scene.style.focus_width);
                 }
                 for (u32 i = first; i < paint->count; ++i) {
                     paint->quads[i].fill.alpha *= opacity;
@@ -836,51 +832,45 @@ bool ui_video_scene_paint(const UiVideoScene& scene, const Theme& theme, PaintSt
             }
             Color track_color = ink.text_primary;
             track_color.alpha *= scene.style.track_opacity * opacity;
-            ok = ok && quad(paint, track, track_color, round);
+            p.rounded(track, track_color, round);
             if (control.id == UiVideoControl::seek) {
                 // Buffered ranges sit between the empty track and the played fill.
                 const auto& playback = scene.projection.playback;
                 const float scale = (right - left) / 10000.0f;
-                for (u32 i = 0; ok && i < minimum<u32>(playback.buffered_count, 4); ++i) {
+                for (u32 i = 0; p && i < minimum<u32>(playback.buffered_count, 4); ++i) {
                     const float from = left + scale * minimum(playback.buffered_begin[i], u16{10000});
                     const float to = left + scale * minimum(playback.buffered_end[i], u16{10000});
                     if (to > from)
-                        ok = quad(paint, {from, track.top, to, track.bottom},
+                        p.rounded({from, track.top, to, track.bottom},
                                   ui_theme_color_alpha(ink.text_primary, .25f * opacity), round);
                 }
             }
-            if (ok && control.id == UiVideoControl::seek && scene.hover == UiVideoControl::seek &&
+            if (p && control.id == UiVideoControl::seek && scene.hover == UiVideoControl::seek &&
                 scene.capture == UiVideoControl::none && scene.hover_x > left) {
                 // Hover preview: the would-be position, below the played fill.
-                ok = quad(paint, {left, track.top, minimum(right, scene.hover_x), track.bottom},
+                p.rounded({left, track.top, minimum(right, scene.hover_x), track.bottom},
                           ui_theme_color_alpha(ink.text_primary, .3f * opacity), round);
             }
-            if (ok && position > left) {
-                ok = quad(paint, {left, track.top, position, track.bottom},
+            if (p && position > left)
+                p.rounded({left, track.top, position, track.bottom},
                           ui_theme_color_alpha(control.enabled ? theme.tokens.emphasis.fill : ink.text_secondary, opacity), round);
-            }
-            if (ok && (engaged || (scene.keyboard_focus && scene.focus == control.id))) {
-                ok = quad(paint,
-                          {position - half_thumb, center_y - half_thumb, position + half_thumb,
-                           center_y + half_thumb},
+            if (p && (engaged || (scene.keyboard_focus && scene.focus == control.id)))
+                p.rounded({position - half_thumb, center_y - half_thumb, position + half_thumb, center_y + half_thumb},
                           ui_theme_color_alpha(theme.tokens.emphasis.outline, opacity), half_thumb);
-            }
-            if (ok && (control.id == UiVideoControl::seek && !scene.hover_track || control.id == UiVideoControl::track && scene.hover_track) && scene.hover_time_bytes) {
-                const auto bubble = ui_video_scene_hover_bubble(scene);
-                ok = quad(paint, bubble, ui_theme_color_alpha(theme.tokens.overlay.dense, opacity),
+            if (p && (control.id == UiVideoControl::seek && !scene.hover_track || control.id == UiVideoControl::track && scene.hover_track) && scene.hover_time_bytes)
+                p.rounded(ui_video_scene_hover_bubble(scene), ui_theme_color_alpha(theme.tokens.overlay.dense, opacity),
                           theme.scale.radius_sm);
-            }
         } else if (control.id == UiVideoControl::status && ui_video_scene_label(scene, control.id).bytes) {
-            ok = quad(paint, control.bounds, surface, scene.style.radius);
+            p.rounded(control.bounds, surface, scene.style.radius);
         }
-        if (ok && scene.keyboard_focus && scene.focus == control.id && control.enabled) {
-            ok = paint_stream_push_rounded_border(paint, control.bounds, {}, ui_theme_color_alpha(theme.tokens.border.focus, opacity), scene.style.radius, scene.style.focus_width);
-        }
+        if (p && scene.keyboard_focus && scene.focus == control.id && control.enabled)
+            p.rounded_border(control.bounds, Color{}, ui_theme_color_alpha(theme.tokens.border.focus, opacity),
+                             scene.style.radius, scene.style.focus_width);
     }
-    if (ok && !scene.play_only && rectangle(scene.center_play)) {
-        ok = ui_video_play_affordance_paint(scene.preview, scene.clip, {}, theme, paint);
-    }
-    if (ok && rectangle(ui_rect_overlap(scene.buffering_indicator, scene.clip))) {
+    if (p && !scene.play_only && rectangle(scene.center_play) &&
+        !ui_video_play_affordance_paint(scene.preview, scene.clip, {}, theme, paint))
+        p.fail();
+    if (p && rectangle(ui_rect_overlap(scene.buffering_indicator, scene.clip))) {
         const auto backdrop = scene.buffering_indicator;
         Color background = theme.base_lowest;
         background.alpha *= scene.style.surface_opacity;
@@ -890,29 +880,31 @@ bool ui_video_scene_paint(const UiVideoScene& scene, const Theme& theme, PaintSt
         const float y = (backdrop.top + backdrop.bottom - size) * .5f;
         auto spinner = scene.style.spinner;
         spinner.stroke = minimum(spinner.stroke, size * .25f);
-        ok = quad(paint, backdrop, background, ui_rect_width(backdrop) * .5f) &&
-             ui_spinner_paint(paint, {x, y, x + size, y + size}, theme.text_primary, scene.spinner_phase,
-                              spinner);
+        p.rounded(backdrop, background, ui_rect_width(backdrop) * .5f)
+            .use<ui_spinner_paint>(UiRect{x, y, x + size, y + size}, theme.text_primary, scene.spinner_phase, spinner);
     }
-    return paint_stream_pop_clip(paint) && ok;
+    return p.end();
 }
-bool ui_video_scene_text_output(const UiVideoScene& scene, const Theme& theme, UiTextOutput* text,
+bool ui_video_scene_text_output(const UiVideoScene& scene, const Theme& theme, UiTextOutput* out,
                                 UiWidgetReference text_owner) noexcept {
     if (!scene.active)
         return true;
+    if (!text_owner.manager)
+        return false;
+    UiTextPen<UiTextClip::label> text{out, *text_owner.manager, scene.clip};
+    const auto owner = text_owner.handle;
     if (scene.track_title_bytes) {
         const UiRect title{scene.preview.left + 8, scene.preview.top, scene.preview.right - 8, scene.preview.top + kUiVideoControlBarHeight};
         Color color = kDefaultTheme.text_primary; color.alpha *= scene.controls_transition.value;
         // Clamped: a title strip scrolled out of the visible clip is an empty command, not an invalid one.
-        if (!ui_text_output_push(text, {{scene.track_title, scene.track_title_bytes}, text_owner, title, ui_rect_intersection(title, scene.clip), color, text_style_subtext, UiTextAlignment::start, UiTextAlignment::center, TextWrapping::no_wrap, TextOverflow::ellipsis})) return false;
+        text.in(ui_rect_intersection(title, scene.clip))(owner, {scene.track_title, scene.track_title_bytes}, title, color,
+                                                         text_style_subtext);
     }
     if (const auto bubble = ui_video_scene_hover_bubble(scene); ui_rect_has_area(bubble)) {
         Color color = kDefaultTheme.text_primary;
         color.alpha *= scene.controls_transition.value;
-        if (!ui_text_output_push(text, {{scene.hover_time, scene.hover_time_bytes}, text_owner, bubble, scene.clip,
-                                        color, text_style_subtext, UiTextAlignment::center, UiTextAlignment::center,
-                                        TextWrapping::no_wrap, TextOverflow::ellipsis}))
-            return false;
+        text.in(scene.clip)(owner, {scene.hover_time, scene.hover_time_bytes}, bubble, color, text_style_subtext,
+                            ui_text_center);
     }
     for (const auto& control : scene.projection.controls) {
         const auto label = ui_video_scene_label(scene, control.id);
@@ -929,13 +921,9 @@ bool ui_video_scene_text_output(const UiVideoScene& scene, const Theme& theme, U
         color.alpha *= scene.controls_transition.value;
         auto label_bounds = control.bounds;
         if (control.id == UiVideoControl::track) label_bounds.bottom = (label_bounds.top + label_bounds.bottom) * .5f;
-        if (!ui_text_output_push(text, {label, text_owner, label_bounds, ui_rect_intersection(label_bounds, clip), color, control.text_style,
-                                        control.id == UiVideoControl::track ? UiTextAlignment::center
-                                                                                   : UiTextAlignment::start,
-                                        UiTextAlignment::center, TextWrapping::no_wrap,
-                                        TextOverflow::ellipsis}))
-            return false;
+        text.in(ui_rect_intersection(label_bounds, clip))(owner, label, label_bounds, color, control.text_style,
+                                                          control.id == UiVideoControl::track ? ui_text_center : 0);
     }
-    return true;
+    return text.ok();
 }
 } // namespace maicord

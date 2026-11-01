@@ -15,13 +15,6 @@ u32 copy_text(char* destination, u32 capacity, Utf8View text) noexcept {
 UiRect centered(float x, float y, float width, float height) noexcept {
     return {x - width * .5f, y - height * .5f, x + width * .5f, y + height * .5f};
 }
-bool push_text(UiTextOutput* text, const UiCallScene& s, const Utf8View& value, const UiRect& rectangle,
-               const UiRect& clip, const Color& color, u32 style, UiTextAlignment horizontal) noexcept {
-    if (!value.bytes || !ui_rect_intersects(rectangle, clip))
-        return true;
-    return ui_text_output_push(text, {value, s.owner, rectangle, clip, color, style, horizontal,
-                                      UiTextAlignment::center, TextWrapping::no_wrap, TextOverflow::ellipsis});
-}
 namespace {
 constexpr float kPad = 12, kAvatar = 40, kAvatarStep = 48, kRowAvatar = 28, kInviteWidth = 72, kButtonHeight = 32,
                 kAcceptWidth = 96, kStartWidth = 104, kEndWidth = 92, kIconButton = 32;
@@ -80,13 +73,6 @@ UiRect request_avatar(const UiCallScene& s, u32 index) noexcept {
 inline UiRect requests_label(const UiCallScene& s) noexcept {
     const auto& r = s.stage_requests;
     return {r.left + kPad + 24, r.top + 8, r.right - kPad, r.top + 32};
-}
-inline Color shaded(Color fill, bool hovered, bool pressed) noexcept {
-    const float shade = pressed ? .8f : hovered ? .9f : 1.f;
-    fill.red *= shade;
-    fill.green *= shade;
-    fill.blue *= shade;
-    return fill;
 }
 inline Utf8View person_name(const UiCallStagePerson& person) noexcept {
     return person.name.bytes ? person.name : utf8_literal("Unknown user");
@@ -280,134 +266,127 @@ Utf8View label(const UiCallScene& s, UiCallControl c) noexcept {
     }
 }
 
-bool paint(const UiCallScene& s, const Theme& theme, PaintStream* p) noexcept {
+bool paint(PaintStream* out, const UiCallScene& s, const Theme& theme) noexcept {
     if (!s.stage_active)
         return true;
-    bool ok = true;
+    UiPaint p{out, theme};
     const Color fill = theme.surface;
     const UiRect* panels[]{&s.stage_banner, &s.stage_audience, &s.stage_requests};
     for (const auto* r : panels)
-        if (ok && ui_rect_has_area(*r))
-            ok = ui_surface_paint(p, *r, theme, UiElevation::card, theme.scale.radius_md, &fill,
-                                  &theme.tokens.border.subtle);
+        if (ui_rect_has_area(*r))
+            p.use<ui_surface_paint>(*r, theme, UiElevation::card, theme.scale.radius_md, &fill,
+                                    &theme.tokens.border.subtle);
     // Avatar placeholders; the host draws pictures over them.
     UiCallTileMedia media{};
-    for (u32 i = 0; ok && avatar(s, i, &media); ++i) {
-        const auto a = media.avatar;
-        ok = paint_stream_push_rounded(p, a, theme.avatar_placeholder, ui_rect_width(a) * .5f);
-    }
-    if (ok && audience_more(s)) {
-        const auto a = audience_slot(s, audience_drawn(s));
-        ok = paint_stream_push_rounded(p, a, theme.surface_high, kAvatar * .5f);
-    }
-    return ok;
+    for (u32 i = 0; p && avatar(s, i, &media); ++i)
+        p.rounded(media.avatar, theme.avatar_placeholder, ui_rect_width(media.avatar) * .5f);
+    if (audience_more(s))
+        p.rounded(audience_slot(s, audience_drawn(s)), theme.surface_high, kAvatar * .5f);
+    return p.end();
 }
 
-bool paint_foreground(const UiCallScene& s, const Theme& theme, PaintStream* p) noexcept {
+bool paint_foreground(PaintStream* out, const UiCallScene& s, const Theme& theme) noexcept {
     if (!s.stage_active)
         return true;
-    bool ok = true;
+    UiPaint p{out, theme};
     const auto hovered = [&](UiCallControl c) noexcept { return s.hovered == c; };
     const auto pressed = [&](UiCallControl c) noexcept { return s.hovered == c && s.pressed == c; };
+    const auto tint = [&](UiCallControl c, const Color& color) noexcept { return shaded(color, hovered(c), pressed(c)); };
     if (const auto r = control(s, UiCallControl::stage_start); ui_rect_has_area(r))
-        ok = paint_stream_push_rounded(p, r, shaded(theme.tokens.accent.brand, hovered(UiCallControl::stage_start), pressed(UiCallControl::stage_start)), theme.scale.radius_sm);
-    if (const auto r = control(s, UiCallControl::stage_topic); ok && ui_rect_has_area(r)) {
+        p.rounded(r, tint(UiCallControl::stage_start, theme.tokens.accent.brand), theme.scale.radius_sm);
+    if (const auto r = control(s, UiCallControl::stage_topic); ui_rect_has_area(r)) {
         if (hovered(UiCallControl::stage_topic))
-            ok = paint_stream_push_rounded(p, r, pressed(UiCallControl::stage_topic) ? theme.tokens.state.pressed
-                                                : theme.tokens.state.hover, theme.scale.radius_sm);
-        ok = ok && ui_icon_paint(p, UiIcon::edit, centered((r.left + r.right) * .5f, (r.top + r.bottom) * .5f, 20, 20),
-                                 hovered(UiCallControl::stage_topic) ? theme.text_primary : theme.text_secondary);
+            p.rounded(r, pressed(UiCallControl::stage_topic) ? theme.tokens.state.pressed : theme.tokens.state.hover,
+                      theme.scale.radius_sm);
+        p.icon(UiIcon::edit, centered((r.left + r.right) * .5f, (r.top + r.bottom) * .5f, 20, 20),
+               hovered(UiCallControl::stage_topic) ? theme.text_primary : theme.text_secondary);
     }
-    if (const auto r = control(s, UiCallControl::stage_end); ok && ui_rect_has_area(r))
-        ok = paint_stream_push_rounded(p, r, shaded(theme.tokens.accent.danger, hovered(UiCallControl::stage_end), pressed(UiCallControl::stage_end)), theme.scale.radius_sm);
-    if (ok && ui_rect_has_area(s.stage_banner)) {
+    if (const auto r = control(s, UiCallControl::stage_end); ui_rect_has_area(r))
+        p.rounded(r, tint(UiCallControl::stage_end, theme.tokens.accent.danger), theme.scale.radius_sm);
+    if (ui_rect_has_area(s.stage_banner)) {
         const auto& b = s.stage_banner;
         const float y = (b.top + b.bottom) * .5f;
-        ok = ui_icon_paint(p, UiIcon::hand, {b.left + 16, y - 10, b.left + 36, y + 10},
-                           ui_icon_role_color(theme, UiIconRole::accent));
-        if (const auto r = control(s, UiCallControl::stage_accept); ok && ui_rect_has_area(r))
-            ok = paint_stream_push_rounded(p, r, shaded(theme.tokens.accent.brand, hovered(UiCallControl::stage_accept),
-                   pressed(UiCallControl::stage_accept)), theme.scale.radius_sm);
-        if (const auto r = control(s, UiCallControl::stage_decline); ok && ui_rect_has_area(r))
-            ok = paint_stream_push_rounded(p, r, hovered(UiCallControl::stage_decline) ? theme.interactive : theme.surface_high, theme.scale.radius_sm);
+        p.icon(UiIcon::hand, {b.left + 16, y - 10, b.left + 36, y + 10}, ui_icon_role_color(theme, UiIconRole::accent));
+        if (const auto r = control(s, UiCallControl::stage_accept); ui_rect_has_area(r))
+            p.rounded(r, tint(UiCallControl::stage_accept, theme.tokens.accent.brand), theme.scale.radius_sm);
+        if (const auto r = control(s, UiCallControl::stage_decline); ui_rect_has_area(r))
+            p.rounded(r, hovered(UiCallControl::stage_decline) ? theme.interactive : theme.surface_high,
+                      theme.scale.radius_sm);
     }
-    if (ok && ui_rect_has_area(s.stage_audience)) {
+    if (ui_rect_has_area(s.stage_audience)) {
         const auto l = audience_label(s);
         const float y = (l.top + l.bottom) * .5f;
-        ok = ui_icon_paint(p, UiIcon::members, {l.left - 22, y - 8, l.left - 6, y + 8}, theme.text_secondary);
+        p.icon(UiIcon::members, {l.left - 22, y - 8, l.left - 6, y + 8}, theme.text_secondary);
     }
-    if (ok && ui_rect_has_area(s.stage_requests)) {
+    if (ui_rect_has_area(s.stage_requests)) {
         const auto l = requests_label(s);
         const float y = (l.top + l.bottom) * .5f;
-        ok = ui_icon_paint(p, UiIcon::hand, {l.left - 22, y - 8, l.left - 6, y + 8}, theme.text_secondary) &&
-             paint_stream_push_clip(p, s.stage_requests);
-        for (u32 i = 0; ok && i < request_rows(s); ++i) {
-            const auto r = invite_button(s, i);
+        p.icon(UiIcon::hand, {l.left - 22, y - 8, l.left - 6, y + 8}, theme.text_secondary).clip(s.stage_requests);
+        for (u32 i = 0; p && i < request_rows(s); ++i) {
             const bool hot = s.hovered == UiCallControl::stage_invite &&
                              s.stage_hovered == s.stage_people[kUiCallStageAudienceShown + i].user_id;
-            ok = paint_stream_push_rounded(p, r, shaded(theme.tokens.accent.brand, hot,
-                   hot && s.pressed == UiCallControl::stage_invite), theme.scale.radius_sm);
+            p.rounded(invite_button(s, i), shaded(theme.tokens.accent.brand, hot, hot && s.pressed == UiCallControl::stage_invite),
+                      theme.scale.radius_sm);
         }
-        ok = paint_stream_pop_clip(p) && ok;
+        p.unclip();
     }
-    return ok;
+    return p.end();
 }
 
-bool text(const UiCallScene& s, const Theme& theme, UiTextOutput* out) noexcept {
+void text(UiTextPen<UiTextClip::label>& pen, const UiCallScene& s, const Theme& theme) noexcept {
     if (!s.stage_active)
-        return true;
-    bool ok = true;
+        return;
+    const auto owner = s.owner.handle;
     const auto on_accent = theme.tokens.text.on_accent;
     const u32 button_style = text_style_subtext | text_style_bold;
-    const auto button = [&](UiCallControl c, Color color) noexcept {
+    const auto button = [&](UiCallControl c, const Color& color) noexcept {
         const auto r = control(s, c);
-        return !ui_rect_has_area(r) ||
-               push_text(out, s, label(s, c), r, r, color, button_style, UiTextAlignment::center);
+        if (ui_rect_has_area(r))
+            pen.in(r)(owner, label(s, c), r, color, button_style, ui_text_center);
     };
-    ok = button(UiCallControl::stage_start, on_accent) && button(UiCallControl::stage_end, on_accent) &&
-         button(UiCallControl::stage_accept, on_accent) && button(UiCallControl::stage_decline, theme.text_primary);
-    if (ok && ui_rect_has_area(s.stage_banner)) {
+    button(UiCallControl::stage_start, on_accent);
+    button(UiCallControl::stage_end, on_accent);
+    button(UiCallControl::stage_accept, on_accent);
+    button(UiCallControl::stage_decline, theme.text_primary);
+    if (ui_rect_has_area(s.stage_banner)) {
         const auto& b = s.stage_banner;
         const auto decline = control(s, UiCallControl::stage_decline);
         const float right = ui_rect_has_area(decline) ? decline.left - 12 : b.right - kPad;
-        ok = push_text(out, s, utf8_literal("You're invited to speak"), {b.left + 48, b.top, right, b.bottom}, b,
-                       theme.tokens.text.normal, text_style_bold);
+        pen.in(b)(owner, utf8_literal("You're invited to speak"), {b.left + 48, b.top, right, b.bottom},
+                  theme.tokens.text.normal, text_style_bold);
     }
-    if (ok && ui_rect_has_area(s.stage_audience)) {
+    if (ui_rect_has_area(s.stage_audience)) {
         const auto& a = s.stage_audience;
-        ok = push_text(out, s, {s.stage_text[0], s.stage_text_bytes[0]}, audience_label(s), a, theme.tokens.text.muted,
-                       text_style_subtext | text_style_bold);
-        if (ok && s.stage_text_bytes[1]) {
-            const auto slot = audience_slot(s, audience_drawn(s));
-            ok = push_text(out, s, {s.stage_text[1], s.stage_text_bytes[1]}, slot, a, theme.tokens.text.normal,
-                           text_style_subtext | text_style_bold, UiTextAlignment::center);
-        }
-        if (ok && !s.stage_audience_count)
-            ok = push_text(out, s, utf8_literal("No one is listening yet"),
-                           {a.left + kPad, a.top + 40, a.right - kPad, a.top + 80}, a, theme.tokens.text.muted,
-                           text_style_subtext);
+        auto line = pen.in(a);
+        line(owner, {s.stage_text[0], s.stage_text_bytes[0]}, audience_label(s), theme.tokens.text.muted,
+             text_style_subtext | text_style_bold);
+        if (s.stage_text_bytes[1])
+            line(owner, {s.stage_text[1], s.stage_text_bytes[1]}, audience_slot(s, audience_drawn(s)),
+                 theme.tokens.text.normal, text_style_subtext | text_style_bold, ui_text_center);
+        if (!s.stage_audience_count)
+            line(owner, utf8_literal("No one is listening yet"), {a.left + kPad, a.top + 40, a.right - kPad, a.top + 80},
+                 theme.tokens.text.muted, text_style_subtext);
     }
-    if (ok && ui_rect_has_area(s.stage_requests)) {
+    if (ui_rect_has_area(s.stage_requests)) {
         const auto& r = s.stage_requests;
-        ok = push_text(out, s, {s.stage_text[2], s.stage_text_bytes[2]}, requests_label(s), r, theme.tokens.text.muted,
-                       text_style_subtext | text_style_bold);
-        for (u32 i = 0; ok && i < request_rows(s); ++i) {
+        auto line = pen.in(r);
+        line(owner, {s.stage_text[2], s.stage_text_bytes[2]}, requests_label(s), theme.tokens.text.muted,
+             text_style_subtext | text_style_bold);
+        for (u32 i = 0; pen.ok() && i < request_rows(s); ++i) {
             const auto row = request_row(s, i);
             const auto invite = invite_button(s, i);
-            const auto& person = s.stage_people[kUiCallStageAudienceShown + i];
-            ok = push_text(out, s, person_name(person), {row.left + kPad + kRowAvatar + 8, row.top, invite.left - 8, row.bottom},
-                           r, theme.tokens.text.normal, 0) &&
-                 push_text(out, s, utf8_literal("Invite"), invite, ui_rect_intersection(r, invite), on_accent,
-                           button_style, UiTextAlignment::center);
+            line(owner, person_name(s.stage_people[kUiCallStageAudienceShown + i]),
+                 {row.left + kPad + kRowAvatar + 8, row.top, invite.left - 8, row.bottom}, theme.tokens.text.normal);
+            pen.in(ui_rect_intersection(r, invite))(owner, utf8_literal("Invite"), invite, on_accent, button_style,
+                                                    ui_text_center);
         }
     }
     // No speakers yet: say so where the tiles would be.
-    if (ok && !s.participant_count && ui_rect_has_area(s.stage_speakers))
-        ok = push_text(out, s,
-                       s.stage_live ? utf8_literal("No one is speaking yet")
-                                    : utf8_literal("This stage hasn't started yet"),
-                       s.stage_speakers, s.stage_speakers, theme.tokens.text.muted, 0, UiTextAlignment::center);
-    return ok;
+    if (!s.participant_count && ui_rect_has_area(s.stage_speakers))
+        pen.in(s.stage_speakers)(owner,
+                                 s.stage_live ? utf8_literal("No one is speaking yet")
+                                              : utf8_literal("This stage hasn't started yet"),
+                                 s.stage_speakers, theme.tokens.text.muted, 0, ui_text_center);
 }
 
 bool avatar(const UiCallScene& s, u32 index, UiCallTileMedia* output) noexcept {

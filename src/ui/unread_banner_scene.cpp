@@ -1,6 +1,6 @@
 #include "maicord/ui/unread_banner_scene.hpp"
 #include "maicord/ui/surface_elevation.hpp"
-#include "maicord/ui/icon.hpp"
+#include "maicord/ui/scene_kit.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
@@ -96,6 +96,14 @@ UiRect pill_rectangle(const UiUnreadBannerScene& s) noexcept {
 }
 bool owner_valid(UiWidgetReference owner) noexcept {
     return owner.manager && ui_widget_manager_resolve(*owner.manager, owner.handle);
+}
+// A floating card of the banner elevation (a notice or the jump pill): soft shadow, then the surface, faded by `level`.
+bool banner_card(PaintStream* out, const UiRect& r, const Theme& theme, float radius, float level) noexcept {
+    const auto surface = ui_surface_style(theme, UiElevation::banner);
+    const Color fill = ui_theme_color_alpha(surface.fill, level), border = ui_theme_color_alpha(surface.border, level);
+    return paint_stream_push_rounded(out, {r.left, r.top + 2, r.right, r.bottom + 2},
+                                     ui_theme_color_alpha(theme.tokens.overlay.shadow_soft, level), radius) &&
+           ui_surface_paint(out, r, theme, UiElevation::banner, radius, &fill, &border);
 }
 } // namespace
 
@@ -328,43 +336,36 @@ bool ui_unread_banner_set_hover(UiUnreadBannerScene* scene, UiUnreadBannerAction
 bool ui_unread_banner_paint(const UiUnreadBannerScene& scene, const Theme& theme, PaintStream* paint) noexcept {
     if (!ui_unread_banner_visible(scene))
         return true;
-    const auto v = scene.viewport;
-    if (!paint || !paint_stream_push_clip(paint, v))
-        return false;
-    bool ok = true;
+    UiPaint p{paint, theme};
+    p.clip(scene.viewport);
     const auto& st = scene.style;
     if (scene.notice_motion.value > 0 && scene.notice_title_bytes) {
         const float level = scene.notice_motion.value;
         const auto r = scene.notice;
-        const auto surface = ui_surface_style(theme, UiElevation::banner);
-        const Color fill = ui_theme_color_alpha(surface.fill, level), border = ui_theme_color_alpha(surface.border, level);
         const Color tone = ui_theme_color_alpha(scene.notice_warning ? theme.tokens.accent.warning : theme.tokens.emphasis.outline, level);
-        ok = paint_stream_push_rounded(paint, r.left, r.top + 2, r.right, r.bottom + 2,
-                                       ui_theme_color_alpha(theme.tokens.overlay.shadow_soft, level), st.notice_radius) &&
-             ui_surface_paint(paint, r, theme, UiElevation::banner, st.notice_radius, &fill, &border) &&
-             // A tone stripe along the leading edge marks warnings.
-             paint_stream_push_rounded(paint, r.left, r.top, r.left + 4, r.bottom, tone, theme.scale.radius_xs) &&
-             ui_icon_paint(paint,
-                           scene.notice_glyph < UiIcon::count ? scene.notice_glyph
-                           : scene.notice_warning            ? UiIcon::shield_alert
-                                                             : UiIcon::inbox,
-                           scene.notice_icon, tone);
-        const bool busy = scene.notice_busy;
-        if (ok && scene.notice_primary_bytes) {
+        p.use<banner_card>(r, theme, st.notice_radius, level)
+            // A tone stripe along the leading edge marks warnings.
+            .rounded({r.left, r.top, r.left + 4, r.bottom}, tone, theme.scale.radius_xs)
+            .icon(scene.notice_glyph < UiIcon::count ? scene.notice_glyph
+                  : scene.notice_warning            ? UiIcon::shield_alert
+                                                    : UiIcon::inbox,
+                  scene.notice_icon, tone);
+        const float busy = scene.notice_busy ? .5f : 1.f;
+        const Color hover = ui_theme_color_alpha(theme.tokens.state.hover, level);
+        if (scene.notice_primary_bytes) {
             const auto b = scene.notice_primary_rect;
-            Color button = ui_theme_color_alpha(theme.tokens.emphasis.fill, level * (busy ? .5f : 1.f));
-            ok = paint_stream_push_rounded(paint, b, button, theme.scale.radius_sm) &&
-                 (scene.hovered != UiUnreadBannerAction::notice_primary ||
-                  paint_stream_push_rounded(paint, b, ui_theme_color_alpha(theme.tokens.state.hover, level), theme.scale.radius_sm));
+            p.rounded(b, ui_theme_color_alpha(theme.tokens.emphasis.fill, level * busy), theme.scale.radius_sm);
+            if (scene.hovered == UiUnreadBannerAction::notice_primary)
+                p.rounded(b, hover, theme.scale.radius_sm);
         }
-        if (ok && scene.notice_secondary_bytes) {
+        if (scene.notice_secondary_bytes) {
             const auto b = scene.notice_secondary_rect;
-            ok = paint_stream_push_rounded(paint, b, ui_theme_color_alpha(theme.tokens.fill.subtle, level * (busy ? .5f : 1.f)), theme.scale.radius_sm) &&
-                 (scene.hovered != UiUnreadBannerAction::notice_secondary ||
-                  paint_stream_push_rounded(paint, b, ui_theme_color_alpha(theme.tokens.state.hover, level), theme.scale.radius_sm));
+            p.rounded(b, ui_theme_color_alpha(theme.tokens.fill.subtle, level * busy), theme.scale.radius_sm);
+            if (scene.hovered == UiUnreadBannerAction::notice_secondary)
+                p.rounded(b, hover, theme.scale.radius_sm);
         }
     }
-    if (ok && scene.banner_motion.value > 0 && scene.label_bytes) {
+    if (scene.banner_motion.value > 0 && scene.label_bytes) {
         const float level = scene.banner_motion.value;
         const auto r = scene.banner;
         // The unread bar is an emphasis fill: gradient-derived on gradient themes.
@@ -374,97 +375,65 @@ bool ui_unread_banner_paint(const UiUnreadBannerScene& scene, const Theme& theme
         const UiRect icon{scene.banner_action.right - 10 - st.icon, icon_top, scene.banner_action.right - 10,
                           icon_top + st.icon};
         // Square top edge tucks under the channel header; only the bottom is rounded.
-        ok = paint_stream_push(paint, r.left, r.top, r.right, r.top + st.banner_radius, fill) &&
-             paint_stream_push_rounded(paint, r, fill, st.banner_radius) &&
-             (scene.hovered != UiUnreadBannerAction::mark_read ||
-              paint_stream_push_rounded(paint, scene.banner_action.left, r.top, r.right, r.bottom,
-                                        {text.red, text.green, text.blue, .14f * level}, st.banner_radius)) &&
-             ui_icon_paint(paint, UiIcon::check, icon, text);
+        p.fill({r.left, r.top, r.right, r.top + st.banner_radius}, fill).rounded(r, fill, st.banner_radius);
+        if (scene.hovered == UiUnreadBannerAction::mark_read)
+            p.rounded({scene.banner_action.left, r.top, r.right, r.bottom}, {text.red, text.green, text.blue, .14f * level},
+                      st.banner_radius);
+        p.icon(UiIcon::check, icon, text);
     }
-    if (ok && scene.pill_motion.value > 0) {
+    if (scene.pill_motion.value > 0) {
         const float level = scene.pill_motion.value;
         const auto r = scene.pill;
-        const bool hovered = scene.hovered == UiUnreadBannerAction::jump_to_present;
         // The jump pill floats over the timeline: banner elevation material,
         // with the shared hover highlight above it.
-        const auto surface = ui_surface_style(theme, UiElevation::banner);
-        const Color fill = ui_theme_color_alpha(surface.fill, level), border = ui_theme_color_alpha(surface.border, level);
         const float icon_top = (r.top + r.bottom - st.icon) * .5f;
         const UiRect icon{r.right - 14 - st.icon, icon_top, r.right - 14, icon_top + st.icon};
-        ok = paint_stream_push_rounded(paint, r.left, r.top + 2, r.right, r.bottom + 2, ui_theme_color_alpha(theme.tokens.overlay.shadow_soft, level),
-                                       st.pill_radius) &&
-             ui_surface_paint(paint, r, theme, UiElevation::banner, st.pill_radius, &fill, &border) &&
-             (!hovered || paint_stream_push_rounded(paint, r, ui_theme_color_alpha(theme.tokens.state.hover, level), st.pill_radius)) &&
-             ui_icon_paint(paint, UiIcon::arrow_down, icon, ui_theme_color_alpha(theme.tokens.emphasis.outline, level));
+        p.use<banner_card>(r, theme, st.pill_radius, level);
+        if (scene.hovered == UiUnreadBannerAction::jump_to_present)
+            p.rounded(r, ui_theme_color_alpha(theme.tokens.state.hover, level), st.pill_radius);
+        p.icon(UiIcon::arrow_down, icon, ui_theme_color_alpha(theme.tokens.emphasis.outline, level));
     }
-    return paint_stream_pop_clip(paint) && ok;
+    return p.end();
 }
 
 bool ui_unread_banner_text_output(const UiUnreadBannerScene& scene, const Theme& theme,
                                   UiTextOutput* output) noexcept {
     if (!ui_unread_banner_visible(scene))
         return true;
+    UiTextPen<UiTextClip::region> text{output, *scene.text_owner.manager, scene.viewport};
+    const auto owner = scene.text_owner.handle;
     const auto& st = scene.style;
     if (scene.notice_motion.value > 0 && scene.notice_title_bytes) {
         const float level = scene.notice_motion.value;
-        const auto clip = ui_rect_intersection(scene.viewport, scene.notice);
-        const Color primary_text = ui_theme_color_alpha(theme.tokens.emphasis.text, level * (scene.notice_busy ? .6f : 1.f));
-        const Color secondary_text = ui_theme_color_alpha(theme.text_primary, level * (scene.notice_busy ? .6f : 1.f));
-        if (!ui_text_output_push(output, {{scene.notice_title, scene.notice_title_bytes}, scene.text_owner,
-                                          scene.notice_title_rect, clip, ui_theme_color_alpha(theme.text_primary, level),
-                                          text_style_bold, UiTextAlignment::start, UiTextAlignment::center,
-                                          TextWrapping::no_wrap, TextOverflow::ellipsis}) ||
-            (scene.notice_text_bytes &&
-             !ui_text_output_push(output, {{scene.notice_text, scene.notice_text_bytes}, scene.text_owner,
-                                           scene.notice_text_rect, clip, ui_theme_color_alpha(theme.text_secondary, level),
-                                           text_style_subtext, UiTextAlignment::start, UiTextAlignment::start,
-                                           TextWrapping::wrap, TextOverflow::ellipsis})) ||
-            (scene.notice_primary_bytes &&
-             !ui_text_output_push(output, {{scene.notice_primary, scene.notice_primary_bytes}, scene.text_owner,
-                                           scene.notice_primary_rect, clip, primary_text,
-                                           text_style_subtext | text_style_bold, UiTextAlignment::center,
-                                           UiTextAlignment::center, TextWrapping::no_wrap,
-                                           TextOverflow::ellipsis})) ||
-            (scene.notice_secondary_bytes &&
-             !ui_text_output_push(output, {{scene.notice_secondary, scene.notice_secondary_bytes}, scene.text_owner,
-                                           scene.notice_secondary_rect, clip, secondary_text,
-                                           text_style_subtext | text_style_bold, UiTextAlignment::center,
-                                           UiTextAlignment::center, TextWrapping::no_wrap,
-                                           TextOverflow::ellipsis})))
-            return false;
+        const float busy = scene.notice_busy ? .6f : 1.f;
+        text.in(ui_rect_intersection(scene.viewport, scene.notice))(
+            owner, {scene.notice_title, scene.notice_title_bytes}, scene.notice_title_rect,
+            ui_theme_color_alpha(theme.text_primary, level), text_style_bold)(
+            owner, {scene.notice_text, scene.notice_text_bytes}, scene.notice_text_rect,
+            ui_theme_color_alpha(theme.text_secondary, level), text_style_subtext, ui_text_wrap)(
+            owner, {scene.notice_primary, scene.notice_primary_bytes}, scene.notice_primary_rect,
+            ui_theme_color_alpha(theme.tokens.emphasis.text, level * busy), text_style_subtext | text_style_bold,
+            ui_text_center)(owner, {scene.notice_secondary, scene.notice_secondary_bytes}, scene.notice_secondary_rect,
+                            ui_theme_color_alpha(theme.text_primary, level * busy), text_style_subtext | text_style_bold,
+                            ui_text_center);
     }
     if (scene.banner_motion.value > 0 && scene.label_bytes) {
-        const float level = scene.banner_motion.value;
-        const Color text = ui_theme_color_alpha(theme.tokens.emphasis.text, level);
+        const Color color = ui_theme_color_alpha(theme.tokens.emphasis.text, scene.banner_motion.value);
         const auto action = scene.banner_action;
-        if (!ui_text_output_push(output, {{scene.label, scene.label_bytes}, scene.text_owner, scene.banner_label,
-                                          scene.viewport, text, text_style_subtext | text_style_bold,
-                                          UiTextAlignment::start, UiTextAlignment::center, TextWrapping::no_wrap,
-                                          TextOverflow::ellipsis}) ||
-            !ui_text_output_push(output, {kMarkRead, scene.text_owner,
-                                          {action.left, action.top, action.right - 16 - st.icon, action.bottom},
-                                          scene.viewport, text, text_style_subtext | text_style_bold,
-                                          UiTextAlignment::end, UiTextAlignment::center, TextWrapping::no_wrap,
-                                          TextOverflow::ellipsis}))
-            return false;
+        text(owner, {scene.label, scene.label_bytes}, scene.banner_label, color, text_style_subtext | text_style_bold);
+        text(owner, kMarkRead, {action.left, action.top, action.right - 16 - st.icon, action.bottom}, color,
+             text_style_subtext | text_style_bold, ui_text_end);
     }
     if (scene.pill_motion.value > 0) {
         const auto r = scene.pill;
         const float level = scene.pill_motion.value;
         const float action = minimum(st.pill_action, ui_rect_width(r) * .5f);
-        return ui_text_output_push(output, {kOlderMessages, scene.text_owner,
-                                            {r.left + 16, r.top, r.right - action - 8, r.bottom}, scene.viewport,
-                                            ui_theme_color_alpha(theme.text_secondary, level), text_style_subtext,
-                                            UiTextAlignment::start, UiTextAlignment::center,
-                                            TextWrapping::no_wrap, TextOverflow::ellipsis}) &&
-               ui_text_output_push(output, {kJumpPresent, scene.text_owner,
-                                            {r.right - action, r.top, r.right - 18 - st.icon, r.bottom},
-                                            scene.viewport, ui_theme_color_alpha(theme.text_primary, level),
-                                            text_style_subtext | text_style_bold, UiTextAlignment::end,
-                                            UiTextAlignment::center, TextWrapping::no_wrap,
-                                            TextOverflow::ellipsis});
+        text(owner, kOlderMessages, {r.left + 16, r.top, r.right - action - 8, r.bottom},
+             ui_theme_color_alpha(theme.text_secondary, level), text_style_subtext);
+        text(owner, kJumpPresent, {r.right - action, r.top, r.right - 18 - st.icon, r.bottom},
+             ui_theme_color_alpha(theme.text_primary, level), text_style_subtext | text_style_bold, ui_text_end);
     }
-    return true;
+    return text.ok();
 }
 
 } // namespace maicord

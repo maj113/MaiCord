@@ -1,10 +1,8 @@
 #include "maicord/ui/shortcuts_scene.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/ui/surface_elevation.hpp"
-#include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/rect_edges.hpp"
 #include "maicord/ui/foreground_color.hpp"
-#include "maicord/ui/icon.hpp"
+#include "maicord/ui/scene_kit.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/visit_ref.hpp"
 
@@ -12,6 +10,8 @@ namespace maicord {
 namespace {
 constexpr float kHeaderHeight = 34, kRowHeight = 40, kTallRowHeight = 60, kColumnGap = 32, kCapHeight = 24,
                 kCapGap = 4, kChordGap = 14, kKeyEm = 12, kLabelEm = 15, kScrollGutter = 12;
+constexpr UiLook kClose{.fill = UI_TOKEN(surface_high), .border = UI_TOKEN(interactive), .focus = UI_TOKEN(interactive),
+                        .flags = ui_look_hot_only | ui_look_dialog | ui_look_radius_md};
 
 bool current(const UiShortcutsScene& s) noexcept {
     return s.active && s.content && s.content->revision == s.content_revision &&
@@ -33,37 +33,13 @@ bool valid_row(const UiShortcutsRow& row) noexcept {
 bool initialize(UiShortcutsScene& s) noexcept {
     if (s.storage.arena.base)
         return true;
-    if (!ui_fixed_widget_storage_initialize(&s.storage, 4, 0, 1) ||
-        !ui_widget_manager_initialize(&s.widgets, s.storage.widgets, s.storage.layout_nodes))
+    if (!ui_scene_open(&s.storage, &s.widgets, 4))
         return false;
-    const auto add = [&](UiWidgetHandle parent, UiWidgetKind kind, Utf8View name) noexcept {
-        return ui_widget_manager_add_part(&s.widgets, parent, kind, name);
-    };
-    const auto root = add(ui_widget_invalid_handle(), UiWidgetKind::container, utf8_literal("Keyboard shortcuts"));
-    if (!root.ok())
+    s.root = ui_scene_part_root(&s.widgets, utf8_literal("Keyboard shortcuts"));
+    if (!s.root.generation)
         return false;
-    s.root = root.handle;
-    auto* node = ui_widget_manager_layout_node(&s.widgets, s.root);
-    node->spec.style.width = node->spec.style.height = ui_layout_fill();
-    const auto close = add(s.root, UiWidgetKind::button, utf8_literal("Close keyboard shortcuts"));
-    if (!close.ok())
-        return false;
-    s.close = close.handle;
-    return true;
-}
-bool place(UiShortcutsScene& s, UiWidgetHandle handle, UiRect r) noexcept {
-    auto* widget = ui_widget_manager_resolve(&s.widgets, handle);
-    auto* node = ui_widget_manager_layout_node(&s.widgets, handle);
-    if (!node)
-        return false;
-    auto& style = node->spec.style;
-    style.width = ui_layout_fixed(ui_rect_width(r));
-    style.height = ui_layout_fixed(ui_rect_height(r));
-    style.margin = {r.left - s.panel.left, r.top - s.panel.top, 0, 0};
-    style.flags = static_cast<u16>(ui_layout_node_clip_children | ui_layout_node_allow_overlap |
-                                   ui_layout_node_allow_zero_size | ui_layout_node_visible);
-    widget->flags = static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable);
-    return true;
+    s.close = ui_scene_part(&s.widgets, s.root, UiWidgetKind::button, utf8_literal("Close keyboard shortcuts"));
+    return s.close.generation;
 }
 float chord_width(const UiShortcutsRow& row, u32 chord) noexcept {
     float width = 0;
@@ -111,15 +87,6 @@ UiRect absolute(const UiShortcutsScene& s, u32 index) noexcept {
     const auto r = s.rows[index];
     return {s.body.left + r.left, s.body.top + r.top - s.scroll, s.body.left + r.right,
             s.body.top + r.bottom - s.scroll};
-}
-bool emit(UiTextOutput* out, const UiShortcutsScene& s, UiWidgetHandle owner, Utf8View value, UiRect r, UiRect clip,
-          Color color, u32 flags = 0, UiTextAlignment alignment = UiTextAlignment::start,
-          TextWrapping wrapping = TextWrapping::no_wrap) noexcept {
-    if (!value.bytes || !ui_rect_has_area(r))
-        return true;
-    return ui_text_output_push(out, {value, {&s.widgets, owner}, r, clip, color, flags, alignment,
-                                     UiTextAlignment::center, wrapping, TextOverflow::ellipsis,
-                                     UiTextFace::normal});
 }
 // Key caps right-aligned in a row: chord 0, a separator, chord 1.
 bool each_cap(const UiShortcutsRow& row, const UiRect& r, UiVisitRef<const Utf8View&, const UiRect&> visit) noexcept {
@@ -188,19 +155,16 @@ bool ui_shortcuts_scene_update(UiShortcutsScene* s, const UiShortcutsContent* co
         s->scroll = 0;
     s->scroll = minimum(s->scroll, scroll_limit(*s));
     s->active = true;
-    if (!place(*s, s->close, s->close_rectangle) || !ui_widget_manager_layout_rectangle(&s->widgets, s->panel).ok()) {
+    ui_widget_manager_place_part(&s->widgets, s->close, s->close_rectangle, s->panel, true, true);
+    if (!ui_widget_manager_layout_rectangle(&s->widgets, s->panel).ok()) {
         s->active = false;
         return false;
     }
-    ui_widget_manager_reconcile_input(&s->widgets);
     ++s->revision;
     return true;
 }
 void ui_shortcuts_scene_release(UiShortcutsScene* s) noexcept {
-    if (!s)
-        return;
-    ui_fixed_widget_storage_release(&s->storage);
-    reset_value(s);
+    ui_scene_release(s);
 }
 UiShortcutsTarget ui_shortcuts_scene_hit_test(const UiShortcutsScene& s, float x, float y) noexcept {
     if (!current(s) || !ui_rect_contains(s.viewport, x, y))
@@ -224,16 +188,7 @@ bool ui_shortcuts_scene_scroll(UiShortcutsScene* s, float delta) noexcept {
 bool ui_shortcuts_scene_set_hover(UiShortcutsScene* s, float x, float y, bool* changed) noexcept {
     if (changed)
         *changed = false;
-    if (!s || !current(*s))
-        return false;
-    bool delta = false;
-    if (!ui_widget_manager_hover_at(&s->widgets, x, y, &delta))
-        return false;
-    if (delta)
-        ++s->revision;
-    if (changed)
-        *changed = delta;
-    return true;
+    return s && current(*s) && ui_scene_hover(&s->widgets, &s->revision, x, y, changed);
 }
 bool ui_shortcuts_scene_row(const UiShortcutsScene& s, u32 index, UiRect* rectangle) noexcept {
     if (!current(s) || index >= s.row_count)
@@ -248,102 +203,81 @@ bool ui_shortcuts_scene_row(const UiShortcutsScene& s, u32 index, UiRect* rectan
 bool ui_shortcuts_scene_paint(const UiShortcutsScene& s, const Theme& t, PaintStream* out) noexcept {
     if (!current(s))
         return true;
-    if (!out || !paint_stream_push_clip(out, s.viewport))
-        return false;
-    const auto p = s.panel;
-    const Color cap_fill = t.base_lowest, cap_border = t.surface_high;
-    bool ok = paint_stream_push(out, s.viewport, t.tokens.overlay.scrim) &&
-              ui_surface_paint(out, p, t, UiElevation::dialog, t.scale.radius_lg + t.scale.space_1, nullptr,
-                               &t.interactive_hover) &&
-              ui_icon_paint(out, UiIcon::keyboard, ui_rect_edges(p, ui_start(24), ui_start(20), ui_start(44), ui_start(40)),
-                            ui_foreground_color(t, t.tokens.emphasis.outline));
-    if (ok && (ui_widget_handle_matches(s.widgets.hovered, s.close) || ui_widget_handle_matches(s.widgets.focused, s.close))) {
-        const auto c = s.close_rectangle;
-        ok = ui_background_paint_surface(out, c, t, t.surface_high, t.interactive, t.scale.radius_md, 1, 1,
-                                         UiBackgroundSurfaceMode::gradient, UiBackgroundTier::highest);
-    }
-    const auto c = s.close_rectangle;
-    ok = ok && ui_icon_paint(out, UiIcon::close, ui_rect_shrink(c, 6), t.text_secondary);
-    // Query line: the search field look, without a caret (typing filters).
     const auto q = s.search;
-    ok = ok && ui_background_paint_surface(out, q, t, t.base_lowest, t.surface_high, t.scale.radius_md, 1, 1,
-                                           UiBackgroundSurfaceMode::gradient, UiBackgroundTier::highest) &&
-         ui_icon_paint(out, UiIcon::search, ui_rect_edges(q, ui_end(-30), ui_start(9), ui_end(-12), ui_end(-9)), t.text_secondary);
-    if (ok && s.content->query.bytes) {
+    UiPaint p{out, t};
+    p.dialog(s.viewport, s.panel)
+        .icon(UiIcon::keyboard, ui_rect_edges(s.panel, ui_start(24), ui_start(20), ui_start(44), ui_start(40)),
+              ui_foreground_color(t, t.tokens.emphasis.outline))
+        .look<kClose>(s.close_rectangle, ui_widget_state(s.widgets, s.close))
+        .icon(UiIcon::close, ui_rect_shrink(s.close_rectangle, 6), t.text_secondary)
+        // Query line: the search field look, without a caret (typing filters).
+        .surface(q, t.base_lowest, t.surface_high, t.scale.radius_md, true)
+        .icon(UiIcon::search, ui_rect_edges(q, ui_end(-30), ui_start(9), ui_end(-12), ui_end(-9)), t.text_secondary);
+    if (s.content->query.bytes) {
         // A thin caret after the query hints that typing continues it.
         const float x = minimum(q.right - 40, q.left + 12 + ui_settings_text_width(s.content->query, 14) * 1.04f + 5);
-        ok = paint_stream_push(out, x, q.top + 10, x + 1.5f, q.bottom - 10, t.text_primary);
+        p.fill({x, q.top + 10, x + 1.5f, q.bottom - 10}, t.text_primary);
     }
-    ok = ok && paint_stream_push_clip(out, s.body);
-    for (u32 i = 0; ok && i < s.row_count; ++i) {
+    p.clip(s.body);
+    for (u32 i = 0; p && i < s.row_count; ++i) {
         UiRect r{};
-        if (!ui_shortcuts_scene_row(s, i, &r))
-            continue;
-        const auto& row = s.content->rows[i];
-        if (row.header)
+        if (!ui_shortcuts_scene_row(s, i, &r) || s.content->rows[i].header)
             continue;
         // Hairline between rows of a group.
         if (i + 1 < s.row_count && !s.content->rows[i + 1].header)
-            ok = paint_stream_push(out, r.left, r.bottom - 1, r.right, r.bottom, ui_separator_color(t));
-        ok = ok && each_cap(row, r, [&](Utf8View key, UiRect cap) noexcept {
-                 if (!key.bytes)
-                     return true;
-                 return ui_background_paint_surface(out, cap, t, cap_fill, cap_border, t.scale.radius_sm, 1, 1,
-                                                    UiBackgroundSurfaceMode::gradient, UiBackgroundTier::highest) &&
-                        paint_stream_push_rounded(out, cap.left + 1, cap.bottom - 3, cap.right - 1, cap.bottom - 1,
-                                                  ui_theme_color_alpha(cap_border, .9f), t.scale.radius_xs);
-             });
+            p.separator({r.left, r.bottom - 1, r.right, r.bottom});
+        each_cap(s.content->rows[i], r, [&](Utf8View key, UiRect cap) noexcept {
+            return !key.bytes || p.surface(cap, t.base_lowest, t.surface_high, t.scale.radius_sm, true)
+                                     .rounded({cap.left + 1, cap.bottom - 3, cap.right - 1, cap.bottom - 1},
+                                              ui_theme_color_alpha(t.surface_high, .9f), t.scale.radius_xs)
+                                     .ok();
+        });
     }
-    if (ok && s.content_height > ui_rect_height(s.body)) {
+    if (s.content_height > ui_rect_height(s.body)) {
         // Overlay scrollbar thumb.
         const float track = ui_rect_height(s.body);
         const float thumb = maximum(32.f, track * track / s.content_height);
         const float top = s.body.top + (track - thumb) * (s.scroll / scroll_limit(s));
-        ok = paint_stream_push_rounded(out, s.body.right - 4, top, s.body.right, top + thumb,
-                                       ui_theme_color_alpha(t.text_secondary, .45f), t.scale.radius_xs);
+        p.rounded({s.body.right - 4, top, s.body.right, top + thumb}, ui_theme_color_alpha(t.text_secondary, .45f),
+                  t.scale.radius_xs);
     }
-    return paint_stream_pop_clip(out) && paint_stream_pop_clip(out) && ok;
+    return p.end();
 }
 bool ui_shortcuts_scene_text_output(const UiShortcutsScene& s, const Theme& t, UiTextOutput* out) noexcept {
     if (!current(s))
         return true;
-    if (!ui_text_output_valid(out))
-        return false;
-    const auto p = s.panel;
+    UiTextPen<UiTextClip::region> text{out, s.widgets, s.panel, s.body};
+    const auto& c = *s.content;
     const auto q = s.search;
-    if (!emit(out, s, s.root, s.content->title.bytes ? s.content->title : utf8_literal("Keyboard shortcuts"),
-              ui_rect_edges(p, ui_start(54), ui_start(14), ui_end(-56), ui_start(46)), p, t.text_primary, text_style_bold) ||
-        !emit(out, s, s.root, s.content->query.bytes ? s.content->query : s.content->placeholder,
-              ui_rect_edges(q, ui_start(12), ui_start(0), ui_end(-40), ui_end(0)), q,
-              s.content->query.bytes ? t.text_primary : t.text_secondary))
-        return false;
+    text(s.root, c.title.bytes ? c.title : utf8_literal("Keyboard shortcuts"),
+         ui_rect_edges(s.panel, ui_start(54), ui_start(14), ui_end(-56), ui_start(46)), t.text_primary, text_style_bold);
+    text.in(q)(s.root, c.query.bytes ? c.query : c.placeholder, ui_rect_edges(q, ui_start(12), ui_start(0), ui_end(-40), ui_end(0)),
+               c.query.bytes ? t.text_primary : t.text_secondary);
     if (!s.row_count)
-        return emit(out, s, s.root, s.content->empty, {s.body.left, s.body.top + 24, s.body.right, s.body.top + 52},
-                    s.body, t.text_secondary, 0, UiTextAlignment::center);
-    for (u32 i = 0; i < s.row_count; ++i) {
+        return text(s.root, c.empty, {s.body.left, s.body.top + 24, s.body.right, s.body.top + 52}, t.text_secondary, 0,
+                    ui_text_in_body | ui_text_center).ok();
+    for (u32 i = 0; text.ok() && i < s.row_count; ++i) {
         UiRect r{};
         if (!ui_shortcuts_scene_row(s, i, &r))
             continue;
-        const auto& row = s.content->rows[i];
+        const auto& row = c.rows[i];
         if (row.header) {
-            if (!emit(out, s, s.root, row.label, {r.left, r.top + 8, r.right, r.bottom}, s.body,
-                      ui_foreground_color(t, t.tokens.emphasis.outline), text_style_bold | text_style_subtext))
-                return false;
+            text(s.root, row.label, {r.left, r.top + 8, r.right, r.bottom}, ui_foreground_color(t, t.tokens.emphasis.outline),
+                 text_style_bold | text_style_subtext, ui_text_in_body);
             continue;
         }
         const float label_right = maximum(r.left + 40, r.right - caps_width(row) - 12);
         const bool tall = ui_rect_height(r) > kRowHeight + .5f;
-        if (!emit(out, s, s.root, row.label, {r.left, r.top + (tall ? 4.f : 0.f), label_right, r.bottom - (tall ? 4.f : 0.f)},
-                  s.body, t.text_primary, 0, UiTextAlignment::start,
-                  tall ? TextWrapping::wrap : TextWrapping::no_wrap) ||
-            !each_cap(row, r, [&](Utf8View key, UiRect cap) noexcept {
-                return key.bytes ? emit(out, s, s.root, key, {cap.left, cap.top, cap.right, cap.bottom - 2}, s.body,
-                                        t.text_primary, text_style_bold | text_style_subtext, UiTextAlignment::center)
-                                 : emit(out, s, s.root, utf8_literal("/"), cap, s.body, t.text_secondary,
-                                        text_style_subtext, UiTextAlignment::center);
-            }))
-            return false;
+        text(s.root, row.label, {r.left, r.top + (tall ? 4.f : 0.f), label_right, r.bottom - (tall ? 4.f : 0.f)},
+             t.text_primary, 0, ui_text_in_body | (tall ? ui_text_wrap | ui_text_middle : 0));
+        each_cap(row, r, [&](Utf8View key, UiRect cap) noexcept {
+            return (key.bytes ? text(s.root, key, {cap.left, cap.top, cap.right, cap.bottom - 2}, t.text_primary,
+                                     text_style_bold | text_style_subtext, ui_text_in_body | ui_text_center)
+                              : text(s.root, utf8_literal("/"), cap, t.text_secondary, text_style_subtext,
+                                     ui_text_in_body | ui_text_center))
+                .ok();
+        });
     }
-    return true;
+    return text.ok();
 }
 } // namespace maicord

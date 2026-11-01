@@ -1,7 +1,5 @@
 #include "maicord/ui/stream_card_scene.hpp"
-#include "maicord/ui/icon.hpp"
-#include "maicord/ui/spinner.hpp"
-#include "maicord/ui/surface_elevation.hpp"
+#include "maicord/ui/scene_kit.hpp"
 #include "maicord/ui/text_style.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
@@ -56,13 +54,6 @@ UiRect name_line(const UiStreamCardScene& s) noexcept {
 UiRect channel_line(const UiStreamCardScene& s) noexcept {
     const auto name = name_line(s);
     return {s.thumbnail.left, name.bottom + 2, name.right, name.bottom + 2 + kChannelHeight};
-}
-bool push_text(UiTextOutput* text, const UiStreamCardScene& s, Utf8View value, UiRect rectangle, Color color,
-               u32 style, UiTextAlignment horizontal = UiTextAlignment::start) noexcept {
-    if (!value.bytes)
-        return true;
-    return ui_text_output_push(text, {value, s.owner, rectangle, s.panel, color, style, horizontal,
-                                      UiTextAlignment::center, TextWrapping::no_wrap, TextOverflow::ellipsis});
 }
 } // namespace
 
@@ -148,63 +139,56 @@ bool ui_stream_card_media(const UiStreamCardScene& s, const Theme& theme, UiStre
 bool ui_stream_card_paint(const UiStreamCardScene& s, const Theme& theme, PaintStream* paint) noexcept {
     if (!s.active)
         return true;
-    if (!paint)
-        return false;
+    UiPaint p{paint, theme};
     const float a = opacity(s);
-    const Color fill = ui_theme_color_alpha(theme.tokens.background.floating, a);
-    const Color border = ui_theme_color_alpha(theme.tokens.border.subtle, a);
-    bool ok = ui_surface_paint(paint, s.panel, theme, UiElevation::popover, theme.scale.radius_md, &fill, &border);
+    p.use<ui_hover_card_paint_surface>(s, theme, theme.scale.radius_md);
     // Thumbnail plate (media scrim): the preview covers it once resident.
     Color plate = theme.tokens.overlay.media;
     plate.alpha = a;
     const auto t = s.thumbnail;
-    ok = ok && paint_stream_push_rounded(paint, t, plate, theme.scale.radius_sm);
-    if (ok && s.preview_state == UiStreamCardPreview::unavailable) {
+    p.rounded(t, plate, theme.scale.radius_sm);
+    if (s.preview_state == UiStreamCardPreview::unavailable) {
         Color ink = kDefaultTheme.text_secondary;
         ink.alpha *= .6f * a;
         const float cx = (t.left + t.right) * .5f, cy = (t.top + t.bottom) * .5f - 10;
-        ok = ui_icon_paint(paint, UiIcon::screen_share, {cx - 16, cy - 16, cx + 16, cy + 16}, ink);
+        p.icon(UiIcon::screen_share, {cx - 16, cy - 16, cx + 16, cy + 16}, ink);
     }
-    if (ok && s.preview_state == UiStreamCardPreview::loading) {
+    if (s.preview_state == UiStreamCardPreview::loading) {
         const float cx = (s.thumbnail.left + s.thumbnail.right) * .5f;
         const float cy = (s.thumbnail.top + s.thumbnail.bottom) * .5f;
-        ok = ui_spinner_paint(paint, {cx - 14, cy - 14, cx + 14, cy + 14}, ui_theme_color_alpha(kDefaultTheme.text_primary, a),
-                              s.spinner_phase);
+        p.spinner({cx - 14, cy - 14, cx + 14, cy + 14}, ui_theme_color_alpha(kDefaultTheme.text_primary, a),
+                  s.spinner_phase);
     }
-    ok = ok && paint_stream_push_rounded(paint, s.live, ui_theme_color_alpha(theme.tokens.accent.danger, a), theme.scale.radius_sm);
-    Color button = theme.tokens.accent.brand;
-    const float shade = s.pressed && s.hovered ? .8f : s.hovered ? .9f : 1.f;
-    button.red *= shade;
-    button.green *= shade;
-    button.blue *= shade;
+    p.rounded(s.live, ui_theme_color_alpha(theme.tokens.accent.danger, a), theme.scale.radius_sm);
     const auto b = s.button;
-    ok = ok && paint_stream_push_rounded(paint, b, ui_theme_color_alpha(button, a), theme.scale.radius_sm);
+    p.rounded(b, ui_theme_color_alpha(ui_hover_card_button_color(s, theme), a), theme.scale.radius_sm);
     const float y = (b.top + b.bottom) * .5f;
     const float label = s.watching ? 96.f : 104.f; // Estimated label width keeps the glyph beside it.
     const float x = (b.left + b.right - label) * .5f - 12;
-    return ok && ui_icon_paint(paint, s.watching ? UiIcon::maximize : UiIcon::screen_share,
-                               {x - 18, y - 9, x, y + 9}, ui_theme_color_alpha(theme.tokens.text.on_accent, a));
+    return p.icon(s.watching ? UiIcon::maximize : UiIcon::screen_share, {x - 18, y - 9, x, y + 9},
+                  ui_theme_color_alpha(theme.tokens.text.on_accent, a))
+        .end();
 }
 
-bool ui_stream_card_text_output(const UiStreamCardScene& s, const Theme& theme, UiTextOutput* text) noexcept {
+bool ui_stream_card_text_output(const UiStreamCardScene& s, const Theme& theme, UiTextOutput* out) noexcept {
     if (!s.active)
         return true;
-    if (!text)
-        return false;
+    UiTextPen<UiTextClip::region> text{out, s.widgets, s.panel};
+    const auto owner = s.owner.handle;
     const float a = opacity(s);
-    bool ok = push_text(text, s, utf8_literal("LIVE"), s.live, ui_theme_color_alpha(theme.tokens.text.on_accent, a),
-                        text_style_subtext | text_style_bold, UiTextAlignment::center);
-    if (ok && s.preview_state == UiStreamCardPreview::unavailable) {
+    text(owner, utf8_literal("LIVE"), s.live, ui_theme_color_alpha(theme.tokens.text.on_accent, a),
+         text_style_subtext | text_style_bold, ui_text_center);
+    if (s.preview_state == UiStreamCardPreview::unavailable) {
         const auto t = s.thumbnail;
         const float cy = (t.top + t.bottom) * .5f + 18;
         Color ink = kDefaultTheme.text_secondary;
         ink.alpha *= a;
-        ok = push_text(text, s, utf8_literal("No preview yet"), {t.left, cy - 10, t.right, cy + 10}, ink,
-                       text_style_subtext, UiTextAlignment::center);
+        text(owner, utf8_literal("No preview yet"), {t.left, cy - 10, t.right, cy + 10}, ink, text_style_subtext,
+             ui_text_center);
     }
-    ok = ok && push_text(text, s, {s.name, s.name_bytes}, name_line(s), ui_theme_color_alpha(theme.tokens.text.normal, a),
-                         text_style_bold);
-    if (ok && s.channel_bytes) {
+    text(owner, {s.name, s.name_bytes}, name_line(s), ui_theme_color_alpha(theme.tokens.text.normal, a),
+         text_style_bold);
+    if (s.channel_bytes && text.ok()) {
         // "Live in <channel>"; the prefix and name share one line.
         char line[kUiStreamCardTextBytes + 8];
         static constexpr char prefix[] = "Live in ";
@@ -212,14 +196,16 @@ bool ui_stream_card_text_output(const UiStreamCardScene& s, const Theme& theme, 
         copy_bytes(line, prefix, bytes);
         copy_bytes(line + bytes, s.channel, s.channel_bytes);
         bytes += s.channel_bytes;
-        ok = ui_text_output_push_owned(text, {{line, bytes}, s.owner, channel_line(s), s.panel,
-                                              ui_theme_color_alpha(theme.tokens.text.muted, a), text_style_subtext,
-                                              UiTextAlignment::start, UiTextAlignment::center,
-                                              TextWrapping::no_wrap, TextOverflow::ellipsis});
+        if (!ui_text_output_push_owned(out, {{line, bytes}, s.owner, channel_line(s), s.panel,
+                                             ui_theme_color_alpha(theme.tokens.text.muted, a), text_style_subtext,
+                                             UiTextAlignment::start, UiTextAlignment::center,
+                                             TextWrapping::no_wrap, TextOverflow::ellipsis}))
+            text.fail();
     }
     const auto b = s.button;
-    return ok && push_text(text, s, s.watching ? utf8_literal("Open stream") : utf8_literal("Watch stream"),
-                           {b.left + 12, b.top, b.right - 12, b.bottom}, ui_theme_color_alpha(theme.tokens.text.on_accent, a),
-                           text_style_bold, UiTextAlignment::center);
+    return text(owner, s.watching ? utf8_literal("Open stream") : utf8_literal("Watch stream"),
+                {b.left + 12, b.top, b.right - 12, b.bottom}, ui_theme_color_alpha(theme.tokens.text.on_accent, a),
+                text_style_bold, ui_text_center)
+        .ok();
 }
 } // namespace maicord

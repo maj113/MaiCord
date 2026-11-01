@@ -1,9 +1,7 @@
 #include "maicord/ui/quick_switcher_scene.hpp"
 #include "maicord/ui/surface_elevation.hpp"
-#include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/rect_edges.hpp"
-#include "maicord/ui/scene_text.hpp"
-#include "maicord/ui/icon.hpp"
+#include "maicord/ui/scene_kit.hpp"
 #include "maicord/ui/foreground_color.hpp"
 #include "maicord/ui/guild_icon_media.hpp"
 #include "maicord/ui/private_channel_rows.hpp"
@@ -37,29 +35,23 @@ UiQuickSwitcherTarget row_target(const UiQuickSwitcherScene& s, u32 index) noexc
 }
 bool initialize(UiQuickSwitcherScene& s) noexcept {
     if (s.storage.arena.base) return true;
-    if (!ui_fixed_widget_storage_initialize(&s.storage, kUiQuickSwitcherWidgetCapacity,
-            sizeof(UiQuickSwitcherRow) * kUiQuickSwitcherMaximumRows, alignof(UiQuickSwitcherRow)) ||
-        !ui_widget_manager_initialize(&s.widgets, s.storage.widgets, s.storage.layout_nodes)) return false;
+    if (!ui_scene_open(&s.storage, &s.widgets, kUiQuickSwitcherWidgetCapacity,
+                       sizeof(UiQuickSwitcherRow) * kUiQuickSwitcherMaximumRows, alignof(UiQuickSwitcherRow)))
+        return false;
     s.accepted = ui_fixed_widget_storage_sidecar<UiQuickSwitcherRow>(s.storage);
-    const auto add = [&](UiWidgetHandle parent, UiWidgetKind kind, Utf8View label) noexcept {
-        return ui_widget_manager_add_part(&s.widgets, parent, kind, label);
+    s.root = ui_scene_part_root(&s.widgets, utf8_literal("Quick switcher"));
+    if (!s.root.generation) return false;
+    const auto add = [&](UiWidgetHandle parent, UiWidgetKind kind, Utf8View name) noexcept {
+        return ui_scene_part(&s.widgets, parent, kind, name);
     };
-    const auto root = add(ui_widget_invalid_handle(), UiWidgetKind::container, utf8_literal("Quick switcher"));
-    if (!root.ok()) return false;
-    s.root = root.handle;
-    auto* root_node = ui_widget_manager_layout_node(&s.widgets, s.root);
-    root_node->spec.style.width = root_node->spec.style.height = ui_layout_fill();
-    const auto edit = add(s.root, UiWidgetKind::text_field, utf8_literal("Quick switch query"));
-    const auto close = add(s.root, UiWidgetKind::button, utf8_literal("Close quick switcher"));
-    const auto confirm = add(s.root, UiWidgetKind::button, utf8_literal("Confirm selection"));
-    const auto body = add(s.root, UiWidgetKind::container, utf8_literal("Quick switch results"));
-    if (!edit.ok() || !close.ok() || !confirm.ok() || !body.ok()) return false;
-    s.edit = edit.handle; s.close = close.handle; s.confirm = confirm.handle; s.body_owner = body.handle;
-    for (auto& handle : s.rows) {
-        const auto row = add(s.body_owner, UiWidgetKind::button, utf8_literal("Quick switch result"));
-        if (!row.ok()) return false;
-        handle = row.handle;
-    }
+    s.edit = add(s.root, UiWidgetKind::text_field, utf8_literal("Quick switch query"));
+    s.close = add(s.root, UiWidgetKind::button, utf8_literal("Close quick switcher"));
+    s.confirm = add(s.root, UiWidgetKind::button, utf8_literal("Confirm selection"));
+    s.body_owner = add(s.root, UiWidgetKind::container, utf8_literal("Quick switch results"));
+    if (!s.edit.generation || !s.close.generation || !s.confirm.generation || !s.body_owner.generation) return false;
+    for (auto& handle : s.rows)
+        if (!(handle = add(s.body_owner, UiWidgetKind::button, utf8_literal("Quick switch result"))).generation)
+            return false;
     return true;
 }
 bool rectangle(UiQuickSwitcherScene& s, UiWidgetHandle handle, UiRect r, UiRect parent,
@@ -106,11 +98,6 @@ bool layout(UiQuickSwitcherScene& s, bool force = false) noexcept {
     ui_widget_manager_reconcile_input(&s.widgets);
     return true;
 }
-bool emit(UiTextOutput* out, const UiQuickSwitcherScene& s, UiWidgetHandle owner,
-          const Utf8View& value, const UiRect& r, const UiRect& clip, const Color& color, u32 flags = 0,
-          u32 mode = 0) noexcept {
-    return ui_scene_label(out, s.widgets, owner, value, r, clip, color, flags, mode);
-}
 bool checked(const UiQuickSwitcherScene& s, u64 key) noexcept {
     for (u32 i = 0; s.content->picker && i < s.content->checked.count; ++i)
         if (s.content->checked[i] == key) return true;
@@ -126,10 +113,11 @@ UiIcon icon(UiQuickSwitcherKind kind) noexcept {
     default: return UiIcon::channel;
     }
 }
-bool surface(PaintStream* out, const UiRect& r, const Theme& theme, const Color& fill, const Color& border, float radius) noexcept {
-    return ui_background_paint_surface(out, r, theme, fill, border, radius, 1, 1,
-        UiBackgroundSurfaceMode::gradient, UiBackgroundTier::highest);
-}
+// Close button and row cards: dialog material plates on hover; the selected row has the emphasis outline.
+constexpr UiLook kClose{.fill = UI_TOKEN(surface_high), .border = UI_TOKEN(tokens.border.focus), .radius = 6,
+                        .flags = ui_look_hot_only | ui_look_dialog};
+constexpr UiLook kRow{.fill = UI_TOKEN(surface_high), .selected_border = UI_TOKEN(tokens.emphasis.outline), .radius = 6,
+                      .flags = ui_look_hot_only | ui_look_dialog};
 } // namespace
 
 bool ui_quick_switcher_scene_current(const UiQuickSwitcherScene& s) noexcept { return current(s); }
@@ -204,10 +192,7 @@ bool ui_quick_switcher_scene_update(UiQuickSwitcherScene* s, const UiQuickSwitch
     ++s->revision;
     return true;
 }
-void ui_quick_switcher_scene_release(UiQuickSwitcherScene* s) noexcept {
-    if (!s) return;
-    ui_fixed_widget_storage_release(&s->storage); reset_value(s);
-}
+void ui_quick_switcher_scene_release(UiQuickSwitcherScene* s) noexcept { ui_scene_release(s); }
 bool ui_quick_switcher_scene_contains(const UiQuickSwitcherScene& s, float x, float y) noexcept {
     return current(s) && ui_rect_contains(s.viewport, x, y);
 }
@@ -343,73 +328,68 @@ bool ui_quick_switcher_scene_presence_paint(const UiQuickSwitcherScene& s, const
 bool ui_quick_switcher_scene_paint(const UiQuickSwitcherScene& s, const Theme& theme, PaintStream* out,
     const UiEditGeometry* geometry, u32 dpi) noexcept {
     if (!current(s)) return true;
-    if (!out || !paint_stream_push_clip(out, s.viewport)) return false;
-    bool ok = paint_stream_push(out, s.viewport, theme.tokens.overlay.scrim_light) &&
-        ui_surface_paint(out, s.panel, theme, UiElevation::dialog, theme.scale.radius_lg, nullptr,
-                         &theme.interactive_hover) &&
-        ui_edit_field_paint(out, s.field, s.text, s.content->edit, geometry, theme.base_lowest, theme, dpi, 8) &&
-        ui_icon_paint(out, UiIcon::search, ui_rect_edges(s.field, ui_start(12), ui_start(14), ui_start(32), ui_start(34)), theme.text_secondary);
-    const auto* close = ui_widget_manager_layout_node(s.widgets, s.close);
-    if (ok && (ui_widget_handle_matches(s.widgets.hovered, s.close) || ui_widget_handle_matches(s.widgets.focused, s.close)))
-        ok = surface(out, close->rectangle, theme, theme.surface_high, theme.tokens.border.focus, 6);
-    ok = ok && ui_icon_paint(out, UiIcon::close, ui_rect_edges(s.panel, ui_end(-38), ui_start(14), ui_end(-18), ui_start(34)),
-                             theme.text_secondary);
-    bool body_clip = false;
-    if (ok) { body_clip = paint_stream_push_clip(out, s.body); ok = body_clip; }
-    for (u32 i = 0; ok && i < s.count; ++i) {
+    UiPaint p{out, theme};
+    p.clip(s.viewport).fill(s.viewport, theme.tokens.overlay.scrim_light);
+    if (p && !(ui_surface_paint(out, s.panel, theme, UiElevation::dialog, theme.scale.radius_lg, nullptr,
+                                &theme.interactive_hover) &&
+               ui_edit_field_paint(out, s.field, s.text, s.content->edit, geometry, theme.base_lowest, theme, dpi, 8)))
+        p.fail();
+    p.icon(UiIcon::search, ui_rect_edges(s.field, ui_start(12), ui_start(14), ui_start(32), ui_start(34)), theme.text_secondary)
+        .control<kClose>(s.widgets, s.close)
+        .icon(UiIcon::close, ui_rect_edges(s.panel, ui_end(-38), ui_start(14), ui_end(-18), ui_start(34)), theme.text_secondary)
+        .clip(s.body);
+    for (u32 i = 0; p && i < s.count; ++i) {
         const auto r = s.row_rectangles[i]; const bool selected = s.first + i == s.selected;
-        const UiRect card = ui_rect_edges(r, ui_start(0), ui_start(2), ui_end(0), ui_end(-2));
-        if (selected || ui_widget_handle_matches(s.widgets.hovered, s.rows[i])) ok = surface(out, card, theme, theme.surface_high,
-            selected ? theme.tokens.emphasis.outline : theme.surface_high, 6);
-        ok = ok && ui_icon_paint(out, icon(s.visible[i].kind), ui_rect_edges(r, ui_start(12), ui_start(18), ui_start(32), ui_start(38)),
-            selected ? theme.tokens.emphasis.outline : theme.text_secondary);
-        if (ok && s.content->picker) {
+        p.look<kRow>(ui_rect_edges(r, ui_start(0), ui_start(2), ui_end(0), ui_end(-2)),
+                     static_cast<u8>((selected ? ui_state_selected : 0) | (ui_hovered(s, s.rows[i]) ? ui_state_hovered : 0)))
+            .icon(icon(s.visible[i].kind), ui_rect_edges(r, ui_start(12), ui_start(18), ui_start(32), ui_start(38)),
+                  selected ? theme.tokens.emphasis.outline : theme.text_secondary);
+        if (s.content->picker) {
             const UiRect box = ui_rect_edges(r, ui_end(-32), ui_start(18), ui_end(-12), ui_start(38));
             const bool on = checked(s, s.visible[i].key);
-            ok = surface(out, box, theme, on ? theme.tokens.emphasis.fill : theme.base_lowest,
-                         on ? theme.tokens.emphasis.fill : s.visible[i].enabled ? theme.interactive : theme.surface_high, 5) &&
-                 (!on || ui_icon_paint(out, UiIcon::check, ui_rect_shrink(box, 3),
-                                       ui_surface_foreground(theme, theme.tokens.emphasis.fill)));
-        } else if (ok && selected)
-            ok = ui_icon_paint(out, UiIcon::chevron_right, ui_rect_edges(r, ui_end(-26), ui_start(20), ui_end(-10), ui_start(36)), theme.tokens.emphasis.outline);
+            p.surface(box, on ? theme.tokens.emphasis.fill : theme.base_lowest,
+                      on ? theme.tokens.emphasis.fill : s.visible[i].enabled ? theme.interactive : theme.surface_high, 5, true);
+            if (on)
+                p.icon(UiIcon::check, ui_rect_shrink(box, 3), ui_surface_foreground(theme, theme.tokens.emphasis.fill));
+        } else if (selected)
+            p.icon(UiIcon::chevron_right, ui_rect_edges(r, ui_end(-26), ui_start(20), ui_end(-10), ui_start(36)), theme.tokens.emphasis.outline);
     }
-    if (body_clip) ok = paint_stream_pop_clip(out) && ok;
-    if (ok) ok = ui_scrollbar_paint(out, ui_scrollbar_geometry(s.body, s.scroll_dips,
-        s.accepted_count * kUiQuickSwitcherRowHeight), theme) &&
-        paint_stream_push(out, s.panel.left + 16, s.footer.top - 4, s.panel.right - 16, s.footer.top - 3,
-                          ui_separator_color(theme));
-    if (ok && s.content->picker) {
+    p.unclip()
+        .scrollbar(ui_scrollbar_geometry(s.body, s.scroll_dips, s.accepted_count * kUiQuickSwitcherRowHeight))
+        .separator({s.panel.left + 16, s.footer.top - 4, s.panel.right - 16, s.footer.top - 3});
+    if (s.content->picker) {
         const bool enabled = s.content->can_confirm;
-        const bool emphasis = ui_widget_handle_matches(s.widgets.hovered, s.confirm) || ui_widget_handle_matches(s.widgets.focused, s.confirm);
-        ok = surface(out, s.confirm_rectangle, theme, enabled ? theme.tokens.emphasis.fill : theme.surface_high,
-                     enabled && emphasis ? theme.text_primary : enabled ? theme.tokens.emphasis.fill : theme.surface_high, 8);
+        const bool emphasis = ui_hovered(s, s.confirm) || ui_focused(s, s.confirm);
+        p.surface(s.confirm_rectangle, enabled ? theme.tokens.emphasis.fill : theme.surface_high,
+                  enabled && emphasis ? theme.text_primary : enabled ? theme.tokens.emphasis.fill : theme.surface_high, 8, true);
     }
-    return paint_stream_pop_clip(out) && ok;
+    return p.end();
 }
 bool ui_quick_switcher_scene_text_output(const UiQuickSwitcherScene& s, const Theme& theme, UiTextOutput* out,
     const UiEditGeometry* geometry) noexcept {
     if (!current(s)) return true;
-    if (!ui_text_output_valid(out)) return false;
+    UiTextPen<UiTextClip::label> text{out, s.widgets, s.panel, s.body};
     const auto p = s.panel;
-    if (!emit(out, s, s.root, s.content->heading.bytes ? s.content->heading : utf8_literal("Quick switcher"),
-        ui_rect_edges(p, ui_start(20), ui_start(10), ui_end(-52), ui_start(38)), p, theme.text_primary, text_style_bold) ||
-        !ui_edit_field_text_output(out, {&s.widgets, s.edit}, s.text, s.content->edit, geometry,
+    text(s.root, s.content->heading.bytes ? s.content->heading : utf8_literal("Quick switcher"),
+         ui_rect_edges(p, ui_start(20), ui_start(10), ui_end(-52), ui_start(38)), theme.text_primary, text_style_bold);
+    if (text.ok() && !ui_edit_field_text_output(out, {&s.widgets, s.edit}, s.text, s.content->edit, geometry,
             s.content->picker ? utf8_literal("Type the username of a friend") : utf8_literal("Where would you like to go?"),
-            theme) ||
-        !emit(out, s, s.root, s.content->hint.bytes ? s.content->hint : utf8_literal("@ people   # channels   * servers"),
-            s.hint, p, theme.text_secondary, text_style_subtext)) return false;
-    for (u32 i = 0; i < s.count; ++i) {
+            theme))
+        text.fail();
+    text(s.root, s.content->hint.bytes ? s.content->hint : utf8_literal("@ people   # channels   * servers"), s.hint,
+         theme.text_secondary, text_style_subtext);
+    for (u32 i = 0; text.ok() && i < s.count; ++i) {
         const auto r = s.row_rectangles[i]; const bool selected = s.first + i == s.selected;
         const float metadata = s.visible[i].metadata.bytes && ui_rect_width(r) >= 380 ? 92.f : 0.f;
         const float right = r.right - (selected || s.content->picker ? 40.f : 12.f) - metadata;
-        if (!emit(out, s, s.rows[i], s.visible[i].label, {r.left + 44, r.top + 7, right, r.top + 29},
-            s.body, s.visible[i].enabled ? theme.text_primary : theme.text_secondary,
-            selected ? text_style_bold : text_style_none) ||
-            !emit(out, s, s.rows[i], s.visible[i].detail, ui_rect_edges(r, ui_start(44), ui_start(29), ui_end(-40), ui_end(-5)),
-                s.body, theme.text_secondary, text_style_subtext)) return false;
-        if (metadata && !emit(out, s, s.rows[i], s.visible[i].metadata,
-            {right + 8, r.top + 7, r.right - (selected ? 36.f : 12.f), r.top + 29},
-            s.body, theme.text_secondary, text_style_subtext, ui_text_end)) return false;
+        text(s.rows[i], s.visible[i].label, {r.left + 44, r.top + 7, right, r.top + 29},
+             s.visible[i].enabled ? theme.text_primary : theme.text_secondary, selected ? text_style_bold : text_style_none,
+             ui_text_in_body);
+        text(s.rows[i], s.visible[i].detail, ui_rect_edges(r, ui_start(44), ui_start(29), ui_end(-40), ui_end(-5)),
+             theme.text_secondary, text_style_subtext, ui_text_in_body);
+        if (metadata)
+            text(s.rows[i], s.visible[i].metadata, {right + 8, r.top + 7, r.right - (selected ? 36.f : 12.f), r.top + 29},
+                 theme.text_secondary, text_style_subtext, ui_text_in_body | ui_text_end);
     }
     if (!s.accepted_count) {
         const float middle = s.body.top + ui_rect_height(s.body) * .4f;
@@ -417,24 +397,24 @@ bool ui_quick_switcher_scene_text_output(const UiQuickSwitcherScene& s, const Th
             s.content->phase == UiQuickSwitcherPhase::unavailable ? utf8_literal("Nothing to switch to") : utf8_literal("Start typing to jump");
         const auto detail = s.content->status.bytes ? s.content->status :
             s.content->phase == UiQuickSwitcherPhase::no_matches ? utf8_literal("Try another name or a search prefix.") : utf8_literal("Search your channels, servers and people.");
-        if (!emit(out, s, s.body_owner, heading, {s.body.left + 12, middle - 22, s.body.right - 12, middle + 2},
-                s.body, theme.text_primary, text_style_bold, ui_text_center) ||
-            !emit(out, s, s.body_owner, detail, {s.body.left + 12, middle + 4, s.body.right - 12, middle + 28},
-                s.body, theme.text_secondary, text_style_subtext, ui_text_center)) return false;
+        text(s.body_owner, heading, {s.body.left + 12, middle - 22, s.body.right - 12, middle + 2}, theme.text_primary,
+             text_style_bold, ui_text_in_body | ui_text_center);
+        text(s.body_owner, detail, {s.body.left + 12, middle + 4, s.body.right - 12, middle + 28}, theme.text_secondary,
+             text_style_subtext, ui_text_in_body | ui_text_center);
     }
-    if (s.content->picker)
-        return emit(out, s, s.root, s.content->status, {s.footer.left, s.footer.top, s.confirm_rectangle.left - 12,
-                    s.footer.bottom}, p, theme.text_secondary, text_style_subtext) &&
-               emit(out, s, s.confirm, s.content->action, {s.confirm_rectangle.left + 8, s.confirm_rectangle.top,
-                    s.confirm_rectangle.right - 8, s.confirm_rectangle.bottom}, p,
+    if (s.content->picker) {
+        text(s.root, s.content->status, {s.footer.left, s.footer.top, s.confirm_rectangle.left - 12, s.footer.bottom},
+             theme.text_secondary, text_style_subtext);
+        return text(s.confirm, s.content->action, {s.confirm_rectangle.left + 8, s.confirm_rectangle.top,
+                    s.confirm_rectangle.right - 8, s.confirm_rectangle.bottom},
                     s.content->can_confirm ? ui_surface_foreground(theme, theme.tokens.emphasis.fill) : theme.text_secondary,
-                    text_style_bold, ui_text_center);
+                    text_style_bold, ui_text_center).ok();
+    }
     const float third = ui_rect_width(s.footer) / 3.f;
     const Utf8View hints[]{utf8_literal("↑↓ Select"), utf8_literal("Enter Open"), utf8_literal("Esc Close")};
     for (u32 i = 0; i < 3; ++i)
-        if (!emit(out, s, s.root, hints[i], {s.footer.left + third * i, s.footer.top,
-            s.footer.left + third * (i + 1), s.footer.bottom}, p, theme.text_secondary,
-            text_style_subtext, ui_text_center)) return false;
-    return true;
+        text(s.root, hints[i], {s.footer.left + third * i, s.footer.top, s.footer.left + third * (i + 1), s.footer.bottom},
+             theme.text_secondary, text_style_subtext, ui_text_center);
+    return text.ok();
 }
 } // namespace maicord

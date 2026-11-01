@@ -1,10 +1,8 @@
 #include "maicord/ui/image_viewer.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/ui/icon.hpp"
 #include "maicord/ui/button.hpp"
-#include "maicord/ui/spinner.hpp"
-#include "maicord/ui/text_presentation.hpp"
+#include "maicord/ui/scene_kit.hpp"
 #include "maicord/ui/text_style.hpp"
 namespace maicord {
 namespace {
@@ -497,22 +495,23 @@ bool ui_image_viewer_apply(UiImageViewer* v, UiImageViewerCommand command) noexc
 bool ui_image_viewer_paint(const UiImageViewer& v, const Theme& theme, PaintStream* paint) noexcept {
     if (!v.active)
         return true;
-    const auto r = v.viewport;
-    if (!paint_stream_push_clip(paint, r))
+    UiPaint p{paint, theme};
+    if (!p.clip(v.viewport))
         return false;
-    bool ok = paint_stream_push(paint, r, ui_theme_color_alpha(theme.tokens.overlay.media, v.reveal));
+    p.fill(v.viewport, ui_theme_color_alpha(theme.tokens.overlay.media, v.reveal));
     // The media scrim is always black, so its toolbar uses light foregrounds
     // independently of the application's selected appearance.
     const Theme& toolbar_theme = kDefaultTheme;
     static constexpr UiIcon icons[]{UiIcon::zoom_out, UiIcon::zoom_in,       UiIcon::fit,  UiIcon::close,
                              UiIcon::download, UiIcon::external_link, UiIcon::copy, UiIcon::maximize};
     const u32 first = paint->count;
-    for (u32 i = 0; ok && i < ui_image_viewer_previous; ++i) {
+    for (u32 i = 0; p && i < ui_image_viewer_previous; ++i) {
         if (!ui_rect_has_area(ui_image_viewer_button(v, i))) continue;
         const UiIcon icon = i == ui_image_viewer_copy && v.copied              ? UiIcon::copy_check
                             : i == ui_image_viewer_fullscreen && v.fullscreen ? UiIcon::minimize
                                                                               : icons[i];
-        ok = ui_button_icon_paint(paint, v.widgets, v.buttons[i], icon, toolbar_theme, false, v.keyboard_focus);
+        if (!ui_button_icon_paint(paint, v.widgets, v.buttons[i], icon, toolbar_theme, false, v.keyboard_focus))
+            p.fail();
     }
     // The divider between the view group and the item actions.
     u32 last_view = ui_image_viewer_button_count;
@@ -520,56 +519,52 @@ bool ui_image_viewer_paint(const UiImageViewer& v, const Theme& theme, PaintStre
         if (view_group(index) && ui_rect_has_area(ui_image_viewer_button(v, index)) &&
             last_view == ui_image_viewer_button_count)
             last_view = index;
-    if (ok && last_view != ui_image_viewer_button_count) {
+    if (p && last_view != ui_image_viewer_button_count) {
         const auto b = ui_image_viewer_button(v, last_view);
         const float x = b.right + (kToolbarGap + kToolbarGroupGap) * .5f - .5f, inset = kToolbarGap - 2;
-        ok = paint_stream_push(paint, x, b.top + inset, x + 1, b.bottom - inset, toolbar_theme.tokens.border.strong);
+        p.fill({x, b.top + inset, x + 1, b.bottom - inset}, toolbar_theme.tokens.border.strong);
     }
     fade(paint, first, v.reveal * v.chrome);
-    return paint_stream_pop_clip(paint) && ok;
+    return p.end();
 }
 bool ui_image_viewer_paint_overlay(const UiImageViewer& v, const Theme& theme, PaintStream* paint) noexcept {
     if (!v.active)
         return true;
-    const auto r = v.viewport;
-    if (!paint_stream_push_clip(paint, r))
+    UiPaint p{paint, theme};
+    if (!p.clip(v.viewport))
         return false;
-    bool ok = true;
     const Theme& ink_theme = kDefaultTheme;
-    if (!v.video && v.media == UiImageViewerMedia::loading) {
-        UiSpinnerStyle style{};
-        ok = ui_spinner_paint(paint, state_box(v), ui_theme_color_alpha(ink_theme.text_primary, v.reveal),
-                              v.spinner_phase, style);
-    } else if (!v.video && v.media == UiImageViewerMedia::failed) {
-        const auto box = state_box(v);
-        ok = ui_icon_paint(paint, UiIcon::image_off, box,
-                           ui_theme_color_alpha(ink_theme.text_secondary, v.reveal));
-    }
+    if (!v.video && v.media == UiImageViewerMedia::loading)
+        p.spinner(state_box(v), ui_theme_color_alpha(ink_theme.text_primary, v.reveal), v.spinner_phase);
+    else if (!v.video && v.media == UiImageViewerMedia::failed)
+        p.icon(UiIcon::image_off, state_box(v), ui_theme_color_alpha(ink_theme.text_secondary, v.reveal));
     const u32 first = paint->count;
-    for (u32 i = ui_image_viewer_previous; ok && v.item_count > 1 && i <= ui_image_viewer_next; ++i) {
+    for (u32 i = ui_image_viewer_previous; p && v.item_count > 1 && i <= ui_image_viewer_next; ++i) {
         const auto button = ui_image_viewer_button(v, i);
         if (!ui_rect_has_area(button)) continue;
         const auto handle = v.buttons[i];
         const bool hover = ui_widget_handle_equal(v.widgets.hovered, handle);
         const bool pressed = hover && ui_widget_handle_equal(v.widgets.captured, handle);
         const bool focus = v.keyboard_focus && ui_widget_handle_equal(v.widgets.focused, handle);
-        const float radius = ui_rect_width(button) * .5f;
-        const Color fill = hover ? theme.tokens.overlay.scrim_strong : theme.tokens.overlay.scrim_light;
-        ok = paint_stream_push_rounded_border(paint, button, fill, focus ? theme.tokens.border.focus : theme.tokens.border.subtle, radius, focus ? 2.0f : 1.0f);
         const float extent = 24, x = (button.left + button.right - extent) * .5f,
                     y = (button.top + button.bottom - extent) * .5f + (pressed ? 1 : 0);
         Color ink = ink_theme.text_primary;
         ink.alpha *= hover ? 1.0f : .86f;
-        ok = ok && ui_icon_paint(paint, i == ui_image_viewer_previous ? UiIcon::chevron_left : UiIcon::chevron_right,
-                                 {x, y, x + extent, y + extent}, ink);
+        p.rounded_border(button, hover ? theme.tokens.overlay.scrim_strong : theme.tokens.overlay.scrim_light,
+                         focus ? theme.tokens.border.focus : theme.tokens.border.subtle, ui_rect_width(button) * .5f,
+                         focus ? 2.0f : 1.0f)
+            .icon(i == ui_image_viewer_previous ? UiIcon::chevron_left : UiIcon::chevron_right,
+                  {x, y, x + extent, y + extent}, ink);
     }
     fade(paint, first, v.reveal * v.chrome);
-    return paint_stream_pop_clip(paint) && ok;
+    return p.end();
 }
-bool ui_image_viewer_text_output(const UiImageViewer& v, const Theme&, UiTextOutput* text) noexcept {
+bool ui_image_viewer_text_output(const UiImageViewer& v, const Theme&, UiTextOutput* out) noexcept {
     if (!v.active)
         return true;
     const float alpha = v.reveal * v.chrome;
+    UiTextPen<UiTextClip::label> text{out, v.widgets, v.viewport};
+    auto label = text.in(v.viewport);
     if (v.counter_bytes) {
         // The counter shares the toolbar row's centre line; it ends where the
         // leftmost toolbar button begins.
@@ -579,31 +574,21 @@ bool ui_image_viewer_text_output(const UiImageViewer& v, const Theme&, UiTextOut
                 right = minimum(right, b.left - kToolbarInset);
         const UiRect row{v.viewport.left + kToolbarInset, v.viewport.top + kToolbarTop, right,
                          v.viewport.top + kToolbarTop + kToolbarTarget};
-        if (ui_rect_has_area(row) &&
-            !ui_text_output_push(text, {Utf8View{v.counter, v.counter_bytes}, v.owner, row, v.viewport,
-                                        ui_theme_color_alpha(kDefaultTheme.text_secondary, alpha), text_style_none,
-                                        UiTextAlignment::start, UiTextAlignment::center, TextWrapping::no_wrap,
-                                        TextOverflow::ellipsis}))
-            return false;
+        if (ui_rect_has_area(row))
+            label(v.owner.handle, Utf8View{v.counter, v.counter_bytes}, row,
+                  ui_theme_color_alpha(kDefaultTheme.text_secondary, alpha));
     }
-    if (v.caption_bytes) {
-        // The caption spans the media column, so its edges match the media's.
-        const UiRect band{v.body.left, v.body.bottom, v.body.right, v.viewport.bottom};
-        if (!ui_text_output_push(text, {Utf8View{v.caption, v.caption_bytes}, v.owner, band, v.viewport,
-                                        ui_theme_color_alpha(kDefaultTheme.text_primary, alpha), text_style_subtext,
-                                        UiTextAlignment::center, UiTextAlignment::center, TextWrapping::no_wrap,
-                                        TextOverflow::ellipsis}))
-            return false;
-    }
+    // The caption spans the media column, so its edges match the media's.
+    if (v.caption_bytes)
+        label(v.owner.handle, Utf8View{v.caption, v.caption_bytes},
+              {v.body.left, v.body.bottom, v.body.right, v.viewport.bottom},
+              ui_theme_color_alpha(kDefaultTheme.text_primary, alpha), text_style_subtext, ui_text_center);
     if (!v.video && v.media == UiImageViewerMedia::failed) {
         const auto box = state_box(v);
-        const UiRect line{v.body.left, box.bottom + kToolbarGap, v.body.right, box.bottom + kToolbarGap + 20};
-        if (!ui_text_output_push(text, {utf8_literal("This image couldn't be loaded."), v.owner, line, v.viewport,
-                                        ui_theme_color_alpha(kDefaultTheme.text_secondary, v.reveal),
-                                        text_style_subtext, UiTextAlignment::center, UiTextAlignment::center,
-                                        TextWrapping::no_wrap, TextOverflow::ellipsis}))
-            return false;
+        label(v.owner.handle, utf8_literal("This image couldn't be loaded."),
+              {v.body.left, box.bottom + kToolbarGap, v.body.right, box.bottom + kToolbarGap + 20},
+              ui_theme_color_alpha(kDefaultTheme.text_secondary, v.reveal), text_style_subtext, ui_text_center);
     }
-    return true;
+    return text.ok();
 }
 } // namespace maicord

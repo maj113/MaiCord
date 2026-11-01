@@ -1,7 +1,7 @@
 #include "maicord/ui/theme_editor.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/background_color_math.hpp"
-#include "maicord/ui/icon.hpp"
+#include "maicord/ui/scene_kit.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/widget_scroll.hpp"
 #include "maicord/core/decimal.hpp"
@@ -100,9 +100,7 @@ bool style_valid(const UiThemeEditorStyle& s) noexcept {
            s.control_radius >= 0 && s.control_radius <= 12;
 }
 bool tree(UiThemeEditorScene& s) noexcept {
-    if (!s.storage.arena.base &&
-        (!ui_fixed_widget_storage_initialize(&s.storage, kUiThemeEditorElements) ||
-         !ui_widget_manager_initialize(&s.widgets, s.storage.widgets, s.storage.layout_nodes)))
+    if (!s.storage.arena.base && !ui_scene_open(&s.storage, &s.widgets, kUiThemeEditorElements))
         return false;
     ui_widget_manager_reset(&s.widgets);
     const float w = minimum(s.style.width, ui_rect_width(s.viewport) - 24),
@@ -311,11 +309,7 @@ void ui_theme_editor_close(UiThemeEditorScene* s) noexcept {
     ui_widget_manager_reset(&s->widgets);
 }
 void ui_theme_editor_release(UiThemeEditorScene* s) noexcept {
-    if (!s)
-        return;
-    ui_theme_editor_close(s);
-    ui_fixed_widget_storage_release(&s->storage);
-    reset_value(s);
+    ui_scene_release(s);
 }
 const UiLayoutNode* ui_theme_editor_node(const UiThemeEditorScene& s, UiThemeEditorElement e) noexcept {
     return at(e) < kUiThemeEditorElements ? ui_widget_manager_layout_node(s.widgets, s.elements[at(e)])
@@ -584,16 +578,14 @@ bool ui_theme_editor_action(UiThemeEditorScene* s, UiThemeEditorElement e, u32 s
 bool ui_theme_editor_paint(const UiThemeEditorScene& s, const Theme& theme, PaintStream* paint) noexcept {
     if (!ui_theme_editor_current(s))
         return true;
-    if (!paint)
-        return false;
-    if (!ui_surface_shadow_paint_isolated(paint, s.panel, theme, UiElevation::dialog, s.style.radius) ||
-        !paint_stream_push_clip(paint, s.panel))
-        return false;
     UiSettingsThemeTokens tokens(theme);
     tokens.metric.control_radius = s.style.control_radius;
-    bool ok = ui_surface_paint_plate(paint, s.panel, theme, UiElevation::dialog, s.style.radius, &theme.surface,
+    UiPaint p{paint, theme};
+    p.use<ui_surface_shadow_paint_isolated>(s.panel, theme, UiElevation::dialog, s.style.radius, 1.f)
+        .clip(s.panel)
+        .use<ui_surface_paint_plate>(s.panel, theme, UiElevation::dialog, s.style.radius, &theme.surface,
                                      &theme.interactive);
-    for (u32 i = at(UiThemeEditorElement::close); ok && i < kUiThemeEditorElements; ++i) {
+    for (u32 i = at(UiThemeEditorElement::close); p && i < kUiThemeEditorElements; ++i) {
         const auto e = static_cast<UiThemeEditorElement>(i);
         if (e == UiThemeEditorElement::effect_label || e == UiThemeEditorElement::scrollbar)
             continue;
@@ -603,45 +595,36 @@ bool ui_theme_editor_paint(const UiThemeEditorScene& s, const Theme& theme, Pain
         const auto clip = ui_rect_intersection(n->rectangle, n->clip_rectangle);
         if (!ui_rect_has_area(clip))
             continue;
-        if (!paint_stream_push_clip(paint, clip)) {
-            ok = false;
-            break;
-        }
+        p.clip(clip);
         const auto r = n->rectangle;
         if (e == UiThemeEditorElement::gradient) {
             auto horizontal = s.draft;
             horizontal.angle_degrees = 90;
-            ok = paint_stream_push_palette_gradient(paint, r, horizontal, s.style.control_radius);
+            p.use<paint_stream_push_palette_gradient>(r, horizontal, s.style.control_radius);
         } else if (e == UiThemeEditorElement::sv) {
             const float x = clamp(r.left + s.saturation * ui_rect_width(r), r.left + 6, r.right - 6);
             const float y = clamp(r.top + (1 - s.value) * ui_rect_height(r), r.top + 6, r.bottom - 6);
-            ok = paint_stream_push_sv_square(paint, r, color_from_rgb24(ui_theme_editor_hsv_rgb(s.hue, 1, 1)),
-                                             s.style.control_radius) &&
-                 paint_stream_push_rounded_border(paint, x - 5, y - 5, x + 5, y + 5, Color{}, color_from_rgb24(0), 5,
-                                                  2) &&
-                 paint_stream_push_rounded_border(paint, x - 4, y - 4, x + 4, y + 4, Color{},
-                                                  color_from_rgb24(0xffffff), 4, 1.5f);
+            p.use<paint_stream_push_sv_square>(r, color_from_rgb24(ui_theme_editor_hsv_rgb(s.hue, 1, 1)),
+                                               s.style.control_radius)
+                .rounded_border({x - 5, y - 5, x + 5, y + 5}, Color{}, color_from_rgb24(0), 5, 2)
+                .rounded_border({x - 4, y - 4, x + 4, y + 4}, Color{}, color_from_rgb24(0xffffff), 4, 1.5f);
         } else if (e == UiThemeEditorElement::hue) {
             const float x = clamp(r.left + s.hue * ui_rect_width(r), r.left + 4, r.right - 4);
-            ok = paint_stream_push_hue_strip(paint, r, 4) &&
-                 paint_stream_push_rounded_border(paint, x - 3, r.top + 1, x + 3, r.bottom - 1, Color{},
-                                                  color_from_rgb24(0), 3, 2) &&
-                 paint_stream_push_rounded_border(paint, x - 2, r.top + 2, x + 2, r.bottom - 2, Color{},
-                                                  color_from_rgb24(0xffffff), 2, 1);
+            p.use<paint_stream_push_hue_strip>(r, 4.f)
+                .rounded_border({x - 3, r.top + 1, x + 3, r.bottom - 1}, Color{}, color_from_rgb24(0), 3, 2)
+                .rounded_border({x - 2, r.top + 2, x + 2, r.bottom - 2}, Color{}, color_from_rgb24(0xffffff), 2, 1);
         } else if (slider(e)) {
             const auto t = track(r);
-            const float fraction = slider_fraction(s.draft, e);
             const bool active =
                 (e == UiThemeEditorElement::direction && s.draft.color_count > 1) ||
                 e == UiThemeEditorElement::intensity ||
                 (e != UiThemeEditorElement::direction && s.draft.effect != BackgroundEffect::none);
-            const float x = t.left + fraction * ui_rect_width(t);
-            ok = paint_stream_push_rounded(paint, t, theme.interactive, theme.scale.radius_sm) &&
-                 paint_stream_push_rounded(paint, t.left, t.top, x, t.bottom,
-                                           active ? theme.tokens.emphasis.fill : theme.text_secondary, theme.scale.radius_sm) &&
-                 paint_stream_push_rounded_border(paint, x - 7, t.top - 3, x + 7, t.bottom + 3,
-                                                  active ? theme.text_primary : theme.text_secondary,
-                                                  theme.surface, 7, 1);
+            const float x = t.left + slider_fraction(s.draft, e) * ui_rect_width(t);
+            p.rounded(t, theme.interactive, theme.scale.radius_sm)
+                .rounded({t.left, t.top, x, t.bottom}, active ? theme.tokens.emphasis.fill : theme.text_secondary,
+                         theme.scale.radius_sm)
+                .rounded_border({x - 7, t.top - 3, x + 7, t.bottom + 3},
+                                active ? theme.text_primary : theme.text_secondary, theme.surface, 7, 1);
         } else if (e >= UiThemeEditorElement::stop0 && e <= UiThemeEditorElement::stop4) {
             const auto stop = i - at(UiThemeEditorElement::stop0);
             const auto c = stop < s.draft.color_count ? color_from_rgb24(s.draft.colors[stop]) : theme.base_low;
@@ -651,42 +634,37 @@ bool ui_theme_editor_paint(const UiThemeEditorScene& s, const Theme& theme, Pain
             const float inset = m.ring_gap + m.ring_width;
             const UiRect fill{r.left + inset, r.top + inset, r.right - inset, r.bottom - inset};
             const float radius = ui_inner_radius(s.style.control_radius, inset);
-            ok = paint_stream_push_rounded_border(paint, fill, c, theme.interactive, radius, 1) &&
-                 (stop != s.selected_stop ||
-                  ui_settings_ring_paint(paint, fill, radius, m.ring_gap, m.ring_width, tokens.color.brand));
+            p.rounded_border(fill, c, theme.interactive, radius, 1);
+            if (p && stop == s.selected_stop)
+                p.use<ui_settings_ring_paint>(fill, radius, m.ring_gap, m.ring_width, tokens.color.brand);
         } else {
             const auto variant =
                 editor_primary(s, e) ? UiSettingsButtonVariant::primary : UiSettingsButtonVariant::secondary;
             const auto state = editor_button_state(s, s.elements[i]);
-            ok = ui_settings_button_paint(paint, tokens, r, variant, state);
+            p.use<ui_settings_button_paint>(tokens, r, variant, state);
             // Close and the stop count buttons are icon buttons (x, plus, minus), not text glyphs.
-            if (ok && (e == UiThemeEditorElement::close || e == UiThemeEditorElement::add ||
-                       e == UiThemeEditorElement::remove)) {
+            if (p && (e == UiThemeEditorElement::close || e == UiThemeEditorElement::add ||
+                      e == UiThemeEditorElement::remove)) {
                 const float extent = ui_icon_button_extent(minimum(ui_rect_width(r), ui_rect_height(r)) - 12);
                 const float x = (r.left + r.right - extent) * .5f, y = (r.top + r.bottom - extent) * .5f;
-                ok = ui_icon_paint(paint,
-                                   e == UiThemeEditorElement::close ? UiIcon::close
-                                   : e == UiThemeEditorElement::add ? UiIcon::plus
-                                                                    : UiIcon::minus,
-                                   {x, y, x + extent, y + extent}, ui_settings_button_text(tokens, variant, state));
+                p.icon(e == UiThemeEditorElement::close ? UiIcon::close
+                       : e == UiThemeEditorElement::add ? UiIcon::plus
+                                                        : UiIcon::minus,
+                       {x, y, x + extent, y + extent}, ui_settings_button_text(tokens, variant, state));
             }
         }
-        const bool popped = paint_stream_pop_clip(paint);
-        ok = ok && popped;
+        p.unclip();
     }
-    if (ok && s.widgets.focused.generation)
-        ok = paint_stream_push_focus(paint, s.widgets, theme.tokens.border.focus);
-    if (ok) {
-        const auto handle = s.elements[at(UiThemeEditorElement::scrollbar)];
-        const bool hovered = ui_widget_handle_equal(s.widgets.hovered, handle);
-        const bool pressed = ui_widget_handle_equal(s.widgets.captured, handle);
-        ok = ui_scrollbar_paint(paint, ui_theme_editor_scrollbar(s), theme,
-                                pressed   ? UiScrollbarVisualState::pressed
-                                : hovered ? UiScrollbarVisualState::hovered
-                                          : UiScrollbarVisualState::normal);
-    }
-    const bool popped = paint_stream_pop_clip(paint);
-    return ok && popped;
+    if (p && s.widgets.focused.generation)
+        p.use<paint_stream_push_focus>(s.widgets, theme.tokens.border.focus);
+    const auto handle = s.elements[at(UiThemeEditorElement::scrollbar)];
+    const bool hovered = ui_widget_handle_equal(s.widgets.hovered, handle);
+    const bool pressed = ui_widget_handle_equal(s.widgets.captured, handle);
+    return p.scrollbar(ui_theme_editor_scrollbar(s),
+                       pressed   ? UiScrollbarVisualState::pressed
+                       : hovered ? UiScrollbarVisualState::hovered
+                                 : UiScrollbarVisualState::normal)
+        .end();
 }
 namespace {
 // The caption an element draws: fixed ones from a table, the rest from the draft.
@@ -719,18 +697,18 @@ bool ui_theme_editor_text_output(const UiThemeEditorScene& s, const Theme& theme
                                  UiTextOutput* output) noexcept {
     if (!ui_theme_editor_current(s))
         return true;
-    if (!ui_text_output_valid(output))
-        return false;
     const UiSettingsThemeTokens tokens(theme);
-    for (u32 i = 0; i < kUiThemeEditorElements; ++i) {
+    UiTextPen<UiTextClip::label> text{output, s.widgets, s.panel};
+    for (u32 i = 0; text.ok() && i < kUiThemeEditorElements; ++i) {
         const auto e = static_cast<UiThemeEditorElement>(i);
-        const Utf8View text = caption(s, e);
-        if (!text.bytes)
+        const Utf8View caption_text = caption(s, e);
+        if (!caption_text.bytes)
             continue;
         const auto* n = ui_theme_editor_node(s, e);
         if (!n)
             continue;
-        UiRect r = n->rectangle, clip = ui_rect_intersection(r, n->clip_rectangle);
+        UiRect r = n->rectangle;
+        const UiRect clip = ui_rect_intersection(r, n->clip_rectangle);
         if (!ui_rect_has_area(clip))
             continue;
         const bool field_slider = slider(e);
@@ -738,55 +716,29 @@ bool ui_theme_editor_text_output(const UiThemeEditorScene& s, const Theme& theme
                                 e != UiThemeEditorElement::effect_label;
         if (field_slider)
             r.bottom = r.top + 22;
-        if (!ui_text_output_push(
-                output,
-                {text,
-                 {&s.widgets, s.elements[i]},
-                 r,
-                 clip,
-                 button_ink ? ui_settings_button_text(tokens,
-                                                      editor_primary(s, e) ? UiSettingsButtonVariant::primary
-                                                                           : UiSettingsButtonVariant::secondary,
-                                                      editor_button_state(s, s.elements[i]))
-                 : e == UiThemeEditorElement::effect_label ||
-                         (e == UiThemeEditorElement::direction && s.draft.color_count == 1)
-                     ? theme.text_secondary
-                     : theme.text_primary,
-                 e == UiThemeEditorElement::title ? text_style_bold : 0,
-                 e == UiThemeEditorElement::title || field_slider || e == UiThemeEditorElement::effect_label
-                     ? UiTextAlignment::start
-                     : UiTextAlignment::center,
-                 UiTextAlignment::center,
-                 TextWrapping::no_wrap,
-                 TextOverflow::ellipsis,
-                 UiTextFace::normal,
-                 {},
-                 {}}))
-            return false;
+        const Color ink = button_ink ? ui_settings_button_text(tokens,
+                                                               editor_primary(s, e) ? UiSettingsButtonVariant::primary
+                                                                                    : UiSettingsButtonVariant::secondary,
+                                                               editor_button_state(s, s.elements[i]))
+                          : e == UiThemeEditorElement::effect_label ||
+                                  (e == UiThemeEditorElement::direction && s.draft.color_count == 1)
+                              ? theme.text_secondary
+                              : theme.text_primary;
+        const bool left_aligned = e == UiThemeEditorElement::title || field_slider || e == UiThemeEditorElement::effect_label;
+        auto line = text.in(clip);
+        line(s.elements[i], caption_text, r, ink, e == UiThemeEditorElement::title ? text_style_bold : 0,
+             left_aligned ? 0 : ui_text_center);
         if (field_slider) {
             r.left = r.right - 60;
-            const auto label =
-                e == UiThemeEditorElement::direction  ? Utf8View{s.direction_text, s.direction_bytes}
-                : e == UiThemeEditorElement::speed    ? Utf8View{s.speed_text, s.speed_bytes}
-                : e == UiThemeEditorElement::strength ? Utf8View{s.strength_text, s.strength_bytes}
-                : e == UiThemeEditorElement::density  ? Utf8View{s.density_text, s.density_bytes}
-                                                      : Utf8View{s.intensity_text, s.intensity_bytes};
-            if (!ui_text_output_push(output, {label,
-                                              {&s.widgets, s.elements[i]},
-                                              r,
-                                              clip,
-                                              theme.text_secondary,
-                                              0,
-                                              UiTextAlignment::end,
-                                              UiTextAlignment::center,
-                                              TextWrapping::no_wrap,
-                                              TextOverflow::clip,
-                                              UiTextFace::normal,
-                                              {},
-                                              {}}))
-                return false;
+            line(s.elements[i],
+                 e == UiThemeEditorElement::direction  ? Utf8View{s.direction_text, s.direction_bytes}
+                 : e == UiThemeEditorElement::speed    ? Utf8View{s.speed_text, s.speed_bytes}
+                 : e == UiThemeEditorElement::strength ? Utf8View{s.strength_text, s.strength_bytes}
+                 : e == UiThemeEditorElement::density  ? Utf8View{s.density_text, s.density_bytes}
+                                                       : Utf8View{s.intensity_text, s.intensity_bytes},
+                 r, theme.text_secondary, 0, ui_text_end | ui_text_clip);
         }
     }
-    return true;
+    return text.ok();
 }
 } // namespace maicord

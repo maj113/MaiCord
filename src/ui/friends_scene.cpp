@@ -1,8 +1,7 @@
 #include "maicord/ui/friends_scene.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/background_presentation.hpp"
-#include "maicord/ui/background_surface.hpp"
-#include "maicord/ui/icon.hpp"
+#include "maicord/ui/scene_kit.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/presence.hpp"
@@ -547,9 +546,7 @@ bool rebuild(UiFriendsScene& s) noexcept {
         reset_value(&s.widgets);
         s.capacity = 0;
         const u32 capacity = (required + 15) & ~15u;
-        if (!ui_fixed_widget_storage_initialize(
-                &s.storage, capacity, capacity * static_cast<u32>(sizeof(Entry)), alignof(Entry)) ||
-            !ui_widget_manager_initialize(&s.widgets, s.storage.widgets, s.storage.layout_nodes))
+        if (!ui_scene_open(&s.storage, &s.widgets, capacity, capacity * static_cast<u32>(sizeof(Entry)), alignof(Entry)))
             return false;
         s.capacity = capacity;
     } else
@@ -652,25 +649,6 @@ bool rebuild(UiFriendsScene& s) noexcept {
     s.section_mask = visible_window.mask;
     ++s.revision;
     return true;
-}
-bool text(UiTextOutput* stream, const UiFriendsScene& s, UiWidgetHandle h, const Utf8View& label, const UiRect& r,
-          const Color& color, u32 style = 0, UiTextAlignment align = UiTextAlignment::start) noexcept {
-    const auto* node = ui_widget_manager_layout_node(s.widgets, h);
-    if (!node)
-        return false;
-    const auto clip = ui_rect_intersection(r, node->clip_rectangle);
-    if (!label.bytes || !ui_rect_has_area(clip))
-        return true;
-    return ui_text_output_push(stream, {label,
-                                        {&s.widgets, h},
-                                        r,
-                                        clip,
-                                        color,
-                                        style,
-                                        align,
-                                        UiTextAlignment::center,
-                                        TextWrapping::no_wrap,
-                                        TextOverflow::ellipsis});
 }
 } // namespace
 bool ui_friends_scene_update(UiFriendsScene* scene, const UiFriendsSource* source, UiFriendsTab tab,
@@ -1011,23 +989,21 @@ bool ui_friends_scene_presence_paint(const UiFriendsScene& s, const Theme& theme
     const auto* body = ui_widget_manager_layout_node(s.widgets, s.body);
     if (!body)
         return false;
-    const auto clip = ui_rect_intersection(body->content_rectangle, body->clip_rectangle);
-    if (!paint_stream_push_clip(paint, clip))
-        return false;
-    bool ok = true;
-    for (u32 i = 0; ok && i < s.count; ++i) {
+    UiPaint p{paint, theme};
+    p.clip(ui_rect_intersection(body->content_rectangle, body->clip_rectangle));
+    for (u32 i = 0; p && i < s.count; ++i) {
         UiFriendsVisibleRow row{};
         if (!ui_friends_scene_visible_row(s, i, &row)) {
-            ok = false;
+            p.fail();
             break;
         }
         if (!ui_rect_intersects(row.presence, row.clip))
             continue;
         const bool blocked = row.row.kind == UiFriendsKind::blocked;
-        ok = ui_presence_paint(paint, row.presence, blocked ? UiPresence::offline : row.row.presence,
-                               theme.base_lowest, theme, !blocked && row.row.mobile);
+        p.use<ui_presence_paint>(row.presence, blocked ? UiPresence::offline : row.row.presence, theme.base_lowest,
+                                 theme, !blocked && row.row.mobile);
     }
-    return paint_stream_pop_clip(paint) && ok;
+    return p.end();
 }
 bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintStream* paint,
                             const UiEditGeometry* edit, u32 dpi, bool include_presence) noexcept {
@@ -1035,29 +1011,29 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
         return false;
     if (!s.active)
         return true;
-    if (!paint || !current(s) ||
-        !paint_stream_push_clip(paint, s.viewport))
+    if (!current(s))
         return false;
-    bool ok = hidden(s) ? paint_stream_push(paint, s.viewport, {0, 0, 0, .65f})
-                        : true;
+    UiPaint p{paint, theme};
+    p.clip(s.viewport);
+    if (hidden(s))
+        p.fill(s.viewport, {0, 0, 0, .65f});
     // The shell owns the full Friends canvas contrast plate. Adding another
     // one here compounds its tint and hides the selected background.
-    if (ok && (hidden(s) || !ui_background_active(theme))) {
+    if (hidden(s) || !ui_background_active(theme)) {
         if (!hidden(s) && background_effects_active(theme.background))
-            ok = ui_background_paint_canvas(paint, s.surface, theme, theme.base_lowest);
+            p.use<ui_background_paint_canvas>(s.surface, theme, theme.base_lowest, UiBackgroundTier::chat);
         else
-            ok = paint_stream_push(paint, s.surface,
-                                   ui_background_surface_color(theme, theme.base_lowest, .94f));
+            p.fill(s.surface, ui_background_surface_color(theme, theme.base_lowest, .94f));
     }
     const auto* body = ui_widget_manager_layout_node(s.widgets, s.body);
     if (!body) {
-        paint_stream_pop_clip(paint);
-        return false;
+        p.fail();
+        return p.end();
     }
     const UiRect body_clip = ui_rect_intersection(body->content_rectangle, body->clip_rectangle);
     bool clip_open = false;
     UiRect previous_clip{};
-    for (u32 i = 0; ok && i < s.widgets.count; ++i) {
+    for (u32 i = 0; p && i < s.widgets.count; ++i) {
         const auto& e = entries(s)[i];
         if (e.target.action == UiFriendsAction::none)
             continue;
@@ -1079,15 +1055,9 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
             e.target.action == UiFriendsAction::clear_incoming)
             clip = body_clip;
         if (!clip_open || !ui_rect_equal(previous_clip, clip)) {
-            if (clip_open && !paint_stream_pop_clip(paint)) {
-                ok = false;
-                break;
-            }
-            clip_open = false;
-            if (!paint_stream_push_clip(paint, clip)) {
-                ok = false;
-                break;
-            }
+            if (clip_open)
+                p.unclip();
+            p.clip(clip);
             previous_clip = clip;
             clip_open = true;
         }
@@ -1097,22 +1067,22 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
             const float cx = (r.left + r.right) * .5f, cy = (r.top + r.bottom) * .5f;
             const float half = icon_action_extent * .5f, glyph = icon_action_glyph * .5f;
             const bool enabled = (s.widgets.storage[i].flags & ui_widget_enabled) != 0;
-            ok = paint_stream_push_rounded_border(
-                     paint, cx - half, cy - half, cx + half, cy + half,
-                     ui_background_surface_color(theme, hovered || focused ? theme.surface : theme.base_lower,
-                                                 pressed ? .5f : hovered ? .4f : .3f),
-                     focused ? theme.tokens.border.focus : ui_theme_color_alpha(theme.tokens.border.focus, 0), half, focused ? 2.f : 0.f) &&
-                 ui_icon_paint(paint, icon, {cx - glyph, cy - glyph, cx + glyph, cy + glyph},
-                               hovered && enabled ? theme.text_primary : theme.text_secondary);
+            p.rounded_border({cx - half, cy - half, cx + half, cy + half},
+                             ui_background_surface_color(theme, hovered || focused ? theme.surface : theme.base_lower,
+                                                         pressed ? .5f : hovered ? .4f : .3f),
+                             focused ? theme.tokens.border.focus : ui_theme_color_alpha(theme.tokens.border.focus, 0),
+                             half, focused ? 2.f : 0.f)
+                .icon(icon, {cx - glyph, cy - glyph, cx + glyph, cy + glyph},
+                      hovered && enabled ? theme.text_primary : theme.text_secondary);
             continue;
         }
         // Idle row/action background and border quads are skipped: the labels
         // already show the affordance and the quads would exceed the shared native
         // paint budget at tall viewports. Tab chrome and hover/focus feedback stay.
         if ((!e.row.user_id && e.target.action != UiFriendsAction::toggle_section) || hovered || focused)
-            ok = paint_stream_push_rounded_border(
-                paint, node->rectangle.left + 1, node->rectangle.top + 1, node->rectangle.right - 1,
-                node->rectangle.bottom - 1,
+            p.rounded_border(
+                {node->rectangle.left + 1, node->rectangle.top + 1, node->rectangle.right - 1,
+                 node->rectangle.bottom - 1},
                 (selected || hovered ? ui_background_hover_color : ui_background_surface_color)(
                     theme,
                     selected || hovered ? theme.interactive_hover
@@ -1124,66 +1094,58 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
                                : .12f),
                 focused ? theme.tokens.border.focus : ui_background_surface_color(theme, theme.interactive, .38f),
                 theme.scale.radius_sm, focused ? 2.f : 1.f);
-        if (ok && e.row_label) {
+        if (e.row_label) {
             constexpr float avatar = 32;
             const auto r = node->content_rectangle;
             const float top = (r.top + r.bottom - avatar) * .5f;
-            ok = paint_stream_push_rounded(paint, r.left, top, r.left + avatar, top + avatar, theme.interactive,
-                                           avatar * .5f);
+            p.rounded({r.left, top, r.left + avatar, top + avatar}, theme.interactive, avatar * .5f);
         }
     }
     if (clip_open)
-        ok = paint_stream_pop_clip(paint) && ok;
-    if (ok)
-        ok = ui_scrollbar_paint(paint, ui_friends_scene_scrollbar(s), theme);
-    if (ok && searching(s)) {
+        p.unclip();
+    p.scrollbar(ui_friends_scene_scrollbar(s));
+    if (searching(s)) {
         const auto g = ui_friends_scene_search_geometry(s);
-        ok = ui_edit_field_paint(paint, g.field, g.text, s.content->search, edit,
-                                 ui_background_surface_color(theme, theme.surface_high, .12f), theme, dpi);
+        p.use<ui_edit_field_paint>(g.field, g.text, s.content->search, edit,
+                                   ui_background_surface_color(theme, theme.surface_high, .12f), theme, dpi,
+                                   kUiEditCornerRadius);
     }
-    if (ok && include_presence)
-        ok = ui_friends_scene_presence_paint(s, theme, paint);
-    if (ok && s.active_visible) {
+    if (p && include_presence && !ui_friends_scene_presence_paint(s, theme, paint))
+        p.fail();
+    if (p && s.active_visible) {
         const auto& r = s.active_rect;
         // A hairline divides the column from the list.
-        ok = paint_stream_push(paint, r.left, r.top, r.left + 1, r.bottom, ui_separator_color(theme));
+        p.fill({r.left, r.top, r.left + 1, r.bottom}, ui_separator_color(theme));
         const auto toggle = active_toggle_rect(s);
         const bool toggle_hover = s.active_hover == ~0u;
-        if (ok && toggle_hover)
-            ok = paint_stream_push_rounded(paint, toggle,
-                                           ui_background_hover_color(theme, theme.interactive_hover, .20f),
-                                           theme.scale.radius_sm);
+        if (toggle_hover)
+            p.rounded(toggle, ui_background_hover_color(theme, theme.interactive_hover, .20f), theme.scale.radius_sm);
         const float glyph = 9;
         const float cx = (toggle.left + toggle.right) * .5f, cy = (toggle.top + toggle.bottom) * .5f;
-        if (ok)
-            ok = ui_icon_paint(paint, s.active_collapsed ? UiIcon::chevron_left : UiIcon::chevron_right,
-                               {cx - glyph, cy - glyph, cx + glyph, cy + glyph},
-                               toggle_hover ? theme.text_primary : theme.text_secondary);
-        for (u32 i = 0; ok && i < active_card_count(s); ++i) {
+        p.icon(s.active_collapsed ? UiIcon::chevron_left : UiIcon::chevron_right,
+               {cx - glyph, cy - glyph, cx + glyph, cy + glyph},
+               toggle_hover ? theme.text_primary : theme.text_secondary);
+        for (u32 i = 0; p && i < active_card_count(s); ++i) {
             const auto card = active_card_rect(s, i);
             const bool hovered = s.active_hover == i + 1;
-            ok = paint_stream_push_rounded_border(
-                paint, card,
+            p.rounded_border(
+                card,
                 (hovered ? ui_background_hover_color : ui_background_surface_color)(
                     theme, hovered ? theme.interactive_hover : theme.surface_high, hovered ? .22f : .14f),
                 ui_background_surface_color(theme, theme.interactive, .30f), theme.scale.radius_md, 1.f);
             const auto& data = s.active_now->cards[i];
-            for (u32 m = 0; ok && m < data.member_count && m < kUiFriendsActiveNowAvatars; ++m) {
+            for (u32 m = 0; p && m < data.member_count && m < kUiFriendsActiveNowAvatars; ++m) {
                 const auto a = active_avatar_rect(card, m);
                 // A ring in the card colour separates overlapping avatars.
-                ok = paint_stream_push_rounded(paint, a.left - 2, a.top - 2, a.right + 2, a.bottom + 2,
-                                               theme.base_lower, active_avatar * .5f + 2) &&
-                     paint_stream_push_rounded(paint, a, theme.interactive,
-                                               active_avatar * .5f);
+                p.rounded({a.left - 2, a.top - 2, a.right + 2, a.bottom + 2}, theme.base_lower,
+                          active_avatar * .5f + 2)
+                    .rounded(a, theme.interactive, active_avatar * .5f);
             }
-            if (ok) {
-                const UiRect icon{card.right - 30, card.top + 18, card.right - 14, card.top + 34};
-                ok = ui_icon_paint(paint, data.kind == UiFriendsActiveKind::voice ? UiIcon::speaker : UiIcon::play,
-                                   icon, theme.text_secondary);
-            }
+            p.icon(data.kind == UiFriendsActiveKind::voice ? UiIcon::speaker : UiIcon::play,
+                   {card.right - 30, card.top + 18, card.right - 14, card.top + 34}, theme.text_secondary);
         }
     }
-    return paint_stream_pop_clip(paint) && ok;
+    return p.end();
 }
 bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, UiTextOutput* stream,
                                   const UiEditGeometry* edit) noexcept {
@@ -1191,76 +1153,50 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
         return false;
     if (!s.active)
         return true;
-    if (!stream || !current(s))
+    if (!current(s))
         return false;
     const auto* heading = ui_widget_manager_layout_node(s.widgets, s.heading);
     const auto* status = ui_widget_manager_layout_node(s.widgets, s.status_widget);
-    if (!heading || !status ||
-        !text(stream, s, s.heading, hidden(s) ? utf8_literal("Other requests") : utf8_literal("Friends"),
-              heading->content_rectangle, theme.text_primary, text_style_heading_2 | text_style_bold))
-        return false;
-    if (hidden(s)) {
-        const auto r = status->content_rectangle;
-        if (!ui_text_output_push(
-                stream,
-                {utf8_literal("Requests from people you've ignored and possible spam."),
-                 {&s.widgets, s.status_widget},
-                 r,
-                 ui_rect_intersection(r, status->clip_rectangle),
-                 theme.text_secondary,
-                 text_style_subtext,
-                 UiTextAlignment::start,
-                 UiTextAlignment::center,
-                 TextWrapping::wrap,
-                 TextOverflow::clip}))
-            return false;
-    } else if (!text(stream, s, s.status_widget, status_label(s), status->content_rectangle,
-                     theme.text_secondary, text_style_subtext))
-        return false;
     const auto* count = ui_widget_manager_layout_node(s.widgets, s.count_widget);
-    if (!count || !text(stream, s, s.count_widget, {s.count_heading, s.count_heading_bytes},
-                        count->content_rectangle, theme.text_secondary, text_style_subtext))
+    if (!heading || !status || !count)
         return false;
+    UiTextPen text{stream, s.widgets, s.viewport};
+    text.at(s.heading)(s.heading, hidden(s) ? utf8_literal("Other requests") : utf8_literal("Friends"),
+                       heading->content_rectangle, theme.text_primary, text_style_heading_2 | text_style_bold);
+    if (hidden(s))
+        text.at(s.status_widget)(s.status_widget,
+                                 utf8_literal("Requests from people you've ignored and possible spam."),
+                                 status->content_rectangle, theme.text_secondary, text_style_subtext,
+                                 ui_text_wrap | ui_text_middle | ui_text_clip);
+    else
+        text.at(s.status_widget)(s.status_widget, status_label(s), status->content_rectangle, theme.text_secondary,
+                                 text_style_subtext);
+    text.at(s.count_widget)(s.count_widget, {s.count_heading, s.count_heading_bytes}, count->content_rectangle,
+                            theme.text_secondary, text_style_subtext);
     if (searching(s)) {
         const auto g = ui_friends_scene_search_geometry(s);
-        if (!ui_edit_field_text_output(stream, {&s.widgets, s.search_field}, g.text, s.content->search,
-                                       edit, utf8_literal("Search friends"), theme))
-            return false;
+        if (text.ok() && !ui_edit_field_text_output(stream, {&s.widgets, s.search_field}, g.text, s.content->search,
+                                                    edit, utf8_literal("Search friends"), theme))
+            text.fail();
     }
     if (s.active_visible && !s.active_collapsed) {
         const auto& r = s.active_rect;
-        const auto line = [&](Utf8View label, UiRect area, Color color, u32 style,
-                              TextWrapping wrapping = TextWrapping::no_wrap) noexcept {
-            if (!label.bytes)
-                return true;
-            return ui_text_output_push(stream, {label,
-                                                {&s.widgets, s.heading},
-                                                area,
-                                                ui_rect_intersection(area, r),
-                                                color,
-                                                style,
-                                                UiTextAlignment::start,
-                                                UiTextAlignment::center,
-                                                wrapping,
-                                                wrapping == TextWrapping::wrap ? TextOverflow::clip
-                                                                                 : TextOverflow::ellipsis});
-        };
+        auto line = text.in(r);
         const auto toggle = active_toggle_rect(s);
-        if (!line(utf8_literal("Active now"), {r.left + active_padding, r.top + 12, toggle.left - 8, r.top + 44},
-                  theme.text_primary, text_style_heading_2 | text_style_bold))
-            return false;
+        line(s.heading, utf8_literal("Active now"), {r.left + active_padding, r.top + 12, toggle.left - 8, r.top + 44},
+             theme.text_primary, text_style_heading_2 | text_style_bold);
         const u32 cards = active_card_count(s);
         if (!cards) {
             const UiRect title{r.left + active_padding, r.top + active_heading + 24, r.right - active_padding,
                                r.top + active_heading + 48};
             const UiRect body{title.left, title.bottom + 4, title.right, title.bottom + 64};
-            if (!line(utf8_literal("It's quiet for now"), title, theme.text_primary, text_style_bold) ||
-                !line(utf8_literal("When a friend starts an activity, like playing a game or hanging out in voice, "
-                                   "it shows here."),
-                      body, theme.text_secondary, text_style_subtext, TextWrapping::wrap))
-                return false;
+            line(s.heading, utf8_literal("It's quiet for now"), title, theme.text_primary, text_style_bold);
+            line(s.heading,
+                 utf8_literal("When a friend starts an activity, like playing a game or hanging out in voice, "
+                              "it shows here."),
+                 body, theme.text_secondary, text_style_subtext, ui_text_wrap | ui_text_middle | ui_text_clip);
         }
-        for (u32 i = 0; i < cards; ++i) {
+        for (u32 i = 0; text.ok() && i < cards; ++i) {
             const auto card = active_card_rect(s, i);
             const auto& data = s.active_now->cards[i];
             const float left = card.left + 14, right = card.right - 36;
@@ -1272,22 +1208,24 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
                 more[more_bytes++] = '+';
                 more_bytes += decimal_write(more + more_bytes, data.total - data.member_count);
             }
-            if (!line({more, more_bytes}, {avatars_right, card.top + 14, right, card.top + 46}, theme.text_secondary,
-                      text_style_subtext) ||
-                !line(data.title, {left, card.top + 52, right, card.top + 72}, theme.text_primary, text_style_bold) ||
-                !line(data.subtitle, {left, card.top + 72, card.right - 14, card.top + 90}, theme.text_secondary,
-                      text_style_subtext))
-                return false;
+            line(s.heading, {more, more_bytes}, {avatars_right, card.top + 14, right, card.top + 46},
+                 theme.text_secondary, text_style_subtext);
+            line(s.heading, data.title, {left, card.top + 52, right, card.top + 72}, theme.text_primary,
+                 text_style_bold);
+            line(s.heading, data.subtitle, {left, card.top + 72, card.right - 14, card.top + 90}, theme.text_secondary,
+                 text_style_subtext);
         }
     }
-    for (u32 i = 0; i < s.widgets.count; ++i) {
+    for (u32 i = 0; text.ok() && i < s.widgets.count; ++i) {
         const auto& e = entries(s)[i];
         if (e.target.action == UiFriendsAction::none)
             continue;
         const UiWidgetHandle h{static_cast<u16>(i), s.widgets.generation};
         const auto* node = ui_widget_manager_layout_node(s.widgets, h);
-        if (!node)
-            return false;
+        if (!node) {
+            text.fail();
+            break;
+        }
         if (e.target.action == UiFriendsAction::search ||
             (e.target.action == UiFriendsAction::clear_search && !s.content->search.text.bytes))
             continue;
@@ -1301,9 +1239,8 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
             r.left += 44;
             r.right = maximum(r.left, r.right - actions_width - 8);
             r.bottom = r.top + 22;
-            if (!text(stream, s, h, e.row.display_name.bytes ? e.row.display_name : e.row.username, r,
-                      theme.text_primary, text_style_bold))
-                return false;
+            text.at(h)(h, e.row.display_name.bytes ? e.row.display_name : e.row.username, r, theme.text_primary,
+                       text_style_bold);
             r.top += 23;
             r.bottom = node->content_rectangle.bottom;
             const auto label =
@@ -1317,8 +1254,7 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
                 : e.row.presence == UiPresence::busy    ? utf8_literal("Do Not Disturb")
                 : e.row.presence == UiPresence::unknown ? utf8_literal("Status unavailable")
                                                         : utf8_literal("Offline");
-            if (!text(stream, s, h, label, r, theme.text_secondary, text_style_subtext))
-                return false;
+            text.at(h)(h, label, r, theme.text_secondary, text_style_subtext);
         } else if (e.row.user_id && action_icon(e.target.action) != UiIcon::count) {
             continue; // painted as an icon button
         } else {
@@ -1330,26 +1266,21 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
                     if (section.kind == e.target.section && section.allow_clear && section.count >= 5)
                         r.right = maximum(r.left, r.right - 72);
                 }
-            if (!text(stream, s, h,
-                      e.target.action == UiFriendsAction::toggle_section
-                          ? Utf8View{e.section_label, e.section_label_bytes}
-                      : e.target.action == UiFriendsAction::toggle_hidden
-                          ? (s.sections->hidden_view ? utf8_literal("Close")
-                                                     : utf8_literal("View other requests"))
-                      : e.target.action == UiFriendsAction::clear_hidden         ? utf8_literal("Clear all")
-                      : e.target.action == UiFriendsAction::cancel && s.sections ? utf8_literal("X")
-                      : e.target.action == UiFriendsAction::select_tab ? tab_label(e.target.tab)
-                                                                       : action_label(e.target.action),
-                      r,
-                      (s.widgets.storage[i].flags & ui_widget_enabled) ? theme.text_primary
-                                                                       : theme.text_secondary,
-                      text_style_subtext,
-                      e.target.action == UiFriendsAction::toggle_section ? UiTextAlignment::start
-                                                                         : UiTextAlignment::center))
-                return false;
+            text.at(h)(h,
+                       e.target.action == UiFriendsAction::toggle_section
+                           ? Utf8View{e.section_label, e.section_label_bytes}
+                       : e.target.action == UiFriendsAction::toggle_hidden
+                           ? (s.sections->hidden_view ? utf8_literal("Close") : utf8_literal("View other requests"))
+                       : e.target.action == UiFriendsAction::clear_hidden         ? utf8_literal("Clear all")
+                       : e.target.action == UiFriendsAction::cancel && s.sections ? utf8_literal("X")
+                       : e.target.action == UiFriendsAction::select_tab ? tab_label(e.target.tab)
+                                                                        : action_label(e.target.action),
+                       r,
+                       (s.widgets.storage[i].flags & ui_widget_enabled) ? theme.text_primary : theme.text_secondary,
+                       text_style_subtext, e.target.action == UiFriendsAction::toggle_section ? 0 : ui_text_center);
         }
     }
-    return true;
+    return text.ok();
 }
 u32 ui_friends_scene_active_avatar_count(const UiFriendsScene& s) noexcept {
     if (!current(s))

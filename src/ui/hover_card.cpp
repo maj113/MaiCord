@@ -1,4 +1,5 @@
 #include "maicord/ui/hover_card.hpp"
+#include "maicord/ui/surface_elevation.hpp"
 
 namespace maicord {
 namespace {
@@ -75,6 +76,23 @@ bool ui_hover_card_set_pressed(UiHoverCard* card, bool pressed) noexcept {
     card->pressed = pressed;
     ++card->revision;
     return true;
+}
+
+bool ui_hover_card_paint_surface(PaintStream* paint, const UiHoverCard& card, const Theme& theme,
+                                 float radius) noexcept {
+    const float a = card.progress < 0 ? 0.f : card.progress > 1 ? 1.f : card.progress;
+    const Color fill = ui_theme_color_alpha(theme.tokens.background.floating, a);
+    const Color border = ui_theme_color_alpha(theme.tokens.border.subtle, a);
+    return ui_surface_paint(paint, card.panel, theme, UiElevation::popover, radius, &fill, &border);
+}
+
+Color ui_hover_card_button_color(const UiHoverCard& card, const Theme& theme) noexcept {
+    Color button = theme.tokens.accent.brand;
+    const float shade = card.pressed && card.hovered ? .8f : card.hovered ? .9f : 1.f;
+    button.red *= shade;
+    button.green *= shade;
+    button.blue *= shade;
+    return button;
 }
 
 } // namespace maicord

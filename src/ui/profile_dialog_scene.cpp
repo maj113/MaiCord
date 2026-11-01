@@ -1,7 +1,7 @@
 #include "maicord/ui/profile_dialog_scene.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
-#include "maicord/ui/icon.hpp"
+#include "maicord/ui/scene_kit.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/sys/crt.hpp"
@@ -461,10 +461,10 @@ bool ui_profile_dialog_paint(const UiProfileDialogScene& s, const Theme& theme, 
     if (!s.active)
         return true;
     const UiSettingsThemeTokens t(theme);
-    bool ok = paint_stream_push(paint, s.viewport,
-                                theme.tokens.overlay.scrim) &&
-              ui_surface_paint(paint, s.rectangle, theme, UiElevation::dialog, theme.scale.radius_md);
-    for (u32 i = 0; ok && i < s.part_count; ++i) {
+    UiPaint p{paint, theme};
+    p.fill(s.viewport, theme.tokens.overlay.scrim)
+        .use<ui_surface_paint>(s.rectangle, theme, UiElevation::dialog, theme.scale.radius_md, nullptr, nullptr);
+    for (u32 i = 0; p && i < s.part_count; ++i) {
         const auto& part = s.parts[i];
         const auto r = visible(s, part);
         if (!ui_rect_has_area(r))
@@ -472,92 +472,84 @@ bool ui_profile_dialog_paint(const UiProfileDialogScene& s, const Theme& theme, 
         UiControlState state{enabled(s, part), hovered(s, part), false, focused(s, part) && s.focus_visible};
         switch (part.role) {
         case role_editor:
-            ok = paint_stream_push_rounded(paint, r, theme.tokens.overlay.media,
-                                           theme.scale.radius_sm);
-            if (ok && !s.content.image_ready)
-                ok = ui_icon_paint(paint, s.content.failed ? UiIcon::warning : UiIcon::image,
-                                   {(r.left + r.right) * .5f - 16, (r.top + r.bottom) * .5f - 16,
-                                    (r.left + r.right) * .5f + 16, (r.top + r.bottom) * .5f + 16},
-                                   s.content.failed ? theme.tokens.text.danger : theme.text_secondary);
+            p.rounded(r, theme.tokens.overlay.media, theme.scale.radius_sm);
+            if (!s.content.image_ready)
+                p.icon(s.content.failed ? UiIcon::warning : UiIcon::image,
+                       {(r.left + r.right) * .5f - 16, (r.top + r.bottom) * .5f - 16, (r.left + r.right) * .5f + 16,
+                        (r.top + r.bottom) * .5f + 16},
+                       s.content.failed ? theme.tokens.text.danger : theme.text_secondary);
             break;
         case role_small_icon:
         case role_large_icon:
-            ok = ui_icon_paint(paint, UiIcon::image, r, theme.text_secondary);
+            p.icon(UiIcon::image, r, theme.text_secondary);
             break;
         case role_slider: {
             const auto track = s.slider_track;
             const float value = (s.content.crop.zoom - kImageCropMinimumZoom) / (kImageCropMaximumZoom - kImageCropMinimumZoom);
             const float x = track.left + ui_rect_width(track) * (value < 0 ? 0 : value > 1 ? 1 : value);
             const float cy = (track.top + track.bottom) * .5f;
-            ok = paint_stream_push_rounded(paint, track, t.color.slider_track,
-                                           kSliderTrack * .5f) &&
-                 paint_stream_push_rounded(paint, track.left, track.top, x, track.bottom, t.color.brand,
-                                           kSliderTrack * .5f) &&
-                 paint_stream_push_rounded_border(paint, x - kSliderThumb * .5f, cy - kSliderThumb * .5f,
-                                                  x + kSliderThumb * .5f, cy + kSliderThumb * .5f, t.color.thumb,
-                                                  state.focused ? t.color.focus_ring : t.color.border_subtle,
-                                                  kSliderThumb * .5f, state.focused ? 2.f : 1.f);
+            p.rounded(track, t.color.slider_track, kSliderTrack * .5f)
+                .rounded({track.left, track.top, x, track.bottom}, t.color.brand, kSliderTrack * .5f)
+                .rounded_border({x - kSliderThumb * .5f, cy - kSliderThumb * .5f, x + kSliderThumb * .5f,
+                                 cy + kSliderThumb * .5f},
+                                t.color.thumb, state.focused ? t.color.focus_ring : t.color.border_subtle,
+                                kSliderThumb * .5f, state.focused ? 2.f : 1.f);
             break;
         }
         case role_rotate:
         case role_close: {
             const Color fill = state.hovered && state.enabled ? theme.tokens.state.hover : Color{};
             if (fill.alpha)
-                ok = paint_stream_push_rounded(paint, r, fill, theme.scale.radius_sm);
+                p.rounded(r, fill, theme.scale.radius_sm);
             const float pad = 6;
-            ok = ok && ui_icon_paint(paint, part.role == role_rotate ? UiIcon::retry : UiIcon::close,
-                                     {r.left + pad, r.top + pad, r.right - pad, r.bottom - pad},
-                                     ui_settings_color_alpha(state.hovered ? t.color.text_strong : t.color.text_subtle,
-                                                             state.enabled ? 1.f : .5f));
+            p.icon(part.role == role_rotate ? UiIcon::retry : UiIcon::close,
+                   {r.left + pad, r.top + pad, r.right - pad, r.bottom - pad},
+                   ui_settings_color_alpha(state.hovered ? t.color.text_strong : t.color.text_subtle,
+                                           state.enabled ? 1.f : .5f));
             break;
         }
         case role_apply:
         case role_cancel:
-            ok = ui_settings_button_paint(paint, t, r,
-                                          part.role == role_apply ? UiSettingsButtonVariant::primary
-                                                                  : UiSettingsButtonVariant::secondary,
-                                          state);
+            p.use<ui_settings_button_paint>(t, r,
+                                            part.role == role_apply ? UiSettingsButtonVariant::primary
+                                                                    : UiSettingsButtonVariant::secondary,
+                                            state);
             break;
         case role_tile: {
-            ok = paint_stream_push_rounded(paint, r,
-                                           state.hovered ? theme.tokens.state.hover : theme.base_lowest,
-                                           theme.scale.radius_sm);
-            if (ok && part.source < s.content.items.count && !s.content.items[part.source].sku) {
+            p.rounded(r, state.hovered ? theme.tokens.state.hover : theme.base_lowest, theme.scale.radius_sm);
+            if (part.source < s.content.items.count && !s.content.items[part.source].sku) {
                 const float cx = (r.left + r.right) * .5f, cy = (r.top + r.bottom) * .5f - 8;
-                ok = ui_icon_paint(paint, UiIcon::close, {cx - 12, cy - 12, cx + 12, cy + 12}, theme.text_secondary);
+                p.icon(UiIcon::close, {cx - 12, cy - 12, cx + 12, cy + 12}, theme.text_secondary);
             }
             break;
         }
         case role_preview:
-            ok = paint_stream_push_rounded(paint, r, theme.base_lowest, theme.scale.radius_sm);
+            p.rounded(r, theme.base_lowest, theme.scale.radius_sm);
             break;
         default:
             break;
         }
     }
-    return ok;
+    return p.end();
 }
 
 bool ui_profile_dialog_foreground(const UiProfileDialogScene& s, const Theme& theme, PaintStream* paint) noexcept {
     if (!s.active)
         return true;
-    bool ok = true;
+    UiPaint p{paint, theme};
     if (crop(s) && s.content.image_ready) {
         // The mask: a 5 DIP white border inside the crop shape.
         const auto mask = offset(image_crop_mask_rect(s.content.crop), s.crop_viewport);
         const bool round = s.content.crop.use == ImageCropUse::avatar;
-        ok = paint_stream_push_rounded_border(paint, mask, {},
-                                              theme.tokens.text.on_accent, round ? ui_rect_width(mask) * .5f : 0,
-                                              kMaskBorder);
-        if (ok)
-            if (const auto* editor = find(s, role_editor); editor && focused(s, *editor) && s.focus_visible) {
-                const auto r = visible(s, *editor);
-                ok = paint_stream_push_rounded_border(paint, r.left - 2, r.top - 2, r.right + 2, r.bottom + 2, {},
-                                                      ui_settings_focus_color(theme), theme.scale.radius_sm + 2, 2);
-            }
-        return ok;
+        p.rounded_border(mask, {}, theme.tokens.text.on_accent, round ? ui_rect_width(mask) * .5f : 0, kMaskBorder);
+        if (const auto* editor = find(s, role_editor); editor && focused(s, *editor) && s.focus_visible) {
+            const auto r = visible(s, *editor);
+            p.rounded_border({r.left - 2, r.top - 2, r.right + 2, r.bottom + 2}, {}, ui_settings_focus_color(theme),
+                             theme.scale.radius_sm + 2, 2);
+        }
+        return p.end();
     }
-    for (u32 i = 0; ok && i < s.part_count; ++i) {
+    for (u32 i = 0; p && i < s.part_count; ++i) {
         const auto& part = s.parts[i];
         if (part.role != role_tile)
             continue;
@@ -566,21 +558,21 @@ bool ui_profile_dialog_foreground(const UiProfileDialogScene& s, const Theme& th
         const bool ring = selected || (focused(s, part) && s.focus_visible);
         if (ring && ui_rect_has_area(r)) {
             const auto* n = node(s, part);
-            const auto full = n ? n->rectangle : r;
-            ok = paint_stream_push_clip(paint, r) &&
-                 paint_stream_push_rounded_border(paint, full, {},
-                                                  selected ? theme.tokens.emphasis.fill : ui_settings_focus_color(theme),
-                                                  theme.scale.radius_sm, 2) &&
-                 paint_stream_pop_clip(paint);
+            p.clip(r)
+                .rounded_border(n ? n->rectangle : r, {},
+                                selected ? theme.tokens.emphasis.fill : ui_settings_focus_color(theme),
+                                theme.scale.radius_sm, 2)
+                .unclip();
         }
     }
-    return ok;
+    return p.end();
 }
 
 bool ui_profile_dialog_text_output(const UiProfileDialogScene& s, const Theme& theme, UiTextOutput* output) noexcept {
     if (!s.active)
         return true;
     const UiSettingsThemeTokens t(theme);
+    UiTextPen<UiTextClip::label> text{output, s.widgets, s.rectangle};
     for (u32 i = 0; i < s.part_count; ++i) {
         const auto& part = s.parts[i];
         if (!part.text.bytes)
@@ -594,15 +586,15 @@ bool ui_profile_dialog_text_output(const UiProfileDialogScene& s, const Theme& t
             continue;
         UiControlState state{enabled(s, part), hovered(s, part), false, false};
         Color color = theme.text_primary;
-        auto alignment = UiTextAlignment::start;
+        u32 mode = 0;
         switch (part.role) {
         case role_apply:
             color = ui_settings_button_text(t, UiSettingsButtonVariant::primary, state);
-            alignment = UiTextAlignment::center;
+            mode = ui_text_center;
             break;
         case role_cancel:
             color = ui_settings_button_text(t, UiSettingsButtonVariant::secondary, state);
-            alignment = UiTextAlignment::center;
+            mode = ui_text_center;
             break;
         case role_reset:
             // A text button, disabled until the image is edited.
@@ -611,7 +603,7 @@ bool ui_profile_dialog_text_output(const UiProfileDialogScene& s, const Theme& t
             break;
         case role_tile:
             color = theme.text_secondary;
-            alignment = UiTextAlignment::center;
+            mode = ui_text_center;
             r.top = r.bottom - 28;
             break;
         case role_status:
@@ -624,19 +616,9 @@ bool ui_profile_dialog_text_output(const UiProfileDialogScene& s, const Theme& t
         default:
             break;
         }
-        if (!ui_text_output_push(output, {part.text,
-                                          {&s.widgets, part.widget},
-                                          r,
-                                          clip,
-                                          color,
-                                          part.style,
-                                          alignment,
-                                          UiTextAlignment::center,
-                                          TextWrapping::no_wrap,
-                                          TextOverflow::ellipsis}))
-            return false;
+        text.push(clip, part.widget, part.text, r, color, part.style, mode);
     }
-    return true;
+    return text.ok();
 }
 
 } // namespace maicord

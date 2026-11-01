@@ -1,9 +1,8 @@
 #include "maicord/ui/popup_presentation.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/ui/scrollbar.hpp"
+#include "maicord/ui/scene_kit.hpp"
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/ui/presence.hpp"
-#include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/foreground_color.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
@@ -29,12 +28,13 @@ bool paint_popup_presence(PaintStream* paint, UiRect rectangle, UiPresence statu
                           bool highlighted, const Theme& theme) noexcept {
     if (highlighted && status == UiPresence::offline) {
         const float extent = minimum(ui_rect_width(rectangle), ui_rect_height(rectangle));
-        return paint_stream_push_rounded_border(paint, rectangle.left - 2, rectangle.top - 2,
-                                                rectangle.right + 2, rectangle.bottom + 2,
-                                                theme.text_secondary, background, extent * .5f + 2, 2) &&
-               paint_stream_push_rounded(paint, rectangle.left + extent * .25f,
-                                         rectangle.top + extent * .25f, rectangle.right - extent * .25f,
-                                         rectangle.bottom - extent * .25f, background, extent * .25f);
+        return UiPaint{paint, theme}
+            .rounded_border({rectangle.left - 2, rectangle.top - 2, rectangle.right + 2, rectangle.bottom + 2},
+                            theme.text_secondary, background, extent * .5f + 2, 2)
+            .rounded({rectangle.left + extent * .25f, rectangle.top + extent * .25f, rectangle.right - extent * .25f,
+                      rectangle.bottom - extent * .25f},
+                     background, extent * .25f)
+            .ok();
     }
     return ui_presence_paint(paint, rectangle, status, background, theme);
 }
@@ -56,11 +56,8 @@ bool paint_menu_row_check(const PopupScene& scene, u32 index, const Theme& theme
     const auto clip = ui_rect_intersection(slot, layout.clip_rectangle);
     if (!ui_rect_has_area(clip))
         return true;
-    if (!paint_stream_push_clip(paint, clip.left, clip.top, clip.right, clip.bottom))
-        return false;
-    const Color color = menu_row_foreground(item, theme);
-    const bool painted = ui_icon_paint(paint, UiIcon::check, slot, color);
-    return paint_stream_pop_clip(paint) && painted;
+    UiPaint p{paint, theme};
+    return p.clip(clip).icon(UiIcon::check, slot, menu_row_foreground(item, theme)).end();
 }
 
 Color menu_row_foreground(const PopupItem& item, const Theme& theme) noexcept {
@@ -86,7 +83,8 @@ bool paint_menu_row_icon(const PopupScene& scene, u32 index, const Theme& theme,
     const UiRect icon_clip = ui_menu_row_slot_clip(geometry, geometry.icon);
     if (!ui_rect_has_area(icon_clip))
         return true;
-    if (!paint_stream_push_clip(paint, icon_clip.left, icon_clip.top, icon_clip.right, icon_clip.bottom))
+    UiPaint p{paint, theme};
+    if (!p.clip(icon_clip))
         return false;
     const bool status_icon = item.status && !(item.flags & popup_item_avatar);
     const bool highlighted = (item.flags & popup_item_enabled) &&
@@ -99,12 +97,12 @@ bool paint_menu_row_icon(const PopupScene& scene, u32 index, const Theme& theme,
         // Role colours are server data and pass through every theme unchanged.
         icon_color = color_from_rgb24(item.media_variant);
     }
-    const bool painted =
-        status_icon ? paint_popup_presence(
-                          paint, {x - 5, y - 5, x + 5, y + 5}, static_cast<UiPresence>(item.status),
-                          highlighted ? theme.surface_high : theme.base_lower, highlighted, theme)
-                    : ui_icon_paint(paint, ui_menu_row_icon(presentation), geometry.icon, icon_color);
-    return paint_stream_pop_clip(paint) && painted;
+    if (!status_icon)
+        p.icon(ui_menu_row_icon(presentation), geometry.icon, icon_color);
+    else if (!paint_popup_presence(paint, {x - 5, y - 5, x + 5, y + 5}, static_cast<UiPresence>(item.status),
+                                   highlighted ? theme.surface_high : theme.base_lower, highlighted, theme))
+        p.fail();
+    return p.end();
 }
 UiRect popup_avatar_rectangle(const UiLayoutNode& row) noexcept {
     const float y = (row.rectangle.top + row.rectangle.bottom) * .5f - 12;
@@ -293,9 +291,9 @@ bool paint_picker_item(const PopupScene& scene, u32 index, const PopupItemLayout
                        PaintStream* paint, UiTextMeasureCache* measure) noexcept {
     const PopupItem& item = scene.items[index];
     const UiRect r = layout.row->rectangle;
-    if (!paint_stream_push_clip(paint, layout.clip_rectangle))
+    UiPaint p{paint, theme};
+    if (!p.clip(layout.clip_rectangle))
         return false;
-    bool ok = true;
     const bool pointed = scene.selected_index == index && (item.flags & popup_item_enabled);
     if (item.flags & popup_item_command_category) {
         // Built-in's extra 8 DIPs hold the divider unless only Frequently Used
@@ -304,104 +302,98 @@ bool paint_picker_item(const PopupScene& scene, u32 index, const PopupItemLayout
                                  scene.items[index - 1].presentation.icon_plus_one &&
                                  ui_menu_row_icon(scene.items[index - 1].presentation) == UiIcon::recent;
         if ((item.flags & popup_item_separator_before) && !after_clock)
-            ok = paint_stream_push(paint, r.left, r.top - kCommandRailDivider * .5f, r.right,
-                                   r.top - kCommandRailDivider * .5f + 1, ui_separator_color(theme));
+            p.separator({r.left, r.top - kCommandRailDivider * .5f, r.right, r.top - kCommandRailDivider * .5f + 1});
         // The selected entry is background-base-low, the low tier's gradient
         // material on background themes; hover is the translucent hover token.
         const bool active = (item.flags & popup_item_checked) != 0;
-        if (ok && active)
-            ok = ui_background_paint_surface(paint, r, theme, theme.base_low, theme.base_low, theme.scale.radius_md,
-                                             0, .9f, UiBackgroundSurfaceMode::gradient, UiBackgroundTier::low);
-        else if (ok && pointed)
-            ok = paint_stream_push_rounded(paint, r, theme.tokens.state.hover, theme.scale.radius_md);
-        if (ok && picker_keyboard_focus(scene, index))
-            ok = paint_stream_push_rounded_border(paint, r.left - 2, r.top - 2, r.right + 2, r.bottom + 2, Color{},
-                                                  theme.tokens.border.focus, theme.scale.radius_md + 2, 2);
-        if (ok && (item.flags & popup_item_avatar))
-            ok = paint_stream_push_rounded(paint, r, theme.interactive, picker_media_radius(scene, index, r));
-        else if (ok && item.presentation.icon_plus_one) {
-            const float inset = (kCommandRailIcon - kPickerRailGlyph) * .5f;
-            ok = ui_icon_paint(paint, ui_menu_row_icon(item.presentation),
-                               {r.left + inset, r.top + inset, r.right - inset, r.bottom - inset},
-                               active ? theme.text_primary : pointed ? theme.text_primary : theme.text_secondary);
-        }
+        if (active)
+            p.use<ui_background_paint_surface>(r, theme, theme.base_low, theme.base_low, theme.scale.radius_md, 0.f, .9f,
+                                               UiBackgroundSurfaceMode::gradient, UiBackgroundTier::low,
+                                               UiBackgroundBorderTone::semantic);
+        else if (pointed)
+            p.rounded(r, theme.tokens.state.hover, theme.scale.radius_md);
+        if (picker_keyboard_focus(scene, index))
+            p.rounded_border({r.left - 2, r.top - 2, r.right + 2, r.bottom + 2}, Color{}, theme.tokens.border.focus,
+                             theme.scale.radius_md + 2, 2);
+        if (item.flags & popup_item_avatar)
+            p.rounded(r, theme.interactive, picker_media_radius(scene, index, r));
+        else if (item.presentation.icon_plus_one)
+            p.icon(ui_menu_row_icon(item.presentation), ui_rect_shrink(r, (kCommandRailIcon - kPickerRailGlyph) * .5f),
+                   active || pointed ? theme.text_primary : theme.text_secondary);
     } else if (item.flags & popup_item_command_section) {
         const UiRect icon = picker_media_rectangle(item, *layout.row);
         if (item.flags & popup_item_avatar)
-            ok = paint_stream_push_rounded(paint, icon, theme.interactive, kPickerHeaderIcon * .5f);
+            p.rounded(icon, theme.interactive, kPickerHeaderIcon * .5f);
         else if (item.presentation.icon_plus_one)
-            ok = ui_icon_paint(paint, ui_menu_row_icon(item.presentation), icon, theme.text_primary);
+            p.icon(ui_menu_row_icon(item.presentation), icon, theme.text_primary);
     } else if (popup_item_placeholder(item)) {
         const bool command = (item.flags & popup_item_command_row) != 0;
         // The Loading row's bar sits 8 DIPs down its text line.
-        ok = paint_placeholder(paint, item,
+        if (!paint_placeholder(paint, item,
                                {r.left + kPickerRowPadding, r.top + kPickerRowPadding + (command ? 0.f : kPickerBarGap),
                                 r.right - kPickerRowPadding,
                                 command ? r.bottom - kPickerRowPadding : r.top + kPickerRowPadding + kPickerBarGap +
                                                                              kPickerBar},
-                               command, theme);
+                               command, theme))
+            p.fail();
     } else if (!(item.flags & popup_item_command_row)) {
         // A Generic row (the selected command's option and choice lists).
         if (pointed)
-            ok = paint_stream_push_rounded(paint, r, ui_background_hover_color(theme, theme.surface_high, .28f),
-                                           theme.scale.radius_sm);
+            p.rounded(r, ui_background_hover_color(theme, theme.surface_high, .28f), theme.scale.radius_sm);
     } else {
         if (pointed)
-            ok = paint_stream_push_rounded(paint, r, ui_background_hover_color(theme, theme.surface_high, .28f),
-                                           theme.scale.radius_sm);
-        if (ok && (item.flags & popup_item_avatar))
-            ok = paint_stream_push_rounded(paint, picker_media_rectangle(item, *layout.row), theme.interactive,
-                                           kPickerImage * .5f);
-        else if (ok && item.presentation.icon_plus_one)
-            ok = ui_icon_paint(paint, ui_menu_row_icon(item.presentation), picker_media_rectangle(item, *layout.row),
-                               theme.text_secondary);
+            p.rounded(r, ui_background_hover_color(theme, theme.surface_high, .28f), theme.scale.radius_sm);
+        if (item.flags & popup_item_avatar)
+            p.rounded(picker_media_rectangle(item, *layout.row), theme.interactive, kPickerImage * .5f);
+        else if (item.presentation.icon_plus_one)
+            p.icon(ui_menu_row_icon(item.presentation), picker_media_rectangle(item, *layout.row), theme.text_secondary);
         // The usage summary's chips (the composer option chip's fill) and the
         // divider before the optional count.
-        const PickerRow row = ok && measure ? picker_row(scene, index, layout, measure) : PickerRow{};
-        for (u32 n = 0; ok && n < row.chip_count; ++n)
+        const PickerRow row = p && measure ? picker_row(scene, index, layout, measure) : PickerRow{};
+        for (u32 n = 0; n < row.chip_count; ++n)
             if (ui_rect_has_area(row.chip_rectangles[n]))
-                ok = paint_stream_push_rounded(paint, row.chip_rectangles[n], theme.tokens.option.fill,
-                                               theme.scale.radius_sm);
-        if (ok && row.optional.bytes && ui_rect_has_area(row.optional_rectangle))
-            ok = paint_stream_push(paint, row.divider, (row.title.top + row.title.bottom - kPickerChipHeight) * .5f,
-                                   row.divider + 1, (row.title.top + row.title.bottom + kPickerChipHeight) * .5f,
-                                   ui_separator_color(theme));
+                p.rounded(row.chip_rectangles[n], theme.tokens.option.fill, theme.scale.radius_sm);
+        if (row.optional.bytes && ui_rect_has_area(row.optional_rectangle))
+            p.separator({row.divider, (row.title.top + row.title.bottom - kPickerChipHeight) * .5f, row.divider + 1,
+                         (row.title.top + row.title.bottom + kPickerChipHeight) * .5f});
     }
-    return paint_stream_pop_clip(paint) && ok;
+    return p.end();
 }
 // One picker text run clipped to its item.
-bool push_picker_text(UiTextOutput* text, const PopupScene& scene, u32 index, const PopupItemLayout& layout,
+void push_picker_text(UiTextPen<>& text, const PopupScene& scene, u32 index, const PopupItemLayout& layout,
                       Utf8View value, UiRect rectangle, Color color, u32 flags,
                       UiTextAlignment horizontal = UiTextAlignment::start) noexcept {
-    if (!value.bytes || rectangle.right <= rectangle.left)
-        return true;
-    return ui_text_output_push(text, {value,
-                                      {&scene.widgets, scene.rows[index].label},
-                                      rectangle,
-                                      ui_rect_intersection(layout.clip_rectangle, rectangle),
-                                      color,
-                                      flags,
-                                      horizontal,
-                                      UiTextAlignment::center,
-                                      TextWrapping::no_wrap,
-                                      TextOverflow::ellipsis});
+    if (value.bytes && !(rectangle.right <= rectangle.left))
+        text.emit({value,
+                   {&scene.widgets, scene.rows[index].label},
+                   rectangle,
+                   ui_rect_intersection(layout.clip_rectangle, rectangle),
+                   color,
+                   flags,
+                   horizontal,
+                   UiTextAlignment::center,
+                   TextWrapping::no_wrap,
+                   TextOverflow::ellipsis});
 }
 // Section headers, the query title and command rows.
-bool picker_text(const PopupScene& scene, u32 index, const Theme& theme, UiTextOutput* text,
+void picker_text(UiTextPen<>& text, const PopupScene& scene, u32 index, const Theme& theme,
                  UiTextMeasureCache* measure) noexcept {
     const PopupItem& item = scene.items[index];
     PopupItemLayout layout{};
-    if (!popup_scene_resolve_item_layout(scene, index, &layout))
-        return false;
+    if (!popup_scene_resolve_item_layout(scene, index, &layout)) {
+        text.fail();
+        return;
+    }
     if (!layout.visible || (item.flags & popup_item_command_category) || popup_item_placeholder(item))
-        return true;
+        return;
     const UiRect r = layout.row->rectangle;
     const float left = picker_text_left(item, *layout.row);
     if (item.flags & popup_item_command_section) {
-        if (picker_discovery(scene))
-            return push_picker_text(text, scene, index, layout, item.label,
-                                    {left, r.top, r.right - kPickerRowPadding, r.bottom}, theme.text_primary,
-                                    text_style_bold | kTextStyleSizeCodeSm);
+        if (picker_discovery(scene)) {
+            push_picker_text(text, scene, index, layout, item.label, {left, r.top, r.right - kPickerRowPadding, r.bottom},
+                             theme.text_primary, text_style_bold | kTextStyleSizeCodeSm);
+            return;
+        }
         // The title ("COMMANDS MATCHING /QUERY"), with an optional
         // emphasised detail after it.
         constexpr u32 flags = text_style_bold | kTextStyleSizeCodeXs;
@@ -409,16 +401,18 @@ bool picker_text(const PopupScene& scene, u32 index, const Theme& theme, UiTextO
         const float width = item.detail.bytes ? picker_measure(measure, scene, item.label, flags,
                                                                (right - left) * .5f, 0x4354)
                                               : right - left;
-        return push_picker_text(text, scene, index, layout, item.label, {left, r.top, left + width, r.bottom},
-                                theme.text_secondary, flags) &&
-               push_picker_text(text, scene, index, layout, item.detail, {left + width, r.top, right, r.bottom},
-                                theme.text_primary, flags);
+        push_picker_text(text, scene, index, layout, item.label, {left, r.top, left + width, r.bottom},
+                         theme.text_secondary, flags);
+        push_picker_text(text, scene, index, layout, item.detail, {left + width, r.top, right, r.bottom},
+                         theme.text_primary, flags);
+        return;
     }
-    if (!(item.flags & popup_item_enabled))
-        return push_picker_text(text, scene, index, layout, item.label,
-                                {left, r.top + kPickerRowPadding, r.right - kPickerRowPadding,
-                                 r.bottom - kPickerRowPadding},
-                                theme.text_secondary, text_style_none);
+    if (!(item.flags & popup_item_enabled)) {
+        push_picker_text(text, scene, index, layout, item.label,
+                         {left, r.top + kPickerRowPadding, r.right - kPickerRowPadding, r.bottom - kPickerRowPadding},
+                         theme.text_secondary, text_style_none);
+        return;
+    }
     if (!(item.flags & popup_item_command_row)) {
         // The Generic row: its text, then the description right-aligned and
         // muted in the rest of the line (16 DIPs after the text, at least ten characters).
@@ -427,26 +421,26 @@ bool picker_text(const PopupScene& scene, u32 index, const Theme& theme, UiTextO
         const float width = picker_measure(measure, scene, item.label, text_style_none,
                                            maximum(1.f, right - left - detail_minimum), 0x4347);
         const float detail_left = minimum(right, left + width + kPickerImageGap);
-        return push_picker_text(text, scene, index, layout, item.label, {left, r.top, left + width, r.bottom},
-                                theme.text_primary, text_style_none) &&
-               push_picker_text(text, scene, index, layout, item.detail, {detail_left, r.top, right, r.bottom},
-                                theme.text_secondary, kTextStyleSizeCodeXs, UiTextAlignment::end);
+        push_picker_text(text, scene, index, layout, item.label, {left, r.top, left + width, r.bottom},
+                         theme.text_primary, text_style_none);
+        push_picker_text(text, scene, index, layout, item.detail, {detail_left, r.top, right, r.bottom},
+                         theme.text_secondary, kTextStyleSizeCodeXs, UiTextAlignment::end);
+        return;
     }
     const PickerRow row = picker_row(scene, index, layout, measure);
-    bool ok = push_picker_text(text, scene, index, layout, row.source, row.source_rectangle, theme.text_secondary,
-                               kTextStyleSizeCodeXs, UiTextAlignment::end) &&
-              push_picker_text(text, scene, index, layout, item.label, row.title, theme.text_primary,
-                               text_style_bold) &&
-              push_picker_text(text, scene, index, layout, row.description, row.description_rectangle,
-                               theme.text_secondary, kTextStyleSizeCodeXs);
-    for (u32 n = 0; ok && n < row.chip_count; ++n) {
+    push_picker_text(text, scene, index, layout, row.source, row.source_rectangle, theme.text_secondary,
+                     kTextStyleSizeCodeXs, UiTextAlignment::end);
+    push_picker_text(text, scene, index, layout, item.label, row.title, theme.text_primary, text_style_bold);
+    push_picker_text(text, scene, index, layout, row.description, row.description_rectangle, theme.text_secondary,
+                     kTextStyleSizeCodeXs);
+    for (u32 n = 0; n < row.chip_count; ++n) {
         const UiRect chip = row.chip_rectangles[n];
-        ok = push_picker_text(text, scene, index, layout, row.chips[n],
-                              {chip.left + kPickerChipPadding, chip.top, chip.right - kPickerChipPadding, chip.bottom},
-                              theme.text_primary, kTextStyleSizeCodeSm);
+        push_picker_text(text, scene, index, layout, row.chips[n],
+                         {chip.left + kPickerChipPadding, chip.top, chip.right - kPickerChipPadding, chip.bottom},
+                         theme.text_primary, kTextStyleSizeCodeSm);
     }
-    return ok && push_picker_text(text, scene, index, layout, row.optional, row.optional_rectangle,
-                                  theme.text_secondary, kTextStyleSizeCodeSm);
+    push_picker_text(text, scene, index, layout, row.optional, row.optional_rectangle, theme.text_secondary,
+                     kTextStyleSizeCodeSm);
 }
 } // namespace
 
@@ -457,42 +451,37 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
         return !scene.active;
     }
     const UiLayoutNode* panel = popup_scene_layout_node(scene, scene.panel);
+    if (!panel)
+        return false;
     const float panel_radius =
         scene.themed_menu ? popup_paint_metrics(scene, theme).menu_radius : kUiMenuCornerRadius;
-    // The drop shadow falls outside the panel clip, so it paints first.
-    if (!panel ||
-        !ui_surface_shadow_paint_isolated(paint, panel->rectangle, theme, UiElevation::popover, panel_radius) ||
-        !paint_stream_push_clip(paint, panel->rectangle.left, panel->rectangle.top, panel->rectangle.right,
-                                panel->rectangle.bottom)) {
-        return false;
-    }
-    // The pushed clip also forces a distinct paint batch, so the overlay cannot
-    // merge into the last base batch and draw under media/text sharing the root
-    // clip. Every popup kind shares the popover elevation material on gradient themes.
-    bool success = ui_surface_paint_plate(paint, panel->rectangle, theme, UiElevation::popover, panel_radius);
+    // The drop shadow falls outside the panel clip, so it paints first. The pushed clip also forces a distinct
+    // paint batch, so the overlay cannot merge into the last base batch and draw under media/text sharing the
+    // root clip. Every popup kind shares the popover elevation material on gradient themes.
+    UiPaint p{paint, theme};
+    p.popover(panel->rectangle, panel_radius, false);
     const bool picker = picker_scene(scene);
     // The picker rail is an inset rounded card in the darkest surface
     // (background-base-lowest) with the composer's corner radius, floating in
     // the panel; on background themes it is the lowest tier of the panel's
     // gradient material, as the media picker's rail.
     if (picker && picker_discovery(scene))
-        success = success && ui_background_paint_card(paint, popup_scene_picker_rail(scene), theme, theme.base_lowest,
-                                                      ui_theme_metrics(theme.styles).edit_radius,
-                                                      UiBackgroundTier::lowest);
+        p.use<ui_background_paint_card>(popup_scene_picker_rail(scene), theme, theme.base_lowest,
+                                        ui_theme_metrics(theme.styles).edit_radius, UiBackgroundTier::lowest);
     // Rows sit the panel padding inside its corners, so their fills share its corner centres.
     const float row_radius = ui_inner_radius(panel_radius, popup_metrics(scene).menu_padding);
-    for (u32 index = 0; success && index < scene.item_count; ++index) {
+    for (u32 index = 0; p && index < scene.item_count; ++index) {
         const PopupItem& item = scene.items[index];
         PopupItemLayout item_layout{};
         if (!popup_scene_resolve_item_layout(scene, index, &item_layout)) {
-            success = false;
+            p.fail();
             break;
         }
-        if (!item_layout.visible) {
+        if (!item_layout.visible)
             continue;
-        }
         if (picker) {
-            success = paint_picker_item(scene, index, item_layout, theme, paint, measure);
+            if (!paint_picker_item(scene, index, item_layout, theme, paint, measure))
+                p.fail();
             continue;
         }
         const UiLayoutNode* layout = item_layout.row;
@@ -503,11 +492,7 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
                                   ? kPopupContextSeparatorGap
                                   : popup_metrics(scene).menu_gap;
             const float y = layout->rectangle.top - gap * 0.5f;
-            if (!paint_stream_push(paint, layout->rectangle.left + 4.0f, y, layout->rectangle.right - 4.0f,
-                                   y + 1.0f, theme.interactive)) {
-                success = false;
-                break;
-            }
+            p.fill({layout->rectangle.left + 4.0f, y, layout->rectangle.right - 4.0f, y + 1.0f}, theme.interactive);
         }
         // A checked (not pointed-at) row uses the emphasis selected tint at
         // popover elevation, never the hover fill, so the pointed-at row stays
@@ -515,78 +500,54 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
         const bool checked_only = scene.selected_index != index && (item.flags & popup_item_checked);
         const Color highlight = checked_only ? ui_emphasis_selected(theme, UiElevation::popover)
                                              : ui_background_hover_color(theme, theme.surface_high, .28f);
-        if ((scene.selected_index == index || (item.flags & popup_item_checked) != 0) &&
-            (item.flags & popup_item_enabled) != 0 &&
-            !paint_stream_push_rounded_border(paint, layout->rectangle.left, layout->rectangle.top,
-                                              layout->rectangle.right, layout->rectangle.bottom, highlight,
-                                              highlight, row_radius, 0.0f)) {
-            success = false;
-            break;
-        }
+        const bool lit = (item.flags & popup_item_enabled) &&
+                         (scene.selected_index == index || (item.flags & popup_item_checked));
+        if (lit)
+            p.rounded_border(layout->rectangle, highlight, highlight, row_radius, 0.0f);
         if (item.flags & popup_item_avatar) {
             const auto avatar = popup_avatar_rectangle(*layout);
-            if (!paint_stream_push_rounded(paint, avatar.left, avatar.top, avatar.right, avatar.bottom,
-                                           theme.interactive, theme.scale.radius_lg) ||
-                (!(item.flags & popup_item_command_row) && !paint_popup_presence(
-                    paint, {avatar.right + 1, avatar.bottom - 7, avatar.right + 8, avatar.bottom},
-                    static_cast<UiPresence>(item.status),
-                    (item.flags & popup_item_enabled) &&
-                            (scene.selected_index == index || (item.flags & popup_item_checked))
-                        ? highlight
-                        : theme.base_lower,
-                    (item.flags & popup_item_enabled) &&
-                        (scene.selected_index == index || (item.flags & popup_item_checked)),
-                    theme))) {
-                success = false;
-                break;
-            }
+            p.rounded(avatar, theme.interactive, theme.scale.radius_lg);
+            if (p && !(item.flags & popup_item_command_row) &&
+                !paint_popup_presence(paint, {avatar.right + 1, avatar.bottom - 7, avatar.right + 8, avatar.bottom},
+                                      static_cast<UiPresence>(item.status), lit ? highlight : theme.base_lower, lit,
+                                      theme))
+                p.fail();
         }
-        if (!paint_menu_row_icon(scene, index, theme, paint) ||
-            !paint_menu_row_check(scene, index, theme, paint)) {
-            success = false;
-        }
+        if (p && (!paint_menu_row_icon(scene, index, theme, paint) || !paint_menu_row_check(scene, index, theme, paint)))
+            p.fail();
     }
     const auto feedback = popup_feedback_rectangle(scene);
     if (ui_rect_has_area(feedback))
-        success = paint_stream_push(paint, feedback.left, feedback.top, feedback.right, feedback.top + 1,
-                                    ui_separator_color(theme)) &&
-                  success;
+        p.separator({feedback.left, feedback.top, feedback.right, feedback.top + 1});
     if (const UiRect track = popup_feedback_slider(scene); ui_rect_has_area(track)) {
         const UiSettingsThemeTokens tokens(theme);
         const u32 count = scene.feedback.slider_count;
-        const auto g = ui_slider_geometry(tokens, track, count, scene.feedback.slider_value, false);
-        success = ui_slider_paint(paint, tokens, g, count, count, {}) && success;
+        p.use<ui_slider_paint>(tokens, ui_slider_geometry(tokens, track, count, scene.feedback.slider_value, false),
+                               count, count, UiControlState{});
     }
     if (panel->spec.style.flags & ui_layout_node_scroll_vertical)
-        success =
-            ui_scrollbar_paint(paint,
-                               ui_scrollbar_geometry(scene.rectangle, scene.scroll_offset,
-                                                     ui_rect_height(scene.rectangle) + scene.scroll_max),
-                               theme) &&
-            success;
+        p.scrollbar(ui_scrollbar_geometry(scene.rectangle, scene.scroll_offset,
+                                          ui_rect_height(scene.rectangle) + scene.scroll_max));
     // The picker list's thin scrollbar over its body column (the owner
     // publishes the virtual offset and content height).
     if (picker && scene.picker_scroll_extent > 0)
-        success = ui_scrollbar_paint(paint,
-                                     ui_scrollbar_geometry(popup_scene_picker_body(scene), scene.picker_scroll_offset,
-                                                           scene.picker_scroll_extent),
-                                     theme) &&
-                  success;
-    return paint_stream_pop_clip(paint) && success;
+        p.scrollbar(ui_scrollbar_geometry(popup_scene_picker_body(scene), scene.picker_scroll_offset,
+                                          scene.picker_scroll_extent));
+    return p.end();
 }
 
 bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& theme,
-                                          UiTextOutput* text, UiTextMeasureCache* measure) noexcept {
-    if (!ui_text_output_valid(text) || !scene.active || scene.item_count == 0 ||
-        scene.item_count > scene.items.count || scene.item_count > scene.rows.count) {
+                                          UiTextOutput* output, UiTextMeasureCache* measure) noexcept {
+    UiTextPen text{output, scene.widgets, kUiNoRect};
+    if (!text.ok() || !scene.active || scene.item_count == 0 || scene.item_count > scene.items.count ||
+        scene.item_count > scene.rows.count) {
         return !scene.active;
     }
     const bool picker = popup_items_command_picker({scene.items.data, scene.item_count});
-    for (u32 index = 0; index < scene.item_count; ++index) {
+    for (u32 index = 0; text.ok() && index < scene.item_count; ++index) {
         const PopupItem& item = scene.items[index];
         if (picker) {
-            if (!picker_text(scene, index, theme, text, measure))
-                return false;
+            picker_text(text, scene, index, theme, measure);
             continue;
         }
         if ((item.flags & popup_item_custom_emoji) != 0 ||
@@ -637,21 +598,17 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
                 detail.left = detail.right - minimum(180.0f, ui_rect_width(label_rectangle) * .42f);
                 label_rectangle.right = maximum(label_rectangle.left, detail.left - 12);
             }
-            if (!ui_text_output_push(
-                    text,
-                    {detail_text,
-                     {&scene.widgets, row.label},
-                     detail,
-                     shared_row ? ui_menu_row_slot_clip(menu_geometry, detail) : item_layout.clip_rectangle,
-                     detail_color,
-                     text_style_none,
-                     shared_row && popup_item_menu_presentation(item).secondary_line
-                         ? UiTextAlignment::start
-                         : UiTextAlignment::end,
-                     UiTextAlignment::center,
-                     TextWrapping::no_wrap,
-                     TextOverflow::ellipsis}))
-                return false;
+            text.emit({detail_text,
+                       {&scene.widgets, row.label},
+                       detail,
+                       shared_row ? ui_menu_row_slot_clip(menu_geometry, detail) : item_layout.clip_rectangle,
+                       detail_color,
+                       text_style_none,
+                       shared_row && popup_item_menu_presentation(item).secondary_line ? UiTextAlignment::start
+                                                                                       : UiTextAlignment::end,
+                       UiTextAlignment::center,
+                       TextWrapping::no_wrap,
+                       TextOverflow::ellipsis});
         }
         if (hint.bytes) {
             UiRect hint_rectangle = shared_row ? menu_geometry.shortcut : label_rectangle;
@@ -660,31 +617,27 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
                 hint_rectangle.left = hint_rectangle.right - hint_width;
                 label_rectangle.right = maximum(label_rectangle.left, hint_rectangle.left - 12.0f);
             }
-            if (!ui_text_output_push(text,
-                                     {hint,
-                                      {&scene.widgets, row.label},
-                                      hint_rectangle,
-                                      shared_row ? ui_menu_row_slot_clip(menu_geometry, hint_rectangle)
-                                                 : item_layout.clip_rectangle,
-                                      color,
-                                      text_style_none,
-                                      UiTextAlignment::end,
-                                      UiTextAlignment::center,
-                                      TextWrapping::no_wrap,
-                                      TextOverflow::ellipsis}))
-                return false;
+            text.emit({hint,
+                       {&scene.widgets, row.label},
+                       hint_rectangle,
+                       shared_row ? ui_menu_row_slot_clip(menu_geometry, hint_rectangle) : item_layout.clip_rectangle,
+                       color,
+                       text_style_none,
+                       UiTextAlignment::end,
+                       UiTextAlignment::center,
+                       TextWrapping::no_wrap,
+                       TextOverflow::ellipsis});
         }
-        if (!ui_text_output_push(
-                text, UiTextCommand{
-                          item.label, UiWidgetReference{&scene.widgets, row.label}, label_rectangle,
-                          shared_row ? ui_menu_row_slot_clip(menu_geometry, label_rectangle)
-                                     : item_layout.clip_rectangle,
-                          color,
-                          (item.flags & popup_item_emoji) != 0 ? text_style_picker_emoji : text_style_none,
-                          centered ? UiTextAlignment::center : UiTextAlignment::start,
-                          UiTextAlignment::center, TextWrapping::no_wrap, TextOverflow::ellipsis})) {
-            return false;
-        }
+        text.emit({item.label,
+                   {&scene.widgets, row.label},
+                   label_rectangle,
+                   shared_row ? ui_menu_row_slot_clip(menu_geometry, label_rectangle) : item_layout.clip_rectangle,
+                   color,
+                   (item.flags & popup_item_emoji) != 0 ? text_style_picker_emoji : text_style_none,
+                   centered ? UiTextAlignment::center : UiTextAlignment::start,
+                   UiTextAlignment::center,
+                   TextWrapping::no_wrap,
+                   TextOverflow::ellipsis});
     }
     const auto feedback = popup_feedback_rectangle(scene);
     if (scene.feedback.text.bytes && ui_rect_has_area(feedback)) {
@@ -695,19 +648,18 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
             label.bottom = maximum(label.top, track.top);
         const auto color =
             ui_foreground_color(theme, scene.feedback.error ? theme.notification : theme.text_secondary);
-        if (!ui_text_output_push(text, {scene.feedback.text,
-                                        {&scene.widgets, scene.panel},
-                                        label,
-                                        feedback,
-                                        color,
-                                        text_style_subtext,
-                                        UiTextAlignment::start,
-                                        UiTextAlignment::center,
-                                        TextWrapping::no_wrap,
-                                        TextOverflow::ellipsis}))
-            return false;
+        text.emit({scene.feedback.text,
+                   {&scene.widgets, scene.panel},
+                   label,
+                   feedback,
+                   color,
+                   text_style_subtext,
+                   UiTextAlignment::start,
+                   UiTextAlignment::center,
+                   TextWrapping::no_wrap,
+                   TextOverflow::ellipsis});
     }
-    return true;
+    return text.ok();
 }
 
 PopupMediaPresentationStatus popup_media_presentation_resolve(const PopupScene& scene, u32 index,

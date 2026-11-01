@@ -1,9 +1,7 @@
 #include "maicord/ui/call_scene.hpp"
 #include "call_stage.hpp"
-#include "maicord/ui/background_surface.hpp"
+#include "maicord/ui/scene_kit.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
-#include "maicord/ui/icon.hpp"
-#include "maicord/ui/spinner.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/text_style.hpp"
 #include "maicord/core/decimal.hpp"
@@ -25,7 +23,6 @@ constexpr u64 kMorphOwner = 0xca11'5ce4'e000'0001ull;
 
 using call_stage::centered;
 using call_stage::copy_text;
-using call_stage::push_text;
 
 inline float clampf(float value, float low, float high) noexcept {
     return value < low ? low : value > high ? high : value;
@@ -935,168 +932,158 @@ bool ui_call_scene_spinner_visible(const UiCallScene& s) noexcept {
 bool ui_call_scene_paint(const UiCallScene& s, const Theme& theme, PaintStream* paint) noexcept {
     if (!s.active)
         return true;
-    if (!paint)
-        return false;
-    const auto v = s.viewport;
-    if (!paint_stream_push_clip(paint, v))
-        return false;
-    bool ok = ui_background_paint_canvas(paint, v, theme, theme.base_lowest, UiBackgroundTier::lowest);
+    UiPaint p{paint, theme};
     const float middle = (s.header.top + s.header.bottom) * .5f;
-    ok = ok && ui_icon_paint(paint, s.stage_active ? UiIcon::podcast : UiIcon::speaker,
-                             {s.header.left + 16, middle - 10, s.header.left + 36, middle + 10},
-                             s.stage_live ? ui_icon_role_color(theme, UiIconRole::success) : theme.text_secondary);
-    ok = ok && paint_stream_push(paint, s.header.left, s.header.bottom - 1, s.header.right, s.header.bottom,
-                                 ui_separator_color(theme));
+    p.clip(s.viewport)
+        .use<ui_background_paint_canvas>(s.viewport, theme, theme.base_lowest, UiBackgroundTier::lowest)
+        .icon(s.stage_active ? UiIcon::podcast : UiIcon::speaker,
+              {s.header.left + 16, middle - 10, s.header.left + 36, middle + 10},
+              s.stage_live ? ui_icon_role_color(theme, UiIconRole::success) : theme.text_secondary)
+        .rule_below(s.header);
     // Letterbox behind pictures: the opaque media scrim.
     Color black = theme.tokens.overlay.media;
     black.alpha = 1;
-    for (u32 i = 0; ok && i < s.tile_count; ++i) {
+    for (u32 i = 0; p && i < s.tile_count; ++i) {
         const auto& tile = s.tiles[i];
-        const auto* p = participant_of(s, tile);
-        if (!p || !ui_rect_has_area(visible_part(tile)))
+        const auto* who = participant_of(s, tile);
+        if (!who || !ui_rect_has_area(visible_part(tile)))
             continue;
         const auto r = tile.display;
-        ok = paint_stream_push_clip(paint, tile.clip);
-        if (stream_tile(*p)) {
+        p.clip(tile.clip);
+        if (stream_tile(*who)) {
             // Streams sit on the media plate; a screen glyph shows until a
             // preview or picture covers it.
-            ok = ok && paint_stream_push_rounded(paint, r, black, kTileRadius);
-            const bool glyph = !video_ready(*p) && !stream_spinner(*p) && p->stream != UiCallStream::ended &&
-                               !(p->stream == UiCallStream::live && p->paused);
+            p.rounded(r, black, kTileRadius);
+            const bool glyph = !video_ready(*who) && !stream_spinner(*who) && who->stream != UiCallStream::ended &&
+                               !(who->stream == UiCallStream::live && who->paused);
             const float extent = ui_rect_height(r) >= 120 ? 40.f : 24.f;
             Color ink = kDefaultTheme.text_secondary;
             ink.alpha *= .6f;
-            if (ok && glyph && p->stream != UiCallStream::available)
-                ok = ui_icon_paint(paint, UiIcon::screen_share,
-                                   centered((r.left + r.right) * .5f, (r.top + r.bottom) * .5f, extent, extent), ink);
-            else if (ok && glyph) {
+            if (p && glyph && who->stream != UiCallStream::available)
+                p.icon(UiIcon::screen_share, centered((r.left + r.right) * .5f, (r.top + r.bottom) * .5f, extent, extent),
+                       ink);
+            else if (p && glyph) {
                 // Above the watch button, so both read without a preview.
-                const auto watch = tile_controls(tile, *p, false).watch;
+                const auto watch = tile_controls(tile, *who, false).watch;
                 const float bottom = ui_rect_has_area(watch) ? watch.top - 8 : (r.top + r.bottom + extent) * .5f;
                 if (bottom - extent >= r.top + kPillInset + kLiveHeight)
-                    ok = ui_icon_paint(paint, UiIcon::screen_share,
-                                       {(r.left + r.right - extent) * .5f, bottom - extent,
-                                        (r.left + r.right + extent) * .5f, bottom},
-                                       ink);
+                    p.icon(UiIcon::screen_share,
+                           {(r.left + r.right - extent) * .5f, bottom - extent, (r.left + r.right + extent) * .5f, bottom},
+                           ink);
             }
-        } else if (video_ready(*p))
-            ok = ok && paint_stream_push_rounded(paint, r, black, kTileRadius);
+        } else if (video_ready(*who))
+            p.rounded(r, black, kTileRadius);
         else {
             // Avatar tiles: the card plate tinted with the participant's identity
             // colour. The host draws a custom avatar over the placeholder.
             const Color fill = theme.surface;
-            ok = ok && ui_surface_paint(paint, r, theme, UiElevation::card, kTileRadius, &fill,
-                                        &theme.tokens.border.subtle) &&
-                 paint_stream_push_rounded(paint, r, ui_call_tile_tint(theme, p->user_id), kTileRadius);
             const auto a = avatar_rect(tile);
-            ok = ok && paint_stream_push_rounded(paint, a, p->has_avatar ? theme.avatar_placeholder
-                          : ui_call_identity_color(theme, p->user_id), ui_rect_width(a) * .5f);
+            p.use<ui_surface_paint>(r, theme, UiElevation::card, kTileRadius, &fill, &theme.tokens.border.subtle)
+                .rounded(r, ui_call_tile_tint(theme, who->user_id), kTileRadius)
+                .rounded(a, who->has_avatar ? theme.avatar_placeholder : ui_call_identity_color(theme, who->user_id),
+                         ui_rect_width(a) * .5f);
         }
-        ok = paint_stream_pop_clip(paint) && ok;
+        p.unclip();
     }
-    ok = ok && call_stage::paint(s, theme, paint);
-    return paint_stream_pop_clip(paint) && ok;
+    return p.use<call_stage::paint>(s, theme).end();
 }
 
 bool ui_call_scene_paint_foreground(const UiCallScene& s, const Theme& theme, PaintStream* paint) noexcept {
     if (!s.active)
         return true;
-    if (!paint)
-        return false;
-    const auto v = s.viewport;
-    if (!paint_stream_push_clip(paint, v))
-        return false;
-    bool ok = true;
+    UiPaint p{paint, theme};
+    p.clip(s.viewport);
     const Color success = ui_icon_role_color(theme, UiIconRole::success);
     const Color danger = ui_icon_role_color(theme, UiIconRole::danger);
     const Color light = kDefaultTheme.text_primary; // Pills and badges sit on a dark scrim.
-    for (u32 i = 0; ok && i < s.tile_count; ++i) {
+    struct RoundButton {
+        UiRect rect;
+        UiCallControl control;
+        UiIcon icon;
+    };
+    for (u32 i = 0; p && i < s.tile_count; ++i) {
         const auto& tile = s.tiles[i];
-        const auto* p = participant_of(s, tile);
-        if (!p || !ui_rect_has_area(visible_part(tile)))
+        const auto* who = participant_of(s, tile);
+        if (!who || !ui_rect_has_area(visible_part(tile)))
             continue;
         const auto r = tile.display;
-        ok = paint_stream_push_clip(paint, tile.clip);
+        p.clip(tile.clip);
         const bool hovered = s.hovered_user == tile.user_id;
-        const auto controls = tile_controls(s, tile, *p, hovered);
-        if (ok && stream_scrim(*p) && p->stream != UiCallStream::ended)
-            ok = paint_stream_push_rounded(paint, r, theme.tokens.overlay.scrim_light, kTileRadius);
-        if (ok && stream_spinner(*p))
-            ok = ui_spinner_paint(paint, state_glyph(tile, ui_rect_has_area(status_line(tile)) &&
-                                                               stream_status(*p).bytes),
-                                  light, s.spinner_phase);
+        const auto controls = tile_controls(s, tile, *who, hovered);
+        const auto hot = [&](UiCallControl control) noexcept { return hovered && s.hovered == control; };
+        if (stream_scrim(*who) && who->stream != UiCallStream::ended)
+            p.rounded(r, theme.tokens.overlay.scrim_light, kTileRadius);
+        if (stream_spinner(*who))
+            p.spinner(state_glyph(tile, ui_rect_has_area(status_line(tile)) && stream_status(*who).bytes), light,
+                      s.spinner_phase);
         UiIcon glyph{};
-        if (ok && status_glyph(*p, &glyph)) {
+        if (status_glyph(*who, &glyph)) {
             Color ink = light;
-            if (p->stream == UiCallStream::ended)
+            if (who->stream == UiCallStream::ended)
                 ink.alpha *= .6f;
-            ok = ui_icon_paint(paint, glyph, state_glyph(tile, ui_rect_has_area(status_line(tile))), ink);
+            p.icon(glyph, state_glyph(tile, ui_rect_has_area(status_line(tile))), ink);
         }
-        if (ok && p->speaking)
-            ok = paint_stream_push_rounded_border(paint, r, {0, 0, 0, 0}, success, kTileRadius, 2);
-        const auto pill = name_pill(tile, *p, controls);
-        if (ok && ui_rect_has_area(pill)) {
-            ok = paint_stream_push_rounded(paint, pill, theme.tokens.overlay.scrim, theme.scale.radius_md);
+        if (who->speaking)
+            p.rounded_border(r, Color{}, success, kTileRadius, 2);
+        const auto pill = name_pill(tile, *who, controls);
+        if (ui_rect_has_area(pill)) {
+            p.rounded(pill, theme.tokens.overlay.scrim, theme.scale.radius_md);
             float x = pill.right - 6;
             const float y = (pill.top + pill.bottom) * .5f;
-            if (ok && stream_tile(*p))
-                ok = ui_icon_paint(paint, UiIcon::screen_share, {x - kIndicator, y - 8, x, y + 8}, light);
-            if (ok && !stream_tile(*p) && p->deafened) {
-                ok = ui_icon_paint(paint, UiIcon::headphones_off, {x - kIndicator, y - 8, x, y + 8}, danger);
+            if (stream_tile(*who))
+                p.icon(UiIcon::screen_share, {x - kIndicator, y - 8, x, y + 8}, light);
+            if (!stream_tile(*who) && who->deafened) {
+                p.icon(UiIcon::headphones_off, {x - kIndicator, y - 8, x, y + 8}, danger);
                 x -= kIndicator + 4;
             }
-            if (ok && !stream_tile(*p) && p->muted)
-                ok = ui_icon_paint(paint, UiIcon::mic_off, {x - kIndicator, y - 8, x, y + 8}, danger);
+            if (!stream_tile(*who) && who->muted)
+                p.icon(UiIcon::mic_off, {x - kIndicator, y - 8, x, y + 8}, danger);
         }
-        const auto live = live_badge(tile, *p);
-        if (ok && ui_rect_has_area(live))
-            ok = paint_stream_push_rounded(paint, live, theme.tokens.accent.danger, theme.scale.radius_sm);
-        const auto effect = effect_pill(tile, *p);
-        if (ok && ui_rect_has_area(effect))
-            ok = paint_stream_push_rounded(paint, effect, theme.tokens.overlay.scrim_strong, theme.scale.radius_md);
-        const auto viewers = viewer_pill(tile, *p);
-        if (ok && ui_rect_has_area(viewers)) {
+        const auto live = live_badge(tile, *who);
+        if (ui_rect_has_area(live))
+            p.rounded(live, theme.tokens.accent.danger, theme.scale.radius_sm);
+        const auto effect = effect_pill(tile, *who);
+        if (ui_rect_has_area(effect))
+            p.rounded(effect, theme.tokens.overlay.scrim_strong, theme.scale.radius_md);
+        const auto viewers = viewer_pill(tile, *who);
+        if (ui_rect_has_area(viewers)) {
             const float y = (viewers.top + viewers.bottom) * .5f;
-            ok = paint_stream_push_rounded(paint, viewers, theme.tokens.overlay.scrim, theme.scale.radius_sm) &&
-                 ui_icon_paint(paint, UiIcon::eye, {viewers.left + 6, y - 7, viewers.left + 20, y + 7}, light);
+            p.rounded(viewers, theme.tokens.overlay.scrim, theme.scale.radius_sm)
+                .icon(UiIcon::eye, {viewers.left + 6, y - 7, viewers.left + 20, y + 7}, light);
         }
-        const auto round_button = [&](UiRect button, UiCallControl control, UiIcon icon) noexcept {
-            if (!ui_rect_has_area(button))
-                return true;
-            const bool hot = hovered && s.hovered == control;
-            return paint_stream_push_rounded(paint, button, hot ? theme.tokens.overlay.scrim_strong : theme.tokens.overlay.scrim, ui_rect_height(button) * .5f) &&
-                   ui_icon_paint(paint, icon, ui_rect_inset(button, {7, 7, 7, 7}), light);
-        };
+        const RoundButton round_buttons[]{
+            {controls.fullscreen, UiCallControl::tile_fullscreen,
+             s.fullscreen && tile.focused ? UiIcon::minimize : UiIcon::maximize},
+            {controls.volume, UiCallControl::stream_volume, UiIcon::speaker},
+            {controls.dismiss, UiCallControl::stream_dismiss, UiIcon::close},
+            {controls.move, UiCallControl::stage_move, UiIcon::user_minus}};
+        for (const auto& button : round_buttons)
+            if (ui_rect_has_area(button.rect))
+                p.rounded(button.rect,
+                          hot(button.control) ? theme.tokens.overlay.scrim_strong : theme.tokens.overlay.scrim,
+                          ui_rect_height(button.rect) * .5f)
+                    .icon(button.icon, ui_rect_inset(button.rect, {7, 7, 7, 7}), light);
         // Filled pills: "Watch stream" (brand) and "Stop watching" (danger).
-        const auto filled_button = [&](UiRect button, UiCallControl control, Color fill) noexcept {
-            if (!ui_rect_has_area(button))
-                return true;
-            const bool hot = hovered && s.hovered == control;
-            const float shade = hot && s.pressed == control ? .8f : hot ? .9f : 1.f;
-            fill.red *= shade;
-            fill.green *= shade;
-            fill.blue *= shade;
-            return paint_stream_push_rounded(paint, button, fill, theme.scale.radius_sm);
-        };
-        if (ok)
-            ok = round_button(controls.fullscreen, UiCallControl::tile_fullscreen,
-                       s.fullscreen && tile.focused ? UiIcon::minimize : UiIcon::maximize) &&
-                 round_button(controls.volume, UiCallControl::stream_volume, UiIcon::speaker) &&
-                 round_button(controls.dismiss, UiCallControl::stream_dismiss, UiIcon::close) &&
-                 round_button(controls.move, UiCallControl::stage_move, UiIcon::user_minus) &&
-                 filled_button(controls.watch, UiCallControl::stream_watch, theme.tokens.accent.brand);
-        if (ok && ui_rect_has_area(controls.stop)) {
-            ok = filled_button(controls.stop, UiCallControl::stream_stop, theme.tokens.accent.danger);
+        if (ui_rect_has_area(controls.watch))
+            p.rounded(controls.watch,
+                      call_stage::shaded(theme.tokens.accent.brand, hot(UiCallControl::stream_watch),
+                                         hot(UiCallControl::stream_watch) && s.pressed == UiCallControl::stream_watch),
+                      theme.scale.radius_sm);
+        if (ui_rect_has_area(controls.stop)) {
             const auto c = controls.stop;
             const float y = (c.top + c.bottom) * .5f;
-            const UiRect icon = controls.stop_compact ? ui_rect_inset(c, {7, 7, 7, 7})
-                                                      : UiRect{c.left + 10, y - 8, c.left + 26, y + 8};
-            ok = ok && ui_icon_paint(paint, UiIcon::close, icon, theme.tokens.text.on_accent);
+            p.rounded(c,
+                      call_stage::shaded(theme.tokens.accent.danger, hot(UiCallControl::stream_stop),
+                                         hot(UiCallControl::stream_stop) && s.pressed == UiCallControl::stream_stop),
+                      theme.scale.radius_sm)
+                .icon(UiIcon::close,
+                      controls.stop_compact ? ui_rect_inset(c, {7, 7, 7, 7}) : UiRect{c.left + 10, y - 8, c.left + 26, y + 8},
+                      theme.tokens.text.on_accent);
         }
-        ok = paint_stream_pop_clip(paint) && ok;
+        p.unclip();
     }
     // Control bar: round buttons consistent with the voice card's controls.
-    for (u32 i = 1; ok && i < kUiCallControlCount; ++i) {
+    for (u32 i = 1; p && i < kUiCallControlCount; ++i) {
         const auto control = static_cast<UiCallControl>(i);
         const auto r = s.controls[i];
         if (!ui_rect_has_area(r) || control == UiCallControl::tile_fullscreen || stage_chrome(control))
@@ -1147,16 +1134,11 @@ bool ui_call_scene_paint_foreground(const UiCallScene& s, const Theme& theme, Pa
             break;
         }
         if (control == UiCallControl::disconnect) {
-            Color fill = theme.tokens.accent.danger;
-            const float shade = pressed ? .8f : hovered ? .9f : 1.f;
-            fill.red *= shade;
-            fill.green *= shade;
-            fill.blue *= shade;
-            ok = paint_stream_push_rounded(paint, r, fill, radius);
+            p.rounded(r, call_stage::shaded(theme.tokens.accent.danger, hovered, pressed), radius);
         } else if (control == UiCallControl::close || control == UiCallControl::fullscreen ||
                    control == UiCallControl::chat) {
             if (hovered || active)
-                ok = paint_stream_push_rounded(paint, r, pressed ? theme.tokens.state.pressed : theme.tokens.state.hover, theme.scale.radius_sm);
+                p.rounded(r, pressed ? theme.tokens.state.pressed : theme.tokens.state.hover, theme.scale.radius_sm);
             ink = hovered || active ? theme.text_primary : theme.text_secondary;
         } else {
             // Idle: the subtle plate; hover/press add the state overlay.
@@ -1176,28 +1158,23 @@ bool ui_call_scene_paint_foreground(const UiCallScene& s, const Theme& theme, Pa
                 ink = theme.text_secondary;
                 ink.alpha *= .45f;
             }
-            ok = ui_surface_paint(paint, r, theme, UiElevation::banner, radius, &fill, &theme.tokens.border.subtle);
-            if (ok && tint.alpha > 0)
-                ok = paint_stream_push_rounded(paint, r, tint, radius);
+            p.use<ui_surface_paint>(r, theme, UiElevation::banner, radius, &fill, &theme.tokens.border.subtle);
+            if (tint.alpha > 0)
+                p.rounded(r, tint, radius);
         }
         const float extent = control == UiCallControl::close || control == UiCallControl::fullscreen ||
                                      control == UiCallControl::chat
                                  ? 20.f
                                  : 24.f;
         const float dy = pressed ? 1.f : 0.f;
-        ok = ok && ui_icon_paint(paint, icon,
-                                 centered((r.left + r.right) * .5f, (r.top + r.bottom) * .5f + dy, extent, extent),
-                                 ink);
+        p.icon(icon, centered((r.left + r.right) * .5f, (r.top + r.bottom) * .5f + dy, extent, extent), ink);
     }
-    ok = ok && call_stage::paint_foreground(s, theme, paint);
-    return paint_stream_pop_clip(paint) && ok;
+    return p.use<call_stage::paint_foreground>(s, theme).end();
 }
 
-bool ui_call_scene_text_output(const UiCallScene& s, const Theme& theme, UiTextOutput* text) noexcept {
+bool ui_call_scene_text_output(const UiCallScene& s, const Theme& theme, UiTextOutput* out) noexcept {
     if (!s.active)
         return true;
-    if (!text)
-        return false;
     const auto close = s.controls[static_cast<u32>(UiCallControl::close)];
     const auto chat = s.controls[static_cast<u32>(UiCallControl::chat)];
     float title_right = ui_rect_has_area(chat)             ? chat.left - 12
@@ -1211,78 +1188,77 @@ bool ui_call_scene_text_output(const UiCallScene& s, const Theme& theme, UiTextO
     const Utf8View status_text = s.stage_notice_bytes ? Utf8View{s.stage_notice, s.stage_notice_bytes}
                                  : !s.connected        ? utf8_literal("Connecting\xE2\x80\xA6")
                                                        : Utf8View{};
-    bool ok = push_text(text, s, title,
-                        {s.header.left + 44, s.header.top, status_text.bytes ? status.left - 8 : title_right,
-                         s.header.bottom},
-                        s.header, theme.tokens.text.normal, text_style_bold);
-    if (ok && status_text.bytes)
-        ok = push_text(text, s, status_text, status, s.header, theme.tokens.text.muted, text_style_subtext,
-                       UiTextAlignment::end);
-    ok = ok && call_stage::text(s, theme, text);
+    UiTextPen<UiTextClip::label> text{out, s.widgets, s.viewport};
+    const auto owner = s.owner.handle;
+    text.in(s.header)(owner, title,
+                      {s.header.left + 44, s.header.top, status_text.bytes ? status.left - 8 : title_right,
+                       s.header.bottom},
+                      theme.tokens.text.normal, text_style_bold)(owner, status_text, status, theme.tokens.text.muted,
+                                                                 text_style_subtext, ui_text_end);
+    call_stage::text(text, s, theme);
     const Color light = kDefaultTheme.text_primary;
-    for (u32 i = 0; ok && i < s.tile_count; ++i) {
+    for (u32 i = 0; text.ok() && i < s.tile_count; ++i) {
         const auto& tile = s.tiles[i];
-        const auto* p = participant_of(s, tile);
-        if (!p)
+        const auto* who = participant_of(s, tile);
+        if (!who)
             continue;
         const UiRect clip = visible_part(tile);
-        const auto controls = tile_controls(s, tile, *p, s.hovered_user == tile.user_id);
-        const auto pill = name_pill(tile, *p, controls);
+        const auto controls = tile_controls(s, tile, *who, s.hovered_user == tile.user_id);
+        const auto pill = name_pill(tile, *who, controls);
         if (ui_rect_has_area(pill)) {
-            const float icons = stream_tile(*p) ? kIndicator + 4
-                                                : static_cast<float>(indicator_count(*p)) * (kIndicator + 4);
-            const UiRect label{pill.left + 10, pill.top, pill.right - 6 - icons, pill.bottom};
-            const Utf8View name = p->name.bytes ? p->name : utf8_literal("Unknown user");
-            ok = push_text(text, s, name, label, ui_rect_intersection(clip, pill), light, text_style_subtext);
+            const float icons = stream_tile(*who) ? kIndicator + 4
+                                                  : static_cast<float>(indicator_count(*who)) * (kIndicator + 4);
+            text.in(ui_rect_intersection(clip, pill))(owner, who->name.bytes ? who->name : utf8_literal("Unknown user"),
+                                                      {pill.left + 10, pill.top, pill.right - 6 - icons, pill.bottom},
+                                                      light, text_style_subtext);
         }
-        if (ok && !stream_tile(*p) && !video_ready(*p) && !p->has_avatar) {
+        if (!stream_tile(*who) && !video_ready(*who) && !who->has_avatar) {
             char storage[16];
             const auto initials =
-                ui_admin_initials(p->name.bytes ? p->name : utf8_literal("?"), {storage, sizeof(storage)});
+                ui_admin_initials(who->name.bytes ? who->name : utf8_literal("?"), {storage, sizeof(storage)});
             const auto a = avatar_rect(tile);
             const u32 size = ui_rect_width(a) >= 80   ? text_style_heading_1
                              : ui_rect_width(a) >= 48 ? text_style_heading_2
                                                       : text_style_none;
-            if (initials.bytes && ui_rect_intersects(a, clip))
-                ok = ui_text_output_push_owned(text, {initials, s.owner, a, ui_rect_intersection(clip, a),
-                                                      theme.tokens.text.on_accent, size | text_style_bold,
-                                                      UiTextAlignment::center, UiTextAlignment::center,
-                                                      TextWrapping::no_wrap, TextOverflow::clip});
+            if (initials.bytes && ui_rect_intersects(a, clip) && text.ok() &&
+                !ui_text_output_push_owned(out, {initials, s.owner, a, ui_rect_intersection(clip, a),
+                                                 theme.tokens.text.on_accent, size | text_style_bold,
+                                                 UiTextAlignment::center, UiTextAlignment::center,
+                                                 TextWrapping::no_wrap, TextOverflow::clip}))
+                text.fail();
         }
-        const auto live = live_badge(tile, *p);
-        if (ok && ui_rect_has_area(live))
-            ok = push_text(text, s, utf8_literal("LIVE"), live, ui_rect_intersection(clip, live),
-                           theme.tokens.text.on_accent, text_style_subtext | text_style_bold,
-                           UiTextAlignment::center);
-        const auto effect = effect_pill(tile, *p);
-        if (ok && ui_rect_has_area(effect))
-            ok = push_text(text, s, p->effect, {effect.left + 8, effect.top, effect.right - 8, effect.bottom},
-                           ui_rect_intersection(clip, effect), light, text_style_subtext | text_style_bold,
-                           UiTextAlignment::center);
-        const auto viewers = viewer_pill(tile, *p);
-        if (ok && ui_rect_has_area(viewers)) {
-            const UiRect count{viewers.left + 24, viewers.top, viewers.right - 4, viewers.bottom};
+        const auto live = live_badge(tile, *who);
+        if (ui_rect_has_area(live))
+            text.in(ui_rect_intersection(clip, live))(owner, utf8_literal("LIVE"), live, theme.tokens.text.on_accent,
+                                                      text_style_subtext | text_style_bold, ui_text_center);
+        const auto effect = effect_pill(tile, *who);
+        if (ui_rect_has_area(effect))
+            text.in(ui_rect_intersection(clip, effect))(owner, who->effect,
+                                                        {effect.left + 8, effect.top, effect.right - 8, effect.bottom},
+                                                        light, text_style_subtext | text_style_bold, ui_text_center);
+        const auto viewers = viewer_pill(tile, *who);
+        if (ui_rect_has_area(viewers)) {
             char digits[12];
-            const u32 bytes = decimal_write(digits, p->viewers);
-            ok = push_text(text, s, {digits, bytes}, count, ui_rect_intersection(clip, viewers), light,
-                           text_style_subtext | text_style_bold);
+            const u32 bytes = decimal_write(digits, who->viewers);
+            text.in(ui_rect_intersection(clip, viewers))(owner, {digits, bytes},
+                                                         {viewers.left + 24, viewers.top, viewers.right - 4, viewers.bottom},
+                                                         light, text_style_subtext | text_style_bold);
         }
-        if (ok && ui_rect_has_area(controls.watch))
-            ok = push_text(text, s, utf8_literal("Watch stream"), controls.watch,
-                           ui_rect_intersection(clip, controls.watch), theme.tokens.text.on_accent,
-                           text_style_subtext | text_style_bold, UiTextAlignment::center);
-        if (ok && ui_rect_has_area(controls.stop) && !controls.stop_compact) {
+        if (ui_rect_has_area(controls.watch))
+            text.in(ui_rect_intersection(clip, controls.watch))(owner, utf8_literal("Watch stream"), controls.watch,
+                                                                theme.tokens.text.on_accent,
+                                                                text_style_subtext | text_style_bold, ui_text_center);
+        if (ui_rect_has_area(controls.stop) && !controls.stop_compact) {
             const auto c = controls.stop;
-            ok = push_text(text, s, utf8_literal("Stop watching"), {c.left + 30, c.top, c.right - 8, c.bottom},
-                           ui_rect_intersection(clip, c), theme.tokens.text.on_accent,
-                           text_style_subtext | text_style_bold);
+            text.in(ui_rect_intersection(clip, c))(owner, utf8_literal("Stop watching"),
+                                                   {c.left + 30, c.top, c.right - 8, c.bottom},
+                                                   theme.tokens.text.on_accent, text_style_subtext | text_style_bold);
         }
-        const Utf8View state_text = stream_status(*p);
+        const Utf8View state_text = stream_status(*who);
         const auto line = state_text.bytes ? status_line(tile) : UiRect{};
-        if (ok && ui_rect_has_area(line))
-            ok = push_text(text, s, state_text, line, ui_rect_intersection(clip, line), light, text_style_subtext,
-                           UiTextAlignment::center);
+        if (ui_rect_has_area(line))
+            text.in(ui_rect_intersection(clip, line))(owner, state_text, line, light, text_style_subtext, ui_text_center);
     }
-    return ok;
+    return text.ok();
 }
 } // namespace maicord

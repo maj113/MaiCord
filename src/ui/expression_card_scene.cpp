@@ -1,5 +1,5 @@
 #include "maicord/ui/expression_card_scene.hpp"
-#include "maicord/ui/surface_elevation.hpp"
+#include "maicord/ui/scene_kit.hpp"
 #include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/ui/text_style.hpp"
 #include "maicord/core/hash.hpp"
@@ -159,15 +159,6 @@ void slide(UiExpressionCardScene& s) noexcept {
     const float dx = side * kSlide * (1 - s.progress);
     s.panel = {s.settled.left + dx, s.settled.top, s.settled.right + dx, s.settled.bottom};
 }
-bool push(UiTextOutput* text, const UiExpressionCardScene& s, Utf8View value, UiRect rectangle, Color color,
-          u32 style, bool wrap = false, UiTextAlignment horizontal = UiTextAlignment::start,
-          ConstSlice<TextStyleSpan> styles = {}) noexcept {
-    if (!value.bytes || !ui_rect_has_area(rectangle))
-        return true;
-    return ui_text_output_push(text, {value, s.owner, rectangle, s.panel, color, style, horizontal,
-                                      UiTextAlignment::center, wrap ? TextWrapping::wrap : TextWrapping::no_wrap,
-                                      TextOverflow::ellipsis, UiTextFace::normal, {}, styles});
-}
 } // namespace
 
 bool ui_expression_card_show(UiExpressionCardScene* s, u64 identity, const UiExpressionCardContent& content,
@@ -303,34 +294,29 @@ bool ui_expression_card_media(const UiExpressionCardScene& s, u32 index, UiExpre
 bool ui_expression_card_paint(const UiExpressionCardScene& s, const Theme& theme, PaintStream* paint) noexcept {
     if (!s.active)
         return true;
-    if (!paint)
-        return false;
+    UiPaint p{paint, theme};
     const float a = opacity(s);
     const auto f = frame(s);
     const float radius = theme.scale.radius_md;
-    const Color fill = ui_theme_color_alpha(theme.tokens.background.floating, a);
-    const Color border = ui_theme_color_alpha(theme.tokens.border.subtle, a);
-    bool ok = ui_surface_paint(paint, s.panel, theme, UiElevation::popover, radius, &fill, &border);
+    p.use<ui_hover_card_paint_surface>(s, theme, radius);
     const Color plate = ui_theme_color_alpha(theme.tokens.fill.muted, a);
-    if (ok && ui_rect_has_area(s.skeleton)) {
+    if (ui_rect_has_area(s.skeleton)) {
         // The loader's shape: a sticker square and two lines of text.
         const auto k = at(s.skeleton, f.dx, f.dy);
-        ok = paint_stream_push_rounded(paint, {k.left, k.top, k.left + 58, k.top + 58}, plate, theme.scale.radius_sm) &&
-             paint_stream_push_rounded(paint, {k.left + 74, k.top, k.left + 151, k.top + 18}, plate,
-                                       theme.scale.radius_sm) &&
-             paint_stream_push_rounded(paint, {k.left + 74, k.top + 34, k.right, k.top + 52}, plate,
-                                       theme.scale.radius_sm);
+        p.rounded({k.left, k.top, k.left + 58, k.top + 58}, plate, theme.scale.radius_sm)
+            .rounded({k.left + 74, k.top, k.left + 151, k.top + 18}, plate, theme.scale.radius_sm)
+            .rounded({k.left + 74, k.top + 34, k.right, k.top + 52}, plate, theme.scale.radius_sm);
     }
-    if (ok && ui_rect_has_area(s.guild_section)) {
+    if (ui_rect_has_area(s.guild_section)) {
         // The server section fills the card's bottom, inside its rounded corners.
         const auto g = at(s.guild_section, f.dx, f.dy);
         const Color section = ui_theme_color_alpha(theme.tokens.background.secondary, a);
-        ok = paint_stream_push_rounded(paint, {g.left, g.top, g.right, g.bottom - radius}, section, 0) &&
-             paint_stream_push_rounded(paint, {g.left, g.bottom - radius * 2, g.right, g.bottom}, section, radius);
-        if (ok && !media_asset_key_valid(s.guild_icon_key))
-            ok = paint_stream_push_rounded(paint, at(s.guild_icon, f.dx, f.dy), plate, theme.scale.radius_lg);
+        p.rounded({g.left, g.top, g.right, g.bottom - radius}, section, 0)
+            .rounded({g.left, g.bottom - radius * 2, g.right, g.bottom}, section, radius);
+        if (!media_asset_key_valid(s.guild_icon_key))
+            p.rounded(at(s.guild_icon, f.dx, f.dy), plate, theme.scale.radius_lg);
     }
-    if (ok && ui_rect_has_area(s.button)) {
+    if (ui_rect_has_area(s.button)) {
         Color button = theme.tokens.fill.muted;
         if (s.hovered) {
             const Color state = s.pressed ? theme.tokens.state.pressed : theme.tokens.state.hover;
@@ -339,42 +325,42 @@ bool ui_expression_card_paint(const UiExpressionCardScene& s, const Theme& theme
             button.blue += (state.blue - button.blue) * state.alpha;
             button.alpha = minimum(1.f, button.alpha + state.alpha);
         }
-        ok = paint_stream_push_rounded(paint, at(s.button, f.dx, f.dy), ui_theme_color_alpha(button, a), radius);
+        p.rounded(at(s.button, f.dx, f.dy), ui_theme_color_alpha(button, a), radius);
     }
-    return ok;
+    return p.end();
 }
 
-bool ui_expression_card_text_output(const UiExpressionCardScene& s, const Theme& theme, UiTextOutput* text) noexcept {
+bool ui_expression_card_text_output(const UiExpressionCardScene& s, const Theme& theme, UiTextOutput* out) noexcept {
     if (!s.active)
         return true;
-    if (!text)
-        return false;
+    UiTextPen<UiTextClip::region> text{out, s.widgets, s.panel};
+    const auto owner = s.owner.handle;
     const float a = opacity(s);
     const auto f = frame(s);
     const Color normal = ui_theme_color_alpha(theme.tokens.text.normal, a);
     const Color muted = ui_theme_color_alpha(theme.tokens.text.muted, a);
-    bool ok = true;
     if (s.glyph_bytes && !media_asset_key_valid(s.picture_key))
-        ok = push(text, s, {s.glyph, s.glyph_bytes}, at(s.picture, f.dx, f.dy), normal, text_style_jumbo_emoji, false,
-                  UiTextAlignment::center);
+        text(owner, {s.glyph, s.glyph_bytes}, at(s.picture, f.dx, f.dy), normal, text_style_jumbo_emoji, ui_text_center);
     TextStyleSpan runs[3]{};
     const u32 run_count = description_runs(s, runs);
     const TextStyleSpan bold{0, s.title_bytes, text_style_bold};
-    ok = ok &&
-         push(text, s, {s.title_text, s.title_bytes}, at(s.title, f.dx, f.dy), normal, text_style_bold, false,
-              UiTextAlignment::start, {&bold, 1}) &&
-         push(text, s, {s.description_text, s.description_bytes}, at(s.description, f.dx, f.dy), normal,
-              text_style_subtext, true, UiTextAlignment::start, {runs, run_count}) &&
-         push(text, s, {s.guild_heading_text, s.guild_heading_bytes}, at(s.guild_heading, f.dx, f.dy), muted,
-              text_style_subtext) &&
-         push(text, s, {s.guild_name_text, s.guild_name_bytes}, at(s.guild_name, f.dx, f.dy), normal,
-              text_style_bold | (s.guild_link && s.guild_hovered ? text_style_underline : 0u)) &&
-         push(text, s, {s.guild_subtitle_text, s.guild_subtitle_bytes}, at(s.guild_subtitle, f.dx, f.dy), normal,
-              kTextStyleSizeCodeXs);
-    if (ok && !media_asset_key_valid(s.guild_icon_key))
-        ok = push(text, s, {s.guild_acronym_text, s.guild_acronym_bytes}, at(s.guild_icon, f.dx, f.dy), normal,
-                  text_style_subtext, false, UiTextAlignment::center);
-    return ok && push(text, s, {s.button_text, s.button_bytes}, at(s.button, f.dx, f.dy), normal,
-                      text_style_subtext | text_style_bold, false, UiTextAlignment::center);
+    text.emit({{s.title_text, s.title_bytes}, s.owner, at(s.title, f.dx, f.dy), s.panel, normal, text_style_bold,
+               UiTextAlignment::start, UiTextAlignment::center, TextWrapping::no_wrap, TextOverflow::ellipsis,
+               UiTextFace::normal, {}, {&bold, 1}});
+    text.emit({{s.description_text, s.description_bytes}, s.owner, at(s.description, f.dx, f.dy), s.panel, normal,
+               text_style_subtext, UiTextAlignment::start, UiTextAlignment::center, TextWrapping::wrap,
+               TextOverflow::ellipsis, UiTextFace::normal, {}, {runs, run_count}});
+    text(owner, {s.guild_heading_text, s.guild_heading_bytes}, at(s.guild_heading, f.dx, f.dy), muted,
+         text_style_subtext);
+    text(owner, {s.guild_name_text, s.guild_name_bytes}, at(s.guild_name, f.dx, f.dy), normal,
+         text_style_bold | (s.guild_link && s.guild_hovered ? text_style_underline : 0u));
+    text(owner, {s.guild_subtitle_text, s.guild_subtitle_bytes}, at(s.guild_subtitle, f.dx, f.dy), normal,
+         kTextStyleSizeCodeXs);
+    if (!media_asset_key_valid(s.guild_icon_key))
+        text(owner, {s.guild_acronym_text, s.guild_acronym_bytes}, at(s.guild_icon, f.dx, f.dy), normal,
+             text_style_subtext, ui_text_center);
+    return text(owner, {s.button_text, s.button_bytes}, at(s.button, f.dx, f.dy), normal,
+                text_style_subtext | text_style_bold, ui_text_center)
+        .ok();
 }
 } // namespace maicord

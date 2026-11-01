@@ -36,5 +36,4 @@ void secure_edit_break_history_run(SecureEdit* edit) noexcept {
 }
 SecureEditResult secure_edit_undo(SecureEdit* edit) noexcept { return replay(edit, false); }
 SecureEditResult secure_edit_redo(SecureEdit* edit) noexcept { return replay(edit, true); }
-SecureEditHistoryCosts secure_edit_history_costs(const SecureEdit& edit) noexcept { return text_edit_history_costs(project(edit)); }
 }

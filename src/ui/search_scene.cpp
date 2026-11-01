@@ -1,12 +1,10 @@
 #include "maicord/ui/theme_style_projection.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/search_scene.hpp"
-#include "maicord/ui/background_surface.hpp"
-#include "maicord/ui/rect_edges.hpp"
+#include "maicord/ui/scene_kit.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/ui/icon.hpp"
 #include "maicord/ui/menu_row.hpp"
 #include "maicord/ui/scene.hpp"
 #include "maicord/ui/attachment_actions.hpp"
@@ -47,6 +45,8 @@ struct UiSearchRichProjection {
     u8 detail_bytes[kUiSearchVisibleItems];
 };
 namespace {
+constexpr auto kGradient = UiBackgroundSurfaceMode::gradient;
+constexpr auto kSemantic = UiBackgroundBorderTone::semantic;
 constexpr float default_body_height = 48;
 UiRect rich_item_clip(const UiSearchScene&, const UiRect&, const UiRect&) noexcept;
 bool rich_enabled(const UiSearchScene& s) noexcept {
@@ -693,10 +693,6 @@ bool current(const UiSearchScene& s) noexcept {
            (!s.source || (s.source->revision == s.source_revision &&
                           (!s.source->current || s.source->current(s.source->context))));
 }
-UiRect bounds(const UiSearchScene& s, UiWidgetHandle h) noexcept {
-    const auto* n = ui_widget_manager_layout_node(s.widgets, h);
-    return n ? n->rectangle : UiRect{};
-}
 Utf8View label(UiSearchAction a) noexcept {
     switch (a) {
     case UiSearchAction::submit:
@@ -751,7 +747,7 @@ Utf8View label(UiSearchAction a) noexcept {
 }
 UiWidgetHandle add(UiSearchScene& s, const UiRect& rectangle, const UiSearchTarget& target, const Utf8View& name,
                    bool enabled = true, UiWidgetHandle parent = ui_widget_invalid_handle()) noexcept {
-    const auto origin = parent.generation ? bounds(s, parent) : widget_viewport(s);
+    const auto origin = parent.generation ? ui_bounds(s, parent) : widget_viewport(s);
     const auto result = ui_widget_manager_add_placed(
         &s.widgets, parent.generation ? parent : s.root,
         target.action == UiSearchAction::edit ? UiWidgetKind::text_field : UiWidgetKind::button,
@@ -931,42 +927,32 @@ bool add_items(UiSearchScene& s) noexcept {
     }
     return true;
 }
-bool hovered_widget(const UiSearchScene& s, UiWidgetHandle handle) noexcept {
-    return ui_widget_handle_matches(handle, s.widgets.hovered);
-}
-bool focused_widget(const UiSearchScene& s, UiWidgetHandle handle) noexcept {
-    return ui_widget_handle_matches(handle, s.widgets.focused);
-}
-bool paint_items(const UiSearchScene& s, const Theme& theme, PaintStream* out,
+bool paint_items(PaintStream* out, const UiSearchScene& s, const Theme& theme,
                  MessageMediaCommandStream* media) noexcept {
-    const auto& p = *s.rich_projection;
+    UiPaint p{out, theme};
+    const auto& proj = *s.rich_projection;
     const auto& timeline = *s.source->rich_timeline;
     const auto& store = *timeline.rich_store;
-    for (u32 v = 0; v < p.visible_count; ++v) {
-        const auto& item = p.items[p.visible[v]];
-        const auto screen = p.screens[v];
+    for (u32 v = 0; p && v < proj.visible_count; ++v) {
+        const auto& item = proj.items[proj.visible[v]];
+        const auto screen = proj.screens[v];
         const auto clip = overlay_clip(s, screen);
-        const bool hover = hovered_widget(s, p.primary[v]), focus = focused_widget(s, p.primary[v]);
+        const bool hover = ui_hovered(s, proj.primary[v]), focus = ui_focused(s, proj.primary[v]);
         if (s.layout == UiSearchLayout::grid) {
             const MessageMediaObscure obscure = item_obscure(s, item);
             // Tiles round with the card radius token; media quads are masked to the same corners.
             const float tile_radius = theme.scale.radius_md;
-            if (!paint_stream_push_rounded(out, screen, theme.surface_high, tile_radius))
-                return false;
+            p.rounded(screen, theme.surface_high, tile_radius);
             if (message_media_obscure_notice(obscure)) {
-                const float cx = (screen.left + screen.right) * .5f,
-                            cy = (screen.top + screen.bottom) * .5f;
-                if (!ui_icon_paint(out, UiIcon::eye_off, {cx - 12, cy - 12, cx + 12, cy + 12},
-                                   theme.text_secondary))
-                    return false;
-            } else if (media && media->storage.data && media->count < media->storage.count &&
+                const float cx = (screen.left + screen.right) * .5f, cy = (screen.top + screen.bottom) * .5f;
+                p.icon(UiIcon::eye_off, {cx - 12, cy - 12, cx + 12, cy + 12}, theme.text_secondary);
+            } else if (p && media && media->storage.data && media->count < media->storage.count &&
                        ui_rect_has_area(clip)) {
-                const auto* record =
-                    message_store_resolve(*timeline.store, source_handle(s, item.source_index));
+                const auto* record = message_store_resolve(*timeline.store, source_handle(s, item.source_index));
                 MessageMediaCommand command{};
                 command.rectangle = tile_cover(s, item, screen);
                 command.clip = clip;
-                command.owner = {&s.widgets, p.primary[v]};
+                command.owner = {&s.widgets, proj.primary[v]};
                 command.message_revision = record ? record->revision : 0;
                 command.snapshot = item.snapshot;
                 command.search_result = true;
@@ -997,80 +983,57 @@ bool paint_items(const UiSearchScene& s, const Theme& theme, PaintStream* out,
                     media->storage[media->count++] = command;
             }
             // Media quads draw above this paint, so the ring sits in the gap around the tile.
-            if ((hover || focus) &&
-                !paint_stream_push_rounded_border(
-                    out, screen.left - 2, screen.top - 2, screen.right + 2, screen.bottom + 2, Color{},
-                    focus ? theme.tokens.border.focus : theme.interactive, tile_radius + 2, 2))
-                return false;
+            if (hover || focus)
+                p.rounded_border({screen.left - 2, screen.top - 2, screen.right + 2, screen.bottom + 2}, Color{},
+                                 focus ? theme.tokens.border.focus : theme.interactive, tile_radius + 2, 2);
             continue;
         }
-        if (!ui_background_paint_surface(out, screen, theme, hover ? theme.surface_high : theme.surface,
-                                         focus ? theme.tokens.border.focus : theme.surface_high, theme.scale.radius_md, 1, 1,
-                                         UiBackgroundSurfaceMode::gradient, UiBackgroundTier::low))
-            return false;
+        p.use<ui_background_paint_surface>(screen, theme, hover ? theme.surface_high : theme.surface,
+                                           focus ? theme.tokens.border.focus : theme.surface_high,
+                                           theme.scale.radius_md, 1.f, 1.f, kGradient, UiBackgroundTier::low,
+                                           kSemantic);
         const UiRect icon_box = ui_rect_edges(screen, ui_start(12), ui_start(12), ui_start(44), ui_start(44));
-        if (!paint_stream_push_rounded(out, icon_box, theme.surface_high, 6) ||
-            !ui_icon_paint(out, item_icon(s, item),
-                           ui_rect_shrink(icon_box, 6),
-                           s.layout == UiSearchLayout::links ? theme.tokens.emphasis.outline : theme.text_secondary))
-            return false;
-        if (!p.secondary[v].generation)
-            continue;
-        const auto* node = ui_widget_manager_layout_node(s.widgets, p.secondary[v]);
-        if (!node)
+        p.rounded(icon_box, theme.surface_high, 6)
+            .icon(item_icon(s, item), ui_rect_shrink(icon_box, 6),
+                  s.layout == UiSearchLayout::links ? theme.tokens.emphasis.outline : theme.text_secondary);
+        if (!proj.secondary[v].generation || !ui_widget_manager_layout_node(s.widgets, proj.secondary[v]))
             continue;
         const auto r =
             s.layout == UiSearchLayout::files ? item_save_rectangle(screen) : item_jump_rectangle(screen);
-        const bool active = hovered_widget(s, p.secondary[v]) || focused_widget(s, p.secondary[v]);
-        if (!paint_stream_push_rounded(out, r, active
-            ? ui_background_hover_color(theme, theme.interactive_hover, .28f)
-            : theme.surface_high, 6))
-            return false;
-        if (s.layout == UiSearchLayout::files &&
-            !ui_icon_paint(out, UiIcon::download, ui_rect_shrink(r, 6),
-                           active ? theme.text_primary : theme.text_secondary))
-            return false;
+        const bool active = ui_hovered(s, proj.secondary[v]) || ui_focused(s, proj.secondary[v]);
+        p.rounded(r, active ? ui_background_hover_color(theme, theme.interactive_hover, .28f) : theme.surface_high, 6);
+        if (s.layout == UiSearchLayout::files)
+            p.icon(UiIcon::download, ui_rect_shrink(r, 6), active ? theme.text_primary : theme.text_secondary);
     }
-    return true;
+    return p.end();
 }
-bool paint_tabs(const UiSearchScene& s, const Theme& theme, PaintStream* out) noexcept {
+bool paint_tabs(PaintStream* out, const UiSearchScene& s, const Theme& theme) noexcept {
     if (!s.content->tabs)
         return true;
-    const auto p = s.panel;
-    if (!paint_stream_push(out, p.left + 8, p.top + 115, p.right - 8, p.top + 116, ui_separator_color(theme)))
-        return false;
-    for (u32 i = 0; i < 5; ++i) {
-        const auto r = bounds(s, s.tabs[i]);
+    UiPaint p{out, theme};
+    const auto panel = s.panel;
+    p.separator({panel.left + 8, panel.top + 115, panel.right - 8, panel.top + 116});
+    for (u32 i = 0; p && i < 5; ++i) {
+        const auto r = ui_bounds(s, s.tabs[i]);
         if (!ui_rect_has_area(r))
             continue;
-        if ((hovered_widget(s, s.tabs[i]) || focused_widget(s, s.tabs[i])) &&
-            !paint_stream_push_rounded(out, r.left, r.top, r.right, r.bottom - 3,
-                                       ui_background_hover_color(theme, theme.interactive_hover, .18f), 6))
-            return false;
-        if (s.content->tab == i && !paint_stream_push_rounded(out, r.left + 8, r.bottom - 3, r.right - 8,
-                                                              r.bottom, theme.tokens.emphasis.outline, 1.5f))
-            return false;
+        if (ui_hovered(s, s.tabs[i]) || ui_focused(s, s.tabs[i]))
+            p.rounded({r.left, r.top, r.right, r.bottom - 3},
+                      ui_background_hover_color(theme, theme.interactive_hover, .18f), 6);
+        if (s.content->tab == i)
+            p.rounded({r.left + 8, r.bottom - 3, r.right - 8, r.bottom}, theme.tokens.emphasis.outline, 1.5f);
     }
-    return true;
+    return p.end();
 }
 bool rebuild(UiSearchScene& s) noexcept {
     const auto old_focus = s.widgets.focused;
     const UiSearchTarget focus = old_focus.generation && old_focus.slot < s.storage.widgets.count
                                      ? s.targets[old_focus.slot]
                                      : UiSearchTarget{};
-    ui_widget_manager_reset(&s.widgets);
     ZeroMemory(s.targets, s.storage.widgets.count * sizeof(UiSearchTarget));
-    auto root_style = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_allow_overlap |
-                                           ui_layout_node_clip_children);
-    const auto root =
-        ui_widget_manager_add_prevalidated(&s.widgets, ui_widget_invalid_handle(),
-                                           {1,
-                                            UiWidgetKind::container,
-                                            ui_widget_none,
-                                            {utf8_literal("Message search"), root_style, {}, 0, 1}});
-    if (!root.ok())
+    s.root = ui_scene_root(&s.widgets, utf8_literal("Message search"));
+    if (!s.root.generation)
         return false;
-    s.root = root.handle;
     s.edit = add_action(s, s.field, UiSearchAction::edit, utf8_literal("Search messages"));
     // After the edit: the chip wins hit tests over the field it sits in.
     s.scope = ui_rect_has_area(s.scope_chip)
@@ -1278,20 +1241,18 @@ bool rebuild(UiSearchScene& s) noexcept {
             }
         }
     }
-    if (!ui_widget_manager_layout_rectangle(&s.widgets, widget_viewport(s)).ok())
+    if (!ui_scene_commit(&s.widgets, widget_viewport(s), s.targets, focus, ui_search_target_equal, &s.revision))
         return false;
-    for (u32 i = 1; i < s.widgets.count; ++i)
-        if (ui_search_target_equal(s.targets[i], focus))
-            ui_widget_manager_focus(&s.widgets, {static_cast<u16>(i), s.widgets.generation});
     count_label(s);
-    ++s.revision;
     return true;
 }
-bool text(UiTextOutput* out, const UiSearchScene& s, UiWidgetHandle owner, const Utf8View& value, const UiRect& r,
-          const Color& color, u32 flags, TextWrapping wrap, UiTextAlignment alignment,
-          bool chooser_text) noexcept {
+using Pen = UiTextPen<>;
+// A label of the search surface. `mode` holds ui_text_* bits; chooser_text marks a label of the filter chooser
+// (clipped to it). Labels under an open menu are skipped, and a result row clips to what the menus leave of the body.
+void text(Pen& out, const UiSearchScene& s, UiWidgetHandle owner, const Utf8View& value, const UiRect& r,
+          const Color& color, u32 style, u32 mode = 0, bool chooser_text = false) noexcept {
     if (!value.bytes || !ui_rect_has_area(r))
-        return true;
+        return;
     const auto action = owner.generation && owner.slot < s.storage.widgets.count
                             ? s.targets[owner.slot].action
                             : UiSearchAction::none;
@@ -1300,38 +1261,18 @@ bool text(UiTextOutput* out, const UiSearchScene& s, UiWidgetHandle owner, const
                         (owner.slot == s.root.slot && utf8_equal(value, utf8_literal("Filters")));
     const bool sort = sort_action(action);
     if (!row && !filter && chooser_open(s) && ui_rect_intersects(r, s.chooser))
-        return true;
+        return;
     if (!row && !sort && s.content->sort_menu && ui_rect_intersects(r, s.sort_chooser))
-        return true;
+        return;
     auto region = row ? overlay_region(s, r) : widget_viewport(s);
     if (chooser_text || action == UiSearchAction::filter_value || action == UiSearchAction::clear_recent ||
         action == UiSearchAction::recent)
         region = ui_rect_intersection(region, s.chooser);
-    const auto clip = ui_rect_intersection(r, region);
-    if (!ui_rect_has_area(clip))
-        return true;
-    return ui_text_output_push(
-        out, {value,
-              {&s.widgets, owner},
-              r,
-              clip,
-              color,
-              flags,
-              alignment,
-              wrap == TextWrapping::wrap ? UiTextAlignment::start : UiTextAlignment::center,
-              wrap,
-              TextOverflow::ellipsis,
-              UiTextFace::normal,
-              {},
-              {}});
+    out.push(region, owner, value, r, color, style, mode);
 }
-bool line(UiTextOutput* out, const UiSearchScene& s, UiWidgetHandle owner, const Utf8View& value, const UiRect& r,
-          const Color& color, u32 flags, UiTextAlignment alignment = UiTextAlignment::start) noexcept {
-    return text(out, s, owner, value, r, color, flags, TextWrapping::no_wrap, alignment, false);
-}
-bool centered(UiTextOutput* out, const UiSearchScene& s, UiWidgetHandle owner, const Utf8View& value, const UiRect& r,
-              const Color& color, u32 flags = text_style_subtext) noexcept {
-    return line(out, s, owner, value, r, color, flags, UiTextAlignment::center);
+void centered(Pen& out, const UiSearchScene& s, UiWidgetHandle owner, const Utf8View& value, const UiRect& r,
+              const Color& color, u32 style = text_style_subtext) noexcept {
+    text(out, s, owner, value, r, color, style, ui_text_center);
 }
 } // namespace
 } // namespace maicord
@@ -1718,10 +1659,8 @@ bool ui_search_scene_update(UiSearchScene* s, const UiSearchSource* source, cons
     if (!s->storage.arena.base || s->storage.widgets.count < widget_capacity) {
         const u16 generation = s->widgets.generation;
         ui_fixed_widget_storage_release(&s->storage);
-        if (!ui_fixed_widget_storage_initialize(&s->storage, widget_capacity,
-                                                widget_capacity * sizeof(UiSearchTarget),
-                                                alignof(UiSearchTarget)) ||
-            !ui_widget_manager_initialize(&s->widgets, s->storage.widgets, s->storage.layout_nodes))
+        if (!ui_scene_open(&s->storage, &s->widgets, widget_capacity, widget_capacity * sizeof(UiSearchTarget),
+                           alignof(UiSearchTarget)))
             return false;
         s->targets = ui_fixed_widget_storage_sidecar<UiSearchTarget>(s->storage);
         if (generation)
@@ -2020,94 +1959,78 @@ bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStre
                            MessageMediaCommandStream* rich_media, const MessageTextPresentation* rich_text) noexcept {
     if (!current(s))
         return true;
-    if (!ui_edit_field_paint(out, s.field, s.text, s.content->edit, geometry, theme.base_lowest, theme, dpi,
-                             8))
-        return false;
-    if (!ui_icon_paint(out, UiIcon::search,
-                       ui_rect_edges(s.field, ui_end(-26), ui_start(6), ui_end(-6), ui_end(-6)),
-                       theme.text_secondary))
-        return false;
+    UiPaint p{out, theme};
+    p.use<ui_edit_field_paint>(s.field, s.text, s.content->edit, geometry, theme.base_lowest, theme, dpi, 8)
+        .icon(UiIcon::search, ui_rect_edges(s.field, ui_end(-26), ui_start(6), ui_end(-6), ui_end(-6)),
+              theme.text_secondary);
     if (s.scope.generation) {
         // The scope reads as a selected pill (the emphasis tint of selected
         // tabs); its x removes it.
-        const auto chip = bounds(s, s.scope);
-        const bool focus = focused_widget(s, s.scope), hover = hovered_widget(s, s.scope);
-        if (!ui_background_paint_surface(out, chip, theme, ui_emphasis_selected(theme),
-                                         focus   ? theme.tokens.border.focus
-                                         : hover ? theme.tokens.emphasis.outline
-                                                 : Color{},
-                                         theme.scale.radius_sm, focus || hover ? 1.f : 0.f, 1,
-                                         UiBackgroundSurfaceMode::gradient,
-                                         UiBackgroundTier::high) ||
-            !ui_icon_paint(out, UiIcon::close, ui_rect_edges(chip, ui_end(-18), ui_start(6), ui_end(-6), ui_end(-6)),
-                           hover || focus ? theme.text_primary : theme.text_secondary))
-            return false;
+        const auto chip = ui_bounds(s, s.scope);
+        const bool focus = ui_focused(s, s.scope), hover = ui_hovered(s, s.scope);
+        p.use<ui_background_paint_surface>(chip, theme, ui_emphasis_selected(theme),
+                                           focus   ? theme.tokens.border.focus
+                                           : hover ? theme.tokens.emphasis.outline
+                                                   : Color{},
+                                           theme.scale.radius_sm, focus || hover ? 1.f : 0.f, 1.f, kGradient,
+                                           UiBackgroundTier::high, kSemantic)
+            .icon(UiIcon::close, ui_rect_edges(chip, ui_end(-18), ui_start(6), ui_end(-6), ui_end(-6)),
+                  hover || focus ? theme.text_primary : theme.text_secondary);
     }
     if (s.content->panel) {
-        const auto p = s.panel;
-        if (!ui_background_paint_surface(out, p, theme, theme.base_lower, {}, 0, 0, 1,
-                                         UiBackgroundSurfaceMode::gradient, UiBackgroundTier::chat))
-            return false;
-        if (!paint_tabs(s, theme, out) ||
-            !paint_stream_push_clip(out, s.body))
-            return false;
-        bool rows_ok = !tiled(s) || paint_items(s, theme, out, rich_media);
-        for (u32 i = 0; rows_ok && i < s.count; ++i) {
+        const auto panel = s.panel;
+        p.use<ui_background_paint_surface>(panel, theme, theme.base_lower, Color{}, 0.f, 0.f, 1.f, kGradient,
+                                           UiBackgroundTier::chat, kSemantic)
+            .use<paint_tabs>(s, theme)
+            .clip(s.body);
+        if (tiled(s))
+            p.use<paint_items>(s, theme, rich_media);
+        for (u32 i = 0; p && i < s.count; ++i) {
             const auto r = s.row_rectangles[i];
-            if (!ui_background_paint_surface(
-                    out, r, theme, s.visible[i].hit ? theme.surface : theme.base_lower,
-                    s.visible[i].hit ? theme.surface_high : Color{}, 10, s.visible[i].hit ? 1.f : 0.f, 1,
-                    UiBackgroundSurfaceMode::gradient, UiBackgroundTier::low))
-                rows_ok = false;
+            p.use<ui_background_paint_surface>(r, theme, s.visible[i].hit ? theme.surface : theme.base_lower,
+                                               s.visible[i].hit ? theme.surface_high : Color{}, 10.f,
+                                               s.visible[i].hit ? 1.f : 0.f, 1.f, kGradient, UiBackgroundTier::low,
+                                               kSemantic);
             if (rich_enabled(s))
                 continue;
             const float x = r.left + 28, y = r.top + 28;
-            rows_ok = rows_ok &&
-                      paint_stream_push_rounded(out, x - 16, y - 16, x + 16, y + 16,
-                                                theme.avatar_placeholder, theme.scale.radius_full) &&
-                      paint_stream_push_rounded(out, x - 5, y - 9, x + 5, y + 1, theme.text_secondary, 5) &&
-                      paint_stream_push_rounded(out, x - 9, y + 3, x + 9, y + 11, theme.text_secondary, 7);
+            p.rounded({x - 16, y - 16, x + 16, y + 16}, theme.avatar_placeholder, theme.scale.radius_full)
+                .rounded({x - 5, y - 9, x + 5, y + 1}, theme.text_secondary, 5)
+                .rounded({x - 9, y + 3, x + 9, y + 11}, theme.text_secondary, 7);
         }
-        if (rows_ok && rich_enabled(s) && !tiled(s)) {
+        if (p && rich_enabled(s) && !tiled(s)) {
             const auto* scene = ui_search_scene_message_scene(s);
             MessagePresentationResult result{};
-            rows_ok =
-                scene && rich_media && message_presentation_build(*scene, theme, out, rich_media, &result, rich_text);
-            if (rows_ok)
+            if (scene && rich_media &&
+                message_presentation_build(*scene, theme, out, rich_media, &result, rich_text)) {
                 for (u32 i = 0; i < rich_media->count; ++i) {
                     auto& command = rich_media->storage[i];
                     command.clip = rich_item_clip(s, command.rectangle, command.clip);
                 }
-        }
-        if (rows_ok && rich_enabled(s) && !tiled(s))
-            for (u32 i = 0; i < s.count; ++i) {
-                if (!s.visible[i].unavailable)
-                    continue;
-                rows_ok = rows_ok && ui_background_paint_surface(out, s.row_rectangles[i], theme,
-                                                                 theme.surface_high, theme.interactive,
-                                                                 ui_theme_metrics(s.theme_styles).control_radius, 1, .9f, UiBackgroundSurfaceMode::gradient,
-                                                                 UiBackgroundTier::high);
+            } else {
+                p.fail();
             }
-        if (!paint_stream_pop_clip(out) || !rows_ok)
-            return false;
-        if (!paint_stream_push(out, p.left, p.bottom - 44, p.right, p.bottom - 43, ui_separator_color(theme)))
-            return false;
+            for (u32 i = 0; p && i < s.count; ++i)
+                if (s.visible[i].unavailable)
+                    p.surface(s.row_rectangles[i], theme.surface_high, theme.interactive,
+                              ui_theme_metrics(s.theme_styles).control_radius);
+        }
+        p.unclip().separator({panel.left, panel.bottom - 44, panel.right, panel.bottom - 43});
     }
-    if (s.content->sort_menu &&
-        !ui_surface_paint(out, s.sort_chooser, theme, UiElevation::popover,
-                          ui_theme_metrics(s.theme_styles).control_radius, &theme.surface_high))
-        return false;
-    if (chooser_open(s) &&
-        !ui_surface_paint(out, s.chooser, theme, UiElevation::popover,
-                          s.choice_source ? ui_theme_metrics(s.theme_styles).menu_radius
-                                          : ui_theme_metrics(s.theme_styles).control_radius,
-                          &theme.surface_high))
-        return false;
-    for (u32 i = 1; i < s.widgets.count; ++i) {
+    if (s.content->sort_menu)
+        p.use<ui_surface_paint>(s.sort_chooser, theme, UiElevation::popover,
+                                ui_theme_metrics(s.theme_styles).control_radius, &theme.surface_high, nullptr);
+    if (chooser_open(s))
+        p.use<ui_surface_paint>(s.chooser, theme, UiElevation::popover,
+                                s.choice_source ? ui_theme_metrics(s.theme_styles).menu_radius
+                                                : ui_theme_metrics(s.theme_styles).control_radius,
+                                &theme.surface_high, nullptr);
+    for (u32 i = 1; p && i < s.widgets.count; ++i) {
         const auto action = s.targets[i].action;
         if (action == UiSearchAction::edit || action == UiSearchAction::submit)
             continue;
-        const auto r = bounds(s, {static_cast<u16>(i), s.widgets.generation});
+        const UiWidgetHandle self{static_cast<u16>(i), s.widgets.generation};
+        const auto r = ui_bounds(s, self);
         // Tabs and item widgets paint their own states.
         if (action == UiSearchAction::tab ||
             (tiled(s) && (action == UiSearchAction::result || action == UiSearchAction::rich_item)))
@@ -2127,80 +2050,62 @@ bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStre
             (!sort && s.content->sort_menu && ui_rect_intersects(r, s.sort_chooser)))
             continue;
         // Jump buttons under an open menu stay hidden with the rest of their card.
-        if (rich_enabled(s) && action == UiSearchAction::result &&
-            !ui_background_paint_surface(out, r, theme, theme.surface_high, theme.interactive,
-                                         ui_theme_metrics(s.theme_styles).control_radius, 1, .9f,
-                                         UiBackgroundSurfaceMode::gradient, UiBackgroundTier::high))
-            return false;
+        if (rich_enabled(s) && action == UiSearchAction::result)
+            p.surface(r, theme.surface_high, theme.interactive, ui_theme_metrics(s.theme_styles).control_radius);
         if (action == UiSearchAction::rich_item && s.targets[i].save) {
-            if (!ui_attachment_save_paint(out, {&s.widgets, {static_cast<u16>(i), s.widgets.generation}}, r,
-                                          ui_search_scene_content_clip(s, r), theme, true))
-                return false;
+            if (p && !ui_attachment_save_paint(out, {&s.widgets, self}, r, ui_search_scene_content_clip(s, r), theme,
+                                               true))
+                p.fail();
             continue;
         }
-        if ((action == UiSearchAction::filters || action == UiSearchAction::sort) &&
-            !ui_background_paint_surface(out, r, theme, theme.surface, theme.surface_high, theme.scale.radius_md, 1, .9f,
-                                         UiBackgroundSurfaceMode::gradient, UiBackgroundTier::highest,
-                                         UiBackgroundBorderTone::palette))
-            return false;
+        if (action == UiSearchAction::filters || action == UiSearchAction::sort)
+            p.use<ui_background_paint_surface>(r, theme, theme.surface, theme.surface_high, theme.scale.radius_md,
+                                               1.f, .9f, kGradient, UiBackgroundTier::highest,
+                                               UiBackgroundBorderTone::palette);
         if (hovered || captured || selected) {
             const float radius =
                 action == UiSearchAction::filter_value ? ui_theme_metrics(s.theme_styles).compact_radius : 4.f;
-            if (((hovered || captured) &&
-                 !paint_stream_push_rounded(
-                     out, r,
-                     ui_background_hover_color(theme, captured ? theme.interactive : theme.interactive_hover,
-                                               captured ? .32f : .20f),
-                     radius)) ||
-                (selected &&
-                 !paint_stream_push_rounded(out, r, ui_background_hover_color(theme, theme.interactive, .28f),
-                                            radius)))
-                return false;
+            if (hovered || captured)
+                p.rounded(r,
+                          ui_background_hover_color(theme, captured ? theme.interactive : theme.interactive_hover,
+                                                    captured ? .32f : .20f),
+                          radius);
+            if (selected)
+                p.rounded(r, ui_background_hover_color(theme, theme.interactive, .28f), radius);
         }
         if (action == UiSearchAction::close) {
             const float icon = ui_icon_button_extent(ui_rect_width(r) - 8);
             const float x = (r.left + r.right - icon) * .5f, y = (r.top + r.bottom - icon) * .5f;
-            if (!ui_icon_paint(out, UiIcon::close, {x, y, x + icon, y + icon},
-                               hovered || captured ? theme.text_primary : theme.text_secondary))
-                return false;
+            p.icon(UiIcon::close, {x, y, x + icon, y + icon}, hovered || captured ? theme.text_primary : theme.text_secondary);
             continue;
         }
         if (sort) {
             const float x = r.right - 16, y = (r.top + r.bottom) * .5f;
-            if (!paint_stream_push_rounded_border(out, x - 8, y - 8, x + 8, y + 8, {}, theme.text_secondary,
-                                                  theme.scale.radius_full, 1) ||
-                (selected &&
-                 !paint_stream_push_rounded(out, x - 4, y - 4, x + 4, y + 4, theme.tokens.emphasis.fill, theme.scale.radius_sm)))
-                return false;
+            p.rounded_border({x - 8, y - 8, x + 8, y + 8}, Color{}, theme.text_secondary, theme.scale.radius_full, 1);
+            if (selected)
+                p.rounded({x - 4, y - 4, x + 4, y + 4}, theme.tokens.emphasis.fill, theme.scale.radius_sm);
         }
         if (action == UiSearchAction::filter_value) {
             UiMenuRowGeometry choice_geometry{};
-            if (!choice_menu_geometry(s, r, &choice_geometry) ||
-                !paint_stream_push_clip(out, choice_geometry.clip))
+            if (!choice_menu_geometry(s, r, &choice_geometry))
                 return false;
-            const auto index = s.targets[i].source_index;
-            const auto& choice = s.choice_source->rows[index];
+            p.clip(choice_geometry.clip);
+            const auto& choice = s.choice_source->rows[s.targets[i].source_index];
             const UiRect avatar = choice_avatar_rectangle(choice_geometry, r);
-            const bool icon =
-                choice_person(*s.choice_source, choice)
-                    ? paint_stream_push_rounded(out, avatar, theme.avatar_placeholder, ui_rect_height(avatar) * .5f)
-                    : ui_icon_paint(out, choice_icon(*s.choice_source, choice), choice_geometry.icon,
-                                    theme.text_secondary);
-            if (!paint_stream_pop_clip(out) || !icon)
-                return false;
+            if (choice_person(*s.choice_source, choice))
+                p.rounded(avatar, theme.avatar_placeholder, ui_rect_height(avatar) * .5f);
+            else
+                p.icon(choice_icon(*s.choice_source, choice), choice_geometry.icon, theme.text_secondary);
+            p.unclip();
             continue;
         }
         if (action == UiSearchAction::sort) {
             const float cy = (r.top + r.bottom) * .5f;
-            if (!ui_icon_paint(out, UiIcon::chevron_down, {r.right - 24, cy - 8, r.right - 8, cy + 8},
-                               theme.text_secondary))
-                return false;
+            p.icon(UiIcon::chevron_down, {r.right - 24, cy - 8, r.right - 8, cy + 8}, theme.text_secondary);
         }
         if (action == UiSearchAction::recent) {
             const float cy = (r.top + r.bottom) * .5f;
-            if (!ui_icon_paint(out, UiIcon::recent, {r.left + 8, cy - 9, r.left + 26, cy + 9},
-                               theme.text_secondary))
-                return false;
+            p.icon(UiIcon::recent, {r.left + 8, cy - 9, r.left + 26, cy + 9}, theme.text_secondary);
             continue;
         }
         if (filter && action != UiSearchAction::clear_recent) {
@@ -2208,65 +2113,51 @@ bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStre
                                     UiIcon::mention,    UiIcon::calendar,  UiIcon::date_before,
                                     UiIcon::date_after, UiIcon::pin,       UiIcon::link,
                                     UiIcon::file,       UiIcon::file_text, UiIcon::bot};
-            if (!paint_stream_push_clip(out, r))
-                return false;
             const float cy = (r.top + r.bottom) * .5f;
-            const bool icon_ok = ui_icon_paint(
-                out,
-                action == UiSearchAction::more_filters
-                    ? UiIcon::filters
-                    : icons[static_cast<u8>(action) - static_cast<u8>(UiSearchAction::filter_from)],
-                {r.left + 8, cy - 10, r.left + 28, cy + 10}, theme.text_secondary);
-            if (!paint_stream_pop_clip(out) || !icon_ok)
-                return false;
+            p.clip(r)
+                .icon(action == UiSearchAction::more_filters
+                          ? UiIcon::filters
+                          : icons[static_cast<u8>(action) - static_cast<u8>(UiSearchAction::filter_from)],
+                      {r.left + 8, cy - 10, r.left + 28, cy + 10}, theme.text_secondary)
+                .unclip();
         }
     }
-    if (s.choice_source && s.choice_count && s.choice_count < s.choice_total &&
-        !ui_scrollbar_paint(out,
-                            ui_scrollbar_geometry(choice_rows_rectangle(s),
-                                                  s.choice_first * choice_row_height(s),
-                                                  s.choice_total * choice_row_height(s)),
-                            theme))
-        return false;
-    if (s.content->panel &&
-        !ui_scrollbar_paint(
-            out,
-            ui_scrollbar_geometry(s.body, s.scroll_dips,
-                                  tiled(s) ? s.content_height : s.row_offsets[s.measured_count]),
-            theme))
-        return false;
-    return true;
+    if (s.choice_source && s.choice_count && s.choice_count < s.choice_total)
+        p.scrollbar(ui_scrollbar_geometry(choice_rows_rectangle(s), s.choice_first * choice_row_height(s),
+                                          s.choice_total * choice_row_height(s)));
+    if (s.content->panel)
+        p.scrollbar(ui_scrollbar_geometry(s.body, s.scroll_dips,
+                                          tiled(s) ? s.content_height : s.row_offsets[s.measured_count]));
+    return p.end();
 }
-bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiTextOutput* out,
+bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiTextOutput* output,
                                  const UiEditGeometry* edit) noexcept {
     if (!current(s))
         return true;
     if (!ui_edit_field_text_output(
-            out, {&s.widgets, s.edit}, s.text, s.content->edit, edit,
+            output, {&s.widgets, s.edit}, s.text, s.content->edit, edit,
             s.content->placeholder.bytes ? s.content->placeholder : utf8_literal("Search messages"), theme))
         return false;
+    Pen out{output, s.widgets, s.panel};
     if (s.scope.generation) {
-        const auto chip = bounds(s, s.scope);
-        if (!line(out, s, s.scope, s.content->scope_chip, ui_rect_edges(chip, ui_start(8), ui_start(0), ui_end(-20), ui_end(0)),
-                  theme.text_primary, text_style_subtext))
-            return false;
+        const auto chip = ui_bounds(s, s.scope);
+        text(out, s, s.scope, s.content->scope_chip,
+             ui_rect_edges(chip, ui_start(8), ui_start(0), ui_end(-20), ui_end(0)), theme.text_primary,
+             text_style_subtext);
     }
     if (s.content->panel) {
-        const auto p = s.panel;
-        if (!line(out, s, s.root,
-                  s.content->heading.bytes ? s.content->heading : utf8_literal("Search results"),
-                  ui_rect_edges(p, ui_start(12), ui_start(8), ui_end(-64), ui_start(32)), theme.text_primary,
-                  text_style_bold) ||
-            !line(out, s, s.root, {s.count_text, s.count_bytes},
-                  ui_rect_edges(p, ui_start(12), ui_start(40), ui_end(-200), ui_start(72)), theme.text_secondary,
-                  text_style_subtext) ||
-            (!chooser_open(s) &&
-             !line(out, s, s.root,
-                   s.content->filter_summary.bytes ? s.content->filter_summary : s.content->status,
-                   s.content->tabs ? ui_rect_edges(p, ui_start(12), ui_start(118), ui_end(-12), ui_start(142))
-                                   : ui_rect_edges(p, ui_start(12), ui_start(76), ui_end(-12), ui_start(100)),
-                   theme.text_secondary, text_style_subtext)))
-            return false;
+        const auto panel = s.panel;
+        text(out, s, s.root, s.content->heading.bytes ? s.content->heading : utf8_literal("Search results"),
+             ui_rect_edges(panel, ui_start(12), ui_start(8), ui_end(-64), ui_start(32)), theme.text_primary,
+             text_style_bold);
+        text(out, s, s.root, {s.count_text, s.count_bytes},
+             ui_rect_edges(panel, ui_start(12), ui_start(40), ui_end(-200), ui_start(72)), theme.text_secondary,
+             text_style_subtext);
+        if (!chooser_open(s))
+            text(out, s, s.root, s.content->filter_summary.bytes ? s.content->filter_summary : s.content->status,
+                 s.content->tabs ? ui_rect_edges(panel, ui_start(12), ui_start(118), ui_end(-12), ui_start(142))
+                                 : ui_rect_edges(panel, ui_start(12), ui_start(76), ui_end(-12), ui_start(100)),
+                 theme.text_secondary, text_style_subtext);
         if (tiled(s)) {
             const auto& projection = *s.rich_projection;
             for (u32 v = 0; v < projection.visible_count; ++v) {
@@ -2275,10 +2166,10 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
                 const auto owner = projection.primary[v];
                 if (s.layout == UiSearchLayout::grid) {
                     const MessageMediaObscure obscure = item_obscure(s, item);
-                    if (obscure != MessageMediaObscure::none &&
-                        !centered(out, s, owner, message_media_obscure_label(obscure),
-                                  ui_rect_edges(r, ui_start(4), ui_end(-28), ui_end(-4), ui_end(-6)), theme.text_secondary))
-                        return false;
+                    if (obscure != MessageMediaObscure::none)
+                        centered(out, s, owner, message_media_obscure_label(obscure),
+                                 ui_rect_edges(r, ui_start(4), ui_end(-28), ui_end(-4), ui_end(-6)),
+                                 theme.text_secondary);
                     continue;
                 }
                 const float right = projection.secondary[v].generation ? r.right - 72 : r.right - 12;
@@ -2287,80 +2178,68 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
                                         ? Utf8View{projection.details[v], projection.detail_bytes[v]}
                                         : url_hostname(link);
                 const auto title = item_title(s, item);
-                if (!line(out, s, owner, title.bytes ? title : utf8_literal("Untitled"),
-                          {r.left + 56, r.top + 9, right, r.top + 29}, theme.text_primary,
-                          text_style_bold) ||
-                    !line(out, s, owner, detail, {r.left + 56, r.top + 29, right, r.top + 47},
-                          theme.text_secondary, text_style_subtext))
-                    return false;
-                if (s.layout == UiSearchLayout::links && projection.secondary[v].generation &&
-                    !centered(out, s, projection.secondary[v], utf8_literal("Jump"), item_jump_rectangle(r),
-                              theme.text_primary))
-                    return false;
+                text(out, s, owner, title.bytes ? title : utf8_literal("Untitled"),
+                     {r.left + 56, r.top + 9, right, r.top + 29}, theme.text_primary, text_style_bold);
+                text(out, s, owner, detail, {r.left + 56, r.top + 29, right, r.top + 47}, theme.text_secondary,
+                     text_style_subtext);
+                if (s.layout == UiSearchLayout::links && projection.secondary[v].generation)
+                    centered(out, s, projection.secondary[v], utf8_literal("Jump"), item_jump_rectangle(r),
+                             theme.text_primary);
             }
-            if (!projection.item_count && s.content->phase == UiSearchPhase::ready && !s.content->stale &&
-                !centered(out, s, s.root,
-                          s.layout == UiSearchLayout::grid    ? utf8_literal("No media on this page.")
-                          : s.layout == UiSearchLayout::files ? utf8_literal("No files on this page.")
-                                                              : utf8_literal("No links on this page."),
-                          ui_rect_edges(s.body, ui_start(12), ui_start(16), ui_end(-12), ui_start(40)),
-                          theme.text_secondary))
-                return false;
+            if (!projection.item_count && s.content->phase == UiSearchPhase::ready && !s.content->stale)
+                centered(out, s, s.root,
+                         s.layout == UiSearchLayout::grid    ? utf8_literal("No media on this page.")
+                         : s.layout == UiSearchLayout::files ? utf8_literal("No files on this page.")
+                                                             : utf8_literal("No links on this page."),
+                         ui_rect_edges(s.body, ui_start(12), ui_start(16), ui_end(-12), ui_start(40)),
+                         theme.text_secondary);
         }
         for (u32 i = 0; s.content->tabs && i < 5; ++i) {
-            const auto r = bounds(s, s.tabs[i]);
+            const auto r = ui_bounds(s, s.tabs[i]);
             if (!ui_rect_has_area(r))
                 continue;
             const auto color = s.content->tab == i ? theme.text_primary : theme.text_secondary;
             const bool counted = s.tab_bytes[i] != 0;
             const float mid = (r.top + r.bottom - 3) * .5f;
-            if (!centered(out, s, s.tabs[i], tab_label(i),
-                          counted ? UiRect{r.left + 2, r.top + 3, r.right - 2, mid + 2}
-                                  : UiRect{r.left + 2, r.top, r.right - 2, r.bottom - 3},
-                          color,
-                          s.content->tab == i ? text_style_bold | text_style_subtext : text_style_subtext) ||
-                (counted && !centered(out, s, s.tabs[i], {s.tab_text[i], s.tab_bytes[i]},
-                                      {r.left + 2, mid, r.right - 2, r.bottom - 5}, theme.text_secondary)))
-                return false;
+            centered(out, s, s.tabs[i], tab_label(i),
+                     counted ? UiRect{r.left + 2, r.top + 3, r.right - 2, mid + 2}
+                             : UiRect{r.left + 2, r.top, r.right - 2, r.bottom - 3},
+                     color, s.content->tab == i ? text_style_bold | text_style_subtext : text_style_subtext);
+            if (counted)
+                centered(out, s, s.tabs[i], {s.tab_text[i], s.tab_bytes[i]},
+                         {r.left + 2, mid, r.right - 2, r.bottom - 5}, theme.text_secondary);
         }
         for (u32 i = 0; i < s.count; ++i) {
             const auto& row = s.visible[i];
             const auto r = s.row_rectangles[i];
             if (rich_enabled(s)) {
                 if (row.unavailable) {
-                    if (!line(out, s, s.root, row.body,
-                              {r.left + 16, r.top + 12, r.right - (row.access_check ? 88 : 16), r.bottom - 12},
-                              theme.text_secondary,
-                              text_style_subtext))
-                        return false;
-                    if (row.access_check) {
-                        const auto* check = ui_widget_manager_layout_node(s.widgets, s.rows[i]);
-                        if (check && !centered(out, s, s.rows[i], utf8_literal("Check access"),
-                                               check->rectangle, theme.text_primary))
-                            return false;
-                    }
+                    text(out, s, s.root, row.body,
+                         {r.left + 16, r.top + 12, r.right - (row.access_check ? 88 : 16), r.bottom - 12},
+                         theme.text_secondary, text_style_subtext);
+                    if (row.access_check)
+                        if (const auto* check = ui_widget_manager_layout_node(s.widgets, s.rows[i]))
+                            centered(out, s, s.rows[i], utf8_literal("Check access"), check->rectangle,
+                                     theme.text_primary);
                     continue;
                 }
                 const auto* jump = ui_widget_manager_layout_node(s.widgets, s.rows[i]);
-                if (!line(out, s, s.rows[i], row.channel, s.group_rectangles[i], theme.text_secondary,
-                          text_style_subtext | text_style_bold) ||
-                    (jump &&
-                     !centered(out, s, s.rows[i], utf8_literal("Jump"), jump->rectangle, theme.text_primary)))
-                    return false;
+                text(out, s, s.rows[i], row.channel, s.group_rectangles[i], theme.text_secondary,
+                     text_style_subtext | text_style_bold);
+                if (jump)
+                    centered(out, s, s.rows[i], utf8_literal("Jump"), jump->rectangle, theme.text_primary);
                 continue;
             }
             const auto header = plain_header(r, row);
-            if ((ui_rect_has_area(s.group_rectangles[i]) &&
-                 !line(out, s, s.rows[i], row.channel, s.group_rectangles[i], theme.text_secondary,
-                       text_style_subtext | text_style_bold)) ||
-                !line(out, s, s.rows[i], row.author, header.name,
-                      row.hit ? theme.text_primary : theme.text_secondary, text_style_bold) ||
-                !line(out, s, s.rows[i], row.detail, header.timestamp,
-                      theme.text_secondary, text_style_subtext) ||
-                !text(out, s, s.rows[i], row.body, ui_rect_edges(r, ui_start(52), ui_start(36), ui_end(-12), ui_end(-12)),
-                      row.hit ? theme.text_primary : theme.text_secondary, 0, TextWrapping::wrap,
-                      UiTextAlignment::start, false))
-                return false;
+            if (ui_rect_has_area(s.group_rectangles[i]))
+                text(out, s, s.rows[i], row.channel, s.group_rectangles[i], theme.text_secondary,
+                     text_style_subtext | text_style_bold);
+            text(out, s, s.rows[i], row.author, header.name, row.hit ? theme.text_primary : theme.text_secondary,
+                 text_style_bold);
+            text(out, s, s.rows[i], row.detail, header.timestamp, theme.text_secondary, text_style_subtext);
+            text(out, s, s.rows[i], row.body,
+                 ui_rect_edges(r, ui_start(52), ui_start(36), ui_end(-12), ui_end(-12)),
+                 row.hit ? theme.text_primary : theme.text_secondary, 0, ui_text_wrap);
         }
     }
     if (s.choice_source) {
@@ -2369,108 +2248,86 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
             s.choice_source->heading.bytes ? s.choice_source->heading : utf8_literal("Search values");
         const auto hint = s.choice_source->hint.bytes
                               ? s.choice_source->hint
-                              : (!s.choice_total ? utf8_literal("No matches. Keep typing.")
-                                                 : Utf8View{});
-        const float left = s.chooser.left + metrics.menu_padding,
-                    right = s.chooser.right - metrics.menu_padding;
+                              : (!s.choice_total ? utf8_literal("No matches. Keep typing.") : Utf8View{});
+        const float left = s.chooser.left + metrics.menu_padding, right = s.chooser.right - metrics.menu_padding;
         const float top = s.chooser.top + metrics.menu_padding;
-        if (!text(out, s, s.root, heading, {left, top, right, top + choice_heading_height(s)},
-                  theme.text_primary, text_style_bold, TextWrapping::no_wrap, UiTextAlignment::start,
-                  true))
-            return false;
+        text(out, s, s.root, heading, {left, top, right, top + choice_heading_height(s)}, theme.text_primary,
+             text_style_bold, 0, true);
         const float bottom = s.chooser.bottom - metrics.menu_padding;
-        if (!text(out, s, s.root, hint, {left, maximum(top, bottom - choice_hint_height(s)), right, bottom},
-                  theme.text_secondary, text_style_subtext, TextWrapping::wrap, UiTextAlignment::start,
-                  true))
-            return false;
-    } else {
-        if (chooser_open(s) &&
-            !line(out, s, s.root, utf8_literal("Filters"),
-                  ui_rect_edges(s.chooser, ui_start(12), ui_start(4), ui_end(-12), ui_start(26)),
-                  theme.text_secondary, text_style_subtext | text_style_bold))
-            return false;
-        if (chooser_open(s) && recent_shown(s) &&
-            !text(out, s, s.root, utf8_literal("Recent searches"),
-                  {s.chooser.left + 12, recent_top(s), s.chooser.right - 76, recent_top(s) + 28},
-                  theme.text_secondary, text_style_subtext | text_style_bold, TextWrapping::no_wrap,
-                  UiTextAlignment::start, true))
-            return false;
+        text(out, s, s.root, hint, {left, maximum(top, bottom - choice_hint_height(s)), right, bottom},
+             theme.text_secondary, text_style_subtext, ui_text_wrap, true);
+    } else if (chooser_open(s)) {
+        text(out, s, s.root, utf8_literal("Filters"),
+             ui_rect_edges(s.chooser, ui_start(12), ui_start(4), ui_end(-12), ui_start(26)), theme.text_secondary,
+             text_style_subtext | text_style_bold);
+        if (recent_shown(s))
+            text(out, s, s.root, utf8_literal("Recent searches"),
+                 {s.chooser.left + 12, recent_top(s), s.chooser.right - 76, recent_top(s) + 28},
+                 theme.text_secondary, text_style_subtext | text_style_bold, 0, true);
     }
     for (u32 i = 1; i < s.widgets.count; ++i) {
         const auto a = s.targets[i].action;
         if (a == UiSearchAction::edit || a == UiSearchAction::result || a == UiSearchAction::submit ||
             a == UiSearchAction::rich_item || a == UiSearchAction::tab)
             continue;
-        auto r = bounds(s, {static_cast<u16>(i), s.widgets.generation});
+        const UiWidgetHandle self{static_cast<u16>(i), s.widgets.generation};
+        const auto rectangle = ui_bounds(s, self);
+        auto r = rectangle;
         r.left += 4;
         r.right -= 4;
         if (a == UiSearchAction::filter_value) {
             UiMenuRowGeometry geometry{};
-            const auto rectangle = bounds(s, {static_cast<u16>(i), s.widgets.generation});
             if (!choice_menu_geometry(s, rectangle, &geometry))
                 return false;
             const auto& choice = s.choice_source->rows[s.targets[i].source_index];
-            const UiWidgetHandle owner{static_cast<u16>(i), s.widgets.generation};
-            if (!line(out, s, owner, choice.label, geometry.primary, theme.text_primary, text_style_bold) ||
-                !line(out, s, owner, choice.detail, geometry.detail, theme.text_secondary,
-                      text_style_subtext))
-                return false;
+            text(out, s, self, choice.label, geometry.primary, theme.text_primary, text_style_bold);
+            text(out, s, self, choice.detail, geometry.detail, theme.text_secondary, text_style_subtext);
             continue;
         }
         if (a == UiSearchAction::page) {
             for (u32 page = 0; page < s.page_count; ++page)
-                if (s.pages[page].slot == i &&
-                    !centered(out, s, s.pages[page], {s.page_text[page], s.page_bytes[page]}, r,
-                              theme.text_primary))
-                    return false;
+                if (s.pages[page].slot == i)
+                    centered(out, s, s.pages[page], {s.page_text[page], s.page_bytes[page]}, r, theme.text_primary);
             continue;
         }
         if (ui_search_action_filter(a) || a == UiSearchAction::more_filters) {
             static constexpr Utf8View hints[] = {utf8_literal("from:"),
-                                      utf8_literal("in:"),
-                                      utf8_literal("has:image"),
-                                      utf8_literal("mentions:"),
-                                      utf8_literal("on:YYYY-MM-DD"),
-                                      utf8_literal("before:YYYY-MM-DD"),
-                                      utf8_literal("after:YYYY-MM-DD"),
-                                      utf8_literal("pinned:true"),
-                                      utf8_literal("linkFrom:youtube.com"),
-                                      utf8_literal("fileType:pdf"),
-                                      utf8_literal("fileName:report"),
-                                      utf8_literal("authorType:bot")};
+                                                 utf8_literal("in:"),
+                                                 utf8_literal("has:image"),
+                                                 utf8_literal("mentions:"),
+                                                 utf8_literal("on:YYYY-MM-DD"),
+                                                 utf8_literal("before:YYYY-MM-DD"),
+                                                 utf8_literal("after:YYYY-MM-DD"),
+                                                 utf8_literal("pinned:true"),
+                                                 utf8_literal("linkFrom:youtube.com"),
+                                                 utf8_literal("fileType:pdf"),
+                                                 utf8_literal("fileName:report"),
+                                                 utf8_literal("authorType:bot")};
             r.left += 32;
-            const auto hint =
-                a == UiSearchAction::more_filters
-                    ? utf8_literal("Dates, files, links and more")
-                    : hints[static_cast<u8>(a) - static_cast<u8>(UiSearchAction::filter_from)];
+            const auto hint = a == UiSearchAction::more_filters
+                                  ? utf8_literal("Dates, files, links and more")
+                                  : hints[static_cast<u8>(a) - static_cast<u8>(UiSearchAction::filter_from)];
             const float mid = (r.top + r.bottom) * .5f;
-            if (!line(out, s, {static_cast<u16>(i), s.widgets.generation}, label(a),
-                      {r.left, r.top + 2, r.right, mid + 2}, theme.text_primary, text_style_subtext) ||
-                !line(out, s, {static_cast<u16>(i), s.widgets.generation}, hint,
-                      {r.left, mid, r.right, r.bottom - 2}, theme.text_secondary, text_style_subtext))
-                return false;
+            text(out, s, self, label(a), {r.left, r.top + 2, r.right, mid + 2}, theme.text_primary,
+                 text_style_subtext);
+            text(out, s, self, hint, {r.left, mid, r.right, r.bottom - 2}, theme.text_secondary,
+                 text_style_subtext);
             continue;
         }
         if (a == UiSearchAction::recent || a == UiSearchAction::clear_recent) {
-            const auto value =
-                a == UiSearchAction::recent && s.targets[i].source_index < s.content->recent_count
-                    ? s.content->recent[s.targets[i].source_index]
-                    : label(a);
-            if (!line(out, s, {static_cast<u16>(i), s.widgets.generation}, value,
-                      a == UiSearchAction::recent ? UiRect{r.left + 28, r.top, r.right, r.bottom} : r,
-                      a == UiSearchAction::recent ? theme.text_primary : theme.text_secondary,
-                      text_style_subtext,
-                      a == UiSearchAction::recent ? UiTextAlignment::start : UiTextAlignment::center))
-                return false;
+            const auto value = a == UiSearchAction::recent && s.targets[i].source_index < s.content->recent_count
+                                   ? s.content->recent[s.targets[i].source_index]
+                                   : label(a);
+            text(out, s, self, value, a == UiSearchAction::recent ? UiRect{r.left + 28, r.top, r.right, r.bottom} : r,
+                 a == UiSearchAction::recent ? theme.text_primary : theme.text_secondary, text_style_subtext,
+                 a == UiSearchAction::recent ? 0 : ui_text_center);
             continue;
         }
         if (a == UiSearchAction::sort) {
             const Utf8View sorts[] = {label(UiSearchAction::newest), label(UiSearchAction::oldest),
                                       label(UiSearchAction::relevance)};
-            if (!centered(out, s, {static_cast<u16>(i), s.widgets.generation},
-                          sorts[s.content->sort < 3 ? s.content->sort : 0],
-                          {r.left + 4, r.top, r.right - 20, r.bottom}, theme.text_primary))
-                return false;
+            centered(out, s, self, sorts[s.content->sort < 3 ? s.content->sort : 0],
+                     {r.left + 4, r.top, r.right - 20, r.bottom}, theme.text_primary);
             continue;
         }
         if (a == UiSearchAction::close)
@@ -2478,13 +2335,11 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
         if (sort_action(a))
             r.right -= 28;
         const bool enabled = (s.widgets.storage[i].flags & ui_widget_enabled) != 0;
-        if (!line(out, s, {static_cast<u16>(i), s.widgets.generation}, label(a), r,
-                  enabled ? theme.text_primary : theme.text_secondary, text_style_subtext,
-                  a == UiSearchAction::filters || a == UiSearchAction::previous || a == UiSearchAction::next
-                      ? UiTextAlignment::center
-                      : UiTextAlignment::start))
-            return false;
+        text(out, s, self, label(a), r, enabled ? theme.text_primary : theme.text_secondary, text_style_subtext,
+             a == UiSearchAction::filters || a == UiSearchAction::previous || a == UiSearchAction::next
+                 ? ui_text_center
+                 : 0);
     }
-    return true;
+    return out.ok();
 }
 } // namespace maicord

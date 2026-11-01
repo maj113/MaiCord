@@ -1,8 +1,6 @@
 #include "maicord/ui/guild_card_scene.hpp"
 #include "maicord/ui/background_color_math.hpp"
-#include "maicord/ui/icon.hpp"
-#include "maicord/ui/spinner.hpp"
-#include "maicord/ui/surface_elevation.hpp"
+#include "maicord/ui/scene_kit.hpp"
 #include "maicord/ui/text_style.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
@@ -196,14 +194,6 @@ u32 acronym(const UiGuildCardScene& s, char* output) noexcept {
     }
     return bytes;
 }
-bool push_text(UiTextOutput* text, const UiGuildCardScene& s, const Utf8View& value, const UiRect& rectangle, const Color& color, u32 style,
-               UiTextAlignment horizontal = UiTextAlignment::start, bool wrap = false) noexcept {
-    if (!value.bytes || !ui_rect_has_area(rectangle))
-        return true;
-    return ui_text_output_push(text, {value, s.owner, rectangle, s.panel, color, style, horizontal,
-                                      wrap ? UiTextAlignment::start : UiTextAlignment::center,
-                                      wrap ? TextWrapping::wrap : TextWrapping::no_wrap, TextOverflow::ellipsis});
-}
 Utf8View action_label(UiGuildCardAction action) noexcept {
     switch (action) {
     case UiGuildCardAction::go_to_server: return utf8_literal("Go to Server");
@@ -366,117 +356,94 @@ Color ui_guild_card_banner_highlight(Color base) noexcept {
 bool ui_guild_card_paint(const UiGuildCardScene& s, const Theme& theme, PaintStream* paint) noexcept {
     if (!s.active)
         return true;
-    if (!paint)
-        return false;
+    UiPaint p{paint, theme};
     const float a = opacity(s);
-    const Color fill = ui_theme_color_alpha(theme.tokens.background.floating, a);
-    const Color border = ui_theme_color_alpha(theme.tokens.border.subtle, a);
-    bool ok = ui_surface_paint(paint, s.panel, theme, UiElevation::popover, kRadius, &fill, &border);
-    if (!ok || !paint_stream_push_clip(paint, s.panel))
-        return false;
+    p.use<ui_hover_card_paint_surface>(s, theme, kRadius).clip(s.panel);
     // Banner: the brand colour (else the accent) brightening towards the
     // bottom centre, its top corners rounded with the card and its bottom
     // edge square. A custom banner picture (media) covers it.
     const auto banner = at(s, s.banner);
     const Color top = s.has_brand_color ? color_from_rgb24(s.brand_color, a) : ui_theme_color_alpha(theme.tokens.accent.brand, a);
     const Color bottom = ui_guild_card_banner_highlight(top);
-    ok = paint_stream_push_clip(paint, banner) &&
-         paint_stream_push_gradient(paint, {banner.left, banner.top, banner.right, banner.bottom + kRadius}, top, bottom,
-                                    kRadius) &&
-         paint_stream_pop_clip(paint);
-    return paint_stream_pop_clip(paint) && ok;
+    const UiRect cover{banner.left, banner.top, banner.right, banner.bottom + kRadius};
+    return p.clip(banner).use<paint_stream_push_gradient>(cover, top, bottom, kRadius).unclip().end();
 }
 
 bool ui_guild_card_paint_foreground(const UiGuildCardScene& s, const Theme& theme, PaintStream* paint) noexcept {
     if (!s.active)
         return true;
-    if (!paint)
-        return false;
+    UiPaint p{paint, theme};
     const float a = opacity(s);
     const Color fill = ui_theme_color_alpha(theme.tokens.background.floating, a);
-    bool ok = paint_stream_push_clip(paint, s.panel);
-    if (!ok)
-        return false;
+    p.clip(s.panel);
     // Icon: a ring in the card colour, then the plate the host's icon covers.
-    const auto ring = at(s, s.icon_ring), icon = at(s, s.icon);
-    ok = ok && paint_stream_push_rounded(paint, ring, fill, theme.scale.radius_xl + kRing) &&
-         paint_stream_push_rounded(paint, icon, ui_theme_color_alpha(theme.surface_high, a), theme.scale.radius_xl);
-    if (ok && s.phase == UiGuildCardPhase::loading) {
-        const auto spinner = at(s, s.status_icon);
-        ok = ui_spinner_paint(paint, spinner, ui_theme_color_alpha(theme.tokens.text.normal, a), s.spinner_phase);
+    p.rounded(at(s, s.icon_ring), fill, theme.scale.radius_xl + kRing)
+        .rounded(at(s, s.icon), ui_theme_color_alpha(theme.surface_high, a), theme.scale.radius_xl);
+    if (s.phase == UiGuildCardPhase::loading)
+        p.spinner(at(s, s.status_icon), ui_theme_color_alpha(theme.tokens.text.normal, a), s.spinner_phase);
+    if (s.phase == UiGuildCardPhase::private_profile || s.phase == UiGuildCardPhase::failed)
+        p.icon(s.phase == UiGuildCardPhase::private_profile ? UiIcon::lock : UiIcon::warning, at(s, s.status_icon),
+               ui_theme_color_alpha(theme.tokens.text.muted, a));
+    if (ui_rect_has_area(s.tag_chip))
+        p.rounded_border(at(s, s.tag_chip), Color{}, ui_theme_color_alpha(theme.tokens.border.strong, a),
+                         theme.scale.radius_md, 1);
+    if (ui_rect_has_area(s.online_dot))
+        p.rounded(at(s, s.online_dot), ui_theme_color_alpha(theme.tokens.status.online, a), theme.scale.radius_full)
+            .rounded(at(s, s.members_dot), ui_theme_color_alpha(theme.tokens.status.offline, a),
+                     theme.scale.radius_full);
+    for (u32 i = 0; p && i < s.trait_count; ++i)
+        p.rounded(at(s, s.traits[i]), ui_theme_color_alpha(theme.surface_high, a), theme.scale.radius_md);
+    if (ui_rect_has_area(s.button)) {
+        p.rounded(at(s, s.button),
+                  ui_theme_color_alpha(ui_hover_card_button_color(s, theme),
+                                       s.action == UiGuildCardAction::joining ? a * .5f : a),
+                  theme.scale.radius_md);
     }
-    if (ok && (s.phase == UiGuildCardPhase::private_profile || s.phase == UiGuildCardPhase::failed))
-        ok = ui_icon_paint(paint, s.phase == UiGuildCardPhase::private_profile ? UiIcon::lock : UiIcon::warning,
-                           at(s, s.status_icon), ui_theme_color_alpha(theme.tokens.text.muted, a));
-    if (ok && ui_rect_has_area(s.tag_chip)) {
-        const auto chip = at(s, s.tag_chip);
-        ok = paint_stream_push_rounded_border(paint, chip, Color{}, ui_theme_color_alpha(theme.tokens.border.strong, a), theme.scale.radius_md, 1);
-    }
-    if (ok && ui_rect_has_area(s.online_dot)) {
-        const auto on = at(s, s.online_dot), off = at(s, s.members_dot);
-        ok = paint_stream_push_rounded(paint, on, ui_theme_color_alpha(theme.tokens.status.online, a), theme.scale.radius_full) &&
-             paint_stream_push_rounded(paint, off, ui_theme_color_alpha(theme.tokens.status.offline, a), theme.scale.radius_full);
-    }
-    for (u32 i = 0; ok && i < s.trait_count; ++i) {
-        const auto r = at(s, s.traits[i]);
-        ok = paint_stream_push_rounded(paint, r, ui_theme_color_alpha(theme.surface_high, a), theme.scale.radius_md);
-    }
-    if (ok && ui_rect_has_area(s.button)) {
-        Color button = theme.tokens.accent.brand;
-        const float shade = s.pressed && s.hovered ? .8f : s.hovered ? .9f : 1.f;
-        button.red *= shade;
-        button.green *= shade;
-        button.blue *= shade;
-        const auto b = at(s, s.button);
-        ok = paint_stream_push_rounded(paint, b, ui_theme_color_alpha(button, s.action == UiGuildCardAction::joining ? a * .5f : a), theme.scale.radius_md);
-    }
-    return paint_stream_pop_clip(paint) && ok;
+    return p.end();
 }
 
-bool ui_guild_card_text_output(const UiGuildCardScene& s, const Theme& theme, UiTextOutput* text) noexcept {
+bool ui_guild_card_text_output(const UiGuildCardScene& s, const Theme& theme, UiTextOutput* out) noexcept {
     if (!s.active)
         return true;
-    if (!text)
-        return false;
+    UiTextPen<UiTextClip::region> text{out, s.widgets, s.panel};
+    const auto owner = s.owner.handle;
     const float a = opacity(s);
     const Color strong = ui_theme_color_alpha(theme.tokens.text.normal, a), muted = ui_theme_color_alpha(theme.tokens.text.muted, a);
-    bool ok = true;
     if (!media_asset_key_valid(s.icon_key) && s.phase == UiGuildCardPhase::ready) {
         char initials[8];
         const u32 bytes = acronym(s, initials);
-        ok = !bytes || ui_text_output_push_owned(text, {{initials, bytes}, s.owner, at(s, s.icon), s.panel, strong,
-                                                        text_style_bold, UiTextAlignment::center,
-                                                        UiTextAlignment::center, TextWrapping::no_wrap,
-                                                        TextOverflow::ellipsis});
+        if (bytes && !ui_text_output_push_owned(out, {{initials, bytes}, s.owner, at(s, s.icon), s.panel, strong,
+                                                      text_style_bold, UiTextAlignment::center,
+                                                      UiTextAlignment::center, TextWrapping::no_wrap,
+                                                      TextOverflow::ellipsis}))
+            text.fail();
     }
     if (s.phase == UiGuildCardPhase::private_profile || s.phase == UiGuildCardPhase::failed) {
         const bool closed = s.phase == UiGuildCardPhase::private_profile;
-        return ok &&
-               push_text(text, s, closed ? utf8_literal("Private Server") : utf8_literal("Unknown Server"),
-                         at(s, s.status_title), strong, text_style_bold) &&
-               push_text(text, s,
-                         closed ? utf8_literal("The server has limited who can see this profile.")
-                                : utf8_literal("Unable to load server profile. Click to try again."),
-                         at(s, s.status_text), muted, text_style_subtext, UiTextAlignment::start, true);
+        text(owner, closed ? utf8_literal("Private Server") : utf8_literal("Unknown Server"), at(s, s.status_title),
+             strong, text_style_bold);
+        return text(owner,
+                    closed ? utf8_literal("The server has limited who can see this profile.")
+                           : utf8_literal("Unable to load server profile. Click to try again."),
+                    at(s, s.status_text), muted, text_style_subtext, ui_text_wrap)
+            .ok();
     }
     if (s.phase != UiGuildCardPhase::ready)
-        return ok;
-    ok = ok && push_text(text, s, {s.name_text, s.name_bytes}, at(s, s.name), strong, text_style_bold) &&
-         push_text(text, s, {s.tag, s.tag_bytes}, at(s, s.tag_text), strong, text_style_subtext | text_style_bold) &&
-         push_text(text, s, {s.online_text, s.online_bytes}, at(s, s.online), muted, text_style_subtext) &&
-         push_text(text, s, {s.members_text, s.members_bytes}, at(s, s.members), muted, text_style_subtext) &&
-         push_text(text, s, {s.established_text, s.established_bytes}, at(s, s.established), muted,
-                   text_style_subtext) &&
-         push_text(text, s, {s.description_text, s.description_bytes}, at(s, s.description), strong,
-                   text_style_subtext, UiTextAlignment::start, true);
-    for (u32 i = 0; ok && i < s.trait_count; ++i) {
+        return text.ok();
+    text(owner, {s.name_text, s.name_bytes}, at(s, s.name), strong, text_style_bold);
+    text(owner, {s.tag, s.tag_bytes}, at(s, s.tag_text), strong, text_style_subtext | text_style_bold);
+    text(owner, {s.online_text, s.online_bytes}, at(s, s.online), muted, text_style_subtext);
+    text(owner, {s.members_text, s.members_bytes}, at(s, s.members), muted, text_style_subtext);
+    text(owner, {s.established_text, s.established_bytes}, at(s, s.established), muted, text_style_subtext);
+    text(owner, {s.description_text, s.description_bytes}, at(s, s.description), strong, text_style_subtext,
+         ui_text_wrap);
+    for (u32 i = 0; i < s.trait_count; ++i) {
         const auto r = at(s, s.traits[i]);
-        ok = push_text(text, s, {s.trait_text[i], s.trait_bytes[i]}, {r.left + 10, r.top, r.right - 10, r.bottom},
-                       strong, text_style_subtext);
+        text(owner, {s.trait_text[i], s.trait_bytes[i]}, {r.left + 10, r.top, r.right - 10, r.bottom}, strong,
+             text_style_subtext);
     }
-    if (ok && ui_rect_has_area(s.button))
-        ok = push_text(text, s, action_label(s.action), at(s, s.button), ui_theme_color_alpha(theme.tokens.text.on_accent, a),
-                       text_style_bold, UiTextAlignment::center);
-    return ok;
+    return text(owner, action_label(s.action), at(s, s.button), ui_theme_color_alpha(theme.tokens.text.on_accent, a),
+                text_style_bold, ui_text_center)
+        .ok();
 }
 } // namespace maicord

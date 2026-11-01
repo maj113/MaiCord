@@ -1,5 +1,6 @@
 #include "maicord/ui/forum_post_scene.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/ui/scene_kit.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/widget_builder.hpp"
 #include "maicord/ui/widget_scroll.hpp"
@@ -122,10 +123,8 @@ ForumPostTarget target_of(const ForumPostScene& s, UiWidgetHandle h) noexcept {
 }
 bool build(ForumPostScene* s) noexcept {
     if (!s->storage.arena.base) {
-        if (!ui_fixed_widget_storage_initialize(&s->storage,
-                                                kForumPostElements + kForumPostTagCapacity +
-                                                    kUiAttachmentDraftMaximum * kUiAttachmentDraftParts) ||
-            !ui_widget_manager_initialize(&s->widgets, s->storage.widgets, s->storage.layout_nodes))
+        if (!ui_scene_open(&s->storage, &s->widgets,
+                           kForumPostElements + kForumPostTagCapacity + kUiAttachmentDraftMaximum * kUiAttachmentDraftParts))
             return false;
     } else
         ui_widget_manager_reset(&s->widgets);
@@ -242,9 +241,6 @@ bool build(ForumPostScene* s) noexcept {
             s->content.attachments, attachment_key_base, s->content.attachment_style))
         return false;
     return true;
-}
-bool fill(PaintStream* p, UiRect r, Color c) noexcept {
-    return !ui_rect_has_area(r) || paint_stream_push(p, r, c);
 }
 } // namespace
 const UiLayoutNode* forum_post_node(const ForumPostScene& s, ForumPostElement e) noexcept {
@@ -470,10 +466,7 @@ bool forum_post_update(ForumPostScene* s, const ForumPostContent& c, UiRect view
     return true;
 }
 void forum_post_release(ForumPostScene* s) noexcept {
-    if (s) {
-        ui_fixed_widget_storage_release(&s->storage);
-        reset_value(s);
-    }
+    ui_scene_release(s);
 }
 ForumPostTarget forum_post_hit_test(const ForumPostScene& s, float x, float y) noexcept {
     return s.active ? target_of(s, ui_widget_manager_hit_test(s.widgets, x, y))
@@ -571,19 +564,20 @@ bool forum_post_scroll(ForumPostScene* s, float delta) noexcept {
     return ok;
 }
 bool forum_post_paint(const ForumPostScene& s, const TextFormEditGeometry (&geometry)[2],
-                      const Theme& theme, PaintStream* p) noexcept {
+                      const Theme& theme, PaintStream* out) noexcept {
     if (!s.active)
         return true;
     const auto* panel = forum_post_node(s, ForumPostElement::panel);
-    if (!p || !panel ||
-        !paint_stream_push_clip(p, s.viewport))
+    if (!out || !panel)
         return false;
-    bool ok =
-        fill(p, s.viewport, theme.tokens.overlay.scrim) &&
-        ui_surface_paint(p, panel->rectangle, theme, UiElevation::dialog,
-                         s.content.style.corner_radius + panel->spec.style.padding.left, nullptr, &theme.interactive);
+    UiPaint p{out, theme};
+    p.clip(s.viewport)
+        .fill(s.viewport, theme.tokens.overlay.scrim)
+        .use<ui_surface_paint>(panel->rectangle, theme, UiElevation::dialog,
+                               s.content.style.corner_radius + panel->spec.style.padding.left, nullptr,
+                               &theme.interactive);
     const auto focused = forum_post_focused(s);
-    for (u32 i = 0; ok && i < kForumPostElements + s.content.tags.count; ++i) {
+    for (u32 i = 0; p && i < kForumPostElements + s.content.tags.count; ++i) {
         const bool tag = i >= kForumPostElements;
         const auto e = tag ? ForumPostElement::tags : static_cast<ForumPostElement>(i);
         if ((!tag && !edit(e) && !button(e)) || (!tag && e == ForumPostElement::tags))
@@ -592,10 +586,8 @@ bool forum_post_paint(const ForumPostScene& s, const TextFormEditGeometry (&geom
         if (!h.generation)
             continue;
         const auto* node = ui_widget_manager_layout_node(s.widgets, h);
-        if (!node)
-            return false;
-        if (!paint_stream_push_clip(p, node->clip_rectangle)) {
-            ok = false;
+        if (!node) {
+            p.fail();
             break;
         }
         const bool has_focus = focused.element == e && (!tag || focused.tag == i - kForumPostElements);
@@ -606,27 +598,33 @@ bool forum_post_paint(const ForumPostScene& s, const TextFormEditGeometry (&geom
             edit(e) ? theme.base_lowest
                     : (selected || (e == ForumPostElement::accept && enabled) ? theme.tokens.emphasis.fill
                                                                               : theme.surface_high);
-        ok = paint_stream_push_rounded_border(p, node->rectangle, background, has_focus && s.content.focus_visible ? theme.tokens.border.focus : theme.interactive, s.content.style.corner_radius, has_focus && s.content.focus_visible ? 2.f : 1.f);
+        const bool ring = has_focus && s.content.focus_visible;
+        p.clip(node->clip_rectangle)
+            .rounded_border(node->rectangle, background, ring ? theme.tokens.border.focus : theme.interactive,
+                            s.content.style.corner_radius, ring ? 2.f : 1.f);
         if (edit(e)) {
             const auto& g = geometry[field_index(e)];
             const auto clip = ui_rect_overlap(node->content_rectangle, node->clip_rectangle);
-            for (u32 j = 0; ok && j < g.selections.count; ++j)
-                ok = fill(p, ui_rect_overlap(g.selections[j], clip), theme.interactive_hover);
-            for (u32 j = 0; ok && j < g.composition.count; ++j)
-                ok = text_composition_paint_mark(p, g.composition[j], clip, theme.accent);
-            if (ok && has_focus && s.content.fields[field_index(e)].caret_visible)
-                ok = fill(p, ui_rect_overlap(g.caret, clip), theme.text_primary);
+            for (u32 j = 0; p && j < g.selections.count; ++j)
+                if (const auto r = ui_rect_overlap(g.selections[j], clip); ui_rect_has_area(r))
+                    p.fill(r, theme.interactive_hover);
+            for (u32 j = 0; p && j < g.composition.count; ++j)
+                p.use<text_composition_paint_mark>(g.composition[j], clip, theme.accent);
+            if (has_focus && s.content.fields[field_index(e)].caret_visible)
+                if (const auto r = ui_rect_overlap(g.caret, clip); ui_rect_has_area(r))
+                    p.fill(r, theme.text_primary);
         }
-        ok = paint_stream_pop_clip(p) && ok;
+        p.unclip();
     }
-    ok = ok && ui_attachment_draft_list_paint(s.attachment_list, theme, p, s.content.focus_visible);
+    if (p && !ui_attachment_draft_list_paint(s.attachment_list, theme, out, s.content.focus_visible))
+        p.fail();
     // The covered shell's hover scrollbar filter must not hide this owner's
     // overflow cue. Restore it before returning to the underlying renderer.
-    const bool filtered = p->filter_scrollbars;
-    p->filter_scrollbars = false;
-    ok = ok && ui_scrollbar_paint(p, forum_post_scrollbar(s), theme);
-    p->filter_scrollbars = filtered;
-    return paint_stream_pop_clip(p) && ok;
+    const bool filtered = out->filter_scrollbars;
+    out->filter_scrollbars = false;
+    p.scrollbar(forum_post_scrollbar(s));
+    out->filter_scrollbars = filtered;
+    return p.end();
 }
 bool forum_post_text_output(const ForumPostScene& s, const TextFormEditGeometry (&geometry)[2],
                             const Theme& theme, UiTextOutput* output) noexcept {

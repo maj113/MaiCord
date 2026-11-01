@@ -1,16 +1,11 @@
 #include "maicord/ui/message_forward_scene.hpp"
-#include "maicord/ui/surface_elevation.hpp"
-#include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/rect_edges.hpp"
-#include "maicord/ui/scene_text.hpp"
-#include "maicord/ui/icon.hpp"
+#include "maicord/ui/scene_kit.hpp"
 #include "maicord/ui/foreground_color.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/asset_hash.hpp"
 #include "maicord/model/user_store.hpp"
 #include "maicord/ui/guild_icon_media.hpp"
-#include "maicord/ui/text_presentation.hpp"
-#include "maicord/ui/scrollbar.hpp"
 
 namespace maicord {
 namespace {
@@ -21,6 +16,9 @@ bool current(const UiMessageForwardScene& s) noexcept {
 }
 // The 32-DIP destination tile leading each row; identity images cover it.
 constexpr float kDestinationTileRadius = 8.f;
+// The close button's hover plate: dialog material, no focus outline.
+constexpr UiLook kClose{.fill = UI_TOKEN(surface_high), .focus = UI_TOKEN(surface_high), .radius = 6,
+                        .flags = ui_look_hot_only | ui_look_dialog};
 UiRect destination_tile(UiRect row) noexcept {
     return ui_rect_edges(row, ui_start(10), ui_start(10), ui_start(42), ui_start(42));
 }
@@ -75,37 +73,29 @@ UiMessageForwardTarget row_target(const UiMessageForwardScene& s, u32 index) noe
 }
 bool initialize(UiMessageForwardScene& s) noexcept {
     if (s.storage.arena.base) return true;
-    if (!ui_fixed_widget_storage_initialize(&s.storage, kUiMessageForwardWidgetCapacity,
-        sizeof(UiMessageForwardRow) * kUiMessageForwardMaximumRows, alignof(UiMessageForwardRow)) ||
-        !ui_widget_manager_initialize(&s.widgets, s.storage.widgets, s.storage.layout_nodes)) return false;
+    if (!ui_scene_open(&s.storage, &s.widgets, kUiMessageForwardWidgetCapacity,
+                       sizeof(UiMessageForwardRow) * kUiMessageForwardMaximumRows, alignof(UiMessageForwardRow)))
+        return false;
     s.accepted = ui_fixed_widget_storage_sidecar<UiMessageForwardRow>(s.storage);
+    s.root = ui_scene_part_root(&s.widgets, utf8_literal("Forward message"));
+    if (!s.root.generation) return false;
     const auto add = [&](UiWidgetHandle parent, UiWidgetKind kind, Utf8View name) noexcept {
-        return ui_widget_manager_add_part(&s.widgets, parent, kind, name);
+        return ui_scene_part(&s.widgets, parent, kind, name);
     };
-    auto root = add(ui_widget_invalid_handle(), UiWidgetKind::container, utf8_literal("Forward message"));
-    if (!root.ok()) return false;
-    s.root = root.handle;
-    auto* node = ui_widget_manager_layout_node(&s.widgets, s.root);
-    node->spec.style.width = node->spec.style.height = ui_layout_fill();
-    const auto edit = add(s.root, UiWidgetKind::text_field, utf8_literal("Find destinations"));
-    const auto caption = add(s.root, UiWidgetKind::text_field, utf8_literal("Optional forward caption"));
-    const auto close = add(s.root, UiWidgetKind::button, utf8_literal("Close forwarding"));
-    const auto send = add(s.root, UiWidgetKind::button, utf8_literal("Send selected forwards"));
-    const auto cancel = add(s.root, UiWidgetKind::button, utf8_literal("Cancel forwarding"));
-    const auto body = add(s.root, UiWidgetKind::container, utf8_literal("Forward destinations"));
-    if (!edit.ok() || !caption.ok() || !close.ok() || !send.ok() || !cancel.ok() || !body.ok()) return false;
-    s.edit = edit.handle; s.caption = caption.handle; s.close = close.handle; s.send = send.handle;
-    s.cancel = cancel.handle; s.body_owner = body.handle;
-    for (auto& handle : s.rows) {
-        auto row = add(s.body_owner, UiWidgetKind::button, utf8_literal("Forward destination"));
-        if (!row.ok()) return false;
-        handle = row.handle;
-    }
-    for (auto& handle : s.targets) {
-        auto target = add(s.root, UiWidgetKind::button, utf8_literal("Selected forward destination"));
-        if (!target.ok()) return false;
-        handle = target.handle;
-    }
+    s.edit = add(s.root, UiWidgetKind::text_field, utf8_literal("Find destinations"));
+    s.caption = add(s.root, UiWidgetKind::text_field, utf8_literal("Optional forward caption"));
+    s.close = add(s.root, UiWidgetKind::button, utf8_literal("Close forwarding"));
+    s.send = add(s.root, UiWidgetKind::button, utf8_literal("Send selected forwards"));
+    s.cancel = add(s.root, UiWidgetKind::button, utf8_literal("Cancel forwarding"));
+    s.body_owner = add(s.root, UiWidgetKind::container, utf8_literal("Forward destinations"));
+    if (!s.edit.generation || !s.caption.generation || !s.close.generation || !s.send.generation ||
+        !s.cancel.generation || !s.body_owner.generation) return false;
+    for (auto& handle : s.rows)
+        if (!(handle = add(s.body_owner, UiWidgetKind::button, utf8_literal("Forward destination"))).generation)
+            return false;
+    for (auto& handle : s.targets)
+        if (!(handle = add(s.root, UiWidgetKind::button, utf8_literal("Selected forward destination"))).generation)
+            return false;
     return true;
 }
 bool rectangle(UiMessageForwardScene& s, UiWidgetHandle handle, UiRect r, UiRect parent,
@@ -159,14 +149,6 @@ bool layout(UiMessageForwardScene& s, bool force = false) noexcept {
     ui_widget_manager_reconcile_input(&s.widgets);
     return true;
 }
-bool emit(UiTextOutput* out, const UiMessageForwardScene& s, UiWidgetHandle owner, const Utf8View& value,
-    const UiRect& r, const UiRect& clip, const Color& color, u32 flags = 0, u32 mode = 0) noexcept {
-    return ui_scene_label(out, s.widgets, owner, value, r, clip, color, flags, mode);
-}
-bool surface(PaintStream* out, const UiRect& r, const Theme& t, const Color& fill, const Color& border, float radius) noexcept {
-    return ui_background_paint_surface(out, r, t, fill, border, radius, 1, 1,
-        UiBackgroundSurfaceMode::gradient, UiBackgroundTier::highest);
-}
 Color tint(Color value, float alpha) noexcept { value.alpha = alpha; return value; }
 UiEditView presentation_view(UiEditView view, bool sending) noexcept {
     if (!view.active || sending) { view.focused = false; view.caret_visible = false; }
@@ -176,9 +158,6 @@ UiEditView presentation_view(UiEditView view, bool sending) noexcept {
 UiIcon destination_icon(UiQuickSwitcherKind kind) noexcept {
     return kind == UiQuickSwitcherKind::text_channel ? UiIcon::channel :
         kind == UiQuickSwitcherKind::group_private ? UiIcon::members : UiIcon::direct_message;
-}
-bool mark(PaintStream* out, UiRect r, Color color) noexcept {
-    return ui_icon_paint(out, UiIcon::check, ui_rect_shrink(r, 2), color);
 }
 void labels(UiMessageForwardScene& s) noexcept {
     u32 send_count = 0;
@@ -301,10 +280,7 @@ bool ui_message_forward_scene_update(UiMessageForwardScene* s, const UiMessageFo
     else if (content->caption.focused && !content->committed && !content->sending) ui_widget_manager_focus(&s->widgets, s->caption);
     ++s->revision; return true;
 }
-void ui_message_forward_scene_release(UiMessageForwardScene* s) noexcept {
-    if (!s) return;
-    ui_fixed_widget_storage_release(&s->storage); reset_value(s);
-}
+void ui_message_forward_scene_release(UiMessageForwardScene* s) noexcept { ui_scene_release(s); }
 UiMessageForwardTarget ui_message_forward_scene_target(const UiMessageForwardScene& s, UiWidgetHandle handle) noexcept {
     if (!current(s)) return {};
     if (ui_widget_handle_matches(handle, s.close)) return {UiMessageForwardAction::close};
@@ -413,118 +389,106 @@ bool ui_message_forward_scene_media(const UiMessageForwardScene& s, u32 slot, co
 bool ui_message_forward_scene_paint(const UiMessageForwardScene& s, const Theme& t, PaintStream* out,
     const UiEditGeometry* query, const UiEditGeometry* caption, u32 dpi) noexcept {
     if (!current(s)) return true;
-    if (!out || !paint_stream_push_clip(out, s.viewport)) return false;
+    UiPaint pen{out, t};
     const auto p = s.panel;
     const auto accent = ui_foreground_color(t, t.tokens.emphasis.outline);
     const auto error = ui_foreground_color(t, t.notification);
     const auto sent = ui_foreground_color(t, t.syntax_string);
-    bool ok = paint_stream_push(out, s.viewport, t.tokens.overlay.scrim) &&
-        ui_surface_paint(out, p, t, UiElevation::dialog, t.scale.radius_lg + t.scale.space_1, nullptr,
-                         &t.interactive_hover) &&
-        ui_icon_paint(out, UiIcon::forwarded, ui_rect_edges(p, ui_start(20), ui_start(16), ui_start(40), ui_start(36)), accent);
-    if (ok && ui_rect_has_area(s.preview)) ok = surface(out, s.preview, t, t.base_lowest, t.surface_high, 8);
-    if (ok && !s.compact) ok = paint_stream_push(out, ui_rect_edges(s.preview, ui_start(12), ui_start(12), ui_start(15), ui_end(-12)),
-        accent);
+    pen.dialog(s.viewport, p).icon(UiIcon::forwarded, ui_rect_edges(p, ui_start(20), ui_start(16), ui_start(40), ui_start(36)), accent);
+    if (ui_rect_has_area(s.preview)) pen.surface(s.preview, t.base_lowest, t.surface_high, 8, true);
+    if (!s.compact) pen.fill(ui_rect_edges(s.preview, ui_start(12), ui_start(12), ui_start(15), ui_end(-12)), accent);
     const auto query_view = presentation_view(s.content->edit, s.content->sending || s.content->committed);
     const auto caption_view = presentation_view(s.content->caption, s.content->sending || s.content->committed);
-    ok = ok && ui_edit_field_paint(out, s.field, s.text, query_view, query, t.base_lowest, t, dpi, 8) &&
-        ui_icon_paint(out, UiIcon::search, ui_rect_edges(s.field, ui_start(10), ui_start(10), ui_start(30), ui_start(30)), t.text_secondary) &&
-        ui_edit_field_paint(out, s.caption_field, s.caption_text, caption_view, caption, t.base_lowest, t, dpi, 8);
-    const auto* close = ui_widget_manager_layout_node(s.widgets, s.close);
-    if (ok && (ui_widget_handle_matches(s.widgets.hovered, s.close) || ui_widget_handle_matches(s.widgets.focused, s.close)))
-        ok = surface(out, close->rectangle, t, t.surface_high, t.surface_high, 6);
-    ok = ok && ui_icon_paint(out, UiIcon::close, ui_rect_edges(p, ui_end(-38), ui_start(14), ui_end(-18), ui_start(34)), t.text_secondary);
-    bool body_clip = false;
-    if (ok) { body_clip = paint_stream_push_clip(out, s.body); ok = body_clip; }
-    for (u32 i = 0; ok && i < s.count; ++i) {
+    if (pen && !ui_edit_field_paint(out, s.field, s.text, query_view, query, t.base_lowest, t, dpi, 8)) pen.fail();
+    pen.icon(UiIcon::search, ui_rect_edges(s.field, ui_start(10), ui_start(10), ui_start(30), ui_start(30)), t.text_secondary);
+    if (pen && !ui_edit_field_paint(out, s.caption_field, s.caption_text, caption_view, caption, t.base_lowest, t, dpi, 8))
+        pen.fail();
+    pen.control<kClose>(s.widgets, s.close)
+        .icon(UiIcon::close, ui_rect_edges(p, ui_end(-38), ui_start(14), ui_end(-18), ui_start(34)), t.text_secondary)
+        .clip(s.body);
+    for (u32 i = 0; pen && i < s.count; ++i) {
         const auto r = s.row_rectangles[i]; const auto* picked = find_selection(s, s.visible[i].channel_id);
         const bool selected = !s.content->committed && s.first + i == s.selected;
-        const auto card = ui_rect_edges(r, ui_start(0), ui_start(2), ui_end(0), ui_end(-2));
-        if (selected || picked || ui_widget_handle_matches(s.widgets.hovered, s.rows[i])) ok = surface(out, card, t,
-            picked ? t.surface_high : t.base_low, selected ? accent : t.surface_high, 7);
+        if (selected || picked || ui_hovered(s, s.rows[i]))
+            pen.surface(ui_rect_edges(r, ui_start(0), ui_start(2), ui_end(0), ui_end(-2)), picked ? t.surface_high : t.base_low,
+                        selected ? accent : t.surface_high, 7, true);
         const UiRect avatar = destination_tile(r);
-        ok = ok && surface(out, avatar, t, t.base_lowest, t.base_lowest, kDestinationTileRadius) &&
-            ui_icon_paint(out, destination_icon(s.visible[i].kind),
-                ui_rect_shrink(avatar, 6), t.text_secondary);
+        pen.surface(avatar, t.base_lowest, t.base_lowest, kDestinationTileRadius, true)
+            .icon(destination_icon(s.visible[i].kind), ui_rect_shrink(avatar, 6), t.text_secondary);
         const UiRect box = ui_rect_edges(r, ui_end(-30), ui_start(16), ui_end(-10), ui_start(36));
         if (picked && picked->state == UiMessageForwardState::failed)
-            ok = ok && ui_icon_paint(out, UiIcon::retry, box, error);
+            pen.icon(UiIcon::retry, box, error);
         else if (picked && picked->state == UiMessageForwardState::cancelled)
-            ok = ok && ui_icon_paint(out, UiIcon::close, box, t.text_secondary);
+            pen.icon(UiIcon::close, box, t.text_secondary);
         else if (picked && picked->state == UiMessageForwardState::sending)
-            ok = ok && ui_icon_paint(out, UiIcon::sending, box, accent);
+            pen.icon(UiIcon::sending, box, accent);
         else {
-            ok = ok && surface(out, box, t, picked ? t.tokens.emphasis.fill : t.base_lowest,
-                picked ? t.tokens.emphasis.fill : t.interactive, 5);
-            if (picked) ok = ok && mark(out, box, ui_surface_foreground(t, t.tokens.emphasis.fill));
+            pen.surface(box, picked ? t.tokens.emphasis.fill : t.base_lowest, picked ? t.tokens.emphasis.fill : t.interactive, 5,
+                        true);
+            if (picked) pen.icon(UiIcon::check, ui_rect_shrink(box, 2), ui_surface_foreground(t, t.tokens.emphasis.fill));
         }
     }
-    if (body_clip) ok = paint_stream_pop_clip(out) && ok;
-    if (ok) ok = ui_scrollbar_paint(out, ui_scrollbar_geometry(s.body, s.scroll_dips,
-        s.accepted_count * kUiMessageForwardRowHeight), t);
-    for (u32 i = 0; ok && s.receipts_visible && i < s.content->selected_count; ++i) {
+    pen.unclip().scrollbar(ui_scrollbar_geometry(s.body, s.scroll_dips, s.accepted_count * kUiMessageForwardRowHeight));
+    for (u32 i = 0; pen && s.receipts_visible && i < s.content->selected_count; ++i) {
         const auto r = s.target_rectangles[i]; const auto state = s.content->selected[i].state;
         const Color color = state == UiMessageForwardState::cancelled ? t.text_secondary : state == UiMessageForwardState::failed ? error :
             state == UiMessageForwardState::sent ? sent : accent;
-        ok = surface(out, r, t, t.base_low, tint(color, .55f), 6);
-        const UiRect icon = ui_rect_edges(r, ui_end(-22), ui_start(6), ui_end(-6), ui_end(-6));
-        ok = ok && ui_icon_paint(out, state == UiMessageForwardState::sent ? UiIcon::check :
-            state == UiMessageForwardState::failed ? UiIcon::retry :
-            state == UiMessageForwardState::sending ? UiIcon::sending : UiIcon::close, icon, color);
+        pen.surface(r, t.base_low, tint(color, .55f), 6, true)
+            .icon(state == UiMessageForwardState::sent ? UiIcon::check :
+                  state == UiMessageForwardState::failed ? UiIcon::retry :
+                  state == UiMessageForwardState::sending ? UiIcon::sending : UiIcon::close,
+                  ui_rect_edges(r, ui_end(-22), ui_start(6), ui_end(-6), ui_end(-6)), color);
     }
     const bool enabled = footer_action(s) != UiMessageForwardAction::none;
-    if (ok) ok = surface(out, s.cancel_rectangle, t, ui_widget_handle_matches(s.widgets.hovered, s.cancel) ? t.surface_high : t.base_low,
-        ui_widget_handle_matches(s.widgets.focused, s.cancel) ? accent : t.interactive, 7) &&
-        surface(out, s.send_rectangle, t, enabled ? t.tokens.emphasis.fill : t.surface_high,
-            ui_widget_handle_matches(s.widgets.focused, s.send) ? t.text_primary : enabled ? t.tokens.emphasis.fill : t.surface_high, 7) &&
-        ui_icon_paint(out, s.content->committed ? has_failed(s) ? UiIcon::retry : UiIcon::check : UiIcon::forwarded,
-            ui_rect_edges(s.send_rectangle, ui_start(12), ui_start(11), ui_start(30), ui_start(29)),
-            enabled ? ui_surface_foreground(t, t.tokens.emphasis.fill) : t.text_secondary);
-    return paint_stream_pop_clip(out) && ok;
+    return pen.surface(s.cancel_rectangle, ui_hovered(s, s.cancel) ? t.surface_high : t.base_low,
+                       ui_focused(s, s.cancel) ? accent : t.interactive, 7, true)
+        .surface(s.send_rectangle, enabled ? t.tokens.emphasis.fill : t.surface_high,
+                 ui_focused(s, s.send) ? t.text_primary : enabled ? t.tokens.emphasis.fill : t.surface_high, 7, true)
+        .icon(s.content->committed ? has_failed(s) ? UiIcon::retry : UiIcon::check : UiIcon::forwarded,
+              ui_rect_edges(s.send_rectangle, ui_start(12), ui_start(11), ui_start(30), ui_start(29)),
+              enabled ? ui_surface_foreground(t, t.tokens.emphasis.fill) : t.text_secondary)
+        .end();
 }
 bool ui_message_forward_scene_text_output(const UiMessageForwardScene& s, const Theme& t, UiTextOutput* out,
     const UiEditGeometry* query, const UiEditGeometry* caption) noexcept {
     if (!current(s)) return true;
-    if (!ui_text_output_valid(out)) return false;
+    UiTextPen<UiTextClip::label> text{out, s.widgets, s.panel, s.body};
     const auto p = s.panel;
     const auto accent = ui_foreground_color(t, t.tokens.emphasis.outline);
     const auto error = ui_foreground_color(t, t.notification);
-    if (!emit(out, s, s.root, utf8_literal("Forward message"), ui_rect_edges(p, ui_start(48), ui_start(10), ui_end(-48), ui_start(40)),
-        p, t.text_primary, text_style_bold)) return false;
-    if (s.compact) {
-        if (!emit(out, s, s.root, utf8_literal("Forwarded"),
-                ui_rect_edges(s.preview, ui_start(12), ui_start(0), ui_start(94), ui_end(0)), s.preview,
-                t.text_secondary, text_style_subtext) ||
-            !emit(out, s, s.root, s.content->preview.bytes ? s.content->preview : s.content->media_summary,
-                ui_rect_edges(s.preview, ui_start(98), ui_start(0), ui_end(-12), ui_end(0)), s.preview,
-                t.text_primary, text_style_subtext)) return false;
-    } else {
-        const auto r = s.preview;
-        if (!emit(out, s, s.root, utf8_literal("Forwarded"), ui_rect_edges(r, ui_start(26), ui_start(7), ui_start(108), ui_start(27)), r,
-            t.text_secondary, text_style_subtext) ||
-            !emit(out, s, s.root, s.content->author, ui_rect_edges(r, ui_start(112), ui_start(7), ui_end(-12), ui_start(27)), r,
-                t.text_primary, text_style_bold | text_style_subtext) ||
-            !emit(out, s, s.root, s.content->preview.bytes ? s.content->preview : utf8_literal("Media message"),
-                ui_rect_edges(r, ui_start(26), ui_start(29), ui_end(-12), ui_start(63)), r, t.text_primary, 0,
-                ui_text_wrap) ||
-            !emit(out, s, s.root, s.content->media_summary,
-                ui_rect_edges(r, ui_start(26), ui_start(65), ui_end(-12), ui_end(-7)), r, t.text_secondary, text_style_subtext)) return false;
-    }
+    text(s.root, utf8_literal("Forward message"), ui_rect_edges(p, ui_start(48), ui_start(10), ui_end(-48), ui_start(40)),
+         t.text_primary, text_style_bold);
+    const auto r = s.preview;
+    if (s.compact)
+        text.in(r)(s.root, utf8_literal("Forwarded"), ui_rect_edges(r, ui_start(12), ui_start(0), ui_start(94), ui_end(0)),
+                   t.text_secondary, text_style_subtext)
+            (s.root, s.content->preview.bytes ? s.content->preview : s.content->media_summary,
+             ui_rect_edges(r, ui_start(98), ui_start(0), ui_end(-12), ui_end(0)), t.text_primary, text_style_subtext);
+    else
+        text.in(r)(s.root, utf8_literal("Forwarded"), ui_rect_edges(r, ui_start(26), ui_start(7), ui_start(108), ui_start(27)),
+                   t.text_secondary, text_style_subtext)
+            (s.root, s.content->author, ui_rect_edges(r, ui_start(112), ui_start(7), ui_end(-12), ui_start(27)),
+             t.text_primary, text_style_bold | text_style_subtext)
+            (s.root, s.content->preview.bytes ? s.content->preview : utf8_literal("Media message"),
+             ui_rect_edges(r, ui_start(26), ui_start(29), ui_end(-12), ui_start(63)), t.text_primary, 0,
+             ui_text_wrap | ui_text_middle)
+            (s.root, s.content->media_summary, ui_rect_edges(r, ui_start(26), ui_start(65), ui_end(-12), ui_end(-7)),
+             t.text_secondary, text_style_subtext);
     const auto query_view = presentation_view(s.content->edit, s.content->sending || s.content->committed);
     const auto caption_view = presentation_view(s.content->caption, s.content->sending || s.content->committed);
-    if (!ui_edit_field_text_output(out, {&s.widgets, s.edit}, s.text, query_view, query,
-            utf8_literal("Find a channel or conversation"), t) ||
-        !ui_edit_field_text_output(out, {&s.widgets, s.caption}, s.caption_text, caption_view, caption,
-            utf8_literal("Add a message (optional)"), t)) return false;
+    if (text.ok() && (!ui_edit_field_text_output(out, {&s.widgets, s.edit}, s.text, query_view, query,
+                                                 utf8_literal("Find a channel or conversation"), t) ||
+                      !ui_edit_field_text_output(out, {&s.widgets, s.caption}, s.caption_text, caption_view, caption,
+                                                 utf8_literal("Add a message (optional)"), t)))
+        text.fail();
     const float split = ui_rect_width(s.hint) < 320 ? 94.f : 128.f;
-    if (!emit(out, s, s.root, utf8_literal("Choose destinations"),
-            {s.hint.left, s.hint.top, s.hint.right - split, s.hint.bottom}, p, t.text_secondary, text_style_subtext) ||
-        !emit(out, s, s.root, {s.selection_label, s.selection_label_bytes},
-            {s.hint.right - split, s.hint.top, s.hint.right, s.hint.bottom}, p,
-            s.content->selected_count == kUiMessageForwardMaximumTargets ? accent : t.text_secondary,
-            text_style_subtext, ui_text_end)) return false;
-    for (u32 i = 0; i < s.count; ++i) {
-        const auto r = s.row_rectangles[i]; const auto& row = s.visible[i];
+    text(s.root, utf8_literal("Choose destinations"), {s.hint.left, s.hint.top, s.hint.right - split, s.hint.bottom},
+         t.text_secondary, text_style_subtext);
+    text(s.root, {s.selection_label, s.selection_label_bytes}, {s.hint.right - split, s.hint.top, s.hint.right, s.hint.bottom},
+         s.content->selected_count == kUiMessageForwardMaximumTargets ? accent : t.text_secondary, text_style_subtext,
+         ui_text_end);
+    for (u32 i = 0; text.ok() && i < s.count; ++i) {
+        const auto row_rectangle = s.row_rectangles[i]; const auto& row = s.visible[i];
         const auto* picked = find_selection(s, row.channel_id);
         const auto color = row.enabled && (!s.content->committed || picked) ? t.text_primary : t.text_secondary;
         const auto detail = picked && picked->state != UiMessageForwardState::ready && picked->detail.bytes ? picked->detail :
@@ -532,37 +496,37 @@ bool ui_message_forward_scene_text_output(const UiMessageForwardScene& s, const 
             picked && picked->state == UiMessageForwardState::sent ? utf8_literal("Sent") :
             picked && picked->state == UiMessageForwardState::sending ? utf8_literal("Sending…") :
             picked && picked->state == UiMessageForwardState::failed ? utf8_literal("Failed • select to retry") : row.detail;
-        if (!emit(out, s, s.rows[i], row.label, ui_rect_edges(r, ui_start(52), ui_start(5), ui_end(-38), ui_start(28)),
-                s.body, color, picked ? text_style_bold : 0) ||
-            !emit(out, s, s.rows[i], detail, ui_rect_edges(r, ui_start(52), ui_start(28), ui_end(-38), ui_end(-4)), s.body,
-                picked && picked->state == UiMessageForwardState::failed ? error : t.text_secondary,
-                text_style_subtext)) return false;
+        text(s.rows[i], row.label, ui_rect_edges(row_rectangle, ui_start(52), ui_start(5), ui_end(-38), ui_start(28)), color,
+             picked ? text_style_bold : 0, ui_text_in_body);
+        text(s.rows[i], detail, ui_rect_edges(row_rectangle, ui_start(52), ui_start(28), ui_end(-38), ui_end(-4)),
+             picked && picked->state == UiMessageForwardState::failed ? error : t.text_secondary, text_style_subtext,
+             ui_text_in_body);
     }
     if (!s.accepted_count) {
         const auto heading = s.content->phase == UiMessageForwardPhase::unavailable ? utf8_literal("No available destinations") :
             s.content->phase == UiMessageForwardPhase::no_matches ? utf8_literal("No matches") : utf8_literal("Choose where to forward");
         const float mid = (s.body.top + s.body.bottom) * .5f;
-        if (!emit(out, s, s.body_owner, heading, {s.body.left + 8, mid - 22, s.body.right - 8, mid + 2}, s.body,
-                t.text_primary, text_style_bold, ui_text_center) ||
-            !emit(out, s, s.body_owner, s.content->status.bytes ? s.content->status : utf8_literal("Try a channel or conversation name."),
-                {s.body.left + 8, mid + 3, s.body.right - 8, mid + 27}, s.body, t.text_secondary,
-                text_style_subtext, ui_text_center)) return false;
+        text(s.body_owner, heading, {s.body.left + 8, mid - 22, s.body.right - 8, mid + 2}, t.text_primary, text_style_bold,
+             ui_text_in_body | ui_text_center);
+        text(s.body_owner, s.content->status.bytes ? s.content->status : utf8_literal("Try a channel or conversation name."),
+             {s.body.left + 8, mid + 3, s.body.right - 8, mid + 27}, t.text_secondary, text_style_subtext,
+             ui_text_in_body | ui_text_center);
     }
-    for (u32 i = 0; s.receipts_visible && i < s.content->selected_count; ++i) {
-        const auto r = s.target_rectangles[i]; const auto& target = s.content->selected[i];
-        const auto color = target.state == UiMessageForwardState::failed ? error : t.text_primary;
-        if (!emit(out, s, s.targets[i], target.label,
-            ui_rect_edges(r, ui_start(8), ui_start(0), ui_end(-26), ui_end(0)), p, color, text_style_subtext)) return false;
+    for (u32 i = 0; text.ok() && s.receipts_visible && i < s.content->selected_count; ++i) {
+        const auto& target = s.content->selected[i];
+        text(s.targets[i], target.label, ui_rect_edges(s.target_rectangles[i], ui_start(8), ui_start(0), ui_end(-26), ui_end(0)),
+             target.state == UiMessageForwardState::failed ? error : t.text_primary, text_style_subtext);
     }
-    if (ui_rect_width(p) >= 440 && !emit(out, s, s.root, s.content->status.bytes ? s.content->status : utf8_literal("Send a snapshot"),
-        {s.footer.left, s.footer.top, s.cancel_rectangle.left - 10, s.footer.bottom}, p, t.text_secondary, text_style_subtext)) return false;
+    if (ui_rect_width(p) >= 440)
+        text(s.root, s.content->status.bytes ? s.content->status : utf8_literal("Send a snapshot"),
+             {s.footer.left, s.footer.top, s.cancel_rectangle.left - 10, s.footer.bottom}, t.text_secondary, text_style_subtext);
     const bool enabled = footer_action(s) != UiMessageForwardAction::none;
     const bool committed = s.content->sending || s.content->committed;
-    return emit(out, s, s.cancel, committed ? utf8_literal("Cancel remaining") : utf8_literal("Cancel"),
-        s.cancel_rectangle, p, t.text_primary, committed ? text_style_subtext : 0, ui_text_center) &&
-        emit(out, s, s.send, {s.send_label, s.send_label_bytes},
-            ui_rect_edges(s.send_rectangle, ui_start(34), ui_start(0), ui_end(-6), ui_end(0)), p,
-            enabled ? ui_surface_foreground(t, t.tokens.emphasis.fill) : t.text_secondary,
-            text_style_bold | (s.content->committed ? text_style_subtext : 0), ui_text_center);
+    text(s.cancel, committed ? utf8_literal("Cancel remaining") : utf8_literal("Cancel"), s.cancel_rectangle, t.text_primary,
+         committed ? text_style_subtext : 0, ui_text_center);
+    return text(s.send, {s.send_label, s.send_label_bytes},
+                ui_rect_edges(s.send_rectangle, ui_start(34), ui_start(0), ui_end(-6), ui_end(0)),
+                enabled ? ui_surface_foreground(t, t.tokens.emphasis.fill) : t.text_secondary,
+                text_style_bold | (s.content->committed ? text_style_subtext : 0), ui_text_center).ok();
 }
 } // namespace maicord

@@ -7,6 +7,7 @@ namespace maicord {
 struct Theme;
 struct PaintStream;
 struct UiTextOutput;
+struct UiLook;
 struct UiThreadBrowserScene;
 
 // Forum (type 15) and media (type 16) channel post list. It replaces the plain
@@ -99,5 +100,7 @@ bool ui_forum_channel_avatar(const UiThreadBrowserScene&, u32 index, UiRect* rec
 bool ui_forum_channel_media(const UiThreadBrowserScene&, u32 index, UiRect* rectangle, UiRect* clip) noexcept;
 bool ui_forum_channel_paint(const UiThreadBrowserScene&, const Theme&, PaintStream*) noexcept;
 bool ui_forum_channel_text_output(const UiThreadBrowserScene&, const Theme&, UiTextOutput*) noexcept;
+// The look of the panel's buttons and rows.
+UiLook ui_thread_browser_look(const UiThreadBrowserScene&) noexcept;
 Utf8View ui_forum_sort_label(UiForumSort) noexcept;
 } // namespace maicord

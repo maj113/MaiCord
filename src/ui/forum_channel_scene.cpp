@@ -2,17 +2,12 @@
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/thread_browser_scene.hpp"
-#include "maicord/ui/popout_scene.hpp"
-#include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/rect_edges.hpp"
-#include "maicord/ui/scene_text.hpp"
-#include "maicord/ui/background_surface.hpp"
-#include "maicord/ui/icon.hpp"
+#include "maicord/ui/scene_kit.hpp"
 #include "maicord/ui/visit_ref.hpp"
 
 namespace maicord {
 namespace {
-using namespace popout;
 float chip_width(Utf8View name, const UiForumStyle& s) noexcept {
     const auto valid = utf8_validate(name);
     const float width = static_cast<float>(valid.valid ? valid.codepoints : 0) * s.chip_scalar_width + s.chip_padding;
@@ -38,10 +33,6 @@ const UiForumTag* find_tag(const UiForumChannelView& view, u64 id) noexcept {
     return nullptr;
 }
 
-bool text(UiTextOutput* out, const UiThreadBrowserScene& s, UiWidgetHandle owner, const Utf8View& value, const UiRect& r,
-    const UiRect& clip, const Color& color, u32 flags, u32 mode = 0) noexcept {
-    return ui_scene_text(out, s.widgets, owner, value, r, clip, color, flags, mode);
-}
 // Tag chips inside a card, in the post's own order; unknown IDs are skipped.
 bool card_tags(const UiForumChannelView& view, const UiForumPost& post, const UiRect& row,
     const UiForumStyle& style, UiVisitRef<const UiForumTag&, const UiRect&> visit) noexcept {
@@ -192,131 +183,118 @@ bool ui_forum_channel_media(const UiThreadBrowserScene& s, u32 index, UiRect* re
 }
 bool ui_forum_channel_paint(const UiThreadBrowserScene& s, const Theme& t, PaintStream* out) noexcept {
     if (!active(s)) return true;
+    UiPaint p{out, t};
     const auto& view = *s.view->forum;
     const auto& style = s.forum_style;
     const auto& toolbar = s.backing->toolbar;
-    const auto control = [&](UiWidgetHandle handle, bool chosen) noexcept {
-        if (!handle.generation) return true;
-        const bool hover = ui_widget_handle_matches(handle, s.widgets.hovered), focus = ui_widget_handle_matches(handle, s.widgets.focused);
-        return surface(out, bounds(s, handle), t,
-            chosen ? ui_emphasis_selected(t, UiElevation::popover) : hover ? t.surface_high : t.surface,
-            focus ? t.tokens.border.focus : chosen ? t.tokens.emphasis.outline : t.surface_high, s.style.radius);
-    };
-    bool ok = control(s.forum_sort, false) && control(s.forum_list, view.layout == UiForumLayout::list) &&
-        control(s.forum_gallery, view.layout == UiForumLayout::gallery);
+    const auto look = ui_thread_browser_look(s);
+    p.control(s.widgets, s.forum_sort, look).control(s.widgets, s.forum_list, look, view.layout == UiForumLayout::list)
+        .control(s.widgets, s.forum_gallery, look, view.layout == UiForumLayout::gallery);
     const UiWidgetHandle icon_owners[]{s.forum_sort, s.forum_list, s.forum_gallery};
     static constexpr UiIcon toolbar_icons[]{UiIcon::sort, UiIcon::thread, UiIcon::picker};
-    for (u32 i = 0; ok && i < 3; ++i)
+    for (u32 i = 0; i < 3; ++i)
         if (icon_owners[i].generation)
-            ok = ui_icon_paint(out, toolbar_icons[i],
-                ui_rect_edges(bounds(s, icon_owners[i]), ui_start(8), ui_start(7), ui_start(24), ui_start(23)), t.text_secondary);
-    for (u32 i = 0; ok && i < toolbar.chip_count && i < view.tags.count; ++i) {
-        const auto handle = s.backing->chips[i];
-        if (!handle.generation) continue;
-        ok = control(handle, view.tags[i].selected) && (!view.tags[i].selected ||
-            ui_icon_paint(out, UiIcon::check,
-                ui_rect_edges(toolbar.chips[i], ui_start(8), ui_start(6), ui_start(22), ui_start(20)), t.text_primary));
+            p.icon(toolbar_icons[i], ui_rect_edges(ui_bounds(s, icon_owners[i]), ui_start(8), ui_start(7), ui_start(24),
+                                                   ui_start(23)), t.text_secondary);
+    for (u32 i = 0; p && i < toolbar.chip_count && i < view.tags.count; ++i) {
+        p.control(s.widgets, s.backing->chips[i], look, view.tags[i].selected);
+        if (s.backing->chips[i].generation && view.tags[i].selected)
+            p.icon(UiIcon::check, ui_rect_edges(toolbar.chips[i], ui_start(8), ui_start(6), ui_start(22), ui_start(20)),
+                   t.text_primary);
     }
-    if (!ok || !paint_stream_push_clip(out, s.body)) return false;
-    for (u32 i = 0; ok && i < s.count; ++i) {
+    p.clip(s.body);
+    for (u32 i = 0; p && i < s.count; ++i) {
         const auto handle = s.backing->rows[i];
         if (!handle.generation) continue;
         const auto card = s.backing->cards[i];
         const auto& post = view.posts[i];
         const auto parts = ui_forum_card_parts(card, view.layout, post, style);
-        ok = surface(out, card, t, ui_widget_handle_matches(handle, s.widgets.hovered) ? t.surface_high : t.surface,
-            ui_widget_handle_matches(handle, s.widgets.focused) ? t.tokens.border.focus : t.surface_high, style.radius);
-        if (ok && ui_rect_has_area(parts.media)) {
+        p.look(card, {.fill = UI_TOKEN(surface), .hover = UI_TOKEN(surface_high), .border = UI_TOKEN(surface_high),
+                      .radius = style.radius}, ui_widget_state(s.widgets, handle));
+        if (ui_rect_has_area(parts.media)) {
             // Neutral media well; the renderer covers it with the loaded thumbnail.
-            ok = paint_stream_push_rounded(out, parts.media, t.base_lowest, view.layout == UiForumLayout::gallery ? 0.f : style.radius);
             const float x = (parts.media.left + parts.media.right) * .5f, y = (parts.media.top + parts.media.bottom) * .5f;
-            ok = ok && ui_icon_paint(out, post.has_media ? UiIcon::image : UiIcon::thread,
-                {x - 12, y - 12, x + 12, y + 12}, t.text_secondary);
+            p.rounded(parts.media, t.base_lowest, view.layout == UiForumLayout::gallery ? 0.f : style.radius)
+                .icon(post.has_media ? UiIcon::image : UiIcon::thread, {x - 12, y - 12, x + 12, y + 12}, t.text_secondary);
         }
-        ok = ok && card_tags(view, post, parts.tags, style, [&](const UiForumTag&, UiRect chip) noexcept {
-            return paint_stream_push_rounded(out, chip, t.surface_high, ui_rect_height(chip) * .5f);
+        card_tags(view, post, parts.tags, style, [&](const UiForumTag&, UiRect chip) noexcept {
+            return p.rounded(chip, t.surface_high, ui_rect_height(chip) * .5f).ok();
         });
-        if (ok && post.pinned)
-            ok = ui_icon_paint(out, UiIcon::pin,
-                ui_rect_edges(parts.title, ui_end(-18), ui_start(3), ui_end(-2), ui_start(19)), t.text_secondary);
-        if (ok && post.author_id)
-            ok = paint_stream_push_rounded(out, parts.avatar, t.avatar_placeholder, style.avatar * .5f);
-        if (ok && post.metadata_known)
-            ok = ui_icon_paint(out, UiIcon::message_text,
-                ui_rect_edges(parts.meta, ui_start(0), ui_start(2), ui_start(16), ui_start(18)), t.text_secondary);
+        if (post.pinned)
+            p.icon(UiIcon::pin, ui_rect_edges(parts.title, ui_end(-18), ui_start(3), ui_end(-2), ui_start(19)),
+                   t.text_secondary);
+        if (post.author_id)
+            p.rounded(parts.avatar, t.avatar_placeholder, style.avatar * .5f);
+        if (post.metadata_known)
+            p.icon(UiIcon::message_text, ui_rect_edges(parts.meta, ui_start(0), ui_start(2), ui_start(16), ui_start(18)),
+                   t.text_secondary);
     }
-    return paint_stream_pop_clip(out) && ok;
+    return p.end();
 }
 bool ui_forum_channel_text_output(const UiThreadBrowserScene& s, const Theme& t, UiTextOutput* out) noexcept {
     if (!active(s)) return true;
+    UiTextPen text{out, s.widgets, s.panel, s.body};
     const auto& view = *s.view->forum;
     const auto& style = s.forum_style;
     const auto& toolbar = s.backing->toolbar;
-    if (s.forum_sort.generation) {
-        const auto r = bounds(s, s.forum_sort);
-        if (!text(out, s, s.forum_sort, ui_forum_sort_label(view.sort), ui_rect_edges(r, ui_start(30), ui_start(0), ui_end(-8), ui_end(0)),
-            s.panel, t.text_primary, s.style.title_flags)) return false;
-    }
+    if (s.forum_sort.generation)
+        text(s.forum_sort, ui_forum_sort_label(view.sort),
+             ui_rect_edges(ui_bounds(s, s.forum_sort), ui_start(30), ui_start(0), ui_end(-8), ui_end(0)), t.text_primary,
+             s.style.title_flags);
     const UiWidgetHandle layouts[]{s.forum_list, s.forum_gallery};
     const Utf8View labels[]{utf8_literal("List"), utf8_literal("Gallery")};
-    for (u32 i = 0; i < 2; ++i) {
-        if (!layouts[i].generation) continue;
-        const auto r = bounds(s, layouts[i]);
-        if (!text(out, s, layouts[i], labels[i], ui_rect_edges(r, ui_start(28), ui_start(0), ui_end(-6), ui_end(0)), s.panel,
-            t.text_primary, s.style.detail_flags)) return false;
-    }
+    for (u32 i = 0; i < 2; ++i)
+        if (layouts[i].generation)
+            text(layouts[i], labels[i], ui_rect_edges(ui_bounds(s, layouts[i]), ui_start(28), ui_start(0), ui_end(-6), ui_end(0)),
+                 t.text_primary, s.style.detail_flags);
     for (u32 i = 0; i < toolbar.chip_count && i < view.tags.count; ++i) {
         if (!s.backing->chips[i].generation) continue;
         const auto r = toolbar.chips[i];
-        if (!text(out, s, s.backing->chips[i], view.tags[i].name,
-            {r.left + (view.tags[i].selected ? 24.f : 10.f), r.top, r.right - 10, r.bottom}, s.panel,
-            view.tags[i].selected ? t.text_primary : t.text_secondary, s.style.detail_flags,
-            view.tags[i].selected ? 0u : ui_text_center)) return false;
+        const bool selected = view.tags[i].selected;
+        text(s.backing->chips[i], view.tags[i].name, {r.left + (selected ? 24.f : 10.f), r.top, r.right - 10, r.bottom},
+             selected ? t.text_primary : t.text_secondary, s.style.detail_flags, selected ? 0u : ui_text_center);
     }
-    for (u32 i = 0; i < s.count; ++i) {
+    for (u32 i = 0; text.ok() && i < s.count; ++i) {
         const auto handle = s.backing->rows[i];
         if (!handle.generation) continue;
         const auto card = s.backing->cards[i];
-        const auto clip = ui_rect_intersection(card, s.body);
+        auto in_card = text.in(ui_rect_intersection(card, s.body));
         const auto& post = view.posts[i];
         const auto& row = s.view->rows[i];
         const auto parts = ui_forum_card_parts(card, view.layout, post, style);
-        const auto title_color = s.view->loading || s.view->error ? t.text_secondary : t.text_primary;
         UiRect title = parts.title;
         if (post.pinned) title.right -= 22;
-        if (!card_tags(view, post, parts.tags, style, [&](const UiForumTag& tag, UiRect chip) noexcept {
-                return text(out, s, handle, tag.name, ui_rect_edges(chip, ui_start(8), ui_start(0), ui_end(-8), ui_end(0)), clip,
-                    t.text_secondary, s.style.detail_flags, ui_text_center);
-            }) ||
-            !text(out, s, handle, row.name.bytes ? row.name : utf8_literal("Untitled post"), title, clip, title_color,
-                s.style.name_flags) ||
-            !text(out, s, handle, post.preview, parts.preview, clip, t.text_secondary, s.style.detail_flags,
-                ui_text_wrap) ||
-            !text(out, s, handle, post.author_name, parts.author, clip, t.text_secondary, s.style.detail_flags))
-            return false;
+        card_tags(view, post, parts.tags, style, [&](const UiForumTag& tag, UiRect chip) noexcept {
+            return in_card(handle, tag.name, ui_rect_edges(chip, ui_start(8), ui_start(0), ui_end(-8), ui_end(0)),
+                           t.text_secondary, s.style.detail_flags, ui_text_center).pen->ok();
+        });
+        in_card(handle, row.name.bytes ? row.name : utf8_literal("Untitled post"), title,
+                s.view->loading || s.view->error ? t.text_secondary : t.text_primary, s.style.name_flags)
+            (handle, post.preview, parts.preview, t.text_secondary, s.style.detail_flags, ui_text_wrap)
+            (handle, post.author_name, parts.author, t.text_secondary, s.style.detail_flags);
         if (post.metadata_known) {
-            const Utf8View count{s.backing->replies[i], s.backing->reply_bytes[i]};
             const UiRect count_box = ui_rect_edges(parts.meta, ui_start(20), ui_start(0), ui_start(64), ui_end(0));
-            if (!text(out, s, handle, count, count_box, clip, t.text_secondary, s.style.detail_flags) ||
-                !text(out, s, handle, post.activity, {count_box.right, parts.meta.top, parts.meta.right, parts.meta.bottom},
-                    clip, t.text_secondary, s.style.detail_flags, ui_text_end)) return false;
-        } else if (!text(out, s, handle, post.activity, parts.meta, clip, t.text_secondary, s.style.detail_flags,
-            ui_text_end)) return false;
+            in_card(handle, {s.backing->replies[i], s.backing->reply_bytes[i]}, count_box, t.text_secondary,
+                    s.style.detail_flags)
+                (handle, post.activity, {count_box.right, parts.meta.top, parts.meta.right, parts.meta.bottom},
+                 t.text_secondary, s.style.detail_flags, ui_text_end);
+        } else {
+            in_card(handle, post.activity, parts.meta, t.text_secondary, s.style.detail_flags, ui_text_end);
+        }
     }
-    if (!s.count) {
-        const float left = s.panel.left + s.style.inset, right = s.panel.right - s.style.inset;
-        const float top = s.body.top + minimum(52.f, ui_rect_height(s.body) * .35f);
-        bool filtered = false;
-        for (u32 i = 0; i < view.tags.count; ++i) filtered |= view.tags[i].selected;
-        const auto state = s.view->loading ? utf8_literal("Loading posts…")
-            : s.view->error ? utf8_literal("Couldn't load posts")
-            : filtered ? utf8_literal("No posts match the selected tags")
-            : s.tab == UiThreadBrowserTab::search ? utf8_literal("No matching posts")
-            : s.tab == UiThreadBrowserTab::archived ? utf8_literal("No older posts on this page")
-            : utf8_literal("No posts yet");
-        if (!text(out, s, s.root, state, {left, top, right, minimum(s.body.bottom, top + 60)}, s.body,
-            t.text_secondary, s.style.title_flags, ui_text_center | ui_text_wrap)) return false;
-    }
-    return true;
+    if (s.count) return text.ok();
+    const float left = s.panel.left + s.style.inset, right = s.panel.right - s.style.inset;
+    const float top = s.body.top + minimum(52.f, ui_rect_height(s.body) * .35f);
+    bool filtered = false;
+    for (u32 i = 0; i < view.tags.count; ++i) filtered |= view.tags[i].selected;
+    text(s.root, s.view->loading ? utf8_literal("Loading posts…")
+                 : s.view->error ? utf8_literal("Couldn't load posts")
+                 : filtered ? utf8_literal("No posts match the selected tags")
+                 : s.tab == UiThreadBrowserTab::search ? utf8_literal("No matching posts")
+                 : s.tab == UiThreadBrowserTab::archived ? utf8_literal("No older posts on this page")
+                 : utf8_literal("No posts yet"),
+         {left, top, right, minimum(s.body.bottom, top + 60)}, t.text_secondary, s.style.title_flags,
+         ui_text_in_body | ui_text_center | ui_text_wrap);
+    return text.ok();
 }
 } // namespace maicord

@@ -1,19 +1,25 @@
 #include "maicord/ui/inbox_scene.hpp"
-#include "maicord/ui/surface_elevation.hpp"
-#include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/rect_edges.hpp"
-#include "maicord/ui/popout_scene.hpp"
-#include "maicord/ui/icon.hpp"
+#include "maicord/ui/scene_kit.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
-#include "maicord/ui/spinner.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/ui/text_presentation.hpp"
 
 namespace maicord {
 namespace {
-using namespace popout;
 constexpr float header_height = 52.f, filter_height = 40.f, footer_height = 48.f, inset = 12.f, gap = 8.f;
+// Tabs are pills shown while selected or hot; filter chips always show, outlined while checked.
+constexpr UiLook kTab{.fill = UI_TOKEN(surface), .selected = UI_TOKEN(surface_high), .border = UI_TOKEN(surface_high),
+                      .flags = ui_look_hot_only | ui_look_pill};
+constexpr UiLook kChip{.fill = UI_TOKEN(base_lower), .hover = UI_TOKEN(surface), .selected = UI_TOKEN(surface_high),
+                       .border = UI_TOKEN(surface_high), .focus = UI_TOKEN(tokens.emphasis.outline),
+                       .selected_border = UI_TOKEN(tokens.emphasis.outline), .flags = ui_look_pill};
+constexpr UiLook kCard{.fill = UI_TOKEN(surface), .hover = UI_TOKEN(surface_high), .border = UI_TOKEN(surface_high)};
+constexpr UiLook kChannel{.fill = UI_TOKEN(surface_high), .radius = 4, .flags = ui_look_hot_only};
+constexpr UiLook kRowAction{.fill = UI_TOKEN(surface), .flags = ui_look_hot_only | ui_look_radius_sm};
+constexpr UiLook kMore{.fill = UI_TOKEN(surface), .hover = UI_TOKEN(surface_high), .border = UI_TOKEN(interactive),
+                       .radius = 6};
 // Mention cards: avatar in the left gutter beside the author and message text.
 constexpr float mention_text_left = 12.f + kUiInboxAvatarExtent + 10.f;
 constexpr float mention_body_top = 48.f, mention_body_line = 22.f, mention_bottom = 10.f;
@@ -44,10 +50,6 @@ bool current(const UiInboxScene& s) noexcept {
            (!s.source || (s.source->revision == s.source_revision && s.source->count == s.measured_count &&
                           (!s.source->current || s.source->current(s.source->context))));
 }
-UiWidgetHandle add(UiInboxScene& s, const UiRect& r, const UiInboxTarget& target, const Utf8View& name, bool enabled,
-                   UiWidgetHandle parent) noexcept {
-    return popout::add(s, r, target, name, enabled, parent);
-}
 // Server headers carry a quiet "Mark all read" text button; channel rows a
 // check icon button that only shows while the row is hovered or focused
 // (it stays in the focus order, so the keyboard reveals it too).
@@ -60,29 +62,23 @@ UiRect action_rectangle(const UiInboxRow& row, UiRect r) noexcept {
     return {r.right - channel_action_extent - 4, middle - half, r.right - 4, middle + half};
 }
 bool rebuild(UiInboxScene& s) noexcept {
-    ui_widget_manager_reset(&s.widgets);
     clear_bytes(s.targets, sizeof(s.targets));
     clear_bytes(s.rows, sizeof(s.rows));
     clear_bytes(s.actions, sizeof(s.actions));
-    s.body_owner = s.more = {};
     clear_bytes(s.chips, sizeof(s.chips));
+    s.body_owner = s.more = {};
     s.first = s.count = 0;
-    auto style = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_allow_overlap |
-                                      ui_layout_node_clip_children);
-    const auto root = ui_widget_manager_add_prevalidated(&s.widgets, ui_widget_invalid_handle(),
-                                                         {1, UiWidgetKind::container, ui_widget_none,
-                                                          {utf8_literal("Inbox"), style}});
-    if (!root.ok())
+    s.root = ui_scene_root(&s.widgets, utf8_literal("Inbox"));
+    if (!s.root.generation)
         return false;
-    s.root = root.handle;
     const auto& c = *s.content;
     const auto p = s.panel;
-    s.tabs[0] = add(s, ui_rect_edges(p, ui_start(92), ui_start(12), ui_start(184), ui_start(40)), {UiInboxAction::tab_mentions},
-                    utf8_literal("Mentions"), true, s.root);
-    s.tabs[1] = add(s, ui_rect_edges(p, ui_start(188), ui_start(12), ui_start(272), ui_start(40)), {UiInboxAction::tab_unreads},
-                    utf8_literal("Unreads"), true, s.root);
-    s.close = add(s, ui_rect_edges(p, ui_end(-44), ui_start(10), ui_end(-12), ui_start(42)), {UiInboxAction::close},
-                  utf8_literal("Close inbox"), true, s.root);
+    s.tabs[0] = ui_scene_add(s, ui_rect_edges(p, ui_start(92), ui_start(12), ui_start(184), ui_start(40)),
+                             {UiInboxAction::tab_mentions}, utf8_literal("Mentions"), true, s.root);
+    s.tabs[1] = ui_scene_add(s, ui_rect_edges(p, ui_start(188), ui_start(12), ui_start(272), ui_start(40)),
+                             {UiInboxAction::tab_unreads}, utf8_literal("Unreads"), true, s.root);
+    s.close = ui_scene_add(s, ui_rect_edges(p, ui_end(-44), ui_start(10), ui_end(-12), ui_start(42)),
+                           {UiInboxAction::close}, utf8_literal("Close inbox"), true, s.root);
     if (!s.tabs[0].generation || !s.tabs[1].generation || !s.close.generation)
         return false;
     if (s.tab == UiInboxTab::mentions) {
@@ -92,15 +88,16 @@ bool rebuild(UiInboxScene& s) noexcept {
         const UiInboxAction actions[]{UiInboxAction::filter_server, UiInboxAction::filter_everyone,
                                       UiInboxAction::filter_roles};
         static constexpr Utf8View names[]{utf8_literal("Server filter"), utf8_literal("Include @everyone mentions"),
-                                   utf8_literal("Include @role mentions")};
+                                          utf8_literal("Include @role mentions")};
         for (u32 i = 0; i < 3; ++i) {
             if (!widths[i])
                 continue;
-            s.chips[i] = add(s, {left, top, left + widths[i], bottom}, {actions[i]}, names[i], !c.loading_more, s.root);
+            s.chips[i] =
+                ui_scene_add(s, {left, top, left + widths[i], bottom}, {actions[i]}, names[i], !c.loading_more, s.root);
             left += widths[i] + 8;
         }
     }
-    s.body_owner = add(s, s.body, {}, utf8_literal("Inbox items"), false, s.root);
+    s.body_owner = ui_scene_add(s, s.body, {}, utf8_literal("Inbox items"), false, s.root);
     if (!s.body_owner.generation)
         return false;
     while (s.first < s.measured_count && s.offsets[s.first + 1] <= s.scroll_dips)
@@ -119,54 +116,35 @@ bool rebuild(UiInboxScene& s) noexcept {
         s.visible[slot] = row;
         s.row_rectangles[slot] = r;
         const auto clipped = ui_rect_intersection(r, s.body);
-        if (row.kind == UiInboxRowKind::mention)
-            s.rows[slot] = add(s, clipped, {UiInboxAction::jump, row.id, row.channel_id},
-                               utf8_literal("Jump to message"), !c.loading_more, s.body_owner);
-        else if (row.kind == UiInboxRowKind::channel)
-            s.rows[slot] = add(s, clipped, {UiInboxAction::open_channel, row.channel_id, row.channel_id},
-                               utf8_literal("Open channel"), true, s.body_owner);
-        if (row.kind != UiInboxRowKind::mention) {
-            const auto action = ui_rect_intersection(action_rectangle(row, r), s.body);
-            if (ui_rect_has_area(action))
-                s.actions[slot] = add(s, action,
-                                      row.kind == UiInboxRowKind::group
-                                          ? UiInboxTarget{UiInboxAction::mark_guild, row.guild_id, 0}
-                                          : UiInboxTarget{UiInboxAction::mark_channel, row.channel_id, row.channel_id},
-                                      row.kind == UiInboxRowKind::group ? utf8_literal("Mark all as read")
-                                                                        : utf8_literal("Mark as read"),
-                                      true, s.body_owner);
+        if (card) {
+            s.rows[slot] = ui_scene_add(s, clipped, {UiInboxAction::jump, row.id, row.channel_id},
+                                        utf8_literal("Jump to message"), !c.loading_more, s.body_owner);
+            continue;
         }
+        const bool group = row.kind == UiInboxRowKind::group;
+        if (!group)
+            s.rows[slot] = ui_scene_add(s, clipped, {UiInboxAction::open_channel, row.channel_id, row.channel_id},
+                                        utf8_literal("Open channel"), true, s.body_owner);
+        const auto action = ui_rect_intersection(action_rectangle(row, r), s.body);
+        if (ui_rect_has_area(action))
+            s.actions[slot] = ui_scene_add(s, action,
+                                           group ? UiInboxTarget{UiInboxAction::mark_guild, row.guild_id, 0}
+                                                 : UiInboxTarget{UiInboxAction::mark_channel, row.channel_id, row.channel_id},
+                                           group ? utf8_literal("Mark all as read") : utf8_literal("Mark as read"), true,
+                                           s.body_owner);
     }
     if (ui_rect_has_area(s.footer)) {
         const float middle = (s.footer.left + s.footer.right) * .5f;
         const bool retry = c.phase == UiInboxPhase::failed;
-        s.more = add(s, {middle - 64, s.footer.top + 8, middle + 64, s.footer.bottom - 8},
-                     {retry ? UiInboxAction::retry : UiInboxAction::load_more},
-                     retry ? utf8_literal("Try again") : utf8_literal("Load more"), !c.loading_more, s.root);
+        s.more = ui_scene_add(s, {middle - 64, s.footer.top + 8, middle + 64, s.footer.bottom - 8},
+                              {retry ? UiInboxAction::retry : UiInboxAction::load_more},
+                              retry ? utf8_literal("Try again") : utf8_literal("Load more"), !c.loading_more, s.root);
     }
-    if (!ui_widget_manager_layout_rectangle(&s.widgets, s.panel).ok())
-        return false;
-    for (u32 i = 1; i < s.widgets.count; ++i)
-        if (ui_inbox_target_equal(s.targets[i], s.focused))
-            ui_widget_manager_focus(&s.widgets, {static_cast<u16>(i), s.widgets.generation});
-    ++s.revision;
-    return true;
-}
-
-bool pill(PaintStream* out, const UiInboxScene& s, UiWidgetHandle handle, const Theme& theme, bool selected) noexcept {
-    if (!handle.generation)
-        return true;
-    const auto r = bounds(s, handle);
-    const bool hot = hovered(s, handle) || focused(s, handle);
-    if (!selected && !hot)
-        return true;
-    return surface(out, r, theme, selected ? theme.surface_high : theme.surface,
-                   focused(s, handle) ? theme.tokens.border.focus : theme.surface_high, ui_rect_height(r) * .5f);
+    return ui_scene_commit(&s.widgets, s.panel, s.targets, s.focused, ui_inbox_target_equal, &s.revision);
 }
 // A channel row is "hot" while it or its mark-read button is hovered or focused.
 bool row_hot(const UiInboxScene& s, u32 slot) noexcept {
-    return hovered(s, s.rows[slot]) || focused(s, s.rows[slot]) || hovered(s, s.actions[slot]) ||
-           focused(s, s.actions[slot]);
+    return ui_widget_state(s.widgets, s.rows[slot]) | ui_widget_state(s.widgets, s.actions[slot]);
 }
 // Mention badge: at the trailing edge, stepping left of the revealed button.
 UiRect badge_rectangle(const UiInboxScene& s, u32 slot) noexcept {
@@ -220,9 +198,7 @@ bool ui_inbox_scene_update(UiInboxScene* s, const UiInboxSource* source, const U
         s->scroll_dips = 0;
         s->focused = {content->tab == UiInboxTab::mentions ? UiInboxAction::tab_mentions : UiInboxAction::tab_unreads};
     }
-    if (!s->storage.arena.base && (!ui_fixed_widget_storage_initialize(&s->storage, kUiInboxWidgetCapacity) ||
-                                   !ui_widget_manager_initialize(&s->widgets, s->storage.widgets,
-                                                                 s->storage.layout_nodes)))
+    if (!s->storage.arena.base && !ui_scene_open(&s->storage, &s->widgets, kUiInboxWidgetCapacity))
         return false;
     s->viewport = viewport;
     const float height = minimum(kUiInboxPreferredHeight, ui_rect_height(viewport) - 8);
@@ -258,30 +234,19 @@ bool ui_inbox_scene_update(UiInboxScene* s, const UiInboxSource* source, const U
     return true;
 }
 void ui_inbox_scene_release(UiInboxScene* s) noexcept {
-    if (!s)
-        return;
-    ui_fixed_widget_storage_release(&s->storage);
-    reset_value(s);
+    ui_scene_release(s);
 }
 bool ui_inbox_scene_contains(const UiInboxScene& s, float x, float y) noexcept {
     return current(s) && ui_rect_contains(s.panel, x, y);
 }
 UiInboxTarget ui_inbox_scene_hit_test(const UiInboxScene& s, float x, float y) noexcept {
-    if (!current(s))
-        return {};
-    const auto handle = ui_widget_manager_hit_test(s.widgets, x, y);
-    return handle.slot < kUiInboxWidgetCapacity && ui_widget_manager_input_enabled(s.widgets, handle)
-               ? s.targets[handle.slot]
-               : UiInboxTarget{};
+    return current(s) ? ui_scene_target(s, ui_widget_manager_hit_test(s.widgets, x, y)) : UiInboxTarget{};
 }
 UiInboxTarget ui_inbox_scene_focused_target(const UiInboxScene& s) noexcept {
-    const auto handle = s.widgets.focused;
-    return current(s) && handle.slot < kUiInboxWidgetCapacity && ui_widget_manager_input_enabled(s.widgets, handle)
-               ? s.targets[handle.slot]
-               : UiInboxTarget{};
+    return current(s) ? ui_scene_target(s, s.widgets.focused) : UiInboxTarget{};
 }
 bool ui_inbox_scene_set_hover(UiInboxScene* s, float x, float y, bool* changed) noexcept {
-    return s && current(*s) && set_hover(&s->widgets, &s->revision, x, y, changed);
+    return s && current(*s) && ui_scene_hover(&s->widgets, &s->revision, x, y, changed);
 }
 bool ui_inbox_scene_scroll(UiInboxScene* s, float offset) noexcept {
     if (!s || !current(*s) || !ui_coordinate_valid(offset))
@@ -326,7 +291,7 @@ bool ui_inbox_scene_focus(UiInboxScene* s, UiInboxTarget target) noexcept {
             break;
         }
     }
-    if (!focus_target(&s->widgets, s->targets, target, ui_inbox_target_equal))
+    if (!ui_scene_focus_target(&s->widgets, s->targets, target, ui_inbox_target_equal))
         return false;
     s->focused = target;
     ++s->revision;
@@ -337,7 +302,7 @@ bool ui_inbox_scene_move_focus(UiInboxScene* s, UiInboxFocusMove move) noexcept 
         return false;
     UiInboxTarget pick{};
     // Tabs, filters, every row's actions, Load more / Retry, then Close.
-    return ring_pick(
+    return ui_ring_pick(
                [&](auto emit) noexcept {
                    emit({UiInboxAction::tab_mentions});
                    emit({UiInboxAction::tab_unreads});
@@ -365,11 +330,7 @@ bool ui_inbox_scene_move_focus(UiInboxScene* s, UiInboxFocusMove move) noexcept 
                    emit({UiInboxAction::close});
                    return true;
                },
-               ui_inbox_target_equal, ui_inbox_scene_focused_target(*s),
-               move == UiInboxFocusMove::first ? Ring::first
-               : move == UiInboxFocusMove::last ? Ring::last
-               : move == UiInboxFocusMove::previous ? Ring::previous : Ring::next,
-               &pick) &&
+               ui_inbox_target_equal, ui_inbox_scene_focused_target(*s), ui_ring(move), &pick) &&
            ui_inbox_scene_focus(s, pick);
 }
 
@@ -379,202 +340,140 @@ bool ui_inbox_scene_spinner_visible(const UiInboxScene& s) noexcept {
 bool ui_inbox_scene_paint(const UiInboxScene& s, const Theme& theme, PaintStream* out) noexcept {
     if (!current(s))
         return true;
-    if (!out ||
-        !ui_surface_shadow_paint_isolated(out, s.panel, theme, UiElevation::popover, theme.scale.radius_md) ||
-        !paint_stream_push_clip(out, s.panel))
-        return false;
     const auto& c = *s.content;
-    bool ok = ui_surface_paint_plate(out, s.panel, theme, UiElevation::popover, theme.scale.radius_md, nullptr,
-                                     &theme.surface_high) &&
-              paint_stream_push(out, ui_rect_edges(s.header, ui_start(0), ui_end(-1), ui_end(0), ui_end(0)),
-                                ui_separator_color(theme)) &&
-              ui_icon_paint(out, UiIcon::inbox, ui_rect_edges(s.panel, ui_start(14), ui_start(16), ui_start(34), ui_start(36)),
-                            theme.text_secondary) &&
-              pill(out, s, s.tabs[0], theme, s.tab == UiInboxTab::mentions) &&
-              pill(out, s, s.tabs[1], theme, s.tab == UiInboxTab::unreads);
-    const auto close = bounds(s, s.close);
-    if (ok && (hovered(s, s.close) || focused(s, s.close)))
-        ok = surface(out, close, theme, theme.surface_high, focused(s, s.close) ? theme.tokens.border.focus : theme.surface_high, 6);
-    ok = ok && ui_icon_paint(out, UiIcon::close, ui_rect_shrink(close, 7),
-                             theme.text_secondary);
-    if (ok && s.tab == UiInboxTab::mentions) {
-        const bool checked[]{c.this_server, c.everyone, c.roles};
-        for (u32 i = 0; ok && i < 3; ++i) {
-            if (!s.chips[i].generation)
-                continue;
-            const auto r = bounds(s, s.chips[i]);
-            const bool hot = hovered(s, s.chips[i]);
-            ok = surface(out, r, theme, checked[i] ? theme.surface_high : hot ? theme.surface : theme.base_lower,
-                         focused(s, s.chips[i]) || checked[i] ? theme.tokens.emphasis.outline : theme.surface_high, ui_rect_height(r) * .5f);
-        }
-        ok = ok && paint_stream_push(out, ui_rect_edges(s.filters, ui_start(0), ui_end(-1), ui_end(0), ui_end(0)),
-                                     ui_separator_color(theme));
-    }
-    if (ok && !paint_stream_push_clip(out, s.body))
-        ok = false;
-    if (ok) {
-        for (u32 i = 0; ok && i < s.count; ++i) {
-            const auto& row = s.visible[i];
-            const auto r = s.row_rectangles[i];
-            if (row.kind == UiInboxRowKind::mention) {
-                ok = surface(out, r, theme, hovered(s, s.rows[i]) ? theme.surface_high : theme.surface,
-                             focused(s, s.rows[i]) ? theme.tokens.border.focus : theme.surface_high);
-                // Placeholder under the author's avatar media.
-                const auto avatar = mention_avatar(r);
-                ok = ok && paint_stream_push_rounded(out, avatar, theme.avatar_placeholder, kUiInboxAvatarExtent * .5f);
-            } else if (row.kind == UiInboxRowKind::channel) {
-                if (hovered(s, s.rows[i]) || focused(s, s.rows[i]))
-                    ok = surface(out, r, theme, theme.surface_high,
-                                 focused(s, s.rows[i]) ? theme.tokens.border.focus : theme.surface_high, 4);
-                ok = ok && ui_icon_paint(out, row.guild_id ? UiIcon::channel : UiIcon::direct_message,
-                                         ui_rect_edges(r, ui_start(8), ui_start(9), ui_start(26), ui_start(27)),
-                                         row.muted ? theme.interactive : theme.text_secondary);
-                if (ok && row.mention_count) {
-                    const auto badge = badge_rectangle(s, i);
-                    ok = paint_stream_push_rounded(out, badge, theme.notification, ui_rect_height(badge) * .5f);
-                }
-                if (ok && ui_inbox_scene_channel_action_visible(s, i)) {
-                    const auto a = bounds(s, s.actions[i]);
-                    const bool hot = hovered(s, s.actions[i]) || focused(s, s.actions[i]);
-                    if (hot)
-                        ok = surface(out, a, theme, theme.surface,
-                                     focused(s, s.actions[i]) ? theme.tokens.border.focus : theme.surface, theme.scale.radius_sm);
-                    const float icon = ui_icon_button_extent(ui_rect_width(a) - 8), x = (a.left + a.right - icon) * .5f,
-                                y = (a.top + a.bottom - icon) * .5f;
-                    ok = ok && ui_icon_paint(out, UiIcon::check, {x, y, x + icon, y + icon},
-                                             hot ? theme.text_primary : theme.text_secondary);
-                }
-            } else if (row.kind == UiInboxRowKind::group && s.actions[i].generation &&
-                       (hovered(s, s.actions[i]) || focused(s, s.actions[i]))) {
-                const auto a = bounds(s, s.actions[i]);
-                ok = surface(out, a, theme, theme.surface,
-                             focused(s, s.actions[i]) ? theme.tokens.border.focus : theme.surface, theme.scale.radius_sm);
+    UiPaint p{out, theme};
+    p.popover(s.panel, theme.scale.radius_md)
+        .rule_below(s.header)
+        .icon(UiIcon::inbox, ui_rect_edges(s.panel, ui_start(14), ui_start(16), ui_start(34), ui_start(36)),
+              theme.text_secondary)
+        .control<kTab>(s.widgets, s.tabs[0], s.tab == UiInboxTab::mentions)
+        .control<kTab>(s.widgets, s.tabs[1], s.tab == UiInboxTab::unreads)
+        .icon_control<kUiGhostButton>(s.widgets, s.close, UiIcon::close, 7, theme.text_secondary);
+    if (s.tab == UiInboxTab::mentions)
+        p.control<kChip>(s.widgets, s.chips[0], c.this_server)
+            .control<kChip>(s.widgets, s.chips[1], c.everyone)
+            .control<kChip>(s.widgets, s.chips[2], c.roles)
+            .rule_below(s.filters);
+    p.clip(s.body);
+    for (u32 i = 0; p && i < s.count; ++i) {
+        const auto& row = s.visible[i];
+        const auto r = s.row_rectangles[i];
+        if (row.kind == UiInboxRowKind::mention) {
+            // Placeholder under the author's avatar media.
+            p.look<kCard>(r, ui_widget_state(s.widgets, s.rows[i]))
+                .rounded(mention_avatar(r), theme.avatar_placeholder, kUiInboxAvatarExtent * .5f);
+        } else if (row.kind == UiInboxRowKind::channel) {
+            p.look<kChannel>(r, ui_widget_state(s.widgets, s.rows[i]))
+                .icon(row.guild_id ? UiIcon::channel : UiIcon::direct_message,
+                      ui_rect_edges(r, ui_start(8), ui_start(9), ui_start(26), ui_start(27)),
+                      row.muted ? theme.interactive : theme.text_secondary);
+            if (row.mention_count) {
+                const auto badge = badge_rectangle(s, i);
+                p.rounded(badge, theme.notification, ui_rect_height(badge) * .5f);
             }
+            if (ui_inbox_scene_channel_action_visible(s, i)) {
+                const auto a = ui_bounds(s, s.actions[i]);
+                const float icon = ui_icon_button_extent(ui_rect_width(a) - 8), x = (a.left + a.right - icon) * .5f,
+                            y = (a.top + a.bottom - icon) * .5f;
+                p.control<kRowAction>(s.widgets, s.actions[i])
+                    .icon(UiIcon::check, {x, y, x + icon, y + icon},
+                          ui_widget_state(s.widgets, s.actions[i]) ? theme.text_primary : theme.text_secondary);
+            }
+        } else {
+            p.control<kRowAction>(s.widgets, s.actions[i]);
         }
-        if (!s.measured_count) {
-            const auto r = s.body;
-            const float x = (r.left + r.right) * .5f, y = r.top + minimum(56.f, ui_rect_height(r) * .25f);
-            ok = ok && (c.phase == UiInboxPhase::loading
-                            ? ui_spinner_paint(out, {x - 12, y - 12, x + 12, y + 12}, theme.tokens.emphasis.outline, s.spinner_phase)
-                            : ui_icon_paint(out,
-                                            c.phase == UiInboxPhase::failed ? UiIcon::warning
-                                            : s.tab == UiInboxTab::mentions ? UiIcon::mention
-                                                                            : UiIcon::check,
-                                            {x - 16, y - 16, x + 16, y + 16}, theme.text_secondary));
-        }
-        ok = paint_stream_pop_clip(out) && ok;
     }
-    if (ok && s.more.generation)
-        ok = surface(out, bounds(s, s.more), theme, hovered(s, s.more) ? theme.surface_high : theme.surface,
-                     focused(s, s.more) ? theme.tokens.border.focus : theme.interactive, 6) &&
-             paint_stream_push(out, ui_rect_edges(s.footer, ui_start(0), ui_start(0), ui_end(0), ui_start(1)),
-                               ui_separator_color(theme));
-    if (ok)
-        ok = ui_scrollbar_paint(out, ui_inbox_scene_scrollbar(s), theme, s.scrollbar_state);
-    return paint_stream_pop_clip(out) && ok;
+    if (!s.measured_count) {
+        const auto r = s.body;
+        const float x = (r.left + r.right) * .5f, y = r.top + minimum(56.f, ui_rect_height(r) * .25f);
+        if (c.phase == UiInboxPhase::loading)
+            p.spinner({x - 12, y - 12, x + 12, y + 12}, theme.tokens.emphasis.outline, s.spinner_phase);
+        else
+            p.icon(c.phase == UiInboxPhase::failed ? UiIcon::warning
+                   : s.tab == UiInboxTab::mentions ? UiIcon::mention
+                                                   : UiIcon::check,
+                   {x - 16, y - 16, x + 16, y + 16}, theme.text_secondary);
+    }
+    p.unclip();
+    if (s.more.generation)
+        p.control<kMore>(s.widgets, s.more).rule_above(s.footer);
+    return p.scrollbar(ui_inbox_scene_scrollbar(s), s.scrollbar_state).end();
 }
 
 bool ui_inbox_scene_text_output(const UiInboxScene& s, const Theme& theme, UiTextOutput* out) noexcept {
     if (!current(s))
         return true;
-    if (!ui_text_output_valid(out))
-        return false;
+    UiTextPen text{out, s.widgets, s.panel, s.body};
     const auto& c = *s.content;
-    const auto p = s.panel;
-    if (!text(out, s, s.root, utf8_literal("Inbox"), ui_rect_edges(p, ui_start(40), ui_start(12), ui_start(88), ui_start(40)),
-              theme.text_primary, text_style_bold) ||
-        !text(out, s, s.tabs[0], utf8_literal("Mentions"), bounds(s, s.tabs[0]),
-              s.tab == UiInboxTab::mentions ? theme.text_primary : theme.text_secondary, text_style_bold,
-              ui_text_center) ||
-        !text(out, s, s.tabs[1], utf8_literal("Unreads"), bounds(s, s.tabs[1]),
-              s.tab == UiInboxTab::unreads ? theme.text_primary : theme.text_secondary, text_style_bold,
-              ui_text_center))
-        return false;
-    if (s.tab == UiInboxTab::mentions) {
+    const bool mentions = s.tab == UiInboxTab::mentions;
+    text(s.root, utf8_literal("Inbox"), ui_rect_edges(s.panel, ui_start(40), ui_start(12), ui_start(88), ui_start(40)),
+         theme.text_primary, text_style_bold);
+    text(s.tabs[0], utf8_literal("Mentions"), ui_bounds(s, s.tabs[0]), mentions ? theme.text_primary : theme.text_secondary,
+         text_style_bold, ui_text_center);
+    text(s.tabs[1], utf8_literal("Unreads"), ui_bounds(s, s.tabs[1]), mentions ? theme.text_secondary : theme.text_primary,
+         text_style_bold, ui_text_center);
+    if (mentions) {
         const Utf8View labels[]{c.this_server ? utf8_literal("This server") : utf8_literal("All servers"),
                                 utf8_literal("@everyone"), utf8_literal("@roles")};
         const bool checked[]{c.this_server, c.everyone, c.roles};
         for (u32 i = 0; i < 3; ++i)
-            if (s.chips[i].generation &&
-                !text(out, s, s.chips[i], labels[i], bounds(s, s.chips[i]),
-                      checked[i] ? theme.text_primary : theme.text_secondary, text_style_subtext | text_style_bold,
-                      ui_text_center))
-                return false;
+            if (s.chips[i].generation)
+                text(s.chips[i], labels[i], ui_bounds(s, s.chips[i]), checked[i] ? theme.text_primary : theme.text_secondary,
+                     text_style_subtext | text_style_bold, ui_text_center);
     }
     for (u32 i = 0; i < s.count; ++i) {
         const auto& row = s.visible[i];
         const auto r = s.row_rectangles[i];
         if (row.kind == UiInboxRowKind::mention) {
-            if (!text(out, s, s.rows[i], row.detail, ui_rect_edges(r, ui_start(12), ui_start(8), ui_end(-12), ui_start(26)),
-                      theme.text_secondary, text_style_subtext, ui_text_in_body) ||
-                !text(out, s, s.rows[i], row.title,
-                      ui_rect_edges(r, ui_start(static_cast<int>(mention_text_left)), ui_start(26), ui_end(-140), ui_start(46)),
-                      theme.text_primary, text_style_bold, ui_text_in_body) ||
-                !text(out, s, s.rows[i], row.timestamp, ui_rect_edges(r, ui_end(-140), ui_start(26), ui_end(-12), ui_start(46)),
-                      theme.text_secondary, text_style_subtext, ui_text_in_body | ui_text_end) ||
-                !text(out, s, s.rows[i], mention_body(row),
-                      ui_rect_edges(r, ui_start(static_cast<int>(mention_text_left)), ui_start(static_cast<int>(mention_body_top)),
-                                    ui_end(-12), ui_end(-8)),
-                      theme.text_primary, 0, ui_text_wrap | ui_text_in_body))
-                return false;
+            constexpr auto left = ui_start(static_cast<int>(mention_text_left));
+            text(s.rows[i], row.detail, ui_rect_edges(r, ui_start(12), ui_start(8), ui_end(-12), ui_start(26)),
+                 theme.text_secondary, text_style_subtext, ui_text_in_body);
+            text(s.rows[i], row.title, ui_rect_edges(r, left, ui_start(26), ui_end(-140), ui_start(46)), theme.text_primary,
+                 text_style_bold, ui_text_in_body);
+            text(s.rows[i], row.timestamp, ui_rect_edges(r, ui_end(-140), ui_start(26), ui_end(-12), ui_start(46)),
+                 theme.text_secondary, text_style_subtext, ui_text_in_body | ui_text_end);
+            text(s.rows[i], mention_body(row),
+                 ui_rect_edges(r, left, ui_start(static_cast<int>(mention_body_top)), ui_end(-12), ui_end(-8)),
+                 theme.text_primary, 0, ui_text_wrap | ui_text_in_body);
             continue;
         }
-        const auto action = action_rectangle(row, r);
-        const float left = row.kind == UiInboxRowKind::channel ? r.left + 32 : r.left + 4;
+        const bool channel = row.kind == UiInboxRowKind::channel;
         // Channel names stop before the revealed button and badge, so hovering never reflows them.
-        const float right = action.left - (row.mention_count ? badge_width + 14 : 8);
-        if (!text(out, s, row.kind == UiInboxRowKind::channel ? s.rows[i] : s.root, row.title,
-                  {left, r.top, right, r.bottom},
-                  row.kind == UiInboxRowKind::group ? theme.text_secondary
-                  : row.muted                      ? theme.interactive
-                                                   : theme.text_primary,
-                  row.kind == UiInboxRowKind::group ? text_style_subtext | text_style_bold : text_style_bold,
-                  ui_text_in_body))
-            return false;
-        if (row.mention_count && row.kind == UiInboxRowKind::channel) {
-            char digits[4];
-            u32 bytes = 0;
-            const u32 value = minimum(row.mention_count, 99u);
-            if (value >= 10)
-                digits[bytes++] = static_cast<char>('0' + value / 10);
-            digits[bytes++] = static_cast<char>('0' + value % 10);
-            if (!text(out, s, s.rows[i], {digits, bytes}, badge_rectangle(s, i), theme.tokens.text.on_accent,
-                      text_style_subtext | text_style_bold, ui_text_in_body | ui_text_center))
-                return false;
+        const float right = action_rectangle(row, r).left - (row.mention_count ? badge_width + 14 : 8);
+        text(channel ? s.rows[i] : s.root, row.title, {channel ? r.left + 32 : r.left + 4, r.top, right, r.bottom},
+             !channel ? theme.text_secondary : row.muted ? theme.interactive : theme.text_primary,
+             channel ? text_style_bold : text_style_subtext | text_style_bold, ui_text_in_body);
+        if (row.mention_count && channel) {
+            char digits[2];
+            text(s.rows[i], {digits, decimal_write(digits, minimum(row.mention_count, 99u))}, badge_rectangle(s, i),
+                 theme.tokens.text.on_accent, text_style_subtext | text_style_bold, ui_text_in_body | ui_text_center);
         }
-        const bool hot = s.actions[i].generation && (hovered(s, s.actions[i]) || focused(s, s.actions[i]));
-        if (row.kind == UiInboxRowKind::group && s.actions[i].generation &&
-            !text(out, s, s.actions[i], utf8_literal("Mark all read"), bounds(s, s.actions[i]),
-                  hot ? theme.text_primary : theme.tokens.text.link, text_style_subtext | text_style_bold,
-                  ui_text_in_body | ui_text_center))
-            return false;
+        if (!channel && s.actions[i].generation)
+            text(s.actions[i], utf8_literal("Mark all read"), ui_bounds(s, s.actions[i]),
+                 ui_widget_state(s.widgets, s.actions[i]) ? theme.text_primary : theme.tokens.text.link,
+                 text_style_subtext | text_style_bold, ui_text_in_body | ui_text_center);
     }
     if (!s.measured_count) {
         const auto r = s.body;
         const float top = r.top + minimum(84.f, ui_rect_height(r) * .4f);
-        const bool mentions = s.tab == UiInboxTab::mentions;
-        const auto title = c.phase == UiInboxPhase::loading  ? utf8_literal("Loading…")
-                           : c.phase == UiInboxPhase::failed ? utf8_literal("Couldn't load your inbox")
-                           : mentions                        ? utf8_literal("No recent mentions")
-                                                             : utf8_literal("You're all caught up");
-        const auto detail = c.status.bytes ? c.status
-                            : c.phase != UiInboxPhase::ready
-                                ? Utf8View{}
-                                : mentions ? utf8_literal("Mentions of you will show up here.")
-                                           : utf8_literal("Channels with new messages will show up here.");
-        if (!text(out, s, s.root, title, {r.left + 20, top, r.right - 20, top + 28}, theme.text_primary,
-                  text_style_bold, ui_text_in_body | ui_text_center) ||
-            !text(out, s, s.root, detail, {r.left + 24, top + 32, r.right - 24, top + 80}, theme.text_secondary, 0,
-                  ui_text_wrap | ui_text_in_body | ui_text_center))
-            return false;
+        text(s.root, c.phase == UiInboxPhase::loading  ? utf8_literal("Loading…")
+                     : c.phase == UiInboxPhase::failed ? utf8_literal("Couldn't load your inbox")
+                     : mentions                        ? utf8_literal("No recent mentions")
+                                                       : utf8_literal("You're all caught up"),
+             {r.left + 20, top, r.right - 20, top + 28}, theme.text_primary, text_style_bold,
+             ui_text_in_body | ui_text_center);
+        text(s.root, c.status.bytes                 ? c.status
+                     : c.phase != UiInboxPhase::ready ? Utf8View{}
+                     : mentions ? utf8_literal("Mentions of you will show up here.")
+                                : utf8_literal("Channels with new messages will show up here."),
+             {r.left + 24, top + 32, r.right - 24, top + 80}, theme.text_secondary, 0,
+             ui_text_wrap | ui_text_in_body | ui_text_center);
     }
     if (s.more.generation)
-        return text(out, s, s.more,
-                    c.loading_more                    ? utf8_literal("Loading…")
-                    : c.phase == UiInboxPhase::failed ? utf8_literal("Try again")
-                                                      : utf8_literal("Load more"),
-                    bounds(s, s.more), c.loading_more ? theme.text_secondary : theme.text_primary, text_style_bold,
-                    ui_text_center);
-    return true;
+        text(s.more, c.loading_more ? utf8_literal("Loading…") : c.phase == UiInboxPhase::failed ? utf8_literal("Try again")
+                                                                                              : utf8_literal("Load more"),
+             ui_bounds(s, s.more), c.loading_more ? theme.text_secondary : theme.text_primary, text_style_bold,
+             ui_text_center);
+    return text.ok();
 }
 } // namespace maicord
