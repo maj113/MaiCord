@@ -22,6 +22,7 @@
 #include "maicord/media/image/png.hpp"
 #include "maicord/media/core/presentation_policy.hpp"
 #include "maicord/model/guild/member_store.hpp"
+#include "maicord/model/guild/display_order.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/render/d3d11/layer_presentation.hpp"
 #include "maicord/ui/guild/rail_scene.hpp"
@@ -32,6 +33,8 @@
 #include "maicord/ui/widgets/presence.hpp"
 #include "maicord/ui/account/profile_media.hpp"
 #include "maicord/ui/core/scene.hpp"
+#include "maicord/ui/media/picker.hpp"
+#include "maicord/ui/widgets/spinner.hpp"
 #include "maicord/ui/chat/search/scene.hpp"
 #include "maicord/ui/chat/messages/typing_presentation.hpp"
 #include "maicord/ui/settings/scene.hpp"
@@ -235,6 +238,11 @@ struct Fixture {
     UiPageRegistry registry;
     UiSettingsScene settings;
     Theme theme;
+    // The selected slash command's option bar and chips, and /gif's inline results.
+    MessageComposerProjectionContext command;
+    UiMediaPickerScene gifs;
+    UiMediaPickerSource gif_source;
+    UiMediaPickerContent gif_content;
 };
 constinit Fixture fixture{};
 
@@ -250,6 +258,14 @@ u8 g_banner[kBannerW * kBannerH * 4];
 u8 g_game[kArt * kArt * 4], g_record[kArt * kArt * 4], g_scanlines[kPhotoW * kPhotoW * 4 + kPhotoW];
 u32 g_caption_icon[kAppIconLargestExtent * kAppIconLargestExtent];
 u32 g_failures;
+// /gif's six results at the strip's tile height of 150 DIP, painted at 2x.
+constexpr u32 kGifTiles = 6, kGifHeight = 300;
+constexpr u64 kGifMessage = snowflake(0, 40);
+constexpr u32 kGifSizes[kGifTiles][2]{{450, 300}, {400, 300}, {450, 300},
+                                      {450, 300}, {300, 300}, {400, 300}};
+u8 g_gif[450 * kGifHeight * 4];
+GuildFolderSettings g_folders;
+u64 g_expanded_folder;
 
 bool check(bool ok, const char* what) noexcept {
     if (!ok) {
@@ -395,6 +411,42 @@ bool build_state(Fixture& f) noexcept {
          chat_state_store_note_message(&f.state, 403, snowflake(25), 19, false, false) &&
          chat_state_store_select_channel(&f.state, kChannel).ok();
     return check(ok, "state_failed");
+}
+
+// The server list as the account's folder settings arrange it: Lab, a "Side
+// projects" folder holding Pixel Garden, Night Owls and Study Hall, then the
+// two single servers. The folder shows its members (and their pills) open.
+void build_folders(Fixture& f) noexcept {
+    constexpr u64 ids[]{kGuild, 200, 201, 202, 203, 204};
+    constexpr struct {
+        u16 first, count;
+        u64 id;
+    } layout[]{{0, 1, 0}, {1, 3, 0x5a1f}, {4, 1, 0}, {5, 1, 0}};
+    auto& s = g_folders;
+    for (u32 i = 0; i < 6; ++i)
+        s.guild_ids[i] = ids[i];
+    for (u32 i = 0; i < 4; ++i) {
+        auto& folder = s.folders[i];
+        folder.first_guild = layout[i].first;
+        folder.guild_count = layout[i].count;
+        folder.id = layout[i].id;
+        folder.has_id = layout[i].id != 0;
+        if (folder.has_id) {
+            const Utf8View name = utf8_literal("Side projects");
+            copy_bytes(folder.name, name.data, name.bytes);
+            folder.name_bytes = static_cast<u8>(name.bytes);
+            folder.color = 0x7c5cff;
+            folder.has_color = true;
+        }
+    }
+    s.guild_id_count = 6;
+    s.folder_count = 4;
+    s.present = true;
+    g_expanded_folder = guild_folder_row_key(s, 1);
+    f.view.guild_folders = &s;
+    f.view.expanded_folders = &g_expanded_folder;
+    f.view.expanded_folder_count = 1;
+    ++f.view.folder_revision;
 }
 
 bool build_people(Fixture& f, D3D11Renderer& r) noexcept {
@@ -561,6 +613,7 @@ void display_pixels(float w_dip, float h_dip, u32 dpi, u32 max_w, u32* w, u32* h
 // at the displayed size as the media proxy would deliver them.
 bool upload_rows(Fixture& f, D3D11Renderer& r) noexcept {
     static u32 photo_w, photo_h, card_w, card_h;
+    static bool photo_party;
     bool ok = true;
     for (u32 i = 0; i < f.messages.count; ++i) {
         const MessageSceneRowWidget& row = f.messages.rows[i];
@@ -577,9 +630,13 @@ bool upload_rows(Fixture& f, D3D11Renderer& r) noexcept {
                 media_resolution_tier_for_display(w, h, r.dpi, media_preview_extent_cap(format));
             u32 pw{}, ph{};
             display_pixels(w, h, r.dpi, kPhotoW, &pw, &ph);
-            if (pw != photo_w || ph != photo_h) {
-                paint_landscape(g_photo, pw, ph);
-                photo_w = pw, photo_h = ph;
+            const bool party = row.message_id == kGifMessage;
+            if (pw != photo_w || ph != photo_h || party != photo_party) {
+                if (party)
+                    paint_party(g_photo, pw, ph, 1);
+                else
+                    paint_landscape(g_photo, pw, ph);
+                photo_w = pw, photo_h = ph, photo_party = party;
             }
             ok = upload_png(r, media_asset_attachment(attachment.id, format, tier), g_photo, photo_w,
                             photo_h) &&
@@ -615,19 +672,85 @@ const UiLayoutNode* node(const UiScene& scene, UiSemantic semantic) noexcept {
     return ui_scene_node(scene, semantic);
 }
 
+// /gif's inline results, as the client floats them over the option bar: a
+// heading and a row of reaction GIFs (each painted here), the first selected
+// until a key steps on. Phase 1 loads (the spinner), 2 shows the row.
+u32 g_gif_phase, g_gif_selected;
+u64 g_clock_ms;
+bool gif_resolve(void*, u32 i, UiMediaPickerItem* out) noexcept {
+    if (!out || i >= kGifTiles)
+        return false;
+    *out = {};
+    const auto key = media_asset_catalog_preview(0x7100 + i, 1, MediaAttachmentFormat::webp);
+    out->id = 0x7100 + i;
+    out->asset_id = key.id;
+    out->variant = key.variant;
+    out->asset_flags = key.flags;
+    out->label = utf8_literal("Party GIF");
+    out->enabled = true;
+    out->kind = UiMediaPickerItemKind::gif;
+    out->width = kGifSizes[i][0] / 3;
+    out->height = kGifSizes[i][1] / 3;
+    return true;
+}
+bool upload_gif_tiles(D3D11Renderer& r) noexcept {
+    bool ok = true;
+    for (u32 i = 0; i < kGifTiles; ++i) {
+        paint_party(g_gif, kGifSizes[i][0], kGifSizes[i][1], i);
+        ok = upload_rgba(r, media_asset_catalog_preview(0x7100 + i, 1, MediaAttachmentFormat::webp), g_gif,
+                         kGifSizes[i][0], kGifSizes[i][1]) &&
+             ok;
+    }
+    return check(ok, "gif_upload_failed");
+}
+bool place_gifs(Fixture& f, D3D11Renderer& r) noexcept {
+    static u32 shown;
+    if (!g_gif_phase) {
+        r.media_picker_scene = nullptr;
+        shown = 0;
+        return true;
+    }
+    const auto* surface = ui_widget_manager_layout_node(f.composer_scene.widgets, f.composer_scene.surface);
+    if (!check(surface != nullptr, "gif_anchor_missing"))
+        return false;
+    auto& content = f.gif_content;
+    content.phase = g_gif_phase == 1 ? UiMediaPickerPhase::loading : UiMediaPickerPhase::ready;
+    content.revision += shown != g_gif_phase;
+    shown = g_gif_phase;
+    const UiRect viewport{0, 0, r.width * 96.f / r.dpi, r.height * 96.f / r.dpi};
+    if (!check(ui_media_picker_scene_update(&f.gifs, &f.gif_source, &content, viewport, surface->rectangle),
+               "gif_strip_failed"))
+        return false;
+    if (g_gif_phase == 2)
+        ui_media_picker_scene_select(&f.gifs, g_gif_selected);
+    f.gifs.spinner_phase = ui_spinner_phase(g_clock_ms, false);
+    r.media_picker_scene = &f.gifs;
+    return true;
+}
+
+// "Show time on reply previews", on for the extras capture.
+bool g_reply_timestamps;
+
 // Lays the shell out at the renderer's size and converges message text.
 bool project(Fixture& f, D3D11Renderer& r) noexcept {
     const float width = r.width * 96.f / r.dpi, height = r.height * 96.f / r.dpi;
     // The typing line as the composer gets it from the typing store.
+    MessageTypingName typing_names[3]{};
     const auto typed = message_typing_presentation_build(f.typing, f.users, kChannel, kSelf,
-                                                         {f.typing_label, sizeof(f.typing_label)});
+                                                         {f.typing_label, sizeof(f.typing_label)}, typing_names);
     const Utf8View typing{f.typing_label, typed.ok() ? typed.bytes : 0};
     // Pins and threads as a readable channel with history shows them.
     UiShellLayoutMetrics metrics = kGuildChannelShellLayoutMetrics;
     metrics.flags = static_cast<u16>(metrics.flags | ui_shell_layout_pins | ui_shell_layout_threads);
-    metrics.composer_height = message_composer_scene_preferred_height(
-        f.composer, ui_scene_composer_width(metrics, width), false, typing.bytes != 0);
+    const bool bar = f.command.command_bar_name.bytes != 0;
+    metrics.composer_height =
+        message_composer_scene_preferred_height(f.composer, ui_scene_composer_width(metrics, width), false,
+                                                typing.bytes != 0) +
+        (bar ? message_composer_scene_chrome_height(false, typing.bytes != 0, 0, nullptr, true) -
+                   message_composer_scene_chrome_height(false, typing.bytes != 0, 0, nullptr, false)
+             : 0.f);
     metrics.revision += 10'000u + ui_extent_units(metrics.composer_height) + metrics.flags * 7u;
+    message_scene_set_display(&f.messages, {0, false, MessageSceneClock::meridiem, g_reply_timestamps, true});
     if (!navigation_view_rebuild(&f.view, f.state).ok() ||
         !ui_scene_layout_with_metrics(&f.shell, UiShellView::guild_channel, metrics, width, height))
         return check(false, "shell_layout_failed");
@@ -636,7 +759,10 @@ bool project(Fixture& f, D3D11Renderer& r) noexcept {
     const UiLayoutNode* body = node(f.shell, UiSemantic::message_view);
     const UiLayoutNode* compose = node(f.shell, UiSemantic::composer);
     const UiLayoutNode* pane = node(f.shell, UiSemantic::member_sidebar);
-    const MessageComposerProjectionContext projection{&f.users, &f.state, kGuild};
+    MessageComposerProjectionContext& projection = f.command;
+    projection.users = &f.users;
+    projection.state = &f.state;
+    projection.guild_id = kGuild;
     if (!check(rail && channels && body && compose && pane, "shell_nodes_missing") ||
         !check(guild_rail_scene_update(&f.rail, &f.view, rail->rectangle, 0).ok(), "rail_update_failed") ||
         !check(shell_navigation_scene_update(&f.navigation, &f.view, channels->rectangle, 0).ok(),
@@ -659,6 +785,16 @@ bool project(Fixture& f, D3D11Renderer& r) noexcept {
     if (!check(title && ui_search_scene_update(&f.search, nullptr, &f.search_content, search_viewport,
                                                title->rectangle, &header),
                "search_update_failed"))
+        return false;
+    // Built-in extras: the typing names take their members' role colours; reply previews show their time in
+    // the extras capture only.
+    f.composer_scene.typing_name_count = 0;
+    for (u32 i = 0; typed.ok() && typed.users <= 3 && i < typed.users; ++i) {
+        const GuildMemberRecord* member = guild_member_store_find(f.members, kGuild, typing_names[i].user_id);
+        f.composer_scene.typing_names[f.composer_scene.typing_name_count++] = {
+            typing_names[i].offset, typing_names[i].bytes, member ? member->role_color & 0xFFFFFFu : 0u};
+    }
+    if (!place_gifs(f, r))
         return false;
     r.search_scene = &f.search;
     f.composer_scene.typing_dots = typing.bytes != 0;
@@ -1048,8 +1184,13 @@ bool answer_release(Fixture& f, u64 id, bool ready) noexcept {
 
 // The composer's picker as a slash opens it: the bot's commands and the
 // built-in ones beside their rail, or under a title, what a query matches.
-bool open_commands(Fixture& f, D3D11Renderer& r, Utf8View title = {}) noexcept {
-    const UiLayoutNode* compose = node(f.shell, UiSemantic::composer);
+// list: the default discovery or /release query, what "/g" matches (/gif), or
+// /gif's required option once the command is chosen.
+enum class CommandList : u8 { release, gif, gif_option };
+bool open_commands(Fixture& f, D3D11Renderer& r, Utf8View title = {},
+                   CommandList list = CommandList::release) noexcept {
+    const UiLayoutNode* compose =
+        ui_widget_manager_layout_node(f.composer_scene.widgets, f.composer_scene.surface);
     if (!check(compose != nullptr, "picker_anchor_missing"))
         return false;
     const auto picture = [&](PopupItem& item) noexcept {
@@ -1066,7 +1207,16 @@ bool open_commands(Fixture& f, D3D11Renderer& r, Utf8View title = {}) noexcept {
     PopupItem items[9]{};
     u32 count = 0;
     const bool query = title.bytes != 0;
-    if (query) {
+    if (list == CommandList::gif) {
+        items[count++] = {title, 1, popup_item_command_section, 0};
+        command(items[count++], 2, utf8_literal("/gif"),
+                utf8_literal("Search Animated GIFs on the Web\x1F"
+                             "Built-in\x1Fquery"));
+    } else if (list == CommandList::gif_option) {
+        items[count++] = {utf8_literal("REQUIRED OPTIONS"), 1, popup_item_command_section, 0};
+        items[count] = {utf8_literal("query"), 2, popup_item_enabled, 0};
+        items[count++].detail = utf8_literal("Search for a GIF");
+    } else if (query) {
         items[count++] = {title, 1, popup_item_command_section, 0};
         command(items[count], 2, release, release_detail);
         picture(items[count++]);
@@ -1096,83 +1246,209 @@ bool open_commands(Fixture& f, D3D11Renderer& r, Utf8View title = {}) noexcept {
                    .ok(),
                "picker_open_failed"))
         return false;
-    f.popup.selected_index = query ? 1 : 3;
+    f.popup.selected_index = query || list != CommandList::release ? 1 : 3;
     renderer_set_layer_opacity(&r, RendererLayerSurface::popup, 1);
     return check(renderer_bind_popup_scene(&r, &f.popup), "picker_bind_failed");
 }
-void close_commands(Fixture& f, D3D11Renderer& r) noexcept {
+// The popup alone; the draft stays.
+void close_popup(Fixture& f, D3D11Renderer& r) noexcept {
     renderer_bind_popup_scene(&r, nullptr);
     popup_scene_close(&f.popup);
+}
+void close_commands(Fixture& f, D3D11Renderer& r) noexcept {
+    close_popup(f, r);
     message_composer_clear(&f.composer);
+    f.command = {};
+    g_gif_phase = g_gif_selected = 0;
 }
 
-// The animated hero: 12 s at 12.5 fps under Aurora with its effect running.
-// Juniper finishes typing and posts, reactions land, Ada replies, then Mai
-// types a slash, picks /release and the bot thinks and answers. The clock, dots
-// and effect phase are fixed per frame, so every run draws the same frames, and
-// 12 s is a whole number of dot pulses, so the loop closes.
+// The selected /gif as the composer projects it: the option bar, then the
+// query chip once its key is typed, holding `query_bytes` of value.
+void gif_command(Fixture& f, bool chip, u32 query_bytes) noexcept {
+    auto& c = f.command;
+    c.command.name_bytes = 4;
+    c.option_chip_count = chip ? 1 : 0;
+    if (chip) {
+        const u16 end = static_cast<u16>(11 + query_bytes);
+        c.option_chips[0] = {4, 5, 11, end, end, message_composer_chip_active};
+    }
+    c.command_bar_name = chip ? utf8_literal("query") : utf8_literal("/gif");
+    c.command_bar_detail =
+        chip ? utf8_literal("Search for a GIF") : utf8_literal("Search Animated GIFs on the Web");
+}
+
+// Mai sends the second result: the GIF arrives as an image on her message.
+bool send_gif(Fixture& f) noexcept {
+    GatewayMessageAttachment gif{};
+    gif.id = 0x5c0002;
+    gif.size = 96'412;
+    gif.filename = utf8_literal("party-blob.gif");
+    gif.content_type = utf8_literal("image/gif");
+    gif.url = utf8_literal("https://cdn.discordapp.com/attachments/311/6029314/party-blob.gif");
+    gif.width = 400;
+    gif.height = 300;
+    gif.has_width = gif.has_height = true;
+    GatewayMessageEvent m{};
+    m.id = kGifMessage;
+    m.channel_id = kChannel;
+    m.author_id = kSelf;
+    m.timestamp_ms = snowflake_timestamp_ms(kGifMessage);
+    m.fields = gateway_message_field_id | gateway_message_field_channel_id |
+               gateway_message_field_author_id | gateway_message_field_content |
+               gateway_message_field_timestamp | gateway_message_field_attachments;
+    m.attachments = {&gif, 1};
+    return check(message_timeline_apply_created(&f.timeline, m).ok(), "gif_message_failed");
+}
+
+// The animated hero: 10.7 s at 12.5 fps under Aurora with its effect running.
+// Juniper finishes typing and posts, reactions land and Ada replies. Mai then
+// types /gif: the picker narrows to it, its option bar and query chip appear,
+// the results open above them and the second one is sent. Last she types a
+// slash, picks /release and the bot thinks and answers. The clock, dots and
+// effect phase are fixed per frame, so every run draws the same frames.
 void hero_loop(Fixture& f, D3D11Renderer& r) noexcept {
-    constexpr u32 kFrames = 150;
+    constexpr u32 kFrames = 134;
     constexpr float kStep = .08f;
     const u64 juniper = snowflake(0, 10), ada = snowflake(0, 20), release = snowflake(0, 30);
-    constexpr u32 kFrameMs = 80, kSlash = 92, kSent = 116, kAnswer = 128;
+    constexpr u32 kFrameMs = 80, kThinking = 113, kAnswer = 121;
     constexpr Utf8View fire = utf8_literal("\xF0\x9F\x94\xA5"), eyes = utf8_literal("\xF0\x9F\x98\x8D");
     constexpr Utf8View rocket = utf8_literal("\xF0\x9F\x9A\x80"), party = utf8_literal("\xF0\x9F\x8E\x89");
     constexpr Utf8View juniper_text =
         utf8_literal("<@14> the comets at 80% speed look amazing with Ocean \xF0\x9F\x8C\x8A");
     if (!set_theme(f, r, ClientTheme::aurora, BackgroundEffect::stars_and_comets))
         return;
+    // What the popup lists now, the draft's first frame and its query length.
+    enum class Popup : u8 { none, discover, release, gif, gif_option } popup = Popup::none;
+    Utf8View title{};
+    u32 composing_from = 0, popup_from = 0, query_bytes = 0;
+    bool composing = false;
+    const auto insert = [&](const char* s) noexcept {
+        message_composer_insert_utf8(&f.composer, text(s));
+    };
+    const auto open = [&](Popup next, const char* heading, u32 frame) noexcept {
+        popup = next;
+        title = text(heading);
+        popup_from = frame;
+    };
+    const auto start_composing = [&](u32 frame) noexcept {
+        f.composer.focused = true;
+        composing = true;
+        composing_from = frame;
+    };
     for (u32 frame = 0; frame < kFrames; ++frame) {
         bool changed = true;
+        g_clock_ms = u64{frame} * kFrameMs;
         f.composer_scene.typing_phase = f.messages.interaction_phase =
-            ui_typing_dots_phase(u64{frame} * kFrameMs, true);
+            ui_typing_dots_phase(g_clock_ms, true);
         switch (frame) {
-        case 19:
+        case 8:
             arrive(f, juniper, 13, juniper_text);
             break;
-        case 30:
+        case 13:
             react(f, juniper, fire, false);
             break;
-        case 35:
-            react(f, juniper, fire, false);
-            break;
-        case 40:
+        case 16:
             react(f, juniper, eyes, false);
             break;
-        case 44:
+        case 20:
             check(typing_store_start(&f.typing, kChannel, kGuild, 11, kNowSeconds * 1000 + 3'500).ok(),
                   "typing_failed");
             break;
-        case 62:
+        case 30:
             arrive(f, ada, 11, utf8_literal("Love it. Let's ship it Friday \xF0\x9F\x9A\x80"), juniper, 13,
                    utf8_literal("Juniper"), juniper_text);
             break;
-        case 72:
+        case 35:
             react(f, ada, rocket, true);
             break;
-        case 77:
+        case 38:
             react(f, ada, rocket, false);
             break;
-        case 82:
-            react(f, ada, party, false);
+        // Mai types /gif: the picker opens on the slash and narrows as she types.
+        case 42:
+            start_composing(frame);
+            insert("/");
+            open(Popup::discover, "", frame);
             break;
-        case 86:
-            react(f, ada, rocket, false);
+        case 47:
+            insert("g");
+            open(Popup::gif, "Commands matching /g", frame);
             break;
-        case kSlash:
+        case 49:
+            insert("i");
+            open(Popup::gif, "Commands matching /gi", frame);
+            break;
+        case 51:
+            insert("f");
+            open(Popup::gif, "Commands matching /gif", frame);
+            break;
+        // The command is chosen: its option bar shows, with the required option listed.
+        case 54:
+            insert(" ");
+            gif_command(f, false, 0);
+            open(Popup::gif_option, "", frame);
+            break;
+        // The option is picked: its chip opens and the list closes.
+        case 58:
+            insert("query:");
+            gif_command(f, true, 0);
+            popup = Popup::none;
+            close_popup(f, r);
+            break;
+        case 60:
+        case 62:
+        case 64:
+        case 66:
+        case 68:
+        {
+            const char letter[2]{"party"[query_bytes], 0};
+            insert(letter);
             f.composer.focused = true;
-            message_composer_insert_utf8(&f.composer, utf8_literal("/"));
+            gif_command(f, true, ++query_bytes);
             break;
-        case 102:
-            message_composer_insert_utf8(&f.composer, utf8_literal("r"));
+        }
+        // After the 300 ms debounce the results load, then show.
+        case 72:
+            g_gif_phase = 1;
+            break;
+        case 75:
+            g_gif_phase = 2;
+            break;
+        case 81:
+            g_gif_selected = 1;
+            break;
+        case 87:
+            composing = false;
+            f.composer.focused = false;
+            close_commands(f, r);
+            send_gif(f);
+            query_bytes = 0;
+            break;
+        case 92:
+        case 95:
+            react(f, kGifMessage, party, false);
+            break;
+        // Then a slash, /rel and the bot's answer.
+        case 99:
+            start_composing(frame);
+            insert("/");
+            open(Popup::discover, "", frame);
             break;
         case 104:
-            message_composer_insert_utf8(&f.composer, utf8_literal("e"));
+            insert("r");
+            open(Popup::release, "Commands matching /r", frame);
             break;
         case 106:
-            message_composer_insert_utf8(&f.composer, utf8_literal("l"));
+            insert("e");
+            open(Popup::release, "Commands matching /re", frame);
             break;
-        case kSent:
+        case 108:
+            insert("l");
+            open(Popup::release, "Commands matching /rel", frame);
+            break;
+        case kThinking:
+            composing = false;
+            popup = Popup::none;
             f.composer.focused = false;
             close_commands(f, r);
             answer_release(f, release, false);
@@ -1180,36 +1456,32 @@ void hero_loop(Fixture& f, D3D11Renderer& r) noexcept {
         case kAnswer:
             answer_release(f, release, true);
             break;
-        case 134:
+        case 127:
             react(f, release, party, false);
             break;
-        case 138:
+        case 130:
             react(f, release, rocket, false);
-            break;
-        case 142:
-            react(f, release, party, false);
             break;
         default:
             // "is thinking..." is message text, so its dots lay out again.
-            changed = frame > kSent && frame < kAnswer;
+            changed = frame > kThinking && frame < kAnswer;
         }
-        const bool composing = frame >= kSlash && frame < kSent;
         if ((changed || composing) && !project(f, r))
             return;
         if (composing) {
-            message_composer_scene_set_caret_visible(&f.composer_scene, (frame - kSlash) / 6 % 2 == 0);
+            message_composer_scene_set_caret_visible(&f.composer_scene,
+                                                     (frame - composing_from) / 6 % 2 == 0);
             r.retained_presentation.valid = false;
         }
-        if (frame == kSlash)
-            open_commands(f, r);
-        else if (frame == 102)
-            open_commands(f, r, utf8_literal("Commands matching /r"));
-        else if (frame == 104)
-            open_commands(f, r, utf8_literal("Commands matching /re"));
-        else if (frame == 106)
-            open_commands(f, r, utf8_literal("Commands matching /rel"));
-        if (frame == kSlash || frame == kSlash + 1)
-            renderer_set_layer_opacity(&r, RendererLayerSurface::popup, frame == kSlash ? .5f : 1.f);
+        if (popup != Popup::none) {
+            open_commands(f, r, title,
+                          popup == Popup::gif          ? CommandList::gif
+                          : popup == Popup::gif_option ? CommandList::gif_option
+                                                       : CommandList::release);
+            if (frame - popup_from < 2 && popup == Popup::discover)
+                renderer_set_layer_opacity(&r, RendererLayerSurface::popup,
+                                           frame == popup_from ? .5f : 1.f);
+        }
         shot(f, r, frame_name(L"hero", frame), 6.f + frame * kStep);
     }
 }
@@ -1248,6 +1520,19 @@ bool setup(Fixture& f, D3D11Renderer& r, MessageTextPresentation& presentation) 
     f.search_content.edit = {{}, 0, 0, true, false, false};
     f.search_content.heading = f.search_content.placeholder = utf8_literal("Search MaiCord Lab");
     f.search_content.revision = 1;
+    build_folders(f);
+    f.gif_source = {nullptr, 0x72, 1, kGifTiles, 1, {}, gif_resolve};
+    auto& gifs = f.gif_content;
+    gifs.account_scope = f.gif_source.account_scope;
+    gifs.query_generation = f.gif_source.query_generation;
+    gifs.revision = 1;
+    gifs.kind = UiMediaPickerKind::gif;
+    gifs.available_tabs = ui_media_picker_tab_bit(UiMediaPickerKind::gif);
+    gifs.variant = UiMediaPickerVariant::inline_results;
+    gifs.heading = utf8_literal("Gif content matching party");
+    gifs.heading_plain = 21;
+    if (!upload_gif_tiles(r))
+        return false;
     // Juniper is typing when the stills are taken; the hero loop starts there.
     if (!check(typing_store_initialize(&f.typing, {f.typing_records, 8}) &&
                    typing_store_start(&f.typing, kChannel, kGuild, 13, kNowSeconds * 1000).ok(),
@@ -1288,6 +1573,11 @@ bool showcase_ui_probe(D3D11Renderer& r, MessageTextPresentation& presentation) 
         if (set_theme(f, r, ClientTheme::aurora, BackgroundEffect::stars_and_comets))
             shot(f, r, two ? L"showcase-hero-aurora@2x.bmp" : L"showcase-hero-aurora@1x.bmp");
         if (set_theme(f, r, ClientTheme::dark)) {
+            g_reply_timestamps = true;
+            if (project(f, r))
+                shot(f, r, two ? L"showcase-extras@2x.bmp" : L"showcase-extras@1x.bmp");
+            g_reply_timestamps = false;
+            project(f, r);
             if (open_profile(f, r, false))
                 shot(f, r, two ? L"showcase-profile-popout@2x.bmp" : L"showcase-profile-popout@1x.bmp");
             if (open_profile(f, r, true))
@@ -1319,6 +1609,8 @@ bool showcase_ui_probe(D3D11Renderer& r, MessageTextPresentation& presentation) 
     for (u32 dpi : kDpis)
         if (size_window(f, r, dpi) && set_theme(f, r, ClientTheme::sunset, BackgroundEffect::stars_and_comets))
             shot(f, r, dpi == 192 ? L"showcase-bot@2x.bmp" : L"showcase-bot@1x.bmp");
+    r.media_picker_scene = nullptr;
+    ui_media_picker_scene_release(&f.gifs);
     log_u64(g_failures ? LogLevel::error : LogLevel::info, "showcase", "failures", g_failures);
     return g_failures == 0;
 }

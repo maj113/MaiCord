@@ -34,6 +34,8 @@ void paint_game_art(u8* out, u32 s) noexcept;
 
 void paint_record(u8* out, u32 s) noexcept;
 
+void paint_party(u8* out, u32 w, u32 h, u32 variant) noexcept;
+
 } // namespace showcase_probe_detail
 
 using namespace showcase_probe_detail;

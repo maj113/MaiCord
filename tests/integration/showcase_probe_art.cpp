@@ -274,5 +274,101 @@ void paint_record(u8* out, u32 s) noexcept {
         }
 }
 
+// Reaction-GIF previews for the /gif "party" search: six abstract loops'
+// first frames, painted in units of the tile's height.
+void paint_party(u8* out, u32 w, u32 h, u32 variant) noexcept {
+    const Rgb confetti[5]{hex(0xff5fa2), hex(0xffd166), hex(0x4cd7c8), hex(0x8f7bff), hex(0xff9a5a)};
+    const float wr = static_cast<float>(w) / h;
+    for (u32 y = 0; y < h; ++y)
+        for (u32 x = 0; x < w; ++x) {
+            const float u = (x + .5f) / h, v = (y + .5f) / h;
+            const float cu = wr * .5f;
+            Rgb c = mix(hex(0x1a1040), hex(0x3b2a8a), v);
+            float rest = 1; // how much confetti shows
+            if (variant == 0) {
+                const float dx = u - cu, dy = v - .5f, d = root(dx * dx + dy * dy);
+                c = mix(hex(0x4b2a8a), hex(0x140c34), smooth(.05f, .75f, d));
+                for (u32 k = 0; k < 18; ++k) {
+                    const float a = k * 0.34906585f, r0 = .1f + .02f * (k % 3);
+                    const float r1 = r0 + .09f + .05f * (k % 4);
+                    const float ex = sine(a + 1.5707963f), ey = sine(a);
+                    const float s = segment(dx, dy, ex * r0, ey * r0, ex * r1, ey * r1);
+                    c = mix(c, confetti[k % 5], 1 - smooth(.008f, .016f, s));
+                }
+                c = mix(c, hex(0xfff3c4), disc(u, v, cu, .5f, .05f, .008f));
+            } else if (variant == 1) {
+                c = mix(hex(0x2a6fd6), hex(0x22c1c3), v);
+                const float dx = u - cu, dy = v - .56f, d = root(dx * dx + dy * dy);
+                c = mix(c, hex(0x14305e), disc(u, v, cu + .02f, .8f, .2f, .06f) * .35f);
+                c = mix(c, mix(hex(0xff7aa8), hex(0xffb36b), v - .3f), 1 - smooth(.2f, .212f, d));
+                const float eyes = disc(u, v, cu - .07f, .52f, .024f, .006f) +
+                                   disc(u, v, cu + .07f, .52f, .024f, .006f);
+                const float cheeks = disc(u, v, cu - .12f, .6f, .035f, .02f) +
+                                     disc(u, v, cu + .12f, .6f, .035f, .02f);
+                c = mix(c, hex(0xff5f8f), cheeks * .5f);
+                c = mix(c, hex(0x2a1640), eyes);
+                for (u32 k = 0; k < 9; ++k) {
+                    const float t = (k - 4) * .25f;
+                    const float smile = disc(u, v, cu + t * .085f, .6f + .035f * (1 - t * t), .009f, .005f);
+                    c = mix(c, hex(0x2a1640), smile);
+                }
+                // The party hat: a striped cone with a pompom.
+                const float hu = u - cu, hv = v - .26f;
+                if (hv > 0 && hv < .15f && hu < .09f * hv / .15f && hu > -.09f * hv / .15f)
+                    c = mix(hex(0xffd166), hex(0x8f7bff),
+                            smooth(.4f, .6f, .5f + .5f * sine((hu + hv) * 110)));
+                c = mix(c, hex(0xffffff), disc(u, v, cu, .255f, .022f, .008f));
+            } else if (variant == 2) {
+                c = mix(hex(0x070b22), hex(0x1c1a52), v);
+                c = mix(c, hex(0xffffff), stars(u * h, v * h, 5, .09f) * .8f);
+                const float centers[3][2]{{wr * .3f, .38f}, {wr * .68f, .3f}, {wr * .5f, .66f}};
+                for (u32 b = 0; b < 3; ++b)
+                    for (u32 k = 0; k < 12; ++k) {
+                        const float a = k * .5235988f + b * .3f, ex = sine(a + 1.5707963f), ey = sine(a);
+                        const float dx = u - centers[b][0], dy = v - centers[b][1];
+                        const float r0 = .04f + b * .01f, r1 = r0 + .1f;
+                        const float ray = segment(dx, dy, ex * r0, ey * r0, ex * r1, ey * r1);
+                        c = mix(c, confetti[(k + b) % 5],
+                                (1 - smooth(.004f, .011f, ray)) * .9f +
+                                    disc(dx, dy, ex * (r1 + .025f), ey * (r1 + .025f), .012f, .006f));
+                    }
+                rest = .4f;
+            } else if (variant == 3) {
+                c = mix(hex(0x241046), hex(0x0f0a26), v);
+                const float step = wr / 9;
+                const u32 bar = static_cast<u32>(u / step);
+                const float lift = .2f + .55f * static_cast<float>(hash32(bar * 31u + 7u) & 255) / 255.f;
+                const float fx = u / step - static_cast<float>(bar), top = .92f - lift;
+                const float edge = fx > .5f ? fx - .5f : .5f - fx;
+                const float in = (1 - smooth(.38f, .42f, edge)) * smooth(top - .004f, top + .004f, v);
+                c = mix(c, mix(hex(0xff5fa2), hex(0x4cd7c8), static_cast<float>(bar) / 8),
+                        in * (.55f + .45f * v));
+                rest = .5f;
+            } else if (variant == 4) {
+                c = mix(hex(0xff7a59), hex(0x8e2de2), u / wr * .6f + v * .4f);
+                const float dx = u - cu, dy = v - .5f, d = root(dx * dx + dy * dy);
+                c = mix(c, hex(0x14101f), (1 - smooth(.3f, .305f, d)) * (.5f + .25f * sine(d * 90)));
+                c = mix(c, hex(0xfff3c4), disc(u, v, cu, .5f, .06f, .006f));
+            } else {
+                c = mix(hex(0xff9a5a), hex(0xe0457b), v);
+                const float sp[3][3]{
+                    {cu - .28f, .4f, .12f}, {cu + .24f, .62f, .09f}, {cu + .02f, .5f, .17f}};
+                for (u32 k = 0; k < 3; ++k) {
+                    const float du = u - sp[k][0], dv = v - sp[k][1];
+                    const float a = root(du < 0 ? -du : du), b = root(dv < 0 ? -dv : dv);
+                    c = mix(c, hex(0xfff3c4), 1 - smooth(root(sp[k][2]) - .03f, root(sp[k][2]), a + b));
+                }
+            }
+            for (u32 i = 0; i < 40; ++i) {
+                const u32 hh = hash32(i * 977u + variant * 131u + 3u);
+                const float px = static_cast<float>(hh & 1023) / 1023.f * wr;
+                const float py = static_cast<float>((hh >> 10) & 1023) / 1023.f;
+                const float size = .008f + static_cast<float>((hh >> 25) & 3) * .004f;
+                c = mix(c, confetti[(hh >> 22) % 5], disc(u, v, px, py, size, .004f) * rest);
+            }
+            put(out + (y * w + x) * 4, c);
+        }
+}
+
 } // namespace showcase_probe_detail
 } // namespace maicord
