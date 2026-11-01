@@ -394,6 +394,8 @@ static void tf_decode(int start, int end, int isTransient, int *tf_res, int LM, 
    }
 }
 
+/* Loss concealment runs only after a lost packet: compiled for size. */
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 static int celt_plc_pitch_search(CELTDecoder *st, celt_sig *decode_mem[2], int C, int arch, char *scratch)
 {
    int pitch_index;
@@ -410,6 +412,7 @@ static int celt_plc_pitch_search(CELTDecoder *st, celt_sig *decode_mem[2], int C
    RESTORE_STACK;
    return pitch_index;
 }
+#pragma clang attribute pop
 
 static void prefilter_and_fold(CELTDecoder * OPUS_RESTRICT st, int N, char *scratch)
 {
@@ -453,6 +456,7 @@ static void prefilter_and_fold(CELTDecoder * OPUS_RESTRICT st, int N, char *scra
 }
 
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 static void celt_decode_lost(CELTDecoder * OPUS_RESTRICT st, int N, int LM, char *scratch)
 {
    int c;
@@ -756,6 +760,7 @@ static void celt_decode_lost(CELTDecoder * OPUS_RESTRICT st, int N, int LM, char
    st->last_frame_type = curr_frame_type;
    RESTORE_STACK;
 }
+#pragma clang attribute pop
 
 
 int celt_decode_with_ec(CELTDecoder * OPUS_RESTRICT st, const unsigned char *data,

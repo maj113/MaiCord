@@ -330,6 +330,8 @@ static int transient_analysis(const opus_val32 * OPUS_RESTRICT in, int len, int 
    return is_transient;
 }
 
+/* Per-frame analysis over at most 21 bands: compiled for size. */
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 /* Looks for sudden increases of energy to decide whether we need to patch
    the transient decision */
 static int patch_transient_decision(celt_glog *newE, celt_glog *oldE, int nbEBands,
@@ -367,6 +369,7 @@ static int patch_transient_decision(celt_glog *newE, celt_glog *oldE, int nbEBan
    /*printf("%f %f %d\n", mean_diff, max_diff, count);*/
    return mean_diff > GCONST(1.f);
 }
+#pragma clang attribute pop
 
 /** Apply window and compute the MDCT for all sub-frames and
     all channels in a frame */
@@ -636,6 +639,7 @@ static void tf_encode(int start, int end, int isTransient, int *tf_res, int LM, 
 }
 
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 static int alloc_trim_analysis(const CELTMode *m, const celt_norm *X,
       const celt_glog *bandLogE, int end, int LM, int C, int N0,
       opus_val16 *stereo_saving, opus_val16 tf_estimate,
@@ -708,6 +712,7 @@ static int alloc_trim_analysis(const CELTMode *m, const celt_norm *X,
    /*printf("%d\n", trim_index);*/
    return trim_index;
 }
+#pragma clang attribute pop
 
 static int stereo_analysis(const CELTMode *m, const celt_norm *X,
       int LM, int N0)
@@ -1302,6 +1307,7 @@ static int run_prefilter(CELTEncoder *st, celt_sig *in, celt_sig *prefilter_mem,
    return pf_on;
 }
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 static int compute_vbr(const CELTMode *mode, opus_int32 base_target,
       int LM, opus_int32 bitrate, int lastCodedBands, int C, int intensity,
       int constrained_vbr, opus_val16 stereo_saving, int tot_boost,
@@ -1379,6 +1385,7 @@ static int compute_vbr(const CELTMode *mode, opus_int32 base_target,
 
    return target;
 }
+#pragma clang attribute pop
 
 
 int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, int frame_size, unsigned char *compressed, int nbCompressedBytes, ec_enc *enc, char *scratch)

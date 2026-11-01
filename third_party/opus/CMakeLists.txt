@@ -106,6 +106,11 @@ add_library(${MAIOPUS_DECODER_TARGET} STATIC
     src/opus.c
     src/opus_decoder.c
     ${maiopus_decoder_simd})
+# Loss concealment, comfort noise, initialization and per-frame control around
+# the sample loops: compiled for size; the filters and transforms keep /O2.
+set(maiopus_decoder_cold silk/PLC.c silk/CNG.c silk/init_decoder.c silk/decoder_set_fs.c celt/modes.c
+    celt/entcode.c src/opus.c src/opus_decoder.c)
+set_source_files_properties(${maiopus_decoder_cold} PROPERTIES COMPILE_OPTIONS "/O1")
 target_include_directories(${MAIOPUS_DECODER_TARGET} PUBLIC include PRIVATE . celt silk src)
 target_compile_features(${MAIOPUS_DECODER_TARGET} PRIVATE c_std_17)
 target_compile_definitions(${MAIOPUS_DECODER_TARGET} PRIVATE ${maiopus_definitions})
@@ -180,6 +185,12 @@ get_target_property(maiopus_encoder_sources ${MAIOPUS_ENCODER_TARGET} SOURCES)
 set(maiopus_encoder_hot celt/celt_encoder.c silk/fixed/warped_autocorrelation_FIX.c)
 list(REMOVE_ITEM maiopus_encoder_sources ${maiopus_encoder_hot})
 set_source_files_properties(${maiopus_encoder_sources} PROPERTIES COMPILE_OPTIONS /O1)
+# Control, initialization and entropy-coding units run once per frame without
+# a sample loop: -Oz, with no measurable encode-time change.
+set(maiopus_encoder_cold silk/control_codec.c silk/check_control_input.c silk/control_SNR.c
+    silk/control_audio_bandwidth.c silk/init_encoder.c silk/HP_variable_cutoff.c silk/LP_variable_cutoff.c
+    silk/stereo_encode_pred.c silk/stereo_quant_pred.c)
+set_source_files_properties(${maiopus_encoder_cold} PROPERTIES COMPILE_OPTIONS "/O1;/clang:-Oz")
 set_source_files_properties(${maiopus_encoder_hot} PROPERTIES COMPILE_OPTIONS "/O2;/Ob1")
 target_link_libraries(${MAIOPUS_ENCODER_TARGET} PUBLIC ${MAIOPUS_DECODER_TARGET})
 set_target_properties(${MAIOPUS_ENCODER_TARGET} PROPERTIES

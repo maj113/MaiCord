@@ -39,7 +39,12 @@ endforeach()
 # Whole-program optimization: full LTO in every shipping object, linked by
 # lld-link. Cold code is compiled for size with MAICORD_SIZE_OPTION.
 set(MAICORD_WHOLE_PROGRAM_OPTION -flto)
-set(MAICORD_SIZE_OPTION /clang:-Oz)
+# Machine outlining (enabled at link time below) trades call overhead for size
+# and slowed speed-compiled code by 5-60% (zstd, WebP, XChaCha, Opus), so only
+# sources compiled for size are outlined: the contract's -mno-outline marks
+# every function nooutline and the size option's -moutline lifts it again.
+set(MAICORD_NO_OUTLINE_OPTION /clang:-mno-outline)
+set(MAICORD_SIZE_OPTION /clang:-Oz /clang:-moutline)
 
 # One policy owns every final PE's freestanding, mitigation, dead-code and
 # link contract.
@@ -52,6 +57,9 @@ target_link_options(maicord_link_contract INTERFACE
     # omits the import lookup tables and writes import DLL names without their
     # ".dll", which the loader appends.
     /ALLOWBIND:NO
+    # The only unwind data is the delay-load thunks' 120 bytes: keep it in
+    # .rdata instead of a section of its own (512 file bytes).
+    /MERGE:.pdata=.rdata
     /DEBUG:NONE)
 
 add_library(maicord_compile_contract INTERFACE)
@@ -114,7 +122,7 @@ target_compile_options(maicord_compile_contract INTERFACE
     # braces) and deliberate non-short-circuit bool |.
     "$<$<COMPILE_LANGUAGE:CXX>:-Wno-missing-field-initializers;-Wno-invalid-offsetof;-Wno-ignored-attributes;-Wno-overloaded-virtual;-Wno-duplicate-decl-specifier;-Wno-misleading-indentation;-Wno-logical-op-parentheses;-Wno-missing-braces;-Wno-bitwise-instead-of-logical>"
     # No C library: LLVM must not turn string-length loops into strlen/wcslen calls.
-    "$<$<COMPILE_LANGUAGE:C,CXX>:-fno-builtin-strlen;-fno-builtin-wcslen>")
+    "$<$<COMPILE_LANGUAGE:C,CXX>:-fno-builtin-strlen;-fno-builtin-wcslen;${MAICORD_NO_OUTLINE_OPTION}>")
 # No unwind tables (.pdata/.xdata): MaiCord code never throws, catches or walks
 # a stack. A crash still ends the process (Windows Error Reporting, __fastfail),
 # but frame-based exception dispatch stops at the first MaiCord frame, so
@@ -126,6 +134,9 @@ option(MAICORD_UNWIND_TABLES "Emit unwind tables for in-process stack walkers" O
 set(MAICORD_UNWIND_OPTIONS)
 if(NOT MAICORD_UNWIND_TABLES)
     set(MAICORD_UNWIND_OPTIONS /clang:-fno-asynchronous-unwind-tables /clang:-fno-unwind-tables)
+    # The machine outliner (see MAICORD_SIZE_OPTION) emits no unwind data for
+    # the functions it creates, so stack walkers get none.
+    target_link_options(maicord_link_contract INTERFACE /mllvm:-enable-machine-outliner)
 endif()
 target_compile_options(maicord_compile_contract INTERFACE "$<$<COMPILE_LANGUAGE:C,CXX>:${MAICORD_UNWIND_OPTIONS}>")
 

@@ -74,9 +74,10 @@
       "changes": [
         "No custom signalling, decoder complexity (deep PLC only) or error flag; the ctl keeps start/end band, channels, mode, final range and reset.",
         "celt_decode_with_ec_dred() is celt_decode_with_ec(); the QEXT payload remnant and the neural PLC frame types are removed.",
-        "Scratch comes from the caller's arena (stack_alloc.h): celt_decode_with_ec(), celt_decode_lost(), celt_plc_pitch_search(), prefilter_and_fold(), celt_synthesis() and deemphasis() take it as their last argument; deemphasis()'s local buffer is renamed buf."
+        "Scratch comes from the caller's arena (stack_alloc.h): celt_decode_with_ec(), celt_decode_lost(), celt_plc_pitch_search(), prefilter_and_fold(), celt_synthesis() and deemphasis() take it as their last argument; deemphasis()'s local buffer is renamed buf.",
+        "celt_plc_pitch_search() and celt_decode_lost() sit in a clang minsize attribute region (loss concealment runs only after a lost packet)."
       ],
-      "sha256": "534fdfb897ac209be36273674a45f8da18e0af9f33b5d321e7163a59191fb977"
+      "sha256": "e77b74cf9e71dc0bde217a869352cba9007006894fee7b5825662494fc7871a7"
     },
     {
       "path": "celt/celt_encoder.c",
@@ -86,9 +87,10 @@
         "Fixed to 48 kHz input (no upsampling) without custom signalling, LFE, surround energy mask or tonality analysis input; 16-bit input depth and enabled phase inversion are constants.",
         "Pre-emphasis keeps only the fixed-point path; dynalloc, trim, VBR and prefilter analysis lose their analysis and surround arguments; the unused pitch change estimate is removed.",
         "The ctl drops the LSB depth, phase inversion, signalling, analysis, LFE and energy mask requests; coarse energy quantization is called without the LFE flag.",
-        "Scratch comes from the caller's arena (stack_alloc.h): celt_encode_with_ec(), transient_analysis(), compute_mdcts(), tf_analysis(), dynalloc_analysis(), tone_detect() and run_prefilter() take it as their last argument."
+        "Scratch comes from the caller's arena (stack_alloc.h): celt_encode_with_ec(), transient_analysis(), compute_mdcts(), tf_analysis(), dynalloc_analysis(), tone_detect() and run_prefilter() take it as their last argument.",
+        "patch_transient_decision(), alloc_trim_analysis() and compute_vbr() sit in clang minsize attribute regions (per-frame band analysis, no sample loop)."
       ],
-      "sha256": "18b81a99ef627861116582352c9b6813323f90650ff336cf84009518b992c44a"
+      "sha256": "f06cd80e572fdaa39884c66f2fa84e8a16ae9e4f44fd74a2d5ee1ff0cbe1aeaf"
     },
     {
       "path": "celt/celt_lpc.c",

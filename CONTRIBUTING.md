@@ -78,7 +78,7 @@ to the tag and the `.sha256` value.
 | `build_contract.cmake` | Compiler/linker contract, `maicord_library()`, `maicord_program()` |
 | `generated_sources.cmake` | Packed UI data, shaders (`maicord_shader()`), icon, sounds |
 | `libraries.cmake` | Shipping static libraries |
-| `client.cmake` | `MaiCord.exe` with the account module, updater identity, cold-code `-Oz` |
+| `client.cmake` | `MaiCord.exe` with the account module, updater identity, cold-code `-Oz` (the only code the machine outliner touches) |
 | `tests.cmake`, `test_support.cmake` | The temporary test configuration and its helpers |
 | `test_registry.cmake` | Every test executable and CTest case |
 | `perf_probe.cmake`, `benchmarks.cmake`, `integration.cmake`, `reference_tools.cmake` | Opt-in tools |

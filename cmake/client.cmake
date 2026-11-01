@@ -137,11 +137,10 @@ set(MAICORD_CLIENT_DELAY_LOADS dcomp.dll shell32.dll ws2_32.dll sspicli.dll ole3
     combase.dll d2d1.dll bcrypt.dll crypt32.dll)
 list(TRANSFORM MAICORD_CLIENT_DELAY_LOADS PREPEND /DELAYLOAD: OUTPUT_VARIABLE MAICORD_CLIENT_DELAY_LOAD_OPTIONS)
 target_link_options(MaiCord PRIVATE ${MAICORD_CLIENT_DELAY_LOAD_OPTIONS})
-# LTO code generation in parallel partitions: the fork's splitter gives each
-# partition foldable copies of the constants it reads. Three partitions link in
-# 39 s instead of 57 s at the 1-partition size; other counts land 512 B (one
-# file-alignment unit) larger on this tree. Re-check the count when it drifts.
-target_link_options(MaiCord PRIVATE /opt:lldltopartitions=3)
+# LTO code generation stays in one partition (lld's default). Once the machine
+# outliner is on (cmake/build_contract.cmake), one partition links 28 KB smaller
+# than three, in 39 s instead of 26 s; other counts are larger still.
+# Re-check the count when it drifts.
 add_dependencies(MaiCord maicord_sys_conformance)
 
 # Self-updater publisher. Environment variables override the official defaults,
@@ -367,7 +366,9 @@ maicord_compact_sources(
 # UI scenes, presentation, renderer and the message runtime: the offline perf
 # probe measured equal or lower main-thread CPU in every phase at /Os (smaller
 # code and no chained unwind records). The parsers and tokenizers they run per
-# message and glyph outlines stay /O2, as does the GPU atlas code.
+# message and glyph outlines stay /O2, as do the atlas allocator's lookups. The
+# atlas GPU upload and animation files record device commands once per image and
+# compile for size through minsize attribute regions in their sources.
 # Elsewhere: cold controllers, sign-in/captcha/remote auth, DAVE/MLS group
 # setup (not frame crypto), voice setup, notifications and one-shot account
 # requests. Gateway dispatch, media decode and text shaping stay /O2.
@@ -437,6 +438,11 @@ maicord_compact_sources(
         src/text/font_names.cpp src/text/font_family.cpp src/text/font_candidates.cpp
         src/text/font_catalog.cpp src/text/font_prepare.cpp src/text/cff_charset.cpp
         src/ui/native_text_catalog.cpp
+        # Run once per font instance, script and feature set (the plans are
+        # cached): lookup selection and planning, and nominal participation.
+        src/text/lookup_plan.cpp src/text/use_plan.cpp src/text/devanagari_plan.cpp src/text/arabic_plan.cpp
+        src/text/indic_run_plan.cpp src/text/arabic_run_plan.cpp src/text/lookup_selection.cpp
+        src/text/layout_variations.cpp src/text/nominal_participation.cpp src/text/nominal_sources.cpp
         # Signaling, setup and per-surface control around byte paths that stay
         # /O2: OAuth, member-list channel binding, guild details, voice socket
         # and participants, progressive video requests, spell checking, P-256
@@ -450,9 +456,36 @@ maicord_compact_sources(
         src/media/png_encode.cpp
         src/platform/spell_checker.cpp src/platform/p256.cpp src/platform/hkdf_sha256.cpp
         src/platform/network.cpp src/platform/network_worker.cpp
+        # Audio endpoint and decoder surface setup, device enumeration and the
+        # worker loops that wait on them (the sample paths live elsewhere).
+        src/platform/voice_audio_capture.cpp src/platform/voice_audio_output.cpp src/platform/media_audio.cpp
+        src/platform/gpu_decoder_surfaces.cpp src/platform/h264_gpu_configuration.cpp
         src/app/guild_image.cpp src/app/profile_image.cpp src/app/account_profile_edit.cpp
         src/app/local_video_poster.cpp
+        # One-shot REST request builders, OAuth and session metadata, an MP4 duration
+        # probe, permission storage setup and rare Gateway account events.
+        src/app/account_guild_community.cpp src/app/account_guild_moderation.cpp src/app/account_user_social.cpp
+        src/app/account_bulk_message_ack.cpp src/app/account_message_ack.cpp src/app/account_permission_storage.cpp
+        src/app/oauth_authorization.cpp src/app/oauth_account.cpp src/app/client_session_metadata.cpp
+        src/app/attachment_media_probe.cpp src/app/gateway_guild_folders.cpp src/app/gateway_user_settings.cpp
+        src/app/gateway_scheduled_event_dispatch.cpp
         src/render/lottie_program.cpp src/render/colr_source.cpp src/media/encoded_cache.cpp)
+# The contract's /Ob1 emits every function not declared inline as noinline, so
+# the helpers of a -Oz source stay calls even where inlining them is smaller.
+# /Ob2 lets the size-driven inliner (-Oz keeps its minimum threshold) fold
+# them: 17 KiB less code in the client, and no slower in the offline perf
+# probe. Sources that grew in measured size with /Ob2 keep /Ob1, as do
+# theme_styles (the text shaping path inlined ui_theme_text_size into slower
+# code: text benchmark cycles_latin +1.6%, cycles_arabic +3%) and
+# virtual_list (retention benchmark -8%, text measure cache hit -9%).
+get_target_property(maicord_ui_sources maicord_ui SOURCES)
+foreach(source IN LISTS maicord_ui_sources)
+    get_source_file_property(options "${source}" COMPILE_OPTIONS)
+    if(options MATCHES "${MAICORD_SIZE_OPTION}" AND NOT source MATCHES
+        "/(virtual_list|theme_styles|settings_scene|message_scene|message_composer_scene|profile_media|message_action_bar|private_channel_rows|friends_scene|navigation_view|voice_panel|poll_voters|toast|popup_presentation|message_rich_widgets|account_menu|quick_switcher_scene|pinned_messages_scene|forum_channel_scene|theme_style_projection|slider|call_stage|thread_browser_scene|message_context_menu|profile_activity)\\.cpp$")
+        set_property(SOURCE "${source}" APPEND PROPERTY COMPILE_OPTIONS /Ob2)
+    endif()
+endforeach()
 
 # maicord_application_state_headers(<variable> <glob>...): the file names of
 # application_state.hpp and of the globbed headers that include it, directly
