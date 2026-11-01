@@ -8,20 +8,23 @@ namespace maicord {
 inline constexpr u32 kBackgroundFxParameters = 8;
 inline constexpr u32 kBackgroundFxPaletteRoles = 8;
 
-// mc_fx_constants (192 bytes, 16-byte rows), then one host-only row: the
-// canvas in DIPs, read by the effect vertex shader (and the built-in pixel
-// shader). Plugin shaders declare only the first 192 bytes.
+// mc_fx_constants (192 bytes, 16-byte rows), then two host-only rows read by
+// the effect vertex shader: the canvas in DIPs, and the built-in sprite grid
+// (first star cell, star cells per row, comet lanes; all zero for a plugin
+// effect). Plugin shaders declare only the first 192 bytes.
 struct BackgroundFxConstants {
     float time, delta, intensity, dark;
     float resolution[2], origin[2];
     float palette[kBackgroundFxPaletteRoles][4];
     float parameters[kBackgroundFxParameters];
     float canvas[4];
+    float grid[4];
 };
-static_assert(sizeof(BackgroundFxConstants) == 208);
+static_assert(sizeof(BackgroundFxConstants) == 224);
 static_assert(__builtin_offsetof(BackgroundFxConstants, palette) == 32 &&
               __builtin_offsetof(BackgroundFxConstants, parameters) == 160 &&
-              __builtin_offsetof(BackgroundFxConstants, canvas) == 192);
+              __builtin_offsetof(BackgroundFxConstants, canvas) == 192 &&
+              __builtin_offsetof(BackgroundFxConstants, grid) == 208);
 
 enum class BackgroundFxSource : u8 {
     none,

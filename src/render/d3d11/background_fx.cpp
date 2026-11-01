@@ -199,8 +199,7 @@ bool d3d11_background_fx_begin_frame(D3D11BackgroundFxOwner* owner, ID3D11Device
     const float scale = static_cast<float>(dpi ? dpi : 96) / 96.f;
     const float phase = phase_seconds >= 0 && phase_seconds <= 3.402823466e38f ? phase_seconds : 0;
     owner->frame_pixel_scale = scale;
-    owner->frame_window_width = width / scale;
-    owner->frame_window_height = height / scale;
+    const float window_width = width / scale, window_height = height / scale;
     const UiRect unit{0, 0, 1, 1};
     if (owner->plugin_shader) {
         const float delta = phase - owner->plugin_last_phase;
@@ -222,8 +221,7 @@ bool d3d11_background_fx_begin_frame(D3D11BackgroundFxOwner* owner, ID3D11Device
         }
         return true;
     }
-    if (background_fx_pack_builtin(&owner->frame, theme, phase, unit, scale, owner->frame_window_width,
-                                   owner->frame_window_height))
+    if (background_fx_pack_builtin(&owner->frame, theme, phase, unit, scale, window_width, window_height))
         owner->source = BackgroundFxSource::builtin;
     return true;
 }
@@ -243,18 +241,22 @@ bool d3d11_background_fx_draw(D3D11BackgroundFxOwner* owner, ID3D11DeviceContext
         !ui_coordinate_valid(canvas.right) || !ui_coordinate_valid(canvas.bottom) ||
         !(canvas.right > canvas.left && canvas.bottom > canvas.top))
         return false;
+    const bool plugin = owner->source == BackgroundFxSource::plugin;
+    frame.canvas[0] = canvas.left;
+    frame.canvas[1] = canvas.top;
+    frame.canvas[2] = canvas.right;
+    frame.canvas[3] = canvas.bottom;
+    // A plugin effect is one canvas quad (zero grid); the built-in is one instanced sprite per comet lane and star cell.
+    const u32 instances = plugin ? 1 : background_fx_builtin_grid(&frame, canvas);
+    if (!instances)
+        return false;
     owner->drawn[owner->drawn_count++] = quad_index;
     frame.resolution[0] = (canvas.right - canvas.left) * scale;
     frame.resolution[1] = (canvas.bottom - canvas.top) * scale;
     frame.origin[0] = canvas.left * scale;
     frame.origin[1] = canvas.top * scale;
-    frame.canvas[0] = canvas.left;
-    frame.canvas[1] = canvas.top;
-    frame.canvas[2] = canvas.right;
-    frame.canvas[3] = canvas.bottom;
     context->UpdateSubresource(owner->constant_buffer, 0, nullptr, &frame, 0, 0);
-    const bool plugin = owner->source == BackgroundFxSource::plugin;
-    // The strip topology and the bound input layout stay: the vertex shader reads only SV_VertexID.
+    // The strip topology and the bound input layout stay: the vertex shader reads only SV_VertexID and SV_InstanceID.
     context->VSSetShader(owner->vertex_shader, nullptr, 0);
     // VS b2 is the effect's alone: bound once per frame.
     if (!owner->vertex_constants_bound) {
@@ -279,11 +281,11 @@ bool d3d11_background_fx_draw(D3D11BackgroundFxOwner* owner, ID3D11DeviceContext
             timing->begun = true;
         }
         context->End(timing->stamps[timing->draws * 2]);
-        context->Draw(4, 0);
+        context->DrawInstanced(4, instances, 0, 0);
         context->End(timing->stamps[timing->draws * 2 + 1]);
         ++timing->draws;
     } else {
-        context->Draw(4, 0);
+        context->DrawInstanced(4, instances, 0, 0);
     }
     ++owner->draws_last_frame;
     return true;

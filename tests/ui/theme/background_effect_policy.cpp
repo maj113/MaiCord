@@ -266,6 +266,21 @@ void test_background_effect_policy(void (*check)(bool, const char*) noexcept) no
               close_to(rejected.intensity, background_effect_settings_defaults(BackgroundEffect::none).strength / 100.f);
     check(builtin, "effect pass: 192-byte mc.fx constants carry time, theme roles in linear RGB, canvas "
                    "pixels and the Stars/Comets profile; light lowers intensity; empty canvases fail");
+    // Stars/Comets draw as sprites: one instance per comet lane, then one per star cell the canvas
+    // touches (pitch 151 DIPs at this density), bounded to the window's neighbourhood.
+    BackgroundFxConstants grid = constants;
+    bool sprites = grid.grid[0] == 0 && grid.grid[3] == 0 && background_fx_builtin_grid(&grid, {10, 20, 110, 70}) == 2 &&
+                   grid.grid[0] == 0 && grid.grid[1] == 0 && grid.grid[2] == 1 && grid.grid[3] == 1;
+    sprites = sprites && background_fx_builtin_grid(&grid, {0, 0, 800, 600}) == 25 && grid.grid[2] == 6 &&
+              background_fx_builtin_grid(&grid, {0, -40, 800, 0}) == 13 && grid.grid[1] == -1 &&
+              background_fx_builtin_grid(&grid, {-5000, -5000, -4000, -4000}) == 1 && grid.grid[2] == 0;
+    grid.parameters[kBackgroundFxMask] = 1;
+    sprites = sprites && background_fx_builtin_grid(&grid, {-5000, -5000, -4000, -4000}) == 0 &&
+              background_fx_builtin_grid(&grid, {0, 0, 800, 600}) == 24 && grid.grid[3] == 0;
+    grid.parameters[kBackgroundFxMask] = 2;
+    grid.parameters[kBackgroundFxDensity] = 1;
+    sprites = sprites && background_fx_builtin_grid(&grid, {0, 0, 800, 600}) == 4 && grid.grid[2] == 0;
+    check(sprites, "effect pass: built-in sprite grid counts comet lanes and star cells over a canvas, clipped to the window");
     const u32 nan_bits = 0x7fc00000u;
     float nan_value = 0;
     copy_bytes(&nan_value, &nan_bits, sizeof(nan_value));

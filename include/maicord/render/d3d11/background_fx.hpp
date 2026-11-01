@@ -29,9 +29,10 @@ struct D3D11BackgroundFxTiming {
     bool begun, pending;
 };
 
-// The effect pass: a dedicated vertex shader over each canvas rectangle,
-// the built-in Stars/Comets pixel shader or the selected plugin's, one
-// constant buffer (mc_fx_constants + canvas row) at PS b0 / VS b2.
+// The effect pass: a dedicated vertex shader that draws one canvas rectangle
+// for the selected plugin's pixel shader, or instanced sprites (one per comet
+// lane and star cell) for the built-in Stars/Comets pixel shader; one
+// constant buffer (mc_fx_constants + host rows) at PS b0 / VS b2.
 // Everything is created lazily on the first effect frame.
 struct D3D11BackgroundFxOwner {
     ID3D11VertexShader* vertex_shader;
@@ -46,6 +47,7 @@ struct D3D11BackgroundFxOwner {
     D3D11BackgroundFxTiming timing[kD3D11BackgroundFxTimingFrames];
     D3D11BackgroundFxTiming* timing_frame;
     u32 timing_cursor;
+    float frame_pixel_scale; // the frame's DPI scale (fills the padding before the guard)
     BackgroundFxGuard guard;
     // Set when the guard turned the plugin effect off; the host consumes it.
     u64 tripped_owner_id, tripped_effect_id;
@@ -55,7 +57,6 @@ struct D3D11BackgroundFxOwner {
     BackgroundFxSource source;
     bool vertex_constants_bound; // VS b2 holds the effect constants
     BackgroundFxConstants frame;
-    float frame_window_width, frame_window_height, frame_pixel_scale;
     float layer_opacity; // the paint layer's group opacity, set by the draw loop
     u32 drawn[kD3D11BackgroundFxCanvases];
     u32 drawn_count;
