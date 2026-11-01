@@ -1,6 +1,7 @@
 #include "maicord/ui/theme_style_projection.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/search_scene.hpp"
+#include "maicord/ui/message_presentation.hpp"
 #include "maicord/ui/scene_kit.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"

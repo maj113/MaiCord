@@ -3,7 +3,8 @@
 // channel-list events row and event link cards.
 #include "maicord/app/chat_state_dispatch.hpp"
 #include "model_store_fixtures.hpp"
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/media/jpeg.hpp"
 #include "maicord/model/chat_state.hpp"

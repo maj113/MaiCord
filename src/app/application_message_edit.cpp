@@ -4,6 +4,7 @@
 #include "application_message_mutation_notice.hpp"
 #include "application_message_mutation_source.hpp"
 #include "application_state.hpp"
+#include "application_history_decode.hpp"
 #include "application_thread_actions.hpp"
 #include "application_reply_draft.hpp"
 

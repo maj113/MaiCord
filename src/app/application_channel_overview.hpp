@@ -2,7 +2,7 @@
 #include "maicord/ui/settings_scene.hpp"
 #include "maicord/model/message_composer.hpp"
 #include "maicord/app/rest_client.hpp"
-#include "maicord/app/gateway_client.hpp"
+namespace maicord { struct GatewayClientEvent; }
 #include "maicord/ui/input_router.hpp"
 #include "maicord/core/win32_types.hpp"
 

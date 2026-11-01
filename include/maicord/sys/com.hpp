@@ -5,7 +5,7 @@
 
 #include "maicord/sys/sdk.hpp"
 #include "maicord/core/win32_types.hpp"
-#include "maicord/sys/crt.hpp"
+#include "maicord/sys/crt_extra.hpp"
 
 #if defined(MAICORD_SDK_INCLUDES)
 #include <Windows.h>

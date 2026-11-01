@@ -4,6 +4,7 @@
 #include "application_settings.hpp"
 #include "application_friends.hpp"
 #include "application_plugins.hpp"
+#include "application_plugins_popover.hpp"
 #include "application_plugins_runtime.hpp"
 #include "application_account_presentation.hpp"
 #include "application_profile.hpp"

@@ -1,4 +1,5 @@
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "maicord/model/message_reconcile.hpp"
 #include "gateway_message_scratch.hpp"
 

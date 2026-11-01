@@ -1,6 +1,5 @@
 #pragma once
-#include "maicord/core/utf.hpp"
-#include "maicord/core/color_hex.hpp"
+#include "maicord/core/slice.hpp"
 
 namespace maicord {
 enum class BackgroundEffect : u8 {
@@ -53,16 +52,7 @@ constexpr BackgroundTheme background_theme_defaults() noexcept {
 constexpr BackgroundEffectSettings background_effect_settings(const BackgroundTheme& value) noexcept {
     return {value.speed, value.strength, value.density};
 }
-__declspec(noinline) constexpr bool background_theme_valid(const BackgroundTheme& value) noexcept {
-    if (value.color_count < 1 || value.color_count > 5 || value.angle_degrees > 360 ||
-        value.intensity > 100 || !background_effect_settings_valid(background_effect_settings(value)) ||
-        static_cast<u8>(value.effect) >= kBackgroundEffectCount)
-        return false;
-    for (u32 i = 0; i < 5; ++i)
-        if (value.colors[i] > 0xffffff || (i >= value.color_count && value.colors[i]))
-            return false;
-    return true;
-}
+bool background_theme_valid(const BackgroundTheme& value) noexcept;
 // Effects on a flat theme have no palette or direction. Keep that admission
 // separate so selecting an effect cannot enable gradient surface materials.
 constexpr bool background_effects_valid(const BackgroundTheme& value) noexcept {
@@ -93,37 +83,5 @@ constexpr bool background_theme_equal(const BackgroundTheme& a, const Background
 // Accept one solid colour or up to five comma-separated gradient colours, each
 // #RGB or #RRGGBB with an optional '#'.
 // Rejected input preserves the caller's complete current descriptor.
-inline bool background_theme_parse_colors(Utf8View text, BackgroundTheme* output) noexcept {
-    if (!output || !text.data || text.bytes > 128)
-        return false;
-    BackgroundTheme next = *output;
-    for (auto& color : next.colors)
-        color = 0;
-    u32 offset = 0, count = 0;
-    const auto space = [](char c) noexcept { return c == ' ' || c == '\t'; };
-    while (offset < text.bytes) {
-        while (offset < text.bytes && space(text.data[offset]))
-            ++offset;
-        if (offset == text.bytes || count == 5)
-            return false;
-        const u32 start = offset;
-        while (offset < text.bytes && !space(text.data[offset]) && text.data[offset] != ',')
-            ++offset;
-        u32 rgb24 = 0;
-        if (!color_hex_parse_rgb24({text.data + start, offset - start}, &rgb24))
-            return false;
-        next.colors[count++] = rgb24;
-        while (offset < text.bytes && space(text.data[offset]))
-            ++offset;
-        if (offset == text.bytes)
-            break;
-        if (text.data[offset++] != ',' || offset == text.bytes)
-            return false;
-    }
-    next.color_count = static_cast<u8>(count);
-    if (!background_theme_valid(next))
-        return false;
-    *output = next;
-    return true;
-}
+bool background_theme_parse_colors(Utf8View text, BackgroundTheme* output) noexcept;
 } // namespace maicord

@@ -1,5 +1,6 @@
 #pragma once
-#include "maicord/protocol/gif_favorites.hpp"
+#include "maicord/core/base.hpp"
+#include "maicord/core/slice.hpp"
 namespace maicord {
 struct RestClient;
 struct RestClientSubmitResult;

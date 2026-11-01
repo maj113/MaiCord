@@ -2,7 +2,7 @@
 
 #include "maicord/core/base.hpp"
 #include "maicord/sys/crt.hpp"
-#include "maicord/sys/intrin.hpp"
+#include "maicord/sys/intrin_mem.hpp"
 
 namespace maicord {
 

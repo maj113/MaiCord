@@ -1,9 +1,9 @@
 #pragma once
-#include "maicord/ui/button.hpp"
 #include "maicord/ui/popup_scene.hpp"
 #include "maicord/ui/text_presentation.hpp"
 
 namespace maicord {
+enum class UiButtonPointerEvent : u8;
 struct UiScene;
 
 enum class UiThreadMembership : u8 { unknown, joined, not_joined };

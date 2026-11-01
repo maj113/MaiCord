@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/deadline.hpp"
 #include "rest_rate_retry.hpp"
+#include "maicord/protocol/attachment_refresh.hpp"
 
 namespace maicord {
 MediaUrlState media_url_resolution_state(const MediaUrlResolver& resolver, Utf8View source) noexcept {

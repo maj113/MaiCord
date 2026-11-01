@@ -53,6 +53,7 @@
 #include "maicord/ui/theme_style_projection.hpp"
 
 #include "maicord/core/win32_types.hpp"
+#include "maicord/app/gateway_client.hpp"
 
 namespace maicord::app_detail {
 namespace {

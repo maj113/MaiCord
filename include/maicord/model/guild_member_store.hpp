@@ -1,9 +1,12 @@
 #pragma once
 
 #include "maicord/core/stable_storage.hpp"
-#include "maicord/model/chat_state.hpp"
+#include "maicord/core/slice.hpp"
 
 namespace maicord {
+
+struct ChatStateStore;
+struct RoleRecord;
 
 inline constexpr u32 kGuildMemberNicknameMaximumBytes = 128;
 // Assigned role IDs retained inline. A member with more keeps the whole list

@@ -17,6 +17,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/ui/tooltip.hpp"
 #include "maicord/ui/call_scene.hpp"
+#include "maicord/ui/composer_voice_bar.hpp"
 #include "maicord/ui/theme_editor.hpp"
 #include "maicord/ui/pinned_messages_scene.hpp"
 #include "maicord/ui/profile_scene.hpp"

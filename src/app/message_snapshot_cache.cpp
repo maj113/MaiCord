@@ -1,5 +1,6 @@
 #include "maicord/app/message_snapshot_cache.hpp"
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 
 #include "maicord/core/memory.hpp"
 #include "maicord/model/message_rich_store.hpp"

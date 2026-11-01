@@ -1,4 +1,5 @@
 #include "maicord/ui/popup_scene.hpp"
+#include "maicord/ui/theme_styles.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/regional_flag.hpp"
 
@@ -1133,6 +1134,45 @@ bool popup_scene_menu_row_geometry(const PopupScene& scene, u32 index,
             geometry->detail.left = maximum(geometry->detail.left, label);
     }
     return true;
+}
+
+PopupItem popup_placeholder_row(u32 action, u32 seed, u16 flags) noexcept {
+    PopupItem item{};
+    item.label = Utf8View{"Loading", 7};
+    item.action = action;
+    item.flags = static_cast<u16>(flags & ~popup_item_enabled);
+    item.media_flags = kPopupItemPlaceholder;
+    item.media_variant = seed;
+    return item;
+}
+
+UiMenuRowPresentation popup_item_menu_presentation(const PopupItem& item) noexcept {
+    UiMenuRowPresentation presentation = item.presentation;
+    if (item.flags & popup_item_command_row) {
+        presentation.secondary_line = true;
+        if (!presentation.icon_plus_one && !(item.flags & (popup_item_avatar | popup_item_emoji_preview)))
+            presentation = ui_menu_row_presentation(UiIcon::command, true);
+    }
+    return presentation;
+}
+
+float popup_item_menu_row_height(const PopupItem& item, bool compact,
+                                 const UiResolvedThemeStyles* styles) noexcept {
+    // A trailing submenu chevron keeps the row's rhythm; only a leading icon
+    // column makes menu rows taller.
+    const bool leading_icon = item.presentation.icon_plus_one && !item.presentation.trailing_icon;
+    if (styles && styles->ready) {
+        if (item.presentation.secondary_line || (item.flags & popup_item_command_row))
+            return styles->metrics.menu_detail_height;
+        if (leading_icon || !compact)
+            return styles->metrics.menu_row_height;
+        return styles->metrics.menu_compact_height;
+    }
+    if (item.presentation.secondary_line || (item.flags & popup_item_command_row))
+        return kUiMenuDetailRowHeight;
+    if (leading_icon)
+        return kUiMenuRowHeight;
+    return compact ? kUiMenuCompactRowHeight : kUiMenuRowHeight;
 }
 
 } // namespace maicord

@@ -1,4 +1,6 @@
 #include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/media/png.hpp"
+#include "maicord/media/vp8.hpp"
 
 #include "maicord/core/log.hpp"
 #include "maicord/render/colr_program.hpp"

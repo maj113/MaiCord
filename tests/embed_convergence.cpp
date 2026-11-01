@@ -1,5 +1,6 @@
 #include "maicord/ui/text.hpp"
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "maicord/ui/message_text_coordinator.hpp"
 #include "maicord/ui/text_flow_layout.hpp"
 #include "maicord/ui/text_measure_cache.hpp"

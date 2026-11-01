@@ -41,7 +41,7 @@
 #include "maicord/model/forwarded_input.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"

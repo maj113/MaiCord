@@ -2,6 +2,7 @@
 // admission. The reaction host itself has a separate shipping-host fixture; here
 // its public boundary is a deterministic transport owner, never legacy phases.
 #include "application_poll_inactive.hpp"
+#include "maicord/core/hash.hpp"
 #include "ui_scene_fixtures.hpp"
 #include "application_member_moderation_inactive.hpp"
 #include "application_guild_invite_inactive.hpp"

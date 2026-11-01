@@ -5,6 +5,7 @@
 
 #include "maicord/sys/sdk.hpp"
 #include "maicord/sys/crt.hpp"
+#include "maicord/sys/intrin_mem.hpp"
 
 #if defined(MAICORD_SDK_INCLUDES)
 #include <intrin.h>
@@ -43,7 +44,6 @@ __declspec(noreturn) void __fastfail(unsigned int);
 unsigned __int64 __rdtsc(void);
 unsigned long __readgsdword(unsigned long);
 unsigned __int64 __readgsqword(unsigned long);
-void __stosb(unsigned char*, unsigned char, size_t);
 [[nodiscard]] unsigned __int64 __cdecl _byteswap_uint64(unsigned __int64);
 [[nodiscard]] unsigned long __cdecl _byteswap_ulong(unsigned long);
 [[nodiscard]] unsigned short __cdecl _byteswap_ushort(unsigned short);

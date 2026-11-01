@@ -1,4 +1,5 @@
 #include "maicord/app/message_event_pump.hpp"
+#include "maicord/model/chat_state.hpp"
 #include "maicord/app/presence_coalescer.hpp"
 #include "maicord/app/wake_coalescing.hpp"
 #include "maicord/core/memory.hpp"

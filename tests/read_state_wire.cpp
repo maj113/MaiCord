@@ -1,4 +1,5 @@
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/spsc_mailbox.hpp"
 #include "maicord/protocol/writer.hpp"

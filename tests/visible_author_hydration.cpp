@@ -1,9 +1,10 @@
-#include "maicord/app/visible_author_hydration.hpp"
+#include "maicord/app/visible_author_hydration_plan.hpp"
 #include "model_store_fixtures.hpp"
 #include "ui_scene_fixtures.hpp"
 #include "maicord/app/gateway_member_request_owner.hpp"
 #include "maicord/app/message_event_pump.hpp"
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "maicord/core/memory.hpp"
 #include "gateway_message_scratch.hpp"
 

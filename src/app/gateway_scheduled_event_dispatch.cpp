@@ -1,4 +1,5 @@
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "gateway_dispatch_common.hpp"
 #include "maicord/core/memory.hpp"
 #include "../protocol/json_field_lists.hpp"

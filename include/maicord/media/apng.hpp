@@ -1,5 +1,6 @@
 #pragma once
 
+#include "maicord/media/apng_frame.hpp"
 #include "maicord/media/png.hpp"
 
 namespace maicord {
@@ -16,34 +17,9 @@ inline constexpr u64 kApngCompatibilityFrameFloorUs = 10'000;
 inline constexpr u64 kApngFrameDurationMaximumUs =
     24ull * 60ull * 60ull * 1'000'000ull;
 
-enum class ApngDispose : u8 {
-    none,
-    background,
-    previous,
-};
-
-enum class ApngBlend : u8 {
-    source,
-    over,
-};
-
 struct ApngDataSpan {
     u32 offset;
     u32 bytes;
-};
-
-struct ApngFrame {
-    u32 first_span;
-    u32 compressed_bytes;
-    u32 width;
-    u32 height;
-    u32 x_offset;
-    u32 y_offset;
-    u16 span_count;
-    u16 delay_num;
-    u16 delay_den;
-    ApngDispose dispose;
-    ApngBlend blend;
 };
 
 struct ApngWorkspace {
@@ -127,7 +103,6 @@ PngDecodeResult apng_decode_parsed_default(
     Slice<u8> scanlines) noexcept;
 
 static_assert(sizeof(ApngDataSpan) == 8);
-static_assert(sizeof(ApngFrame) == 32);
 static_assert(sizeof(ApngWorkspace) == 12'288);
 static_assert(sizeof(ApngImage) == 2'152);
 

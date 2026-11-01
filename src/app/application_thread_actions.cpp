@@ -9,6 +9,8 @@
 #include "maicord/protocol/channel_overview.hpp"
 #include "application_channel_authority.hpp"
 #include "application_account_access.hpp"
+#include "maicord/app/gateway_client_event.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
 
 namespace maicord::app_detail {
 namespace {

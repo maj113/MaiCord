@@ -27,7 +27,6 @@
 #include "maicord/ui/private_channel_title.hpp"
 #include "account_ui_runtime.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/media/asset.hpp"
 

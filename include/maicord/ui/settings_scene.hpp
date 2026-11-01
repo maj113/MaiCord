@@ -3,12 +3,11 @@
 #include "maicord/ui/page_registry.hpp"
 #include "maicord/ui/widget_storage.hpp"
 #include "maicord/ui/paint.hpp"
-#include "maicord/ui/text_presentation.hpp"
-#include "maicord/ui/scrollbar.hpp"
 #include "maicord/ui/edit_field.hpp"
 #include "maicord/media/asset_key.hpp"
 
 namespace maicord {
+struct UiScrollbarGeometry;
 enum class UiIcon : u8;
 
 enum class UiSettingsControlKind : u8 {

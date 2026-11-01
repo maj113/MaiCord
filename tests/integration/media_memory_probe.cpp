@@ -5,6 +5,7 @@
 // written before any atlas growth, relocation or trim are read back afterwards.
 // MAICORD_MEDIA_MEMORY_REPORT=<path> appends a plain-text report (no captures).
 #include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/media/png.hpp"
 #include "maicord/core/log.hpp"
 #include "video_retention_probe.hpp"
 #include "maicord/platform/gpu_stream_decoder.hpp"

@@ -11,7 +11,7 @@
 #include "maicord/app/account_private_channel.hpp"
 #include "maicord/app/account_relationships.hpp"
 #include "maicord/app/account_thread_browser.hpp"
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_voice.hpp"
 #include "maicord/protocol/guild_assets.hpp"
 #include "maicord/protocol/self_status_settings.hpp"
 #include "maicord/protocol/stage_channel.hpp"

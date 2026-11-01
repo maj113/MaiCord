@@ -1,7 +1,7 @@
 #pragma once
 
 #include "maicord/core/stable_storage.hpp"
-#include "maicord/protocol/gateway_message_events.hpp"
+#include "maicord/protocol/gateway_message_data.hpp"
 
 namespace maicord {
 

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/ui/list_navigation.hpp"
 #include "maicord/core/memory.hpp"
 
 #include "maicord/app/message_timeline.hpp"
@@ -14,6 +13,7 @@
 #include "maicord/ui/plugin_render.hpp"
 
 namespace maicord {
+enum class UiListMove : u8;
 
 struct MessagePollStore;
 struct InviteCardCache;
@@ -378,20 +378,9 @@ MessageMediaObscure message_scene_media_obscure(const MessageScene&, MessageMedi
                                                 u64 plugin_message_id, u64 reveal_key, bool spoiler,
                                                 bool explicit_media) noexcept;
 // Cached plugin decoration of a message revision (never runs plugin code).
-inline bool message_scene_plugin_decoration(const MessageScene& scene, u64 message_id, u32 revision,
-                                            UiPluginRenderDecoration* output) noexcept {
-    if (scene.plugin_decorations)
-        return ui_plugin_render(message_id, revision, output);
-    reset_value(output);
-    return false;
-}
-inline u8 message_scene_plugin_visibility(const MessageScene& scene, const MessageRecord& record) noexcept {
-    if (!scene.plugin_decorations || !g_ui_plugin_render_query)
-        return ui_plugin_render_normal;
-    UiPluginRenderDecoration decoration;
-    return ui_plugin_render(record.id, record.revision, &decoration) ? decoration.visibility
-                                                                     : ui_plugin_render_normal;
-}
+bool message_scene_plugin_decoration(const MessageScene& scene, u64 message_id, u32 revision,
+                                     UiPluginRenderDecoration* output) noexcept;
+u8 message_scene_plugin_visibility(const MessageScene& scene, const MessageRecord& record) noexcept;
 // Returns true when the item was newly revealed; the host repaints.
 bool message_scene_reveal_media(MessageScene* scene, u64 reveal_key) noexcept;
 // Returns true when the feedback changed; failure notices change row height.

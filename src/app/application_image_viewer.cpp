@@ -15,6 +15,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/render/media_atlas.hpp"
 #include "maicord/media/presentation_policy.hpp"
+#include "maicord/ui/button.hpp"
 #include "maicord/ui/clipboard.hpp"
 #include "maicord/render/text_form_surface.hpp"
 

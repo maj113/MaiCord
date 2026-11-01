@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/model/notification_sound_policy.hpp"
+#include "maicord/core/base.hpp"
 
 namespace maicord {
 // Persisted enum values; the order must not change so existing preferences stay
@@ -10,6 +10,7 @@ enum class NotificationSoundpack : u8 {
 constexpr bool notification_soundpack_valid(NotificationSoundpack pack) noexcept {
     return static_cast<u8>(pack)<=static_cast<u8>(NotificationSoundpack::winter_holiday);
 }
+enum class NotificationSoundKind : u8 { message1, message3 }; // supported message-create assets
 // Bank IDs for the ordinary/focused alerts.
 // Invalid persisted inputs fail closed.
 constexpr u32 notification_soundpack_clip(NotificationSoundpack pack,NotificationSoundKind kind) noexcept {

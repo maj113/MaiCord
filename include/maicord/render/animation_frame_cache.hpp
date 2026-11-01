@@ -1,8 +1,8 @@
 #pragma once
 
 #include "maicord/media/asset_key.hpp"
-#include "maicord/media/animated_webp.hpp"
-#include "maicord/media/apng.hpp"
+#include "maicord/media/animated_webp_frame.hpp"
+#include "maicord/media/apng_frame.hpp"
 #include "maicord/media/gif.hpp"
 #include "maicord/render/glyph_atlas.hpp"
 #include <stddef.h>

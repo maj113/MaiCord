@@ -1,12 +1,6 @@
 #include "application_custom_status.hpp"
 #include "application_account_presentation.hpp"
-#include "application_attachments.hpp"
 #include "application_channel_overview.hpp"
-#include "application_composer_text_input.hpp"
-#include "application_media_picker.hpp"
-#include "application_message_interaction.hpp"
-#include "application_profile.hpp"
-#include "application_settings.hpp"
 #include "application_settings_layer.hpp"
 #include "application_settings_modal.hpp"
 #include "application_state.hpp"
@@ -24,6 +18,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_system_time.hpp"
+#include "maicord/app/gateway_client.hpp"
 
 namespace maicord::app_detail {
 namespace {

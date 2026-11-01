@@ -1,5 +1,6 @@
 #include "maicord/app/chat_state_dispatch.hpp"
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/model/private_channel_store.hpp"
 

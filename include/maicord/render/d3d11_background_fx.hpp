@@ -1,6 +1,7 @@
 #pragma once
 #include "maicord/core/slice.hpp"
-#include "maicord/render/background_fx.hpp"
+#include "maicord/render/background_fx_data.hpp"
+#include "maicord/ui/geometry.hpp"
 #include "maicord/core/win32_types.hpp"
 
 struct ID3D11BlendState;
@@ -12,6 +13,7 @@ struct ID3D11Query;
 struct ID3D11VertexShader;
 
 namespace maicord {
+struct Theme;
 
 inline constexpr u32 kD3D11BackgroundFxTimingFrames = 4;
 inline constexpr u32 kD3D11BackgroundFxTimedDraws = 8;

@@ -1,4 +1,5 @@
 #include "maicord/media/asset.hpp"
+#include "maicord/media/vp8.hpp"
 #include "maicord/ui/message_markdown.hpp"
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/core/hash.hpp"

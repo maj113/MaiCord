@@ -3,10 +3,10 @@
 #include "maicord/ui/widget_storage.hpp"
 #include "maicord/ui/scrollbar.hpp"
 #include "maicord/ui/message_scene.hpp"
-#include "maicord/ui/message_presentation.hpp"
 #include "maicord/ui/search_filter_context.hpp"
 
 namespace maicord {
+struct MessageMediaCommandStream;
 struct UiShellHeaderGeometry;
 struct UiSearchRichProjection;
 struct MessageTextPresentation;

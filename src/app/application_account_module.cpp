@@ -1,5 +1,7 @@
 #include "application_user_actions.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/app/gateway_client_event.hpp"
+#include "maicord/app/visible_author_hydration_plan.hpp"
 #include "application_guild_community.hpp"
 #include "application_activity.hpp"
 #include "application_message_components.hpp"

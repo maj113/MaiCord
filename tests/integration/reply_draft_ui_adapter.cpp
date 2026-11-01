@@ -13,6 +13,8 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/model/permission_bits.hpp"
+#include "maicord/app/gateway_client_event.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
 
 namespace maicord {
 namespace {

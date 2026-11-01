@@ -1,6 +1,7 @@
 #include "maicord/media/zstd.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/sys/intrin.hpp"
 #include "maicord/sys/simd.hpp"
 
 namespace maicord {

@@ -3,6 +3,8 @@
 // shaders (mc.fx@1).
 #include "plugin_sdk_internal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/ascii.hpp"
+#include "maicord/core/utf.hpp"
 #include "maicord/core/byte_order.hpp"
 
 namespace maicord {

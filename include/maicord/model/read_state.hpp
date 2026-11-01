@@ -1,7 +1,9 @@
 #pragma once
-#include "maicord/model/chat_state.hpp"
+#include "maicord/core/slice.hpp"
 
 namespace maicord {
+struct ChatStateStore;
+struct ChannelRecord;
 enum ReadStateField : u8 {
     read_state_cursor = 1u << 0,
     read_state_mentions = 1u << 1,

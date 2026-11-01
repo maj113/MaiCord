@@ -5,6 +5,7 @@
 // account panel buttons, the message hover bar's plugin buttons, and the
 // popover a slot action leaves in the runtime.
 #include "application_plugins.hpp"
+#include "application_plugins_popover.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_plugins_runtime.hpp"
 #include "application_state.hpp"

@@ -32,7 +32,6 @@
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/attachment_refresh.hpp"
 #include "maicord/model/user_activity.hpp"
 #include "maicord/core/decimal.hpp"

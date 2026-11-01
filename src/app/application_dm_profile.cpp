@@ -20,7 +20,7 @@
 #include "maicord/core/win32_user.hpp"
 #include "maicord/ui/private_channel_rows.hpp"
 #include "maicord/ui/scene.hpp"
-#include "account_ui_runtime.hpp"
+#include "application_history_decode.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -518,7 +518,7 @@ bool application_dm_profile_response(const RestClientResponse& response, Utf8Vie
     const u64 now = maximum<u64>(1, now_ms());
     entry->status = response.status_code;
     const bool ok = response.error == RestClientError::none && response.status_code == 200;
-    const bool parsed = ok && g_app.account_ui->profile_decode.decode_into(body, user, 0, entry->data);
+    const bool parsed = ok && application_profile_decode_into(g_app.account_ui->profile_decode, body, user, 0, entry->data);
     if (parsed) {
         entry->loaded_at = now;
         entry->failed_at = 0;

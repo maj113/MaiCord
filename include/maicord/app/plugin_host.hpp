@@ -1,9 +1,10 @@
 #pragma once
 
-#include "maicord/ui/settings_scene.hpp"
+#include "maicord/ui/page_registry.hpp"
 #include "maicord/app/plugin_settings.hpp"
-
 #include "maicord/core/win32_types.hpp"
+
+namespace maicord { struct UiSettingsActivation; }
 
 namespace maicord {
 

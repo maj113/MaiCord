@@ -1,5 +1,6 @@
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/icon.hpp"
+#include "maicord/ui/text_presentation.hpp"
 #include "maicord/ui/plugin_slots.hpp"
 #include "maicord/ui/message_action_bar.hpp"
 

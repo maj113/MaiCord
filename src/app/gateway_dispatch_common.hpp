@@ -1,6 +1,7 @@
 #pragma once
 
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/protocol/gateway_reaction_events.hpp"
 

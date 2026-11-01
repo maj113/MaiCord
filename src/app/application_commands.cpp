@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "application_commands.hpp"
 #include "application_state.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "application_composer.hpp"
 #include "application_scrolling.hpp"
 #include "application_account_presentation.hpp"

@@ -3,6 +3,7 @@
 #include "maicord/app/account_profile.hpp"
 #include "maicord/app/rest_client.hpp"
 #include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "maicord/core/time.hpp"
 
 namespace maicord {

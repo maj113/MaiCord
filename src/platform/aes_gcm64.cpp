@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "aead_internal.hpp"
 
+#include "maicord/sys/intrin.hpp"
 #include "maicord/sys/simd.hpp"
 
 namespace maicord {

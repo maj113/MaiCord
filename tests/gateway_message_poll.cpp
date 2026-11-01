@@ -2,7 +2,8 @@
 #include "maicord/protocol/message_history.hpp"
 #include "maicord/protocol/message_search.hpp"
 #include "maicord/protocol/writer.hpp"
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "../src/app/gateway_dispatch_common.hpp"
 #include "gateway_message_scratch.hpp"
 

@@ -1,6 +1,7 @@
 #include "maicord/app/message_event_pump.hpp"
 #include "model_store_fixtures.hpp"
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "maicord/app/presence_coalescer.hpp"
 #include "maicord/model/member_list.hpp"
 #include "maicord/model/role_policy.hpp"

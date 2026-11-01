@@ -10,6 +10,7 @@
 #include "application_composer_text_input.hpp"
 #include "application_message_edit.hpp"
 #include "application_state.hpp"
+#include "application_history_decode.hpp"
 #include "application_thread_actions.hpp"
 #include "application_reply_draft.hpp"
 #include "application_emoji_preferences.hpp"

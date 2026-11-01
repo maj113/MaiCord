@@ -2,11 +2,11 @@
 
 #include "maicord/ui/message_markdown.hpp"
 #include "maicord/ui/message_scene.hpp"
-#include "maicord/ui/text_flow_layout.hpp"
 #include "maicord/ui/text_presentation.hpp"
 #include "maicord/ui/theme.hpp"
 
 namespace maicord {
+enum class UiTextFlowError : u8;
 struct ChatStateStore;
 
 struct GuildMemberStore;

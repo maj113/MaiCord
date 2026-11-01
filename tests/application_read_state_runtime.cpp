@@ -9,6 +9,7 @@
 #include "../src/app/account_ui_runtime.hpp"
 #include "test_output.hpp"
 #include "maicord/ui/forum_post_scene.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 
 namespace maicord::read_state_runtime_test {
 using namespace app_detail;

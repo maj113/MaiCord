@@ -1,4 +1,5 @@
 #include "maicord/render/d3d11_background_fx.hpp"
+#include "maicord/render/background_fx.hpp"
 
 #include "maicord/core/log.hpp"
 #include "maicord/core/hash.hpp"

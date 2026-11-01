@@ -3,6 +3,7 @@
 #include "maicord/text/base.hpp"
 #include "font_path_stat.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_process.hpp"
 namespace maicord {namespace {
 bool valid(const NativeFontStore& s) noexcept {return s.files.data && s.files.count && s.faces.data && s.faces.count;}
 NativeFontFaceSlot* slot(const NativeFontStore& s,NativeFontHandle h) noexcept {

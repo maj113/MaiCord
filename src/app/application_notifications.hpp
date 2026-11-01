@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/app/gateway_client.hpp"
+namespace maicord { struct GatewayClientEvent; }
 #include "maicord/model/message_notifications.hpp"
 #if defined(MAICORD_NOTIFICATION_FIXTURE)
 #include "maicord/platform/desktop_notifications.hpp"

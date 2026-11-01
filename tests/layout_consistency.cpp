@@ -2,6 +2,7 @@
 // rectangles stay concentric, highlights stay inside their clips and each
 // component type keeps one padding. Synthetic fixtures only.
 #include "layout_consistency.hpp"
+#include "maicord/ui/theme_styles.hpp"
 #include "ui_scene_fixtures.hpp"
 #include "fake_text_measure.hpp"
 #include "../src/app/application_plugin_browser_projection.hpp"

@@ -13,7 +13,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/clipboard.hpp"
-#include "../src/app/account_ui_runtime.hpp"
+#include "../src/app/application_history_decode.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
@@ -176,7 +176,7 @@ bool setup() noexcept {
     g_app.account.api.guild_admin = submit_roles;
     g_app.account.api.profile_get = read_profile;
     auto& p = *g_app.profile;
-    if (!g_app.account_ui->profile_decode.decode_into(kBefore, 42, 7, p.data) ||
+    if (!application_profile_decode_into(g_app.account_ui->profile_decode, kBefore, 42, 7, p.data) ||
         !popup_scene_initialize(&g_app.popup_scene, {popup_items, 100}, {popup_rows, 100},
                                 {popup_widgets, 210}, {popup_nodes, 210}))
         return false;
@@ -302,7 +302,7 @@ void run() noexcept {
         R"({"user":{"id":"42","username":"fixture"},"badges":[)"
         R"({"id":"premium","description":"Subscriber since Jan 1, 2020","icon":"aa","link":"https://discord.com/settings/premium"},)"
         R"({"id":"legacy_username","description":"Originally known as fixture#0001","icon":"bb"}]})");
-    const bool laid = g_app.account_ui->profile_decode.decode_into(badges, 42, 7, p.data) &&
+    const bool laid = application_profile_decode_into(g_app.account_ui->profile_decode, badges, 42, 7, p.data) &&
                       profile_scene_layout(&p.scene, p.scene.viewport, true);
     const u32 links = opened;
     check(laid && click_badge(0) && content_opened == 1 && opened == links &&
@@ -322,7 +322,7 @@ void run() noexcept {
     g_app.account_ui->chat_state.selected_channel_id = 900;
     p.loaded_at = 1000;
     g_app.account_ui->active_channel_id = 900;
-    const bool bot_laid = g_app.account_ui->profile_decode.decode_into(bot, 42, 7, p.data);
+    const bool bot_laid = application_profile_decode_into(g_app.account_ui->profile_decode, bot, 42, 7, p.data);
     application_profile_synchronize();
     u32 chips = 0;
     bool verified_hint = false;

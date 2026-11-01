@@ -1,6 +1,6 @@
 #pragma once
 #include "maicord/app/rest_client.hpp"
-#include "maicord/app/gateway_client.hpp"
+namespace maicord { enum class GatewayClientDispatchKind : u8; }
 #include "maicord/ui/scroll_host.hpp"
 namespace maicord { struct MessageComposerProjectionContext; }
 namespace maicord::app_detail {

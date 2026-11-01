@@ -1,4 +1,5 @@
 #include "maicord/render/raster_clip.hpp"
+#include "maicord/model/guild_member_store.hpp"
 #include "maicord/ui/profile_media.hpp"
 #include "maicord/ui/friends_media.hpp"
 #include "maicord/ui/search_avatar_media.hpp"

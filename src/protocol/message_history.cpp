@@ -1,4 +1,5 @@
 #include "maicord/protocol/message_history.hpp"
+#include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/writer.hpp"
 

@@ -1,5 +1,6 @@
 #include "maicord/model/message_rich_store.hpp"
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "gateway_message_scratch.hpp"

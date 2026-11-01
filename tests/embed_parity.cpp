@@ -4,9 +4,11 @@
 // decodes, lays out and paints the same way (author/footer icons, footer
 // timestamp, video without a corner thumbnail).
 #include "maicord/ui/text.hpp"
+#include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/text/visibility.hpp"
 #include "maicord/text/unicode.hpp"
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/message_component_media.hpp"
 #include "maicord/ui/message_presentation.hpp"

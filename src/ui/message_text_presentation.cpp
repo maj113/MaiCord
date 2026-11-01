@@ -2,6 +2,7 @@
 #include "maicord/ui/theme_style_projection.hpp"
 #include "maicord/ui/theme_styles.hpp"
 #include "maicord/ui/message_text_presentation.hpp"
+#include "maicord/ui/text_flow_layout.hpp"
 #include "maicord/ui/plugin_slots.hpp"
 #include "maicord/ui/foreground_color.hpp"
 #include "maicord/ui/audio_presentation.hpp"

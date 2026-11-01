@@ -2,6 +2,7 @@
 // (mc.ui.slots@2) and message render decorators (mc.msg.render@1).
 #include "plugin_sdk_internal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/utf.hpp"
 #include "maicord/ui/icon.hpp"
 
 namespace maicord {

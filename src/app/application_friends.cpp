@@ -39,6 +39,7 @@
 
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/winsock.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
 
 namespace maicord::app_detail {
 namespace {

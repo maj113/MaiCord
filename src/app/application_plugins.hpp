@@ -9,7 +9,7 @@
 #include "maicord/app/plugin_preferences.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/ui/settings_scene.hpp"
+namespace maicord { struct UiSettingsControl; }
 #include "maicord/ui/input_router.hpp"
 #include "maicord/core/win32_types.hpp"
 // Declared as <Windows.h> declares it, without parsing it.
@@ -201,162 +201,10 @@ bool application_plugins_surface_hover(float x, float y) noexcept;
 // Message hover bar plugin button index (0..kUiPluginSlotHoverButtons) for message.
 bool application_plugins_hover_activate(u32 index, u64 message_id, UiRect anchor) noexcept;
 Utf8View application_plugins_hover_label(u32 index) noexcept;
-// Popover rows as popup items: buttons and links enabled, labels inert,
-// separators fold into the next row. Labels borrow nodes.
-inline u32 application_plugins_popover_items(const NativePluginSdkPopoverNode* nodes, u32 count,
-                                             Slice<PopupItem> output) noexcept {
-    u32 used = 0;
-    bool separator = false;
-    for (u32 i = 0; nodes && i < count && used < output.count; ++i) {
-        const auto& node = nodes[i];
-        if (node.kind == MC_NODE_SEPARATOR) {
-            separator = used != 0;
-            continue;
-        }
-        const Utf8View label{node.text, minimum(node.text_bytes, static_cast<u32>(sizeof(node.text)))};
-        if (!label.bytes) continue;
-        const bool enabled = (node.kind == MC_NODE_BUTTON && node.action_id) || (node.kind == MC_NODE_LINK && node.value_bytes);
-        u16 flags = enabled ? popup_item_enabled : popup_item_none;
-        if (node.tone == MC_TONE_CRITICAL) flags = static_cast<u16>(flags | popup_item_danger);
-        if (separator) flags = static_cast<u16>(flags | popup_item_separator_before);
-        separator = false;
-        PopupItem item{};
-        item.label = label;
-        item.action = kApplicationPluginPopoverActionFirst + i;
-        item.flags = flags;
-        if (node.icon < static_cast<u16>(UiIcon::count))
-            item.presentation = ui_menu_row_presentation(static_cast<UiIcon>(node.icon));
-        else if (node.kind == MC_NODE_LINK)
-            item.presentation = ui_menu_row_presentation(UiIcon::link);
-        output[used++] = item;
-    }
-    return used;
-}
 bool application_plugins_unload(u32 slot) noexcept;
 bool application_plugins_release() noexcept;
 bool application_plugins_busy() noexcept;
 bool application_plugins_present(u32 slot) noexcept;
 Utf8View application_plugins_label(u32 slot) noexcept;
 Utf8View application_plugins_status() noexcept;
-namespace application_plugin_catalog_detail {
-inline bool identity_matches(const NativePluginPreference& identity, const NativePluginManifest& manifest) noexcept {
-    if (identity.owner_id != manifest.owner_id || identity.abi_version != manifest.abi_version ||
-        identity.dll_bytes != manifest.dll_bytes || identity.dll_bytes > kNativePluginDllNameCapacity ||
-        !bytes_equal(identity.sha256, manifest.sha256, 32)) return false;
-    for (u32 i = 0; i < identity.dll_bytes; ++i) if (identity.dll[i] != ascii_lower(manifest.dll[i])) return false;
-    return true;
-}
-inline __declspec(noinline) void append_text(ApplicationPluginCatalogText& output, Utf8View value) noexcept {
-    if (output.bytes >= sizeof(output.text) - 3) return;
-    for (u32 i = 0; i < value.bytes;) {
-        const auto decoded = utf8_decode_one(value.data + i, value.bytes - i);
-        if (!decoded.valid) return;
-        const u32 width = decoded.width;
-        if (width > value.bytes - i || width > sizeof(output.text) - 3 - output.bytes) {
-            if (output.bytes <= sizeof(output.text) - 3) {
-                output.text[output.bytes++] = '.'; output.text[output.bytes++] = '.'; output.text[output.bytes++] = '.';
-            }
-            return;
-        }
-        for (u32 j = 0; j < width; ++j) output.text[output.bytes++] = value.data[i++];
-    }
-}
-// CP_UTF8 and WC_ERR_INVALID_CHARS (checked in application_plugins.cpp).
-inline constexpr UINT kApplicationPluginCodePageUtf8 = 65001;
-inline constexpr DWORD kApplicationPluginInvalidCharsError = 0x80;
-inline void filename_text(ApplicationPluginCatalogText& output, const NativePluginCatalogEntry& entry) noexcept {
-    reset_value(&output);
-    for (u32 i = 0; i < entry.filename_characters && i < kNativePluginCatalogFilenameCapacity;) {
-        const u32 width = entry.filename[i] >= 0xD800 && entry.filename[i] <= 0xDBFF &&
-            i + 1 < entry.filename_characters && i + 1 < kNativePluginCatalogFilenameCapacity ? 2 : 1;
-        char encoded[4];
-        const int bytes = WideCharToMultiByte(kApplicationPluginCodePageUtf8, kApplicationPluginInvalidCharsError,
-            entry.filename + i, static_cast<int>(width), encoded, static_cast<int>(sizeof(encoded)), nullptr,
-            nullptr);
-        const u32 before = output.bytes;
-        append_text(output, bytes > 0 ? Utf8View{encoded, static_cast<u32>(bytes)} : utf8_literal("?"));
-        if (output.bytes == sizeof(output.text) || output.bytes == before) break;
-        i += width;
-        if (output.bytes >= sizeof(output.text) - 3) break;
-    }
-    if (!output.bytes) append_text(output, utf8_literal("Unreadable plugin"));
-}
-inline void permissions_text(ApplicationPluginCatalogText& output, u64 permissions) noexcept {
-    if (!permissions) return;
-    append_text(output, utf8_literal("Permissions: "));
-    bool first = true;
-    for (u32 bit = 0; bit < kNativePluginPermissionCount; ++bit)
-        if (permissions & (1ull << bit)) {
-            if (!first) append_text(output, utf8_literal(", "));
-            first = false;
-            append_text(output, native_plugin_permission_name(bit));
-        }
-    append_text(output, utf8_literal(". "));
-}
-inline Utf8View entry_error(NativePluginCatalogError error) noexcept {
-    if (error == NativePluginCatalogError::duplicate_owner || error == NativePluginCatalogError::duplicate_dll)
-        return utf8_literal("Another plugin uses the same ID or file.");
-    return utf8_literal("Couldn't read this plugin's manifest.");
-}
-}
-inline __declspec(noinline) u32 application_plugins_catalog_project(const NativePluginCatalog* catalog, u32 first,
-    bool discovered, bool busy, ConstSlice<ApplicationPluginCatalogLoaded> loaded,
-    Slice<UiSettingsControl> controls, Slice<ApplicationPluginCatalogText> text, u32 remembered,
-    const NativePluginPreferences* preferences) noexcept {
-    using namespace application_plugin_catalog_detail;
-    if (!controls.data || controls.count < 11 || !text.data || text.count < 8 ||
-        loaded.count > 8 || (loaded.count && !loaded.data) || (catalog &&
-         (catalog->count > 32 || catalog->count > catalog->entries.count || (catalog->count && !catalog->entries.data)))) return 0;
-    const u32 total = catalog ? catalog->count : 0;
-    if ((first % 8) || (total ? first >= total : first != 0)) return 0;
-    controls[0] = {kApplicationPluginDiscoverAction, utf8_literal("Local plugins"),
-        utf8_literal("Installed plugins"),
-        UiSettingsControlKind::action, !busy, false, {}, 0, discovered ? utf8_literal("Refresh") : utf8_literal("Discover")};
-    controls[1] = {kApplicationPluginPreviousAction, utf8_literal("Previous plugins"), {},
-        UiSettingsControlKind::action, !busy && first != 0, false, {}, 0, utf8_literal("Previous")};
-    if (!first && remembered) controls[1] = {kApplicationPluginForgetAction, utf8_literal("Saved plugin choices"),
-        utf8_literal("Stop loading saved plugins at startup."),
-        UiSettingsControlKind::action, !busy, false, {}, 0, utf8_literal("Forget all")};
-    controls[2] = {kApplicationPluginNextAction, utf8_literal("More plugins"), {},
-        UiSettingsControlKind::action, !busy && total - first > 8, false, {}, 0, utf8_literal("Next")};
-    u32 count = 3;
-    for (u32 i = 0; i < 8 && i < total - first; ++i) {
-        const auto& entry = catalog->entries[first + i];
-        bool active = false, exact = false, declared = false;
-        for (u32 j = 0; j < loaded.count; ++j) if (loaded[j].owner_id && loaded[j].owner_id == entry.manifest.owner_id) {
-            active = true;
-            declared = loaded[j].identity != nullptr;
-            exact = declared && identity_matches(*loaded[j].identity, entry.manifest);
-            break;
-        }
-        auto& label = text[i]; reset_value(&label);
-        const bool valid = entry.status == NativePluginCatalogError::none && native_plugin_manifest_valid(entry.manifest);
-        Utf8View name{}, description{};
-        if (valid) {
-            name = {entry.manifest.name, entry.manifest.name_bytes};
-            append_text(label, utf8_literal("Version "));
-            append_text(label, {entry.manifest.version, entry.manifest.version_bytes});
-            append_text(label, !active ? utf8_literal(" | Ready. ") : exact ? utf8_literal(" | Loaded. ") :
-                declared ? utf8_literal(" · Another version is running. Unload it first.") :
-                utf8_literal(" · A manually loaded plugin is running. Unload it first."));
-            const auto* remembered_entry = preferences && !active ?
-                native_plugin_preferences_find(*preferences, entry.manifest) : nullptr;
-            if (remembered_entry && (remembered_entry->flags & native_plugin_preference_crashed))
-                append_text(label, utf8_literal("Turned off because MaiCord closed while it was running. "));
-            else if (remembered_entry && (remembered_entry->flags & native_plugin_preference_overran))
-                append_text(label, utf8_literal("Turned off because it kept MaiCord waiting. "));
-            if (!active || exact) {
-                permissions_text(label, entry.manifest.permissions);
-                append_text(label, {entry.manifest.description, entry.manifest.description_bytes});
-            }
-            description = {label.text, label.bytes};
-        } else {
-            filename_text(label, entry); name = {label.text, label.bytes}; description = entry_error(entry.status);
-        }
-        controls[count++] = {kApplicationPluginCatalogActionFirst + first + i, name, description,
-            UiSettingsControlKind::action, valid && !busy && !active, false, {}, 0,
-            !valid ? utf8_literal("Unavailable") : !active ? utf8_literal("Enable") : exact ? utf8_literal("Loaded") : utf8_literal("In use")};
-    }
-    return count;
-}
 }

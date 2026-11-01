@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 
 namespace maicord::guild_role_payload_bench {
 inline constexpr u64 kObservationSeed = 14695981039346656037ull;

@@ -1,4 +1,5 @@
 #include "maicord/ui/search_scene.hpp"
+#include "maicord/ui/message_presentation.hpp"
 #include "maicord/ui/search_avatar_media.hpp"
 #include "maicord/ui/theme_styles.hpp"
 #include "maicord/ui/background_surface.hpp"

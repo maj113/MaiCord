@@ -1,5 +1,6 @@
 #pragma once
 
+#include "maicord/media/animated_webp_frame.hpp"
 #include "maicord/media/lossy_webp.hpp"
 
 namespace maicord {
@@ -12,21 +13,6 @@ inline constexpr u32 kAnimatedWebpInlineFrameCapacity = 256;
 // capacity grows on demand; decoded frames share one reusable canvas.
 inline constexpr u32 kAnimatedWebpFrameCapacity = 0xFFFFu;
 inline constexpr u64 kAnimatedWebpFrameFloorUs = 10'000;
-
-enum class AnimatedWebpBlend : u8 {
-    over,
-    source,
-};
-
-enum class AnimatedWebpDispose : u8 {
-    none,
-    background,
-};
-
-enum class AnimatedWebpCodec : u8 {
-    vp8l_lossless,
-    vp8_lossy,
-};
 
 enum class AnimatedWebpError : u8 {
     none,
@@ -43,20 +29,6 @@ enum class AnimatedWebpError : u8 {
     rectangle,
     output_capacity,
     frame_decode,
-};
-
-struct AnimatedWebpFrame {
-    u32 payload_offset;
-    u32 payload_bytes;
-    u32 duration_ms;
-    u16 x_offset;
-    u16 y_offset;
-    u16 width;
-    u16 height;
-    AnimatedWebpBlend blend;
-    AnimatedWebpDispose dispose;
-    bool has_alpha;
-    AnimatedWebpCodec codec;
 };
 
 // One validated table for one immutable cache lease identity. Encoded payloads
@@ -132,7 +104,6 @@ AnimatedWebpDecodeResult animated_webp_decode_parsed_frame(
     Vp8ControlHeader* vp8_header, Slice<u8> rgba_output,
     Slice<u8> alpha_rgba_scratch, Slice<u8> alpha_output) noexcept;
 
-static_assert(sizeof(AnimatedWebpFrame) == 24);
 static_assert(sizeof(AnimatedWebpRetainedMetadata) == 48);
 static_assert(sizeof(AnimatedWebpWorkspace) == 6'216);
 static_assert(sizeof(AnimatedWebpImage) == 32);

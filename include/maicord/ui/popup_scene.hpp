@@ -5,7 +5,6 @@
 
 #include "maicord/core/arena.hpp"
 #include "maicord/ui/widget_manager.hpp"
-#include "maicord/ui/theme_styles.hpp"
 
 namespace maicord {
 
@@ -159,44 +158,12 @@ constexpr bool popup_items_command_picker(ConstSlice<PopupItem> items) noexcept 
 // A loading placeholder row: in the command picker (popup_item_command_row)
 // the command skeleton (usage, description and source bars); elsewhere its
 // generic Loading row (one 60-120 DIP bar).
-constexpr PopupItem popup_placeholder_row(u32 action, u32 seed, u16 flags = popup_item_none) noexcept {
-    PopupItem item{};
-    item.label = Utf8View{"Loading", 7};
-    item.action = action;
-    item.flags = static_cast<u16>(flags & ~popup_item_enabled);
-    item.media_flags = kPopupItemPlaceholder;
-    item.media_variant = seed;
-    return item;
-}
+PopupItem popup_placeholder_row(u32 action, u32 seed, u16 flags = popup_item_none) noexcept;
 
-constexpr UiMenuRowPresentation popup_item_menu_presentation(const PopupItem& item) noexcept {
-    UiMenuRowPresentation presentation = item.presentation;
-    if (item.flags & popup_item_command_row) {
-        presentation.secondary_line = true;
-        if (!presentation.icon_plus_one && !(item.flags & (popup_item_avatar | popup_item_emoji_preview)))
-            presentation = ui_menu_row_presentation(UiIcon::command, true);
-    }
-    return presentation;
-}
+UiMenuRowPresentation popup_item_menu_presentation(const PopupItem& item) noexcept;
 
-constexpr float popup_item_menu_row_height(const PopupItem& item, bool compact = true,
-                                           const UiResolvedThemeStyles* styles = nullptr) noexcept {
-    // A trailing submenu chevron keeps the row's rhythm; only a leading icon
-    // column makes menu rows taller.
-    const bool leading_icon = item.presentation.icon_plus_one && !item.presentation.trailing_icon;
-    if (styles && styles->ready) {
-        if (item.presentation.secondary_line || (item.flags & popup_item_command_row))
-            return styles->metrics.menu_detail_height;
-        if (leading_icon || !compact)
-            return styles->metrics.menu_row_height;
-        return styles->metrics.menu_compact_height;
-    }
-    if (item.presentation.secondary_line || (item.flags & popup_item_command_row))
-        return kUiMenuDetailRowHeight;
-    if (leading_icon)
-        return kUiMenuRowHeight;
-    return compact ? kUiMenuCompactRowHeight : kUiMenuRowHeight;
-}
+float popup_item_menu_row_height(const PopupItem& item, bool compact = true,
+                                 const UiResolvedThemeStyles* styles = nullptr) noexcept;
 
 struct PopupRowWidget {
     UiWidgetHandle widget;

@@ -539,6 +539,52 @@ bool update_measure_constraints(UiLayoutEngine* engine) noexcept {
 
 } // namespace
 
+__declspec(noinline) UiLayoutStyle ui_layout_style() noexcept {
+    return UiLayoutStyle{
+        ui_layout_content(),
+        ui_layout_content(),
+        UiSize{0.0f, 0.0f},
+        UiSize{kMaximumUiCoordinate, kMaximumUiCoordinate},
+        UiInsets{},
+        UiInsets{},
+        0.0f,
+        UiLayoutFlow::overlay,
+        UiLayoutAlignment::start,
+        UiLayoutAlignment::start,
+        UiLayoutJustification::start,
+        ui_layout_node_visible,
+    };
+}
+
+UiLayoutStyle ui_layout_fill_style(u16 flags) noexcept {
+    UiLayoutStyle style = ui_layout_style();
+    style.width = ui_layout_fill();
+    style.height = ui_layout_fill();
+    style.flags = flags;
+    return style;
+}
+
+UiLayoutStyle ui_layout_scroll_root_style() noexcept {
+    UiLayoutStyle style = ui_layout_style();
+    style.flow = UiLayoutFlow::vertical;
+    style.width = ui_layout_fill();
+    style.height = ui_layout_fill();
+    style.horizontal_alignment = UiLayoutAlignment::stretch;
+    style.vertical_alignment = UiLayoutAlignment::stretch;
+    style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children |
+                                   ui_layout_node_scroll_vertical);
+    return style;
+}
+
+UiLayoutStyle ui_layout_spacer_style(float height) noexcept {
+    UiLayoutStyle style = ui_layout_style();
+    style.width = ui_layout_fill();
+    style.height = ui_layout_fixed(height);
+    style.horizontal_alignment = UiLayoutAlignment::stretch;
+    style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_allow_zero_size);
+    return style;
+}
+
 bool ui_layout_engine_initialize(UiLayoutEngine* engine, Slice<UiLayoutNode> storage) noexcept {
     if (!engine || !storage.data || storage.count == 0 || storage.count > kInvalidUiLayoutSlot) {
         return false;

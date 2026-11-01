@@ -331,6 +331,10 @@ function(maicord_add_test_codegen_twins target_list_variable)
             set(dependencies)
         endif()
         foreach(dependency IN LISTS dependencies)
+            # The SDK conformance check belongs to the client build.
+            if(dependency STREQUAL "maicord_sys_conformance")
+                continue()
+            endif()
             if(dependency IN_LIST libraries)
                 set(dependency ${dependency}_test)
             endif()
@@ -529,6 +533,50 @@ function(maicord_precompile_test_application_sources target_list_variable)
         list(APPEND libraries ${library})
     endforeach()
     set(${target_list_variable} ${${target_list_variable}} ${libraries} PARENT_SCOPE)
+endfunction()
+# maicord_order_tests_after_client(<target>...): the compiles of these test
+# targets wait for everything the client's link needs compiled and archived.
+# Ninja starts ready edges by the length of the chain behind them, which
+# counts the client's LTO link (about 40 s, one thread) as a single edge: with
+# the tests ready, the client would compile last and its link would begin
+# after every test compile, with all other cores idle. Held back, the tests
+# compile on the cores the link leaves free (and the stamp's own chain lifts
+# the client's compiles above them). Needs a client built in this tree.
+function(maicord_order_tests_after_client)
+    set(pending MaiCord)
+    set(inputs "$<TARGET_OBJECTS:maicord_runtime>" "$<TARGET_OBJECTS:maicord_sys_conformance>"
+        "$<TARGET_OBJECTS:maicord_client_resources>")
+    set(visited)
+    while(pending)
+        list(POP_FRONT pending target)
+        if(target IN_LIST visited)
+            continue()
+        endif()
+        list(APPEND visited ${target})
+        get_target_property(type ${target} TYPE)
+        if(type MATCHES "^(EXECUTABLE|STATIC_LIBRARY|OBJECT_LIBRARY)$")
+            if(type STREQUAL "STATIC_LIBRARY")
+                list(APPEND inputs "$<TARGET_FILE:${target}>")
+            else()
+                list(APPEND inputs "$<TARGET_OBJECTS:${target}>")
+            endif()
+            get_target_property(links ${target} LINK_LIBRARIES)
+            foreach(link IN LISTS links)
+                if(TARGET ${link})
+                    list(APPEND pending ${link})
+                endif()
+            endforeach()
+        endif()
+    endwhile()
+    set(stamp "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/maicord_client_inputs.stamp")
+    add_custom_command(OUTPUT "${stamp}" COMMAND "${CMAKE_COMMAND}" -E touch "${stamp}"
+        DEPENDS ${inputs} DEPENDS_EXPLICIT_ONLY VERBATIM)
+    foreach(target IN LISTS ARGN)
+        get_target_property(type ${target} TYPE)
+        if(type MATCHES "^(EXECUTABLE|SHARED_LIBRARY|MODULE_LIBRARY|STATIC_LIBRARY|OBJECT_LIBRARY)$")
+            target_sources(${target} PRIVATE "${stamp}")
+        endif()
+    endforeach()
 endfunction()
 # maicord_write_test_manifest(<path> <test>...): one line per test for
 # tools/build.ps1: name, CI shard, labels and the executable target it runs,

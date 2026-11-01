@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
 #include "gateway_payload_writer.hpp"
 
 namespace maicord {

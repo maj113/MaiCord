@@ -6,6 +6,8 @@
 #include "maicord/app/member_list_channel_binding.hpp"
 #include "maicord/app/gateway_thread_members.hpp"
 #include "maicord/model/read_state.hpp"
+#include "maicord/model/chat_state.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
 #include "gateway_member_list_validation.hpp"
 #include "maicord/model/message_rich_store.hpp"
 #include "maicord/model/voice_state_store.hpp"

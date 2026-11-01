@@ -1,6 +1,8 @@
 #pragma once
 #include "maicord/text/font_geometry.hpp"
 #include "maicord/text/base.hpp"
+#include "maicord/core/win32_types.hpp"
+#include "maicord/core/win32_records.hpp"
 namespace maicord {
 struct NativeFontHandle {u32 slot,generation;};
 struct NativeFontFace {FontGeometry geometry;SfntCmap cmap;};

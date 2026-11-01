@@ -3,6 +3,7 @@
 #include "maicord/protocol/emoji_preferences.hpp"
 #include "maicord/protocol/application_commands.hpp"
 #include "maicord/app/rest_client.hpp"
+#include "maicord/protocol/gif_favorites.hpp"
 namespace maicord {
 namespace {
 using PatchValidator = bool (*)(ConstSlice<u8>) noexcept;

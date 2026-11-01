@@ -12,6 +12,8 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/app/account_message_search.hpp"
 #include "maicord/protocol/channel_overview.hpp"
+#include "maicord/app/gateway_client_event.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
 
 namespace maicord::app_detail {
 namespace {

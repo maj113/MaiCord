@@ -1,6 +1,7 @@
 #include "../src/app/application_commands.hpp"
 #include "model_store_fixtures.hpp"
 #include "../src/app/application_state.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "../src/app/application_plugins.hpp"
 #include "../src/app/application_message_feedback.hpp"
 #include "../src/app/application_text_form.hpp"

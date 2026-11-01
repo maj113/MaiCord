@@ -3,7 +3,8 @@
 // safety warnings (decode, request bodies, controller flows, notice card).
 #include "maicord/app/game_detection.hpp"
 #include "model_store_fixtures.hpp"
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "maicord/app/presence_idle.hpp"
 #include "maicord/app/private_channel_actions.hpp"
 #include "maicord/app/rest_client.hpp"

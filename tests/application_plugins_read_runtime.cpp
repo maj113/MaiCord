@@ -8,6 +8,7 @@
 #include "maicord/protocol/client_status.hpp"
 #include "../src/app/account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 
 namespace maicord {
 namespace plugins_read_runtime {

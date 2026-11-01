@@ -1,8 +1,11 @@
 #pragma once
 
-#include "maicord/protocol/gateway_message_events.hpp"
+#include "maicord/protocol/gateway_message_data.hpp"
 
 namespace maicord {
+enum class GatewayEventDecodeError : u8;
+enum class JsonReadError : u8;
+enum class JsonScanError : u8;
 
 inline constexpr u32 kMessageSearchContentBytes = 256;
 inline constexpr u32 kMessageSearchFilterIds = 4;

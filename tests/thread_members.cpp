@@ -1,4 +1,6 @@
 #include "maicord/app/gateway_thread_members.hpp"
+#include "maicord/model/chat_state.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
 #include "maicord/model/member_list.hpp"
 #include "maicord/core/memory.hpp"
 

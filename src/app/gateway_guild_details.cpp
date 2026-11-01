@@ -4,6 +4,8 @@
 #include "maicord/model/guild_detail_store.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "../protocol/json_field_lists.hpp"
+#include "maicord/protocol/gateway_message_events.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
 
 namespace maicord {
 namespace {

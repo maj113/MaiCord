@@ -1,4 +1,5 @@
 #include "maicord/model/read_state.hpp"
+#include "maicord/model/chat_state.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/sorted_search.hpp"
 

@@ -1,4 +1,6 @@
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/ui/text_measure_cache.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "maicord/app/message_send_response.hpp"
 #include "maicord/model/invite_card_cache.hpp"
 #include "maicord/model/message_reconcile.hpp"

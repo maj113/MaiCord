@@ -3,14 +3,14 @@
 #include "maicord/core/arena.hpp"
 #include "maicord/model/message_composer.hpp"
 #include "maicord/ui/composer_attachment_strip.hpp"
-#include "maicord/ui/composer_voice_bar.hpp"
 #include "maicord/ui/widget_manager.hpp"
 #include "maicord/ui/text_composition.hpp"
 #include "maicord/ui/text_style.hpp"
-#include "maicord/ui/theme_styles.hpp"
 #include "maicord/media/asset_key.hpp"
 
 namespace maicord {
+enum class UiComposerVoiceMode : u8;
+struct UiComposerVoiceView;
 struct UserStore;
 
 struct ChatStateStore;
@@ -307,16 +307,9 @@ float message_composer_scene_preferred_height(const MessageComposer& model, floa
                                               const UiResolvedThemeStyles* styles = nullptr) noexcept;
 float message_composer_scene_measured_height(const MessageComposerScene& scene, float text_height) noexcept;
 // command_bar: the selected slash command's option bar (stacked first).
-constexpr float message_composer_scene_chrome_height(
+float message_composer_scene_chrome_height(
     bool reply, bool typing, u8 attachments, const UiResolvedThemeStyles* styles = nullptr,
-    bool command_bar = false) noexcept {
-    const float gap = styles && styles->ready ? styles->metrics.composer_padding : 4.f;
-    return (command_bar ? kMessageComposerCommandBarHeight + gap : 0.f) + (reply ? 28.f + gap : 0.f) +
-           (typing ? 20.f + gap : 0.f) +
-           (attachments == message_composer_attachment_row_strip ? ui_composer_attachment_strip_height() + gap
-            : attachments                                         ? 28.f + gap
-                                                                  : 0.f);
-}
+    bool command_bar = false) noexcept;
 float message_composer_scene_cached_height(const MessageComposerScene& scene, bool reply, bool typing,
                                            u8 attachments, float composer_width = 0.f,
                                            bool command_bar = false) noexcept;

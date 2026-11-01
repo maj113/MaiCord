@@ -2415,4 +2415,20 @@ bool message_scene_focus_message(MessageScene* scene, u64 message_id) noexcept {
     return false;
 }
 
+bool message_scene_plugin_decoration(const MessageScene& scene, u64 message_id, u32 revision,
+                                     UiPluginRenderDecoration* output) noexcept {
+    if (scene.plugin_decorations)
+        return ui_plugin_render(message_id, revision, output);
+    reset_value(output);
+    return false;
+}
+
+u8 message_scene_plugin_visibility(const MessageScene& scene, const MessageRecord& record) noexcept {
+    if (!scene.plugin_decorations || !g_ui_plugin_render_query)
+        return ui_plugin_render_normal;
+    UiPluginRenderDecoration decoration;
+    return ui_plugin_render(record.id, record.revision, &decoration) ? decoration.visibility
+                                                                     : ui_plugin_render_normal;
+}
+
 } // namespace maicord

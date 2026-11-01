@@ -1,6 +1,7 @@
 #pragma once
 #include "maicord/app/account_gif_favorites.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/protocol/gif_favorites.hpp"
 
 namespace maicord {
 struct RestClientResponse;

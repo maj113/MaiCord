@@ -15,6 +15,7 @@
 #include "maicord/model/private_channel_store.hpp"
 #include "maicord/model/guild_member_store.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
 
 namespace maicord {
 

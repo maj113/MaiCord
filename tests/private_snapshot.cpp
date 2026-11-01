@@ -1,4 +1,5 @@
 #include "maicord/app/message_event_pump.hpp"
+#include "maicord/model/chat_state.hpp"
 #include "maicord/app/chat_state_dispatch.hpp"
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/model/private_channel_store.hpp"

@@ -50,6 +50,11 @@ maicord_share_test_objects(maicord_test_targets)
 # The tests compiling the most application sources use the application PCH too.
 maicord_precompile_test_application_sources(maicord_test_targets
     MaiCordUiProbe MaiCordSettingsRuntimeTests MaiCordTests)
+# The compiles of the tests follow the client's, so its LTO link starts early
+# and overlaps them. A client built elsewhere has nothing to wait for.
+if(NOT MAICORD_TEST_PREBUILT_CLIENT)
+    maicord_order_tests_after_client(${maicord_test_targets})
+endif()
 # The tests/ sources only drive the code under test (src/, still /O2), so they
 # compile at /Od: several times faster, and nothing measures their own speed.
 # Sources using an application PCH keep its /O2 (clang rejects a mismatch), and

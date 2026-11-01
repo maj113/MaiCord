@@ -1,6 +1,6 @@
 #pragma once
 #include "maicord/app/rest_client.hpp"
-#include "maicord/app/gateway_client.hpp"
+namespace maicord { enum class GatewayClientDispatchKind : u8; }
 #include "maicord/ui/geometry.hpp"
 #include "maicord/ui/widget_manager.hpp"
 #include "maicord/ui/message_media_policy.hpp"

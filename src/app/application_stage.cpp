@@ -1,6 +1,7 @@
 #include "application_stage.hpp"
 #include "application_call.hpp"
 #include "application_state.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "application_account_access.hpp"
 #include "application_text_form.hpp"
 #include "application_voice_channels.hpp"

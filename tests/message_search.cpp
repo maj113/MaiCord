@@ -1,4 +1,5 @@
 #include "maicord/model/message_search.hpp"
+#include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/protocol/message_card_excerpt.hpp"
 #include "maicord/model/message_rich_store.hpp"

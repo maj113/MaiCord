@@ -10,6 +10,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/render/background_fx.hpp"
+#include "maicord/ui/settings_scene.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 

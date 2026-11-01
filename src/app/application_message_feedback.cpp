@@ -8,7 +8,7 @@
 #include "application_message_reaction.hpp"
 #include "application_state.hpp"
 
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "maicord/app/message_interaction_rules.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/model/permission_bits.hpp"

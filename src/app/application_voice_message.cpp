@@ -13,6 +13,8 @@
 #include "maicord/app/voice_message.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/ui/composer_voice_bar.hpp"
+#include "maicord/ui/button.hpp"
 #include "maicord/core/time.hpp"
 
 #include "maicord/core/win32_kernel.hpp"

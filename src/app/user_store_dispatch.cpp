@@ -1,5 +1,6 @@
 #include "maicord/app/user_store_dispatch.hpp"
 #include "maicord/core/decimal.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
 
 namespace maicord {
 bool user_store_apply_gateway_snapshots(UserStore* store,

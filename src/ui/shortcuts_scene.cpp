@@ -1,5 +1,6 @@
 #include "maicord/ui/shortcuts_scene.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/utf.hpp"
 #include "maicord/ui/rect_edges.hpp"
 #include "maicord/ui/foreground_color.hpp"
 #include "maicord/ui/scene_kit.hpp"

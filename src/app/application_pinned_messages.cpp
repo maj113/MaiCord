@@ -17,7 +17,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/ui/timestamp_format.hpp"
 #include "maicord/ui/pinned_messages_scene.hpp"
-#include "account_ui_runtime.hpp"
+#include "application_history_decode.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"

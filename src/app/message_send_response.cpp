@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/app/message_history_sync.hpp"
 #include "maicord/app/rest_client.hpp"
+#include "maicord/protocol/gateway_message_events.hpp"
 
 namespace maicord {
 MessageSendResponseResult message_send_accept_response(MessageComposerController* controller,

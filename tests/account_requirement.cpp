@@ -3,6 +3,7 @@
 #include "maicord/app/account_host.hpp"
 #include "maicord/ui/message_composer_scene.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
 
 namespace maicord {
 void test_account_requirement(void (*check)(bool, const char*) noexcept) noexcept {

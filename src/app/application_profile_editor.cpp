@@ -5,8 +5,6 @@
 #include "application_cursor.hpp"
 #include "application_channel_overview.hpp"
 #include "application_composer_text_input.hpp"
-#include "application_media_picker.hpp"
-#include "application_message_interaction.hpp"
 #include "application_profile.hpp"
 #include "application_settings.hpp"
 #include "application_settings_layer.hpp"
@@ -34,7 +32,6 @@
 #include "maicord/ui/profile_scene.hpp"
 
 #include "maicord/core/win32_user.hpp"
-#include "maicord/sys/winsock.hpp"
 
 #include <stddef.h>
 #include "maicord/app/account_profile_edit.hpp"

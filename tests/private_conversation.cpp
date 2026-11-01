@@ -1,5 +1,5 @@
 #include "maicord/app/private_conversation.hpp"
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "maicord/app/rest_client.hpp"
 #include "maicord/ui/message_context_menu.hpp"
 #include "maicord/model/message_store.hpp"

@@ -3,6 +3,7 @@
 #include "sfnt_read.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_process.hpp"
 namespace maicord {namespace {
 using namespace sfnt_read;
 NativeFontResult result(NativeFontError error,SfntStatus font=SfntStatus::ok,u32 native=0) noexcept {return {error,font,native};}

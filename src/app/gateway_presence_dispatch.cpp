@@ -1,4 +1,4 @@
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/client_status.hpp"
 #include "maicord/protocol/json_ids.hpp"

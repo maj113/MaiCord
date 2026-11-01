@@ -1,5 +1,6 @@
 #include "maicord/app/gateway_voice_control.hpp"
 #include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_voice.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {

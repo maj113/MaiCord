@@ -5,6 +5,7 @@
 #include "maicord/app/shortcut_registry.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/platform/voice_audio_capture.hpp"
+#include "maicord/ui/settings_scene.hpp"
 
 namespace maicord::app_detail {
 namespace {

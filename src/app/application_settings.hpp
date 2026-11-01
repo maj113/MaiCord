@@ -4,7 +4,7 @@
 #include "maicord/ui/page_registry.hpp"
 #include "maicord/app/plugin_host.hpp"
 #include "maicord/ui/scroll_host.hpp"
-#include "maicord/ui/settings_scene.hpp"
+namespace maicord { struct UiSettingsAvatarMedia; }
 #include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {

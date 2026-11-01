@@ -31,7 +31,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/protocol/guild_admin.hpp"
-#include "account_ui_runtime.hpp"
+#include "application_history_decode.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -1167,8 +1167,8 @@ bool application_profile_response(const RestClientResponse& response, Utf8View b
     }
     bool parsed = false;
     if (response.error == RestClientError::none && response.status_code == 200) {
-        parsed = g_app.account_ui->profile_decode.decode_into(body, p->requested_user,
-                                                            p->requested_guild, p->data);
+        parsed = application_profile_decode_into(g_app.account_ui->profile_decode, body, p->requested_user,
+                                                 p->requested_guild, p->data);
     }
     p->scene.phase = parsed ? ProfilePhase::ready : ProfilePhase::failed;
     p->scene.http_status = response.status_code;

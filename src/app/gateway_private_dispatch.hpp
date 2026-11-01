@@ -1,5 +1,6 @@
 #pragma once
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 namespace maicord {
 GatewayClientDispatchRouteResult gateway_route_recipient(const GatewayEnvelope& envelope,
     Slice<u32> scratch, u32 depth, Slice<char> storage, GatewayClientEvent* event, ConstSlice<u8>* payload) noexcept;

@@ -3,6 +3,7 @@
 #include "application_composer.hpp"
 #include "application_message_interaction.hpp"
 #include "application_state.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "application_account_access.hpp"
 #include "application_voice.hpp"
 #include "maicord/app/account_soundboard.hpp"

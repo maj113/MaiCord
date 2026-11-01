@@ -23,6 +23,8 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "application_log_fields.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
 
 namespace maicord::app_detail {
 namespace {

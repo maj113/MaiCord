@@ -1,6 +1,7 @@
 #include "maicord/ui/login_view.hpp"
 
 #include "maicord/core/utf.hpp"
+#include "maicord/ui/qr_code.hpp"
 
 namespace maicord {
 
@@ -139,6 +140,130 @@ bool login_view_matches_scene(const LoginView& view, const LoginScene* scene) no
            (!scene->captcha_action || login_view_captcha_action(view)) &&
            (!scene->password_reveal_available || login_view_password_reveal_available(view)) &&
            scene->password_revealed == (scene->password_reveal_available && view.password_revealed);
+}
+
+bool login_browser_mode(LoginStatus status) noexcept {
+    return status >= LoginStatus::browser_starting && status <= LoginStatus::browser_failed;
+}
+
+bool login_phone_mode(LoginStatus status) noexcept {
+    return status == LoginStatus::recovery_phone_required ||
+        (status >= LoginStatus::recovery_phone_verify_pending && status <= LoginStatus::recovery_phone_token_ready);
+}
+
+bool login_phone_editable(LoginStatus status) noexcept {
+    return status == LoginStatus::recovery_phone_required || status == LoginStatus::recovery_phone_input_invalid ||
+        status == LoginStatus::recovery_phone_code_rejected || status == LoginStatus::recovery_phone_resent ||
+        status == LoginStatus::recovery_phone_resend_failed;
+}
+
+bool login_phone_code_valid(Utf8View code, bool complete) noexcept {
+    if ((!code.data && code.bytes) || code.bytes > kLoginPhoneCodeDigits || (complete && code.bytes != kLoginPhoneCodeDigits)) return false;
+    for (u32 i = 0; i < code.bytes; ++i) if (code.data[i] < '0' || code.data[i] > '9') return false;
+    return true;
+}
+
+bool login_phone_cells_valid(Utf8View cells) noexcept {
+    if ((!cells.data && cells.bytes) || cells.bytes > kLoginPhoneCodeDigits) return false;
+    for (u32 i = 0; i < cells.bytes; ++i)
+        if (cells.data[i] != ' ' && (cells.data[i] < '0' || cells.data[i] > '9')) return false;
+    return true;
+}
+
+bool login_reset_editable(LoginStatus status) noexcept {
+    return status == LoginStatus::reset_editing || status == LoginStatus::reset_rejected;
+}
+
+bool login_recovery_mode(LoginStatus status) noexcept {
+    return !login_phone_mode(status) && status >= LoginStatus::recovery_editing && status <= LoginStatus::recovery_captcha_required;
+}
+
+bool login_recovery_editable(LoginStatus status) noexcept {
+    return status == LoginStatus::recovery_editing || status == LoginStatus::recovery_failed;
+}
+
+bool login_captcha_mode(LoginStatus status, LoginRemoteStatus remote) noexcept {
+    return status == LoginStatus::captcha_required || status == LoginStatus::recovery_captcha_required ||
+           status == LoginStatus::reset_captcha_required || status == LoginStatus::recovery_phone_captcha_required ||
+           remote == LoginRemoteStatus::captcha_required;
+}
+
+bool login_browser_available(LoginStatus status, LoginRemoteStatus remote, bool reset_mode) noexcept {
+    return !reset_mode && !login_phone_mode(status) && !login_recovery_mode(status) && !login_browser_mode(status) &&
+        status != LoginStatus::restoring_session && status != LoginStatus::submitting && status != LoginStatus::cancelling &&
+        status != LoginStatus::profile_save_failed &&
+        (status == LoginStatus::idle || status == LoginStatus::rejected || status == LoginStatus::connection_failed ||
+         status == LoginStatus::session_expired || status == LoginStatus::remote_expired ||
+         status == LoginStatus::signed_out || status == LoginStatus::signed_out_unconfirmed ||
+         status == LoginStatus::captcha_required || remote == LoginRemoteStatus::captcha_required);
+}
+
+bool login_requires_back(LoginStatus status, LoginRemoteStatus remote) noexcept {
+    return login_browser_mode(status) || status == LoginStatus::captcha_required ||
+           status == LoginStatus::cancelling || status == LoginStatus::recovery_pending ||
+           status == LoginStatus::recovery_sent ||
+           (login_phone_mode(status) && !login_phone_editable(status)) ||
+           status == LoginStatus::recovery_captcha_required || status == LoginStatus::reset_pending ||
+           status == LoginStatus::reset_mfa_pending || status == LoginStatus::reset_failed ||
+           status == LoginStatus::reset_rate_limited || status == LoginStatus::reset_captcha_required ||
+           remote == LoginRemoteStatus::captcha_required;
+}
+
+bool login_credential_fields_hidden(LoginStatus status, LoginRemoteStatus remote,
+                                    bool reset_mode) noexcept {
+    const bool blocked = login_requires_back(status, remote);
+    return login_browser_mode(status) || login_phone_mode(status) || login_recovery_mode(status) ||
+           (reset_mode &&
+            (blocked || status == LoginStatus::profile_save_failed || status == LoginStatus::submitting)) ||
+           (!blocked && status == LoginStatus::mfa_backup_acknowledgement);
+}
+
+LoginAction login_control_action(LoginControl control, LoginStatus status,
+                                 LoginRemoteStatus remote, bool reset_mode) noexcept {
+    if (control == LoginControl::browser_sign_in)
+        return login_browser_available(status, remote, reset_mode) ? LoginAction::browser_sign_in : LoginAction::none;
+    if (control == LoginControl::submit && login_captcha_mode(status, remote))
+        return LoginAction::captcha_verify;
+    if (login_phone_mode(status)) {
+        if (control == LoginControl::back) return LoginAction::back;
+        if (!login_phone_editable(status)) return LoginAction::none;
+        if (control == LoginControl::phone_code || control == LoginControl::submit) return LoginAction::phone_verify;
+        return control == LoginControl::phone_resend ? LoginAction::phone_resend : LoginAction::none;
+    }
+    if (reset_mode) {
+        if (control == LoginControl::back) return LoginAction::back;
+        if (control == LoginControl::login || control == LoginControl::qr || control == LoginControl::forgot_password) return LoginAction::none;
+        if (status == LoginStatus::profile_save_failed && control == LoginControl::password) return LoginAction::none;
+    }
+    if (status == LoginStatus::restoring_session || status == LoginStatus::submitting)
+        return LoginAction::none;
+    if (login_requires_back(status, remote))
+        return control == LoginControl::back ? LoginAction::back : LoginAction::none;
+    if (login_recovery_mode(status)) {
+        if (control == LoginControl::back) return LoginAction::back;
+        return login_recovery_editable(status) && (control == LoginControl::login || control == LoginControl::submit) ?
+            LoginAction::recovery_submit : LoginAction::none;
+    }
+    if (login_reset_editable(status)) {
+        if (control == LoginControl::back) return LoginAction::back;
+        return control == LoginControl::password || control == LoginControl::submit ? LoginAction::submit : LoginAction::none;
+    }
+    switch (control) {
+    case LoginControl::login:
+    case LoginControl::password:
+    case LoginControl::submit: return LoginAction::submit;
+    case LoginControl::qr: return LoginAction::remote_auth;
+    case LoginControl::forgot_password:
+        return status == LoginStatus::idle || status == LoginStatus::rejected ||
+            status == LoginStatus::connection_failed || status == LoginStatus::session_expired ||
+            status == LoginStatus::signed_out || status == LoginStatus::signed_out_unconfirmed ||
+            status == LoginStatus::remote_expired ? LoginAction::recovery : LoginAction::none;
+    case LoginControl::mfa_totp:
+    case LoginControl::mfa_sms:
+    case LoginControl::mfa_backup:
+    case LoginControl::mfa_webauthn: return LoginAction::mfa;
+    default: return LoginAction::none;
+    }
 }
 
 } // namespace maicord

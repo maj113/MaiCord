@@ -1,8 +1,10 @@
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "model_store_fixtures.hpp"
 #include "maicord/model/voice_state_store.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/voice_channel_rows.hpp"
+#include "maicord/protocol/gateway_voice.hpp"
 
 namespace maicord {
 namespace {

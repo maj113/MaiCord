@@ -561,4 +561,37 @@ u64 guild_rail_scene_next_wake(const GuildRailScene& scene, u64 now_ms) noexcept
     return wake;
 }
 
+bool guild_rail_indicator_parameter_tick(GuildRailIndicatorMotion* motion, UiMotionScope scope,
+                                         float target, u64 now_ms, bool animate) noexcept {
+    auto transition = guild_rail_indicator_transition(*motion);
+    if (motion->scope.owner != scope.owner || motion->scope.generation != scope.generation)
+        ui_motion_transition_reset(&transition, scope, target);
+    const bool changed = ui_motion_transition_tick(&transition, scope, target, now_ms,
+        {200, UiMotionCurve::css_ease_out}, !animate, true);
+    *motion = {{transition.scope.owner, transition.scope.generation}, transition.started_ms,
+               transition.sampled_ms, transition.value, transition.from, transition.target, transition.active};
+    return changed;
+}
+
+bool guild_rail_indicator_tick(GuildRailIndicator* pill, UiMotionScope scope,
+                               bool selected, bool hovered, bool unread,
+                               u64 now_ms, bool animate) noexcept {
+    const float height = selected ? 1.f : hovered ? .375f : 0.f;
+    const float visibility = selected || hovered || unread ? 1.f : 0.f;
+    bool changed = guild_rail_indicator_parameter_tick(&pill->height, scope, height, now_ms, animate);
+    return guild_rail_indicator_parameter_tick(&pill->visibility, scope, visibility, now_ms, animate) || changed;
+}
+
+u64 guild_rail_indicator_next_wake(const GuildRailIndicator& pill, u64 now_ms) noexcept {
+    u64 wake = 0;
+    const GuildRailIndicatorMotion* motions[]{&pill.height, &pill.visibility};
+    for (const auto* motion : motions) {
+        const auto transition = guild_rail_indicator_transition(*motion);
+        const u64 deadline = ui_motion_transition_next_wake(transition, transition.scope, now_ms, false, true);
+        if (deadline && (!wake || deadline < wake))
+            wake = deadline;
+    }
+    return wake;
+}
+
 } // namespace maicord

@@ -3,12 +3,15 @@
 
 #include "application_channel_authority.hpp"
 #include "application_state.hpp"
+#include "application_history_decode.hpp"
 
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/protocol/gateway_reaction_events.hpp"
+#include "maicord/app/gateway_client_event.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
 
 namespace maicord::app_detail {
 namespace {

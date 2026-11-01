@@ -1,6 +1,7 @@
 #include "maicord/app/chat_state_dispatch.hpp"
 #include "model_store_fixtures.hpp"
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "maicord/model/member_list.hpp"
 #include "maicord/model/role_policy.hpp"
 #include "maicord/model/thread_member_store.hpp"

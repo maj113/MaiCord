@@ -1,5 +1,6 @@
 #include "maicord/app/gateway_channel_info_requests.hpp"
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "maicord/core/memory.hpp"
 #include "model_store_fixtures.hpp"
 #include "maicord/model/voice_channel_info_store.hpp"

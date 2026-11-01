@@ -22,7 +22,7 @@ get_target_property(maicord_perf_probe_sources MaiCord SOURCES)
 # MAICORD_APPLICATION_PCH unset, so its copies of the sources compile without it.
 list(FILTER maicord_perf_probe_sources EXCLUDE REGEX "/application_pch_[A-Za-z0-9]+\\.cpp$")
 get_target_property(maicord_perf_probe_links MaiCord LINK_LIBRARIES)
-add_executable(MaiCordPerfProbe WIN32 ${maicord_perf_probe_sources}
+add_executable(MaiCordPerfProbe WIN32 ${maicord_perf_probe_sources} $<TARGET_OBJECTS:maicord_client_resources>
     tools/perf/perf_probe.cpp tools/perf/perf_startup.cpp tools/perf/perf_owners.cpp tools/perf/perf_account_load.cpp)
 target_link_libraries(MaiCordPerfProbe PRIVATE ${maicord_perf_probe_links})
 target_include_directories(MaiCordPerfProbe PRIVATE "${MAICORD_GENERATED_DIRECTORY}" src/app)

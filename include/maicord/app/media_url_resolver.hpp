@@ -1,5 +1,6 @@
 #pragma once
-#include "maicord/protocol/attachment_refresh.hpp"
+#include "maicord/core/base.hpp"
+#include "maicord/protocol/cdn_url.hpp"
 
 namespace maicord {
 struct RestClientResponse;

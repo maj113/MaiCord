@@ -1,6 +1,7 @@
 #include "maicord/ui/message_media_policy.hpp"
 
 #include "maicord/model/message_rich_store.hpp"
+#include "maicord/model/content_policy.hpp"
 #include "maicord/model/message_store.hpp"
 
 namespace maicord {
@@ -112,6 +113,27 @@ Utf8View message_media_obscure_label(MessageMediaObscure obscure) noexcept {
     default:
         return {};
     }
+}
+
+__declspec(noinline) u64 message_media_reveal_key(u64 message_id, MessageMediaSource source,
+                                                  u32 index, bool snapshot) noexcept {
+    u64 value = message_id * 0x9E3779B97F4A7C15ull;
+    value ^= (static_cast<u64>(source) + 1u) << 56u;
+    value ^= static_cast<u64>(index + 1u) * 0xBF58476D1CE4E5B9ull;
+    if (snapshot)
+        value ^= 0x94D049BB133111EBull;
+    return value ? value : 1u;
+}
+
+UiRect message_media_obscure_pill(UiRect media, MessageMediaObscure obscure) noexcept {
+    const float wanted = obscure == MessageMediaObscure::spoiler ? 84.0f : 148.0f;
+    const float available = media.right - media.left - 16.0f;
+    const float width = wanted < available ? wanted : available;
+    const float height = 28.0f;
+    if (width < 40.0f || media.bottom - media.top < height + 8.0f)
+        return {};
+    const float cx = (media.left + media.right) * 0.5f, cy = (media.top + media.bottom) * 0.5f;
+    return {cx - width * 0.5f, cy - height * 0.5f, cx + width * 0.5f, cy + height * 0.5f};
 }
 
 } // namespace maicord

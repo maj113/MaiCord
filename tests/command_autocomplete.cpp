@@ -1,5 +1,6 @@
 #include "maicord/app/command_autocomplete.hpp"
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "maicord/core/memory.hpp"
 namespace maicord {
 void test_command_autocomplete(void (*check)(bool, const char*) noexcept) noexcept {

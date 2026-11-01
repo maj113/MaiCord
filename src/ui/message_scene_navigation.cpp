@@ -1,4 +1,5 @@
 #include "maicord/ui/message_scene.hpp"
+#include "maicord/ui/list_navigation.hpp"
 
 namespace maicord {
 namespace {

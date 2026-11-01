@@ -1,4 +1,5 @@
 #include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/media/png.hpp"
 #include "maicord/core/log.hpp"
 #include "nv12_test_picture.hpp"
 

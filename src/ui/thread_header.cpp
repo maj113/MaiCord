@@ -1,4 +1,5 @@
 #include "maicord/ui/thread_header.hpp"
+#include "maicord/ui/button.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/scene.hpp"
 #include "maicord/core/utf.hpp"

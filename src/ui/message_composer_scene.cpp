@@ -1,4 +1,6 @@
 #include "maicord/ui/message_composer_scene.hpp"
+#include "maicord/ui/theme_styles.hpp"
+#include "maicord/ui/composer_voice_bar.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/ui/plugin_slots.hpp"
@@ -1635,6 +1637,17 @@ u32 message_composer_scene_chip_ranges(const MessageComposerScene& scene,
                            open_end};
     }
     return count;
+}
+
+float message_composer_scene_chrome_height(
+    bool reply, bool typing, u8 attachments, const UiResolvedThemeStyles* styles,
+    bool command_bar) noexcept {
+    const float gap = styles && styles->ready ? styles->metrics.composer_padding : 4.f;
+    return (command_bar ? kMessageComposerCommandBarHeight + gap : 0.f) + (reply ? 28.f + gap : 0.f) +
+           (typing ? 20.f + gap : 0.f) +
+           (attachments == message_composer_attachment_row_strip ? ui_composer_attachment_strip_height() + gap
+            : attachments                                         ? 28.f + gap
+                                                                  : 0.f);
 }
 
 } // namespace maicord

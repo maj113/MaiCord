@@ -2,6 +2,7 @@
 #include "application_account_module.hpp"
 #include "application_account_switch.hpp"
 #include "application_state.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 
 #include "maicord/app/account_reconnect.hpp"
 #include "maicord/core/log.hpp"

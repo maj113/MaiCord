@@ -5,12 +5,12 @@
 #include "maicord/media/asset_key.hpp"
 #include "maicord/ui/message_markdown.hpp"
 #include "maicord/ui/edit_field.hpp"
-#include "maicord/ui/badge.hpp"
 #include "maicord/model/user_profile.hpp"
 #include "maicord/ui/button_keyboard.hpp"
 #include "maicord/ui/text_presentation.hpp"
 #include "maicord/ui/text_measure_cache.hpp"
 namespace maicord {
+struct UiBadgeWidget;
 struct ChatStateStore;
 struct UiScrollBinding;
 struct UserStore;
@@ -352,20 +352,7 @@ void profile_scene_publish_text_hit(const ProfileScene&, UiWidgetReference, cons
 float profile_scene_intro_offset(const ProfileScene& scene, u64 now_ms) noexcept;
 // Effect opacity at now: 1, fading to .35 over 600 ms while hovered.
 float profile_scene_effect_opacity(const ProfileScene& scene, u64 now_ms) noexcept;
-inline bool profile_scene_animating(const ProfileScene* scene, u64 now) noexcept {
-    if (!scene || !scene->active || !scene->effect || !scene->effect->sku)
-        return false;
-    if (!scene->reduced_motion && scene->hover_changed_ms && now < scene->hover_changed_ms + 600)
-        return true;
-    if (scene->reduced_motion)
-        return false;
-    for (u32 i = 0; i < scene->effect->count; ++i) {
-        const auto& layer = scene->effect->layers[i];
-        if (layer.loop || now < scene->effect_started_ms + layer.start_ms + layer.duration_ms)
-            return true;
-    }
-    return false;
-}
+bool profile_scene_animating(const ProfileScene* scene, u64 now) noexcept;
 bool profile_scene_text_output(const ProfileScene& s, const Theme& theme, UiTextOutput* text,
                                const UiEditGeometry* edit) noexcept;
 } // namespace maicord

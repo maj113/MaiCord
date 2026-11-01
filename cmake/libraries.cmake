@@ -20,7 +20,8 @@ set(maicord_sys_headers
     include/maicord/core/win32_image.hpp include/maicord/core/win32_process_launch.hpp
     include/maicord/core/win32_threadpool.hpp include/maicord/core/win32_system_time.hpp
     include/maicord/core/win32_file_info.hpp include/maicord/core/win32_user.hpp
-    include/maicord/sys/crt.hpp include/maicord/sys/intrin.hpp
+    include/maicord/sys/crt.hpp include/maicord/sys/crt_extra.hpp include/maicord/sys/intrin.hpp
+    include/maicord/sys/intrin_mem.hpp
     include/maicord/sys/com.hpp include/maicord/sys/ole.hpp include/maicord/sys/registry.hpp
     include/maicord/sys/gdi.hpp include/maicord/sys/winsock.hpp include/maicord/sys/crypto.hpp
     include/maicord/sys/sspi.hpp include/maicord/sys/shell.hpp include/maicord/sys/winrt.hpp
@@ -46,6 +47,11 @@ target_include_directories(maicord_sys_conformance PRIVATE src/sys)
 target_compile_options(maicord_sys_conformance PRIVATE
     -Wno-deprecated-declarations /clang:-fexperimental-new-constant-interpreter)
 set_target_properties(maicord_sys_conformance PROPERTIES MAICORD_SDK_INCLUDES ON)
+# Ninja starts ready edges by the length of the chain behind them. A
+# prerequisite of the library everything else links, the 5 s conformance unit
+# (the longest compile of the client) starts first instead of last. The
+# client's link waits for it through maicord_core; the test twins don't.
+add_dependencies(maicord_core maicord_sys_conformance)
 
 maicord_library(maicord_compression src/media/deflate.cpp src/media/zstd.cpp LIBS maicord_core)
 
@@ -398,7 +404,9 @@ maicord_library(maicord_ui
     src/ui/guild_card_scene.cpp
     src/ui/guild_banner.cpp src/ui/profile_activity.cpp src/ui/caption_bar.cpp src/ui/activity_status.cpp
     src/ui/typing_indicator.cpp src/ui/dm_profile_panel.cpp
-    src/ui/toast.cpp src/ui/theme.cpp src/ui/expression_card_scene.cpp
+    src/ui/toast.cpp src/ui/theme.cpp src/ui/background_color_math.cpp src/ui/message_result_card.cpp
+    src/ui/text_pointer_selection.cpp src/ui/message_author.cpp src/ui/message_interaction.cpp
+    src/ui/expression_card_scene.cpp
     # The spell tokenizer classifies letters with the Unicode property tables;
     # deflate.cpp checks gzip members with png_crc32 from maicord_media_codec.
     LIBS maicord_core maicord_model maicord_media_core maicord_unicode maicord_compression maicord_media_codec

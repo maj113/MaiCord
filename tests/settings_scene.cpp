@@ -1,4 +1,5 @@
 #include "maicord/ui/settings_scene.hpp"
+#include "maicord/ui/text_presentation.hpp"
 #include "ui_scene_fixtures.hpp"
 #include "maicord/ui/settings_schema.hpp"
 #include "settings_schema_validation.hpp"

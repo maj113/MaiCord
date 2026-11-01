@@ -1,5 +1,4 @@
 #include "application_interaction_card.hpp"
-#include "application_account_presentation.hpp"
 #include "application_state.hpp"
 #include "application_tooltip.hpp"
 #include "account_ui_runtime.hpp"

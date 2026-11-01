@@ -12,6 +12,8 @@
 #include "maicord/protocol/client_status.hpp"
 #include "account_ui_runtime.hpp"
 #include "maicord/protocol/gateway_reaction_events.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/protocol/gateway_message_events.hpp"
 
 namespace maicord::app_detail {
 namespace {

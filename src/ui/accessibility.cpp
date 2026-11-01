@@ -1,5 +1,6 @@
 #include "maicord/ui/accessibility.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/utf.hpp"
 
 #include "maicord/core/hash.hpp"
 #include "maicord/core/heap_sort.hpp"

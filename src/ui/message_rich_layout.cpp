@@ -1010,4 +1010,20 @@ MessageRichLayout message_rich_measure_layout(const MessageRichStore* store, con
         *rich, message_rich_estimate_item_layout(store, rich, available_width, styles), available_width);
 }
 
+MessageInviteCardGeometry message_invite_card_geometry(UiRect item) noexcept {
+    MessageInviteCardGeometry g{};
+    const float right = item.left + kMessageInviteCardMaximumWidth < item.right
+                            ? item.left + kMessageInviteCardMaximumWidth
+                            : item.right;
+    g.card = {item.left, item.top, right, item.top + kMessageInviteCardHeight};
+    g.header = {g.card.left + 16.0f, g.card.top + 10.0f, g.card.right - 16.0f, g.card.top + 32.0f};
+    g.icon = {g.card.left + 16.0f, g.card.top + 40.0f, g.card.left + 66.0f, g.card.top + 90.0f};
+    g.button = {g.card.right - 96.0f, g.card.top + 49.0f, g.card.right - 16.0f, g.card.top + 81.0f};
+    const float text_right = g.button.left - 12.0f > g.icon.right + 17.0f ? g.button.left - 12.0f
+                                                                          : g.icon.right + 17.0f;
+    g.name = {g.icon.right + 16.0f, g.card.top + 42.0f, text_right, g.card.top + 64.0f};
+    g.detail = {g.icon.right + 16.0f, g.card.top + 66.0f, text_right, g.card.top + 86.0f};
+    return g;
+}
+
 } // namespace maicord

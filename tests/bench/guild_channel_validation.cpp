@@ -2,7 +2,7 @@
 // never part of the CTest suite.
 #include "guild_channel_validation_observer.hpp"
 #include "../model_store_fixtures.hpp"
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/trace_record.hpp"
 #include "maicord/model/permission_bits.hpp"

@@ -1,7 +1,8 @@
 #pragma once
 
-#include "maicord/app/gateway_client.hpp"
+namespace maicord { struct GatewayClientEvent; struct GatewayClientPopResult; }
 #include "maicord/core/base.hpp"
+#include "maicord/core/slice.hpp"
 
 namespace maicord {
 

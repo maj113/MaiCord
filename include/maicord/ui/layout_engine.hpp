@@ -159,56 +159,18 @@ constexpr UiLayoutLength ui_layout_fill(float weight = 1.0f) noexcept {
     return UiLayoutLength{UiLayoutLengthMode::fill, weight};
 }
 
-__declspec(noinline) constexpr UiLayoutStyle ui_layout_style() noexcept {
-    return UiLayoutStyle{
-        ui_layout_content(),
-        ui_layout_content(),
-        UiSize{0.0f, 0.0f},
-        UiSize{kMaximumUiCoordinate, kMaximumUiCoordinate},
-        UiInsets{},
-        UiInsets{},
-        0.0f,
-        UiLayoutFlow::overlay,
-        UiLayoutAlignment::start,
-        UiLayoutAlignment::start,
-        UiLayoutJustification::start,
-        ui_layout_node_visible,
-    };
-}
+UiLayoutStyle ui_layout_style() noexcept;
 
 // A node that stacks its children and fills its parent.
-constexpr UiLayoutStyle ui_layout_fill_style(u16 flags) noexcept {
-    UiLayoutStyle style = ui_layout_style();
-    style.width = ui_layout_fill();
-    style.height = ui_layout_fill();
-    style.flags = flags;
-    return style;
-}
+UiLayoutStyle ui_layout_fill_style(u16 flags) noexcept;
 
 // The viewport of a virtualized list: fills its parent, stretches its rows and
 // clips and scrolls them vertically.
-constexpr UiLayoutStyle ui_layout_scroll_root_style() noexcept {
-    UiLayoutStyle style = ui_layout_style();
-    style.flow = UiLayoutFlow::vertical;
-    style.width = ui_layout_fill();
-    style.height = ui_layout_fill();
-    style.horizontal_alignment = UiLayoutAlignment::stretch;
-    style.vertical_alignment = UiLayoutAlignment::stretch;
-    style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children |
-                                   ui_layout_node_scroll_vertical);
-    return style;
-}
+UiLayoutStyle ui_layout_scroll_root_style() noexcept;
 
 // A full-width filler of a fixed (possibly zero) height, standing in for the
 // unrealized rows above a virtualized list's first realized row.
-constexpr UiLayoutStyle ui_layout_spacer_style(float height) noexcept {
-    UiLayoutStyle style = ui_layout_style();
-    style.width = ui_layout_fill();
-    style.height = ui_layout_fixed(height);
-    style.horizontal_alignment = UiLayoutAlignment::stretch;
-    style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_allow_zero_size);
-    return style;
-}
+UiLayoutStyle ui_layout_spacer_style(float height) noexcept;
 
 constexpr UiLayoutNodeHandle ui_layout_invalid_handle() noexcept {
     return UiLayoutNodeHandle{kInvalidUiLayoutSlot, 0};

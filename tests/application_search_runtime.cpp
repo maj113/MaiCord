@@ -2,10 +2,12 @@
 // ownership is visible here without adding a shipping diagnostic/test hook.
 #include "../src/app/application_search.cpp"
 #include "model_store_fixtures.hpp"
+#include "maicord/ui/message_presentation.hpp"
 #include "../src/app/application_content_input.hpp"
 #include "../src/app/application_window_state.hpp"
 #include "application_search_measurement.hpp"
 #include "maicord/app/chat_state_dispatch.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
 #include "maicord/core/utf.hpp"
 #include "test_output.hpp"
 

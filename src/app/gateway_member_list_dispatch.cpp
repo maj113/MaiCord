@@ -1,4 +1,6 @@
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/app/gateway_client_event.hpp"
+#include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/user_store.hpp"
@@ -10,6 +12,7 @@
 #include "gateway_payload_writer.hpp"
 #include "gateway_member_list_validation.hpp"
 #include "../protocol/json_field_lists.hpp"
+#include "maicord/protocol/gateway_commands.hpp"
 
 namespace maicord {
 namespace {

@@ -1,14 +1,10 @@
 #include "application_guild_settings_internal.hpp"
 #include "rest_rate_retry.hpp"
 #include "maicord/render/layer_presentation.hpp"
-#include "application_settings.hpp"
 #include "application_account_module.hpp"
 #include "application_account_presentation.hpp"
 #include "application_attachments.hpp"
 #include "application_composer_text_input.hpp"
-#include "application_media_picker.hpp"
-#include "application_message_interaction.hpp"
-#include "application_profile.hpp"
 #include "maicord/ui/guild_context_policy.hpp"
 #include "maicord/model/channel_settings_model.hpp"
 #include "maicord/core/color_hex.hpp"
@@ -20,6 +16,7 @@
 #include "application_account_access.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
 
 namespace maicord::app_detail::server_settings {
 

@@ -96,6 +96,14 @@ another member or library defines. `STANDALONE` also builds the test's own
 executable (with its own `LIBS`), which the offline tools in `tools/` run
 directly (no CTest case uses it).
 
+In a `-Test` build the test targets' compiles wait for the client's (the stamp in
+`maicord_order_tests_after_client()`): Ninja starts ready edges by the length of the
+chain behind them and counts the client's one-thread LTO link as a single edge, so
+with every test compile ready the link would start only after all of them. A
+generated input listed as (or `OBJECT_DEPENDS` of) a source of `MaiCord` holds back
+every object of the client until its generator has run; link such inputs through an
+object library, like `maicord_client_resources`.
+
 ```cmake
 maicord_test(MaiCordFooTests ENTRY maicord_foo_tests_entry
     SOURCES tests/foo.cpp

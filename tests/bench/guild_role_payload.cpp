@@ -5,6 +5,7 @@
 #include "maicord/core/trace_record.hpp"
 #include "maicord/model/chat_state.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
 
 
 namespace maicord::guild_role_payload_bench {

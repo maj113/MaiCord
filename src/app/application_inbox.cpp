@@ -22,7 +22,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
-#include "account_ui_runtime.hpp"
+#include "application_history_decode.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"

@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/app/gateway_client.hpp"
+namespace maicord { struct GatewayClientEvent; }
 #include "maicord/ui/voice_channel_rows.hpp"
 
 namespace maicord::app_detail {

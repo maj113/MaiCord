@@ -1,6 +1,7 @@
 #include "maicord/protocol/relationships.hpp"
 #include "model_store_fixtures.hpp"
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/gateway_client_dispatch.hpp"
+#include "maicord/app/gateway_client_event.hpp"
 #include "maicord/protocol/rest.hpp"
 #include "../src/app/gateway_relationship_dispatch.hpp"
 #include "maicord/core/memory.hpp"

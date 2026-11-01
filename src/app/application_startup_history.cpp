@@ -3,6 +3,7 @@
 #include "application_channel_authority.hpp"
 #include "application_load_trace.hpp"
 #include "application_state.hpp"
+#include "application_history_decode.hpp"
 
 #include "maicord/app/channel_memory.hpp"
 #include "maicord/core/memory.hpp"

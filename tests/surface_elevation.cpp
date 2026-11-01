@@ -1,4 +1,5 @@
 #include "maicord/app/client_theme.hpp"
+#include "maicord/ui/theme_presets.hpp"
 #include "ui_scene_fixtures.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"

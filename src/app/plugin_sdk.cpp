@@ -5,6 +5,7 @@
 #include "plugin_sdk_internal.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/utf.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/color_hex.hpp"
 #include "maicord/core/decimal.hpp"

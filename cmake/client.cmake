@@ -15,9 +15,15 @@ maicord_library(maicord_account_module
     maicord_media_codec maicord_cdn_media
     kernel32 ${maicord_tls_libs} maicord_voice_encoder)
 
+# The icon and notification sounds resource objects (linked into MaiCord below,
+# and into the perf probe).
+add_library(maicord_client_resources OBJECT config/maicord.rc "${MAICORD_NOTIFICATION_SOUND_RESOURCE}")
+target_link_libraries(maicord_client_resources PRIVATE maicord_compile_contract)
+target_include_directories(maicord_client_resources PRIVATE "${MAICORD_GENERATED_DIRECTORY}")
+
 maicord_program(MaiCord WIN32 ENTRY maicord_entry
-    SOURCES src/app/application_poll.cpp config/maicord.manifest config/maicord.rc
-    "${MAICORD_NOTIFICATION_SOUND_RESOURCE}" src/app/application_state.cpp src/app/application_settings.cpp
+    SOURCES src/app/application_poll.cpp config/maicord.manifest
+    src/app/application_state.cpp src/app/application_settings.cpp
     src/app/settings_catalog.cpp src/app/application_user_settings.cpp src/app/application_account_settings.cpp
     src/app/application_theme_editor.cpp src/app/application_custom_theme.cpp
     src/app/application_theme_publication.cpp src/app/application_friends.cpp
@@ -114,6 +120,10 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     kernel32 user32 shell32 d3d11 dxgi dcomp maicord_uia maicord_app_core ws2_32 maicord_sspicli bcrypt
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}"
     PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded")
+# The resources are plain link inputs, not sources: a generated input of one
+# source (the icon) orders every object of its target after its generator.
+target_link_options(MaiCord PRIVATE "$<TARGET_OBJECTS:maicord_client_resources>")
+set_property(TARGET MaiCord APPEND PROPERTY LINK_DEPENDS "$<TARGET_OBJECTS:maicord_client_resources>")
 if(MAICORD_STARTUP_PROBE)
     set_property(TARGET MaiCord PROPERTY MAICORD_STARTUP_PROBE ON)
     # Only these sources use the probe. Restoring a normal client after the
@@ -142,7 +152,6 @@ target_link_options(MaiCord PRIVATE ${MAICORD_CLIENT_DELAY_LOAD_OPTIONS})
 # outliner is on (cmake/build_contract.cmake), one partition links 28 KB smaller
 # than three, in 39 s instead of 26 s; other counts are larger still.
 # Re-check the count when it drifts.
-add_dependencies(MaiCord maicord_sys_conformance)
 
 # Self-updater publisher. Environment variables override the official defaults,
 # as the release workflow does; setting both empty compiles the updater disabled.

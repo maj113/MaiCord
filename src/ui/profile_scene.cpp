@@ -2635,4 +2635,19 @@ u32 profile_scene_access(UiAccessTree* tree, u32 parent, const ProfileScene& s, 
     return ui_access_add_widgets(tree, parent, s.widgets,
                                  {describe_access, const_cast<ProfileScene*>(&s), surface, focus_owner});
 }
+bool profile_scene_animating(const ProfileScene* scene, u64 now) noexcept {
+    if (!scene || !scene->active || !scene->effect || !scene->effect->sku)
+        return false;
+    if (!scene->reduced_motion && scene->hover_changed_ms && now < scene->hover_changed_ms + 600)
+        return true;
+    if (scene->reduced_motion)
+        return false;
+    for (u32 i = 0; i < scene->effect->count; ++i) {
+        const auto& layer = scene->effect->layers[i];
+        if (layer.loop || now < scene->effect_started_ms + layer.start_ms + layer.duration_ms)
+            return true;
+    }
+    return false;
+}
+
 } // namespace maicord

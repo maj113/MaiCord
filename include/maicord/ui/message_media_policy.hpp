@@ -1,10 +1,10 @@
 #pragma once
 
 #include "maicord/core/slice.hpp"
-#include "maicord/model/content_policy.hpp"
 #include "maicord/ui/geometry.hpp"
 
 namespace maicord {
+struct AccountContentPolicy;
 
 struct MessageRichStore;
 struct MessageRichAttachment;
@@ -79,15 +79,8 @@ struct MessageMediaReveals {
     u32 revision;
 };
 
-__declspec(noinline) constexpr u64 message_media_reveal_key(u64 message_id, MessageMediaSource source,
-                                                            u32 index, bool snapshot = false) noexcept {
-    u64 value = message_id * 0x9E3779B97F4A7C15ull;
-    value ^= (static_cast<u64>(source) + 1u) << 56u;
-    value ^= static_cast<u64>(index + 1u) * 0xBF58476D1CE4E5B9ull;
-    if (snapshot)
-        value ^= 0x94D049BB133111EBull;
-    return value ? value : 1u;
-}
+u64 message_media_reveal_key(u64 message_id, MessageMediaSource source,
+                             u32 index, bool snapshot = false) noexcept;
 
 bool message_media_revealed(const MessageMediaReveals& reveals, u64 key) noexcept;
 // Returns true when the key was newly revealed (and bumps revision).
@@ -111,15 +104,6 @@ bool message_rich_component_spoiler(const MessageRichComponent& component) noexc
 Utf8View message_media_obscure_label(MessageMediaObscure obscure) noexcept;
 
 // Centred label pill over an obscured preview (empty when it cannot fit).
-constexpr UiRect message_media_obscure_pill(UiRect media, MessageMediaObscure obscure = MessageMediaObscure::spoiler) noexcept {
-    const float wanted = obscure == MessageMediaObscure::spoiler ? 84.0f : 148.0f;
-    const float available = media.right - media.left - 16.0f;
-    const float width = wanted < available ? wanted : available;
-    const float height = 28.0f;
-    if (width < 40.0f || media.bottom - media.top < height + 8.0f)
-        return {};
-    const float cx = (media.left + media.right) * 0.5f, cy = (media.top + media.bottom) * 0.5f;
-    return {cx - width * 0.5f, cy - height * 0.5f, cx + width * 0.5f, cy + height * 0.5f};
-}
+UiRect message_media_obscure_pill(UiRect media, MessageMediaObscure obscure = MessageMediaObscure::spoiler) noexcept;
 
 } // namespace maicord

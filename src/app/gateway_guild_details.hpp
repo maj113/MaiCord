@@ -1,8 +1,8 @@
 #pragma once
 
-#include "maicord/app/gateway_client.hpp"
 
 #include "gateway_payload_writer.hpp"
+#include "maicord/core/json_reader.hpp"
 
 namespace maicord {
 

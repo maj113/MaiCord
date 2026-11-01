@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/model/message_notifications.hpp"
+#include "maicord/model/notification_soundpack.hpp"
 
 namespace maicord {
 enum class NotificationSoundDecision : u8 { unknown, denied, allowed };
@@ -39,7 +40,6 @@ struct NotificationMessageSoundDecision {
 };
 NotificationMessageSoundDecision notification_message_sound_decide(const NotificationMessageSoundInput&) noexcept;
 
-enum class NotificationSoundKind : u8 { message1, message3 }; // supported message-create assets
 struct NotificationSoundRequest {
     u64 generation; // nonzero account epoch; zero disables sounds
     u32 soundpack; // opaque caller-owned stable token, copied; message3 is unmapped

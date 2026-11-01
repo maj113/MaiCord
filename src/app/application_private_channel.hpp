@@ -1,6 +1,6 @@
 #pragma once
 #include "maicord/app/rest_client.hpp"
-#include "maicord/app/gateway_client.hpp"
+namespace maicord { struct GatewayClientEvent; }
 #include "maicord/ui/popup_scene.hpp"
 #include "maicord/ui/private_channel_rows.hpp"
 #include "maicord/ui/navigation_view.hpp"
