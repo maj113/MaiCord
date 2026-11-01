@@ -20,10 +20,18 @@ struct MessageMarkdownSemantic;
 inline constexpr u32 kRendererGlyphCapacity = 384;
 inline constexpr u32 kRendererTextRunCapacity = 32;
 inline constexpr u32 kRendererPathCapacity = 2048;
-// A scrolling emoji picker can show 63 emoji including partial rows.
+// A scrolling emoji picker can show 63 emoji including partial rows, and one
+// COLR emoji cell is about 88 px at 192 DPI: a 1024x1024 atlas holds ~130 of
+// them, so a short scroll back re-rasterizes every one. The atlas is 1024
+// wide and starts 1024 high; it grows by whole steps up to the maximum height
+// (about 500 emoji at 192 DPI) only while glyphs used in the last
+// kRendererGlyphProtectMs would otherwise be evicted, and shrinks after idling.
 // Color glyphs use several entries, and complex layers need more than 512
-// outline commands. Keep metadata capacity independent of the 1 MiB R8 texture.
+// outline commands. Keep metadata capacity independent of the R8 texture.
 inline constexpr u16 kRendererGlyphAtlasExtent = 1024;
+inline constexpr u16 kRendererGlyphAtlasMaximumHeight = 4096;
+inline constexpr u32 kRendererGlyphProtectMs = 2'000;
+inline constexpr u32 kRendererGlyphIdleTrimMs = 10'000;
 inline constexpr u32 kRendererAtlasEntryCapacity = 2048;
 inline constexpr u32 kRendererAtlasRowCapacity = 128;
 inline constexpr u32 kRendererFontFaceCapacity = glyph_font_maximum_capacity;
@@ -141,6 +149,13 @@ bool d3d11_glyph_text_rasterize_flag_program(D3D11GlyphTextOwner* owner, ID3D11D
     const ColrPaintProgram& program, const GlyphAtlasAllocation& allocation, u16 target_width,
     u16 target_height, u16 padding, ID3D11UnorderedAccessView* target) noexcept;
 void d3d11_glyph_text_reset_atlas(D3D11GlyphTextOwner* owner) noexcept;
+// Idle trim: the earliest deadline (0: none), and the trim itself, true when the
+// texture size or placement changed, so every retained quad is stale and the
+// caller must rebuild text.
+u64 d3d11_glyph_text_trim_deadline(const D3D11GlyphTextOwner& owner) noexcept;
+bool d3d11_glyph_text_trim(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context, u64 now_ms) noexcept;
+// True once after a trim changed the atlas: retained quads are stale.
+bool d3d11_glyph_text_take_stale(D3D11GlyphTextOwner* owner) noexcept;
 void d3d11_glyph_text_release(D3D11GlyphTextOwner* owner) noexcept;
 
 // Size limit for the owner, including TextSystem's 8-byte typography pointer

@@ -61,10 +61,6 @@ bool d3d11_glyph_text_rasterize_lottie_program(D3D11GlyphTextOwner* owner, ID3D1
 }
 namespace {
 constexpr u16 color_face_flag = 2;
-// Initialization creates (or adopts) a square kRendererGlyphAtlasExtent atlas, and a power-of-two
-// extent makes this product equal to the division by the extent.
-static_assert((kRendererGlyphAtlasExtent & (kRendererGlyphAtlasExtent - 1)) == 0);
-constexpr float kAtlasTexel = 1.0f / kRendererGlyphAtlasExtent;
 
 struct GlyphTextStorage {
     wchar_t utf16[kRendererGlyphCapacity];
@@ -78,6 +74,8 @@ struct GlyphTextStorage {
     GlyphAtlasIndex atlas_index;
     u16 atlas_index_buckets[kRendererAtlasEntryCapacity * 2];
     GlyphQuad title_quads[kRendererGlyphCapacity];
+    GlyphAtlasGrowth growth;
+    bool geometry_stale;
 };
 
 // The owner header has a fixed size budget, so storage-resident state is
@@ -89,6 +87,96 @@ GlyphTextStorage* text_storage(D3D11GlyphTextOwner* owner) noexcept {
 
 GlyphAtlasIndex* atlas_index(D3D11GlyphTextOwner* owner) noexcept {
     return owner->atlas_origins ? &text_storage(owner)->atlas_index : nullptr;
+}
+
+inline GlyphAtlasGrowth& atlas_growth(D3D11GlyphTextOwner* owner) noexcept {
+    return text_storage(owner)->growth;
+}
+
+// u follows the fixed atlas width, v the height that grows by steps: a quad
+// built before a resize is stale after it (growth bumps full_resets).
+struct AtlasTexel {
+    float u, v;
+};
+inline AtlasTexel atlas_texel(const D3D11GlyphTextOwner& owner) noexcept {
+    return {1.0f / owner.allocator.width, 1.0f / owner.allocator.height};
+}
+
+enum class AtlasGrowth : u8 { none, grown, failed };
+
+// Recreates the mono and COLR atlas textures `height` rows tall, applying
+// trim's row moves from the old ones: both change or neither.
+bool resize_textures(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context, u16 height,
+                     ConstSlice<GlyphAtlasRowMove> moves) noexcept {
+    ID3D11Device* device = nullptr;
+    context->GetDevice(&device);
+    auto& mono = owner->gpu;
+    const u16 before = mono.height;
+    bool ok = device && SUCCEEDED(glyph_atlas_texture_resize(device, context, &mono.texture, &mono.texture_view,
+                                                             &mono.texture_uav, height, moves));
+    if (ok) {
+        mono.height = height;
+        auto* color = owner->color ? &owner->color->gpu : nullptr;
+        if (color && color->texture) {
+            ok = SUCCEEDED(glyph_atlas_texture_resize(device, context, &color->texture, &color->view, &color->uav,
+                                                      height, moves));
+            if (ok) {
+                color->height = height;
+            } else {
+                glyph_atlas_texture_resize(device, context, &mono.texture, &mono.texture_view, &mono.texture_uav,
+                                           before, {});
+                mono.height = before;
+            }
+        }
+    }
+    com_release(device);
+    return ok;
+}
+
+// Makes room for one glyph before it is allocated: when it would only fit by
+// evicting glyphs used within kRendererGlyphProtectMs, the atlas grows by a
+// step (glyph_atlas_growth_prepare) and both textures are recreated taller,
+// keeping their rows. Queued COLR jobs and `raster` are dispatched into the
+// old textures first. A grown atlas invalidates every retained quad.
+AtlasGrowth grow_atlas(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context, u16 width, u16 height,
+                       GlyphRasterBatch* raster) noexcept {
+    auto& growth = atlas_growth(owner);
+    const u16 before = owner->allocator.height;
+    if (!glyph_atlas_growth_prepare(&growth, &owner->allocator, width, height))
+        return AtlasGrowth::none;
+    const auto revert = [&]() noexcept {
+        owner->allocator.height = before;
+        --growth.growths;
+        return AtlasGrowth::failed;
+    };
+    if (raster && !raster->finish())
+        return revert();
+    if (owner->color_batch)
+        owner->color_batch->reset();
+    if (!resize_textures(owner, context, owner->allocator.height, {}))
+        return revert();
+    ++owner->allocator.full_resets;
+    return AtlasGrowth::grown;
+}
+
+// Allocation of a glyph the atlas does not hold yet that, below the maximum height,
+// leaves recently used rows alone (grow_atlas already grew when nothing stale
+// could hold the request); the
+// plain LRU result is the fallback when bookkeeping limits stop the protected one.
+GlyphAtlasAllocation allocate_protected(D3D11GlyphTextOwner* owner, u64 key, u16 width, u16 height) noexcept {
+    auto& growth = atlas_growth(owner);
+    auto& allocator = owner->allocator;
+    const bool protect = growth.maximum_height != 0 && allocator.height < growth.maximum_height;
+    allocator.protect_after = protect ? glyph_atlas_growth_protect_after(growth) : 0;
+    GlyphAtlasAllocation allocation;
+    for (bool retry = protect;; retry = false) {
+        allocation = glyph_atlas_allocate_unique_indexed(&allocator, atlas_index(owner), key, width, height);
+        allocator.protect_after = 0;
+        if (!retry || allocation.ok() || allocation.error != GlyphAtlasError::no_capacity)
+            break;
+    }
+    glyph_atlas_growth_note_activity(&growth);
+    return allocation;
 }
 
 bool initialize_storage(D3D11GlyphTextOwner* owner) noexcept {
@@ -327,6 +415,7 @@ bool append_color_glyph_run(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* con
     if (!face_id)
         return false;
     const float pixel_scale = request.dpi / 96.f, pixels_per_em = run.em_size * pixel_scale;
+    const AtlasTexel texel = atlas_texel(*owner);
     const u32 em_fixed = static_cast<u32>(run.em_size * 64.f + .5f);
     float advance = 0;
     for (u32 i = 0; i < run.glyph_count; ++i) {
@@ -373,12 +462,21 @@ bool append_color_glyph_run(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* con
             if (!glyph_raster_bounds(extent.minimum_x, extent.minimum_y, extent.maximum_x, extent.maximum_y,
                                      pixels_per_em, 1, &bounds))
                 return false;
-            allocation =
-                glyph_atlas_allocate_indexed(&owner->allocator, atlas_index(owner), key, bounds.width, bounds.height);
+            switch (grow_atlas(owner, context, bounds.width, bounds.height, nullptr)) {
+            case AtlasGrowth::grown:
+                *request.atlas_invalidated = true;
+                return false;
+            case AtlasGrowth::failed:
+                return false;
+            case AtlasGrowth::none:
+                break;
+            }
+            allocation = allocate_protected(owner, key, bounds.width, bounds.height);
             if (!allocation.ok())
                 return false;
             if (!colr_paint_rasterize(&color.gpu, context, color.program, bounds, allocation, pixels_per_em,
-                                      owner->gpu.width, owner->allocator.padding, owner->color_batch)) {
+                                      owner->allocator.width, owner->allocator.height, owner->allocator.padding,
+                                      owner->color_batch)) {
                 log_u64(LogLevel::error, "render", "colrv1_raster_failed", glyph.index);
                 glyph_atlas_reset(&owner->allocator);
                 return false;
@@ -405,10 +503,10 @@ bool append_color_glyph_run(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* con
              y + bounds.top / pixel_scale,
              x + bounds.right / pixel_scale,
              y + bounds.bottom / pixel_scale,
-             2.f + static_cast<float>(allocation.x) * kAtlasTexel,
-             static_cast<float>(allocation.y) * kAtlasTexel,
-             2.f + static_cast<float>(allocation.x + allocation.width) * kAtlasTexel,
-             static_cast<float>(allocation.y + allocation.height) * kAtlasTexel,
+             2.f + static_cast<float>(allocation.x) * texel.u,
+             static_cast<float>(allocation.y) * texel.v,
+             2.f + static_cast<float>(allocation.x + allocation.width) * texel.u,
+             static_cast<float>(allocation.y + allocation.height) * texel.v,
              {1, 1, 1, foreground.alpha}};
         advance += glyph.advance;
     }
@@ -464,6 +562,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
     const u32 first_quad = *request.count;
     bool effect_glyphs = false;
     const float pixel_scale = static_cast<float>(request.dpi) / 96.0f;
+    const AtlasTexel texel = atlas_texel(*owner);
     if (!(pixel_scale > 0.0f)) {
         return false;
     }
@@ -591,17 +690,18 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
                 if (!glyph_raster_bounds(outline, pixels_per_em, 1, &bounds)) {
                     return false;
                 }
-                allocation =
-                    glyph_atlas_allocate_unique_indexed(&owner->allocator, atlas_index(owner), key, bounds.width,
-                                                        bounds.height);
+                const AtlasGrowth growth_result = grow_atlas(owner, context, bounds.width, bounds.height, &raster);
+                if (growth_result != AtlasGrowth::none) {
+                    *request.atlas_invalidated = growth_result == AtlasGrowth::grown;
+                    return false;
+                }
+                allocation = allocate_protected(owner, key, bounds.width, bounds.height);
                 if (!allocation.ok()) {
                     log_u64(LogLevel::error, "render", "glyph_allocation_error",
                             static_cast<u64>(allocation.error));
                     return false;
                 }
                 if (!allocation.cached) {
-                    if (owner->color_batch)
-                        owner->color_batch->reset();
                     const GlyphAtlasGpuResult rasterized =
                         raster.add(outline, bounds, allocation, pixels_per_em, owner->allocator.padding);
                     if (!rasterized.ok()) {
@@ -641,10 +741,10 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
             quad.top = baseline_y + static_cast<float>(bounds.top) * inverse_scale;
             quad.right = baseline_x + static_cast<float>(bounds.right) * inverse_scale;
             quad.bottom = baseline_y + static_cast<float>(bounds.bottom) * inverse_scale;
-            quad.u0 = static_cast<float>(allocation.x) * kAtlasTexel;
-            quad.v0 = static_cast<float>(allocation.y) * kAtlasTexel;
-            quad.u1 = static_cast<float>(allocation.x + allocation.width) * kAtlasTexel;
-            quad.v1 = static_cast<float>(allocation.y + allocation.height) * kAtlasTexel;
+            quad.u0 = static_cast<float>(allocation.x) * texel.u;
+            quad.v0 = static_cast<float>(allocation.y) * texel.v;
+            quad.u1 = static_cast<float>(allocation.x + allocation.width) * texel.u;
+            quad.v1 = static_cast<float>(allocation.y + allocation.height) * texel.v;
             quad.color = foreground;
             if (ansi_glyphs && glyph.reserved != kAnsiColorNone) {
                 if (glyph.reserved != ansi_code) {
@@ -774,9 +874,11 @@ D3D11GlyphTextInitializeResult d3d11_glyph_text_initialize(D3D11GlyphTextOwner* 
         d3d11_glyph_text_release(owner);
         return initialize_result(D3D11GlyphTextInitializeError::shaped_storage, E_INVALIDARG);
     }
-    if (!glyph_atlas_initialize(&owner->allocator, kRendererGlyphAtlasExtent, kRendererGlyphAtlasExtent, 1,
+    if (!glyph_atlas_initialize(&owner->allocator, kRendererGlyphAtlasExtent, kRendererGlyphAtlasMaximumHeight, 1,
                                 Slice<GlyphAtlasEntry>{owner->atlas_entries, kRendererAtlasEntryCapacity},
                                 Slice<GlyphAtlasRow>{owner->atlas_rows, kRendererAtlasRowCapacity}) ||
+        !glyph_atlas_growth_configure(&atlas_growth(owner), &owner->allocator, kRendererGlyphAtlasExtent,
+                                      kRendererGlyphAtlasExtent, kRendererGlyphProtectMs) ||
         !glyph_atlas_index_initialize(atlas_index(owner), Slice<u16>{text_storage(owner)->atlas_index_buckets,
                                                                      kRendererAtlasEntryCapacity * 2})) {
         d3d11_glyph_text_release(owner);
@@ -810,6 +912,49 @@ void d3d11_glyph_text_reset_atlas(D3D11GlyphTextOwner* owner) noexcept {
             owner->color_batch->reset();
         glyph_atlas_reset(&owner->allocator);
     }
+}
+
+u64 d3d11_glyph_text_trim_deadline(const D3D11GlyphTextOwner& owner) noexcept {
+    return owner.atlas_origins
+               ? glyph_atlas_growth_trim_deadline(
+                     text_storage(const_cast<D3D11GlyphTextOwner*>(&owner))->growth, kRendererGlyphIdleTrimMs)
+               : 0;
+}
+
+bool d3d11_glyph_text_trim(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context, u64 now_ms) noexcept {
+    if (!owner || !context || !owner->atlas_origins)
+        return false;
+    auto& growth = atlas_growth(owner);
+    glyph_atlas_growth_observe(&growth, owner->allocator, now_ms);
+    const u64 deadline = glyph_atlas_growth_trim_deadline(growth, kRendererGlyphIdleTrimMs);
+    if (!deadline || now_ms < deadline)
+        return false;
+    if (owner->color_batch)
+        owner->color_batch->reset();
+    GlyphAtlasRowMove moves[256];
+    bool resized = false;
+    const u32 evicted = owner->allocator.evicted_entries;
+    const u32 moved = glyph_atlas_growth_trim(&growth, &owner->allocator, {moves, 256}, &resized);
+    const u16 height = owner->allocator.height;
+    if ((resized || moved) && !resize_textures(owner, context, height, {moves, moved})) {
+        // The textures and the allocator disagree: start the atlas over at
+        // the height the textures have.
+        glyph_atlas_reset(&owner->allocator);
+        owner->allocator.height = owner->gpu.height;
+    }
+    const bool changed = resized || moved || owner->allocator.evicted_entries != evicted;
+    if (changed) {
+        ++owner->allocator.full_resets; // Rows moved or the v scale changed: retained quads are stale.
+        text_storage(owner)->geometry_stale = true;
+    }
+    return changed;
+}
+
+bool d3d11_glyph_text_take_stale(D3D11GlyphTextOwner* owner) noexcept {
+    if (!owner || !owner->atlas_origins || !text_storage(owner)->geometry_stale)
+        return false;
+    text_storage(owner)->geometry_stale = false;
+    return true;
 }
 
 void d3d11_glyph_text_release(D3D11GlyphTextOwner* owner) noexcept {

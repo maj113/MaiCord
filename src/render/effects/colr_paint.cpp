@@ -8,26 +8,22 @@
 
 namespace maicord {
 namespace {
-struct Constants {
-    u32 x, y, width, height;
-    float left, top, scale;
-    u32 first, padding, nodes;
-    u32 program_base, reserved;
-};
-static_assert(sizeof(Constants) == 48);
-bool initialize(ColrPaintGpu* g, ID3D11Device* device, u16 extent, bool surface) noexcept {
+// Resources are created once per atlas: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+bool initialize(ColrPaintGpu* g, ID3D11Device* device, u16 extent, u16 height, bool surface) noexcept {
     D3D11_FEATURE_DATA_D3D11_OPTIONS options{};
     g->append_upload =
         SUCCEEDED(device->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS, &options, sizeof(options))) &&
         options.MapNoOverwriteOnDynamicBufferSRV;
     D3D11_TEXTURE2D_DESC d{};
-    d.Width = d.Height = extent;
+    d.Width = extent;
+    d.Height = height;
     d.MipLevels = d.ArraySize = d.SampleDesc.Count = 1;
     d.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     d.Usage = D3D11_USAGE_DEFAULT;
     d.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
     D3D11_BUFFER_DESC c{};
-    c.ByteWidth = sizeof(Constants);
+    c.ByteWidth = sizeof(ColrPaintJob) * kColrPaintBatchJobs;
     c.Usage = D3D11_USAGE_DYNAMIC;
     c.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     c.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
@@ -38,8 +34,13 @@ bool initialize(ColrPaintGpu* g, ID3D11Device* device, u16 extent, bool surface)
         colr_paint_gpu_release(g);
         return false;
     }
+    if (g->texture && !g->width) {
+        g->width = extent;
+        g->height = height;
+    }
     return true;
 }
+#pragma clang attribute pop
 // Only an already accumulated destination followed by one shaped source may
 // use the stack-free kernel. Nested groups, masks and other composite modes
 // keep the general interpreter and its evaluation order.
@@ -99,6 +100,10 @@ u32 write_layer_plan(const ColrPaintProgram& p,const GlyphRasterBounds& b,u16 pa
     }
     return table_bytes+count*4;
 }
+// The layer plan above is a per-glyph loop and stays optimized for speed; binding,
+// resource creation, the queue and its dispatch are D3D calls: compiled for size
+// (the job-extent loop stays scalar).
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 void unbind_colr(ID3D11DeviceContext* context) noexcept {
     ID3D11UnorderedAccessView* uav=nullptr;
     ID3D11ShaderResourceView* views[2]{};
@@ -108,7 +113,7 @@ void unbind_colr(ID3D11DeviceContext* context) noexcept {
     context->CSSetConstantBuffers(0,1,&buffer);
     context->CSSetShader(nullptr,nullptr,0);
 }
-ID3D11ComputeShader* ensure_colr(ColrPaintGpu* g,ID3D11DeviceContext* context,u32 bytes,bool general,u16 extent,bool external_target=false,bool layers=false) noexcept {
+ID3D11ComputeShader* ensure_colr(ColrPaintGpu* g,ID3D11DeviceContext* context,u32 bytes,bool general,u16 extent,u16 height,bool external_target=false,bool layers=false) noexcept {
     auto** shader = layers ? &g->layers_shader : general ? &g->wide_shader : &g->shader;
     const bool initialize_resources = !g->constants || (!external_target && !g->texture);
     const bool resize = initialize_resources || bytes > g->capacity || !*shader;
@@ -117,7 +122,7 @@ ID3D11ComputeShader* ensure_colr(ColrPaintGpu* g,ID3D11DeviceContext* context,u3
         context->GetDevice(&device);
     bool ok = !resize || device;
     if (ok && initialize_resources)
-        ok = initialize(g, device, extent, !external_target);
+        ok = initialize(g, device, extent, height, !external_target);
     if (ok && bytes > g->capacity) {
         // Retain upload slack without doubling a large paint's entire buffer.
         // Programs are bounded by the eight-MiB compilation arena.
@@ -156,11 +161,42 @@ ID3D11ComputeShader* ensure_colr(ColrPaintGpu* g,ID3D11DeviceContext* context,u3
     com_release(device);
     return ok ? *shader : nullptr;
 }
-} // namespace
-void ColrPaintBatch::reset() noexcept {
-    if(active())unbind_colr(context);
-    gpu=nullptr;program_view=nullptr;
+// One dispatch for `count` jobs: group z selects the job, and groups past a
+// smaller job's extent return at once.
+bool dispatch_jobs(ColrPaintGpu* g, ID3D11DeviceContext* context, ID3D11ComputeShader* shader,
+                   const ColrPaintJob* jobs, u32 count, ID3D11UnorderedAccessView* output) noexcept {
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (FAILED(context->Map(g->constants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+        return false;
+    CopyMemory(mapped.pData, jobs, count * sizeof(ColrPaintJob));
+    context->Unmap(g->constants, 0);
+    u32 columns = 0, rows = 0;
+    for (u32 i = 0; i < count; ++i) {
+        columns = maximum(columns, (jobs[i].width + 7) / 8);
+        rows = maximum(rows, (jobs[i].height + 7) / 8);
+    }
+    context->CSSetConstantBuffers(0, 1, &g->constants);
+    context->CSSetShaderResources(0, 1, &g->program_view);
+    context->CSSetShader(shader, nullptr, 0);
+    context->CSSetUnorderedAccessViews(0, 1, &output, nullptr);
+    context->Dispatch(columns, rows, count);
+    return true;
 }
+} // namespace
+bool ColrPaintBatch::flush() noexcept {
+    if (!pending)
+        return true;
+    const u32 count = pending;
+    pending = 0;
+    bound = true;
+    return dispatch_jobs(gpu, context, shader, jobs, count, gpu->uav);
+}
+void ColrPaintBatch::reset() noexcept {
+    flush();
+    if(bound)unbind_colr(context);
+    gpu=nullptr;shader=nullptr;pending=0;bound=false;
+}
+#pragma clang attribute pop
 static bool rasterize_colr(ColrPaintGpu* g, ID3D11DeviceContext* context, const ColrPaintProgram& p,
                           const GlyphRasterBounds& bounds, const GlyphAtlasAllocation& a, float scale,
                           u16 extent, u16 target_height, u16 padding, ColrPaintBatch* batch, ID3D11UnorderedAccessView* target) noexcept {
@@ -175,7 +211,27 @@ static bool rasterize_colr(ColrPaintGpu* g, ID3D11DeviceContext* context, const 
     const u32 plan_capacity=layers?layer_plan_capacity(p,bounds,padding,layer_nodes):0;
     const u32 bytes = static_cast<u32>(p.storage.offset)+plan_capacity;
     const bool general = !layers && p.peak_stack > 8;
-    auto* shader=ensure_colr(g,context,bytes,general,extent,target!=nullptr,layers);
+    ColrPaintJob job{static_cast<u32>(a.x - padding), static_cast<u32>(a.y - padding),
+                     static_cast<u32>(a.width + 2 * padding), static_cast<u32>(a.height + 2 * padding),
+                     static_cast<float>(bounds.left), static_cast<float>(bounds.top), scale, p.first, padding, p.nodes, 0,
+                     plan_capacity ? static_cast<u32>(p.storage.offset) : 0};
+    // Queued jobs read the upload buffer and kernel as they stand: a buffer
+    // rename or growth, another kernel or owner, a full queue, or a job that
+    // paints over a queued job's pixels dispatches them first (jobs in one
+    // dispatch run in no order).
+    if (batch && batch->pending) {
+        const auto* kernel = layers ? &g->layers_shader : general ? &g->wide_shader : &g->shader;
+        bool flush = batch->gpu != g || batch->shader != *kernel || batch->pending == kColrPaintBatchJobs ||
+                     !g->append_upload || bytes > g->capacity - g->upload_cursor;
+        for (u32 i = 0; !flush && i < batch->pending; ++i) {
+            const auto& queued = batch->jobs[i];
+            flush = job.x < queued.x + queued.width && queued.x < job.x + job.width && job.y < queued.y + queued.height &&
+                    queued.y < job.y + job.height;
+        }
+        if (flush && !batch->flush())
+            return false;
+    }
+    auto* shader=ensure_colr(g,context,bytes,general,extent,target_height,target!=nullptr,layers);
     if(!shader)return false;
     D3D11_MAPPED_SUBRESOURCE mapped{};
     // Append disjoint ranges until full. DISCARD renames the entire resource,
@@ -193,41 +249,28 @@ static bool rasterize_colr(ColrPaintGpu* g, ID3D11DeviceContext* context, const 
     if(plan_capacity)++g->spatial_jobs;
     context->Unmap(g->program, 0);
     g->upload_cursor = (program_base + static_cast<u32>(p.storage.offset) + plan_bytes + 15) & ~15u;
-    if (FAILED(context->Map(g->constants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
-        return false;
-    auto& constants = *static_cast<Constants*>(mapped.pData);
-    constants.x = static_cast<u32>(a.x - padding);
-    constants.y = static_cast<u32>(a.y - padding);
-    constants.width = static_cast<u32>(a.width + 2 * padding);
-    constants.height = static_cast<u32>(a.height + 2 * padding);
-    constants.left = static_cast<float>(bounds.left);
-    constants.top = static_cast<float>(bounds.top);
-    constants.scale = scale;
-    constants.first = p.first;
-    constants.padding = padding;
-    constants.nodes = p.nodes;
-    constants.program_base = program_base;
-    constants.reserved = plan_capacity ? static_cast<u32>(p.storage.offset) : 0;
-    context->Unmap(g->constants, 0);
-    if(batch&&batch->gpu&&batch->gpu!=g)batch->reset();
-    const bool retained=batch&&batch->active();
-    if(!retained)context->CSSetConstantBuffers(0, 1, &g->constants);
-    if(!retained||batch->program_view!=g->program_view)
-        context->CSSetShaderResources(0, 1, &g->program_view);
-    context->CSSetShader(shader, nullptr, 0);
-    auto* output = target ? target : g->uav;
-    context->CSSetUnorderedAccessViews(0, 1, &output, nullptr);
-    context->Dispatch((a.width + 2 * padding + 7) / 8, (a.height + 2 * padding + 7) / 8, 1);
-    if(batch){batch->gpu=g;batch->program_view=g->program_view;}
-    else unbind_colr(context);
+    job.program_base = program_base;
     ++g->dispatches;
-    return true;
+    if (batch) {
+        batch->jobs[batch->pending++] = job;
+        batch->gpu = g;
+        batch->shader = shader;
+        return true;
+    }
+    const bool dispatched = dispatch_jobs(g, context, shader, &job, 1, target ? target : g->uav);
+    unbind_colr(context);
+    return dispatched;
 }
 bool colr_paint_rasterize(ColrPaintGpu* g, ID3D11DeviceContext* context, const ColrPaintProgram& p,
     const GlyphRasterBounds& bounds, const GlyphAtlasAllocation& allocation, float scale,
-    u16 extent, u16 padding, ColrPaintBatch* batch) noexcept {
-    return rasterize_colr(g,context,p,bounds,allocation,scale,extent,extent,padding,batch,nullptr);
+    u16 atlas_width, u16 atlas_height, u16 padding, ColrPaintBatch* batch) noexcept {
+    // A texture made at another size must be resized first (glyph_atlas_texture_resize).
+    if (g && g->texture && (g->width != atlas_width || g->height != atlas_height))
+        return false;
+    return rasterize_colr(g,context,p,bounds,allocation,scale,atlas_width,atlas_height,padding,batch,nullptr);
 }
+// Target bakes and release run once per image: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 bool colr_paint_rasterize_target(ColrPaintGpu* g, ID3D11DeviceContext* context,
     const ColrPaintProgram& p, const GlyphRasterBounds& bounds,
     const GlyphAtlasAllocation& allocation, float scale,
@@ -255,4 +298,5 @@ void colr_paint_gpu_release(ColrPaintGpu* g) noexcept {
     com_release(g->texture);
     reset_value(g);
 }
+#pragma clang attribute pop
 } // namespace maicord

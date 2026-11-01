@@ -178,6 +178,9 @@ AnimationFrameCacheResult result_from(
 
 } // namespace
 
+// Storage setup, growth and reset run per animation size or atlas reset:
+// compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 bool animation_frame_cache_initialize(
     AnimationFrameCache* cache, u16 width, u16 height, u16 padding,
     Slice<AnimationFrameCacheEntry> entries, Slice<u32> buckets,
@@ -273,6 +276,7 @@ void animation_frame_cache_reset(AnimationFrameCache* cache) noexcept {
     cache->free_cursor = 0;
     cache->next_allocation_key = 0;
 }
+#pragma clang attribute pop
 
 void animation_frame_cache_begin_visibility(
     AnimationFrameCache* cache) noexcept {

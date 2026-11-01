@@ -821,6 +821,7 @@ bool renderer_media_maintain(D3D11Renderer* renderer, u64 now_ms) noexcept {
     changed = animation_frame_cache_gpu_trim(&renderer->preview_animation_gpu, now_ms) || changed;
     changed = trim_media_atlas(renderer, renderer->media_atlas, false, now_ms) || changed;
     changed = trim_media_atlas(renderer, renderer->preview_media_atlas, true, now_ms) || changed;
+    changed = d3d11_glyph_text_trim(&renderer->glyph_text, renderer->graphics.context, now_ms) || changed;
     return changed;
 }
 
@@ -838,7 +839,12 @@ u64 renderer_media_next_trim_ms(const D3D11Renderer& renderer) noexcept {
     take(backup_release_deadline(renderer, renderer.preview_media_atlas, true));
     take(animation_frame_cache_gpu_trim_deadline(renderer.animation_gpu));
     take(animation_frame_cache_gpu_trim_deadline(renderer.preview_animation_gpu));
+    take(d3d11_glyph_text_trim_deadline(renderer.glyph_text));
     return deadline;
+}
+
+bool renderer_glyph_atlas_take_stale(D3D11Renderer* renderer) noexcept {
+    return renderer && d3d11_glyph_text_take_stale(&renderer->glyph_text);
 }
 
 } // namespace maicord

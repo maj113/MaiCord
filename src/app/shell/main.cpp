@@ -677,6 +677,11 @@ int application_run() noexcept {
         application_text_form_tick(restart_now_ms);
         // Media atlas recency clock and idle trims (one wake per upload burst).
         renderer_media_maintain(&g_app.renderer, restart_now_ms);
+        if (renderer_glyph_atlas_take_stale(&g_app.renderer)) {
+            // An idle trim moved glyph rows: retained quads must be built again.
+            refresh_account_text(true);
+            application_repaint();
+        }
         if (!logout_blocked) {
             application_forum_form_tick(restart_now_ms);
             application_friends_tick(restart_now_ms);

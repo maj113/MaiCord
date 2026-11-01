@@ -740,6 +740,9 @@ bool renderer_bind_media_atlas(D3D11Renderer* renderer, MediaAtlas* atlas) noexc
 bool renderer_media_maintain(D3D11Renderer* renderer, u64 now_ms) noexcept;
 // Earliest pending idle trim (0: none), for the scheduler's wait timeout.
 u64 renderer_media_next_trim_ms(const D3D11Renderer& renderer) noexcept;
+// True once after an idle trim moved or shrank the glyph atlas: every retained
+// glyph quad is stale, so the caller rebuilds text and repaints.
+bool renderer_glyph_atlas_take_stale(D3D11Renderer* renderer) noexcept;
 // Paint programs compiled by the account module's media worker.
 MediaAtlasGpuResult renderer_upload_regional_flag(D3D11Renderer* renderer, MediaAssetKey key,
                                                   const ColrPaintProgram& program) noexcept;

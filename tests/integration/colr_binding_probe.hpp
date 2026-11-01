@@ -79,7 +79,7 @@ inline bool colr_binding_probe(ID3D11Device* device,ID3D11DeviceContext* context
             for(u32 c=0;c<3;++c)node_at(0)->values[c]=node_at(kDeep)->values[c]=colors[i][c]/255.f;
             if(i==3)node_at(kDeep)->values[1]=0;
             GlyphAtlasAllocation allocation{};allocation.x=static_cast<u16>(1+i*4);allocation.y=1;allocation.width=allocation.height=2;
-            if(!colr_paint_rasterize(&gpu,context,program,rectangle,allocation,16,32,1,&batch)||
+            if(!colr_paint_rasterize(&gpu,context,program,rectangle,allocation,16,32,32,1,&batch)||
                !batch.active())return fail(10+i);
         }
         // Two layered jobs ran the layers kernel; the deep program created the wide one.
@@ -94,7 +94,7 @@ inline bool colr_binding_probe(ID3D11Device* device,ID3D11DeviceContext* context
         for(u32 i=0;i<2;++i){
             auto& selected=i?gpu:other;
             GlyphAtlasAllocation allocation{};allocation.x=i?13:1;allocation.y=1;allocation.width=allocation.height=2;
-            if(!colr_paint_rasterize(&selected,context,program,rectangle,allocation,16,32,1,&batch))return fail(20+i);
+            if(!colr_paint_rasterize(&selected,context,program,rectangle,allocation,16,32,32,1,&batch)||!batch.flush())return fail(20+i);
             ID3D11Buffer* bound=nullptr;context->CSGetConstantBuffers(0,1,&bound);
             const bool correct=bound==selected.constants;com_release(bound);if(!correct)return fail(23+i*2);
             ID3D11ShaderResourceView* bound_program=nullptr;context->CSGetShaderResources(0,1,&bound_program);
@@ -102,7 +102,7 @@ inline bool colr_binding_probe(ID3D11Device* device,ID3D11DeviceContext* context
         }
         // Failed submission must still leave a scope that releases references.
         GlyphAtlasAllocation invalid{};
-        if(colr_paint_rasterize(&gpu,context,program,rectangle,invalid,16,32,1,&batch))return fail(5);
+        if(colr_paint_rasterize(&gpu,context,program,rectangle,invalid,16,32,32,1,&batch))return fail(5);
     }
     if(!colr_compute_bindings_empty(context))return fail(6);
     D3D11_TEXTURE2D_DESC description{};gpu.texture->GetDesc(&description);

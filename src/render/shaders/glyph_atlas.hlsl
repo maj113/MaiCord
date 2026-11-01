@@ -8,9 +8,18 @@ struct GlyphPathCommand {
 ByteAddressBuffer raster_data : register(t0);
 RWTexture2D<unorm float> coverage_atlas : register(u0);
 
-// GLYPH_TILE_CULLING builds the variant for large rasters, which skips every
-// command that cannot reach any sample of a thread group's tile. Small rasters
-// are dispatch-bound and run the plain loop of the default variant.
+// GLYPH_JOBS is the job count a dispatch carries: the job headers fill the first
+// GLYPH_JOBS records of the raster data (glyph_raster_batch_limit in C++). A
+// dispatch is latency-bound, not throughput-bound, so more jobs per dispatch
+// cost almost nothing.
+#ifndef GLYPH_JOBS
+#define GLYPH_JOBS 16
+#endif
+
+// GLYPH_TILE_CULLING builds the variant for unstroked rasters that are large or
+// have a long command chain, which skips every command that cannot reach any
+// sample of a thread group's tile. Other rasters run the plain loop of the
+// default variant, whose per-command cost is lower.
 #if defined(GLYPH_TILE_CULLING)
 void accumulate_crossing(float2 sample_position, float2 line_start, float2 line_end, inout int winding) {
     const bool crosses = (line_start.y > sample_position.y) !=
@@ -223,7 +232,7 @@ void glyph_coverage(uint3 dispatch_id : SV_DispatchThreadID) {
     // Infinity keeps the reduction valid even when sample coordinates are large.
     minimum_distance_squared = asfloat(0x7f800000u);
     stroke_distance_squared = asfloat(0x7f800000u);
-    trace_commands(8 + (raster.w & 65535), command_count);
+    trace_commands(GLYPH_JOBS + (raster.w & 65535), command_count);
 #else
     const float2 sample_position =
         outline_origin + (float2(dispatch_id.xy - allocation_padding) + 0.5f) / pixels_per_em;
@@ -237,7 +246,7 @@ void glyph_coverage(uint3 dispatch_id : SV_DispatchThreadID) {
 
     [loop]
     for (uint index = 0; index < command_count; ++index) {
-        const uint at=28*(8+(raster.w&65535)+index);
+        const uint at=28*(GLYPH_JOBS+(raster.w&65535)+index);
         const uint4 first=raster_data.Load4(at);
         const uint3 last=raster_data.Load3(at+16);
         GlyphPathCommand command;

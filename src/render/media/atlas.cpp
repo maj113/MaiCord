@@ -128,6 +128,8 @@ void erase_entry(MediaAtlas* atlas, u32 slot, u32 bucket) noexcept {
     ++atlas->stale_entries;
 }
 
+// Rebuild, setup and reset run per atlas start or eviction pass: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 bool rebuild_buckets_and_clear_stale(MediaAtlas* atlas) noexcept {
     // Entry scans stop after the last occupied entry: capacity past the
     // working set is never touched.
@@ -208,6 +210,7 @@ void media_atlas_reset(MediaAtlas* atlas) noexcept {
     atlas->free_cursor = 0;
     atlas->next_allocation_key = 0;
 }
+#pragma clang attribute pop
 
 void media_atlas_begin_visibility(MediaAtlas* atlas) noexcept {
     if (atlas) {
@@ -379,6 +382,8 @@ void media_atlas_revert_growth(MediaAtlas* atlas, u16 height) noexcept {
     }
 }
 
+// Idle trim and the growth reset run per atlas pass: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 u64 media_atlas_trim_deadline(const MediaAtlas& atlas) noexcept {
     return glyph_atlas_growth_trim_deadline(atlas.growth, kMediaAtlasIdleTrimMs);
 }
@@ -405,6 +410,7 @@ void media_atlas_reset_growth(MediaAtlas* atlas) noexcept {
         atlas->growth.trim_pending = false;
     }
 }
+#pragma clang attribute pop
 
 bool media_atlas_validate(const MediaAtlas& atlas, MediaAtlasHandle handle,
                           MediaAtlasResult* result) noexcept {

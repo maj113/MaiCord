@@ -25,6 +25,8 @@ bool bounded_float(float value, float limit) noexcept {
     return value == value && value >= -limit && value <= limit;
 }
 
+// A buffer is made at start and each time a batch outgrows it: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 HRESULT reserve_commands(GlyphAtlasGpu* gpu,ID3D11Device* device,u32 required) noexcept {
     if(required<=gpu->command_committed)return S_OK;
     const u32 capacity=minimum<u32>(gpu->command_capacity,maximum(required,maximum<u32>(128,static_cast<u32>(gpu->command_committed)*2)));
@@ -49,9 +51,12 @@ HRESULT reserve_commands(GlyphAtlasGpu* gpu,ID3D11Device* device,u32 required) n
     gpu->command_buffer=buffer;gpu->command_view=view;gpu->command_committed=static_cast<u16>(capacity);
     return S_OK;
 }
+#pragma clang attribute pop
 
 } // namespace
 
+// Device setup, once per atlas: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 GlyphAtlasGpuResult glyph_atlas_gpu_initialize(GlyphAtlasGpu* gpu, ID3D11Device* device,
                                                u16 width, u16 height,
                                                u32 command_capacity) noexcept {
@@ -98,12 +103,17 @@ GlyphAtlasGpuResult glyph_atlas_gpu_initialize(GlyphAtlasGpu* gpu, ID3D11Device*
     if (SUCCEEDED(result)) {
         result = shader_create_compute(device, ShaderId::glyph_compute, &gpu->raster_shader);
     }
+    if (SUCCEEDED(result)) {
+        // Unstroked text runs this variant; a creation failure keeps the plain shader.
+        shader_create_compute(device, ShaderId::glyph_culled_compute, &gpu->culled_shader);
+    }
     if (FAILED(result)) {
         glyph_atlas_gpu_release(gpu);
         return gpu_error(GlyphAtlasGpuError::create_resource, result);
     }
     return gpu_error(GlyphAtlasGpuError::none);
 }
+#pragma clang attribute pop
 
 GlyphAtlasGpuResult GlyphRasterBatch::add(const GlyphOutline& outline,const GlyphRasterBounds& bounds,
     const GlyphAtlasAllocation& allocation,float pixels_per_em,u16 allocation_padding,float stroke_half_width) noexcept {
@@ -122,7 +132,8 @@ GlyphAtlasGpuResult GlyphRasterBatch::add(const GlyphOutline& outline,const Glyp
     if (outline.count > gpu->command_capacity)
         return gpu_error(GlyphAtlasGpuError::command_capacity);
 
-    bool close=count&&(count==glyph_raster_batch_limit||outline.count>gpu->command_committed-cursor);
+    const bool short_of_commands=count&&outline.count>gpu->command_committed-cursor;
+    bool close=count&&(count==glyph_raster_batch_limit||short_of_commands);
     const u32 x=allocation.x-allocation_padding,y=allocation.y-allocation_padding;
     const u32 width=allocation.width+2*allocation_padding,height=allocation.height+2*allocation_padding;
     for(u32 i=0;i<count&&!close;++i){const auto* j=jobs[i];
@@ -130,9 +141,14 @@ GlyphAtlasGpuResult GlyphRasterBatch::add(const GlyphOutline& outline,const Glyp
         close=x<jx+jw&&jx<x+width&&y<jy+jh&&jy<y+height;
     }
     if(close&&!finish())return gpu_error(GlyphAtlasGpuError::upload,E_FAIL);
-    if(outline.count>gpu->command_committed){
+    // A buffer that held less than a batch doubles (the dispatch just issued
+    // keeps the old one alive) so later batches carry more jobs; an outline
+    // larger than the buffer always grows it.
+    const bool undersized=short_of_commands&&gpu->command_committed<gpu->command_capacity;
+    const u32 required=undersized?maximum<u32>(outline.count,static_cast<u32>(gpu->command_committed)+1u):outline.count;
+    if(required>gpu->command_committed){
         ID3D11Device* device=nullptr;context->GetDevice(&device);
-        const HRESULT grown=reserve_commands(gpu,device,outline.count);com_release(device);
+        const HRESULT grown=reserve_commands(gpu,device,required);com_release(device);
         if(FAILED(grown))return gpu_error(GlyphAtlasGpuError::create_resource,grown);
     }
     if(!mapped){D3D11_MAPPED_SUBRESOURCE upload{};
@@ -149,12 +165,13 @@ GlyphAtlasGpuResult GlyphRasterBatch::add(const GlyphOutline& outline,const Glyp
     copy_bytes(jobs[count++],&constants,sizeof(constants));cursor+=outline.count;
     groups_x=maximum(groups_x,(width+7)/8);groups_y=maximum(groups_y,(height+7)/8);
     large=large||width>=glyph_raster_culling_extent||height>=glyph_raster_culling_extent;
+    peak_commands=maximum(peak_commands,outline.count);
     stroked=stroked||stroke_half_width>0.0f;
     return gpu_error(GlyphAtlasGpuError::none);
 }
 void GlyphRasterBatch::cancel() noexcept {
     if(mapped)context->Unmap(owner->command_buffer,0);
-    mapped=nullptr;count=cursor=groups_x=groups_y=0;large=stroked=false;
+    mapped=nullptr;count=cursor=groups_x=groups_y=peak_commands=0;large=stroked=false;
 }
 bool GlyphRasterBatch::finish() noexcept {
     if(failed){cancel();return false;}
@@ -162,14 +179,7 @@ bool GlyphRasterBatch::finish() noexcept {
     auto* gpu=owner;copy_bytes(mapped,jobs,count*sizeof(GlyphRasterJob));
     context->Unmap(gpu->command_buffer,0);mapped=nullptr;
     ID3D11ComputeShader* shader=gpu->raster_shader;
-    if(large&&!stroked){
-        if(!gpu->culled_shader){
-            ID3D11Device* device=nullptr;context->GetDevice(&device);
-            if(device)shader_create_compute(device,ShaderId::glyph_culled_compute,&gpu->culled_shader);
-            com_release(device);
-        }
-        if(gpu->culled_shader)shader=gpu->culled_shader; // Creation failure keeps the plain shader.
-    }
+    if(!stroked&&gpu->culled_shader&&(large||peak_commands>=glyph_raster_culling_commands))shader=gpu->culled_shader;
     context->CSSetShader(shader,nullptr,0);
     context->CSSetShaderResources(0,1,&gpu->command_view);
     context->CSSetUnorderedAccessViews(0,1,&gpu->texture_uav,nullptr);
@@ -180,7 +190,48 @@ bool GlyphRasterBatch::finish() noexcept {
     context->CSSetShader(nullptr,nullptr,0);
     ++gpu->dispatch_count;gpu->raster_count+=count;gpu->dispatched_commands+=cursor;
     for(u32 i=0;i<count;++i)gpu->dispatched_pixels+=static_cast<u64>(jobs[i][1]&65535)*(jobs[i][1]>>16);
-    count=cursor=groups_x=groups_y=0;large=stroked=false;return true;
+    count=cursor=groups_x=groups_y=peak_commands=0;large=stroked=false;return true;
+}
+
+// Growth and trim run once per atlas step or idle trim, release at exit: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+HRESULT glyph_atlas_texture_resize(ID3D11Device* device, ID3D11DeviceContext* context, ID3D11Texture2D** texture,
+                                   ID3D11ShaderResourceView** view, ID3D11UnorderedAccessView** uav, u16 height,
+                                   ConstSlice<GlyphAtlasRowMove> moves) noexcept {
+    D3D11_TEXTURE2D_DESC description{};
+    (*texture)->GetDesc(&description);
+    const UINT old_height = description.Height;
+    description.Height = height;
+    ID3D11Texture2D* grown = nullptr;
+    ID3D11ShaderResourceView* grown_view = nullptr;
+    ID3D11UnorderedAccessView* grown_uav = nullptr;
+    HRESULT result = device->CreateTexture2D(&description, nullptr, &grown);
+    if (SUCCEEDED(result)) {
+        result = device->CreateShaderResourceView(grown, nullptr, &grown_view);
+    }
+    if (SUCCEEDED(result)) {
+        result = device->CreateUnorderedAccessView(grown, nullptr, &grown_uav);
+    }
+    if (FAILED(result)) {
+        com_release(grown_uav);
+        com_release(grown_view);
+        com_release(grown);
+        return result;
+    }
+    // The rows both heights keep, then each trim move.
+    for (u32 i = 0; i <= moves.count; ++i) {
+        const GlyphAtlasRowMove move =
+            i ? moves[i - 1] : GlyphAtlasRowMove{0, 0, static_cast<u16>(minimum<UINT>(old_height, height))};
+        const D3D11_BOX source{0, move.source_y, 0, description.Width, static_cast<UINT>(move.source_y) + move.height, 1};
+        context->CopySubresourceRegion(grown, 0, 0, move.destination_y, 0, *texture, 0, &source);
+    }
+    com_release(*uav);
+    com_release(*view);
+    com_release(*texture);
+    *texture = grown;
+    *view = grown_view;
+    *uav = grown_uav;
+    return S_OK;
 }
 
 void glyph_atlas_gpu_release(GlyphAtlasGpu* gpu) noexcept {
@@ -199,5 +250,6 @@ void glyph_atlas_gpu_release(GlyphAtlasGpu* gpu) noexcept {
     gpu->command_capacity = 0;
     gpu->command_committed = 0;
 }
+#pragma clang attribute pop
 
 } // namespace maicord
