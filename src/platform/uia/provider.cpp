@@ -1,4 +1,5 @@
 #include "provider_internal.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord {
 namespace provider_detail {

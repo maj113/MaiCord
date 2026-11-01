@@ -3,8 +3,6 @@
 #include "maicord/media/image/jpeg.hpp"
 #include "maicord/core/memory.hpp"
 
-#include "maicord/core/byte_order.hpp"
-
 #include "maicord/sys/intrin.hpp"
 #include "maicord/sys/simd.hpp"
 

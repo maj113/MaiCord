@@ -1,4 +1,5 @@
 #include "client_internal.hpp"
+#include "maicord/platform/crypto/random.hpp"
 
 namespace maicord {
 namespace client_detail {

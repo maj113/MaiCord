@@ -1,32 +1,14 @@
 #pragma once
 // Shared by profile_editor.cpp and its parts (profile_editor_*.cpp); private to them.
-#include "profile_editor.hpp"
-#include "application_account_logout.hpp"
 #include "account_presentation.hpp"
-#include "../chat/composer/attachments.hpp"
-#include "../shell/cursor.hpp"
-#include "../guild/channel_overview.hpp"
-#include "../chat/composer/text_input.hpp"
-#include "profile.hpp"
-#include "../settings/settings.hpp"
-#include "../settings/layer.hpp"
 #include "../settings/modal.hpp"
 #include "../shell/state.hpp"
-#include "../shell/overlay_input.hpp"
-#include "../shell/input.hpp"
 #include "../chat/composer/text_form.hpp"
 #include "../settings/catalog.hpp"
-#include "maicord/core/deadline.hpp"
-#include "maicord/core/hash.hpp"
-#include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/ui/widgets/presence.hpp"
-#include "maicord/model/chat/asset_hash.hpp"
-#include "maicord/model/guild/member_moderation.hpp"
 #include "maicord/model/user/profile_editor.hpp"
 #include "maicord/platform/desktop/file_picker.hpp"
-#include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/render/d3d11/layer_presentation.hpp"
 #include "maicord/model/chat/bounded_edit.hpp"
 #include "maicord/ui/account/profile_dialog_scene.hpp"
@@ -37,7 +19,6 @@
 
 #include <stddef.h>
 #include "maicord/app/account/account_profile_edit.hpp"
-#include "account_access.hpp"
 #include "maicord/app/media/account_media.hpp"
 
 namespace maicord::app_detail {

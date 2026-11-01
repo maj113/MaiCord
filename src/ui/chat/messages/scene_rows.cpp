@@ -1,4 +1,9 @@
 #include "scene_internal.hpp"
+#include "maicord/ui/chat/messages/rich_widgets.hpp"
+#include "scene_measurements.hpp"
+#include "maicord/ui/chat/polls/controls.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
+#include "maicord/core/win32_system_time.hpp"
 
 namespace maicord {
 using namespace message_scene_detail;

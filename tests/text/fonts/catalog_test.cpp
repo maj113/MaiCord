@@ -9,7 +9,7 @@
 #include "maicord/core/win32_file_info.hpp"
 namespace maicord {namespace {
 #include "../../generated/font_catalog_probe_font.inc"
-#include "font_catalog_fixture.inc"
+#include "catalog_fixture.inc"
 u32 checks=0;
 void print(const char* s) noexcept {u32 n=0;while(s[n])++n;DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&done,nullptr);}
 void number(u32 v) noexcept {char d[16],out[16];u32 n=0;do{d[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n;++i)out[i]=d[n-i-1];out[n]=0;print(out);}
@@ -55,7 +55,7 @@ bool entries() noexcept {
 }
 bool argument(const wchar_t** command,wchar_t* out,u32 available) noexcept {const wchar_t* p=*command;while(*p==L' '||*p==L'\t')++p;const bool quoted=*p==L'"';if(quoted)++p;u32 n=0;
     while(*p&&!(quoted?*p==L'"':*p==L' '||*p==L'\t')){if(n+1>=available)return false;out[n++]=*p++;}if(quoted){if(*p!=L'"')return false;++p;}out[n]=0;*command=p;return n!=0;}
-#include "font_handle_stat_units.inc"
+#include "handle_stat_units.inc"
 bool run() noexcept {
     static wchar_t arg[32768];const wchar_t* command=GetCommandLineW();CHECK(argument(&command,arg,32768));while(*command==L' '||*command==L'\t')++command;
     if(!*command)return views()&&entries()&&handle_stat_tests::run();

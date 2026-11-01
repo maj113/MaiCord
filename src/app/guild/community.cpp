@@ -1,4 +1,13 @@
 #include "community_internal.hpp"
+#include "../shell/toast.hpp"
+#include "card.hpp"
+#include "../account/login/action_captcha.hpp"
+#include "../account/account_presentation.hpp"
+#include "channel_overview.hpp"
+#include "../chat/composer/text_input.hpp"
+#include "../shell/content_input.hpp"
+#include "maicord/app/gateway/client_event.hpp"
+#include "maicord/core/log.hpp"
 
 namespace maicord::app_detail {
 namespace {

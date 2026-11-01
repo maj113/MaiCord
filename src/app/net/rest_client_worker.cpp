@@ -1,4 +1,5 @@
 #include "rest_client_internal.hpp"
+#include "maicord/core/deadline.hpp"
 
 namespace maicord {
 namespace {

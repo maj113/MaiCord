@@ -2,11 +2,11 @@
 // reader, the add probe and provider insertion. Offline; fixtures are signed
 // with the test-only scalar-one key.
 #include "maicord/app/plugins/providers.hpp"
-#include "plugin_fake_transport.hpp"
+#include "fake_transport.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
-#include "plugin_index_fixture.hpp"
+#include "index_fixture.hpp"
 
 namespace maicord {
 namespace {

@@ -1,4 +1,14 @@
 #include "search_internal.hpp"
+#include "maicord/ui/text/timestamp_format.hpp"
+#include "../composer/text_input.hpp"
+#include "../messages/pinned_messages.hpp"
+#include "../../media/downloads.hpp"
+#include "../../media/policy.hpp"
+#include "../../media/video.hpp"
+#include "content.hpp"
+#include "navigation.hpp"
+#include "maicord/ui/chat/search/query.hpp"
+#include "maicord/core/decimal.hpp"
 
 namespace maicord::app_detail {
 namespace search_detail {

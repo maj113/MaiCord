@@ -5,13 +5,7 @@
 // decorators live in sdk_surfaces.cpp; read, events, actions and
 // effects in sdk_data.cpp.
 #include "sdk_internal.hpp"
-#include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/utf.hpp"
-#include "maicord/core/byte_order.hpp"
-#include "maicord/core/color_hex.hpp"
-#include "maicord/core/decimal.hpp"
-#include "maicord/core/hash.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 

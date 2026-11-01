@@ -1,19 +1,13 @@
 #pragma once
 // Shared by event_pump.cpp and its parts (event_pump_*.cpp); private to them.
 #include "maicord/model/user/activity.hpp"
-#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/app/chat/messages/event_pump.hpp"
-#include "maicord/app/gateway/user_store_dispatch.hpp"
-#include "maicord/app/guild/member_list_channel_binding.hpp"
 #include "maicord/app/gateway/thread_members.hpp"
 #include "maicord/model/chat/read_state.hpp"
 #include "maicord/model/chat/chat_state.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
-#include "../../gateway/member_list_validation.hpp"
-#include "maicord/model/chat/message_rich_store.hpp"
 #include "maicord/model/voice/state_store.hpp"
-#include "maicord/protocol/gateway/reaction_events.hpp"
 #include "maicord/app/chat/messages/send_tracker.hpp"
 #include "maicord/app/chat/messages/event_scratch.hpp"
 

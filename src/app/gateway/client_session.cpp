@@ -1,4 +1,7 @@
 #include "client_internal.hpp"
+#include "maicord/core/win32_process.hpp"
+#include "maicord/platform/crypto/random.hpp"
+#include "../../protocol/encoding/json_field_lists.hpp"
 
 namespace maicord {
 namespace {

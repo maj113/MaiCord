@@ -273,7 +273,7 @@ maicord_library(maicord_app_core
     src/app/update/prepare.cpp src/app/update/package.cpp
     src/app/update/fetch.cpp src/app/update/https.cpp src/app/update/service.cpp src/app/chat/search/recent.cpp
     src/app/chat/channel_memory.cpp
-    src/app/chat/link_trust.cpp src/app/voice/dave/voice_dave_route.cpp src/app/voice/jitter_buffer.cpp src/app/voice/mixer.cpp
+    src/app/chat/link_trust.cpp src/app/voice/dave/route.cpp src/app/voice/jitter_buffer.cpp src/app/voice/mixer.cpp
     src/app/voice/playback.cpp src/app/voice/receive.cpp src/app/gateway/stream_session.cpp
     src/app/voice/video_rtp_receive.cpp src/app/voice/video_sink.cpp
     # Voice send: capture, gating, encoding and RTP. Executables pull the encoder
@@ -481,7 +481,7 @@ maicord_library(maicord_model
     src/model/voice/stage_policy.cpp src/model/user/image_crop.cpp src/model/user/profile_editor.cpp
     src/app/voice/mls/tree_math.cpp src/app/voice/mls/ratchet_tree.cpp src/app/voice/mls/tree_validate.cpp src/app/voice/mls/tree_edit.cpp
     src/app/voice/mls/treekem.cpp src/app/voice/mls/group_context.cpp src/app/voice/mls/proposal.cpp src/app/voice/mls/commit.cpp
-    src/app/voice/mls/welcome.cpp src/app/voice/mls/group.cpp src/app/voice/dave/session.cpp src/app/voice/dave/voice_connection_dave.cpp
+    src/app/voice/mls/welcome.cpp src/app/voice/mls/group.cpp src/app/voice/dave/session.cpp src/app/voice/dave/connection_dave.cpp
     src/app/voice/log.cpp
     src/model/notifications/desktop_notification_queue.cpp src/model/notifications/sound_policy.cpp
     src/model/notifications/sound_admission.cpp src/model/notifications/retention.cpp

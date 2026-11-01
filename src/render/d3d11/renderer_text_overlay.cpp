@@ -1,4 +1,13 @@
 #include "renderer_text_internal.hpp"
+#include "maicord/ui/account/profile_appearance.hpp"
+#include "maicord/ui/chat/messages/action_bar_presentation.hpp"
+#include "maicord/ui/shell/popup_presentation.hpp"
+#include "maicord/ui/media/picker_presentation.hpp"
+#include "maicord/ui/chat/messages/reaction_viewer_presentation.hpp"
+#include "maicord/ui/shell/text_presentation.hpp"
+#include "maicord/ui/chat/threads/header.hpp"
+#include "renderer_edit.hpp"
+#include "renderer_login_form.hpp"
 
 namespace maicord {
 namespace renderer_text_detail {

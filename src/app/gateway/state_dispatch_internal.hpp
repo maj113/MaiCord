@@ -1,20 +1,13 @@
 #pragma once
 // Shared by state_dispatch.cpp and its parts (state_dispatch_*.cpp); private to them.
-#include "maicord/app/gateway/client_dispatch.hpp"
 #include "maicord/app/gateway/client_event.hpp"
-#include "maicord/protocol/gateway/message_events.hpp"
-#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "maicord/model/chat/chat_state.hpp"
 
 #include "guild_details.hpp"
-#include "dispatch_common.hpp"
 #include "payload_writer.hpp"
-#include "state_payload.hpp"
 #include "user_payload.hpp"
-#include "maicord/protocol/media/upload_allowance.hpp"
-#include "maicord/protocol/messages/thread_actions.hpp"
 #include "../../protocol/encoding/json_field_lists.hpp"
 
 namespace maicord {

@@ -138,7 +138,7 @@ maicord_test(MaiCordNativeExtensionTests ENTRY maicord_native_extensions_entry
         tests/model/chat/read_state_wire.cpp tests/protocol/messages/ack.cpp tests/app/chat/read_ack_controller.cpp tests/protocol/messages/bulk_message_ack.cpp
         tests/app/chat/read_scope.cpp tests/app/chat/bulk_read_ack_controller.cpp tests/model/chat/read_state_pump.cpp
         tests/ui/guild/channel_context_policy.cpp tests/ui/guild/context_policy.cpp tests/protocol/user/social_menus.cpp
-        tests/ui/chat/unread_context.cpp tests/ui/chat/messages/mention_badge_text.cpp tests/app/gateway/ready_projection.cpp tests/ui/text/text_emitter.cpp
+        tests/ui/chat/unread_context.cpp tests/ui/chat/messages/mention_badge_text.cpp tests/app/gateway/ready_projection.cpp tests/ui/text/emitter.cpp
         tests/model/user/member_user_perf.cpp src/render/text/edit_layout.cpp tests/ui/chat/messages/context_controller.cpp
         tests/ui/settings/scene.cpp tests/ui/widgets/settings_choice.cpp tests/ui/account/password_recovery.cpp tests/ui/account/password_reset_ui.cpp
         tests/model/user/profile_editor_layout.cpp tests/protocol/auth/phone_recovery.cpp tests/ui/account/password_phone_ui.cpp tests/ui/account/friends_scene.cpp
@@ -467,7 +467,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
         tests/app/gateway/responsiveness.cpp tests/app/gateway/ready_users.cpp tests/core/json_string_decode.cpp tests/core/json_reader_visit.cpp
         tests/platform/net/resolver_publication.cpp tests/app/media/worker_publication.cpp tests/media/image/png_crc.cpp tests/app/shell/frame_rate.cpp
         tests/ui/core/layout_anchors.cpp tests/ui/account/widget_input.cpp tests/ui/text/form.cpp tests/app/chat/threads/forum_form.cpp
-        tests/ui/text/secure_edit_history.cpp tests/ui/text/composition_history.cpp tests/ui/text/text_input_runs.cpp
+        tests/ui/text/secure_edit_history.cpp tests/ui/text/composition_history.cpp tests/ui/text/input_runs.cpp
         tests/ui/layout/widget_scroll.cpp tests/ui/core/input_router.cpp tests/app/shell/navigation_shortcuts.cpp tests/app/shell/shortcut_registry.cpp
         tests/ui/layout/list_paging.cpp tests/ui/widgets/button_keyboard.cpp tests/protocol/media/attachment_upload.cpp tests/app/chat/composer/composer_attachments.cpp
         tests/ui/chat/composer/attachment_strip.cpp tests/media/image/composer_thumbnails.cpp tests/app/chat/composer/preview_owner.cpp
@@ -808,7 +808,7 @@ maicord_test(MaiCordPinnedMessagesRuntimeTests ENTRY maicord_application_pinned_
     INCLUDES src/app
     TIMEOUT 15 TEST maicord_pinned_messages_runtime)
 maicord_test(MaiCordMediaPickerRuntimeTests ENTRY maicord_application_media_picker_runtime_entry
-    SOURCES tests/app/media/picker_runtime.cpp tests/app/media/picker_runtime_stubs.cpp src/app/shell/state.cpp
+    SOURCES tests/app/media/picker_runtime.cpp src/app/shell/state.cpp
         src/core/log.cpp
     LIBS ${maicord_app_test_libs} maicord_ui_input maicord_message_runtime kernel32 user32
     INCLUDES src/app
@@ -820,7 +820,7 @@ maicord_test(MaiCordGifFavoritesRuntimeTests ENTRY maicord_application_gif_favor
     TIMEOUT 15 TEST maicord_gif_favorites_runtime)
 # Includes collection navigation, canonical embed queue recovery, joined restarts and failure recovery.
 maicord_test(MaiCordVideoFocusRuntimeTests ENTRY maicord_video_focus_runtime_entry
-    SOURCES tests/app/media/video_focus_runtime.cpp tests/app/media/video_focus_runtime_stubs.cpp
+    SOURCES tests/app/media/video_focus_runtime.cpp
         src/app/media/video.cpp src/app/media/video_sources.cpp
         src/app/media/video_input.cpp src/app/shell/state.cpp
         src/core/log.cpp

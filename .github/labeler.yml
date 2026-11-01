@@ -16,7 +16,7 @@
       - any-glob-to-any-file: ["src/app/account/**", "include/maicord/app/account/**", "src/ui/account/**", "src/protocol/auth/**", "src/protocol/user/**"]
 "area: plugins":
   - changed-files:
-      - any-glob-to-any-file: ["include/maicord/sdk/**", "src/app/plugins/**", "include/maicord/app/plugins/**", "src/ui/plugins/**", "samples/plugins/**"]
+      - any-glob-to-any-file: ["include/maicord/sdk/**", "src/app/plugins/**", "include/maicord/app/plugins/**", "include/maicord/ui/plugins/**", "samples/plugins/**"]
 "area: themes":
   - changed-files:
       - any-glob-to-any-file: ["include/maicord/ui/theme/**", "src/ui/theme/**", "src/app/settings/client_theme*", "include/maicord/app/settings/client_theme*", "assets/themes/**"]

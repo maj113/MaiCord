@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../../../../src/app/chat/search/search_internal.hpp"
-#include "application_search_measurement.hpp"
 
 namespace maicord::search_runtime_test {
 using namespace app_detail;

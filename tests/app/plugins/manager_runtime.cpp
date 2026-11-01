@@ -6,8 +6,8 @@
 // Isolated TEMP files; test-only scalar-one key.
 #include "plugins/browser.hpp"
 #include "maicord/app/update/log.hpp"
-#include "plugin_manager_fixture.hpp"
-#include "plugin_fake_transport.hpp"
+#include "manager_fixture.hpp"
+#include "fake_transport.hpp"
 #include "../../support/test_output.hpp"
 
 #include "maicord/core/win32_kernel.hpp"

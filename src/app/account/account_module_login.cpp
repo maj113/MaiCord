@@ -1,8 +1,7 @@
 #include "account_module_internal.hpp"
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunused-function"
+#include "maicord/core/win32_process.hpp"
+#include "maicord/protocol/messages/edit.hpp"
 #include "login/account_login_handoff.hpp"
-#pragma clang diagnostic pop
 
 namespace maicord {
 namespace account_module_detail {

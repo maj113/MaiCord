@@ -11,7 +11,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 
-#include "plugin_index_fixture.hpp"
+#include "index_fixture.hpp"
 
 namespace maicord {
 namespace {

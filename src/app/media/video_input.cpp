@@ -1,4 +1,10 @@
 #include "video_internal.hpp"
+#include "video.hpp"
+#include "../shell/frame_presentation.hpp"
+#include "../voice/call.hpp"
+#include "../chat/application_link_trust.hpp"
+#include "policy.hpp"
+#include "maicord/ui/core/scene_cursor.hpp"
 
 namespace maicord::app_detail {
 

@@ -1,4 +1,17 @@
 #include "text_presentation_internal.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
+#include "maicord/ui/plugins/slots.hpp"
+#include "maicord/ui/voice/audio_presentation.hpp"
+#include "maicord/ui/chat/polls/presentation.hpp"
+#include "maicord/ui/chat/messages/unread_divider.hpp"
+#include "maicord/ui/text/timestamp_format.hpp"
+#include "maicord/ui/chat/messages/component_layout.hpp"
+#include "maicord/ui/controls/settings_controls.hpp"
+#include "maicord/model/guild/invite_card_cache.hpp"
+#include "maicord/model/guild/scheduled_event_store.hpp"
+#include "maicord/core/decimal.hpp"
+#include "maicord/model/user/store.hpp"
+#include "maicord/ui/shell/navigation_view.hpp"
 
 namespace maicord {
 using namespace text_presentation_detail;

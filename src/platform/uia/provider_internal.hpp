@@ -1,12 +1,8 @@
 #pragma once
 
 #include "maicord/platform/uia/provider.hpp"
-#include "maicord/core/memory.hpp"
-#include "maicord/core/scratch_pages.hpp"
-#include "maicord/core/ascii.hpp"
 #include "maicord/ui/accessibility/accessibility.hpp"
 
-#include "maicord/core/win32_user.hpp"
 #include "maicord/sys/ole.hpp"
 
 #include <stddef.h>

@@ -1,4 +1,14 @@
 #include "text_presentation_internal.hpp"
+#include "maicord/ui/chat/polls/presentation.hpp"
+#include "maicord/ui/chat/messages/unread_divider.hpp"
+#include "maicord/ui/text/timestamp_format.hpp"
+#include "maicord/ui/chat/messages/reaction_presentation.hpp"
+#include "maicord/ui/chat/messages/component_layout.hpp"
+#include "maicord/model/chat/message_poll_store.hpp"
+#include "maicord/core/hash.hpp"
+#include "maicord/model/guild/member_store.hpp"
+#include "maicord/model/user/store.hpp"
+#include "maicord/ui/shell/navigation_view.hpp"
 
 namespace maicord {
 using namespace text_presentation_detail;

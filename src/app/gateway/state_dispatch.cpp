@@ -1,4 +1,7 @@
 #include "state_dispatch_internal.hpp"
+#include "dispatch_common.hpp"
+#include "maicord/protocol/media/upload_allowance.hpp"
+#include "maicord/protocol/messages/thread_actions.hpp"
 
 namespace maicord {
 namespace {

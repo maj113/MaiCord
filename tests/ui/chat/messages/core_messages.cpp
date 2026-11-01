@@ -1,6 +1,5 @@
 #include "../../../support/test_main_shared.hpp"
 
-#include "../../../support/secure_text_store_access.hpp"
 #include "../../../support/ui_scene_fixtures.hpp"
 #include "../../../support/model_store_fixtures.hpp"
 #include "maicord/model/guild/member_store.hpp"
@@ -15,7 +14,7 @@
 #include "maicord/ui/text/timestamp_format.hpp"
 #include "maicord/ui/chat/messages/action_bar_presentation.hpp"
 #include "maicord/ui/chat/messages/context_controller.hpp"
-#include "../../../message_background_surfaces.inc"
+#include "../../../support/message_background_surfaces.inc"
 #include "maicord/ui/chat/messages/reaction_presentation.hpp"
 #include "maicord/ui/chat/messages/rich_widgets.hpp"
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"

@@ -5,7 +5,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "plugin_test_key.hpp"
+#include "test_key.hpp"
 
 namespace maicord::plugin_manager_fixture {
 

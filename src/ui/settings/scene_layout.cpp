@@ -1,4 +1,7 @@
 #include "scene_internal.hpp"
+#include "maicord/core/utf.hpp"
+#include "maicord/core/hash.hpp"
+#include "maicord/ui/kit/scene_kit.hpp"
 
 namespace maicord {
 using namespace settings_scene_detail;

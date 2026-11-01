@@ -68,7 +68,7 @@ bool outline(const NativeFontFace* face) noexcept {
     FontGeometryScratch scratch{{{points,64},{ends,16},{active,16},0,0,1000000},{},{}};GlyphOutline out{};out.commands=commands;out.capacity=128;
     CHECK(font_geometry_outline(instance,glyph,&scratch,&out)==SfntStatus::ok&&out.count&&out.has_bounds);return true;
 }
-#include "font_instance_cases.hpp"
+#include "instance_cases.hpp"
 bool run() noexcept {
     const ConstSlice<u8> font{tt_outline_fixture+20,byte_load_le32(tt_outline_fixture+12)};
     CHECK(font.count<16000 && font.count+20<sizeof(tt_outline_fixture));

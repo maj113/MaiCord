@@ -1,4 +1,14 @@
 #include "profile_editor_internal.hpp"
+#include "profile_editor.hpp"
+#include "application_account_logout.hpp"
+#include "../chat/composer/attachments.hpp"
+#include "../guild/channel_overview.hpp"
+#include "profile.hpp"
+#include "../settings/settings.hpp"
+#include "../shell/overlay_input.hpp"
+#include "../shell/input.hpp"
+#include "maicord/core/log.hpp"
+#include "account_access.hpp"
 
 namespace maicord::app_detail {
 namespace {

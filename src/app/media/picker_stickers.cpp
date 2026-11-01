@@ -1,4 +1,9 @@
 #include "picker_internal.hpp"
+#include "../settings/emoji_preferences.hpp"
+#include "maicord/core/decimal.hpp"
+#include "maicord/protocol/user/emoji_preferences.hpp"
+#include "maicord/model/guild/permission_bits.hpp"
+#include "maicord/model/chat/asset_hash.hpp"
 
 namespace maicord::app_detail {
 namespace picker_detail {

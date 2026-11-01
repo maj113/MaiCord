@@ -1,30 +1,10 @@
 #pragma once
 
-#include "maicord/ui/text/ansi_text.hpp"
-#include "maicord/ui/theme/style_projection.hpp"
-#include "maicord/ui/theme/styles.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
 #include "maicord/ui/text/flow_layout.hpp"
-#include "maicord/ui/plugins/slots.hpp"
-#include "maicord/ui/theme/foreground_color.hpp"
-#include "maicord/ui/voice/audio_presentation.hpp"
-#include "maicord/ui/chat/polls/presentation.hpp"
-#include "maicord/ui/chat/messages/unread_divider.hpp"
 
-#include "maicord/ui/text/timestamp_format.hpp"
-#include "maicord/ui/chat/messages/reaction_presentation.hpp"
-#include "maicord/ui/chat/messages/component_layout.hpp"
 #include "maicord/ui/chat/messages/system_text.hpp"
-#include "maicord/ui/controls/settings_controls.hpp"
-#include "maicord/model/guild/invite_card_cache.hpp"
-#include "maicord/model/chat/message_poll_store.hpp"
-#include "maicord/model/guild/scheduled_event_store.hpp"
-#include "maicord/core/hash.hpp"
-#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/model/guild/member_store.hpp"
-#include "maicord/model/user/store.hpp"
-#include "maicord/ui/shell/navigation_view.hpp"
 
 namespace maicord::text_presentation_detail {
 
@@ -90,13 +70,13 @@ struct CommandLook {
     u16 source_id{};
 };
 
-constexpr CommandLook kLookMiddle{.vertical = UiTextAlignment::center,
-                                  .wrapping = TextWrapping::no_wrap,
-                                  .overflow = TextOverflow::ellipsis};
-constexpr Color kNoRoleColor{};
-constexpr ConstSlice<TextStyleSpan> kNoStyles{};
-constexpr ConstSlice<MessageMarkdownSemantic> kNoSemantics{};
-constexpr Utf8View kNoLink{};
+inline constexpr CommandLook kLookMiddle{.vertical = UiTextAlignment::center,
+                                         .wrapping = TextWrapping::no_wrap,
+                                         .overflow = TextOverflow::ellipsis};
+inline constexpr Color kNoRoleColor{};
+inline constexpr ConstSlice<TextStyleSpan> kNoStyles{};
+inline constexpr ConstSlice<MessageMarkdownSemantic> kNoSemantics{};
+inline constexpr Utf8View kNoLink{};
 
 struct RetainedReplySummary {
     Utf8View text;

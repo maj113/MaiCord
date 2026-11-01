@@ -1,4 +1,8 @@
 #include "channel_overview_internal.hpp"
+#include "../settings/settings.hpp"
+#include "maicord/model/guild/permission_compute.hpp"
+#include "maicord/model/guild/settings_model.hpp"
+#include "maicord/core/heap_sort.hpp"
 
 namespace maicord::app_detail {
 namespace {

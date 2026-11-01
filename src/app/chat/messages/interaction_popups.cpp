@@ -1,4 +1,11 @@
 #include "interaction_internal.hpp"
+#include "../../guild/folders.hpp"
+#include "../../shell/click_count.hpp"
+#include "../../account/login/action_captcha.hpp"
+#include "feedback.hpp"
+#include "../../shell/retained_projection.hpp"
+#include "maicord/ui/shell/navigation_context.hpp"
+#include "maicord/ui/chat/messages/author.hpp"
 
 namespace maicord::app_detail {
 namespace interaction_detail {

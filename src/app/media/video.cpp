@@ -1,4 +1,8 @@
 #include "video_internal.hpp"
+#include "video.hpp"
+#include "../shell/frame_presentation.hpp"
+#include "policy.hpp"
+#include "maicord/media/core/presentation_policy.hpp"
 
 namespace maicord::app_detail {
 namespace {

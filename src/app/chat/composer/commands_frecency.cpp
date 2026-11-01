@@ -1,4 +1,7 @@
 #include "commands_internal.hpp"
+#include "maicord/app/net/file_persistence.hpp"
+#include "maicord/core/log.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace commands_detail {

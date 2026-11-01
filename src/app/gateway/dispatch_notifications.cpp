@@ -1,4 +1,6 @@
 #include "dispatch_internal.hpp"
+#include "maicord/core/byte_order.hpp"
+#include "maicord/protocol/user/notification_settings.hpp"
 
 namespace maicord {
 namespace dispatch_detail {

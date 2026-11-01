@@ -1,4 +1,7 @@
 #include "internal.hpp"
+#include "../../net/rest_rate_retry.hpp"
+#include "../../account/account_access.hpp"
+#include "maicord/app/gateway/client_dispatch.hpp"
 
 namespace maicord::app_detail {
 

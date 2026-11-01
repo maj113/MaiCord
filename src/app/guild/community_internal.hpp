@@ -1,33 +1,18 @@
 #pragma once
 // Shared by community.cpp and its parts (community_*.cpp); private to them.
 #include "community.hpp"
-#include "../shell/toast.hpp"
-#include "card.hpp"
-#include "../account/login/action_captcha.hpp"
-#include "../account/account_presentation.hpp"
-#include "channel_overview.hpp"
-#include "../chat/composer/text_input.hpp"
-#include "../shell/content_input.hpp"
-#include "../chat/messages/history.hpp"
-#include "../settings/layer.hpp"
 #include "../settings/modal.hpp"
 #include "../shell/state.hpp"
-#include "maicord/app/gateway/client_event.hpp"
 #include "maicord/core/deadline.hpp"
-#include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/model/guild/settings_model.hpp"
 #include "maicord/render/d3d11/layer_presentation.hpp"
 #include "maicord/model/chat/bounded_edit.hpp"
-#include "maicord/ui/text/clipboard.hpp"
 #include "maicord/ui/shell/navigation_view.hpp"
-#include "maicord/ui/text/timestamp_format.hpp"
 #include "../account/account_access.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_system_time.hpp"
 
 namespace maicord::app_detail {
 namespace community_detail {}

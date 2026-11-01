@@ -6,7 +6,6 @@
 #include "account/dm_profile.hpp"
 #include "../../support/model_store_fixtures.hpp"
 #include "chat/composer/commands.hpp"
-#include "chat/private_channel.hpp"
 #include "account/profile.hpp"
 #include "shell/state.hpp"
 #include "account/friends.hpp"

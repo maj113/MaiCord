@@ -1,4 +1,7 @@
 #include "state_dispatch_internal.hpp"
+#include "maicord/core/byte_order.hpp"
+#include "state_payload.hpp"
+#include "maicord/protocol/messages/thread_actions.hpp"
 
 namespace maicord {
 namespace {

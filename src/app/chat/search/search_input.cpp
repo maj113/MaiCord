@@ -1,4 +1,12 @@
 #include "search_internal.hpp"
+#include "../../shell/overlay_input.hpp"
+#include "../../shell/click_count.hpp"
+#include "maicord/app/shell/shortcut_registry.hpp"
+#include "maicord/ui/core/scene_cursor.hpp"
+#include "../composer/text_input.hpp"
+#include "../composer/text_edit_keys.hpp"
+#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/core/decimal.hpp"
 
 namespace maicord::app_detail {
 

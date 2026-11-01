@@ -10,7 +10,7 @@
 #include "maicord/app/update/https.hpp"
 #include "maicord/app/update/log.hpp"
 #include "update/updates.hpp"
-#include "update_signed_fixture_helpers.hpp"
+#include "signed_fixture_helpers.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord {

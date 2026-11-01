@@ -1,4 +1,6 @@
 #include "event_pump_internal.hpp"
+#include "maicord/app/guild/member_list_channel_binding.hpp"
+#include "../../gateway/member_list_validation.hpp"
 
 namespace maicord {
 namespace {

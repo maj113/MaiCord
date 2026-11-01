@@ -1,4 +1,5 @@
 #include "account_media_worker_internal.hpp"
+#include "maicord/protocol/media/embed_provider.hpp"
 
 namespace maicord {
 namespace {

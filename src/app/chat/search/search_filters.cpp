@@ -1,4 +1,11 @@
 #include "search_internal.hpp"
+#include "../composer/composer.hpp"
+#include "../composer/text_input.hpp"
+#include "../../account/friends.hpp"
+#include "maicord/ui/chat/search/query.hpp"
+#include "maicord/model/user/friend_search.hpp"
+#include "maicord/core/decimal.hpp"
+#include "maicord/core/win32_system_time.hpp"
 
 namespace maicord::app_detail {
 namespace search_detail {

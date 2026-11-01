@@ -3,12 +3,12 @@
 // hygiene. Isolated TEMP files; test-only scalar-one or throwaway keys.
 #include "maicord/app/plugins/index_service.hpp"
 #include "maicord/app/update/log.hpp"
-#include "plugin_fake_transport.hpp"
+#include "fake_transport.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_file_info.hpp"
 
-#include "plugin_index_fixture.hpp"
+#include "index_fixture.hpp"
 
 namespace maicord {
 namespace {

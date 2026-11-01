@@ -1,5 +1,5 @@
 #include "maicord/app/update/package.hpp"
-#include "update_signed_fixture_helpers.hpp"
+#include "signed_fixture_helpers.hpp"
 
 namespace maicord {
 namespace {

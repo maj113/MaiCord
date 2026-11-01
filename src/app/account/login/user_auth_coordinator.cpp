@@ -1,4 +1,9 @@
 #include "user_auth_coordinator_internal.hpp"
+#include "maicord/core/win32_process.hpp"
+#include "maicord/protocol/auth/login_continuations.hpp"
+#include "maicord/protocol/auth/browser_sign_in.hpp"
+#include "maicord/core/byte_range.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

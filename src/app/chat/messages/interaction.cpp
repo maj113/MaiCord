@@ -1,4 +1,18 @@
 #include "interaction_internal.hpp"
+#include "../../guild/community.hpp"
+#include "components.hpp"
+#include "../../guild/lifecycle.hpp"
+#include "../../guild/menu.hpp"
+#include "../../voice/stream.hpp"
+#include "../../voice/soundboard.hpp"
+#include "../../account/friends.hpp"
+#include "../../guild/member_moderation.hpp"
+#include "../application_private_conversation.hpp"
+#include "../../account/account_menu.hpp"
+#include "../../shell/scrolling.hpp"
+#include "../../guild/channel_overview.hpp"
+#include "../../guild/settings/settings.hpp"
+#include "maicord/ui/guild/context_policy.hpp"
 
 namespace maicord::app_detail {
 

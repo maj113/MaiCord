@@ -46,23 +46,25 @@ def ninja():
     return re.search(r'^CMAKE_MAKE_PROGRAM:FILEPATH=(.+)$', cache, re.M).group(1).strip()
 
 
-def includers():
-    """Header -> source files of every unit whose recorded dependencies list it."""
+def includers(objects):
+    """Header -> source files of every unit whose recorded dependencies list it. A unit using a precompiled header
+    lists the header's stub source among its dependencies, so the unit comes from its own object (objects)."""
     text = subprocess.run([ninja(), '-C', BUILD, '-t', 'deps'], capture_output=True, text=True, check=True).stdout
     users = {}
     deps = []
+    owner = None
 
     def flush():
-        if deps:
-            source = next((d for d in deps if d.endswith(SOURCE)), None)
-            if source:
-                for d in deps:
-                    users.setdefault(key(d), set()).add(key(source))
+        source = owner or next((key(d) for d in deps if d.endswith(SOURCE)), None)
+        if source:
+            for d in deps:
+                users.setdefault(key(d), set()).add(source)
 
     for line in text.splitlines():
         if line and not line[0].isspace():
             flush()
             deps = []
+            owner = objects.get(os.path.normcase(line.split(': #deps')[0].replace('\\', '/')))
         elif line.strip():
             deps.append(line.strip())
     flush()
@@ -79,10 +81,13 @@ def main():
     database = os.path.join(BUILD, 'compile_commands.json')
     if not os.path.exists(database):
         sys.exit(f'{database} is missing: run tools/build.ps1 -KeepIntermediates (with -Test for test sources) first.')
-    commands = {}
+    commands, objects = {}, {}
     for entry in json.load(open(database, encoding='utf-8')):
         if entry['file'].endswith(SOURCE) and 'clang-cl' in entry['command']:
             commands.setdefault(key(entry['file']), entry)  # one configuration per source is enough to parse it
+            output = re.search(r'/Fo(\S+)', entry['command'])
+            if output:
+                objects.setdefault(os.path.normcase(output.group(1).replace('\\', '/')), key(entry['file']))
 
     requested = [os.path.join(REPOSITORY, f) for f in arguments.files] or changed_files()
     units, unmapped = set(), []
@@ -92,7 +97,7 @@ def main():
             units.add(key(path))
             continue
         if users is None:
-            users = includers()
+            users = includers(objects)
         found = sorted(users.get(key(path), ()))
         found = [f for f in found if f in commands]
         if not found:

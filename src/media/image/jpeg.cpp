@@ -1,4 +1,5 @@
 #include "jpeg_internal.hpp"
+#include "maicord/core/byte_order.hpp"
 
 namespace maicord {
 namespace jpeg_detail {

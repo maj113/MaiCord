@@ -1,6 +1,6 @@
 gemoji emoji aliases
 
-MaiCord's emoji shortcode table (src/ui/emoji_shortcodes.inc) includes
+MaiCord's emoji shortcode table (src/ui/text/emoji_shortcodes.inc) includes
 alias names from gemoji's db/emoji.json, pinned to commit
 fadaeaf1f1a9be82b321316a6c5502e43138b2f6:
 https://github.com/github/gemoji

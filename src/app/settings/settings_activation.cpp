@@ -1,4 +1,19 @@
 #include "settings_internal.hpp"
+#include "../account/profile_editor.hpp"
+#include "../account/activity.hpp"
+#include "../account/account_presentation.hpp"
+#include "../account/application_account_logout.hpp"
+#include "../plugins/browser.hpp"
+#include "../plugins/browser_projection.hpp"
+#include "../notifications/notifications.hpp"
+#include "theme_editor.hpp"
+#include "../update/updates.hpp"
+#include "user_settings.hpp"
+#include "account_settings.hpp"
+#include "keybinds_settings.hpp"
+#include "../notifications/desktop.hpp"
+#include "maicord/ui/widgets/settings_choice.hpp"
+#include "maicord/sys/shell.hpp"
 
 namespace maicord::app_detail {
 namespace settings_detail {

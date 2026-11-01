@@ -1,4 +1,9 @@
 #include "video_internal.hpp"
+#include "../settings/settings.hpp"
+#include "../account/friends.hpp"
+#include "../chat/composer/text_input.hpp"
+#include "maicord/media/core/presentation_policy.hpp"
+#include "maicord/protocol/media/embed_provider.hpp"
 
 namespace maicord::app_detail {
 

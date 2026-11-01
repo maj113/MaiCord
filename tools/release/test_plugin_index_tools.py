@@ -6,7 +6,7 @@
 
 The fixtures are shared with the client's tests (tests/app/plugins/index.cpp): the
 canonical index documents, their signatures by the test-only scalar-one key
-(public point = the P-256 generator, as in tests/app/update/update_signed_fixture_helpers.hpp),
+(public point = the P-256 generator, as in tests/app/update/signed_fixture_helpers.hpp),
 the manifests the client synthesizes, and vectors.txt, whose malformed
 documents must fail with the same error code in both implementations. All
 content is synthetic.

@@ -1,4 +1,12 @@
 #include "settings_internal.hpp"
+#include "../guild/channel_overview.hpp"
+#include "../shell/modal_scroll.hpp"
+#include "../shell/input.hpp"
+#include "keybinds_settings.hpp"
+#include "maicord/ui/controls/settings_controls.hpp"
+#include "maicord/ui/widgets/button.hpp"
+#include "maicord/ui/widgets/settings_choice.hpp"
+#include "maicord/sys/shell.hpp"
 
 namespace maicord::app_detail {
 

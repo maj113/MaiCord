@@ -1,4 +1,7 @@
 #include "commands_internal.hpp"
+#include "../messages/components.hpp"
+#include "maicord/core/log.hpp"
+#include "../../account/account_access.hpp"
 
 namespace maicord::app_detail {
 namespace commands_detail {

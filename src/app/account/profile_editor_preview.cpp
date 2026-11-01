@@ -1,4 +1,12 @@
 #include "profile_editor_internal.hpp"
+#include "../chat/composer/text_input.hpp"
+#include "../shell/overlay_input.hpp"
+#include "maicord/core/hash.hpp"
+#include "maicord/ui/widgets/presence.hpp"
+#include "maicord/model/chat/asset_hash.hpp"
+#include "maicord/model/guild/member_moderation.hpp"
+#include "maicord/protocol/encoding/writer.hpp"
+#include "account_access.hpp"
 
 namespace maicord::app_detail {
 namespace {

@@ -1,4 +1,13 @@
 #include "picker_internal.hpp"
+#include "../chat/composer/text_edit_keys.hpp"
+#include "../shell/overlay_input.hpp"
+#include "../shell/input.hpp"
+#include "../chat/composer/text_input.hpp"
+#include "../settings/settings.hpp"
+#include "maicord/core/deadline.hpp"
+#include "maicord/ui/text/clipboard.hpp"
+#include "maicord/model/chat/forwarded_input.hpp"
+#include "maicord/app/media/account_media.hpp"
 
 namespace maicord::app_detail {
 

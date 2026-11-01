@@ -1,6 +1,6 @@
 Emojibase shortcodes
 
-MaiCord's emoji shortcode table (src/ui/emoji_shortcodes.inc) includes
+MaiCord's emoji shortcode table (src/ui/text/emoji_shortcodes.inc) includes
 alias names from emojibase-data 16.0.3, en/shortcodes/joypixels.json,
 iamcal.json and emojibase.json:
 https://github.com/milesj/emojibase

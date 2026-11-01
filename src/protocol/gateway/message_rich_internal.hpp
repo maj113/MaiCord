@@ -2,7 +2,6 @@
 
 #include "maicord/protocol/gateway/message_events.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/protocol/encoding/json_ids.hpp"
 #include "decode.hpp"
 #include "../encoding/json_field_lists.hpp"
 

@@ -1,4 +1,14 @@
 #include "renderer_text_internal.hpp"
+#include "maicord/ui/text/native_text_candidate.hpp"
+#include "maicord/render/effects/colr_paint.hpp"
+#include "../text/picker_glyph_cache.hpp"
+#include "../text/shaped_text_cache.hpp"
+#include "maicord/model/user/private_channel_store.hpp"
+#include "maicord/render/media/inline_media.hpp"
+#include "maicord/ui/chat/threads/header.hpp"
+#include "renderer_edit.hpp"
+#include "renderer_login_form.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 struct RendererTypographyOwner {

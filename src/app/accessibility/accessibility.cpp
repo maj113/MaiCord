@@ -1,4 +1,12 @@
 #include "accessibility_internal.hpp"
+#include "accessibility.hpp"
+#include "../chat/composer/text_input.hpp"
+#include "../account/friends.hpp"
+#include "../chat/messages/feedback.hpp"
+#include "../shell/window_state.hpp"
+#include "maicord/app/voice/socket.hpp"
+#include "maicord/app/voice/udp_discovery.hpp"
+#include "maicord/app/chat/messages/interaction_rules.hpp"
 
 namespace maicord::app_detail {
 namespace {

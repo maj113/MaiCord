@@ -1,4 +1,16 @@
 #include "search_internal.hpp"
+#include "../../shell/overlay_input.hpp"
+#include "../../voice/call.hpp"
+#include "../composer/composer.hpp"
+#include "../composer/text_input.hpp"
+#include "../messages/components.hpp"
+#include "content.hpp"
+#include "navigation.hpp"
+#include "maicord/ui/chat/messages/text_coordinator.hpp"
+#include "maicord/model/chat/forwarded_input.hpp"
+#include "maicord/core/deadline.hpp"
+#include "maicord/core/hash.hpp"
+#include "maicord/app/chat/search/account_message_search.hpp"
 
 namespace maicord::app_detail {
 namespace {

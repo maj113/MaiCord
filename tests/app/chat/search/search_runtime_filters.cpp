@@ -1,7 +1,6 @@
 #include "search_runtime_internal.hpp"
 #include "../../../support/model_store_fixtures.hpp"
 #include "maicord/ui/chat/messages/presentation.hpp"
-#include "application_search_measurement.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
 
 namespace maicord::search_runtime_test {

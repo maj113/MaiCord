@@ -1,4 +1,20 @@
 #include "requests_internal.hpp"
+#include "../account/profile.hpp"
+#include "../account/profile_editor.hpp"
+#include "../guild/card.hpp"
+#include "expression_card.hpp"
+#include "../guild/banner.hpp"
+#include "catalog_preview_log.hpp"
+#include "maicord/render/media/inline_media.hpp"
+#include "maicord/ui/chat/private_channel_rows.hpp"
+#include "maicord/ui/shell/popup_presentation.hpp"
+#include "maicord/ui/chat/search/avatar_media.hpp"
+#include "../voice/stream.hpp"
+#include "maicord/ui/chat/pinned_messages_avatar_media.hpp"
+#include "maicord/ui/chat/threads/forum_channel_media.hpp"
+#include "maicord/ui/voice/channel_rows.hpp"
+#include "maicord/ui/chat/inbox_avatar_media.hpp"
+#include "../../render/d3d11/renderer_interaction_state.hpp"
 
 namespace maicord::app_detail {
 namespace requests_detail {

@@ -1,4 +1,7 @@
 #include "event_pump_internal.hpp"
+#include "maicord/app/gateway/user_store_dispatch.hpp"
+#include "maicord/model/chat/message_rich_store.hpp"
+#include "maicord/protocol/gateway/reaction_events.hpp"
 
 namespace maicord {
 

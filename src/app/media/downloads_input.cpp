@@ -1,4 +1,9 @@
 #include "downloads_internal.hpp"
+#include "maicord/app/shell/shortcut_registry.hpp"
+#include "maicord/ui/core/scene_cursor.hpp"
+#include "../shell/content_input.hpp"
+#include "maicord/core/deadline.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 

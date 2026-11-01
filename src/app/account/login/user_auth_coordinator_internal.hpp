@@ -1,15 +1,9 @@
 #pragma once
 // Shared by user_auth_coordinator.cpp and its parts (user_auth_coordinator_*.cpp); private to them.
-#include "maicord/core/win32_process.hpp"
 #include "maicord/app/account/login/user_auth_coordinator.hpp"
 
 #include "maicord/app/account/login/mfa_policy.hpp"
-#include "maicord/protocol/auth/login_continuations.hpp"
-#include "maicord/protocol/auth/browser_sign_in.hpp"
-#include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
-
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace user_auth_coordinator_detail {}

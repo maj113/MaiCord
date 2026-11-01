@@ -1,4 +1,10 @@
 #include "text_presentation_internal.hpp"
+#include "maicord/ui/text/ansi_text.hpp"
+#include "maicord/ui/text/timestamp_format.hpp"
+#include "maicord/core/hash.hpp"
+#include "maicord/model/guild/member_store.hpp"
+#include "maicord/model/user/store.hpp"
+#include "maicord/ui/shell/navigation_view.hpp"
 
 namespace maicord {
 using namespace text_presentation_detail;

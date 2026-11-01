@@ -1,4 +1,6 @@
 #include "rest_client_internal.hpp"
+#include "maicord/app/account/account_logout.hpp"
+#include "maicord/protocol/auth/user_auth.hpp"
 
 namespace maicord {
 

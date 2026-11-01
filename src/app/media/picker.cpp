@@ -1,4 +1,10 @@
 #include "picker_internal.hpp"
+#include "../shell/overlay_input.hpp"
+#include "../chat/composer/text_input.hpp"
+#include "../settings/emoji_preferences.hpp"
+#include "maicord/core/deadline.hpp"
+#include "maicord/app/gateway/client_event.hpp"
+#include "../chat/composer/commands.hpp"
 
 namespace maicord::app_detail {
 namespace {

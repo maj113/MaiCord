@@ -1,4 +1,8 @@
 #include "scene_internal.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
+#include "maicord/ui/theme/surface_elevation.hpp"
+#include "maicord/ui/chat/messages/presentation.hpp"
+#include "maicord/ui/chat/composer/attachment_actions.hpp"
 
 namespace maicord {
 using namespace search_scene_detail;

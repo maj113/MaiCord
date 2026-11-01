@@ -7,7 +7,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
-#include "plugin_test_key.hpp"
+#include "test_key.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 

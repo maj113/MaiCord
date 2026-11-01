@@ -1,4 +1,4 @@
-#include "maicord/app/voice/dave/voice_dave_route.hpp"
+#include "maicord/app/voice/dave/route.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"

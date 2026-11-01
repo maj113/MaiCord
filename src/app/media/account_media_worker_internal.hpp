@@ -1,13 +1,11 @@
 #pragma once
 // Shared by account_media_worker.cpp and its parts (account_media_worker_*.cpp); private to them.
 #include "maicord/app/media/account_media_worker.hpp"
-#include "maicord/app/media/embed_resolver.hpp"
 
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/platform/decode/mp4_decoder.hpp"
-#include "maicord/protocol/media/embed_provider.hpp"
 #include "account_media_video_internal.hpp"
 #include "maicord/sys/d3d11.hpp"
 

@@ -1,4 +1,7 @@
 #include "markdown_internal.hpp"
+#include "maicord/ui/text/ansi_text.hpp"
+#include "maicord/core/ascii.hpp"
+#include "maicord/core/decimal.hpp"
 
 namespace maicord {
 using namespace markdown_detail;

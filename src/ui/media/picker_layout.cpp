@@ -5,7 +5,6 @@
 #include "maicord/ui/text/emoji_catalog.hpp"
 #include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
-#include "maicord/sys/simd.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 

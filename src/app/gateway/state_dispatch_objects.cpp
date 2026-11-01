@@ -1,4 +1,6 @@
 #include "state_dispatch_internal.hpp"
+#include "maicord/protocol/gateway/message_events.hpp"
+#include "dispatch_common.hpp"
 
 namespace maicord {
 namespace {

@@ -1,4 +1,23 @@
 #include "settings_internal.hpp"
+#include "../account/activity.hpp"
+#include "../account/login/ui.hpp"
+#include "../shell/ui_runtime.hpp"
+#include "../account/account_presentation.hpp"
+#include "../account/application_account_logout.hpp"
+#include "../plugins/browser.hpp"
+#include "../plugins/browser_projection.hpp"
+#include "../notifications/notifications.hpp"
+#include "../update/updates.hpp"
+#include "user_settings.hpp"
+#include "account_settings.hpp"
+#include "keybinds_settings.hpp"
+#include "../notifications/desktop.hpp"
+#include "maicord/app/account/login/oauth_account.hpp"
+#include "maicord/app/plugins/plugin_settings_projection.hpp"
+#include "maicord/core/log.hpp"
+#include "maicord/core/hash.hpp"
+#include "maicord/ui/guild/icon_media.hpp"
+#include "../shell/content_point.hpp"
 
 namespace maicord::app_detail {
 

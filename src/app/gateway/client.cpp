@@ -1,4 +1,5 @@
 #include "client_internal.hpp"
+#include "maicord/app/net/rest_client.hpp"
 
 namespace maicord {
 

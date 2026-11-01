@@ -1,6 +1,5 @@
 #include "../../support/test_main_shared.hpp"
 
-#include "../../support/secure_text_store_access.hpp"
 #include "../../support/ui_scene_fixtures.hpp"
 #include "maicord/model/guild/member_store.hpp"
 #include "../../support/layout_validation.hpp"
@@ -12,7 +11,7 @@
 #include "maicord/render/text/glyph_quad_bounds.hpp"
 #include "maicord/render/text/glyph_raster.hpp"
 #include "maicord/render/media/atlas.hpp"
-#include "../../message_background_surfaces.inc"
+#include "../../support/message_background_surfaces.inc"
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
 #include "maicord/ui/guild/member_list_scene.hpp"
 #include "maicord/ui/chat/messages/mention_badge.hpp"

@@ -1,4 +1,16 @@
 #include "account_module_internal.hpp"
+#include "maicord/app/guild/account_guild_community.hpp"
+#include "maicord/app/voice/log.hpp"
+#include "maicord/app/chat/threads/account_thread_actions.hpp"
+#include "maicord/app/chat/polls/account_message_poll.hpp"
+#include "maicord/app/guild/account_guild_invite.hpp"
+#include "maicord/app/settings/account_settings_rest.hpp"
+#include "maicord/app/gateway/stream_control.hpp"
+#include "maicord/protocol/media/attachment_refresh.hpp"
+#include "maicord/app/guild/account_guild_assets.hpp"
+#include "maicord/app/account/account_logout.hpp"
+#include "maicord/app/account/account_profile_edit.hpp"
+#include "maicord/protocol/messages/typing.hpp"
 
 namespace maicord {
 namespace account_module_detail {

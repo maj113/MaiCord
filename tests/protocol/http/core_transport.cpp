@@ -1,6 +1,5 @@
 #include "../../support/test_main_shared.hpp"
 
-#include "../../support/secure_text_store_access.hpp"
 #include "../../support/ui_scene_fixtures.hpp"
 #include "maicord/protocol/http/client_user_agent.hpp"
 #include "maicord/protocol/encoding/writer.hpp"

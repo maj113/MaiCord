@@ -1,33 +1,21 @@
 #pragma once
 // Shared by auth.cpp and its parts (auth_*.cpp); private to them.
-#include "maicord/core/win32_process.hpp"
-#include "../../shell/log_fields.hpp"
 #include "auth.hpp"
-#include "browser_auth.hpp"
-#include "captcha_auth.hpp"
 
 #include "../application_account_module.hpp"
 #include "../application_account_logout.hpp"
 #include "input.hpp"
 #include "ui.hpp"
-#include "geometry.hpp"
 #include "../../shell/state.hpp"
-#include "../../shell/overlay_input.hpp"
 
 #include "maicord/app/account/account_paths.hpp"
-#include "maicord/app/account/login/mfa_policy.hpp"
 #include "maicord/app/account/login/continuations.hpp"
 #include "maicord/protocol/auth/login_continuations.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/platform/desktop/webauthn.hpp"
 #include "maicord/protocol/auth/remote_auth.hpp"
-#include "maicord/protocol/auth/webauthn_mfa.hpp"
-#include "maicord/core/win32_user.hpp"
-#include "maicord/app/account/login/user_auth_coordinator.hpp"
-#include "maicord/app/account/login/remote_auth_handshake.hpp"
 
 namespace maicord::app_detail {
 namespace auth_detail {}

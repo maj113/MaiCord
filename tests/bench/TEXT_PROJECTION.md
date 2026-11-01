@@ -1,7 +1,7 @@
 # Projection-only text benchmark
 
 `text_projection.cpp` copies the bounded retained fixture initialization from
-`tests/ui/text/text_emitter.cpp`: 192 source rows, real shell/navigation/rail/Friends
+`tests/ui/text/emitter.cpp`: 192 source rows, real shell/navigation/rail/Friends
 producers, 1,500 stored command slots and a 4,096-byte numeric text bank. It
 relayouts and updates the retained scenes outside timing for **1280×900** and
 **1280×8192** DIP cases. It performs no shaping, glyph construction, rasterization,

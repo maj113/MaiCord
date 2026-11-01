@@ -1,4 +1,6 @@
 #include "provider_internal.hpp"
+#include "maicord/core/scratch_pages.hpp"
+#include "maicord/core/ascii.hpp"
 
 namespace maicord {
 namespace provider_detail {

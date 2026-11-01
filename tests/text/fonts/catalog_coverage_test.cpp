@@ -16,7 +16,7 @@ struct Temporary {
     bool open() noexcept {wchar_t dir[MAX_PATH];const u32 n=GetTempPathW(MAX_PATH,dir);if(!n||n>=MAX_PATH)return false;for(auto& p:paths)if(!GetTempFileNameW(dir,L"mfc",0,p))return false;return true;}
     ~Temporary() noexcept{for(auto& p:paths)if(*p)cleanup_ok=DeleteFileW(p)&&cleanup_ok;}
 };
-#include "font_catalog_fixture.inc"
+#include "catalog_fixture.inc"
 constexpr u32 held_faces=1024,collection_faces=held_faces+1;
 struct Owner {
     CatalogFixture faces[4],alias,single,last;NativeFontSession* session=nullptr;NativeFontCoverageCache cache{};

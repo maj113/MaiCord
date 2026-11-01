@@ -1,4 +1,14 @@
 #include "renderer_text_internal.hpp"
+#include "maicord/ui/text/ansi_text.hpp"
+#include "maicord/ui/chat/messages/author.hpp"
+#include "../text/picker_glyph_cache.hpp"
+#include "../text/shaped_text_cache.hpp"
+#include "maicord/core/log.hpp"
+#include "maicord/render/text/glyph_quad_bounds.hpp"
+#include "maicord/ui/shell/text_presentation.hpp"
+#include "maicord/ui/text/inline_flag_projection.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord {
 namespace renderer_text_detail {

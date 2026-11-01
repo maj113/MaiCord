@@ -1,7 +1,5 @@
 #include "../../support/test_main_shared.hpp"
 
-#include "../../support/secure_text_store_access.hpp"
-#include "../../support/ui_scene_fixtures.hpp"
 #include "maicord/app/account/account_paths.hpp"
 #include "maicord/app/account/account_host.hpp"
 #include "maicord/app/media/account_media_worker.hpp"

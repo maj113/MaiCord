@@ -1,4 +1,5 @@
 #include "client_internal.hpp"
+#include "user_payload.hpp"
 
 namespace maicord {
 namespace {

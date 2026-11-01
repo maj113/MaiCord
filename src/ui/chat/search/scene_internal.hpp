@@ -1,20 +1,10 @@
 #pragma once
 
-#include "maicord/ui/theme/style_projection.hpp"
-#include "maicord/ui/theme/surface_elevation.hpp"
 #include "maicord/ui/chat/search/scene.hpp"
-#include "maicord/ui/chat/messages/presentation.hpp"
 #include "maicord/ui/kit/scene_kit.hpp"
-#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/widgets/menu_row.hpp"
-#include "maicord/ui/core/scene.hpp"
-#include "maicord/ui/chat/composer/attachment_actions.hpp"
-#include "maicord/ui/voice/audio_controls.hpp"
-#include "maicord/model/chat/message_poll_store.hpp"
-
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 

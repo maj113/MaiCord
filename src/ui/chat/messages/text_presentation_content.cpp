@@ -1,4 +1,9 @@
 #include "text_presentation_internal.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
+#include "maicord/ui/theme/styles.hpp"
+#include "maicord/ui/chat/messages/unread_divider.hpp"
+#include "maicord/ui/text/timestamp_format.hpp"
+#include "maicord/core/decimal.hpp"
 
 namespace maicord {
 using namespace text_presentation_detail;

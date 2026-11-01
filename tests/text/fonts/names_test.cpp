@@ -1,6 +1,6 @@
 #include "maicord/text/fonts/names.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "font_names_reference.hpp"
+#include "names_reference.hpp"
 #include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 u32 checks=0;bool print_ok=true;char print_buffer[65536];u32 output_count=0;u16 decoded[32768];

@@ -1,6 +1,7 @@
 ICU Thai word-break dictionary data
 
-MaiCord's Thai word-break lexicon (src/text/generated/thai_lexical_data.inc)
+MaiCord's Thai word-break lexicon
+(src/text/unicode/generated/thai_lexical_data.inc)
 includes every word of the ICU project's Thai dictionary, re-encoded by
 tools/unicode/thai_break_data.py. No ICU library or implementation code is
 included in the application.

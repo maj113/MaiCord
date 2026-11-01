@@ -4,7 +4,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/model/chat/sorted_search.hpp"
-#include "maicord/media/core/asset_key.hpp"
 
 namespace maicord {
 namespace message_rich_store_detail {

@@ -1,4 +1,10 @@
 #include "account_media_internal.hpp"
+#include "maicord/core/deadline.hpp"
+#include "maicord/model/chat/asset_hash.hpp"
+#include "maicord/app/media/embed_resolver.hpp"
+#include "maicord/protocol/media/embed_provider.hpp"
+#include "maicord/protocol/encoding/writer.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 

@@ -1,4 +1,10 @@
 #include "rest_client_internal.hpp"
+#include "maicord/app/account/account_logout.hpp"
+#include "maicord/app/account/user_client_configuration.hpp"
+#include "maicord/app/account/client_session_metadata.hpp"
+#include "maicord/core/deadline.hpp"
+#include "maicord/core/hash.hpp"
+#include "maicord/protocol/auth/user_auth.hpp"
 
 namespace maicord {
 namespace rest_client_detail {

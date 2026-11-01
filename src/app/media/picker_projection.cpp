@@ -1,4 +1,18 @@
 #include "picker_internal.hpp"
+#include "../chat/composer/reply_draft.hpp"
+#include "../shell/overlay_input.hpp"
+#include "../chat/composer/composer.hpp"
+#include "../chat/composer/text_input.hpp"
+#include "../account/friends.hpp"
+#include "../account/profile.hpp"
+#include "../settings/settings.hpp"
+#include "../settings/emoji_preferences.hpp"
+#include "../shell/retained_projection.hpp"
+#include "catalog_preview_log.hpp"
+#include "maicord/core/deadline.hpp"
+#include "maicord/protocol/encoding/writer.hpp"
+#include "maicord/ui/text/regional_flag.hpp"
+#include "maicord/app/media/account_media.hpp"
 
 namespace maicord::app_detail {
 namespace picker_detail {

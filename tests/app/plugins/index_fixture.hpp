@@ -2,7 +2,7 @@
 // assertions remain in their owning tests.
 #pragma once
 #include "maicord/core/win32_kernel.hpp"
-#include "plugin_test_key.hpp"
+#include "test_key.hpp"
 
 #if !defined(MAICORD_PLUGIN_INDEX_FIXTURES)
 #error "MAICORD_PLUGIN_INDEX_FIXTURES must name tests/fixtures/plugin_index"

@@ -1,4 +1,13 @@
 #include "internal.hpp"
+#include "../../account/application_account_module.hpp"
+#include "../../account/account_presentation.hpp"
+#include "../../chat/composer/attachments.hpp"
+#include "../../chat/composer/text_input.hpp"
+#include "maicord/ui/guild/context_policy.hpp"
+#include "maicord/model/guild/channel_settings_model.hpp"
+#include "maicord/core/heap_sort.hpp"
+#include "maicord/app/account/account_profile_edit.hpp"
+#include "../../account/account_access.hpp"
 
 namespace maicord::app_detail::server_settings {
 

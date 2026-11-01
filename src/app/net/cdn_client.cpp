@@ -1,6 +1,6 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/app/net/cdn_client.hpp"
-#include "network_request_state.hpp"
+#include "request_state.hpp"
 
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"

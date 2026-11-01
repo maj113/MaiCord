@@ -1,4 +1,13 @@
 #include "auth_internal.hpp"
+#include "../../shell/log_fields.hpp"
+#include "browser_auth.hpp"
+#include "captcha_auth.hpp"
+#include "geometry.hpp"
+#include "../../shell/overlay_input.hpp"
+#include "maicord/app/account/login/mfa_policy.hpp"
+#include "maicord/platform/desktop/webauthn.hpp"
+#include "maicord/app/account/login/user_auth_coordinator.hpp"
+#include "maicord/app/account/login/remote_auth_handshake.hpp"
 
 namespace maicord::app_detail {
 namespace auth_detail {

@@ -1,4 +1,5 @@
 #include "message_rich_store_internal.hpp"
+#include "maicord/media/core/asset_key.hpp"
 
 namespace maicord {
 namespace message_rich_store_detail {

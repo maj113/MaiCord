@@ -1,4 +1,11 @@
 #include "commands_internal.hpp"
+#include "../../account/account_presentation.hpp"
+#include "../../plugins/plugins.hpp"
+#include "maicord/core/heap_sort.hpp"
+#include "maicord/core/hash.hpp"
+#include "maicord/model/chat/asset_hash.hpp"
+#include "maicord/ui/shell/popup_presentation.hpp"
+#include "../../account/account_access.hpp"
 
 namespace maicord::app_detail {
 namespace {

@@ -1,4 +1,10 @@
 #include "client_internal.hpp"
+#include "maicord/app/gateway/guild_folders.hpp"
+#include "maicord/app/gateway/user_settings.hpp"
+#include "maicord/app/account/user_client_configuration.hpp"
+#include "maicord/protocol/user/settings_proto.hpp"
+#include "maicord/protocol/user/gif_favorites.hpp"
+#include "../../protocol/encoding/json_field_lists.hpp"
 
 namespace maicord {
 namespace client_detail {

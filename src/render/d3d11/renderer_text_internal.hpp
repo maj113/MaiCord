@@ -1,41 +1,15 @@
 #pragma once
 
-#include "maicord/ui/text/ansi_text.hpp"
-#include "maicord/core/memory.hpp"
-#include "maicord/ui/account/profile_appearance.hpp"
-#include "maicord/ui/chat/messages/author.hpp"
 #include "maicord/ui/chat/messages/interaction.hpp"
-#include "maicord/ui/text/native_text_candidate.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
-#include "maicord/render/effects/colr_paint.hpp"
-#include "../text/picker_glyph_cache.hpp"
-#include "../text/shaped_text_cache.hpp"
 
-#include "maicord/core/log.hpp"
 #include "maicord/core/hash.hpp"
-#include "maicord/text/fonts/session.hpp"
 #include "maicord/ui/voice/audio_presentation.hpp"
 #include "maicord/ui/chat/polls/presentation.hpp"
-#include "maicord/render/text/glyph_quad_bounds.hpp"
-#include "maicord/ui/account/login_text_presentation.hpp"
-#include "maicord/ui/chat/messages/action_bar_presentation.hpp"
-#include "maicord/ui/shell/popup_presentation.hpp"
-#include "maicord/ui/media/picker_presentation.hpp"
-#include "maicord/ui/chat/messages/reaction_viewer_presentation.hpp"
-#include "maicord/ui/shell/text_presentation.hpp"
-#include "maicord/model/user/private_channel_store.hpp"
-#include "maicord/ui/text/inline_flag_projection.hpp"
-#include "maicord/render/media/inline_media.hpp"
-#include "maicord/ui/chat/threads/header.hpp"
 
-#include "renderer_edit.hpp"
 #include "renderer_interaction_state.hpp"
-#include "renderer_login_form.hpp"
 
 #include <stddef.h>
-
-#include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 
 namespace maicord {
 namespace renderer_text_detail {

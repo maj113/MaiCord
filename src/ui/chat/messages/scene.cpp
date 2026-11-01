@@ -1,7 +1,4 @@
-#include "maicord/ui/chat/messages/scene.hpp"
-#include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/ui/chat/messages/rich_widgets.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
 #include "scene_measurements.hpp"
 #include "maicord/model/chat/message_poll_store.hpp"
@@ -12,7 +9,6 @@
 #include "maicord/ui/chat/messages/unread_divider.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_system_time.hpp"
 #include "scene_internal.hpp"
 
 namespace maicord {

@@ -1,4 +1,23 @@
 #include "downloads_internal.hpp"
+#include "../chat/composer/text_input.hpp"
+#include "policy.hpp"
+#include "../account/account_menu.hpp"
+#include "../account/profile.hpp"
+#include "video.hpp"
+#include "../settings/settings.hpp"
+#include "../plugins/plugins.hpp"
+#include "../settings/theme_editor.hpp"
+#include "../shell/toast.hpp"
+#include "maicord/protocol/media/attachment_download.hpp"
+#include "maicord/protocol/encoding/writer.hpp"
+#include "maicord/core/log.hpp"
+#include "maicord/ui/chat/composer/attachment_actions.hpp"
+#include "maicord/ui/voice/audio_controls.hpp"
+#include "maicord/core/hash.hpp"
+#include "maicord/render/text/forum_post_surface.hpp"
+#include "maicord/sys/shell.hpp"
+#include "maicord/ui/chat/threads/forum_post_scene.hpp"
+#include "maicord/app/media/account_media.hpp"
 
 namespace maicord::app_detail {
 namespace downloads_detail {

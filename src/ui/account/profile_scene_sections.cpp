@@ -1,4 +1,10 @@
 #include "profile_scene_internal.hpp"
+#include "maicord/model/guild/role_policy.hpp"
+#include "maicord/ui/account/profile_appearance.hpp"
+#include "maicord/core/decimal.hpp"
+#include "maicord/core/hash.hpp"
+#include "maicord/ui/widgets/presence.hpp"
+#include "maicord/model/user/store.hpp"
 
 namespace maicord {
 using namespace profile_scene_detail;

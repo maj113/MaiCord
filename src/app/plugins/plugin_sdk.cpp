@@ -1,4 +1,7 @@
 #include "plugin_sdk_internal.hpp"
+#include "maicord/core/utf.hpp"
+#include "maicord/core/color_hex.hpp"
+#include "maicord/core/decimal.hpp"
 
 namespace maicord {
 namespace plugin_sdk {

@@ -1,4 +1,5 @@
 #include "embed_player_internal.hpp"
+#include "maicord/protocol/media/cdn_http.hpp"
 
 namespace maicord {
 using namespace embed_player_detail;

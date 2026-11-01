@@ -2,13 +2,8 @@
 // Shared by rest_client.cpp and its parts (rest_client_*.cpp); private to them.
 #include "maicord/core/win32_process.hpp"
 #include "maicord/app/net/rest_client.hpp"
-#include "network_request_state.hpp"
-#include "maicord/app/account/account_logout.hpp"
-#include "maicord/app/account/user_client_configuration.hpp"
-#include "maicord/app/account/client_session_metadata.hpp"
+#include "request_state.hpp"
 
-#include "maicord/core/deadline.hpp"
-#include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/trace_record.hpp"
@@ -17,7 +12,6 @@
 
 #include "maicord/core/interlocked.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/protocol/auth/user_auth.hpp"
 
 namespace maicord {
 namespace rest_client_detail {}

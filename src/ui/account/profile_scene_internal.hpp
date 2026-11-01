@@ -1,26 +1,11 @@
 #pragma once
 
-#include "maicord/ui/text/timestamp_format.hpp"
-#include "maicord/ui/theme/surface_elevation.hpp"
-#include "maicord/protocol/gateway/message_events.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/ui/account/profile_scene.hpp"
 #include "maicord/ui/account/profile_activity.hpp"
-#include "maicord/ui/widgets/badge.hpp"
-#include "maicord/ui/accessibility/accessibility.hpp"
-#include "maicord/ui/widgets/icon.hpp"
 #include "maicord/ui/plugins/slots.hpp"
-#include "maicord/model/guild/role_policy.hpp"
-#include "maicord/ui/account/profile_appearance.hpp"
-#include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/ui/core/transition.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/decimal.hpp"
-#include "maicord/core/hash.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/model/user/store.hpp"
-#include "maicord/ui/widgets/presence.hpp"
-#include "maicord/ui/layout/scroll_host.hpp"
 #include "maicord/sys/crt.hpp"
 
 namespace maicord::profile_scene_detail {

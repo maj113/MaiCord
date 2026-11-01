@@ -1,4 +1,13 @@
 #include "account_media_internal.hpp"
+#include "maicord/core/deadline.hpp"
+#include "maicord/core/time.hpp"
+#include "maicord/media/core/animation_timeline.hpp"
+#include "maicord/app/media/segmented_video_fetch.hpp"
+#include "maicord/app/media/embed_resolver.hpp"
+#include "maicord/protocol/media/embed_provider.hpp"
+#include "maicord/ui/text/regional_flag.hpp"
+#include "maicord/media/image/regional_flag_svg.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace account_media_detail {

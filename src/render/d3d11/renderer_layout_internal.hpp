@@ -1,50 +1,22 @@
 #pragma once
 
-#include "maicord/render/d3d11/raster_clip.hpp"
-#include "maicord/model/guild/member_store.hpp"
-#include "maicord/ui/account/profile_media.hpp"
-#include "maicord/ui/account/friends_media.hpp"
-#include "maicord/ui/chat/search/avatar_media.hpp"
-#include "maicord/ui/chat/pinned_messages_avatar_media.hpp"
-#include "maicord/ui/chat/threads/forum_channel_media.hpp"
-#include "maicord/ui/chat/inbox_avatar_media.hpp"
-#include "maicord/ui/chat/polls/voters_avatar_media.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 
-#include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/media/core/presentation_policy.hpp"
-#include "maicord/model/chat/asset_hash.hpp"
 #include "maicord/render/d3d11/renderer_presentation.hpp"
 #include "maicord/ui/account/login_presentation.hpp"
 #include "maicord/ui/widgets/button.hpp"
-#include "maicord/ui/chat/messages/action_bar_presentation.hpp"
-#include "maicord/ui/chat/messages/author.hpp"
 #include "maicord/ui/chat/messages/interaction.hpp"
 #include "maicord/ui/chat/messages/presentation.hpp"
-#include "maicord/ui/chat/messages/component_media.hpp"
 #include "maicord/ui/chat/composer/attachment_actions.hpp"
 #include "maicord/ui/voice/audio_presentation.hpp"
 #include "maicord/ui/chat/polls/presentation.hpp"
 #include "maicord/ui/shell/popup_presentation.hpp"
-#include "maicord/ui/media/picker_presentation.hpp"
-#include "maicord/ui/chat/messages/reaction_viewer_presentation.hpp"
 #include "maicord/ui/shell/presentation.hpp"
-#include "maicord/ui/chat/private_channel_rows.hpp"
-#include "maicord/ui/voice/channel_rows.hpp"
-#include "maicord/ui/voice/panel.hpp"
-#include "maicord/ui/text/regional_flag.hpp"
 #include "maicord/render/media/inline_media.hpp"
-#include "maicord/ui/guild/banner.hpp"
-#include "maicord/ui/chat/threads/header.hpp"
 
-#include "renderer_draw.hpp"
-#include "renderer_layout.hpp"
-#include "renderer_caption.hpp"
-#include "renderer_edit.hpp"
 #include "renderer_interaction_state.hpp"
-#include "renderer_login_form.hpp"
 
 #include "maicord/sys/d3d11.hpp"
 
@@ -69,7 +41,7 @@ struct MediaQuadStyle {
     float opacity, radius, clip_radius, blur;
     u8 domain;
 };
-constexpr MediaQuadStyle kPlainMediaQuad{{}, 1.f, 0.f, 0.f, 0.f, 0};
+inline constexpr MediaQuadStyle kPlainMediaQuad{{}, 1.f, 0.f, 0.f, 0.f, 0};
 
 // A modal that owns its scroll viewport paints with the background scrollbar filter off.
 struct UnfilteredPaint {

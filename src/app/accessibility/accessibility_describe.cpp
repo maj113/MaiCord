@@ -1,4 +1,10 @@
 #include "accessibility_internal.hpp"
+#include "../shell/caption.hpp"
+#include "../account/friends.hpp"
+#include "../guild/folders.hpp"
+#include "maicord/core/log.hpp"
+#include "maicord/ui/controls/settings_controls.hpp"
+#include "maicord/ui/account/login_text_presentation.hpp"
 
 namespace maicord::app_detail {
 namespace {

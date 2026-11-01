@@ -1,27 +1,9 @@
 #pragma once
 // Shared by account_media.cpp and its parts (account_media_*.cpp); private to them.
 #include "maicord/app/media/account_media.hpp"
-#include "maicord/app/media/local_preview_thumbnail.hpp"
-#include "maicord/app/media/local_video_poster.hpp"
-#include "maicord/media/image/png_stream.hpp"
-#include "maicord/media/image/webp_thumbnail.hpp"
-#include "maicord/core/arena.hpp"
-#include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/time.hpp"
-#include "maicord/render/effects/lottie_program.hpp"
-#include "maicord/media/core/animation_timeline.hpp"
-#include "maicord/model/chat/asset_hash.hpp"
 #include "maicord/platform/decode/mp4_decoder.hpp"
 #include "maicord/app/media/progressive_video_fetch.hpp"
-#include "maicord/app/media/segmented_video_fetch.hpp"
-#include "maicord/app/media/embed_resolver.hpp"
-#include "maicord/protocol/media/embed_provider.hpp"
-#include "maicord/protocol/encoding/writer.hpp"
-#include "maicord/media/containers/hevc_mp4_demux.hpp"
-#include "maicord/ui/text/regional_flag.hpp"
-#include "maicord/media/image/regional_flag_svg.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/crt.hpp"
 
 namespace maicord {

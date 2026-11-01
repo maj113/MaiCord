@@ -1,18 +1,11 @@
 #pragma once
 
-#include "maicord/ui/theme/style_projection.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/ui/settings/scene.hpp"
-#include "maicord/ui/theme/foreground_color.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
-#include "maicord/core/utf.hpp"
-#include "maicord/core/hash.hpp"
 #include "maicord/ui/theme/background_presentation.hpp"
-#include "maicord/ui/kit/scene_kit.hpp"
 #include "maicord/ui/core/transition.hpp"
 #include "maicord/ui/text/style.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
-#include "maicord/ui/theme/styles.hpp"
 #include "maicord/ui/core/visit_ref.hpp"
 
 namespace maicord::settings_scene_detail {

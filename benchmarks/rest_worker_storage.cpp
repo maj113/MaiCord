@@ -1,4 +1,6 @@
 #include "../src/app/net/rest_client.cpp"
+#include "../src/app/net/rest_client_transaction.cpp"
+#include "../src/app/net/rest_client_worker.cpp"
 
 namespace maicord {
 namespace {

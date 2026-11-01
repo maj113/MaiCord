@@ -1,4 +1,9 @@
 #include "channel_overview_internal.hpp"
+#include "../account/user_actions.hpp"
+#include "maicord/app/gateway/client_event.hpp"
+#include "../account/application_account_module.hpp"
+#include "../media/picker.hpp"
+#include "../chat/composer/attachments.hpp"
 
 namespace maicord::app_detail {
 

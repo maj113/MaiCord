@@ -1,7 +1,5 @@
 #include "../../support/test_main_shared.hpp"
 
-#include "../../support/secure_text_store_access.hpp"
-#include "../../support/ui_scene_fixtures.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/media/image/apng.hpp"
 #include "maicord/media/image/jpeg.hpp"

@@ -1,4 +1,8 @@
 #include "account_media_internal.hpp"
+#include "maicord/core/deadline.hpp"
+#include "maicord/render/effects/lottie_program.hpp"
+#include "maicord/media/containers/hevc_mp4_demux.hpp"
+#include "maicord/media/image/regional_flag_svg.hpp"
 
 namespace maicord {
 namespace account_media_detail {

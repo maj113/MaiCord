@@ -1,6 +1,7 @@
 PyThaiNLP Thai word-list data
 
-MaiCord's Thai word-break lexicon (src/text/generated/thai_lexical_data.inc)
+MaiCord's Thai word-break lexicon
+(src/text/unicode/generated/thai_lexical_data.inc)
 includes the words of the PyThaiNLP project's words_th.txt that are not
 compounds of other listed words, re-encoded by tools/unicode/thai_break_data.py.
 No PyThaiNLP library or implementation code is included in the application.

@@ -1,7 +1,6 @@
 #include "../../../support/test_main_shared.hpp"
 
 #include "../../../support/secure_text_store_access.hpp"
-#include "../../../support/ui_scene_fixtures.hpp"
 #include "../../../support/layout_validation.hpp"
 #include "maicord/app/account/login/mfa_policy.hpp"
 #include "maicord/app/account/login/user_auth_coordinator.hpp"

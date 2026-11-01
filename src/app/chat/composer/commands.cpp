@@ -1,4 +1,19 @@
 #include "commands_internal.hpp"
+#include "commands.hpp"
+#include "maicord/app/gateway/client_event.hpp"
+#include "../../shell/scrolling.hpp"
+#include "../../account/account_presentation.hpp"
+#include "../messages/send.hpp"
+#include "text_form.hpp"
+#include "attachments.hpp"
+#include "../../plugins/plugins.hpp"
+#include "../../account/user_actions.hpp"
+#include "maicord/protocol/messages/interaction.hpp"
+#include "maicord/core/hash.hpp"
+#include "maicord/core/log.hpp"
+#include "../../account/account_access.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 

@@ -1,4 +1,6 @@
 #include "plugin_sdk_internal.hpp"
+#include "maicord/core/byte_order.hpp"
+#include "maicord/core/hash.hpp"
 
 namespace maicord {
 namespace {

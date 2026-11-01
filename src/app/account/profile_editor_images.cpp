@@ -1,4 +1,8 @@
 #include "profile_editor_internal.hpp"
+#include "profile_editor.hpp"
+#include "application_account_logout.hpp"
+#include "../settings/settings.hpp"
+#include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 namespace {

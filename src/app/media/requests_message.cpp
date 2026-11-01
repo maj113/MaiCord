@@ -1,4 +1,8 @@
 #include "requests_internal.hpp"
+#include "../shell/load_trace.hpp"
+#include "../shell/log_fields.hpp"
+#include "maicord/platform/desktop/clipboard_image.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 

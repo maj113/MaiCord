@@ -1,4 +1,15 @@
 #include "search_internal.hpp"
+#include "../../shell/overlay_input.hpp"
+#include "../composer/text_input.hpp"
+#include "../../settings/settings.hpp"
+#include "../../account/friends.hpp"
+#include "../../shell/retained_projection.hpp"
+#include "../messages/pinned_messages.hpp"
+#include "../../media/downloads.hpp"
+#include "content.hpp"
+#include "navigation.hpp"
+#include "maicord/core/deadline.hpp"
+#include "maicord/app/chat/search/account_message_search.hpp"
 
 namespace maicord::app_detail {
 namespace {

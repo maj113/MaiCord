@@ -1,24 +1,11 @@
 #pragma once
 // Shared by dispatch.cpp and its parts (dispatch_*.cpp); private to them.
-#include "maicord/model/user/activity.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/app/gateway/client_dispatch.hpp"
 #include "maicord/app/gateway/client_event.hpp"
-#include "maicord/app/chat/messages/event_scratch.hpp"
 
-#include "maicord/core/byte_order.hpp"
-#include "maicord/protocol/gateway/message_events.hpp"
-#include "maicord/protocol/user/notification_settings.hpp"
-
-#include "dispatch_common.hpp"
-#include "user_payload.hpp"
-#include "maicord/protocol/media/upload_allowance.hpp"
-#include "private_dispatch.hpp"
 #include "relationship_dispatch.hpp"
 #include "maicord/protocol/encoding/json_ids.hpp"
 #include "../../protocol/encoding/json_field_lists.hpp"
-#include "maicord/protocol/auth/account_requirement.hpp"
-#include "maicord/model/user/profile.hpp"
 
 namespace maicord {
 namespace dispatch_detail {}

@@ -1,4 +1,6 @@
 #include "account_video_session_internal.hpp"
+#include "maicord/media/containers/mp4_fragment_audio.hpp"
+#include "maicord/media/containers/mp4_segment_store.hpp"
 
 namespace maicord {
 namespace {

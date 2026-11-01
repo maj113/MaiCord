@@ -30,12 +30,12 @@ concurrency:
 # test executables, about 11 minutes, then about 3 minutes of tests) are
 # independent, so three jobs run side by side for about 10 minutes each:
 #   client     MaiCord.exe, PE audits and the artifact;
-#   tests/app  tests whose executables link the application core or exercise
+#   app shard  tests whose executables link the application core or exercise
 #              the shipping client itself (update staging and the exit swap); they
 #              use the client job's artifact, which arrives while the tests
 #              build (build.ps1 -PrebuiltClient), instead of building the
 #              client a second time;
-#   tests/core every other test (text, fonts, media, protocol, platform).
+#   core shard every other test (text, fonts, media, protocol, platform).
 # build.ps1 -TestShard picks each test's shard from its executable
 # (maicord-tests.txt, written by CMake), builds only that shard's
 # executables and runs exactly those tests. Both shards build most of the

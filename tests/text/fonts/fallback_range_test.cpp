@@ -34,7 +34,7 @@ bool routing_guards() noexcept {
     mock={};mock.font.cover=false;CHECK(native_font_fallback_routed_range({"b\xcd\x8f",3},route_index,font_index,routed_coverage,&mock,&result)==SfntStatus::ok&&result.bytes==1&&mock.font.probes==1);
     const char invalid[]{'a',static_cast<char>(0xc0),static_cast<char>(0xaf)};mock={};CHECK(native_font_fallback_routed_range({invalid,3},route_index,font_index,routed_coverage,&mock,&result)==SfntStatus::invalid_input);return true;
 }
-#include "font_fallback_map_cases.inc"
+#include "fallback_map_cases.inc"
 bool guards() noexcept {
     CHECK(routing_guards()&&mapping_guards());
     CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));

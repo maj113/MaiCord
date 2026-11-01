@@ -1,8 +1,5 @@
-#include "maicord/ui/chat/messages/markdown.hpp"
-#include "maicord/ui/text/code_highlight.hpp"
 #include "maicord/ui/text/ansi_text.hpp"
 #include "maicord/core/ascii.hpp"
-#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
 #include "maicord/ui/text/emoji_catalog.hpp"
