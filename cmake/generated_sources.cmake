@@ -51,7 +51,8 @@ add_custom_command(
         --lucide "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lucide/icons"
         --original "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/original"
         --output "${MAICORD_ICON_PACK_INCLUDE}"
-    DEPENDS tools/generate_icon_pack.py tools/font_reference/embed_fixture.py include/maicord/ui/widgets/icon_ids.inc
+    DEPENDS tools/generate_icon_pack.py tools/optimal_deflate.py tools/deflate_cache.txt tools/font_reference/embed_fixture.py
+        include/maicord/ui/widgets/icon_ids.inc
         ${MAICORD_ICON_SOURCES}
     VERBATIM)
 add_custom_target(maicord_icon_pack_data DEPENDS "${MAICORD_ICON_PACK_INCLUDE}")
@@ -68,7 +69,8 @@ add_custom_command(
     COMMAND "${Python3_EXECUTABLE}" -B
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_regional_flag_bundle.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/regional_flags" "${MAICORD_REGIONAL_FLAG_BUNDLE}"
-    DEPENDS tools/generate_regional_flag_bundle.py tools/font_reference/embed_fixture.py
+    DEPENDS tools/generate_regional_flag_bundle.py tools/optimal_deflate.py tools/deflate_cache.txt
+        tools/font_reference/embed_fixture.py
         ${MAICORD_REGIONAL_FLAG_SOURCES}
     VERBATIM)
 add_custom_target(maicord_regional_flag_data DEPENDS "${MAICORD_REGIONAL_FLAG_BUNDLE}")
@@ -122,8 +124,9 @@ function(maicord_shader variable header profile entry symbol source)
     endif()
 endfunction()
 
-# Every shipped shader is deflate-packed (one zlib stream each; the wide COLR
-# variant is a sparse byte patch on the normal COLR stream) and inflated into
+# Every shipped shader is deflate-packed (one zlib stream each, the smallest of
+# tools/optimal_deflate.py's search and zlib level 9; the wide COLR variant is a
+# sparse byte patch on the normal COLR stream) and inflated into
 # exact-size heap scratch just before its D3D11 Create* call. The first-frame UI/glyph/media
 # set (~60 KB raw, ~13 KB packed) inflates in well under 0.1 ms at startup.
 set(MAICORD_PACKED_SHADERS)
@@ -181,5 +184,27 @@ add_custom_command(
     COMMAND "${Python3_EXECUTABLE}" -B
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/pack_shader_bytecode.py" "${MAICORD_SHADER_PACK_INCLUDE}"
         ${MAICORD_PACKED_SHADERS}
-    DEPENDS tools/pack_shader_bytecode.py tools/font_reference/embed_fixture.py ${MAICORD_PACKED_SHADER_HEADERS}
+    DEPENDS tools/pack_shader_bytecode.py tools/optimal_deflate.py tools/deflate_cache.txt
+        tools/font_reference/embed_fixture.py ${MAICORD_PACKED_SHADER_HEADERS}
+    VERBATIM)
+
+# The icon pack, regional flags and shaders ship the deflate streams of tools/deflate_cache.txt
+# (tools/optimal_deflate.py): a build never searches, and for data the cache lacks it uses zlib
+# and warns (MAICORD_REQUIRE_DEFLATE_CACHE=1 makes that an error). After changing an icon,
+# flag or shader, build this target, which searches the missing streams (a minute or so for
+# the flags) and rewrites the cache, then commit it.
+add_custom_target(maicord_update_deflate_cache
+    COMMAND ${CMAKE_COMMAND} -E env MAICORD_UPDATE_DEFLATE_CACHE=1 "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_icon_pack.py" build
+        --manifest "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/ui/widgets/icon_ids.inc"
+        --lucide "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lucide/icons"
+        --original "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/original"
+        --output "${MAICORD_ICON_PACK_INCLUDE}"
+    COMMAND ${CMAKE_COMMAND} -E env MAICORD_UPDATE_DEFLATE_CACHE=1 "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_regional_flag_bundle.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/regional_flags" "${MAICORD_REGIONAL_FLAG_BUNDLE}"
+    COMMAND ${CMAKE_COMMAND} -E env MAICORD_UPDATE_DEFLATE_CACHE=1 "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/pack_shader_bytecode.py" "${MAICORD_SHADER_PACK_INCLUDE}"
+        ${MAICORD_PACKED_SHADERS}
+    DEPENDS ${MAICORD_PACKED_SHADER_HEADERS}
     VERBATIM)

@@ -7,7 +7,8 @@
 
 namespace maicord {
 namespace {
-struct PackedShader { u32 offset, packed_bytes, raw_bytes; };
+// raw_bytes carries kShaderPatchFlag for the shader stored as a patch of the previous stream.
+struct PackedShader { u16 offset, packed_bytes, raw_bytes; };
 #include "maicord_shader_pack.inc"
 
 #define MAICORD_SHADER_ORDER(name) \
@@ -27,14 +28,14 @@ MAICORD_SHADER_ORDER(fx_vertex); MAICORD_SHADER_ORDER(fx_builtin);
 static_assert(sizeof(kShaders) / sizeof(kShaders[0]) == static_cast<u32>(ShaderId::count));
 static_assert(kShaderPatchCount <= sizeof(kShaderPatchOffsets) / sizeof(kShaderPatchOffsets[0]) &&
               kShaderPatchCount <= sizeof(kShaderPatchValues));
+constexpr u32 raw_size(const PackedShader& entry) noexcept { return entry.raw_bytes & ~kShaderPatchFlag; }
 static_assert([]() constexpr {
     for (const auto& entry : kShaders) {
-        const u32 offset = entry.offset & ~kShaderPatchFlag;
-        if (offset > sizeof(kShaderPacked) || entry.packed_bytes > sizeof(kShaderPacked) - offset)
+        if (entry.offset > sizeof(kShaderPacked) || entry.packed_bytes > sizeof(kShaderPacked) - entry.offset)
             return false;
-        if (entry.offset & kShaderPatchFlag)
+        if (entry.raw_bytes & kShaderPatchFlag)
             for (u32 i = 0; i < kShaderPatchCount; ++i)
-                if (kShaderPatchOffsets[i] >= entry.raw_bytes ||
+                if (kShaderPatchOffsets[i] >= raw_size(entry) ||
                     (i && kShaderPatchOffsets[i - 1] >= kShaderPatchOffsets[i]))
                     return false;
     }
@@ -44,15 +45,16 @@ static_assert([]() constexpr {
 const PackedShader* packed_shader(ShaderId id) noexcept {
     if (id >= ShaderId::count) return nullptr;
     const PackedShader& entry = kShaders[static_cast<u32>(id)];
-    return entry.raw_bytes && entry.raw_bytes <= kShaderMaximumBytes ? &entry : nullptr;
+    return raw_size(entry) && raw_size(entry) <= kShaderMaximumBytes ? &entry : nullptr;
 }
 
 bool inflate(const PackedShader& entry, DeflateWorkspace* workspace, Slice<u8> output) noexcept {
-    if (entry.raw_bytes > output.count) return false;
-    const DeflateInputSpan input{kShaderPacked + (entry.offset & ~kShaderPatchFlag), entry.packed_bytes};
-    if (!zlib_inflate({&input, 1}, {output.data, entry.raw_bytes}, entry.raw_bytes, workspace).ok())
+    const u32 raw = raw_size(entry);
+    if (raw > output.count) return false;
+    const DeflateInputSpan input{kShaderPacked + entry.offset, entry.packed_bytes};
+    if (!zlib_inflate({&input, 1}, {output.data, raw}, raw, workspace).ok())
         return false;
-    if (entry.offset & kShaderPatchFlag)
+    if (entry.raw_bytes & kShaderPatchFlag)
         for (u32 i = 0; i < kShaderPatchCount; ++i)
             output.data[kShaderPatchOffsets[i]] = kShaderPatchValues[i];
     return true;
@@ -67,11 +69,11 @@ HRESULT create_from_bytes(ShaderId id, Create create) noexcept {
     const PackedShader* entry = packed_shader(id);
     if (!entry) return E_FAIL;
     auto* workspace =
-        static_cast<DeflateWorkspace*>(HeapAlloc(process_heap(), 0, sizeof(DeflateWorkspace) + entry->raw_bytes));
+        static_cast<DeflateWorkspace*>(HeapAlloc(process_heap(), 0, sizeof(DeflateWorkspace) + raw_size(*entry)));
     if (!workspace) return E_OUTOFMEMORY;
     u8* bytes = reinterpret_cast<u8*>(workspace + 1);
     const HRESULT result =
-        inflate(*entry, workspace, {bytes, entry->raw_bytes}) ? create(bytes, entry->raw_bytes) : E_FAIL;
+        inflate(*entry, workspace, {bytes, raw_size(*entry)}) ? create(bytes, raw_size(*entry)) : E_FAIL;
     HeapFree(process_heap(), 0, workspace);
     return result;
 }
