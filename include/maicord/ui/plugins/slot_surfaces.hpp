@@ -17,7 +17,7 @@ inline constexpr float kUiPluginSlotRowNameKeep = 48;
 inline bool shell_navigation_plugin_badge(const ShellNavigationScene& scene, u32 index,
                                           UiPluginSlotBadge* out) noexcept {
     reset_value(out);
-    if (!g_ui_plugin_slot_query || !scene.active || index >= scene.count) return false;
+    if (!ui_plugin_slot_surface_active(kUiPluginSlotChannelRow) || !scene.active || index >= scene.count) return false;
     const auto& row = scene.rows[index];
     if (!row.view.id || row.view.type == kNavigationEventsRowType || row.view.type == kNavigationRequestsRowType)
         return false;
@@ -36,7 +36,7 @@ inline bool shell_navigation_plugin_badge(const ShellNavigationScene& scene, u32
 // Server rail: the corner badge of a guild row (folder headers have none).
 inline bool guild_rail_plugin_corner(const GuildRailScene& scene, u32 index, UiPluginSlotCorner* out) noexcept {
     reset_value(out);
-    if (!g_ui_plugin_slot_query || !scene.active || index >= scene.count) return false;
+    if (!ui_plugin_slot_surface_active(kUiPluginSlotGuildRail) || !scene.active || index >= scene.count) return false;
     const auto& row = scene.rows[index];
     if (row.view.folder_role == GuildFolderRole::header || row.view.unavailable) return false;
     const auto* layout = guild_rail_scene_layout_node(scene, row);

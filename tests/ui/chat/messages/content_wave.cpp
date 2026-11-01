@@ -1065,12 +1065,14 @@ void test_plugin_decorations(Check check) noexcept {
               message_scene_media_obscure(f.scene, fallback, 0, key, false, false) == MessageMediaObscure::none,
           "plugin_render_media_blur");
     decorated.media = ui_plugin_media_hide;
+    ++g_ui_plugin_render_revision;
     check(message_scene_media_obscure(f.scene, fallback, first.id, key, false, false) ==
                   MessageMediaObscure::plugin_hidden &&
               utf8_equal(message_media_obscure_label(MessageMediaObscure::plugin_hidden),
                     utf8_literal("Media hidden by a plugin")),
           "plugin_render_media_hide");
     decorated.media = ui_plugin_media_blur;
+    ++g_ui_plugin_render_revision;
     check(message_scene_reveal_media(&f.scene, key) &&
               message_scene_media_obscure(f.scene, media_owner, first.id, key, false, false) == MessageMediaObscure::none,
           "plugin_render_blur_reveals_on_click");

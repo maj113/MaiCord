@@ -377,10 +377,15 @@ MessageMediaObscure message_scene_media_obscure(const MessageScene&, const Messa
 MessageMediaObscure message_scene_media_obscure(const MessageScene&, MessageMediaPolicyResult,
                                                 u64 plugin_message_id, u64 reveal_key, bool spoiler,
                                                 bool explicit_media) noexcept;
-// Cached plugin decoration of a message revision (never runs plugin code).
-bool message_scene_plugin_decoration(const MessageScene& scene, u64 message_id, u32 revision,
-                                     UiPluginRenderDecoration* output) noexcept;
-u8 message_scene_plugin_visibility(const MessageScene& scene, const MessageRecord& record) noexcept;
+// Cached plugin decoration of a message revision, null for none (never runs plugin code; see ui_plugin_render).
+inline const UiPluginRenderDecoration* message_scene_plugin_decoration(const MessageScene& scene, u64 message_id,
+                                                                      u32 revision) noexcept {
+    return scene.plugin_decorations ? ui_plugin_render(message_id, revision) : nullptr;
+}
+inline u8 message_scene_plugin_visibility(const MessageScene& scene, const MessageRecord& record) noexcept {
+    const auto* decoration = message_scene_plugin_decoration(scene, record.id, record.revision);
+    return decoration ? decoration->visibility : ui_plugin_render_normal;
+}
 // Returns true when the item was newly revealed; the host repaints.
 bool message_scene_reveal_media(MessageScene* scene, u64 reveal_key) noexcept;
 // Returns true when the feedback changed; failure notices change row height.

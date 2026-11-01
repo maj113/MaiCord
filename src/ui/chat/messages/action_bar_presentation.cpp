@@ -33,7 +33,7 @@ bool message_action_bar_presentation_build(const MessageActionBar& bar, const Th
         !paint_stream_push_clip(paint, visible)) {
         return false;
     }
-    UiPluginSlotNode plugins[kMessageActionBarPluginItems]{};
+    UiPluginSlotNode plugins[kMessageActionBarPluginItems];
     const u32 plugin_count = ui_plugin_slot_toolbar(kUiPluginSlotMessageHover, {plugins, kMessageActionBarPluginItems});
     // The hover toolbar floats over the timeline like any popover.
     bool success = ui_surface_paint_plate(paint, bar.rectangle, theme, UiElevation::popover, theme.scale.radius_sm);

@@ -460,7 +460,7 @@ UiBadgeWidget member_list_badge_resolve(const MemberListScene& s, u32 index) noe
 }
 UiPluginSlotBadge member_list_plugin_badge(const MemberListScene& s, u32 index) noexcept {
     UiPluginSlotBadge plugin{};
-    if (!g_ui_plugin_slot_query || index >= s.count || !s.users || !s.source) return plugin;
+    if (!ui_plugin_slot_surface_active(kUiPluginSlotMemberBadge) || index >= s.count || !s.users || !s.source) return plugin;
     const auto& row = s.rows[index];
     if (!member_list_scene_row_resident(s, index) || row.kind != MemberListRowKind::member) return plugin;
     const auto* label = member_list_scene_layout_node(s, row.label);

@@ -945,12 +945,11 @@ bool refresh_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_ind
         *data_changed = *data_changed || row->redacted != hidden;
         row->redacted = hidden;
     }
-    row->snapshot_height =
-        snapshot_estimated_height(scene, handle, snapshot_rich(*scene, record->id),
-                                  maximum(1.f, width - 2 * snapshot_padding(scene)), rich);
+    const auto* snapshot = snapshot_rich(*scene, record->id);
+    row->snapshot_height = snapshot_estimated_height(scene, handle, snapshot,
+                                                     maximum(1.f, width - 2 * snapshot_padding(scene)), rich);
     if (const auto* child = message_scene_snapshot_row(*scene, *row))
-        row->snapshot_height = row_required_height(*scene, *child, snapshot_rich(*scene, record->id)) +
-                               snapshot_following_gap(scene, rich);
+        row->snapshot_height = row_required_height(*scene, *child, snapshot) + snapshot_following_gap(scene, rich);
     if (text_identity_changed || !row->rich_layout_measured) {
         // A cached measurement overwrites both layouts below (restore_measurement).
         if (!cached) {

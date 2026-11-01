@@ -677,7 +677,7 @@ float roles(ProfileScene* s, UiWidgetHandle owner, float left, float top, float 
 
 // Plugin profile-section nodes: chips, then full-width link rows.
 float plugin_section(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width) noexcept {
-    UiPluginSlotNode nodes[8]{};
+    UiPluginSlotNode nodes[8];
     const u32 count = ui_plugin_slots(kUiPluginSlotProfileSection, 0, 0, s->profile->user_id, {nodes, 8});
     float x = 0, y = 0;
     bool chips = false;

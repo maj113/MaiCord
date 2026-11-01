@@ -50,10 +50,47 @@ inline UiPluginRenderQuery g_ui_plugin_render_query = nullptr;
 // Changes whenever any decoration (or a session reveal) changes.
 inline u64 g_ui_plugin_render_revision = 0;
 
-// False means "no decoration": the message renders unchanged.
-inline bool ui_plugin_render(u64 message_id, u32 revision, UiPluginRenderDecoration* output) noexcept {
-    reset_value(output);
-    return g_ui_plugin_render_query && message_id && g_ui_plugin_render_query(message_id, revision, output);
+// The last two answers, each kept for the same query, published revision, message and message revision: a row
+// asks several times per pass (visibility, rich content, polls, header, media), grouping compares a row with
+// its neighbour, and the query copies a whole decoration each time.
+struct UiPluginRenderMemo {
+    UiPluginRenderQuery query;
+    u64 published, message_id;
+    u32 revision;
+    bool found;
+    UiPluginRenderDecoration value;
+};
+inline UiPluginRenderMemo g_ui_plugin_render_memo[2];
+inline u32 g_ui_plugin_render_memo_last;
+
+__declspec(noinline) inline const UiPluginRenderDecoration* ui_plugin_render_lookup(u64 message_id, u32 revision) noexcept {
+    const auto query = g_ui_plugin_render_query;
+    const u64 published = g_ui_plugin_render_revision;
+    const auto holds = [&](const UiPluginRenderMemo& memo) noexcept {
+        return memo.query == query && memo.published == published && memo.message_id == message_id &&
+               memo.revision == revision;
+    };
+    u32 index = g_ui_plugin_render_memo_last;
+    if (!holds(g_ui_plugin_render_memo[index])) {
+        index ^= 1u;
+        auto& memo = g_ui_plugin_render_memo[index];
+        if (!holds(memo)) {
+            memo.query = query;
+            memo.published = published;
+            memo.message_id = message_id;
+            memo.revision = revision;
+            reset_value(&memo.value);
+            memo.found = query(message_id, revision, &memo.value);
+        }
+        g_ui_plugin_render_memo_last = index;
+    }
+    const auto& memo = g_ui_plugin_render_memo[index];
+    return memo.found ? &memo.value : nullptr;
+}
+// Null means "no decoration": the message renders unchanged (and nothing is touched when no query is installed).
+// The view stays valid until a third message is asked for; read it before looking up more than one other.
+inline const UiPluginRenderDecoration* ui_plugin_render(u64 message_id, u32 revision) noexcept {
+    return g_ui_plugin_render_query && message_id ? ui_plugin_render_lookup(message_id, revision) : nullptr;
 }
 constexpr bool ui_plugin_render_source(u16 source_id) noexcept {
     return (source_id & kUiPluginRenderSourceMask) == kUiPluginRenderSource;

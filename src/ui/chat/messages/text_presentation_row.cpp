@@ -228,12 +228,12 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
             return false;
     }
 
-    // Plugin decoration verdict cached for this revision (no plugin code runs).
-    UiPluginRenderDecoration decoration{};
-    const bool decorated =
-        !forwarded && message_scene_plugin_decoration(scene, record->id, record->revision, &decoration);
-    const bool collapsed = decorated && decoration.visibility == ui_plugin_render_collapsed;
-    const bool replaced = decorated && !collapsed && decoration.replace_content &&
+    // Plugin decoration verdict cached for this revision (no plugin code runs); borrowed from the one-entry
+    // memo, which only this message's own lookups touch while the row is built.
+    const auto* decoration =
+        forwarded ? nullptr : message_scene_plugin_decoration(scene, record->id, record->revision);
+    const bool collapsed = decoration && decoration->visibility == ui_plugin_render_collapsed;
+    const bool replaced = decoration && !collapsed && decoration->replace_content &&
                           record->content_availability == MessageContentAvailability::available;
     Utf8View content{};
     Color content_color = theme.text_primary;
@@ -241,7 +241,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         content_color = ui_background_muted_text_color(theme);
     } else if (replaced) {
         // Display-only markdown; the stored message text is untouched.
-        content = decoration.content;
+        content = decoration->content;
     } else if (record->content_availability == MessageContentAvailability::available) {
         content = message_store_content(*store, row.message);
     } else if (record->content_availability == MessageContentAvailability::restricted) {
@@ -540,13 +540,13 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         row_measurement.content_present = true;
     } else if (compact_name.bytes) {
         if (!compact_content(presentation, &context, compact_name, parse ? content : Utf8View{}, &display_content,
-                             &styles, &semantics, decorated ? &decoration : nullptr))
+                             &styles, &semantics, decoration))
             return false;
     } else if (parse && !parse_content(presentation, &context, content, &display_content, &styles, &semantics)) {
         return false;
     }
     if (collapsed) {
-        if (!append_plugin_collapsed(presentation, decoration, &display_content, &styles, &semantics))
+        if (!append_plugin_collapsed(presentation, *decoration, &display_content, &styles, &semantics))
             return false;
         row_measurement.content_present = true;
     }
@@ -566,7 +566,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         return false;
     if (!rich) {
         return append_annotations(presentation, scene, row, *record, theme, row_clip, measurement_index, forwarded,
-                                  0.0f, decorated && !collapsed ? &decoration : nullptr);
+                                  0.0f, collapsed ? nullptr : decoration);
     }
     if (!append_rich_media_text(context, scene, row, theme, row_clip, measurement_index, text_width,
                                 media_policy))
@@ -937,7 +937,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                                   ? presentation->measurements[measurement_index]
                                         .rich_item_layout.heights[kMessageSceneNoticeItemOffset]
                                   : 0.0f,
-                              decorated && !collapsed ? &decoration : nullptr);
+                              collapsed ? nullptr : decoration);
 }
 } // namespace text_presentation_detail
 } // namespace maicord

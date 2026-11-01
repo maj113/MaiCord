@@ -40,8 +40,7 @@ bool message_author_layout(const MessageScene& scene, const MessageTextCommand& 
         return false;
     reset_value(out);
     out->appearance = global;
-    UiPluginRenderDecoration decoration{};
-    const bool decorated = message_scene_plugin_decoration(scene, record->id, record->revision, &decoration);
+    const auto* decoration = message_scene_plugin_decoration(scene, record->id, record->revision);
     const auto decoration_width = [&](Utf8View text, u16 salt) noexcept {
         if (!text.bytes)
             return 0.0f;
@@ -59,8 +58,8 @@ bool message_author_layout(const MessageScene& scene, const MessageTextCommand& 
                          .ok();
         return minimum(ui_rect_width(command.rectangle) * 0.25f, (measured ? value.size.width : text.bytes * 7.f) + 2);
     };
-    const float prefix_width = decorated ? decoration_width(decoration.name_prefix, 0x4850) : 0.0f;
-    const float suffix_width = decorated ? decoration_width(decoration.name_suffix, 0x4853) : 0.0f;
+    const float prefix_width = decoration ? decoration_width(decoration->name_prefix, 0x4850) : 0.0f;
+    const float suffix_width = decoration ? decoration_width(decoration->name_suffix, 0x4853) : 0.0f;
     const float decoration_space = (prefix_width ? prefix_width + 4 : 0) + (suffix_width ? suffix_width + 4 : 0);
     auto& badge = out->badge;
     badge.owner = command.owner.handle;
@@ -90,8 +89,8 @@ bool message_author_layout(const MessageScene& scene, const MessageTextCommand& 
                      .ok();
     auto bounds = command.rectangle;
     if (prefix_width) {
-        const Color color = message_author_decoration_color(theme, decoration.name_tone, command.color);
-        out->name_prefix = {decoration.name_prefix, command.owner,
+        const Color color = message_author_decoration_color(theme, decoration->name_tone, command.color);
+        out->name_prefix = {decoration->name_prefix, command.owner,
                             {bounds.left, bounds.top, bounds.left + prefix_width, bounds.bottom}, command.clip, color,
                             text_style_subtext, UiTextAlignment::start, UiTextAlignment::center,
                             TextWrapping::no_wrap, TextOverflow::ellipsis};
@@ -127,10 +126,10 @@ bool message_author_layout(const MessageScene& scene, const MessageTextCommand& 
     }
     float tail_left = bounds.right + 8;
     if (suffix_width) {
-        const Color color = message_author_decoration_color(theme, decoration.name_tone, command.color);
+        const Color color = message_author_decoration_color(theme, decoration->name_tone, command.color);
         const UiRect suffix{bounds.right + 4, bounds.top, minimum(command.rectangle.right, bounds.right + 4 + suffix_width),
                             bounds.bottom};
-        out->name_suffix = {decoration.name_suffix, command.owner, suffix, command.clip, color, text_style_subtext,
+        out->name_suffix = {decoration->name_suffix, command.owner, suffix, command.clip, color, text_style_subtext,
                             UiTextAlignment::start, UiTextAlignment::center, TextWrapping::no_wrap,
                             TextOverflow::ellipsis};
         tail_left = suffix.right + 8;
@@ -142,23 +141,25 @@ bool message_author_layout(const MessageScene& scene, const MessageTextCommand& 
         badge.rectangle = ui_badge_widget_layout(cache, badge, line).outer;
         tail_left = badge.rectangle.right + 8;
     }
-    auto& plugin = out->plugin;
-    if (ui_plugin_slot_badge(kUiPluginSlotMessageAccessory, record->channel_id, record->id, 0, command.owner.handle,
-                             &plugin)) {
-        const auto& label = plugin.badge.label;
-        const float width = ui_rect_width(ui_badge_layout(cache, label, command.rectangle, true, plugin.badge.style).outer);
+    // A plugin chip trails the name at tail_left and hides below 40 DIPs.
+    const auto place = [&](Utf8View label, auto style, UiRect* rectangle) noexcept {
         auto line = command.rectangle;
         line.left = tail_left - 2;
-        line.right = minimum(command.rectangle.right, line.left + width);
-        if (ui_rect_width(line) >= 40) {
-            plugin.badge.rectangle = ui_badge_layout(cache, label, line, true, plugin.badge.style).outer;
-            tail_left = plugin.badge.rectangle.right + 8;
-        } else {
-            reset_value(&plugin);
-        }
-    }
-    for (u32 i = 0; decorated && i < decoration.badge_count && i < kUiPluginRenderBadges; ++i) {
-        const auto& node = decoration.badges[i];
+        line.right = minimum(command.rectangle.right,
+                             line.left + ui_rect_width(ui_badge_layout(cache, label, command.rectangle, true, style).outer));
+        if (ui_rect_width(line) < 40)
+            return false;
+        *rectangle = ui_badge_layout(cache, label, line, true, style).outer;
+        tail_left = rectangle->right + 8;
+        return true;
+    };
+    auto& plugin = out->plugin;
+    if (ui_plugin_slot_badge(kUiPluginSlotMessageAccessory, record->channel_id, record->id, 0, command.owner.handle,
+                             &plugin) &&
+        !place(plugin.badge.label, plugin.badge.style, &plugin.badge.rectangle))
+        reset_value(&plugin);
+    for (u32 i = 0; decoration && i < decoration->badge_count && i < kUiPluginRenderBadges; ++i) {
+        const auto& node = decoration->badges[i];
         const Utf8View label = node.text.bytes ? node.text : node.tooltip;
         if (!label.bytes)
             continue;
@@ -170,16 +171,10 @@ bool message_author_layout(const MessageScene& scene, const MessageTextCommand& 
         slot.icon = node.icon;
         slot.tone = node.tone;
         slot.owner_id = node.owner_id;
-        const float width = ui_rect_width(ui_badge_layout(cache, label, command.rectangle, true, slot.badge.style).outer);
-        auto line = command.rectangle;
-        line.left = tail_left - 2;
-        line.right = minimum(command.rectangle.right, line.left + width);
-        if (ui_rect_width(line) < 40) {
+        if (!place(label, slot.badge.style, &slot.badge.rectangle)) {
             reset_value(&slot);
             break;
         }
-        slot.badge.rectangle = ui_badge_layout(cache, label, line, true, slot.badge.style).outer;
-        tail_left = slot.badge.rectangle.right + 8;
         ++out->decoration_count;
     }
     if (command.styles.count > 1 && tail_left < command.rectangle.right) {
@@ -345,7 +340,7 @@ MessagePluginSlotHit message_author_plugin_hit_test(const MessageScene& scene, c
                                                     const ChatStateStore& state, const UserStore& users,
                                                     UiTextMeasureCache* cache, const Theme& theme, float x,
                                                     float y) noexcept {
-    if (!g_ui_plugin_slot_query || !scene.active || !scene.timeline || !scene.timeline->store ||
+    if (!ui_plugin_slot_surface_active(kUiPluginSlotMessageAccessory) || !scene.active || !scene.timeline || !scene.timeline->store ||
         !ui_rect_contains(scene.viewport, x, y)) return {};
     for (u32 i = 0; i < text.command_count; ++i) {
         const auto& command = text.commands[i];

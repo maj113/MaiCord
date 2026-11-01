@@ -88,7 +88,7 @@ void push(MessageActionBar* bar, MessageActionBarAction action, MessageActionBar
 }
 
 u32 plugin_count() noexcept {
-    UiPluginSlotNode nodes[kMessageActionBarPluginItems]{};
+    UiPluginSlotNode nodes[kMessageActionBarPluginItems];
     return ui_plugin_slot_toolbar(kUiPluginSlotMessageHover, {nodes, kMessageActionBarPluginItems});
 }
 // Plugin buttons sit just before More (Delete when expanded).

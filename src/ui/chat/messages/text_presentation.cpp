@@ -436,10 +436,8 @@ Utf8View message_text_presentation_command_source(const MessageStore& store,
     // Plugin replacement markdown maps to the cached replacement, never the
     // stored message; generated plugin text is its own source.
     if (command.source_id == kUiPluginRenderContentSource) {
-        UiPluginRenderDecoration decoration{};
-        return ui_plugin_render(record->id, record->revision, &decoration) && decoration.replace_content
-                   ? decoration.content
-                   : Utf8View{};
+        const auto* decoration = ui_plugin_render(record->id, record->revision);
+        return decoration && decoration->replace_content ? decoration->content : Utf8View{};
     }
     if (ui_plugin_render_source(command.source_id))
         return command.text;
