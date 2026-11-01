@@ -304,10 +304,15 @@ bool application_commands_send(bool* handled) noexcept {
             c.error = utf8_literal("This command couldn't run. Try again.");
             return reopen();
         }
-        // /gif and /sticker send only a chosen result; the draft stays and the app shakes.
+        // /gif and /sticker send only a result: their results took the Enter
+        // (the command ended once one sent; else it waits for loading results)...
+        if (run == BuiltinCommandRun::results)
+            return c.selected.command ? reopen() : true;
+        // ...and with none to send the draft stays, the app shakes and the bar says why.
         if (run == BuiltinCommandRun::rejected) {
+            c.error = builtin_command_results_message();
             shake_app();
-            return reopen();
+            return reopen() && refresh_message_composer_ui();
         }
         // A built-in's use is recorded as it runs.
         frecency_track(*c.selected.command, c.guild);
@@ -857,6 +862,13 @@ bool application_commands_builtin_used(Utf8View replacement) noexcept {
     const auto result =
         message_composer_replace_range(&g_app.message_composer, 0, g_app.message_composer.bytes, replacement);
     return result == MessageComposerResult::invalid_input || composer_apply_result(result, true);
+}
+bool application_commands_results_refused() noexcept {
+    if (!commands || !commands->selected.command)
+        return true;
+    commands->error = builtin_command_results_message();
+    shake_app();
+    return render() && refresh_message_composer_ui();
 }
 // The pointer took over: hovering a row drops the keyboard
 // selection (and the keyboard's place in the rail).

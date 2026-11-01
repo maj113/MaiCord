@@ -17,6 +17,19 @@ extern char searched[64];
 
 extern u32 searched_bytes, searches;
 
+// The fake inline results (see commands_ui.cpp): what Enter finds on them.
+enum class FakeResults : u8 { none, loading, ready };
+
+constexpr auto fake_empty_message = utf8_literal("No results found. Try a different search.");
+
+extern FakeResults fake_results;
+
+// fake_selected: the highlighted result; fake_sent_index: the one Enter sent.
+extern u32 fake_selected, fake_sent_index, fake_sends, fake_waits;
+
+// The waited-for results arrive: count of them; none is the command's refusal.
+bool fake_results_arrive(u32 count) noexcept;
+
 extern u64 left_group;
 
 extern bool left_silent;

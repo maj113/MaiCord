@@ -30,10 +30,16 @@ bool application_media_picker_open_sticker_pack(u64 pack_id) noexcept;
 // empty query hides them; the open expression picker suppresses them.
 bool application_media_picker_inline(UiMediaPickerKind kind, Utf8View query, UiRect anchor) noexcept;
 void application_media_picker_inline_close() noexcept;
-// While inline results show: Up/Down step the selection (wrapping), Enter
-// sends the selected result and Tab inserts a GIF's link (sends a sticker).
+// While inline results show: Up/Down step the selection (wrapping) and Tab
+// inserts a GIF's link (sends a sticker). Enter sends the keyboard-selected
+// result, else the one under the pointer, else the first sendable one; while
+// the results load it waits and sends the same way once they show (the query
+// changing or the results closing cancels the wait), and a wait that ends
+// without a result is the command's refusal (application_commands_results_refused).
 // *handled is false when the key keeps its composer meaning.
 bool application_media_picker_inline_key(u32 key, bool* handled) noexcept;
+// Why the inline results have nothing to send: none matched, or the search failed.
+Utf8View application_media_picker_inline_message() noexcept;
 // The joined server whose session sticker list holds the sticker; zero when none.
 u64 application_media_picker_sticker_server(u64 sticker_id) noexcept;
 // The official client's reaction popout: the Emoji tab without the GIF/Sticker/Emoji

@@ -17,6 +17,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/core/win32_user.hpp"
 #include "maicord/model/guild/member_moderation.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/protocol/guild/admin.hpp"
@@ -301,10 +302,15 @@ BuiltinCommandRun builtin_command_run(const ApplicationCommand& command, Utf8Vie
         *text = trim(join(text_storage, utf8_literal("||"), message, utf8_literal("||")));
         return text->bytes ? BuiltinCommandRun::text : BuiltinCommandRun::failed;
     case gif:
-    case sticker:
-        // The client's integration commands send only a chosen result; Enter
-        // shakes the app and keeps the draft.
-        return BuiltinCommandRun::rejected;
+    case sticker: {
+        // The client's integration commands send only a result; Enter on the
+        // query sends the selected one (the first by default), waiting for
+        // results still loading. With none to send the command is refused.
+        bool handled = false;
+        if (!builtin_command_results_key(VK_RETURN, &handled))
+            return BuiltinCommandRun::failed;
+        return handled ? BuiltinCommandRun::results : BuiltinCommandRun::rejected;
+    }
     case leave: {
         bool silent = false;
         json_value_to_bool(option(options, utf8_literal("silent")), &silent);
@@ -569,5 +575,8 @@ bool builtin_command_results(const ApplicationCommand* command, Utf8View query, 
 
 bool builtin_command_results_key(u32 key, bool* handled) noexcept {
     return application_media_picker_inline_key(key, handled);
+}
+Utf8View builtin_command_results_message() noexcept {
+    return application_media_picker_inline_message();
 }
 } // namespace maicord::app_detail

@@ -34,6 +34,10 @@ bool application_commands_escape() noexcept;
 // put in the draft): records the command use, ends the selected command and
 // replaces the whole draft with replacement (empty clears it).
 bool application_commands_builtin_used(Utf8View replacement) noexcept;
+// Enter waited for a built-in's inline results and none came to send: shakes the
+// app and shows the reason (application_media_picker_inline_message) in the
+// option bar. The draft stays.
+bool application_commands_results_refused() noexcept;
 // The pointer hovered a picker row; the keyboard selection is dropped.
 void application_commands_hover() noexcept;
 // A picker picture fetched by URL (an app's icon or its bot's default avatar,

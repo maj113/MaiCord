@@ -21,9 +21,12 @@ enum class BuiltinCommandRun : u8 {
     // *text is the message to send in place of the draft.
     text,
     handled,
-    // Nothing runs and the draft stays: /gif and /sticker send only a chosen
-    // result (the client shakes the app instead of sending).
+    // Nothing runs and the draft stays: /gif and /sticker had no result to
+    // send (the client shakes the app instead of sending).
     rejected,
+    // /gif and /sticker: their inline results took the Enter, sending the
+    // selected result (the command has ended) or waiting for loading ones.
+    results,
 };
 // options_json: command_arguments' options array. Text storage holds *text.
 BuiltinCommandRun builtin_command_run(const ApplicationCommand&, Utf8View options_json, u64 channel_id,
@@ -40,6 +43,9 @@ void builtin_commands_release() noexcept;
 // have them) for its query option, above anchor (the commands popup). A null
 // command or an empty query hides them.
 bool builtin_command_results(const ApplicationCommand* command, Utf8View query, UiRect anchor) noexcept;
-// Up/Down, Enter and Tab while results show (application_media_picker_inline_key).
+// Up/Down, Enter and Tab while results show (application_media_picker_inline_key);
+// Enter also waits for loading results.
 bool builtin_command_results_key(u32 key, bool* handled) noexcept;
+// The reason the results have nothing to send, for the refusal's message.
+Utf8View builtin_command_results_message() noexcept;
 } // namespace maicord::app_detail

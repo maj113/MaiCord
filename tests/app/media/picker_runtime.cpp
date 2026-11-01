@@ -20,7 +20,7 @@ void application_voice_message_pointer(UiButtonPointerEvent, bool, bool) noexcep
 
 } // namespace maicord::app_detail
 namespace maicord::media_picker_runtime_test {
-extern u32 builtin_uses;
+extern u32 builtin_uses, refusals;
 extern char builtin_replacement[];
 extern u32 builtin_replacement_bytes;
 extern ConstSlice<u8> sticker_frecency;
@@ -33,6 +33,11 @@ bool application_commands_builtin_used(Utf8View replacement) noexcept {
     using namespace media_picker_runtime_test;
     ++builtin_uses;
     builtin_replacement_bytes = utf8_copy_truncated(builtin_replacement, kMediaCatalogMaximumUrlBytes, replacement);
+    return true;
+}
+// An Enter that waited for results found none to send.
+bool application_commands_results_refused() noexcept {
+    ++media_picker_runtime_test::refusals;
     return true;
 }
 ConstSlice<u8> application_emoji_preferences_sticker_frecency() noexcept {
@@ -429,7 +434,7 @@ void test_server_stickers(ApplicationMediaPicker& p) noexcept {
     g_app.message_composer.channel_id = 70;
 }
 // The commands owner's hook after an inline result is used.
-u32 builtin_uses;
+u32 builtin_uses, refusals;
 char builtin_replacement[kMediaCatalogMaximumUrlBytes];
 u32 builtin_replacement_bytes;
 // The synced sticker_frecency group application_emoji_preferences would hold.
@@ -709,6 +714,82 @@ void test_inline_results(ApplicationMediaPicker& p) noexcept {
           "inline results: Enter or Tab sends the selected sticker");
     check(application_media_picker_inline(UiMediaPickerKind::gif, {}, anchor) && !p.active,
           "inline results: an empty query shows nothing");
+    // Enter on the query sends a result nobody chose: the first by default, the
+    // highlighted or hovered one otherwise, and results still loading are waited for.
+    const auto fresh_queue = [&]() noexcept {
+        return message_store_initialize(&view.store, {records, 16}, {order, 16}, {message_text, sizeof(message_text)}) &&
+               ui_variable_list_initialize(&view.list, {heights, 16}, {prefixes, 16}, 0, ui_extent_units(57)) &&
+               message_timeline_initialize(&view.timeline, &view.store, &view.list, ui_extent_units(57),
+                                           ui_extent_units(480), true) &&
+               message_composer_controller_initialize(&controller, &g_app.message_composer, &drafts, &view.timeline,
+                                                      {request_text, sizeof(request_text)});
+    };
+    const auto sent_is = [&](Utf8View url) noexcept {
+        MessageComposerSubmit submit{};
+        return message_composer_controller_prepare_submit(&controller, clock_monotonic_milliseconds(), &submit).ok() &&
+               utf8_equal(submit.content, url);
+    };
+    const auto strip = [&](Utf8View text) noexcept {
+        return application_media_picker_inline(UiMediaPickerKind::gif, text, anchor);
+    };
+    const u32 uses = builtin_uses, refused = refusals;
+    check(fresh_queue() && strip(utf8_literal("enter")) && p.phase == UiMediaPickerPhase::loading &&
+              application_media_picker_inline_key(VK_RETURN, &handled) && handled && p.enter_pending && p.active &&
+              !controller.request_count && builtin_uses == uses,
+          "inline results: Enter while the results load waits for them and sends nothing yet");
+    check(send_pending(601) && response(601, strip_body) && controller.request_count == 1 &&
+              sent_is(utf8_literal("https://klipy.com/gifs/a")) && builtin_uses == uses + 1 && !p.active &&
+              !p.enter_pending && refusals == refused,
+          "inline results: the first result sends as the waited-for results arrive");
+    check(fresh_queue() && strip(utf8_literal("entry")) &&
+              application_media_picker_inline_key(VK_RETURN, &handled) && p.enter_pending &&
+              strip(utf8_literal("entrx")) && !p.enter_pending && p.phase == UiMediaPickerPhase::loading &&
+              send_pending(602) && response(602, strip_body) && p.phase == UiMediaPickerPhase::ready && p.active &&
+              !controller.request_count && builtin_uses == uses + 1 && refusals == refused,
+          "inline results: editing the query cancels the wait, so the new results wait for another Enter");
+    check(fresh_queue() && application_media_picker_inline_key(VK_DOWN, &handled) && handled &&
+              p.scene.selected_index == 1 && application_media_picker_inline_key(VK_RETURN, &handled) && handled &&
+              controller.request_count == 1 && sent_is(utf8_literal("https://klipy.com/gifs/b")) && !p.active,
+          "inline results: Enter sends the highlighted result rather than the first");
+    check(fresh_queue() && strip(utf8_literal("entrx")) && application_media_picker_synchronize() &&
+              p.phase == UiMediaPickerPhase::ready && p.scene.selected_index == 0 &&
+              application_media_picker_inline_key(VK_RETURN, &handled) && handled &&
+              controller.request_count == 1 && sent_is(utf8_literal("https://klipy.com/gifs/a")) && !p.active,
+          "inline results: Enter on shown results sends the first one without choosing it");
+    float second_x = 0, second_y = 0;
+    const bool results_back = fresh_queue() && strip(utf8_literal("entrx")) && application_media_picker_synchronize();
+    for (u32 i = 0; results_back && i < p.scene.cell_count; ++i) {
+        const auto& cell = p.scene.projection->cells[i];
+        if (cell.source_index == 1 && ui_rect_has_area(cell.clip)) {
+            second_x = cell.clip.left + ui_rect_width(cell.clip) * .25f;
+            second_y = (cell.clip.top + cell.clip.bottom) * .5f;
+        }
+    }
+    check(results_back && second_x > 0 &&
+              application_media_picker_window_message(WM_MOUSEMOVE, 0, pointer(second_x, second_y)) &&
+              p.scene.selected_index == ~u32{0} && application_media_picker_inline_key(VK_RETURN, &handled) &&
+              handled && controller.request_count == 1 && sent_is(utf8_literal("https://klipy.com/gifs/b")) &&
+              !p.active,
+          "inline results: Enter sends the result under the pointer when the keyboard selection was dropped");
+    const u32 sent = builtin_uses;
+    check(fresh_queue() && strip(utf8_literal("nothing")) && application_media_picker_inline_key(VK_RETURN, &handled) &&
+              handled && p.enter_pending && send_pending(603) && response(603, utf8_literal("[]")) &&
+              refusals == refused + 1 && !p.enter_pending && !controller.request_count && builtin_uses == sent,
+          "inline results: a wait that ends without results refuses the command and sends nothing");
+    check(application_media_picker_inline_key(VK_RETURN, &handled) && !handled &&
+              utf8_equal(application_media_picker_inline_message(),
+                         utf8_literal("No results found. Try a different search.")),
+          "inline results: Enter on a search with no results is left to the command to refuse, saying so");
+    check(strip(utf8_literal("broken")) && application_media_picker_inline_key(VK_RETURN, &handled) &&
+              p.enter_pending && send_pending(604) && response(604, {}, 500) && p.phase == UiMediaPickerPhase::failed &&
+              refusals == refused + 2 && !p.enter_pending &&
+              utf8_equal(application_media_picker_inline_message(),
+                         utf8_literal("Couldn't load results. Edit your search to try again.")),
+          "inline results: a search that fails while Enter waits refuses the command with the failure");
+    check(strip(utf8_literal("closing")) && application_media_picker_inline_key(VK_RETURN, &handled) &&
+              p.enter_pending && (application_media_picker_inline_close(), !p.enter_pending && !p.active) &&
+              refusals == refused + 2 && builtin_uses == sent,
+          "inline results: closing the results cancels the wait");
     g_app.popup_scene.active = false;
     g_app.popup_owner_kind = PopupOwnerKind::none;
     command_bar = false;

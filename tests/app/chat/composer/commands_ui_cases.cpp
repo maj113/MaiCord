@@ -9,6 +9,9 @@
 #include "maicord/protocol/user/private_conversation.hpp"
 
 namespace maicord {
+extern u32 shake_offsets;
+}
+namespace maicord {
 namespace commands_ui_detail {
 
 void command_index_invalidation_cases() noexcept {
@@ -530,6 +533,77 @@ void builtin_cases() noexcept {
                   application_commands_key(VK_RETURN) &&
                   utf8_equal(message_composer_text(composer), utf8_literal("/gif query:cats\xE2\x81\xA3")),
               "/gif shows its inline results for the query; Enter without a chosen result keeps the draft");
+        // Enter on a result-producing command's query sends a result rather than
+        // shaking the app; only a search with nothing to send is refused.
+        const auto shook = []() noexcept {
+            const u64 at = clock_monotonic_milliseconds();
+            const u32 moves = shake_offsets;
+            const bool moved = application_commands_tick(at) && application_commands_tick(at + 16) &&
+                               shake_offsets == moves + 1;
+            application_commands_tick(at + 400); // the content returns to rest
+            return moved;
+        };
+        const auto gif_draft_kept = [&]() noexcept {
+            return utf8_equal(message_composer_text(composer), utf8_literal("/gif query:cat\xE2\x81\xA3"));
+        };
+        const auto bar_refuses = [&]() noexcept {
+            const auto& scene = g_app.message_composer_scene;
+            return scene.command_bar_error &&
+                   utf8_equal(message_composer_scene_command_bar_detail(scene), fake_empty_message);
+        };
+        // A refused Enter leaves /gif selected: start each case from a clean draft.
+        const auto pick_gif = [&]() noexcept {
+            edit({});
+            return pick(utf8_literal("/gif"), utf8_literal("/gif query:cat"));
+        };
+        shook(); // the check above refused its Enter: let that shake rest
+        u32 sends = fake_sends, waits = fake_waits;
+        fake_results = FakeResults::ready;
+        fake_selected = 0;
+        fake_sent_index = ~u32{0};
+        check(pick_gif() && application_commands_key(VK_RETURN) && fake_sends == sends + 1 &&
+                  fake_sent_index == 0 && !composer.bytes && !shook(),
+              "/gif cat + Enter sends the first result and does not shake the app");
+        sends = fake_sends;
+        fake_results = FakeResults::ready;
+        fake_selected = 1;
+        check(pick_gif() && application_commands_key(VK_RETURN) && fake_sends == sends + 1 &&
+                  fake_sent_index == 1 && !composer.bytes && !shook(),
+              "/gif cat + Enter sends the highlighted result when the selection moved off the first");
+        sends = fake_sends;
+        fake_results = FakeResults::ready;
+        fake_selected = 0;
+        bool sent_as_command = false;
+        check(pick_gif() && application_commands_send(&sent_as_command) && sent_as_command &&
+                  fake_sends == sends + 1 && !composer.bytes && !g_app.message_composer_scene.command.name_bytes &&
+                  !shook(),
+              "the composer's own send path gives /gif's Enter to the results too");
+        sends = fake_sends;
+        fake_results = FakeResults::loading;
+        check(pick_gif() && application_commands_key(VK_RETURN) && fake_waits == waits + 1 && fake_sends == sends &&
+                  gif_draft_kept() && !shook(),
+              "/gif cat + Enter while the results load waits with the draft kept and no shake");
+        check(fake_results_arrive(3) && fake_sends == sends + 1 && fake_sent_index == 0 && !composer.bytes &&
+                  !shook(),
+              "the waited-for first result sends as it arrives");
+        sends = fake_sends;
+        waits = fake_waits;
+        fake_results = FakeResults::loading;
+        check(pick_gif() && application_commands_send(&sent_as_command) && fake_waits == waits + 1 &&
+                  gif_draft_kept() && !shook() && fake_results_arrive(1) && fake_sends == sends + 1 &&
+                  !composer.bytes,
+              "the composer's own send path waits for loading results the same way");
+        waits = fake_waits;
+        fake_results = FakeResults::loading;
+        check(pick_gif() && application_commands_key(VK_RETURN) && fake_waits == waits + 1 &&
+                  fake_results_arrive(0) && gif_draft_kept() && bar_refuses() && shook(),
+              "a wait that ends with no results shakes the app and says so in the option bar");
+        sends = fake_sends;
+        fake_results = FakeResults::none;
+        check(pick_gif() && application_commands_key(VK_RETURN) && fake_sends == sends && gif_draft_kept() &&
+                  bar_refuses() && shook(),
+              "/gif cat + Enter with no results keeps the draft, shakes the app and says why");
+        edit({});
         const u32 before_nick = calls;
         check(pick(utf8_literal("/nick"), utf8_literal("/nick new_nick:Maj")) && application_commands_key(VK_RETURN) &&
                   !composer.bytes && application_commands_pending(clock_monotonic_milliseconds()) &&

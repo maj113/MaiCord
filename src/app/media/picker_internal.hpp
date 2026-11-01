@@ -130,8 +130,10 @@ struct ApplicationMediaPicker {
     // inline_anchor (the commands popup, else the composer) while the command's
     // option bar shows. The first result of each new set is selected. Entering
     // keeps the expression picker's tab
-    // and query (composer_kind, tab_query).
-    bool inline_mode, inline_select;
+    // and query (composer_kind, tab_query). enter_pending: Enter came while
+    // the results loaded; the result sends as they show, unless the query
+    // changes or the results close first.
+    bool inline_mode, inline_select, enter_pending;
     UiRect inline_anchor;
     u32 inline_heading_bytes, inline_heading_plain;
     char inline_heading[320];

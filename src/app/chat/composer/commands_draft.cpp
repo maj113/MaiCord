@@ -615,8 +615,8 @@ void application_commands_composer(MessageComposerProjectionContext* projection)
         projection->option_chip_count = count;
     }
     // The option bar: the active option's name and
-    // description, its failed check instead in the danger colour; else the
-    // command's "/name" and description, or the command's error.
+    // description, its failed check or the command's error instead in the
+    // danger colour; else the command's "/name" and description, or its error.
     projection->command_bar_name = copy_label(commands->bar_name, sizeof(commands->bar_name), utf8_literal("/"), name);
     projection->command_bar_detail = c.selected.command->description;
     projection->command_bar_error = false;
@@ -624,11 +624,12 @@ void application_commands_composer(MessageComposerProjectionContext* projection)
         const auto& state = c.option_states[c.focused_slot];
         projection->command_bar_name =
             field_text(*c.selected.index, c.focused_option, "name", {commands->bar_name, sizeof(commands->bar_name)});
+        const Utf8View failure = state.error.bytes ? state.error : c.error;
         projection->command_bar_detail =
-            state.error.bytes ? state.error
-                              : field_text(*c.selected.index, c.focused_option, "description",
-                                           {commands->bar_detail, sizeof(commands->bar_detail)});
-        projection->command_bar_error = state.error.bytes != 0;
+            failure.bytes ? failure
+                          : field_text(*c.selected.index, c.focused_option, "description",
+                                       {commands->bar_detail, sizeof(commands->bar_detail)});
+        projection->command_bar_error = failure.bytes != 0;
     } else if (c.error.bytes) {
         projection->command_bar_detail = c.error;
         projection->command_bar_error = true;

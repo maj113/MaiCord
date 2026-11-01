@@ -64,6 +64,42 @@ void rebind(ApplicationMediaPicker& p) noexcept {
     ZeroMemory(p.tab_scroll, sizeof(p.tab_scroll));
     message_composer_clear(&p.edit);
 }
+// Enter's result among the inline results: the keyboard-selected one, else the
+// one the pointer rests on, else the first sendable one.
+UiMediaPickerTarget inline_enter_target(const ApplicationMediaPicker& p) noexcept {
+    if (!ui_media_picker_scene_current(p.scene))
+        return {};
+    const auto selected = ui_media_picker_scene_selected_target(p.scene);
+    if (selected.action == UiMediaPickerAction::item)
+        return selected;
+    u32 index = ~u32{0};
+    for (u32 i = 0; i < p.scene.cell_count && index == ~u32{0}; ++i) {
+        const auto& cell = p.scene.projection->cells[i];
+        if (cell.item.enabled && ui_widget_handle_equal(p.scene.widgets.hovered, cell.widget))
+            index = cell.source_index;
+    }
+    const CatalogBank* bank = nullptr;
+    u32 local = 0;
+    MediaCatalogItem temporary{};
+    for (u32 i = 0; index == ~u32{0} && i < p.source.count; ++i) {
+        const auto* item = item_at(p, i, &bank, &local, &temporary);
+        if (item && item->available)
+            index = i;
+    }
+    if (!item_at(p, index, &bank, &local, &temporary) || !bank)
+        return {};
+    return {p.scope,  p.generation,        bank->first_id + local, p.source.revision,
+            index,    p.scene.generation,  UiMediaPickerAction::item, p.kind};
+}
+// The results an Enter waited for have settled (or are still loading).
+bool inline_enter_resume(ApplicationMediaPicker& p) noexcept {
+    if (!p.enter_pending || !p.inline_mode || p.phase == UiMediaPickerPhase::loading)
+        return true;
+    p.enter_pending = false;
+    const auto target = p.phase == UiMediaPickerPhase::ready ? inline_enter_target(p) : UiMediaPickerTarget{};
+    return target.action == UiMediaPickerAction::item ? activate(p, target)
+                                                       : application_commands_results_refused();
+}
 
 } // namespace
 
@@ -141,6 +177,7 @@ bool application_media_picker_inline(UiMediaPickerKind kind, Utf8View query, UiR
     char bounded[kMediaCatalogMaximumQueryBytes];
     query = {bounded, utf8_copy_truncated(bounded, sizeof(bounded), query)};
     if (fresh || !utf8_equal(message_composer_text(p.edit), query)) {
+        p.enter_pending = false;
         if (!message_composer_restore(&p.edit, 0, query, query.bytes, query.bytes))
             return false;
         // "Gif content matching **q**" / "Stickers matching **q**".
@@ -172,8 +209,18 @@ void application_media_picker_inline_close() noexcept {
 bool application_media_picker_inline_key(u32 key, bool* handled) noexcept {
     *handled = false;
     auto* p = g_app.media_picker;
-    if (!p || !p->inline_mode || !shown(p) || !ui_media_picker_scene_current(p->scene) ||
-        p->phase != UiMediaPickerPhase::ready)
+    if (!p || !p->inline_mode)
+        return true;
+    // Enter before the results arrive waits for them (inline_enter_resume).
+    if (key == VK_RETURN && p->phase == UiMediaPickerPhase::loading && shown(p)) {
+        *handled = p->enter_pending = true;
+        return true;
+    }
+    // Results that arrived since the last frame show their scene first.
+    if (key == VK_RETURN && p->phase == UiMediaPickerPhase::ready && p->source.count && shown(p) &&
+        !ui_media_picker_scene_current(p->scene) && !application_media_picker_synchronize())
+        return false;
+    if (!shown(p) || !ui_media_picker_scene_current(p->scene) || p->phase != UiMediaPickerPhase::ready)
         return true;
     if (key == VK_UP || key == VK_DOWN) {
         *handled = true;
@@ -182,13 +229,19 @@ bool application_media_picker_inline_key(u32 key, bool* handled) noexcept {
     }
     if (key != VK_RETURN && key != VK_TAB)
         return true;
-    // Without a selected result the key keeps its
-    // composer meaning; Tab inserts a GIF's link where Enter sends it.
-    const auto target = ui_media_picker_scene_selected_target(p->scene);
+    // Enter sends the selected result, else the hovered one, else the first;
+    // Tab inserts a GIF's link and keeps its composer meaning without a selection.
+    const auto target = key == VK_RETURN ? inline_enter_target(*p) : ui_media_picker_scene_selected_target(p->scene);
     if (target.action != UiMediaPickerAction::item)
         return true;
     *handled = true;
     return activate(*p, target, key == VK_TAB);
+}
+Utf8View application_media_picker_inline_message() noexcept {
+    const auto* p = g_app.media_picker;
+    return p && p->inline_mode && p->phase == UiMediaPickerPhase::failed
+               ? utf8_literal("Couldn't load results. Edit your search to try again.")
+               : utf8_literal("No results found. Try a different search.");
 }
 u64 application_media_picker_sticker_server(u64 sticker_id) noexcept {
     if (!sticker_id)
@@ -287,7 +340,7 @@ void application_media_picker_close() noexcept {
         p->kind = p->composer_kind;
         p->reaction_message_id = 0;
         reset_value(&p->reaction_scope);
-        p->reaction_error = p->inline_mode = p->inline_select = false;
+        p->reaction_error = p->inline_mode = p->inline_select = p->enter_pending = false;
     }
     revoke_capture(*p);
     p->hover_at = 0;
@@ -543,7 +596,8 @@ bool application_media_picker_submit(u64 id, u64 now) noexcept {
             p.wanted = false;
             p.phase = UiMediaPickerPhase::failed;
             p.status = utf8_literal("Couldn't load. Press Enter to retry.");
-            repaint();
+            if (repaint())
+                inline_enter_resume(p);
         }
         return false;
     }
@@ -586,7 +640,7 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
         p->wanted = false;
         p->phase = UiMediaPickerPhase::failed;
         p->status = utf8_literal("Too many requests. Try again in a moment.");
-        return repaint();
+        return repaint() && inline_enter_resume(*p);
     }
     if (operation == MediaCatalogOperation::guild_stickers) {
         // The current server's list joins the session store like a Gateway list.
@@ -602,7 +656,7 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
             return false;
         p->phase = p->source.count ? UiMediaPickerPhase::ready : UiMediaPickerPhase::empty;
         p->status = p->source.count ? utf8_literal("Choose a sticker") : utf8_literal("No matches");
-        return repaint();
+        return repaint() && inline_enter_resume(*p);
     }
     CatalogBank* candidate = nullptr;
     if (response.transport_ok() && response.status_code == 200) {
@@ -674,7 +728,7 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
         p->phase = UiMediaPickerPhase::failed;
         p->status = utf8_literal("Couldn't load. Press Enter to retry.");
     }
-    return repaint();
+    return repaint() && inline_enter_resume(*p);
 }
 
 } // namespace maicord::app_detail

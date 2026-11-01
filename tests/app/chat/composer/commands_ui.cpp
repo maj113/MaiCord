@@ -120,9 +120,40 @@ bool application_media_picker_inline(UiMediaPickerKind kind, Utf8View query, UiR
     return true;
 }
 void application_media_picker_inline_close() noexcept {}
-bool application_media_picker_inline_key(u32, bool* handled) noexcept {
-    *handled = false;
+// The inline results' Enter contract as the commands see it (the real picker has
+// its own runtime test): ready results send the selected one and end the
+// command, loading ones are waited for, anything else is unhandled.
+FakeResults fake_results;
+bool fake_waiting;
+u32 fake_selected, fake_sent_index = ~u32{0}, fake_sends, fake_waits;
+bool send_fake_result() noexcept {
+    fake_sent_index = fake_selected;
+    ++fake_sends;
+    fake_results = FakeResults::none;
+    return application_commands_builtin_used({});
+}
+bool application_media_picker_inline_key(u32 key, bool* handled) noexcept {
+    *handled = key == VK_RETURN && fake_results != FakeResults::none;
+    if (!*handled)
+        return true;
+    if (fake_results == FakeResults::ready)
+        return send_fake_result();
+    fake_waiting = true;
+    ++fake_waits;
     return true;
+}
+Utf8View application_media_picker_inline_message() noexcept {
+    return fake_empty_message;
+}
+bool fake_results_arrive(u32 count) noexcept {
+    if (!fake_waiting)
+        return true;
+    fake_waiting = false;
+    if (!count) {
+        fake_results = FakeResults::none;
+        return application_commands_results_refused();
+    }
+    return send_fake_result();
 }
 u64 left_group;
 bool left_silent;
