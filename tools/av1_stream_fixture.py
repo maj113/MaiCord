@@ -8,7 +8,7 @@ delimiter, every OBU but the last with a minimal obu_size, the last without.
 A 10-bit key unit checks that the decoder refuses what it cannot output, and
 a 33-frame five-level hierarchical GOP at 64x64 needs more distinct
 references than the decoder's initial surface pool holds.
-The pixel formula is repeated in tests/av1_stream_gpu_test.cpp.
+The pixel formula is repeated in tests/media/video/av1_stream_gpu_test.cpp.
 
     python tools/av1_stream_fixture.py tests/data/av1_stream_vectors.hpp
 """

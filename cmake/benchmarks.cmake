@@ -33,7 +33,7 @@ maicord_program(MaiCordTextProjectionBenchmark ENTRY maicord_text_projection_ben
 maicord_program(MaiCordPngCrcBenchmark ENTRY maicord_png_crc_entry SOURCES benchmarks/png_crc_benchmark.cpp
     LIBS maicord_core maicord_media_codec kernel32)
 maicord_program(MaiCordGatewayPipelineBenchmark ENTRY maicord_gateway_pipeline_benchmark_entry
-    SOURCES benchmarks/gateway_pipeline_benchmark.cpp src/model/user_profile.cpp
+    SOURCES benchmarks/gateway_pipeline_benchmark.cpp src/model/user/profile.cpp
     LIBS maicord_app_core maicord_core maicord_platform maicord_protocol maicord_media_codec maicord_model kernel32
         shell32 ${maicord_tls_libs}
     LINK_OPTIONS "/MAP:${CMAKE_CURRENT_BINARY_DIR}/MaiCordGatewayPipelineBenchmark.map")
@@ -54,8 +54,8 @@ maicord_program(MaiCordVoiceCryptoBenchmark ENTRY maicord_voice_crypto_benchmark
     LIBS maicord_core maicord_platform kernel32 bcrypt crypt32)
 # DAVE frame path: seal, sender open (audio and clear-range video) and per-sender memory.
 maicord_program(MaiCordDaveFrameBenchmark ENTRY maicord_dave_frame_benchmark_entry
-    SOURCES benchmarks/dave_frame_benchmark.cpp src/app/dave_frame_crypto.cpp src/app/dave_key_derivation.cpp
-        src/app/dave_receive_epoch.cpp src/app/dave_receive_sender.cpp src/app/mls_exporter.cpp
+    SOURCES benchmarks/dave_frame_benchmark.cpp src/app/voice/dave/frame_crypto.cpp src/app/voice/dave/key_derivation.cpp
+        src/app/voice/dave/receive_epoch.cpp src/app/voice/dave/receive_sender.cpp src/app/voice/mls/exporter.cpp
     LIBS maicord_core maicord_protocol maicord_platform kernel32 bcrypt crypt32
     LINK_OPTIONS "/MAP:${CMAKE_CURRENT_BINARY_DIR}/MaiCordDaveFrameBenchmark.map")
 maicord_program(MaiCordAttachmentUploadBenchmark ENTRY maicord_attachment_upload_benchmark_entry
@@ -64,20 +64,20 @@ maicord_program(MaiCordAttachmentUploadBenchmark ENTRY maicord_attachment_upload
 maicord_program(MaiCordRuntimeBenchmark ENTRY maicord_runtime_benchmark_entry SOURCES benchmarks/runtime_benchmark.cpp
     LIBS kernel32)
 maicord_program(MaiCordCoreBenchmark ENTRY maicord_core_benchmark_entry
-    SOURCES benchmarks/core_benchmark.cpp src/core/log.cpp src/app/message_draft_persistence.cpp
-        src/app/message_draft_session.cpp src/app/file_persistence.cpp
+    SOURCES benchmarks/core_benchmark.cpp src/core/log.cpp src/app/chat/composer/message_draft_persistence.cpp
+        src/app/chat/composer/message_draft_session.cpp src/app/net/file_persistence.cpp
     LIBS maicord_core maicord_protocol maicord_model kernel32)
 maicord_program(MaiCordTextBenchmark ENTRY maicord_text_benchmark_entry
-    SOURCES benchmarks/text_benchmark.cpp src/render/message_hit_test.cpp
+    SOURCES benchmarks/text_benchmark.cpp src/render/text/message_hit_test.cpp
     LIBS maicord_core maicord_text kernel32)
 maicord_program(MaiCordMarkdownBenchmark ENTRY maicord_markdown_benchmark_entry
     SOURCES benchmarks/markdown_benchmark.cpp
     LIBS maicord_core maicord_ui kernel32)
 maicord_program(MaiCordGlyphBenchmark ENTRY maicord_glyph_benchmark_entry
-    SOURCES benchmarks/glyph_benchmark.cpp src/render/native_glyph_outlines.cpp
+    SOURCES benchmarks/glyph_benchmark.cpp src/render/text/native_glyph_outlines.cpp
     LIBS maicord_core maicord_text maicord_render_core maicord_atlas_gpu maicord_paint_program kernel32 d3d11)
 maicord_program(MaiCordMediaBenchmark ENTRY maicord_media_benchmark_entry
-    SOURCES benchmarks/media_benchmark.cpp tests/media_fixture.cpp
+    SOURCES benchmarks/media_benchmark.cpp tests/support/media_fixture.cpp
     LIBS maicord_core maicord_protocol maicord_render_core maicord_media_core maicord_media_codec maicord_cdn_media
         maicord_atlas_gpu kernel32 d3d11)
 # tools/benchmark_opus.ps1: Opus encode/decode CPU per frame and bit-exactness digests.
@@ -95,8 +95,8 @@ maicord_program(MaiCordMediaDecodeBenchmark ENTRY maicord_media_decode_benchmark
 maicord_program(MaiCordUiBenchmark ENTRY maicord_ui_benchmark_entry
     SOURCES benchmarks/text_form.cpp benchmarks/text_entry.cpp benchmarks/widget_scroll.cpp benchmarks/input_router.cpp
         benchmarks/navigation_shortcuts.cpp benchmarks/private_channels.cpp benchmarks/private_order.cpp
-        benchmarks/ui_benchmark.cpp src/render/content_text_retention.cpp src/render/text_edit_layout.cpp
-        src/render/text_form_surface.cpp
+        benchmarks/ui_benchmark.cpp src/render/text/content_text_retention.cpp src/render/text/edit_layout.cpp
+        src/render/text/form_surface.cpp
     LIBS maicord_core maicord_platform maicord_ui maicord_ui_input maicord_model maicord_protocol maicord_app_core
         maicord_message_runtime maicord_message_media maicord_media_core maicord_render_core maicord_text kernel32
         user32 crypt32)
@@ -124,7 +124,7 @@ maicord_program(MaiCordChannelSwitchBenchmark ENTRY maicord_channel_switch_bench
 maicord_program(MaiCordRestBenchmark ENTRY maicord_rest_benchmark_entry SOURCES benchmarks/rest_benchmark.cpp
     LIBS maicord_core maicord_protocol kernel32)
 maicord_program(MaiCordAccountBenchmark ENTRY maicord_account_benchmark_entry
-    SOURCES src/model/user_profile.cpp benchmarks/account_benchmark.cpp
+    SOURCES src/model/user/profile.cpp benchmarks/account_benchmark.cpp
     LIBS maicord_account_host maicord_account_paths maicord_core maicord_platform maicord_protocol maicord_app_core
         maicord_model kernel32 ${maicord_tls_libs})
 # Fresh-process glyph atlas and repeated-render observations

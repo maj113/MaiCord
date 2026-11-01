@@ -1,6 +1,6 @@
 #pragma once
 #include "dwrite_text_system.hpp"
-#include "maicord/text/font_run.hpp"
+#include "maicord/text/fonts/run.hpp"
 namespace maicord {
 // QA only: reconstruct a Windows oracle face from an already retained native
 // record. Production rendering never calls this adapter. Output owns one ref.

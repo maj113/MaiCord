@@ -31,8 +31,8 @@ code-point range is kept and Script_Extensions takes the singleton-Script defaul
 ([UAX #44](https://www.unicode.org/reports/tr44/tr44-36.html)). The data uses the
 notice in `assets/licenses/Unicode-3.0.txt`.
 
-Output is `include/maicord/text/generated/unicode_data.hpp`,
-`src/text/generated/unicode_data.inc` and the official grapheme vectors in
+Output is `include/maicord/text/unicode/generated/unicode_data.hpp`,
+`src/text/unicode/generated/unicode_data.inc` and the official grapheme vectors in
 `tests/generated/grapheme_break_test.inc`. `--repo <scratch-root>` regenerates
 into another root. The report records input hashes, enum labels and bit
 positions, layout candidates, generated-file hashes and counts.
@@ -49,7 +49,7 @@ verified at every code point. Tables are static and allocate
 nothing. Enum values and layout are tied to the pinned data version.
 
 `python -I tools/unicode/tibetan_categories.py --ucd <UCD.zip>` derives the
-Tibetan cluster categories (`src/text/generated/tibetan_categories.inc`) from
+Tibetan cluster categories (`src/text/unicode/generated/tibetan_categories.inc`) from
 the same pinned archive: Indic syllabic and positional categories, General
 Category, canonical combining classes and decompositions, by the rules in the
 script.
@@ -163,7 +163,7 @@ candidates, their Windows observations must agree.
 
 ## Line-break opportunities
 
-`line_breaks_tailored` (`include/maicord/text/detail/line_break_tailored.hpp`)
+`line_breaks_tailored` (`include/maicord/text/unicode/detail/line_break_tailored.hpp`)
 is the en-US line-break tailoring message layout uses, matching the platform
 text stack: Unicode 17 / UAX #14 revision 55 with the platform's class
 remappings. It takes scalar values as a UTF decoder yields them and writes
@@ -227,11 +227,11 @@ PyThaiNLP 5.3.8 `words_th.txt` (CC0-1.0, `assets/licenses/PyThaiNLP-corpus.txt`)
 by URL and SHA-256 (the `SOURCES` table in the script), and rejects other input.
 It keeps every lexical ICU word and the PyThaiNLP words that are not compounds of
 shorter listed words, 2 to 20 scalars long, and writes
-`src/text/generated/thai_lexical_data.inc` as a suffix-shared word graph (the raw
+`src/text/unicode/generated/thai_lexical_data.inc` as a suffix-shared word graph (the raw
 bytes in `thai_word_graph.bin` beside it, read by `#embed`) that it
 decodes again and compares with the word list. `thai_syllable_data.py` holds an
 authored grammar of Thai vowel spellings and writes the minimized machine to
-`src/text/generated/thai_syllable_data.inc`; it reads no input. Both take
+`src/text/unicode/generated/thai_syllable_data.inc`; it reads no input. Both take
 `--output` to write elsewhere. Neither table is derived from a platform text
 service, and the breaks differ from DirectWrite's where the dictionaries or the
-searches do (see `tests/thai_context_cases.inc`).
+searches do (see `tests/ui/text/thai_context_cases.inc`).

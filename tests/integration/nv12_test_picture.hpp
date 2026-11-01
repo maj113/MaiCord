@@ -2,7 +2,7 @@
 
 // Shader-readable NV12 test picture with the one-slice plane views the video
 // converter requires (decoders hand the renderer the same kind of frame).
-#include "maicord/media/gpu_video_frame.hpp"
+#include "maicord/media/video/gpu_video_frame.hpp"
 #include "maicord/sys/d3d11.hpp"
 
 namespace maicord {

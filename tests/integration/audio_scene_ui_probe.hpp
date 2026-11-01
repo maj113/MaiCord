@@ -1,6 +1,6 @@
 #pragma once
 
-#include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord {
 // Uses the existing native device, with bounded in-memory readback only.

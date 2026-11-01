@@ -1,12 +1,12 @@
 #include "thread_membership_ui_adapter.hpp"
-#include "../model_store_fixtures.hpp"
-#include "../ui_scene_fixtures.hpp"
-#include "application_state.hpp"
+#include "../support/model_store_fixtures.hpp"
+#include "../support/ui_scene_fixtures.hpp"
+#include "shell/state.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/model/permission_bits.hpp"
-#include "../../src/app/account_ui_runtime.hpp"
+#include "maicord/model/guild/permission_bits.hpp"
+#include "../../src/app/account/account_ui_runtime.hpp"
 
 namespace maicord {
 namespace {

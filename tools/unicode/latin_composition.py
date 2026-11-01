@@ -1,7 +1,7 @@
 """Pinned UCD archive hash and Windows-specific Latin composition pairs.
 
 Shared by alphabetic_composition.py (which generates
-src/text/generated/alphabetic_composition_data.inc) and the CJK run oracle.
+src/text/unicode/generated/alphabetic_composition_data.inc) and the CJK run oracle.
 """
 PIN='2066d1909b2ea93916ce092da1c0ee4808ea3ef8407c94b4f14f5b7eb263d28e'
 # Additional ordered pairs observed through first-party cmap-only fonts on the

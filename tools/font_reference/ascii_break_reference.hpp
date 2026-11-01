@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/ui/text.hpp"
+#include "maicord/ui/text/text.hpp"
 #include "maicord/core/win32_error.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/com.hpp"

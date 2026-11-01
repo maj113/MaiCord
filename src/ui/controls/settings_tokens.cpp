@@ -1,10 +1,10 @@
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/sys/simd.hpp"
 #include <stddef.h>
-#include "maicord/ui/background_presentation.hpp"
-#include "maicord/ui/transition.hpp"
-#include "maicord/ui/theme_styles.hpp"
-#include "maicord/ui/theme_style_projection.hpp"
+#include "maicord/ui/theme/background_presentation.hpp"
+#include "maicord/ui/core/transition.hpp"
+#include "maicord/ui/theme/styles.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
 
 namespace maicord {
 namespace {

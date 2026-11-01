@@ -2,12 +2,12 @@
 #include "background_theme_probe.hpp"
 #include "probe_present.hpp"
 #include "probe_capture.hpp"
-#include "maicord/app/client_theme.hpp"
-#include "maicord/ui/settings_scene.hpp"
+#include "maicord/app/settings/client_theme.hpp"
+#include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
-#include "maicord/render/layer_presentation.hpp"
+#include "maicord/render/d3d11/layer_presentation.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
-#include "../../src/render/d3d11_renderer_draw.hpp"
+#include "../../src/render/d3d11/renderer_draw.hpp"
 
 #include "maicord/sys/d3d11.hpp"
 

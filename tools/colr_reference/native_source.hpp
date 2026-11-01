@@ -1,7 +1,7 @@
 #pragma once
-#include "maicord/render/colr_source.hpp"
-#include "maicord/text/truetype_outline.hpp"
-#include "maicord/text/cff_outline.hpp"
+#include "maicord/render/effects/colr_source.hpp"
+#include "maicord/text/opentype/truetype_outline.hpp"
+#include "maicord/text/opentype/cff_outline.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_types.hpp"
 

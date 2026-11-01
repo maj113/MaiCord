@@ -1,5 +1,5 @@
-#include "maicord/app/message_timeline.hpp"
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/chat/messages/timeline.hpp"
+#include "maicord/app/gateway/client.hpp"
 #include "maicord/core/time.hpp"
 #include "benchmark_output.hpp"
 

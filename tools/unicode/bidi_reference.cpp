@@ -1,7 +1,7 @@
 // QA only: compare scalar-native paragraph and line levels with the installed
 // DirectWrite analyzer. No font, layout or raster comparison is implied.
-#include "maicord/text/bidi.hpp"
-#include "maicord/text/detail/bidi_internal.hpp"
+#include "maicord/text/unicode/bidi.hpp"
+#include "maicord/text/unicode/detail/bidi_internal.hpp"
 #include "maicord/core/byte_order.hpp"
 #include <dwrite.h>
 

@@ -20,18 +20,18 @@ any Windows machine with Python 3.10 or newer will do.
   fields or comments. The client swaps that one file in place of itself, so a
   release can't add other files (`PACKAGE_EXECUTABLE`). Timestamps are fixed,
   so the same binary always gives the same bytes. At most 64 MiB. Checked by
-  `src/app/update_package.cpp`.
+  `src/app/update/package.cpp`.
 - **Manifest**: `maicord-<channel>.manifest.json`. Compact JSON with exactly the
   fields `format` (the update protocol, 2), `product`, `arch`, `channel`,
   `version`, `issued`, `expires`, `bytes`, `sha256` and `artifact`; at most 4096
-  bytes; no string uses escapes. Checked by `src/app/update_manifest.cpp`.
+  bytes; no string uses escapes. Checked by `src/app/update/manifest.cpp`.
 - **Changelog**: `maicord-<channel>.changelog.json`, beside its manifest:
   `{"format":1,"product":"MaiCord","channel":…,"version":V,"base":B,"entries":[{"version":v,"date":unix,"commit":"<40 hex>"|"","text":…}]}`.
   It lists every change in (B, V], newest first: up to 10 stable releases with
   their release notes, or up to 100 commit subjects, each numbered as the master
   build that first contained it. At most 64 KiB and 8 KiB per text. The client
   shows the entries newer than itself as plain text. Checked by
-  `src/app/update_changelog.cpp`.
+  `src/app/update/changelog.cpp`.
 - **Signatures**: `<file>.sig`, 64 raw bytes: an ECDSA P-256 signature in P1363
   form (r ‖ s) over `SHA-256(domain ‖ file bytes)`, with the domain
   `MaiCord update manifest v1\n` or `MaiCord update changelog v1\n`.
@@ -101,7 +101,7 @@ not involved.
 ## Update protocol
 
 The package layout and manifest schema form the update protocol, `PROTOCOL` in
-`maicord_release.py` and `kUpdateProtocol` in `update_manifest.hpp`. A client
+`maicord_release.py` and `kUpdateProtocol` in `app/update/manifest.hpp`. A client
 reads only `updates/p<protocol>/` and accepts only manifests whose `format` is
 its protocol, so a release a client cannot install is never offered to it.
 `channels` maintains only the current protocol's directory and leaves every
@@ -246,7 +246,7 @@ Client behaviour:
   each HTTP response (host, status, sizes; never paths or query strings), the
   offer, changelog, admission, preparation and staging results with their
   error codes, the exit swap, the restart launch and startup cleanup. The
-  numbers are the ordinals of the result enums in `include/maicord/app/update_*.hpp`.
+  numbers are the ordinals of the result enums in `include/maicord/app/update/*.hpp`.
 - The acceptance record and the package download live in
   `%LOCALAPPDATA%\MaiCord\updates\work`. After the download's size and SHA-256
   match the signed manifest, the package's `MaiCord.exe` is checked (ZIP layout,
@@ -287,7 +287,7 @@ put the manifest, its `.sig`, optionally the changelog and its `.sig`, the
 package and `public-key.txt` (the hex point) in one directory and run the client
 tests with `MAICORD_UPDATE_REPLAY_DIR` pointing at it
 (`MAICORD_UPDATE_REPLAY_OWN` sets the installed version number, default
-`1000999`); see `tests/update_client.cpp`, which also replays a synthetic
+`1000999`); see `tests/app/update/client.cpp`, which also replays a synthetic
 preview build on every run.
 
 Delete the throwaway key and output directories afterwards.

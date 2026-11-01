@@ -1,10 +1,10 @@
 #include "maicord/core/time.hpp"
-#include "maicord/ui/secure_edit.hpp"
-#include "../tests/secure_edit_queries.hpp"
-#include "maicord/model/message_composer.hpp"
-#include "maicord/ui/text_edit_menu.hpp"
-#include "maicord/ui/popup_presentation.hpp"
-#include "maicord/ui/text_presentation.hpp"
+#include "maicord/ui/text/secure_edit.hpp"
+#include "../tests/support/secure_edit_queries.hpp"
+#include "maicord/model/chat/message_composer.hpp"
+#include "maicord/ui/text/edit_menu.hpp"
+#include "maicord/ui/shell/popup_presentation.hpp"
+#include "maicord/ui/text/presentation.hpp"
 
 #include <Windows.h>
 

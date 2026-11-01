@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/ui/theme.hpp"
+#include "maicord/ui/theme/theme.hpp"
 namespace maicord {
 struct D3D11Renderer;
 struct BackgroundThemeProbeContext {

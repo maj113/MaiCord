@@ -1,5 +1,5 @@
-#include "maicord/platform/aes_gcm.hpp"
-#include "maicord/platform/aes_gcm64.hpp"
+#include "maicord/platform/crypto/aes_gcm.hpp"
+#include "maicord/platform/crypto/aes_gcm64.hpp"
 #include "benchmark_output.hpp"
 
 #include <Windows.h>

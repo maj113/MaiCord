@@ -1,10 +1,10 @@
 #pragma once
-#include "application_message_reaction.hpp"
-#include "maicord/app/rest_client.hpp"
-#include "maicord/model/user_store.hpp"
-#include "maicord/model/chat_state.hpp"
-#include "maicord/model/message_rich_store.hpp"
-#include "maicord/model/message_store.hpp"
+#include "chat/messages/reaction.hpp"
+#include "maicord/app/net/rest_client.hpp"
+#include "maicord/model/user/store.hpp"
+#include "maicord/model/chat/chat_state.hpp"
+#include "maicord/model/chat/message_rich_store.hpp"
+#include "maicord/model/chat/message_store.hpp"
 
 namespace maicord {
 // Offline transport admits exact production requests; the native probe owns

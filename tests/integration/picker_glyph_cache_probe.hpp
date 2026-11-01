@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../src/render/picker_glyph_cache.hpp"
+#include "../../src/render/text/picker_glyph_cache.hpp"
 
 namespace maicord {
 

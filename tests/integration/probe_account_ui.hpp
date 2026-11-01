@@ -1,11 +1,11 @@
 #pragma once
-#include "application_state.hpp"
+#include "shell/state.hpp"
 #include "probe_capture.hpp"
 #include "probe_glyph_ink.hpp"
-#include "../../src/app/account_ui_runtime.hpp"
-#include "../../src/render/d3d11_renderer_draw.hpp"
-#include "../../src/render/d3d11_renderer_layout.hpp"
-#include "maicord/render/renderer_presentation.hpp"
+#include "../../src/app/account/account_ui_runtime.hpp"
+#include "../../src/render/d3d11/renderer_draw.hpp"
+#include "../../src/render/d3d11/renderer_layout.hpp"
+#include "maicord/render/d3d11/renderer_presentation.hpp"
 
 namespace maicord::app_detail {
 // Points the account UI's renderer text storage at its shaping scratch and caps, as the

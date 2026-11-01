@@ -3,7 +3,7 @@
 #include "gsub_execution_reference.cpp"
 #undef maicord_gsub_execution_reference_entry
 #include "maicord/core/utf.hpp"
-#include "maicord/ui/emoji_presentation.hpp"
+#include "maicord/ui/media/emoji_presentation.hpp"
 namespace maicord {namespace {
 struct CutCapture final : IDWriteTextRenderer {
     bool comma=false;

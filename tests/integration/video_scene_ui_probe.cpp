@@ -1,12 +1,12 @@
 #include "video_scene_ui_probe.hpp"
-#include "../ui_scene_fixtures.hpp"
+#include "../support/ui_scene_fixtures.hpp"
 #include "probe_present.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/hash.hpp"
-#include "maicord/media/presentation_policy.hpp"
-#include "maicord/ui/message_text_presentation.hpp"
-#include "../../src/render/d3d11_renderer_interaction_state.hpp"
-#include "maicord/media/asset.hpp"
+#include "maicord/media/core/presentation_policy.hpp"
+#include "maicord/ui/chat/messages/text_presentation.hpp"
+#include "../../src/render/d3d11/renderer_interaction_state.hpp"
+#include "maicord/media/core/asset.hpp"
 
 namespace maicord {
 namespace {

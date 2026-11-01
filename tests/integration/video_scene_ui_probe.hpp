@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 namespace maicord {
 // Injected UI states exercise native controls and retention. This fixture does
 // not decode video or prove live playback. At most one compact capture.

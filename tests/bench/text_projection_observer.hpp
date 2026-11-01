@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/ui/text_presentation.hpp"
+#include "maicord/ui/text/presentation.hpp"
 
 namespace maicord::text_projection_bench {
 inline constexpr u64 kObservationSeed = 14695981039346656037ull;

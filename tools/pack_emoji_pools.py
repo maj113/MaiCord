@@ -5,7 +5,7 @@ Usage: pack_emoji_pools.py OUTPUT CATALOG_INCLUDE SHORTCODE_INCLUDE
 
 The catalog name prefix, shared shortcode names, and shared glyphs form one
 zlib stream. Generated alias rows use offsets from the shared name suffix.
-src/ui/emoji_catalog.cpp inflates the stream once and checks its layout.
+src/ui/text/emoji_catalog.cpp inflates the stream once and checks its layout.
 """
 import ast
 import pathlib

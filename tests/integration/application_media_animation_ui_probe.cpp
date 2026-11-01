@@ -1,18 +1,18 @@
 #include "application_media_animation_ui_probe.hpp"
-#include "../ui_scene_fixtures.hpp"
+#include "../support/ui_scene_fixtures.hpp"
 #include "probe_present.hpp"
-#include "../../src/app/application_media_pump.hpp"
-#include "../../src/app/application_search.hpp"
-#include "../../src/app/application_image_viewer.hpp"
+#include "../../src/app/media/pump.hpp"
+#include "../../src/app/chat/search/search.hpp"
+#include "../../src/app/media/image_viewer.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/media/presentation_policy.hpp"
-#include "maicord/ui/message_presentation.hpp"
-#include "maicord/ui/message_text_presentation.hpp"
+#include "maicord/media/core/presentation_policy.hpp"
+#include "maicord/ui/chat/messages/presentation.hpp"
+#include "maicord/ui/chat/messages/text_presentation.hpp"
 
 #include "maicord/sys/d3d11.hpp"
-#include "maicord/app/account_media.hpp"
-#include "../../src/app/account_ui_runtime.hpp"
+#include "maicord/app/media/account_media.hpp"
+#include "../../src/app/account/account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
 // Synthetic Search captures seed renderer resources directly. This offline

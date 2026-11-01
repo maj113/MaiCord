@@ -1,12 +1,12 @@
 #include "reaction_intent_ui_adapter.hpp"
-#include "application_state.hpp"
-#include "application_message_mutation_notice.hpp"
+#include "shell/state.hpp"
+#include "chat/messages/mutation_notice.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/model/reaction_preferences.hpp"
-#include "../../src/app/account_ui_runtime.hpp"
+#include "maicord/model/chat/reaction_preferences.hpp"
+#include "../../src/app/account/account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/protocol/gateway_reaction_events.hpp"
+#include "maicord/protocol/gateway/reaction_events.hpp"
 
 namespace maicord {
 namespace {

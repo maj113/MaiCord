@@ -1,10 +1,10 @@
 #include "probe_present.hpp"
-#include "maicord/ui/channel_context_policy.hpp"
-#include "maicord/ui/guild_context_policy.hpp"
-#include "maicord/ui/popup_presentation.hpp"
+#include "maicord/ui/guild/channel_context_policy.hpp"
+#include "maicord/ui/guild/context_policy.hpp"
+#include "maicord/ui/shell/popup_presentation.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/model/permission_bits.hpp"
-#include "maicord/ui/popup_scene.hpp"
+#include "maicord/model/guild/permission_bits.hpp"
+#include "maicord/ui/shell/popup_scene.hpp"
 
 namespace maicord {
 namespace {

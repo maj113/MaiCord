@@ -1,14 +1,14 @@
 #include "thread_browser_ui_adapter.hpp"
-#include "../model_store_fixtures.hpp"
+#include "../support/model_store_fixtures.hpp"
 #include "forum_post_ui_adapter.hpp"
-#include "application_state.hpp"
-#include "maicord/protocol/thread_browser.hpp"
-#include "maicord/protocol/writer.hpp"
+#include "shell/state.hpp"
+#include "maicord/protocol/messages/thread_browser.hpp"
+#include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
-#include "maicord/model/permission_bits.hpp"
-#include "../../src/app/account_ui_runtime.hpp"
+#include "maicord/model/guild/permission_bits.hpp"
+#include "../../src/app/account/account_ui_runtime.hpp"
 
 namespace maicord {
 namespace {

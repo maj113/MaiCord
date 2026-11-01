@@ -1,7 +1,7 @@
 #include "maicord/core/time.hpp"
-#include "maicord/app/navigation_shortcuts.hpp"
-#include "maicord/ui/guild_rail_scene.hpp"
-#include "maicord/ui/shell_navigation_scene.hpp"
+#include "maicord/app/shell/navigation_shortcuts.hpp"
+#include "maicord/ui/guild/rail_scene.hpp"
+#include "maicord/ui/shell/navigation_scene.hpp"
 
 namespace maicord {
 

@@ -2,7 +2,7 @@
 #include "reply_draft_ui_adapter.hpp"
 #include "probe_present.hpp"
 #include "ui_surface_motion_measurement.hpp"
-#include "maicord/ui/message_text_coordinator.hpp"
+#include "maicord/ui/chat/messages/text_coordinator.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/win32_user.hpp"
 

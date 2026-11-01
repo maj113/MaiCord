@@ -2,12 +2,12 @@
 
 #include "probe_present.hpp"
 #include "probe_media_upload.hpp"
-#include "maicord/ui/pinned_messages_avatar_media.hpp"
-#include "maicord/ui/message_composer_scene.hpp"
-#include "maicord/ui/surface_geometry.hpp"
-#include "maicord/render/renderer_presentation.hpp"
+#include "maicord/ui/chat/pinned_messages_avatar_media.hpp"
+#include "maicord/ui/chat/composer/message_composer_scene.hpp"
+#include "maicord/ui/layout/surface_geometry.hpp"
+#include "maicord/render/d3d11/renderer_presentation.hpp"
 #include "maicord/core/log.hpp"
-#include "../../src/render/d3d11_renderer_interaction_state.hpp"
+#include "../../src/render/d3d11/renderer_interaction_state.hpp"
 
 namespace maicord {
 namespace pinned_messages_probe_detail {

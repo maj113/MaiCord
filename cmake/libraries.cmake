@@ -53,11 +53,11 @@ set_target_properties(maicord_sys_conformance PROPERTIES MAICORD_SDK_INCLUDES ON
 # client's link waits for it through maicord_core; the test twins don't.
 add_dependencies(maicord_core maicord_sys_conformance)
 
-maicord_library(maicord_compression src/media/deflate.cpp src/media/zstd.cpp LIBS maicord_core)
+maicord_library(maicord_compression src/media/compression/deflate.cpp src/media/compression/zstd.cpp LIBS maicord_core)
 
 maicord_library(maicord_media_core
-    src/media/animation_timeline.cpp src/media/encoded_cache.cpp src/media/presentation_policy.cpp
-    src/media/regional_flag_svg.cpp src/ui/regional_flag.cpp
+    src/media/core/animation_timeline.cpp src/media/core/encoded_cache.cpp src/media/core/presentation_policy.cpp
+    src/media/image/regional_flag_svg.cpp src/ui/text/regional_flag.cpp
     LIBS maicord_core)
 
 set(MAIOPUS_DECODER_TARGET maicord_opus_decoder)
@@ -78,25 +78,25 @@ foreach(maiopus_target IN ITEMS maicord_opus_decoder maicord_opus_encoder)
 endforeach()
 
 maicord_library(maicord_media_codec
-    src/media/opus_decoder.cpp src/media/ogg_opus.cpp src/media/ogg_opus_writer.cpp src/media/wave_pcm.cpp
-    src/media/mp3_stream.cpp src/media/apng.cpp src/media/gif.cpp src/media/h264_parameters.cpp
-    src/media/h264_configuration.cpp src/media/h264_slice.cpp src/media/h264_access_unit.cpp
-    src/media/h264_output_queue.cpp src/media/h264_picture_order.cpp src/media/h264_references.cpp
-    src/media/h264_stream.cpp src/media/hevc_parameters.cpp src/media/hevc_picture.cpp
-    src/media/hevc_mp4_demux.cpp src/media/hevc_references.cpp src/media/jpeg.cpp src/media/lossy_webp.cpp
-    src/media/mp4_demux.cpp src/media/mp4_audio_demux.cpp src/media/progressive_source.cpp src/media/png.cpp
-    src/media/png_stream.cpp src/media/png_encode.cpp src/media/png_common.cpp src/media/vp8.cpp
-    src/media/webp.cpp src/media/webp_thumbnail.cpp src/media/webp_alpha.cpp src/media/animated_webp.cpp
-    src/media/rtp_h264.cpp src/media/rtp_h265.cpp src/media/hevc_stream.cpp
-    src/media/rtp_av1.cpp src/media/av1.cpp src/media/mp4_fragment.cpp src/media/mp4_fragment_track.cpp
-    src/media/mp4_fragment_source.cpp
-    src/media/mp4_fragment_audio.cpp
-    src/media/mp4_fragment_segment.cpp
-    src/media/mp4_segment_store.cpp
-    src/media/mpeg_ts.cpp
-    src/media/mpeg_ts_codec.cpp
-    src/media/mpeg_ts_segment_store.cpp
-    src/media/mp3_decoder.c
+    src/media/audio/opus_decoder.cpp src/media/containers/ogg_opus.cpp src/media/containers/ogg_opus_writer.cpp src/media/audio/wave_pcm.cpp
+    src/media/audio/mp3_stream.cpp src/media/image/apng.cpp src/media/image/gif.cpp src/media/video/h264_parameters.cpp
+    src/media/video/h264_configuration.cpp src/media/video/h264_slice.cpp src/media/video/h264_access_unit.cpp
+    src/media/video/h264_output_queue.cpp src/media/video/h264_picture_order.cpp src/media/video/h264_references.cpp
+    src/media/video/h264_stream.cpp src/media/video/hevc_parameters.cpp src/media/video/hevc_picture.cpp
+    src/media/containers/hevc_mp4_demux.cpp src/media/video/hevc_references.cpp src/media/image/jpeg.cpp src/media/image/lossy_webp.cpp
+    src/media/containers/mp4_demux.cpp src/media/containers/mp4_audio_demux.cpp src/media/core/progressive_source.cpp src/media/image/png.cpp
+    src/media/image/png_stream.cpp src/media/image/png_encode.cpp src/media/image/png_common.cpp src/media/image/vp8.cpp
+    src/media/image/webp.cpp src/media/image/webp_thumbnail.cpp src/media/image/webp_alpha.cpp src/media/image/animated_webp.cpp
+    src/media/video/rtp_h264.cpp src/media/video/rtp_h265.cpp src/media/video/hevc_stream.cpp
+    src/media/video/rtp_av1.cpp src/media/video/av1.cpp src/media/containers/mp4_fragment.cpp src/media/containers/mp4_fragment_track.cpp
+    src/media/containers/mp4_fragment_source.cpp
+    src/media/containers/mp4_fragment_audio.cpp
+    src/media/containers/mp4_fragment_segment.cpp
+    src/media/containers/mp4_segment_store.cpp
+    src/media/containers/mpeg_ts.cpp
+    src/media/containers/mpeg_ts_codec.cpp
+    src/media/containers/mpeg_ts_segment_store.cpp
+    src/media/audio/mp3_decoder.c
     LIBS maicord_core maicord_compression maicord_opus_decoder ntdll)
 # The MPEG audio decoder is C: the contract's C++ code generation and warnings,
 # for C (LTO comes from the contract).
@@ -104,9 +104,9 @@ target_compile_options(maicord_media_codec PRIVATE
     "$<$<COMPILE_LANGUAGE:C>:/W4;/WX;/Zl;/GS-;/O2;/Ob1;/arch:AVX;/fp:precise;/utf-8;/Gy;/Gw;/GF;/Brepro;-Wno-missing-braces>")
 
 # Voice send encoder; linked only through the account module.
-maicord_library(maicord_voice_encoder src/media/opus_encoder.cpp LIBS maicord_core maicord_opus_encoder)
+maicord_library(maicord_voice_encoder src/media/audio/opus_encoder.cpp LIBS maicord_core maicord_opus_encoder)
 
-maicord_library(maicord_cdn_media src/app/cdn_media_pipeline.cpp
+maicord_library(maicord_cdn_media src/app/media/cdn_media_pipeline.cpp
     LIBS maicord_core maicord_media_core maicord_media_codec maicord_protocol)
 
 # maicord_import_library(<target> <def>): an import library built from a .def
@@ -128,285 +128,285 @@ function(maicord_import_library target def)
     add_dependencies(${target} ${target}_import_library)
     set(${target}_import_library "${library}" PARENT_SCOPE)
 endfunction()
-maicord_import_library(maicord_combase combase.def)
-maicord_import_library(maicord_sspicli sspicli.def)
+maicord_import_library(maicord_combase desktop/combase.def)
+maicord_import_library(maicord_sspicli net/sspicli.def)
 
 maicord_library(maicord_platform
-    src/platform/staged_file.cpp src/platform/browser_sign_in_launcher.cpp src/platform/aac_decoder.cpp
-    src/platform/media_audio.cpp src/platform/aead.cpp src/platform/aes_gcm.cpp src/platform/aes_gcm64.cpp
-    src/platform/hkdf_sha256.cpp src/platform/p256.cpp src/platform/xchacha20_poly1305.cpp
-    src/platform/network.cpp src/platform/network_datagram.cpp src/platform/network_file.cpp
-    src/platform/file_picker.cpp src/platform/clipboard_attachment.cpp src/platform/clipboard_image.cpp
-    src/platform/file_identity.cpp src/platform/network_worker.cpp src/platform/random.cpp
-    src/platform/timezone.cpp src/platform/remote_auth_crypto.cpp src/platform/secure_buffer.cpp
-    src/platform/tls_client.cpp src/platform/tls_stream.cpp src/platform/desktop_notifications.cpp
-    src/platform/notification_identity.cpp src/platform/taskbar_attention.cpp
-    src/platform/desktop_integration.cpp src/platform/system_tray.cpp src/platform/spell_checker.cpp
-    src/platform/speech.cpp src/platform/voice_audio_output.cpp src/platform/voice_audio_capture.cpp
-    src/platform/window_frame.cpp
+    src/platform/desktop/staged_file.cpp src/platform/desktop/browser_sign_in_launcher.cpp src/platform/decode/aac_decoder.cpp
+    src/platform/audio/media_audio.cpp src/platform/crypto/aead.cpp src/platform/crypto/aes_gcm.cpp src/platform/crypto/aes_gcm64.cpp
+    src/platform/crypto/hkdf_sha256.cpp src/platform/crypto/p256.cpp src/platform/crypto/xchacha20_poly1305.cpp
+    src/platform/net/network.cpp src/platform/net/datagram.cpp src/platform/net/file.cpp
+    src/platform/desktop/file_picker.cpp src/platform/desktop/clipboard_attachment.cpp src/platform/desktop/clipboard_image.cpp
+    src/platform/desktop/file_identity.cpp src/platform/net/worker.cpp src/platform/crypto/random.cpp
+    src/platform/desktop/timezone.cpp src/platform/crypto/remote_auth_crypto.cpp src/platform/crypto/secure_buffer.cpp
+    src/platform/net/tls_client.cpp src/platform/net/tls_stream.cpp src/platform/desktop/notifications.cpp
+    src/platform/desktop/notification_identity.cpp src/platform/desktop/taskbar_attention.cpp
+    src/platform/desktop/integration.cpp src/platform/desktop/system_tray.cpp src/platform/desktop/spell_checker.cpp
+    src/platform/audio/speech.cpp src/platform/audio/voice_audio_output.cpp src/platform/audio/voice_audio_capture.cpp
+    src/platform/desktop/window_frame.cpp
     # Used by the application core and client preferences, which both link this
     # library: one compile for every image.
-    src/app/file_persistence.cpp
+    src/app/net/file_persistence.cpp
     LIBS maicord_core ${maicord_tls_libs} ole32 user32 shell32 mfuuid ntdll maicord_combase advapi32)
 
-maicord_library(maicord_notification_pcm src/media/notification_pcm.cpp
+maicord_library(maicord_notification_pcm src/media/audio/notification_pcm.cpp
     LIBS maicord_core maicord_compression maicord_media_codec)
-maicord_library(maicord_notification_audio src/platform/notification_audio.cpp
+maicord_library(maicord_notification_audio src/platform/audio/notification_audio.cpp
     LIBS maicord_core kernel32 ole32 user32)
-maicord_library(maicord_notification_sound_assets src/app/notification_sound_assets.cpp
+maicord_library(maicord_notification_sound_assets src/app/notifications/sound_assets.cpp
     LIBS maicord_notification_pcm maicord_notification_audio kernel32)
 
 maicord_library(maicord_account_paths
-    src/app/account_paths.cpp src/app/account_inventory.cpp src/app/account_switch.cpp
-    src/app/account_reconnect.cpp
+    src/app/account/account_paths.cpp src/app/account/account_inventory.cpp src/app/account/account_switch.cpp
+    src/app/account/account_reconnect.cpp
     LIBS maicord_core kernel32)
-maicord_library(maicord_account_host src/app/account_logout_stop.cpp src/app/account_host.cpp src/app/account_host_load.cpp
+maicord_library(maicord_account_host src/app/account/account_logout_stop.cpp src/app/account/account_host.cpp src/app/account/account_host_load.cpp
     LIBS kernel32 maicord_account_module)
 
 maicord_library(maicord_client_preferences
-    src/app/client_theme_document.cpp src/app/client_theme_storage.cpp src/app/client_preferences.cpp
-    src/app/client_preferences_writer.cpp src/app/voice_preferences.cpp
+    src/app/settings/client_theme_document.cpp src/app/settings/client_theme_storage.cpp src/app/settings/client_preferences.cpp
+    src/app/settings/client_preferences_writer.cpp src/app/voice/preferences.cpp
     LIBS maicord_core maicord_ui maicord_platform kernel32)
 
 maicord_library(maicord_protocol
-    src/protocol/message_poll.cpp src/protocol/gateway_message_poll.cpp src/protocol/browser_sign_in.cpp
-    src/protocol/captcha_bridge_page.cpp src/protocol/base64.cpp src/protocol/base64_codec.cpp
-    src/protocol/base64url.cpp src/protocol/cdn_url.cpp src/protocol/attachment_refresh.cpp
-    src/protocol/attachment_upload.cpp src/protocol/upload_allowance.cpp src/protocol/https_upload.cpp
-    src/protocol/cdn_http.cpp src/protocol/rest.cpp src/protocol/json_ids.cpp
-    src/protocol/rest_route.cpp src/protocol/gateway_commands.cpp src/protocol/gateway_endpoint.cpp
-    src/protocol/gateway_events.cpp src/protocol/account_requirement.cpp src/protocol/gateway_voice.cpp
-    src/protocol/gateway_stream.cpp src/protocol/stage_channel.cpp src/protocol/user_social.cpp
-    src/protocol/guild_community.cpp src/protocol/voice_gateway.cpp src/protocol/voice_discovery.cpp
-    src/protocol/media_packet.cpp src/protocol/voice_media_events.cpp src/protocol/voice_participants.cpp
-    src/protocol/dave_replay.cpp src/protocol/dave_frame.cpp src/protocol/p256_signature.cpp
-    src/protocol/mls_objects.cpp src/protocol/mls_objects_write.cpp src/protocol/voice_heartbeat.cpp
-    src/protocol/voice_session.cpp src/protocol/websocket_message.cpp src/protocol/gateway_lifecycle.cpp
-    src/protocol/gateway_message_events.cpp src/protocol/gateway_message_validation.cpp
-    src/protocol/gateway_reaction_events.cpp src/protocol/gateway_typing_events.cpp
-    src/protocol/gateway_message_rich.cpp src/protocol/message_interaction.cpp src/protocol/gateway_payload.cpp
-    src/protocol/gateway_runtime.cpp src/protocol/gateway_session.cpp src/protocol/http1.cpp
-    src/protocol/http_response_stream.cpp src/protocol/attachment_download.cpp src/protocol/json_write.cpp
-    src/protocol/message_history.cpp src/protocol/message_ack.cpp src/protocol/bulk_message_ack.cpp
-    src/protocol/message_create.cpp src/protocol/message_delete.cpp src/protocol/private_conversation.cpp
-    src/protocol/message_edit.cpp src/protocol/message_reaction.cpp src/protocol/profile_decode.cpp
-    src/protocol/activity_decode.cpp src/protocol/reaction_users.cpp src/protocol/message_typing.cpp
-    src/protocol/remote_auth.cpp src/protocol/user_auth.cpp src/protocol/webauthn_mfa.cpp
-    src/protocol/websocket_frame.cpp src/protocol/websocket_handshake.cpp src/protocol/application_commands.cpp
-    src/protocol/writer.cpp src/protocol/login_continuations.cpp src/protocol/relationships.cpp
-    src/protocol/message_search.cpp src/protocol/message_pins.cpp src/protocol/thread_actions.cpp
-    src/protocol/thread_browser.cpp src/protocol/thread_creation.cpp src/protocol/forum_post.cpp
-    src/protocol/media_catalog.cpp src/protocol/gateway_presence.cpp src/protocol/client_status.cpp
-    src/protocol/self_status_settings.cpp src/protocol/guild_folders.cpp src/protocol/guild_invite.cpp
-    src/protocol/user_settings_proto.cpp src/protocol/account_settings.cpp src/protocol/emoji_preferences.cpp
-    src/protocol/gif_favorites.cpp src/protocol/channel_overview.cpp src/protocol/guild_admin.cpp
-    src/protocol/guild_assets.cpp src/protocol/profile_edit.cpp src/protocol/voice_video_signaling.cpp
-    src/protocol/rtcp_feedback.cpp src/protocol/soundboard.cpp src/protocol/notification_settings.cpp
-    src/protocol/user_guild_settings.cpp
+    src/protocol/messages/poll.cpp src/protocol/gateway/message_poll.cpp src/protocol/auth/browser_sign_in.cpp
+    src/protocol/auth/captcha_bridge_page.cpp src/protocol/encoding/base64.cpp src/protocol/encoding/base64_codec.cpp
+    src/protocol/encoding/base64url.cpp src/protocol/media/cdn_url.cpp src/protocol/media/attachment_refresh.cpp
+    src/protocol/media/attachment_upload.cpp src/protocol/media/upload_allowance.cpp src/protocol/http/https_upload.cpp
+    src/protocol/media/cdn_http.cpp src/protocol/http/rest.cpp src/protocol/encoding/json_ids.cpp
+    src/protocol/http/rest_route.cpp src/protocol/gateway/commands.cpp src/protocol/gateway/endpoint.cpp
+    src/protocol/gateway/events.cpp src/protocol/auth/account_requirement.cpp src/protocol/gateway/voice.cpp
+    src/protocol/gateway/stream.cpp src/protocol/guild/stage_channel.cpp src/protocol/user/social.cpp
+    src/protocol/guild/community.cpp src/protocol/voice/gateway.cpp src/protocol/voice/discovery.cpp
+    src/protocol/voice/media_packet.cpp src/protocol/voice/media_events.cpp src/protocol/voice/participants.cpp
+    src/protocol/voice/dave_replay.cpp src/protocol/voice/dave_frame.cpp src/protocol/auth/p256_signature.cpp
+    src/protocol/voice/mls_objects.cpp src/protocol/voice/mls_objects_write.cpp src/protocol/voice/heartbeat.cpp
+    src/protocol/voice/session.cpp src/protocol/http/websocket_message.cpp src/protocol/gateway/lifecycle.cpp
+    src/protocol/gateway/message_events.cpp src/protocol/gateway/message_validation.cpp
+    src/protocol/gateway/reaction_events.cpp src/protocol/gateway/typing_events.cpp
+    src/protocol/gateway/message_rich.cpp src/protocol/messages/interaction.cpp src/protocol/gateway/payload.cpp
+    src/protocol/gateway/runtime.cpp src/protocol/gateway/session.cpp src/protocol/http/http1.cpp
+    src/protocol/http/http_response_stream.cpp src/protocol/media/attachment_download.cpp src/protocol/encoding/json_write.cpp
+    src/protocol/messages/history.cpp src/protocol/messages/ack.cpp src/protocol/messages/bulk_message_ack.cpp
+    src/protocol/messages/create.cpp src/protocol/messages/delete.cpp src/protocol/user/private_conversation.cpp
+    src/protocol/messages/edit.cpp src/protocol/messages/reaction.cpp src/protocol/user/profile_decode.cpp
+    src/protocol/gateway/activity_decode.cpp src/protocol/messages/reaction_users.cpp src/protocol/messages/typing.cpp
+    src/protocol/auth/remote_auth.cpp src/protocol/auth/user_auth.cpp src/protocol/auth/webauthn_mfa.cpp
+    src/protocol/http/websocket_frame.cpp src/protocol/http/websocket_handshake.cpp src/protocol/messages/application_commands.cpp
+    src/protocol/encoding/writer.cpp src/protocol/auth/login_continuations.cpp src/protocol/user/relationships.cpp
+    src/protocol/messages/search.cpp src/protocol/messages/pins.cpp src/protocol/messages/thread_actions.cpp
+    src/protocol/messages/thread_browser.cpp src/protocol/messages/thread_creation.cpp src/protocol/messages/forum_post.cpp
+    src/protocol/media/media_catalog.cpp src/protocol/gateway/presence.cpp src/protocol/gateway/client_status.cpp
+    src/protocol/user/self_status_settings.cpp src/protocol/guild/folders.cpp src/protocol/guild/invite.cpp
+    src/protocol/user/settings_proto.cpp src/protocol/user/account_settings.cpp src/protocol/user/emoji_preferences.cpp
+    src/protocol/user/gif_favorites.cpp src/protocol/guild/channel_overview.cpp src/protocol/guild/admin.cpp
+    src/protocol/guild/assets.cpp src/protocol/user/profile_edit.cpp src/protocol/voice/video_signaling.cpp
+    src/protocol/voice/rtcp_feedback.cpp src/protocol/guild/soundboard.cpp src/protocol/user/notification_settings.cpp
+    src/protocol/user/guild_settings.cpp
     # Icon hash check kept apart from cdn_url.cpp: the client keeps it (Gateway
     # user records) while it forwards every other CDN URL function to the module.
-    src/protocol/cdn_icon_hash.cpp src/protocol/guild_moderation.cpp src/protocol/voice_channel_info.cpp
-    src/protocol/embed_provider.cpp
-    src/protocol/embed_player.cpp
-    src/protocol/dash_manifest.cpp
-    src/protocol/steam_player.cpp
-    src/protocol/oauth.cpp
-    src/protocol/hls_playlist.cpp
-    src/protocol/twitch_playback.cpp
-    src/protocol/cookie_jar.cpp
-    src/protocol/gateway_qos_token.cpp
-    src/protocol/etf.cpp
-    src/protocol/message_interaction_data.cpp
+    src/protocol/media/cdn_icon_hash.cpp src/protocol/guild/moderation.cpp src/protocol/voice/channel_info.cpp
+    src/protocol/media/embed_provider.cpp
+    src/protocol/media/embed_player.cpp
+    src/protocol/media/dash_manifest.cpp
+    src/protocol/media/steam_player.cpp
+    src/protocol/auth/oauth.cpp
+    src/protocol/media/hls_playlist.cpp
+    src/protocol/media/twitch_playback.cpp
+    src/protocol/http/cookie_jar.cpp
+    src/protocol/gateway/qos_token.cpp
+    src/protocol/gateway/etf.cpp
+    src/protocol/messages/interaction_data.cpp
     LIBS maicord_core maicord_compression maicord_media_core)
 
-maicord_library(maicord_webauthn src/platform/webauthn.cpp LIBS maicord_core maicord_platform maicord_protocol)
+maicord_library(maicord_webauthn src/platform/desktop/webauthn.cpp LIBS maicord_core maicord_platform maicord_protocol)
 
 maicord_library(maicord_app_core
-    src/app/poll_controller.cpp src/app/poll_draft.cpp src/app/gateway_state_dispatch.cpp
-    src/app/gateway_payload_writer.cpp src/app/gateway_user_payload.cpp src/app/browser_login.cpp
-    src/app/browser_sign_in_receiver.cpp src/app/captcha_bridge.cpp src/app/loopback_server.cpp
-    src/app/login_continuations.cpp src/app/input_layers.cpp src/app/navigation_shortcuts.cpp
-    src/app/shortcut_registry.cpp src/app/account_profile.cpp src/app/account_credential_forget.cpp
-    src/app/account_logout.cpp src/app/account_profile_promotion.cpp src/app/account_session_store.cpp
-    src/app/captcha_challenge.cpp src/app/cdn_client.cpp src/app/progressive_video_fetch.cpp
-    src/app/https_file_upload.cpp src/app/https_file_download.cpp src/app/rest_client.cpp
-    src/app/gateway_client.cpp src/app/voice_connection_setup.cpp
-    src/app/voice_connection.cpp src/app/voice_udp_discovery.cpp src/app/voice_media_setup.cpp
-    src/app/voice_packet_crypto.cpp src/app/dave_frame_crypto.cpp src/app/dave_key_derivation.cpp
-    src/app/mls_exporter.cpp src/app/mls_key_schedule.cpp src/app/mls_signature.cpp src/app/hpke_derivation.cpp
-    src/app/hpke_context.cpp src/app/mls_hpke.cpp src/app/mls_key_package.cpp src/app/dave_key_package.cpp
-    src/app/dave_welcome.cpp src/app/dave_receive_epoch.cpp src/app/dave_receive_sender.cpp
-    src/app/voice_udp_media.cpp src/app/voice_participants.cpp src/app/voice_socket.cpp
-    src/app/gateway_voice_control.cpp src/app/gateway_voice_dispatch.cpp src/app/gateway_stage_dispatch.cpp
-    src/app/gateway_scheduled_event_dispatch.cpp src/app/gateway_stream_control.cpp src/app/gateway_dispatch.cpp
-    src/app/gateway_notification_records.cpp src/app/gateway_dispatch_payload.cpp
-    src/app/gateway_member_list_dispatch.cpp src/app/gateway_guild_admin_dispatch.cpp
-    src/app/gateway_thread_member_dispatch.cpp src/app/gateway_presence_dispatch.cpp
-    src/app/gateway_private_dispatch.cpp src/app/gateway_relationship_dispatch.cpp
-    src/app/gateway_ready_projection.cpp src/app/gateway_guild_folders.cpp src/app/gateway_user_settings.cpp
-    src/app/gateway_read_state_dispatch.cpp src/app/account_relationships.cpp src/app/account_message_ack.cpp
-    src/app/account_bulk_message_ack.cpp src/app/account_gif_favorites.cpp src/app/account_action_captcha.cpp
-    src/app/channel_overview_controller.cpp src/app/pinned_message_controller.cpp
-    src/app/quick_switcher_controller.cpp src/app/message_forward_controller.cpp
-    src/app/message_reaction_controller.cpp src/app/account_channel_overview.cpp src/app/account_guild_admin.cpp
-    src/app/account_stage.cpp src/app/account_user_social.cpp src/app/account_guild_community.cpp
-    src/app/account_pinned_messages.cpp src/app/account_thread_actions.cpp src/app/account_thread_browser.cpp
-    src/app/account_thread_creation.cpp src/app/account_poll_create.cpp
-    src/app/account_notification_settings.cpp src/app/account_private_channel.cpp src/app/account_forum_post.cpp
-    src/app/received_attachment_open.cpp src/app/gateway_state_payload.cpp src/app/login_mfa_policy.cpp
-    src/app/member_list_channel_binding.cpp src/app/remote_auth_client.cpp src/app/remote_auth_handshake.cpp
-    src/app/remote_auth_ticket_exchange.cpp src/app/user_client_configuration.cpp
-    src/app/user_account_coordinator.cpp src/app/user_auth_coordinator.cpp src/app/update_manifest.cpp
-    src/app/update_artifact.cpp src/app/update_acceptance.cpp
-    src/app/update_prepare.cpp src/app/update_package.cpp
-    src/app/update_fetch.cpp src/app/update_https.cpp src/app/update_service.cpp src/app/search_recent.cpp
-    src/app/channel_memory.cpp
-    src/app/link_trust.cpp src/app/voice_dave_route.cpp src/app/voice_jitter_buffer.cpp src/app/voice_mixer.cpp
-    src/app/voice_playback.cpp src/app/voice_receive.cpp src/app/gateway_stream_session.cpp
-    src/app/video_rtp_receive.cpp src/app/voice_video_sink.cpp
+    src/app/chat/polls/controller.cpp src/app/chat/polls/draft.cpp src/app/gateway/state_dispatch.cpp
+    src/app/gateway/payload_writer.cpp src/app/gateway/user_payload.cpp src/app/account/login/browser_login.cpp
+    src/app/account/login/browser_sign_in_receiver.cpp src/app/account/login/captcha_bridge.cpp src/app/account/login/loopback_server.cpp
+    src/app/account/login/continuations.cpp src/app/shell/input_layers.cpp src/app/shell/navigation_shortcuts.cpp
+    src/app/shell/shortcut_registry.cpp src/app/account/account_profile.cpp src/app/account/login/account_credential_forget.cpp
+    src/app/account/account_logout.cpp src/app/account/account_profile_promotion.cpp src/app/account/account_session_store.cpp
+    src/app/account/login/captcha_challenge.cpp src/app/net/cdn_client.cpp src/app/media/progressive_video_fetch.cpp
+    src/app/net/https_file_upload.cpp src/app/net/https_file_download.cpp src/app/net/rest_client.cpp
+    src/app/gateway/client.cpp src/app/voice/connection_setup.cpp
+    src/app/voice/connection.cpp src/app/voice/udp_discovery.cpp src/app/voice/media_setup.cpp
+    src/app/voice/packet_crypto.cpp src/app/voice/dave/frame_crypto.cpp src/app/voice/dave/key_derivation.cpp
+    src/app/voice/mls/exporter.cpp src/app/voice/mls/key_schedule.cpp src/app/voice/mls/signature.cpp src/app/voice/mls/hpke_derivation.cpp
+    src/app/voice/mls/hpke_context.cpp src/app/voice/mls/hpke.cpp src/app/voice/mls/key_package.cpp src/app/voice/dave/key_package.cpp
+    src/app/voice/dave/welcome.cpp src/app/voice/dave/receive_epoch.cpp src/app/voice/dave/receive_sender.cpp
+    src/app/voice/udp_media.cpp src/app/voice/participants.cpp src/app/voice/socket.cpp
+    src/app/gateway/voice_control.cpp src/app/gateway/voice_dispatch.cpp src/app/gateway/stage_dispatch.cpp
+    src/app/gateway/scheduled_event_dispatch.cpp src/app/gateway/stream_control.cpp src/app/gateway/dispatch.cpp
+    src/app/notifications/gateway_notification_records.cpp src/app/gateway/dispatch_payload.cpp
+    src/app/gateway/member_list_dispatch.cpp src/app/gateway/guild_admin_dispatch.cpp
+    src/app/gateway/thread_member_dispatch.cpp src/app/gateway/presence_dispatch.cpp
+    src/app/gateway/private_dispatch.cpp src/app/gateway/relationship_dispatch.cpp
+    src/app/gateway/ready_projection.cpp src/app/gateway/guild_folders.cpp src/app/gateway/user_settings.cpp
+    src/app/gateway/read_state_dispatch.cpp src/app/account/account_relationships.cpp src/app/chat/messages/account_message_ack.cpp
+    src/app/chat/messages/account_bulk_message_ack.cpp src/app/media/account_gif_favorites.cpp src/app/account/login/account_action_captcha.cpp
+    src/app/guild/channel_overview_controller.cpp src/app/chat/messages/pinned_message_controller.cpp
+    src/app/shell/quick_switcher_controller.cpp src/app/chat/messages/forward_controller.cpp
+    src/app/chat/messages/reaction_controller.cpp src/app/guild/account_channel_overview.cpp src/app/guild/account_guild_admin.cpp
+    src/app/voice/account_stage.cpp src/app/account/account_user_social.cpp src/app/guild/account_guild_community.cpp
+    src/app/chat/messages/account_pinned_messages.cpp src/app/chat/threads/account_thread_actions.cpp src/app/chat/threads/account_thread_browser.cpp
+    src/app/chat/threads/account_thread_creation.cpp src/app/chat/polls/account_poll_create.cpp
+    src/app/notifications/account_notification_settings.cpp src/app/chat/account_private_channel.cpp src/app/chat/threads/account_forum_post.cpp
+    src/app/media/received_attachment_open.cpp src/app/gateway/state_payload.cpp src/app/account/login/mfa_policy.cpp
+    src/app/guild/member_list_channel_binding.cpp src/app/account/login/remote_auth_client.cpp src/app/account/login/remote_auth_handshake.cpp
+    src/app/account/login/remote_auth_ticket_exchange.cpp src/app/account/user_client_configuration.cpp
+    src/app/account/user_account_coordinator.cpp src/app/account/login/user_auth_coordinator.cpp src/app/update/manifest.cpp
+    src/app/update/artifact.cpp src/app/update/acceptance.cpp
+    src/app/update/prepare.cpp src/app/update/package.cpp
+    src/app/update/fetch.cpp src/app/update/https.cpp src/app/update/service.cpp src/app/chat/search/recent.cpp
+    src/app/chat/channel_memory.cpp
+    src/app/chat/link_trust.cpp src/app/voice/dave/voice_dave_route.cpp src/app/voice/jitter_buffer.cpp src/app/voice/mixer.cpp
+    src/app/voice/playback.cpp src/app/voice/receive.cpp src/app/gateway/stream_session.cpp
+    src/app/voice/video_rtp_receive.cpp src/app/voice/video_sink.cpp
     # Voice send: capture, gating, encoding and RTP. Executables pull the encoder
     # only when they reference the send path (the account module and voice tests).
-    src/app/voice_transmit.cpp src/app/voice_send.cpp src/app/soundboard_audio.cpp src/app/account_soundboard.cpp
-    src/app/voice_message_flow.cpp src/app/voice_message_recorder.cpp src/app/account_voice_message.cpp
-    src/app/call_video_presenter.cpp src/app/stream_preview_cache.cpp src/app/stream_watch_view.cpp
+    src/app/voice/transmit.cpp src/app/voice/send.cpp src/app/voice/soundboard_audio.cpp src/app/voice/account_soundboard.cpp
+    src/app/voice/message_flow.cpp src/app/voice/message_recorder.cpp src/app/voice/account_voice_message.cpp
+    src/app/voice/call_video_presenter.cpp src/app/voice/stream_preview_cache.cpp src/app/voice/stream_watch_view.cpp
     # acceptance_record.cpp: durable floor records shared by update_acceptance and the plugin catalog.
-    src/app/acceptance_record.cpp src/app/gateway_guild_details.cpp src/app/account_guild_moderation.cpp
-    src/app/update_changelog.cpp
-    src/app/embed_resolver.cpp
-    src/app/segmented_video_fetch.cpp
-    src/app/oauth_authorization.cpp
-    src/app/oauth_sign_in.cpp
-    src/app/oauth_account.cpp
-    src/app/client_session_metadata.cpp
+    src/app/account/login/acceptance_record.cpp src/app/gateway/guild_details.cpp src/app/guild/account_guild_moderation.cpp
+    src/app/update/changelog.cpp
+    src/app/media/embed_resolver.cpp
+    src/app/media/segmented_video_fetch.cpp
+    src/app/account/login/oauth_authorization.cpp
+    src/app/account/login/oauth_sign_in.cpp
+    src/app/account/login/oauth_account.cpp
+    src/app/account/client_session_metadata.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_media_codec maicord_media_core
         maicord_voice_encoder)
 
 maicord_library(maicord_account_media
-    src/app/local_preview_thumbnail.cpp src/app/local_video_poster.cpp src/app/account_media.cpp
-    src/app/regional_flag_assets.cpp src/app/account_media_worker.cpp src/app/account_media_video.cpp
-    src/app/account_video_session.cpp src/platform/mp4_decoder.cpp src/platform/h264_gpu_decoder.cpp
-    src/platform/hevc_gpu_decoder.cpp src/platform/h264_gpu_configuration.cpp
-    src/platform/h264_gpu_stream_decoder.cpp src/app/video_stream_decoders.cpp
-    src/platform/gpu_decoder_surfaces.cpp src/platform/gpu_stream_decoder.cpp src/platform/hevc_gpu_stream_decoder.cpp
-    src/platform/av1_gpu_stream.cpp src/platform/av1_dxva_parameters.cpp
+    src/app/media/local_preview_thumbnail.cpp src/app/media/local_video_poster.cpp src/app/media/account_media.cpp
+    src/app/media/regional_flag_assets.cpp src/app/media/account_media_worker.cpp src/app/media/account_media_video.cpp
+    src/app/media/account_video_session.cpp src/platform/decode/mp4_decoder.cpp src/platform/decode/h264_gpu_decoder.cpp
+    src/platform/decode/hevc_gpu_decoder.cpp src/platform/decode/h264_gpu_configuration.cpp
+    src/platform/decode/h264_gpu_stream_decoder.cpp src/app/voice/video_stream_decoders.cpp
+    src/platform/decode/gpu_decoder_surfaces.cpp src/platform/decode/gpu_stream_decoder.cpp src/platform/decode/hevc_gpu_stream_decoder.cpp
+    src/platform/decode/av1_gpu_stream.cpp src/platform/decode/av1_dxva_parameters.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_media_core maicord_media_codec
         maicord_cdn_media maicord_paint_program d3d11 dxguid maicord_compression
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}"
     DEPENDS maicord_regional_flag_data)
 
 maicord_library(maicord_unicode
-    src/text/arabic_joining.cpp src/text/line_break_tailored.cpp
-    src/text/thai_word_break.cpp src/text/thai_lexical.cpp src/text/thai_syllable.cpp
-    src/text/bidi_tailored.cpp src/text/unicode.cpp src/text/grapheme.cpp src/text/bidi.cpp
+    src/text/scripts/arabic_joining.cpp src/text/unicode/line_break_tailored.cpp
+    src/text/unicode/thai_word_break.cpp src/text/unicode/thai_lexical.cpp src/text/unicode/thai_syllable.cpp
+    src/text/unicode/bidi_tailored.cpp src/text/unicode/unicode.cpp src/text/unicode/grapheme.cpp src/text/unicode/bidi.cpp
     LIBS maicord_core)
 
 maicord_library(maicord_font
-    src/text/arabic_shape_run.cpp src/text/arabic_marks.cpp src/text/arabic_plan.cpp
-    src/text/devanagari_plan.cpp src/text/use_plan.cpp src/text/sinhala_input.cpp src/text/tibetan_input.cpp
-    src/text/cluster_run.cpp src/text/tibetan_shape_cluster.cpp src/text/khmer_input.cpp
-    src/text/myanmar_shape_cluster.cpp src/text/myanmar_input.cpp src/text/khmer_shape_cluster.cpp
-    src/text/sinhala_shape_cluster.cpp src/text/devanagari_forms.cpp
-    src/text/devanagari_clusters.cpp src/text/indic_input.cpp src/text/tamil_shape_run.cpp
-    src/text/tamil_run.cpp src/text/script_paragraphs.cpp
-    src/text/indic_run_plan.cpp src/text/devanagari_order.cpp
-    src/text/devanagari_shape_cluster.cpp src/text/indic_run.cpp src/text/compact_run.cpp src/text/devanagari_run.cpp
-    src/text/devanagari_run_plan.cpp src/text/tt_orientation.cpp
-    src/text/tt_bold_points.cpp src/text/font_session.cpp src/text/font_prepare.cpp
-    src/text/gpos_cursive_execute.cpp src/text/position_anchor.cpp src/text/gpos_mark_execute.cpp
-    src/text/gpos_ligature_execute.cpp src/text/gpos_execute.cpp src/text/gpos_program.cpp
-    src/text/lookup_selection.cpp src/text/position_flags.cpp
-    src/text/gpos_attachment.cpp src/text/gpos.cpp src/text/clusters.cpp src/text/components.cpp
-    src/text/shape_run.cpp src/text/run_plan.cpp src/text/font_names.cpp src/text/font_match.cpp
-    src/text/font_candidates.cpp src/text/font_family.cpp src/text/font_catalog.cpp
-    src/text/font_handle_stat.cpp src/text/font_catalog_coverage.cpp src/text/font_fallback_range.cpp
-    src/text/font_fallback_route.cpp src/text/font_fallback_map.cpp
-    src/text/font_run.cpp src/text/arabic_run_plan.cpp src/text/arabic_run.cpp
-    src/text/arabic_paragraph.cpp src/text/gsub_execute.cpp src/text/glyph_buffer.cpp src/text/context.cpp
-    src/text/gsub.cpp src/text/layout_directory.cpp src/text/lookup_plan.cpp src/text/nominal_participation.cpp
-    src/text/nominal_sources.cpp src/text/ascii_run.cpp src/text/latin_run.cpp
-    src/text/hebrew_shape_run.cpp src/text/run_profile.cpp src/text/emoji_run.cpp src/text/emoji_line.cpp
-    src/text/emoji_paragraph.cpp src/text/visibility.cpp src/text/script_class.cpp
-    src/text/unicode_line_geometry.cpp src/text/latin_line.cpp src/text/latin_paragraph.cpp
-    src/text/ascii_line.cpp src/text/ascii_paragraph.cpp src/text/paragraph_hits.cpp
-    src/text/paragraph_ranges.cpp src/text/font_metrics.cpp src/text/layout_variations.cpp src/text/gdef.cpp
-    src/text/layout_tables.cpp src/text/sfnt.cpp src/text/sfnt_cmap.cpp src/text/truetype_outline.cpp
-    src/text/cff_font.cpp src/text/cff_charset.cpp src/text/cff_outline.cpp src/text/cpal.cpp
-    src/text/colr_font.cpp src/text/colr_paint_reader.cpp
-    src/text/variation_store.cpp src/text/metric_variations.cpp src/text/gvar.cpp src/text/font_geometry.cpp
-    src/text/font_store.cpp src/text/font_instance.cpp src/text/tt_interpreter.cpp src/text/tt_outline.cpp
-    src/text/colr_variations.cpp src/text/font_axes.cpp
+    src/text/scripts/arabic_shape_run.cpp src/text/scripts/arabic_marks.cpp src/text/scripts/arabic_plan.cpp
+    src/text/scripts/devanagari_plan.cpp src/text/scripts/use_plan.cpp src/text/scripts/sinhala_input.cpp src/text/scripts/tibetan_input.cpp
+    src/text/shaping/cluster_run.cpp src/text/scripts/tibetan_shape_cluster.cpp src/text/scripts/khmer_input.cpp
+    src/text/scripts/myanmar_shape_cluster.cpp src/text/scripts/myanmar_input.cpp src/text/scripts/khmer_shape_cluster.cpp
+    src/text/scripts/sinhala_shape_cluster.cpp src/text/scripts/devanagari_forms.cpp
+    src/text/scripts/devanagari_clusters.cpp src/text/scripts/indic_input.cpp src/text/scripts/tamil_shape_run.cpp
+    src/text/scripts/tamil_run.cpp src/text/shaping/script_paragraphs.cpp
+    src/text/scripts/indic_run_plan.cpp src/text/scripts/devanagari_order.cpp
+    src/text/scripts/devanagari_shape_cluster.cpp src/text/scripts/indic_run.cpp src/text/shaping/compact_run.cpp src/text/scripts/devanagari_run.cpp
+    src/text/scripts/devanagari_run_plan.cpp src/text/opentype/tt_orientation.cpp
+    src/text/opentype/tt_bold_points.cpp src/text/fonts/session.cpp src/text/fonts/prepare.cpp
+    src/text/opentype/gpos_cursive_execute.cpp src/text/opentype/position_anchor.cpp src/text/opentype/gpos_mark_execute.cpp
+    src/text/opentype/gpos_ligature_execute.cpp src/text/opentype/gpos_execute.cpp src/text/opentype/gpos_program.cpp
+    src/text/opentype/lookup_selection.cpp src/text/opentype/position_flags.cpp
+    src/text/opentype/gpos_attachment.cpp src/text/opentype/gpos.cpp src/text/shaping/clusters.cpp src/text/opentype/components.cpp
+    src/text/shaping/shape_run.cpp src/text/shaping/run_plan.cpp src/text/fonts/names.cpp src/text/fonts/match.cpp
+    src/text/fonts/candidates.cpp src/text/fonts/family.cpp src/text/fonts/catalog.cpp
+    src/text/fonts/handle_stat.cpp src/text/fonts/catalog_coverage.cpp src/text/fonts/fallback_range.cpp
+    src/text/fonts/fallback_route.cpp src/text/fonts/fallback_map.cpp
+    src/text/fonts/run.cpp src/text/scripts/arabic_run_plan.cpp src/text/scripts/arabic_run.cpp
+    src/text/scripts/arabic_paragraph.cpp src/text/opentype/gsub_execute.cpp src/text/opentype/glyph_buffer.cpp src/text/opentype/context.cpp
+    src/text/opentype/gsub.cpp src/text/opentype/layout_directory.cpp src/text/opentype/lookup_plan.cpp src/text/opentype/nominal_participation.cpp
+    src/text/opentype/nominal_sources.cpp src/text/scripts/ascii_run.cpp src/text/scripts/latin_run.cpp
+    src/text/scripts/hebrew_shape_run.cpp src/text/shaping/run_profile.cpp src/text/scripts/emoji_run.cpp src/text/scripts/emoji_line.cpp
+    src/text/scripts/emoji_paragraph.cpp src/text/layout/visibility.cpp src/text/unicode/script_class.cpp
+    src/text/layout/unicode_line_geometry.cpp src/text/scripts/latin_line.cpp src/text/scripts/latin_paragraph.cpp
+    src/text/scripts/ascii_line.cpp src/text/scripts/ascii_paragraph.cpp src/text/layout/paragraph_hits.cpp
+    src/text/layout/paragraph_ranges.cpp src/text/fonts/metrics.cpp src/text/opentype/layout_variations.cpp src/text/opentype/gdef.cpp
+    src/text/opentype/layout_tables.cpp src/text/opentype/sfnt.cpp src/text/opentype/sfnt_cmap.cpp src/text/opentype/truetype_outline.cpp
+    src/text/opentype/cff_font.cpp src/text/opentype/cff_charset.cpp src/text/opentype/cff_outline.cpp src/text/opentype/cpal.cpp
+    src/text/opentype/colr_font.cpp src/text/opentype/colr_paint_reader.cpp
+    src/text/opentype/variation_store.cpp src/text/opentype/metric_variations.cpp src/text/opentype/gvar.cpp src/text/fonts/geometry.cpp
+    src/text/fonts/store.cpp src/text/fonts/instance.cpp src/text/opentype/tt_interpreter.cpp src/text/opentype/tt_outline.cpp
+    src/text/opentype/colr_variations.cpp src/text/fonts/axes.cpp
     LIBS maicord_core maicord_unicode ntdll)
 # Compact the shared Indic ordering routine; keep /O2, /Ob1 and LTO.
-set_property(SOURCE src/text/devanagari_order.cpp APPEND PROPERTY COMPILE_OPTIONS ${MAICORD_SIZE_OPTION})
+set_property(SOURCE src/text/scripts/devanagari_order.cpp APPEND PROPERTY COMPILE_OPTIONS ${MAICORD_SIZE_OPTION})
 
 maicord_library(maicord_text
-    src/ui/text.cpp src/ui/native_text_candidate.cpp src/ui/native_text_catalog.cpp src/core/log.cpp
+    src/ui/text/text.cpp src/ui/text/native_text_candidate.cpp src/ui/text/native_text_catalog.cpp src/core/log.cpp
     LIBS maicord_core maicord_font maicord_ui advapi32 gdi32)
 # The native layout adapter is compiled for size by a minsize attribute region
 # in its source, which leaves retained-layout publication and the single-line
 # entry optimized for speed.
 
 maicord_library(maicord_render_core
-    src/render/animation_frame_cache.cpp src/render/glyph_atlas.cpp src/render/glyph_quad_bounds.cpp
-    src/render/glyph_raster.cpp src/render/media_atlas.cpp src/render/presentation_damage.cpp
+    src/render/media/animation_frame_cache.cpp src/render/text/glyph_atlas.cpp src/render/text/glyph_quad_bounds.cpp
+    src/render/text/glyph_raster.cpp src/render/media/atlas.cpp src/render/d3d11/presentation_damage.cpp
     LIBS maicord_core)
 
 maicord_library(maicord_paint_program
-    src/render/colr_program.cpp src/render/colr_source.cpp src/render/regional_flag_program.cpp
-    src/render/lottie_program.cpp
+    src/render/effects/colr_program.cpp src/render/effects/colr_source.cpp src/render/effects/regional_flag_program.cpp
+    src/render/effects/lottie_program.cpp
     LIBS d2d1 maicord_compile_contract maicord_core maicord_render_core maicord_font maicord_media_core)
 
 maicord_library(maicord_ui
-    src/ui/poll_controls.cpp src/ui/poll_voters.cpp src/ui/poll_presentation.cpp src/ui/audio_controls.cpp
-    src/ui/audio_presentation.cpp src/ui/video_controls.cpp src/ui/video_scene.cpp src/ui/spinner.cpp
-    src/ui/transition.cpp src/ui/tooltip.cpp src/ui/emoji_presentation.cpp src/ui/ansi_text.cpp
-    src/ui/code_highlight.cpp src/ui/composer_autocomplete.cpp src/ui/message_markdown.cpp
-    src/ui/timestamp_format.cpp src/ui/navigation_view.cpp src/ui/emoji_catalog.cpp src/ui/geometry.cpp
-    src/ui/guild_rail_scene.cpp src/ui/navigation_drag.cpp src/ui/unread_banner_scene.cpp
-    src/app/unread_banner_projection.cpp src/ui/layout_engine.cpp src/ui/login_scene.cpp
-    src/ui/login_presentation.cpp src/ui/login_text_presentation.cpp src/ui/login_view.cpp
-    src/ui/member_list_scene.cpp src/ui/member_list_navigation.cpp src/ui/message_action_bar.cpp
-    src/ui/message_action_bar_presentation.cpp src/ui/message_context_controller.cpp
-    src/ui/message_context_menu.cpp src/ui/user_context_menu.cpp src/ui/unread_context.cpp
-    src/ui/message_rich_layout.cpp src/ui/message_component_layout.cpp src/ui/message_component_media.cpp
-    src/ui/message_media_policy.cpp src/ui/message_system_text.cpp src/ui/message_rich_widgets.cpp
-    src/ui/message_scene.cpp src/ui/message_scene_navigation.cpp src/ui/message_scene_measurements.cpp
-    src/ui/scrollbar.cpp src/ui/message_composer_scene.cpp src/ui/composer_attachment_strip.cpp
-    src/ui/composer_voice_bar.cpp src/ui/message_presentation.cpp src/ui/image_viewer.cpp
-    src/ui/message_reaction_presentation.cpp src/ui/message_typing_presentation.cpp src/ui/paint.cpp
-    src/ui/icon.cpp src/ui/button.cpp src/ui/message_text_coordinator.cpp src/ui/message_text_presentation.cpp
-    src/ui/popup_scene.cpp src/ui/channel_context_policy.cpp src/ui/guild_context_policy.cpp
-    src/ui/member_context_policy.cpp src/ui/attachment_menu.cpp src/ui/received_attachment_menu.cpp
-    src/ui/popup_presentation.cpp src/ui/text_edit_menu.cpp src/ui/spell_tokenize.cpp
-    src/ui/composer_spellcheck.cpp src/ui/text_form.cpp src/ui/text_composition.cpp src/ui/qr_code.cpp
-    src/ui/reaction_picker.cpp src/ui/edit_field.cpp src/ui/badge.cpp src/ui/profile_scene.cpp
-    src/ui/profile_media.cpp src/ui/profile_dialog_scene.cpp src/ui/reaction_viewer.cpp
-    src/ui/reaction_viewer_presentation.cpp src/ui/scene.cpp src/ui/scene_kit.cpp src/ui/shell_navigation_scene.cpp
-    src/ui/shell_presentation.cpp src/ui/shell_text_presentation.cpp src/ui/private_channel_title.cpp
-    src/ui/private_channel_rows.cpp src/ui/smooth_scroll.cpp src/ui/scroll_host.cpp src/ui/text_flow_layout.cpp
-    src/ui/text_measure_cache.cpp src/ui/text_presentation.cpp src/ui/virtual_list.cpp src/ui/widget_manager.cpp
-    src/ui/widget_builder.cpp src/ui/menu_row.cpp src/ui/button_keyboard.cpp src/ui/input_router.cpp
-    src/ui/list_navigation.cpp src/ui/list_paging.cpp src/ui/widget_scroll.cpp src/ui/widget_storage.cpp
-    src/ui/page_registry.cpp src/ui/settings_scene.cpp src/ui/theme_editor.cpp src/ui/theme_styles.cpp
-    src/ui/theme_style_projection.cpp src/ui/settings_choice.cpp src/ui/friends_scene.cpp
-    src/ui/friends_media.cpp src/ui/controls/settings_tokens.cpp src/ui/controls/switch.cpp
+    src/ui/chat/polls/controls.cpp src/ui/chat/polls/voters.cpp src/ui/chat/polls/presentation.cpp src/ui/voice/audio_controls.cpp
+    src/ui/voice/audio_presentation.cpp src/ui/voice/video_controls.cpp src/ui/voice/video_scene.cpp src/ui/widgets/spinner.cpp
+    src/ui/core/transition.cpp src/ui/widgets/tooltip.cpp src/ui/media/emoji_presentation.cpp src/ui/text/ansi_text.cpp
+    src/ui/text/code_highlight.cpp src/ui/chat/composer/autocomplete.cpp src/ui/chat/messages/markdown.cpp
+    src/ui/text/timestamp_format.cpp src/ui/shell/navigation_view.cpp src/ui/text/emoji_catalog.cpp src/ui/core/geometry.cpp
+    src/ui/guild/rail_scene.cpp src/ui/shell/navigation_drag.cpp src/ui/chat/unread_banner_scene.cpp
+    src/app/chat/unread_banner_projection.cpp src/ui/layout/layout_engine.cpp src/ui/account/login_scene.cpp
+    src/ui/account/login_presentation.cpp src/ui/account/login_text_presentation.cpp src/ui/account/login_view.cpp
+    src/ui/guild/member_list_scene.cpp src/ui/guild/member_list_navigation.cpp src/ui/chat/messages/action_bar.cpp
+    src/ui/chat/messages/action_bar_presentation.cpp src/ui/chat/messages/context_controller.cpp
+    src/ui/chat/messages/context_menu.cpp src/ui/account/user_context_menu.cpp src/ui/chat/unread_context.cpp
+    src/ui/chat/messages/rich_layout.cpp src/ui/chat/messages/component_layout.cpp src/ui/chat/messages/component_media.cpp
+    src/ui/chat/messages/media_policy.cpp src/ui/chat/messages/system_text.cpp src/ui/chat/messages/rich_widgets.cpp
+    src/ui/chat/messages/scene.cpp src/ui/chat/messages/scene_navigation.cpp src/ui/chat/messages/scene_measurements.cpp
+    src/ui/layout/scrollbar.cpp src/ui/chat/composer/message_composer_scene.cpp src/ui/chat/composer/attachment_strip.cpp
+    src/ui/chat/composer/voice_bar.cpp src/ui/chat/messages/presentation.cpp src/ui/media/image_viewer.cpp
+    src/ui/chat/messages/reaction_presentation.cpp src/ui/chat/messages/typing_presentation.cpp src/ui/core/paint.cpp
+    src/ui/widgets/icon.cpp src/ui/widgets/button.cpp src/ui/chat/messages/text_coordinator.cpp src/ui/chat/messages/text_presentation.cpp
+    src/ui/shell/popup_scene.cpp src/ui/guild/channel_context_policy.cpp src/ui/guild/context_policy.cpp
+    src/ui/guild/member_context_policy.cpp src/ui/chat/composer/attachment_menu.cpp src/ui/chat/messages/received_attachment_menu.cpp
+    src/ui/shell/popup_presentation.cpp src/ui/text/edit_menu.cpp src/ui/text/spell_tokenize.cpp
+    src/ui/chat/composer/spellcheck.cpp src/ui/text/form.cpp src/ui/text/composition.cpp src/ui/widgets/qr_code.cpp
+    src/ui/chat/messages/reaction_picker.cpp src/ui/text/edit_field.cpp src/ui/widgets/badge.cpp src/ui/account/profile_scene.cpp
+    src/ui/account/profile_media.cpp src/ui/account/profile_dialog_scene.cpp src/ui/chat/messages/reaction_viewer.cpp
+    src/ui/chat/messages/reaction_viewer_presentation.cpp src/ui/core/scene.cpp src/ui/kit/scene_kit.cpp src/ui/shell/navigation_scene.cpp
+    src/ui/shell/presentation.cpp src/ui/shell/text_presentation.cpp src/ui/chat/private_channel_title.cpp
+    src/ui/chat/private_channel_rows.cpp src/ui/layout/smooth_scroll.cpp src/ui/layout/scroll_host.cpp src/ui/text/flow_layout.cpp
+    src/ui/text/measure_cache.cpp src/ui/text/presentation.cpp src/ui/layout/virtual_list.cpp src/ui/core/widget_manager.cpp
+    src/ui/core/widget_builder.cpp src/ui/widgets/menu_row.cpp src/ui/widgets/button_keyboard.cpp src/ui/core/input_router.cpp
+    src/ui/layout/list_navigation.cpp src/ui/layout/list_paging.cpp src/ui/layout/widget_scroll.cpp src/ui/core/widget_storage.cpp
+    src/ui/shell/page_registry.cpp src/ui/settings/scene.cpp src/ui/settings/theme_editor.cpp src/ui/theme/styles.cpp
+    src/ui/theme/style_projection.cpp src/ui/widgets/settings_choice.cpp src/ui/account/friends_scene.cpp
+    src/ui/account/friends_media.cpp src/ui/controls/settings_tokens.cpp src/ui/controls/switch.cpp
     src/ui/controls/radio.cpp src/ui/controls/slider.cpp src/ui/controls/input.cpp src/ui/controls/swatch.cpp
-    src/ui/controls/navigation.cpp src/ui/controls/text_metrics.cpp src/ui/settings_schema.cpp
-    src/ui/controls/permission_grid.cpp src/ui/controls/admin_list.cpp src/ui/accessibility.cpp
-    src/ui/accessibility_scenes.cpp src/ui/icon_pack.cpp src/ui/account_menu.cpp src/ui/account_switcher.cpp
-    src/ui/search_scene.cpp src/ui/pinned_messages_scene.cpp src/ui/inbox_scene.cpp src/ui/thread_header.cpp
-    src/ui/thread_browser_scene.cpp src/ui/forum_channel_scene.cpp src/ui/forum_post_scene.cpp
-    src/ui/attachment_draft_list.cpp src/ui/quick_switcher_scene.cpp src/ui/message_forward_scene.cpp
-    src/ui/download_scene.cpp src/ui/shortcuts_scene.cpp src/ui/media_picker.cpp
-    src/ui/media_picker_presentation.cpp src/ui/search_query.cpp src/ui/search_filter_context.cpp
-    src/ui/voice_channel_rows.cpp src/ui/voice_panel.cpp
-    src/ui/call_scene.cpp src/ui/call_stage.cpp src/ui/hover_card.cpp src/ui/stream_card_scene.cpp
-    src/ui/guild_card_scene.cpp
-    src/ui/guild_banner.cpp src/ui/profile_activity.cpp src/ui/caption_bar.cpp src/ui/activity_status.cpp
-    src/ui/typing_indicator.cpp src/ui/dm_profile_panel.cpp
-    src/ui/toast.cpp src/ui/theme.cpp src/ui/background_color_math.cpp src/ui/message_result_card.cpp
-    src/ui/text_pointer_selection.cpp src/ui/message_author.cpp src/ui/message_interaction.cpp
-    src/ui/expression_card_scene.cpp
+    src/ui/controls/navigation.cpp src/ui/controls/text_metrics.cpp src/ui/settings/schema.cpp
+    src/ui/controls/permission_grid.cpp src/ui/controls/admin_list.cpp src/ui/accessibility/accessibility.cpp
+    src/ui/accessibility/scenes.cpp src/ui/widgets/icon_pack.cpp src/ui/account/menu.cpp src/ui/account/switcher.cpp
+    src/ui/chat/search/scene.cpp src/ui/chat/pinned_messages_scene.cpp src/ui/chat/inbox_scene.cpp src/ui/chat/threads/header.cpp
+    src/ui/chat/threads/browser_scene.cpp src/ui/chat/threads/forum_channel_scene.cpp src/ui/chat/threads/forum_post_scene.cpp
+    src/ui/chat/composer/attachment_draft_list.cpp src/ui/shell/quick_switcher_scene.cpp src/ui/chat/messages/forward_scene.cpp
+    src/ui/media/download_scene.cpp src/ui/shell/shortcuts_scene.cpp src/ui/media/picker.cpp
+    src/ui/media/picker_presentation.cpp src/ui/chat/search/query.cpp src/ui/chat/search/filter_context.cpp
+    src/ui/voice/channel_rows.cpp src/ui/voice/panel.cpp
+    src/ui/voice/call_scene.cpp src/ui/voice/call_stage.cpp src/ui/widgets/hover_card.cpp src/ui/voice/stream_card_scene.cpp
+    src/ui/guild/card_scene.cpp
+    src/ui/guild/banner.cpp src/ui/account/profile_activity.cpp src/ui/shell/caption_bar.cpp src/ui/widgets/activity_status.cpp
+    src/ui/chat/messages/typing_indicator.cpp src/ui/account/dm_profile_panel.cpp
+    src/ui/widgets/toast.cpp src/ui/theme/theme.cpp src/ui/theme/background_color_math.cpp src/ui/chat/search/message_result_card.cpp
+    src/ui/text/pointer_selection.cpp src/ui/chat/messages/author.cpp src/ui/chat/messages/interaction.cpp
+    src/ui/media/expression_card_scene.cpp
     # The spell tokenizer classifies letters with the Unicode property tables;
     # deflate.cpp checks gzip members with png_crc32 from maicord_media_codec.
     LIBS maicord_core maicord_model maicord_media_core maicord_unicode maicord_compression maicord_media_codec
@@ -415,83 +415,83 @@ maicord_library(maicord_ui
 
 # UI Automation server over accessibility snapshots. UIAutomationCore and
 # OleAut32 load on the first WM_GETOBJECT, so neither is a static import.
-maicord_library(maicord_uia src/platform/uia_provider.cpp LIBS maicord_core maicord_ui)
+maicord_library(maicord_uia src/platform/uia/provider.cpp LIBS maicord_core maicord_ui)
 
 # Native extension ownership stays in independent archives. The shell links
 # settings pages and manual session loading; the account module owns no plugin UI.
 maicord_library(maicord_plugin_host
-    src/app/plugin_host.cpp src/app/plugin_settings_projection.cpp src/app/plugin_call_ledger.cpp
-    src/app/plugin_sdk.cpp src/app/plugin_sdk_surfaces.cpp src/app/plugin_sdk_data.cpp
+    src/app/plugins/host.cpp src/app/plugins/plugin_settings_projection.cpp src/app/plugins/call_ledger.cpp
+    src/app/plugins/plugin_sdk.cpp src/app/plugins/sdk_surfaces.cpp src/app/plugins/sdk_data.cpp
     LIBS maicord_core maicord_ui)
 maicord_library(maicord_plugin_modules
-    src/app/plugin_module_loader.cpp src/app/plugin_manifest.cpp src/app/plugin_catalog.cpp
-    src/app/plugin_bundle_install.cpp src/app/plugin_preferences.cpp
+    src/app/plugins/module_loader.cpp src/app/plugins/manifest.cpp src/app/plugins/catalog.cpp
+    src/app/plugins/bundle_install.cpp src/app/plugins/preferences.cpp
     LIBS maicord_core maicord_plugin_host kernel32 bcrypt)
 maicord_library(maicord_plugin_manager
-    src/app/plugin_index.cpp src/app/plugin_index_policy.cpp src/app/plugin_index_acceptance.cpp
-    src/app/plugin_providers.cpp src/app/plugin_manager_state.cpp src/app/plugin_index_service.cpp
-    src/app/plugin_manager_install.cpp src/app/plugin_manager_runtime.cpp
+    src/app/plugins/index.cpp src/app/plugins/index_policy.cpp src/app/plugins/index_acceptance.cpp
+    src/app/plugins/providers.cpp src/app/plugins/manager_state.cpp src/app/plugins/index_service.cpp
+    src/app/plugins/manager_install.cpp src/app/plugins/manager_runtime.cpp
     LIBS maicord_core maicord_platform maicord_app_core maicord_plugin_modules kernel32 bcrypt)
 
-maicord_library(maicord_edit_history src/model/edit_history.cpp LIBS maicord_core maicord_platform)
+maicord_library(maicord_edit_history src/model/chat/edit_history.cpp LIBS maicord_core maicord_platform)
 
 maicord_library(maicord_ui_input
-    src/ui/clipboard.cpp src/ui/secure_edit.cpp src/ui/secure_edit_target.cpp src/ui/secure_edit_history.cpp
-    src/ui/secure_text_store.cpp
+    src/ui/text/clipboard.cpp src/ui/text/secure_edit.cpp src/ui/text/secure_edit_target.cpp src/ui/text/secure_edit_history.cpp
+    src/ui/text/secure_text_store.cpp
     LIBS maicord_core maicord_platform maicord_edit_history user32)
 
 maicord_library(maicord_model
-    src/model/message_poll_store.cpp src/model/bounded_edit.cpp src/model/channel_permissions.cpp
-    src/model/permission_compute.cpp src/model/guild_ban_store.cpp src/model/member_moderation.cpp
-    src/model/guild_member_store.cpp src/model/member_list.cpp src/model/thread_member_store.cpp
-    src/model/thread_member_list.cpp src/model/chat_state.cpp src/model/read_state.cpp
-    src/model/guild_display_order.cpp src/model/guild_folder_edit.cpp src/model/channel_reorder.cpp
-    src/model/private_channel_store.cpp src/model/custom_emoji.cpp src/model/user_profile.cpp
-    src/model/user_activity.cpp src/model/user_store.cpp src/model/relationship_store.cpp
-    src/model/user_note_store.cpp src/model/active_now.cpp src/model/friend_search.cpp
-    src/model/typing_store.cpp src/model/message_rich_store.cpp src/model/invite_card_cache.cpp
-    src/model/scheduled_event_store.cpp src/model/message_composer.cpp
-    src/model/message_composer_input_target.cpp src/model/message_draft_store.cpp
-    src/model/reaction_preferences.cpp src/model/message_store.cpp src/model/message_search.cpp
-    src/model/message_notifications.cpp src/model/voice_state_store.cpp src/model/stage_instance_store.cpp
-    src/model/stage_policy.cpp src/model/image_crop.cpp src/model/profile_editor.cpp
-    src/app/mls_tree_math.cpp src/app/mls_ratchet_tree.cpp src/app/mls_tree_validate.cpp src/app/mls_tree_edit.cpp
-    src/app/mls_treekem.cpp src/app/mls_group_context.cpp src/app/mls_proposal.cpp src/app/mls_commit.cpp
-    src/app/mls_welcome.cpp src/app/mls_group.cpp src/app/dave_session.cpp src/app/voice_connection_dave.cpp
-    src/app/voice_log.cpp
-    src/model/desktop_notification_queue.cpp src/model/notification_sound_policy.cpp
-    src/model/notification_sound_admission.cpp src/model/notification_retention.cpp
-    src/model/permission_grid.cpp src/model/guild_settings_model.cpp src/model/channel_settings_model.cpp
-    src/model/guild_detail_store.cpp src/model/guild_member_search.cpp src/model/voice_channel_info_store.cpp
+    src/model/chat/message_poll_store.cpp src/model/chat/bounded_edit.cpp src/model/guild/channel_permissions.cpp
+    src/model/guild/permission_compute.cpp src/model/guild/ban_store.cpp src/model/guild/member_moderation.cpp
+    src/model/guild/member_store.cpp src/model/guild/member_list.cpp src/model/guild/thread_member_store.cpp
+    src/model/guild/thread_member_list.cpp src/model/chat/chat_state.cpp src/model/chat/read_state.cpp
+    src/model/guild/display_order.cpp src/model/guild/folder_edit.cpp src/model/guild/channel_reorder.cpp
+    src/model/user/private_channel_store.cpp src/model/chat/custom_emoji.cpp src/model/user/profile.cpp
+    src/model/user/activity.cpp src/model/user/store.cpp src/model/user/relationship_store.cpp
+    src/model/user/note_store.cpp src/model/user/active_now.cpp src/model/user/friend_search.cpp
+    src/model/chat/typing_store.cpp src/model/chat/message_rich_store.cpp src/model/guild/invite_card_cache.cpp
+    src/model/guild/scheduled_event_store.cpp src/model/chat/message_composer.cpp
+    src/model/chat/message_composer_input_target.cpp src/model/chat/message_draft_store.cpp
+    src/model/chat/reaction_preferences.cpp src/model/chat/message_store.cpp src/model/chat/message_search.cpp
+    src/model/notifications/message_notifications.cpp src/model/voice/state_store.cpp src/model/voice/stage_instance_store.cpp
+    src/model/voice/stage_policy.cpp src/model/user/image_crop.cpp src/model/user/profile_editor.cpp
+    src/app/voice/mls/tree_math.cpp src/app/voice/mls/ratchet_tree.cpp src/app/voice/mls/tree_validate.cpp src/app/voice/mls/tree_edit.cpp
+    src/app/voice/mls/treekem.cpp src/app/voice/mls/group_context.cpp src/app/voice/mls/proposal.cpp src/app/voice/mls/commit.cpp
+    src/app/voice/mls/welcome.cpp src/app/voice/mls/group.cpp src/app/voice/dave/session.cpp src/app/voice/dave/voice_connection_dave.cpp
+    src/app/voice/log.cpp
+    src/model/notifications/desktop_notification_queue.cpp src/model/notifications/sound_policy.cpp
+    src/model/notifications/sound_admission.cpp src/model/notifications/retention.cpp
+    src/model/guild/permission_grid.cpp src/model/guild/settings_model.cpp src/model/guild/channel_settings_model.cpp
+    src/model/guild/detail_store.cpp src/model/guild/member_search.cpp src/model/voice/channel_info_store.cpp
     LIBS maicord_core maicord_edit_history maicord_protocol)
 
 maicord_library(maicord_message_runtime
-    src/app/message_edit_runtime.cpp src/app/message_composer_controller.cpp src/app/command_autocomplete.cpp
-    src/app/message_send_response.cpp src/app/message_attachment_storage.cpp
-    src/app/message_attachment_drafts.cpp src/app/reaction_viewer_controller.cpp
-    src/app/reaction_viewer_storage.cpp src/app/message_draft_persistence.cpp src/app/message_draft_session.cpp
-    src/app/chat_state_dispatch.cpp src/app/private_conversation.cpp src/app/private_channel_actions.cpp
-    src/app/user_store_dispatch.cpp src/app/message_event_pump.cpp src/app/read_ack_controller.cpp
-    src/app/read_scope.cpp src/app/bulk_read_ack_controller.cpp src/app/message_history_sync.cpp
-    src/app/media_url_resolver.cpp src/app/message_send_tracker.cpp src/app/message_timeline.cpp
-    src/app/message_view_runtime.cpp src/app/message_snapshot_cache.cpp src/model/message_reconcile.cpp
-    src/app/message_interaction_rules.cpp src/app/startup_shell.cpp src/app/startup_shell_state.cpp
+    src/app/chat/messages/edit_runtime.cpp src/app/chat/composer/message_composer_controller.cpp src/app/chat/composer/command_autocomplete.cpp
+    src/app/chat/messages/send_response.cpp src/app/chat/composer/message_attachment_storage.cpp
+    src/app/chat/composer/message_attachment_drafts.cpp src/app/chat/messages/reaction_viewer_controller.cpp
+    src/app/chat/messages/reaction_viewer_storage.cpp src/app/chat/composer/message_draft_persistence.cpp src/app/chat/composer/message_draft_session.cpp
+    src/app/gateway/chat_state_dispatch.cpp src/app/chat/private_conversation.cpp src/app/chat/private_channel_actions.cpp
+    src/app/gateway/user_store_dispatch.cpp src/app/chat/messages/event_pump.cpp src/app/chat/read_ack_controller.cpp
+    src/app/chat/read_scope.cpp src/app/chat/bulk_read_ack_controller.cpp src/app/chat/messages/history_sync.cpp
+    src/app/media/url_resolver.cpp src/app/chat/messages/send_tracker.cpp src/app/chat/messages/timeline.cpp
+    src/app/chat/messages/view_runtime.cpp src/app/chat/messages/snapshot_cache.cpp src/model/chat/message_reconcile.cpp
+    src/app/chat/messages/interaction_rules.cpp src/app/shell/startup_shell.cpp src/app/shell/startup_shell_state.cpp
     LIBS maicord_core maicord_model maicord_protocol maicord_app_core maicord_platform maicord_ui kernel32)
 
 maicord_library(maicord_message_media
-    src/app/animation_visual_runtime.cpp src/app/message_media_controller.cpp
+    src/app/media/animation_visual_runtime.cpp src/app/media/message_media_controller.cpp
     LIBS maicord_core maicord_model maicord_ui maicord_message_runtime maicord_media_core maicord_render_core)
 
 # deflate.cpp checks gzip members with png_crc32 from maicord_media_codec.
-maicord_library(maicord_shader_bytecode src/render/shader_bytecode.cpp "${MAICORD_SHADER_PACK_INCLUDE}"
+maicord_library(maicord_shader_bytecode src/render/d3d11/shader_bytecode.cpp "${MAICORD_SHADER_PACK_INCLUDE}"
     LIBS maicord_core maicord_compression maicord_media_codec d3d11
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}")
 
 maicord_library(maicord_atlas_gpu
-    src/render/video_frame_gpu.cpp "${MAICORD_VIDEO_FRAME_HEADER}" src/render/glyph_atlas_gpu.cpp
-    src/render/media_atlas_gpu.cpp src/render/media_atlas_gpu_animation.cpp
-    src/render/media_atlas_gpu_dispatch.cpp src/render/media_atlas_gpu_operations.cpp
-    src/render/media_atlas_gpu_validation.cpp src/render/media_atlas_gpu_vp8.cpp "${MAICORD_VP8_IDCT_HEADER}"
+    src/render/media/video_frame_gpu.cpp "${MAICORD_VIDEO_FRAME_HEADER}" src/render/text/glyph_atlas_gpu.cpp
+    src/render/media/atlas_gpu.cpp src/render/media/atlas_gpu_animation.cpp
+    src/render/media/atlas_gpu_dispatch.cpp src/render/media/atlas_gpu_operations.cpp
+    src/render/media/atlas_gpu_validation.cpp src/render/media/atlas_gpu_vp8.cpp "${MAICORD_VP8_IDCT_HEADER}"
     "${MAICORD_COLR_WIDE_HEADER}" "${MAICORD_COLR_COMPUTE_HEADER}" "${MAICORD_COLR_LAYERS_HEADER}"
     "${MAICORD_GLYPH_COMPUTE_HEADER}" "${MAICORD_GLYPH_CULLED_COMPUTE_HEADER}" "${MAICORD_PNG_COMPUTE_HEADER}" "${MAICORD_VP8_RECONSTRUCT_HEADER}"
     "${MAICORD_VP8_FILTER_HEADER}" "${MAICORD_VP8_ATLAS_HEADER}" "${MAICORD_JPEG_IDCT_HEADER}"
@@ -500,17 +500,17 @@ maicord_library(maicord_atlas_gpu
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}")
 
 maicord_library(maicord_renderer
-    src/render/animation_frame_cache_gpu.cpp src/render/content_text_retention.cpp
-    src/render/shaped_text_cache.cpp src/render/d3d11_device.cpp src/render/d3d11_draw_pipeline.cpp
-    src/render/colr_paint.cpp src/render/d3d11_glyph_text.cpp src/render/icon_atlas.cpp
-    src/render/native_glyph_outlines.cpp src/render/d3d11_background_fx.cpp src/render/d3d11_gpu_timer.cpp
-    src/render/d3d11_renderer.cpp src/render/d3d11_renderer_draw.cpp src/render/d3d11_renderer_edit.cpp
-    src/render/d3d11_renderer_layout.cpp src/render/d3d11_renderer_text.cpp
-    src/render/d3d11_renderer_interaction.cpp src/render/d3d11_renderer_media.cpp
-    src/render/d3d11_navigation.cpp src/render/text_edit_layout.cpp src/render/text_form_surface.cpp
-    src/render/forum_post_surface.cpp src/render/message_hit_test.cpp src/render/renderer_presentation.cpp
-    src/render/layer_presentation.cpp src/render/renderer_media_draw_storage.cpp
-    src/render/d3d11_renderer_caption.cpp "${MAICORD_UI_VERTEX_HEADER}"
+    src/render/media/animation_frame_cache_gpu.cpp src/render/text/content_text_retention.cpp
+    src/render/text/shaped_text_cache.cpp src/render/d3d11/device.cpp src/render/d3d11/draw_pipeline.cpp
+    src/render/effects/colr_paint.cpp src/render/d3d11/glyph_text.cpp src/render/media/icon_atlas.cpp
+    src/render/text/native_glyph_outlines.cpp src/render/d3d11/background_fx.cpp src/render/d3d11/gpu_timer.cpp
+    src/render/d3d11/renderer.cpp src/render/d3d11/renderer_draw.cpp src/render/d3d11/renderer_edit.cpp
+    src/render/d3d11/renderer_layout.cpp src/render/d3d11/renderer_text.cpp
+    src/render/d3d11/renderer_interaction.cpp src/render/d3d11/renderer_media.cpp
+    src/render/d3d11/navigation.cpp src/render/text/edit_layout.cpp src/render/text/form_surface.cpp
+    src/render/text/forum_post_surface.cpp src/render/text/message_hit_test.cpp src/render/d3d11/renderer_presentation.cpp
+    src/render/d3d11/layer_presentation.cpp src/render/media/renderer_media_draw_storage.cpp
+    src/render/d3d11/renderer_caption.cpp "${MAICORD_UI_VERTEX_HEADER}"
     "${MAICORD_UI_PIXEL_HEADER}" "${MAICORD_GLYPH_VERTEX_HEADER}" "${MAICORD_GLYPH_PIXEL_HEADER}"
     "${MAICORD_MEDIA_VERTEX_HEADER}" "${MAICORD_MEDIA_PIXEL_HEADER}"
     LIBS maicord_media_core maicord_font maicord_paint_program maicord_shader_bytecode

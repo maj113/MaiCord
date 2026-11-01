@@ -1,5 +1,5 @@
 #include "maicord/core/time.hpp"
-#include "maicord/protocol/gateway_message_events.hpp"
+#include "maicord/protocol/gateway/message_events.hpp"
 #include "benchmark_output.hpp"
 
 #include <Windows.h>

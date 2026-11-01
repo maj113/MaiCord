@@ -1,11 +1,11 @@
 #pragma once
 #include "channel_overview_probe.hpp"
 #include "probe_media_upload.hpp"
-#include "maicord/ui/search_scene.hpp"
-#include "maicord/ui/search_avatar_media.hpp"
-#include "maicord/app/client_theme.hpp"
-#include "maicord/ui/background_presentation.hpp"
-#include "../../src/render/d3d11_renderer_interaction_state.hpp"
+#include "maicord/ui/chat/search/scene.hpp"
+#include "maicord/ui/chat/search/avatar_media.hpp"
+#include "maicord/app/settings/client_theme.hpp"
+#include "maicord/ui/theme/background_presentation.hpp"
+#include "../../src/render/d3d11/renderer_interaction_state.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {

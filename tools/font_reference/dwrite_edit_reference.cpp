@@ -3,7 +3,7 @@
 #include "dwrite_text_system.hpp"
 #include "maicord/core/win32_process.hpp"
 #include "maicord/core/hash.hpp"
-#include "maicord/ui/geometry.hpp"
+#include "maicord/ui/core/geometry.hpp"
 
 #include "maicord/core/win32_error.hpp"
 #include "maicord/core/win32_kernel.hpp"

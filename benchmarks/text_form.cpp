@@ -1,8 +1,8 @@
-#include "maicord/render/text_form_surface.hpp"
-#include "maicord/ui/text.hpp"
-#include "maicord/ui/text_measure_cache.hpp"
+#include "maicord/render/text/form_surface.hpp"
+#include "maicord/ui/text/text.hpp"
+#include "maicord/ui/text/measure_cache.hpp"
 #include "maicord/core/time.hpp"
-#include "../src/app/application_text_form_state.hpp"
+#include "../src/app/chat/composer/text_form_state.hpp"
 
 namespace maicord {
 namespace {

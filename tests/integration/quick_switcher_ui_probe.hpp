@@ -1,6 +1,6 @@
 #pragma once
 #include "probe_present.hpp"
-#include "maicord/ui/quick_switcher_scene.hpp"
+#include "maicord/ui/shell/quick_switcher_scene.hpp"
 #include "maicord/core/log.hpp"
 
 namespace maicord {

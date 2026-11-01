@@ -1,10 +1,10 @@
 #pragma once
 #include "channel_overview_probe.hpp"
 #include "probe_media_upload.hpp"
-#include "maicord/ui/media_picker_presentation.hpp"
-#include "maicord/ui/regional_flag.hpp"
-#include "maicord/app/client_theme.hpp"
-#include "../../src/render/d3d11_renderer_interaction_state.hpp"
+#include "maicord/ui/media/picker_presentation.hpp"
+#include "maicord/ui/text/regional_flag.hpp"
+#include "maicord/app/settings/client_theme.hpp"
+#include "../../src/render/d3d11/renderer_interaction_state.hpp"
 
 #include "picker_text_capacity_probe.hpp"
 

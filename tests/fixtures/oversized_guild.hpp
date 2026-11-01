@@ -1,6 +1,6 @@
 #pragma once
 
-#include "maicord/protocol/writer.hpp"
+#include "maicord/protocol/encoding/writer.hpp"
 
 // A live GUILD_CREATE at the server's per-guild limits (500 channels with eight
 // permission overwrites each, 250 roles, 500 custom emoji) whose typed record

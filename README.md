@@ -151,17 +151,26 @@ afterwards.
 <summary>Project layout</summary>
 
 ```
-include/maicord/   public headers, one folder per module (sdk/ holds the plugin API)
-src/app/           application shell, account runtime, updater, plugin host
+include/maicord/   public headers; each module's folders mirror its src/ folders
+                   (sdk/ holds the plugin API)
+src/app/           the client: shell (window, input, startup), chat (messages,
+                   composer, threads, polls, search), voice (calls, streams,
+                   DAVE/MLS), account (login), guild, media, settings,
+                   notifications, gateway, net, plugins, update, accessibility
 src/core/          freestanding runtime: memory, strings, JSON, containers
-src/model/         chat state: guilds, channels, messages, members
-src/protocol/      Gateway, REST, HTTP/1.1, CDN, voice and encryption
-src/ui/            scenes, layout, input and widgets
-src/render/        Direct3D 11 renderer, glyph and media atlases, shaders
-src/text/          text shaping, bidi, line breaking, fonts, color emoji
-src/media/         image, video and audio decoders
-src/platform/      Win32: windows, TLS, CNG crypto, audio, notifications
-tests/             unit, integration and rendering tests (CTest)
+src/model/         chat state: chat, guild, user, voice, notifications
+src/protocol/      Discord wire formats: gateway, http, auth, encoding,
+                   messages, guild, user, media, voice
+src/ui/            framework (core, layout, kit, widgets, controls, theme,
+                   text) and scenes by feature (chat, voice, account, ...)
+src/render/        Direct3D 11 renderer: d3d11, text, media atlases, effects,
+                   shaders
+src/text/          text engine: unicode, opentype, fonts, shaping, scripts,
+                   layout
+src/media/         decoders: image, video, audio, containers, compression
+src/platform/      Win32: desktop, net (TLS), crypto, audio, decode (GPU), uia
+tests/             unit tests mirroring src/ (tests/<module>/<folder>/), shared
+                   support/, fixtures/, generated/ data and integration/ probes
 benchmarks/        opt-in freestanding benchmarks
 samples/plugins/   example plugins built against the SDK
 cmake/             build modules included by CMakeLists.txt

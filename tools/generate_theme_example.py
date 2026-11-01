@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Generate assets/themes/example.maicord-theme.json from the token tables.
 
-Reads include/maicord/ui/theme_tokens.inc (semantic tokens, scales, motion),
-include/maicord/ui/theme.hpp and theme_presets.hpp (core palette defaults) and
-theme_styles.hpp (typography and metric defaults), and writes a version 2
+Reads include/maicord/ui/theme/tokens.inc (semantic tokens, scales, motion),
+include/maicord/ui/theme/theme.hpp and presets.hpp (core palette defaults) and
+styles.hpp (typography and metric defaults), and writes a version 2
 document listing every token with its dark default. Semantic defaults keep
 their references so the example also documents the token tiers. Stdlib only.
 
@@ -16,7 +16,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-UI = ROOT / 'include' / 'maicord' / 'ui'
+THEME = ROOT / 'include' / 'maicord' / 'ui' / 'theme'
 OUTPUT = ROOT / 'assets' / 'themes' / 'example.maicord-theme.json'
 NUMBER = r'-?(?:\d+\.?\d*|\.\d+)f?'
 
@@ -41,10 +41,10 @@ def strip_comments(text):
 
 
 def core_palette():
-    source = strip_comments((UI / 'theme.hpp').read_text(encoding='utf-8'))
+    source = strip_comments((THEME / 'theme.hpp').read_text(encoding='utf-8'))
     body = re.search(r'struct Theme \{(.*?)\n\};', source, re.S).group(1)
     names = re.findall(r'^\s*Color (\w+);', body, re.M)
-    presets = strip_comments((UI / 'theme_presets.hpp').read_text(encoding='utf-8'))
+    presets = strip_comments((THEME / 'presets.hpp').read_text(encoding='utf-8'))
     initializer = re.search(r'ui_theme_default_preset\(\) noexcept \{\s*return ui_theme_resolve_defaults\(Theme\{(.*?)\}\);',
                             presets, re.S).group(1)
     values = re.findall(r'\{\s*(%s)\s*,\s*(%s)\s*,\s*(%s)\s*,\s*(%s)\s*\}' % ((NUMBER,) * 4), initializer)
@@ -83,7 +83,7 @@ def split_arguments(text):
 
 
 def token_tables():
-    source = strip_comments((UI / 'theme_tokens.inc').read_text(encoding='utf-8'))
+    source = strip_comments((THEME / 'tokens.inc').read_text(encoding='utf-8'))
     semantic, scale, motion = {}, {}, {}
     for args in re.findall(r'^MAICORD_THEME_TOKEN\((.*)\)\s*$', source, re.M):
         group, name, dark, _light = [part.strip() for part in split_arguments(args)]
@@ -102,7 +102,7 @@ def struct_defaults(source, struct):
 
 
 def document():
-    styles = strip_comments((UI / 'theme_styles.hpp').read_text(encoding='utf-8'))
+    styles = strip_comments((THEME / 'styles.hpp').read_text(encoding='utf-8'))
     typography = struct_defaults(styles, 'UiThemeTypography')
     typography.update({'body_face': 'normal', 'code_face': 'mono'})
     semantic, scale, motion = token_tables()

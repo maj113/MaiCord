@@ -1,13 +1,13 @@
 #pragma once
-#include "maicord/app/rest_client.hpp"
-#include "maicord/model/chat_state.hpp"
-#include "maicord/model/user_store.hpp"
-#include "maicord/model/message_rich_store.hpp"
-#include "maicord/model/message_store.hpp"
-#include "maicord/model/thread_member_store.hpp"
-#include "maicord/ui/popup_scene.hpp"
-#include "application_thread_actions.hpp"
-#include "application_thread_header_activation.hpp"
+#include "maicord/app/net/rest_client.hpp"
+#include "maicord/model/chat/chat_state.hpp"
+#include "maicord/model/user/store.hpp"
+#include "maicord/model/chat/message_rich_store.hpp"
+#include "maicord/model/chat/message_store.hpp"
+#include "maicord/model/guild/thread_member_store.hpp"
+#include "maicord/ui/shell/popup_scene.hpp"
+#include "chat/threads/actions.hpp"
+#include "chat/threads/header_activation.hpp"
 #include "maicord/core/win32_types.hpp"
 
 namespace maicord {

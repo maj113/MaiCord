@@ -1,8 +1,8 @@
-"""Writes tests/zstd_stream_fixtures.inc: reference-encoder zstd streams of
+"""Writes tests/fixtures/zstd_stream_fixtures.inc: reference-encoder zstd streams of
 deterministic synthetic text (Python 3.14 compression.zstd).
 
-Usage: python -I tools/generate_zstd_stream_fixtures.py tests/zstd_stream_fixtures.inc
-The text generator is mirrored in tests/zstd_stream.cpp (fixture_text)."""
+Usage: python -I tools/generate_zstd_stream_fixtures.py tests/fixtures/zstd_stream_fixtures.inc
+The text generator is mirrored in tests/media/compression/zstd_stream.cpp (fixture_text)."""
 import sys
 from pathlib import Path
 from compression import zstd

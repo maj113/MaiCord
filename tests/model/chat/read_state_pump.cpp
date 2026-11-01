@@ -1,0 +1,627 @@
+#include "maicord/app/chat/messages/event_pump.hpp"
+#include "../../support/model_store_fixtures.hpp"
+#include "maicord/app/gateway/client_dispatch.hpp"
+#include "maicord/app/gateway/client_event.hpp"
+#include "maicord/model/chat/read_state.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/app/chat/read_ack_controller.hpp"
+#include "maicord/model/guild/permission_bits.hpp"
+#include "maicord/model/user/store.hpp"
+#include "../../support/gateway_message_scratch.hpp"
+
+namespace maicord {
+namespace read_pump_probe {
+struct Fixture {
+    ChatStateStore state;
+    GuildRecord guild;
+    ChannelRecord channels[4];
+    RoleRecord roles[1];
+    PermissionOverwriteRecord overwrites[1];
+    u16 guild_order[1], channel_order[4];
+    u8 names[1024];
+    ReadStateStore reads;
+    UserStore users;
+    UserRecord user_records[2];
+    u32 user_order[2];
+    u8 user_names[128];
+    ReadStateEntry pending[4];
+    u32 reserve_calls, cancel_calls, reset_calls;
+    u64 cancelled_channel;
+    ReadAckController* cancellation_queue;
+    bool reserve_fail;
+    u32 observed_calls;
+    u64 observed_channel, observed_cursor;
+    bool observed_manual, observed_model_committed;
+    MessageReadBadge badge;
+    u32 badge_calls;
+    MessageStore messages;
+    MessageRecord message_records[8];
+    u32 message_order[8], heights[8];
+    u64 fenwick[8];
+    u8 text[256];
+    UiVariableList list;
+    MessageTimeline timeline;
+    MessageEventPump pump;
+    u64 guild_scratch[1];
+    GatewayClientReadStateMutation records[3];
+    u8 payload[96];
+};
+Fixture fixture{};
+bool reserve(void* context, u32) noexcept {
+    auto& f = *static_cast<Fixture*>(context); ++f.reserve_calls; return !f.reserve_fail;
+}
+void cancel(void* context, u64 channel_id) noexcept {
+    auto& f = *static_cast<Fixture*>(context); ++f.cancel_calls; f.cancelled_channel = channel_id;
+    if (f.cancellation_queue) read_ack_controller_cancel(f.cancellation_queue, channel_id);
+}
+void reset(void* context) noexcept { ++static_cast<Fixture*>(context)->reset_calls; }
+MessageReadBadge badge_policy(void* context,const GatewayClientEvent&,ConstSlice<u8>) noexcept {
+    auto& f=*static_cast<Fixture*>(context);++f.badge_calls;return f.badge;
+}
+void observe_ack(void* context, u64 channel_id, u64 cursor, bool manual) noexcept {
+    auto& f = *static_cast<Fixture*>(context); ++f.observed_calls;
+    f.observed_channel = channel_id; f.observed_cursor = cursor; f.observed_manual = manual;
+    const auto* channel = chat_state_store_find_channel(f.state, channel_id);
+    f.observed_model_committed = channel && channel->last_read_message_id == cursor;
+}
+bool channel(u64 id, u64 last) noexcept {
+    ChannelInput input{};
+    input.id = id; input.guild_id = 7; input.type = 0; input.last_message_id = last; input.last_message_known = true;
+    return chat_state_store_upsert_channel(&fixture.state, input).ok();
+}
+bool initialize() noexcept {
+    auto& f = fixture;
+    f.reserve_calls = f.cancel_calls = f.reset_calls = 0; f.cancelled_channel = 0; f.reserve_fail = false;
+    f.cancellation_queue = nullptr;
+    f.observed_calls = 0; f.observed_channel = f.observed_cursor = 0;
+    f.observed_manual = f.observed_model_committed = false;
+    f.badge=MessageReadBadge::none;f.badge_calls=0;
+    if (!chat_state_store_initialize(&f.state, {&f.guild, 1}, {f.guild_order, 1}, {f.channels, 4},
+            {f.channel_order, 4}, {f.names, sizeof(f.names)}) ||
+        !chat_state_store_upsert_guild(&f.state, {7, utf8_literal("Guild"), GuildMutationKind::create, 1}).ok() ||
+        !read_state_initialize(&f.reads, {f.pending, 4}) ||
+        !read_state_set_reserve(&f.reads, reserve, &f) || !read_state_bind(&f.state, &f.reads) ||
+        !message_store_initialize(&f.messages, {f.message_records, 8}, {f.message_order, 8}, {f.text, sizeof(f.text)}) ||
+        !ui_variable_list_initialize(&f.list, {f.heights, 8}, {f.fenwick, 8}, 0, 100) ||
+        !message_timeline_initialize(&f.timeline, &f.messages, &f.list, 100, 200, true) ||
+        !channel(80, 150) || !channel(81, 200)) return false;
+    f.state.self_user_id = 1;
+    f.pump = {}; f.pump.timeline = &f.timeline;
+    message_event_pump_set_read_ack_cancel(&f.pump, cancel, &f);
+    message_event_pump_set_read_token_reset(&f.pump, reset);
+    return message_event_pump_set_state_store(&f.pump, &f.state, {f.guild_scratch, 1}) &&
+        chat_state_store_select_channel(&f.state, 80).ok();
+}
+GatewayClientReadStateMutation entry(u64 id, u64 cursor, u32 mentions) noexcept {
+    return {id, cursor, mentions, 70'000, 0x80000001u,
+        gateway_read_state_cursor | gateway_read_state_mentions | gateway_read_state_last_viewed | gateway_read_state_flags, {}};
+}
+MessageEventPumpConsumeResult snapshot(u32 count, u64 version = 10) noexcept {
+    auto& f = fixture;
+    copy_bytes(f.payload, f.records, count * sizeof(f.records[0]));
+    GatewayClientEvent event{}; event.kind = GatewayClientEventKind::dispatch;
+    event.dispatch_kind = GatewayClientDispatchKind::read_state_snapshot;
+    event.read_state.record_count = count; event.read_state.version = version; event.read_state.version_known = true;
+    event.dispatch_payload_bytes = count * 32;
+    return message_event_pump_consume(&f.pump, event, {f.payload, count * 32});
+}
+GatewayClientEvent ack(u64 id, u64 cursor, bool manual, bool count_known, u32 count = 0) noexcept {
+    GatewayClientEvent event{}; event.kind = GatewayClientEventKind::dispatch;
+    event.dispatch_kind = GatewayClientDispatchKind::message_ack;
+    event.read_state.entry.channel_id = id; event.read_state.entry.message_id = cursor;
+    event.read_state.entry.mention_count = count;
+    event.read_state.entry.fields = static_cast<u8>(gateway_read_state_cursor |
+        (manual ? gateway_read_state_manual : 0) | (count_known ? gateway_read_state_mentions : 0));
+    return event;
+}
+const ChannelRecord* find(u64 id) noexcept { return chat_state_store_find_channel(fixture.state, id); }
+GatewayClientEvent ready(bool partial) noexcept {
+    GatewayClientEvent event{}; event.kind = GatewayClientEventKind::ready;
+    event.state.id = 1; event.state.record_count = 1; event.state.read_state_partial = partial;
+    event.dispatch_payload_bytes = 8; event.timestamp_ms = 1'000;
+    return event;
+}
+GatewayClientEvent message(u64 id, u64 channel_id, u64 author) noexcept {
+    GatewayClientEvent event{}; event.kind = GatewayClientEventKind::dispatch;
+    event.dispatch_kind = GatewayClientDispatchKind::message_create;
+    event.message.id = id; event.message.channel_id = channel_id; event.message.author_id = author;
+    event.message.timestamp_ms = 1'000;
+    event.message.fields = gateway_message_field_id | gateway_message_field_channel_id |
+        gateway_message_field_author_id | gateway_message_field_content | gateway_message_field_timestamp;
+    return event;
+}
+void cursor_cases(void (*check)(bool, const char*) noexcept) noexcept {
+    auto& f = fixture;
+    const bool initialized = initialize() &&
+        chat_state_store_bind_permissions(&f.state, {f.roles, 1}, {f.overwrites, 1}) &&
+        chat_state_store_upsert_role(&f.state, {7, 7, kPermissionViewChannel | kPermissionReadMessageHistory, {}}) &&
+        chat_state_store_set_self_roles(&f.state, 7, 2, 1, {});
+    check(initialized, "channel cursor pump: readable guild role authority initializes");
+    if (!initialized) return;
+    chat_state_store_recompute_guild_permissions(&f.state, 7);
+    f.records[0] = entry(80, 100, 2); f.records[1] = entry(81, 200, 0);
+    check(snapshot(2).ok() && read_state_mark_unread_local(&f.state, 80, 100, 2, false),
+        "channel cursor pump: selected manual unread and offscreen read state initialize");
+    message_event_pump_set_read_ack_observer(&f.pump, observe_ack, &f);
+    message_event_pump_set_read_badge(&f.pump, badge_policy, &f);
+    u32 structurals[256]{}; char storage[64]{};
+    const auto consume = [&](Utf8View name, Utf8View data, u64 sequence = 42) noexcept {
+        GatewayEnvelope envelope{};
+        envelope.has_event_name = true; envelope.event_name = {name, 0, false};
+        envelope.data = {data, 0, JsonValueKind::object};
+        envelope.sequence = sequence; envelope.has_sequence = true;
+        GatewayClientEvent event{}; ConstSlice<u8> payload{};
+        const auto routed = gateway_client_route_dispatch(envelope, {structurals, 256}, 64,
+            {storage, sizeof(storage)}, {}, &event, &payload, gateway_test_message_scratch());
+        check(routed.ok(), "channel cursor pump: production route normalizes fixture");
+        return message_event_pump_consume(&f.pump, event, payload);
+    };
+    constexpr auto passive = utf8_literal("PASSIVE_UPDATE_V2");
+    constexpr auto unread = utf8_literal("CHANNEL_UNREAD_UPDATE");
+    const auto offscreen = consume(passive, utf8_literal("{\"guild_id\":\"7\",\"updated_channels\":[{\"id\":\"81\",\"last_message_id\":\"250\"}]}"));
+    check(offscreen.ok() && offscreen.repaint && find(81)->last_message_id == 250 &&
+        find(81)->last_read_message_id == 200 && !find(81)->mention_count && f.guild.unread_channels == 2 &&
+        f.pump.has_sequence && f.pump.last_sequence == 42 && !f.pump.catchup_required &&
+        !f.timeline.newer_refetch_required && !f.pump.resync_required && !f.messages.count,
+        "channel cursor pump: offscreen activity updates unread aggregation and sequence without fetching content");
+    const auto offscreen_before = *find(81);
+    const u32 mutation_before = f.state.channel_mutations;
+    const auto old = consume(passive, utf8_literal("{\"guild_id\":\"7\",\"updated_channels\":[{\"id\":\"81\",\"last_message_id\":\"250\"},{\"id\":\"81\",\"last_message_id\":\"240\"},{\"id\":\"81\",\"last_message_id\":null}]}"), 43);
+    check(old.ok() && !old.repaint && f.state.channel_mutations == mutation_before &&
+        bytes_equal(find(81), &offscreen_before, sizeof(offscreen_before)) && !f.pump.catchup_required,
+        "channel cursor pump: duplicate, lower and null cursors never regress activity or touch metadata");
+    const auto selected_before = *find(80);
+    const auto selected = consume(unread, utf8_literal("{\"guild_id\":\"7\",\"channel_unread_updates\":[{\"id\":\"80\",\"last_message_id\":\"300\"}]}"), 44);
+    auto selected_after = *find(80);
+    selected_after.last_message_id = selected_before.last_message_id;
+    selected_after.revision = selected_before.revision;
+    check(selected.ok() && selected.repaint && find(80)->last_message_id == 300 &&
+        bytes_equal(&selected_before, &selected_after, sizeof(selected_before)) &&
+        f.pump.catchup_required && f.timeline.newer_refetch_required && !f.pump.resync_required &&
+        !f.messages.count && !f.cancel_calls && !f.observed_calls && !f.badge_calls && !f.reserve_calls,
+        "channel cursor pump: selected forward cursor requires tail catchup while preserving read, mention and manual metadata");
+    f.pump.catchup_required = f.timeline.newer_refetch_required = false;
+    const auto unchanged = *find(80);
+    auto typed = GatewayClientEvent{}; typed.kind = GatewayClientEventKind::dispatch;
+    typed.dispatch_kind = GatewayClientDispatchKind::channel_cursor_update;
+    typed.state.guild_id = 7; typed.state.fields = gateway_client_state_field_guild_id;
+    typed.state.record_count = 2; typed.dispatch_payload_bytes = 32;
+    GatewayClientChannelCursor rows[2]{{80, 400}, {0, 500}};
+    const auto malformed = message_event_pump_consume(&f.pump, typed,
+        {reinterpret_cast<const u8*>(rows), sizeof(rows)});
+    check(!malformed.ok() && bytes_equal(find(80), &unchanged, sizeof(unchanged)) &&
+        !f.pump.catchup_required && !f.timeline.newer_refetch_required,
+        "channel cursor pump: invalid trailing typed row rejects before earlier resident mutation");
+    rows[1] = {81, 500}; f.channels[1].guild_id = 9;
+    check(!message_event_pump_consume(&f.pump, typed, {reinterpret_cast<const u8*>(rows), sizeof(rows)}).ok() &&
+        bytes_equal(find(80), &unchanged, sizeof(unchanged)),
+        "channel cursor pump: cross-guild trailing row rejects the complete batch");
+    f.channels[1].guild_id = 7;
+    typed.state.record_count = kGatewayChannelCursorMaximumEntries + 1; typed.dispatch_payload_bytes = 0;
+    check(!message_event_pump_consume(&f.pump, typed, {}).ok() && find(80)->last_message_id == 300,
+        "channel cursor pump: excessive typed count fails without reading payload or changing state");
+    const auto blocked_update = [&]() noexcept {
+        return consume(passive, utf8_literal("{\"guild_id\":\"7\",\"updated_channels\":[{\"id\":\"80\",\"last_message_id\":\"400\"}]}"));
+    };
+    f.channels[0].permissions_resolved = false;
+    check(blocked_update().ok() && find(80)->last_message_id == 300,
+        "channel cursor pump: unresolved permissions cannot expose new activity");
+    chat_state_store_recompute_guild_permissions(&f.state, 7);
+    f.channels[0].flags |= kChannelObfuscatedFlag;
+    check(blocked_update().ok() && find(80)->last_message_id == 300,
+        "channel cursor pump: obfuscated channel cannot expose new activity");
+    f.channels[0].flags &= ~kChannelObfuscatedFlag;
+    check(chat_state_store_append_channel_overwrite(&f.state, 80, {7, 0, kPermissionReadMessageHistory, 0}),
+        "channel cursor pump: explicit history denial installs");
+    chat_state_store_recompute_guild_permissions(&f.state, 7);
+    check(blocked_update().ok() && find(80)->last_message_id == 300,
+        "channel cursor pump: resolved history denial prevents cursor admission");
+    chat_state_store_clear_channel_overwrites(&f.state, 80);
+    chat_state_store_recompute_guild_permissions(&f.state, 7);
+    f.guild.unavailable = true;
+    check(blocked_update().ok() && find(80)->last_message_id == 300,
+        "channel cursor pump: unavailable guild does not accept activity");
+    f.guild.unavailable = false;
+    const u32 count_before = f.state.channel_count;
+    check(consume(passive, utf8_literal("{\"guild_id\":\"9\",\"updated_channels\":[{\"id\":\"999\",\"last_message_id\":\"400\"}]}")).ok() &&
+        consume(passive, utf8_literal("{\"guild_id\":\"7\",\"updated_channels\":[{\"id\":\"999\",\"last_message_id\":\"400\"}]}")).ok() &&
+        f.state.channel_count == count_before && !find(999) && !f.pump.catchup_required &&
+        !f.timeline.newer_refetch_required && !f.cancel_calls && !f.observed_calls && !f.badge_calls,
+        "channel cursor pump: unknown guild and channel create no model, content or read-side work");
+}
+struct ManualBacking { u32 calls; bool fail; };
+bool manual_reserve(void* context, u32) noexcept {
+    auto& probe = *static_cast<ManualBacking*>(context); ++probe.calls; return !probe.fail;
+}
+void manual_controller(void (*check)(bool, const char*) noexcept) noexcept {
+    ReadAckIntent slots[2]{}; ReadAckController controller{}; ManualBacking backing{};
+    ReadAckIntent peek{}; ReadAckRequestTicket ticket{}; u64 due = 0;
+    const ReadAckIntent ordinary{80, 100, 70'000, 0x80000005u, 0};
+    auto manual = ordinary; manual.kind = ReadAckKind::manual;
+    manual.mention_count_known = true; manual.mention_count = 3;
+    check(read_ack_controller_initialize(&controller, {slots, 2}) &&
+        read_ack_controller_set_reserve(&controller, manual_reserve, &backing) && !backing.calls &&
+        read_ack_controller_queue(&controller, ordinary, 1000, true) &&
+        read_ack_controller_peek_due(controller, 1000, &peek) &&
+        read_ack_controller_admit(&controller, peek, 71, &ticket),
+        "manual controller: explicit kind retains lazy backing and existing one-flight transport admission");
+    const auto before_failure = controller;
+    auto other = manual; other.channel_id = 81; backing.fail = true;
+    check(!read_ack_controller_queue(&controller, other, 1001, true) &&
+        bytes_equal(&controller, &before_failure, sizeof(controller)) && !controller.inflight_superseded,
+        "manual controller: backing failure cannot alter pending state or supersede an admitted request");
+    backing.fail = false;
+    auto invalid = manual; invalid.kind = static_cast<ReadAckKind>(255);
+    check(!read_ack_controller_queue(&controller, invalid, 1001, true) &&
+        bytes_equal(&controller, &before_failure, sizeof(controller)),
+        "manual controller: invalid intent kind is rejected before desired or inflight mutation");
+    invalid = ordinary; invalid.mention_count_known = true; invalid.mention_count = 3;
+    check(!read_ack_controller_queue(&controller, invalid, 1001, true) &&
+        bytes_equal(&controller, &before_failure, sizeof(controller)),
+        "manual controller: ordinary intent cannot accidentally carry manual-only mention metadata");
+    check(read_ack_controller_queue(&controller, manual, 1002, false) && controller.inflight_superseded &&
+        controller.pending[0].kind == ReadAckKind::manual && controller.pending[0].message_id == 100 &&
+        controller.pending[0].flags == 0x80000005u && controller.pending[0].last_viewed == 70'000 &&
+        controller.pending[0].mention_count_known && controller.pending[0].mention_count == 3 &&
+        !read_ack_controller_next_due(controller, &due),
+        "manual controller: same cursor with new kind preserves full metadata and waits for old transport drain");
+    constexpr u64 long_retry = 1000ull + 6ull * 60 * 60 * 1000;
+    check(read_ack_controller_complete(&controller, ticket, ReadAckCompletion::retry, long_retry) == ReadAckCompletionResult::superseded &&
+        controller.count == 1 && controller.pending[0].kind == ReadAckKind::manual &&
+        read_ack_controller_next_due(controller, &due) && due == long_retry &&
+        !read_ack_controller_peek_due(controller, long_retry - 1, &peek) &&
+        read_ack_controller_peek_due(controller, long_retry, &peek) &&
+        read_ack_controller_admit(&controller, peek, 72, &ticket),
+        "manual controller: superseded 429 preserves the full long retry floor before immediate manual admission");
+    check(read_ack_controller_queue(&controller, manual, long_retry + 1, true) && controller.inflight_superseded &&
+        read_ack_controller_complete(&controller, ticket, ReadAckCompletion::success) == ReadAckCompletionResult::superseded &&
+        controller.count == 1 && controller.pending[0].kind == ReadAckKind::manual,
+        "manual controller: fresh identical manual action survives old successful response");
+    check(read_ack_controller_peek_due(controller, long_retry + 1, &peek) &&
+        read_ack_controller_admit(&controller, peek, 73, &ticket) &&
+        read_ack_controller_queue(&controller, ordinary, long_retry + 2, true) && !controller.inflight_superseded &&
+        read_ack_controller_complete(&controller, ticket, ReadAckCompletion::success) == ReadAckCompletionResult::completed &&
+        controller.count == 1 && controller.pending[0].kind == ReadAckKind::automatic,
+        "manual controller: exact cursor ordinary mark-read remains a distinct desired kind after manual response");
+    read_ack_controller_reset(&controller);
+    check(read_ack_controller_queue(&controller, manual, 1900, true) &&
+        read_ack_controller_peek_due(controller, 1900, &peek),
+        "manual controller: manual transport captures exact immutable mention payload before admission");
+    auto changed_count = manual; changed_count.mention_count = 4;
+    check(read_ack_controller_queue(&controller, changed_count, 1901, true) &&
+        !read_ack_controller_admit(&controller, peek, 70, &ticket) &&
+        read_ack_controller_peek_due(controller, 1901, &peek) && peek.mention_count == 4 &&
+        read_ack_controller_admit(&controller, peek, 70, &ticket) &&
+        read_ack_controller_complete(&controller, ticket, ReadAckCompletion::success) == ReadAckCompletionResult::completed,
+        "manual controller: stale same-cursor peek cannot admit a replaced manual mention payload");
+    read_ack_controller_reset(&controller);
+    auto beginning = manual; beginning.message_id = 0;
+    check(read_ack_controller_queue(&controller, beginning, 2000, false) &&
+        read_ack_controller_next_due(controller, &due) && due == 2000 &&
+        read_ack_controller_peek_due(controller, 2000, &peek) &&
+        read_ack_controller_admit(&controller, peek, 74, &ticket),
+        "manual controller: beginning boundary zero is valid and immediate only for manual kind");
+    check(read_ack_controller_cancel(&controller, 80) &&
+        read_ack_controller_queue(&controller, beginning, 2001, true) &&
+        read_ack_controller_complete(&controller, ticket, ReadAckCompletion::terminal) == ReadAckCompletionResult::superseded && controller.count == 1,
+        "manual controller: cancelled old terminal response cannot remove a freshly queued identical manual boundary");
+    check(read_ack_controller_peek_due(controller, 2001, &peek) && read_ack_controller_admit(&controller, peek, 75, &ticket),
+        "manual controller: new manual action admits after cancelled request drains");
+    const auto stale = ticket; read_ack_controller_reset(&controller);
+    check(!controller.count && !controller.inflight_active && !controller.retry_not_before_ms &&
+        read_ack_controller_queue(&controller, beginning, 2002, true) &&
+        read_ack_controller_peek_due(controller, 2002, &peek) && read_ack_controller_admit(&controller, peek, stale.request_id, &ticket) &&
+        read_ack_controller_complete(&controller, stale, ReadAckCompletion::success) == ReadAckCompletionResult::ignored && controller.count == 1,
+        "manual controller: fresh READY generation rejects an old manual response with reused request and cursor IDs");
+}
+}
+
+void test_read_state_pump(void (*check)(bool, const char*) noexcept) noexcept {
+    using namespace read_pump_probe;
+    cursor_cases(check);
+    auto& f = fixture;
+    const bool initialized = initialize();
+    check(initialized, "read pump: bounded isolated read and cached-message fixture initializes");
+    if (!initialized) return;
+    f.records[0] = entry(80, 100, 2); f.records[1] = entry(82, 180, 1);
+    f.records[1].reserved[2] = 1;
+    const u32 before_invalid = f.state.channel_mutations;
+    check(!snapshot(2).ok() && find(80)->last_read_message_id == 80 && f.state.channel_mutations == before_invalid &&
+        !f.reads.count && !f.reserve_calls, "read pump: invalid later record rejects full snapshot before resident mutation or backing");
+    f.records[1] = entry(82, 180, 1); f.reserve_fail = true;
+    check(!snapshot(2).ok() && find(80)->last_read_message_id == 80 && !f.reads.count && !f.cancel_calls,
+        "read pump: unmatched backing failure preserves an otherwise valid earlier resident read");
+    f.reserve_fail = false;
+    check(snapshot(2).ok() && find(80)->last_read_message_id == 100 && find(80)->mention_count == 2 &&
+        f.reads.count == 1 && f.reads.version == 10 && read_state_pending(f.reads, 82),
+        "read pump: complete snapshot applies resident and unmatched entries after preflight");
+    f.records[0] = entry(80, 140, 0); f.records[1] = entry(80, 145, 0);
+    check(!snapshot(2, 11).ok() && find(80)->last_read_message_id == 100 && f.reads.version == 10,
+        "read pump: duplicate channel IDs cannot partially replace a read cursor");
+    f.records[0] = entry(82, 190, 0); f.records[1] = entry(80, 145, 0);
+    check(!snapshot(2).ok() && find(80)->last_read_message_id == 100,
+        "read pump: unsorted packed read records reject before model changes");
+
+    const auto add = [&](u64 id, bool mentioned) noexcept {
+        MessageInput input{}; input.id = id; input.channel_id = 80; input.author_id = 2;
+        input.presentation_flags = mentioned ? message_presentation_mentions_current_user : 0;
+        return message_store_upsert(&f.messages, input).ok();
+    };
+    check(add(120, true) && add(130, false) && add(140, true), "read pump: cached selected mention reconstruction fixture admits messages");
+    auto event = ack(80, 125, true, false);
+    check(message_event_pump_consume(&f.pump, event, {}).ok() && find(80)->last_read_message_id == 125 &&
+        find(80)->mention_count == 1 && find(80)->read_mentions_incomplete && find(80)->read_auto_ack_suppressed &&
+        f.cancel_calls == 1 && f.cancelled_channel == 80,
+        "read pump: manual missing server count rebuilds bounded cached mentions and cancels outgoing ACK");
+    event = ack(80, 145, true, true, 0); event.read_state.entry.reserved[0] = 1;
+    check(!message_event_pump_consume(&f.pump, event, {}).ok() && f.cancel_calls == 1 && find(80)->last_read_message_id == 125,
+        "read pump: malformed manual ACK neither mutates reads nor invokes cancellation");
+    event = ack(80, 125, false, false);
+    check(message_event_pump_consume(&f.pump, event, {}).ok() && find(80)->mention_count == 1 &&
+        find(80)->read_mentions_incomplete && f.cancel_calls == 1,
+        "read pump: automatic missing server count also reconstructs bounded cached mentions as an estimate");
+    event = ack(80, 90, false, true, 3); event.read_state.version_known = true; event.read_state.version = 1;
+    check(message_event_pump_consume(&f.pump, event, {}).ok() && find(80)->last_read_message_id == 90 &&
+        !find(80)->read_mentions_incomplete && find(80)->mention_count == 3 && f.reads.version == 1 && f.cancel_calls == 1,
+        "read pump: automatic older ACK/version is accepted and does not cancel queued local work");
+
+    event = message(210, 81, 1);
+    event.message.content_bytes = 1;
+    check(!message_event_pump_consume(&f.pump, event, {}).ok() && f.cancel_calls == 1,
+        "read pump: malformed own-author create cannot cancel outgoing work");
+    event.message.content_bytes = 0;
+    check(message_event_pump_consume(&f.pump, event, {}).ok() && find(81)->last_read_message_id == 210 &&
+        find(81)->read_state_known && !find(81)->read_flags_known && !find(81)->read_last_viewed_known &&
+        f.cancel_calls == 2 && f.cancelled_channel == 81,
+        "read pump: accepted unselected own-author create advances read and cancels older outbound ACK");
+    check(message_event_pump_consume(&f.pump, event, {}).ok() && f.cancel_calls == 2,
+        "read pump: duplicate own-author activity cannot cancel newer desired ACK");
+    check(ui_variable_list_initialize(&f.list, {f.heights, 8}, {f.fenwick, 8}, f.messages.count, 100) &&
+        message_timeline_initialize(&f.timeline, &f.messages, &f.list, 100, 200, true),
+        "read pump: seeded cached messages keep timeline geometry in sync");
+    event = message(160, 80, 2); f.pump.view_active = true; f.timeline.follow_bottom = true;
+    const auto incoming = message_event_pump_consume(&f.pump, event, {});
+    check(incoming.ok() && find(80)->last_read_message_id == 90 && find(80)->last_message_id == 160 && f.cancel_calls == 2,
+        "read pump: ordinary foreground bottom create leaves automatic ACK to shared observer");
+    GatewayClientUserMutation user{}; user.id = 1;
+    copy_bytes(f.payload, &user, sizeof(user));
+    event = {}; event.kind = GatewayClientEventKind::dispatch; event.dispatch_kind = GatewayClientDispatchKind::user_snapshot;
+    event.state.record_count = 1; event.dispatch_payload_bytes = sizeof(user);
+    constexpr auto user_update = utf8_literal("USER_UPDATE");
+    copy_bytes(event.event_name, user_update.data, user_update.bytes);
+    event.event_name_bytes = static_cast<u8>(user_update.bytes);
+    event.state.record_count = 2;
+    check(!message_event_pump_consume(&f.pump, event, {f.payload, sizeof(user)}).ok() && !f.reset_calls,
+        "read pump: malformed current-user update cannot reset rotated ACK token");
+    event.state.record_count = 1;
+    user.id = 2; copy_bytes(f.payload, &user, sizeof(user));
+    check(message_event_pump_consume(&f.pump, event, {f.payload, sizeof(user)}).ok() && !f.reset_calls,
+        "read pump: other-user snapshot does not reset current-user ACK token");
+    user.id = 1; copy_bytes(f.payload, &user, sizeof(user));
+    event.event_name_bytes = 0;
+    check(message_event_pump_consume(&f.pump, event, {f.payload, sizeof(user)}).ok() && !f.reset_calls,
+        "read pump: untagged READY hydration cannot impersonate USER_UPDATE token reset");
+    event.event_name_bytes = static_cast<u8>(user_update.bytes);
+    check(message_event_pump_consume(&f.pump, event, {f.payload, sizeof(user)}).ok() && f.reset_calls == 1 && f.cancel_calls == 2,
+        "read pump: accepted self USER_UPDATE resets token without cancelling desired ACK queue");
+
+    check(user_store_initialize(&f.users, {f.user_records, 2}, {f.user_order, 2},
+                                 {f.user_names, sizeof(f.user_names)}),
+        "content policy pump: bounded account metadata user cache initializes");
+    f.pump.users = &f.users;
+    f.state.content_policy.flags = account_content_age_confirmation;
+    const auto content_update = [&](u64 id, u8 flags, u8 age, u8 fields) noexcept {
+        user = {}; user.id = id; user.flags = flags;
+        user.age_verification_status = age; user.content_fields = fields;
+        copy_bytes(f.payload, &user, sizeof(user));
+        return message_event_pump_consume(&f.pump, event, {f.payload, sizeof(user)});
+    };
+    check(content_update(1, 96, 2, 1).ok() &&
+        f.state.content_policy.eligibility == AccountContentEligibility::restricted &&
+        f.state.content_policy.age_verification == AccountAgeVerification::verified_teen &&
+        account_content_confirmation_required(f.state.content_policy),
+        "content policy pump: self restriction and teen proof retain independent regional confirmation");
+    check(content_update(2, 224, 3, 1).ok() && content_update(1, 0, 0, 0).ok() &&
+        f.state.content_policy.eligibility == AccountContentEligibility::restricted &&
+        f.state.content_policy.age_verification == AccountAgeVerification::verified_teen,
+        "content policy pump: other user metadata and omitted self fields cannot replace account eligibility");
+    check(content_update(1, 224, 3, 1).ok() &&
+        f.state.content_policy.eligibility == AccountContentEligibility::allowed &&
+        !account_content_confirmation_required(f.state.content_policy) && content_update(1, 0, 4, 1).ok() &&
+        !account_content_confirmation_required(f.state.content_policy),
+        "content policy pump: only documented adult proof clears regional age confirmation");
+    check(content_update(1, 32, 0, 1).ok() &&
+        f.state.content_policy.eligibility == AccountContentEligibility::unknown &&
+        f.state.content_policy.age_verification == AccountAgeVerification::unknown &&
+        account_content_confirmation_required(f.state.content_policy),
+        "content policy pump: explicit null clears old eligibility and adult proof without clearing region");
+    check(content_update(1, 0, 0, 6).ok() && content_update(1, 0, 0, 0).ok() &&
+        content_update(2, 0, 0, 2).ok() &&
+        f.state.content_policy.flags == (account_content_age_confirmation | account_content_parent_managed),
+        "content policy pump: active parent survives omitted self fields and unrelated user metadata");
+    check(content_update(1, 0, 0, 2).ok() && f.state.content_policy.flags == account_content_age_confirmation,
+        "content policy pump: empty linked users clear only the parent restriction and preserve region");
+    f.state.content_policy = {AccountContentEligibility::restricted, AccountAgeVerification::verified_teen,
+                              account_content_age_confirmation | account_content_parent_managed};
+    GatewayClientEvent content_resumed{}; content_resumed.kind = GatewayClientEventKind::resumed;
+    check(message_event_pump_consume(&f.pump, content_resumed, {}).ok() &&
+        f.state.content_policy.eligibility == AccountContentEligibility::restricted &&
+        account_content_confirmation_required(f.state.content_policy),
+        "content policy pump: RESUMED retains account metadata until a fresh READY");
+
+    u8 guild_ids[8] = {7}; event = ready(true); event.state.id = 2;
+    const u32 calls_before_ready = f.reserve_calls, count_before_ready = f.reads.count;
+    check(!message_event_pump_consume(&f.pump, event, {guild_ids, 8}).ok() &&
+        f.reserve_calls == calls_before_ready && f.reads.count == count_before_ready && f.state.channel_count == 2,
+        "read pump: invalid READY identity fails before read carry or channel removals");
+    event = ready(true); event.state.account_content_flags = 8;
+    check(!message_event_pump_consume(&f.pump, event, {guild_ids, 8}).ok() &&
+        f.state.content_policy.eligibility == AccountContentEligibility::restricted &&
+        f.state.content_policy.flags == (account_content_age_confirmation | account_content_parent_managed),
+        "content policy pump: unknown packed regional bits cannot reset prior account state");
+    event = ready(true); f.reserve_fail = true;
+    check(!message_event_pump_consume(&f.pump, event, {guild_ids, 8}).ok() && f.state.channel_count == 2 &&
+        f.reads.count == count_before_ready && !f.reads.preparing_ready,
+        "read pump: failed partial READY reserve preserves resident channels and unmatched reads");
+    f.reserve_fail = false;
+    event.state.account_content_flags = account_content_teen_defaults;
+    check(message_event_pump_consume(&f.pump, event, {guild_ids, 8}).ok() && !f.state.channel_count &&
+        f.reads.count == 3 && !f.reads.preparing_ready && read_state_pending(f.reads, 80)->message_id == 90 &&
+        read_state_pending(f.reads, 81)->message_id == 210,
+        "read pump: partial READY carries omitted resident reads then immediately ends removal capture");
+    check(f.state.content_policy.eligibility == AccountContentEligibility::unknown &&
+        f.state.content_policy.age_verification == AccountAgeVerification::unknown &&
+        f.state.content_policy.flags == account_content_teen_defaults,
+        "content policy pump: fresh READY resets old account proof and installs its own regional policy");
+    GatewayClientEvent resumed{}; resumed.kind = GatewayClientEventKind::resumed;
+    const u32 before_resume = f.reads.revision;
+    check(message_event_pump_consume(&f.pump, resumed, {}).ok() && f.reads.count == 3 && f.reads.revision == before_resume,
+        "read pump: RESUMED retains authoritative read state without fresh-session reset");
+    check(chat_state_store_upsert_guild(&f.state, {7, utf8_literal("Guild"), GuildMutationKind::create, 1}).ok() &&
+        channel(80, 160) && find(80)->last_read_message_id == 90 && find(80)->mention_count == 3 && f.reads.count == 2,
+        "read pump: partial READY channel rehydration consumes only its unmatched read entry");
+    event = ready(false);
+    check(message_event_pump_consume(&f.pump, event, {guild_ids, 8}).ok() && !f.reads.count && !f.state.channel_count &&
+        !f.reads.preparing_ready && !f.state.content_policy.flags,
+        "read pump: full READY replaces old reads and clears omitted regional policy");
+
+    check(initialize(), "read pump: local manual unread fixture resets session and timeline");
+    f.records[0] = entry(80, 150, 0);
+    check(snapshot(1, 42).ok() && read_state_mark_unread_local(&f.state, 80, 100, 2, false) &&
+        find(80)->read_auto_ack_suppressed && find(80)->read_mentions_incomplete &&
+        f.guild.unread_channels == 2 && f.guild.mention_count == 2,
+        "read pump: selected optimistic manual unread publishes guild unread and incomplete mention state");
+    f.pump.view_active = true; f.timeline.follow_bottom = true;
+    event = message(180, 80, 2);
+    check(message_event_pump_consume(&f.pump, event, {}).ok() && find(80)->last_read_message_id == 100 &&
+        find(80)->last_message_id == 180 && find(80)->read_auto_ack_suppressed &&
+        find(80)->read_mentions_incomplete && find(80)->mention_count == 2 && !f.cancel_calls,
+        "read pump: foreground bottom incoming message preserves local manual backward cursor for the shared observer gate");
+    event = ack(80, 100, true, true, 1);
+    check(message_event_pump_consume(&f.pump, event, {}).ok() && find(80)->last_read_message_id == 100 &&
+        find(80)->read_auto_ack_suppressed && !find(80)->read_mentions_incomplete &&
+        find(80)->mention_count == 1 && f.guild.mention_count == 1 && f.cancel_calls == 1,
+        "read pump: authoritative manual echo replaces local mention estimate and cancels outgoing work through the existing owner");
+    check(chat_state_store_select_channel(&f.state, 81).ok() && !find(80)->read_auto_ack_suppressed &&
+        find(80)->last_read_message_id == 100 && find(80)->mention_count == 1,
+        "read pump: leaving manually unread channel releases only automatic suppression while retaining its backward cursor");
+    message_event_pump_set_read_ack_observer(&f.pump, observe_ack, &f);
+    event = ack(80, 110, true, true, 2);
+    check(message_event_pump_consume(&f.pump, event, {}).ok() && f.observed_calls == 1 &&
+        f.observed_channel == 80 && f.observed_cursor == 110 && f.observed_manual &&
+        f.observed_model_committed && f.cancel_calls == 1,
+        "read pump: typed manual observer receives committed identity without unconditional legacy cancellation");
+    event = ack(80, 130, false, true, 1);
+    check(message_event_pump_consume(&f.pump, event, {}).ok() && f.observed_calls == 2 &&
+        f.observed_channel == 80 && f.observed_cursor == 130 && !f.observed_manual &&
+        f.observed_model_committed && f.cancel_calls == 1,
+        "read pump: typed ordinary observer receives committed cursor for narrow host-owned manual projection");
+    event = ack(80, 0, true, true, 0); event.read_state.entry.reserved[0] = 1;
+    check(!message_event_pump_consume(&f.pump, event, {}).ok() && f.observed_calls == 2 && f.cancel_calls == 1 &&
+        find(80)->last_read_message_id == 130,
+        "read pump: rejected ACK cannot invoke typed observer or cancel hook");
+    event = message(190, 80, 1);
+    check(message_event_pump_consume(&f.pump, event, {}).ok() && f.observed_calls == 2 &&
+        f.cancel_calls == 2 && f.cancelled_channel == 80,
+        "read pump: typed ACK observer leaves own-author cancellation ownership unchanged");
+    message_event_pump_set_read_ack_observer(&f.pump, nullptr, nullptr);
+    event = ack(80, 0, true, true, 0);
+    check(message_event_pump_consume(&f.pump, event, {}).ok() && f.observed_calls == 2 && f.cancel_calls == 3 &&
+        f.cancelled_channel == 80,
+        "read pump: removing typed observer restores legacy remote manual cancellation");
+    manual_controller(check);
+
+    check(initialize(),"read automation: reset bounded timeline and read-state fixture");
+    message_event_pump_set_read_badge(&f.pump,badge_policy,&f);
+    f.records[0]=entry(80,100,0);
+    check(snapshot(1).ok(),"read automation: authoritative read metadata is loaded");
+    event=message(160,80,2);f.badge=MessageReadBadge::low_importance;
+    check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->mention_count==1&&
+        find(80)->read_flags==0x80000005u&&f.guild.mention_count==1&&f.badge_calls==1,
+        "read automation: low-importance badge increments channel and guild counts while retaining unknown flag bits");
+    event=message(170,80,2);f.badge=MessageReadBadge::none;
+    event.message.mention_flags=gateway_client_message_mention_current_user;
+    const auto suppressed=message_event_pump_consume(&f.pump,event,{});
+    const auto raw_handle=message_store_find(f.messages,170);
+    const auto* raw=raw_handle.ok()?message_store_resolve(f.messages,raw_handle.handle):nullptr;
+    check(suppressed.ok()&&find(80)->mention_count==1&&f.guild.mention_count==1&&raw&&
+        (raw->presentation_flags&message_presentation_mentions_current_user)&&
+        (raw->presentation_flags&message_presentation_read_badge_known)&&
+        !(raw->presentation_flags&message_presentation_read_badge),
+        "read automation: rejected badge retains raw mention styling without changing read counts");
+    f.badge=MessageReadBadge::mention;
+    check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->mention_count==1&&
+        raw&&!(raw->presentation_flags&message_presentation_read_badge),
+        "read automation: duplicate create cannot change its original denied badge decision after policy changes");
+    event=ack(80,150,true,false);
+    check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->mention_count==1,
+        "read automation: cached manual recount uses live badge decisions independently of mention styling");
+    const u32 before_poll_cancels=f.cancel_calls;
+    f.badge=MessageReadBadge::none;
+    event=message(180,80,1);event.message.type=46;event.message.fields|=gateway_message_field_type;
+    check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->last_message_id==180&&
+        find(80)->last_read_message_id==150&&find(80)->mention_count==1&&f.cancel_calls==before_poll_cancels,
+        "read automation: own POLL_RESULT advances latest without clearing cursor, mentions or outbound ACK work");
+    event=message(190,80,2);f.badge=MessageReadBadge::mention;
+    check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->mention_count==2&&
+        find(80)->read_flags==0x80000001u,
+        "read automation: ping upgrades low-importance counts while preserving unknown flags");
+    event=message(200,80,2);f.badge=MessageReadBadge::low_importance;
+    check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->mention_count==3&&
+        find(80)->read_flags==0x80000001u,
+        "read automation: later non-ping message cannot downgrade outstanding ping importance");
+    event=message(210,80,1);f.badge=MessageReadBadge::none;
+    check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->last_read_message_id==210&&
+        find(80)->mention_count==0&&f.cancel_calls==before_poll_cancels+1,
+        "read automation: ordinary own create still clears read counts and cancels older outgoing ACK");
+    const u32 before_reject=f.badge_calls;event=message(220,80,2);event.message.content_bytes=1;
+    check(!message_event_pump_consume(&f.pump,event,{}).ok()&&f.badge_calls==before_reject&&find(80)->last_message_id==210,
+        "read automation: malformed create cannot invoke badge policy or change channel activity");
+
+    check(initialize(),"thread read automation: reset bounded parent activity fixture");
+    ChannelInput parent{};parent.id=80;parent.guild_id=7;parent.type=15;
+    parent.last_message_id=150;parent.last_message_known=true;
+    f.records[0]=entry(80,100,2);
+    check(chat_state_store_upsert_channel(&f.state,parent).ok()&&snapshot(1).ok(),
+        "thread read automation: forum parent retains outstanding read counts");
+    event={};event.kind=GatewayClientEventKind::dispatch;event.dispatch_kind=GatewayClientDispatchKind::channel_create;
+    event.state.id=220;event.state.guild_id=7;event.state.parent_id=80;event.state.owner_id=1;event.state.type=11;
+    event.state.fields=gateway_client_state_field_id|gateway_client_state_field_guild_id|
+        gateway_client_state_field_type|gateway_client_state_field_parent_id|gateway_client_state_field_owner_id;
+    event.state.channel_event_flags=gateway_client_channel_new_thread;
+    check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->last_read_message_id==220&&
+        find(80)->mention_count==0&&f.cancel_calls==1&&f.cancelled_channel==80,
+        "thread read automation: first validated own post creation cancels old parent ACK after committing read state");
+    check(read_state_mark_unread_local(&f.state,80,100,2,true)&&
+        message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->last_read_message_id==100&&
+        find(80)->mention_count==2&&f.cancel_calls==1,
+        "thread read automation: duplicate own post receipt cannot cancel later manual parent work");
+    event.state.fields&=~gateway_client_state_field_type;
+    check(!message_event_pump_consume(&f.pump,event,{}).ok()&&f.cancel_calls==1&&find(80)->last_read_message_id==100,
+        "thread read automation: rejected post creation cannot cancel parent ACK work");
+    check(initialize(),"thread read automation: reset delayed own receipt cancellation fixture");
+    parent.last_message_id=300;
+    f.records[0]=entry(80,300,2);
+    check(chat_state_store_upsert_channel(&f.state,parent).ok()&&snapshot(1).ok(),
+        "thread read automation: parent has a newer local ACK cursor before delayed own creation");
+    ReadAckIntent queued_slots[1]{};
+    ReadAckController queued_parent_ack{};
+    ReadAckIntent queued_intent{};queued_intent.channel_id=80;queued_intent.message_id=300;
+    check(read_ack_controller_initialize(&queued_parent_ack,{queued_slots,1})&&
+        read_ack_controller_queue(&queued_parent_ack,queued_intent,1000,true),
+        "thread read automation: actual ACK controller retains the newer desired parent cursor");
+    f.cancellation_queue=&queued_parent_ack;
+    event.state.id=219;
+    event.state.fields|=gateway_client_state_field_type;
+    check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(219)->thread_parent_creation_noted&&
+        find(80)->last_message_id==300&&find(80)->last_read_message_id==300&&
+        find(80)->mention_count==2&&!f.cancel_calls&&queued_parent_ack.count==1&&
+        queued_parent_ack.pending[0].message_id==300,
+        "thread read automation: first delayed own receipt leaves a newer queued parent ACK intact");
+    event.state.id=320;
+    check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->last_read_message_id==320&&
+        !find(80)->mention_count&&f.cancel_calls==1&&f.cancelled_channel==80&&!queued_parent_ack.count,
+        "thread read automation: a later own creation that advances the parent cursor retires the older ACK");
+    f.cancellation_queue=nullptr;
+}
+} // namespace maicord

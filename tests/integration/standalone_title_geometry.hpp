@@ -1,6 +1,6 @@
 #pragma once
 
-#include "maicord/ui/scene.hpp"
+#include "maicord/ui/core/scene.hpp"
 
 namespace maicord {
 

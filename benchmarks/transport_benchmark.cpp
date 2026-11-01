@@ -1,8 +1,8 @@
-#include "maicord/app/cdn_client.hpp"
-#include "../tests/cdn_take_response.hpp"
-#include "maicord/app/rest_client.hpp"
+#include "maicord/app/net/cdn_client.hpp"
+#include "../tests/support/cdn_take_response.hpp"
+#include "maicord/app/net/rest_client.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/protocol/writer.hpp"
+#include "maicord/protocol/encoding/writer.hpp"
 
 #include <Windows.h>
 

@@ -26,7 +26,7 @@ import hashlib
 import json
 from pathlib import Path
 
-OUTPUT = Path(__file__).resolve().parents[2] / 'src/text/generated/thai_syllable_data.inc'
+OUTPUT = Path(__file__).resolve().parents[2] / 'src/text/unicode/generated/thai_syllable_data.inc'
 
 # Character classes over U+0E00..U+0E5B; anything else, including the end of
 # the span, is 'other'.

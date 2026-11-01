@@ -1,14 +1,14 @@
 #pragma once
 #include "probe_present.hpp"
-#include "../layout_validation.hpp"
+#include "../support/layout_validation.hpp"
 #include "ui_surface_motion_measurement.hpp"
 #include "thread_membership_ui_adapter.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/ui/message_text_coordinator.hpp"
-#include "maicord/ui/thread_header.hpp"
-#include "maicord/media/asset.hpp"
-#include "application_thread_header.hpp"
+#include "maicord/ui/chat/messages/text_coordinator.hpp"
+#include "maicord/ui/chat/threads/header.hpp"
+#include "maicord/media/core/asset.hpp"
+#include "chat/threads/header.hpp"
 
 namespace maicord {
 namespace thread_membership_probe_detail {

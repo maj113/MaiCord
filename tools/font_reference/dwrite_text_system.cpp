@@ -2,11 +2,11 @@
 // Never linked into MaiCord.exe.
 #include "dwrite_text_system.hpp"
 #include "maicord/core/win32_process.hpp"
-#include "maicord/text/font_session.hpp"
-#include "maicord/ui/emoji_presentation.hpp"
-#include "maicord/ui/ansi_text.hpp"
-#include "maicord/ui/native_text_candidate.hpp"
-#include "maicord/ui/regional_flag.hpp"
+#include "maicord/text/fonts/session.hpp"
+#include "maicord/ui/media/emoji_presentation.hpp"
+#include "maicord/ui/text/ansi_text.hpp"
+#include "maicord/ui/text/native_text_candidate.hpp"
+#include "maicord/ui/text/regional_flag.hpp"
 #include "maicord/core/win32_error.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_types.hpp"
@@ -15,7 +15,7 @@
 #include "maicord/sys/dwrite.hpp"
 // Placement new without <new>: its STL CRT record would clash with the /MT
 // probe executables that link this reference next to /MD test libraries.
-#include "maicord/text/paragraph_hits.hpp"
+#include "maicord/text/layout/paragraph_hits.hpp"
 
 namespace maicord {
 namespace {

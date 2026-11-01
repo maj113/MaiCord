@@ -1,8 +1,8 @@
 #pragma once
-#include "maicord/render/colr_paint.hpp"
+#include "maicord/render/effects/colr_paint.hpp"
 #include "../colr_reference/dwrite_paint_builder.hpp"
-#include "maicord/text/sfnt.hpp"
-#include "maicord/text/colr_variations.hpp"
+#include "maicord/text/opentype/sfnt.hpp"
+#include "maicord/text/opentype/colr_variations.hpp"
 namespace maicord {
 struct PaintProgramComparison {
     u64 compared,failures,differences,bytes;

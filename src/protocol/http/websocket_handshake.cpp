@@ -1,0 +1,294 @@
+#include "maicord/protocol/http/websocket_handshake.hpp"
+#include "maicord/core/byte_order.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/protocol/encoding/base64.hpp"
+#include "maicord/protocol/http/client_user_agent.hpp"
+#include "maicord/protocol/http/http1.hpp"
+#include "maicord/protocol/encoding/writer.hpp"
+
+namespace maicord {
+namespace {
+
+inline constexpr char kWebSocketGuid[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+u32 rotate_left(u32 value, u32 shift) noexcept {
+    return (value << shift) | (value >> (32 - shift));
+}
+
+void sha1_block(const u8* block, u32* hash) noexcept {
+    u32 words[80];
+    for (u32 index = 0; index < 16; ++index) {
+        words[index] = byte_load_be32(block + index * 4);
+    }
+    for (u32 index = 16; index < 80; ++index) {
+        words[index] =
+            rotate_left(words[index - 3] ^ words[index - 8] ^ words[index - 14] ^ words[index - 16], 1);
+    }
+
+    u32 a = hash[0];
+    u32 b = hash[1];
+    u32 c = hash[2];
+    u32 d = hash[3];
+    u32 e = hash[4];
+    for (u32 index = 0; index < 80; ++index) {
+        u32 function = 0;
+        u32 constant = 0;
+        if (index < 20) {
+            function = (b & c) | ((~b) & d);
+            constant = 0x5A827999u;
+        } else if (index < 40) {
+            function = b ^ c ^ d;
+            constant = 0x6ED9EBA1u;
+        } else if (index < 60) {
+            function = (b & c) | (b & d) | (c & d);
+            constant = 0x8F1BBCDCu;
+        } else {
+            function = b ^ c ^ d;
+            constant = 0xCA62C1D6u;
+        }
+        const u32 temporary = rotate_left(a, 5) + function + e + constant + words[index];
+        e = d;
+        d = c;
+        c = rotate_left(b, 30);
+        b = a;
+        a = temporary;
+    }
+    hash[0] += a;
+    hash[1] += b;
+    hash[2] += c;
+    hash[3] += d;
+    hash[4] += e;
+}
+
+// SHA-1 of the 60-byte client key plus GUID: one data block holding the message and the
+// padding byte, then one block holding only the bit length (480).
+void sha1_accept_source(const ConstSlice<u8>& client_key, u8* digest) noexcept {
+    static_assert(kWebSocketClientKeyBytes + sizeof(kWebSocketGuid) - 1 == 60);
+    u32 hash[5] = {0x67452301u, 0xEFCDAB89u, 0x98BADCFEu, 0x10325476u, 0xC3D2E1F0u};
+    u8 blocks[128]{};
+    copy_bytes(blocks, client_key.data, kWebSocketClientKeyBytes);
+    copy_bytes(blocks + kWebSocketClientKeyBytes, kWebSocketGuid, sizeof(kWebSocketGuid) - 1);
+    blocks[60] = 0x80;
+    blocks[126] = 0x01;
+    blocks[127] = 0xE0;
+    sha1_block(blocks, hash);
+    sha1_block(blocks + 64, hash);
+    for (u32 index = 0; index < 5; ++index) {
+        byte_store_be32(digest + index * 4, hash[index]);
+    }
+}
+
+bool valid_client_key(ConstSlice<u8> key) noexcept {
+    if (key.count != kWebSocketClientKeyBytes) {
+        return false;
+    }
+    u8 decoded[kWebSocketNonceBytes];
+    const Base64Result result = base64_decode(Utf8View{reinterpret_cast<const char*>(key.data), key.count},
+                                              Slice<u8>{decoded, kWebSocketNonceBytes});
+    return result.ok() && result.bytes == kWebSocketNonceBytes;
+}
+
+
+bool equal_bytes(ConstSlice<u8> left, ConstSlice<u8> right) noexcept {
+    if (left.count != right.count) {
+        return false;
+    }
+    u8 difference = 0;
+    for (u32 index = 0; index < left.count; ++index) {
+        difference |= left[index] ^ right[index];
+    }
+    return difference == 0;
+}
+
+bool valid_target(ConstSlice<u8> target) noexcept {
+    if (!target.data || target.count == 0 || target[0] != '/') {
+        return false;
+    }
+    for (u32 index = 0; index < target.count; ++index) {
+        const u8 value = target[index];
+        if (value <= 0x20 || value >= 0x7F || value == '#') {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool valid_host(ConstSlice<u8> host) noexcept {
+    if (!host.data || host.count == 0) {
+        return false;
+    }
+    for (u32 index = 0; index < host.count; ++index) {
+        if (host[index] <= 0x20 || host[index] >= 0x7F) {
+            return false;
+        }
+    }
+    return true;
+}
+
+struct AcceptVisitor {
+    ConstSlice<u8> expected;
+    u32 accept_count;
+    WebSocketHandshakeError error;
+};
+
+bool accept_visitor(void* opaque, HttpField field) noexcept {
+    auto* context = static_cast<AcceptVisitor*>(opaque);
+    if (http_ascii_equal_case_insensitive(field.name, "sec-websocket-accept")) {
+        ++context->accept_count;
+        if (context->accept_count > 1) {
+            context->error = WebSocketHandshakeError::duplicate_accept;
+            return false;
+        }
+        if (!equal_bytes(field.value, context->expected)) {
+            context->error = WebSocketHandshakeError::invalid_accept;
+            return false;
+        }
+    } else if (http_ascii_equal_case_insensitive(field.name, "sec-websocket-extensions")) {
+        context->error = WebSocketHandshakeError::unsolicited_extension;
+        return false;
+    } else if (http_ascii_equal_case_insensitive(field.name, "sec-websocket-protocol")) {
+        context->error = WebSocketHandshakeError::unsolicited_subprotocol;
+        return false;
+    }
+    return true;
+}
+
+WebSocketHandshakeValidation validation_error(WebSocketHandshakeError error,
+                                              HttpError http_error = HttpError::none) noexcept {
+    return WebSocketHandshakeValidation{0, http_error, error, WebSocketHandshakeState::error};
+}
+
+} // namespace
+
+WebSocketHandshakeWriteResult websocket_encode_client_key(ConstSlice<u8> nonce, Slice<u8> output) noexcept {
+    if (!nonce.data || nonce.count != kWebSocketNonceBytes || !output.data) {
+        return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_input};
+    }
+    if (output.count < kWebSocketClientKeyBytes) {
+        return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::output_too_small};
+    }
+    const Base64Result encoded =
+        base64_encode(nonce, Slice<char>{reinterpret_cast<char*>(output.data), output.count});
+    if (!encoded.ok() || encoded.bytes != kWebSocketClientKeyBytes) {
+        return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_input};
+    }
+    return WebSocketHandshakeWriteResult{encoded.bytes, WebSocketHandshakeError::none};
+}
+
+WebSocketHandshakeWriteResult websocket_compute_accept(ConstSlice<u8> client_key,
+                                                       Slice<u8> output) noexcept {
+    if (!valid_client_key(client_key) || !output.data) {
+        return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_client_key};
+    }
+    if (output.count < kWebSocketAcceptBytes) {
+        return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::output_too_small};
+    }
+
+    u8 digest[20];
+    sha1_accept_source(client_key, digest);
+    const Base64Result encoded =
+        base64_encode(ConstSlice<u8>{digest, static_cast<u32>(sizeof(digest))},
+                      Slice<char>{reinterpret_cast<char*>(output.data), output.count});
+    if (!encoded.ok() || encoded.bytes != kWebSocketAcceptBytes) {
+        return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_input};
+    }
+    return WebSocketHandshakeWriteResult{encoded.bytes, WebSocketHandshakeError::none};
+}
+
+// Discord's clients open every WebSocket (Gateway, voice, remote auth) from
+// the https://discord.com page, so the request carries the headers and order
+// Chromium sends for it. Extensions are not offered.
+WebSocketHandshakeWriteResult websocket_write_opening_request(ConstSlice<u8> target, ConstSlice<u8> host,
+                                                              ConstSlice<u8> client_key, Slice<u8> output,
+                                                              const WebSocketPageFields* page) noexcept {
+    if (!output.data || !valid_client_key(client_key)) {
+        return WebSocketHandshakeWriteResult{0, output.data ? WebSocketHandshakeError::invalid_client_key
+                                                            : WebSocketHandshakeError::invalid_input};
+    }
+    if (!valid_target(target)) {
+        return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_target};
+    }
+    if (!valid_host(host)) {
+        return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_host};
+    }
+    const WebSocketPageFields fields = page ? *page : WebSocketPageFields{};
+    if (!http_field_value_valid(fields.accept_language) || !http_field_value_valid(fields.cookie)) {
+        return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_input};
+    }
+    static constexpr char middle[] = "\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\n"
+                                     "User-Agent: ";
+    // Chromium's network stack adds its default encodings and the profile's
+    // languages and cookies, then the key last.
+    static constexpr char after_agent[] = "\r\nUpgrade: websocket\r\nOrigin: https://discord.com\r\n"
+                                          "Sec-WebSocket-Version: 13\r\nAccept-Encoding: gzip, deflate, br, zstd\r\n";
+    static constexpr char language[] = "Accept-Language: ";
+    static constexpr char cookie[] = "Cookie: ";
+    static constexpr char key[] = "Sec-WebSocket-Key: ";
+    constexpr u32 fixed_bytes = sizeof("GET  HTTP/1.1\r\nHost: ") - 1 + sizeof(middle) - 1 +
+                                sizeof(kClientUserAgent) - 1 + sizeof(after_agent) - 1 + sizeof(key) - 1 +
+                                sizeof("\r\n\r\n") - 1;
+    const u64 language_bytes = fields.accept_language.count ? sizeof(language) - 1 + fields.accept_language.count + 2 : 0;
+    const u64 cookie_bytes = fields.cookie.count ? sizeof(cookie) - 1 + fields.cookie.count + 2 : 0;
+    if (u64{fixed_bytes} + target.count + host.count + client_key.count + language_bytes + cookie_bytes >
+        output.count) {
+        return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::output_too_small};
+    }
+    ProtocolWriter writer{output, 0};
+    bool written = protocol_write(&writer, "GET ", target, " HTTP/1.1\r\nHost: ", host, middle, kClientUserAgent, after_agent);
+    if (written && fields.accept_language.count)
+        written = protocol_write(&writer, language, fields.accept_language, "\r\n");
+    if (written && fields.cookie.count)
+        written = protocol_write(&writer, cookie, fields.cookie, "\r\n");
+    written = written && protocol_write(&writer, key, client_key, "\r\n\r\n");
+    return written ? WebSocketHandshakeWriteResult{writer.used, WebSocketHandshakeError::none}
+                   : WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::output_too_small};
+}
+
+WebSocketHandshakeValidation websocket_validate_opening_response(ConstSlice<u8> response,
+                                                                 ConstSlice<u8> client_key,
+                                                                 u32 maximum_header_bytes,
+                                                                 u32 maximum_fields) noexcept {
+    if ((!response.data && response.count != 0) || !valid_client_key(client_key)) {
+        return validation_error(WebSocketHandshakeError::invalid_input);
+    }
+    u8 expected_storage[kWebSocketAcceptBytes]{};
+    const WebSocketHandshakeWriteResult expected =
+        websocket_compute_accept(client_key, Slice<u8>{expected_storage, kWebSocketAcceptBytes});
+    if (!expected.ok()) {
+        return validation_error(expected.error);
+    }
+
+    AcceptVisitor visitor{ConstSlice<u8>{expected_storage, expected.bytes}, 0,
+                          WebSocketHandshakeError::none};
+    const HttpHeadResult parsed =
+        http_parse_response_head(response, maximum_header_bytes, maximum_fields, accept_visitor, &visitor);
+    if (parsed.state == HttpParseState::need_more) {
+        return WebSocketHandshakeValidation{0, HttpError::none, WebSocketHandshakeError::none,
+                                            WebSocketHandshakeState::need_more};
+    }
+    if (parsed.state == HttpParseState::error) {
+        if (visitor.error != WebSocketHandshakeError::none) {
+            return validation_error(visitor.error, parsed.error);
+        }
+        return validation_error(WebSocketHandshakeError::http_error, parsed.error);
+    }
+    if (parsed.head.version_major != 1 || parsed.head.version_minor != 1) {
+        return validation_error(WebSocketHandshakeError::invalid_http_version);
+    }
+    if (parsed.head.status_code != 101) {
+        return validation_error(WebSocketHandshakeError::invalid_status);
+    }
+    if (!parsed.head.upgrade_websocket) {
+        return validation_error(WebSocketHandshakeError::missing_upgrade);
+    }
+    if (!parsed.head.connection_upgrade) {
+        return validation_error(WebSocketHandshakeError::missing_connection_upgrade);
+    }
+    if (visitor.accept_count == 0) {
+        return validation_error(WebSocketHandshakeError::missing_accept);
+    }
+    return WebSocketHandshakeValidation{parsed.head.header_bytes, HttpError::none,
+                                        WebSocketHandshakeError::none, WebSocketHandshakeState::complete};
+}
+
+} // namespace maicord

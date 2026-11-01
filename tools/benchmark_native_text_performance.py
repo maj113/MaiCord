@@ -38,7 +38,7 @@ def main():
             scale=1e6/row['frequency']/row['iterations']
             rows.append(dict(script=script,mode=row['mode'],native_us=statistics.median(p[0] for p in row['batches'])*scale,dwrite_us=statistics.median(p[1] for p in row['batches'])*scale,native_cycles=statistics.median(p[0] for p in row['cycle_batches'])/row['iterations'],dwrite_cycles=statistics.median(p[1] for p in row['cycle_batches'])/row['iterations'],batches=10,calls_per_batch=128,log=identity(Path(execution['log']))))
     if identity(exe)!=binary:raise ValueError('Binary changed during measurement')
-    source=identity(root/'tests/styled_paragraph_benchmark.inc')
+    source=identity(root/'tests/ui/text/styled_paragraph_benchmark.inc')
     result.write_text(json.dumps(dict(status='passed',measured_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),executable=binary,source=source,host=dict(cpu=cpu,windows=platform.platform(),power=power.stdout.strip()),executions=executions,results=rows,scope='Warm paired layout calls only. Output checked before timing. Sequential processes; alternating providers. Excludes initialization, process memory, GPU, end-to-end latency and throughput.'),indent=2)+'\n',encoding='utf-8')
     print(result)
     for row in rows:print(row['script'],row['mode'],round(row['native_us'],2),round(row['dwrite_us'],2))

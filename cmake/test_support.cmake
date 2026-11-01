@@ -368,7 +368,7 @@ function(maicord_add_test_codegen_twins target_list_variable)
     set(${target_list_variable} ${${target_list_variable}} ${twins} PARENT_SCOPE)
 endfunction()
 # Test executables and their non-/GL archives often compile the same source with identical settings
-# (application_state.cpp in about 30, log.cpp in nearly 40). Each such source
+# (app/shell/state.cpp in about 30, log.cpp in nearly 40). Each such source
 # is compiled once into an OBJECT library shared by the executables whose
 # settings match exactly: same own include directories, definitions, options,
 # features, language settings and runtime, and dependencies whose only usage

@@ -1,9 +1,9 @@
-"""Generate src/ui/emoji_shortcodes.inc from public, permissively licensed emoji data.
+"""Generate src/ui/text/emoji_shortcodes.inc from public, permissively licensed emoji data.
 
 Usage: generate_emoji_shortcodes.py UNICODE GEMOJI SHORTCODES OUTPUT
 
 UNICODE    Unicode emoji-test.txt 16.0, or the committed catalog
-           src/ui/unicode_emoji_16.inc generated from it (Unicode License v3).
+           src/ui/text/unicode_emoji_16.inc generated from it (Unicode License v3).
            https://unicode.org/Public/emoji/16.0/emoji-test.txt
 GEMOJI     gemoji db/emoji.json (MIT, GitHub, Inc.).
            https://raw.githubusercontent.com/github/gemoji/fadaeaf1f1a9be82b321316a6c5502e43138b2f6/db/emoji.json
@@ -75,7 +75,7 @@ class Catalog:
         return self.entries[index][1] if index is not None else glyph
 
     def tone_variant(self, base, tone):
-        # Mirrors skin_tone_variant() in src/ui/emoji_catalog.cpp.
+        # Mirrors skin_tone_variant() in src/ui/text/emoji_catalog.cpp.
         index = self.by_glyph.get(strip(base))
         if index is None or TONE.search(base):
             return None

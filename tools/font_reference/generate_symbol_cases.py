@@ -13,7 +13,7 @@ def main():
     for text in texts:
         lines.append('    utf8_literal("'+''.join('\\x%02x'%b for b in text.encode())+'"),')
     lines.append('};')
-    path=Path(__file__).resolve().parents[2]/'tests/native_symbol_inputs.inc'
+    path=Path(__file__).resolve().parents[2]/'tests/ui/text/native_symbol_inputs.inc'
     path.write_text('\n'.join(lines)+'\n',encoding='utf-8')
     print('Wrote',len(texts),'symbol inputs')
 

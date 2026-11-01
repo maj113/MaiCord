@@ -3,10 +3,10 @@
 #include "ui_surface_motion_measurement.hpp"
 #include "search_filter_ui_probe.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/protocol/message_search.hpp"
-#include "maicord/ui/search_scene.hpp"
-#include "maicord/ui/message_text_coordinator.hpp"
-#include "maicord/media/presentation_policy.hpp"
+#include "maicord/protocol/messages/search.hpp"
+#include "maicord/ui/chat/search/scene.hpp"
+#include "maicord/ui/chat/messages/text_coordinator.hpp"
+#include "maicord/media/core/presentation_policy.hpp"
 
 namespace maicord {
 namespace rich_search_probe_detail {

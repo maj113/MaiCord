@@ -1,10 +1,10 @@
-#include "maicord/platform/notification_identity.hpp"
+#include "maicord/platform/desktop/notification_identity.hpp"
 #include "maicord/sys/registry.hpp"
 #include "maicord/sys/winrt.hpp"
-#include "../../src/platform/toast_abi.hpp"
+#include "../../src/platform/desktop/toast_abi.hpp"
 
 namespace maicord {
-DesktopNotificationResult desktop_notifications_factory(DesktopNotifications*, void**) noexcept; // tests/native_notifications.cpp
+DesktopNotificationResult desktop_notifications_factory(DesktopNotifications*, void**) noexcept; // tests/platform/desktop/native_notifications.cpp
 }
 
 namespace maicord {

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "maicord/media/regional_flag_svg.hpp"
+#include "maicord/media/image/regional_flag_svg.hpp"
 #include "maicord/core/arena.hpp"
-#include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/core/win32_error.hpp"
 
 namespace maicord {

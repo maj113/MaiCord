@@ -1,13 +1,13 @@
 #include "probe_present.hpp"
-#include "settings_catalog.hpp"
-#include "application_updates.hpp"
-#include "maicord/render/d3d11_renderer.hpp"
-#include "maicord/render/renderer_presentation.hpp"
-#include "maicord/render/text_form_surface.hpp"
-#include "maicord/ui/settings_scene.hpp"
-#include "maicord/ui/text_form.hpp"
+#include "settings/catalog.hpp"
+#include "update/updates.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
+#include "maicord/render/d3d11/renderer_presentation.hpp"
+#include "maicord/render/text/form_surface.hpp"
+#include "maicord/ui/settings/scene.hpp"
+#include "maicord/ui/text/form.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/app/client_preferences.hpp"
+#include "maicord/app/settings/client_preferences.hpp"
 
 namespace maicord {
 namespace app_detail {

@@ -60,7 +60,7 @@ endif()
 # Sources using an application PCH keep its /O2 (clang rejects a mismatch), and
 # received_attachment_open.cpp, which crashes unoptimized (its `resolver = {}`
 # temporaries are about 130 KB each), stays optimized.
-set(maicord_optimized_test_sources "${CMAKE_CURRENT_SOURCE_DIR}/tests/received_attachment_open.cpp")
+set(maicord_optimized_test_sources "${CMAKE_CURRENT_SOURCE_DIR}/tests/app/media/received_attachment_open.cpp")
 set(maicord_unoptimized_sources)
 foreach(target IN LISTS maicord_test_targets)
     get_target_property(sources ${target} SOURCES)

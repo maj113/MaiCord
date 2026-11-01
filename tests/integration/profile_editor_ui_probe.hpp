@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 namespace maicord {
 // The profile editor page (Profiles settings with its preview column), the
 // image cropper and the decoration picker drawn by the real renderer from

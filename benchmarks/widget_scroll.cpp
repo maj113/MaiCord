@@ -1,5 +1,5 @@
 #include "maicord/core/time.hpp"
-#include "maicord/ui/widget_scroll.hpp"
+#include "maicord/ui/layout/widget_scroll.hpp"
 
 namespace maicord {
 

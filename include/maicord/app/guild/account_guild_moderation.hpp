@@ -1,0 +1,11 @@
+#pragma once
+#include "maicord/app/net/rest_client.hpp"
+#include "maicord/protocol/guild/moderation.hpp"
+
+namespace maicord {
+// Members search, bulk ban and ban search on the authenticated DETAILS owner.
+// Target, body and reason are copied synchronously; the response is taken
+// later through rest_take.
+RestClientSubmitResult account_guild_moderation_submit(RestClient*, const GuildModerationRequest*,
+                                                       u64 request_id) noexcept;
+} // namespace maicord

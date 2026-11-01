@@ -2,7 +2,7 @@
 #define maicord_gsub_execution_reference_entry maicord_unused_shape_reference_entry
 #include "gsub_execution_reference.cpp"
 #undef maicord_gsub_execution_reference_entry
-#include "maicord/ui/text_style.hpp"
+#include "maicord/ui/text/style.hpp"
 namespace maicord {namespace {
 struct StyleCapture final : IDWriteTextRenderer {
     bool comma=false,inline_draw=false;

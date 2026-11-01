@@ -1,15 +1,15 @@
 #include "probe_present.hpp"
-#include "maicord/app/shortcut_registry.hpp"
-#include "maicord/ui/settings_scene.hpp"
-#include "maicord/ui/shortcuts_scene.hpp"
+#include "maicord/app/shell/shortcut_registry.hpp"
+#include "maicord/ui/settings/scene.hpp"
+#include "maicord/ui/shell/shortcuts_scene.hpp"
 #include "maicord/core/log.hpp"
 
 #include "maicord/core/win32_user.hpp"
 
 namespace maicord {
 namespace {
-// Fixture projections copied from src/app/application_shortcuts.cpp (overlay)
-// and src/app/application_keybinds_settings.cpp (settings page): the probe does
+// Fixture projections copied from src/app/shell/shortcuts.cpp (overlay)
+// and src/app/settings/keybinds_settings.cpp (settings page): the probe does
 // not link the application owners. Rendering uses the production scenes.
 constexpr u32 kRows = kUiShortcutsMaximumRows;
 constexpr u8 kModifiers[]{shortcut_ctrl, shortcut_alt, shortcut_shift};

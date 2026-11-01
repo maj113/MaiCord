@@ -3,7 +3,7 @@
 // loaded for the process. Nothing here ships.
 #include "perf_shared.hpp"
 
-#include "maicord/app/account_host.hpp"
+#include "maicord/app/account/account_host.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 

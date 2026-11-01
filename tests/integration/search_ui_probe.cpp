@@ -1,7 +1,7 @@
 #include "search_ui_probe.hpp"
 #include "probe_present.hpp"
 #include "maicord/core/log.hpp"
-#include "../../src/app/application_state.hpp"
+#include "../../src/app/shell/state.hpp"
 
 namespace maicord {
 namespace {

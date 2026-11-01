@@ -1,9 +1,9 @@
 #pragma once
-#include "maicord/app/message_composer_controller.hpp"
-#include "maicord/model/chat_state.hpp"
-#include "maicord/model/user_store.hpp"
-#include "maicord/ui/message_composer_scene.hpp"
-#include "maicord/ui/popup_scene.hpp"
+#include "maicord/app/chat/composer/message_composer_controller.hpp"
+#include "maicord/model/chat/chat_state.hpp"
+#include "maicord/model/user/store.hpp"
+#include "maicord/ui/chat/composer/message_composer_scene.hpp"
+#include "maicord/ui/shell/popup_scene.hpp"
 #include "maicord/core/win32_types.hpp"
 
 namespace maicord {

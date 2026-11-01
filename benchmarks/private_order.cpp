@@ -1,4 +1,4 @@
-#include "maicord/ui/navigation_view.hpp"
+#include "maicord/ui/shell/navigation_view.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/arena.hpp"
 

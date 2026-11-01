@@ -1,12 +1,12 @@
 // Manual live-network probe: built only with -DMAICORD_BUILD_INTEGRATION_TESTS=ON
 // (cmake/integration.cmake) and run by hand or through tools/probe_*.ps1; it is
 // never part of the CTest suite because it talks to the real service.
-#include "maicord/app/cdn_client.hpp"
-#include "../cdn_take_response.hpp"
-#include "maicord/media/webp.hpp"
+#include "maicord/app/net/cdn_client.hpp"
+#include "../support/cdn_take_response.hpp"
+#include "maicord/media/image/webp.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "../test_output.hpp"
+#include "../support/test_output.hpp"
 
 namespace maicord {
 namespace {

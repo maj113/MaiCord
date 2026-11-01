@@ -1,10 +1,10 @@
 #include "maicord/core/time.hpp"
 #include "benchmark_output.hpp"
-#include "maicord/render/glyph_atlas.hpp"
-#include "maicord/render/glyph_atlas_gpu.hpp"
-#include "maicord/render/gpu_timing.hpp"
-#include "maicord/ui/text.hpp"
-#include "maicord/render/native_glyph_outlines.hpp"
+#include "maicord/render/text/glyph_atlas.hpp"
+#include "maicord/render/text/glyph_atlas_gpu.hpp"
+#include "maicord/render/d3d11/gpu_timing.hpp"
+#include "maicord/ui/text/text.hpp"
+#include "maicord/render/text/native_glyph_outlines.hpp"
 
 #include <d3d11_1.h>
 

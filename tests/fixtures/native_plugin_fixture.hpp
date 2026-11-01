@@ -1,7 +1,7 @@
 #pragma once
 
-#include "maicord/app/plugin_module_loader.hpp"
-#include "maicord/ui/popup_scene.hpp"
+#include "maicord/app/plugins/module_loader.hpp"
+#include "maicord/ui/shell/popup_scene.hpp"
 
 namespace maicord::native_plugin_fixture {
 inline constexpr u64 owner_id = 0x4D43504649585432ull;

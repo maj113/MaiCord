@@ -19,7 +19,7 @@ def identity(path):
 
 
 def cases(directory):
-    source=(ROOT/'tests/cjk_paragraph_cases.inc').read_text(encoding='utf-8')
+    source=(ROOT/'tests/ui/text/cjk_paragraph_cases.inc').read_text(encoding='utf-8')
     block=source.split('bool native_cjk_paragraph_corpus',1)[1].split('const float widths',1)[0]
     samples=[ast.literal_eval('b"'+value+'"').decode('utf-8')
              for value in re.findall(r'utf8_literal\("([^"\n]+)"\)',block)]

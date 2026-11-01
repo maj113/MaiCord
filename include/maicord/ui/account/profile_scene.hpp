@@ -1,0 +1,358 @@
+#pragma once
+
+#include "maicord/model/user/activity.hpp"
+#include "maicord/model/user/image_crop.hpp"
+#include "maicord/media/core/asset_key.hpp"
+#include "maicord/ui/chat/messages/markdown.hpp"
+#include "maicord/ui/text/edit_field.hpp"
+#include "maicord/model/user/profile.hpp"
+#include "maicord/ui/widgets/button_keyboard.hpp"
+#include "maicord/ui/text/presentation.hpp"
+#include "maicord/ui/text/measure_cache.hpp"
+namespace maicord {
+struct UiBadgeWidget;
+struct ChatStateStore;
+struct UiScrollBinding;
+struct UserStore;
+enum class UiPresence : u8;
+// User profile surfaces: the click popout (compact card), the full profile
+// modal (profile card and tab panel) and the profile editor's preview.
+// Geometry is in DIPs.
+enum class ProfileAction : u16 {
+    none,
+    close,
+    // Opens the full profile (avatar, name, username, View Full Profile).
+    expand,
+    // The footer message field (popout) or the Message button (modal).
+    message,
+    // Edit Profile: the main editor, or the per-server menu in a server.
+    edit,
+    retry,
+    // Modal tabs and the mutuals row's chips (the DM panel opens the full
+    // profile on their tab).
+    activity,
+    friends,
+    servers,
+    open_friend,
+    open_server,
+    remove_role,
+    // The "+" role button: the host opens the role picker.
+    choose_roles,
+    // A plugin profile-section node; the part's target is its node index.
+    plugin_slot,
+    // The modal's note field: starts editing it.
+    note,
+    // The popout's hover note button: the full profile at its Note field.
+    open_note,
+    add_friend,
+    // Friend / pending header button: the host opens Friend Actions.
+    relationship,
+    // "More": the host opens the user menu.
+    more,
+    // "View Full Bio": the full profile.
+    view_bio,
+    // "+N" expands the roles; the chevron collapses them.
+    roles_toggle,
+    // The popout's activity card: the full profile on Activity.
+    card,
+    // Accept on the incoming friend request card.
+    accept_friend,
+    // The server tag chip: the host opens the server tag popout (target: guild).
+    guild_tag,
+    // Rich presence card buttons (source: the activity's index in
+    // activity_set). A custom button (target: button index) opens its URL from
+    // the activity's metadata; Watch opens the stream; Ask to Join is shown
+    // disabled.
+    activity_button,
+    activity_watch,
+    activity_join,
+    // No action: the part only carries a hint (tooltip).
+    hint,
+    // A profile badge (source: its index in badges): opens its link, if any.
+    badge,
+    // A bot's popular command chip (source: its index in commands): the host
+    // puts the command in the composer.
+    command
+};
+enum class ProfilePhase : u8 {
+    loading,
+    ready,
+    failed
+};
+// Where the card is presented: the click popout, the full profile modal, or
+// the profile editor's live preview (a non-interactive popout-sized card at
+// the anchor's top-left, without footer or close; it reports its height), or
+// the DM profile panel filling its slot (the anchor) beside a one-to-one DM.
+enum class ProfilePresentation : u8 {
+    popout,
+    modal,
+    preview,
+    panel
+};
+// Which side of its anchor a popout opens on.
+enum class ProfilePlacement : u8 {
+    right,
+    left,
+    above
+};
+// A picked image shown before upload (profile editor preview): the local
+// preview-atlas key and the crop the user chose (image_crop.hpp).
+struct ProfilePendingImage {
+    MediaAssetKey key;
+    ImageCropState crop;
+    bool active;
+};
+enum class ProfileMediaKind : u8 {
+    none,
+    banner,
+    avatar,
+    decoration,
+    badge,
+    guild_icon,
+    peer_avatar,
+    peer_guild,
+    status_emoji,
+    // Not media: a plugin profile-section chip; source holds its icon, style its tone.
+    plugin_slot,
+    // Rich presence card (source: the activity's index in activity_set): its
+    // artwork and, not media, the progress track.
+    activity_large,
+    activity_small,
+    activity_progress,
+    // Not media: card text, the right-aligned end clock, the card itself and
+    // its buttons.
+    activity_text,
+    activity_clock,
+    activity_card,
+    activity_action,
+    // The current server's icon beside its Member Since date.
+    member_guild
+};
+// How a part paints (its widget kind stays text, button or container).
+enum class ProfileLook : u8 {
+    plain,
+    // 32 DIP circle over the banner (header buttons, the modal's close).
+    header_button,
+    // A bare icon control (note button, role remove, connection mark).
+    icon,
+    // Primary and secondary buttons; icon_only secondary buttons are square.
+    primary,
+    secondary,
+    // Activity and notice overlays; peek is the stacked card behind them.
+    card,
+    peek,
+    // Mutual friend/server rows: hover background.
+    row,
+    // Role pill (color: role colour) and the +N / add-role pills.
+    role,
+    pill,
+    tab,
+    // 4 DIP separator dot.
+    dot,
+    // The popout footer's message field background.
+    input,
+    // Custom status thought bubble.
+    bubble,
+    // Connection platform box.
+    box,
+    // A 1 DIP divider.
+    rule
+};
+// Text colour roles (resolved per profile theme in paint/text).
+enum class ProfileTone : u8 {
+    normal,
+    strong,
+    subtle,
+    muted,
+    positive,
+    link,
+    on_accent,
+    custom
+};
+struct ProfilePart {
+    u64 target;
+    UiWidgetHandle widget;
+    Utf8View text;
+    Color color;
+    ProfileAction action;
+    ProfileMediaKind media;
+    ProfileLook look;
+    ProfileTone tone;
+    u16 source;
+    // A UiIcon for icon looks and leading button icons; kProfileNoIcon none.
+    u16 icon;
+    u32 style;
+    // Tooltip text (activity artwork hover text, a cut-off line, a disabled
+    // action's reason).
+    Utf8View hint;
+    bool wrap, centered;
+    // 1-based index of the part's chip in the scene's badge list; 0 for none.
+    u8 badge;
+};
+inline constexpr u16 kProfileNoIcon = 0xFFFF;
+// A public application's icon hash (GET /applications/public); an empty hash
+// once the application is known to have none or could not be fetched.
+struct ProfileApplication {
+    u64 id;
+    ProfileString<64> icon;
+};
+// A bot's command the panel's Commands section offers (host-owned text,
+// borrowed until the next layout): "/name" with its description as the hint.
+// A profile lists at most five (popular_application_command_ids).
+struct ProfileCommand {
+    u64 id;
+    Utf8View name, description;
+};
+inline constexpr u32 kProfileCommandMaximum = 5;
+struct ProfileTextHit {
+    UiWidgetHandle owner;
+    UiRect layout, ink;
+};
+struct ProfileScene {
+    // Only plain inline action labels use ink hits; cards retain their full targets.
+    mutable ProfileTextHit text_hits[16];
+    mutable u32 text_hit_count;
+    UiWidgetManager widgets;
+    Arena storage;
+    ProfilePart* parts;
+    u32 part_count;
+    UiWidgetHandle root, panel, body, message_field, bio_widget, name_widget;
+    ProfileString<kProfileBioMaximumUtf8Bytes> bio_display;
+    // Every bio byte carries the text-sm size (gaps between styles included).
+    TextStyleSpan bio_styles[260];
+    MessageMarkdownSemantic bio_semantics[64];
+    u32 bio_style_count, bio_semantic_count, bio_revealed[64], bio_revealed_count, bio_pressed;
+    u64 bio_signature;
+    UiEditView edit;
+    UiRect edit_rectangle, edit_content;
+    ProfileString<192> message_placeholder;
+    bool message_failed;
+    UiButtonKeyboard keyboard;
+    UiTextMeasureCache* measure;
+    const ProfileEffect* effect;
+    u64 effect_started_ms, name_started_ms;
+    bool reduced_motion, banner_compatibility;
+    UiPresence presence;
+    // Online on mobile only: the avatar shows the phone status.
+    bool presence_mobile;
+    bool focus_visible;
+    const UserProfile* profile;
+    const ChatStateStore* state;
+    const UserStore* users;
+    UiRect viewport, anchor, rectangle, scroll_viewport;
+    // Laid-out header geometry (absolute DIPs): banner, avatar, its
+    // decoration and status dot, the card holding them (the modal's profile
+    // card) and the profile effect's area.
+    UiRect banner, avatar, decoration, status, card, effect_area, secondary_viewport;
+    float avatar_stroke;
+    float secondary_scroll, secondary_height;
+    u64 self_id;
+    u64 opens;
+    u32 revision, users_revision, activity_revision, permission_revision;
+    float scroll, content_height;
+    ProfilePhase phase;
+    u16 http_status;
+    u8 tab;
+    // Host facts: the relationship (0 none, 1 friend, 2 incoming, 3 outgoing,
+    // 4 blocked) and where the popout opens.
+    u8 relation;
+    ProfilePlacement placement;
+    bool active, roles_busy, roles_expanded, can_manage_roles;
+    // The panel's Commands section: the bot's popular commands the host
+    // resolved (set before layout; empty hides the section).
+    ConstSlice<ProfileCommand> commands;
+    // Pointer over the card: the note button shows and the effect dims.
+    bool hovered;
+    u64 hover_changed_ms;
+    // Popout entrance: translated 10 DIPs toward the anchor, settling over
+    // 200 ms (opened_ms is the open time; the host re-lays out meanwhile).
+    u64 opened_ms;
+    float intro_offset;
+    // Theme resolved at layout (Nitro theme colours, its dark/light choice).
+    bool themed, theme_dark;
+    u32 theme_primary, theme_secondary, banner_color;
+    bool has_banner_color;
+    // Set before profile_scene_open. Preview cards draw pending images in
+    // place of the saved avatar/banner and publish their laid-out height.
+    ProfilePresentation presentation;
+    ProfilePendingImage pending_avatar, pending_banner;
+    float preview_height;
+    // Visible activity timers (elapsed time, progress) advance once a second
+    // through profile_scene_tick; activity_clock_s is the Unix second shown.
+    bool activity_timed;
+    u64 activity_clock_s;
+    // The activities laid out (a copy of the store's, so the cards and their
+    // media agree), and applications whose icons stand in for missing art.
+    const UserActivitySet* activity_set;
+    ConstSlice<ProfileApplication> applications;
+    // Applications a laid-out card would show the icon of, not in applications.
+    u64 missing_icons[kUserActivityMaximum];
+    u32 missing_icon_count;
+    // Activity artwork corner radius, from the theme the card was last painted with.
+    mutable float activity_art_radius;
+    // Note about another user. The host owns the text (borrowed until the next
+    // layout); while note_editing the edit view belongs to the note field.
+    Utf8View note_text;
+    bool note_visible, note_loading, note_editing;
+    UiWidgetHandle note_field;
+    // The full profile opened at its Note: the next layout scrolls the card
+    // body to note_offset (the note section's top in body content).
+    bool scroll_to_note;
+    float note_offset;
+    // The modal's corners are rounded only when it does not fill the window.
+    bool modal_rounded;
+};
+bool profile_scene_open(ProfileScene* scene, const UserProfile* profile, const ChatStateStore* state,
+                        const UserStore* users, u64 self, const UiRect& anchor, const UiRect& viewport) noexcept;
+bool profile_scene_layout(ProfileScene* scene, const UiRect& viewport, bool force = false) noexcept;
+// Advances visible activity timers to now. Text of an unchanged length is
+// rewritten in place; anything else lays the card out again. True when the
+// card changed (the host repaints its text).
+bool profile_scene_tick(ProfileScene* scene, u64 unix_now_ms) noexcept;
+// The tooltip of a part (empty without one) and its visible rectangle.
+Utf8View profile_scene_hint(const ProfileScene& scene, UiWidgetHandle widget, UiRect* anchor) noexcept;
+UiScrollBinding profile_scene_scroll_binding(ProfileScene*, bool secondary = false) noexcept;
+// Absolute-position adapter; wheel and key input must use the shared scroll host.
+bool profile_scene_scroll(ProfileScene* scene, float delta, bool secondary = false) noexcept;
+void profile_scene_release(ProfileScene* scene) noexcept;
+bool profile_scene_paint(const ProfileScene& scene, const Theme& theme, PaintStream* paint) noexcept;
+// Activity card glyphs: timer chips and the artwork placeholder.
+enum class ProfileActivityGlyph : u8;
+enum class UiIcon : u8;
+UiIcon profile_activity_glyph_icon(ProfileActivityGlyph) noexcept;
+// The rounded region the card's media (banner, profile effect) must stay
+// inside, in the radius the card itself is painted with: the popout (inside a
+// Nitro theme's 2 DIP border) or the modal's profile card, whose top corners
+// alone round because it runs on past the modal's bottom edge.
+struct ProfileCardMask {
+    UiRect rectangle;
+    float radius;
+};
+ProfileCardMask profile_scene_card_mask(const ProfileScene& scene, const Theme& theme) noexcept;
+// Optionally seals the boundary before controls/focus, which remain above the
+// profile effect. Earlier foreground geometry and card text go below it.
+bool profile_scene_foreground(const ProfileScene& scene, const Theme& theme, PaintStream* paint,
+                              const UiEditGeometry* edit = nullptr, u32 dpi = 96,
+                              u32* controls_first_batch = nullptr) noexcept;
+ProfileAction profile_scene_action(const ProfileScene& scene, UiWidgetHandle widget) noexcept;
+// The part behind a widget, or null.
+const ProfilePart* profile_scene_part(const ProfileScene& scene, UiWidgetHandle widget) noexcept;
+// The chip a part draws (a tag or plugin chip), or null.
+const UiBadgeWidget* profile_scene_badge(const ProfileScene& scene, const ProfilePart& part) noexcept;
+UiWidgetHandle profile_scene_hit_test(const ProfileScene&, float x, float y) noexcept;
+// Adds the card's widgets beneath parent for UI Automation and returns its
+// node (kUiAccessNone when inactive or full). Hinted parts are named by their
+// hint; a badge is a link when it has one, else an image.
+struct UiAccessTree;
+u32 profile_scene_access(UiAccessTree* tree, u32 parent, const ProfileScene& scene, u8 surface,
+                         bool focus_owner) noexcept;
+void profile_scene_publish_text_hit(const ProfileScene&, UiWidgetReference, const UiRect& layout,
+                                     const UiRect& ink, const UiRect& clip) noexcept;
+// Popout entrance offset at now (0 when settled or under reduced motion).
+float profile_scene_intro_offset(const ProfileScene& scene, u64 now_ms) noexcept;
+// Effect opacity at now: 1, fading to .35 over 600 ms while hovered.
+float profile_scene_effect_opacity(const ProfileScene& scene, u64 now_ms) noexcept;
+bool profile_scene_animating(const ProfileScene* scene, u64 now) noexcept;
+bool profile_scene_text_output(const ProfileScene& s, const Theme& theme, UiTextOutput* text,
+                               const UiEditGeometry* edit) noexcept;
+} // namespace maicord

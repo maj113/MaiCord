@@ -1,8 +1,8 @@
 #pragma once
 #include "maicord/core/memory.hpp"
-#include "maicord/ui/message_presentation.hpp"
-#include "maicord/ui/scrollbar.hpp"
-#include "maicord/ui/background_presentation.hpp"
+#include "maicord/ui/chat/messages/presentation.hpp"
+#include "maicord/ui/layout/scrollbar.hpp"
+#include "maicord/ui/theme/background_presentation.hpp"
 
 namespace maicord {
 inline void test_message_background_surfaces(const MessageScene& original, u64 rich_message_id,

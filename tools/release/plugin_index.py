@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Reference writer and verifier for MaiCord plugin catalog indexes (format 1).
 
-The client's verifier is src/app/plugin_index.cpp. This module mirrors it: the
+The client's verifier is src/app/plugins/index.cpp. This module mirrors it: the
 same strict schema, limits, display-text rule and error codes, so the shared
 vectors in tests/fixtures/plugin_index give the same result in both. Signing
 uses Windows CNG through cng_p256 (stdlib only).
@@ -66,7 +66,7 @@ TAG_MAX = 64
 ASSET_MAX = 128
 VERSION_TEXT_MAX = 23
 
-# Manifest permission names in MC_PERM_* bit order (src/app/plugin_manifest.cpp).
+# Manifest permission names in MC_PERM_* bit order (src/app/plugins/manifest.cpp).
 PERMISSIONS = ("settings", "menus", "message_send", "commands", "ui_slots", "store", "timer", "read_context",
                "read_guilds", "read_members", "read_presence", "read_voice", "read_messages", "message_render",
                "act_messages", "act_presence", "navigate", "clipboard", "open_links", "notify", "keybinds", "effects")
@@ -92,7 +92,7 @@ RELEASE = ("repository", "tag", "asset")
 REVOKED = ("owner_id", "sha256", "severity", "reason", "since")
 BLOCK = ("sha256", "reason", "since")
 
-# Error codes, named like PluginIndexError in include/maicord/app/plugin_index.hpp.
+# Error codes, named like PluginIndexError in include/maicord/app/plugins/index.hpp.
 ERRORS = ("size", "signature", "json", "depth", "unknown_field", "duplicate_field", "missing_field", "type", "format",
           "provider", "key_changed", "sequence", "time", "expired", "limit", "text", "identifier", "duplicate", "owner",
           "version", "order", "abi", "permission", "choice", "digest", "file", "location", "url")

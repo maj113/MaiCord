@@ -19,9 +19,9 @@ from pathlib import Path
 import zipfile
 
 EXPECTED_UCD_SHA256 = '2066d1909b2ea93916ce092da1c0ee4808ea3ef8407c94b4f14f5b7eb263d28e'
-OUTPUT = Path(__file__).resolve().parents[2] / 'src/text/generated/tibetan_categories.inc'
+OUTPUT = Path(__file__).resolve().parents[2] / 'src/text/unicode/generated/tibetan_categories.inc'
 FIRST, LAST = 0x0F00, 0x0FFF
-# Enumerator order of TibetanCategory (src/text/tibetan_character.hpp).
+# Enumerator order of TibetanCategory (src/text/scripts/tibetan_character.hpp).
 NAMES = ('other', 'base', 'placeholder', 'symbol', 'reserved', 'subjoined', 'cons_above', 'cons_below',
          'vowel_pre', 'vowel_above', 'vowel_below', 'compound', 'vowel_post', 'modifier', 'final', 'split')
 SYLLABIC = {

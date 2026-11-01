@@ -309,8 +309,8 @@ def main():
     data += 'static constexpr UnicodeProperties unicode_records[] = {\n'
     data += '\n'.join('    {{' + ','.join(f'0x{(v>>(32*i))&0xffffffff:08x}u' for i in range(words)) + '}},' for v in records) + '\n};\n'
     data += mirror_arrays(mirrors, brackets)
-    hpath = args.repo / 'include/maicord/text/generated/unicode_data.hpp'
-    dpath = args.repo / 'src/text/generated/unicode_data.inc'
+    hpath = args.repo / 'include/maicord/text/unicode/generated/unicode_data.hpp'
+    dpath = args.repo / 'src/text/unicode/generated/unicode_data.inc'
     hpath.parent.mkdir(parents=True, exist_ok=True); dpath.parent.mkdir(parents=True, exist_ok=True)
     hpath.write_text(header, encoding='utf-8', newline='\n'); dpath.write_text(data, encoding='utf-8', newline='\n')
     gpath = args.repo / 'tests/generated/grapheme_break_test.inc'

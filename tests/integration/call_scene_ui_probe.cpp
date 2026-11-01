@@ -1,14 +1,14 @@
 #include "probe_present.hpp"
 #include "probe_capture.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/ui/call_scene.hpp"
-#include "maicord/model/stage_policy.hpp"
-#include "maicord/ui/stream_card_scene.hpp"
-#include "../../src/render/d3d11_renderer_draw.hpp"
+#include "maicord/ui/voice/call_scene.hpp"
+#include "maicord/model/voice/stage_policy.hpp"
+#include "maicord/ui/voice/stream_card_scene.hpp"
+#include "../../src/render/d3d11/renderer_draw.hpp"
 #include "nv12_test_picture.hpp"
 
 #include "maicord/sys/d3d11.hpp"
-#include "maicord/media/asset.hpp"
+#include "maicord/media/core/asset.hpp"
 
 namespace maicord {
 namespace {

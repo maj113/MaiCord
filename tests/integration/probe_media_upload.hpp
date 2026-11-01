@@ -4,7 +4,7 @@
 // Opaque and fully transparent pixels pass through unchanged.
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_error.hpp"
-#include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord {
 // Successful fixture uploads through renderer_upload_media_rgba8.

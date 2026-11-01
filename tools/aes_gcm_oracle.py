@@ -1,4 +1,4 @@
-"""Independent OpenSSL oracle for tests/aes_gcm.cpp; never used by MaiCord.
+"""Independent OpenSSL oracle for tests/platform/crypto/aes_gcm.cpp; never used by MaiCord.
 
 Run with Python's cryptography package available (QA dependency only).
 Prints SHA-256 of every ciphertext and tag in deterministic matrix order.

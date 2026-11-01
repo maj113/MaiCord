@@ -1,14 +1,14 @@
 #pragma once
 #include "probe_present.hpp"
-#include "../ui_scene_fixtures.hpp"
+#include "../support/ui_scene_fixtures.hpp"
 #include "ui_surface_motion_measurement.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/ui/message_text_coordinator.hpp"
-#include "maicord/ui/message_context_menu.hpp"
-#include "maicord/ui/channel_context_policy.hpp"
-#include "maicord/ui/popup_presentation.hpp"
-#include "maicord/ui/unread_divider.hpp"
+#include "maicord/ui/chat/messages/text_coordinator.hpp"
+#include "maicord/ui/chat/messages/context_menu.hpp"
+#include "maicord/ui/guild/channel_context_policy.hpp"
+#include "maicord/ui/shell/popup_presentation.hpp"
+#include "maicord/ui/chat/messages/unread_divider.hpp"
 
 namespace maicord {
 namespace unread_boundary_probe_detail {

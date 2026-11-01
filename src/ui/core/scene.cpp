@@ -1,0 +1,552 @@
+#include "maicord/ui/core/scene.hpp"
+#include "maicord/core/memory.hpp"
+
+namespace maicord {
+namespace {
+
+constexpr u32 semantic_id(UiSemantic semantic) noexcept {
+    return static_cast<u32>(semantic) + 1;
+}
+
+Utf8View semantic_name(UiSemantic semantic) noexcept {
+    static constexpr Utf8View names[]{
+        utf8_literal("Shell"),          utf8_literal("GuildRail"),     utf8_literal("ChannelSidebar"),
+        utf8_literal("ChannelHeader"),  utf8_literal("ChannelNavigation"), utf8_literal("ChannelFooter"),
+        utf8_literal("Content"),        utf8_literal("TitleBar"),      utf8_literal("TitleLabel"),
+        utf8_literal("MemberToggle"),   utf8_literal("MessageView"),   utf8_literal("Composer"),
+        utf8_literal("MemberSidebar"),  utf8_literal("Home"),          utf8_literal("GuildNavigation"),
+        utf8_literal("UserSettings"),   utf8_literal("Friends"),       utf8_literal("PinnedMessages"),
+        utf8_literal("Threads"),        utf8_literal("ThreadHeader"),  utf8_literal("ThreadStatus"),
+        utf8_literal("ThreadPrimaryAction"), utf8_literal("ThreadActions"), utf8_literal("ThreadFeedback"),
+        utf8_literal("ThreadCancel"),   utf8_literal("CreateDirectMessage"), utf8_literal("AddPeople"),
+        utf8_literal("StartCall"),      utf8_literal("Inbox"),         utf8_literal("ServerMenu"),
+        utf8_literal("InvitePeople")};
+    static_assert(sizeof(names) / sizeof(names[0]) == static_cast<u32>(UiSemantic::count));
+    return names[static_cast<u32>(semantic)];
+}
+
+bool semantic_button(UiSemantic semantic) noexcept {
+    return semantic == UiSemantic::member_toggle || semantic == UiSemantic::pins_toggle ||
+           semantic == UiSemantic::threads_toggle || semantic == UiSemantic::home_button ||
+           semantic == UiSemantic::channel_footer || semantic == UiSemantic::settings ||
+           semantic == UiSemantic::friends_button || semantic == UiSemantic::thread_primary ||
+           semantic == UiSemantic::thread_overflow || semantic == UiSemantic::thread_cancel ||
+           semantic == UiSemantic::private_create || semantic == UiSemantic::private_add ||
+           semantic == UiSemantic::private_call || semantic == UiSemantic::inbox_toggle ||
+           semantic == UiSemantic::guild_menu || semantic == UiSemantic::guild_invite;
+}
+
+UiWidgetKind semantic_kind(UiSemantic semantic) noexcept {
+    if (semantic_button(semantic)) {
+        return UiWidgetKind::button;
+    }
+    return semantic == UiSemantic::channel_navigation || semantic == UiSemantic::message_view ||
+                   semantic == UiSemantic::member_sidebar
+               ? UiWidgetKind::scroll_view
+               : UiWidgetKind::container;
+}
+
+bool add_node(UiScene* scene, UiSemantic semantic, UiWidgetHandle parent, const UiLayoutStyle& style) noexcept {
+    const u16 flags = semantic_button(semantic)
+                          ? static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable)
+                          : ui_widget_enabled;
+    // Thread header controls are driven by the thread header owner.
+    const u16 admitted_flags =
+        semantic >= UiSemantic::thread_header && semantic <= UiSemantic::thread_cancel ? ui_widget_none : flags;
+    const u32 id = semantic_id(semantic);
+    const UiWidgetResult result = ui_widget_manager_add(
+        &scene->widgets, parent,
+        UiWidgetDesc{id, semantic_kind(semantic), admitted_flags,
+                     UiLayoutNodeSpec{semantic_name(semantic), style, UiSize{}, 0.0f, id}});
+    if (!result.ok()) {
+        return false;
+    }
+    scene->semantics[static_cast<u32>(semantic)] = result.handle;
+    return true;
+}
+
+UiLayoutStyle fixed_width(float width) noexcept {
+    UiLayoutStyle style = ui_layout_style();
+    style.width = ui_layout_fixed(width);
+    style.height = ui_layout_fill();
+    style.vertical_alignment = UiLayoutAlignment::stretch;
+    return style;
+}
+
+UiLayoutStyle fixed_height(float height) noexcept {
+    UiLayoutStyle style = ui_layout_style();
+    style.width = ui_layout_fill();
+    style.height = ui_layout_fixed(height);
+    style.horizontal_alignment = UiLayoutAlignment::stretch;
+    return style;
+}
+
+// A 36 x 32 title bar button at the end of the row.
+bool add_title_button(UiScene* scene, UiSemantic semantic, UiWidgetHandle title,
+                      u16 extra_flags = 0) noexcept {
+    UiLayoutStyle style = fixed_width(36.f);
+    style.height = ui_layout_fixed(32.f);
+    style.vertical_alignment = UiLayoutAlignment::center;
+    style.horizontal_alignment = UiLayoutAlignment::end;
+    style.padding = {8.f, 0, 8.f, 0};
+    style.flags |= static_cast<u16>(ui_layout_node_clip_children | extra_flags);
+    return add_node(scene, semantic, title, style);
+}
+
+bool shell_flag(const UiShellLayoutMetrics& metrics, UiShellLayoutFlags flag) noexcept {
+    return (metrics.flags & static_cast<u16>(flag)) != 0;
+}
+
+bool shell_metrics_valid(const UiShellLayoutMetrics& metrics) noexcept {
+    constexpr u16 known_flags =
+        static_cast<u16>(ui_shell_layout_navigation | ui_shell_layout_members | ui_shell_layout_composer |
+                         ui_shell_layout_pins | ui_shell_layout_threads | ui_shell_layout_private |
+                         ui_shell_layout_guild_invite);
+    const bool navigation = shell_flag(metrics, ui_shell_layout_navigation);
+    const bool members = shell_flag(metrics, ui_shell_layout_members);
+    const bool composer = shell_flag(metrics, ui_shell_layout_composer);
+    return metrics.revision != 0 && (metrics.flags & ~known_flags) == 0 &&
+           ui_extent_valid(metrics.guild_rail_width) && metrics.guild_rail_width > 0.0f &&
+           ui_extent_valid(metrics.navigation_width) && (!navigation || metrics.navigation_width > 0.0f) &&
+           ui_extent_valid(metrics.member_sidebar_width) &&
+           (!members || metrics.member_sidebar_width > 0.0f) &&
+           ui_extent_valid(metrics.navigation_min_viewport_width) &&
+           ui_extent_valid(metrics.member_min_viewport_width) &&
+           ui_extent_valid(metrics.navigation_gutter_before) &&
+           ui_extent_valid(metrics.content_gutter_before) && ui_extent_valid(metrics.title_bar_height) &&
+           metrics.title_bar_height > 0.0f && ui_extent_valid(metrics.navigation_header_height) &&
+           (!navigation || metrics.navigation_header_height > 0.0f) &&
+           ui_extent_valid(metrics.navigation_footer_height) &&
+           (!navigation || metrics.navigation_footer_height > 0.0f) &&
+           ui_extent_valid(metrics.member_sidebar_top) && ui_extent_valid(metrics.message_bottom_margin) &&
+           ui_extent_valid(metrics.composer_height) && (!composer || metrics.composer_height > 0.0f) &&
+           ui_insets_valid(metrics.composer_margin) && ui_insets_valid(metrics.navigation_header_padding) &&
+           ui_insets_valid(metrics.title_bar_padding) && ui_extent_valid(metrics.navigation_footer_reserve);
+}
+
+float shell_content_left(const UiShellLayoutMetrics& metrics, bool navigation) noexcept {
+    return metrics.guild_rail_width + metrics.content_gutter_before +
+           (navigation ? metrics.navigation_width + metrics.navigation_gutter_before : 0.f);
+}
+
+u8 shell_variant(const UiShellLayoutMetrics& metrics, float width) noexcept {
+    const float content_left = shell_content_left(metrics, shell_flag(metrics, ui_shell_layout_navigation));
+    // Keep the requested pane width and preference. A narrow transition can
+    // arrive without a native resize (for example, restoring the member pane).
+    const bool members =
+        shell_flag(metrics, ui_shell_layout_members) &&
+        width - content_left - metrics.member_sidebar_width >= kUiShellMinimumMessageWidthDips;
+    const float header_width = maximum(0.f, width - content_left - metrics.title_bar_padding.left -
+                                                metrics.title_bar_padding.right);
+    const float existing_controls = (metrics.member_sidebar_width > 0.f ? 52.f : 8.f) +
+                                    (shell_flag(metrics, ui_shell_layout_pins) ? 44.f : 0.f);
+    const bool threads =
+        shell_flag(metrics, ui_shell_layout_threads) && header_width >= existing_controls + 44.f;
+    // The inbox joins only while a readable label (72) and, in conversation
+    // views, the search field (120) still fit; Friends has no search.
+    const float placed = existing_controls + (threads ? 44.f : 0.f) +
+                         (shell_flag(metrics, ui_shell_layout_private) ? 88.f : 0.f);
+    const float search = shell_flag(metrics, ui_shell_layout_composer) || metrics.member_sidebar_width > 0.f ? 120.f : 0.f;
+    const bool inbox = header_width >= placed + 40.f + 72.f + search;
+    return static_cast<u8>((shell_flag(metrics, ui_shell_layout_navigation) ? 1u : 0u) |
+                           (members ? 2u : 0u) | (shell_flag(metrics, ui_shell_layout_composer) ? 4u : 0u) |
+                           (shell_flag(metrics, ui_shell_layout_pins) ? 8u : 0u) | (threads ? 16u : 0u) |
+                           (shell_flag(metrics, ui_shell_layout_private) ? 32u : 0u) | (inbox ? 64u : 0u) |
+                           (shell_flag(metrics, ui_shell_layout_guild_invite) ? 128u : 0u));
+}
+
+float header_search_width(float content_width, float controls_width) noexcept {
+    // Reserve a readable channel label before growing the trailing search.
+    // The compact field stays at least 120 DIP while space permits all controls.
+    const float available = maximum(0.f, content_width - controls_width);
+    return minimum(available, minimum(280.f, maximum(120.f, available - 100.f)));
+}
+
+void update_header_controls(UiScene* scene, const UiShellLayoutMetrics& metrics, float width,
+                            u8 variant) noexcept {
+    const float left = shell_content_left(metrics, (variant & 1u) != 0);
+    const auto label = scene->semantics[static_cast<u32>(UiSemantic::title_label)];
+    const auto toggle = scene->semantics[static_cast<u32>(UiSemantic::member_toggle)];
+    const auto pins = scene->semantics[static_cast<u32>(UiSemantic::pins_toggle)];
+    const auto threads = scene->semantics[static_cast<u32>(UiSemantic::threads_toggle)];
+    const auto add = scene->semantics[static_cast<u32>(UiSemantic::private_add)];
+    const auto call = scene->semantics[static_cast<u32>(UiSemantic::private_call)];
+    const float existing_width = (toggle.generation ? 52.f : 8.f) + (pins.generation ? 44.f : 0.f) +
+                                 (threads.generation ? 44.f : 0.f);
+    const float controls_width = existing_width + (add.generation ? 44.f : 0.f) + (call.generation ? 44.f : 0.f);
+    // The inbox sits after the search field at the trailing edge; every margin
+    // measured from the field's left edge includes it.
+    const float trailing = scene->semantics[static_cast<u32>(UiSemantic::inbox_toggle)].generation ? 40.f : 0.f;
+    const float search_width =
+        header_search_width(
+            maximum(0.f, width - left - metrics.title_bar_padding.left - metrics.title_bar_padding.right),
+            controls_width + trailing) +
+        trailing;
+    const auto set_margin = [&](UiWidgetHandle handle, float right) noexcept {
+        if (handle.generation)
+            scene->widgets.layout.storage[handle.slot].spec.style.margin.right = right;
+    };
+    // Reserve search plus the original icon button and its eight-DIP gaps.
+    set_margin(label, search_width + controls_width);
+    set_margin(toggle, search_width + 8.f);
+    set_margin(pins, search_width + (toggle.generation ? 52.f : 8.f));
+    set_margin(threads, search_width + (toggle.generation ? 52.f : 8.f) + (pins.generation ? 44.f : 0.f));
+    set_margin(add, search_width + existing_width);
+    set_margin(call, search_width + existing_width + (add.generation ? 44.f : 0.f));
+}
+
+bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& metrics, u8 variant,
+                 float width, float height) noexcept {
+    // An uninitialized manager ignores the reset and refuses the root below.
+    ui_widget_manager_reset(&scene->widgets);
+    for (u32 index = 0; index < static_cast<u32>(UiSemantic::count); ++index) {
+        scene->semantics[index] = ui_widget_invalid_handle();
+    }
+
+    UiLayoutStyle root_style = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_clip_children);
+    if (!add_node(scene, UiSemantic::root, ui_widget_invalid_handle(), root_style)) {
+        return false;
+    }
+    const UiWidgetHandle root = scene->semantics[static_cast<u32>(UiSemantic::root)];
+    // The account panel, and the voice card reserved above it, spans the server
+    // rail and the channel list; both lists end above that band.
+    const bool navigation = (variant & 1u) != 0;
+    const float account_band = metrics.navigation_footer_height + 2 * kUiFloatingSurfaceInset +
+                               metrics.navigation_footer_reserve;
+    UiLayoutStyle rail_style = fixed_width(metrics.guild_rail_width);
+    rail_style.flow = UiLayoutFlow::vertical;
+    if (!add_node(scene, UiSemantic::guild_rail, root, rail_style)) {
+        return false;
+    }
+    const UiWidgetHandle rail = scene->semantics[static_cast<u32>(UiSemantic::guild_rail)];
+    // Home is a rail tile directly below the caption; the server list starts
+    // below the separator, one gap under Home.
+    UiLayoutStyle home_style = fixed_height(kUiGuildRailTileExtent);
+    home_style.width = ui_layout_fixed(kUiGuildRailTileExtent);
+    home_style.horizontal_alignment = UiLayoutAlignment::center;
+    home_style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children |
+                                        ui_layout_node_text_content);
+    UiLayoutStyle guild_navigation_style = ui_layout_style();
+    guild_navigation_style.width = ui_layout_fill();
+    guild_navigation_style.height = ui_layout_fill();
+    guild_navigation_style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children);
+    guild_navigation_style.margin.top = kUiGuildRailGap + kUiGuildRailSeparatorHeight;
+    if (navigation && metrics.navigation_footer_height > 0)
+        guild_navigation_style.margin.bottom = account_band;
+    if (!add_node(scene, UiSemantic::home_button, rail, home_style) ||
+        !add_node(scene, UiSemantic::guild_navigation, rail, guild_navigation_style))
+        return false;
+
+    UiWidgetHandle channels = ui_widget_invalid_handle();
+    if (navigation) {
+        UiLayoutStyle channels_style = fixed_width(metrics.navigation_width);
+        channels_style.flow = UiLayoutFlow::vertical;
+        channels_style.margin.left = metrics.guild_rail_width + metrics.navigation_gutter_before;
+        if (!add_node(scene, UiSemantic::channel_sidebar, root, channels_style)) {
+            return false;
+        }
+        channels = scene->semantics[static_cast<u32>(UiSemantic::channel_sidebar)];
+    }
+
+    UiLayoutStyle content_style = ui_layout_style();
+    content_style.flow = UiLayoutFlow::vertical;
+    content_style.width = ui_layout_fill();
+    content_style.height = ui_layout_fill();
+    const float content_left = shell_content_left(metrics, (variant & 1u) != 0);
+    content_style.margin.left = content_left;
+    content_style.margin.right = (variant & 2u) ? metrics.member_sidebar_width : 0.f;
+    content_style.horizontal_alignment = UiLayoutAlignment::stretch;
+    content_style.vertical_alignment = UiLayoutAlignment::stretch;
+    if (!add_node(scene, UiSemantic::content, root, content_style)) {
+        return false;
+    }
+    const UiWidgetHandle content = scene->semantics[static_cast<u32>(UiSemantic::content)];
+
+    if ((variant & 2u) != 0) {
+        UiLayoutStyle members_style = fixed_width(metrics.member_sidebar_width);
+        members_style.horizontal_alignment = UiLayoutAlignment::end;
+        members_style.margin.top = metrics.member_sidebar_top;
+        members_style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children |
+                                               ui_layout_node_scroll_vertical);
+        if (!add_node(scene, UiSemantic::member_sidebar, root, members_style)) {
+            return false;
+        }
+    }
+
+    if (channels.generation != 0) {
+        UiLayoutStyle header_style = fixed_height(metrics.navigation_header_height);
+        header_style.padding = metrics.navigation_header_padding;
+        const bool guild_header = view == UiShellView::guild_channel;
+        if (guild_header) {
+            // The header pads 8 DIP around a 32-DIP dropdown whose own 8-DIP
+            // inline padding keeps the name at a 16-DIP inset.
+            const float vertical = maximum(0.f, (metrics.navigation_header_height - 32.f) * .5f);
+            header_style.padding = {8.f, vertical, 8.f, vertical};
+        }
+        if (!add_node(scene, UiSemantic::channel_header, channels, header_style)) {
+            return false;
+        }
+        if (guild_header) {
+            // Invite People ends the header, 4 DIPs after the dropdown.
+            const bool invite = (variant & 128u) != 0;
+            UiLayoutStyle menu_style = fixed_height(32.f);
+            menu_style.vertical_alignment = UiLayoutAlignment::center;
+            menu_style.padding = {8.f, 0, 8.f, 0};
+            menu_style.margin.right = invite ? kUiShellGuildInvite + 4.f : 0.f;
+            const UiWidgetHandle header = scene->semantics[static_cast<u32>(UiSemantic::channel_header)];
+            if (!add_node(scene, UiSemantic::guild_menu, header, menu_style))
+                return false;
+            if (invite) {
+                UiLayoutStyle invite_style = fixed_width(kUiShellGuildInvite);
+                invite_style.height = ui_layout_fixed(kUiShellGuildInvite);
+                invite_style.horizontal_alignment = UiLayoutAlignment::end;
+                invite_style.vertical_alignment = UiLayoutAlignment::center;
+                invite_style.flags |= ui_layout_node_allow_overlap;
+                if (!add_node(scene, UiSemantic::guild_invite, header, invite_style))
+                    return false;
+            }
+        }
+        if (view == UiShellView::friends || view == UiShellView::private_channels) {
+            auto friends_style = fixed_height(40.f);
+            friends_style.margin = {8.f, 4.f, 8.f, 4.f};
+            friends_style.padding = {16.f, 0, 16.f, 0};
+            if (!add_node(scene, UiSemantic::friends_button, channels, friends_style))
+                return false;
+            UiLayoutStyle create_style = fixed_width(24.f);
+            create_style.height = ui_layout_fixed(24.f);
+            create_style.horizontal_alignment = UiLayoutAlignment::end;
+            create_style.vertical_alignment = UiLayoutAlignment::center;
+            create_style.flags |= ui_layout_node_allow_overlap;
+            if (!add_node(scene, UiSemantic::private_create,
+                          scene->semantics[static_cast<u32>(UiSemantic::channel_header)], create_style))
+                return false;
+        }
+        UiLayoutStyle navigation_style = ui_layout_style();
+        navigation_style.width = ui_layout_fill();
+        navigation_style.height = ui_layout_fill();
+        navigation_style.horizontal_alignment = UiLayoutAlignment::stretch;
+        navigation_style.vertical_alignment = UiLayoutAlignment::stretch;
+        navigation_style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children |
+                                                  ui_layout_node_scroll_vertical);
+        navigation_style.margin.bottom = account_band;
+        // Floats over the bottom of both columns, from the rail's left edge to
+        // the channel list's right edge.
+        UiLayoutStyle footer_style = ui_layout_style();
+        const float footer_width = metrics.guild_rail_width + metrics.navigation_gutter_before +
+                                   metrics.navigation_width - 2 * kUiFloatingSurfaceInset;
+        footer_style.width = ui_layout_fixed(maximum(0.f, footer_width));
+        footer_style.height = ui_layout_fixed(metrics.navigation_footer_height);
+        footer_style.vertical_alignment = UiLayoutAlignment::end;
+        footer_style.margin = {kUiFloatingSurfaceInset, 0, 0, kUiFloatingSurfaceInset};
+        if (!add_node(scene, UiSemantic::channel_navigation, channels, navigation_style) ||
+            !add_node(scene, UiSemantic::channel_footer, root, footer_style)) {
+            return false;
+        }
+        UiLayoutStyle settings_style = fixed_width(32.f);
+        settings_style.height = ui_layout_fixed(32.f);
+        settings_style.horizontal_alignment = UiLayoutAlignment::end;
+        settings_style.vertical_alignment = UiLayoutAlignment::center;
+        settings_style.margin.right = 4.f;
+        settings_style.flags |= ui_layout_node_allow_overlap;
+        if (!add_node(scene, UiSemantic::settings,
+                      scene->semantics[static_cast<u32>(UiSemantic::channel_footer)], settings_style))
+            return false;
+    }
+
+    UiLayoutStyle title_style = fixed_height(metrics.title_bar_height);
+    title_style.flow = UiLayoutFlow::overlay;
+    title_style.margin.left = content_left;
+    title_style.padding = metrics.title_bar_padding;
+    if (!add_node(scene, UiSemantic::title_bar, root, title_style)) {
+        return false;
+    }
+    const UiWidgetHandle title = scene->semantics[static_cast<u32>(UiSemantic::title_bar)];
+    UiLayoutStyle title_label_style = ui_layout_style();
+    title_label_style.width = ui_layout_fill();
+    title_label_style.height = ui_layout_fill();
+    title_label_style.horizontal_alignment = UiLayoutAlignment::stretch;
+    title_label_style.vertical_alignment = UiLayoutAlignment::stretch;
+    title_label_style.flags =
+        static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children |
+                         ui_layout_node_text_content | ui_layout_node_allow_zero_size);
+    if (!add_node(scene, UiSemantic::title_label, title, title_label_style)) {
+        return false;
+    }
+    // The member-list toggle is part of the guild-channel title bar even
+    // while the list itself is hidden. Friends views have no member width.
+    if (metrics.member_sidebar_width > 0.0f &&
+        !add_title_button(scene, UiSemantic::member_toggle, title, ui_layout_node_text_content)) {
+        return false;
+    }
+    if (view != UiShellView::friends && shell_flag(metrics, ui_shell_layout_pins) &&
+        !add_title_button(scene, UiSemantic::pins_toggle, title))
+        return false;
+    if (view != UiShellView::friends && (variant & 16u) &&
+        !add_title_button(scene, UiSemantic::threads_toggle, title))
+        return false;
+    if (view == UiShellView::private_channels && (variant & 32u) &&
+        (!add_title_button(scene, UiSemantic::private_add, title) ||
+         !add_title_button(scene, UiSemantic::private_call, title)))
+        return false;
+    if ((variant & 64u) && !add_title_button(scene, UiSemantic::inbox_toggle, title))
+        return false;
+    UiLayoutStyle message_style = ui_layout_style();
+    message_style.width = ui_layout_fill();
+    message_style.height = ui_layout_fill();
+    message_style.margin.bottom = metrics.message_bottom_margin;
+    message_style.margin.top = metrics.title_bar_height;
+    message_style.horizontal_alignment = UiLayoutAlignment::stretch;
+    message_style.vertical_alignment = UiLayoutAlignment::stretch;
+    message_style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children |
+                                           ui_layout_node_scroll_vertical);
+    if (!add_node(scene, UiSemantic::message_view, content, message_style)) {
+        return false;
+    }
+    if ((variant & 4u) != 0) {
+        UiLayoutStyle composer_style = fixed_height(metrics.composer_height);
+        composer_style.margin = metrics.composer_margin;
+        if (!add_node(scene, UiSemantic::composer, content, composer_style)) {
+            return false;
+        }
+    }
+
+    // The optional component borrows these six shell slots. They stay hidden
+    // and zero-sized until a current thread projection is published after
+    // layout; ordinary channels reserve no strip height or input targets.
+    UiLayoutStyle thread_style = ui_layout_style();
+    thread_style.width = ui_layout_fixed(0);
+    thread_style.height = ui_layout_fixed(0);
+    thread_style.flags = ui_layout_node_allow_zero_size;
+    if (!add_node(scene, UiSemantic::thread_header, content, thread_style))
+        return false;
+    const auto thread_root = scene->semantics[static_cast<u32>(UiSemantic::thread_header)];
+    static constexpr UiSemantic thread_children[]{UiSemantic::thread_status, UiSemantic::thread_primary,
+                                           UiSemantic::thread_overflow, UiSemantic::thread_feedback,
+                                           UiSemantic::thread_cancel};
+    for (auto semantic : thread_children)
+        if (!add_node(scene, semantic, thread_root, thread_style))
+            return false;
+
+    update_header_controls(scene, metrics, width, variant);
+    if (!ui_widget_manager_layout_rectangle(&scene->widgets, {0, 0, width, height}).ok()) {
+        return false;
+    }
+    ++scene->layout_passes;
+    scene->count = scene->widgets.count;
+    ++scene->layout_rebuilds;
+    return true;
+}
+
+} // namespace
+
+const UiBootstrapMetrics kDefaultUiBootstrapMetrics{68.0f};
+
+bool ui_scene_initialize_bootstrap(UiScene* scene) noexcept {
+    if (!scene || scene->storage.arena.base) {
+        return false;
+    }
+    reset_value<UiScene>(scene);
+    if (!ui_fixed_widget_storage_initialize(&scene->storage, kMaximumUiNodes) ||
+        !ui_widget_manager_initialize(&scene->widgets, scene->storage.widgets, scene->storage.layout_nodes)) {
+        ui_scene_release(scene);
+        return false;
+    }
+    return true;
+}
+
+void ui_scene_release(UiScene* scene) noexcept {
+    if (!scene) {
+        return;
+    }
+    ui_fixed_widget_storage_release(&scene->storage);
+    reset_value<UiScene>(scene);
+}
+
+bool ui_scene_layout_with_metrics(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& metrics,
+                                  float width, float height) noexcept {
+    if (!scene || !ui_extent_valid(width) || !ui_extent_valid(height) || width <= 0.0f || height <= 0.0f ||
+        view >= UiShellView::count || !shell_metrics_valid(metrics)) {
+        if (scene) {
+            ++scene->rejected;
+        }
+        return false;
+    }
+    const u8 variant = shell_variant(metrics, width);
+    const bool same_structure = scene->count != 0 && scene->layout_variant == variant &&
+                                scene->view == view && scene->layout_metrics_revision == metrics.revision;
+    if (same_structure && scene->width == width && scene->height == height) {
+        return true;
+    }
+    if (same_structure) {
+        update_header_controls(scene, metrics, width, variant);
+        if (!ui_widget_manager_layout_rectangle(&scene->widgets, {0, 0, width, height}).ok()) {
+            ++scene->rejected;
+            return false;
+        }
+        ++scene->layout_passes;
+        scene->count = scene->widgets.count;
+    } else if (!build_shell(scene, view, metrics, variant, width, height)) {
+        ++scene->rejected;
+        return false;
+    }
+    scene->width = width;
+    scene->height = height;
+    scene->layout_variant = variant;
+    scene->layout_metrics_revision = metrics.revision;
+    scene->layout_flags = metrics.flags;
+    scene->view = view;
+    return true;
+}
+
+bool ui_scene_header_stale(const UiScene& scene, u16 flags) noexcept {
+    return scene.count != 0 && ((scene.layout_flags ^ flags) & kUiShellHeaderFlags) != 0;
+}
+
+float ui_scene_composer_width(const UiShellLayoutMetrics& metrics, float width) noexcept {
+    if (!ui_extent_valid(width) || width <= 0.f || !shell_metrics_valid(metrics) ||
+        !shell_flag(metrics, ui_shell_layout_composer))
+        return 0.f;
+    const u8 variant = shell_variant(metrics, width);
+    return maximum(0.f, width - shell_content_left(metrics, (variant & 1u) != 0) -
+                            ((variant & 2u) ? metrics.member_sidebar_width : 0.f) -
+                            metrics.composer_margin.left - metrics.composer_margin.right);
+}
+
+const UiLayoutNode* ui_scene_node(const UiScene& scene, UiSemantic semantic) noexcept {
+    const UiLayoutNode* node =
+        ui_widget_manager_layout_node(scene.widgets, scene.semantics[static_cast<u32>(semantic)]);
+    return node && node->visible ? node : nullptr;
+}
+
+UiRect ui_scene_content_rectangle(const UiScene& scene, UiSemantic semantic) noexcept {
+    const UiLayoutNode* node = ui_scene_node(scene, semantic);
+    return node ? node->content_rectangle : UiRect{};
+}
+
+UiShellHeaderGeometry ui_scene_header_geometry(const UiScene& scene) noexcept {
+    UiShellHeaderGeometry geometry{};
+    const auto* title = ui_scene_node(scene, UiSemantic::title_bar);
+    if (!title)
+        return geometry;
+    geometry.title = title->rectangle;
+    const auto rectangle = [&](UiSemantic semantic) noexcept {
+        const auto* node = ui_scene_node(scene, semantic);
+        return node ? node->rectangle : UiRect{};
+    };
+    geometry.label = rectangle(UiSemantic::title_label);
+    geometry.member_toggle = rectangle(UiSemantic::member_toggle);
+    geometry.pins = rectangle(UiSemantic::pins_toggle);
+    geometry.threads = rectangle(UiSemantic::threads_toggle);
+    geometry.inbox = rectangle(UiSemantic::inbox_toggle);
+    const auto content = title->content_rectangle;
+    const float controls_width = (ui_rect_has_area(geometry.member_toggle) ? 52.f : 8.f) +
+                                 (ui_rect_has_area(geometry.pins) ? 44.f : 0.f) +
+                                 (ui_rect_has_area(geometry.threads) ? 44.f : 0.f);
+    const float trailing = ui_rect_has_area(geometry.inbox) ? 40.f : 0.f;
+    const float field_width = header_search_width(ui_rect_width(content), controls_width + trailing);
+    geometry.search_field = {maximum(content.left, content.right - trailing - field_width), geometry.title.top + 8.f,
+                             content.right - trailing, geometry.title.top + 40.f};
+    return geometry;
+}
+
+} // namespace maicord

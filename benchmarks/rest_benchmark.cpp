@@ -1,5 +1,5 @@
 #include "maicord/core/time.hpp"
-#include "maicord/protocol/rest.hpp"
+#include "maicord/protocol/http/rest.hpp"
 #include "benchmark_output.hpp"
 
 #include <Windows.h>

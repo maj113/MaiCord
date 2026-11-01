@@ -1,6 +1,6 @@
 #pragma once
-#include "../../src/render/picker_glyph_cache.hpp"
-#include "maicord/ui/emoji_catalog.hpp"
+#include "../../src/render/text/picker_glyph_cache.hpp"
+#include "maicord/ui/text/emoji_catalog.hpp"
 
 namespace maicord {
 // A wide picker used to reserve one batch per emoji, exhausting the message

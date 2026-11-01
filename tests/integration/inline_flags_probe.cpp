@@ -1,16 +1,16 @@
 #include "probe_capture.hpp"
-#include "../ui_scene_fixtures.hpp"
+#include "../support/ui_scene_fixtures.hpp"
 #include "inline_flags_probe.hpp"
 #include "probe_present.hpp"
-#include "../../src/render/d3d11_renderer_draw.hpp"
+#include "../../src/render/d3d11/renderer_draw.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/render/inline_media.hpp"
-#include "maicord/render/layer_presentation.hpp"
-#include "maicord/ui/navigation_view.hpp"
-#include "maicord/ui/regional_flag.hpp"
+#include "maicord/render/media/inline_media.hpp"
+#include "maicord/render/d3d11/layer_presentation.hpp"
+#include "maicord/ui/shell/navigation_view.hpp"
+#include "maicord/ui/text/regional_flag.hpp"
 
 #include "maicord/sys/d3d11.hpp"
-#include "maicord/media/asset.hpp"
+#include "maicord/media/core/asset.hpp"
 
 namespace maicord {
 namespace {

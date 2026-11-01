@@ -3,18 +3,18 @@
 // (tick_smooth_scrolls) drive the real popup scene opened by the real
 // header toggle. Smooth scrolling must glide over several frames; with it
 // off the same input must jump.
-#include "application_guild_menu.hpp"
-#include "application_account_presentation.hpp"
-#include "application_message_interaction.hpp"
-#include "application_scrolling.hpp"
-#include "application_state.hpp"
+#include "guild/menu.hpp"
+#include "account/account_presentation.hpp"
+#include "chat/messages/interaction.hpp"
+#include "shell/scrolling.hpp"
+#include "shell/state.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/ui/theme.hpp"
+#include "maicord/ui/theme/theme.hpp"
 
 #include "maicord/core/win32_user.hpp"
-#include "maicord/model/permission_bits.hpp"
-#include "../../src/app/account_ui_runtime.hpp"
+#include "maicord/model/guild/permission_bits.hpp"
+#include "../../src/app/account/account_ui_runtime.hpp"
 
 namespace maicord::scoped_read_native {
 using namespace app_detail;

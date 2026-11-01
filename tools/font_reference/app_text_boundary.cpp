@@ -1,10 +1,10 @@
 // QA only: observe MaiCord's actual profile/style/emoji/fallback text path.
 // The renderer owner is inert; this tool creates no window or graphics device.
-#include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 #include "native_run_reference.hpp"
 #include "maicord/core/byte_order.hpp"
 #include <dwrite_3.h>
-#include "maicord/ui/native_text_candidate.hpp"
+#include "maicord/ui/text/native_text_candidate.hpp"
 
 namespace maicord { namespace {
 constexpr u32 capacity=4096,face_capacity=512;

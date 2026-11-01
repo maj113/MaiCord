@@ -3,8 +3,8 @@
 #include "forum_media_ui_probe.hpp"
 #include "reply_draft_ui_probe.hpp"
 #include "maicord/core/time.hpp"
-#include "application_forum_form_state.hpp"
-#include "application_thread_browser.hpp"
+#include "chat/threads/forum_form_state.hpp"
+#include "chat/threads/browser.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 namespace maicord {

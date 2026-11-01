@@ -1,11 +1,11 @@
 #pragma once
 #include "thread_browser_ui_adapter.hpp"
-#include "../layout_validation.hpp"
+#include "../support/layout_validation.hpp"
 #include "probe_present.hpp"
 #include "ui_surface_motion_measurement.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/ui/shell_text_presentation.hpp"
-#include "maicord/protocol/writer.hpp"
+#include "maicord/ui/shell/text_presentation.hpp"
+#include "maicord/protocol/encoding/writer.hpp"
 #include "maicord/core/win32_user.hpp"
 
 namespace maicord {

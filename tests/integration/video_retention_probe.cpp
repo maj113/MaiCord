@@ -1,11 +1,11 @@
 #include "probe_present.hpp"
 #include "video_retention_probe.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/ui/theme.hpp"
+#include "maicord/ui/theme/theme.hpp"
 #include "nv12_test_picture.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/media/asset.hpp"
+#include "maicord/media/core/asset.hpp"
 
 namespace maicord {
 bool video_display_extent_probe(D3D11Renderer& r) noexcept {

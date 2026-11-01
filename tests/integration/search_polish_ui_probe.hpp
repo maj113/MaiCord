@@ -1,6 +1,6 @@
 #pragma once
 #include "scoped_search_ui_probe.hpp"
-#include "maicord/ui/scene.hpp"
+#include "maicord/ui/core/scene.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/gdi.hpp"
 

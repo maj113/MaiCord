@@ -149,8 +149,19 @@ files instead of re-sorting the lists.
   `tools/check_theme_literals.py` (part of the suite) rejects new literals.
 - Public headers in `include/maicord/` document ownership and failure
   behavior; keep those comments accurate when behavior changes.
-- Add or update tests in `tests/` for every behavior change, and register them
-  in `cmake/test_registry.cmake` (see [Build files](#build-files)).
+- **Source layout.** Each module (`app`, `ui`, `render`, `protocol`, `model`,
+  `text`, `media`, `platform`) is split into topic folders, and
+  `include/maicord/<module>/<folder>/` mirrors `src/<module>/<folder>/`. Put a
+  new file in the folder of its feature; a header private to a module stays
+  beside its sources. File names drop a prefix the folder already states
+  (`src/app/chat/messages/send.cpp`, not `application_message_send.cpp`) and,
+  in `src/app`, the `application_` prefix of the client-side glue, unless the
+  shorter name would collide with another file in the folder; `account_` (the
+  account module's side of a feature) is kept. Symbol names are unaffected.
+- Add or update tests in `tests/<module>/<folder>/`, mirroring the code under
+  test, for every behavior change, and register them in
+  `cmake/test_registry.cmake` (see [Build files](#build-files)). Helpers shared
+  across folders live in `tests/support/`, data in `tests/fixtures/`.
 
 ## Pull requests
 

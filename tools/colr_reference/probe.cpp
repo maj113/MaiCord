@@ -1,9 +1,9 @@
-#include "maicord/render/colr_paint.hpp"
-#include "maicord/render/glyph_atlas.hpp"
+#include "maicord/render/effects/colr_paint.hpp"
+#include "maicord/render/text/glyph_atlas.hpp"
 #include "dwrite_paint_builder.hpp"
 #include "native_source.hpp"
-#include "maicord/render/native_glyph_outlines.hpp"
-#include "maicord/text/font_run.hpp"
+#include "maicord/render/text/native_glyph_outlines.hpp"
+#include "maicord/text/fonts/run.hpp"
 #include <d2d1_3.h>
 #include <cstdio>
 #include <cstdlib>

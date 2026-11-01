@@ -1,10 +1,10 @@
-#include "maicord/render/shader_bytecode.hpp"
-#include "../test_output.hpp"
+#include "maicord/render/d3d11/shader_bytecode.hpp"
+#include "../support/test_output.hpp"
 
 #include "maicord/sys/d3d11.hpp"
 namespace maicord { namespace {
 #define CHECK(x) do{if(!(x)){test_write_text("FAIL: " #x "\n");return false;}}while(0)
-// Input layouts mirror d3d11_draw_pipeline.cpp; CreateInputLayout validates
+// Input layouts mirror render/d3d11/draw_pipeline.cpp; CreateInputLayout validates
 // them against each vertex shader's packed input signature.
 constexpr D3D11_INPUT_ELEMENT_DESC kUiElements[]={
     {"RECT",0,DXGI_FORMAT_R32G32B32A32_FLOAT,0,0,D3D11_INPUT_PER_INSTANCE_DATA,1},

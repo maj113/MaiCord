@@ -124,7 +124,7 @@ tested by synthetic native tests only) and rendered pixels.
   encodings and formats (format 8, symbol mappings) are unsupported. Table
   checksums are not verified. CFF2 outlines are unsupported.
 - CFF1 decoder: caller-owned path buffer, operation budget, 48 operands, 32
-  transient values, subroutine depth 10 (`tests/cff_outline_test.cpp`, in
+  transient values, subroutine depth 10 (`tests/text/opentype/cff_outline_test.cpp`, in
   `MaiCordFontTests`, builds its own font bytes).
 - `truetype_outline` (static): caller-owned buffers, work budget, component depth
   64, no hint bytecode; `tt_outline` runs instructions. Active variable-font
@@ -214,7 +214,7 @@ MaiCordFontReference.exe <font-path> > <native-log>
 python tools/font_reference/axis_oracle.py <font-path> --native-log <native-log>
 ```
 
-`font_axes.cpp` normalizes through fvar and avar v1 over immutable byte views and
+`text/fonts/axes.cpp` normalizes through fvar and avar v1 over immutable byte views and
 caller-owned arrays. Missing required avar anchors disable that axis's map, invalid
 ordering is rejected, and avar v2 returns unsupported (not treated as v1). Default
 precision rounds to 16.16, separate 2.14 outputs serve feature conditions, and
@@ -230,7 +230,7 @@ only.
 For every COLRv1 base glyph the probe builds a paint program with the reference
 builder `colr_paint_build` (`tools/colr_reference/`, reads DirectWrite's paint
 reader directly) and with the production `colr_program_build`
-(`src/render/colr_program.cpp`) at 12, 16, 20, 24, 32, 48, 64, 128, 15.5 and 31.25
+(`src/render/effects/colr_program.cpp`) at 12, 16, 20, 24, 32, 48, 64, 128, 15.5 and 31.25
 pixels/em on the default instance, and compares every used upload byte and the
 metadata after the arena descriptor (not arena pointers or allocation history).
 Every build must succeed; a shared failure is not a pass. In this adapter pass
@@ -322,7 +322,7 @@ MaiCordContextTests.exe context-corpus.bin
 model, including index and boundary maps, failure atomicity and a streaming
 expansion copy count (an operation count, not a timing). `MaiCordGsubTests` and
 `MaiCordContextTests` also test every input split with strided records around a
-poisoned gap through `tests/glyph_view_check.hpp`.
+poisoned gap through `tests/text/opentype/glyph_view_check.hpp`.
 
 ```powershell
 cmake --build <build> --config Release --target MaiCordGlyphBufferTests MaiCordGsubTests MaiCordContextTests
@@ -444,7 +444,7 @@ Each `export-*` mode takes `<fixtures> --observations <windows>.json --out
 <corpus>.bin [--header <path>]` and keeps the full font bytes, scheduled lookup
 indices, recorded glyphs and shaping flags, and exact disabled and enabled Windows
 placement bits. Glyphs and shaping flags stay reference inputs. `MaiCordGposExecuteTests`
-(`tests/gpos_execute_test.cpp`) runs all four built-in corpora; given a corpus file, it
+(`tests/text/opentype/gpos_execute_test.cpp`) runs all four built-in corpora; given a corpus file, it
 reads the file's format from its magic.
 `export-basic` (`MCGPX01`) selects fixtures with only single/pair lookups,
 including extensions.
@@ -536,7 +536,7 @@ Exit 0 success, 1 failure, 2 bad arguments.
 
 `maicord_scope_audit.py --repo <repo> --out <scope.json>` is a read-only inventory
 of MaiCord's font choices (the `text_fonts` table in
-`src/render/d3d11_renderer_text.cpp`), call sites, bundled font formats and axes,
+`src/render/d3d11/renderer_text.cpp`), call sites, bundled font formats and axes,
 and registry entries for selected system fonts (`winreg`: Windows only). It does
 not prove runtime fallback-face coverage.
 
@@ -583,7 +583,7 @@ bitmap, which prunes impossible format-3 contexts and ligatures. `<scope.json>` 
 the `maicord_scope_audit.py` output.
 
 ```powershell
-python tools/font_reference/nominal_scalar_oracle.py <output>/scalars --exe <bin>/MaiCordFeaturePlanReference.exe --header src/text/generated/nominal_scalar_data.inc --test-header tests/generated/nominal_scalar_fixture.inc
+python tools/font_reference/nominal_scalar_oracle.py <output>/scalars --exe <bin>/MaiCordFeaturePlanReference.exe --header src/text/unicode/generated/nominal_scalar_data.inc --test-header tests/generated/nominal_scalar_fixture.inc
 cmake --build <build> --config Release --target MaiCordNominalSourcesTests MaiCordNominalParticipationTests
 MaiCordNominalSourcesTests.exe
 python tools/font_reference/nominal_app_fonts.py --scope <scope.json> --native <bin>/MaiCordNominalParticipationTests.exe --reference <bin>/MaiCordFeaturePlanReference.exe --out <output>/app-printable.json --ascii-printable
@@ -746,7 +746,7 @@ are valid Unicode scalar values (no surrogates, at most `0x10ffff`).
 compatibility table and standalone native replay fixtures:
 
 ```powershell
-python tools/font_reference/script_fixtures.py --scalars <scalars.bin> --unicode-dump <unicode-dump.bin> --unicode-header include/maicord/text/generated/unicode_data.hpp --sequences <sequences.bin> --sequence-results <sequence-results.bin> --output <directory>
+python tools/font_reference/script_fixtures.py --scalars <scalars.bin> --unicode-dump <unicode-dump.bin> --unicode-header include/maicord/text/unicode/generated/unicode_data.hpp --sequences <sequences.bin> --sequence-results <sequence-results.bin> --output <directory>
 ```
 
 `--scalars` and `--sequence-results` are the outputs of `script_analysis_reference`

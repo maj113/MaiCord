@@ -1,9 +1,9 @@
 #pragma once
-#include "application_thread_browser.hpp"
-#include "maicord/protocol/thread_browser.hpp"
-#include "maicord/render/d3d11_renderer.hpp"
+#include "chat/threads/browser.hpp"
+#include "maicord/protocol/messages/thread_browser.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 #include "thread_membership_ui_adapter.hpp"
-#include "maicord/ui/thread_browser_scene.hpp"
+#include "maicord/ui/chat/threads/browser_scene.hpp"
 
 namespace maicord {
 inline constexpr u64 kThreadBrowserProbeParent = kThreadMembershipProbeParent;

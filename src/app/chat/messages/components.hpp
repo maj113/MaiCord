@@ -1,0 +1,42 @@
+#pragma once
+#include "maicord/app/net/rest_client.hpp"
+namespace maicord { enum class GatewayClientDispatchKind : u8; }
+#include "maicord/ui/core/geometry.hpp"
+#include "maicord/ui/core/widget_manager.hpp"
+#include "maicord/ui/chat/messages/media_policy.hpp"
+
+namespace maicord::app_detail {
+// Message components (buttons, selects) and the modals they open. One
+// interaction is in flight at a time on the DETAILS lane; its control shows a
+// loading state until the Gateway reports success or failure.
+
+// A click on a component widget of the main message scene. Returns true when
+// the widget belongs to a component (consumed, even if inert).
+bool application_message_component_click(u64 message_id, UiWidgetHandle widget, UiRect anchor) noexcept;
+// Popup selections for an open select menu.
+bool application_message_components_popup_action(u32 action) noexcept;
+// Gateway interaction_* dispatches (payload is the verbatim event object).
+void application_message_components_gateway(GatewayClientDispatchKind kind, Utf8View body) noexcept;
+// A slash or context command sent with `nonce` may answer with a modal
+// (INTERACTION_MODAL_CREATE carries the command's nonce); its submit goes to
+// `application_id`.
+void application_message_components_expect_modal(u64 nonce, u64 application_id) noexcept;
+// A message update/create resolves a deferred component response.
+void application_message_components_message(u64 message_id) noexcept;
+
+// DETAILS lane.
+bool application_message_components_pending(u64 now_ms) noexcept;
+bool application_message_components_submit(u64 request_id, u64 now_ms) noexcept;
+bool application_message_components_response(const RestClientResponse& response, Utf8View body) noexcept;
+void application_message_components_tick(u64 now_ms) noexcept;
+u64 application_message_components_next_wake() noexcept;
+void application_message_components_release() noexcept;
+// Shared by the timeline, search results and media opened from either scene.
+// The borrowed callback remains valid for the application lifetime.
+MessageMediaPolicy application_message_media_policy() noexcept;
+
+// Frame time: age-restricted channels show their content only after the
+// "Age-restricted channel" confirmation, remembered per server for this
+// session and account (the official client likewise asks again after a restart).
+void application_age_gate_synchronize() noexcept;
+} // namespace maicord::app_detail

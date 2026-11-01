@@ -1,0 +1,137 @@
+#pragma once
+
+#include "maicord/media/core/asset_key.hpp"
+#include "maicord/media/image/animated_webp_frame.hpp"
+#include "maicord/media/image/apng_frame.hpp"
+#include "maicord/media/image/gif.hpp"
+#include "maicord/render/text/glyph_atlas.hpp"
+#include <stddef.h>
+
+namespace maicord {
+
+struct AnimationFrameCacheKey {
+    MediaAssetKey asset;
+    u32 frame_index;
+    u16 source_generation;
+    u16 reserved;
+    // Nonzero only after the encoded cache establishes exact byte equality;
+    // zero keys the frame by asset and generation.
+    u64 content_identity;
+};
+
+enum class AnimationFrameCacheKind : u8 {
+    none,
+    apng,
+    gif,
+    animated_webp,
+    lottie,
+};
+
+union AnimationFrameCacheControl {
+    ApngFrame apng;
+    GifFrame gif;
+    AnimatedWebpFrame animated_webp;
+};
+
+struct AnimationFrameCacheDescriptor {
+    AnimationFrameCacheKey key;
+    AnimationFrameCacheControl control;
+    u64 duration_us;
+    u32 background_rgba;
+    u16 width;
+    u16 height;
+    AnimationFrameCacheKind kind;
+    u8 reserved[3];
+};
+
+struct AnimationFrameCacheEntry {
+    AnimationFrameCacheKey key;
+    u64 duration_us;
+    AnimationFrameCacheControl control;
+    GlyphAtlasHandle allocation;
+    u32 background_rgba;
+    u32 home_bucket;
+    AnimationFrameCacheKind kind;
+    bool occupied;
+    // Retain a multiple-of-16 stride for cache population.
+    u8 reserved[10];
+};
+
+struct AnimationFrameCacheCounters {
+    u64 evictions;
+};
+
+struct AnimationFrameCache {
+    GlyphAtlasAllocator allocations;
+    AnimationFrameCacheEntry* entries;
+    u32* buckets;
+    u32 entry_capacity;
+    u32 bucket_capacity;
+    u32 entry_count;
+    u32 free_cursor;
+    u64 next_allocation_key;
+    AnimationFrameCacheCounters counters;
+};
+
+enum class AnimationFrameCacheError : u8 {
+    none,
+    invalid_input,
+    not_found,
+    too_large,
+    no_capacity,
+    corrupt_state,
+};
+
+struct AnimationFrameCacheResult {
+    GlyphAtlasAllocation allocation;
+    AnimationFrameCacheControl control;
+    u64 duration_us;
+    u32 background_rgba;
+    u32 frame_index;
+    u16 source_generation;
+    AnimationFrameCacheKind kind;
+    AnimationFrameCacheError error;
+    bool cached;
+
+    constexpr bool ok() const noexcept {
+        return error == AnimationFrameCacheError::none;
+    }
+};
+
+bool animation_frame_cache_initialize(
+    AnimationFrameCache* cache, u16 width, u16 height, u16 padding,
+    Slice<AnimationFrameCacheEntry> entries, Slice<u32> buckets,
+    Slice<GlyphAtlasEntry> allocations,
+    Slice<GlyphAtlasRow> rows) noexcept;
+// Grow stable-address backing without invalidating cache or atlas handles.
+// Existing entries/allocations must stay at the same addresses; only the
+// newly committed tails and rebuilt hash buckets are touched.
+bool animation_frame_cache_grow_storage(
+    AnimationFrameCache* cache, Slice<AnimationFrameCacheEntry> entries,
+    Slice<u32> buckets, Slice<GlyphAtlasEntry> allocations) noexcept;
+void animation_frame_cache_reset(AnimationFrameCache* cache) noexcept;
+void animation_frame_cache_begin_visibility(
+    AnimationFrameCache* cache) noexcept;
+AnimationFrameCacheResult animation_frame_cache_find(
+    AnimationFrameCache* cache, const AnimationFrameCacheKey& key) noexcept;
+AnimationFrameCacheResult animation_frame_cache_allocate(
+    AnimationFrameCache* cache,
+    const AnimationFrameCacheDescriptor& descriptor) noexcept;
+
+static_assert(sizeof(AnimationFrameCacheKey) == 32);
+static_assert(sizeof(AnimationFrameCacheControl) == 32);
+static_assert(sizeof(AnimationFrameCacheDescriptor) == 88);
+static_assert(sizeof(AnimationFrameCacheEntry) == 96);
+static_assert(offsetof(AnimationFrameCacheEntry, key) == 0);
+static_assert(offsetof(AnimationFrameCacheEntry, duration_us) == 32);
+static_assert(offsetof(AnimationFrameCacheEntry, control) == 40);
+static_assert(offsetof(AnimationFrameCacheEntry, allocation) == 72);
+static_assert(offsetof(AnimationFrameCacheEntry, background_rgba) == 76);
+static_assert(offsetof(AnimationFrameCacheEntry, home_bucket) == 80);
+static_assert(offsetof(AnimationFrameCacheEntry, kind) == 84);
+static_assert(offsetof(AnimationFrameCacheEntry, occupied) == 85);
+static_assert(offsetof(AnimationFrameCacheEntry, reserved) == 86);
+static_assert(sizeof(AnimationFrameCacheCounters) == 8);
+static_assert(sizeof(AnimationFrameCache) == 128);
+
+} // namespace maicord

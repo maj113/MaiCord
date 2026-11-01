@@ -11,7 +11,7 @@ def describe(p):
             t=f[kind].table;result[kind]=dict(scripts=[s.ScriptTag for s in t.ScriptList.ScriptRecord],features=sorted({r.FeatureTag for r in t.FeatureList.FeatureRecord}),lookup_types=sorted({s.ExtensionLookupType if l.LookupType==(7 if kind=='GSUB' else 9) else l.LookupType for l in t.LookupList.Lookup for s in l.SubTable}))
         return result
 def audit(repo,out):
-    source=repo/'src/render/d3d11_renderer_text.cpp';text=source.read_text();section=text.split('constexpr FontAsset text_fonts[]',1)[1].split('static_assert',1)[0]
+    source=repo/'src/render/d3d11/renderer_text.cpp';text=source.read_text();section=text.split('constexpr FontAsset text_fonts[]',1)[1].split('static_assert',1)[0]
     choices=[dict(family=m[0],file=None if m[1]=='nullptr' else m[1][2:-1],tracking_expression=m[2].strip()) for m in re.findall(r'\{L"([^"]+)",\s*(nullptr|L"[^"]+"),\s*([^}]+)\}',section)]
     assert len(choices)==21;bundled=[describe(repo/'assets/fonts'/c['file']) for c in choices if c['file']];assert len(bundled)==15
     families={c['family'] for c in choices if not c['file']}|{'Segoe UI Emoji'};registered=[];system=[];seen=set()
@@ -27,7 +27,7 @@ def audit(repo,out):
                 seen.add(str(p).casefold());record=describe(p)
                 if record['family'] not in families and not any(name.casefold().startswith(family.casefold()+' (') for family in families):continue
                 registered.append(dict(hive=hive_name,name=name,value=value));system.append(record)
-    paths=['src/ui/text.cpp','include/maicord/ui/text.hpp','src/render/d3d11_renderer_text.cpp','src/render/d3d11_glyph_text.cpp','include/maicord/ui/text_style.hpp']
+    paths=['src/ui/text/text.cpp','include/maicord/ui/text/text.hpp','src/render/d3d11/renderer_text.cpp','src/render/d3d11/glyph_text.cpp','include/maicord/ui/text/style.hpp']
     patterns=['CreateTextFormat','text_system_initialize','SetLocaleName','AddFontFeature','GetGlyphRunOutline','CreatePaintReader','SetReadingDirection','SetFlowDirection','SetVerticalGlyphOrientation','CreateGdiCompatible','SetFontAxisValues']
     calls=[]
     for p in sorted((repo/'src').rglob('*.cpp')):

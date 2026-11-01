@@ -1,13 +1,13 @@
 // Manual benchmark: built only with -DMAICORD_BUILD_BENCHMARKS=ON (cmake/benchmarks.cmake) and
 // never part of the CTest suite.
 #include "guild_channel_validation_observer.hpp"
-#include "../model_store_fixtures.hpp"
-#include "maicord/app/gateway_client_event.hpp"
+#include "../support/model_store_fixtures.hpp"
+#include "maicord/app/gateway/client_event.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/trace_record.hpp"
-#include "maicord/model/permission_bits.hpp"
+#include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/model/chat_state.hpp"
+#include "maicord/model/chat/chat_state.hpp"
 
 
 namespace maicord::guild_channel_validation_bench {

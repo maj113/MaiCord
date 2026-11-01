@@ -1,8 +1,8 @@
 #pragma once
 #include "emoji_gpu_measurement.hpp"
-#include "maicord/render/colr_paint.hpp"
+#include "maicord/render/effects/colr_paint.hpp"
 #include "maicord/core/hash.hpp"
-#include "../../src/render/d3d11_renderer_draw.hpp"
+#include "../../src/render/d3d11/renderer_draw.hpp"
 namespace maicord {
 inline bool probe_glyph_cache(D3D11Renderer& renderer,bool (*capture)(const wchar_t*) noexcept) noexcept {
     const auto fail=[](u32 line) noexcept {log_u64(LogLevel::error,"glyph_cache","failure_line",line);return false;};

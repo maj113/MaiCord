@@ -1,15 +1,15 @@
 #include "probe_present.hpp"
-#include "../ui_scene_fixtures.hpp"
-#include "maicord/ui/inbox_scene.hpp"
-#include "maicord/ui/settings_scene.hpp"
+#include "../support/ui_scene_fixtures.hpp"
+#include "maicord/ui/chat/inbox_scene.hpp"
+#include "maicord/ui/settings/scene.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/ui/popup_scene.hpp"
+#include "maicord/ui/shell/popup_scene.hpp"
 
 namespace maicord {
 namespace {
 // Synthetic rows only; no account, network or application owner is involved.
 // Popup rows and dialog descriptors are copied from
-// application_notification_controls.cpp and application_custom_status.cpp.
+// app/notifications/controls.cpp and app/account/custom_status.cpp.
 struct InboxProbe {
     UiInboxScene scene;
     UiInboxSource source;

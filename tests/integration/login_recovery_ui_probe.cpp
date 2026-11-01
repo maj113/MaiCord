@@ -1,7 +1,7 @@
 #include "probe_present.hpp"
-#include "maicord/ui/login_text_presentation.hpp"
+#include "maicord/ui/account/login_text_presentation.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/ui/popup_scene.hpp"
+#include "maicord/ui/shell/popup_scene.hpp"
 
 namespace maicord {
 namespace {

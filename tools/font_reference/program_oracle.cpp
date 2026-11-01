@@ -1,7 +1,7 @@
 #include "program_oracle.hpp"
-#include "maicord/text/truetype_outline.hpp"
-#include "maicord/text/cff_outline.hpp"
-#include "maicord/render/colr_source.hpp"
+#include "maicord/text/opentype/truetype_outline.hpp"
+#include "maicord/text/opentype/cff_outline.hpp"
+#include "maicord/render/effects/colr_source.hpp"
 #include <d2d1.h>
 
 namespace maicord {

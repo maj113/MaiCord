@@ -1,7 +1,7 @@
 #pragma once
 // A complete draw pipeline in one call, for the probes. The renderer stages its pipeline on a worker
 // (create), sets the frame transform and publishes separately; this does the three in order.
-#include "maicord/render/d3d11_draw_pipeline.hpp"
+#include "maicord/render/d3d11/draw_pipeline.hpp"
 #include "maicord/core/win32_error.hpp"
 
 namespace maicord {

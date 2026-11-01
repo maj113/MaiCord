@@ -7,8 +7,8 @@
 // codec changes can be checked bit-exact against a previous build.
 #include "benchmark_line.hpp"
 #include "fixtures/opus_voice_signal.hpp"
-#include "maicord/media/opus_decoder.hpp"
-#include "maicord/media/opus_encoder.hpp"
+#include "maicord/media/audio/opus_decoder.hpp"
+#include "maicord/media/audio/opus_encoder.hpp"
 
 #include <Windows.h>
 

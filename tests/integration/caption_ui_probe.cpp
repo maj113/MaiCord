@@ -9,13 +9,13 @@
 // counted). Synthetic data only; frames
 // go to MAICORD_UI_PROBE_CAPTURE_DIR when set.
 #include "probe_capture.hpp"
-#include "../../src/app/app_icon.hpp"
-#include "../../src/render/d3d11_renderer_caption.hpp"
+#include "../../src/app/shell/app_icon.hpp"
+#include "../../src/render/d3d11/renderer_caption.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/render/d3d11_renderer.hpp"
-#include "maicord/ui/caption_bar.hpp"
-#include "../../src/render/d3d11_renderer_draw.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
+#include "maicord/ui/shell/caption_bar.hpp"
+#include "../../src/render/d3d11/renderer_draw.hpp"
 
 namespace maicord {
 namespace {

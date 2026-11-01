@@ -2,7 +2,7 @@
 """Deflate-pack fxc /Fh bytecode arrays into one generated include.
 
 Usage: pack_shader_bytecode.py OUTPUT NAME=HEADER ...
-Entries keep the argument order; src/render/shader_bytecode.cpp checks that it
+Entries keep the argument order; src/render/d3d11/shader_bytecode.cpp checks that it
 matches ShaderId. A sparse wide-COLR variant can share the normal stream.
 Each shader still needs one inflate and one output buffer on use.
 """

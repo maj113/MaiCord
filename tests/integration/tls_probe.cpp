@@ -2,9 +2,9 @@
 // (cmake/integration.cmake) and run by hand or through tools/probe_*.ps1; it is
 // never part of the CTest suite because it talks to the real service.
 #include "maicord/core/time.hpp"
-#include "maicord/protocol/http1.hpp"
+#include "maicord/protocol/http/http1.hpp"
 #include "probe_transport.hpp"
-#include "../test_output.hpp"
+#include "../support/test_output.hpp"
 
 namespace maicord {
 namespace {

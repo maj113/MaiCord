@@ -1,4 +1,4 @@
-"""Generate src/text/generated/fallback_compat_data.inc from observed classes.
+"""Generate src/text/unicode/generated/fallback_compat_data.inc from observed classes.
 
 The table holds the en-US font fallback attachment classes that differ from
 the Unicode default (General_Category Mn/Mc/Me extends, Variation_Selector
@@ -22,7 +22,7 @@ import zipfile
 
 LIMIT = 0x110000
 EXPECTED_UCD_SHA256 = '2066d1909b2ea93916ce092da1c0ee4808ea3ef8407c94b4f14f5b7eb263d28e'
-OUTPUT = Path(__file__).resolve().parents[2] / 'src/text/generated/fallback_compat_data.inc'
+OUTPUT = Path(__file__).resolve().parents[2] / 'src/text/unicode/generated/fallback_compat_data.inc'
 EXTENDING, SELECTOR, INVALID = 1, 4, 8
 
 

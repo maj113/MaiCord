@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/gdi.hpp"

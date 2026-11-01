@@ -1,12 +1,12 @@
 #include "probe_present.hpp"
-#include "maicord/render/d3d11_renderer.hpp"
-#include "maicord/ui/message_presentation.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
+#include "maicord/ui/chat/messages/presentation.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/media/presentation_policy.hpp"
+#include "maicord/media/core/presentation_policy.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/media/asset.hpp"
-#include "maicord/ui/message_scene.hpp"
+#include "maicord/media/core/asset.hpp"
+#include "maicord/ui/chat/messages/scene.hpp"
 
 namespace maicord {
 namespace {

@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 namespace maicord {
 // Real native renderer, with bounded local model and pure input authority.
 // No application transport or live poll requests are exercised; capture writes

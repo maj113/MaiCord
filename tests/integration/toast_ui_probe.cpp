@@ -1,9 +1,9 @@
 #include "toast_ui_probe.hpp"
 #include "probe_present.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/render/layer_presentation.hpp"
-#include "maicord/render/renderer_presentation.hpp"
-#include "../../src/render/d3d11_renderer_interaction_state.hpp"
+#include "maicord/render/d3d11/layer_presentation.hpp"
+#include "maicord/render/d3d11/renderer_presentation.hpp"
+#include "../../src/render/d3d11/renderer_interaction_state.hpp"
 
 namespace maicord {
 bool toast_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) noexcept) noexcept {

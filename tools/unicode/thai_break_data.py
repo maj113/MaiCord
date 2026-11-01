@@ -37,7 +37,7 @@ SOURCES = {
         sha256='4bf0ab93a570d91b33ae7bbf627eddd5a56f81c6ba33a94c3950f38904235bda',
         license='CC0-1.0; see assets/licenses/PyThaiNLP-corpus.txt'),
 }
-OUTPUT = Path(__file__).resolve().parents[2] / 'src/text/generated/thai_lexical_data.inc'
+OUTPUT = Path(__file__).resolve().parents[2] / 'src/text/unicode/generated/thai_lexical_data.inc'
 GRAPH_FILE = 'thai_word_graph.bin'  # raw bytes beside the include, read by #embed
 LONGEST = 20  # ICU's longest entry; longer PyThaiNLP compounds are phrases.
 REFERENCE_SLOTS = 96

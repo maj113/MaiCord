@@ -1,4 +1,4 @@
-# Malformed plugin indexes shared by tests/plugin_index.cpp and
+# Malformed plugin indexes shared by tests/app/plugins/index.cpp and
 # tools/release/test_plugin_index_tools.py. Each row is
 #   <base>\t<error>\t<search>\t<replacement>
 # and replaces the single occurrence of <search> in <base>.index.json; the

@@ -52,7 +52,7 @@ has the same rules in more detail.
   (`tools/generate_sys_conformance.py`) checks it against the SDK on every
   build.
 - UI colors, radii and spacing come from theme tokens and scales
-  (`include/maicord/ui/theme_tokens.inc`); `tools/check_theme_literals.py`
+  (`include/maicord/ui/theme/tokens.inc`); `tools/check_theme_literals.py`
   fails on new literals.
 - Never ship Discord-owned assets (icons, sounds, illustrations, fonts) or
   copied client code. Research material stays in the git-ignored `Analysis/`

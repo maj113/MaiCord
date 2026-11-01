@@ -1,0 +1,67 @@
+#include "maicord/media/core/presentation_policy.hpp"
+#include "maicord/media/core/asset.hpp"
+
+namespace maicord {
+namespace {
+
+u32 ceil_positive(float value) noexcept {
+    if (!(value > 0.0f) || value > 65'535.0f) {
+        return value > 0.0f ? 65'535u : 0u;
+    }
+    const u32 truncated = static_cast<u32>(value);
+    return truncated + (static_cast<float>(truncated) < value ? 1u : 0u);
+}
+} // namespace
+
+MediaResolutionTier media_resolution_tier_for_display(
+    float width_dip, float height_dip, u32 dpi, u16 decoder_extent_cap) noexcept {
+    const float scale = static_cast<float>(maximum(dpi, 1u)) / 96.0f;
+    const u32 demand = minimum<u32>(decoder_extent_cap, maximum(ceil_positive(width_dip * scale),
+                               ceil_positive(height_dip * scale)));
+    if (demand == 0) {
+        return MediaResolutionTier::original;
+    }
+    if (demand <= 64) {
+        return MediaResolutionTier::px64;
+    }
+    if (demand <= 128) {
+        return MediaResolutionTier::px128;
+    }
+    if (demand <= 256) {
+        return MediaResolutionTier::px256;
+    }
+    if (demand <= 512) return MediaResolutionTier::px512;
+    if (demand <= 1024) return MediaResolutionTier::px1024;
+    return MediaResolutionTier::px2048;
+}
+
+MediaPresentationRequest media_presentation_request(
+    u32 source_width, u32 source_height, float width_dip, float height_dip,
+    u32 dpi, u16 decoder_extent_cap) noexcept {
+    MediaPresentationRequest request{};
+    request.resolution =
+        media_resolution_tier_for_display(width_dip, height_dip, dpi, decoder_extent_cap);
+    if (source_width == 0 || source_height == 0 || decoder_extent_cap == 0) {
+        return request;
+    }
+    const u32 tier = media_resolution_tier_extent(request.resolution);
+    // The cap and the source extent are nonzero here, so the target is too.
+    const u32 target = minimum<u32>(minimum<u32>(tier ? tier : decoder_extent_cap, decoder_extent_cap),
+                                    maximum(source_width, source_height));
+    if (source_width >= source_height) {
+        const u64 scaled =
+            (static_cast<u64>(source_height) * target + source_width / 2u) /
+            source_width;
+        request.width = static_cast<u16>(target);
+        request.height = static_cast<u16>(maximum<u64>(scaled, 1));
+    } else {
+        const u64 scaled =
+            (static_cast<u64>(source_width) * target + source_height / 2u) /
+            source_height;
+        request.width = static_cast<u16>(maximum<u64>(scaled, 1));
+        request.height = static_cast<u16>(target);
+    }
+    return request;
+}
+
+} // namespace maicord

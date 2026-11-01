@@ -10,9 +10,9 @@
 //       replays the zstd-stream chunks ([u8 phase][u32 etf][u32 bytes][z]...):
 //       the fixture's payloads as the Gateway's ETF terms, compressed with one
 //       shared context and a flush per payload (tools/benchmark_gateway_pipeline.ps1).
-#include "../src/app/gateway_client.cpp"
+#include "../src/app/gateway/client.cpp"
 #include "maicord/core/decimal.hpp"
-#include "maicord/protocol/writer.hpp"
+#include "maicord/protocol/encoding/writer.hpp"
 #include <psapi.h>
 #include <shellapi.h>
 

@@ -1,10 +1,10 @@
-#include "maicord/render/d3d11_renderer.hpp"
-#include "maicord/media/png.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
+#include "maicord/media/image/png.hpp"
 #include "maicord/core/log.hpp"
 #include "nv12_test_picture.hpp"
 
 #include "maicord/sys/d3d11.hpp"
-#include "maicord/media/asset.hpp"
+#include "maicord/media/core/asset.hpp"
 namespace maicord {
 namespace {
 bool wide_video_preview_probe(D3D11Renderer& r, MediaAtlas& atlas, MediaAtlasGpu& gpu) noexcept {

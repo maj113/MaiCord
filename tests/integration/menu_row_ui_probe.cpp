@@ -1,11 +1,11 @@
 #include "menu_row_ui_probe.hpp"
-#include "../ui_scene_fixtures.hpp"
+#include "../support/ui_scene_fixtures.hpp"
 #include "probe_present.hpp"
-#include "maicord/ui/message_context_menu.hpp"
-#include "maicord/protocol/application_commands.hpp"
+#include "maicord/ui/chat/messages/context_menu.hpp"
+#include "maicord/protocol/messages/application_commands.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
-#include "../../src/render/d3d11_renderer_interaction_state.hpp"
+#include "../../src/render/d3d11/renderer_interaction_state.hpp"
 
 namespace maicord {
 bool menu_row_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) noexcept) noexcept {

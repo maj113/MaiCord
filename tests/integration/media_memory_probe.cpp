@@ -4,19 +4,19 @@
 // starts from released media resources and production-sized atlases; pixels
 // written before any atlas growth, relocation or trim are read back afterwards.
 // MAICORD_MEDIA_MEMORY_REPORT=<path> appends a plain-text report (no captures).
-#include "maicord/render/d3d11_renderer.hpp"
-#include "maicord/media/png.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
+#include "maicord/media/image/png.hpp"
 #include "maicord/core/log.hpp"
 #include "video_retention_probe.hpp"
-#include "maicord/platform/gpu_stream_decoder.hpp"
-#include "../hevc_stream_fixture.hpp"
+#include "maicord/platform/decode/gpu_stream_decoder.hpp"
+#include "../support/hevc_stream_fixture.hpp"
 #include "maicord/sys/d3d11.hpp"
-#include "maicord/media/asset.hpp"
+#include "maicord/media/core/asset.hpp"
 
 namespace maicord {
 namespace {
 
-// Production geometry (src/app/account_ui_runtime.hpp).
+// Production geometry (src/app/account/account_ui_runtime.hpp).
 constexpr u16 kPrimaryExtent = 2'048;
 constexpr u16 kPreviewExtent = 4'096;
 constexpr u32 kPrimaryEntries = 4'096;

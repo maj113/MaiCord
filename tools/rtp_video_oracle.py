@@ -238,7 +238,7 @@ class Stream:
         return self.frame_of.index(frame)
 
 
-# Event kinds understood by tests/video_rtp_receive.cpp.
+# Event kinds understood by tests/app/voice/video_rtp_receive.cpp.
 MEDIA, RTX, ADVANCE = 0, 1, 2
 
 

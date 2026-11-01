@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/model/chat_state.hpp"
+#include "maicord/model/chat/chat_state.hpp"
 
 namespace maicord::channel_name_preflight_bench {
 inline constexpr u64 kObservationSeed = 14695981039346656037ull;

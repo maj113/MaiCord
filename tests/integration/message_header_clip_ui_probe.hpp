@@ -2,14 +2,14 @@
 
 #include "ui_surface_motion_measurement.hpp"
 #include "probe_media_upload.hpp"
-#include "../../src/render/d3d11_renderer_layout.hpp"
-#include "maicord/app/message_view_runtime.hpp"
-#include "maicord/render/content_text_retention.hpp"
-#include "maicord/model/message_rich_store.hpp"
-#include "maicord/protocol/gateway_message_events.hpp"
-#include "maicord/ui/message_author.hpp"
-#include "maicord/ui/message_interaction.hpp"
-#include "maicord/ui/profile_media.hpp"
+#include "../../src/render/d3d11/renderer_layout.hpp"
+#include "maicord/app/chat/messages/view_runtime.hpp"
+#include "maicord/render/text/content_text_retention.hpp"
+#include "maicord/model/chat/message_rich_store.hpp"
+#include "maicord/protocol/gateway/message_events.hpp"
+#include "maicord/ui/chat/messages/author.hpp"
+#include "maicord/ui/chat/messages/interaction.hpp"
+#include "maicord/ui/account/profile_media.hpp"
 
 namespace maicord {
 namespace message_header_clip_probe_detail {

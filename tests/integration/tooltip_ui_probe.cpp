@@ -1,11 +1,11 @@
 #include "tooltip_ui_probe.hpp"
 #include "probe_present.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/render/renderer_presentation.hpp"
-#include "maicord/ui/scene.hpp"
-#include "../../src/render/d3d11_renderer_interaction_state.hpp"
-#include "maicord/media/asset.hpp"
-#include "maicord/ui/expression_card_scene.hpp"
+#include "maicord/render/d3d11/renderer_presentation.hpp"
+#include "maicord/ui/core/scene.hpp"
+#include "../../src/render/d3d11/renderer_interaction_state.hpp"
+#include "maicord/media/core/asset.hpp"
+#include "maicord/ui/media/expression_card_scene.hpp"
 
 namespace maicord {
 namespace {

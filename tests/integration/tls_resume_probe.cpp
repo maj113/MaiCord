@@ -7,9 +7,9 @@
 // the later ones, and how many later ones Schannel reported as reconnects of the
 // first one's session (SECPKG_ATTR_SESSION_INFO, SSL_SESSION_RECONNECT).
 #include "maicord/core/time.hpp"
-#include "maicord/platform/tls_stream.hpp"
+#include "maicord/platform/net/tls_stream.hpp"
 #include "maicord/sys/sspi.hpp"
-#include "../test_output.hpp"
+#include "../support/test_output.hpp"
 
 namespace maicord {
 namespace {

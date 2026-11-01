@@ -1,8 +1,8 @@
 #pragma once
 #include "probe_present.hpp"
-#include "maicord/ui/download_scene.hpp"
-#include "maicord/ui/foreground_color.hpp"
-#include "maicord/ui/theme_presets.hpp"
+#include "maicord/ui/media/download_scene.hpp"
+#include "maicord/ui/theme/foreground_color.hpp"
+#include "maicord/ui/theme/presets.hpp"
 #include "maicord/core/log.hpp"
 
 namespace maicord {

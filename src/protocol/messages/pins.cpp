@@ -1,0 +1,251 @@
+#include "maicord/protocol/messages/pins.hpp"
+#include "maicord/protocol/gateway/message_events.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/protocol/encoding/writer.hpp"
+
+namespace maicord {
+namespace {
+
+struct PinInstant { u64 milliseconds; u32 submillisecond_ns; };
+
+bool cursor_instant(const MessagePinsCursor& cursor, PinInstant* instant) noexcept {
+    if (cursor.bytes < 20 || cursor.bytes > kMessagePinsCursorMaximumBytes)
+        return false;
+    for (u32 at = 0; at < cursor.bytes; ++at) {
+        const char c = cursor.timestamp[at];
+        if (!((c >= '0' && c <= '9') || c == '-' || c == '+' || c == ':' || c == '.' ||
+              c == 'T' || c == 'Z')) return false;
+    }
+    reset_value(instant);
+    if (!parse_iso_timestamp({{cursor.timestamp, cursor.bytes}, 0, false}, &instant->milliseconds))
+        return false;
+    if (cursor.timestamp[19] == '.') {
+        u32 fraction = 0, digits = 0;
+        for (u32 at = 20; at < cursor.bytes && cursor.timestamp[at] >= '0' && cursor.timestamp[at] <= '9'; ++at) {
+            fraction = fraction * 10 + static_cast<u32>(cursor.timestamp[at] - '0');
+            ++digits;
+        }
+        while (digits < 9) { fraction *= 10; ++digits; }
+        instant->submillisecond_ns = fraction % 1000000u;
+    }
+    return true;
+}
+
+bool later(PinInstant left, PinInstant right) noexcept {
+    return left.milliseconds > right.milliseconds ||
+           (left.milliseconds == right.milliseconds && left.submillisecond_ns > right.submillisecond_ns);
+}
+
+template <typename T> bool valid_slice(Slice<T> slice) noexcept { return slice.data || !slice.count; }
+template <typename T> Slice<T> remaining(Slice<T> slice, u32 used) noexcept {
+    return {slice.data ? slice.data + used : nullptr, slice.count - used};
+}
+
+struct PageContext {
+    JsonIndexedDocument document;
+    MessagePinsQuery query;
+    MessagePinsDecodeResult result;
+    Slice<char> text;
+    Slice<MessagePin> items;
+    Slice<GatewayMessageNamedUser> mentions;
+    MessageHistoryRichCursor rich;
+    PinInstant previous;
+    PinInstant before;
+    u32 maximum_depth;
+    u32 mention_count;
+    JsonValue item_array;
+    u8 fields;
+    bool capture_rich;
+};
+
+bool reject(PageContext* context, MessagePinsDecodeError error, u32 offset) noexcept {
+    context->result.error = error;
+    context->result.error_offset = offset;
+    return false;
+}
+
+struct ItemContext {
+    PageContext* page;
+    MessagePinsCursor pinned_at;
+    PinInstant instant;
+    JsonValue message;
+    u8 fields;
+};
+
+bool visit_item_field(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto* item = static_cast<ItemContext*>(opaque);
+    u8 field = 0;
+    if (json_string_equals_ascii(name, utf8_literal("pinned_at"))) field = 1;
+    else if (json_string_equals_ascii(name, utf8_literal("message"))) field = 2;
+    else return true;
+    if (item->fields & field) return reject(item->page, MessagePinsDecodeError::duplicate_field, value.source_offset);
+    item->fields |= field;
+    if (field == 2) {
+        if (value.kind != JsonValueKind::object)
+            return reject(item->page, MessagePinsDecodeError::invalid_field, value.source_offset);
+        item->message = value;
+        return true;
+    }
+    JsonString timestamp{};
+    if (!json_value_as_string(value, &timestamp))
+        return reject(item->page, MessagePinsDecodeError::invalid_cursor, value.source_offset);
+    const auto decoded = json_string_decode_utf8(timestamp, {item->pinned_at.timestamp, kMessagePinsCursorMaximumBytes});
+    if (!decoded.ok()) return reject(item->page, MessagePinsDecodeError::invalid_cursor, value.source_offset);
+    item->pinned_at.bytes = static_cast<u8>(decoded.bytes);
+    return cursor_instant(item->pinned_at, &item->instant) ||
+           reject(item->page, MessagePinsDecodeError::invalid_cursor, value.source_offset);
+}
+
+bool visit_item(void* opaque, u32 index, JsonValue value) noexcept {
+    auto* context = static_cast<PageContext*>(opaque);
+    if (index >= context->query.limit || index >= context->items.count)
+        return reject(context, MessagePinsDecodeError::item_capacity, value.source_offset);
+    if (value.kind != JsonValueKind::object)
+        return reject(context, MessagePinsDecodeError::invalid_field, value.source_offset);
+    ItemContext item{};
+    item.page = context;
+    const auto read = json_visit_indexed_object(context->document, value, context->maximum_depth, visit_item_field, &item);
+    if (!read.ok()) {
+        if (context->result.error == MessagePinsDecodeError::none)
+            reject(context, MessagePinsDecodeError::invalid_json, read.error_offset);
+        context->result.read_error = read.error;
+        return false;
+    }
+    if (item.fields != 3) return reject(context, MessagePinsDecodeError::missing_field, value.source_offset);
+    if ((index && later(item.instant, context->previous)) ||
+        (context->query.before.bytes && !later(context->before, item.instant)))
+        return reject(context, MessagePinsDecodeError::invalid_order, value.source_offset);
+
+    GatewayMessageEvent message;
+    u64 mention_roles[kGatewayMessageMentionRoleMaximumIds];
+    GatewayMessageNamedUser temporary_mentions[kGatewayMessageMentionUserMaximum];
+    const auto text = remaining(context->text, context->result.page.text_bytes);
+    const auto mentions = context->mentions.data ? remaining(context->mentions, context->mention_count)
+        : Slice<GatewayMessageNamedUser>{temporary_mentions, kGatewayMessageMentionUserMaximum};
+    const auto decoded = context->capture_rich
+        ? gateway_decode_message_create(context->document, item.message, context->maximum_depth, text,
+              {mention_roles, kGatewayMessageMentionRoleMaximumIds}, context->rich.remaining_member_roles(),
+              mentions, context->rich.remaining(), 0, &message)
+        : gateway_decode_message_create(context->document, item.message, context->maximum_depth, text,
+              {mention_roles, kGatewayMessageMentionRoleMaximumIds}, mentions, 0, &message);
+    if (!decoded.ok()) {
+        context->result.message_error = decoded.error;
+        context->result.scan_error = decoded.scan_error;
+        context->result.read_error = decoded.read_error;
+        copy_bytes(context->result.schema_field, decoded.schema_field, sizeof(decoded.schema_field));
+        return reject(context, MessagePinsDecodeError::message_decode,
+                      decoded.error_offset < item.message.source.bytes ? item.message.source_offset + decoded.error_offset
+                                                                      : decoded.error_offset);
+    }
+    if (message.channel_id != context->query.channel_id)
+        return reject(context, MessagePinsDecodeError::channel_mismatch, item.message.source_offset);
+    for (u32 previous = 0; previous < index; ++previous) {
+        if (context->items[previous].message.id == message.id)
+            return reject(context, MessagePinsDecodeError::duplicate_message, item.message.source_offset);
+    }
+    reset_value(&message.mention_roles);
+    if (!context->mentions.data) reset_value(&message.mention_users);
+    MessagePin& pin = context->items[index];
+    pin.message = message;
+    pin.pinned_at = item.pinned_at;
+    pin.pinned_at_ms = item.instant.milliseconds;
+    context->result.page.next_before = item.pinned_at;
+    context->result.page.count = index + 1;
+    context->result.page.text_bytes += message.transient_bytes;
+    context->mention_count += message.mention_users.count;
+    context->rich.advance(message);
+    context->previous = item.instant;
+    return true;
+}
+
+bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto* context = static_cast<PageContext*>(opaque);
+    u8 field = 0;
+    if (json_string_equals_ascii(name, utf8_literal("items"))) field = 1;
+    else if (json_string_equals_ascii(name, utf8_literal("has_more"))) field = 2;
+    else return true;
+    if (context->fields & field) return reject(context, MessagePinsDecodeError::duplicate_field, value.source_offset);
+    context->fields |= field;
+    if (field == 1) {
+        if (value.kind != JsonValueKind::array)
+            return reject(context, MessagePinsDecodeError::invalid_field, value.source_offset);
+        context->item_array = value;
+        return true;
+    }
+    return json_value_to_bool(value, &context->result.page.has_more) ||
+           reject(context, MessagePinsDecodeError::invalid_field, value.source_offset);
+}
+
+} // namespace
+
+bool message_pins_cursor_valid(const MessagePinsCursor& cursor, bool allow_empty) noexcept {
+    PinInstant instant{};
+    return !cursor.bytes ? allow_empty : cursor_instant(cursor, &instant);
+}
+
+MessagePinsWriteResult write_message_pins_target(const MessagePinsQuery& query,
+                                                 Slice<u8> output) noexcept {
+    if (!query.channel_id || !query.limit || query.limit > kMessagePinsMaximumItems ||
+        !message_pins_cursor_valid(query.before) || !valid_slice(output))
+        return {0, MessagePinsWriteError::invalid_input};
+    ProtocolWriter writer{output, 0};
+    const bool written = protocol_write(&writer, "/api/v10/channels/", query.channel_id, "/messages/pins?limit=",
+                                        query.limit) &&
+        (!query.before.bytes ||
+         protocol_write(&writer, "&before=", percent_text({query.before.timestamp, query.before.bytes})));
+    return written ? MessagePinsWriteResult{writer.used, MessagePinsWriteError::none}
+                   : MessagePinsWriteResult{0, MessagePinsWriteError::output_capacity};
+}
+
+MessagePinsWriteResult write_message_pin_target(u64 channel_id, u64 message_id,
+                                                Slice<u8> output) noexcept {
+    if (!channel_id || !message_id || !valid_slice(output)) return {0, MessagePinsWriteError::invalid_input};
+    ProtocolWriter writer{output, 0};
+    const bool written = protocol_write(&writer, "/api/v10/channels/", channel_id, "/messages/pins/", message_id);
+    return written ? MessagePinsWriteResult{writer.used, MessagePinsWriteError::none}
+                   : MessagePinsWriteResult{0, MessagePinsWriteError::output_capacity};
+}
+
+MessagePinsDecodeResult decode_message_pins_page(Utf8View body, const MessagePinsQuery& query,
+    Slice<u32> page_structurals, u32 maximum_depth,
+    Slice<char> text_output, Slice<MessagePin> items, Slice<GatewayMessageNamedUser> mention_users,
+    const MessageHistoryRichScratch& rich_scratch) noexcept {
+    MessageHistoryRichCursor rich{rich_scratch};
+    rich.scratch.poll = {}; // Pinned polls are not decoded.
+    u8 target[kMessagePinsMaximumTargetBytes];
+    if (!write_message_pins_target(query, {target, sizeof(target)}).ok() || !body.data || !body.bytes ||
+        !page_structurals.data || !page_structurals.count ||
+        !maximum_depth || !valid_slice(text_output) || !valid_slice(items) || !valid_slice(mention_users) ||
+        !rich.valid()) return {{}, 0, MessagePinsDecodeError::invalid_input};
+    const auto scan = json_scan_structurals_avx1(body, page_structurals);
+    if (!scan.ok()) return {{}, scan.error_offset, MessagePinsDecodeError::scan_failed,
+                            GatewayEventDecodeError::none, scan.error};
+    PageContext context{};
+    context.document = {body, {page_structurals.data, scan.count}};
+    context.query = query;
+    context.result.page.channel_id = query.channel_id;
+    context.text = text_output;
+    context.items = items;
+    context.mentions = mention_users;
+    context.rich = rich;
+    context.maximum_depth = maximum_depth;
+    context.capture_rich = rich.present();
+    if (query.before.bytes) cursor_instant(query.before, &context.before);
+    auto read = json_visit_root_object(body, context.document.structurals, maximum_depth, visit_root, &context);
+    if (read.ok() && context.fields != 3) context.result.error = MessagePinsDecodeError::missing_field;
+    else if (read.ok()) {
+        read = json_visit_indexed_array(context.document, context.item_array, maximum_depth, visit_item, &context);
+        if (read.ok() && context.result.page.has_more && !context.result.page.count)
+            context.result.error = MessagePinsDecodeError::invalid_cursor;
+    }
+    if (!read.ok()) {
+        if (context.result.error == MessagePinsDecodeError::none) {
+            context.result.error = MessagePinsDecodeError::invalid_json;
+            context.result.error_offset = read.error_offset;
+        }
+        if (context.result.read_error == JsonReadError::none) context.result.read_error = read.error;
+    }
+    return context.result;
+}
+
+} // namespace maicord

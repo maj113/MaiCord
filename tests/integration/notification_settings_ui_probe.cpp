@@ -1,12 +1,12 @@
 #include "probe_present.hpp"
-#include "maicord/ui/settings_scene.hpp"
+#include "maicord/ui/settings/scene.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/ui/popup_scene.hpp"
+#include "maicord/ui/shell/popup_scene.hpp"
 
 namespace maicord {
 namespace {
 // This is fixture geometry, not an ApplicationSettings owner. Descriptors are
-// copied from src/app/application_settings.cpp project()/ensure() because the
+// copied from src/app/settings/settings.cpp project()/ensure() because the
 // standalone UiProbe does not link the application's settings/account owners.
 // Rendering, page registry, widgets, layout, text, clipping and focus use the
 // exact production UiSettingsScene APIs. No host action is dispatched.

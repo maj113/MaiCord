@@ -1,8 +1,8 @@
 #pragma once
 
 #include "maicord/core/byte_queue.hpp"
-#include "maicord/platform/network.hpp"
-#include "maicord/platform/tls_client.hpp"
+#include "maicord/platform/net/network.hpp"
+#include "maicord/platform/net/tls_client.hpp"
 
 namespace maicord {
 

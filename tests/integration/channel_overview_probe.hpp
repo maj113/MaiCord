@@ -1,9 +1,9 @@
 #pragma once
 
 #include "ui_surface_motion_measurement.hpp"
-#include "maicord/ui/settings_scene.hpp"
+#include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
-#include "maicord/ui/text_form.hpp"
+#include "maicord/ui/text/form.hpp"
 
 namespace maicord {
 namespace channel_overview_probe_detail {

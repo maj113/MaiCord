@@ -1,8 +1,8 @@
 #pragma once
-#include "application_thread_creation.hpp"
-#include "application_text_form_state.hpp"
-#include "maicord/protocol/thread_creation.hpp"
-#include "maicord/render/d3d11_renderer.hpp"
+#include "chat/threads/creation.hpp"
+#include "chat/composer/text_form_state.hpp"
+#include "maicord/protocol/messages/thread_creation.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 #include "reply_draft_ui_adapter.hpp"
 namespace maicord {
 bool thread_creation_ui_adapter_begin(HWND, D3D11Renderer&, UiTextMeasureCache&, bool (*)(void*) noexcept, void*) noexcept;

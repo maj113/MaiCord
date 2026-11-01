@@ -1,11 +1,11 @@
 #pragma once
 
 #include "scoped_search_ui_probe.hpp"
-#include "maicord/ui/guild_rail_scene.hpp"
-#include "maicord/ui/menu_row.hpp"
-#include "maicord/ui/shell_navigation_scene.hpp"
-#include "maicord/ui/theme_style_projection.hpp"
-#include "maicord/ui/native_text_candidate.hpp"
+#include "maicord/ui/guild/rail_scene.hpp"
+#include "maicord/ui/widgets/menu_row.hpp"
+#include "maicord/ui/shell/navigation_scene.hpp"
+#include "maicord/ui/theme/style_projection.hpp"
+#include "maicord/ui/text/native_text_candidate.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {

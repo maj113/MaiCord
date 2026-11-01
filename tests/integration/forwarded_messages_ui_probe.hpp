@@ -1,8 +1,8 @@
 #pragma once
 #include "probe_present.hpp"
-#include "maicord/ui/message_text_coordinator.hpp"
-#include "maicord/ui/message_author.hpp"
-#include "maicord/media/presentation_policy.hpp"
+#include "maicord/ui/chat/messages/text_coordinator.hpp"
+#include "maicord/ui/chat/messages/author.hpp"
+#include "maicord/media/core/presentation_policy.hpp"
 #include "maicord/core/log.hpp"
 
 namespace maicord {

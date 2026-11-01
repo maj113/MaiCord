@@ -1,10 +1,10 @@
 #include "benchmark_output.hpp"
-#include "maicord/app/message_snapshot_cache.hpp"
-#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/chat/messages/snapshot_cache.hpp"
+#include "maicord/app/gateway/client.hpp"
 #include "maicord/core/stable_storage.hpp"
-#include "maicord/model/message_rich_store.hpp"
+#include "maicord/model/chat/message_rich_store.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/protocol/writer.hpp"
+#include "maicord/protocol/encoding/writer.hpp"
 
 #include <Windows.h>
 

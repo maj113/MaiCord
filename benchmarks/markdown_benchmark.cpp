@@ -1,8 +1,8 @@
 #include "maicord/core/time.hpp"
-#include "maicord/ui/code_highlight.hpp"
-#include "maicord/ui/message_markdown.hpp"
-#include "maicord/ui/message_system_text.hpp"
-#include "maicord/ui/timestamp_format.hpp"
+#include "maicord/ui/text/code_highlight.hpp"
+#include "maicord/ui/chat/messages/markdown.hpp"
+#include "maicord/ui/chat/messages/system_text.hpp"
+#include "maicord/ui/text/timestamp_format.hpp"
 #include "benchmark_output.hpp"
 
 #include <Windows.h>

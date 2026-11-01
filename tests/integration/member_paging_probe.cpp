@@ -1,10 +1,10 @@
 #include "probe_present.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/ui/scrollbar.hpp"
-#include "maicord/ui/shell_text_presentation.hpp"
-#include "maicord/app/member_list_channel_binding.hpp"
-#include "maicord/model/guild_member_store.hpp"
-#include "maicord/ui/member_list_scene.hpp"
+#include "maicord/ui/layout/scrollbar.hpp"
+#include "maicord/ui/shell/text_presentation.hpp"
+#include "maicord/app/guild/member_list_channel_binding.hpp"
+#include "maicord/model/guild/member_store.hpp"
+#include "maicord/ui/guild/member_list_scene.hpp"
 
 namespace maicord {
 namespace {

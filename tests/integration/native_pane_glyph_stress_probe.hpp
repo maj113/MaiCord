@@ -1,8 +1,8 @@
 #pragma once
 #include "channel_overview_probe.hpp"
-#include "maicord/ui/media_picker_presentation.hpp"
-#include "maicord/ui/search_scene.hpp"
-#include "../../src/render/d3d11_renderer_interaction_state.hpp"
+#include "maicord/ui/media/picker_presentation.hpp"
+#include "maicord/ui/chat/search/scene.hpp"
+#include "../../src/render/d3d11/renderer_interaction_state.hpp"
 
 namespace maicord {
 namespace pane_glyph_stress_detail {

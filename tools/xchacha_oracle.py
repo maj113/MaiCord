@@ -1,4 +1,4 @@
-"""Independent libsodium oracle for tests/xchacha20_poly1305.cpp (QA only)."""
+"""Independent libsodium oracle for tests/platform/crypto/xchacha20_poly1305.cpp (QA only)."""
 
 import hashlib
 

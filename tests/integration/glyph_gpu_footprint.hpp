@@ -1,7 +1,7 @@
 #pragma once
 // QA only: sizes of the glyph owner's GPU resources. The shipping client never reads them back.
 #include "maicord/core/memory.hpp"
-#include "../../src/render/d3d11_color_glyph_owner.hpp"
+#include "../../src/render/text/d3d11_color_glyph_owner.hpp"
 #include "maicord/sys/d3d11.hpp"
 
 namespace maicord {

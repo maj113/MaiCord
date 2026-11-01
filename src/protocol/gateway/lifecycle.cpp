@@ -1,0 +1,266 @@
+#include "maicord/protocol/gateway/lifecycle.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/core/decimal.hpp"
+#include "maicord/core/deadline.hpp"
+
+namespace maicord {
+namespace {
+
+GatewayLifecycleStep step(GatewayLifecycleAction action,
+                          GatewayLifecycleError error = GatewayLifecycleError::none) noexcept {
+    return GatewayLifecycleStep{action, error};
+}
+
+GatewayLifecycleStep invalid_state() noexcept {
+    return step(GatewayLifecycleAction::none, GatewayLifecycleError::invalid_state);
+}
+
+// Heartbeats, dispatches and session invalidation apply once HELLO was answered.
+bool session_phase(const GatewayLifecycle& lifecycle) noexcept {
+    return lifecycle.phase == GatewayLifecyclePhase::awaiting_session ||
+           lifecycle.phase == GatewayLifecyclePhase::ready;
+}
+
+GatewayLifecycleAction reconnect_action(GatewayLifecycle* lifecycle, bool can_resume) noexcept {
+    lifecycle->phase = GatewayLifecyclePhase::reconnecting;
+    lifecycle->awaiting_heartbeat_ack = false;
+    lifecycle->attempting_resume = can_resume;
+    if (!can_resume) {
+        lifecycle->resume_available = false;
+        lifecycle->has_sequence = false;
+    }
+    return can_resume ? GatewayLifecycleAction::reconnect_resume
+                      : GatewayLifecycleAction::reconnect_identify;
+}
+
+} // namespace
+
+void gateway_lifecycle_initialize(GatewayLifecycle* lifecycle) noexcept {
+    reset_value<GatewayLifecycle>(lifecycle);
+}
+
+GatewayLifecycleStep gateway_lifecycle_connected(GatewayLifecycle* lifecycle,
+                                                 bool resume_available) noexcept {
+    if (lifecycle->phase != GatewayLifecyclePhase::idle &&
+        lifecycle->phase != GatewayLifecyclePhase::reconnecting) {
+        return invalid_state();
+    }
+    lifecycle->heartbeat_interval_ms = 0;
+    lifecycle->next_heartbeat_ms = 0;
+    lifecycle->awaiting_heartbeat_ack = false;
+    lifecycle->resume_available = resume_available && lifecycle->has_sequence;
+    lifecycle->attempting_resume = lifecycle->resume_available;
+    lifecycle->phase = GatewayLifecyclePhase::awaiting_hello;
+    return step(GatewayLifecycleAction::none);
+}
+
+GatewayLifecycleStep gateway_lifecycle_hello(GatewayLifecycle* lifecycle, GatewayHello hello, u32 jitter,
+                                             u64 now_ms) noexcept {
+    if (lifecycle->phase != GatewayLifecyclePhase::awaiting_hello) {
+        return invalid_state();
+    }
+    lifecycle->heartbeat_interval_ms = hello.heartbeat_interval_ms;
+    const u64 jitter_ms = (static_cast<u64>(hello.heartbeat_interval_ms) * static_cast<u64>(jitter)) >> 32;
+    lifecycle->next_heartbeat_ms = deadline_after(now_ms, jitter_ms);
+    lifecycle->awaiting_heartbeat_ack = false;
+    lifecycle->phase = GatewayLifecyclePhase::awaiting_session;
+    return step(lifecycle->attempting_resume ? GatewayLifecycleAction::send_resume
+                                                         : GatewayLifecycleAction::send_identify);
+}
+
+GatewayLifecycleStep gateway_lifecycle_tick(GatewayLifecycle* lifecycle, u64 now_ms) noexcept {
+    if (!session_phase(*lifecycle) || now_ms < lifecycle->next_heartbeat_ms) {
+        return step(GatewayLifecycleAction::none);
+    }
+    if (lifecycle->awaiting_heartbeat_ack) {
+        return step(reconnect_action(lifecycle, lifecycle->resume_available));
+    }
+    lifecycle->awaiting_heartbeat_ack = true;
+    lifecycle->next_heartbeat_ms = deadline_after(now_ms, lifecycle->heartbeat_interval_ms);
+    return step(GatewayLifecycleAction::send_heartbeat);
+}
+
+GatewayLifecycleStep gateway_lifecycle_heartbeat_requested(GatewayLifecycle* lifecycle) noexcept {
+    if (!session_phase(*lifecycle)) {
+        return invalid_state();
+    }
+    lifecycle->awaiting_heartbeat_ack = true;
+    return step(GatewayLifecycleAction::send_heartbeat);
+}
+
+GatewayLifecycleStep gateway_lifecycle_heartbeat_acknowledged(GatewayLifecycle* lifecycle) noexcept {
+    if (!session_phase(*lifecycle)) {
+        return invalid_state();
+    }
+    lifecycle->awaiting_heartbeat_ack = false;
+    return step(GatewayLifecycleAction::none);
+}
+
+GatewayLifecycleStep gateway_lifecycle_dispatch(GatewayLifecycle* lifecycle, u64 sequence) noexcept {
+    if (!session_phase(*lifecycle)) {
+        return invalid_state();
+    }
+    lifecycle->last_sequence = sequence;
+    lifecycle->has_sequence = true;
+    return step(GatewayLifecycleAction::none);
+}
+
+GatewayLifecycleStep gateway_lifecycle_session_ready(GatewayLifecycle* lifecycle) noexcept {
+    if (lifecycle->phase != GatewayLifecyclePhase::awaiting_session) {
+        return invalid_state();
+    }
+    lifecycle->phase = GatewayLifecyclePhase::ready;
+    lifecycle->resume_available = lifecycle->has_sequence;
+    lifecycle->attempting_resume = false;
+    return step(GatewayLifecycleAction::none);
+}
+
+GatewayLifecycleStep gateway_lifecycle_reconnect_requested(GatewayLifecycle* lifecycle) noexcept {
+    if (lifecycle->phase != GatewayLifecyclePhase::awaiting_hello && !session_phase(*lifecycle)) {
+        return invalid_state();
+    }
+    return step(reconnect_action(lifecycle, lifecycle->resume_available));
+}
+
+GatewayLifecycleStep gateway_lifecycle_invalid_session(GatewayLifecycle* lifecycle,
+                                                       bool resumable) noexcept {
+    if (!session_phase(*lifecycle)) {
+        return invalid_state();
+    }
+    const bool can_resume = resumable && lifecycle->resume_available;
+    return step(reconnect_action(lifecycle, can_resume));
+}
+
+GatewayCloseDisposition gateway_classify_close(u16 close_code) noexcept {
+    switch (close_code) {
+    case 4004:
+    case 4010:
+    case 4011:
+    case 4012:
+    case 4013:
+    case 4014:
+        return GatewayCloseDisposition::stop;
+    case 4007:
+    case 4009:
+        return GatewayCloseDisposition::reidentify;
+    default:
+        return GatewayCloseDisposition::resume;
+    }
+}
+
+GatewayLifecycleStep gateway_lifecycle_closed(GatewayLifecycle* lifecycle, u16 close_code) noexcept {
+    if (lifecycle->phase == GatewayLifecyclePhase::idle) {
+        return invalid_state();
+    }
+    const GatewayCloseDisposition disposition = gateway_classify_close(close_code);
+    if (disposition == GatewayCloseDisposition::stop) {
+        lifecycle->phase = GatewayLifecyclePhase::idle;
+        lifecycle->awaiting_heartbeat_ack = false;
+        lifecycle->resume_available = false;
+        lifecycle->has_sequence = false;
+        return step(GatewayLifecycleAction::stop);
+    }
+    const bool can_resume = disposition == GatewayCloseDisposition::resume && lifecycle->resume_available;
+    return step(reconnect_action(lifecycle, can_resume));
+}
+
+namespace {
+GatewayQosPayload consume(GatewayQosState* state) noexcept {
+    const GatewayQosPayload payload = state->current;
+    if (state->has_upcoming)
+        state->current = state->upcoming;
+    state->has_upcoming = false;
+    return payload;
+}
+} // namespace
+
+bool gateway_qos_update(GatewayQosState* state, GatewayQosPayload next, bool session_established) noexcept {
+    const bool was_active = state->has_current && state->current.active;
+    if (!state->has_current) {
+        state->current = next;
+        state->has_current = true;
+    }
+    const bool send = next.active && !was_active && session_established;
+    if (next.active) {
+        state->current.active = true;
+        state->current.reasons = static_cast<u8>(state->current.reasons | next.reasons);
+        if (send)
+            gateway_qos_send_now(state);
+    }
+    state->upcoming = next;
+    state->has_upcoming = true;
+    return send;
+}
+
+void gateway_qos_send_now(GatewayQosState* state) noexcept {
+    // A second immediate heartbeat before the first is written consumes when written.
+    if (state->has_current && !state->has_immediate) {
+        state->immediate = consume(state);
+        state->has_immediate = true;
+    }
+}
+
+bool gateway_qos_take(GatewayQosState* state, GatewayQosPayload* payload) noexcept {
+    if (state->has_immediate) {
+        state->has_immediate = false;
+        *payload = state->immediate;
+        return true;
+    }
+    if (!state->has_current)
+        return false;
+    *payload = consume(state);
+    return true;
+}
+
+GatewayWriteResult gateway_write_heartbeat(const GatewayLifecycle& lifecycle, const GatewayQosPayload* qos,
+                                           Slice<u8> output) noexcept {
+    if (!output.data) {
+        return GatewayWriteResult{0, GatewayLifecycleError::invalid_input};
+    }
+    static constexpr char prefix[] = "{\"op\":40,\"d\":{\"seq\":";
+    static constexpr char foregrounded[] = "\"foregrounded\"";
+    static constexpr char rtc_connected[] = "\"rtc_connected\"";
+    constexpr u32 object_bytes = sizeof("{\"active\":,\"ver\":31,\"reasons\":[]}") - 1;
+    const u64 sequence = lifecycle.has_sequence ? lifecycle.last_sequence : 0;
+    const bool foreground = qos && (qos->reasons & gateway_qos_foregrounded);
+    const bool rtc = qos && (qos->reasons & gateway_qos_rtc_connected);
+    u32 qos_bytes = 4;
+    if (qos)
+        qos_bytes = static_cast<u32>(object_bytes + (qos->active ? 4 : 5) +
+                                     (foreground ? sizeof(foregrounded) - 1 : 0) +
+                                     (rtc ? sizeof(rtc_connected) - 1 : 0) + (foreground && rtc ? 1 : 0));
+    const u32 required = static_cast<u32>(sizeof(prefix) - 1) + decimal_digits(sequence) +
+                         static_cast<u32>(sizeof(",\"qos\":}}") - 1) + qos_bytes;
+    if (output.count < required) {
+        return GatewayWriteResult{0, GatewayLifecycleError::output_too_small};
+    }
+    u32 offset = 0;
+    const auto literal = [&](const char* text, u32 bytes) noexcept {
+        copy_bytes(output.data + offset, text, bytes);
+        offset += bytes;
+    };
+    literal(prefix, sizeof(prefix) - 1);
+    offset += decimal_write(output.data + offset, sequence);
+    literal(",\"qos\":", 7);
+    if (!qos) {
+        literal("null", 4);
+    } else {
+        literal("{\"active\":", 10);
+        if (qos->active)
+            literal("true", 4);
+        else
+            literal("false", 5);
+        literal(",\"ver\":31,\"reasons\":[", 21);
+        if (foreground)
+            literal(foregrounded, sizeof(foregrounded) - 1);
+        if (foreground && rtc)
+            literal(",", 1);
+        if (rtc)
+            literal(rtc_connected, sizeof(rtc_connected) - 1);
+        literal("]}", 2);
+    }
+    literal("}}", 2);
+    return GatewayWriteResult{offset, GatewayLifecycleError::none};
+}
+
+} // namespace maicord

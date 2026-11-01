@@ -1,6 +1,6 @@
 #pragma once
-#include "maicord/render/d3d11_renderer.hpp"
-#include "maicord/ui/navigation_view.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
+#include "maicord/ui/shell/navigation_view.hpp"
 
 namespace maicord {
 // Synthetic unread banner, jump bar and guild folder rail on the real native

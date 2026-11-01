@@ -1,10 +1,10 @@
 #pragma once
 
 #include "ui_surface_motion_measurement.hpp"
-#include "../../src/render/d3d11_renderer_layout.hpp"
-#include "maicord/app/message_view_runtime.hpp"
-#include "maicord/ui/message_author.hpp"
-#include "maicord/ui/native_text_candidate.hpp"
+#include "../../src/render/d3d11/renderer_layout.hpp"
+#include "maicord/app/chat/messages/view_runtime.hpp"
+#include "maicord/ui/chat/messages/author.hpp"
+#include "maicord/ui/text/native_text_candidate.hpp"
 
 namespace maicord {
 inline bool hover_retention_ui_probe(D3D11Renderer& renderer, MessageViewRuntime& view, MessageScene& scene,

@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
 
 namespace maicord {
 // Toasts over the shell and over an open settings page, through the real

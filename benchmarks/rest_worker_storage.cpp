@@ -1,4 +1,4 @@
-#include "../src/app/rest_client.cpp"
+#include "../src/app/net/rest_client.cpp"
 
 namespace maicord {
 namespace {

@@ -1,6 +1,6 @@
 #include "probe_present.hpp"
-#include "../../src/app/application_plugin_settings_projection.hpp"
-#include "../../src/app/application_plugin_browser_projection.hpp"
+#include "../../src/app/plugins/application_plugin_settings_projection.hpp"
+#include "../../src/app/plugins/browser_projection.hpp"
 #include "maicord/core/log.hpp"
 
 namespace maicord {

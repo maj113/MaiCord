@@ -88,7 +88,7 @@ jobs:
         shell: powershell
         run: python -B tools/release/test_release_tools.py
 
-      # The plugin index reference tool against the vectors tests/plugin_index.cpp uses.
+      # The plugin index reference tool against the vectors tests/app/plugins/index.cpp uses.
       - name: Plugin index tooling self-test
         shell: powershell
         run: python -B tools/release/test_plugin_index_tools.py

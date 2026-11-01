@@ -1,4 +1,4 @@
-"""How src/ui/generated/system_fallback_data.inc was observed; not rerunnable.
+"""How src/ui/text/generated/system_fallback_data.inc was observed; not rerunnable.
 
 The table is the en-US system font fallback policy for the default UI text
 system (Segoe UI): 503 ordered scalar intervals, each naming an ordered list of

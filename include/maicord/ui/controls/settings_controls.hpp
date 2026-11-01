@@ -1,8 +1,8 @@
 #pragma once
 
-#include "maicord/ui/geometry.hpp"
-#include "maicord/ui/paint.hpp"
-#include "maicord/ui/surface_geometry.hpp"
+#include "maicord/ui/core/geometry.hpp"
+#include "maicord/ui/core/paint.hpp"
+#include "maicord/ui/layout/surface_geometry.hpp"
 
 namespace maicord {
 struct UiSettingsTokens;

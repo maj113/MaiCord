@@ -1,6 +1,6 @@
-#include "maicord/app/dave_frame_crypto.hpp"
-#include "maicord/app/dave_key_derivation.hpp"
-#include "maicord/app/dave_receive_sender.hpp"
+#include "maicord/app/voice/dave/frame_crypto.hpp"
+#include "maicord/app/voice/dave/key_derivation.hpp"
+#include "maicord/app/voice/dave/receive_sender.hpp"
 #include "maicord/core/memory.hpp"
 #include "benchmark_output.hpp"
 

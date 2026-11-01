@@ -1,15 +1,15 @@
 #include "account_menu_ui_probe.hpp"
-#include "../ui_scene_fixtures.hpp"
+#include "../support/ui_scene_fixtures.hpp"
 #include "probe_present.hpp"
-#include "maicord/ui/account_menu.hpp"
-#include "maicord/ui/popup_presentation.hpp"
+#include "maicord/ui/account/menu.hpp"
+#include "maicord/ui/shell/popup_presentation.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/app/client_theme.hpp"
-#include "maicord/ui/surface_elevation.hpp"
-#include "maicord/ui/scene.hpp"
+#include "maicord/app/settings/client_theme.hpp"
+#include "maicord/ui/theme/surface_elevation.hpp"
+#include "maicord/ui/core/scene.hpp"
 #include "settings_theme_probe.hpp"
-#include "../../src/render/d3d11_renderer_interaction_state.hpp"
+#include "../../src/render/d3d11/renderer_interaction_state.hpp"
 
 namespace maicord {
 bool account_menu_ui_probe(D3D11Renderer& renderer,

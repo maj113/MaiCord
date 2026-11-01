@@ -1,8 +1,8 @@
 // Test/tool-only DirectWrite COLRv1 paint-program builder: the reference the
-// native COLR compiler (src/render/colr_source.cpp) is compared against.
+// native COLR compiler (src/render/effects/colr_source.cpp) is compared against.
 // Never linked into MaiCord.exe.
 #include "dwrite_paint_builder.hpp"
-#include "maicord/render/colr_paint.hpp"
+#include "maicord/render/effects/colr_paint.hpp"
 #include "../font_reference/dwrite_text_system.hpp"
 #include <d2d1.h> // Gradient-stop POD only; no Direct2D renderer or dependency.
 

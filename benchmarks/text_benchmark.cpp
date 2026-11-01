@@ -1,7 +1,7 @@
 #include "maicord/core/time.hpp"
-#include "maicord/render/message_hit_test.hpp"
-#include "maicord/ui/message_text_presentation.hpp"
-#include "maicord/ui/text.hpp"
+#include "maicord/render/text/message_hit_test.hpp"
+#include "maicord/ui/chat/messages/text_presentation.hpp"
+#include "maicord/ui/text/text.hpp"
 #include "benchmark_output.hpp"
 
 #include <Windows.h>

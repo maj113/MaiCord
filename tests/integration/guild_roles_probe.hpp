@@ -1,11 +1,11 @@
 #pragma once
 
 #include "ui_surface_motion_measurement.hpp"
-#include "../ui_scene_fixtures.hpp"
-#include "maicord/ui/settings_scene.hpp"
+#include "../support/ui_scene_fixtures.hpp"
+#include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
-#include "maicord/ui/icon.hpp"
+#include "maicord/ui/widgets/icon.hpp"
 
 namespace maicord {
 namespace guild_roles_probe_detail {

@@ -2,12 +2,12 @@
 """Package, describe and sign MaiCord update artifacts.
 
 The formats here mirror the client's verifiers exactly:
-  * src/app/update_package.cpp - a ZIP of exactly one stored member, MaiCord.exe,
+  * src/app/update/package.cpp - a ZIP of exactly one stored member, MaiCord.exe,
     with no flags/extra fields/comments.
-  * src/app/update_manifest.cpp - a compact JSON document with ten fields,
+  * src/app/update/manifest.cpp - a compact JSON document with ten fields,
     signed as SHA-256("MaiCord update manifest v1\\n" || document) with
     ECDSA P-256, stored as a raw 64-byte P1363 (r || s) signature.
-  * src/app/update_changelog.cpp - the channel changelog, signed the same way
+  * src/app/update/changelog.cpp - the channel changelog, signed the same way
     under "MaiCord update changelog v1\\n".
 
 Run `python tools/release/maicord_release.py --help` for the subcommands.
@@ -42,7 +42,7 @@ MANIFEST_MAXIMUM_BYTES = 4096
 PACKAGE_MAXIMUM_BYTES = 0xFFFFFFFE
 # The client refuses larger packages (kUpdateDefaultArtifactCap).
 PACKAGE_CLIENT_MAXIMUM_BYTES = 64 * 1024 * 1024
-# The update protocol (kUpdateProtocol in update_manifest.hpp): the package
+# The update protocol (kUpdateProtocol in app/update/manifest.hpp): the package
 # layout and manifest schema. A client reads only updates/p<protocol>/ on the
 # Pages site and accepts manifests whose format is its protocol.
 PROTOCOL = 2
@@ -61,7 +61,7 @@ MANIFEST_FIELDS = ("format", "product", "arch", "channel", "version", "issued", 
                    "artifact")
 STABLE_SEQUENCE = 999
 DEV_SEQUENCE_MAXIMUM = 998
-# Matches src/app/update_changelog.hpp.
+# Matches include/maicord/app/update/changelog.hpp.
 CHANGELOG_MAXIMUM_BYTES = 65536
 CHANGELOG_MAXIMUM_ENTRIES = 100
 CHANGELOG_TEXT_MAXIMUM_BYTES = 8192
@@ -265,7 +265,7 @@ def build_update_zip(binaries: Path, output: Path) -> None:
 
 
 def validate_update_zip(package: bytes) -> list[str]:
-    """Mirror of update_package.cpp's structural ZIP and name checks (not PE);
+    """Mirror of app/update/package.cpp's structural ZIP and name checks (not PE);
     returns the member names."""
     def fail(reason: str):
         raise ReleaseError(f"Update ZIP rejected: {reason}.")
@@ -337,7 +337,7 @@ def render_manifest(version: int, channel: str, issued: int, expires: int, artif
 
 
 def parse_manifest(document: bytes) -> dict:
-    """Strict reading equivalent to update_manifest.cpp's field rules."""
+    """Strict reading equivalent to app/update/manifest.cpp's field rules."""
     if not document or len(document) > MANIFEST_MAXIMUM_BYTES:
         raise ReleaseError("Manifest size is invalid.")
     if b"\\" in document:
@@ -423,7 +423,7 @@ def render_changelog(channel: str, version: int, base: int, entries: list[dict])
 
 
 def parse_changelog(document: bytes) -> dict:
-    """Strict reading equivalent to update_changelog.cpp."""
+    """Strict reading equivalent to app/update/changelog.cpp."""
     if not document or len(document) > CHANGELOG_MAXIMUM_BYTES:
         raise ReleaseError("Changelog size is invalid.")
 

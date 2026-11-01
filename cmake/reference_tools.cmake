@@ -75,7 +75,7 @@ foreach(target MaiCordColrReference MaiCordColrBuildBenchmark)
 endforeach()
 # Full-corpus native/Windows paint-program equality pass (--program-work).
 maicord_program(MaiCordNativeColrCost ENTRY maicord_colr_cost_entry
-    SOURCES tests/native_colr_cost_test.cpp tools/colr_reference/native_source.cpp
+    SOURCES tests/render/effects/native_colr_cost_test.cpp tools/colr_reference/native_source.cpp
         tools/colr_reference/dwrite_paint_builder.cpp tools/font_reference/dwrite_text_system.cpp
     LIBS maicord_core maicord_font maicord_text maicord_paint_program maicord_renderer kernel32 dwrite d3d11
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}")

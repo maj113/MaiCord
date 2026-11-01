@@ -3,10 +3,10 @@
 // comparisons remain exact. MAICORD_GLYPH_PROBE selects the comparison: topology (unset; list
 // reference vertex shader), easing, stage or color (reference vertex and pixel
 // shaders); stage and color take MAICORD_GLYPH_STAGE_CONTROL 0-2.
-#include "maicord/render/d3d11_draw_pipeline.hpp"
+#include "maicord/render/d3d11/draw_pipeline.hpp"
 #include "probe_draw_pipeline.hpp"
-#include "maicord/render/text_effect.hpp"
-#include "../test_output.hpp"
+#include "maicord/render/text/effect.hpp"
+#include "../support/test_output.hpp"
 
 #include "maicord/sys/d3d11.hpp"
 #include "maicord_glyph_list_vs.hpp"

@@ -70,8 +70,8 @@ Its window uses the quiet probe styles and does not take focus.
 After the first successful `Present`, the client requests normal window closure.
 
 The runner prints each `MAICORD_STARTUP` record and cold/warm medians, then the medians of the
-named startup points (`MAICORD_PERF_MARK` in `main.cpp`, `application_window.cpp`,
-`application_frame_presentation.cpp` and `application_shutdown_metrics.cpp`), in ms since process creation.
+named startup points (`MAICORD_PERF_MARK` in `main.cpp`, `app/shell/window.cpp`,
+`app/shell/frame_presentation.cpp` and `app/shell/shutdown_metrics.cpp`), in ms since process creation.
 It accepts a record only from its child process, after exit code zero and valid cycle, CPU-time and memory queries.
 It also requires `backend_loaded=1` and `login_active=1` for every accepted launch.
 These flags confirm that the real backend and login instance exist. They do not mean that authentication finished.

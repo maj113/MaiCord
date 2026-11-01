@@ -6,10 +6,10 @@ option(MAICORD_STARTUP_PROBE "Measure isolated production-path startup" OFF)
 # The account module, linked into MaiCord.exe (and through the account host
 # into every test that drives it).
 maicord_library(maicord_account_module
-    src/app/account_message_poll.cpp src/app/account_guild_invite.cpp src/app/account_settings_rest.cpp
-    src/app/account_module.cpp src/app/account_message_search.cpp
-    src/app/account_media_catalog.cpp src/app/account_guild_assets.cpp src/app/guild_image.cpp
-    src/app/profile_image.cpp src/app/account_profile_edit.cpp
+    src/app/chat/polls/account_message_poll.cpp src/app/guild/account_guild_invite.cpp src/app/settings/account_settings_rest.cpp
+    src/app/account/account_module.cpp src/app/chat/search/account_message_search.cpp
+    src/app/media/account_media_catalog.cpp src/app/guild/account_guild_assets.cpp src/app/media/guild_image.cpp
+    src/app/media/profile_image.cpp src/app/account/account_profile_edit.cpp
     LIBS maicord_core maicord_platform maicord_protocol
     maicord_app_core maicord_model maicord_account_media maicord_media_core
     maicord_media_codec maicord_cdn_media
@@ -22,96 +22,96 @@ target_link_libraries(maicord_client_resources PRIVATE maicord_compile_contract)
 target_include_directories(maicord_client_resources PRIVATE "${MAICORD_GENERATED_DIRECTORY}")
 
 maicord_program(MaiCord WIN32 ENTRY maicord_entry
-    SOURCES src/app/application_poll.cpp config/maicord.manifest
-    src/app/application_state.cpp src/app/application_settings.cpp
-    src/app/settings_catalog.cpp src/app/application_user_settings.cpp src/app/application_account_settings.cpp
-    src/app/application_theme_editor.cpp src/app/application_custom_theme.cpp
-    src/app/application_theme_publication.cpp src/app/application_friends.cpp
-    src/app/application_friends_search.cpp src/app/application_friends_storage.cpp
-    src/app/application_plugins.cpp src/app/application_plugins_sdk.cpp src/app/application_plugins_read.cpp
-    src/app/application_plugins_actions.cpp src/app/application_plugins_surfaces.cpp
-    src/app/application_plugins_render.cpp src/app/application_plugins_fx.cpp
-    src/app/application_plugins_compose.cpp src/app/application_plugin_menus.cpp
-    src/app/application_window.cpp src/app/application_window_runtime.cpp src/app/application_input_routing.cpp
-    src/app/application_caption.cpp src/app/app_icon.cpp
-    src/app/application_keyboard_focus.cpp src/app/application_account_module.cpp
-    src/app/application_account_logout.cpp
-    src/app/application_account_pump.cpp src/app/application_account_presentation.cpp
-    src/app/application_account_reconnect.cpp
-    src/app/application_thread_starter.cpp src/app/application_channel_session.cpp
-    src/app/application_channel_snapshots.cpp src/app/application_commands.cpp src/app/application_builtin_commands.cpp
-    src/app/application_composer.cpp
-    src/app/application_message_feedback.cpp src/app/application_reply_draft.cpp
-    src/app/application_composer_input.cpp src/app/application_button_input.cpp
-    src/app/application_composer_edit_menu.cpp src/app/application_composer_spellcheck.cpp
-    src/app/application_attachments.cpp src/app/application_attachment_allowance.cpp
-    src/app/application_upload_lane.cpp src/app/application_content_input.cpp src/app/application_link_trust.cpp
-    src/app/application_image_viewer.cpp src/app/application_frame_presentation.cpp
-    src/app/application_unread_banner.cpp src/app/application_message_intro.cpp
-    src/app/application_guild_folders.cpp src/app/application_navigation_drag.cpp
-    src/app/application_guild_lifecycle.cpp src/app/application_profile_editor.cpp
-    src/app/application_guild_menu.cpp src/app/application_guild_community.cpp
-    src/app/application_guild_card.cpp src/app/application_guild_banner.cpp src/app/application_guild_invite.cpp
-    src/app/application_taskbar_attention.cpp src/app/application_desktop.cpp
-    src/app/application_desktop_settings.cpp src/app/application_surface_motion.cpp
-    src/app/application_text_form.cpp src/app/application_composer_text_input.cpp
-    src/app/application_login_auth.cpp src/app/application_login_input.cpp src/app/application_login_ui.cpp
-    src/app/application_ui_runtime.cpp src/app/account_permission_storage.cpp src/app/application_media.cpp
-    src/app/application_video.cpp src/app/application_tooltip.cpp src/app/application_reaction_tooltip.cpp
-    src/app/application_emoji_tooltip.cpp src/app/application_expression_card.cpp
-    src/app/application_interaction_card.cpp
-    src/app/application_toast.cpp
-    src/app/application_account_menu.cpp
-    src/app/application_account_switch.cpp src/app/application_search.cpp src/app/application_search_content.cpp
-    src/app/application_search_navigation.cpp src/app/application_thread_actions.cpp
-    src/app/application_thread_browser.cpp src/app/application_thread_creation.cpp
-    src/app/application_forum_post.cpp src/app/application_forum_form.cpp
-    src/app/application_forum_attachments.cpp src/app/application_forum_preview.cpp
-    src/app/application_composer_preview.cpp src/app/application_local_preview.cpp
-    src/app/application_attachment_probe.cpp src/app/attachment_media_probe.cpp
-    src/app/application_thread_header_activation.cpp src/app/application_thread_header.cpp
-    src/app/application_quick_switcher.cpp src/app/application_message_forward.cpp
-    src/app/application_downloads.cpp src/app/application_shortcuts.cpp
-    src/app/application_keybinds_settings.cpp src/app/application_pinned_messages.cpp
-    src/app/application_media_picker.cpp src/app/application_gif_favorites.cpp
-    src/app/application_gif_favorite_star.cpp
-    src/app/application_emoji_preferences.cpp src/app/application_action_captcha.cpp
-    src/app/application_channel_overview.cpp src/app/application_settings_layer.cpp
-    src/app/application_settings_modal.cpp
-    src/app/application_guild_settings.cpp src/app/application_guild_settings_profile.cpp
-    src/app/application_guild_settings_engagement.cpp src/app/application_guild_settings_expressions.cpp
-    src/app/application_guild_settings_members.cpp src/app/application_guild_settings_roles.cpp
-    src/app/application_guild_settings_invites.cpp src/app/application_guild_settings_safety.cpp
-    src/app/application_guild_settings_audit_log.cpp src/app/application_guild_settings_bans.cpp
-    src/app/application_guild_settings_boost.cpp
-    src/app/application_poll_create.cpp
-    src/app/application_self_status.cpp src/app/application_browser_auth.cpp
-    src/app/application_captcha_auth.cpp src/app/application_media_animation.cpp
-    src/app/application_media_requests.cpp src/app/application_message_delete.cpp
-    src/app/application_private_conversation.cpp src/app/application_private_channel.cpp
-    src/app/application_message_edit.cpp src/app/application_message_mutation_notice.cpp
-    src/app/application_profile.cpp src/app/application_dm_profile.cpp src/app/application_member_moderation.cpp
-    src/app/application_message_reaction.cpp src/app/application_message_send.cpp
-    src/app/application_mention_confirmation.cpp src/app/application_message_history.cpp
-    src/app/application_read_state.cpp src/app/application_scoped_read.cpp
-    src/app/application_scoped_read_menu.cpp src/app/application_notifications.cpp
-    src/app/application_notification_controls.cpp src/app/application_custom_status.cpp
-    src/app/application_activity.cpp src/app/game_detection.cpp src/app/application_inbox.cpp
-    src/app/application_message_interaction.cpp src/app/application_user_actions.cpp
-    src/app/application_report.cpp src/app/application_scheduler.cpp src/app/application_shutdown_metrics.cpp
-    src/app/application_scrolling.cpp src/app/application_scroll_host.cpp src/app/application_shell_input.cpp
-    src/app/application_pane_resize.cpp src/app/main.cpp $<TARGET_OBJECTS:maicord_runtime>
-    src/app/application_accessibility.cpp src/app/application_updates.cpp src/app/application_update_entry.cpp
-    src/app/application_plugin_browser.cpp src/app/application_plugin_browser_worker.cpp
-    src/app/application_plugin_browser_entry.cpp src/app/application_plugin_browser_projection.cpp
+    SOURCES src/app/chat/polls/poll.cpp config/maicord.manifest
+    src/app/shell/state.cpp src/app/settings/settings.cpp
+    src/app/settings/catalog.cpp src/app/settings/user_settings.cpp src/app/settings/account_settings.cpp
+    src/app/settings/theme_editor.cpp src/app/settings/custom_theme.cpp
+    src/app/settings/theme_publication.cpp src/app/account/friends.cpp
+    src/app/account/friends_search.cpp src/app/account/friends_storage.cpp
+    src/app/plugins/plugins.cpp src/app/plugins/plugins_sdk.cpp src/app/plugins/read.cpp
+    src/app/plugins/actions.cpp src/app/plugins/surfaces.cpp
+    src/app/plugins/render.cpp src/app/plugins/fx.cpp
+    src/app/plugins/compose.cpp src/app/plugins/menus.cpp
+    src/app/shell/window.cpp src/app/shell/window_runtime.cpp src/app/shell/input_routing.cpp
+    src/app/shell/caption.cpp src/app/shell/app_icon.cpp
+    src/app/shell/keyboard_focus.cpp src/app/account/application_account_module.cpp
+    src/app/account/application_account_logout.cpp
+    src/app/account/account_pump.cpp src/app/account/account_presentation.cpp
+    src/app/account/application_account_reconnect.cpp
+    src/app/chat/threads/starter.cpp src/app/chat/channel_session.cpp
+    src/app/chat/channel_snapshots.cpp src/app/chat/composer/commands.cpp src/app/chat/composer/builtin_commands.cpp
+    src/app/chat/composer/composer.cpp
+    src/app/chat/messages/feedback.cpp src/app/chat/composer/reply_draft.cpp
+    src/app/chat/composer/input.cpp src/app/shell/button_input.cpp
+    src/app/chat/composer/edit_menu.cpp src/app/chat/composer/spellcheck.cpp
+    src/app/chat/composer/attachments.cpp src/app/media/attachment_allowance.cpp
+    src/app/media/upload_lane.cpp src/app/shell/content_input.cpp src/app/chat/application_link_trust.cpp
+    src/app/media/image_viewer.cpp src/app/shell/frame_presentation.cpp
+    src/app/chat/unread_banner.cpp src/app/chat/messages/intro.cpp
+    src/app/guild/folders.cpp src/app/shell/navigation_drag.cpp
+    src/app/guild/lifecycle.cpp src/app/account/profile_editor.cpp
+    src/app/guild/menu.cpp src/app/guild/community.cpp
+    src/app/guild/card.cpp src/app/guild/banner.cpp src/app/guild/invite.cpp
+    src/app/notifications/taskbar_attention.cpp src/app/notifications/desktop.cpp
+    src/app/notifications/desktop_settings.cpp src/app/shell/surface_motion.cpp
+    src/app/chat/composer/text_form.cpp src/app/chat/composer/text_input.cpp
+    src/app/account/login/auth.cpp src/app/account/login/input.cpp src/app/account/login/ui.cpp
+    src/app/shell/ui_runtime.cpp src/app/guild/account_permission_storage.cpp src/app/media/media.cpp
+    src/app/media/video.cpp src/app/shell/tooltip.cpp src/app/chat/messages/reaction_tooltip.cpp
+    src/app/media/emoji_tooltip.cpp src/app/media/expression_card.cpp
+    src/app/chat/composer/interaction_card.cpp
+    src/app/shell/toast.cpp
+    src/app/account/account_menu.cpp
+    src/app/account/application_account_switch.cpp src/app/chat/search/search.cpp src/app/chat/search/content.cpp
+    src/app/chat/search/navigation.cpp src/app/chat/threads/actions.cpp
+    src/app/chat/threads/browser.cpp src/app/chat/threads/creation.cpp
+    src/app/chat/threads/forum_post.cpp src/app/chat/threads/forum_form.cpp
+    src/app/chat/threads/forum_attachments.cpp src/app/chat/threads/forum_preview.cpp
+    src/app/chat/composer/preview.cpp src/app/media/local_preview.cpp
+    src/app/media/attachment_probe.cpp src/app/media/attachment_media_probe.cpp
+    src/app/chat/threads/header_activation.cpp src/app/chat/threads/header.cpp
+    src/app/shell/quick_switcher.cpp src/app/chat/messages/forward.cpp
+    src/app/media/downloads.cpp src/app/shell/shortcuts.cpp
+    src/app/settings/keybinds_settings.cpp src/app/chat/messages/pinned_messages.cpp
+    src/app/media/picker.cpp src/app/media/gif_favorites.cpp
+    src/app/media/gif_favorite_star.cpp
+    src/app/settings/emoji_preferences.cpp src/app/account/login/action_captcha.cpp
+    src/app/guild/channel_overview.cpp src/app/settings/layer.cpp
+    src/app/settings/modal.cpp
+    src/app/guild/settings/settings.cpp src/app/guild/settings/profile.cpp
+    src/app/guild/settings/engagement.cpp src/app/guild/settings/expressions.cpp
+    src/app/guild/settings/members.cpp src/app/guild/settings/roles.cpp
+    src/app/guild/settings/invites.cpp src/app/guild/settings/safety.cpp
+    src/app/guild/settings/audit_log.cpp src/app/guild/settings/bans.cpp
+    src/app/guild/settings/boost.cpp
+    src/app/chat/polls/create.cpp
+    src/app/account/self_status.cpp src/app/account/login/browser_auth.cpp
+    src/app/account/login/captcha_auth.cpp src/app/media/animation.cpp
+    src/app/media/requests.cpp src/app/chat/messages/delete.cpp
+    src/app/chat/application_private_conversation.cpp src/app/chat/private_channel.cpp
+    src/app/chat/messages/edit.cpp src/app/chat/messages/mutation_notice.cpp
+    src/app/account/profile.cpp src/app/account/dm_profile.cpp src/app/guild/member_moderation.cpp
+    src/app/chat/messages/reaction.cpp src/app/chat/messages/send.cpp
+    src/app/chat/composer/mention_confirmation.cpp src/app/chat/messages/history.cpp
+    src/app/chat/read_state.cpp src/app/chat/scoped_read.cpp
+    src/app/chat/scoped_read_menu.cpp src/app/notifications/notifications.cpp
+    src/app/notifications/controls.cpp src/app/account/custom_status.cpp
+    src/app/account/activity.cpp src/app/account/game_detection.cpp src/app/chat/inbox.cpp
+    src/app/chat/messages/interaction.cpp src/app/account/user_actions.cpp
+    src/app/chat/report.cpp src/app/shell/scheduler.cpp src/app/shell/shutdown_metrics.cpp
+    src/app/shell/scrolling.cpp src/app/shell/scroll_host.cpp src/app/shell/input.cpp
+    src/app/shell/pane_resize.cpp src/app/shell/main.cpp $<TARGET_OBJECTS:maicord_runtime>
+    src/app/accessibility/accessibility.cpp src/app/update/updates.cpp src/app/update/entry.cpp
+    src/app/plugins/browser.cpp src/app/plugins/browser_worker.cpp
+    src/app/plugins/browser_entry.cpp src/app/plugins/browser_projection.cpp
     # Voice calls: soundboard, voice messages, preferences, voice card, mute/deafen,
     # the voice user menu, the call view, stage channels and Go Live.
-    src/app/application_soundboard.cpp src/app/application_voice_message.cpp src/app/application_voice.cpp
-    src/app/application_voice_settings.cpp src/app/voice_settings_binding.cpp src/app/application_call.cpp
-    src/app/application_stage.cpp src/app/application_voice_channels.cpp src/app/application_message_components.cpp
-    src/app/application_channel_memory.cpp src/app/application_startup_history.cpp
-    src/app/application_startup_shell.cpp
-    src/app/application_invite_cards.cpp src/app/application_stream.cpp
+    src/app/voice/soundboard.cpp src/app/voice/application_voice_message.cpp src/app/voice/voice.cpp
+    src/app/voice/settings.cpp src/app/voice/settings_binding.cpp src/app/voice/call.cpp
+    src/app/voice/stage.cpp src/app/voice/channels.cpp src/app/chat/messages/components.cpp
+    src/app/chat/application_channel_memory.cpp src/app/shell/startup_history.cpp
+    src/app/shell/application_startup_shell.cpp
+    src/app/guild/invite_cards.cpp src/app/voice/stream.cpp
     LIBS maicord_compile_contract
     maicord_core maicord_text maicord_ui maicord_model maicord_client_preferences
     maicord_notification_sound_assets maicord_plugin_host maicord_plugin_modules maicord_plugin_manager maicord_ui_input
@@ -128,8 +128,8 @@ if(MAICORD_STARTUP_PROBE)
     set_property(TARGET MaiCord PROPERTY MAICORD_STARTUP_PROBE ON)
     # Only these sources use the probe. Restoring a normal client after the
     # measurement must not recompile unrelated application sources.
-    set_property(SOURCE src/app/main.cpp src/app/application_window.cpp
-        src/app/application_frame_presentation.cpp src/app/application_shutdown_metrics.cpp
+    set_property(SOURCE src/app/shell/main.cpp src/app/shell/window.cpp
+        src/app/shell/frame_presentation.cpp src/app/shell/shutdown_metrics.cpp
         APPEND PROPERTY COMPILE_DEFINITIONS
         "$<$<BOOL:$<TARGET_PROPERTY:MAICORD_STARTUP_PROBE>>:MAICORD_STARTUP_PROBE=1>")
 endif()
@@ -245,7 +245,7 @@ if(MAICORD_UPDATE_REPOSITORY OR MAICORD_UPDATE_PUBLIC_KEY)
     endif()
     maicord_check_p256_point(MAICORD_UPDATE_PUBLIC_KEY)
 endif()
-set_source_files_properties(src/app/application_update_entry.cpp PROPERTIES COMPILE_DEFINITIONS
+set_source_files_properties(src/app/update/entry.cpp PROPERTIES COMPILE_DEFINITIONS
     "MAICORD_UPDATE_REPOSITORY=\"${maicord_update_repository}\";MAICORD_UPDATE_PUBLIC_KEY=\"${maicord_update_public_key}\";MAICORD_UPDATE_DEV=${maicord_update_dev};MAICORD_UPDATE_COMMIT=\"${maicord_update_commit}\";MAICORD_VERSION_MAJOR=${maicord_update_major};MAICORD_VERSION_MINOR=${maicord_update_minor};MAICORD_VERSION_PATCH=${maicord_update_patch}")
 
 # Official plugin catalog (maj113/MaiCord-plugins on GitHub Pages): the current
@@ -280,7 +280,7 @@ if(MAICORD_PLUGIN_CATALOG_PUBLIC_KEY OR MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY)
         endif()
     endforeach()
 endif()
-set_source_files_properties(src/app/application_plugin_browser_entry.cpp PROPERTIES COMPILE_DEFINITIONS
+set_source_files_properties(src/app/plugins/browser_entry.cpp PROPERTIES COMPILE_DEFINITIONS
     "MAICORD_PLUGIN_CATALOG_REPOSITORY=\"${MAICORD_PLUGIN_CATALOG_REPOSITORY}\";MAICORD_PLUGIN_CATALOG_PUBLIC_KEY=\"${MAICORD_PLUGIN_CATALOG_PUBLIC_KEY}\";MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY=\"${MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY}\"")
 
 # Runtime assets next to the executable: licenses and the bundled fonts.
@@ -353,26 +353,27 @@ function(maicord_compact_sources)
         endif()
     endforeach()
 endfunction()
-file(GLOB MAICORD_COLD_APPLICATION_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/app/application_*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/app/update_*.cpp")
+# The client's own Application sources (all of MaiCord.exe's but the entry and
+# the icon) and the updater are cold.
+file(GLOB MAICORD_COLD_UPDATE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/app/update/*.cpp")
 maicord_compact_sources(
-    SOURCES ${MAICORD_COLD_APPLICATION_SOURCES} src/app/acceptance_record.cpp
-        src/app/account_media.cpp src/app/account_media_worker.cpp src/app/regional_flag_assets.cpp
-        src/app/game_detection.cpp src/app/file_persistence.cpp src/core/log.cpp src/ui/clipboard.cpp
-        src/platform/staged_file.cpp src/platform/browser_sign_in_launcher.cpp
-        src/platform/network_file.cpp src/platform/file_picker.cpp src/platform/clipboard_attachment.cpp
-        src/platform/file_identity.cpp src/platform/timezone.cpp src/platform/secure_buffer.cpp
-    TARGETS maicord_protocol maicord_model maicord_plugin_host maicord_plugin_modules maicord_plugin_manager
+    SOURCES ${MAICORD_COLD_UPDATE_SOURCES} src/app/account/login/acceptance_record.cpp
+        src/app/media/account_media.cpp src/app/media/account_media_worker.cpp src/app/media/regional_flag_assets.cpp
+        src/app/account/game_detection.cpp src/app/net/file_persistence.cpp src/core/log.cpp src/ui/text/clipboard.cpp
+        src/platform/desktop/staged_file.cpp src/platform/desktop/browser_sign_in_launcher.cpp
+        src/platform/net/file.cpp src/platform/desktop/file_picker.cpp src/platform/desktop/clipboard_attachment.cpp
+        src/platform/desktop/file_identity.cpp src/platform/desktop/timezone.cpp src/platform/crypto/secure_buffer.cpp
+    TARGETS MaiCord maicord_protocol maicord_model maicord_plugin_host maicord_plugin_modules maicord_plugin_manager
         maicord_account_host maicord_client_preferences maicord_account_paths maicord_webauthn
     # The user store resolves every member name and presence update: member-list
     # model time is 6% lower with it at /O2, for 2 KiB. The guild member store
     # and member list compile for size through minsize attribute regions in
     # their sources, which leave their member-list update and rebuild paths /O2.
     EXCLUDE
-        "/application_(frame_presentation|scheduler|video)\\.cpp$"
-        "/model/(message_(rich_)?store|user_store|guild_member_store|member_list)\\.cpp$"
-        "/protocol/(message_history|websocket_frame|websocket_message|http1|http_response_stream|json_write|writer|json_ids|gateway_payload|gateway_events|gateway_message_events|gateway_message_rich|gateway_reaction_events|gateway_typing_events|media_packet|dave_frame|dave_replay|voice_media_events|p256_signature|etf)\\.cpp$")
+        "/app/shell/(main|app_icon)\\.cpp$"
+        "/app/(shell/frame_presentation|shell/scheduler|media/video)\\.cpp$"
+        "/model/(chat/message_(rich_)?store|user/store|guild/member_store|guild/member_list)\\.cpp$"
+        "/protocol/(auth/p256_signature|encoding/json_ids|encoding/json_write|encoding/writer|gateway/etf|gateway/events|gateway/message_events|gateway/message_rich|gateway/payload|gateway/reaction_events|gateway/typing_events|http/http1|http/http_response_stream|http/websocket_frame|http/websocket_message|messages/history|voice/dave_frame|voice/dave_replay|voice/media_events|voice/media_packet)\\.cpp$")
 # UI scenes, presentation, renderer and the message runtime: the offline perf
 # probe measured equal or lower main-thread CPU in every phase at /Os (smaller
 # code and no chained unwind records). The parsers and tokenizers they run per
@@ -384,75 +385,75 @@ maicord_compact_sources(
 # requests. Gateway dispatch, media decode and text shaping stay /O2.
 maicord_compact_sources(
     TARGETS maicord_ui maicord_renderer maicord_message_runtime maicord_message_media
-    EXCLUDE "/(message_markdown|code_highlight|spell_tokenize|ansi_text|text_measure_cache)\\.cpp$"
-        "/(native_glyph_outlines|colr_paint)\\.cpp$"
+    EXCLUDE "/ui/(chat/messages/markdown|text/ansi_text|text/code_highlight|text/measure_cache|text/spell_tokenize)\\.cpp$"
+        "/render/(text/native_glyph_outlines|effects/colr_paint)\\.cpp$"
     SOURCES
-        src/app/channel_memory.cpp
-        src/app/quick_switcher_controller.cpp src/app/message_forward_controller.cpp
-        src/app/pinned_message_controller.cpp src/app/poll_controller.cpp src/app/poll_draft.cpp
-        src/app/channel_overview_controller.cpp src/app/search_recent.cpp src/app/link_trust.cpp
-        src/app/received_attachment_open.cpp src/app/account_credential_forget.cpp
-        src/app/login_mfa_policy.cpp src/app/navigation_shortcuts.cpp src/app/login_continuations.cpp
-        src/app/settings_catalog.cpp src/app/voice_settings_binding.cpp
-        src/platform/desktop_notifications.cpp src/platform/notification_identity.cpp
-        src/platform/taskbar_attention.cpp src/platform/clipboard_image.cpp
-        src/app/user_auth_coordinator.cpp src/app/user_account_coordinator.cpp
-        src/app/user_client_configuration.cpp src/app/remote_auth_client.cpp
-        src/app/remote_auth_handshake.cpp src/app/remote_auth_ticket_exchange.cpp
-        src/platform/remote_auth_crypto.cpp src/app/captcha_bridge.cpp src/app/captcha_challenge.cpp
-        src/app/account_action_captcha.cpp src/app/browser_sign_in_receiver.cpp src/app/loopback_server.cpp src/app/browser_login.cpp
-        src/app/account_session_store.cpp src/app/account_profile.cpp
-        src/app/account_profile_promotion.cpp src/app/account_logout.cpp
-        src/app/account_guild_admin.cpp src/app/account_forum_post.cpp src/app/account_gif_favorites.cpp
-        src/app/account_notification_settings.cpp src/app/account_thread_creation.cpp
-        src/app/account_thread_actions.cpp src/app/account_thread_browser.cpp
-        src/app/account_relationships.cpp src/app/account_poll_create.cpp
-        src/app/account_pinned_messages.cpp src/app/account_channel_overview.cpp
-        src/app/account_private_channel.cpp src/app/account_message_search.cpp
-        src/app/account_guild_invite.cpp src/app/account_settings_rest.cpp
-        src/app/account_media_catalog.cpp src/app/account_message_poll.cpp
-        src/app/hpke_derivation.cpp src/app/hpke_context.cpp src/app/mls_hpke.cpp
-        src/app/mls_key_schedule.cpp src/app/mls_key_package.cpp src/app/mls_signature.cpp
-        src/app/mls_exporter.cpp src/app/dave_key_package.cpp src/app/dave_welcome.cpp
-        src/app/dave_receive_epoch.cpp src/app/voice_connection_setup.cpp src/app/voice_media_setup.cpp
-        src/app/voice_udp_discovery.cpp
+        src/app/chat/channel_memory.cpp
+        src/app/shell/quick_switcher_controller.cpp src/app/chat/messages/forward_controller.cpp
+        src/app/chat/messages/pinned_message_controller.cpp src/app/chat/polls/controller.cpp src/app/chat/polls/draft.cpp
+        src/app/guild/channel_overview_controller.cpp src/app/chat/search/recent.cpp src/app/chat/link_trust.cpp
+        src/app/media/received_attachment_open.cpp src/app/account/login/account_credential_forget.cpp
+        src/app/account/login/mfa_policy.cpp src/app/shell/navigation_shortcuts.cpp src/app/account/login/continuations.cpp
+        src/app/settings/catalog.cpp src/app/voice/settings_binding.cpp
+        src/platform/desktop/notifications.cpp src/platform/desktop/notification_identity.cpp
+        src/platform/desktop/taskbar_attention.cpp src/platform/desktop/clipboard_image.cpp
+        src/app/account/login/user_auth_coordinator.cpp src/app/account/user_account_coordinator.cpp
+        src/app/account/user_client_configuration.cpp src/app/account/login/remote_auth_client.cpp
+        src/app/account/login/remote_auth_handshake.cpp src/app/account/login/remote_auth_ticket_exchange.cpp
+        src/platform/crypto/remote_auth_crypto.cpp src/app/account/login/captcha_bridge.cpp src/app/account/login/captcha_challenge.cpp
+        src/app/account/login/account_action_captcha.cpp src/app/account/login/browser_sign_in_receiver.cpp src/app/account/login/loopback_server.cpp src/app/account/login/browser_login.cpp
+        src/app/account/account_session_store.cpp src/app/account/account_profile.cpp
+        src/app/account/account_profile_promotion.cpp src/app/account/account_logout.cpp
+        src/app/guild/account_guild_admin.cpp src/app/chat/threads/account_forum_post.cpp src/app/media/account_gif_favorites.cpp
+        src/app/notifications/account_notification_settings.cpp src/app/chat/threads/account_thread_creation.cpp
+        src/app/chat/threads/account_thread_actions.cpp src/app/chat/threads/account_thread_browser.cpp
+        src/app/account/account_relationships.cpp src/app/chat/polls/account_poll_create.cpp
+        src/app/chat/messages/account_pinned_messages.cpp src/app/guild/account_channel_overview.cpp
+        src/app/chat/account_private_channel.cpp src/app/chat/search/account_message_search.cpp
+        src/app/guild/account_guild_invite.cpp src/app/settings/account_settings_rest.cpp
+        src/app/media/account_media_catalog.cpp src/app/chat/polls/account_message_poll.cpp
+        src/app/voice/mls/hpke_derivation.cpp src/app/voice/mls/hpke_context.cpp src/app/voice/mls/hpke.cpp
+        src/app/voice/mls/key_schedule.cpp src/app/voice/mls/key_package.cpp src/app/voice/mls/signature.cpp
+        src/app/voice/mls/exporter.cpp src/app/voice/dave/key_package.cpp src/app/voice/dave/welcome.cpp
+        src/app/voice/dave/receive_epoch.cpp src/app/voice/connection_setup.cpp src/app/voice/media_setup.cpp
+        src/app/voice/udp_discovery.cpp
         # Rebuilt on change, not per frame: the UI Automation provider,
         # sign-in secure text input, keybind registry, notification sounds,
         # stage/stream/voice signaling and guild assets.
-        src/platform/uia_provider.cpp
-        src/ui/secure_text_store.cpp src/ui/secure_edit.cpp src/ui/secure_edit_history.cpp
-        src/ui/secure_edit_target.cpp src/app/shortcut_registry.cpp
-        src/platform/notification_audio.cpp src/app/stream_preview_cache.cpp src/app/stream_watch_view.cpp
-        src/app/account_stage.cpp src/app/gateway_stage_dispatch.cpp src/app/gateway_stream_control.cpp
-        src/app/gateway_stream_session.cpp src/app/gateway_voice_control.cpp
-        src/app/account_guild_assets.cpp src/media/regional_flag_svg.cpp
+        src/platform/uia/provider.cpp
+        src/ui/text/secure_text_store.cpp src/ui/text/secure_edit.cpp src/ui/text/secure_edit_history.cpp
+        src/ui/text/secure_edit_target.cpp src/app/shell/shortcut_registry.cpp
+        src/platform/audio/notification_audio.cpp src/app/voice/stream_preview_cache.cpp src/app/voice/stream_watch_view.cpp
+        src/app/voice/account_stage.cpp src/app/gateway/stage_dispatch.cpp src/app/gateway/stream_control.cpp
+        src/app/gateway/stream_session.cpp src/app/gateway/voice_control.cpp
+        src/app/guild/account_guild_assets.cpp src/media/image/regional_flag_svg.cpp
         # Opened on a click: the user's own reaction requests; shell/tray registration;
         # the account module's API wrappers (its pump only forwards), the REST
         # request queue, the TLS handshake, soundboard and voice-message
         # requests and network-bound file transfers; H.264/H.265 parameter
         # sets and avcC, parsed once per stream or keyframe (slices and pixel
         # paths stay /O2).
-        src/app/message_reaction_controller.cpp
-        src/platform/desktop_integration.cpp src/platform/system_tray.cpp src/platform/tls_client.cpp
-        src/app/account_module.cpp src/app/rest_client.cpp
-        src/app/account_soundboard.cpp src/app/account_voice_message.cpp
-        src/app/https_file_upload.cpp src/app/https_file_download.cpp
-        src/media/h264_parameters.cpp src/media/hevc_parameters.cpp src/media/h264_configuration.cpp
+        src/app/chat/messages/reaction_controller.cpp
+        src/platform/desktop/integration.cpp src/platform/desktop/system_tray.cpp src/platform/net/tls_client.cpp
+        src/app/account/account_module.cpp src/app/net/rest_client.cpp
+        src/app/voice/account_soundboard.cpp src/app/voice/account_voice_message.cpp
+        src/app/net/https_file_upload.cpp src/app/net/https_file_download.cpp
+        src/media/video/h264_parameters.cpp src/media/video/hevc_parameters.cpp src/media/video/h264_configuration.cpp
         # Once per embed, stream segment, CDN request, voice connection or READY:
         # embed stream resolution, segment and CDN request control, voice
         # connection setup and READY projection (their byte paths stay /O2).
-        src/app/embed_resolver.cpp src/app/segmented_video_fetch.cpp src/app/cdn_client.cpp
-        src/app/voice_connection.cpp src/app/gateway_ready_projection.cpp
+        src/app/media/embed_resolver.cpp src/app/media/segmented_video_fetch.cpp src/app/net/cdn_client.cpp
+        src/app/voice/connection.cpp src/app/gateway/ready_projection.cpp
         # Run once per font file or face: name/family/property resolution,
         # catalog records, seac charsets and face preparation.
-        src/text/font_names.cpp src/text/font_family.cpp src/text/font_candidates.cpp
-        src/text/font_catalog.cpp src/text/font_prepare.cpp src/text/cff_charset.cpp
-        src/ui/native_text_catalog.cpp
+        src/text/fonts/names.cpp src/text/fonts/family.cpp src/text/fonts/candidates.cpp
+        src/text/fonts/catalog.cpp src/text/fonts/prepare.cpp src/text/opentype/cff_charset.cpp
+        src/ui/text/native_text_catalog.cpp
         # Run once per font instance, script and feature set (the plans are
         # cached): lookup selection and planning, and nominal participation.
-        src/text/lookup_plan.cpp src/text/use_plan.cpp src/text/devanagari_plan.cpp src/text/arabic_plan.cpp
-        src/text/indic_run_plan.cpp src/text/arabic_run_plan.cpp src/text/lookup_selection.cpp
-        src/text/layout_variations.cpp src/text/nominal_participation.cpp src/text/nominal_sources.cpp
+        src/text/opentype/lookup_plan.cpp src/text/scripts/use_plan.cpp src/text/scripts/devanagari_plan.cpp src/text/scripts/arabic_plan.cpp
+        src/text/scripts/indic_run_plan.cpp src/text/scripts/arabic_run_plan.cpp src/text/opentype/lookup_selection.cpp
+        src/text/opentype/layout_variations.cpp src/text/opentype/nominal_participation.cpp src/text/opentype/nominal_sources.cpp
         # Signaling, setup and per-surface control around byte paths that stay
         # /O2: OAuth, member-list channel binding, guild details, voice socket
         # and participants, progressive video requests, spell checking, P-256
@@ -461,25 +462,25 @@ maicord_compact_sources(
         # upload-only PNG encoding (perf probe phases equal or lower). Gateway
         # dispatch (3-9% slower) and the video presenter, session and decoder
         # control (call phases ~3% slower) measured worse at /Os and stay /O2.
-        src/app/oauth_sign_in.cpp src/app/member_list_channel_binding.cpp src/app/gateway_guild_details.cpp
-        src/app/voice_socket.cpp src/app/voice_participants.cpp src/app/progressive_video_fetch.cpp
-        src/media/png_encode.cpp
-        src/platform/spell_checker.cpp src/platform/p256.cpp src/platform/hkdf_sha256.cpp
-        src/platform/network.cpp src/platform/network_worker.cpp
+        src/app/account/login/oauth_sign_in.cpp src/app/guild/member_list_channel_binding.cpp src/app/gateway/guild_details.cpp
+        src/app/voice/socket.cpp src/app/voice/participants.cpp src/app/media/progressive_video_fetch.cpp
+        src/media/image/png_encode.cpp
+        src/platform/desktop/spell_checker.cpp src/platform/crypto/p256.cpp src/platform/crypto/hkdf_sha256.cpp
+        src/platform/net/network.cpp src/platform/net/worker.cpp
         # Audio endpoint and decoder surface setup, device enumeration and the
         # worker loops that wait on them (the sample paths live elsewhere).
-        src/platform/voice_audio_capture.cpp src/platform/voice_audio_output.cpp src/platform/media_audio.cpp
-        src/platform/gpu_decoder_surfaces.cpp src/platform/h264_gpu_configuration.cpp
-        src/app/guild_image.cpp src/app/profile_image.cpp src/app/account_profile_edit.cpp
-        src/app/local_video_poster.cpp
+        src/platform/audio/voice_audio_capture.cpp src/platform/audio/voice_audio_output.cpp src/platform/audio/media_audio.cpp
+        src/platform/decode/gpu_decoder_surfaces.cpp src/platform/decode/h264_gpu_configuration.cpp
+        src/app/media/guild_image.cpp src/app/media/profile_image.cpp src/app/account/account_profile_edit.cpp
+        src/app/media/local_video_poster.cpp
         # One-shot REST request builders, OAuth and session metadata, an MP4 duration
         # probe, permission storage setup and rare Gateway account events.
-        src/app/account_guild_community.cpp src/app/account_guild_moderation.cpp src/app/account_user_social.cpp
-        src/app/account_bulk_message_ack.cpp src/app/account_message_ack.cpp src/app/account_permission_storage.cpp
-        src/app/oauth_authorization.cpp src/app/oauth_account.cpp src/app/client_session_metadata.cpp
-        src/app/attachment_media_probe.cpp src/app/gateway_guild_folders.cpp src/app/gateway_user_settings.cpp
-        src/app/gateway_scheduled_event_dispatch.cpp
-        src/render/lottie_program.cpp src/render/colr_source.cpp src/media/encoded_cache.cpp)
+        src/app/guild/account_guild_community.cpp src/app/guild/account_guild_moderation.cpp src/app/account/account_user_social.cpp
+        src/app/chat/messages/account_bulk_message_ack.cpp src/app/chat/messages/account_message_ack.cpp src/app/guild/account_permission_storage.cpp
+        src/app/account/login/oauth_authorization.cpp src/app/account/login/oauth_account.cpp src/app/account/client_session_metadata.cpp
+        src/app/media/attachment_media_probe.cpp src/app/gateway/guild_folders.cpp src/app/gateway/user_settings.cpp
+        src/app/gateway/scheduled_event_dispatch.cpp
+        src/render/effects/lottie_program.cpp src/render/effects/colr_source.cpp src/media/core/encoded_cache.cpp)
 # The contract's /Ob1 emits every function not declared inline as noinline, so
 # the helpers of a -Oz source stay calls even where inlining them is smaller.
 # /Ob2 lets the size-driven inliner (-Oz keeps its minimum threshold) fold
@@ -492,38 +493,50 @@ get_target_property(maicord_ui_sources maicord_ui SOURCES)
 foreach(source IN LISTS maicord_ui_sources)
     get_source_file_property(options "${source}" COMPILE_OPTIONS)
     if(options MATCHES "${MAICORD_SIZE_OPTION}" AND NOT source MATCHES
-        "/(virtual_list|theme_styles|settings_scene|message_scene|message_composer_scene|profile_media|message_action_bar|private_channel_rows|friends_scene|navigation_view|voice_panel|poll_voters|toast|popup_presentation|message_rich_widgets|account_menu|quick_switcher_scene|pinned_messages_scene|forum_channel_scene|theme_style_projection|slider|call_stage|thread_browser_scene|message_context_menu|profile_activity)\\.cpp$")
+        "/ui/(account/friends_scene|account/menu|account/profile_activity|account/profile_media|chat/composer/message_composer_scene|chat/messages/action_bar|chat/messages/context_menu|chat/messages/rich_widgets|chat/messages/scene|chat/pinned_messages_scene|chat/polls/voters|chat/private_channel_rows|chat/threads/browser_scene|chat/threads/forum_channel_scene|controls/slider|layout/virtual_list|settings/scene|shell/navigation_view|shell/popup_presentation|shell/quick_switcher_scene|theme/style_projection|theme/styles|voice/call_stage|voice/panel|widgets/toast)\\.cpp$")
         set_property(SOURCE "${source}" APPEND PROPERTY COMPILE_OPTIONS /Ob2)
     endif()
 endforeach()
 
-# maicord_application_state_headers(<variable> <glob>...): the file names of
-# application_state.hpp and of the globbed headers that include it, directly
-# or through another of them.
-function(maicord_application_state_headers variable)
-    file(GLOB headers ${ARGN})
-    set(app_headers application_state.hpp)
+# maicord_quoted_include_paths(<variable> <spelling> <includer> <directory>):
+# where a quoted include of <includer> can name an application header: beside
+# <includer>, or under <directory> (src/app, an include directory of tests).
+function(maicord_quoted_include_paths variable spelling includer directory)
+    cmake_path(GET includer PARENT_PATH base)
+    cmake_path(ABSOLUTE_PATH spelling BASE_DIRECTORY "${base}" NORMALIZE OUTPUT_VARIABLE beside)
+    cmake_path(ABSOLUTE_PATH spelling BASE_DIRECTORY "${directory}" NORMALIZE OUTPUT_VARIABLE included)
+    set(${variable} "${beside}" "${included}" PARENT_SCOPE)
+endfunction()
+
+# maicord_application_state_headers(<variable> <directory>): the paths of
+# <directory>/shell/state.hpp and of the headers under <directory> that include
+# it, directly or through another of them.
+function(maicord_application_state_headers variable directory)
+    file(GLOB_RECURSE headers "${directory}/*.hpp")
+    set(app_headers "${directory}/shell/state.hpp")
     set(pending)
+    set(index 0)
     foreach(path IN LISTS headers)
-        cmake_path(GET path FILENAME name)
+        math(EXPR index "${index} + 1")
+        set(path_${index} "${path}")
         file(STRINGS "${path}" lines REGEX "^[ \t]*#[ \t]*include[ \t]*\"")
-        set(includes_${name})
+        set(includes_${index})
         foreach(line IN LISTS lines)
             if(line MATCHES "\"([^\"]+)\"")
-                cmake_path(GET CMAKE_MATCH_1 FILENAME included)
-                list(APPEND includes_${name} ${included})
+                maicord_quoted_include_paths(included "${CMAKE_MATCH_1}" "${path}" "${directory}")
+                list(APPEND includes_${index} ${included})
             endif()
         endforeach()
-        list(APPEND pending ${name})
+        list(APPEND pending ${index})
     endforeach()
     set(changed TRUE)
     while(changed)
         set(changed FALSE)
-        foreach(name IN LISTS pending)
-            foreach(included IN LISTS includes_${name})
+        foreach(index IN LISTS pending)
+            foreach(included IN LISTS includes_${index})
                 if(included IN_LIST app_headers)
-                    list(APPEND app_headers ${name})
-                    list(REMOVE_ITEM pending ${name})
+                    list(APPEND app_headers "${path_${index}}")
+                    list(REMOVE_ITEM pending ${index})
                     set(changed TRUE)
                     break()
                 endif()
@@ -533,18 +546,22 @@ function(maicord_application_state_headers variable)
     set(${variable} ${app_headers} PARENT_SCOPE)
 endfunction()
 
-# maicord_reaches_application_state(<variable> <source> <header>...): whether
-# <source> includes one of the <header> file names before any #define, #undef
-# or #pragma of its own.
-function(maicord_reaches_application_state variable source)
+# maicord_reaches_application_state(<variable> <source> <directory> <header>...):
+# whether <source> includes one of the <header> paths before any #define,
+# #undef or #pragma of its own.
+function(maicord_reaches_application_state variable source directory)
     set(app_headers ${ARGN})
     set(app FALSE)
     file(STRINGS "${source}" lines REGEX "^[ \t]*#[ \t]*(include|define|undef|pragma)")
     foreach(line IN LISTS lines)
         if(line MATCHES "^[ \t]*#[ \t]*include[ \t]*\"([^\"]+)\"")
-            cmake_path(GET CMAKE_MATCH_1 FILENAME included)
-            if(included IN_LIST app_headers)
-                set(app TRUE)
+            maicord_quoted_include_paths(included "${CMAKE_MATCH_1}" "${source}" "${directory}")
+            foreach(path IN LISTS included)
+                if(path IN_LIST app_headers)
+                    set(app TRUE)
+                endif()
+            endforeach()
+            if(app)
                 break()
             endif()
         elseif(NOT line MATCHES "^[ \t]*#[ \t]*(include|pragma[ \t]+once)")
@@ -554,18 +571,18 @@ function(maicord_reaches_application_state variable source)
     set(${variable} ${app} PARENT_SCOPE)
 endfunction()
 
-# Application sources share a precompiled header (src/app/
-# application_pch.hpp: application_state.hpp), about half of each source's
-# front-end time. A /Yu object also leaves the header's inline code
-# to the PCH object, which shrinks the LTO link input. One PCH per
-# optimization mode, since cold sources carry -Oz and clang rejects a PCH built
-# with other options. A source qualifies when it reaches application_state.hpp
-# (directly or through another src/app header) before any #define, #undef or
-# #pragma of its own and has no definitions of its own, so the PCH holds only
-# declarations it already includes. The options apply only to targets with
-# MAICORD_APPLICATION_PCH, the directory of their own PCHs, so every target
-# compiling a source uses a PCH built with its settings, or none. A source
-# with the property MAICORD_NO_APPLICATION_PCH set never uses one.
+# Application sources share a precompiled header (src/app/shell/pch.hpp:
+# shell/state.hpp), about half of each source's front-end time. A /Yu object
+# also leaves the header's inline code to the PCH object, which shrinks the LTO
+# link input. One PCH per optimization mode, since cold sources carry -Oz and
+# clang rejects a PCH built with other options. A source qualifies when it
+# reaches shell/state.hpp (directly or through another src/app header) before
+# any #define, #undef or #pragma of its own and has no definitions of its own,
+# so the PCH holds only declarations it already includes. The options apply
+# only to targets with MAICORD_APPLICATION_PCH, the directory of their own
+# PCHs, so every target compiling a source uses a PCH built with its settings,
+# or none. A source with the property MAICORD_NO_APPLICATION_PCH set never
+# uses one.
 # maicord_precompile_application_sources(<target> [STUBS <object library>]):
 # without STUBS the PCHs are built in <target> and each qualifying source names
 # them in OBJECT_DEPENDS, which has no per-target form, so a configuration that
@@ -578,8 +595,8 @@ function(maicord_precompile_application_sources target)
     if(NOT ARG_STUBS)
         set(ARG_STUBS ${target})
     endif()
-    set(header "${CMAKE_CURRENT_SOURCE_DIR}/src/app/application_pch.hpp")
-    maicord_application_state_headers(app_headers "${CMAKE_CURRENT_SOURCE_DIR}/src/app/*.hpp")
+    set(header "${CMAKE_CURRENT_SOURCE_DIR}/src/app/shell/pch.hpp")
+    maicord_application_state_headers(app_headers "${CMAKE_CURRENT_SOURCE_DIR}/src/app")
     set(directory "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${ARG_STUBS}.dir")
     set(enabled "$<BOOL:$<TARGET_PROPERTY:MAICORD_APPLICATION_PCH>>")
     set(modes)
@@ -598,7 +615,7 @@ function(maicord_precompile_application_sources target)
         if(no_pch)
             continue()
         endif()
-        maicord_reaches_application_state(app "${path}" ${app_headers})
+        maicord_reaches_application_state(app "${path}" "${CMAKE_CURRENT_SOURCE_DIR}/src/app" ${app_headers})
         if(NOT app)
             continue()
         endif()

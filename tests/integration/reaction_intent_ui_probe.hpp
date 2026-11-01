@@ -2,8 +2,8 @@
 #include "probe_present.hpp"
 #include "ui_surface_motion_measurement.hpp"
 #include "maicord/core/log.hpp"
-#include "maicord/ui/message_text_coordinator.hpp"
-#include "maicord/ui/message_reaction_presentation.hpp"
+#include "maicord/ui/chat/messages/text_coordinator.hpp"
+#include "maicord/ui/chat/messages/reaction_presentation.hpp"
 #include "reaction_intent_ui_adapter.hpp"
 
 namespace maicord {

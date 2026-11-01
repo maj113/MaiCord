@@ -3,10 +3,10 @@
 // is native; this reference is compiled only into test and font-reference
 // executables (which link dwrite.lib) and never into MaiCord.exe. Native
 // output is compared against its DirectWrite layouts.
-#include "maicord/ui/text.hpp"
-#include "maicord/ui/native_text_candidate.hpp"
-#include "maicord/render/text_edit_layout.hpp"
-#include "maicord/text/font_prepare.hpp"
+#include "maicord/ui/text/text.hpp"
+#include "maicord/ui/text/native_text_candidate.hpp"
+#include "maicord/render/text/edit_layout.hpp"
+#include "maicord/text/fonts/prepare.hpp"
 #include "maicord/core/win32_types.hpp"
 #include "maicord/sys/dwrite.hpp"
 

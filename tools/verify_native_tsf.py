@@ -15,7 +15,7 @@ def main():
     args=parser.parse_args();root=Path(__file__).resolve().parents[1];out=args.output_dir.resolve();out.mkdir(parents=True,exist_ok=True)
     destination=out/'tsf.json'
     if destination.exists():parser.error('Preserve previous evidence')
-    report=dict(status='running',scope=__doc__,workers=[],sources=[identity(root/name) for name in ['tests/native_text_store_test.cpp','tests/tsf_composition_fixture.hpp','src/ui/native_text_script.hpp','src/ui/native_text_candidate.cpp','src/ui/native_text_styled.inc','src/text/lookup_plan.cpp','src/text/latin_run.cpp','src/text/latin_line.cpp','include/maicord/text/alphabetic_run.hpp']])
+    report=dict(status='running',scope=__doc__,workers=[],sources=[identity(root/name) for name in ['tests/ui/text/native_text_store_test.cpp','tests/support/tsf_composition_fixture.hpp','src/ui/text/native_text_script.hpp','src/ui/text/native_text_candidate.cpp','src/ui/text/native_text_styled.inc','src/text/opentype/lookup_plan.cpp','src/text/scripts/latin_run.cpp','src/text/scripts/latin_line.cpp','include/maicord/text/shaping/alphabetic_run.hpp']])
     lines=[]
     try:
         for provider in ['Native','DWrite']:

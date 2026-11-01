@@ -1,7 +1,7 @@
-#include "maicord/media/deflate.hpp"
+#include "maicord/media/compression/deflate.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/protocol/writer.hpp"
+#include "maicord/protocol/encoding/writer.hpp"
 
 #include <Windows.h>
 

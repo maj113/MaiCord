@@ -1,12 +1,12 @@
 #include "thread_creation_ui_adapter.hpp"
-#include "application_state.hpp"
-#include "application_account_presentation.hpp"
+#include "shell/state.hpp"
+#include "account/account_presentation.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/ui/message_context_controller.hpp"
+#include "maicord/ui/chat/messages/context_controller.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
-#include "maicord/model/permission_bits.hpp"
-#include "../../src/app/account_ui_runtime.hpp"
+#include "maicord/model/guild/permission_bits.hpp"
+#include "../../src/app/account/account_ui_runtime.hpp"
 namespace maicord {
 namespace {
 using namespace app_detail;

@@ -10,17 +10,17 @@ file(MAKE_DIRECTORY "${MAICORD_GENERATED_DIRECTORY}")
 
 # Preserve the canonical emoji catalog; emit the compact data in the build tree.
 # The catalog and shortcode name/glyph pools ship as one zlib stream that
-# src/ui/emoji_catalog.cpp inflates on first use (lengths checked at compile time).
+# src/ui/text/emoji_catalog.cpp inflates on first use (lengths checked at compile time).
 set(MAICORD_EMOJI_CATALOG_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/unicode_emoji_16_optimized.inc")
 add_custom_command(
     OUTPUT "${MAICORD_EMOJI_CATALOG_INCLUDE}"
     COMMAND "${Python3_EXECUTABLE}" -B
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_unicode_emoji_catalog.py"
         --canonical-include
-        --shortcode-include "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/emoji_shortcodes.inc"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/unicode_emoji_16.inc"
+        --shortcode-include "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/text/emoji_shortcodes.inc"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/text/unicode_emoji_16.inc"
         "${MAICORD_EMOJI_CATALOG_INCLUDE}"
-    DEPENDS tools/generate_unicode_emoji_catalog.py src/ui/unicode_emoji_16.inc src/ui/emoji_shortcodes.inc
+    DEPENDS tools/generate_unicode_emoji_catalog.py src/ui/text/unicode_emoji_16.inc src/ui/text/emoji_shortcodes.inc
     VERBATIM)
 set(MAICORD_EMOJI_POOL_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/emoji_pool_pack.inc")
 # Each generated include #embeds its byte arrays from .bin files written beside it.
@@ -29,9 +29,9 @@ add_custom_command(
     OUTPUT "${MAICORD_EMOJI_POOL_INCLUDE}" "${MAICORD_EMOJI_POOL_PACKED}"
     COMMAND "${Python3_EXECUTABLE}" -B
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/pack_emoji_pools.py" "${MAICORD_EMOJI_POOL_INCLUDE}"
-        "${MAICORD_EMOJI_CATALOG_INCLUDE}" "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/emoji_shortcodes.inc"
+        "${MAICORD_EMOJI_CATALOG_INCLUDE}" "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/text/emoji_shortcodes.inc"
     DEPENDS tools/pack_emoji_pools.py tools/generate_unicode_emoji_catalog.py tools/font_reference/embed_fixture.py
-        "${MAICORD_EMOJI_CATALOG_INCLUDE}" src/ui/emoji_shortcodes.inc
+        "${MAICORD_EMOJI_CATALOG_INCLUDE}" src/ui/text/emoji_shortcodes.inc
     VERBATIM)
 add_custom_target(maicord_emoji_catalog_data
     DEPENDS "${MAICORD_EMOJI_CATALOG_INCLUDE}" "${MAICORD_EMOJI_POOL_INCLUDE}")
@@ -47,11 +47,11 @@ add_custom_command(
     OUTPUT "${MAICORD_ICON_PACK_INCLUDE}" "${MAICORD_ICON_PACK_DATA}" "${MAICORD_ICON_PACK_PACKED}"
     COMMAND "${Python3_EXECUTABLE}" -B
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_icon_pack.py" build
-        --manifest "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/ui/icon_ids.inc"
+        --manifest "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/ui/widgets/icon_ids.inc"
         --lucide "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lucide/icons"
         --original "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/original"
         --output "${MAICORD_ICON_PACK_INCLUDE}"
-    DEPENDS tools/generate_icon_pack.py tools/font_reference/embed_fixture.py include/maicord/ui/icon_ids.inc
+    DEPENDS tools/generate_icon_pack.py tools/font_reference/embed_fixture.py include/maicord/ui/widgets/icon_ids.inc
         ${MAICORD_ICON_SOURCES}
     VERBATIM)
 add_custom_target(maicord_icon_pack_data DEPENDS "${MAICORD_ICON_PACK_INCLUDE}")

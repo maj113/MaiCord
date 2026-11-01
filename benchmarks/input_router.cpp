@@ -1,6 +1,6 @@
 #include "maicord/core/time.hpp"
-#include "maicord/app/input_layers.hpp"
-#include "maicord/ui/button_keyboard.hpp"
+#include "maicord/app/shell/input_layers.hpp"
+#include "maicord/ui/widgets/button_keyboard.hpp"
 
 namespace maicord {
 namespace {

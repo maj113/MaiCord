@@ -1,0 +1,44 @@
+#include "maicord/protocol/encoding/json_ids.hpp"
+#include "maicord/protocol/gateway/message_events.hpp"
+
+namespace maicord {
+
+bool json_value_to_member_list_id(const JsonValue& value, u64* output) noexcept {
+    JsonString encoded{};
+    if (!output || !json_value_as_string(value, &encoded)) return false;
+    if (json_string_equals_ascii(encoded, utf8_literal("everyone"))) {
+        *output = kMemberListEveryone;
+        return true;
+    }
+    u64 id = 0;
+    if (!json_string_to_u64(encoded, &id) || id >= kMemberListZeroHash) return false;
+    *output = id != 0 ? id : kMemberListZeroHash;
+    return true;
+}
+
+bool json_value_to_snowflake(const JsonValue& value, u64* output) noexcept {
+    JsonString encoded{};
+    return output && json_value_as_string(value, &encoded) &&
+           json_string_to_u64(encoded, output) && *output != 0;
+}
+
+bool json_value_to_nullable_snowflake(const JsonValue& value, u64* output) noexcept {
+    if (value.kind == JsonValueKind::null_value) {
+        *output = 0;
+        return true;
+    }
+    return json_value_to_snowflake(value, output);
+}
+
+bool json_value_to_u64_or_string(const JsonValue& value, u64* output) noexcept {
+    JsonString encoded{};
+    return json_value_to_u64(value, output) ||
+           (json_value_as_string(value, &encoded) && json_string_to_u64(encoded, output));
+}
+
+bool json_value_to_timestamp(const JsonValue& value, u64* timestamp_ms) noexcept {
+    JsonString text{};
+    return json_value_as_string(value, &text) && parse_iso_timestamp(text, timestamp_ms);
+}
+
+} // namespace maicord

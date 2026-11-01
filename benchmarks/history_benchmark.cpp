@@ -1,4 +1,4 @@
-#include "maicord/app/message_history_sync.hpp"
+#include "maicord/app/chat/messages/history_sync.hpp"
 #include "maicord/core/time.hpp"
 #include "benchmark_output.hpp"
 

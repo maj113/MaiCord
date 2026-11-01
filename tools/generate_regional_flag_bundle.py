@@ -3,10 +3,10 @@
 
 Input: assets/regional_flags/<codepoints>.svg (CC BY 4.0, see
 assets/licenses/Twemoji-graphics.txt). The flag sequence is derived from the
-file name exactly as src/ui/regional_flag.cpp numbers it. Coordinates are
+file name exactly as src/ui/text/regional_flag.cpp numbers it. Coordinates are
 rounded to two decimals (1/3600 of the 36-unit view box). Each flag becomes a
 binary record (elements, fills, path letters with number counts, zigzag
-varint hundredths) that src/app/regional_flag_assets.cpp turns back into the
+varint hundredths) that src/app/media/regional_flag_assets.cpp turns back into the
 SVG text `decode` writes here. Output is a deterministic C++ include with one
 zlib stream per group of similar records.
 """

@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/app/chat_state_dispatch.hpp"
+#include "maicord/app/gateway/chat_state_dispatch.hpp"
 
 namespace maicord::guild_channel_validation_bench {
 // Separate translation unit, /GL-, no unity build. Exact rows, names and

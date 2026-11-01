@@ -1,4 +1,4 @@
-#include "../src/media/png_common.hpp"
+#include "../src/media/image/png_common.hpp"
 #include "../tests/fixtures/png_crc_reference.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/trace_record.hpp"

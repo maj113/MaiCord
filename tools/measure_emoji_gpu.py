@@ -69,8 +69,8 @@ def main():
     if destination.exists():parser.error('Choose a new evidence directory')
     exe=args.exe.resolve();binary=identity(exe);runs=[]
     report=dict(status='running',side=args.side,page_control=args.page_control,executable=binary,scope=__doc__,runs=runs,
-                source=[identity(root/p) for p in ('tests/integration/ui_probe.cpp','tests/integration/emoji_gpu_measurement.hpp','src/render/d3d11_glyph_text.cpp','include/maicord/render/d3d11_glyph_text.hpp')])
-    report['implementation']=[identity(root/p) for p in ('src/render/colr_paint.cpp','include/maicord/render/colr_paint.hpp','src/render/d3d11_renderer_text.cpp','src/render/colr_program.cpp','include/maicord/render/colr_program.hpp','src/render/shaders/colr_paint.hlsl')]
+                source=[identity(root/p) for p in ('tests/integration/ui_probe.cpp','tests/integration/emoji_gpu_measurement.hpp','src/render/d3d11/glyph_text.cpp','include/maicord/render/d3d11/glyph_text.hpp')])
+    report['implementation']=[identity(root/p) for p in ('src/render/effects/colr_paint.cpp','include/maicord/render/effects/colr_paint.hpp','src/render/d3d11/renderer_text.cpp','src/render/effects/colr_program.cpp','include/maicord/render/effects/colr_program.hpp','src/render/shaders/colr_paint.hlsl')]
     def save():destination.write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
     save()
     try:

@@ -1,6 +1,6 @@
 #pragma once
 #include "forum_post_ui_adapter.hpp"
-#include "application_forum_attachments.hpp"
+#include "chat/threads/forum_attachments.hpp"
 namespace maicord {
 bool forum_media_ui_adapter_enable() noexcept;
 bool forum_media_ui_adapter_seed_drop() noexcept;

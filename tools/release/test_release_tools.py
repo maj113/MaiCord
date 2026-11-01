@@ -27,12 +27,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cng_p256  # noqa: E402
 import maicord_release as release  # noqa: E402
 
-# Byte-for-byte copy of the accepted document in tests/update_manifest.cpp.
+# Byte-for-byte copy of the accepted document in tests/app/update/manifest.cpp.
 CLIENT_FIXTURE_DOCUMENT = (b'{"format":2,"product":"MaiCord","arch":"x64","channel":"stable","version":6,'
                            b'"issued":90,"expires":200,"bytes":4096,"sha256":'
                            b'"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",'
                            b'"artifact":"MaiCord-x64-p2-6.zip"}')
-# Byte-for-byte copy of the accepted document in tests/update_changelog.cpp.
+# Byte-for-byte copy of the accepted document in tests/app/update/changelog.cpp.
 CLIENT_CHANGELOG_DOCUMENT = ('{"format":1,"product":"MaiCord","channel":"preview","version":3004002,"base":3003999,'
                              '"entries":[{"version":3004002,"date":1760000100,"commit":"' + "a" * 40 + '",'
                              '"text":"Fix \\"quoted\\" names\\nin the caf\u00e9 list"},'

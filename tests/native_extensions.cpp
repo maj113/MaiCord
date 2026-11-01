@@ -1,4 +1,4 @@
-#include "test_output.hpp"
+#include "support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {

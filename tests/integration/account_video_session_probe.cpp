@@ -3,9 +3,9 @@
 // -AudioPlaybackProbe (maicord_account_audio_playback); --opus is one case of it; the plain
 // mode needs MAICORD_ACCOUNT_VIDEO_SESSION_PROBE=1 and MAICORD_ACCOUNT_VIDEO_SESSION_INPUT=<mp4>
 // (MAICORD_ACCOUNT_VIDEO_GENERIC_PROBE=1 accepts any clip), so it is a manual run.
-#include "maicord/app/account_video_session.hpp"
-#include "maicord/render/video_frame_gpu.hpp"
-#include "maicord/media/encoded_audio.hpp"
+#include "maicord/app/media/account_video_session.hpp"
+#include "maicord/render/media/video_frame_gpu.hpp"
+#include "maicord/media/audio/encoded_audio.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/d3d11.hpp"
 

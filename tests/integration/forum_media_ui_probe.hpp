@@ -1,7 +1,7 @@
 #pragma once
 #include "forum_media_ui_adapter.hpp"
-#include "application_forum_form_state.hpp"
-#include "application_forum_preview.hpp"
+#include "chat/threads/forum_form_state.hpp"
+#include "chat/threads/forum_preview.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"

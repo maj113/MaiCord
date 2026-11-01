@@ -1,14 +1,14 @@
 #pragma once
-#include "application_forum_post.hpp"
-#include "maicord/ui/secure_edit.hpp"
-#include "../secure_edit_queries.hpp"
-#include "maicord/ui/input_router.hpp"
-#include "maicord/protocol/forum_post.hpp"
-#include "maicord/render/d3d11_renderer.hpp"
-#include "maicord/render/forum_post_surface.hpp"
+#include "chat/threads/forum_post.hpp"
+#include "maicord/ui/text/secure_edit.hpp"
+#include "../support/secure_edit_queries.hpp"
+#include "maicord/ui/core/input_router.hpp"
+#include "maicord/protocol/messages/forum_post.hpp"
+#include "maicord/render/d3d11/renderer.hpp"
+#include "maicord/render/text/forum_post_surface.hpp"
 #include "reply_draft_ui_adapter.hpp"
-#include "maicord/app/rest_client.hpp"
-#include "maicord/ui/forum_post_scene.hpp"
+#include "maicord/app/net/rest_client.hpp"
+#include "maicord/ui/chat/threads/forum_post_scene.hpp"
 namespace maicord {
 inline constexpr u64 kForumPostProbeParent = 97400;
 inline constexpr u64 kForumPostProbeThread = 97450;

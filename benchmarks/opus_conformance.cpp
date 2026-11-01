@@ -10,8 +10,8 @@
 //   - the decoded PCM must hash to the pinned value of the fixed-point build,
 //     so any change to the codec has to be bit-exact.
 #include "benchmark_line.hpp"
-#include "maicord/media/deflate.hpp"
-#include "opus_vector_decode.hpp"
+#include "maicord/media/compression/deflate.hpp"
+#include "support/opus_vector_decode.hpp"
 
 #include <Windows.h>
 #include <bcrypt.h>

@@ -138,7 +138,7 @@ def main(argv):
         print('%-15s %4d / baseline %4d  %s' % (key, count, allowed, status))
     if failed:
         print('Presentation literals increased in src/ui. Use Theme::tokens / Theme::scale '
-              '(include/maicord/ui/theme_tokens.inc); see --list.')
+              '(include/maicord/ui/theme/tokens.inc); see --list.')
         return 1
     if counts != baseline:
         print('Counts fell below the baseline; ratchet it with --update.')

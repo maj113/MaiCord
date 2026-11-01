@@ -1,0 +1,95 @@
+#pragma once
+#include "maicord/text/opentype/context.hpp"
+#include "maicord/text/shaping/clusters.hpp"
+#include "maicord/text/opentype/components.hpp"
+#include "maicord/text/opentype/lookup_bounds.hpp"
+
+namespace maicord {
+union SfntGsubExecutableSubtable {SfntGsubSubtable basic;SfntContext context;SfntReverseSubstitution reverse;};
+struct SfntGsubExecutableLookup {ConstSlice<SfntGsubExecutableSubtable> subtables;SfntLookupFilter filter;u16 type;SfntLookupBounds bounds;};
+struct SfntGsubLookupSource {SfntStatus(*prepare)(SfntGsubLookupSource*,u16) noexcept;const SfntGsubExecutableLookup* const* entries=nullptr;};
+struct SfntGsubProgram {ConstSlice<SfntGsubExecutableLookup> lookups;SfntGdef gdef;u32 glyph_limit;SfntGsubLookupSource* source=nullptr;};
+// Deferred directories keep the font's lookup count and store only pointers.
+// Index is checked by the caller; a null entry has not been prepared yet.
+inline const SfntGsubExecutableLookup* sfnt_gsub_lookup(const SfntGsubProgram& program,u16 index) noexcept {
+    if(program.source&&program.source->entries)return program.source->entries[index];
+    return program.lookups.data?program.lookups.data+index:nullptr;
+}
+inline bool sfnt_gsub_directory_valid(const SfntGsubProgram& program) noexcept {
+    return program.lookups.data||(program.source&&program.source->entries);
+}
+inline SfntStatus sfnt_gsub_lookup_prepare(const SfntGsubProgram& program,u16 index,const SfntGsubExecutableLookup** prepared=nullptr) noexcept {
+    if(prepared)*prepared=nullptr;
+    if(index>=program.lookups.count||!sfnt_gsub_directory_valid(program))return SfntStatus::invalid_input;
+    const auto* lookup=sfnt_gsub_lookup(program,index);
+    if(!lookup||!lookup->type){
+        if(!program.source||!program.source->prepare)return SfntStatus::invalid_input;
+        const auto status=program.source->prepare(program.source,index);
+        if(status!=SfntStatus::ok)return status;lookup=sfnt_gsub_lookup(program,index);
+        if(!lookup||!lookup->type)return SfntStatus::invalid_input;
+    }
+    if(prepared)*prepared=lookup;return SfntStatus::ok;
+}
+struct SfntGsubProgramRequirements {u32 lookups,subtables,coverages,classes;};
+struct SfntGsubLookupStorage {Slice<SfntGsubExecutableSubtable> subtables;Slice<SfntCoverage> coverages;Slice<SfntClassDef> classes;};
+// Prepare one directory entry; contextual children keep their font indices
+// and must be prepared before execution. Failure leaves output empty.
+// Font mappings and prepared payloads are borrowed and must stay unchanged.
+// payload_work_limit is shared across subtable opens; directory_limit caps
+// visited directory entries.
+SfntStatus sfnt_gsub_lookup_requirements(const SfntLayout&,u16,SfntGsubProgramRequirements*,u32 directory_limit=1000000) noexcept;
+SfntStatus sfnt_gsub_prepare_lookup(const SfntLayout&,u16,const SfntGdef&,u32 glyph_limit,
+    SfntGsubLookupStorage,SfntGsubExecutableLookup*,u32 payload_work_limit=1000000,u32 directory_limit=1000000,
+    bool ignore_empty_sequences=false,bool ignore_unreachable_single_substitutions=false) noexcept;
+// The final compatibility option accepts a type-1 subtable only if it validates
+// in the complete 16-bit glyph space and every covered input is outside the
+// font's actual glyph range. Its prepared coverage is empty: no valid input can
+// reach its replacements. Reachable invalid outputs and malformed/truncated
+// payloads remain errors. Both validation attempts consume the shared budget.
+
+// Scratch records are internal state, exposed only to permit caller allocation.
+// Packed positions scale with active matches, not run length times stack depth.
+struct SfntGsubExecutionFrame {ConstSlice<u8> actions;u32 positions,count,next_action,input_end;};
+struct SfntGsubExecutionScratch {
+    Slice<SfntGsubExecutionFrame> frames;
+    Slice<u32> positions,rebased,consumed;
+    Slice<u8> replacements;
+    Slice<SfntComponentUndo> component_journal;
+};
+struct SfntGsubExecutionLimits {u64 operations;u32 match_work;};
+// operations is shared across scheduling, matches, copies and rebasing; match_work
+// also caps an individual match. These are work units, not CPU timings.
+struct SfntGsubExecutionResult {u64 operations,edits,moved_records;u32 input_end,max_depth;};
+static_assert(sizeof(SfntGsubExecutableSubtable)==64 && sizeof(SfntGsubExecutableLookup)==64 && sizeof(SfntGsubProgram)==88);
+static_assert(sizeof(SfntGsubExecutionFrame)==32 && sizeof(SfntGsubExecutionResult)==32);
+// Execute one caller-selected lookup over [start,input_end), in logical order
+// (type 8 visits positions in reverse). alternate is zero-based. No heap or C++
+// recursion. Scratch arrays must be disjoint from each other, buffer storage and
+// all program mappings/prepared storage; a supplied cluster map must be opened,
+// and its mutable storage is likewise disjoint from glyph, scratch and program
+// storage.
+// Replacement scratch is measured in bytes and uses the buffer's record stride:
+// 4-byte glyph/class records without clusters; 8-byte SfntClusterGlyph records
+// with clusters (ligatures merge source boundaries); 16-byte SfntComponentGlyph
+// records with a component forest, which also requires clusters. Ligatures join
+// stable component sequences; decomposition partitions them and restores
+// distinct source boundaries. The caller supplies an initialized forest and a
+// disjoint mutation journal. A failed glyph edit rolls back its forest changes;
+// export seals the forest against edits.
+// Cluster initialization, source indices and initial effective classes come from
+// the caller. Outputs inherit the first consumed glyph's source class, including
+// ligatures, as Windows does.
+// Capacity/work errors may follow earlier committed edits: discard the shaping
+// attempt and restart from the original input. Result counters stay valid on
+// execution errors. Exhausting frames is resource_limit; insufficient
+// position/output storage is output_too_small.
+// feature_mask selects eligibility bits in SfntGsubGlyph::reserved. Every glyph
+// in a matched input span, including ignored marks, must be eligible; lookaround
+// may cross eligibility boundaries. Nested actions keep this restriction.
+// Replacements inherit the first consumed glyph's bits unless a component
+// forest enables preserve_forms. Mask zero disables eligibility filtering.
+SfntStatus sfnt_gsub_execute_lookup(const SfntGsubProgram& program,u16 lookup,SfntGlyphBuffer* buffer,
+                                   u32 start,u32 input_end,u32 alternate,SfntGsubExecutionScratch scratch,
+                                   SfntGsubExecutionLimits limits,SfntGsubExecutionResult* output,
+                                   SfntClusterMap* clusters=nullptr,SfntComponentForest* components=nullptr,u8 feature_mask=0) noexcept;
+}

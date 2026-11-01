@@ -1,19 +1,19 @@
 // Manual benchmark: built only with -DMAICORD_BUILD_BENCHMARKS=ON (cmake/benchmarks.cmake) and
 // never part of the CTest suite.
-#include "maicord/ui/friends_scene.hpp"
-#include "maicord/ui/mention_badge.hpp"
-#include "maicord/ui/shell_text_presentation.hpp"
+#include "maicord/ui/account/friends_scene.hpp"
+#include "maicord/ui/chat/messages/mention_badge.hpp"
+#include "maicord/ui/shell/text_presentation.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/ui/guild_rail_scene.hpp"
-#include "maicord/ui/shell_navigation_scene.hpp"
-#include "maicord/ui/presence.hpp"
+#include "maicord/ui/guild/rail_scene.hpp"
+#include "maicord/ui/shell/navigation_scene.hpp"
+#include "maicord/ui/widgets/presence.hpp"
 #include "text_projection_observer.hpp"
 
-#include "../test_output.hpp"
+#include "../support/test_output.hpp"
 
 namespace maicord {
 namespace text_projection_bench {
-#include "../text_projection_fixture.inc"
+#include "../support/text_projection_fixture.inc"
 
 static_assert(sizeof(Fixture) < 1024 * 1024, "benchmark fixture remains bounded");
 constexpr u32 kIterations = 128, kSamples = 7, kWarmups = 16, kModes = 4;
