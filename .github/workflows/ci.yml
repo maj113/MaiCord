@@ -103,6 +103,8 @@ jobs:
         env:
           MAICORD_UPDATE_VERSION: ${{ steps.identity.outputs.version }}
           MAICORD_UPDATE_COMMIT: ${{ steps.identity.outputs.commit }}
+          MAICORD_PLUGIN_CATALOG_PUBLIC_KEY: ${{ vars.MAICORD_PLUGIN_CATALOG_PUBLIC_KEY }}
+          MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY: ${{ vars.MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY }}
         run: ./tools/build.ps1
 
       - name: Collect client binaries

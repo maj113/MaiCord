@@ -11,6 +11,8 @@ any Windows machine with Python 3.10 or newer will do.
 | `update_channels.ps1` | Checks out the `update-channels` branch, runs `channels`, replaces the branch with one commit of the new site |
 | `cng_p256.py` | ECDSA P-256 key generation, signing and verification through CNG |
 | `generate_update_key.py` | Creates a signing key pair and prints the public key forms |
+| `plugin_index.py` | Renders, signs and verifies plugin catalog indexes (format 1) with the client's strict schema |
+| `test_plugin_index_tools.py` | Checks `plugin_index.py` against the vectors in `tests/fixtures/plugin_index`; CI runs it on every build |
 | `test_release_tools.py` | Self-test with a throwaway key and a scratch git history; CI runs it on every build |
 
 ## Formats (they match the client's verifiers)
@@ -270,6 +272,60 @@ Client behaviour:
   package, and a newer offer replaces it.
 - A package carries only `MaiCord.exe`. New fonts or licenses need a fresh
   download of the portable zip.
+
+## Plugin catalog
+
+The official plugin catalog lives in
+[maj113/MaiCord-plugins](https://github.com/maj113/MaiCord-plugins). Its
+`catalog.yml` workflow renders `index/source.json` with `plugin_index.py` from
+this repository's `master`, signs it, verifies it, and deploys it to GitHub
+Pages:
+
+- `https://maj113.github.io/MaiCord-plugins/v1/index.json`
+- `https://maj113.github.io/MaiCord-plugins/v1/index.json.sig`
+
+The client derives these from `MAICORD_PLUGIN_CATALOG_REPOSITORY` (default
+`maj113/MaiCord-plugins`) and accepts an index signed by either compiled key.
+The workflow runs on every push to `main`, on manual dispatch and weekly. Each
+run issues an index valid for 30 days (the client accepts at most 35) whose
+`sequence` is its issue time, so every run outranks the last one. A scheduled
+run also lands an empty commit when `main` is 45 days old, because GitHub
+disables the schedules of a public repository after 60 days without one.
+
+Keys:
+
+- **Current** key: `%USERPROFILE%\maicord-plugin-catalog-key.jwk`. Its contents
+  are the secret `MAICORD_PLUGIN_CATALOG_SIGNING_KEY` in the plugins
+  repository's `catalog` environment (deployment branch `main`, no required
+  reviewer, which would hold every weekly re-signing). Its point is the
+  variable `MAICORD_PLUGIN_CATALOG_PUBLIC_KEY` in both repositories; the
+  workflow verifies against it before deploying.
+- **Next** key: `%USERPROFILE%\maicord-plugin-catalog-next-key.jwk`, kept
+  offline and used for nothing until a rotation. Its point is this
+  repository's variable `MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY`.
+
+Create a key pair with `generate_update_key.py` (ignore the updater names it
+prints) and back both files up offline. `ci.yml` and `release.yml` pass both
+variables to the client build as the environment variables of the same names,
+which `cmake/client.cmake` turns into the defaults of the CMake cache variables.
+A build without them compiles the official catalog as not configured. For a
+local build that trusts the catalog, set both environment variables before
+`tools/build.ps1`. They seed only a new cache: a `CMakeCache.txt` kept by
+`-KeepIntermediates` keeps the values it was created with.
+
+Rotating to the next key needs no client release, because clients already
+trust it:
+
+1. Store the next JWK as `MAICORD_PLUGIN_CATALOG_SIGNING_KEY` and its point as
+   the plugins repository's `MAICORD_PLUGIN_CATALOG_PUBLIC_KEY`, then run the
+   workflow.
+2. Generate a new next key. In this repository set
+   `MAICORD_PLUGIN_CATALOG_PUBLIC_KEY` to the point now signing and
+   `MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY` to the new one, and release. Keep
+   the retired key's backup until no supported build trusts it alone.
+
+Never commit a private key or print its contents; only the 130-digit points
+belong in variables, logs and documents.
 
 ## Local dry run
 

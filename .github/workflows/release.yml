@@ -57,9 +57,14 @@ jobs:
           git merge-base --is-ancestor $env:GITHUB_SHA origin/master
           if ($LASTEXITCODE) { throw "Release tags must point at a commit on master." }
           if (!$env:PUBLIC_KEY) { throw "Set the MAICORD_UPDATE_PUBLIC_KEY repository variable (see tools/release/README.md)." }
+          if (!$env:CATALOG_PUBLIC_KEY -or !$env:CATALOG_NEXT_PUBLIC_KEY) {
+            throw "Set the MAICORD_PLUGIN_CATALOG_PUBLIC_KEY and MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY repository variables (see tools/release/README.md)."
+          }
           [IO.File]::AppendAllText($env:GITHUB_ENV, "DIST=$env:RUNNER_TEMP\dist`n")
         env:
           PUBLIC_KEY: ${{ vars.MAICORD_UPDATE_PUBLIC_KEY }}
+          CATALOG_PUBLIC_KEY: ${{ vars.MAICORD_PLUGIN_CATALOG_PUBLIC_KEY }}
+          CATALOG_NEXT_PUBLIC_KEY: ${{ vars.MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY }}
 
       - uses: ./.github/actions/setup-toolchain
         with:
@@ -69,8 +74,9 @@ jobs:
         shell: powershell
         run: python -B tools/release/test_release_tools.py
 
-      # The updater is compiled with this repository, the published key and
-      # the release's version and commit; see tools/release/README.md.
+      # The updater and the official plugin catalog are compiled with this
+      # repository's published keys and the release's version and commit; see
+      # tools/release/README.md.
       - name: Build, audit and test
         shell: powershell
         env:
@@ -78,6 +84,8 @@ jobs:
           MAICORD_UPDATE_PUBLIC_KEY: ${{ vars.MAICORD_UPDATE_PUBLIC_KEY }}
           MAICORD_UPDATE_VERSION: ${{ steps.version.outputs.semver }}
           MAICORD_UPDATE_COMMIT: ${{ github.sha }}
+          MAICORD_PLUGIN_CATALOG_PUBLIC_KEY: ${{ vars.MAICORD_PLUGIN_CATALOG_PUBLIC_KEY }}
+          MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY: ${{ vars.MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY }}
         run: ./tools/build.ps1 -Test -TestDeadlineSeconds 300 -TestTimeoutScale 5 -ExcludeTestLabels gpu,display
 
       - name: Package and sign update
