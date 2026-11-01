@@ -1459,7 +1459,7 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
         tests/integration/channel_overview_ui_adapter.cpp tests/integration/regional_flag_probe.cpp
         tests/integration/regional_flag_surfaces_probe.cpp tests/integration/inline_flags_probe.cpp
         tests/integration/guild_rail_icon_probe.cpp tests/integration/background_theme_probe.cpp
-        tests/integration/background_theme_pixels.cpp
+        tests/integration/background_theme_pixels.cpp tests/integration/frame_damage_probe.cpp
         tests/integration/plugin_ui_probe.cpp tests/integration/plugin_navigation_ui_probe.cpp
         tests/integration/plugin_catalog_ui_probe.cpp src/app/plugins/browser_projection.cpp
         tests/integration/settings_choice_ui_probe.cpp tests/integration/user_settings_ui_probe.cpp
@@ -1547,6 +1547,10 @@ maicord_ui_probe_test(maicord_ui_probe UI_PROBE_ONCE LABELS gpu RESOURCE_LOCK na
 # Hosted CI renders in software; this probe needs a hardware GPU to finish in time.
 # Background canvases, Stars/Comets and plugin effects (mc.fx) against CPU references.
 maicord_ui_probe_test(maicord_background_theme_probe UI_BACKGROUND_THEME_PROBE BOOTSTRAP TIMEOUT 20 LABELS gpu display
+    RESOURCE_LOCK native_gpu)
+# Every present (scroll, hover, animated media, background effect ticks, theme
+# and size changes) equals a full render of the same state, buffer age included.
+maicord_ui_probe_test(maicord_frame_damage_probe UI_FRAME_DAMAGE_PROBE BOOTSTRAP TIMEOUT 20 LABELS gpu display
     RESOURCE_LOCK native_gpu)
 maicord_ui_probe_test(maicord_inline_media_controls_ui_probe VIDEO_CONTROLS_UI_PROBE BOOTSTRAP TIMEOUT 20 COST 50
     RESOURCE_LOCK native_gpu)

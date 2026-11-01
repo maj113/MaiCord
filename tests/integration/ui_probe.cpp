@@ -2085,6 +2085,9 @@ int run_probe() noexcept {
                                                       },
                                                       probe_capture_frame}),
                            "background_theme_native_ui_passed", "background_theme_native_ui_failed", 270);
+    if (probe_option_enabled(L"MAICORD_UI_FRAME_DAMAGE_PROBE"))
+        return finish_gate(initialize_fixture(true) && frame_damage_ui_probe(), "frame_damage_native_ui_passed",
+                           "frame_damage_native_ui_failed", 307);
     if (probe_option_enabled(L"MAICORD_UI_SHOWCASE_PROBE"))
         return finish_gate(
             initialize_fixture(true) && showcase_ui_probe(g_probe.renderer, g_probe.message_text),

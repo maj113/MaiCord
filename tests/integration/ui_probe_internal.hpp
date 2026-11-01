@@ -204,6 +204,8 @@ bool probe_read_pixels(const Theme& theme, ConstSlice<UiPoint> points, u8 (*outp
 bool probe_settings_backdrop() noexcept;
 bool probe_settings_entrance_frames() noexcept;
 bool probe_settings_scene() noexcept;
+// Partial frames against full renders of the same state (frame_damage_probe.cpp).
+bool frame_damage_ui_probe() noexcept;
 bool probe_autocomplete_identity() noexcept;
 bool probe_glyph_atlas_gutters() noexcept;
 bool probe_message_display() noexcept;
