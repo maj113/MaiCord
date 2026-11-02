@@ -492,6 +492,10 @@ struct D3D11Renderer {
     u32 draw_calls_last_frame;
     u32 resize_clipped_updates;
     u32 media_draws_last_frame;
+    // Paint, glyph and media instances the last stream submitted under the
+    // Settings modal's transform (its entrance opacity and scale) and under
+    // any other transform (the scrim, forms, the toast).
+    u32 modal_layer_instances_last_frame, other_layer_instances_last_frame;
     u32 media_draws_total;
     u64 preview_media_uploaded_pixels;
     u32 preview_media_uploads;
@@ -663,7 +667,7 @@ struct D3D11Renderer {
     u64 adapter_key;
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
-static_assert(sizeof(D3D11Renderer) == 121040);
+static_assert(sizeof(D3D11Renderer) == 121048);
 
 // Starts hardware device and draw-pipeline creation on a worker at process
 // entry; the next renderer_initialize adopts them. Main thread only.

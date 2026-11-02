@@ -219,11 +219,29 @@ void run() noexcept {
     settings.page_generation = 1;
     g_app.renderer.settings_scene = &settings;
     popup.active = false;
+    // Opening Settings: the modal's entrance alone fades and scales the whole modal, so every quad, glyph and
+    // icon carries the one transition factor; the page binds no fade of its own, even once the entrance settles.
+    g_app.renderer.settings_modal_progress = .4f;
+    application_surface_motion_synchronize(330);
+    check(g_app.renderer.layer_opacity.settings_page == 1 && !application_surface_motion_next_wake(330),
+          "host motion: opening Settings binds no page fade under the modal entrance");
+    g_app.renderer.settings_modal_progress = 1;
+    application_surface_motion_synchronize(340);
+    check(g_app.renderer.layer_opacity.settings_page == 1 && !application_surface_motion_next_wake(340),
+          "host motion: a settled modal keeps its opened page at full visibility");
+    // Switching pages mid-entrance moves with the modal; the new page arrives with it.
+    g_app.renderer.settings_modal_progress = .6f;
+    ++settings.page_generation;
+    application_surface_motion_synchronize(345);
+    check(g_app.renderer.layer_opacity.settings_page == 1 && !application_surface_motion_next_wake(345),
+          "host motion: a page switch during the modal entrance binds no second fade");
+    g_app.renderer.settings_modal_progress = 1;
+    ++settings.page_generation;
     application_surface_motion_synchronize(350);
     g_app.frame_pending = false;
     check(g_app.renderer.layer_opacity.settings_page == 0 &&
               application_surface_motion_next_wake(350) == 366,
-          "host motion: initial Settings page binds zero-opacity entrance and independent cadence");
+          "host motion: a page switch in the settled modal binds zero-opacity entrance and independent cadence");
     bool before_due = true;
     for (u32 query = 0; query < 4; ++query)
         before_due = before_due && !application_surface_motion_request_frame_if_due(365, true) &&
