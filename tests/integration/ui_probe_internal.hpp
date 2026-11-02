@@ -157,6 +157,8 @@ bool synchronize_probe_shell_layout(Utf8View typing_label = {},
                                     float navigation_width = 0, float member_width = 0,
                                     bool members_visible = true) noexcept;
 bool rebuild_probe_content_text() noexcept;
+// `overwrite_response` false leaves the response scratch alone (the scroll benchmark does it untimed).
+bool rebuild_probe_content_text(bool overwrite_response) noexcept;
 bool probe_sync_shell_and_text() noexcept;
 bool set_probe_login_view(RendererLoginView view) noexcept;
 bool add_message(u64 id, Utf8View content,

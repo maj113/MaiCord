@@ -472,11 +472,18 @@ void probe_font_identities() noexcept {
     }
 }
 
+// Simulates the next REST response overwriting all transient shaping storage. Subsequent retained
+// draws and rebuilds must remain valid.
+void overwrite_probe_response_scratch() noexcept {
+    for (auto& byte : g_probe.response_shape_scratch.response)
+        byte = 0xa5;
+}
+
 } // namespace
 
 namespace ui_probe_detail {
 
-bool rebuild_probe_content_text() noexcept {
+bool rebuild_probe_content_text(bool overwrite_response) noexcept {
     MessageTextCoordinatorTrace trace{};
     const MessageTextCoordinatorResult coordinated =
         message_text_coordinator_converge(MessageTextCoordinatorRequest{
@@ -553,12 +560,13 @@ bool rebuild_probe_content_text() noexcept {
     if (coordinated.ok()) {
         if (g_probe.text.scratch.run_count != 0 || g_probe.text.scratch.glyph_count != 0)
             return false;
-        // Simulate the next REST response overwriting all transient shaping
-        // storage. Subsequent retained draws and rebuilds must remain valid.
-        for (auto& byte : g_probe.response_shape_scratch.response)
-            byte = 0xa5;
+        if (overwrite_response)
+            overwrite_probe_response_scratch();
     }
     return coordinated.ok();
+}
+bool rebuild_probe_content_text() noexcept {
+    return rebuild_probe_content_text(true);
 }
 bool probe_sync_shell_and_text() noexcept {
     return synchronize_probe_shell_layout() && rebuild_probe_content_text();
@@ -750,17 +758,20 @@ bool scroll_benchmark(bool* ran) noexcept {
             if (!message_timeline_set_scroll(&timeline, position, false))
                 return false;
             const i64 begin = clock_now();
-            if (!rebuild_probe_content_text()) {
+            // The overwrite is a 256 KiB byte store loop (~70% of a rebuild): not text cost, so untimed.
+            if (!rebuild_probe_content_text(false)) {
                 log_u64(LogLevel::error, "probe", "scroll_benchmark_rebuild_error_step", step);
                 return false;
             }
             const i64 rebuilt = clock_now();
+            overwrite_probe_response_scratch();
+            const i64 presented = clock_now();
             if (!probe_present(&g_probe.renderer, kDefaultTheme))
                 return false;
             // The first sweep measures row heights; record the steady second sweep.
             if (step >= steps) {
                 text_us[step - steps] = static_cast<u32>(clock_microseconds(clock, begin, rebuilt));
-                present_us[step - steps] = static_cast<u32>(clock_microseconds(clock, rebuilt, clock_now()));
+                present_us[step - steps] = static_cast<u32>(clock_microseconds(clock, presented, clock_now()));
             }
         }
         report(text_us, "text_us", mode != 0);
