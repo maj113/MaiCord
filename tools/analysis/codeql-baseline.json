@@ -10,7 +10,6 @@
  "cpp/suspicious-allocation-size|src/app/chat/threads/browser.cpp|Allocated memory (786432 bytes) is not a multiple of the size of 'ForumPostEntry' (2976 bytes).",
  "cpp/suspicious-allocation-size|src/app/plugins/binding.cpp|Allocated memory (4096 bytes) is not a multiple of the size of 'PluginBinding' (1424 bytes).",
  "cpp/suspicious-allocation-size|src/app/plugins/keep.cpp|Allocated memory (69632 bytes) is not a multiple of the size of 'Store' (68040 bytes).",
- "cpp/suspicious-allocation-size|src/app/settings/client_theme_storage.cpp|Allocated memory (372840 bytes) is not a multiple of the size of 'Workspace' (327776 bytes).",
  "cpp/suspicious-allocation-size|src/app/settings/settings_projection.cpp|Allocated memory (787624 bytes) is not a multiple of the size of 'ApplicationPluginSettingsPage' (1192 bytes).",
  "cpp/suspicious-pointer-scaling|src/render/text/edit_layout.cpp|This pointer might have type [NativeEditGeometry](1) (size 112), but this pointer arithmetic is done with type NativeParagraphHitCluster * (size 24).",
  "cpp/suspicious-pointer-scaling|src/render/text/edit_layout.cpp|This pointer might have type [NativeEditGeometry](1) (size 112), but this pointer arithmetic is done with type NativeParagraphHitLine * (size 16).",

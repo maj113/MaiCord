@@ -487,12 +487,16 @@ ClientThemeStorageResult client_theme_catalog_scan(const wchar_t* directory, Cli
     if (!output || !path_length(directory, &length) ||
         length + 8 + kClientThemeCatalogFileUnits >= kClientThemeIoMaximumPathUnits)
         return failure(ClientThemeStorageError::invalid_input);
-    auto* workspace = static_cast<Workspace*>(
-        VirtualAlloc(nullptr, sizeof(Workspace) + sizeof(ClientThemeCatalog), MEM_RESERVE | MEM_COMMIT,
-                     PAGE_READWRITE));
-    if (!workspace)
+    struct ScanWorkspace {
+        Workspace files;
+        ClientThemeCatalog catalog;
+    };
+    auto* memory = static_cast<ScanWorkspace*>(
+        VirtualAlloc(nullptr, sizeof(ScanWorkspace), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!memory)
         return failure(ClientThemeStorageError::memory, ERROR_NOT_ENOUGH_MEMORY);
-    auto& catalog = *reinterpret_cast<ClientThemeCatalog*>(workspace + 1);
+    Workspace* const workspace = &memory->files;
+    auto& catalog = memory->catalog;
     wchar_t pattern[kClientThemeIoMaximumPathUnits]{};
     copy_bytes(pattern, directory, length * sizeof(wchar_t));
     copy_bytes(pattern + length, L"\\*.json", 8 * sizeof(wchar_t));
@@ -571,7 +575,7 @@ ClientThemeStorageResult client_theme_catalog_scan(const wchar_t* directory, Cli
     }
     if (result.ok())
         copy_bytes(output, &catalog, sizeof(catalog));
-    VirtualFree(workspace, 0, MEM_RELEASE);
+    VirtualFree(memory, 0, MEM_RELEASE);
     return result;
 }
 
