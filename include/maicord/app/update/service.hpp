@@ -62,21 +62,23 @@ struct UpdateCheckResult {
     u32 native_error;
 };
 struct UpdateProgress { volatile LONG64 received, total; };
-// Worker-thread buffers for the optional channel changelog.
+// Worker-thread buffers for the channel changelog: the cache file (the 64-byte
+// signature, then the document) and the verified, decoded changelog it holds.
 struct UpdateChangelogDownload {
     u32 document_bytes;
-    char document[kUpdateChangelogMaximumBytes];
-    u8 signature[64];
+    u8 file[64 + kUpdateChangelogMaximumBytes];
     u32 scratch[kUpdateChangelogStructurals];
     UpdateChangelog changelog;
 };
-// Called on the worker once a newer signed offer is verified, before any
-// durable admission or download. changelog is null when none was published,
-// fetched or verified for exactly this version and channel; both are borrowed
-// for the call.
-struct UpdateOfferObserver {
+// Called on the worker once the channel's signed manifest is verified, before
+// any durable admission or download; newer says it offers a version above the
+// installed one. changelog is the verified changelog the service holds for the
+// channel, or null: the cached file or a fresh fetch, for the manifest's
+// version when one was published, otherwise an older cached document. It and
+// the manifest are borrowed for the call.
+struct UpdateCheckObserver {
     void* context;
-    void (*offered)(void* context, const UpdateManifest&, const UpdateChangelog* changelog) noexcept;
+    void (*verified)(void* context, const UpdateManifest&, const UpdateChangelog* changelog, bool newer) noexcept;
 };
 
 // Zero-initialize; noncopyable; large, so allocate it. One worker thread.
@@ -92,7 +94,7 @@ struct UpdateService {
     UpdateProgress progress;
     // Optional: a changelog buffer (null skips the changelog) and an observer.
     UpdateChangelogDownload* changelog;
-    UpdateOfferObserver observer;
+    UpdateCheckObserver observer;
     HANDLE download;
     u32 document_bytes;
     char document[kUpdateManifestMaximumBytes];
@@ -111,6 +113,11 @@ void update_service_release(UpdateService*) noexcept;
 // it still matches the signed offer. An offer no newer than the installed
 // version deletes a kept package.
 UpdateCheckResult update_service_check(UpdateService*, const UpdateTransport&, UpdateChannel, u64 now_unix) noexcept;
+// The changelog cached for the channel, verified again against the publisher
+// key and held in the service's buffer; null when there is none, it doesn't
+// verify, or the service has no changelog buffer. A check fetches a newer one
+// whenever the manifest's version differs from the held one, and caches it.
+const UpdateChangelog* update_service_cached_changelog(UpdateService*, UpdateChannel) noexcept;
 
 enum class UpdateSwapError : u8 { none, nothing_staged, release, replace, install };
 struct UpdateSwapResult {

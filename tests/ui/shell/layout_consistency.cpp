@@ -5,8 +5,6 @@
 #include "maicord/ui/theme/styles.hpp"
 #include "../../support/ui_scene_fixtures.hpp"
 #include "../../support/fake_text_measure.hpp"
-#include "../../../src/app/plugins/browser_projection.hpp"
-#include "maicord/core/decimal.hpp"
 #include "maicord/model/guild/member_store.hpp"
 #include "maicord/model/user/profile.hpp"
 #include "maicord/ui/theme/background_theme.hpp"
@@ -542,81 +540,6 @@ void server_settings() noexcept {
     ui_settings_scene_release(&scene);
 }
 
-// Settings > Plugins from the real catalog projection over a small snapshot.
-struct Catalog {
-    PluginCatalogSnapshot snapshot;
-    PluginCatalogEntryView entries[4];
-    PluginCatalogVersionView versions[4];
-    char documents[4096];
-    app_detail::PluginBrowserBank bank;
-    UiSettingsScene scene;
-    UiPage page;
-    UiPageRegistry registry;
-    UiSettingsPageContent content;
-};
-PluginIndexText catalog_text(Catalog& c, const char* value) noexcept {
-    auto& provider = c.snapshot.providers[0];
-    const u32 offset = provider.document_bytes;
-    u32 n = 0;
-    while (value[n]) {
-        c.documents[offset + n] = value[n];
-        ++n;
-    }
-    provider.document_bytes += n;
-    c.snapshot.documents_bytes = provider.document_bytes;
-    return {offset, n};
-}
-void plugin_browser() noexcept {
-    static Catalog c{};
-    auto& snapshot = c.snapshot;
-    snapshot.entries = c.entries;
-    snapshot.versions = c.versions;
-    snapshot.documents = c.documents;
-    snapshot.configured = true;
-    snapshot.provider_count = 1;
-    auto& official = snapshot.providers[0];
-    official.id = kPluginProviderOfficial;
-    official.kind = PluginProviderKind::official;
-    official.status = PluginCatalogStatus::ok;
-    official.installable = official.enabled = official.check_daily = true;
-    for (u32 i = 0; i < 4; ++i) {
-        char name[16] = "Plugin ";
-        name[7 + decimal_write(name + 7, i)] = 0;
-        auto& e = c.entries[i];
-        e.owner = 1000 + i;
-        e.name = catalog_text(c, name);
-        e.summary = catalog_text(c, "Does useful things.");
-        e.author = catalog_text(c, "Author");
-        e.license = catalog_text(c, "MPL-2.0");
-        e.author_count = 1;
-        e.categories = 1u << i;
-        e.first_version = i;
-        e.version_count = 1;
-        e.installed_index = ~0u;
-        c.versions[i].code = 1000000999;
-        c.versions[i].released = 1760200000;
-        c.versions[i].bytes = 48640;
-        c.versions[i].permissions = 1;
-        c.versions[i].compatibility = PluginCompatibility::compatible;
-    }
-    snapshot.entry_count = snapshot.version_count = 4;
-    app_detail::PluginBrowserFacts facts{};
-    facts.snapshot = &snapshot;
-    facts.configured = true;
-    facts.now_unix = 1760400000;
-    facts.checked_unix = facts.now_unix - 300;
-    const u32 count = app_detail::plugin_browser_project({}, facts, &c.bank);
-    c.content = {utf8_literal("Plugins"), utf8_literal("Add features to MaiCord."), {c.bank.controls, count}, 1};
-    c.content.presentation = c.bank.presentation;
-    bool ok = count && ui_page_registry_initialize(&c.registry, {&c.page, 1}) &&
-              ui_page_registry_register(&c.registry, {{1, 4}, utf8_literal("Plugins"), &c.content}).ok() &&
-              ui_settings_scene_update(&c.scene, &c.registry, {0, 0, 1280, 900}) && begin(1280, 900) &&
-              ui_settings_scene_paint(c.scene, kDefaultTheme, &g.paint);
-    check(ok, "plugin browser fixture");
-    finish("plugin browser", &c.scene.widgets.layout);
-    ui_settings_scene_release(&c.scene);
-}
-
 void profile_popout() noexcept {
     static UserProfile profile{};
     profile.user_id = 42;
@@ -677,7 +600,6 @@ void run() noexcept {
     call_view();
     shell();
     server_settings();
-    plugin_browser();
     profile_popout();
     layout_consistency_check_padding(g.padding, &g.report);
     layout_consistency_print(g.report);

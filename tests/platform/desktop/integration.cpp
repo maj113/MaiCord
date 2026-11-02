@@ -50,6 +50,11 @@ void test_launch(Check check) noexcept {
     check(desktop_launch_parse(wide(L"MaiCord.exe DISCORD://-/app --unknown --startup"), &l) && l.url_present &&
               l.startup && same(l.url, l.url_units, L"DISCORD://-/app"),
           "desktop launch: bare link and unknown arguments");
+    check(desktop_launch_parse(wide(L"\"C:\\MaiCord\\MaiCord.exe\" --url -- \"maicord://install/effect/aurora\""), &l) &&
+              l.url_present && same(l.url, l.url_units, L"maicord://install/effect/aurora") &&
+              desktop_launch_parse(wide(L"MaiCord.exe MAICORD://install?url=https%3A%2F%2Fa.example%2Fx.mcfx"), &l) &&
+              l.url_present && same(l.url, l.url_units, L"MAICORD://install?url=https%3A%2F%2Fa.example%2Fx.mcfx"),
+          "desktop launch: maicord:// links, as handler argument and bare");
     check(desktop_launch_parse(wide(L"MaiCord.exe \"a\\\"b\" --startup"), &l) && l.startup && !l.url_present,
           "desktop launch: escaped quotes follow argv rules");
     check(!desktop_launch_parse(wide(L"MaiCord.exe --url \"discord://-/app"), &l) &&
@@ -177,7 +182,7 @@ void test_registry(Check check) noexcept {
     join(run, L"\\Run");
     join(approved, L"\\Approved");
     join(classes, L"\\Classes");
-    const DesktopRegistryScope scope{HKEY_CURRENT_USER, run, approved, classes, L"MaiCord", L"discord"};
+    const DesktopRegistryScope scope{HKEY_CURRENT_USER, run, approved, classes, L"MaiCord", L"discord", L"Discord"};
     const auto exe = wide(L"C:\\Program Files\\MaiCord\\MaiCord.exe");
     const auto other = wide(L"C:\\Users\\x\\AppData\\Local\\Discord\\Update.exe");
 
@@ -228,6 +233,27 @@ void test_registry(Check check) noexcept {
     check(desktop_protocol_set(scope, other, true) && desktop_protocol_query(scope, exe) == DesktopRegistration::other &&
               desktop_protocol_set(scope, exe, false) && desktop_protocol_query(scope, other) == DesktopRegistration::ours,
           "protocol: disabling never deletes another client's handler");
+    // The opt-in maicord:// class lives beside it and never touches discord://.
+    DesktopRegistryScope install_scope = scope;
+    install_scope.protocol = L"maicord";
+    install_scope.title = L"MaiCord";
+    wchar_t install_key[192], title[64];
+    copy_bytes(install_key, classes, length(classes) * sizeof(wchar_t));
+    copy_bytes(install_key + length(classes), L"\\maicord", 9 * sizeof(wchar_t));
+    DWORD title_bytes = sizeof(title);
+    check(desktop_protocol_query(install_scope, exe) == DesktopRegistration::absent &&
+              desktop_protocol_set(install_scope, exe, true) &&
+              desktop_protocol_query(install_scope, exe) == DesktopRegistration::ours &&
+              desktop_protocol_query(scope, other) == DesktopRegistration::ours &&
+              RegGetValueW(HKEY_CURRENT_USER, install_key, nullptr, RRF_RT_REG_SZ, nullptr, title, &title_bytes) ==
+                  ERROR_SUCCESS &&
+              same(title, length(title), L"URL:MaiCord Protocol"),
+          "protocol: maicord:// registration on writes its own class");
+    check(desktop_protocol_set(install_scope, exe, false) &&
+              desktop_protocol_query(install_scope, exe) == DesktopRegistration::absent &&
+              RegOpenKeyExW(HKEY_CURRENT_USER, install_key, 0, KEY_READ, &key) == ERROR_FILE_NOT_FOUND &&
+              desktop_protocol_set(install_scope, exe, false),
+          "protocol: maicord:// registration off removes the key (idempotent)");
     RegDeleteTreeW(HKEY_CURRENT_USER, base);
     RegDeleteKeyW(HKEY_CURRENT_USER, base);
     HKEY parent{};

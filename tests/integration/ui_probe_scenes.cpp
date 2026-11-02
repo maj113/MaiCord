@@ -3205,7 +3205,7 @@ bool probe_settings_scene() noexcept {
         if (!ui_text_command_stream_initialize(&stream, {commands, 64}) ||
             !ui_settings_scene_text_output(settings, scene_theme, &stream_output))
             return false;
-        const Utf8View labels[]{utf8_literal("Theme"), utf8_literal("ESC"),
+        const Utf8View labels[]{utf8_literal("Theme"), utf8_literal("Smooth scrolling"),
                                 amoled ? utf8_literal("AMOLED") : utf8_literal("Dark"),
                                 utf8_literal("Accessibility")};
         UiRect rectangles[4]{};

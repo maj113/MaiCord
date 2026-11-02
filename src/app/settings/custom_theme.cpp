@@ -24,7 +24,7 @@ struct CustomThemeOwner {
     Utf8View status;
     char diagnostic[192];
     bool selecting, picker_consumed, importing, loading, saving, save_failed;
-    bool candidate_ready, previewing, read_failed, releasing, storage_dirty;
+    bool candidate_ready, previewing, read_failed, releasing, storage_dirty, offered;
     // Installed theme catalog; names borrow catalog entries until the next scan.
     ClientThemeCatalog catalog;
     Utf8View catalog_names[kClientThemeCatalogCapacity];
@@ -82,7 +82,7 @@ void submit_catalog(CustomThemeOwner& o) noexcept {
 bool interaction_current(const CustomThemeOwner& o) noexcept {
     return !o.releasing && g_app.account_ui && !g_app.login.visible &&
            !application_account_logout_blocked() && application_settings_active() &&
-           application_settings_appearance_selected() &&
+           (o.offered || application_settings_appearance_selected()) &&
            application_settings_lifetime() == o.settings_lifetime &&
            o.account_scope == g_app.plugin_account_scope_serial &&
            o.profile == g_app.account.status.profile_id;
@@ -228,7 +228,7 @@ void cancel(CustomThemeOwner& o) noexcept {
         native_file_picker_cancel(&o.picker);
     if (o.importing && o.io)
         client_theme_io_cancel(o.io, o.import_generation);
-    o.selecting = o.importing = false;
+    o.selecting = o.importing = o.offered = false;
     o.import_generation = 0;
     if (o.previewing && publish(o, o.applied))
         o.previewing = false;
@@ -328,7 +328,7 @@ bool application_custom_theme_action(ApplicationCustomThemeAction action) noexce
             return false;
         o->applied = o->effective;
         o->storage_dirty = true;
-        o->previewing = o->candidate_ready = false;
+        o->previewing = o->candidate_ready = o->offered = false;
         return save(*o);
     case ApplicationCustomThemeAction::restore_imported: {
         if (!o->applied.custom_present)
@@ -382,6 +382,27 @@ bool application_custom_theme_select_installed(u32 index) noexcept {
 void application_custom_theme_cancel_interaction() noexcept {
     if (owner && (owner->previewing || owner->selecting || owner->importing || owner->candidate_ready))
         cancel(*owner);
+}
+bool application_custom_theme_offer(const ClientThemeDocument& document) noexcept {
+    auto* o = ensure();
+    if (!o || o->loading || o->selecting || o->importing || application_theme_editor_active() ||
+        !client_theme_document_valid(document) || !capture_interaction(*o))
+        return false;
+    if (o->previewing && !publish(*o, o->applied))
+        return false;
+    o->previewing = false;
+    o->candidate = o->applied;
+    o->candidate.custom = document;
+    o->candidate.custom_present = true;
+    o->candidate_ready = o->offered = true;
+    o->read_failed = false;
+    ready_status(*o, utf8_literal("Theme ready to preview."));
+    changed(*o);
+    return true;
+}
+void application_custom_theme_rescan() noexcept {
+    if (owner && !owner->releasing)
+        submit_catalog(*owner);
 }
 bool application_custom_theme_preferences_changed(bool choose_builtin, bool persist) noexcept {
     auto* o = ensure();

@@ -72,7 +72,7 @@ ClientThemeStorageResult client_theme_storage_user_path(Slice<wchar_t>,
 
 // Installed themes: every *.json document in %LOCALAPPDATA%\MaiCord\themes.
 // Invalid, oversized or unreadable files are skipped and counted.
-inline constexpr u32 kClientThemeCatalogCapacity = 16;
+inline constexpr u32 kClientThemeCatalogCapacity = 64;
 inline constexpr u32 kClientThemeCatalogFileUnits = 260; // MAX_PATH, checked in client_theme_storage.cpp
 struct ClientThemeCatalogEntry {
     char name[kClientThemeNameMaximumBytes + 1];

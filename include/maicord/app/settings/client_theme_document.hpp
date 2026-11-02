@@ -27,6 +27,32 @@ enum class ClientThemeDocumentError : u8 {
     reference,
     cycle
 };
+// The optional package effect a theme asks for: "background": {"effect": "<slug>", "knobs": {...}, "universal": {...}}
+// next to the built-in effect names. Applied when the effect is installed and no built-in effect is active.
+inline constexpr u32 kClientThemeEffectSlugBytes = 40, kClientThemeEffectKnobMaximum = 28,
+                     kClientThemeEffectKnobIdBytes = 24;
+struct ClientThemeEffectKnob {
+    char id[kClientThemeEffectKnobIdBytes + 1];
+    bool color; // rgb is the value; otherwise number (a toggle is 0 or 1, a choice its index)
+    float number;
+    u32 rgb;
+};
+enum ClientThemeEffectUniversal : u8 {
+    theme_effect_speed = 1,
+    theme_effect_resolution = 2,
+    theme_effect_frame_rate = 4,
+    theme_effect_opacity = 8,
+    theme_effect_blend = 16,
+};
+struct ClientThemeEffect {
+    char slug[kClientThemeEffectSlugBytes + 1];
+    u8 knob_count;
+    u8 universal;                // ClientThemeEffectUniversal bits that are set
+    u8 speed, opacity;           // twentieths of a second per second (0..60); percent
+    u8 resolution, frame_rate;   // step + 1
+    u8 blend;                    // EffectBlend
+    ClientThemeEffectKnob knobs[kClientThemeEffectKnobMaximum];
+};
 struct ClientThemeDocument {
     Theme theme{};
     UiThemeTypography typography{};
@@ -37,6 +63,7 @@ struct ClientThemeDocument {
     // Component tier: zero colours keep their semantic-derived defaults.
     UiThemeIcons icons{};
     UiThemeSettings settings{};
+    ClientThemeEffect effect{};
 };
 struct ClientThemeDocumentResult {
     ClientThemeDocumentError error{};

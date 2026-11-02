@@ -170,6 +170,11 @@ maicord_library(maicord_client_preferences
     src/app/settings/client_preferences_writer.cpp src/app/voice/preferences.cpp
     LIBS maicord_core maicord_ui maicord_platform kernel32)
 
+# Theme and effect packages: the .mcfx container, the link grammar and the install files (no UI, no catalog).
+maicord_library(maicord_packages
+    src/app/packages/mcfx.cpp src/app/packages/link.cpp src/app/packages/install.cpp
+    LIBS maicord_core maicord_app_core kernel32)
+
 maicord_library(maicord_protocol
     src/protocol/messages/poll.cpp src/protocol/gateway/message_poll.cpp src/protocol/auth/browser_sign_in.cpp
     src/protocol/auth/captcha_bridge_page.cpp src/protocol/encoding/base64.cpp src/protocol/encoding/base64_codec.cpp
@@ -410,6 +415,9 @@ maicord_library(maicord_ui
     src/ui/shell/page_registry.cpp src/ui/settings/scene.cpp src/ui/settings/scene_layout.cpp
     src/ui/settings/scene_paint.cpp src/ui/settings/theme_editor.cpp src/ui/theme/styles.cpp
     src/ui/theme/style_projection.cpp src/ui/widgets/settings_choice.cpp src/ui/account/friends_scene.cpp
+    src/ui/widgets/kit_fields.cpp src/ui/widgets/kit_collections.cpp src/ui/widgets/kit_panels.cpp
+    src/ui/widgets/kit_markdown.cpp
+    src/ui/store/store_layout.cpp src/ui/store/store_input.cpp src/ui/store/store_paint.cpp src/ui/store/store_access.cpp
     src/ui/account/friends_media.cpp src/ui/controls/settings_tokens.cpp src/ui/controls/switch.cpp
     src/ui/controls/radio.cpp src/ui/controls/slider.cpp src/ui/controls/input.cpp src/ui/controls/swatch.cpp
     src/ui/controls/navigation.cpp src/ui/controls/text_metrics.cpp src/ui/settings/schema.cpp
@@ -451,11 +459,6 @@ maicord_library(maicord_plugin_modules
     src/app/plugins/module_loader.cpp src/app/plugins/manifest.cpp src/app/plugins/catalog.cpp
     src/app/plugins/bundle_install.cpp src/app/plugins/preferences.cpp
     LIBS maicord_core maicord_plugin_host kernel32 bcrypt)
-maicord_library(maicord_plugin_manager
-    src/app/plugins/index.cpp src/app/plugins/index_policy.cpp src/app/plugins/index_acceptance.cpp
-    src/app/plugins/providers.cpp src/app/plugins/manager_state.cpp src/app/plugins/index_service.cpp
-    src/app/plugins/manager_install.cpp src/app/plugins/manager_runtime.cpp
-    LIBS maicord_core maicord_platform maicord_app_core maicord_plugin_modules kernel32 bcrypt)
 # The native plugin runtime: the pinned-directory loader with its PE checks, per-plugin bindings
 # (state, settings, persisted store, call ledger), the mc_api host table and the hook dispatch lists.
 maicord_library(maicord_plugin_runtime
@@ -467,6 +470,10 @@ maicord_library(maicord_plugin_runtime
     src/app/plugins/pipeline_api.cpp
     src/app/plugins/decorations.cpp src/app/plugins/buttons.cpp src/app/plugins/reads.cpp
     LIBS maicord_core maicord_protocol maicord_platform maicord_app_core maicord_plugin_host maicord_plugin_modules kernel32)
+# The official catalog's pure parts: the format-2 index verifier and the catalog-state.bin record.
+maicord_library(maicord_plugin_catalog
+    src/app/plugins/catalog_index.cpp src/app/plugins/catalog_state.cpp
+    LIBS maicord_core maicord_platform maicord_app_core maicord_plugin_runtime kernel32 bcrypt)
 
 maicord_library(maicord_edit_history src/model/chat/edit_history.cpp LIBS maicord_core maicord_platform)
 

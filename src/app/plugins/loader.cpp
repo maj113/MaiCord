@@ -514,7 +514,7 @@ PluginLoadResult plugin_directory_close(PluginDirectory* directory) noexcept {
 }
 
 PluginLoadResult plugin_image_load(PluginImage* image, const PluginDirectory& directory, ConstSlice<wchar_t> leaf,
-                                   u64 approved) noexcept {
+                                   u64 approved, const u8* sha256) noexcept {
     if (!image || !leaf.data || !leaf.count) return failure(PluginLoadError::invalid_argument);
     if (image->module) return failure(PluginLoadError::already_loaded);
     reset_value(image);
@@ -524,6 +524,7 @@ PluginLoadResult plugin_image_load(PluginImage* image, const PluginDirectory& di
     const auto opened = native_plugin_pinned_file_open(directory.pin, leaf, &file);
     if (!opened.ok()) result = failure(PluginLoadError::open, opened.win32_error);
     else if (file.bytes > kPluginDllMaximumBytes) result = failure(PluginLoadError::not_pe);
+    else if (sha256 && !native_plugin_verified_file_hash(&file, {sha256, 32}).ok()) result = failure(PluginLoadError::digest);
     else result = plugin_pe_check(file.file, file.bytes, image);
     if (result.ok()) {
         module = LoadLibraryExW(file.path, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);

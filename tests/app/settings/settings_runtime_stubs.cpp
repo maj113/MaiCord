@@ -8,6 +8,8 @@
 #include "settings_runtime_keys.hpp"
 #include "../../support/test_output.hpp"
 
+#include "../../../src/app/store/store_host.hpp"
+
 namespace maicord {
 
 // Deterministic picker boundary: actual plugin controller code is exercised,
@@ -509,6 +511,34 @@ bool application_video_viewer_cursor(UiPoint, UiCursor*) noexcept {
     return false;
 }
 void end_scrollbar_drag() noexcept {
+}
+// The store pages (src/app/store) are not part of these tests: their host page is a bare rectangle.
+bool application_store_kind(u64 page, CatalogKind* kind) noexcept {
+    if (page == static_cast<u64>(SettingsPanel::plugins) + 1)
+        *kind = CatalogKind::plugin;
+    else if (page == static_cast<u64>(SettingsPanel::themes) + 1)
+        *kind = CatalogKind::theme;
+    else if (page == static_cast<u64>(SettingsPanel::effects) + 1)
+        *kind = CatalogKind::effect;
+    else
+        return false;
+    return true;
+}
+void application_store_visible(bool, CatalogKind) noexcept {
+}
+bool application_store_synchronize(UiSettingsScene*) noexcept {
+    return false;
+}
+bool application_store_window_message(UINT, WPARAM, LPARAM) noexcept {
+    return false;
+}
+bool application_store_input(UiInputKind, u32, bool) noexcept {
+    return false;
+}
+bool application_store_character(u32) noexcept {
+    return false;
+}
+void application_store_release() noexcept {
 }
 void application_sync_attachment_drop_target() noexcept {
     ++settings_runtime_test::observed.drop_updates;

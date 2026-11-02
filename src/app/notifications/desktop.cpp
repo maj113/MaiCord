@@ -4,6 +4,7 @@
 #include "../guild/invite.hpp"
 #include "../shell/state.hpp"
 #include "taskbar_attention.hpp"
+#include "../packages/packages.hpp"
 #include "../voice/voice.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
@@ -260,6 +261,7 @@ void application_desktop_tick(u64 now_ms) noexcept {
     }
     tick_tray(now_ms);
     tick_link(now_ms);
+    application_packages_tick(now_ms);
 }
 
 bool application_desktop_window_message(UINT message, WPARAM, LPARAM lparam, LRESULT* result) noexcept {
@@ -305,6 +307,10 @@ void application_desktop_request_quit() noexcept {
 }
 
 bool application_desktop_open_link(ConstSlice<wchar_t> url) noexcept {
+    if (url.count > 8 && (url[0] | 0x20) == L'm' && (url[1] | 0x20) == L'a' && (url[2] | 0x20) == L'i' &&
+        (url[3] | 0x20) == L'c' && (url[4] | 0x20) == L'o' && (url[5] | 0x20) == L'r' && (url[6] | 0x20) == L'd' &&
+        url[7] == L':')
+        return application_packages_open_link(url);
     DesktopLinkTarget target{};
     if (!desktop_link_parse(url, &target)) {
         log_write(LogLevel::info, "desktop", "link_refused");

@@ -33,6 +33,7 @@
 #include "../shell/state.hpp"
 #include "login/ui.hpp"
 #include "../plugins/plugins.hpp"
+#include "../plugins/catalog_service.hpp"
 #include "../chat/read_state.hpp"
 #include "../chat/scoped_read.hpp"
 #include "../chat/scoped_read_menu.hpp"
@@ -827,6 +828,7 @@ bool application_pump_account() noexcept {
             return false;
         if (!application_plugins_restore())
             log_write(LogLevel::warning, "plugins", "remembered_restore_incomplete");
+        application_catalog_restore();
         application_request_frame();
     }
     return true;

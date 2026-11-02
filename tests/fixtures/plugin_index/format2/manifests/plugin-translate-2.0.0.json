@@ -1,0 +1,1 @@
+{"kind":"plugin","slug":"translate","version":"2.0.0","released":1760100000,"file":{"name":"files/788576f6fab3a3b66431ca6b5f7d6f1a8327be1645be624c86939169f5bd4468.dll","sha256":"788576f6fab3a3b66431ca6b5f7d6f1a8327be1645be624c86939169f5bd4468","bytes":41984},"api_level":1,"permissions":["network","composer"],"network":["translate.example.com","*.deepl.example.net"]}

@@ -45,6 +45,7 @@ enum AccessSurface : u8 {
     surface_picker,
     surface_caption,
     surface_profile,
+    surface_store,
 };
 
 constexpr u32 kNodeCapacity = 8192;

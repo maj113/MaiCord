@@ -4,6 +4,7 @@
 #include "maicord/ui/core/widget_storage.hpp"
 #include "maicord/ui/core/paint.hpp"
 #include "maicord/ui/text/edit_field.hpp"
+#include "maicord/ui/widgets/kit_markdown.hpp"
 #include "maicord/media/core/asset_key.hpp"
 
 namespace maicord {
@@ -37,7 +38,22 @@ enum class UiSettingsControlKind : u8 {
     // secondary button, reported as choice choices.count.
     colors,
     // One line of critical text under the row before it (a field error).
-    error
+    error,
+    // A status card (page-level state): label is the title, description the meta line, choices the chips
+    // (tones in the presentation), action_label the button, detail the caption under it; checked marks a busy
+    // state (spinner on the icon tile and in the button), the variant is the tone, enabled the button's state.
+    status,
+    // A collapsible header (title, meta description, tag chip in detail); checked = expanded. The `plain`
+    // presentation makes it a static line of a list (no chevron, not focusable).
+    disclosure,
+    // Markdown source in description (borrowed until the next revision), parsed while the row is in view;
+    // checked = shown in full, else clipped with the detail text as the link that shows it.
+    markdown,
+    // An info line under a card; action_label is an optional link at its end.
+    footnote,
+    // An empty or error state: label title, description body, choices the buttons (the first primary),
+    // detail a line under them; the presentation icon shows in the disc.
+    empty
 };
 // Selection sentinel for palette and radio controls showing no current value.
 inline constexpr u32 kUiSettingsNoChoice = ~0u;
@@ -92,6 +108,9 @@ struct UiSettingsControl {
     u32 selected_choice;
     Utf8View action_label;
     const UiSettingsEditor* editor;
+    // A second small text of the kinds that have one (status caption, disclosure tag, markdown link, empty
+    // detail, footnote link); a category row's detail is the inline note after its title.
+    Utf8View detail{};
 };
 
 enum class UiSettingsVariant : u8 {
@@ -127,11 +146,30 @@ inline constexpr u32 kUiSettingsAccentChoice = 0xFFFF'FFFEu;
 // default_choice marks a slider's default value; kUiSettingsNoDefault for none.
 inline constexpr u16 kUiSettingsNoDefault = 0xffff;
 inline constexpr u16 kUiSettingsNoMeter = 0xffff;
+// A status card's meter that runs without a level (a check in progress).
+inline constexpr u16 kUiSettingsIndeterminateMeter = 0xfffe;
+// Chip tones of status and disclosure rows, two bits per chip in UiSettingsControlPresentation::chip_tones.
+enum UiSettingsChipTone : u8 {
+    ui_settings_chip_neutral,
+    ui_settings_chip_positive,
+    ui_settings_chip_brand,
+    ui_settings_chip_warning,
+};
+enum UiSettingsPresentationMore : u8 {
+    // A status row's meter fills its button (a download's progress) instead of showing as a bar.
+    ui_settings_more_progress_button = 1u << 0,
+    // A disclosure row that is a static line of a list: no chevron, never focusable.
+    ui_settings_more_plain = 1u << 1,
+};
 // Action rows' choices become chips under the text.
 struct UiSettingsControlPresentation {
     UiSettingsVariant variant;
     u8 flags;
     u16 default_choice;
+    u16 chip_tones = 0;
+    // UiIcon + 1 (zero: none) of a status tile or an empty state.
+    u8 icon_plus_one = 0;
+    u8 more = 0;
 };
 
 // Real image for an avatar row. An invalid key keeps the initials placeholder.
@@ -214,6 +252,12 @@ struct UiSettingsPageContent {
     Utf8View aside_label{};
     // Null, or one entry per control (UiSettingsListItem).
     const UiSettingsListItem* list_items = nullptr;
+    // A host page: the scene keeps the modal, sidebar, close button and focus zones but draws no title,
+    // subtitle or rows; the host draws the column (ui_settings_scene_host_rect) and owns its scrolling and
+    // inner focus (the store pages). `wide` takes the store column: from the panel's padding to 16 DIP before
+    // the close button, at most kUiSettingsWideMaximum.
+    bool host = false;
+    bool wide = false;
 };
 
 enum class UiSettingsTargetKind : u8 {
@@ -225,7 +269,9 @@ enum class UiSettingsTargetKind : u8 {
     reset,
     search,
     search_clear,
-    action
+    action,
+    // The inner focus of a host page: one stop of the panel zone, control_id the host's own id.
+    host
 };
 struct UiSettingsTarget {
     UiSettingsTargetKind kind;
@@ -295,6 +341,8 @@ enum class UiSettingsNavKind : u8 {
     action,
     contributed
 };
+// A badge on a page entry: none, an attention dot, or a count.
+inline constexpr u16 kUiSettingsNavDot = 0xffff;
 struct UiSettingsNavEntry {
     UiSettingsNavKind kind;
     bool destructive;
@@ -302,6 +350,9 @@ struct UiSettingsNavEntry {
     Utf8View label;
     UiPageKey page;
     u64 action;
+    // Pinned entries sit in the sidebar's foot under a hairline and do not scroll with the others.
+    bool pinned = false;
+    u16 badge = 0;
 };
 inline constexpr u32 kUiSettingsNavigationMaximum = 48;
 
@@ -312,8 +363,10 @@ struct UiSettingsModalLayout {
     bool compact;
 };
 struct UiSettingsLayoutTokens;
+// The widest store column; wide pages take the panel's padding to 16 DIP before the close button.
+inline constexpr float kUiSettingsWideMaximum = 1040;
 UiSettingsModalLayout ui_settings_modal_layout(const UiSettingsLayoutTokens&, const UiRect& viewport,
-                                               UiSettingsPresentation) noexcept;
+                                               UiSettingsPresentation, bool wide = false) noexcept;
 // Dialogs: shrinks a non-compact layout to the content height (title through
 // footer band) and re-centres it vertically; taller content keeps the full
 // height and scrolls its body.
@@ -327,7 +380,10 @@ struct UiSettingsAnimation {
 inline constexpr u32 kUiSettingsAnimationSlots = 1;
 
 struct UiResolvedThemeStyles;
+struct UiKitMeasure;
 struct UiSettingsScene {
+    // Optional text measuring hooks (the host's text cache); null keeps the per-character estimate.
+    const UiKitMeasure* measure{};
     const UiResolvedThemeStyles* theme_styles{};
     u32 theme_geometry_revision{}, projected_theme_geometry_revision{};
     UiFixedWidgetStorageOwner storage;
@@ -375,6 +431,12 @@ struct UiSettingsScene {
     u8 spinner_phase{};
     // Control index the focus last sat on: where it lands when that control is removed.
     u32 focus_row{};
+    // The control indexes (first, end) whose rows are materialized as widgets.
+    u32 rows_first{}, rows_end{};
+    // Retained markdown blocks of the page's markdown rows (allocated on first use); freed when the scene releases.
+    mutable UiMarkdownBank* markdown{};
+    // Scrollbar look of the sidebar and the page: 0 at rest, 1 hovered, 2 dragged (host-driven, paint only).
+    u8 scrollbar_state[2]{};
 };
 // True while the page shows a loading notice, whose spinner needs the clock.
 bool ui_settings_scene_spinner_visible(const UiSettingsScene&) noexcept;
@@ -382,6 +444,13 @@ bool ui_settings_scene_spinner_visible(const UiSettingsScene&) noexcept;
 // Lazy one-allocation retained scene. Only viewport rows and two spacers per
 // list are materialized; inactive scenes have no widget allocation. UI thread.
 bool ui_settings_scene_bind_theme_styles(UiSettingsScene*, const UiResolvedThemeStyles*) noexcept;
+// Binds the host's text measuring hooks (kept across release); layout then measures instead of estimating.
+bool ui_settings_scene_bind_measure(UiSettingsScene*, const UiKitMeasure*) noexcept;
+// Sets the look of the sidebar's (or the page's) scrollbar: 0 at rest, 1 hovered, 2 dragged. Paint only.
+bool ui_settings_scene_set_scrollbar_state(UiSettingsScene*, bool sidebar, u8 state) noexcept;
+// A host page's column: the rectangle the host draws in (in page coordinates, under the title band's
+// place) and its clip (the panel's body). False when the page is not a host page or the scene is inactive.
+bool ui_settings_scene_host_rect(const UiSettingsScene&, UiRect* page, UiRect* clip) noexcept;
 bool ui_settings_scene_update(UiSettingsScene* scene, UiPageRegistry* registry, const UiRect& viewport) noexcept;
 // The page check ui_settings_scene_update applies; owners use it to tell a
 // malformed projection apart from a transient (viewport) rejection.
@@ -500,5 +569,5 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
 } // namespace maicord
 
 static_assert(sizeof(maicord::UiSettingsStyle) == 12);
-static_assert(sizeof(maicord::UiSettingsControl) == 96);
-static_assert(sizeof(maicord::UiSettingsControlPresentation) == 4);
+static_assert(sizeof(maicord::UiSettingsControl) == 112);
+static_assert(sizeof(maicord::UiSettingsControlPresentation) == 8);

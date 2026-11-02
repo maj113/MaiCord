@@ -137,9 +137,8 @@ enum class SettingBinding : u16 {
     activity_notice,
     accessibility_notice,
     // Updates page (application_updates) rows added with the changelog.
-    update_problem,
-    update_available,
     update_changelog,
+    update_release_notes,
     // Built-in extras (local): colours, reply times, folders, hidden channels.
     role_colors_everywhere,
     reply_timestamps,
@@ -153,6 +152,9 @@ enum class SettingBinding : u16 {
     image_zoom_factor,
     image_zoom_size,
     spotify_account,
+    // Appearance's link rows to the store pages.
+    browse_themes,
+    browse_effects,
     count
 };
 enum class SettingBackend : u8 {
@@ -185,6 +187,8 @@ enum class SettingsPanel : u8 {
     keybinds,
     system,
     activity_privacy,
+    themes,
+    effects,
     count
 };
 inline constexpr u32 kSettingsPanelCount = static_cast<u32>(SettingsPanel::count);

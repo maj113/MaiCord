@@ -5,16 +5,18 @@
 #include "../shell/ui_runtime.hpp"
 #include "../account/account_presentation.hpp"
 #include "../account/application_account_logout.hpp"
-#include "../plugins/browser.hpp"
-#include "../plugins/browser_projection.hpp"
 #include "../notifications/notifications.hpp"
+#include "../account/account_ui_runtime.hpp"
 #include "../update/updates.hpp"
+#include "maicord/ui/widgets/kit.hpp"
+#include "../store/store_host.hpp"
 #include "user_settings.hpp"
 #include "account_settings.hpp"
 #include "keybinds_settings.hpp"
 #include "../notifications/desktop.hpp"
 #include "maicord/app/account/login/oauth_account.hpp"
 #include "maicord/app/plugins/plugin_settings_projection.hpp"
+#include "../plugins/application_plugin_settings_projection.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/guild/icon_media.hpp"
@@ -31,7 +33,7 @@ static_assert(kSettingsPanelRowLimit >= kSettingsControlCapacity);
 inline constexpr u32 kSettingsSearchHits = 16;
 
 // The bank is allocated lazily; nothing is allocated at application startup.
-static_assert(sizeof(ApplicationSettings) <= 3 * 4096);
+static_assert(sizeof(ApplicationSettings) <= 4 * 4096);
 
 namespace settings_detail {
 
@@ -119,13 +121,14 @@ SettingBinding binding_of(const UiSettingsSchemaNode& node) noexcept {
 namespace settings_detail {
 
 bool theme_panel(UiPageKey page) noexcept {
-    return page.owner_id == kNativeSettingsOwner && page.page_id == static_cast<u64>(SettingsPanel::appearance) + 1;
+    return page.owner_id == kNativeSettingsOwner && (page.page_id == static_cast<u64>(SettingsPanel::appearance) + 1 ||
+                                                     page.page_id == static_cast<u64>(SettingsPanel::themes) + 1);
 }
 // Rows of side-by-side options that a click picks directly.
 bool option_row(UiSettingsControlKind kind) noexcept {
     return kind == UiSettingsControlKind::segments || kind == UiSettingsControlKind::swatches ||
            kind == UiSettingsControlKind::tabs || kind == UiSettingsControlKind::buttons ||
-           kind == UiSettingsControlKind::colors;
+           kind == UiSettingsControlKind::colors || kind == UiSettingsControlKind::empty;
 }
 bool theme_binding(SettingBinding binding) noexcept {
     return binding == SettingBinding::theme_base || binding == SettingBinding::theme_color ||
@@ -222,10 +225,12 @@ bool same_control(const UiSettingsControl& a, const UiSettingsControl& b) noexce
     return a.id == b.id && a.kind == b.kind && a.enabled == b.enabled && a.checked == b.checked &&
            a.choices.data == b.choices.data && a.choices.count == b.choices.count &&
            a.selected_choice == b.selected_choice && a.editor == b.editor && utf8_equal(a.label, b.label) &&
-           utf8_equal(a.description, b.description) && utf8_equal(a.action_label, b.action_label);
+           utf8_equal(a.description, b.description) && utf8_equal(a.action_label, b.action_label) &&
+           utf8_equal(a.detail, b.detail);
 }
 bool same_presentation(const UiSettingsControlPresentation& a, const UiSettingsControlPresentation& b) noexcept {
-    return a.variant == b.variant && a.flags == b.flags && a.default_choice == b.default_choice;
+    return a.variant == b.variant && a.flags == b.flags && a.default_choice == b.default_choice &&
+           a.chip_tones == b.chip_tones && a.icon_plus_one == b.icon_plus_one && a.more == b.more;
 }
 Utf8View search_query(const ApplicationSettings& settings) noexcept {
     return {settings.search_text, settings.search_bytes};
@@ -296,6 +301,9 @@ bool project_node(const ApplicationSettings& settings, u32 panel, u32 index, UiS
     case SettingBinding::customize_theme:
         control->enabled = theme_idle;
         return true;
+    case SettingBinding::browse_themes:
+    case SettingBinding::browse_effects:
+        return true;
     case SettingBinding::custom_import:
         control->description = custom.current;
         control->action_label =
@@ -349,8 +357,7 @@ bool project_node(const ApplicationSettings& settings, u32 panel, u32 index, UiS
     case SettingBinding::update_channel:
     case SettingBinding::update_interval:
     case SettingBinding::update_notice:
-    case SettingBinding::update_problem:
-    case SettingBinding::update_available:
+    case SettingBinding::update_release_notes:
         return application_updates_project(binding, control, presentation);
     default:
         return true;
@@ -497,80 +504,42 @@ void project(ApplicationSettings& settings) noexcept {
         }
         settings.native_page = native;
         application_voice_settings_visible(native == static_cast<u32>(SettingsPanel::voice) + 1);
+        application_updates_visible(native == static_cast<u32>(SettingsPanel::updates) + 1);
         application_keybinds_settings_visible(native == static_cast<u32>(SettingsPanel::keybinds) + 1);
-        application_plugin_browser_page_visible(native == kPluginsPage);
         application_account_settings_visible(native >= 1 && native <= kSettingsPanelCount
                                                  ? static_cast<SettingsPanel>(native - 1)
                                                  : SettingsPanel::count);
     }
     auto& appearance = settings.content[static_cast<u32>(SettingsPanel::appearance)];
-    const Utf8View status = custom.revision ? custom.status : Utf8View{};
+    // The page's one-line subtitle, until the custom theme has a status to show in its place.
+    const Utf8View status = custom.revision && custom.status.bytes
+                                ? custom.status
+                                : settings_catalog_panel(SettingsPanel::appearance).summary;
     if (!utf8_equal(appearance.description, status)) {
         appearance.description = status;
         changed[static_cast<u32>(SettingsPanel::appearance)] = true;
     }
-    UiSettingsControl* browser_controls = nullptr;
-    UiSettingsControlPresentation* browser_presentation = nullptr;
-    bool browser_changed = false;
-    const u32 browser_count = native == kPluginsPage
-                                  ? application_plugin_browser_project(&browser_controls, &browser_presentation,
-                                                                       settings.plugin_error, &browser_changed)
-                                  : 0;
-    if (browser_count) {
-        // The catalog tabs borrow their own bank, like Keybinds.
-        auto& page = changed[kPluginsPage - 1];
-        auto& content = settings.content[kPluginsPage - 1];
-        const u64 catalog_revision = application_plugins_catalog_revision();
-        page = page || browser_changed || settings.catalog_revision != catalog_revision ||
-               content.controls.count != browser_count || content.controls.data != browser_controls;
-        settings.catalog_revision = catalog_revision;
-        content.controls = {browser_controls, browser_count};
-        content.presentation = browser_presentation;
-        content.avatar_media = nullptr;
-        content.meters = nullptr;
-    } else if (native == kPluginsPage) {
-        UiSettingsControl plugin_controls[kApplicationPluginSettingsMaximumControls]{};
-        const u32 plugin_count = application_plugins_settings_controls(
-            {plugin_controls, kApplicationPluginSettingsMaximumControls},
-            {settings.catalog_text, kApplicationPluginCatalogWindow}, settings.plugin_error);
-        auto& page = changed[kPluginsPage - 1];
-        for (u32 i = 0; i < plugin_count; ++i) {
-            page = page || !same_control(settings.controls[i], plugin_controls[i]);
-            settings.controls[i] = plugin_controls[i];
-        }
-        const u64 catalog_revision = application_plugins_catalog_revision();
-        page = page || settings.catalog_revision != catalog_revision ||
-               settings.content[kPluginsPage - 1].controls.count != plugin_count;
-        settings.catalog_revision = catalog_revision;
-        settings.content[kPluginsPage - 1].controls = {settings.controls, plugin_count};
-        settings.content[kPluginsPage - 1].presentation = nullptr;
-        settings.content[kPluginsPage - 1].avatar_media = nullptr;
+    CatalogKind store_kind{};
+    if (application_store_kind(native, &store_kind)) {
+        // A host page: the store scene draws its own column in the rectangle the settings scene gives it.
     } else if (native == static_cast<u32>(SettingsPanel::updates) + 1 && application_updates_settings_bank()) {
-        // Updates borrows its own bank for the changelog rows, with their
-        // table decorations and the download's progress meter.
+        // Updates borrows its own bank for the changelog rows and the status
+        // card's progress meter.
         auto& page = changed[native - 1];
         auto& content = settings.content[native - 1];
         auto& bank = *application_updates_settings_bank();
         const u32 count = project_panel(settings, native - 1, &page, bank.controls, bank.presentation,
                                         kApplicationUpdatesSettingsRows);
         UiSettingsSchemaLocation location{};
-        const u64 heading = settings_catalog_binding(SettingBinding::update_changelog, &location)
-                                ? settings_control_id(location.panel, location.node)
-                                : 0;
-        const u64 available = settings_catalog_binding(SettingBinding::update_available, &location)
-                                  ? settings_control_id(location.panel, location.node)
-                                  : 0;
-        for (u32 i = 0; i < count; ++i) {
-            const u64 id = bank.controls[i].id;
-            const auto item = application_updates_list_item(id, id == heading);
-            page = page || item.style != bank.items[i].style;
-            bank.items[i] = item;
-            bank.meters[i] = id == available ? application_updates_meter() : kUiSettingsNoMeter;
-        }
+        const u64 status = settings_catalog_binding(SettingBinding::update_status, &location)
+                               ? settings_control_id(location.panel, location.node)
+                               : 0;
+        for (u32 i = 0; i < count; ++i)
+            bank.meters[i] = bank.controls[i].id == status ? application_updates_meter() : kUiSettingsNoMeter;
         page = page || content.controls.count != count || content.controls.data != bank.controls;
         content.controls = {bank.controls, count};
         content.presentation = bank.presentation;
-        content.list_items = bank.items;
+        content.list_items = nullptr;
         content.meters = bank.meters;
         content.avatar_media = nullptr;
     } else if (native == static_cast<u32>(SettingsPanel::keybinds) + 1) {
@@ -757,8 +726,9 @@ ApplicationSettings* ensure() noexcept {
     const auto& schema = settings_catalog();
     for (u32 i = 0; i < kSettingsSearchPage; ++i) {
         const Utf8View label = i < kSettingsPanelCount ? schema.panels[i].title : utf8_literal("Search results");
-        const bool plugins = i == kPluginsPage - 1;
-        settings->content[i] = {label, plugins ? kApplicationPluginSettingsDescription : Utf8View{}, {}, 1};
+        const bool store = i == kPluginsPage - 1 || i == kThemesPage - 1 || i == kEffectsPage - 1;
+        settings->content[i] = {label, i < kSettingsPanelCount && !store ? schema.panels[i].summary : Utf8View{}, {}, 1};
+        settings->content[i].host = settings->content[i].wide = store;
         if (!ui_page_registry_register(&settings->registry, {{kNativeSettingsOwner, i + 1}, label, &settings->content[i]})
                  .ok()) {
             VirtualFree(settings, 0, MEM_RELEASE);
@@ -802,7 +772,12 @@ bool refresh() noexcept {
 } // namespace settings_detail
 namespace {
 
+UiKitMeasure g_measure;
+
 void bind_chrome(ApplicationSettings& settings) noexcept {
+    // Widths and wrapped heights come from the shell's text cache (shaped, not estimated) once an account is up.
+    ui_kit_measure_cache(&g_measure, g_app.account_ui ? &g_app.account_ui->text_measure_cache : nullptr);
+    ui_settings_scene_bind_measure(&settings.scene, &g_measure);
     // Contributed pages expand from the registry, so its revision relayouts;
     // the signed-out list is a navigation of its own.
     const bool signed_out = g_signed_out.active;

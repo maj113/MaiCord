@@ -23,9 +23,9 @@ turns the effect off, when it costs more than the user allows. A graphics reset 
 
 Colours are the theme's own sRGB values (`mc_role(0..7)`); the output is written as is, as in Shadertoy.
 
-## Sidecar format
+## The sidecar (tests and the packager)
 
-`<name>.effect` sits next to the compiled `<name>.cso`, one `key=value` per line:
+`<name>.effect` sits next to the sample and drives the tests and the `.mcfx` packager, one `key=value` per line:
 
 | Key | Value |
 |---|---|
@@ -38,15 +38,23 @@ Colours are the theme's own sRGB values (`mc_role(0..7)`); the output is written
 
 The user's per-effect setting wins over the global one, which wins over the request, which wins over 50 % at 24 fps.
 
+## The `.mcfx` package
+
+MaiCord loads effects from `.mcfx` packages: a container with a manifest (name, authors, license, knobs, inputs,
+blend, requested resolution and frame rate), the `ps_5_0` bytecode (at most 64 KiB), up to two PNG textures, the
+source and a preview. `include/maicord/app/packages/mcfx.hpp` describes the layout, and the client never runs a
+package on the CPU: it checks the container and the manifest, then asks D3D11 to build the shader.
+
 ## Building and trying one
 
 ```
 fxc /nologo /T ps_5_0 /E main /O3 /Ges /WX /I include /Fo aurora.cso samples/effects/aurora/aurora.hlsl
 ```
 
-Copy `aurora.cso` and `aurora.effect` into `%LOCALAPPDATA%\MaiCord\effects\dev` (or the folder named by the
-`MAICORD_EFFECT_DEV` environment variable) and choose the effect in Settings > Appearance > Background effect.
-The packaging, install and catalog flow arrives with the plugin tooling.
+The packager turns the `.cso` and its annotations into `aurora.mcfx`. Copy it into
+`%LOCALAPPDATA%\MaiCord\effects\dev` (or the folder named by the `MAICORD_EFFECT_DEV` environment variable) and
+choose the effect in Settings > Appearance > Background effect, or drop it onto Settings > Effects > Install from
+link or file. Packages from the catalog live in `%LOCALAPPDATA%\MaiCord\effects`.
 
 The tests compile every sample, draw it at 1440p to time it on the GPU, and draw it at 640x360 for a preview:
 `tools/build.ps1 -Test -TestNames maicord_background_theme_probe [-ProbeCaptureDirectory <empty folder>]`.

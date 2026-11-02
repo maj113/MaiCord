@@ -1,0 +1,114 @@
+# Malformed catalog indexes shared by the client's tests and
+# tools/release/test_plugin_index_tools.py. Each row is
+#   <error>	<search>	<replacement>
+# and replaces the single occurrence of <search> in index.json; the result must
+# fail with <error> (plugin_index.ERRORS) at now = 1760400000. `signature` rows
+# are verified against the unchanged index.json.sig under the scalar-one public
+# key; every other row is a parse-only check (the signature is not looked at).
+# Rows change exactly one rule.
+format	"format":2,	"format":3,
+type	"sequence":1760227200	"sequence":"1760227200"
+sequence	"sequence":1760227200	"sequence":0
+unknown_field	"format":2,	"format":2,"extra":0,
+duplicate_field	"format":2,	"format":2,"format":2,
+json	"format":2,	"format":2,,
+json	"since":1760150000}]}	"since":1760150000}]}x
+json	"name":"Obsidian"	"name":"\ud800"
+time	"issued":1760226600	"issued":0
+time	"expires":1762818600	"expires":1763250601
+time	"issued":1760226600	"issued":1760400601
+expired	"expires":1762818600	"expires":1760300000
+missing_field	"issued":1760226600,	
+signature	"sequence":1760227200	"sequence":1760227201
+depth	"previews":[]	"previews":[[[[[[[[[[]]]]]]]]]]
+type	"revoked":[{"sha256"	"revoked":["x",{"sha256"
+choice	"kind":"theme","slug":"obsidian"	"kind":"skin","slug":"obsidian"
+missing_field	"kind":"theme","slug":"obsidian",	"slug":"obsidian",
+unknown_field	"base":"amoled"	"base":"amoled","versions":[]
+identifier	"slug":"obsidian"	"slug":"Obsidian"
+identifier	"slug":"warm-paper"	"slug":"-warm-paper"
+duplicate	"slug":"warm-paper"	"slug":"obsidian"
+text	"name":"Warm Paper"	"name":""
+text	"name":"Warm Paper"	"name":"Warm\u202ePaper"
+text	"summary":"A cream light theme."	"summary":"A cream\u0007 theme."
+limit	"authors":[{"name":"MaiCord"}],"license":"CC0-1.0","source":"https://github.com/example/plugins/tree/main/themes/warm-paper"	"authors":[],"license":"CC0-1.0","source":"https://github.com/example/plugins/tree/main/themes/warm-paper"
+text	{"name":"Bo Example"}	{"name":""}
+identifier	"github":"example-author"}],"license":"MPL-2.0","source":"https://github.com/example/plugins/tree/main/plugins/clear-urls"	"github":"-bad"}],"license":"MPL-2.0","source":"https://github.com/example/plugins/tree/main/plugins/clear-urls"
+identifier	"license":"CC0-1.0","source":"https://github.com/example/plugins/tree/main/themes/obsidian"	"license":"CC0 1.0","source":"https://github.com/example/plugins/tree/main/themes/obsidian"
+url	"homepage":"https://example.com/translate"	"homepage":"http://example.com/translate"
+url	"homepage":"https://example.com/aurora"	"homepage":"https://localhost/aurora"
+url	"source":"https://github.com/example/plugins/tree/main/effects/starfield"	"source":"https://github.com/example/plugins/tree/main/effects/starfield x"
+url	"url":"https://example.com/original"	"url":"ftp://example.com/original"
+text	"author":"Ana Example"	"author":""
+identifier	"categories":["privacy","chat"]	"categories":["Privacy","chat"]
+duplicate	"categories":["privacy","chat"]	"categories":["chat","chat"]
+limit	"categories":["privacy","chat"]	"categories":["a","b","c","d"]
+digest	"details":{"sha256":"6be6614f	"details":{"sha256":"6BE6614F
+file	"bytes":700}	"bytes":16385}
+limit	"width":800,	"width":0,
+limit	"height":450,	"height":4097,
+file	"bytes":4096,"width":800	"bytes":262145,"width":800
+text	"alt":"The card"	"alt":""
+limit	"previews":[{"sha256":"62433ee9843790c7ed5ca3cff8cd826e3f57c5ab83c284b4e6d0f5f6616a10f9","bytes":4096,"width":1440,"height":900,"alt":"Chat in Warm Paper"}]	"previews":[]
+version	"version":"1.1.0"	"version":"1.1"
+version	"version":"1.1.0"	"version":"01.1.0"
+version	"version":"1.1.0"	"version":"1.1.0-preview.1"
+order	"version":"1.0.0","released":1759000000	"version":"1.2.0","released":1759000000
+order	"released":1759000000	"released":1760300000
+time	"released":1760200000	"released":0
+digest	"commit":"373958f0	"commit":"373958F0
+api_level	"api_level":1,"permissions":["message_send"],"network":[],"file":{"sha256":"13fd	"api_level":0,"permissions":["message_send"],"network":[],"file":{"sha256":"13fd
+api_level	"api_level":1,"permissions":["message_send"],"network":[],"file":{"sha256":"13fd	"api_level":65536,"permissions":["message_send"],"network":[],"file":{"sha256":"13fd
+permission	"permissions":["message_send"],"network":[],"file":{"sha256":"13fd	"permissions":["message_send","network"],"network":[],"file":{"sha256":"13fd
+permission	"permissions":["message_send"],"network":[],"file":{"sha256":"13fd	"permissions":["message_sendx"],"network":[],"file":{"sha256":"13fd
+permission	"permissions":["network","composer"]	"permissions":["composer"]
+order	"permissions":["network","composer"]	"permissions":["composer","network"]
+duplicate	"permissions":["message_send"],"network":[],"file":{"sha256":"13fd	"permissions":["message_send","message_send"],"network":[],"file":{"sha256":"13fd
+host	"translate.example.com"	"localhost"
+host	"*.deepl.example.net"	"*.discord.com"
+duplicate	"translate.example.com","*.deepl.example.net"	"translate.example.com","translate.example.com"
+limit	"network":["translate.example.com","*.deepl.example.net"]	"network":["h0.example.com","h1.example.com","h2.example.com","h3.example.com","h4.example.com","h5.example.com","h6.example.com","h7.example.com","h8.example.com"]
+file	"bytes":9216	"bytes":8388609
+file	"bytes":9000}	"bytes":0}
+text	"changelog":"First catalog release."	"changelog":"First\u0001 release."
+text	"changelog":"First catalog release."	"changelog":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+choice	"base":"amoled"	"base":"sepia"
+identifier	"effect":"aurora"	"effect":"Aurora"
+text	"accent":"#34D399"	"accent":"#34D39"
+missing_field	"background":"#000000",	
+unknown_field	"accent":"#34D399"	"accent":"#34D399","extra":"#000000"
+file	"bytes":1209	"bytes":65537
+choice	"cost":"light"	"cost":"extreme"
+choice	"blend":"normal"	"blend":"multiply"
+choice	"uses":["blue_noise","noise"]	"uses":["blue_noise","audio"]
+duplicate	"uses":["blue_noise","noise"]	"uses":["noise","noise"]
+file	"bytes":5200	"bytes":1572865
+limit	"min":0,"max":2.0,"default":0.35	"min":2.0,"max":0,"default":0.35
+type	"default":0.35	"default":0.3512
+type	"default":0.35	"default":3.5e-1
+limit	"max":4,"default":3}	"max":4,"default":5}
+type	"max":4,"default":3}	"max":4,"default":3.0}
+identifier	"id":"speed"	"id":"Speed"
+duplicate	"id":"curtains"	"id":"speed"
+text	"label":"Drift speed"	"label":""
+choice	"type":"toggle"	"type":"switch"
+type	"default":true	"default":1
+text	"default":"#26FF66"	"default":"26FF66"
+limit	"choices":["Soft","Sharp"],"default":1	"choices":["Soft","Sharp"],"default":2
+limit	"choices":["Soft","Sharp"]	"choices":["Soft"]
+duplicate	"choices":["Soft","Sharp"]	"choices":["Soft","Soft"]
+unknown_field	"label":"Mirrored"	"label":"Mirrored","hint":"x"
+missing_field	{"id":"tint","type":"color","label":"Colour","default":"#26FF66"}	{"id":"tint","type":"color","label":"Colour"}
+limit	"uses":[],"knobs":[]	"uses":[],"knobs":[{"id":"t0","type":"toggle","label":"T","default":false},{"id":"t1","type":"toggle","label":"T","default":false},{"id":"t2","type":"toggle","label":"T","default":false},{"id":"t3","type":"toggle","label":"T","default":false},{"id":"t4","type":"toggle","label":"T","default":false},{"id":"t5","type":"toggle","label":"T","default":false},{"id":"t6","type":"toggle","label":"T","default":false},{"id":"t7","type":"toggle","label":"T","default":false},{"id":"t8","type":"toggle","label":"T","default":false},{"id":"t9","type":"toggle","label":"T","default":false},{"id":"t10","type":"toggle","label":"T","default":false},{"id":"t11","type":"toggle","label":"T","default":false},{"id":"t12","type":"toggle","label":"T","default":false},{"id":"t13","type":"toggle","label":"T","default":false},{"id":"t14","type":"toggle","label":"T","default":false},{"id":"t15","type":"toggle","label":"T","default":false},{"id":"t16","type":"toggle","label":"T","default":false}]
+limit	"fps":15	"fps":0
+limit	"fps":15	"fps":61
+limit	"seconds":3	"seconds":11
+type	"seconds":3	"seconds":2.5
+file	"bytes":90000	"bytes":2097153
+unknown_field	"seconds":3}	"seconds":3,"alt":"x"}
+choice	"severity":"broken"	"severity":"bad"
+time	"since":1760100000}	"since":0}
+missing_field	"reason":"Crashes on empty drafts.",	
+digest	"revoked":[{"sha256":"d70e26b1	"revoked":[{"sha256":"D70E26B1
+duplicate	"blocklist":[{"sha256":"c9abba9eccb99ac20410deb5b42734fccbf9994b07ed93500e45e3e1b7b34846","reason":"Known malicious build.","since":1760150000}]	"blocklist":[{"sha256":"c9abba9eccb99ac20410deb5b42734fccbf9994b07ed93500e45e3e1b7b34846","reason":"Known malicious build.","since":1760150000},{"sha256":"c9abba9eccb99ac20410deb5b42734fccbf9994b07ed93500e45e3e1b7b34846","reason":"Known malicious build.","since":1760150000}]
+unknown_field	"reason":"Known malicious build."	"reason":"Known malicious build.","severity":"broken"

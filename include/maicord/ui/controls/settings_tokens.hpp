@@ -19,9 +19,19 @@ struct UiSettingsColors {
     // Hairlines between rows, sections and tabs: border_subtle unless the
     // theme paints a background, where they take the shared separator tint.
     Color separator;
+    // Cards: the plate, its edge, the hover plate of a row inside one, and the neutral hairline between
+    // rows (the theme's border.subtle: palette-independent, unlike separator).
+    Color card_fill, card_border, row_hover, hairline;
+    // Chip and notice tints, the warning ink, and the three risk dots.
+    Color positive_tint, warning_tint, warning, risk_low, risk_medium, risk_high;
+    // Pills over images, the plate behind an image before it decodes, and ink on a pill.
+    Color pill, placeholder, on_pill;
+    // The accent treatment's selection tint and outline (selected chips and tiles), and links.
+    Color emphasis_selected, emphasis_outline, link;
 };
 
 struct UiSettingsMetrics {
+    // The first 57 fields have the same order as the u16 metrics of UiThemeSettings (see settings_tokens.cpp).
     float modal_max_width, modal_viewport_ratio, modal_ratio_threshold, modal_inset_top, modal_inset_side,
         modal_inset_bottom, modal_radius, modal_compact_width;
     float sidebar_width, sidebar_padding, sidebar_top, search_height, nav_header_height, nav_item_height,
@@ -30,7 +40,9 @@ struct UiSettingsMetrics {
         category_heading_gap, row_padding, label_gap, control_gap, field_gap;
     float switch_width, switch_height, switch_thumb, slider_bar, slider_grabber, slider_mark_height,
         radio_size, radio_gap, radio_spacing, control_height, control_radius, button_small, button_medium,
-        button_padding, swatch, swatch_gap, close_size, close_caption_gap, notice_padding;
+        button_padding, swatch, swatch_gap, close_size, notice_padding;
+    float card_radius, card_inset, row_min_height, segment_padding, select_width, slider_width, value_width,
+        status_icon, card_gap;
     // Administration rows: segmented options, colour grid, chips and row leads.
     float segment_size, segment_gap, color_cell, color_gap, chip_height, chip_gap, chip_padding, avatar_size,
         grip_width, accent_dot, lead_gap;

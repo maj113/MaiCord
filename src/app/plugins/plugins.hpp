@@ -120,16 +120,6 @@ bool application_plugins_discover() noexcept;
 bool application_plugins_catalog_page(bool previous, u64 expected_revision) noexcept;
 bool application_plugins_catalog_enable(u32 index, u64 expected_revision) noexcept;
 bool application_plugins_catalog_forget(u64 expected_revision) noexcept;
-// Catalog operations (browser.cpp). Starts the installer
-// handshake for a staged manifest, or an uninstall of uninstall_owner, from
-// Settings > Plugins.
-bool application_plugins_install_prepared(ConstSlice<wchar_t> manifest, NativePluginBundleInstallOptions options, u64 uninstall_owner,
-    ConstSlice<wchar_t> directory) noexcept;
-// Re-reads plugins.bin after the plugin manager changed it.
-bool application_plugins_reload_trust() noexcept;
-// Enables the inventory row of owner (moving the window to it), prompting
-// only when its permissions were not approved before.
-bool application_plugins_enable_owner(u64 owner) noexcept;
 u64 application_plugins_catalog_revision() noexcept;
 const NativePluginCatalog* application_plugins_catalog_current() noexcept;
 // Drop native Settings/choice borrowing before inventory/text is overwritten or freed.

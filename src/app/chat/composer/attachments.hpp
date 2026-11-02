@@ -20,6 +20,9 @@ bool application_drop_attachments(HANDLE drop) noexcept;
 bool application_paste_attachments() noexcept;
 u64 application_attachment_limit(u64 channel_id) noexcept;
 void application_sync_attachment_drop_target() noexcept;
+// The store's install dialog takes dropped files too (src/app/packages): while set, the window accepts drops even
+// where attachments cannot.
+inline bool g_install_drop_wanted;
 bool application_manage_attachments() noexcept;
 bool application_attachment_action(u32 action) noexcept;
 MessageComposerAttachmentInput application_attachment_input() noexcept;

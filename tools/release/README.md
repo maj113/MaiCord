@@ -11,8 +11,8 @@ any Windows machine with Python 3.10 or newer will do.
 | `update_channels.ps1` | Checks out the `update-channels` branch, runs `channels`, replaces the branch with one commit of the new site |
 | `cng_p256.py` | ECDSA P-256 key generation, signing and verification through CNG |
 | `generate_update_key.py` | Creates a signing key pair and prints the public key forms |
-| `plugin_index.py` | Renders, signs and verifies plugin catalog indexes (format 1) with the client's strict schema |
-| `test_plugin_index_tools.py` | Checks `plugin_index.py` against the vectors in `tests/fixtures/plugin_index`; CI runs it on every build |
+| `plugin_index.py` | Renders, signs and verifies the catalog index (format 2: plugins, themes and effects) with the client's strict schema |
+| `test_plugin_index_tools.py` | Checks `plugin_index.py` against the vectors in `tests/fixtures/plugin_index/format2`; CI runs it on every build |
 | `test_release_tools.py` | Self-test with a throwaway key and a scratch git history; CI runs it on every build |
 
 ## Formats (they match the client's verifiers)
@@ -32,7 +32,9 @@ any Windows machine with Python 3.10 or newer will do.
   It lists every change in (B, V], newest first: up to 10 stable releases with
   their release notes, or up to 100 commit subjects, each numbered as the master
   build that first contained it. At most 64 KiB and 8 KiB per text. The client
-  shows the entries newer than itself as plain text. Checked by
+  keeps the verified document of the channel (`changelog-<channel>` beside the
+  update state, signature then document, verified again on every load) and
+  renders it on Settings > Updates with the chat's Markdown parser. Checked by
   `src/app/update/changelog.cpp`.
 - **Signatures**: `<file>.sig`, 64 raw bytes: an ECDSA P-256 signature in P1363
   form (r ‖ s) over `SHA-256(domain ‖ file bytes)`, with the domain
@@ -236,10 +238,12 @@ Client behaviour:
   the changelog 64 KiB, and each signature exactly 64 bytes. The package may be
   at most the signed size, and at most 64 MiB.
 - Signatures are verified before anything is stored. The stable channel refuses
-  a dev build whatever its manifest says. A newer offer and its changelog are
-  shown in Settings; the version is then durably admitted, which raises the
+  a dev build whatever its manifest says. The channel changelog is fetched with
+  every check whose manifest version differs from the cached one, up to date or
+  not, so the running version's notes are available. A newer offer is shown in
+  Settings; the version is then durably admitted, which raises the
   rollback floor, and only then is the package downloaded. A missing or invalid
-  changelog only leaves the list out. A 404 for the manifest means nothing is
+  changelog only leaves the list out (an older cached one stays). A 404 for the manifest means nothing is
   published for the channel; a 404 for the package means it is missing, and the
   next check tries again. Manifests may be valid for at most 100 days.
 - Switching a dev build to stable keeps it until a stable release newer than it
@@ -254,7 +258,7 @@ Client behaviour:
   match the signed manifest, the package's `MaiCord.exe` is checked (ZIP layout,
   CRC, AMD64 executable image), written beside the running executable as
   `MaiCord.exe.update`, read back and held open so nothing can change it. The
-  install folder must be writable. Settings then reads **Update ready**.
+  install folder must be writable. Settings then reads **MaiCord x.y.z is ready to install**.
 - Nothing is installed until you choose **Restart to update** in Settings >
   Updates or on the title bar badge. MaiCord then exits normally, renames the
   running `MaiCord.exe` to `MaiCord.exe.old`, moves the stage to `MaiCord.exe`
@@ -275,22 +279,25 @@ Client behaviour:
 
 ## Plugin catalog
 
-The official plugin catalog lives in
-[maj113/MaiCord-plugins](https://github.com/maj113/MaiCord-plugins). Its
-`catalog.yml` workflow renders `index/source.json` with `plugin_index.py` from
-this repository's `master`, signs it, verifies it, and deploys it to GitHub
-Pages:
+The official catalog lives in
+[maj113/MaiCord-plugins](https://github.com/maj113/MaiCord-plugins): plugin
+sources, themes and background effects. Its `catalog.yml` workflow builds every
+item, renders the format-2 index with `plugin_index.py` from this repository's
+`master`, signs it, verifies it, and deploys it to GitHub Pages:
 
-- `https://maj113.github.io/MaiCord-plugins/v1/index.json`
-- `https://maj113.github.io/MaiCord-plugins/v1/index.json.sig`
+- `https://maj113.github.io/MaiCord-plugins/index.json`
+- `https://maj113.github.io/MaiCord-plugins/index.json.sig`
+- `details/<sha256>.md` and `previews/<sha256>.png` (the item pages the
+  site and the client show) and `files/<sha256>.dll|.mcfx|.json` (the packages)
 
-The client derives these from `MAICORD_PLUGIN_CATALOG_REPOSITORY` (default
-`maj113/MaiCord-plugins`) and accepts an index signed by either compiled key.
-The workflow runs on every push to `main`, on manual dispatch and weekly. Each
-run issues an index valid for 30 days (the client accepts at most 35) whose
-`sequence` is its issue time, so every run outranks the last one. A scheduled
-run also lands an empty commit when `main` is 45 days old, because GitHub
-disables the schedules of a public repository after 60 days without one.
+The index signature covers SHA-256 of `"MaiCord plugin index v2\n"` and the
+document (64-byte P1363). The schema is `plugin_index.py`; the shared vectors
+are `tests/fixtures/plugin_index/format2`. The workflow runs on every push to
+`main`, on manual dispatch and weekly. Each run issues an index valid for 30
+days (the client accepts at most 35) whose `sequence` is its issue time, so
+every run outranks the last one. A scheduled run also lands an empty commit
+when `main` is 45 days old, because GitHub disables the schedules of a public
+repository after 60 days without one.
 
 Keys:
 

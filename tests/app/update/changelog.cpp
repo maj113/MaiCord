@@ -143,22 +143,13 @@ void test_untrusted_text() noexcept {
           "changelog: text with nothing printable is refused");
 }
 
-void test_display_text() noexcept {
-    char out[512];
-    constexpr char notes[] = "### Features\n\n- Add a [theme](https://example.invalid/x) picker\n* Show **bold** and `code`\n\n\n\n"
-                             "### Fixes\n\n- Fix __it__\nPlain [unclosed link\n";
-    const u32 n = update_changelog_display_text({notes, sizeof(notes) - 1}, {out, sizeof(out)});
-    check(same({out, n}, "Features\n\n\xE2\x80\xA2 Add a theme picker\n\xE2\x80\xA2 Show bold and code\n\nFixes\n\n"
-                         "\xE2\x80\xA2 Fix it\nPlain [unclosed link"),
-          "changelog display: headings, bullets and links become plain text, blank runs collapse");
-    const u32 short_n = update_changelog_display_text({"- caf\xC3\xA9", 7}, {out, 8});
-    check(short_n == 7 && same({out, short_n}, "\xE2\x80\xA2 caf"), "changelog display: truncation never splits a character");
+void test_dates() noexcept {
     char date[24];
     check(same({date, update_changelog_date_text(1760000100, true, {date, sizeof(date)})}, "Oct 9, 2025") &&
               same({date, update_changelog_date_text(1709208000, false, {date, sizeof(date)})}, "Feb 29") &&
               same({date, update_changelog_date_text(0, true, {date, sizeof(date)})}, "Jan 1, 1970") &&
               !update_changelog_date_text(1760000100, true, {date, 5}),
-          "changelog display: dates read as abbreviated month, day and year (UTC)");
+          "changelog dates: abbreviated month, day and year (UTC)");
 }
 
 } // namespace
@@ -174,7 +165,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_update_changelog_tests_entry
         test_accepted();
         test_schema();
         test_untrusted_text();
-        test_display_text();
+        test_dates();
         p256_release(&g->signer);
         p256_release(&g->stranger);
         kdf_sha256_release(&g->workspace);

@@ -634,14 +634,14 @@ PluginLoadResult plugin_runtime_close(PluginRuntime* runtime) noexcept {
 }
 
 PluginEnableResult plugin_runtime_enable(PluginRuntime* runtime, ConstSlice<wchar_t> leaf, u64 approved_permissions,
-                                         u32 approved_hosts) noexcept {
+                                         u32 approved_hosts, const u8* sha256) noexcept {
     if (!runtime || !runtime->directory.pin.ancestor_count) return enable_failed(PluginEnableError::invalid_argument);
     if (runtime->binding_count == kPluginMaximumBindings) return enable_failed(PluginEnableError::capacity);
     auto* binding = static_cast<PluginBinding*>(VirtualAlloc(nullptr, align_up(sizeof(PluginBinding), kPageBytes),
                                                              MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!binding) return enable_failed(PluginEnableError::allocation);
     binding->runtime = runtime;
-    const PluginLoadResult loaded = plugin_image_load(&binding->image, runtime->directory, leaf, approved_permissions);
+    const PluginLoadResult loaded = plugin_image_load(&binding->image, runtime->directory, leaf, approved_permissions, sha256);
     if (!loaded.ok()) {
         // A DLL that could not be freed stays owned by the image, so the record is kept for it.
         if (!binding->image.module) VirtualFree(binding, 0, MEM_RELEASE);

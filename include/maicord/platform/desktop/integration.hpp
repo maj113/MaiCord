@@ -6,9 +6,10 @@
 namespace maicord {
 
 // Launch arguments after argv0. The startup entry passes --startup; the
-// discord:// protocol handler passes the official client's shape, --url -- "<link>".
+// discord:// and maicord:// protocol handlers pass the official client's shape, --url -- "<link>".
 // Unknown arguments (including the updater's reserved family) are ignored.
-inline constexpr u32 kDesktopUrlCapacity = 1024;
+// 2048 bytes of package URL plus the scheme and path around it.
+inline constexpr u32 kDesktopUrlCapacity = 2200;
 struct DesktopLaunch {
     bool startup;
     bool url_present;
@@ -46,8 +47,11 @@ struct DesktopRegistryScope {
     const wchar_t* classes_key;
     const wchar_t* value_name;
     const wchar_t* protocol;
+    const wchar_t* title; // "URL:<title> Protocol", the class's display name
 };
 DesktopRegistryScope desktop_registry_user_scope() noexcept;
+// The same registry for the maicord:// class (opt-in install links).
+DesktopRegistryScope desktop_registry_maicord_scope() noexcept;
 enum class DesktopRegistration : u8 { absent, ours, other };
 
 // Startup entry: "<executable>" --startup. Ours only when it names this

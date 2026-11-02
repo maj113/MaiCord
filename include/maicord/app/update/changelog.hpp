@@ -47,13 +47,6 @@ inline Utf8View update_changelog_text(const UpdateChangelog& log, const UpdateCh
     return {log.text + entry.text_offset, entry.text_bytes};
 }
 
-// Plain display text from the publisher's Markdown subset: "#" headings lose
-// their markers, "- "/"* " items become "• " bullets, [text](target) keeps
-// only the text, emphasis and code markers are dropped and runs of blank lines
-// collapse. Nothing becomes a link. Returns the bytes written; output is
-// truncated at a character boundary when too small.
-u32 update_changelog_display_text(Utf8View text, Slice<char> output) noexcept;
-
 // "Oct 19, 2026", or "Oct 19" without the year (UTC); 0 when it does not fit.
 u32 update_changelog_date_text(u64 unix_seconds, bool year, Slice<char> output) noexcept;
 

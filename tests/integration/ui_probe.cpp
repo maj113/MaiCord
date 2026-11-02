@@ -108,6 +108,9 @@ bool call_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*
 bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
                             bool (*capture)(const wchar_t*) noexcept) noexcept;
 
+bool store_ui_probe(D3D11Renderer& renderer, PopupScene& popup, UiTextMeasureCache& cache, bool (*relayout)() noexcept,
+                    bool (*capture)(const wchar_t*) noexcept) noexcept;
+
 bool notification_settings_ui_probe(D3D11Renderer& renderer,
                                     bool (*capture)(const wchar_t*) noexcept) noexcept;
 
@@ -2001,6 +2004,7 @@ int run_probe() noexcept {
     const bool notification_settings_requested =
         probe_option_enabled(L"MAICORD_NOTIFICATION_SETTINGS_UI_PROBE");
     const bool user_settings_requested = probe_option_enabled(L"MAICORD_USER_SETTINGS_UI_PROBE");
+    const bool store_requested = probe_option_enabled(L"MAICORD_STORE_UI_PROBE");
     const bool flag_surfaces_requested = probe_option_enabled(L"MAICORD_REGIONAL_FLAG_SURFACES_PROBE");
     if (!flag_surfaces_requested &&
         GetEnvironmentVariableW(L"MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY", nullptr, 0))
@@ -2435,6 +2439,11 @@ int run_probe() noexcept {
         const bool valid = initialize_fixture(true) &&
                            notification_settings_ui_probe(g_probe.renderer, probe_capture_frame);
         return finish_probe(valid ? 0 : 249);
+    }
+    if (store_requested) {
+        const bool valid = initialize_fixture(true) && store_ui_probe(g_probe.renderer, g_probe.popup_scene, g_probe.text_measure_cache,
+                                                              []() noexcept { return synchronize_probe_shell_layout(); }, probe_capture_frame);
+        return finish_probe(valid ? 0 : 303);
     }
     if (user_settings_requested) {
         const bool valid = initialize_fixture(true) &&

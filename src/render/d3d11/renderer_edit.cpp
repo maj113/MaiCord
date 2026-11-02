@@ -1,3 +1,4 @@
+#include "maicord/ui/store/store_scene.hpp"
 #include "renderer_edit.hpp"
 #include "maicord/core/memory.hpp"
 
@@ -91,6 +92,21 @@ UiEditGeometry d3d11_renderer_profile_edit_geometry(const D3D11Renderer& rendere
 }
 bool d3d11_renderer_measure_settings_edit(D3D11Renderer* renderer) noexcept {
     reset_value(&renderer->media_picker_edit_geometry);
+    if (const auto* store = renderer->settings_store; store && store->active && store->search && store->search->view &&
+                                                      store->search->view->focused) {
+        UiRect text{};
+        if (!ui_store_scene_search_geometry(*store, &text) || d3d11_renderer_form_active(*renderer) ||
+            d3d11_renderer_active(renderer->popup_scene)) {
+            text_edit_layout_invalidate(&renderer->media_picker_layout);
+            return true;
+        }
+        auto& layout = renderer->media_picker_layout;
+        if (!measure_text(&layout, renderer->media_picker_edit_selections, *store->search->view, text,
+                          renderer->glyph_text.system, text_edit_layout_scroll_to_caret | text_edit_layout_center_vertically))
+            return false;
+        fill_geometry(layout, &renderer->media_picker_edit_geometry);
+        return true;
+    }
     const auto* scene=renderer->settings_scene;
     const auto target=scene ? ui_settings_scene_focused(*scene) : UiSettingsTarget{};
     const auto* control=scene ? ui_settings_scene_control(*scene,target) : nullptr;

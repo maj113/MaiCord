@@ -1,3 +1,4 @@
+#include "maicord/ui/store/store_scene.hpp"
 #include "renderer_layout_internal.hpp"
 #include "maicord/render/d3d11/raster_clip.hpp"
 #include "maicord/model/guild/member_store.hpp"
@@ -776,6 +777,43 @@ bool queue_settings_profile_overlays(D3D11Renderer* renderer, const Theme& theme
     if (!dialog) {
         renderer->settings_preview_effect_media_first_batch = media_end;
         renderer->settings_preview_controls_first_batch = paint_end;
+    }
+    if (const auto* store = renderer->settings_store; store && store->active) {
+        // The Plugins, Themes and Effects pages: plates, then the pictures, then the pills over them; the dialog
+        // is one layer above the pop-up menu.
+        if (dialog) {
+            if (!store->dialog_open)
+                return true;
+            paint_first = paint_stream_seal(&paint);
+            if (!ui_store_scene_paint(*store, theme, &paint, 2, renderer->dpi))
+                return false;
+            foreground = paint_end = paint_stream_seal(&paint);
+            return true;
+        }
+        paint_first = paint_stream_seal(&paint);
+        if (!ui_store_scene_paint(*store, theme, &paint, 0, renderer->dpi))
+            return false;
+        foreground = paint_stream_seal(&paint);
+        media_first = renderer->media_batch_count;
+        UiStoreMedia picture{};
+        bool first = true;
+        for (u32 cursor = 0; ui_store_scene_next_media(*store, &cursor, &picture);) {
+            const auto allocation = media_atlas_peek(picture.domain ? renderer->preview_media_atlas : renderer->media_atlas, picture.key);
+            if (!allocation.ok())
+                continue;
+            const u32 before = renderer->media_quad_count;
+            if (!queue_media_quad(renderer, allocation, picture.rect, picture.clip, false, first,
+                                  MediaQuadStyle{picture.mask, 1.f, 0, picture.mask_radius, 0, picture.domain}))
+                return false;
+            first = first && renderer->media_quad_count == before;
+        }
+        media_end = renderer->media_batch_count;
+        renderer->settings_preview_effect_media_first_batch = media_end;
+        if (!ui_store_scene_paint(*store, theme, &paint, 1, renderer->dpi))
+            return false;
+        paint_end = paint_stream_seal(&paint);
+        renderer->settings_preview_controls_first_batch = paint_end;
+        return true;
     }
     const auto* preview = renderer->settings_profile_preview;
     const auto* scene = renderer->settings_profile_dialog;

@@ -2,7 +2,6 @@
 #include "pipeline_host.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/text_bank.hpp"
-#include "browser.hpp"
 #include "runtime.hpp"
 #include "application_plugin_settings_projection.hpp"
 #include "../settings/settings.hpp"
@@ -486,8 +485,6 @@ void poll_install(ApplicationPlugins& plugins) noexcept {
         }
     }
     plugins.installing=false;plugins.install_consumed=false;plugins.install_retry=false;
-    // Catalog operations settle their records once the installer is released.
-    application_plugin_browser_installer_complete(result);
     if(install_context(plugins))application_settings_refresh_pages();
 }
 } // namespace
@@ -642,8 +639,6 @@ bool application_plugins_catalog_enable(u32 index, u64 revision) noexcept {
     if (!catalog_context(plugins, revision) || !catalog_row_visible(*plugins, index)) return false;
     const auto& entry = plugins->catalog->catalog.entries[index];
     if (entry.status != NativePluginCatalogError::none || !native_plugin_manifest_valid(entry.manifest)) return false;
-    // A plugin revoked as harmful stays off.
-    if (application_plugin_browser_gate(entry.manifest.owner_id) & kPluginGateRevoked) return false;
     // Permissions need the user's approval unless this exact plugin was
     // already approved for at least the same set.
     const auto* remembered = native_plugin_preferences_find(plugins->preferences, entry.manifest);
@@ -736,8 +731,6 @@ bool application_plugins_catalog_forget(u64 revision) noexcept {
 bool application_plugins_restore() noexcept {
     if (application_plugins_busy() || !g_app.account_ui || g_app.login.visible) return false;
     if (g_app.plugins) return true;
-    // Before plugins.bin is read: recovery may settle trust.
-    application_plugin_browser_startup();
     auto* plugins = ensure();
     if (!plugins) return false;
     // Empty/malformed records grant nothing and leave the ordinary shell
@@ -764,7 +757,6 @@ bool application_plugins_restore() noexcept {
     for (u32 i = 0; i < plugins->catalog->catalog.count; ++i) {
         const auto& entry = plugins->catalog->catalog.entries[i];
         matching = matching || (entry.status == NativePluginCatalogError::none &&
-            !application_plugin_browser_gate(entry.manifest.owner_id) &&
             native_plugin_preferences_restorable(plugins->preferences, entry.manifest));
     }
     if (!matching) {
@@ -782,8 +774,6 @@ bool application_plugins_restore() noexcept {
         const auto& entry = plugins->catalog->catalog.entries[index];
         if (entry.status != NativePluginCatalogError::none ||
             !native_plugin_preferences_restorable(plugins->preferences, entry.manifest)) continue;
-        // Revoked as harmful, or a build the catalog says this host can't run.
-        if (application_plugin_browser_gate(entry.manifest.owner_id)) continue;
         const u32 slot = free_slot(*plugins);
         if (slot == 8) { failed = true; break; }
         const NativePluginManifest manifest = entry.manifest;
@@ -820,7 +810,7 @@ bool application_plugins_restore() noexcept {
     u32 restorable = 0;
     for (u32 i = 0; i < plugins->preferences.count; ++i) {
         const auto& remembered = plugins->preferences.entries[i];
-        restorable += remembered.flags || application_plugin_browser_gate(remembered.owner_id) ? 0u : 1u;
+        restorable += remembered.flags ? 0u : 1u;
     }
     failed = failed || restored != restorable;
     if (!plugins->sdk || plugins->status.data != plugins->sdk->notice)
@@ -829,56 +819,5 @@ bool application_plugins_restore() noexcept {
             utf8_literal("Some saved plugins changed or are missing. Enable them again.");
     application_settings_refresh_pages();
     return !failed;
-}
-
-bool application_plugins_install_prepared(ConstSlice<wchar_t> manifest, NativePluginBundleInstallOptions options, u64 uninstall_owner,
-    ConstSlice<wchar_t> directory) noexcept {
-    if (application_plugins_busy() || !g_app.account_ui || g_app.login.visible || !application_settings_active() ||
-        !plugins_page_selected()) return false;
-    auto* plugins = ensure();
-    if (!plugins || (plugins->catalog && plugins->catalog->catalog.cleanup)) return false;
-    plugins->install_settings = g_app.settings; plugins->install_lifetime = application_settings_lifetime();
-    plugins->install_account_serial = g_app.plugin_account_scope_serial; plugins->install_profile = g_app.account.status.profile_id;
-    const auto started = uninstall_owner ? native_plugin_bundle_uninstall_start(&plugins->installer, uninstall_owner, directory)
-                                         : native_plugin_bundle_install_start(&plugins->installer, manifest, directory, options);
-    if (started != NativePluginBundleInstallError::none) return false;
-    plugins->installing = true;
-    plugins->selecting = plugins->picker_consumed = plugins->install_consumed = plugins->install_detached = plugins->install_retry = false;
-    plugins->status = uninstall_owner ? utf8_literal("Uninstalling plugin\xE2\x80\xA6") : utf8_literal("Installing plugin\xE2\x80\xA6");
-    application_settings_refresh_pages();
-    return true;
-}
-bool application_plugins_reload_trust() noexcept {
-    auto* plugins = g_app.plugins;
-    if (!plugins) return true;
-    if (plugins->activating || plugins->closing || plugins->installer.runtime) return false;
-    const auto released = native_plugin_preferences_release(&plugins->preferences_io);
-    if (!released.ok()) { preferences_error(released); return false; }
-    NativePluginPreferences loaded{};
-    const auto result = native_plugin_preferences_load(&plugins->preferences_io, &loaded);
-    if (!result.ok()) { preferences_error(result); return false; }
-    plugins->preferences = loaded;
-    plugins->preferences_dirty = false;
-    return true;
-}
-bool application_plugins_enable_owner(u64 owner) noexcept {
-    auto* plugins = g_app.plugins;
-    if (!plugins || !plugins->catalog || !catalog_context(plugins, plugins->catalog_revision)) return false;
-    const auto& catalog = plugins->catalog->catalog;
-    for (u32 i = 0; i < catalog.count; ++i) {
-        const auto& entry = catalog.entries[i];
-        if (entry.status != NativePluginCatalogError::none || entry.manifest.owner_id != owner) continue;
-        if (i < plugins->catalog_first || i - plugins->catalog_first >= 8) {
-            // Enable admits rows of the visible window only.
-            auto* settings = g_app.settings;
-            application_settings_plugin_catalog_unbind();
-            if (g_app.plugins != plugins || g_app.settings != settings || !advance_catalog(*plugins)) return false;
-            plugins->catalog_first = i / 8 * 8;
-            application_settings_refresh_pages();
-            if (!application_settings_plugin_catalog_reopen()) return false;
-        }
-        return application_plugins_catalog_enable(i, plugins->catalog_revision);
-    }
-    return false;
 }
 } // namespace maicord::app_detail

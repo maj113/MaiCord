@@ -1,3 +1,4 @@
+#include "maicord/ui/store/store_scene.hpp"
 #include "renderer_text_internal.hpp"
 #include "maicord/ui/account/profile_appearance.hpp"
 #include "maicord/ui/chat/messages/action_bar_presentation.hpp"
@@ -338,6 +339,9 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
         boundaries->settings_preview_start = emitter->count;
         if (preview && preview->active && !profile_scene_text_output(*preview, theme, &output, nullptr))
             return false;
+        const auto* store = renderer->settings_store;
+        if (store && store->active && !ui_store_scene_text_output(*store, theme, &output, false))
+            return false;
         boundaries->settings_preview_end = emitter->count;
         boundaries->form_start = emitter->count;
         boundaries->popup_start = boundaries->popup_end = emitter->count;
@@ -350,6 +354,8 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
         const auto* dialog = renderer->settings_profile_dialog;
         boundaries->settings_dialog_start = emitter->count;
         if (dialog && dialog->active && !ui_profile_dialog_text_output(*dialog, theme, &output))
+            return false;
+        if (store && store->active && !ui_store_scene_text_output(*store, theme, &output, true))
             return false;
         boundaries->settings_dialog_end = emitter->count;
         boundaries->theme_editor_start = boundaries->theme_editor_end = emitter->count;

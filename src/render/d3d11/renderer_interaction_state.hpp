@@ -1,4 +1,5 @@
 #pragma once
+#include "maicord/ui/store/store_scene.hpp"
 
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/render/d3d11/renderer_settings_visibility.hpp"
@@ -80,7 +81,9 @@ inline u32 d3d11_renderer_settings_overlay_revision(const D3D11Renderer& rendere
     const auto* dialog = renderer.settings_profile_dialog;
     const u32 a = preview && preview->active ? preview->revision * 2u + 1u : 0;
     const u32 b = dialog && dialog->active ? dialog->revision * 2u + 1u : 0;
-    return a ^ (b * 0x9E3779B1u);
+    const auto* store = renderer.settings_store;
+    const u32 c = store && store->active ? (store->revision + store->motion * 7u) * 2u + 1u : 0;
+    return a ^ (b * 0x9E3779B1u) ^ (c * 0x85EBCA6Bu);
 }
 
 // No page, viewer, menu or form sits above a modal dialog.
@@ -280,7 +283,7 @@ inline u64 d3d11_renderer_video_text_revision(const D3D11Renderer& renderer) noe
 __declspec(noinline) inline bool d3d11_renderer_tooltip_visible(const D3D11Renderer& renderer) noexcept {
     return renderer.tooltip_scene && !renderer.login_visible &&
            !d3d11_renderer_active(renderer.poll_voters_scene) &&
-           !d3d11_renderer_message_modal_active(renderer) && !(renderer_settings_page_visible(renderer)) &&
+           !d3d11_renderer_message_modal_active(renderer) &&
            !d3d11_renderer_active(renderer.friends_requests_scene) &&
            !d3d11_renderer_active(renderer.popup_scene) &&
            !d3d11_renderer_active(renderer.reaction_viewer) && !d3d11_renderer_form_active(renderer) &&

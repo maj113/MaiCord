@@ -21,6 +21,7 @@
 // document re-derive from their table defaults over the final core palette.
 // assets/themes/example.maicord-theme.json lists every token with defaults.
 #include "maicord/app/settings/client_theme_document.hpp"
+#include "maicord/render/effects/background_effect.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/color_hex.hpp"
@@ -57,6 +58,22 @@ bool name_valid(Utf8View text) noexcept {
             return false;
         at += scalar.width;
     }
+    return true;
+}
+bool effect_valid(const ClientThemeEffect& effect) noexcept {
+    const u32 slug = c_string_length(effect.slug);
+    if (slug > kClientThemeEffectSlugBytes || effect.knob_count > kClientThemeEffectKnobMaximum ||
+        effect.universal > 31 || effect.speed > 60 || effect.opacity > 100 || effect.resolution > kEffectResolutionSteps ||
+        effect.frame_rate > kEffectFrameRateSteps || effect.blend > 2 || (!slug && (effect.knob_count || effect.universal)))
+        return false;
+    for (u32 i = 0; i < slug; ++i) {
+        const char c = effect.slug[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || (c == '-' && i)))
+            return false;
+    }
+    for (u32 i = 0; i < effect.knob_count; ++i)
+        if (!effect.knobs[i].id[0] || !is_finite(effect.knobs[i].number) || effect.knobs[i].rgb > 0xffffffu)
+            return false;
     return true;
 }
 bool background_valid(const BackgroundTheme& background) noexcept {
@@ -179,7 +196,8 @@ enum Section : u32 {
     X(text_strong) X(text_subtle) X(nav_header) X(border_subtle) X(border_normal) X(mod_subtle)            \
     X(mod_normal) X(mod_strong) X(input_background) X(input_border) X(brand_hover) X(critical)             \
     X(critical_text) X(critical_tint) X(positive) X(focus_ring) X(scrim) X(switch_track) X(switch_border)  \
-    X(slider_track) X(radio_border) X(modal_background) X(sidebar_background)
+    X(slider_track) X(radio_border) X(modal_background) X(sidebar_background) X(card_fill) X(card_border)   \
+    X(row_hover) X(positive_tint) X(warning_tint)
 #define THEME_SETTINGS_SIZES(X)                                                                            \
     X(modal_max_width) X(modal_viewport_ratio) X(modal_ratio_threshold) X(modal_inset_top)                 \
     X(modal_inset_side) X(modal_inset_bottom) X(modal_radius) X(modal_compact_width) X(sidebar_width)      \
@@ -189,8 +207,10 @@ enum Section : u32 {
     X(category_gap) X(category_heading_gap) X(row_padding) X(label_gap) X(control_gap) X(field_gap)        \
     X(switch_width) X(switch_height) X(switch_thumb) X(slider_bar) X(slider_grabber) X(slider_mark_height) \
     X(radio_size) X(radio_gap) X(radio_spacing) X(control_height) X(control_radius) X(button_small)        \
-    X(button_medium) X(button_padding) X(swatch) X(swatch_gap) X(close_size) X(close_caption_gap)          \
-    X(notice_padding) X(switch_ms) X(switch_reduced_ms) X(modal_enter_ms) X(flash_ms) X(flash_fade_ms)
+    X(button_medium) X(button_padding) X(swatch) X(swatch_gap) X(close_size) X(notice_padding)             \
+    X(card_radius) X(card_inset) X(row_min_height) X(segment_padding) X(select_width) X(slider_width)      \
+    X(value_width) X(status_icon) X(card_gap) X(switch_ms) X(switch_reduced_ms) X(modal_enter_ms)          \
+    X(flash_ms) X(flash_fade_ms)
 #define NAME(field) #field "\0"
 #define FIELD_OFFSET(field) offsetof(UiThemeSettings, field),
 constexpr char kSettingsColorNames[] = THEME_SETTINGS_COLORS(NAME);
@@ -646,17 +666,124 @@ bool palette_color(void* context, u32 index, JsonValue value) noexcept {
     ++array.count;
     return true;
 }
+bool effect_slug_valid(const char* text, u32 bytes) noexcept {
+    if (!bytes || bytes > kClientThemeEffectSlugBytes)
+        return false;
+    for (u32 i = 0; i < bytes; ++i) {
+        const char c = text[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || (c == '-' && i)))
+            return false;
+    }
+    return true;
+}
+bool effect_knob_member(void* context, JsonString name, JsonValue value) noexcept {
+    auto& parse = *static_cast<Parse*>(context);
+    auto& effect = parse.candidate.effect;
+    auto& knob = effect.knobs[effect.knob_count < kClientThemeEffectKnobMaximum ? effect.knob_count : 0];
+    char id[kClientThemeEffectKnobIdBytes + 1];
+    const auto decoded = json_string_decode_utf8(name, {id, kClientThemeEffectKnobIdBytes});
+    if (effect.knob_count == kClientThemeEffectKnobMaximum || !decoded.ok() || !decoded.bytes)
+        return parse.fail(ClientThemeDocumentError::range, name.source_offset);
+    id[decoded.bytes] = 0;
+    for (u32 i = 0; i < effect.knob_count; ++i)
+        if (c_string_length(effect.knobs[i].id) == decoded.bytes && bytes_equal(effect.knobs[i].id, id, decoded.bytes))
+            return parse.fail(ClientThemeDocumentError::duplicate_field, name.source_offset);
+    knob = {};
+    copy_bytes(knob.id, id, decoded.bytes + 1);
+    JsonString text{};
+    bool flag{};
+    if (value.kind == JsonValueKind::number) {
+        if (!float_value(parse, value, &knob.number))
+            return false;
+    } else if (json_value_to_bool(value, &flag)) {
+        knob.number = flag ? 1.f : 0.f;
+    } else if (json_value_as_string(value, &text)) {
+        char hex[8];
+        const auto colour = json_string_decode_utf8(text, {hex, 7});
+        if (!colour.ok() || colour.bytes != 7 || hex[0] != '#')
+            return parse.fail(ClientThemeDocumentError::range, value.source_offset);
+        u32 rgb{};
+        for (u32 i = 1; i < 7; ++i) {
+            const char c = hex[i];
+            const u32 d = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : 16;
+            if (d == 16)
+                return parse.fail(ClientThemeDocumentError::range, value.source_offset);
+            rgb = rgb << 4 | d;
+        }
+        knob.color = true;
+        knob.rgb = rgb;
+    } else {
+        return parse.fail(ClientThemeDocumentError::type, value.source_offset);
+    }
+    if (!is_finite(knob.number) || knob.number < -1e6f || knob.number > 1e6f)
+        return parse.fail(ClientThemeDocumentError::range, value.source_offset);
+    ++effect.knob_count;
+    return true;
+}
+bool effect_universal_member(void* context, JsonString name, JsonValue value) noexcept {
+    auto& parse = *static_cast<Parse*>(context);
+    auto& effect = parse.candidate.effect;
+    static constexpr char keys[] = "speed\0resolution\0fps\0opacity\0blend\0";
+    const u32 id = key_index(name, keys);
+    if (id == 5 || (effect.universal & (1u << id)))
+        return parse.fail(id == 5 ? ClientThemeDocumentError::range : ClientThemeDocumentError::duplicate_field,
+                          name.source_offset);
+    if (id == 4) {
+        JsonString text{};
+        if (!json_value_as_string(value, &text))
+            return parse.fail(ClientThemeDocumentError::type, value.source_offset);
+        u32 blend = key_index(text, "normal\0screen\0add\0");
+        if (blend == 3)
+            return parse.fail(ClientThemeDocumentError::range, value.source_offset);
+        effect.blend = static_cast<u8>(blend);
+        effect.universal |= theme_effect_blend;
+        return true;
+    }
+    float number{};
+    if (!float_value(parse, value, &number))
+        return false;
+    if (id == 0) {
+        if (!(number >= 0 && number <= 3))
+            return parse.fail(ClientThemeDocumentError::range, value.source_offset);
+        effect.speed = static_cast<u8>(number * 20 + .5f);
+        effect.universal |= theme_effect_speed;
+    } else if (id == 3) {
+        // A fraction up to 1, or a percent above it.
+        const float percent = number <= 1 ? number * 100 : number;
+        if (!(number >= 0 && percent <= 100))
+            return parse.fail(ClientThemeDocumentError::range, value.source_offset);
+        effect.opacity = static_cast<u8>(percent + .5f);
+        effect.universal |= theme_effect_opacity;
+    } else {
+        const u8* table = id == 1 ? kEffectResolutionPercent : kEffectFramesPerSecond;
+        u32 step = 0;
+        for (u32 i = 0; i < 5; ++i)
+            if (static_cast<float>(table[i]) == number)
+                step = i + 1;
+        if (!step)
+            return parse.fail(ClientThemeDocumentError::range, value.source_offset);
+        (id == 1 ? effect.resolution : effect.frame_rate) = static_cast<u8>(step);
+        effect.universal |= id == 1 ? theme_effect_resolution : theme_effect_frame_rate;
+    }
+    return true;
+}
 bool background_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& section = *static_cast<SectionVisit*>(context);
     auto& parse = *section.parse;
-    static constexpr char keys[] = "colors\0angle_degrees\0intensity\0effect\0speed\0strength\0density\0";
+    static constexpr char keys[] = "colors\0angle_degrees\0intensity\0effect\0speed\0strength\0density\0knobs\0universal\0";
     const u32 id = key_index(name, keys);
-    if (id == 7) {
+    if (id == 9) {
         ++parse.unsupported;
         return true;
     }
     if (!duplicate(parse, section.seen, id, name.source_offset))
         return false;
+    if (id >= 7) {
+        if (value.kind != JsonValueKind::object)
+            return parse.fail(ClientThemeDocumentError::type, value.source_offset);
+        return parse.read(json_visit_indexed_object(parse.document, value, kClientThemeDocumentMaximumDepth,
+                                                    id == 7 ? effect_knob_member : effect_universal_member, &parse));
+    }
     auto& background = parse.candidate.theme.background;
     if (!id) {
         if (value.kind != JsonValueKind::array)
@@ -674,12 +801,20 @@ bool background_member(void* context, JsonString name, JsonValue value) noexcept
         JsonString effect_name{};
         if (!json_value_as_string(value, &effect_name))
             return parse.fail(ClientThemeDocumentError::type, value.source_offset);
-        // A name outside the catalog (a removed effect) means no effect.
+        // A built-in effect, or a package effect named by its slug (used while no built-in effect is on).
         const u32 effect = key_index(effect_name, kEffects);
-        if (effect == kBackgroundEffectCount)
-            ++parse.unsupported;
         background.effect =
             effect == kBackgroundEffectCount ? BackgroundEffect::none : static_cast<BackgroundEffect>(effect);
+        if (effect == kBackgroundEffectCount) {
+            char slug[kClientThemeEffectSlugBytes + 1];
+            const auto decoded = json_string_decode_utf8(effect_name, {slug, kClientThemeEffectSlugBytes});
+            if (decoded.ok() && effect_slug_valid(slug, decoded.bytes)) {
+                copy_bytes(parse.candidate.effect.slug, slug, decoded.bytes);
+                parse.candidate.effect.slug[decoded.bytes] = 0;
+            } else {
+                ++parse.unsupported;
+            }
+        }
         return true;
     }
     u64 number{};
@@ -1021,13 +1156,67 @@ void write_document(Writer& writer, const ClientThemeDocument& document) noexcep
     writer.text(utf8_literal(",\"intensity\":"));
     writer.number(background.intensity);
     writer.text(utf8_literal(",\"effect\":"));
-    writer.quoted(name_list_at(kEffects, static_cast<u32>(background.effect)));
+    const auto& package = document.effect;
+    if (package.slug[0])
+        writer.quoted({package.slug, c_string_length(package.slug)});
+    else
+        writer.quoted(name_list_at(kEffects, static_cast<u32>(background.effect)));
     writer.text(utf8_literal(",\"speed\":"));
     writer.number(background.speed);
     writer.text(utf8_literal(",\"strength\":"));
     writer.number(background.strength);
     writer.text(utf8_literal(",\"density\":"));
     writer.number(background.density);
+    if (package.slug[0]) {
+        writer.text(utf8_literal(",\"knobs\":{"));
+        for (u32 i = 0; i < package.knob_count; ++i) {
+            if (i)
+                writer.character(',');
+            writer.quoted({package.knobs[i].id, c_string_length(package.knobs[i].id)});
+            writer.character(':');
+            if (package.knobs[i].color) {
+                writer.character('"');
+                writer.character('#');
+                for (u32 shift = 24; shift;) {
+                    shift -= 4;
+                    writer.character("0123456789abcdef"[(package.knobs[i].rgb >> shift) & 15]);
+                }
+                writer.character('"');
+            } else {
+                writer.real(package.knobs[i].number);
+            }
+        }
+        writer.text(utf8_literal("},\"universal\":{"));
+        bool first = true;
+        const auto member = [&](Utf8View key) noexcept {
+            if (!first)
+                writer.character(',');
+            first = false;
+            writer.quoted(key);
+            writer.character(':');
+        };
+        if (package.universal & theme_effect_speed) {
+            member(utf8_literal("speed"));
+            writer.real(static_cast<float>(package.speed) * .05f);
+        }
+        if (package.universal & theme_effect_resolution) {
+            member(utf8_literal("resolution"));
+            writer.number(kEffectResolutionPercent[package.resolution - 1]);
+        }
+        if (package.universal & theme_effect_frame_rate) {
+            member(utf8_literal("fps"));
+            writer.number(kEffectFramesPerSecond[package.frame_rate - 1]);
+        }
+        if (package.universal & theme_effect_opacity) {
+            member(utf8_literal("opacity"));
+            writer.real(static_cast<float>(package.opacity) * .01f);
+        }
+        if (package.universal & theme_effect_blend) {
+            member(utf8_literal("blend"));
+            writer.quoted(name_list_at("normal\0screen\0add\0", package.blend));
+        }
+        writer.character('}');
+    }
     writer.text(utf8_literal("},\"typography\":{"));
     comma = false;
     for (u32 i = 0; i < 8; ++i) {
@@ -1099,6 +1288,7 @@ bool client_theme_document_valid(const ClientThemeDocument& document) noexcept {
            document.name_bytes <= kClientThemeNameMaximumBytes && document.name[document.name_bytes] == 0 &&
            name_valid({document.name, document.name_bytes}) && ui_theme_palette_valid(document.theme) &&
            real_values_finite(document) && background_valid(document.theme.background) &&
+           effect_valid(document.effect) &&
            ui_theme_typography_valid(document.typography) && ui_theme_metrics_valid(document.metrics) &&
            components_valid(document.icons, document.settings);
 }
@@ -1107,6 +1297,7 @@ bool client_theme_document_equal(const ClientThemeDocument& a, const ClientTheme
            a.name_bytes <= kClientThemeNameMaximumBytes && bytes_equal(a.name, b.name, a.name_bytes) &&
            ui_theme_palette_equal(a.theme, b.theme) &&
            background_theme_equal(a.theme.background, b.theme.background) &&
+           bytes_equal(&a.effect, &b.effect, sizeof(a.effect)) &&
            ui_theme_typography_equal(a.typography, b.typography) &&
            ui_theme_metrics_equal(a.metrics, b.metrics) && components_equal(a, b);
 }

@@ -5,6 +5,7 @@
 #include "../../../src/app/media/media.hpp"
 #include "../../../src/app/chat/threads/header_activation.hpp"
 #include "../../../src/app/gateway/dispatch_common.hpp"
+#include "../../../src/app/plugins/catalog_service.hpp"
 #include "../../support/test_output.hpp"
 
 namespace maicord::app_detail {
@@ -291,6 +292,7 @@ bool application_plugins_restore() noexcept {
     ++plugin_restores;
     return true;
 }
+void application_catalog_restore() noexcept {}
 bool application_plugins_slots_stale() noexcept {
     return false;
 }

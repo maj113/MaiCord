@@ -2,6 +2,7 @@
 #include "../account/application_account_module.hpp"
 #include "../plugins/pipeline_host.hpp"
 #include "../effects/effects.hpp"
+#include "../packages/packages.hpp"
 #include "navigation_drag.hpp"
 #include "content_point.hpp"
 #include "shortcuts.hpp"
@@ -745,6 +746,8 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
         break;
     }
     case WM_DROPFILES:
+        if (application_packages_drop(reinterpret_cast<HANDLE>(wparam)))
+            return 0;
         if (!application_drop_attachments(reinterpret_cast<HANDLE>(wparam)))
             log_write(LogLevel::error, "attachment", "file_drop_accept_failed");
         return 0;

@@ -109,17 +109,28 @@ choose *Restart to update*, so the folder must stay writable.
 
 ## Plugins and themes
 
-**Themes** are JSON files (up to 64 KiB) imported under
-*Settings → Appearance*. A theme starts from the Dark, Light or AMOLED base and
-can override any design token. See
+**Themes** are JSON files (up to 64 KiB). A theme starts from the Dark, Light or AMOLED base and can override any
+design token; an optional `background` member can name an installed effect and its knob values. See
 [`assets/themes/example.maicord-theme.json`](assets/themes/example.maicord-theme.json).
 
-**Plugins** are native DLLs in `%LOCALAPPDATA%\MaiCord\plugins`, each with a
-`*.maicord-plugin.json` manifest. MaiCord checks each DLL's SHA-256 before it
-can be enabled and asks you to approve the permissions it requests. Plugins
-are native code, so only install ones you trust. The SDK is a single C header,
-[`include/maicord/sdk/maicord_plugin.h`](include/maicord/sdk/maicord_plugin.h),
-and [`samples/plugins/showcase`](samples/plugins/showcase) uses every part of it.
+**Background effects** are `.mcfx` packages: a manifest, `ps_5_0` bytecode, up to two PNG textures, the source and
+a preview. They are data, not code: MaiCord checks the container and asks Direct3D to build the shader, and caps
+the GPU time an effect may use. Themes and effects come from the catalog, from a link (`https://…`), from a file
+or from a drop onto the install dialog. Anything that is not from the catalog is shown as *not reviewed* with a
+live preview before you install it, and never updates on its own.
+
+`maicord://install/<theme|effect|plugin>/<slug>` links open the catalog entry in MaiCord. Registering MaiCord for
+these links is optional: it is asked once, when you first open the catalog, and only writes
+`HKEY_CURRENT_USER\Software\Classes\maicord`.
+
+**Plugins** are native DLLs from the catalog, built by its CI from reviewed source and listed in a signed index.
+MaiCord checks each download's size and SHA-256 against the index and the DLL's declared permissions and network
+hosts against its listing, asks you to approve them, and loads it without running any of its code until you
+agree. Updates that need nothing new apply on their own; the previous version is kept for one-click rollback, and
+a plugin the catalog revokes is turned off at once. Plugins are native code, so only install ones you trust.
+Loading your own DLL needs Developer Mode. The SDK is [`include/maicord/sdk/plugin.hpp`](include/maicord/sdk/plugin.hpp)
+(see [`include/maicord/sdk/README.md`](include/maicord/sdk/README.md)); the samples are in
+[`samples/plugins`](samples/plugins).
 
 ## Building from source
 

@@ -434,55 +434,117 @@ void test_http_reader() noexcept {
         "update http: a redirect records its Location and never delivers its body");
 }
 
-// The available-update row: version with commit, progress, chips, meter.
-void test_offer_rows() noexcept {
+// The status card: every state's title, meta, chips, action, tone and meter.
+void test_status_card() noexcept {
     using namespace app_detail;
+    constexpr u64 now = 1760000100;
     ApplicationUpdatesView v{};
     v.own_version = update_version_number(0, 3, 3, 0);
-    v.channel = UpdateChannel::preview;
+    v.channel = UpdateChannel::stable;
     ApplicationUpdatesText text{}; UiSettingsControl c{}; UiSettingsControlPresentation p{}; u16 meter = 0;
     const auto row = [&](SettingBinding b) noexcept {
-        c = {}; c.kind = UiSettingsControlKind::action; p = {}; meter = 0;
-        return application_updates_project_view(v, b, &text, &c, &p, &meter);
+        c = {}; p = {}; meter = 0;
+        return application_updates_project_view(v, now, b, &text, &c, &p, &meter);
     };
-    v.state = ApplicationUpdateState::up_to_date;
-    check(!row(SettingBinding::update_available) && !row(SettingBinding::update_problem),
-        "update settings: no offer, no available row or problem notice");
-    v.state = ApplicationUpdateState::downloading;
+    const auto icon = [&](UiIcon i) noexcept { return p.icon_plus_one == static_cast<u8>(i) + 1; };
+    v.state = ApplicationUpdateState::disabled;
+    check(row(SettingBinding::update_status) && c.kind == UiSettingsControlKind::status && same(c.label, "Updates aren't configured for this build") &&
+              same(c.description, "MaiCord 0.3.3. Download new versions manually.") && !c.action_label.bytes && !c.enabled && icon(UiIcon::info) &&
+              p.variant == UiSettingsVariant::standard && !row(SettingBinding::update_channel) && !row(SettingBinding::update_interval) &&
+              !row(SettingBinding::update_notice),
+        "update status: an unconfigured build says so, offers no action and hides its settings");
+    v.state = ApplicationUpdateState::idle;
+    check(row(SettingBinding::update_status) && same(c.label, "Check for updates") && same(c.action_label, "Check now") && c.enabled && !c.checked &&
+              same(c.description, "MaiCord 0.3.3 · Stable channel · Not checked yet") && icon(UiIcon::download) && meter == kUiSettingsNoMeter &&
+              !c.detail.bytes && c.choices.count == 0,
+        "update status: idle offers Check now and says it has not checked yet");
+    v.checked_unix = now;
+    check(row(SettingBinding::update_status) && contains(c.description, "Stable channel · Last checked today at "),
+        "update status: the last check reads as a clock time");
+    v.checked_unix = now - 90000;
+    check(row(SettingBinding::update_status) && contains(c.description, "Last checked ") && !contains(c.description, "today at"),
+        "update status: an older check names its date");
+    v.checked_unix = now; v.state = ApplicationUpdateState::checking; v.channel = UpdateChannel::preview;
+    check(row(SettingBinding::update_status) && same(c.label, "Checking for updates…") && same(c.action_label, "Checking…") && !c.enabled && c.checked &&
+              meter == kUiSettingsIndeterminateMeter && contains(c.description, "Preview channel · Last checked "),
+        "update status: checking disables the action, spins and shows an indeterminate meter");
+    v.state = ApplicationUpdateState::up_to_date; v.channel = UpdateChannel::stable;
+    check(row(SettingBinding::update_status) && same(c.label, "You're up to date") && same(c.action_label, "Check now") && c.enabled &&
+              p.variant == UiSettingsVariant::positive && icon(UiIcon::circle_check) && contains(c.description, "Stable channel · Checked today at "),
+        "update status: up to date is positive and checked now");
+    v.state = ApplicationUpdateState::downloading; v.channel = UpdateChannel::preview;
     v.offer_version = update_version_number(0, 3, 4, 16); v.offer_bytes = 8388608; v.offer_date = 1760000100;
     copy_bytes(v.offer_commit, "581fd44", 7);
     v.received = 4194304; v.total = 8388608;
-    check(row(SettingBinding::update_available) && same(c.label, "MaiCord 0.3.4-dev.16+581fd44") &&
-        same(c.description, "Downloading 4.0 MB of 8.0 MB…") && meter == 500 && c.choices.count == 4 &&
-        same(c.choices[0], "Preview build") && same(c.choices[1], "Built Oct 9, 2025") && same(c.choices[2], "8.0 MB") &&
-        same(c.choices[3], "Signature verified") && !c.action_label.bytes,
-        "update settings: a preview offer shows its build, size, date, verification and download progress");
-    v.state = ApplicationUpdateState::installing;
-    check(row(SettingBinding::update_available) && meter == 1000 && same(c.description, "Checking the download…"),
-        "update settings: verifying fills the progress bar");
+    check(row(SettingBinding::update_status) && same(c.label, "Downloading MaiCord 0.3.4-dev.16") && same(c.description, "4.0 MB of 8.0 MB") &&
+              same(c.action_label, "Downloading 50%") && !c.enabled && p.more == ui_settings_more_progress_button && meter == 500 &&
+              p.variant == UiSettingsVariant::primary,
+        "update status: downloading shows the size and fills the progress button");
+    v.total = 0;
+    check(row(SettingBinding::update_status) && same(c.action_label, "Downloading") && meter == kUiSettingsNoMeter,
+        "update status: a download of unknown size shows no percentage");
+    v.state = ApplicationUpdateState::installing; v.total = 8388608; v.received = v.total;
+    check(row(SettingBinding::update_status) && same(c.label, "Verifying the update…") && !c.enabled && c.checked && meter == 1000 &&
+              p.variant == UiSettingsVariant::primary,
+        "update status: verifying fills the meter");
     v.state = ApplicationUpdateState::ready; v.ready_version = v.offer_version;
-    check(row(SettingBinding::update_available) && meter == kUiSettingsNoMeter &&
-        same(c.description, "Downloaded and verified. It installs when you choose Restart to update."),
-        "update settings: a ready update reads as verified, installed on Restart to update, with no bar");
-    v.state = ApplicationUpdateState::error; v.error = UpdateServiceError::unavailable;
-    check(row(SettingBinding::update_available) && contains(c.description, "tries again") && row(SettingBinding::update_problem) &&
-        same(c.description, "The update's download isn't available yet. MaiCord will try again later."),
-        "update settings: a failed download keeps the offer and explains the error");
-    v.state = ApplicationUpdateState::up_to_date; v.ready_version = 0;
-    v.offer_version = update_version_number(0, 3, 4, 0); v.offer_commit[0] = 0;
-    check(row(SettingBinding::update_available) && same(c.label, "MaiCord 0.3.4") && same(c.choices[0], "Stable release") &&
-        same(c.choices[1], "Released Oct 9, 2025"), "update settings: a stable offer names its release date");
-    v.offer_version = v.own_version;
-    check(!row(SettingBinding::update_available), "update settings: an offer no newer than this build is not shown");
-    v.channel = UpdateChannel::stable; v.own_version = update_version_number(0, 3, 4, 2); copy_bytes(v.own_commit, "abcdef0", 7);
-    check(row(SettingBinding::update_channel) && c.selected_choice == 0 &&
-        contains(c.description, "stays installed until a newer stable release"),
+    check(row(SettingBinding::update_status) && same(c.label, "Preview build 0.3.4-dev.16 is ready") && same(c.action_label, "Restart to update") && c.enabled &&
+              p.variant == UiSettingsVariant::primary && same(c.description, "Installed: 0.3.3 · Downloaded and verified · Built Oct 9, 2025") &&
+              c.choices.count == 4 && same(c.choices[0], "Preview build") && same(c.choices[1], "581fd44") && same(c.choices[2], "8.0 MB") &&
+              same(c.choices[3], "Signature verified") && (p.chip_tones >> 6 & 3) == ui_settings_chip_positive && (p.chip_tones & 63) == 0 &&
+              same(c.detail, "8.0 MB · takes a few seconds") && meter == kUiSettingsNoMeter && p.more == 0,
+        "update status: a ready preview build names its build, commit, size and verification beside Restart to update");
+    v.channel = UpdateChannel::stable; v.offer_version = v.ready_version = update_version_number(0, 3, 4, 0); v.offer_commit[0] = 0;
+    check(row(SettingBinding::update_status) && same(c.label, "MaiCord 0.3.4 is ready to install") && c.choices.count == 3 &&
+              same(c.choices[0], "Stable release") && same(c.choices[1], "8.0 MB") && contains(c.description, "Released Oct 9, 2025"),
+        "update status: a ready stable release says when it was released");
+    v.offer_version = 0; v.offer_bytes = 0;
+    check(row(SettingBinding::update_status) && c.choices.count == 2 && same(c.detail, "Takes a few seconds") && !contains(c.description, "Released"),
+        "update status: a stage from an earlier check names no date or size it doesn't know");
+    v.state = ApplicationUpdateState::restarting;
+    check(row(SettingBinding::update_status) && same(c.label, "Restarting…") && same(c.action_label, "Restarting…") && !c.enabled && c.checked,
+        "update status: restarting disables the action");
+    v.state = ApplicationUpdateState::error; v.error = UpdateServiceError::signature; v.checked_unix = 0; v.ready_version = 0;
+    check(row(SettingBinding::update_status) && same(c.label, "Couldn't update") && same(c.action_label, "Try again") && c.enabled &&
+              p.variant == UiSettingsVariant::critical && icon(UiIcon::warning) && same(c.description, "The update isn't signed by the MaiCord publisher."),
+        "update status: an error reads as critical and offers Try again");
+    v.state = ApplicationUpdateState::rate_limited; v.error = UpdateServiceError::rate_limited; v.checked_unix = now;
+    check(row(SettingBinding::update_status) && same(c.label, "Couldn't check for updates") &&
+              contains(c.description, "GitHub is limiting requests. MaiCord will try again later. · Last checked today at "),
+        "update status: a rate limit says when it last checked");
+
+    // The settings card.
+    v.state = ApplicationUpdateState::up_to_date; v.own_version = update_version_number(0, 3, 4, 2); copy_bytes(v.own_commit, "abcdef0", 7);
+    check(row(SettingBinding::update_status) && contains(c.description, "MaiCord 0.3.4-dev.2+abcdef0 · Stable channel"),
+        "update status: the status names this build with its commit");
+    check(row(SettingBinding::update_channel) && c.selected_choice == 0 && c.choices.count == 2 && same(c.choices[1], "Preview") && c.enabled &&
+              contains(c.description, "stays installed until a newer stable release"),
         "update settings: switching a preview build to stable explains when it moves");
-    check(row(SettingBinding::update_status) && same(c.description, "MaiCord 0.3.4-dev.2+abcdef0, stable channel."),
-        "update settings: the status names this build with its commit");
     v.channel = UpdateChannel::preview;
-    check(row(SettingBinding::update_channel) && contains(c.description, "Every master build that passes CI"),
+    check(row(SettingBinding::update_channel) && c.selected_choice == 1 && contains(c.description, "Every master build that passes CI"),
         "update settings: the preview channel says what it delivers");
+    v.state = ApplicationUpdateState::checking;
+    check(row(SettingBinding::update_channel) && !c.enabled, "update settings: the channel is locked while a check runs");
+    v.state = ApplicationUpdateState::downloading; v.interval = UpdateCheckInterval::day;
+    check(row(SettingBinding::update_channel) && !c.enabled && row(SettingBinding::update_interval) && c.selected_choice == 3 && c.enabled,
+        "update settings: the check interval stays changeable during a download");
+    v.state = ApplicationUpdateState::up_to_date; v.interval = kUpdateDefaultCheckInterval;
+    check(row(SettingBinding::update_interval) && c.selected_choice == 1 && c.choices.count == 4 && same(c.choices[0], "Every hour") &&
+              same(c.choices[1], "Every 4 hours") && same(c.choices[2], "Every 12 hours") && same(c.choices[3], "Once a day") && row(SettingBinding::update_notice),
+        "update settings: the check interval offers four choices, every 4 hours by default, and the footnote shows");
+
+    // The release notes page.
+    const Utf8View repository = utf8_literal("o/r");
+    char url[kApplicationUpdatesReleaseNotesBytes];
+    const auto notes = [&]() noexcept { return Utf8View{url, application_updates_release_notes_url(v, repository, {url, sizeof(url)})}; };
+    v.own_version = update_version_number(0, 3, 3, 0); v.offer_version = 0;
+    check(same(notes(), "https://github.com/o/r/releases/tag/v0.3.3") && !application_updates_release_notes_url(v, {}, {url, sizeof(url)}),
+        "update release notes: a stable build opens its release page, nothing without a repository");
+    v.offer_version = update_version_number(0, 3, 4, 0);
+    check(same(notes(), "https://github.com/o/r/releases/tag/v0.3.4"), "update release notes: an offered release opens its own page");
+    v.offer_version = update_version_number(0, 3, 4, 16);
+    check(same(notes(), "https://github.com/o/r/releases"), "update release notes: a master build opens the releases page");
+    check(application_updates_release_notes_url(v, repository, {url, 10}) == 0, "update release notes: an address that doesn't fit is refused");
 }
 
 UpdateChangelog g_log;
@@ -495,111 +557,125 @@ void log_entry(u64 version, u64 date, const char* text, const char* commit = nul
     g_log.text_bytes += e.text_bytes;
     if (commit) { copy_bytes(e.commit, commit, 40); e.has_commit = true; }
 }
-// "What's new": preview commit tables, stable release notes, and notes about
-// what is not listed.
+// "What's new": stable releases as disclosure rows with markdown notes,
+// preview commits as plain rows around the installed divider, and the notes
+// about what is not listed or newer than the feed.
 void test_changelog_rows() noexcept {
     using namespace app_detail;
     static ApplicationUpdatesChangelogRows rows;
+    clear_bytes(&rows, sizeof(rows));
     ApplicationUpdatesView v{};
     UiSettingsControl controls[48]{}; UiSettingsControlPresentation presentation[48]{};
-    UiSettingsControl heading{}; UiSettingsListItem item{};
+    UiSettingsControl heading{};
     const auto build = [&]() noexcept {
         application_updates_changelog_build(v, g_log, &rows);
-        heading = {}; item = {};
-        const bool shown = application_updates_changelog_heading(rows, &heading, &item);
+        heading = {};
+        const bool shown = application_updates_changelog_heading(rows, &heading);
         const u32 count = application_updates_changelog_project(rows, {controls, 48}, {presentation, 48});
         return shown ? count : 0u;
     };
+    const auto id = [&](u32 row) noexcept { return controls[row].id & 0xff; };
+    const auto toggle = [&](u32 row_id) noexcept { return application_updates_changelog_toggle(&rows, row_id); };
     g_log = {};
     g_log.channel = UpdateChannel::preview; g_log.version = 3004016; g_log.base = 3003999;
-    log_entry(3004016, 1760000100, "Polish the updater page", "1111111111111111111111111111111111111111");
+    log_entry(3004016, 1760000100, "Polish the updater page\nwith a second line", "1111111111111111111111111111111111111111");
     log_entry(3004015, 1760086500, "Fix a crash when the gateway drops", "2222222222222222222222222222222222222222");
     log_entry(3004014, 1760000000, "Add a theme picker", "3333333333333333333333333333333333333333");
     v.offer_version = 3004016; v.own_version = 3004014; copy_bytes(v.own_commit, "abcdef0", 7); v.changelog_revision = 1;
     u32 count = build();
-    check(count == 2 && same(heading.label, "What's new since 0.3.4-dev.14+abcdef0") && heading.kind == UiSettingsControlKind::category &&
-        item.style == UiSettingsListStyle::header && heading.choices.count == 1 && same(heading.choices[0], "Date") &&
-        controls[0].kind == UiSettingsControlKind::action && same(controls[0].label, "Polish the updater page") &&
-        controls[0].choices.count == 1 && same(controls[0].choices[0], "Oct 9") && same(controls[1].choices[0], "Oct 10") &&
-        application_updates_changelog_item(rows, 0).style == UiSettingsListStyle::row &&
-        application_updates_changelog_row(controls[1].id) && !application_updates_changelog_row(controls[1].id + 0x100),
-        "update changelog: a preview build lists each newer commit with its date in a table");
-    v.own_version = 3002999; v.own_commit[0] = 0;
+    check(count == 4 && heading.kind == UiSettingsControlKind::category && same(heading.detail, "2 changes since 0.3.4-dev.14") &&
+              controls[0].kind == UiSettingsControlKind::disclosure && same(controls[0].label, "Polish the updater page") &&
+              same(controls[0].detail, "dev.16") && same(controls[0].description, "Oct 9") && presentation[0].more == ui_settings_more_plain &&
+              presentation[0].variant == UiSettingsVariant::primary && presentation[1].variant == UiSettingsVariant::standard &&
+              same(controls[1].label, "Fix a crash when the gateway drops") && same(controls[1].description, "Oct 10") &&
+              same(controls[2].label, "Installed") && same(controls[2].detail, "0.3.4-dev.14") && presentation[2].variant == UiSettingsVariant::positive &&
+              id(2) == kApplicationUpdatesRowInstalled && same(controls[3].label, "Add a theme picker") && same(controls[3].detail, "dev.14") &&
+              application_updates_changelog_row(controls[1].id) && !application_updates_changelog_row(controls[1].id + 0x100) &&
+              controls[0].enabled && !controls[0].checked,
+        "update changelog: a preview build lists each commit with its build and date around an installed divider");
+    v.own_version = 3004016;
+    check(build() == 4 && same(heading.detail, "in the build you're running") && same(controls[0].label, "Installed") &&
+              same(controls[0].detail, "0.3.4-dev.16") && same(controls[1].label, "Polish the updater page"),
+        "update changelog: an up-to-date preview build starts with the installed divider");
+    v.offer_version = 0; v.own_version = 3002999; v.own_commit[0] = 0;
     count = build();
-    check(count == 4 && controls[3].kind == UiSettingsControlKind::notice && same(controls[3].description, "Changes up to 0.3.3 aren't listed here.") &&
-        application_updates_changelog_item(rows, 3).style == UiSettingsListStyle::none,
-        "update changelog: a build older than the changelog's start says what is missing");
+    check(count == 4 && controls[3].kind == UiSettingsControlKind::footnote && same(controls[3].label, "Changes up to 0.3.3 aren't listed here.") &&
+              id(3) == kApplicationUpdatesRowNote &&
+              controls[0].kind == UiSettingsControlKind::disclosure && same(heading.detail, "3 changes since 0.3.2"),
+        "update changelog: a build older than the changelog's start says what is missing, with no divider");
+    v.offer_version = 3004016;
     g_log.count = 0; g_log.text_bytes = 0;
     for (u32 i = 0; i < 50; ++i) log_entry(3004016 - i / 3, 1760000000, "A commit");
     v.own_version = 3003999;
     count = build();
-    check(count == kApplicationUpdatesChangelogRows && same(controls[count - 1].description, "15 earlier changes aren't shown."),
-        "update changelog: long lists stop at the row budget and count the rest");
+    check(count == kApplicationUpdatesVisibleCommits + 1 && same(controls[count - 1].label, "Show 40 more") && id(count - 1) == kApplicationUpdatesRowMore &&
+              !controls[count - 1].checked && same(heading.detail, "50 changes since 0.3.3"),
+        "update changelog: long preview lists show ten commits and offer the rest");
+    check(toggle(kApplicationUpdatesRowMore) && !toggle(0xf9), "update changelog: a press on the expander toggles it and an unknown id does nothing");
+    count = build();
+    check(count == kApplicationUpdatesChangelogRows && same(controls[count - 2].label, "Show fewer") && controls[count - 2].checked &&
+              controls[count - 1].kind == UiSettingsControlKind::footnote && same(controls[count - 1].label, "16 earlier changes aren't shown."),
+        "update changelog: the whole list stops at the row budget and counts the rest");
+    check(toggle(kApplicationUpdatesRowMore) && build() == kApplicationUpdatesVisibleCommits + 1,
+        "update changelog: Show fewer folds the list again");
+
+    clear_bytes(&rows, sizeof(rows));
     g_log = {};
     g_log.channel = UpdateChannel::stable; g_log.version = 3004999; g_log.base = 3002999;
-    log_entry(3004999, 1760000100, "### Features\n\n- Add a [theme](https://example.invalid) picker");
+    log_entry(3004999, 1760000100, "### Highlights\n\n- Add a theme picker\n  - nested");
     log_entry(3003999, 1759000000, "- Fix it");
-    v.offer_version = 3004999; v.own_version = 3003999; v.changelog_revision = 2;
+    v.offer_version = 3004999; v.own_version = 3003999; v.own_commit[0] = 0; v.changelog_revision = 2;
     count = build();
-    check(count == 1 && same(heading.label, "What's new since 0.3.3") && item.style == UiSettingsListStyle::none && !heading.choices.count &&
-        controls[0].kind == UiSettingsControlKind::notice && same(controls[0].label, "MaiCord 0.3.4 · Oct 9, 2025") &&
-        same(controls[0].description, "Features\n\n\xE2\x80\xA2 Add a theme picker"),
-        "update changelog: stable releases show their notes as plain text under a dated header");
-    v.own_version = 3002999;
-    check(build() == 2 && same(controls[1].label, "MaiCord 0.3.3 · Sep 27, 2025"),
-        "update changelog: skipping releases shows every newer one");
-    v.offer_version = 3005999;
-    check(!build(), "update changelog: a changelog for another version is not shown");
+    check(count == 3 && same(heading.detail, "since 0.3.3") && controls[0].kind == UiSettingsControlKind::disclosure &&
+              same(controls[0].label, "MaiCord 0.3.4") && same(controls[0].description, "Oct 9, 2025") && same(controls[0].detail, "New") &&
+              presentation[0].variant == UiSettingsVariant::primary && controls[0].checked && id(0) == 0 && !presentation[0].more &&
+              controls[1].kind == UiSettingsControlKind::markdown && id(1) == kApplicationUpdatesRowNotes && !controls[1].label.bytes &&
+              same(controls[1].description, "### Highlights\n\n- Add a theme picker\n  - nested") && same(controls[1].detail, "Show all notes") &&
+              !controls[1].checked && same(controls[2].label, "MaiCord 0.3.3") && same(controls[2].detail, "Installed") && !controls[2].checked &&
+              presentation[2].variant == UiSettingsVariant::positive,
+        "update changelog: stable releases are disclosure rows, the newest open with its markdown notes");
+    check(toggle(1) && build() == 4 && controls[3].kind == UiSettingsControlKind::markdown && id(3) == kApplicationUpdatesRowNotes + 1 &&
+              same(controls[3].description, "- Fix it") && controls[2].checked,
+        "update changelog: opening an older release adds its notes, decoded only now");
+    check(toggle(0) && build() == 3 && !controls[0].checked && controls[1].kind == UiSettingsControlKind::disclosure,
+        "update changelog: the newest release can be folded");
+    check(toggle(kApplicationUpdatesRowNotes + 1) && build() == 3 && controls[2].kind == UiSettingsControlKind::markdown && controls[2].checked,
+        "update changelog: Show all notes unclips the notes");
+    v.changelog_revision = 3; g_log.version = 3005999; g_log.entries[0].version = 3005999; v.offer_version = 3005999;
+    check(build() == 3 && controls[0].checked && !controls[1].checked && !rows.older_open,
+        "update changelog: a new changelog version starts the disclosure state over");
+    v.offer_version = 3006999;
+    check(!build(), "update changelog: a changelog for another version than the offer is not shown");
+
+    clear_bytes(&rows, sizeof(rows));
+    g_log = {};
+    g_log.channel = UpdateChannel::stable; g_log.version = 3006999; g_log.base = 3000999;
+    for (u32 i = 0; i < 6; ++i) log_entry(3006999 - i * 1000, 1760000100 - i * 86400, "Notes");
+    v.offer_version = 0; v.own_version = 3006999; v.changelog_revision = 4;
+    count = build();
+    check(count == 5 && same(heading.detail, "in the version you're running") && same(controls[0].detail, "Installed") && controls[0].checked &&
+              same(controls[2].label, "MaiCord 0.3.5") && same(controls[3].label, "MaiCord 0.3.4") && controls[4].kind == UiSettingsControlKind::disclosure &&
+              same(controls[4].label, "3 older releases") && id(4) == kApplicationUpdatesRowOlder && !controls[4].checked && !controls[4].detail.bytes,
+        "update changelog: an up-to-date build opens its own release and folds the older ones");
+    check(toggle(kApplicationUpdatesRowOlder) && build() == 8 && controls[4].checked && same(controls[5].label, "MaiCord 0.3.3"),
+        "update changelog: N older releases unfolds the rest");
+
+    clear_bytes(&rows, sizeof(rows));
+    v.own_version = 3008999;
+    count = build();
+    check(count == 1 && same(heading.detail, "newer than the published notes") && controls[0].kind == UiSettingsControlKind::disclosure &&
+              same(controls[0].label, "MaiCord 0.3.6") && !controls[0].checked && !controls[0].detail.bytes,
+        "update changelog: a build newer than the published notes shows the newest entry folded");
+    g_log.channel = UpdateChannel::preview;
+    check(build() == 1 && same(controls[0].detail, "dev.999") && presentation[0].more == ui_settings_more_plain && !rows.more_open,
+        "update changelog: a preview build newer than the feed shows the newest commit only");
+    g_log.count = 0;
+    check(!build(), "update changelog: an empty changelog shows no section");
 }
 
 void test_settings_rows() noexcept {
-    using app_detail::ApplicationUpdatesView; using app_detail::ApplicationUpdateState; using app_detail::ApplicationUpdatesText;
-    ApplicationUpdatesView v{};
-    v.own_version = update_version_number(0, 1, 0, 0);
-    ApplicationUpdatesText text{}; UiSettingsControl c{}; UiSettingsControlPresentation p{};
-    const auto row = [&](SettingBinding b) noexcept {
-        c = {}; c.kind = UiSettingsControlKind::action; p = {};
-        return app_detail::application_updates_project_view(v, b, &text, &c, &p);
-    };
-    v.state = ApplicationUpdateState::disabled;
-    check(row(SettingBinding::update_status) && same(c.label, "Updates aren't configured for this build") &&
-        c.kind == UiSettingsControlKind::notice && !c.enabled && contains(c.description, "0.1.0") &&
-        !row(SettingBinding::update_channel) && !row(SettingBinding::update_notice),
-        "update settings: an unconfigured build says so and hides the channel");
-    v.state = ApplicationUpdateState::up_to_date; v.channel = UpdateChannel::stable;
-    check(row(SettingBinding::update_status) && same(c.label, "You're up to date") && same(c.action_label, "Check now") && c.enabled &&
-        same(c.description, "MaiCord 0.1.0, stable channel.") && row(SettingBinding::update_channel) && c.selected_choice == 0 &&
-        c.choices.count == 2 && row(SettingBinding::update_notice),
-        "update settings: current version, channel and Check now");
-    v.state = ApplicationUpdateState::downloading; v.received = 42; v.total = 100;
-    check(row(SettingBinding::update_status) && same(c.label, "Downloading update 42%") && c.kind == UiSettingsControlKind::notice &&
-        c.checked && !c.action_label.bytes && row(SettingBinding::update_channel) && !c.enabled,
-        "update settings: a download in flight reads as a loading notice and locks the channel");
-    v.state = ApplicationUpdateState::installing; v.received = 100;
-    check(row(SettingBinding::update_status) && same(c.label, "Verifying update…") && c.kind == UiSettingsControlKind::notice &&
-        c.checked && row(SettingBinding::update_channel) && !c.enabled, "update settings: verifying and staging after the download say so");
-    v.state = ApplicationUpdateState::ready; v.ready_version = update_version_number(0, 2, 0, 0);
-    check(row(SettingBinding::update_status) && same(c.label, "Update ready") && same(c.action_label, "Restart to update") &&
-        p.variant == UiSettingsVariant::primary &&
-        same(c.description, "MaiCord 0.2.0 installs when you choose Restart to update. Until then, closing MaiCord keeps this version."),
-        "update settings: a ready update installs only on Restart to update, and says so");
-    v.state = ApplicationUpdateState::error; v.error = UpdateServiceError::signature;
-    check(row(SettingBinding::update_status) && same(c.label, "Couldn't update") && same(c.action_label, "Try again") &&
-        same(c.description, "MaiCord 0.1.0, stable channel.") && row(SettingBinding::update_problem) &&
-        c.kind == UiSettingsControlKind::notice && p.variant == UiSettingsVariant::critical &&
-        same(c.description, "The update isn't signed by the MaiCord publisher."),
-        "update settings: errors offer Try again and explain themselves in a critical notice");
-    test_offer_rows();
+    test_status_card();
     test_changelog_rows();
-    v.state = ApplicationUpdateState::up_to_date; v.interval = kUpdateDefaultCheckInterval;
-    check(row(SettingBinding::update_interval) && c.selected_choice == 1 && c.choices.count == 4 && c.enabled &&
-        same(c.choices[0], "Every hour") && same(c.choices[1], "Every 4 hours") && same(c.choices[2], "Every 12 hours") &&
-        same(c.choices[3], "Once a day"), "update settings: the check interval offers four choices, every 4 hours by default");
-    v.state = ApplicationUpdateState::downloading; v.interval = UpdateCheckInterval::day;
-    check(row(SettingBinding::update_interval) && c.selected_choice == 3 && c.enabled,
-        "update settings: the check interval stays changeable during a download");
-    v.state = ApplicationUpdateState::disabled;
-    check(!row(SettingBinding::update_interval), "update settings: an unconfigured build hides the check interval");
     UiSettingsSchemaLocation status{}, channel{}, interval{};
     const auto* node = settings_catalog_binding(SettingBinding::update_status, &status);
     UiSettingsSearchHit hits[64]{};
@@ -609,12 +685,17 @@ void test_settings_rows() noexcept {
         return false;
     };
     check(settings_catalog_binding(SettingBinding::update_interval, &interval) && interval.panel == status.panel &&
-        found(utf8_literal("check every")) && found(utf8_literal("hourly")) && found(utf8_literal("frequency")) &&
+        found(utf8_literal("how often")) && found(utf8_literal("hourly")) && found(utf8_literal("frequency")) &&
         found(utf8_literal("often")) && !found(utf8_literal("stable channel")),
         "update settings: search finds the check interval by its label and keywords");
+    UiSettingsSchemaLocation notes{}, footnote{};
     check(node && settings_catalog_binding(SettingBinding::update_channel, &channel) && status.panel == static_cast<u32>(SettingsPanel::updates) &&
-        channel.panel == status.panel && same(settings_catalog().panels[status.panel].title, "Updates") &&
-        ui_settings_schema_valid(settings_catalog()), "update settings: the Updates panel binds every updater row");
+        channel.panel == status.panel && settings_catalog_binding(SettingBinding::update_release_notes, &notes) && notes.panel == status.panel &&
+        settings_catalog_binding(SettingBinding::update_notice, &footnote) && footnote.panel == status.panel &&
+        node->kind == UiSettingsControlKind::status && settings_catalog_node(channel)->kind == UiSettingsControlKind::segments &&
+        settings_catalog_node(interval)->kind == UiSettingsControlKind::choice && settings_catalog_node(footnote)->kind == UiSettingsControlKind::footnote &&
+        same(settings_catalog().panels[status.panel].title, "Updates") && ui_settings_schema_valid(settings_catalog()),
+        "update settings: the Updates panel binds every updater row, as a status card, segmented channel, dropdown and footnote");
 }
 
 // Check scheduling per interval: jitter bounds, backoff caps, the startup
@@ -802,6 +883,172 @@ void test_interval_store() noexcept {
         "update interval: an invalid value gives the fallback");
     check(write(longer, 2) && load() == UpdateCheckInterval::four_hours, "update interval: a file of the wrong size gives the fallback");
     check(write(&invalid, 0) && load() == UpdateCheckInterval::four_hours, "update interval: an empty file gives the fallback");
+}
+
+bool read_small(const wchar_t* dir, const wchar_t* name, u8* out, u32 capacity, u32* bytes) noexcept {
+    wchar_t path[MAX_PATH]{}; child(dir, name, path);
+    const HANDLE h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    DWORD got = 0; const bool ok = ReadFile(h, out, capacity, &got, nullptr) && got < capacity;
+    CloseHandle(h); *bytes = got; return ok;
+}
+// The channel changelog beside each manifest: fetched for the running version
+// too, cached in the update directory and verified again on load, fetched
+// again only when the manifest's version moves, and never replaced by a
+// document that doesn't verify.
+struct Seen { u32 calls; bool newer; u64 version; u32 entries; bool held; };
+void saw_manifest(void* context, const UpdateManifest&, const UpdateChangelog* changelog, bool newer) noexcept {
+    auto* seen = static_cast<Seen*>(context);
+    ++seen->calls; seen->newer = newer; seen->held = changelog != nullptr;
+    seen->version = changelog ? changelog->version : 0; seen->entries = changelog ? changelog->count : 0;
+}
+void test_changelog_cache() noexcept {
+    KdfSha256Workspace workspace{}; P256Key signer{}, stranger{};
+    char key_hex[130]{};
+    const bool keys = kdf_sha256_initialize(&workspace).ok() && p256_generate(&signer, P256Kind::ecdsa).ok() &&
+        p256_generate(&stranger, P256Kind::ecdsa).ok() && hex_key(signer, key_hex);
+    struct Keys { KdfSha256Workspace& w; P256Key& a; P256Key& b; ~Keys() noexcept { p256_release(&a); p256_release(&b); kdf_sha256_release(&w); } }
+        key_owner{workspace, signer, stranger};
+    check(keys, "update changelog cache: throwaway publisher keys"); if (!keys) return;
+    static Temp t{};
+    UpdatePaths paths{};
+    const bool dirs = temporary_root(&t) && temporary_paths(t, &paths);
+    check(dirs, "update changelog cache: isolated temporary storage"); if (!dirs) return;
+    struct Cleanup { ~Cleanup() noexcept { remove_root(t); } } cleanup;
+    wchar_t cache[MAX_PATH]{}, preview_cache[MAX_PATH]{};
+    child(t.base, L"changelog-stable", cache); child(t.base, L"changelog-preview", preview_cache);
+
+    // Two signed manifests (installed 0.0.1 is 1999; 2999 is 0.0.2) and their changelogs.
+    static char manifests[2][512]{}, notes[3][512]{};
+    static u8 manifest_signatures[2][64]{}, notes_signatures[3][64]{};
+    const u8 digest[32]{1};
+    const Utf8View current = manifest(manifests[0], 4096, digest, kV5), next = manifest(manifests[1], 4096, digest, kV6);
+    const auto document = [&](char* out, u64 version, u64 base, const char* text) noexcept {
+        u32 n = 0; auto add = [&](const char* s) noexcept { const u32 b = c_string_length(s); copy_bytes(out + n, s, b); n += b; };
+        add(R"({"format":1,"product":"MaiCord","channel":"stable","version":)"); n += decimal(out + n, version);
+        add(R"(,"base":)"); n += decimal(out + n, base); add(R"(,"entries":[{"version":)"); n += decimal(out + n, version);
+        add(R"(,"date":1760000100,"commit":"","text":")"); add(text); add(R"("}]})");
+        return Utf8View{out, n};
+    };
+    const Utf8View notes_now = document(notes[0], kV5, 0, "Notes for 0.0.1"), notes_next = document(notes[1], kV6, kV5, "Notes for 0.0.2");
+    const auto sign_notes = [&](Utf8View doc, const P256Key& key, u8* out) noexcept {
+        u8 hashed[32]{};
+        const ConstSlice<u8> parts[]{{reinterpret_cast<const u8*>(kUpdateChangelogSignatureDomain.data), kUpdateChangelogSignatureDomain.bytes},
+            {reinterpret_cast<const u8*>(doc.data), doc.bytes}};
+        return sha256(workspace, {parts, 2}, {hashed, 32}).ok() && p256_sign_digest(key, {hashed, 32}, {out, 64}).ok();
+    };
+    const bool signed_all = sign(current, signer, workspace, manifest_signatures[0]) && sign(next, signer, workspace, manifest_signatures[1]) &&
+        sign_notes(notes_now, signer, notes_signatures[0]) && sign_notes(notes_next, stranger, notes_signatures[1]) &&
+        sign_notes(notes_next, signer, notes_signatures[2]);
+    check(signed_all, "update changelog cache: manifests and changelogs signed"); if (!signed_all) return;
+
+    static char target[4][96]{};
+    UpdateLocation where{};
+    const UpdateAsset assets[]{UpdateAsset::manifest, UpdateAsset::signature, UpdateAsset::changelog, UpdateAsset::changelog_signature};
+    bool located = true;
+    for (u32 i = 0; i < 4; ++i) {
+        located = located && update_asset_location(utf8_literal("owner/repo"), UpdateChannel::stable, assets[i], 0, &where);
+        copy_bytes(target[i], where.target, where.target_bytes);
+    }
+    check(located, "update changelog cache: channel feed locations"); if (!located) return;
+
+    UpdateServiceConfig config{};
+    static UpdateService service{};
+    static UpdateChangelogDownload download{};
+    static Fake fake{};
+    const UpdateTransport transport{&fake, fake_get};
+    const bool configured = update_service_config(utf8_literal("owner/repo"), {key_hex, 130}, kV5, &config);
+    check(configured, "update changelog cache: configuration"); if (!configured) return;
+    struct Service { ~Service() noexcept { update_service_release(&service); } } service_owner;
+    Seen seen{};
+    const auto open = [&]() noexcept {
+        update_service_release(&service);
+        clear_bytes(&service, sizeof(service)); clear_bytes(&download, sizeof(download));
+        const bool ok = update_service_initialize(&service, config, paths) == UpdateServiceError::none;
+        service.changelog = &download; service.observer = {&seen, saw_manifest};
+        return ok;
+    };
+    const auto serve = [&](const Utf8View& manifest_text, const u8* manifest_signature, const Utf8View& notes_text, const u8* notes_signature) noexcept {
+        fake = {}; fake.origin = "owner.github.io";
+        fake.routes[fake.count++] = route(UpdateHost::pages, target[0], 200, nullptr, manifest_text.data, manifest_text.bytes);
+        fake.routes[fake.count++] = route(UpdateHost::pages, target[1], 200, nullptr, manifest_signature, 64);
+        if (notes_text.bytes) {
+            fake.routes[fake.count++] = route(UpdateHost::pages, target[2], 200, nullptr, notes_text.data, notes_text.bytes);
+            fake.routes[fake.count++] = route(UpdateHost::pages, target[3], 200, nullptr, notes_signature, 64);
+        }
+    };
+    g_update_log_sink = capture;
+    check(open(), "update changelog cache: service opens"); if (!service.initialized) return;
+    check(!update_service_cached_changelog(&service, UpdateChannel::stable) && !present(cache),
+        "update changelog cache: a new profile has no cached changelog");
+
+    // Up to date: the running version's notes are fetched anyway, verified and cached.
+    g_line_count = 0;
+    serve(current, manifest_signatures[0], notes_now, notes_signatures[0]);
+    auto r = update_service_check(&service, transport, UpdateChannel::stable, 100);
+    check(r.outcome == UpdateCheckOutcome::up_to_date && seen.calls == 1 && !seen.newer && seen.held && seen.version == kV5 && seen.entries == 1 &&
+              fake.routes[2].hits == 1 && fake.routes[3].hits == 1 && present(cache) &&
+              logged("changelog fetched=1 error=0 matches=1 entries=1"),
+        "update changelog cache: an up-to-date check fetches and caches the running version's changelog");
+    // The same version again: nothing is fetched, the held document is reported.
+    r = update_service_check(&service, transport, UpdateChannel::stable, 100);
+    check(r.outcome == UpdateCheckOutcome::up_to_date && seen.calls == 2 && seen.held && seen.version == kV5 &&
+              fake.routes[2].hits == 1 && fake.routes[3].hits == 1,
+        "update changelog cache: the same version is never fetched twice");
+    // A restart reads the cache, verifying it again, without any request.
+    check(open(), "update changelog cache: service reopens");
+    const UpdateChangelog* cached = update_service_cached_changelog(&service, UpdateChannel::stable);
+    check(cached && cached->version == kV5 && cached->channel == UpdateChannel::stable && cached->count == 1 &&
+              same(update_changelog_text(*cached, cached->entries[0]), "Notes for 0.0.1") &&
+              !update_service_cached_changelog(&service, UpdateChannel::preview) && !present(preview_cache),
+        "update changelog cache: a restart loads the cached changelog of its own channel");
+    seen = {};
+    r = update_service_check(&service, transport, UpdateChannel::stable, 100);
+    check(r.outcome == UpdateCheckOutcome::up_to_date && seen.held && seen.version == kV5 && fake.routes[2].hits == 1,
+        "update changelog cache: a cached changelog for the manifest's version needs no fetch after a restart");
+
+    // A tampered cache file is dropped; the next check fetches and rewrites it.
+    static u8 file[64 + 600]{};
+    u32 file_bytes = 0;
+    const auto cached_signature = [&](const u8* signature) noexcept {
+        return read_small(t.base, L"changelog-stable", file, sizeof(file), &file_bytes) && file_bytes > 64 && bytes_equal(file, signature, 64);
+    };
+    check(cached_signature(notes_signatures[0]) && file_bytes == 64 + notes_now.bytes,
+        "update changelog cache: the file holds the signature, then the document");
+    file[64 + 20] ^= 1;
+    g_line_count = 0;
+    SetFileAttributesW(cache, FILE_ATTRIBUTE_NORMAL); // the atomic write leaves its file hidden
+    check(put_file(cache, file, file_bytes) && open() && !update_service_cached_changelog(&service, UpdateChannel::stable) &&
+              logged("changelog_cache"),
+        "update changelog cache: a cached document that no longer verifies is not shown");
+    seen = {};
+    r = update_service_check(&service, transport, UpdateChannel::stable, 100);
+    check(seen.held && seen.version == kV5 && fake.routes[2].hits == 2 && update_service_cached_changelog(&service, UpdateChannel::stable) &&
+              cached_signature(notes_signatures[0]),
+        "update changelog cache: the next check fetches the changelog again and rewrites the file");
+
+    // A newer release: its changelog replaces the cache once it verifies.
+    serve(next, manifest_signatures[1], notes_next, notes_signatures[1]); // signed by a stranger
+    seen = {}; g_line_count = 0;
+    r = update_service_check(&service, transport, UpdateChannel::stable, 100);
+    check(seen.calls == 1 && seen.newer && seen.held && seen.version == kV5 && r.outcome == UpdateCheckOutcome::failed &&
+              cached_signature(notes_signatures[0]) && logged("matches=0"),
+        "update changelog cache: a changelog signed by another key keeps the cached one and caches nothing new");
+    serve(next, manifest_signatures[1], notes_next, notes_signatures[2]);
+    seen = {};
+    r = update_service_check(&service, transport, UpdateChannel::stable, 100);
+    check(seen.calls == 1 && seen.newer && seen.held && seen.version == kV6 && seen.entries == 1 && cached_signature(notes_signatures[2]),
+        "update changelog cache: a signed changelog for the offered version replaces the cache");
+    serve(next, manifest_signatures[1], {}, nullptr); // the changelog went away
+    seen = {}; g_line_count = 0;
+    r = update_service_check(&service, transport, UpdateChannel::stable, 100);
+    check(seen.calls == 1 && seen.newer && seen.held && seen.version == kV6 && !logged("changelog fetched"),
+        "update changelog cache: a cached changelog for the offered version needs no request");
+    serve(current, manifest_signatures[0], {}, nullptr);
+    seen = {};
+    r = update_service_check(&service, transport, UpdateChannel::stable, 100);
+    check(r.outcome == UpdateCheckOutcome::up_to_date && seen.calls == 1 && !seen.newer && seen.held && seen.version == kV6,
+        "update changelog cache: a failed fetch leaves the cached changelog held");
 }
 
 // The exit swap on plain files in a temporary install: the stage paths,
@@ -1059,13 +1306,6 @@ void test_service() noexcept {
 }
 
 // ---------------------------------------------------------------- replay
-bool read_small(const wchar_t* dir, const wchar_t* name, u8* out, u32 capacity, u32* bytes) noexcept {
-    wchar_t path[MAX_PATH]{}; child(dir, name, path);
-    const HANDLE h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
-    if (h == INVALID_HANDLE_VALUE) return false;
-    DWORD got = 0; const bool ok = ReadFile(h, out, capacity, &got, nullptr) && got < capacity;
-    CloseHandle(h); *bytes = got; return ok;
-}
 u64 json_number(Utf8View document, const char* key) noexcept {
     const u32 n = c_string_length(key);
     for (u32 i = 0; i + n < document.bytes; ++i) if (bytes_equal(document.data + i, key, n)) {
@@ -1076,7 +1316,8 @@ u64 json_number(Utf8View document, const char* key) noexcept {
     return 0;
 }
 struct ReplayOffer { u64 version; u32 entries; bool changelog; };
-void replay_offered(void* context, const UpdateManifest& manifest, const UpdateChangelog* changelog) noexcept {
+void replay_offered(void* context, const UpdateManifest& manifest, const UpdateChangelog* changelog, bool newer) noexcept {
+    if (!newer) return;
     auto* offer = static_cast<ReplayOffer*>(context);
     offer->version = manifest.version;
     offer->changelog = changelog != nullptr;
@@ -1347,6 +1588,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_update_client_tests_entry() 
     maicord::test_settings_rows();
     maicord::test_check_schedule();
     maicord::test_interval_store();
+    maicord::test_changelog_cache();
     maicord::test_swap();
     maicord::test_service();
     maicord::test_preview_replay();

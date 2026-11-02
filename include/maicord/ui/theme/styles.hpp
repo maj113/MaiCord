@@ -277,18 +277,25 @@ struct UiThemeSettings {
         mod_normal{}, mod_strong{}, input_background{}, input_border{}, brand_hover{}, critical{},
         critical_text{}, critical_tint{}, positive{}, focus_ring{}, scrim{}, switch_track{}, switch_border{},
         slider_track{}, radio_border{}, modal_background{}, sidebar_background{};
+    // Card plate and edge, the row hover plate, and the tints of positive and warning chips and notices.
+    u32 card_fill{}, card_border{}, row_hover{}, positive_tint{}, warning_tint{};
     u16 modal_max_width{1280}, modal_viewport_ratio{80}, modal_ratio_threshold{1080}, modal_inset_top{24},
         modal_inset_side{24}, modal_inset_bottom{24}, modal_radius{12}, modal_compact_width{560};
-    u16 sidebar_width{248}, sidebar_padding{12}, sidebar_top{16}, search_height{32}, nav_header_height{28},
-        nav_item_height{32}, nav_item_radius{6}, nav_item_gap{2}, nav_item_padding{10}, nav_icon{18},
+    u16 sidebar_width{248}, sidebar_padding{12}, sidebar_top{16}, search_height{36}, nav_header_height{20},
+        nav_item_height{32}, nav_item_radius{8}, nav_item_gap{2}, nav_item_padding{10}, nav_icon{20},
         separator_margin{8};
-    u16 panel_padding_x{40}, panel_padding_top{28}, panel_padding_bottom{60}, panel_max_width{740},
-        title_gap{24}, category_gap{36}, category_heading_gap{12}, row_padding{18}, label_gap{4},
+    u16 panel_padding_x{40}, panel_padding_top{32}, panel_padding_bottom{60}, panel_max_width{740},
+        title_gap{24}, category_gap{28}, category_heading_gap{8}, row_padding{14}, label_gap{2},
         control_gap{24}, field_gap{8};
     u16 switch_width{48}, switch_height{24}, switch_thumb{16}, slider_bar{4}, slider_grabber{16},
         slider_mark_height{24}, radio_size{20}, radio_gap{12}, radio_spacing{12}, control_height{40},
         control_radius{8}, button_small{32}, button_medium{40}, button_padding{16}, swatch{60}, swatch_gap{16},
-        close_size{36}, close_caption_gap{6}, notice_padding{12};
+        close_size{36}, notice_padding{12};
+    // Cards and the row anatomy: corner radius, side padding (also the hairline inset), single-line row
+    // height, the segmented track's inner padding, the trailing dropdown's minimum and the slider's width,
+    // the slider value column, the status card's icon tile, and the gap between grid cards.
+    u16 card_radius{12}, card_inset{16}, row_min_height{56}, segment_padding{4}, select_width{200},
+        slider_width{220}, value_width{48}, status_icon{48}, card_gap{16};
     u16 switch_ms{300}, switch_reduced_ms{200}, modal_enter_ms{320}, flash_ms{2000}, flash_fade_ms{200};
 };
 // One shared copy of each default bank, for consumers that fall back to it.
@@ -322,5 +329,5 @@ struct UiThemeStylesResult {
 // Palette/background revisions are owned by the enclosing theme document.
 UiThemeStylesResult ui_theme_styles_apply(UiResolvedThemeStyles*, const UiThemeTypography&,
                                           const UiThemeMetrics&) noexcept;
-static_assert(sizeof(UiResolvedThemeStyles) <= 512);
+static_assert(sizeof(UiResolvedThemeStyles) <= 576);
 } // namespace maicord

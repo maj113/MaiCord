@@ -20,7 +20,8 @@ Color pick(u32 packed, const Color& fallback) noexcept {
 const UiThemeSettings& settings_style(const UiResolvedThemeStyles* styles) noexcept {
     return styles && styles->ready ? styles->settings : kUiThemeSettingsDefault;
 }
-// The first 49 metrics have the same field order in the packed theme and resolved layout.
+// The first 57 metrics have the same field order in the packed theme and resolved layout.
+constexpr u32 kPackedMetrics = 57;
 static_assert([]() constexpr {
 #define METRIC_OFFSET(field) {offsetof(UiThemeSettings, field), offsetof(UiSettingsMetrics, field)}
     static constexpr usize offsets[][2] = {
@@ -39,15 +40,17 @@ static_assert([]() constexpr {
         METRIC_OFFSET(radio_size), METRIC_OFFSET(radio_gap), METRIC_OFFSET(radio_spacing),
         METRIC_OFFSET(control_height), METRIC_OFFSET(control_radius), METRIC_OFFSET(button_small),
         METRIC_OFFSET(button_medium), METRIC_OFFSET(button_padding), METRIC_OFFSET(swatch),
-        METRIC_OFFSET(swatch_gap), METRIC_OFFSET(close_size), METRIC_OFFSET(close_caption_gap),
-        METRIC_OFFSET(notice_padding),
+        METRIC_OFFSET(swatch_gap), METRIC_OFFSET(close_size), METRIC_OFFSET(notice_padding),
+        METRIC_OFFSET(card_radius), METRIC_OFFSET(card_inset), METRIC_OFFSET(row_min_height),
+        METRIC_OFFSET(segment_padding), METRIC_OFFSET(select_width), METRIC_OFFSET(slider_width),
+        METRIC_OFFSET(value_width), METRIC_OFFSET(status_icon), METRIC_OFFSET(card_gap),
     };
 #undef METRIC_OFFSET
-    for (usize i = 0; i < 49; ++i)
+    for (usize i = 0; i < kPackedMetrics; ++i)
         if (offsets[i][0] != offsetof(UiThemeSettings, modal_max_width) + i * sizeof(u16) ||
             offsets[i][1] != i * sizeof(float))
             return false;
-    return true;
+    return sizeof(offsets) / sizeof(offsets[0]) == kPackedMetrics;
 }());
 void set_layout_tokens(UiSettingsLayoutTokens& t, const UiThemeSettings& s, float space,
                          const UiResolvedThemeStyles* styles) noexcept {
@@ -56,7 +59,7 @@ void set_layout_tokens(UiSettingsLayoutTokens& t, const UiThemeSettings& s, floa
     auto* resolved = reinterpret_cast<u8*>(&m);
     const auto zero = _mm_setzero_si128();
     m.modal_max_width = s.modal_max_width;
-    for (u32 i = 1; i < 49; i += 4) {
+    for (u32 i = 1; i < kPackedMetrics; i += 4) {
         const auto words = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(packed + i * sizeof(u16)));
         _mm_storeu_ps(reinterpret_cast<float*>(resolved + i * sizeof(float)),
                       _mm_cvtepi32_ps(_mm_unpacklo_epi16(words, zero)));
@@ -152,6 +155,23 @@ void ui_settings_fill_tokens(const Theme& theme, UiSettingsTokens* output) noexc
     c.sidebar_background = pick(s.sidebar_background, theme.base_lower);
     c.nav_selected = ui_background_active(theme) ? theme.tokens.emphasis.selected : c.mod_strong;
     c.separator = !s.border_subtle && ui_background_active(theme) ? ui_separator_color(theme) : c.border_subtle;
+    const auto& tokens = theme.tokens;
+    c.card_fill = pick(s.card_fill, c.mod_subtle);
+    c.card_border = pick(s.card_border, c.border_subtle);
+    c.row_hover = pick(s.row_hover, ui_settings_color_alpha(tokens.state.hover, light ? .5f : .35f));
+    c.hairline = tokens.border.subtle;
+    c.positive_tint = pick(s.positive_tint, ui_settings_color_alpha(tokens.accent.success, .16f));
+    c.warning_tint = pick(s.warning_tint, ui_settings_color_alpha(tokens.accent.warning, .1f));
+    c.warning = tokens.text.warning;
+    c.risk_low = tokens.accent.success;
+    c.risk_medium = tokens.accent.warning;
+    c.risk_high = tokens.accent.danger;
+    c.pill = tokens.overlay.scrim;
+    c.placeholder = tokens.fill.translucent;
+    c.on_pill = tokens.text.on_accent;
+    c.emphasis_selected = tokens.emphasis.selected;
+    c.emphasis_outline = tokens.emphasis.outline;
+    c.link = tokens.text.link;
 
     set_layout_tokens(t, s, theme.scale.space_1, theme.styles);
 }

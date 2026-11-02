@@ -4,6 +4,7 @@
 #include "../guild/folders.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
+#include "maicord/ui/store/store_scene.hpp"
 #include "maicord/ui/account/login_text_presentation.hpp"
 
 namespace maicord::app_detail {
@@ -711,6 +712,37 @@ void describe_settings(void*, const UiWidgetManager&, UiWidgetHandle handle, con
                 info->state |= ui_access_live;
             info->actions = ui_access_action_invoke;
             break;
+        case UiSettingsControlKind::status:
+            // A running check is announced as live status; its button is the row's one action.
+            info->role = control->checked ? UiAccessRole::status : UiAccessRole::text;
+            if (control->checked)
+                info->state |= ui_access_live;
+            info->actions = ui_access_action_invoke;
+            if (control->action_label.bytes)
+                info->value = control->action_label;
+            break;
+        case UiSettingsControlKind::disclosure:
+            info->role = UiAccessRole::button;
+            info->actions = ui_access_action_toggle;
+            info->state |= ui_access_toggleable | (control->checked ? ui_access_checked : 0);
+            break;
+        case UiSettingsControlKind::markdown:
+            // The raw markdown stands as the row's text; the link beneath expands it.
+            info->role = UiAccessRole::text;
+            info->name = control->description;
+            info->help = {};
+            info->actions = ui_access_action_invoke;
+            break;
+        case UiSettingsControlKind::footnote:
+            info->role = UiAccessRole::text;
+            info->actions = ui_access_action_invoke;
+            if (control->action_label.bytes)
+                info->value = control->action_label;
+            break;
+        case UiSettingsControlKind::empty:
+            info->role = UiAccessRole::group;
+            info->actions = ui_access_action_invoke;
+            break;
         default:
             info->role = UiAccessRole::text;
             info->actions = ui_access_action_invoke;
@@ -948,6 +980,8 @@ void build_account(UiAccessTree* tree) noexcept {
     if (settings) {
         ui_access_add_widgets(tree, 0, g_app.renderer.settings_scene->widgets,
                               {describe_settings, nullptr, surface_settings, false});
+        if (g_app.renderer.settings_store && g_app.renderer.settings_store->active)
+            ui_access_add_store(tree, 0, *g_app.renderer.settings_store, surface_store);
     } else if (g_app.shell_scene.count) {
         add_scene(tree, 0, g_app.shell_scene.widgets, describe_shell, surface_shell);
     }

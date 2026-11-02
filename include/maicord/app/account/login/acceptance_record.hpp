@@ -5,10 +5,9 @@
 
 namespace maicord {
 
-// Durable fixed-size records: the updater's and the plugin catalog's
-// acceptance floors (update_acceptance, plugin_index_acceptance) and the
-// plugin manager's providers, state and journal files share these file
-// rules and this error set.
+// Durable fixed-size records: the updater's acceptance floor
+// (update_acceptance) and the catalog's state file (catalog_state.hpp) share
+// these file rules and this error set.
 //
 // Paths are trusted LOCAL drive paths ("C:\..."), count excluding the NUL:
 // no device, UNC, ADS, dot, trailing-dot/space or reserved-name components.

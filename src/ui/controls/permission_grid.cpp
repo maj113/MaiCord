@@ -13,51 +13,6 @@ float ring_room(const UiSettingsLayoutTokens& tokens) noexcept {
 }
 } // namespace
 
-float ui_segments_width(const UiSettingsLayoutTokens& tokens, u32 count) noexcept {
-    return count ? count * tokens.metric.segment_size + (count - 1) * tokens.metric.segment_gap : 0;
-}
-
-UiRect ui_segments_option(const UiSettingsLayoutTokens& tokens, const UiRect& group, u32 count, u32 index) noexcept {
-    if (index >= count)
-        return {};
-    const float size = tokens.metric.segment_size;
-    const float left = group.left + index * (size + tokens.metric.segment_gap);
-    const float top = (group.top + group.bottom - size) * .5f;
-    return {left, top, left + size, top + size};
-}
-
-u32 ui_segments_hit(const UiSettingsLayoutTokens& tokens, const UiRect& group, u32 count, float x, float y) noexcept {
-    // Gaps resolve to the nearer option so the group has no dead pixels.
-    const float half = tokens.metric.segment_gap * .5f;
-    for (u32 i = 0; i < count; ++i) {
-        const auto option = ui_segments_option(tokens, group, count, i);
-        if (ui_rect_contains({option.left - half, option.top - half, option.right + half, option.bottom + half}, x,
-                             y))
-            return i;
-    }
-    return ~0u;
-}
-
-bool ui_segments_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& group, u32 count, u32 selected,
-                       u32 hovered, UiControlState state) noexcept {
-    const auto& c = tokens.color;
-    const float alpha = state.enabled ? 1.f : tokens.disabled_alpha, radius = tokens.metric.control_radius * .75f;
-    bool ok = true;
-    for (u32 i = 0; ok && i < count; ++i) {
-        const auto r = ui_segments_option(tokens, group, count, i);
-        const bool on = i == selected, hover = state.enabled && i == hovered;
-        const bool pressed = hover && state.pressed;
-        const Color fill = on ? c.brand : pressed ? c.mod_strong : hover ? c.mod_normal : c.input_background;
-        const Color border = on ? ui_settings_color_alpha(c.border_subtle, .5f) : c.input_border;
-        ok = paint_stream_push_rounded_border(paint, r, ui_settings_color_alpha(fill, alpha), ui_settings_color_alpha(border, alpha), radius, 1);
-    }
-    if (ok && state.focused && count) {
-        const u32 ring = selected < count ? selected : 0;
-        ok = ui_settings_focus_paint(paint, tokens, ui_segments_option(tokens, group, count, ring), radius);
-    }
-    return ok;
-}
-
 float ui_tristate_width(const UiSettingsLayoutTokens& tokens) noexcept {
     return tokens.metric.tristate_segment * kUiTristateCount;
 }

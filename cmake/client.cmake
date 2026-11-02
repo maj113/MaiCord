@@ -31,9 +31,9 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/settings/theme_publication.cpp src/app/account/friends.cpp
     src/app/account/friends_search.cpp src/app/account/friends_storage.cpp
     src/app/plugins/plugins.cpp src/app/plugins/plugins_sdk.cpp src/app/plugins/read.cpp
-    src/app/plugins/actions.cpp src/app/plugins/surfaces.cpp src/app/plugins/consent_dialog.cpp
+    src/app/plugins/actions.cpp src/app/plugins/surfaces.cpp
     src/app/plugins/settings_dialog.cpp
-    src/app/plugins/render.cpp src/app/effects/effects.cpp
+    src/app/plugins/render.cpp src/app/effects/effects.cpp src/app/packages/packages.cpp
     src/app/plugins/compose.cpp src/app/plugins/menus.cpp src/app/plugins/ui_host.cpp
     src/app/plugins/pipeline_host.cpp src/app/plugins/surface_host.cpp
     src/app/shell/window.cpp src/app/shell/window_runtime.cpp src/app/shell/input_routing.cpp
@@ -114,8 +114,9 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/shell/pane_resize.cpp src/app/shell/main.cpp $<TARGET_OBJECTS:maicord_runtime>
     src/app/accessibility/accessibility.cpp src/app/accessibility/accessibility_describe.cpp
     src/app/accessibility/accessibility_actions.cpp src/app/update/updates.cpp src/app/update/entry.cpp
-    src/app/plugins/browser.cpp src/app/plugins/browser_worker.cpp
-    src/app/plugins/browser_entry.cpp src/app/plugins/browser_projection.cpp
+    src/app/plugins/catalog_worker.cpp src/app/plugins/catalog_service.cpp src/app/plugins/catalog_app.cpp
+    src/app/store/store_projection.cpp src/app/store/store_page.cpp src/app/store/store_detail.cpp src/app/store/store_dialogs.cpp
+    src/app/store/store_act.cpp src/app/store/store_source.cpp src/app/store/store_host.cpp
     # Voice calls: soundboard, voice messages, preferences, voice card, mute/deafen,
     # the voice user menu, the call view, stage channels and Go Live.
     src/app/voice/soundboard.cpp src/app/voice/application_voice_message.cpp src/app/voice/voice.cpp
@@ -125,8 +126,8 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/shell/application_startup_shell.cpp
     src/app/guild/invite_cards.cpp src/app/voice/stream.cpp
     LIBS maicord_compile_contract
-    maicord_core maicord_text maicord_ui maicord_model maicord_client_preferences
-    maicord_notification_sound_assets maicord_plugin_host maicord_plugin_modules maicord_plugin_manager
+    maicord_core maicord_text maicord_ui maicord_model maicord_client_preferences maicord_packages
+    maicord_notification_sound_assets maicord_plugin_host maicord_plugin_modules maicord_plugin_catalog
     maicord_plugin_runtime maicord_ui_input
     maicord_message_runtime maicord_message_media maicord_account_paths maicord_account_host
     maicord_render_core maicord_atlas_gpu maicord_renderer maicord_media_core maicord_webauthn
@@ -261,10 +262,10 @@ endif()
 set_source_files_properties(src/app/update/entry.cpp PROPERTIES COMPILE_DEFINITIONS
     "MAICORD_UPDATE_REPOSITORY=\"${maicord_update_repository}\";MAICORD_UPDATE_PUBLIC_KEY=\"${maicord_update_public_key}\";MAICORD_UPDATE_DEV=${maicord_update_dev};MAICORD_UPDATE_COMMIT=\"${maicord_update_commit}\";MAICORD_VERSION_MAJOR=${maicord_update_major};MAICORD_VERSION_MINOR=${maicord_update_minor};MAICORD_VERSION_PATCH=${maicord_update_patch}")
 
-# Official plugin catalog (maj113/MaiCord-plugins on GitHub Pages): the current
-# and the next (offline) P-256 key. No key compiles the official catalog as
-# "not configured"; custom providers still work. Environment variables
-# override the defaults, as for the updater.
+# The official catalog (maj113/MaiCord-plugins on GitHub Pages): the current
+# and the next (offline) P-256 key. No key compiles the catalog as "not
+# configured": installed items keep working and nothing is fetched.
+# Environment variables override the defaults, as for the updater.
 set(maicord_default_plugin_catalog_repository "maj113/MaiCord-plugins")
 set(maicord_default_plugin_catalog_public_key "")
 set(maicord_default_plugin_catalog_next_public_key "")
@@ -293,7 +294,7 @@ if(MAICORD_PLUGIN_CATALOG_PUBLIC_KEY OR MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY)
         endif()
     endforeach()
 endif()
-set_source_files_properties(src/app/plugins/browser_entry.cpp PROPERTIES COMPILE_DEFINITIONS
+set_source_files_properties(src/app/plugins/catalog_app.cpp PROPERTIES COMPILE_DEFINITIONS
     "MAICORD_PLUGIN_CATALOG_REPOSITORY=\"${MAICORD_PLUGIN_CATALOG_REPOSITORY}\";MAICORD_PLUGIN_CATALOG_PUBLIC_KEY=\"${MAICORD_PLUGIN_CATALOG_PUBLIC_KEY}\";MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY=\"${MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY}\"")
 
 # Runtime assets next to the executable: licenses and the bundled fonts.
@@ -378,7 +379,7 @@ maicord_compact_sources(
         src/platform/desktop/staged_file.cpp src/platform/desktop/browser_sign_in_launcher.cpp
         src/platform/net/file.cpp src/platform/desktop/file_picker.cpp src/platform/desktop/clipboard_attachment.cpp
         src/platform/desktop/file_identity.cpp src/platform/desktop/timezone.cpp src/platform/crypto/secure_buffer.cpp
-    TARGETS MaiCord maicord_protocol maicord_model maicord_plugin_host maicord_plugin_modules maicord_plugin_manager
+    TARGETS MaiCord maicord_protocol maicord_model maicord_plugin_host maicord_plugin_modules maicord_plugin_catalog
         maicord_plugin_runtime
         maicord_account_host maicord_client_preferences maicord_account_paths maicord_webauthn
     # The user store resolves every member name and presence update: member-list

@@ -4,11 +4,10 @@
 #include "../account/activity.hpp"
 #include "../account/account_presentation.hpp"
 #include "../account/application_account_logout.hpp"
-#include "../plugins/browser.hpp"
-#include "../plugins/browser_projection.hpp"
 #include "../notifications/notifications.hpp"
 #include "theme_editor.hpp"
 #include "../update/updates.hpp"
+#include "../chat/application_link_trust.hpp"
 #include "user_settings.hpp"
 #include "account_settings.hpp"
 #include "keybinds_settings.hpp"
@@ -296,16 +295,8 @@ bool activate_plugin(ApplicationSettings& settings, const UiSettingsTarget& targ
         animate_toggle(settings, target, request);
     return result.ok() && (!result.changed || refresh());
 }
-bool activate_plugin_catalog(ApplicationSettings& settings, const UiSettingsTarget& target, const UiSettingsActivation& request) noexcept {
+bool activate_plugin_catalog(ApplicationSettings& settings, const UiSettingsTarget& target, const UiSettingsActivation&) noexcept {
     settings.plugin_error = NativePluginError::none;
-    if (plugin_browser_control(target.control_id)) {
-        const bool result = application_plugin_browser_activate(target.control_id, request);
-        if (g_app.settings != &settings)
-            return result;
-        if (result)
-            animate_toggle(settings, target, request);
-        return settled(settings, result);
-    }
     if (target.control_id == 1) {
         if (application_plugins_save_pending())
             application_plugins_retry_save();
@@ -403,7 +394,7 @@ bool activate(const UiSettingsTarget& target, bool reverse, const NativePluginUi
     if (application_activity_settings_row(target.control_id))
         return settled(*settings, application_activity_settings_activate_row(target.control_id));
     if (application_updates_changelog_row(target.control_id))
-        return false;
+        return settled(*settings, application_updates_activate_row(target.control_id));
     if (target.control_id >= kSettingsListFirst && target.control_id < kSettingsListFirst + 0x10000)
         return settled(*settings, application_account_settings_activate_row(target.control_id));
     SettingBinding binding{};
@@ -416,6 +407,10 @@ bool activate(const UiSettingsTarget& target, bool reverse, const NativePluginUi
     switch (binding) {
     case SettingBinding::customize_theme:
         return application_theme_editor_open();
+    case SettingBinding::browse_themes:
+    case SettingBinding::browse_effects:
+        // The store pages are settings pages: selecting one swaps the panel, keeping the modal.
+        return application_settings_select_page({kNativeSettingsOwner, binding == SettingBinding::browse_themes ? kThemesPage : kEffectsPage});
     case SettingBinding::spotify_account:
         return settled(*settings, media_account_action());
     case SettingBinding::custom_builtin:
@@ -455,6 +450,12 @@ bool activate(const UiSettingsTarget& target, bool reverse, const NativePluginUi
     case SettingBinding::update_channel:
     case SettingBinding::update_interval:
         return settled(*settings, application_updates_activate(binding, request.selected_choice));
+    case SettingBinding::update_release_notes: {
+        // Through the external-link confirmation, like any link outside MaiCord.
+        char url[kApplicationUpdatesReleaseNotesBytes];
+        const u32 bytes = application_updates_release_notes({url, sizeof(url)});
+        return bytes && application_link_open({url, bytes}, false);
+    }
     default:
         break;
     }

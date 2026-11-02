@@ -77,6 +77,8 @@ struct UiSettingsSchemaPanel {
     UiIcon icon;
     u8 section;
     ConstSlice<UiSettingsSchemaNode> nodes;
+    // One sentence under the page title; empty for pages that draw their own.
+    Utf8View summary{};
 };
 
 struct UiSettingsSchemaSection {

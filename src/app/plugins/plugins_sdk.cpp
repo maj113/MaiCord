@@ -97,8 +97,11 @@ ApplicationPluginsSdk* application_plugins_sdk_acquire(ApplicationPlugins& plugi
     // "\<owner hex>\store.bin" below it.
     sdk->runtime.data_directory_characters = data_path(sdk->runtime.data_directory, 512 - 40, L"plugin-data").length;
     plugins.sdk = sdk;
-    g_ui_plugin_slot_query = slot_query;
-    g_ui_plugin_slot_surfaces = 0;
+    // An ABI-6 plugin's published query wins (decorations.cpp); ABI 5 only fills the empty slot.
+    if (!g_ui_plugin_slot_query) {
+        g_ui_plugin_slot_query = slot_query;
+        g_ui_plugin_slot_surfaces = 0;
+    }
     return sdk;
 }
 
@@ -124,8 +127,10 @@ void application_plugins_sdk_close(ApplicationPlugins& plugins) noexcept {
         host->ledger = nullptr;
     }
     plugin_call_ledger_close(&sdk->ledger);
-    g_ui_plugin_slot_query = nullptr;
-    g_ui_plugin_slot_surfaces = ~0u;
+    if (g_ui_plugin_slot_query == slot_query) {
+        g_ui_plugin_slot_query = nullptr;
+        g_ui_plugin_slot_surfaces = ~0u;
+    }
     plugins.sdk = nullptr;
     VirtualFree(sdk, 0, MEM_RELEASE);
 }
@@ -160,7 +165,7 @@ void application_plugins_sdk_poll(ApplicationPlugins& plugins) noexcept {
     sdk->events_pending = polled.events_pending;
     if (sdk->slot_revision != sdk->runtime.slot_revision) {
         sdk->slot_revision = sdk->runtime.slot_revision;
-        g_ui_plugin_slot_surfaces = native_plugin_sdk_slot_surfaces(sdk->runtime);
+        if (g_ui_plugin_slot_query == slot_query) g_ui_plugin_slot_surfaces = native_plugin_sdk_slot_surfaces(sdk->runtime);
         application_plugins_surfaces_changed();
         application_request_frame();
     }

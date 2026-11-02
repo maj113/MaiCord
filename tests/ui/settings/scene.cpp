@@ -9,6 +9,7 @@
 #include "maicord/core/color_hex.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/theme/styles.hpp"
+#include "maicord/ui/layout/scrollbar.hpp"
 #include <stddef.h>
 
 namespace maicord {
@@ -173,10 +174,10 @@ void test_controls(Check check) noexcept {
         UiResolvedThemeStyles varied{};
         varied.ready = true;
         auto* packed = reinterpret_cast<u8*>(&varied.settings) + offsetof(UiThemeSettings, modal_max_width);
-        for (u32 i = 0; i < 49; ++i)
+        for (u32 i = 0; i < 57; ++i)
             copy_bytes(packed + i * sizeof(u16), &values[(i + shift) % 7], sizeof(u16));
         const auto resolved = ui_settings_layout_tokens(&varied);
-        for (u32 i = 0; i < 49; ++i) {
+        for (u32 i = 0; i < 57; ++i) {
             float actual;
             copy_bytes(&actual, reinterpret_cast<const u8*>(&resolved.metric) + i * sizeof(float), sizeof(float));
             const float expected = i == 1 ? static_cast<float>(values[(i + shift) % 7]) / 100
@@ -338,11 +339,12 @@ void test_modal_scene(Check check) noexcept {
     const UiSettingsTarget palette{UiSettingsTargetKind::control, page, 1};
     const UiSettingsTarget action{UiSettingsTargetKind::control, page, 6};
     UiSettingsControlGeometry geometry{};
+    const UiSettingsThemeTokens card_tokens(kDefaultTheme);
     check(ui_settings_scene_focused(scene).kind == UiSettingsTargetKind::search &&
               ui_settings_scene_focus_zone(scene) == UiSettingsFocusZone::search &&
               ui_settings_scene_control_geometry(scene, toggle, &geometry) && close_to(ui_rect_width(geometry.field), 48) &&
-              close_to(geometry.field.right, scene.layout.column.right),
-          "settings modal: search takes initial focus; switches sit at the column edge");
+              close_to(geometry.field.right, scene.layout.column.right - card_tokens.metric.card_inset),
+          "settings modal: search takes initial focus; switches sit inside their card's padding");
     const auto search = ui_widget_manager_layout_node(scene.widgets, scene.search_field);
     UiSettingsControlGeometry search_geometry{};
     check(search && ui_settings_scene_search_geometry(scene, &search_geometry) &&
@@ -423,10 +425,10 @@ void test_modal_scene(Check check) noexcept {
     UiSettingsControlGeometry switch_geometry{};
     const bool switch_ok = ui_settings_scene_control_geometry(scene, toggle, &switch_geometry);
     const auto knob = center(switch_geometry.field);
-    check(switch_ok && hits(toggle, knob.x, knob.y) && misses(switch_geometry.control.left + 8, knob.y) &&
-              misses(switch_geometry.field.left - 24, knob.y) &&
-              misses(knob.x, switch_geometry.control.bottom - 1),
-          "settings hit-test: a toggle row answers only on its switch");
+    check(switch_ok && hits(toggle, knob.x, knob.y) && hits(toggle, switch_geometry.control.left + 8, knob.y) &&
+              hits(toggle, switch_geometry.field.left - 24, knob.y) && misses(scene.layout.column.left - 8, knob.y) &&
+              close_to(switch_geometry.field.right, switch_geometry.control.right - tokens.metric.card_inset),
+          "settings hit-test: a toggle row of a card answers on its whole row, its switch inset by the card padding");
     UiSettingsSliderGeometry slider_track{};
     UiSettingsControlGeometry slider_row{};
     const bool slider_ok = ui_settings_scene_slider_geometry(scene, slider, &slider_track) &&
@@ -445,13 +447,15 @@ void test_modal_scene(Check check) noexcept {
               misses(button.control.left + 4, center(button.field).y) &&
               misses(button.field.left - 12, center(button.field).y),
           "settings hit-test: action rows answer on their button only");
-    // Hover follows the same region: the label leaves the row unhovered and
-    // the switch hovers it, so the switch alone paints its hover state.
-    ui_button_pointer(&scene.widgets, UiButtonPointerEvent::move, {switch_geometry.control.left + 8, knob.y});
-    const bool label_cold = !scene.widgets.hovered.generation;
+    // Hover follows the same region: the label hovers the row's switch too, the gap outside the column hovers nothing.
+    ui_button_pointer(&scene.widgets, UiButtonPointerEvent::move, {scene.layout.column.left - 8, knob.y});
+    const bool outside_cold = !scene.widgets.hovered.generation;
     const auto hovered = ui_button_pointer(&scene.widgets, UiButtonPointerEvent::move, knob);
-    check(label_cold && hovered.target.generation && scene.widgets.hovered.slot == switch_geometry.owner.handle.slot,
-          "settings hit-test: hovering a row label does not hover the control; the switch does");
+    const auto label_hover = ui_button_pointer(&scene.widgets, UiButtonPointerEvent::move,
+                                               {switch_geometry.field.left - 24, knob.y});
+    check(outside_cold && hovered.target.generation && scene.widgets.hovered.slot == switch_geometry.owner.handle.slot &&
+              !label_hover.changed,
+          "settings hit-test: hovering anywhere on a card's toggle row hovers that row; outside the column hovers nothing");
     ui_button_pointer(&scene.widgets, UiButtonPointerEvent::cancel, {});
 
     PaintStream paint{};
@@ -498,12 +502,12 @@ void test_modal_scene(Check check) noexcept {
         contiguous = contiguous && (!page_started || owned);
         page_started = page_started || owned;
         header = header || utf8_equal(commands[i].text, utf8_literal("APP SETTINGS"));
-        escape = escape || utf8_equal(commands[i].text, utf8_literal("ESC"));
+        escape = escape || utf8_equal(commands[i].text, utf8_literal("Ctrl F"));
         marks = marks || utf8_equal(commands[i].text, utf8_literal("18px"));
         logout = logout || utf8_equal(commands[i].text, utf8_literal("Log out"));
     }
     check(painted && page_started && contiguous && header && escape && marks && logout,
-          "settings modal: chrome text precedes contiguous page text; headers, ESC and marks render");
+          "settings modal: chrome text precedes contiguous page text; headers, the Ctrl F hint and marks render");
 
     const u32 revision = scene.revision, motion = scene.motion_revision;
     check(ui_settings_scene_animate_toggle(&scene, toggle, true, 1000) && scene.revision == revision &&
@@ -820,12 +824,274 @@ void test_focus_recovery(Check check) noexcept {
           "settings focus: a disabled editor hands the focus on instead of keeping it parked");
     ui_settings_scene_release(&scene);
 }
-} // namespace
 
+// A page of every new row: grouped into cards, trailing controls, status, disclosure, markdown, footnote and empty state.
+struct CardFixture {
+    UiPage pages[2]{};
+    UiPageRegistry registry{};
+    Utf8View sorts[4]{utf8_literal("Every hour"), utf8_literal("Every 4 hours"), utf8_literal("Every 12 hours"),
+                      utf8_literal("Once a day")};
+    Utf8View channel[2]{utf8_literal("Stable"), utf8_literal("Preview")};
+    Utf8View values[11]{utf8_literal("0"), utf8_literal("1"), utf8_literal("2"), utf8_literal("3"), utf8_literal("4"),
+                        utf8_literal("5"), utf8_literal("6"), utf8_literal("7"), utf8_literal("8"), utf8_literal("9"),
+                        utf8_literal("10")};
+    Utf8View chips[2]{utf8_literal("Stable release"), utf8_literal("Signature verified")};
+    Utf8View buttons[1]{utf8_literal("Browse plugins")};
+    char notes[1200]{};
+    UiSettingsControl controls[11]{};
+    UiSettingsControlPresentation presentation[11]{};
+    u16 meters[11]{};
+    UiSettingsPageContent content{};
+    UiSettingsNavEntry navigation[5]{};
+};
+void build_card_fixture(CardFixture* f) noexcept {
+    u32 bytes = 0;
+    for (u32 i = 0; i < 14; ++i) {
+        const char line[] = "- note about change number ";
+        copy_bytes(f->notes + bytes, line, sizeof(line) - 1);
+        bytes += sizeof(line) - 1;
+        f->notes[bytes++] = static_cast<char>('a' + i);
+        f->notes[bytes++] = '\n';
+    }
+    f->controls[0] = {1, utf8_literal("Update settings"), {}, UiSettingsControlKind::category, true, false};
+    f->controls[0].detail = utf8_literal("Synced with your account");
+    f->controls[1] = {2, utf8_literal("Notify me"), utf8_literal("Tell me when an update is ready."),
+                      UiSettingsControlKind::toggle, true, false};
+    f->controls[2] = {3, utf8_literal("Check for updates"), {}, UiSettingsControlKind::choice, true, false, {f->sorts, 4}, 1};
+    f->controls[3] = {4, utf8_literal("Volume"), {}, UiSettingsControlKind::slider, true, false, {f->values, 11}, 5};
+    f->controls[4] = {5, utf8_literal("Channel"), utf8_literal("Stable or preview builds."), UiSettingsControlKind::segments,
+                      true, false, {f->channel, 2}, 0};
+    f->controls[5] = {6, utf8_literal("You're up to date"), utf8_literal("MaiCord 0.5.4 - Stable channel"),
+                      UiSettingsControlKind::status, true, false, {f->chips, 2}, 0, utf8_literal("Check now")};
+    f->controls[5].detail = utf8_literal("Takes a few seconds");
+    f->controls[6] = {7, utf8_literal("MaiCord 0.5.4"), utf8_literal("Nov 1"), UiSettingsControlKind::disclosure, true, false};
+    f->controls[6].detail = utf8_literal("New");
+    f->controls[7] = {8, utf8_literal("Fixed a crash on startup"), utf8_literal("Oct 30"), UiSettingsControlKind::disclosure,
+                      true, false};
+    f->controls[7].detail = utf8_literal("dev.38");
+    f->controls[8] = {9, {}, {f->notes, bytes}, UiSettingsControlKind::markdown, true, false};
+    f->controls[8].detail = utf8_literal("Show all notes");
+    f->controls[9] = {10, utf8_literal("Updates replace the app."), {}, UiSettingsControlKind::footnote, true, false, {}, 0,
+                      utf8_literal("Releases")};
+    f->controls[10] = {11, utf8_literal("No plugins yet"), utf8_literal("Plugins add features to MaiCord."),
+                       UiSettingsControlKind::empty, true, false, {f->buttons, 1}, 0};
+    f->controls[10].detail = utf8_literal("Developer Mode adds more.");
+    for (auto& p : f->presentation)
+        p = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
+    for (auto& m : f->meters)
+        m = kUiSettingsNoMeter;
+    f->meters[5] = 500;
+    f->presentation[5].chip_tones = ui_settings_chip_positive << 2;
+    f->presentation[5].icon_plus_one = static_cast<u8>(UiIcon::circle_check) + 1;
+    f->presentation[6].variant = UiSettingsVariant::primary;
+    f->presentation[7].more = ui_settings_more_plain;
+    f->content = {utf8_literal("Updates"), utf8_literal("MaiCord updates itself from signed releases."), {f->controls, 11}, 1};
+    f->content.presentation = f->presentation;
+    f->content.meters = f->meters;
+    f->navigation[0] = {UiSettingsNavKind::header, false, UiIcon::count, utf8_literal("MAICORD"), {}, 0};
+    f->navigation[1] = {UiSettingsNavKind::page, false, UiIcon::download, utf8_literal("Updates"), {1, 1}, 0};
+    f->navigation[1].badge = kUiSettingsNavDot;
+    f->navigation[2] = {UiSettingsNavKind::page, false, UiIcon::puzzle, utf8_literal("Plugins"), {1, 2}, 0};
+    f->navigation[3] = {UiSettingsNavKind::page, false, UiIcon::code, utf8_literal("Developer"), {1, 3}, 0};
+    f->navigation[3].pinned = true;
+    f->navigation[4] = {UiSettingsNavKind::action, true, UiIcon::log_out, utf8_literal("Log Out"), {}, 9};
+    f->navigation[4].pinned = true;
+}
+
+void test_card_pages(Check check) noexcept {
+    static CardFixture f{};
+    build_card_fixture(&f);
+    static UiSettingsPageContent other{utf8_literal("Plugins"), {}, {}, 1}, developer{utf8_literal("Developer"), {}, {}, 1};
+    UiPage pages[3]{};
+    UiPageRegistry registry{};
+    UiSettingsScene scene{};
+    const UiRect viewport{0, 0, 1440, 2400}, host_viewport{0, 0, 1440, 900};
+    const UiPageKey page{1, 1};
+    check(ui_page_registry_initialize(&registry, {pages, 3}) &&
+              ui_page_registry_register(&registry, {page, utf8_literal("Updates"), &f.content}).ok() &&
+              ui_page_registry_register(&registry, {{1, 2}, utf8_literal("Plugins"), &other}).ok() &&
+              ui_page_registry_register(&registry, {{1, 3}, utf8_literal("Developer"), &developer}).ok() &&
+              ui_settings_scene_set_presentation(&scene, UiSettingsPresentation::modal) &&
+              ui_settings_scene_bind_navigation(&scene, {f.navigation, 5}, 1) &&
+              ui_settings_scene_update(&scene, &registry, viewport) && scene.active,
+          "settings cards: a page of cards, trailing controls and the new row kinds builds");
+    if (!scene.active)
+        return;
+    const UiSettingsThemeTokens tokens(kDefaultTheme);
+    const auto& m = tokens.metric;
+    const auto target = [&](u64 id) noexcept { return UiSettingsTarget{UiSettingsTargetKind::control, page, id}; };
+    UiSettingsControlGeometry toggle{}, dropdown{}, segmented{}, status{}, markdown{}, empty{};
+    check(ui_settings_scene_control_geometry(scene, target(2), &toggle) &&
+              ui_settings_scene_control_geometry(scene, target(3), &dropdown) &&
+              close_to(toggle.field.right, scene.layout.column.right - m.card_inset) &&
+              close_to(dropdown.field.right, scene.layout.column.right - m.card_inset) &&
+              ui_rect_width(dropdown.field) >= m.select_width - .01f && close_to(ui_rect_height(dropdown.field), m.control_height) &&
+              ui_rect_height(toggle.control) >= m.row_min_height && ui_rect_height(dropdown.control) >= m.row_min_height &&
+              close_to((dropdown.field.top + dropdown.field.bottom) * .5f, (dropdown.control.top + dropdown.control.bottom) * .5f),
+          "settings cards: switches and dropdowns trail inside the card padding, rows are at least 56 tall with the control centred");
+    UiSettingsSliderGeometry slider{};
+    check(ui_settings_scene_slider_geometry(scene, target(4), &slider) &&
+              close_to(ui_rect_width(slider.control.field), m.slider_width) &&
+              slider.control.field.right + 8 + m.value_width <= scene.layout.column.right - m.card_inset + .01f &&
+              ui_settings_scene_slider_hit(scene, target(4), center(slider.thumb).x, center(slider.thumb).y),
+          "settings cards: a slider without marks trails as a 220 DIP track with its value column");
+    UiRect option{};
+    UiSettingsActivation activation{};
+    check(ui_settings_scene_control_geometry(scene, target(5), &segmented) &&
+              close_to(ui_rect_height(segmented.field), m.control_height) && ui_rect_width(segmented.field) >= 2 * 72 + 2 * m.segment_padding - .01f &&
+              close_to(segmented.field.right, scene.layout.column.right - m.card_inset) &&
+              ui_settings_scene_choice_rectangle(scene, target(5), 1, &option) && option.left >= segmented.field.left &&
+              option.right <= segmented.field.right && option.top >= segmented.field.top && option.bottom <= segmented.field.bottom &&
+              ui_settings_scene_option_pointer(scene, target(5), center(option).x, center(option).y, &activation) &&
+              activation.selected_choice == 1 && activation.kind == UiSettingsControlKind::segments &&
+              ui_settings_scene_slider_key(scene, target(5), UiSettingsSliderKey::increase, &activation) &&
+              activation.selected_choice == 1,
+          "settings cards: segmented controls measure their items, resolve the option under the pointer and step with the arrows");
+    check(ui_settings_scene_control_geometry(scene, target(6), &status) && close_to(ui_rect_height(status.field), m.button_medium) &&
+              ui_settings_scene_button_hit(scene, target(6), center(status.field).x, center(status.field).y) &&
+              !ui_settings_scene_button_hit(scene, target(6), status.control.left + 30, center(status.field).y) &&
+              ui_rect_height(status.control) >= 2 * 20 + m.status_icon && !ui_settings_scene_spinner_visible(scene),
+          "settings status card: the button is the only target; the card pads 20 around a 48 DIP tile");
+    UiSettingsControlGeometry plain{}, expandable{};
+    check(ui_settings_scene_control_geometry(scene, target(7), &expandable) &&
+              ui_settings_target_equal(ui_settings_scene_hit_test(scene, expandable.control.left + 40, center(expandable.control).y),
+                                       target(7)) &&
+              ui_settings_scene_activation(scene, target(7), false, &activation) && activation.checked &&
+              ui_settings_scene_control_geometry(scene, target(8), &plain) && ui_rect_height(plain.control) >= 48 &&
+              !ui_settings_scene_focus(&scene, target(8)) && ui_settings_scene_focus(&scene, target(7)),
+          "settings disclosure: the whole row toggles, a plain line is a static, unfocusable row");
+    check(ui_settings_scene_control_geometry(scene, target(9), &markdown) && close_to(ui_rect_height(markdown.control), 28 + 180 + 8 + 20) &&
+              ui_settings_scene_button_hit(scene, target(9), center(markdown.field).x, center(markdown.field).y) &&
+              close_to(ui_rect_height(markdown.field), 20),
+          "settings markdown: long notes clip at 180 DIP under a Show all link");
+    check(ui_settings_scene_focus(&scene, target(10)) && !ui_settings_scene_focus(&scene, target(1)),
+          "settings footnote: the link is a focus stop, the category is not");
+    check(ui_settings_scene_control_geometry(scene, target(11), &empty) &&
+              ui_settings_scene_choice_rectangle(scene, target(11), 0, &option),
+          "settings empty state: the button has geometry");
+    check(ui_settings_scene_option_pointer(scene, target(11), center(option).x, center(option).y, &activation) &&
+              activation.selected_choice == 0 && activation.kind == UiSettingsControlKind::empty &&
+              (option.left + option.right) * .5f > scene.layout.column.left + 100,
+          "settings empty state: the button answers a click and sits centred");
+
+    // Painting and text.
+    PaintStream paint{};
+    UiTextCommand commands[160]{};
+    UiTextCommandStream stream{};
+    UiTextOutput output{&stream, nullptr};
+    bool painted = paint_stream_initialize(&paint) && paint_stream_reset(&paint, viewport.right, viewport.bottom) &&
+                   ui_settings_scene_paint(scene, kDefaultTheme, &paint, 96, nullptr) &&
+                   ui_text_command_stream_initialize(&stream, {commands, 160}) &&
+                   ui_settings_scene_text_output(scene, kDefaultTheme, &output);
+    bool title = false, subtitle = false, hint = false, caption = false, tag = false, link = false, styled = false, eyebrow = false,
+         esc = false, heading = false, button_rect = false, button_clip = false, segment_rect = false;
+    for (u32 i = 0; painted && i < stream.count; ++i) {
+        const auto& c = commands[i];
+        title = title || (utf8_equal(c.text, utf8_literal("Updates")) && (c.style_flags & text_style_heading_1) &&
+                          (c.style_flags & text_style_bold));
+        subtitle = subtitle || utf8_equal(c.text, utf8_literal("MaiCord updates itself from signed releases."));
+        hint = hint || utf8_equal(c.text, utf8_literal("Ctrl F"));
+        caption = caption || utf8_equal(c.text, utf8_literal("Takes a few seconds"));
+        tag = tag || utf8_equal(c.text, utf8_literal("dev.38"));
+        link = link || utf8_equal(c.text, utf8_literal("Show all notes"));
+        styled = styled || (c.styles.count >= 1 && c.text.bytes > 100);
+        eyebrow = eyebrow || utf8_equal(c.text, utf8_literal("MAICORD"));
+        esc = esc || utf8_equal(c.text, utf8_literal("ESC"));
+        heading = heading || (utf8_equal(c.text, utf8_literal("You're up to date")) && (c.style_flags & text_style_heading_2));
+        if (utf8_equal(c.text, utf8_literal("Check now"))) {
+            button_rect = close_to(c.rectangle.left, status.field.left) && close_to(c.rectangle.right, status.field.right);
+            button_clip = c.clip.left <= status.field.left + .01f && c.clip.right >= status.field.right - .01f;
+        }
+        if (utf8_equal(c.text, utf8_literal("Preview")))
+            segment_rect = c.clip.right - c.clip.left + .01f >= ui_kit_text_width(nullptr, utf8_literal("Preview"), kUiKitTextLabelBold);
+    }
+    check(painted && !paint.rejected && hint && eyebrow && !esc, "settings cards: the page paints; the sidebar's Ctrl F hint and group header emit, no ESC caption");
+    check(title && subtitle && heading, "settings cards: the 24/30 title, the subtitle and the status card's heading emit");
+    check(caption, "settings cards: the status caption emits");
+    check(tag, "settings cards: the disclosure tag emits");
+    check(link, "settings cards: the markdown link emits");
+    check(styled, "settings cards: markdown text carries style spans");
+    check(button_rect && button_clip, "settings cards: a status button's label owns the whole button and is clipped by nothing narrower");
+    check(segment_rect, "settings cards: a segmented label's clip fits the label");
+
+    // The sidebar's foot: the last two entries stand pinned under the scrolling pages.
+    const float foot_x = scene.layout.sidebar.left + 100, foot_y = scene.layout.sidebar.bottom - m.sidebar_top - m.nav_item_gap - m.nav_item_height * .5f;
+    check(ui_settings_target_equal(ui_settings_scene_hit_test(scene, foot_x, foot_y), {UiSettingsTargetKind::action, {}, 9}) &&
+              ui_settings_target_equal(ui_settings_scene_hit_test(scene, foot_x, foot_y - m.nav_item_height - m.nav_item_gap),
+                                       {UiSettingsTargetKind::page, {1, 3}, 0}) &&
+              !ui_settings_scene_scrollbar(scene, true).visible && ui_settings_scene_focus(&scene, {UiSettingsTargetKind::page, {1, 3}, 0}),
+          "settings sidebar: Developer and Log Out are pinned in the foot, always in view");
+
+    // A running check: the spinner clock and the busy button.
+    f.controls[5].checked = true;
+    f.controls[5].enabled = false;
+    f.meters[5] = kUiSettingsIndeterminateMeter;
+    ++f.content.revision;
+    check(ui_settings_scene_update(&scene, &registry, viewport) && ui_settings_scene_spinner_visible(scene) &&
+              !ui_settings_scene_focus(&scene, target(6)) && ui_settings_scene_paint(scene, kDefaultTheme, &paint, 96, nullptr),
+          "settings status card: a busy card keeps its disabled button, needs the spinner clock and paints the moving meter");
+    f.controls[8].checked = true;
+    ++f.content.revision;
+    UiSettingsControlGeometry expanded{};
+    check(ui_settings_scene_update(&scene, &registry, viewport) && ui_settings_scene_control_geometry(scene, target(9), &expanded) &&
+              ui_rect_height(expanded.control) > ui_rect_height(markdown.control) + 60 && !ui_settings_scene_focus(&scene, target(9)),
+          "settings markdown: showing all notes grows the row and drops the link");
+
+    // Layer and dialog pages keep their flat rows.
+    UiSettingsScene layer{};
+    static CardFixture flat{};
+    build_card_fixture(&flat);
+    UiPage layer_page{};
+    UiPageRegistry layer_registry{};
+    UiSettingsControlGeometry flat_toggle{};
+    check(ui_page_registry_initialize(&layer_registry, {&layer_page, 1}) &&
+              ui_page_registry_register(&layer_registry, {page, utf8_literal("Updates"), &flat.content}).ok() &&
+              ui_settings_scene_update(&layer, &layer_registry, {0, 0, 1280, 900}) &&
+              ui_settings_scene_control_geometry(layer, target(2), &flat_toggle) &&
+              close_to(flat_toggle.field.right, layer.layout.column.right),
+          "settings layer: pages outside the modal do not group into cards");
+    ui_settings_scene_release(&layer);
+
+    // A host page: no title, the wide column up to the close button, one focus stop.
+    static UiSettingsPageContent store{utf8_literal("Plugins"), {}, {}, 1};
+    store.host = true;
+    store.wide = true;
+    UiPage store_pages[1]{};
+    UiPageRegistry store_registry{};
+    UiSettingsScene host{};
+    UiRect host_page{}, host_clip{};
+    const UiPageKey store_key{1, 7};
+    check(ui_page_registry_initialize(&store_registry, {store_pages, 1}) &&
+              ui_page_registry_register(&store_registry, {store_key, utf8_literal("Plugins"), &store}).ok() &&
+              ui_settings_scene_set_presentation(&host, UiSettingsPresentation::modal) &&
+              ui_settings_scene_update(&host, &store_registry, host_viewport) && ui_settings_scene_host_rect(host, &host_page, &host_clip) &&
+              close_to(ui_rect_width(host_page), 792) && close_to(host_page.left, host.layout.column.left) &&
+              close_to(host_page.top, host.layout.column.top) && host_clip.bottom <= host.layout.panel.bottom + .01f &&
+              ui_settings_scene_focus(&host, {UiSettingsTargetKind::host, store_key, 1}) &&
+              ui_settings_scene_focus_zone(host) == UiSettingsFocusZone::panel,
+          "settings host page: the wide column is 792 DIP at 1440x900, the page keeps one panel focus stop");
+    PaintStream host_paint{};
+    UiTextCommand host_commands[64]{};
+    UiTextCommandStream host_stream{};
+    UiTextOutput host_output{&host_stream, nullptr};
+    bool no_heading = paint_stream_initialize(&host_paint) && paint_stream_reset(&host_paint, host_viewport.right, host_viewport.bottom) &&
+                      ui_settings_scene_paint(host, kDefaultTheme, &host_paint, 96, nullptr) &&
+                      ui_text_command_stream_initialize(&host_stream, {host_commands, 64}) &&
+                      ui_settings_scene_text_output(host, kDefaultTheme, &host_output);
+    for (u32 i = 0; no_heading && i < host_stream.count; ++i)
+        no_heading = !utf8_equal(host_commands[i].text, utf8_literal("Plugins")) || !ui_settings_scene_page_owner(host, host_commands[i].owner);
+    check(no_heading, "settings host page: the scene draws no heading of its own");
+    paint_stream_release(&host_paint);
+    ui_settings_scene_release(&host);
+    ui_settings_scene_release(&scene);
+    paint_stream_release(&paint);
+}
+} // namespace
 void test_settings_scene(void (*check)(bool, const char*) noexcept) noexcept {
     test_controls(check);
     test_schema(check);
     test_modal_scene(check);
+    test_card_pages(check);
     test_layer_scene(check);
     test_dialog_scene(check);
     test_focus_recovery(check);

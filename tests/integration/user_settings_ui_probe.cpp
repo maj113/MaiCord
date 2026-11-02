@@ -1,10 +1,17 @@
+#include "../support/ui_scene_fixtures.hpp"
 #include "probe_present.hpp"
 #include "settings/catalog.hpp"
 #include "update/updates.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/render/d3d11/renderer_presentation.hpp"
 #include "maicord/render/text/form_surface.hpp"
+#include "maicord/ui/shell/popup_scene.hpp"
+#include "maicord/ui/widgets/settings_choice.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/ui/settings/scene.hpp"
+#include "maicord/ui/widgets/kit.hpp"
+#include "maicord/ui/text/presentation.hpp"
+#include "maicord/ui/core/scene.hpp"
 #include "maicord/ui/text/form.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/app/settings/client_preferences.hpp"
@@ -19,14 +26,15 @@ namespace {
 // control states. Only production scene, layout, paint and text paths run;
 // no host action is dispatched and no account is involved.
 constexpr u32 kRows = 32;
-constexpr UiPageKey kGalleryPage{2, 1};
+constexpr UiPageKey kGalleryPage{2, 1}, kShowcasePage{2, 2};
+constexpr u32 kShowcaseIndex = kSettingsPanelCount + 1;
 struct Fixture {
-    UiPage pages[kSettingsPanelCount + 1];
-    UiSettingsPageContent contents[kSettingsPanelCount + 1];
-    UiSettingsControl controls[kSettingsPanelCount + 1][kRows];
-    UiSettingsControlPresentation looks[kSettingsPanelCount + 1][kRows];
-    UiSettingsListItem update_items[kRows];
-    u16 update_meters[kRows];
+    UiPage pages[kSettingsPanelCount + 2];
+    UiSettingsPageContent contents[kSettingsPanelCount + 2];
+    UiSettingsControl controls[kSettingsPanelCount + 2][kRows];
+    UiSettingsControlPresentation looks[kSettingsPanelCount + 2][kRows];
+    u16 update_meters[kRows], showcase_meters[kRows];
+    UiKitMeasure measure;
     UiSettingsEditor editors[2];
     UiEditGeometry geometries[2];
     UiPageRegistry registry;
@@ -35,6 +43,7 @@ struct Fixture {
     TextFormSurface surface;
 };
 Fixture fixture;
+UiScene g_shell;
 
 constexpr Utf8View kDevices[]{utf8_literal("Default"), utf8_literal("Headset (Synthetic Audio)")};
 constexpr Utf8View kGames[]{utf8_literal("Example Game")};
@@ -106,8 +115,9 @@ u32 project_panel(u32 panel, UiSettingsControl* out, UiSettingsControlPresentati
     return count;
 }
 
-// The Updates page as application_updates projects it: a preview build that
-// is downloading a newer master build, with the commits since this build.
+// The Updates page as application_updates projects it, one state at a time,
+// through the real catalog nodes and the production projection functions.
+enum class UpdatesState : u32 { idle, checking, ready, preview_downloading, error, count };
 struct UpdatesFixture {
     app_detail::ApplicationUpdatesView view;
     app_detail::ApplicationUpdatesText text[8];
@@ -115,42 +125,76 @@ struct UpdatesFixture {
     UpdateChangelog log;
 };
 UpdatesFixture g_updates;
-u32 project_updates(UiSettingsControl* out, UiSettingsControlPresentation* looks, UiSettingsListItem* items,
-                    u16* meters) noexcept {
+void add_entry(UpdateChangelog& log, u64 version, u64 date, const char* text) noexcept {
+    auto& e = log.entries[log.count++];
+    e.version = version;
+    e.date_unix_seconds = date;
+    e.text_offset = log.text_bytes;
+    e.text_bytes = c_string_length(text);
+    copy_bytes(log.text + log.text_bytes, text, e.text_bytes);
+    log.text_bytes += e.text_bytes;
+}
+// Release notes of this probe's own words, with a heading, nested bullets, bold and code.
+constexpr char kReleaseNotes[] =
+    "This update installs from Settings > Updates; nothing runs until you restart.\n\n"
+    "### Highlights\n\n"
+    "- **Much lighter on the GPU.**\n"
+    "  - Animated backgrounds cost far less GPU time, so an idle window stays quiet.\n"
+    "  - The emoji picker follows a dragged scrollbar at full speed, and `Ctrl+F` finds settings faster.\n"
+    "- A calmer Updates page with one status card.\n\n"
+    "### Fixes\n\n"
+    "- Fix a crash when the gateway drops during a voice call.\n"
+    "- Keep the scroll position when a channel reloads.\n";
+u32 project_updates(UpdatesState state, UiSettingsControl* out, UiSettingsControlPresentation* looks, u16* meters) noexcept {
     auto& u = g_updates;
     auto& v = u.view;
+    const u64 now = clock_unix_milliseconds() / 1000;
+    using S = app_detail::ApplicationUpdateState;
     v = {};
-    v.state = app_detail::ApplicationUpdateState::downloading;
-    v.channel = UpdateChannel::preview;
-    v.interval = kUpdateDefaultCheckInterval;
-    v.own_version = update_version_number(0, 3, 4, 12);
-    copy_bytes(v.own_commit, "4d1c9a2", 7);
-    v.offer_version = update_version_number(0, 3, 4, 17);
-    copy_bytes(v.offer_commit, "9be03f1", 7);
-    v.offer_bytes = 8598323;
-    v.offer_date = 1792406289;
-    v.total = v.offer_bytes;
-    v.received = v.offer_bytes / 100 * 62;
+    v.interval = UpdateCheckInterval::hour;
+    v.checked_unix = now - 120;
     v.changelog_revision = 1;
-    constexpr const char* subjects[]{"Show the release date and size of an available update",
-                                     "Keep scroll position when a channel reloads",
-                                     "Fix the emoji picker losing focus after a search",
-                                     "Draw thread previews with their author colour",
-                                     "Halve memory used by cached member lists",
-                                     "Reconnect voice after the network changes"};
     u.log = {};
-    u.log.channel = UpdateChannel::preview;
-    u.log.version = v.offer_version;
-    u.log.base = update_version_number(0, 3, 3, 0);
-    for (u32 i = 0; i < 6; ++i) {
-        auto& e = u.log.entries[u.log.count++];
-        e.version = v.offer_version - i;
-        e.date_unix_seconds = 1792406289 - i * 43200;
-        e.text_offset = u.log.text_bytes;
-        e.text_bytes = c_string_length(subjects[i]);
-        copy_bytes(u.log.text + u.log.text_bytes, subjects[i], e.text_bytes);
-        u.log.text_bytes += e.text_bytes;
+    if (state == UpdatesState::preview_downloading) {
+        v.state = S::downloading;
+        v.channel = UpdateChannel::preview;
+        v.own_version = update_version_number(0, 3, 4, 12);
+        copy_bytes(v.own_commit, "4d1c9a2", 7);
+        v.offer_version = update_version_number(0, 3, 4, 17);
+        copy_bytes(v.offer_commit, "9be03f1", 7);
+        v.offer_bytes = 8598323;
+        v.offer_date = now - 7200;
+        v.total = v.offer_bytes;
+        v.received = v.offer_bytes / 100 * 62;
+        constexpr const char* subjects[]{"Show the release date and size of an available update",
+                                         "Keep scroll position when a channel reloads",
+                                         "Fix the emoji picker losing focus after a search",
+                                         "Draw thread previews with their author colour",
+                                         "Halve memory used by cached member lists",
+                                         "Reconnect voice after the network changes"};
+        u.log.channel = UpdateChannel::preview;
+        u.log.version = v.offer_version;
+        u.log.base = update_version_number(0, 3, 3, 0);
+        for (u32 i = 0; i < 6; ++i)
+            add_entry(u.log, v.offer_version - i, now - 7200 - i * 43200, subjects[i]);
+    } else {
+        v.channel = UpdateChannel::stable;
+        v.own_version = update_version_number(0, 5, state == UpdatesState::ready ? 3 : 4, 0);
+        u.log.channel = UpdateChannel::stable;
+        u.log.version = update_version_number(0, 5, 4, 0);
+        u.log.base = update_version_number(0, 4, 0, 0);
+        for (u32 i = 0; i < 5; ++i)
+            add_entry(u.log, update_version_number(0, 5, 4 - i, 0), now - 86400 * (2 + i), i ? "- Smaller fixes and polish." : kReleaseNotes);
+        v.state = state == UpdatesState::checking ? S::checking : state == UpdatesState::ready ? S::ready
+                  : state == UpdatesState::error ? S::error : S::up_to_date;
+        if (state == UpdatesState::ready) {
+            v.offer_version = v.ready_version = u.log.version;
+            v.offer_bytes = 6710886;
+            v.offer_date = now - 86400 * 2;
+        }
+        v.error = UpdateServiceError::transport;
     }
+    clear_bytes(&u.rows, sizeof(u.rows));
     app_detail::application_updates_changelog_build(v, u.log, &u.rows);
     const u32 panel = static_cast<u32>(SettingsPanel::updates);
     const auto& nodes = settings_catalog_panel(SettingsPanel::updates).nodes;
@@ -158,28 +202,36 @@ u32 project_updates(UiSettingsControl* out, UiSettingsControlPresentation* looks
     for (u32 i = 0; i < nodes.count && count < kRows; ++i) {
         const auto& n = nodes[i];
         auto& c = out[count];
-        c = {settings_control_id(panel, i), n.label(), n.description(), n.kind, true, false, n.choices(), 0, n.action_label(),
-             nullptr};
-        looks[count] = {static_cast<UiSettingsVariant>(n.variant), 0, kUiSettingsNoDefault};
-        items[count] = {};
+        c = {};
+        c.id = settings_control_id(panel, i);
+        c.label = n.label(); c.description = n.description(); c.kind = n.kind; c.enabled = true;
+        c.choices = n.choices(); c.action_label = n.action_label();
+        looks[count] = {};
+        looks[count].variant = static_cast<UiSettingsVariant>(n.variant);
+        looks[count].default_choice = kUiSettingsNoDefault;
         meters[count] = kUiSettingsNoMeter;
         const auto binding = static_cast<SettingBinding>(n.binding());
         if (binding == SettingBinding::update_changelog) {
-            if (!app_detail::application_updates_changelog_heading(u.rows, &c, &items[count]))
+            if (!app_detail::application_updates_changelog_heading(u.rows, &c))
                 continue;
             ++count;
-            const u32 rows = app_detail::application_updates_changelog_project(u.rows, {out + count, kRows - count},
-                                                                               {looks + count, kRows - count});
-            for (u32 r = 0; r < rows; ++r) {
-                items[count + r] = app_detail::application_updates_changelog_item(u.rows, r);
-                meters[count + r] = kUiSettingsNoMeter;
-            }
-            count += rows;
+            count += app_detail::application_updates_changelog_project(u.rows, {out + count, kRows - count},
+                                                                       {looks + count, kRows - count});
             continue;
         }
-        if (app_detail::application_updates_project_view(v, binding, &u.text[i % 8], &c, &looks[count], &meters[count]))
+        if (binding == SettingBinding::update_release_notes) {
+            if (u.rows.count)
+                ++count;
+            continue;
+        }
+        if (binding == SettingBinding::none || app_detail::application_updates_project_view(v, now, binding, &u.text[i % 8], &c,
+                                                                                            &looks[count], &meters[count]))
             ++count;
     }
+    // Rows the changelog added have no meter.
+    for (u32 i = 0; i < count; ++i)
+        if (out[i].kind != UiSettingsControlKind::status)
+            meters[i] = kUiSettingsNoMeter;
     return count;
 }
 
@@ -229,6 +281,64 @@ u32 build_gallery(Fixture& f) noexcept {
     return n;
 }
 
+// The shell's new rows: trailing dropdown, slider and segmented controls, the status card with its meter and
+// chips, a changelog-style disclosure list, markdown notes with their link, a footnote and an empty state.
+constexpr Utf8View kIntervals[]{utf8_literal("Every hour"), utf8_literal("Every 4 hours"), utf8_literal("Every 12 hours"),
+                                utf8_literal("Once a day")};
+constexpr Utf8View kChannels[]{utf8_literal("Stable"), utf8_literal("Preview")};
+constexpr Utf8View kChips[]{utf8_literal("Stable release"), utf8_literal("Signature verified")};
+constexpr Utf8View kEmptyButtons[]{utf8_literal("Browse plugins")};
+constexpr Utf8View kNotes = utf8_literal(
+    "### What's new\n- Rebuilt the settings window with cards and a pinned footer\n- Added a **Browse themes** link to Appearance\n"
+    "- Fixed `Ctrl F` focusing the wrong field\n  - nested notes keep their level\n- Search results group by page\n"
+    "- Segmented controls replace radio groups\n- Sliders show their value\n");
+u32 build_showcase(Fixture& f) noexcept {
+    auto* c = f.controls[kShowcaseIndex];
+    auto* p = f.looks[kShowcaseIndex];
+    auto* meters = f.showcase_meters;
+    using K = UiSettingsControlKind;
+    u32 n = 0;
+    const auto add = [&](UiSettingsControl control, UiSettingsControlPresentation look = {}, u16 meter = kUiSettingsNoMeter) noexcept {
+        control.id = 2000 + n;
+        c[n] = control;
+        meters[n] = meter;
+        p[n++] = look.default_choice || look.flags || look.chip_tones || look.icon_plus_one || look.more || look.variant != UiSettingsVariant::standard
+                     ? look
+                     : UiSettingsControlPresentation{UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
+    };
+    UiSettingsControl status{0, utf8_literal("You're up to date"), utf8_literal("MaiCord 0.5.4 - Stable channel"), K::status, true, false,
+                             {kChips, 2}, 0, utf8_literal("Check now")};
+    status.detail = utf8_literal("Last checked 4 minutes ago");
+    UiSettingsControlPresentation status_look{UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
+    status_look.chip_tones = ui_settings_chip_positive | (ui_settings_chip_positive << 2);
+    status_look.icon_plus_one = static_cast<u8>(UiIcon::circle_check) + 1;
+    add(status, status_look, 1000);
+    add({0, utf8_literal("Update settings"), {}, K::category, true, false});
+    add({0, utf8_literal("Notify me about updates"), utf8_literal("Tell me when a new version is ready."), K::toggle, true, true});
+    add({0, utf8_literal("Check for updates"), {}, K::choice, true, false, {kIntervals, 4}, 1});
+    add({0, utf8_literal("Release channel"), utf8_literal("Preview builds come first and can be less stable."), K::segments, true, false,
+         {kChannels, 2}, 0});
+    add({0, utf8_literal("Speaker Volume"), {}, K::slider, true, false,
+         settings_catalog_panel(SettingsPanel::voice).nodes[4].choices(), 140});
+    add({0, utf8_literal("Release notes"), {}, K::category, true, false});
+    UiSettingsControl latest{0, utf8_literal("MaiCord 0.5.4"), utf8_literal("Nov 1"), K::disclosure, true, true};
+    latest.detail = utf8_literal("Current");
+    UiSettingsControlPresentation latest_look{UiSettingsVariant::positive, 0, kUiSettingsNoDefault};
+    add(latest, latest_look);
+    UiSettingsControl notes{0, {}, kNotes, K::markdown, true, false};
+    notes.detail = utf8_literal("Show all notes");
+    add(notes);
+    UiSettingsControl older{0, utf8_literal("MaiCord 0.5.3"), utf8_literal("Oct 30"), K::disclosure, true, false};
+    older.detail = utf8_literal("dev.38");
+    add(older);
+    add({0, utf8_literal("Updates replace the app; your settings stay."), {}, K::footnote, true, false, {}, 0, utf8_literal("Releases")});
+    UiSettingsControl empty{0, utf8_literal("No plugins installed"), utf8_literal("Plugins add features to MaiCord."), K::empty, true,
+                            false, {kEmptyButtons, 1}, 0};
+    empty.detail = utf8_literal("Developer Mode adds more.");
+    add(empty);
+    return n;
+}
+
 bool show(Fixture& f, D3D11Renderer& renderer, UiPageKey page, UiRect viewport, const wchar_t* name,
           bool (*capture)(const wchar_t*) noexcept) noexcept {
     if (!ui_page_registry_select(&f.registry, page).ok() || !ui_settings_scene_update(&f.scene, &f.registry, viewport) ||
@@ -245,6 +355,54 @@ bool show(Fixture& f, D3D11Renderer& renderer, UiPageKey page, UiRect viewport, 
     return placed && renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
            probe_present(&renderer, kDefaultTheme) && capture(name);
 }
+
+// The interval dropdown open: the client's themed context menu (a settings_choice popup) under the
+// control, the current choice checked and the next row under the pointer.
+struct MenuFixture {
+    PopupScene popup;
+    PopupItem choices[8], items[8];
+    PopupRowWidget rows[8];
+    UiWidget widgets[2 + 8 * kPopupWidgetsPerItem];
+    UiLayoutNode nodes[2 + 8 * kPopupWidgetsPerItem];
+};
+MenuFixture g_menu;
+bool show_interval_menu(Fixture& f, D3D11Renderer& renderer, UiRect viewport, UiPageKey page,
+                        bool (*capture)(const wchar_t*) noexcept) noexcept {
+    UiSettingsSchemaLocation location{};
+    if (!settings_catalog_binding(SettingBinding::update_interval, &location) ||
+        !ui_page_registry_select(&f.registry, page).ok() || !ui_settings_scene_update(&f.scene, &f.registry, viewport))
+        return false;
+    const u64 id = settings_control_id(location.panel, location.node);
+    const UiSettingsTarget target{UiSettingsTargetKind::control, page, id};
+    const auto* control = ui_settings_scene_control(f.scene, target);
+    UiRect anchor{};
+    auto& m = g_menu;
+    const auto* old_popup = renderer.popup_scene;
+    struct Restore {
+        D3D11Renderer& renderer;
+        MenuFixture& m;
+        const PopupScene* old_popup;
+        ~Restore() noexcept {
+            renderer_bind_popup_scene(&renderer, old_popup);
+            popup_scene_close(&m.popup);
+            renderer.retained_presentation.valid = false;
+            popup_scene_release(&m.popup);
+        }
+    } restore{renderer, m, old_popup};
+    const u32 count = control ? ui_settings_choice_items(*control, 0, {m.choices, 8}) : 0;
+    bool changed = false;
+    PopupItemLayout next{};
+    return control && count == control->choices.count && ui_settings_scene_control_anchor(f.scene, target, &anchor) &&
+           popup_scene_initialize(&m.popup, {m.items, 8}, {m.rows, 8}, {m.widgets, 2 + 8 * kPopupWidgetsPerItem},
+                                  {m.nodes, 2 + 8 * kPopupWidgetsPerItem}) &&
+           popup_scene_open(&m.popup, PopupKind::settings_choice, id, {m.choices, count}, anchor, viewport, 240).ok() &&
+           renderer_bind_popup_scene(&renderer, &m.popup) && popup_scene_resolve_item_layout(m.popup, 1, &next) && next.visible &&
+           popup_scene_set_hover(&m.popup, (next.visible_rectangle.left + next.visible_rectangle.right) * .5f,
+                                 (next.visible_rectangle.top + next.visible_rectangle.bottom) * .5f, &changed) &&
+           (m.choices[0].flags & popup_item_checked) != 0 && renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
+           probe_present(&renderer, kDefaultTheme) && renderer.interaction_text_popup_revision == m.popup.revision &&
+           capture(L"updates-interval-menu.bmp");
+}
 } // namespace
 
 bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
@@ -253,24 +411,28 @@ bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
         return false;
     auto& f = fixture;
     const UiSettingsScene* old_scene = renderer.settings_scene;
+    const UiScene* old_shell = renderer.ui_scene;
     const u32 width = renderer.width, height = renderer.height;
     struct Restore {
         D3D11Renderer& renderer;
         Fixture& f;
         const UiSettingsScene* old_scene;
+        const UiScene* old_shell;
         u32 width, height;
         ~Restore() noexcept {
             renderer_bind_text_form(&renderer, nullptr);
             text_form_surface_release(&f.surface);
             text_form_release(&f.form);
             renderer_bind_settings_scene(&renderer, old_scene);
+            renderer_bind_ui_scene(&renderer, old_shell);
+            ui_scene_release(&g_shell);
             ui_settings_scene_release(&f.scene);
             ui_page_registry_clear(&f.registry);
             renderer_resize(&renderer, width, height);
         }
-    } restore{renderer, f, old_scene, width, height};
+    } restore{renderer, f, old_scene, old_shell, width, height};
     u32 stage = __LINE__;
-    bool valid = ui_page_registry_initialize(&f.registry, {f.pages, kSettingsPanelCount + 1});
+    bool valid = ui_page_registry_initialize(&f.registry, {f.pages, kSettingsPanelCount + 2});
     for (u32 panel = 0; valid && panel < kSettingsPanelCount; ++panel) {
         const auto& source = settings_catalog_panel(static_cast<SettingsPanel>(panel));
         const u32 count = project_panel(panel, f.controls[panel], f.looks[panel]);
@@ -278,8 +440,8 @@ bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
         f.contents[panel].presentation = f.looks[panel];
         if (panel == static_cast<u32>(SettingsPanel::updates)) {
             f.contents[panel].controls = {f.controls[panel],
-                                          project_updates(f.controls[panel], f.looks[panel], f.update_items, f.update_meters)};
-            f.contents[panel].list_items = f.update_items;
+                                          project_updates(UpdatesState::idle, f.controls[panel], f.looks[panel], f.update_meters)};
+            f.contents[panel].list_items = nullptr;
             f.contents[panel].meters = f.update_meters;
         }
         valid = ui_page_registry_register(&f.registry,
@@ -297,15 +459,30 @@ bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
             ui_page_registry_register(&f.registry,
                                       {kGalleryPage, utf8_literal("Control states"), &f.contents[kSettingsPanelCount]})
                 .ok();
+    const u32 showcase = build_showcase(f);
+    f.contents[kShowcaseIndex] = {utf8_literal("Showcase"), utf8_literal("The shell's cards, trailing controls and status rows."),
+                                  {f.controls[kShowcaseIndex], showcase}, 1};
+    f.contents[kShowcaseIndex].presentation = f.looks[kShowcaseIndex];
+    f.contents[kShowcaseIndex].meters = f.showcase_meters;
+    valid = valid &&
+            ui_page_registry_register(&f.registry, {kShowcasePage, utf8_literal("Showcase"), &f.contents[kShowcaseIndex]}).ok();
     const auto navigation = settings_catalog_navigation(true);
     if (valid)
         stage = __LINE__;
-    valid = valid && renderer_resize(&renderer, 1360, 1000);
+    valid = valid && renderer_resize(&renderer, 1440, 900);
     const float scale = static_cast<float>(renderer.dpi) / 96.f;
-    const UiRect viewport{0, 0, 1360 / scale, 1000 / scale};
+    const UiRect viewport{0, 0, 1440 / scale, 900 / scale};
     valid = valid && ui_settings_scene_set_presentation(&f.scene, UiSettingsPresentation::modal) &&
             ui_settings_scene_bind_navigation(&f.scene, navigation, 1) &&
             ui_settings_scene_bind_palette(&f.scene, {&f, palette, 1});
+    ui_kit_measure_cache(&f.measure, &cache);
+    valid = valid && (ui_settings_scene_bind_measure(&f.scene, &f.measure), true);
+    // The probe's shell scene keeps the size it was laid out at and clips every label to it: lay a fresh one out at
+    // the capture size so wide pages are not cut.
+    valid = valid && ui_scene_initialize_bootstrap(&g_shell) &&
+            ui_scene_layout_with_metrics(&g_shell, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics, 1440 / scale,
+                                         900 / scale) &&
+            renderer_bind_ui_scene(&renderer, &g_shell);
     if (valid)
         renderer_bind_settings_scene(&renderer, &f.scene);
     const auto page = [](SettingsPanel panel) noexcept {
@@ -330,8 +507,25 @@ bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
     valid = valid && show(f, renderer, page(SettingsPanel::voice), viewport, L"user-settings-voice.bmp", capture);
     if (valid)
         stage = __LINE__;
-    valid = valid && show(f, renderer, page(SettingsPanel::updates), viewport, L"user-settings-updates.bmp", capture);
-    // The busy update notice's spinner: a phase step alone must invalidate the retained frame.
+    // Every page state of Updates: up to date, checking (with the retained frame's spinner), ready,
+    // a preview download and an error; then the interval dropdown's themed menu.
+    const auto updates_state = [&](UpdatesState state, const wchar_t* name) noexcept {
+        const u32 panel_index = static_cast<u32>(SettingsPanel::updates);
+        const u32 count = project_updates(state, f.controls[panel_index], f.looks[panel_index], f.update_meters);
+        f.contents[panel_index].controls = {f.controls[panel_index], count};
+        ++f.contents[panel_index].revision;
+        return count && show(f, renderer, page(SettingsPanel::updates), viewport, name, capture);
+    };
+    if (valid)
+        stage = __LINE__;
+    valid = valid && updates_state(UpdatesState::idle, L"updates-idle.bmp");
+    if (valid)
+        stage = __LINE__;
+    valid = valid && show_interval_menu(f, renderer, viewport, page(SettingsPanel::updates), capture);
+    if (valid)
+        stage = __LINE__;
+    valid = valid && updates_state(UpdatesState::checking, L"updates-checking.bmp");
+    // The busy status card's spinner: a phase step alone must invalidate the retained frame.
     if (valid) {
         stage = __LINE__;
         const auto before = renderer_capture_presentation_stamp(renderer, kDefaultTheme);
@@ -339,6 +533,15 @@ bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
         const auto after = renderer_capture_presentation_stamp(renderer, kDefaultTheme);
         valid = ui_settings_scene_spinner_visible(f.scene) && !renderer_presentation_stamp_equal(before, after);
     }
+    if (valid)
+        stage = __LINE__;
+    valid = valid && updates_state(UpdatesState::ready, L"updates-ready.bmp");
+    valid = valid && updates_state(UpdatesState::preview_downloading, L"updates-preview-downloading.bmp");
+    valid = valid && updates_state(UpdatesState::error, L"updates-error.bmp");
+    // The shell's new rows at rest: status card, trailing controls, disclosures, markdown, footnote and empty state.
+    if (valid)
+        stage = __LINE__;
+    valid = valid && show(f, renderer, kShowcasePage, viewport, L"settings-showcase.bmp", capture);
     // The gallery with keyboard focus on its first switch, then scrolled to
     // the swatches with focus on them.
     if (valid)

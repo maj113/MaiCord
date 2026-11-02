@@ -72,6 +72,7 @@ namespace maicord {
     X(test_plugin_host) \
     X(test_message_context_controller_extensions) \
     X(test_settings_scene) \
+    X(test_ui_kit) \
     X(test_profile_editor_layout) \
     X(test_settings_choice) \
     X(test_password_recovery) \
@@ -114,6 +115,9 @@ namespace maicord {
     X(test_mp3_stream) \
     X(test_video_scene) \
     X(test_spinner) \
+    X(test_store_page) \
+    X(test_store_scene) \
+    X(test_store_actions) \
     X(test_ui_transition) \
     X(test_tooltip) \
     X(test_account_menu) \
@@ -217,7 +221,7 @@ constexpr ExtensionFixture extension_fixtures[]{
 constexpr u32 kExtensionFixtureCount = sizeof(extension_fixtures) / sizeof(extension_fixtures[0]);
 constexpr u32 kExtensionShardCount = 4;
 constexpr u32 kUpdateFixtureCount = 5;
-static_assert(kExtensionFixtureCount == 165);
+static_assert(kExtensionFixtureCount == 169);
 static_assert(extension_fixtures[0] == test_update_manifest &&
               extension_fixtures[kUpdateFixtureCount - 1] == test_update_package &&
               extension_fixtures[kUpdateFixtureCount] == test_desktop_integration);
@@ -232,8 +236,8 @@ constexpr u32 shard_fixture_count(u32 shard) noexcept {
         count += fixture_shard(index) == shard;
     return count;
 }
-static_assert(shard_fixture_count(0) == 45 && shard_fixture_count(1) == 40 &&
-              shard_fixture_count(2) == 40 && shard_fixture_count(3) == 40);
+static_assert(shard_fixture_count(0) == 46 && shard_fixture_count(1) == 41 &&
+              shard_fixture_count(2) == 41 && shard_fixture_count(3) == 41);
 static_assert(shard_fixture_count(0) + shard_fixture_count(1) + shard_fixture_count(2) +
                   shard_fixture_count(3) == kExtensionFixtureCount);
 

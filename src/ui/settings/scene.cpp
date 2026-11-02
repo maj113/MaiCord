@@ -16,7 +16,7 @@ namespace {
 bool option_kind(UiSettingsControlKind kind) noexcept {
     return kind == UiSettingsControlKind::segments || kind == UiSettingsControlKind::swatches ||
            kind == UiSettingsControlKind::tabs || kind == UiSettingsControlKind::buttons ||
-           kind == UiSettingsControlKind::colors;
+           kind == UiSettingsControlKind::colors || kind == UiSettingsControlKind::empty;
 }
 // The part of a list row under a point (UiSettingsListPart), or ~0u.
 u32 list_part(const UiSettingsLayoutTokens& t, const UiSettingsPageContent& content, u32 index, const UiRect& row, float x,
@@ -39,7 +39,7 @@ u32 list_part(const UiSettingsLayoutTokens& t, const UiSettingsPageContent& cont
 } // namespace
 
 UiSettingsModalLayout ui_settings_modal_layout(const UiSettingsLayoutTokens& tokens, const UiRect& viewport,
-                                               UiSettingsPresentation presentation) noexcept {
+                                               UiSettingsPresentation presentation, bool wide) noexcept {
     const auto& m = tokens.metric;
     UiSettingsModalLayout l{};
     const float width = ui_rect_width(viewport), height = ui_rect_height(viewport);
@@ -81,12 +81,15 @@ UiSettingsModalLayout ui_settings_modal_layout(const UiSettingsLayoutTokens& tok
         l.sidebar = {l.modal.left, l.modal.top, l.modal.left + sidebar, l.modal.bottom};
         l.panel = {l.sidebar.right, l.modal.top, l.modal.right, l.modal.bottom};
         const float close_right = l.panel.right - 20;
-        l.close = ui_settings_close_rect(tokens, close_right - m.close_size * .5f, l.panel.top + 20);
+        // The ghost close button sits level with the 24/30 title.
+        l.close = ui_settings_close_rect(tokens, close_right - m.close_size * .5f, l.panel.top + m.panel_padding_top - 3);
         // Small windows halve the panel's side padding so the form keeps
         // room for a label beside its control.
         const float left = l.panel.left + (l.compact ? m.panel_padding_x * .5f : m.panel_padding_x);
         const float right_limit = l.close.left - 16;
-        l.column = {left, l.panel.top + m.panel_padding_top, maximum(left + 1, minimum(right_limit, left + m.panel_max_width)),
+        // Store pages take the room up to the close button (at most kUiSettingsWideMaximum).
+        const float column_width = wide ? kUiSettingsWideMaximum : m.panel_max_width;
+        l.column = {left, l.panel.top + m.panel_padding_top, maximum(left + 1, minimum(right_limit, left + column_width)),
                     l.panel.bottom};
         return l;
     }
@@ -302,11 +305,15 @@ bool ui_settings_scene_update(UiSettingsScene* scene, UiPageRegistry* registry, 
         return false;
     // Validate once before touching retained state, then reuse the same geometry.
     const SceneTokens tokens(*scene);
-    const auto layout = ui_settings_modal_layout(tokens, viewport, scene->presentation);
+    const auto layout = ui_settings_modal_layout(tokens, viewport, scene->presentation, content.wide);
     const float width = maximum(1.f, ui_rect_width(layout.column));
+    // Markdown blocks live only while their page is shown.
+    if (changed_page)
+        ui_markdown_bank_release(&scene->markdown);
+    const auto context = row_context(*scene);
     float rows = 0;
     for (u32 i = 0; i < content.controls.count; ++i) {
-        rows += row_layout(tokens, style, content, i, 0, 0, width).height;
+        rows += row_layout(tokens, style, content, i, 0, 0, width, context).height;
         if (rows > kMaximumUiCoordinate - 8192)
             return false;
     }
@@ -370,12 +377,41 @@ void ui_settings_scene_release(UiSettingsScene* scene) noexcept {
     const u64 page_generation = scene->page_generation;
     const auto presentation = scene->presentation;
     const u64 opens = scene->opens;
+    const auto* measure = scene->measure;
     ui_fixed_widget_storage_release(&scene->storage);
+    ui_markdown_bank_release(&scene->markdown);
     reset_value(scene);
     scene->revision = revision;
     scene->page_generation = page_generation;
     scene->presentation = presentation;
     scene->opens = opens;
+    scene->measure = measure;
+}
+bool ui_settings_scene_bind_measure(UiSettingsScene* scene, const UiKitMeasure* measure) noexcept {
+    if (!scene || scene->measure == measure)
+        return false;
+    scene->measure = measure;
+    scene->layout_signature = 0;
+    return true;
+}
+bool ui_settings_scene_set_scrollbar_state(UiSettingsScene* scene, bool sidebar, u8 state) noexcept {
+    if (!scene || state > 2 || scene->scrollbar_state[sidebar ? 0 : 1] == state)
+        return false;
+    scene->scrollbar_state[sidebar ? 0 : 1] = state;
+    ++scene->motion_revision;
+    return true;
+}
+bool ui_settings_scene_host_rect(const UiSettingsScene& scene, UiRect* page, UiRect* clip) noexcept {
+    if (!current(scene) || !scene.content.host)
+        return false;
+    const auto* node = ui_widget_manager_layout_node(scene.widgets, scene.body);
+    if (!node)
+        return false;
+    if (page)
+        *page = {scene.layout.column.left, node->rectangle.top, scene.layout.column.right, node->rectangle.bottom};
+    if (clip)
+        *clip = ui_rect_overlap(node->rectangle, node->clip_rectangle);
+    return true;
 }
 UiSettingsTarget ui_settings_scene_hit_test(const UiSettingsScene& scene, float x, float y) noexcept {
     if (!current(scene))
@@ -405,6 +441,9 @@ bool ui_settings_scene_reveal(UiSettingsScene* scene, const UiSettingsTarget& ta
     if (target.kind == UiSettingsTargetKind::page || target.kind == UiSettingsTargetKind::action) {
         float height = 0;
         const float top = nav_offset_of(*scene, m, target, &height);
+        // Pinned pages stand in the foot and are always in view.
+        if (top == -2)
+            return true;
         if (top < 0)
             return false;
         const float previous = scene->sidebar_offset;
@@ -593,7 +632,8 @@ bool ui_settings_scene_activation(const UiSettingsScene& scene, const UiSettings
     activation->selected_choice = c.selected_choice;
     const u32 count = c.choices.count;
     // Button groups and colour swatches press their first option.
-    if (c.kind == UiSettingsControlKind::buttons || c.kind == UiSettingsControlKind::colors) {
+    if (c.kind == UiSettingsControlKind::buttons || c.kind == UiSettingsControlKind::colors ||
+        c.kind == UiSettingsControlKind::empty) {
         activation->selected_choice = c.selected_choice < count ? c.selected_choice : 0;
         return count != 0;
     }
@@ -793,7 +833,9 @@ bool ui_settings_scene_button_hit(const UiSettingsScene& scene, const UiSettings
                ui_rect_contains(ui_rect_overlap(row.value, clip), x, y);
     }
     UiSettingsControlGeometry geometry{};
-    return c && (c->kind == UiSettingsControlKind::notice || c->kind == UiSettingsControlKind::action) &&
+    return c && (c->kind == UiSettingsControlKind::notice || c->kind == UiSettingsControlKind::action ||
+                 c->kind == UiSettingsControlKind::status || c->kind == UiSettingsControlKind::footnote ||
+                 c->kind == UiSettingsControlKind::markdown) &&
            ui_settings_scene_control_geometry(scene, target, &geometry) && ui_rect_contains(geometry.clip, x, y);
 }
 namespace {
@@ -835,7 +877,7 @@ bool ui_settings_scene_option_pointer(const UiSettingsScene& scene, const UiSett
     const bool tristate = has_flag(scene.content, index, ui_settings_presentation_tristate);
     const u32 choice = c->kind == UiSettingsControlKind::segments
                            ? (tristate ? ui_tristate_hit(t, geometry.field, x, y)
-                                       : ui_segments_hit(t, geometry.field, c->choices.count, x, y))
+                                       : ui_segmented_hit(t, geometry.field, c->choices.count, x, y))
                        : c->kind == UiSettingsControlKind::swatches
                            ? ui_color_grid_hit(t, geometry.field, c->choices.count, x, y)
                            : option_hit(t, *c, geometry.field, x, y);
@@ -864,7 +906,7 @@ bool ui_settings_scene_choice_rectangle(const UiSettingsScene& scene, const UiSe
     if (!output || !c || choice >= c->choices.count ||
         (c->kind != UiSettingsControlKind::radio && c->kind != UiSettingsControlKind::segments &&
          c->kind != UiSettingsControlKind::tabs && c->kind != UiSettingsControlKind::buttons &&
-         c->kind != UiSettingsControlKind::colors) ||
+         c->kind != UiSettingsControlKind::colors && c->kind != UiSettingsControlKind::empty) ||
         !ui_settings_scene_control_geometry(scene, target, &geometry))
         return false;
     const SceneTokens t(scene);
@@ -872,7 +914,7 @@ bool ui_settings_scene_choice_rectangle(const UiSettingsScene& scene, const UiSe
     *output = c->kind == UiSettingsControlKind::radio ? ui_radio_option(t, geometry.field, choice)
               : c->kind == UiSettingsControlKind::segments
                   ? (tristate ? ui_tristate_option(t, geometry.field, choice)
-                              : ui_segments_option(t, geometry.field, c->choices.count, choice))
+                              : ui_segmented_option(t, geometry.field, c->choices.count, choice))
                   : option_rect(t, *c, geometry.field, choice);
     return ui_rect_has_area(*output);
 }
@@ -1016,7 +1058,8 @@ bool ui_settings_scene_spinner_visible(const UiSettingsScene& scene) noexcept {
         return false;
     for (u32 i = 0; i < scene.content.controls.count; ++i) {
         const auto& c = scene.content.controls[i];
-        if (c.kind == UiSettingsControlKind::notice && c.checked)
+        if ((c.kind == UiSettingsControlKind::notice && c.checked) || (c.kind == UiSettingsControlKind::status && c.checked) ||
+            (scene.content.meters && scene.content.meters[i] == kUiSettingsIndeterminateMeter))
             return true;
     }
     return false;

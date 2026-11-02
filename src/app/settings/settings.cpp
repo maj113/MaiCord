@@ -12,10 +12,10 @@
 #include "../shell/input.hpp"
 #include "../media/image_zoom.hpp"
 #include "../chat/composer/attachments.hpp"
-#include "../plugins/browser.hpp"
 #include "../account/friends.hpp"
 #include "../notifications/notifications.hpp"
 #include "theme_editor.hpp"
+#include "../store/store_host.hpp"
 #include "../chat/composer/text_edit_keys.hpp"
 #include "user_settings.hpp"
 #include "account_settings.hpp"
@@ -511,6 +511,12 @@ bool application_settings_resume() noexcept {
     renderer_set_settings_modal_progress(&g_app.renderer, 1);
     return true;
 }
+UiSettingsScene* application_settings_scene() noexcept {
+    return g_app.settings && g_app.settings->scene.active ? &g_app.settings->scene : nullptr;
+}
+bool application_settings_select_page(UiPageKey page) noexcept {
+    return g_app.settings && ui_page_registry_select(&g_app.settings->registry, page).ok() && refresh();
+}
 void application_settings_close(bool restore_focus) noexcept {
     application_custom_theme_cancel_interaction();
     if (application_channel_overview_active()) {
@@ -521,6 +527,7 @@ void application_settings_close(bool restore_focus) noexcept {
     if (application_theme_editor_active())
         return;
     close_choice();
+    application_store_visible(false, CatalogKind::plugin);
     auto* settings = g_app.settings;
     if (!settings || !settings->scene.active)
         return;
@@ -666,6 +673,7 @@ bool application_settings_synchronize() noexcept {
         return recover_rejected_page(*settings);
     const u64 now = clock_monotonic_milliseconds();
     bool animating = ui_settings_scene_tick(&settings->scene, now, g_app.preferences.reduced_motion);
+    animating = application_store_synchronize(&settings->scene) || animating;
     if (settings->scene.flash_control) {
         const auto timing = ui_settings_layout_tokens(application_theme().styles).duration;
         const u64 elapsed = now - settings->flash_started_ms;
@@ -739,6 +747,7 @@ bool application_settings_plugin_catalog_reopen() noexcept {
     return ui_page_registry_select(&g_app.settings->registry, {kNativeSettingsOwner, kPluginsPage}).ok() && refresh();
 }
 void application_settings_release() noexcept {
+    application_store_release();
     application_theme_editor_release();
     application_channel_overview_release();
     application_settings_close(false);
@@ -760,7 +769,6 @@ void application_settings_release() noexcept {
     }
     renderer_bind_settings_scene(&g_app.renderer, nullptr);
     ui_settings_scene_release(&settings->scene);
-    application_plugin_browser_settings_released();
     if (!release_plugin_page(*settings)) {
         log_write(LogLevel::error, "plugins", "settings_projection_release_pending");
         return;

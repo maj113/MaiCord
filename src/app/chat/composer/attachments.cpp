@@ -258,7 +258,7 @@ void application_sync_attachment_drop_target() noexcept {
     const auto* state = g_app.attachments;
     const bool enabled = can_attach() && (!state || (!state->picker.runtime &&
         message_attachment_drafts_channel(&state->drafts, g_app.account_ui->active_channel_id, {}) < kAttachmentUploadMaximumCount));
-    set_drop_registration(enabled);
+    set_drop_registration(enabled || g_install_drop_wanted);
 }
 bool application_drop_attachments(HANDLE drop) noexcept {
     if (!drop) return true;

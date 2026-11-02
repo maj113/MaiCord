@@ -24,7 +24,7 @@
 #include "../guild/channel_overview.hpp"
 #include "../guild/settings/settings.hpp"
 #include "../update/updates.hpp"
-#include "../plugins/browser.hpp"
+#include "../plugins/catalog_service.hpp"
 #include "../account/friends.hpp"
 #include "../chat/composer/text_form.hpp"
 #include "../chat/threads/forum_form.hpp"
@@ -51,6 +51,7 @@
 #include "../settings/settings.hpp"
 #include "../settings/custom_theme.hpp"
 #include "../plugins/plugins.hpp"
+#include "../packages/packages.hpp"
 #include "scrolling.hpp"
 #include "../chat/read_state.hpp"
 #include "ui_runtime.hpp"
@@ -289,7 +290,7 @@ int application_run() noexcept {
     application_request_frame();
 #if !defined(MAICORD_ISOLATED_MAIN) && !defined(MAICORD_STARTUP_PROBE)
     application_updates_initialize(application_update_build_config(), application_update_build_commit());
-    application_plugin_browser_initialize();
+    application_catalog_initialize_default();
 #endif
 
 #if !defined(MAICORD_ISOLATED_MAIN)
@@ -314,7 +315,7 @@ int application_run() noexcept {
         application_downloads_pump();
         application_account_logout_pump();
         application_account_switch_pump();
-        HANDLE wait_handles[kAccountHostNotificationHandleCapacity + 15];
+        HANDLE wait_handles[kAccountHostNotificationHandleCapacity + 17];
         const u32 account_handle_count =
             application_account_logout_blocked()
                 ? 0
@@ -338,7 +339,9 @@ int application_run() noexcept {
         push_handle(application_account_logout_notification());
         push_handle(application_account_switch_notification());
         push_handle(application_updates_notification());
-        push_handle(application_plugin_browser_notification());
+        push_handle(application_catalog_notification());
+        push_handle(application_catalog_http_notification());
+        push_handle(application_packages_notification());
         const u32 video_handle_index = wait_handle_count;
         if (!application_account_logout_blocked())
             push_handle(application_call_video_notification());
@@ -381,6 +384,7 @@ int application_run() noexcept {
             timeout = minimum(timeout, application_forum_attachments_wait_timeout(wait_now_ms));
         }
         timeout = minimum(timeout, application_plugins_wait_timeout(wait_now_ms));
+        timeout = minimum(timeout, application_catalog_wait_timeout(wait_now_ms));
         if (retained_frame_permit)
             timeout = 0;
         if (frame_handle_index != 0xFFFFFFFFu) {
@@ -435,7 +439,8 @@ int application_run() noexcept {
         application_media_auth_poll();
         application_custom_theme_poll();
         application_plugins_poll();
-        application_plugin_browser_poll();
+        application_catalog_poll();
+        application_packages_poll();
         application_downloads_pump();
         if (application_updates_poll() && g_app.window) {
             // An update restart closes for real, never to the tray.
@@ -752,7 +757,7 @@ int application_run() noexcept {
     application_media_auth_shutdown();
     // After Restart to update, a normal exit swaps in the update this process verified.
     application_updates_release(exit_code == 0);
-    application_plugin_browser_release();
+    application_catalog_release();
     application_notifications_prepare_shutdown(&g_app);
     application_tooltip_release();
     application_unread_banner_release();
@@ -776,6 +781,7 @@ int application_run() noexcept {
     application_release_account_ui(g_app);
     application_release_login_ui();
     application_release_widget_storage(g_app);
+    application_packages_release();
     if (!application_custom_theme_release(kAccountStopTimeoutMs))
         log_write(LogLevel::warning, "theme", "theme_worker_shutdown_pending");
     message_composer_release(&g_app.message_composer);

@@ -7,6 +7,8 @@
 #include "maicord/app/update/log.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/platform/crypto/random.hpp"
+#include "maicord/ui/text/timestamp_format.hpp"
+#include "maicord/ui/widgets/icon.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_process_launch.hpp"
@@ -37,12 +39,13 @@ struct Worker {
     bool check_requested, channel_requested, interval_requested, ready_requested, restart, quit;
     UpdateChangelogDownload download; // worker thread
     UpdateChangelog published;        // guarded by lock
-    ApplicationUpdatesChangelogRows rows; // UI thread
     ApplicationUpdatesSettingsBank bank;  // UI thread
 };
 Worker* g_worker;
 ApplicationUpdatesView g_view;
-ApplicationUpdatesText g_text[6];
+ApplicationUpdatesText g_text[4];
+// The page's What's new rows; allocated while the Updates page is shown.
+ApplicationUpdatesChangelogRows* g_rows;
 u64 g_seen_revision;
 bool g_quit_reported, g_ready_reported;
 // The executable a Restart starts once the exit swapped it; empty otherwise.
@@ -76,37 +79,56 @@ void set_state(Worker* w, State state, UpdateServiceError error = UpdateServiceE
         if (c.s != State::downloading && c.s != State::installing) worker->view.received = worker->view.total = 0;
     }, &c);
 }
-// Under the lock: forget the offer and its changelog.
+// Under the lock: forget the offer.
 void clear_offer(Worker* w) noexcept {
     auto& v = w->view;
-    if (v.offer_version || w->published.version) ++v.changelog_revision;
     v.offer_version = v.offer_bytes = v.offer_date = 0;
     clear_bytes(v.offer_commit, sizeof(v.offer_commit));
-    w->published.version = 0; w->published.count = 0; w->published.text_bytes = 0;
 }
-// Worker: a verified newer offer, before admission and download.
-void offered(void* context, const UpdateManifest& manifest, const UpdateChangelog* changelog) noexcept {
-    struct C { const UpdateManifest* m; const UpdateChangelog* log; } c{&manifest, changelog};
+// Under the lock: the changelog the page shows; null forgets it.
+void set_changelog(Worker* w, const UpdateChangelog* log) noexcept {
+    auto& v = w->view;
+    auto& out = w->published;
+    if (!log) {
+        if (out.version) ++v.changelog_revision;
+        out.version = out.count = out.text_bytes = 0;
+        return;
+    }
+    if (out.version == log->version && out.channel == log->channel) return;
+    out.version = log->version; out.base = log->base; out.channel = log->channel;
+    out.count = log->count; out.text_bytes = log->text_bytes;
+    copy_bytes(out.entries, log->entries, log->count * static_cast<u32>(sizeof(log->entries[0])));
+    copy_bytes(out.text, log->text, log->text_bytes);
+    ++v.changelog_revision;
+}
+// Worker: the cached changelog of the channel the page shows, before any check.
+void publish_cached(Worker* w, UpdateChannel channel) noexcept {
+    const UpdateChangelog* log = update_service_cached_changelog(&w->service, channel);
+    if (!log) return;
+    publish(w, [](Worker* worker, void* p) noexcept {
+        if (worker->view.channel == static_cast<const UpdateChangelog*>(p)->channel)
+            set_changelog(worker, static_cast<const UpdateChangelog*>(p));
+    }, const_cast<UpdateChangelog*>(log));
+}
+// Worker: the channel's verified manifest, with the changelog the service
+// holds for it, before admission and download.
+void verified(void* context, const UpdateManifest& manifest, const UpdateChangelog* changelog, bool newer) noexcept {
+    struct C { const UpdateManifest* m; const UpdateChangelog* log; bool newer; } c{&manifest, changelog, newer};
     publish(static_cast<Worker*>(context), [](Worker* worker, void* p) noexcept {
         const auto& c = *static_cast<C*>(p);
         auto& v = worker->view;
-        auto& out = worker->published;
+        if (c.log) set_changelog(worker, c.log);
+        if (!c.newer) return;
         clear_offer(worker);
         v.offer_version = c.m->version; v.offer_bytes = c.m->artifact_bytes;
-        if (const auto* log = c.log) {
-            out.version = log->version; out.base = log->base; out.channel = log->channel;
-            out.count = log->count; out.text_bytes = log->text_bytes;
-            copy_bytes(out.entries, log->entries, log->count * static_cast<u32>(sizeof(log->entries[0])));
-            copy_bytes(out.text, log->text, log->text_bytes);
-            for (u32 i = 0; i < log->count; ++i) {
-                const auto& entry = log->entries[i];
-                if (entry.version != log->version) continue;
-                v.offer_date = entry.date_unix_seconds;
-                if (entry.has_commit) copy_bytes(v.offer_commit, entry.commit, kApplicationUpdatesCommitChars);
-                break;
-            }
+        if (!c.log) return;
+        for (u32 i = 0; i < c.log->count; ++i) {
+            const auto& entry = c.log->entries[i];
+            if (entry.version != c.m->version) continue;
+            v.offer_date = entry.date_unix_seconds;
+            if (entry.has_commit) copy_bytes(v.offer_commit, entry.commit, kApplicationUpdatesCommitChars);
+            break;
         }
-        ++v.changelog_revision;
     }, &c);
 }
 // Wraps the HTTPS transport to report download progress at a bounded rate.
@@ -151,11 +173,12 @@ u64 run_check(Worker* w, UpdateChannel channel) noexcept {
     if (result.outcome == UpdateCheckOutcome::failed && !staged) {
         set_state(w, result.error == UpdateServiceError::rate_limited ? State::rate_limited : State::error, result.error);
     } else {
-        struct C { const UpdateCheckResult* r; u64 staged; } c{&result, staged};
+        struct C { const UpdateCheckResult* r; u64 staged, now; } c{&result, staged, now_unix()};
         publish(w, [](Worker* worker, void* p) noexcept {
             const auto& c = *static_cast<C*>(p);
             auto& v = worker->view;
             v.error = UpdateServiceError::none; v.received = v.total = 0;
+            if (c.r->outcome != UpdateCheckOutcome::failed) v.checked_unix = c.now;
             const bool ready = c.r->outcome == UpdateCheckOutcome::ready || c.staged;
             v.state = ready ? State::ready : State::up_to_date;
             if (c.r->outcome == UpdateCheckOutcome::ready) v.ready_version = c.r->version;
@@ -172,6 +195,7 @@ DWORD WINAPI worker_main(void* parameter) noexcept {
     auto* w = static_cast<Worker*>(parameter);
     auto& schedule = w->schedule;
     schedule.next_unix = now_unix() + kFallbackCheckDelaySeconds + random32() % kFallbackCheckJitterSeconds;
+    publish_cached(w, w->view.channel);
     for (;;) {
         const u64 now = now_unix();
         const DWORD timeout = update_schedule_due(schedule, now) ? 0
@@ -186,7 +210,10 @@ DWORD WINAPI worker_main(void* parameter) noexcept {
         const UpdateCheckInterval interval = w->view.interval;
         w->check_requested = w->channel_requested = w->interval_requested = w->ready_requested = false;
         ReleaseSRWLockExclusive(w->lock.native());
-        if (channel_changed) update_channel_save(w->paths, channel);
+        if (channel_changed) {
+            update_channel_save(w->paths, channel);
+            publish_cached(w, channel);
+        }
         if (ready && !schedule.checked_unix)
             schedule.next_unix = minimum(schedule.next_unix, update_first_check(now_unix(), random32()));
         if (interval_changed) {
@@ -238,136 +265,175 @@ u32 application_updates_offer_label(const ApplicationUpdatesView& v, Slice<char>
     return version ? update_build_version_text(version, version == v.offer_version ? commit_of(v.offer_commit) : Utf8View{}, output) : 0;
 }
 
-bool application_updates_project_view(const ApplicationUpdatesView& v, SettingBinding binding, ApplicationUpdatesText* text,
-    UiSettingsControl* control, UiSettingsControlPresentation* presentation, u16* meter) noexcept {
-    if (!text || !control || !presentation) return false;
-    if (meter) *meter = kUiSettingsNoMeter;
-    TextBank label{text->label, sizeof(text->label), 0};
-    TextBank description{text->description, sizeof(text->description), 0};
-    const bool disabled = v.state == State::disabled;
-    const bool busy = busy_state(v.state);
-    const bool failed = v.state == State::error || v.state == State::rate_limited;
+namespace {
+constexpr u8 icon_of(UiIcon icon) noexcept { return static_cast<u8>(static_cast<u8>(icon) + 1); }
+// "Today at 2:02 PM" reads "today at 2:02 PM" inside a sentence.
+void add_when(TextBank& t, u64 unix_seconds, u64 now) noexcept {
+    char when[64];
+    const auto formatted = format_timestamp_calendar(unix_seconds, now, {when, sizeof(when)});
+    if (!formatted.ok || !formatted.bytes) return add_date(t, unix_seconds, true);
+    if (formatted.bytes > 9 && (bytes_equal(when, "Today at ", 9) || bytes_equal(when, "Yesterday at ", 13)))
+        when[0] = static_cast<char>(when[0] + 32);
+    t.add({when, formatted.bytes});
+}
+// "MaiCord 0.5.4 · Stable channel"
+void add_identity(TextBank& t, const ApplicationUpdatesView& v) noexcept {
+    t.add("MaiCord "); add_build(t, v.own_version, own_commit(v));
+    t.add(v.channel == UpdateChannel::preview ? utf8_literal(" · Preview channel") : utf8_literal(" · Stable channel"));
+}
+void add_checked(TextBank& t, const ApplicationUpdatesView& v, u64 now, bool past) noexcept {
+    t.add(" · ");
+    if (!v.checked_unix) { t.add("Not checked yet"); return; }
+    t.add(past ? utf8_literal("Checked ") : utf8_literal("Last checked "));
+    add_when(t, v.checked_unix, now);
+}
+void set_chip_tone(UiSettingsControlPresentation* presentation, u32 chip, UiSettingsChipTone tone) noexcept {
+    presentation->chip_tones = static_cast<u16>(presentation->chip_tones | static_cast<u32>(tone) << (chip * 2));
+}
+// The status card: one state, one action.
+void project_status(const ApplicationUpdatesView& v, u64 now, ApplicationUpdatesText* text, UiSettingsControl* control,
+    UiSettingsControlPresentation* presentation, u16* meter) noexcept {
+    TextBank title{text->label, sizeof(text->label), 0};
+    TextBank meta{text->description, sizeof(text->description), 0};
+    TextBank caption{text->detail, sizeof(text->detail), 0};
     const u64 offer = offered_version(v);
-    switch (binding) {
-    case SettingBinding::update_status: {
-        description.add("MaiCord "); add_build(description, v.own_version, own_commit(v));
-        description.add(disabled ? utf8_literal(".") : v.channel == UpdateChannel::preview ? utf8_literal(", preview channel.")
-                                                                                            : utf8_literal(", stable channel."));
-        control->action_label = utf8_literal("Check now");
-        control->enabled = !busy && !disabled;
-        switch (v.state) {
-        case State::disabled:
-            label.add("Updates aren't configured for this build");
-            description.add(" Download new versions manually.");
-            control->kind = UiSettingsControlKind::notice; reset_value(&control->action_label);
-            break;
-        case State::idle: label.add("Check for updates"); break;
-        case State::checking: label.add("Checking for updates…"); break;
-        case State::downloading:
-            label.add("Downloading update");
-            if (v.total) { label.add(" "); label.number(minimum<u64>(100, v.received * 100 / v.total)); label.add("%"); }
-            break;
-        case State::installing: label.add("Verifying update…"); break;
-        case State::up_to_date: label.add("You're up to date"); break;
-        case State::ready:
-            label.add("Update ready");
-            description.used = 0;
-            description.add("MaiCord "); add_build(description, v.ready_version);
-            description.add(" installs when you choose Restart to update. Until then, closing MaiCord keeps this version.");
-            control->action_label = utf8_literal("Restart to update");
-            presentation->variant = UiSettingsVariant::primary;
-            break;
-        case State::restarting: label.add("Restarting…"); control->action_label = utf8_literal("Restart to update"); break;
-        case State::error:
-        case State::rate_limited:
-            label.add(v.state == State::rate_limited ? utf8_literal("Couldn't check for updates") : utf8_literal("Couldn't update"));
-            control->action_label = utf8_literal("Try again");
-            break;
-        }
-        if (busy) {
-            // Work in progress reads as a status notice with the loading spinner.
-            control->kind = UiSettingsControlKind::notice; control->checked = true;
-            reset_value(&control->action_label); control->enabled = true;
-        }
-        control->label = label.view(); control->description = description.view();
-        return true;
+    control->kind = UiSettingsControlKind::status;
+    control->enabled = true; control->checked = false;
+    reset_value(&control->choices); reset_value(&control->action_label);
+    presentation->variant = UiSettingsVariant::standard; presentation->more = 0; presentation->chip_tones = 0;
+    UiIcon icon = UiIcon::download;
+    switch (v.state) {
+    case State::disabled:
+        icon = UiIcon::info;
+        title.add("Updates aren't configured for this build");
+        meta.add("MaiCord "); add_build(meta, v.own_version, own_commit(v)); meta.add(". Download new versions manually.");
+        control->enabled = false;
+        break;
+    case State::idle:
+    case State::checking:
+    case State::up_to_date: {
+        const bool checking = v.state == State::checking, current = v.state == State::up_to_date;
+        if (current) { icon = UiIcon::circle_check; presentation->variant = UiSettingsVariant::positive; }
+        title.add(checking ? utf8_literal("Checking for updates…") : current ? utf8_literal("You're up to date")
+                                                                            : utf8_literal("Check for updates"));
+        add_identity(meta, v); add_checked(meta, v, now, current);
+        control->action_label = checking ? utf8_literal("Checking…") : utf8_literal("Check now");
+        control->enabled = !checking; control->checked = checking;
+        if (checking && meter) *meter = kUiSettingsIndeterminateMeter;
+        break;
     }
-    case SettingBinding::update_problem:
-        if (!failed) return false;
-        control->kind = UiSettingsControlKind::notice;
-        reset_value(&control->label);
-        control->description = description.add(update_service_error_text(v.error));
-        reset_value(&control->action_label);
-        presentation->variant = UiSettingsVariant::critical;
-        return control->description.bytes != 0;
-    case SettingBinding::update_available: {
-        if (disabled || !offer) return false;
-        label.add("MaiCord ");
-        char t[40];
-        label.add({t, application_updates_offer_label(v, {t, sizeof(t)})});
-        const bool preview = update_version_channel(offer) == UpdateChannel::preview;
-        switch (v.state) {
-        case State::downloading:
-            description.add("Downloading ");
-            if (v.total) { add_size(description, v.received); description.add(" of "); add_size(description, v.total); }
-            description.add("…");
-            if (meter && v.total) *meter = static_cast<u16>(minimum<u64>(1000, v.received * 1000 / v.total));
-            break;
-        case State::installing:
-            description.add("Checking the download…");
-            if (meter) *meter = 1000;
-            break;
-        case State::ready:
-        case State::restarting:
-            description.add("Downloaded and verified. It installs when you choose Restart to update.");
-            break;
-        case State::error:
-        case State::rate_limited:
-            description.add("Not installed yet. MaiCord tries again on the next check.");
-            break;
-        default:
-            description.add("Signed by the MaiCord publisher.");
-            break;
+    case State::downloading: {
+        presentation->variant = UiSettingsVariant::primary;
+        title.add("Downloading MaiCord "); add_build(title, offer);
+        TextBank action{text->chip_text, sizeof(text->chip_text), 0};
+        action.add("Downloading");
+        if (v.total) {
+            action.add(" "); action.number(minimum<u64>(100, v.received * 100 / v.total)); action.add("%");
+            add_size(meta, v.received); meta.add(" of "); add_size(meta, v.total);
+            if (meter) *meter = static_cast<u16>(minimum<u64>(1000, v.received * 1000 / v.total));
+        } else {
+            meta.add("Starting…");
+        }
+        control->action_label = action.view(); control->enabled = false;
+        presentation->more = ui_settings_more_progress_button;
+        break;
+    }
+    case State::installing:
+        presentation->variant = UiSettingsVariant::primary;
+        title.add("Verifying the update…");
+        meta.add("MaiCord "); add_build(meta, offer);
+        control->action_label = utf8_literal("Verifying…"); control->enabled = false; control->checked = true;
+        if (meter) *meter = 1000;
+        break;
+    case State::ready:
+    case State::restarting: {
+        const bool restarting = v.state == State::restarting;
+        const u64 version = v.ready_version > v.own_version ? v.ready_version : offer;
+        const bool built = update_version_channel(version) == UpdateChannel::preview;
+        presentation->variant = UiSettingsVariant::primary;
+        if (restarting) title.add("Restarting…");
+        else if (built) { title.add("Preview build "); add_build(title, version); title.add(" is ready"); }
+        else { title.add("MaiCord "); add_build(title, version); title.add(" is ready to install"); }
+        // The date, commit and size belong to the offer when it is this version.
+        const bool described = version == v.offer_version;
+        meta.add("Installed: "); add_build(meta, v.own_version, own_commit(v)); meta.add(" · Downloaded and verified");
+        if (described && v.offer_date) {
+            meta.add(built ? utf8_literal(" · Built ") : utf8_literal(" · Released "));
+            add_date(meta, v.offer_date, true);
         }
         TextBank chips{text->chip_text, sizeof(text->chip_text), 0};
         u32 count = 0;
-        text->chips[count++] = chips.add(preview ? utf8_literal("Preview build") : utf8_literal("Stable release"));
-        if (offer == v.offer_version && v.offer_date) {
-            const u32 start = chips.used;
-            chips.add(preview ? utf8_literal("Built ") : utf8_literal("Released "));
-            add_date(chips, v.offer_date, true);
-            text->chips[count++] = chips.since(start);
-        }
-        if (offer == v.offer_version && v.offer_bytes) {
+        text->chips[count++] = chips.add(built ? utf8_literal("Preview build") : utf8_literal("Stable release"));
+        if (described && built && v.offer_commit[0]) text->chips[count++] = chips.add({v.offer_commit, kApplicationUpdatesCommitChars});
+        if (described && v.offer_bytes) {
             const u32 start = chips.used;
             add_size(chips, v.offer_bytes);
             text->chips[count++] = chips.since(start);
-        }
+            add_size(caption, v.offer_bytes); caption.add(" · takes a few seconds");
+        } else caption.add("Takes a few seconds");
+        set_chip_tone(presentation, count, ui_settings_chip_positive);
         text->chips[count++] = chips.add("Signature verified");
-        control->label = label.view(); control->description = description.view();
         control->choices = {text->chips, count};
-        reset_value(&control->action_label);
-        control->enabled = true;
-        return true;
+        control->action_label = restarting ? utf8_literal("Restarting…") : utf8_literal("Restart to update");
+        control->enabled = !restarting; control->checked = restarting;
+        break;
     }
-    case SettingBinding::update_channel:
-        control->selected_choice = static_cast<u32>(v.channel);
-        control->choices = {channel_names, 2};
-        control->enabled = !busy;
-        if (v.channel == UpdateChannel::preview)
-            description.add(utf8_literal("Every master build that passes CI, often several a day. New features first; "
-                                         "expect rough edges."));
-        else {
-            description.add("Tested releases. Recommended for most people.");
-            if (update_version_channel(v.own_version) == UpdateChannel::preview)
-                description.add(" This preview build stays installed until a newer stable release comes out.");
-        }
-        control->description = description.view();
-        return !disabled;
-    case SettingBinding::update_interval:
+    case State::error:
+    case State::rate_limited:
+        icon = UiIcon::warning;
+        presentation->variant = UiSettingsVariant::critical;
+        title.add(v.state == State::rate_limited ? utf8_literal("Couldn't check for updates") : utf8_literal("Couldn't update"));
+        meta.add(update_service_error_text(v.error));
+        if (v.checked_unix) { meta.add(" · Last checked "); add_when(meta, v.checked_unix, now); }
+        control->action_label = utf8_literal("Try again");
+        break;
+    }
+    control->label = title.view(); control->description = meta.view(); control->detail = caption.view();
+    presentation->icon_plus_one = icon_of(icon);
+}
+// The Update settings rows.
+void project_setting(const ApplicationUpdatesView& v, SettingBinding binding, ApplicationUpdatesText* text,
+    UiSettingsControl* control) noexcept {
+    if (binding == SettingBinding::update_interval) {
         control->selected_choice = static_cast<u32>(v.interval);
         control->choices = {interval_names, kUpdateCheckIntervalCount};
         control->enabled = true;
+        return;
+    }
+    TextBank description{text->description, sizeof(text->description), 0};
+    control->selected_choice = static_cast<u32>(v.channel);
+    control->choices = {channel_names, 2};
+    control->enabled = !busy_state(v.state);
+    if (v.channel == UpdateChannel::preview)
+        description.add(utf8_literal("Every master build that passes CI, often several a day. New features first; expect rough edges."));
+    else {
+        description.add("Tested releases. Recommended for most people.");
+        if (update_version_channel(v.own_version) == UpdateChannel::preview)
+            description.add(" This preview build stays installed until a newer stable release comes out.");
+    }
+    control->description = description.view();
+}
+Utf8View first_line(Utf8View text) noexcept {
+    u32 bytes = 0;
+    while (bytes < text.bytes && text.data[bytes] != '\n') ++bytes;
+    return {text.data, bytes};
+}
+bool entry_bit(const u64 (&bits)[2], u32 entry) noexcept { return entry < 128 && (bits[entry >> 6] >> (entry & 63) & 1) != 0; }
+void flip_entry_bit(u64 (&bits)[2], u32 entry) noexcept { if (entry < 128) bits[entry >> 6] ^= u64{1} << (entry & 63); }
+} // namespace
+
+bool application_updates_project_view(const ApplicationUpdatesView& v, u64 now, SettingBinding binding, ApplicationUpdatesText* text,
+    UiSettingsControl* control, UiSettingsControlPresentation* presentation, u16* meter) noexcept {
+    if (!text || !control || !presentation) return false;
+    if (meter) *meter = kUiSettingsNoMeter;
+    const bool disabled = v.state == State::disabled;
+    switch (binding) {
+    case SettingBinding::update_status:
+        project_status(v, now, text, control, presentation, meter);
+        return true;
+    case SettingBinding::update_channel:
+    case SettingBinding::update_interval:
+        project_setting(v, binding, text, control);
         return !disabled;
     case SettingBinding::update_notice:
         return !disabled;
@@ -379,98 +445,179 @@ bool application_updates_project_view(const ApplicationUpdatesView& v, SettingBi
 void application_updates_changelog_build(const ApplicationUpdatesView& v, const UpdateChangelog& log,
     ApplicationUpdatesChangelogRows* out) noexcept {
     if (!out) return;
-    out->count = 0; reset_value(&out->heading); out->built = true;
-    out->built_revision = v.changelog_revision; out->built_own = v.own_version; out->built_offer = v.offer_version;
+    out->count = 0; reset_value(&out->note); out->built = true;
+    const u64 own = v.own_version, offer = offered_version(v);
+    out->built_revision = v.changelog_revision; out->built_own = own; out->built_offer = offer; out->built_stamp = out->stamp;
     out->bank = {out->text, sizeof(out->text), 0};
-    out->preview = log.channel == UpdateChannel::preview;
-    if (!log.version || log.version != v.offer_version || log.version <= v.own_version) return;
+    // The choices belong to one changelog version: a new one starts over.
+    if (out->state_version != log.version) {
+        out->state_version = log.version;
+        out->flipped[0] = out->flipped[1] = out->unclipped[0] = out->unclipped[1] = 0;
+        out->older_open = out->more_open = false;
+    }
+    // An offer is described only by the changelog of its own version.
+    if (!log.version || !log.count || (offer && log.version != offer)) return;
     TextBank& bank = out->bank;
+    const bool preview = log.channel == UpdateChannel::preview;
+    // A build newer than the published notes (a local or unpublished build)
+    // shows the feed's newest entry only.
+    const bool ahead = own > log.version;
+    const u32 limit = ahead ? 1 : log.count;
+    const u32 room = kApplicationUpdatesChangelogRows - 2;
+    const auto add = [&](UiSettingsControlKind kind, u32 id, Utf8View label, Utf8View description, Utf8View detail,
+                         UiSettingsVariant tone, bool checked, u8 more) noexcept {
+        out->rows[out->count++] = {label, description, detail, kind, tone, more, static_cast<u8>(id), checked};
+    };
     {
         const u32 start = bank.used;
-        bank.add("What's new since ");
-        add_build(bank, v.own_version, own_commit(v));
-        out->heading = bank.since(start);
+        if (ahead) bank.add("newer than the published notes");
+        else if (own < log.version) {
+            if (preview) {
+                u32 newer = 0;
+                for (u32 i = 0; i < log.count; ++i) newer += log.entries[i].version > own;
+                bank.number(newer); bank.add(newer == 1 ? utf8_literal(" change since ") : utf8_literal(" changes since "));
+            } else bank.add("since ");
+            add_build(bank, own);
+        } else bank.add(preview ? utf8_literal("in the build you're running") : utf8_literal("in the version you're running"));
+        out->note = bank.since(start);
     }
-    u32 newer = 0;
-    for (u32 i = 0; i < log.count; ++i) newer += log.entries[i].version > v.own_version;
-    const u32 room = kApplicationUpdatesChangelogRows - 1;
-    u32 shown = 0;
-    for (u32 i = 0; i < log.count && out->count < room; ++i) {
-        const auto& entry = log.entries[i];
-        if (entry.version <= v.own_version) continue;
-        auto& row = out->rows[out->count++];
-        reset_value(&row);
-        row.commit = out->preview;
-        if (out->preview) {
-            const auto source = update_changelog_text(log, entry);
-            u32 bytes = 0;
-            while (bytes < source.bytes && source.data[bytes] != '\n') ++bytes;
-            if (!bytes) { --out->count; continue; }
-            row.label = bank.add({source.data, bytes});
-            const u32 start = bank.used;
-            add_date(bank, entry.date_unix_seconds, false);
-            row.column[0] = bank.since(start);
-        } else {
+    u32 hidden = 0, total = 0;
+    if (!preview) {
+        // One disclosure row per release, the newest open; the rest fold behind "N older releases".
+        u32 k = 0;
+        for (; k < limit; ++k) {
+            if (k == kApplicationUpdatesVisibleReleases) {
+                const u32 start = bank.used;
+                bank.number(limit - k); bank.add(limit - k == 1 ? utf8_literal(" older release") : utf8_literal(" older releases"));
+                add(UiSettingsControlKind::disclosure, kApplicationUpdatesRowOlder, bank.since(start), {}, {},
+                    UiSettingsVariant::standard, out->older_open, 0);
+                if (!out->older_open) break;
+            }
+            const auto& entry = log.entries[k];
+            const bool open = ((k == 0 && !ahead) != entry_bit(out->flipped, k));
+            if (out->count + (open ? 2u : 1u) > room) { hidden = limit - k; break; }
             const u32 start = bank.used;
             bank.add("MaiCord "); add_build(bank, entry.version);
-            if (entry.date_unix_seconds) { bank.add(" · "); add_date(bank, entry.date_unix_seconds, true); }
-            row.label = bank.since(start);
-            const u32 notes = bank.used;
-            bank.used += update_changelog_display_text(update_changelog_text(log, entry),
-                {bank.data + bank.used, bank.capacity - bank.used});
-            row.description = bank.since(notes);
+            const Utf8View label = bank.since(start);
+            Utf8View date{};
+            if (entry.date_unix_seconds) { const u32 d = bank.used; add_date(bank, entry.date_unix_seconds, true); date = bank.since(d); }
+            const bool fresh = entry.version > own, installed = entry.version == own;
+            add(UiSettingsControlKind::disclosure, k, label, date,
+                fresh ? utf8_literal("New") : installed ? utf8_literal("Installed") : Utf8View{},
+                fresh ? UiSettingsVariant::primary : UiSettingsVariant::positive, open, 0);
+            if (open)
+                add(UiSettingsControlKind::markdown, kApplicationUpdatesRowNotes + k, {}, bank.add(update_changelog_text(log, entry)),
+                    utf8_literal("Show all notes"), UiSettingsVariant::standard, entry_bit(out->unclipped, k), 0);
         }
-        ++shown;
+    } else {
+        // One plain row per commit with its build and date; a divider marks the installed build.
+        const u32 visible = out->more_open ? room : kApplicationUpdatesVisibleCommits;
+        bool divider = ahead;
+        u32 shown = 0;
+        for (u32 k = 0; k < limit; ++k) {
+            const auto& entry = log.entries[k];
+            const Utf8View subject = first_line(update_changelog_text(log, entry));
+            if (!subject.bytes) continue;
+            if (!divider && entry.version <= own) {
+                divider = true;
+                if (shown < visible) {
+                    const u32 start = bank.used;
+                    add_build(bank, own);
+                    add(UiSettingsControlKind::disclosure, kApplicationUpdatesRowInstalled, utf8_literal("Installed"), {},
+                        bank.since(start), UiSettingsVariant::positive, false, ui_settings_more_plain);
+                    ++shown;
+                }
+            }
+            ++total;
+            if (shown >= visible) { ++hidden; continue; }
+            const Utf8View copied = bank.add(subject);
+            const u32 build = bank.used;
+            bank.add("dev."); bank.number(entry.version % 1000);
+            const Utf8View chip = bank.since(build);
+            const u32 d = bank.used;
+            add_date(bank, entry.date_unix_seconds, false);
+            add(UiSettingsControlKind::disclosure, k, copied, bank.since(d), chip,
+                entry.version == offer ? UiSettingsVariant::primary : UiSettingsVariant::standard, false, ui_settings_more_plain);
+            ++shown;
+        }
+        // The installed build below every listed change.
+        if (!divider && !hidden && own >= log.base && shown < visible) {
+            const u32 start = bank.used;
+            add_build(bank, own);
+            add(UiSettingsControlKind::disclosure, kApplicationUpdatesRowInstalled, utf8_literal("Installed"), {}, bank.since(start),
+                UiSettingsVariant::positive, false, ui_settings_more_plain);
+        }
+        if (!ahead && !out->more_open && hidden) {
+            const u32 start = bank.used;
+            bank.add("Show "); bank.number(hidden); bank.add(" more");
+            add(UiSettingsControlKind::disclosure, kApplicationUpdatesRowMore, bank.since(start), {}, {}, UiSettingsVariant::standard,
+                false, 0);
+            hidden = 0;
+        } else if (!ahead && out->more_open && total > kApplicationUpdatesVisibleCommits)
+            add(UiSettingsControlKind::disclosure, kApplicationUpdatesRowMore, utf8_literal("Show fewer"), {}, {},
+                UiSettingsVariant::standard, true, 0);
     }
-    // Truncated lists and changelogs that start after this build say so.
+    // A truncated list, and changelogs that start after this build, say so.
     const u32 start = bank.used;
-    if (shown < newer) {
-        bank.number(newer - shown);
-        bank.add(out->preview ? utf8_literal(" earlier changes aren't shown.") : utf8_literal(" earlier releases aren't shown."));
-    } else if (v.own_version < log.base) {
-        bank.add("Changes up to ");
-        add_build(bank, log.base);
-        bank.add(" aren't listed here.");
+    if (hidden) {
+        bank.number(hidden);
+        bank.add(preview ? utf8_literal(" earlier changes aren't shown.") : utf8_literal(" earlier releases aren't shown."));
+    } else if (!ahead && own < log.base) {
+        bank.add("Changes up to "); add_build(bank, log.base); bank.add(" aren't listed here.");
     }
-    if (bank.used != start) out->rows[out->count++] = {{}, bank.since(start), {}, false};
+    if (bank.used != start)
+        add(UiSettingsControlKind::footnote, kApplicationUpdatesRowNote, bank.since(start), {}, {}, UiSettingsVariant::standard, false, 0);
 }
 
-bool application_updates_changelog_heading(const ApplicationUpdatesChangelogRows& rows, UiSettingsControl* control,
-    UiSettingsListItem* item) noexcept {
-    static const Utf8View date_column[]{utf8_literal("Date")};
-    if (!rows.built || !rows.heading.bytes || !rows.count || !control) return false;
-    control->label = rows.heading;
-    reset_value(&control->description);
+bool application_updates_changelog_heading(const ApplicationUpdatesChangelogRows& rows, UiSettingsControl* control) noexcept {
+    if (!rows.built || !rows.count || !control) return false;
     control->kind = UiSettingsControlKind::category;
-    if (rows.preview) control->choices = {date_column, 1};
-    if (item)
-        *item = rows.preview ? UiSettingsListItem{UiSettingsListStyle::header, UiIcon::count, UiIcon::count,
-                                                  {UiIcon::count, UiIcon::count}, false}
-                             : UiSettingsListItem{};
+    control->detail = rows.note;
     return true;
 }
 
 u32 application_updates_changelog_project(const ApplicationUpdatesChangelogRows& rows, Slice<UiSettingsControl> controls,
     Slice<UiSettingsControlPresentation> presentation) noexcept {
-    if (!rows.built || !rows.heading.bytes) return 0;
+    if (!rows.built) return 0;
     u32 count = 0;
     for (u32 i = 0; i < rows.count && count < controls.count && count < presentation.count; ++i) {
         const auto& row = rows.rows[i];
         auto& control = controls[count];
-        control = {settings_list_control_id(SettingBinding::update_changelog, i), row.label, row.description,
-                   UiSettingsControlKind::notice, true, false, {}, 0, {}, nullptr};
-        presentation[count] = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
-        if (row.commit) {
-            control.kind = UiSettingsControlKind::action;
-            control.choices = {row.column, row.column[0].bytes ? 1u : 0u};
-        }
+        control = {};
+        control.id = settings_list_control_id(SettingBinding::update_changelog, row.id);
+        control.kind = row.kind; control.enabled = true; control.checked = row.checked;
+        if (row.kind != UiSettingsControlKind::markdown) control.label = row.label;
+        control.description = row.description; control.detail = row.detail;
+        presentation[count] = {};
+        presentation[count].variant = row.tone; presentation[count].more = row.more;
+        presentation[count].default_choice = kUiSettingsNoDefault;
         ++count;
     }
     return count;
 }
-UiSettingsListItem application_updates_changelog_item(const ApplicationUpdatesChangelogRows& rows, u32 row) noexcept {
-    if (row >= rows.count || !rows.rows[row].commit) return {};
-    return {UiSettingsListStyle::row, UiIcon::code, UiIcon::count, {UiIcon::count, UiIcon::count}, false};
+
+bool application_updates_changelog_toggle(ApplicationUpdatesChangelogRows* rows, u32 id) noexcept {
+    if (!rows) return false;
+    if (id < kApplicationUpdatesRowNotes) flip_entry_bit(rows->flipped, id);
+    else if (id < kApplicationUpdatesRowNotes + kUpdateChangelogMaximumEntries) flip_entry_bit(rows->unclipped, id - kApplicationUpdatesRowNotes);
+    else if (id == kApplicationUpdatesRowOlder) rows->older_open = !rows->older_open;
+    else if (id == kApplicationUpdatesRowMore) rows->more_open = !rows->more_open;
+    else return false;
+    ++rows->stamp;
+    return true;
+}
+
+u32 application_updates_release_notes_url(const ApplicationUpdatesView& v, Utf8View repository, Slice<char> output) noexcept {
+    if (!repository.bytes) return 0;
+    UpdateTextWriter url{output, 0, true};
+    url.add(utf8_literal("https://github.com/")); url.add(repository);
+    // A stable release has its own page; master builds share the releases page.
+    const u64 offer = offered_version(v), version = offer ? offer : v.own_version;
+    if (update_version_channel(version) == UpdateChannel::stable) {
+        char tag[24];
+        url.add(utf8_literal("/releases/tag/v")); url.add({tag, update_version_text(version, {tag, sizeof(tag)})});
+    } else url.add(utf8_literal("/releases"));
+    return url.ok ? url.used : 0;
 }
 
 bool application_updates_initialize(const UpdateServiceConfig& config, Utf8View commit) noexcept {
@@ -498,7 +645,7 @@ bool application_updates_initialize(const UpdateServiceConfig& config, Utf8View 
     if (w->wake && w->stop && w->notify && update_service_initialize(&w->service, config, w->paths) == UpdateServiceError::none &&
         update_https_initialize(&w->https)) {
         w->service.changelog = &w->download;
-        w->service.observer = {w, offered};
+        w->service.observer = {w, verified};
         w->thread = CreateThread(nullptr, 256 * 1024, worker_main, w, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
     }
     if (!w->thread) { w->view.state = State::error; w->view.error = UpdateServiceError::storage; g_view = w->view; }
@@ -508,6 +655,7 @@ void application_updates_release(bool normal_exit) noexcept {
     Worker* w = g_worker;
     if (!w) return;
     g_worker = nullptr;
+    application_updates_visible(false);
     const auto plan = application_updates_exit(normal_exit, w->restart);
     // Restart to update starts the executable path at the very end of the exit.
     if (plan.relaunch) {
@@ -562,15 +710,7 @@ bool application_updates_poll() noexcept {
     AcquireSRWLockShared(w->lock.native());
     const u64 revision = w->revision;
     const bool quit = w->quit;
-    if (revision != g_seen_revision) {
-        g_view = w->view;
-        auto& rows = w->rows;
-        // Row text is rebuilt only when the changelog or the versions it is
-        // measured against change.
-        if (!rows.built || rows.built_revision != g_view.changelog_revision || rows.built_own != g_view.own_version ||
-            rows.built_offer != g_view.offer_version)
-            application_updates_changelog_build(g_view, w->published, &rows);
-    }
+    if (revision != g_seen_revision) g_view = w->view;
     ReleaseSRWLockShared(w->lock.native());
     if (revision != g_seen_revision) {
         g_seen_revision = revision;
@@ -581,39 +721,65 @@ bool application_updates_poll() noexcept {
     if (quit && !g_quit_reported) { g_quit_reported = true; return true; }
     return false;
 }
+namespace {
+// The page's changelog rows, built on first use and again whenever the
+// changelog, the versions or the user's disclosure choices moved.
+ApplicationUpdatesChangelogRows* page_rows() noexcept {
+    Worker* w = g_worker;
+    if (!w) return nullptr;
+    if (!g_rows) g_rows = static_cast<ApplicationUpdatesChangelogRows*>(
+        VirtualAlloc(nullptr, sizeof(ApplicationUpdatesChangelogRows), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    ApplicationUpdatesChangelogRows* rows = g_rows;
+    if (rows && (!rows->built || rows->built_revision != g_view.changelog_revision || rows->built_own != g_view.own_version ||
+                 rows->built_offer != offered_version(g_view) || rows->built_stamp != rows->stamp)) {
+        AcquireSRWLockShared(w->lock.native());
+        application_updates_changelog_build(g_view, w->published, rows);
+        ReleaseSRWLockShared(w->lock.native());
+    }
+    return rows;
+}
+} // namespace
 bool application_updates_project(SettingBinding binding, UiSettingsControl* control, UiSettingsControlPresentation* presentation,
     u16* meter) noexcept {
-    if (binding == SettingBinding::update_changelog)
-        return g_worker && application_updates_changelog_heading(g_worker->rows, control, nullptr);
-    u32 slot = 5;
+    if (binding == SettingBinding::update_changelog) {
+        const auto* rows = page_rows();
+        return rows && application_updates_changelog_heading(*rows, control);
+    }
+    if (binding == SettingBinding::update_release_notes) {
+        const auto* rows = page_rows();
+        char url[kApplicationUpdatesReleaseNotesBytes];
+        return rows && rows->count && application_updates_release_notes({url, sizeof(url)});
+    }
+    u32 slot = 2;
     switch (binding) {
     case SettingBinding::update_status: slot = 0; break;
     case SettingBinding::update_channel: slot = 1; break;
-    case SettingBinding::update_notice: slot = 2; break;
-    case SettingBinding::update_available: slot = 3; break;
     default: break;
     }
-    return application_updates_project_view(g_view, binding, &g_text[slot], control, presentation, meter);
+    return application_updates_project_view(g_view, now_unix(), binding, &g_text[slot], control, presentation, meter);
 }
 u32 application_updates_settings_list(Slice<UiSettingsControl> controls, Slice<UiSettingsControlPresentation> presentation) noexcept {
-    return g_worker ? application_updates_changelog_project(g_worker->rows, controls, presentation) : 0;
-}
-UiSettingsListItem application_updates_list_item(u64 control_id, bool heading) noexcept {
-    UiSettingsListItem item{};
-    if (!g_worker) return item;
-    if (heading) {
-        UiSettingsControl control{};
-        application_updates_changelog_heading(g_worker->rows, &control, &item);
-    } else if (application_updates_changelog_row(control_id))
-        item = application_updates_changelog_item(g_worker->rows, static_cast<u32>(control_id & 0xff));
-    return item;
+    const auto* rows = page_rows();
+    return rows ? application_updates_changelog_project(*rows, controls, presentation) : 0;
 }
 u16 application_updates_meter() noexcept {
     UiSettingsControl control{};
     UiSettingsControlPresentation presentation{};
     u16 meter = kUiSettingsNoMeter;
-    application_updates_project_view(g_view, SettingBinding::update_available, &g_text[4], &control, &presentation, &meter);
+    application_updates_project_view(g_view, now_unix(), SettingBinding::update_status, &g_text[3], &control, &presentation, &meter);
     return meter;
+}
+void application_updates_visible(bool visible) noexcept {
+    if (visible || !g_rows) return;
+    VirtualFree(g_rows, 0, MEM_RELEASE);
+    g_rows = nullptr;
+}
+bool application_updates_activate_row(u64 control_id) noexcept {
+    return application_updates_changelog_row(control_id) && g_rows &&
+           application_updates_changelog_toggle(g_rows, static_cast<u32>(control_id & 0xff));
+}
+u32 application_updates_release_notes(Slice<char> output) noexcept {
+    return g_worker ? application_updates_release_notes_url(g_view, {g_worker->config.repository, g_worker->config.repository_bytes}, output) : 0;
 }
 ApplicationUpdatesSettingsBank* application_updates_settings_bank() noexcept {
     return g_worker ? &g_worker->bank : nullptr;
@@ -648,7 +814,7 @@ bool application_updates_activate(SettingBinding binding, u32 choice) noexcept {
         else if (binding == SettingBinding::update_channel && choice <= 1 && choice != static_cast<u32>(w->view.channel)) {
             // The other channel's offer and changelog are unknown until its check.
             w->view.channel = static_cast<UpdateChannel>(choice); w->channel_requested = true;
-            clear_offer(w);
+            clear_offer(w); set_changelog(w, nullptr);
             ++w->revision;
         } else accepted = false;
     }

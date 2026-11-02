@@ -25,6 +25,24 @@ bool ui_scrollbar_paint(PaintStream* paint, const UiScrollbarGeometry& geometry,
                UiBackgroundTier::highest, UiBackgroundBorderTone::palette);
 }
 
+bool ui_scrollbar_paint_overlay(PaintStream* paint, const UiScrollbarGeometry& geometry, const Theme& theme,
+                                UiScrollbarVisualState state) noexcept {
+    if (!geometry.visible)
+        return true;
+    if (paint && paint->filter_scrollbars &&
+        (geometry.track.right != paint->scrollbar_viewport.right || geometry.track.top != paint->scrollbar_viewport.top ||
+         geometry.track.bottom != paint->scrollbar_viewport.bottom))
+        return true;
+    const bool hot = state != UiScrollbarVisualState::normal;
+    const float width = hot ? 8.f : 4.f, right = geometry.thumb.right;
+    const auto& tokens = theme.tokens;
+    const Color color = state == UiScrollbarVisualState::pressed   ? tokens.text.muted
+                        : state == UiScrollbarVisualState::hovered ? tokens.state.pressed
+                                                                   : tokens.fill.muted;
+    return paint_stream_push_rounded(paint, right - width, geometry.thumb.top, right, geometry.thumb.bottom, color,
+                                     width * .5f);
+}
+
 UiScrollbarGeometry ui_scrollbar_geometry(const UiRect& viewport, float scroll_dips,
                                           float content_height_dips) noexcept {
     UiScrollbarGeometry result{};

@@ -124,28 +124,71 @@ void discard_work(UpdateService* s) noexcept {
     release_work(s);
     DeleteFileW(s->paths.download);
 }
-// Best effort: the changelog is display data, so any failure only leaves it out.
-void offer_changelog(UpdateService* s, const UpdateTransport& transport, Utf8View repository, UpdateChannel channel,
-    const UpdateManifest& manifest, u64 now) noexcept {
-    const UpdateChangelog* verified = nullptr;
-    if (auto* d = s->changelog) {
-        UpdateLocation location{};
-        UpdateBufferSink document{reinterpret_cast<u8*>(d->document), sizeof(d->document), 0};
-        UpdateBufferSink signature{d->signature, sizeof(d->signature), 0};
-        bool fetched = update_asset_location(repository, channel, UpdateAsset::changelog, 0, &location) &&
-            update_fetch(transport, location, kUpdateChangelogMaximumBytes, 0, update_buffer_sink, &document, now).ok() &&
-            update_asset_location(repository, channel, UpdateAsset::changelog_signature, 0, &location) &&
-            update_fetch(transport, location, 64, 64, update_buffer_sink, &signature, now).ok();
-        d->document_bytes = document.used;
-        const auto error = fetched ? update_changelog_verify({d->document, d->document_bytes}, {d->signature, 64}, s->key,
-            s->workspace, {d->scratch, kUpdateChangelogStructurals}, &d->changelog) : UpdateChangelogError::invalid_input;
-        const bool matches = error == UpdateChangelogError::none && d->changelog.version == manifest.version &&
-            d->changelog.channel == channel;
-        UpdateLog("changelog").field("fetched", fetched).field("error", static_cast<u8>(error)).field("matches", matches)
-            .field("entries", matches ? d->changelog.count : 0).write(fetched && !matches ? LogLevel::warning : LogLevel::info);
-        if (matches) verified = &d->changelog;
+// <base>\changelog-<channel>: the cache file, signature then document.
+bool changelog_path(const UpdatePaths& paths, UpdateChannel channel, wchar_t (&out)[kUpdatePathCapacity], u32* count) noexcept {
+    return join(out, paths.base, wide_length(paths.base, kUpdatePathCapacity),
+        channel == UpdateChannel::preview ? L"changelog-preview" : L"changelog-stable", count);
+}
+// Verifies the document in the buffer's file image; nothing is held on failure.
+UpdateChangelogError changelog_verify(UpdateService* s, UpdateChannel channel) noexcept {
+    auto* d = s->changelog;
+    auto error = update_changelog_verify({reinterpret_cast<const char*>(d->file) + 64, d->document_bytes}, {d->file, 64}, s->key,
+        s->workspace, {d->scratch, kUpdateChangelogStructurals}, &d->changelog);
+    if (error == UpdateChangelogError::none && d->changelog.channel != channel) {
+        d->changelog.count = 0; d->changelog.version = 0; d->changelog.text_bytes = 0;
+        error = UpdateChangelogError::field;
     }
-    if (s->observer.offered) s->observer.offered(s->observer.context, manifest, verified);
+    return error;
+}
+// Replaces the buffer with the channel's cached changelog, verified again.
+const UpdateChangelog* changelog_load(UpdateService* s, UpdateChannel channel) noexcept {
+    auto* d = s->changelog;
+    wchar_t path[kUpdatePathCapacity];
+    d->changelog.version = 0;
+    const bool located = changelog_path(s->paths, channel, path, nullptr);
+    const auto read = located ? file_persistence_read_file(path, {d->file, sizeof(d->file)}, 65) : FileReadResult{0, 0, FileReadError::open};
+    if (read.error == FileReadError::missing) return nullptr;
+    d->document_bytes = read.ok() ? read.bytes - 64 : 0;
+    const auto error = read.ok() ? changelog_verify(s, channel) : UpdateChangelogError::invalid_input;
+    if (error != UpdateChangelogError::none)
+        UpdateLog("changelog_cache").field("read", static_cast<u8>(read.error)).field("error", static_cast<u8>(error)).write(LogLevel::warning);
+    return error == UpdateChangelogError::none ? &d->changelog : nullptr;
+}
+const UpdateChangelog* changelog_held(UpdateService* s, UpdateChannel channel) noexcept {
+    const auto& held = s->changelog->changelog;
+    return held.version && held.channel == channel ? &held : changelog_load(s, channel);
+}
+// Best effort: the changelog is display data, so any failure only leaves it out.
+// The cached document stays when it already describes this manifest's version;
+// otherwise the channel's file is fetched, and cached once it verifies.
+const UpdateChangelog* changelog_refresh(UpdateService* s, const UpdateTransport& transport, Utf8View repository,
+    UpdateChannel channel, const UpdateManifest& manifest, u64 now) noexcept {
+    auto* d = s->changelog;
+    if (!d) return nullptr;
+    const UpdateChangelog* held = changelog_held(s, channel);
+    if (held && held->version == manifest.version) return held;
+    UpdateLocation location{};
+    UpdateBufferSink document{d->file + 64, kUpdateChangelogMaximumBytes, 0};
+    UpdateBufferSink signature{d->file, 64, 0};
+    const bool fetched = update_asset_location(repository, channel, UpdateAsset::changelog, 0, &location) &&
+        update_fetch(transport, location, kUpdateChangelogMaximumBytes, 0, update_buffer_sink, &document, now).ok() &&
+        update_asset_location(repository, channel, UpdateAsset::changelog_signature, 0, &location) &&
+        update_fetch(transport, location, 64, 64, update_buffer_sink, &signature, now).ok();
+    d->document_bytes = document.used;
+    const auto error = fetched ? changelog_verify(s, channel) : UpdateChangelogError::invalid_input;
+    const bool matches = error == UpdateChangelogError::none && d->changelog.version == manifest.version;
+    UpdateLog("changelog").field("fetched", fetched).field("error", static_cast<u8>(error)).field("matches", matches)
+        .field("entries", matches ? d->changelog.count : 0).write(fetched && !matches ? LogLevel::warning : LogLevel::info);
+    wchar_t path[kUpdatePathCapacity];
+    u32 path_count = 0;
+    if (matches) {
+        // Cached for the next start; a failed write only costs the next fetch.
+        if (ensure_storage(s->paths) && changelog_path(s->paths, channel, path, &path_count))
+            file_persistence_write_atomic(path, path_count, {d->file, 64 + d->document_bytes}, false);
+        return &d->changelog;
+    }
+    // The buffer was overwritten: the old document comes back from the cache.
+    return changelog_load(s, channel);
 }
 } // namespace
 
@@ -256,8 +299,10 @@ UpdateCheckResult update_service_check(UpdateService* s, const UpdateTransport& 
     // The stable channel never offers a preview build, whatever its manifest says.
     if (manifest.channel != channel || (channel == UpdateChannel::stable && update_version_channel(manifest.version) != UpdateChannel::stable))
         return report(manifest_failed(SE::manifest, UpdateManifestError::unsupported), "channel");
-    if (manifest.version <= floor) return up_to_date(s, floor, manifest.version);
-    offer_changelog(s, transport, repository, channel, manifest, now);
+    const bool newer = manifest.version > floor;
+    const UpdateChangelog* changelog = changelog_refresh(s, transport, repository, channel, manifest, now);
+    if (s->observer.verified) s->observer.verified(s->observer.context, manifest, changelog, newer);
+    if (!newer) return up_to_date(s, floor, manifest.version);
     if (staged >= manifest.version) {
         UpdateLog("ready").field("version", staged).field("staged", 1).write();
         return outcome(UpdateCheckOutcome::ready, staged);
@@ -368,6 +413,11 @@ UpdateCheckResult update_service_check(UpdateService* s, const UpdateTransport& 
     s->staged = package;
     UpdateLog("ready").field("version", manifest.version).write();
     return outcome(UpdateCheckOutcome::ready, manifest.version);
+}
+
+const UpdateChangelog* update_service_cached_changelog(UpdateService* s, UpdateChannel channel) noexcept {
+    return s && s->initialized && s->changelog && s->config.configured && channel <= UpdateChannel::preview
+        ? changelog_held(s, channel) : nullptr;
 }
 
 UpdateSwapResult update_swap(const UpdatePaths& paths) noexcept {

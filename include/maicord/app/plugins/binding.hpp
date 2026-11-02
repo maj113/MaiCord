@@ -118,9 +118,10 @@ PluginLoadResult plugin_runtime_close(PluginRuntime*) noexcept;
 // Loads leaf from the pinned directory, builds the plugin's state, settings and
 // hook lists, runs start and publishes its hooks. approved must contain every
 // permission the plugin needs (descriptor plus hooks); nothing stays behind on failure.
-// approved_hosts: bit i = the user approved descriptor.network[i] (http.hpp).
+// approved_hosts: bit i = the user approved descriptor.network[i] (http.hpp). A nonnull
+// sha256 must be the file's digest (plugin_image_load).
 PluginEnableResult plugin_runtime_enable(PluginRuntime*, ConstSlice<wchar_t> leaf, u64 approved_permissions,
-                                         u32 approved_hosts = 0) noexcept;
+                                         u32 approved_hosts = 0, const u8* sha256 = nullptr) noexcept;
 // Unpublishes the hooks, runs stop, flushes settings and store, then frees the DLL and the
 // binding. False when the DLL could not be freed: the plugin is stopped and silent, and a
 // later disable retries.

@@ -48,6 +48,7 @@ struct MessageTextPresentation;
 struct NavigationView;
 struct PopupScene;
 struct ProfileScene;
+struct UiStoreScene;
 struct ReactionViewer;
 struct ShellNavigationScene;
 struct TextFormSurface;
@@ -554,6 +555,9 @@ struct D3D11Renderer {
     // ProfileScene in preview presentation) and its modal dialog (image crop,
     // collectible picker). Each draws paint, media, foreground, then text.
     const ProfileScene* settings_profile_preview;
+    // The Plugins, Themes and Effects pages (UiStoreScene): drawn in the profile preview's slot and its
+    // dialog's, since only one of the two is ever on screen.
+    const UiStoreScene* settings_store;
     const UiProfileDialogScene* settings_profile_dialog;
     u32 settings_preview_paint_first_batch, settings_preview_foreground_first_batch,
         settings_preview_paint_end_batch;
@@ -659,7 +663,7 @@ struct D3D11Renderer {
     u64 adapter_key;
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
-static_assert(sizeof(D3D11Renderer) == 121032);
+static_assert(sizeof(D3D11Renderer) == 121040);
 
 // Starts hardware device and draw-pipeline creation on a worker at process
 // entry; the next renderer_initialize adopts them. Main thread only.

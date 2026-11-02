@@ -36,6 +36,12 @@ void application_custom_theme_cancel_interaction() noexcept;
 // once per Settings lifetime. Selecting one imports it as the candidate.
 ConstSlice<Utf8View> application_custom_theme_catalog() noexcept;
 bool application_custom_theme_select_installed(u32 index) noexcept;
+// A theme from the store's install card (not the Appearance file picker) becomes the candidate: the usual
+// preview, apply and cancel actions then work from any settings page. The page that shows the card must count
+// as a theme panel, or leaving Appearance cancels the interaction.
+bool application_custom_theme_offer(const ClientThemeDocument&) noexcept;
+// A theme file was added or removed: the installed list scans again.
+void application_custom_theme_rescan() noexcept;
 // Existing background edits retain every custom foreground/font/layout token.
 // choose_builtin is true only for an explicit built-in palette selection.
 bool application_custom_theme_preferences_changed(bool choose_builtin, bool persist) noexcept;

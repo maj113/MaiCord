@@ -18,7 +18,6 @@
 namespace maicord {
 void test_application_plugin_navigation_runtime(void (*check)(bool, const char*) noexcept) noexcept;
 void test_application_settings_choice_runtime(void (*check)(bool, const char*) noexcept) noexcept;
-void test_application_plugin_catalog_runtime(void (*check)(bool, const char*) noexcept) noexcept;
 void test_application_plugins_read_runtime(void (*check)(bool, const char*) noexcept) noexcept;
 void test_application_custom_theme(void (*check)(bool, const char*) noexcept) noexcept;
 namespace app_detail {
@@ -133,7 +132,7 @@ void test_native_projection_bank() noexcept {
     const auto* appearance = content(2);
     const auto* accessibility = content(3);
     const auto* notifications = content(1);
-    const auto* plugins = content(4);
+    const auto* plugins = content(kPluginsPage.page_id);
     if (!appearance || !accessibility || !notifications || !plugins || !appearance->controls.data) {
         check(false, "settings shared bank: bounded native page descriptors exist");
         return;
@@ -200,23 +199,20 @@ void test_native_projection_bank() noexcept {
     const auto before_catalog = appearance->revision;
     const auto widget_generation = current->widgets.generation;
     check(ui_page_registry_select(pages, kPluginsPage).ok() && application_settings_synchronize() &&
-              plugins->controls.data && plugins->controls.data != shared && plugins->controls.count &&
+              plugins->host && !plugins->controls.data && !plugins->controls.count &&
               !appearance->controls.data &&
               !appearance->controls.count && appearance->revision > before_catalog &&
               current->widgets.generation != widget_generation &&
               !ui_settings_scene_control(*current, {UiSettingsTargetKind::control, kAppearancePage, cid("appearance.gradient_intensity")}),
-          "settings shared bank: the catalog page borrows its own bank and retires Appearance borrow and "
-          "input generation");
+          "settings shared bank: the store page is a host page with no controls and retires Appearance borrow "
+          "and input generation");
     const UiSettingsTarget retired_catalog{
-        UiSettingsTargetKind::control, kPluginsPage, plugins->controls.count ? plugins->controls[0].id : 1};
-    const auto before_appearance = plugins->revision;
+        UiSettingsTargetKind::control, kPluginsPage, 1};
     check(ui_page_registry_select(pages, kAppearancePage).ok() && application_settings_synchronize() &&
               appearance->controls.data == shared && appearance->controls.count >= 9 &&
               !plugins->controls.data && !plugins->controls.count &&
-              plugins->revision > before_appearance &&
               !ui_settings_scene_control(*current, retired_catalog),
-          "settings shared bank: returning Appearance retires catalog source target while keeping "
-          "independent catalog backing");
+          "settings shared bank: returning Appearance leaves no store page control target");
 }
 // A page whose projection never publishes stalls every frame. The watchdog
 // turns such a hang into a prompt failure instead of a CTest timeout.
@@ -2434,7 +2430,6 @@ extern "C" __declspec(noreturn) void WINAPI maicord_settings_runtime_entry() noe
     test_controller();
     maicord::test_application_plugin_navigation_runtime(check);
     maicord::test_application_settings_choice_runtime(check);
-    maicord::test_application_plugin_catalog_runtime(check);
     maicord::test_application_plugins_read_runtime(check);
     maicord::test_application_custom_theme(check);
     maicord::app_detail::test_application_user_settings_runtime(check);

@@ -3,6 +3,7 @@
 #include "../shell/modal_scroll.hpp"
 #include "../shell/input.hpp"
 #include "keybinds_settings.hpp"
+#include "../store/store_host.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/widgets/button.hpp"
 #include "maicord/ui/widgets/settings_choice.hpp"
@@ -73,6 +74,10 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
                 refresh();
         }
         return true;
+    }
+    if (application_store_input(kind, code, repeated)) {
+        g_app.settings_held_key = code;
+        return refresh();
     }
     const bool control_key = application_control_down();
     const bool reverse = application_shift_down();
@@ -203,6 +208,8 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
     auto* settings = g_app.settings;
     if (!settings || !settings->scene.active)
         return false;
+    if (application_store_window_message(message, wparam, lparam))
+        return true;
     if (message == WM_XBUTTONDOWN || message == WM_MBUTTONDOWN) {
         const u32 button = message == WM_MBUTTONDOWN               ? VK_MBUTTON
                            : GET_XBUTTON_WPARAM(wparam) == XBUTTON1 ? VK_XBUTTON1
@@ -213,6 +220,8 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
     }
     if (message == WM_CHAR) {
         const u32 character = static_cast<u32>(wparam);
+        if (application_store_character(character))
+            return true;
         if (character < 0x20 || character == 0x7f || character > 0xffff || settings->choice.active)
             return true;
         const auto zone = ui_settings_scene_focus_zone(settings->scene);
@@ -365,6 +374,19 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
             }
             return true;
         }
+        // The thin scrollbars widen under the pointer and while dragged.
+        {
+            bool changed = false;
+            for (u32 i = 0; i < 2; ++i) {
+                const bool sidebar = i == 0;
+                const u8 look = settings->scrollbar_dragging && settings->scrollbar_sidebar == sidebar ? 2
+                                : ui_scrollbar_track_hit(ui_settings_scene_scrollbar(settings->scene, sidebar), x, y) ? 1
+                                                                                                                      : 0;
+                changed = ui_settings_scene_set_scrollbar_state(&settings->scene, sidebar, look) || changed;
+            }
+            if (changed)
+                application_request_frame();
+        }
         if (settings->scrollbar_dragging) {
             if (message == WM_MOUSEMOVE) {
                 const auto geometry = ui_settings_scene_scrollbar(settings->scene, settings->scrollbar_sidebar);
@@ -511,7 +533,10 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                     if (ui_settings_scene_slider_pointer(settings->scene, hit, x, &value))
                         activate(hit, false, &token, false, value.selected_choice);
                 } else if (control && (control->kind == UiSettingsControlKind::action ||
-                                       control->kind == UiSettingsControlKind::notice)) {
+                                       control->kind == UiSettingsControlKind::notice ||
+                                       control->kind == UiSettingsControlKind::status ||
+                                       control->kind == UiSettingsControlKind::footnote ||
+                                       control->kind == UiSettingsControlKind::markdown)) {
                     if (ui_settings_scene_button_hit(settings->scene, hit, x, y))
                         activate(hit, false, plugin ? &token : nullptr, true);
                 } else

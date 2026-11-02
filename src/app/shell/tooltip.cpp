@@ -19,6 +19,7 @@
 #include "maicord/ui/voice/call_scene.hpp"
 #include "maicord/ui/chat/composer/voice_bar.hpp"
 #include "maicord/ui/settings/theme_editor.hpp"
+#include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/chat/pinned_messages_scene.hpp"
 #include "maicord/ui/account/profile_scene.hpp"
 #include "maicord/ui/account/dm_profile_panel.hpp"
@@ -610,6 +611,16 @@ bool command_rail_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarge
     target->placement = UiTooltipPlacement::right;
     return true;
 }
+// The settings modal's close button names its key.
+bool settings_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* target) noexcept {
+    const auto* scene = application_settings_scene();
+    if (!scene || g_app.text_form || g_app.popup_scene.active || renderer_theme_editor_visible(g_app.renderer))
+        return false;
+    const auto hit = keyboard ? ui_settings_scene_focused(*scene) : ui_settings_scene_hit_test(*scene, point.x, point.y);
+    return hit.kind == UiSettingsTargetKind::close &&
+           widget_target(scene->widgets, scene->close, scope, 1, scene->revision, 0x5900u,
+                         utf8_literal("Close \xC2\xB7 Esc"), target);
+}
 // The resolver chooses the style; reactions also report themselves so their
 // reactor fetch keeps its interest.
 bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target, UiTooltipStyle* style,
@@ -627,6 +638,10 @@ bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target, UiToo
     if (g_app.popup_scene.active && g_app.popup_owner_kind == PopupOwnerKind::commands)
         return g_app.renderer_ready && scope && GetCapture() != g_app.window && !application_window_minimized() &&
                command_rail_target(point, keyboard, scope, target);
+    if (application_settings_scene() && !renderer_theme_editor_visible(g_app.renderer))
+        return g_app.renderer_ready && g_app.account_ui && !g_app.login.visible && scope && GetCapture() != g_app.window &&
+               !application_window_minimized() && (!keyboard || g_app.keyboard_focus_visible) &&
+               settings_target(point, keyboard, scope, target);
     // Check current host ownership before touching any old scene descriptor.
     if (!content_available() || GetCapture() == g_app.window)
         return false;
@@ -879,7 +894,8 @@ void application_tooltip_input(UINT message, WPARAM wparam, LPARAM lparam) noexc
     // Retain the first eligible pointer observation even when dispatch has not
     // published its action bar/video control yet. Synchronize resolves the new
     // typed source after dispatch without requiring a second mouse movement.
-    const bool available = content_available() || viewer_available() || profile_available();
+    const bool available = content_available() || viewer_available() || profile_available() ||
+                           (application_settings_scene() && g_app.renderer_ready && !g_app.login.visible);
     const bool first_pointer = pointer && available;
     if (!g_app.tooltip && !first_pointer &&
         !resolve_target(point, keyboard, &candidate, &candidate_style, &candidate_reaction) &&

@@ -4,7 +4,7 @@
 #include "maicord/ui/shell/page_registry.hpp"
 #include "maicord/app/plugins/host.hpp"
 #include "maicord/ui/layout/scroll_host.hpp"
-namespace maicord { struct UiSettingsAvatarMedia; }
+namespace maicord { struct UiSettingsAvatarMedia; struct UiSettingsScene; }
 #include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
@@ -50,6 +50,9 @@ bool application_preferences_persist_pane_widths() noexcept;
 bool application_settings_commit_preferences() noexcept;
 void application_settings_cancel_pointer() noexcept;
 bool application_settings_open() noexcept;
+// The open settings scene, or null; and selecting one of its pages (the store pages' deep links).
+UiSettingsScene* application_settings_scene() noexcept;
+bool application_settings_select_page(UiPageKey page) noexcept;
 // The profile editor hands the modal back on a category switch: Settings
 // never visibly closed, so its entrance does not replay.
 bool application_settings_resume() noexcept;

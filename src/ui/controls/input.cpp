@@ -75,6 +75,10 @@ bool ui_settings_button_paint(PaintStream* paint, const UiSettingsTokens& tokens
                                : c.critical;
         border = c.button_border;
         break;
+    case UiSettingsButtonVariant::ghost:
+        fill = state.pressed ? c.mod_normal : state.hovered ? c.mod_subtle : Color{};
+        border = {};
+        break;
     default:
         fill = state.pressed ? c.mod_strong : state.hovered ? c.mod_normal : c.mod_subtle;
         border = ui_settings_color_alpha(c.border_subtle, .33f);
@@ -82,7 +86,28 @@ bool ui_settings_button_paint(PaintStream* paint, const UiSettingsTokens& tokens
     }
     const float alpha = state.enabled ? 1.f : tokens.disabled_alpha;
     const float radius = tokens.metric.control_radius;
-    bool ok = paint_stream_push_rounded_border(paint, rect, ui_settings_color_alpha(fill, alpha), ui_settings_color_alpha(border, alpha), radius, 1);
+    bool ok = (!fill.alpha && !border.alpha) ||
+              paint_stream_push_rounded_border(paint, rect, ui_settings_color_alpha(fill, alpha),
+                                               ui_settings_color_alpha(border, alpha), radius, 1);
+    if (ok && state.focused)
+        ok = ui_settings_focus_paint(paint, tokens, rect, radius);
+    return ok;
+}
+
+bool ui_settings_button_progress_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& rect,
+                                       float fraction, UiControlState state) noexcept {
+    const auto& c = tokens.color;
+    const float alpha = state.enabled ? 1.f : tokens.disabled_alpha, radius = tokens.metric.control_radius;
+    fraction = fraction < 0 ? 0 : fraction > 1 ? 1 : fraction;
+    bool ok = paint_stream_push_rounded_border(paint, rect, ui_settings_color_alpha(c.mod_normal, alpha),
+                                               ui_settings_color_alpha(c.border_subtle, .33f * alpha), radius, 1);
+    if (ok && fraction > 0) {
+        // The fill runs under the plate's corners: the clip trims it to the button's width fraction.
+        const UiRect part{rect.left, rect.top, rect.left + ui_rect_width(rect) * fraction, rect.bottom};
+        ok = paint_stream_push_clip(paint, part) &&
+             paint_stream_push_rounded(paint, rect, ui_settings_color_alpha(c.brand, alpha), radius) &&
+             paint_stream_pop_clip(paint);
+    }
     if (ok && state.focused)
         ok = ui_settings_focus_paint(paint, tokens, rect, radius);
     return ok;

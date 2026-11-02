@@ -77,8 +77,8 @@ bool executable_valid(ConstSlice<wchar_t> executable) noexcept {
     return true;
 }
 bool scope_valid(const DesktopRegistryScope& s) noexcept {
-    return s.root && s.run_key && s.approved_key && s.classes_key && s.value_name && s.protocol && *s.value_name &&
-           *s.protocol;
+    return s.root && s.run_key && s.approved_key && s.classes_key && s.value_name && s.protocol && s.title &&
+           *s.value_name && *s.protocol;
 }
 
 // The program named by a registered command: its quoted (or leading
@@ -247,7 +247,8 @@ bool desktop_launch_parse(ConstSlice<wchar_t> line, DesktopLaunch* launch) noexc
         if (quoted)
             return false;
         const bool url_argument = expect != Expect::option ||
-                                  (!launch->url_present && prefix_folded({argument, units}, 0, L"discord:"));
+                                  (!launch->url_present && (prefix_folded({argument, units}, 0, L"discord:") ||
+                                                    prefix_folded({argument, units}, 0, L"maicord:")));
         if (expect == Expect::url && equal_literal(argument, units, L"--")) {
             expect = Expect::url_after_separator;
             continue;
@@ -354,7 +355,16 @@ DesktopRegistryScope desktop_registry_user_scope() noexcept {
             L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run",
             L"Software\\Classes",
             L"MaiCord",
-            L"discord"};
+            L"discord",
+            L"Discord"};
+}
+
+DesktopRegistryScope desktop_registry_maicord_scope() noexcept {
+    DesktopRegistryScope scope = desktop_registry_user_scope();
+    scope.value_name = L"MaiCord";
+    scope.protocol = L"maicord";
+    scope.title = L"MaiCord";
+    return scope;
 }
 
 // The registry texts of one call, page-backed: each is 4 KiB, and a call needs up to five.
@@ -433,7 +443,10 @@ bool desktop_protocol_set(const DesktopRegistryScope& s, ConstSlice<wchar_t> exe
     WideBuilder i{texts.data->fourth, kRegistryText, 0, true}, c{texts.data->fifth, kRegistryText, 0, true};
     i.add(L"\"").add(executable).add(L"\",0");
     c.add(L"\"").add(executable).add(L"\" ").add(kUrlArgument).add(L" -- \"%1\"");
-    return i.ok && c.ok && write_string(s.root, root_key, nullptr, L"URL:Discord Protocol") &&
+    wchar_t display[64];
+    WideBuilder d{display, 64, 0, true};
+    d.add(L"URL:").add(s.title).add(L" Protocol");
+    return i.ok && c.ok && d.ok && write_string(s.root, root_key, nullptr, display) &&
            write_string(s.root, root_key, L"URL Protocol", L"") && write_string(s.root, icon_key, nullptr, texts.data->fourth) &&
            write_string(s.root, command_key, nullptr, texts.data->fifth);
 }

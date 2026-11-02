@@ -7,6 +7,7 @@
 #include "maicord/ui/text/style.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/ui/core/visit_ref.hpp"
+#include "maicord/ui/widgets/kit_markdown.hpp"
 
 namespace maicord::settings_scene_detail {
 
@@ -36,9 +37,27 @@ struct SceneTokens : UiSettingsLayoutTokens {
         ui_settings_fill_layout_tokens(scene.theme_styles, this);
     }
 };
-// One row's geometry, shared by measurement, paint, text and hit-testing.
+// How a row meets its neighbours: grouped rows share one card, solo rows (a status card, an empty state)
+// are a card of their own, and the rest (headings, notices, footnotes, list rows) draw their own plate or none.
+enum CardEdge : u8 {
+    card_none = 0,
+    card_member = 1,
+    card_first = 2,
+    card_last = 4,
+};
+// What a layout needs besides the content: text measuring (null estimates), the retained markdown blocks and
+// whether field rows group into cards (the modal's pages).
+struct RowContext {
+    const UiKitMeasure* measure;
+    UiMarkdownBank** markdown;
+    bool cards;
+};
+// One row's geometry, shared by measurement, paint, text and hit-testing. Rectangles a kind does not use
+// stay empty: control is the one pointer target (a button, switch, field, the markdown link), value the
+// slider's value column or a status caption, tag the chip of a disclosure or the note after a category title,
+// icon a status tile's or empty state's glyph, meter a status card's bar and body a markdown block.
 struct RowLayout {
-    UiRect row, label, description, control, lead, chips, value;
+    UiRect row, label, description, control, lead, chips, value, tag, icon, meter, body;
     float height;
 };
 // Parts of a list row or card, from its row rectangle.
@@ -46,16 +65,17 @@ struct ListParts {
     UiRect content, icon, lock, column, chevron;
     UiRect actions[kUiSettingsListActions];
 };
-// Sidebar rows: bound navigation, or a header plus every registered page.
+// Sidebar rows, bound navigation or a header plus every registered page; pinned rows stand in the foot.
 struct NavRow {
     UiSettingsNavKind kind;
-    bool destructive;
+    bool destructive, pinned;
     UiIcon icon;
     Utf8View label;
     UiSettingsTarget target;
+    u16 badge;
 };
 struct Frame {
-    UiRect nav, body, title, description, footer;
+    UiRect nav, nav_foot, nav_rule, body, title, description, footer, rule;
 };
 // The host aside: beside rows from aside_row on when the column fits both,
 // else a block above that row. block includes the heading line.
@@ -80,8 +100,21 @@ bool progress(const UiSettingsPageContent& content, u32 index) noexcept;
 float button_label_width(const Utf8View& label) noexcept;
 ListParts list_parts(const UiSettingsLayoutTokens& t, const UiSettingsPageContent& content, u32 index,
                      const UiRect& row) noexcept;
+// True when the row's presentation `more` byte has `flag` (UiSettingsPresentationMore).
+bool more(const UiSettingsPageContent& content, u32 index, u8 flag) noexcept;
+// The layout context of a scene: its measuring hooks and markdown bank, and whether it groups rows into cards.
+RowContext row_context(const UiSettingsScene& scene) noexcept;
+// CardEdge bits of a row: member of a card, and the first and last row of its card.
+u8 card_edges(const UiSettingsPageContent& content, u32 index, const RowContext& context) noexcept;
 RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& style, const UiSettingsPageContent& content,
-                     u32 index, float left, float top, float width) noexcept;
+                     u32 index, float left, float top, float width, const RowContext& context) noexcept;
+// The markdown block of a row, parsed from its source (null without memory or when the source is too long).
+UiMarkdown* markdown_block(const UiSettingsPageContent& content, u32 index, const RowContext& context) noexcept;
+// The status button of a row's presentation: kinds and tones of its chips.
+u8 chip_tone(const UiSettingsPageContent& content, u32 index, u32 chip) noexcept;
+// Chips of a status row flowed left to right inside `width`; rows used, each chip's rectangle in `out`.
+u32 flow_chips(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiKitMeasure* measure, float left,
+               float top, float width, UiRect* out, float* height) noexcept;
 bool nav_row(const UiSettingsScene& scene, u32 index, NavRow* row) noexcept;
 float nav_extent(const UiSettingsScene& scene, const UiSettingsMetrics& m) noexcept;
 float dialog_footer_height(const UiSettingsMetrics& m) noexcept;

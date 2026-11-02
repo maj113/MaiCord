@@ -3,6 +3,10 @@
 #include "maicord/ui/widgets/icon.hpp"
 
 namespace maicord {
+namespace {
+constexpr float kSearchIcon = 16, kSearchInset = 12, kSearchEdge = 8, kClearSize = 24, kHintWidth = 44,
+                kHintHeight = 20, kCloseGlyph = 20;
+} // namespace
 
 bool ui_settings_nav_item_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& item, bool selected,
                                 bool destructive, UiControlState state) noexcept {
@@ -42,6 +46,16 @@ UiRect ui_settings_nav_label_rect(const UiSettingsLayoutTokens& tokens, const Ui
     return {left, item.top, item.right - tokens.metric.nav_item_padding, item.bottom};
 }
 
+UiRect ui_settings_nav_badge_rect(const UiRect& item, bool dot, float digits_width) noexcept {
+    const float cy = (item.top + item.bottom) * .5f, right = item.right - 10;
+    const float width = dot ? 8.f : maximum(18.f, digits_width + 10), height = dot ? 8.f : 18.f;
+    return {right - width, cy - height * .5f, right, cy + height * .5f};
+}
+
+bool ui_settings_nav_badge_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& badge, bool) noexcept {
+    return paint_stream_push_rounded(paint, badge, tokens.color.brand, ui_rect_height(badge) * .5f);
+}
+
 bool ui_settings_separator_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& row) noexcept {
     const float middle = (row.top + row.bottom) * .5f;
     const float inset = tokens.metric.nav_item_padding;
@@ -54,30 +68,44 @@ bool ui_settings_search_paint(PaintStream* paint, const UiSettingsTokens& tokens
     const auto& c = tokens.color;
     const float radius = tokens.metric.control_radius;
     const Color fill = ui_settings_color_alpha(c.input_background, state.enabled ? 1.f : .5f);
-    bool ok = paint_stream_push_rounded_border(paint, field, fill, state.focused ? c.brand : c.input_border, radius, state.focused ? 2.f : 1.f);
-    const float icon = 16, cy = (field.top + field.bottom) * .5f;
+    const float cy = (field.top + field.bottom) * .5f;
+    // The accent outline shows while the field holds the caret; at rest it is the plain input border.
+    bool ok = paint_stream_push_rounded_border(paint, field, fill, state.focused ? c.brand : c.input_border, radius,
+                                               state.focused ? 2.f : 1.f);
+    ok = ok && ui_icon_paint(paint, UiIcon::search,
+                             {field.left + kSearchInset, cy - kSearchIcon * .5f, field.left + kSearchInset + kSearchIcon,
+                              cy + kSearchIcon * .5f},
+                             c.text_subtle);
     if (ok && !has_text) {
-        const float x = field.right - 8 - icon;
-        ok = ui_icon_paint(paint, UiIcon::search, {x, cy - icon * .5f, x + icon, cy + icon * .5f}, c.text_subtle);
+        ok = paint_stream_push_rounded_border(paint, ui_settings_search_hint_rect(field), c.mod_subtle, c.border_subtle,
+                                              radius * .5f, 1);
     } else if (ok) {
         const auto clear = ui_settings_search_clear_rect(field);
         if (state.hovered)
             ok = paint_stream_push_rounded(paint, clear, c.mod_normal, ui_rect_width(clear) * .5f);
-        const float cx = (clear.left + clear.right) * .5f;
-        ok = ok && ui_icon_paint(paint, UiIcon::close, {cx - icon * .5f, cy - icon * .5f, cx + icon * .5f,
-                                                        cy + icon * .5f},
+        const float cx = (clear.left + clear.right) * .5f, icon = 14;
+        ok = ok && ui_icon_paint(paint, UiIcon::close,
+                                 {cx - icon * .5f, cy - icon * .5f, cx + icon * .5f, cy + icon * .5f},
                                  state.hovered ? c.text_strong : c.text_subtle);
     }
     return ok;
 }
 
 UiRect ui_settings_search_text_rect(const UiRect& field) noexcept {
-    return {field.left + 10, field.top, field.right - 32, field.bottom};
+    return {field.left + kSearchInset + kSearchIcon + kSearchEdge, field.top, field.right - kClearSize - kSearchEdge - 4,
+            field.bottom};
 }
 
 UiRect ui_settings_search_clear_rect(const UiRect& field) noexcept {
-    const float size = 24, cy = (field.top + field.bottom) * .5f;
-    return {field.right - 4 - size, cy - size * .5f, field.right - 4, cy + size * .5f};
+    const float cy = (field.top + field.bottom) * .5f;
+    return {field.right - kSearchEdge - kClearSize, cy - kClearSize * .5f, field.right - kSearchEdge,
+            cy + kClearSize * .5f};
+}
+
+UiRect ui_settings_search_hint_rect(const UiRect& field) noexcept {
+    const float cy = (field.top + field.bottom) * .5f;
+    return {field.right - kSearchEdge - kHintWidth, cy - kHintHeight * .5f, field.right - kSearchEdge,
+            cy + kHintHeight * .5f};
 }
 
 UiRect ui_settings_close_rect(const UiSettingsLayoutTokens& tokens, float center_x, float top) noexcept {
@@ -85,31 +113,22 @@ UiRect ui_settings_close_rect(const UiSettingsLayoutTokens& tokens, float center
     return {center_x - half, top, center_x + half, top + tokens.metric.close_size};
 }
 
-UiRect ui_settings_close_caption_rect(const UiSettingsLayoutTokens& tokens, const UiRect& circle) noexcept {
-    const float top = circle.bottom + tokens.metric.close_caption_gap;
-    return {circle.left - 12, top, circle.right + 12, top + kUiSettingsCaptionLine};
-}
-
 Color ui_settings_close_color(const UiSettingsTokens& tokens, UiControlState state) noexcept {
     return state.hovered || state.pressed || state.focused ? tokens.color.text_strong : tokens.color.text_subtle;
 }
 
-bool ui_settings_close_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& circle,
+bool ui_settings_close_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& square,
                              UiControlState state) noexcept {
     const auto& c = tokens.color;
-    const float offset = state.pressed ? 1.f : 0.f;
-    const Color ink = ui_settings_close_color(tokens, state);
     const Color fill = state.pressed ? c.mod_normal : state.hovered ? c.mod_subtle : Color{};
-    const float radius = ui_rect_width(circle) * .5f;
-    bool ok = paint_stream_push_rounded_border(paint, circle.left, circle.top + offset, circle.right,
-                                               circle.bottom + offset, fill, ink, radius, 2);
-    const float icon = 18, cx = (circle.left + circle.right) * .5f, cy = (circle.top + circle.bottom) * .5f + offset;
-    ok = ok && ui_icon_paint(paint, UiIcon::close, {cx - icon * .5f, cy - icon * .5f, cx + icon * .5f, cy + icon * .5f},
-                             ink);
-    if (ok && state.focused)
-        ok = paint_stream_push_rounded_border(paint, circle.left - 3, circle.top - 3, circle.right + 3,
-                                              circle.bottom + 3, {}, c.focus_ring, radius + 3, 2);
-    return ok;
+    const float radius = tokens.metric.control_radius;
+    const float cx = (square.left + square.right) * .5f, cy = (square.top + square.bottom) * .5f;
+    bool ok = !fill.alpha || paint_stream_push_rounded(paint, square, fill, radius);
+    ok = ok && ui_icon_paint(paint, UiIcon::close,
+                             {cx - kCloseGlyph * .5f, cy - kCloseGlyph * .5f, cx + kCloseGlyph * .5f,
+                              cy + kCloseGlyph * .5f},
+                             ui_settings_close_color(tokens, state));
+    return ok && (!state.focused || ui_settings_focus_paint(paint, tokens, square, radius));
 }
 
 bool ui_settings_dialog_close_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& target,

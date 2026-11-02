@@ -33,6 +33,9 @@ struct ApplicationUpdatesView {
     u64 offer_version, offer_bytes, offer_date;
     // Bumped whenever the published changelog changes.
     u64 changelog_revision;
+    // The last check that reached a verified manifest (unix seconds, zero
+    // until one has).
+    u64 checked_unix;
     char own_commit[kApplicationUpdatesCommitChars], offer_commit[kApplicationUpdatesCommitChars];
 };
 // "0.3.4-dev.16+581fd44" for the view's offered build.
@@ -40,46 +43,71 @@ u32 application_updates_offer_label(const ApplicationUpdatesView&, Slice<char> o
 
 // Settings rows for one view. Text lives in the caller's scratch until the
 // next projection. Returns false when the row is hidden. meter receives the
-// row's progress in thousandths, or kUiSettingsNoMeter.
+// row's progress in thousandths, kUiSettingsIndeterminateMeter, or
+// kUiSettingsNoMeter. now_unix dates "Last checked".
 struct ApplicationUpdatesText {
-    char label[96], description[256], chip_text[96];
+    char label[96], description[256], detail[96], chip_text[96];
     Utf8View chips[4];
 };
-bool application_updates_project_view(const ApplicationUpdatesView&, SettingBinding, ApplicationUpdatesText*,
+bool application_updates_project_view(const ApplicationUpdatesView&, u64 now_unix, SettingBinding, ApplicationUpdatesText*,
     UiSettingsControl*, UiSettingsControlPresentation*, u16* meter = nullptr) noexcept;
 
-// The "What's new" rows that follow the updates.changelog heading: one notice
-// per newer stable release (its notes as display text), or one table row per
-// newer preview commit with its date, then a note when changes are missing.
+// The "What's new" rows that follow the updates.changelog heading. A stable
+// changelog lists one disclosure row per release (the newest relevant one open
+// with its notes as a markdown row, older ones folded behind "N older
+// releases"); a preview changelog lists one plain row per commit with its
+// build and date, the installed build marked by a divider. The notes' text is
+// copied only for open releases, and the page owns it until it is rebuilt.
 inline constexpr u32 kApplicationUpdatesChangelogRows = 36;
+// The low byte of a row's control id (settings_list_control_id(update_changelog, ..)):
+// a disclosure row is its entry's index, the notes of entry k are 0x80 + k.
+inline constexpr u32 kApplicationUpdatesRowNotes = 0x80, kApplicationUpdatesRowOlder = 0xf0,
+    kApplicationUpdatesRowMore = 0xf1, kApplicationUpdatesRowInstalled = 0xf2, kApplicationUpdatesRowNote = 0xf3;
+inline constexpr u32 kApplicationUpdatesVisibleReleases = 3, kApplicationUpdatesVisibleCommits = 10;
+// Room for the release notes address: https://github.com/<owner>/<repo>/releases/tag/v<X.Y.Z>.
+inline constexpr u32 kApplicationUpdatesReleaseNotesBytes = 192;
 struct ApplicationUpdatesChangelogRow {
-    Utf8View label, description;
-    Utf8View column[1];
-    bool commit;
+    Utf8View label, description, detail;
+    UiSettingsControlKind kind;
+    UiSettingsVariant tone;
+    u8 more, id;
+    bool checked;
 };
 struct ApplicationUpdatesChangelogRows {
-    u64 built_revision, built_own, built_offer;
+    // What the rows were built from.
+    u64 built_revision, built_own, built_offer, built_stamp;
     u32 count;
-    bool preview, built;
-    Utf8View heading;
+    bool built;
+    Utf8View note;
+    // The user's disclosure choices for entries of one changelog version:
+    // flips against the default (the newest relevant release is open), the
+    // notes shown unclipped, and the expanders. stamp counts changes.
+    u64 state_version, stamp;
+    u64 flipped[2], unclipped[2];
+    bool older_open, more_open;
     ApplicationUpdatesChangelogRow rows[kApplicationUpdatesChangelogRows];
     TextBank bank;
     char text[kUpdateChangelogMaximumBytes + 8192];
 };
-// Rebuilds rows from the changelog entries newer than the view's own build.
+// Rebuilds the rows for the view's own build and offer from the changelog.
 void application_updates_changelog_build(const ApplicationUpdatesView&, const UpdateChangelog&,
     ApplicationUpdatesChangelogRows*) noexcept;
-// The heading row (false when there is nothing to list) and the rows after it,
-// with their table decorations.
-bool application_updates_changelog_heading(const ApplicationUpdatesChangelogRows&, UiSettingsControl*,
-    UiSettingsListItem*) noexcept;
+// The heading row's inline note (false when there is nothing to list), and the
+// rows after it.
+bool application_updates_changelog_heading(const ApplicationUpdatesChangelogRows&, UiSettingsControl*) noexcept;
 u32 application_updates_changelog_project(const ApplicationUpdatesChangelogRows&, Slice<UiSettingsControl>,
     Slice<UiSettingsControlPresentation>) noexcept;
-UiSettingsListItem application_updates_changelog_item(const ApplicationUpdatesChangelogRows&, u32 row) noexcept;
+// A press on a row: opens or closes a release, the notes, or a list. False
+// when the id names no row.
+bool application_updates_changelog_toggle(ApplicationUpdatesChangelogRows*, u32 row_id) noexcept;
 constexpr bool application_updates_changelog_row(u64 control_id) noexcept {
     return control_id >= settings_list_control_id(SettingBinding::update_changelog, 0) &&
            control_id <= settings_list_control_id(SettingBinding::update_changelog, 0xff);
 }
+// The release notes address for the view: a stable release's tag page on the
+// repository, otherwise its releases page; 0 without a repository. Opens through
+// the external-link confirmation.
+u32 application_updates_release_notes_url(const ApplicationUpdatesView&, Utf8View repository, Slice<char> output) noexcept;
 
 // UI thread. A background worker checks at the chosen interval (jitter,
 // backoff, server retry times) and on demand; nothing here blocks on the
@@ -109,18 +137,22 @@ HANDLE application_updates_notification() noexcept;
 bool application_updates_poll() noexcept;
 bool application_updates_project(SettingBinding, UiSettingsControl*, UiSettingsControlPresentation*,
     u16* meter = nullptr) noexcept;
-// The Updates page's changelog rows after its heading, their table
-// decorations by control id (heading: the updates.changelog row) and the
-// available update's progress meter.
+// The Updates page's changelog rows after its heading, and the status card's
+// progress meter. The rows are built when the page asks for them, from the
+// changelog the worker published; the page's visibility frees them.
 u32 application_updates_settings_list(Slice<UiSettingsControl>, Slice<UiSettingsControlPresentation>) noexcept;
-UiSettingsListItem application_updates_list_item(u64 control_id, bool heading) noexcept;
 u16 application_updates_meter() noexcept;
+void application_updates_visible(bool visible) noexcept;
+// A press on a What's new row. False when nothing changed.
+bool application_updates_activate_row(u64 control_id) noexcept;
+// The release notes address (application_updates_release_notes_url) for the
+// running view and repository; 0 when updates aren't configured.
+u32 application_updates_release_notes(Slice<char> output) noexcept;
 // Row storage for the Updates page (null before initialization).
 inline constexpr u32 kApplicationUpdatesSettingsRows = 48;
 struct ApplicationUpdatesSettingsBank {
     UiSettingsControl controls[kApplicationUpdatesSettingsRows];
     UiSettingsControlPresentation presentation[kApplicationUpdatesSettingsRows];
-    UiSettingsListItem items[kApplicationUpdatesSettingsRows];
     u16 meters[kApplicationUpdatesSettingsRows];
 };
 ApplicationUpdatesSettingsBank* application_updates_settings_bank() noexcept;

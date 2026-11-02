@@ -32,6 +32,7 @@ enum class PluginLoadError : u8 {
     api_level,    // the plugin needs a newer host
     permissions,  // the plugin needs permissions that were not approved
     release,      // FreeLibrary failed; the image stays owned for a retry
+    digest,       // the file is not the SHA-256 the caller expects
 };
 
 // Which descriptor rule failed.
@@ -104,10 +105,11 @@ struct PluginImage {
 
 // Opens leaf (a file name in the pinned directory) without following links,
 // checks its PE headers, maps it and validates the descriptor. The file is held
-// open against writes until the call returns. approved must contain every
-// permission the descriptor needs; on any failure nothing stays loaded.
+// open against writes until the call returns, so a nonnull sha256 is checked on
+// exactly the bytes that are mapped. approved must contain every permission the
+// descriptor needs; on any failure nothing stays loaded.
 PluginLoadResult plugin_image_load(PluginImage*, const PluginDirectory&, ConstSlice<wchar_t> leaf,
-                                   u64 approved_permissions) noexcept;
+                                   u64 approved_permissions, const u8* sha256 = nullptr) noexcept;
 // FreeLibrary and reset. The caller stopped the plugin and removed its hooks first.
 PluginLoadResult plugin_image_unload(PluginImage*) noexcept;
 

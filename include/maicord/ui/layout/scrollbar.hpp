@@ -42,5 +42,9 @@ inline bool ui_scroll_offset_store(float* scroll_dips, float offset, float maxim
 // thumb, with no separate gutter background.
 bool ui_scrollbar_paint(PaintStream* paint, const UiScrollbarGeometry& geometry, const Theme& theme,
                         UiScrollbarVisualState state = UiScrollbarVisualState::normal) noexcept;
+// The thin settings variant: a 4 DIP pill at rest that widens to 8 DIP while hovered or dragged, flat fills
+// (no palette border), 2 DIP from the edge.
+bool ui_scrollbar_paint_overlay(PaintStream* paint, const UiScrollbarGeometry& geometry, const Theme& theme,
+                                UiScrollbarVisualState state = UiScrollbarVisualState::normal) noexcept;
 
 } // namespace maicord

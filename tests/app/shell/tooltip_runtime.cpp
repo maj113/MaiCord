@@ -585,6 +585,9 @@ namespace app_detail {
 bool application_settings_active() noexcept {
     return tooltip_runtime_test::settings;
 }
+UiSettingsScene* application_settings_scene() noexcept {
+    return nullptr;
+}
 bool application_friends_active() noexcept {
     return false;
 }

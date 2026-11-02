@@ -81,6 +81,8 @@ enum class UiSettingsButtonVariant : u8 {
     primary,
     critical,
     critical_secondary,
+    // Transparent until hot; the plate then takes the hover fill (header links, icon-less actions).
+    ghost,
     count
 };
 // Button sizes: sm is 32 DIP, md 40 DIP.
@@ -91,6 +93,10 @@ enum class UiSettingsButtonSize : u8 {
 float ui_settings_button_width(const UiSettingsLayoutTokens&, UiSettingsButtonSize, float label_width) noexcept;
 bool ui_settings_button_paint(PaintStream*, const UiSettingsTokens&, const UiRect&, UiSettingsButtonVariant,
                               UiControlState) noexcept;
+// A button whose plate shows progress: the secondary plate with a brand fill over `fraction` of its width
+// (the label draws over both: pair it with ui_settings_button_progress_text).
+bool ui_settings_button_progress_paint(PaintStream*, const UiSettingsTokens&, const UiRect&, float fraction,
+                                       UiControlState) noexcept;
 Color ui_settings_button_text(const UiSettingsTokens&, UiSettingsButtonVariant, UiControlState) noexcept;
 
 // Theme swatch: rounded square with an inset ring; selection adds an outer
@@ -101,31 +107,29 @@ float ui_swatch_label_height() noexcept;
 bool ui_swatch_paint(PaintStream*, const UiSettingsTokens&, const UiRect& swatch, const Color& fill,
                      const BackgroundTheme* gradient, bool selected, UiControlState) noexcept;
 
-// Sidebar rows, search field and the circular close button.
+// Sidebar rows, search field and the close button.
 bool ui_settings_nav_item_paint(PaintStream*, const UiSettingsTokens&, const UiRect&, bool selected, bool destructive,
                                 UiControlState) noexcept;
 Color ui_settings_nav_item_text(const UiSettingsTokens&, bool selected, bool destructive,
                                 UiControlState) noexcept;
 UiRect ui_settings_nav_icon_rect(const UiSettingsLayoutTokens&, const UiRect& item) noexcept;
 UiRect ui_settings_nav_label_rect(const UiSettingsLayoutTokens&, const UiRect& item, bool icon) noexcept;
+// The attention dot or count badge at a nav item's end.
+UiRect ui_settings_nav_badge_rect(const UiRect& item, bool dot, float digits_width) noexcept;
+bool ui_settings_nav_badge_paint(PaintStream*, const UiSettingsTokens&, const UiRect& badge, bool dot) noexcept;
 bool ui_settings_separator_paint(PaintStream*, const UiSettingsTokens&, const UiRect& row) noexcept;
+// The search field: leading glyph, then the text, then a "Ctrl F" hint (empty) or the clear button.
 bool ui_settings_search_paint(PaintStream*, const UiSettingsTokens&, const UiRect& field, bool has_text,
                               UiControlState) noexcept;
 UiRect ui_settings_search_text_rect(const UiRect& field) noexcept;
 UiRect ui_settings_search_clear_rect(const UiRect& field) noexcept;
+UiRect ui_settings_search_hint_rect(const UiRect& field) noexcept;
 UiRect ui_settings_close_rect(const UiSettingsLayoutTokens&, float center_x, float top) noexcept;
-UiRect ui_settings_close_caption_rect(const UiSettingsLayoutTokens&, const UiRect& circle) noexcept;
-bool ui_settings_close_paint(PaintStream*, const UiSettingsTokens&, const UiRect& circle, UiControlState) noexcept;
+// The close button: a ghost square with a bare glyph.
+bool ui_settings_close_paint(PaintStream*, const UiSettingsTokens&, const UiRect& square, UiControlState) noexcept;
 // Dialog close: a bare 24 DIP glyph centred in the target, with a hover fill.
 bool ui_settings_dialog_close_paint(PaintStream*, const UiSettingsTokens&, const UiRect& target, UiControlState) noexcept;
 Color ui_settings_close_color(const UiSettingsTokens&, UiControlState) noexcept;
-
-// Segmented options: square buttons at a row's end.
-float ui_segments_width(const UiSettingsLayoutTokens&, u32 count) noexcept;
-UiRect ui_segments_option(const UiSettingsLayoutTokens&, const UiRect& group, u32 count, u32 index) noexcept;
-u32 ui_segments_hit(const UiSettingsLayoutTokens&, const UiRect& group, u32 count, float x, float y) noexcept;
-bool ui_segments_paint(PaintStream*, const UiSettingsTokens&, const UiRect& group, u32 count, u32 selected, u32 hovered,
-                       UiControlState) noexcept;
 
 // Tri-state permission switch: deny / neutral / allow as three joined
 // segments in one bordered group (tristate_segment by segment_size each).

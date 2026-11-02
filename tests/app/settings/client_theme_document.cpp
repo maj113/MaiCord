@@ -138,6 +138,32 @@ void test_client_theme_document(void (*check)(bool, const char*) noexcept) noexc
                           removed.theme.background.effect == BackgroundEffect::none;
     check(removed_effects, "theme document: a removed effect name falls back to no effect instead of "
                            "rejecting the document");
+    // A package effect: the slug, its knob values and the universal settings, kept through the canonical writer.
+    ClientThemeDocument packaged{};
+    const bool packaged_ok =
+        parse(utf8_literal("{\"version\":\"2.0\",\"background\":{\"effect\":\"rain-2\",\"knobs\":{\"cell\":18.5,"
+                           "\"mirror\":true,\"tint\":\"#1AFF59\"},\"universal\":{\"speed\":1.5,\"resolution\":75,"
+                           "\"fps\":30,\"opacity\":0.5,\"blend\":\"screen\"}}}"),
+              defaults, &packaged)
+            .ok() &&
+        packaged.effect.slug[0] == 'r' && packaged.effect.knob_count == 3 && packaged.effect.knobs[0].number == 18.5f &&
+        packaged.effect.knobs[1].number == 1.f && packaged.effect.knobs[2].color &&
+        packaged.effect.knobs[2].rgb == 0x1aff59 && packaged.effect.speed == 30 && packaged.effect.resolution == 4 &&
+        packaged.effect.frame_rate == 4 && packaged.effect.opacity == 50 && packaged.effect.blend == 1 &&
+        packaged.theme.background.effect == BackgroundEffect::none;
+    u32 packaged_bytes = 0;
+    ClientThemeDocument reread{};
+    const bool packaged_round_trip =
+        packaged_ok && client_theme_document_write(packaged, {exported, kClientThemeDocumentMaximumBytes}, &packaged_bytes).ok() &&
+        parse({exported, packaged_bytes}, defaults, &reread).ok() && client_theme_document_equal(packaged, reread);
+    check(packaged_ok && packaged_round_trip,
+          "theme document: a package effect slug, knob values and universal settings parse and survive a rewrite");
+    check(refused(utf8_literal("{\"version\":\"2.0\",\"background\":{\"effect\":\"rain\",\"knobs\":{\"a\":1,\"a\":2}}}"), defaults) &&
+              refused(utf8_literal("{\"version\":\"2.0\",\"background\":{\"universal\":{\"fps\":29}}}"), defaults) &&
+              refused(utf8_literal("{\"version\":\"2.0\",\"background\":{\"universal\":{\"speed\":4}}}"), defaults) &&
+              refused(utf8_literal("{\"version\":\"2.0\",\"background\":{\"knobs\":{\"c\":\"#12\"}}}"), defaults) &&
+              refused(utf8_literal("{\"version\":\"2.0\",\"background\":{\"knobs\":[1]}}"), defaults),
+          "theme document: duplicate knobs, off-table universal values and malformed knob values are refused");
     check(
         refused(utf8_literal("{\"version\":\"2.0\",\"background\":{\"effect\":3}}"), defaults) &&
             refused(utf8_literal("{\"version\":\"2.0\",\"background\":{\"speed\":101}}"), defaults) &&
