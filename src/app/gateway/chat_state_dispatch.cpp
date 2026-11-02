@@ -936,7 +936,7 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                 }
                 const u32 id_count = minimum(index, kGuildChannelIdCapacity);
                 if (!ids_increasing) {
-                    heap_sort_shared(channel_ids.values, id_count, [](u64 a, u64 b) noexcept { return a < b; });
+                    heap_sort(channel_ids.values, id_count, [](u64 a, u64 b) noexcept { return a < b; });
                     for (u32 id = 1; id < id_count; ++id)
                         if (channel_ids.values[id - 1] == channel_ids.values[id])
                             return apply_error(ChatStateApplyError::invalid_payload);

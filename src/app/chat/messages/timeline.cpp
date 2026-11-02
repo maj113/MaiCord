@@ -418,7 +418,7 @@ bool message_timeline_set_item_height(MessageTimeline* timeline, u32 index, u32 
 }
 
 static MessageTimelineApplyResult insert_resident(MessageTimeline* timeline, const MessageInput& input,
-                                                  const ConstSlice<GatewayMessageAttachment>& attachments,
+                                                  ConstSlice<GatewayMessageAttachment> attachments,
                                                   bool retained) noexcept {
     const MessageTimelineError validation = validate_timeline(timeline);
     if (validation != MessageTimelineError::none ||

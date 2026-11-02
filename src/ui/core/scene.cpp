@@ -9,14 +9,35 @@ constexpr u32 semantic_id(UiSemantic semantic) noexcept {
     return static_cast<u32>(semantic) + 1;
 }
 
+// The widget names in one string; the offset of each is computed at compile time, so the lookup that every node of
+// every layout makes is two loads instead of a walk over the preceding names.
+constexpr char kSemanticNames[] =
+    "Shell\0GuildRail\0ChannelSidebar\0ChannelHeader\0ChannelNavigation\0ChannelFooter\0Content\0TitleBar\0"
+    "TitleLabel\0MemberToggle\0MessageView\0Composer\0MemberSidebar\0Home\0GuildNavigation\0UserSettings\0"
+    "Friends\0PinnedMessages\0Threads\0ThreadHeader\0ThreadStatus\0ThreadPrimaryAction\0ThreadActions\0"
+    "ThreadFeedback\0ThreadCancel\0CreateDirectMessage\0AddPeople\0StartCall\0Inbox\0ServerMenu\0InvitePeople\0";
+static_assert(name_list_count(kSemanticNames) == static_cast<u32>(UiSemantic::count));
+
+struct SemanticOffsets {
+    u16 at[static_cast<u32>(UiSemantic::count) + 1];
+};
+
+constexpr SemanticOffsets kSemanticOffsets = [] {
+    SemanticOffsets table{};
+    u16 offset = 0;
+    u32 index = 0;
+    for (NameList list{kSemanticNames}; list; list.next()) {
+        table.at[index++] = offset;
+        offset = static_cast<u16>(offset + list.bytes + 1);
+    }
+    table.at[index] = offset;
+    return table;
+}();
+
 Utf8View semantic_name(UiSemantic semantic) noexcept {
-    static constexpr char names[] =
-        "Shell\0GuildRail\0ChannelSidebar\0ChannelHeader\0ChannelNavigation\0ChannelFooter\0Content\0TitleBar\0"
-        "TitleLabel\0MemberToggle\0MessageView\0Composer\0MemberSidebar\0Home\0GuildNavigation\0UserSettings\0"
-        "Friends\0PinnedMessages\0Threads\0ThreadHeader\0ThreadStatus\0ThreadPrimaryAction\0ThreadActions\0"
-        "ThreadFeedback\0ThreadCancel\0CreateDirectMessage\0AddPeople\0StartCall\0Inbox\0ServerMenu\0InvitePeople\0";
-    static_assert(name_list_count(names) == static_cast<u32>(UiSemantic::count));
-    return name_list_at(names, static_cast<u32>(semantic));
+    const u32 index = static_cast<u32>(semantic);
+    const u32 begin = kSemanticOffsets.at[index];
+    return {kSemanticNames + begin, kSemanticOffsets.at[index + 1] - begin - 1u};
 }
 
 bool semantic_button(UiSemantic semantic) noexcept {
