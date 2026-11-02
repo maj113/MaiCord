@@ -502,27 +502,21 @@ maicord_compact_sources(
         src/app/media/attachment_media_probe.cpp src/app/gateway/guild_folders.cpp src/app/gateway/user_settings.cpp
         src/app/gateway/scheduled_event_dispatch.cpp
         src/render/effects/lottie_program.cpp src/render/effects/colr_source.cpp src/media/core/encoded_cache.cpp)
-# Gateway outbound requests and drivers, connection setup, the session loop, chat-state
-# application and the notification sidecar, voice message recording and Opus send (the encoder
-# dominates), call setup glue, media session control, CDN admission around the decoders and the
-# entry loop: all one-shot, per request, per guild event or low-rate. Interleaved A/B (best of 20
-# runs, one pinned core): the Gateway pipeline benchmark's READY, supplemental and event-burst
-# phases are within 1% of /O2, the guild-create apply benchmark within 1.6% of 2.5-16 us, the
-# voice send and recorder paths within 0.7%. The READY decoders (state_dispatch*, user/state
+# Gateway client connection, transport, outputs, storage and session loop, and chat-state
+# application: one-shot, per request or per guild event. Their sources are not what the Gateway
+# pipeline benchmark measures (it includes client*.cpp into its own unit), and the guild-create apply
+# benchmark stays within 1.6% of 2.5-16 us. The READY decoders (state_dispatch*, user/state
 # payload, read state, relationships, thread members), the message and member-list paths and
 # the voice audio path (mixer, transmit, playback, jitter buffer, receive, UDP media: +5% to
-# +75% at -Oz, with per-sample loops) stay /O2.
+# +75% at -Oz, with per-sample loops) stay /O2. So do the voice, guild-admin and notification
+# dispatchers, voice recording and send, call video, CDN admission and the entry loop: with them at
+# -Oz the pipeline benchmark's READY and supplemental decode ran 2-3% longer under three code
+# placements (interleaved A/B, 16-20 rounds; A/A under 1%).
 maicord_compact_sources(
     SOURCES
-        src/app/gateway/voice_dispatch.cpp src/app/gateway/guild_admin_dispatch.cpp
         src/app/gateway/client.cpp src/app/gateway/client_outputs.cpp src/app/gateway/client_storage.cpp
-        src/app/gateway/client_transport.cpp src/app/gateway/dispatch_notifications.cpp
-        src/app/gateway/chat_state_dispatch.cpp src/app/gateway/client_session.cpp
-        src/app/voice/message_recorder.cpp src/app/voice/send.cpp
-        src/app/voice/call_video_presenter.cpp src/app/voice/message_flow.cpp src/app/voice/log.cpp
-        src/app/media/account_media_video.cpp src/app/media/video_sources.cpp
-        src/app/media/account_video_session.cpp src/app/media/cdn_media_pipeline.cpp
-        src/app/shell/main.cpp)
+        src/app/gateway/client_transport.cpp src/app/gateway/chat_state_dispatch.cpp
+        src/app/gateway/client_session.cpp)
 # Core and platform code with no byte loop: path building, per-frame DXVA submission and MP4
 # decoder plumbing, speech, datagram and TLS stream control around the OS calls, the random
 # source and the window frame; Gateway connection events, voice session descriptions, request
