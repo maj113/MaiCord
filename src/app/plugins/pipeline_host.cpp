@@ -700,8 +700,11 @@ bool confirm_save(TextFormOwnerKey key, Utf8View) noexcept {
 
 } // namespace
 
+const PluginPipelineSink* application_plugins_pipeline_sink() noexcept {
+    return &kSink;
+}
+
 void application_plugins_pipeline_install() noexcept {
-    plugin_pipeline_set_sink(&kSink);
     g_message_retain_query = keep_is_deleted;
     g_app.message_view.timeline.retains = true;
 }

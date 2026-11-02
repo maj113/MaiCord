@@ -6,8 +6,10 @@
 #include "plugins/catalog_service.hpp"
 #include "plugins/catalog_worker.hpp"
 #include "maicord/core/data_path.hpp"
+#include "maicord/app/plugins/binding.hpp"
 #include "maicord/app/plugins/consent.hpp"
 #include "maicord/app/plugins/dispatch.hpp"
+#include "maicord/app/plugins/pipeline.hpp"
 #include "maicord/core/memory.hpp"
 #include "catalog_fixture.hpp"
 #include "fake_transport.hpp"
@@ -216,6 +218,34 @@ bool running_version(const char* version) noexcept {
     const PluginBinding* b = running();
     return b && utf8_equal({b->image.info.version, b->image.info.version_bytes}, {version, c_string_length(version)});
 }
+
+// The client's side of the plugin actions: what a plugin showed as a local message.
+PluginPipelineSink g_actions{};
+constexpr Utf8View kDraft = utf8_literal("\xC5\xBEivjo **test**");
+char g_local[32];
+u32 g_local_bytes;
+mc_status local_message(u64, u64, Utf8View text, u64* id) noexcept {
+    if (text.bytes > sizeof(g_local)) return MC_E_INVALID;
+    copy_bytes(g_local, text.data, text.bytes);
+    g_local_bytes = text.bytes;
+    *id = 77;
+    return MC_OK;
+}
+mc_status show_draft(mc_ctx* ctx, void*) noexcept {
+    u64 id = 0;
+    const mc_status status = ctx->api->local_message(ctx, 0, {kDraft.data, kDraft.bytes, 0}, &id);
+    return status == MC_OK && id != 77 ? MC_E_INVALID : status;
+}
+// A click on a plugin's button: the gesture reaches the client's actions though the plugin has no event,
+// timer or kept-message hook (clear-urls has only pre_send).
+bool acts() noexcept {
+    PluginRuntime* r = application_catalog_runtime();
+    if (!r || r->binding_count != 1) return false;
+    g_local_bytes = 0;
+    const PluginCallResult call = plugin_binding_call(r->bindings[0], PluginCallKind::slot_action, PluginCallClass::gesture,
+                                                      MC_CTX_GESTURE, show_draft, nullptr);
+    return call.status == MC_OK && !call.overran && utf8_equal({g_local, g_local_bytes}, kDraft);
+}
 bool plugin_file(const wchar_t* base, const u8 (&sha)[32]) noexcept {
     wchar_t leaf[69], path[MAX_PATH];
     catalog_plugin_leaf(sha, leaf);
@@ -233,7 +263,8 @@ bool initialize(const wchar_t* base) noexcept {
     options.keys = {keys, 1};
     options.transport = plugin_fake::transport(g->server);
     options.clock_unix = clock;
-    options.host = {developer_mode, toast, validate_package, library_changed, package_removed, nullptr};
+    g_actions.local_message = local_message;
+    options.host = {developer_mode, toast, validate_package, library_changed, package_removed, nullptr, &g_actions};
     return application_catalog_initialize(options);
 }
 
@@ -260,6 +291,7 @@ void run_flow(const wchar_t* base) noexcept {
     check(application_catalog_consent_answer(true, true) && phase() == CatalogPhase::done && running_version("1.0.0"),
           "accepting enables the plugin");
     check(strips(), "the installed plugin strips tracking parameters from a sent link");
+    check(acts(), "the plugin's gesture shows a local message without event, timer or kept-message hooks");
     auto state = application_catalog_item_state(CatalogKind::plugin, kSlug);
     check(state.installed && state.enabled && state.running && state.auto_update && !state.can_roll_back &&
               state.update == kCatalogNone && state.installed->approved_permissions == g->permissions,

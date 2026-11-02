@@ -4,6 +4,7 @@
 #include "dev_watch.hpp"
 #include "maicord/app/plugins/consent.hpp"
 #include "maicord/app/plugins/http.hpp"
+#include "maicord/app/plugins/pipeline.hpp"
 #include "maicord/app/update/log.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/hash.hpp"
@@ -188,6 +189,7 @@ Runtime* runtime() noexcept {
         return nullptr;
     }
     r.runtime.toast = g->host.plugin_toast;
+    plugin_pipeline_set_sink(g->host.pipeline);
     // Log lines and budget strikes reach the Developer console (which holds them only in Developer Mode).
     r.runtime.sink_context = &r.runtime;
     r.runtime.log = application_dev_console_log;

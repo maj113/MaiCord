@@ -145,7 +145,7 @@ void native(wchar_t* path) noexcept {
 bool initialize(const wchar_t* base) noexcept {
     CatalogServiceOptions options{};
     options.base = {base, static_cast<u32>(wide_length(base, MAX_PATH))};
-    options.host = {developer_mode, toast, validate_package, library_changed, package_removed, nullptr};
+    options.host = {developer_mode, toast, validate_package, library_changed, package_removed, nullptr, nullptr};
     return application_catalog_initialize(options);
 }
 
