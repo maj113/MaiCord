@@ -312,13 +312,15 @@ Keys:
   repository's variable `MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY`.
 
 Create a key pair with `generate_update_key.py` (ignore the updater names it
-prints) and back both files up offline. `ci.yml` and `release.yml` pass both
+prints) and back both files up offline. `cmake/client.cmake` compiles both
+points in as the defaults, as it does the updater key, so every build, local
+ones included,
+trusts the official catalog. `ci.yml` and `release.yml` also pass both
 variables to the client build as the environment variables of the same names,
-which `cmake/client.cmake` turns into the defaults of the CMake cache variables.
-A build without them compiles the official catalog as not configured. For a
-local build that trusts the catalog, set both environment variables before
-`tools/build.ps1`. They seed only a new cache: a `CMakeCache.txt` kept by
-`-KeepIntermediates` keeps the values it was created with.
+which override those defaults; setting both empty compiles the official catalog
+as not configured. They seed only a new cache: a `CMakeCache.txt` kept by
+`-KeepIntermediates` keeps the values it was created with. A rotation updates
+the defaults in `cmake/client.cmake` along with the variables.
 
 Rotating to the next key needs no client release, because clients already
 trust it:

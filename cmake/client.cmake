@@ -264,12 +264,14 @@ set_source_files_properties(src/app/update/entry.cpp PROPERTIES COMPILE_DEFINITI
     "MAICORD_UPDATE_REPOSITORY=\"${maicord_update_repository}\";MAICORD_UPDATE_PUBLIC_KEY=\"${maicord_update_public_key}\";MAICORD_UPDATE_DEV=${maicord_update_dev};MAICORD_UPDATE_COMMIT=\"${maicord_update_commit}\";MAICORD_VERSION_MAJOR=${maicord_update_major};MAICORD_VERSION_MINOR=${maicord_update_minor};MAICORD_VERSION_PATCH=${maicord_update_patch}")
 
 # The official catalog (maj113/MaiCord-plugins on GitHub Pages): the current
-# and the next (offline) P-256 key. No key compiles the catalog as "not
-# configured": installed items keep working and nothing is fetched.
-# Environment variables override the defaults, as for the updater.
+# and the next (offline) P-256 key. Setting both keys empty compiles the
+# catalog as "not configured": installed items keep working and nothing is
+# fetched. Environment variables override the defaults, as for the updater.
 set(maicord_default_plugin_catalog_repository "maj113/MaiCord-plugins")
-set(maicord_default_plugin_catalog_public_key "")
-set(maicord_default_plugin_catalog_next_public_key "")
+set(maicord_default_plugin_catalog_public_key
+    "04997fc924ff9cf99c686663f870d003a5898559a319abffa57dd9816b62b94ed487c2cc013bd3ed30c2486a6fd4c5e38a2a30245079ec249b208cef276edc874a")
+set(maicord_default_plugin_catalog_next_public_key
+    "0482c655b56792ca3193d742aa145e6f25093f771c0dc003ecaa763217ed25b2ecf22b1308d44e7b4dfe6b2fdd4e6831f589bfb9adda811e47c4e30b5c3a5885da")
 foreach(name REPOSITORY PUBLIC_KEY NEXT_PUBLIC_KEY)
     string(TOLOWER "${name}" lower)
     if(DEFINED ENV{MAICORD_PLUGIN_CATALOG_${name}})
