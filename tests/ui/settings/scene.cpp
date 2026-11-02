@@ -878,8 +878,8 @@ void build_card_fixture(CardFixture* f) noexcept {
         m = kUiSettingsNoMeter;
     f->meters[5] = 500;
     f->presentation[5].chip_tones = ui_settings_chip_positive << 2;
+    f->presentation[5].more = ui_settings_more_meta_parts;
     f->presentation[5].icon_plus_one = static_cast<u8>(UiIcon::circle_check) + 1;
-    f->presentation[5].more = ui_settings_more_bold_lead;
     f->presentation[6].variant = UiSettingsVariant::primary;
     f->presentation[7].more = ui_settings_more_plain;
     f->content = {utf8_literal("Updates"), utf8_literal("MaiCord updates itself from signed releases."), {f->controls, 10}, 1};
@@ -974,8 +974,10 @@ void test_card_pages(Check check) noexcept {
                    ui_text_command_stream_initialize(&stream, {commands, 160}) &&
                    ui_settings_scene_text_output(scene, kDefaultTheme, &output);
     bool title = false, subtitle = false, hint = false, caption = false, tag = false, link = false, styled = false, eyebrow = false,
-         esc = false, heading = false, button_rect = false, button_clip = false, segment_rect = false, lead = false,
-         rest = false;
+         esc = false, heading = false, button_rect = false, button_clip = false, segment_rect = false, lead_bold = false,
+         rest_seen = false;
+    Color lead_ink{}, rest_ink{};
+    float label_left = -1, meta_left = -2;
     u32 bullets = 0;
     for (u32 i = 0; painted && i < stream.count; ++i) {
         const auto& c = commands[i];
@@ -992,13 +994,22 @@ void test_card_pages(Check check) noexcept {
         eyebrow = eyebrow || utf8_equal(c.text, utf8_literal("MAICORD"));
         esc = esc || utf8_equal(c.text, utf8_literal("ESC"));
         heading = heading || (utf8_equal(c.text, utf8_literal("You're up to date")) && (c.style_flags & text_style_heading_2));
+        if (utf8_equal(c.text, utf8_literal("You're up to date")))
+            label_left = c.rectangle.left;
         if (utf8_equal(c.text, utf8_literal("Check now"))) {
             // The refresh glyph leads the label: the label starts inside the button and ends at its edge, unclipped.
             button_rect = c.rectangle.left > status.field.left + 16 && close_to(c.rectangle.right, status.field.right);
             button_clip = c.clip.left <= c.rectangle.left + .01f && c.clip.right >= status.field.right - .01f;
         }
-        lead = lead || (utf8_equal(c.text, utf8_literal("MaiCord 0.5.4")) && (c.style_flags & text_style_bold));
-        rest = rest || (utf8_equal(c.text, utf8_literal(" \xC2\xB7 Stable channel")) && !(c.style_flags & text_style_bold));
+        if (utf8_equal(c.text, utf8_literal("MaiCord 0.5.4")) && c.style_flags == kUiKitTextSmallBold) {
+            meta_left = c.rectangle.left;
+            lead_ink = c.color;
+            lead_bold = true;
+        }
+        if (utf8_equal(c.text, utf8_literal("\xC2\xB7 Stable channel"))) {
+            rest_ink = c.color;
+            rest_seen = true;
+        }
         if (utf8_equal(c.text, utf8_literal("Preview")))
             segment_rect = c.clip.right - c.clip.left + .01f >= ui_kit_text_width(nullptr, utf8_literal("Preview"), kUiKitTextLabelBold);
     }
@@ -1009,7 +1020,8 @@ void test_card_pages(Check check) noexcept {
     check(link, "settings cards: the markdown link emits");
     check(styled && bullets >= 3, "settings cards: markdown items are themed text commands, each with its own bullet");
     check(button_rect && button_clip, "settings cards: a status button's glyph leads its label, which reaches the button's edge unclipped");
-    check(lead && rest, "settings cards: a status meta line leads with its bold run and continues in the regular face");
+    check(lead_bold && rest_seen && !bytes_equal(&lead_ink, &rest_ink, sizeof(Color)) && close_to(meta_left, label_left),
+          "settings cards: a status meta line leads with its bold, brighter identity where the title starts, then its parts");
     check(segment_rect, "settings cards: a segmented label's clip fits the label");
 
     // The sidebar's foot: the last two entries stand pinned under the scrolling pages.
@@ -1119,6 +1131,170 @@ void test_sidebar_follows_selection(Check check) noexcept {
           "settings sidebar: the same page keeps the user's own scroll position");
     ui_settings_scene_release(&scene);
 }
+// Segmented rows of 2, 3 and 5 options: the pointer over a segment hovers exactly that segment (index and painted
+// plate), clicks report it, and a row never shows the option another row last hovered.
+void test_segment_hover(Check check) noexcept {
+    static const Utf8View labels[5]{utf8_literal("One"), utf8_literal("Two"), utf8_literal("Three"), utf8_literal("Four"),
+                                    utf8_literal("Five")};
+    static UiSettingsControl controls[3];
+    static UiSettingsPageContent content{};
+    static UiPage pages[1];
+    UiPageRegistry registry{};
+    UiSettingsScene scene{};
+    const u32 counts[3]{2, 3, 5};
+    for (u32 r = 0; r < 3; ++r)
+        controls[r] = {r + 1u, utf8_literal("Row"), {}, UiSettingsControlKind::segments, true, false, {labels, counts[r]}, 0};
+    content = {utf8_literal("Segments"), {}, {controls, 3}, 1};
+    const UiPageKey page{1, 1};
+    const UiRect viewport{0, 0, 1440, 900};
+    PaintStream paint{};
+    const bool built = ui_page_registry_initialize(&registry, {pages, 1}) &&
+                       ui_page_registry_register(&registry, {page, utf8_literal("Segments"), &content}).ok() &&
+                       ui_settings_scene_set_presentation(&scene, UiSettingsPresentation::modal) &&
+                       ui_settings_scene_update(&scene, &registry, viewport) && paint_stream_initialize(&paint);
+    check(built, "settings segments: a page of 2, 3 and 5 segment rows builds");
+    if (!built)
+        return;
+    const UiSettingsThemeTokens tokens(kDefaultTheme);
+    bool hovered_index = true, plate = true, clicked = true, stale = true;
+    for (u32 r = 0; r < 3; ++r) {
+        const UiSettingsTarget target{UiSettingsTargetKind::control, page, r + 1u};
+        for (u32 i = 0; i < counts[r]; ++i) {
+            UiRect option{}, others{};
+            if (!ui_settings_scene_choice_rectangle(scene, target, i, &option)) {
+                hovered_index = false;
+                continue;
+            }
+            const float x = (option.left + option.right) * .5f, y = (option.top + option.bottom) * .5f;
+            ui_button_pointer(&scene.widgets, UiButtonPointerEvent::move, {x, y});
+            // Another row's leftover hover must not decide this row: start from a wrong index.
+            scene.palette_hovered_index = (i + 1) % counts[r];
+            ui_settings_scene_palette_hover(&scene, target, x, y);
+            hovered_index = hovered_index && scene.palette_hovered_index == i;
+            UiSettingsActivation activation{};
+            clicked = clicked && ui_settings_scene_option_pointer(scene, target, x, y, &activation) &&
+                      activation.selected_choice == i && activation.kind == UiSettingsControlKind::segments;
+            // The plate: the selected segment (0) has its own look; any other hovered segment gets the hover fill, and
+            // no other segment of any row does.
+            plate = plate && paint_stream_reset(&paint, viewport.right, viewport.bottom) &&
+                    ui_settings_scene_paint(scene, kDefaultTheme, &paint, 96, nullptr);
+            u32 matches = 0, elsewhere = 0;
+            for (u32 q = 0; q < paint.count; ++q) {
+                const auto& quad = paint.quads[q];
+                if (!bytes_equal(&quad.fill, &tokens.color.mod_subtle, sizeof(Color)))
+                    continue;
+                for (u32 rr = 0; rr < 3; ++rr)
+                    for (u32 j = 0; j < counts[rr]; ++j) {
+                        const UiSettingsTarget other{UiSettingsTargetKind::control, page, rr + 1u};
+                        if (ui_settings_scene_choice_rectangle(scene, other, j, &others) &&
+                            close_to(quad.left, others.left) && close_to(quad.top, others.top) &&
+                            close_to(quad.right, others.right) && close_to(quad.bottom, others.bottom)) {
+                            if (rr == r && j == i)
+                                ++matches;
+                            else
+                                ++elsewhere;
+                        }
+                    }
+            }
+            plate = plate && elsewhere == 0 && matches == (i ? 1u : 0u);
+        }
+        // Leaving the segments clears the hover: the pointer on the page's corner is no option.
+        UiSettingsActivation none{};
+        ui_settings_scene_palette_hover(&scene, target, 1, 1);
+        stale = stale && !ui_settings_scene_option_pointer(scene, target, 1, 1, &none) &&
+                scene.palette_hovered_index == ~u32{0};
+    }
+    check(hovered_index, "settings segments: hovering any segment of a 2-, 3- and 5-segment row hovers exactly that index");
+    check(plate, "settings segments: the hover plate is painted on the hovered segment alone, never on another segment or row");
+    check(clicked, "settings segments: a click on any segment reports that segment");
+    check(stale && scene.palette_hovered_index == ~u32{0}, "settings segments: moving off the segments clears the hovered option");
+    paint_stream_release(&paint);
+    ui_settings_scene_release(&scene);
+}
+// A status meta line wraps between its parts only: a break drops its separator (no line ends with a dot or starts
+// with one), every line starts at the title's left edge, and the identity stays bold and brighter than the rest.
+void test_status_meta_wrap(Check check) noexcept {
+    static UiSettingsControl controls[1];
+    static UiSettingsControlPresentation looks[1];
+    static UiSettingsPageContent content{};
+    static UiPage pages[1];
+    controls[0] = {1, utf8_literal("You're up to date"),
+                   utf8_literal("MaiCord 0.5.5-dev.9+de4eb0a \xC2\xB7 Stable channel \xC2\xB7 Checked today at 4:34 PM"),
+                   UiSettingsControlKind::status, true, false, {}, 0, utf8_literal("Check now")};
+    looks[0] = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
+    looks[0].more = ui_settings_more_meta_parts;
+    content = {utf8_literal("Updates"), {}, {controls, 1}, 1};
+    content.presentation = looks;
+    UiPageRegistry registry{};
+    UiSettingsScene scene{};
+    const UiPageKey page{1, 1};
+    check(ui_page_registry_initialize(&registry, {pages, 1}) &&
+              ui_page_registry_register(&registry, {page, utf8_literal("Updates"), &content}).ok() &&
+              ui_settings_scene_set_presentation(&scene, UiSettingsPresentation::modal),
+          "settings status meta: a status page builds");
+    const UiSettingsThemeTokens tokens(kDefaultTheme);
+    const float widths[]{1800, 1500, 1152, 960, 840, 760, 700, 640};
+    bool invariants = true, wrapped = false, whole = false;
+    for (const float width : widths) {
+        ++content.revision;
+        UiTextCommand commands[160]{};
+        UiTextCommandStream stream{};
+        UiTextOutput output{&stream, nullptr};
+        invariants = invariants && ui_settings_scene_update(&scene, &registry, {0, 0, width, 900}) &&
+                     ui_text_command_stream_initialize(&stream, {commands, 160}) &&
+                     ui_settings_scene_text_output(scene, kDefaultTheme, &output);
+        const UiTextCommand* parts[3]{};
+        float title_left = -1;
+        for (u32 i = 0; i < stream.count; ++i) {
+            const auto& c = commands[i];
+            const auto ends = [&](const char* tail) noexcept {
+                const u32 n = c_string_length(tail);
+                return c.text.bytes >= n && bytes_equal(c.text.data + c.text.bytes - n, tail, n);
+            };
+            if (utf8_equal(c.text, utf8_literal("You're up to date")))
+                title_left = c.rectangle.left;
+            if (c.style_flags == kUiKitTextSmallBold && utf8_equal(c.text, utf8_literal("MaiCord 0.5.5-dev.9+de4eb0a")))
+                parts[0] = &c;
+            else if (ends("Stable channel"))
+                parts[1] = &c;
+            else if (ends("Checked today at 4:34 PM"))
+                parts[2] = &c;
+        }
+        if (!parts[0] || !parts[1] || !parts[2]) {
+            invariants = false;
+            continue;
+        }
+        const auto dotted = [](const UiTextCommand& c) noexcept {
+            return c.text.bytes > 2 && static_cast<u8>(c.text.data[0]) == 0xC2 && static_cast<u8>(c.text.data[1]) == 0xB7;
+        };
+        bool all_on_one_line = true;
+        for (u32 p = 0; p < 3; ++p) {
+            const auto& c = *parts[p];
+            invariants = invariants && !(c.text.bytes >= 2 && static_cast<u8>(c.text.data[c.text.bytes - 2]) == 0xC2 &&
+                                         static_cast<u8>(c.text.data[c.text.bytes - 1]) == 0xB7);
+            if (!p) {
+                invariants = invariants && close_to(c.rectangle.left, title_left) && !dotted(c);
+                continue;
+            }
+            const auto& before = *parts[p - 1];
+            const bool same_line = close_to(c.rectangle.top, before.rectangle.top);
+            all_on_one_line = all_on_one_line && same_line;
+            // On the line of its predecessor the part carries its separator in front; on a new line it starts the
+            // line at the left edge without one.
+            invariants = invariants && (same_line ? dotted(c) && c.rectangle.left > before.rectangle.right - .01f
+                                                  : !dotted(c) && close_to(c.rectangle.left, title_left) &&
+                                                        c.rectangle.top > before.rectangle.top);
+        }
+        wrapped = wrapped || !all_on_one_line;
+        whole = whole || all_on_one_line;
+        // The identity is brighter than the other parts, which use the subtle ink.
+        invariants = invariants && !bytes_equal(&parts[0]->color, &parts[1]->color, sizeof(Color)) &&
+                     bytes_equal(&parts[1]->color, &tokens.color.text_subtle, sizeof(Color));
+    }
+    check(invariants, "settings status meta: a break drops its separator and every line starts at the left edge, the identity bold and brighter");
+    check(wrapped && whole, "settings status meta: the line fits at the wide card and wraps part by part at the narrow ones");
+    ui_settings_scene_release(&scene);
+}
 } // namespace
 void test_settings_scene(void (*check)(bool, const char*) noexcept) noexcept {
     test_controls(check);
@@ -1128,6 +1304,8 @@ void test_settings_scene(void (*check)(bool, const char*) noexcept) noexcept {
     test_layer_scene(check);
     test_dialog_scene(check);
     test_focus_recovery(check);
+    test_segment_hover(check);
+    test_status_meta_wrap(check);
     test_sidebar_follows_selection(check);
 }
 } // namespace maicord

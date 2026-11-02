@@ -302,6 +302,7 @@ void project_status(const ApplicationUpdatesView& v, u64 now, ApplicationUpdates
     reset_value(&control->choices); reset_value(&control->action_label);
     presentation->variant = UiSettingsVariant::standard; presentation->more = 0; presentation->chip_tones = 0;
     UiIcon icon = UiIcon::download;
+    bool lead = false;
     switch (v.state) {
     case State::disabled:
         icon = UiIcon::info;
@@ -317,7 +318,7 @@ void project_status(const ApplicationUpdatesView& v, u64 now, ApplicationUpdates
         title.add(checking ? utf8_literal("Checking for updates…") : current ? utf8_literal("You're up to date")
                                                                             : utf8_literal("Check for updates"));
         add_identity(meta, v); add_checked(meta, v, now, current);
-        presentation->more |= ui_settings_more_bold_lead;
+        lead = true;
         control->action_label = checking ? utf8_literal("Checking…") : utf8_literal("Check now");
         control->enabled = !checking; control->checked = checking;
         if (checking && meter) *meter = kUiSettingsIndeterminateMeter;
@@ -358,7 +359,7 @@ void project_status(const ApplicationUpdatesView& v, u64 now, ApplicationUpdates
         // The date, commit and size belong to the offer when it is this version.
         const bool described = version == v.offer_version;
         meta.add("Installed: "); add_build(meta, v.own_version, own_commit(v)); meta.add(" · Downloaded and verified");
-        presentation->more |= ui_settings_more_bold_lead;
+        lead = true;
         if (described && v.offer_date) {
             meta.add(built ? utf8_literal(" · Built ") : utf8_literal(" · Released "));
             add_date(meta, v.offer_date, true);
@@ -391,6 +392,8 @@ void project_status(const ApplicationUpdatesView& v, u64 now, ApplicationUpdates
         break;
     }
     control->label = title.view(); control->description = meta.view(); control->detail = caption.view();
+    if (lead)
+        presentation->more |= ui_settings_more_meta_parts;
     presentation->icon_plus_one = icon_of(icon);
 }
 // The Update settings rows.

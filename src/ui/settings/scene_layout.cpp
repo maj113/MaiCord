@@ -125,6 +125,46 @@ UiRect status_button_label(const UiKitMeasure* measure, const Utf8View& label, c
     *glyph = {left, middle - kStatusGlyphSize * .5f, left + kStatusGlyphSize, middle + kStatusGlyphSize * .5f};
     return {left + kStatusGlyphSize + kStatusGlyphGap, button.top, button.right, button.bottom};
 }
+u32 status_meta_flow(const UiKitMeasure* measure, const Utf8View& meta, const UiRect& box, StatusMetaPart* out,
+                     u32* count) noexcept {
+    constexpr float kGap = 4;
+    const float line = ui_kit_line_height(kUiKitTextSmall), width = ui_rect_width(box);
+    const auto separator = [&](u32 at) noexcept {
+        return at + 3 < meta.bytes && meta.data[at] == ' ' && static_cast<u8>(meta.data[at + 1]) == 0xC2 &&
+               static_cast<u8>(meta.data[at + 2]) == 0xB7 && meta.data[at + 3] == ' ';
+    };
+    u32 parts = 0, lines = 0, begin = 0;
+    float x = 0;
+    while (begin < meta.bytes && parts < kStatusMetaParts) {
+        u32 end = begin;
+        while (end < meta.bytes && (parts + 1 == kStatusMetaParts || !separator(end)))
+            ++end;
+        Utf8View label{meta.data + begin, end - begin};
+        float left = 0, label_width = ui_kit_text_width(measure, label, parts ? kUiKitTextSmall : kUiKitTextSmallBold);
+        if (!parts)
+            lines = 1;
+        else {
+            // The separator belongs to the part behind it and is drawn only when that part stays on the line.
+            const Utf8View dotted{meta.data + begin - 3, end - begin + 3};
+            const float dotted_width = ui_kit_text_width(measure, dotted, kUiKitTextSmall);
+            if (x + kGap + dotted_width <= width) {
+                label = dotted;
+                label_width = dotted_width;
+                left = x + kGap;
+            } else
+                ++lines;
+        }
+        if (out)
+            out[parts] = {label, {box.left + left, box.top + static_cast<float>(lines - 1) * line, box.left + left + label_width,
+                                  box.top + static_cast<float>(lines) * line}, parts == 0};
+        x = left + label_width;
+        ++parts;
+        begin = end + (end < meta.bytes ? 4 : 0);
+    }
+    if (count)
+        *count = parts;
+    return lines;
+}
 RowContext row_context(const UiSettingsScene& scene) noexcept {
     return {scene.measure, &scene.markdown, scene.presentation == UiSettingsPresentation::modal};
 }
@@ -396,7 +436,10 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
         const float text_right = right - (action_width > 0 ? action_width + gap : 0);
         const float text_width = maximum(1.f, text_right - text_left);
         const float title_height = ui_kit_line_height(kUiKitTextHeading);
-        const float meta_height = ui_kit_text_height(measure, c.description, kUiKitTextSmall, text_width);
+        const float meta_height = more(content, index, ui_settings_more_meta_parts)
+                                      ? static_cast<float>(status_meta_flow(measure, c.description, {0, 0, text_width, 0}, nullptr, nullptr)) *
+                                            ui_kit_line_height(kUiKitTextSmall)
+                                      : ui_kit_text_height(measure, c.description, kUiKitTextSmall, text_width);
         UiRect chip_rects[8];
         float chips_height = 0;
         flow_chips(t, c, measure, text_left, 0, text_width, chip_rects, &chips_height);

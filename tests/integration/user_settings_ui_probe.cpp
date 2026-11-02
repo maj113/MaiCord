@@ -117,7 +117,7 @@ u32 project_panel(u32 panel, UiSettingsControl* out, UiSettingsControlPresentati
 
 // The Updates page as application_updates projects it, one state at a time,
 // through the real catalog nodes and the production projection functions.
-enum class UpdatesState : u32 { idle, checking, ready, preview_downloading, error, count };
+enum class UpdatesState : u32 { idle, checking, ready, preview_downloading, error, long_build, count };
 struct UpdatesFixture {
     app_detail::ApplicationUpdatesView view;
     app_detail::ApplicationUpdatesText text[8];
@@ -180,6 +180,11 @@ u32 project_updates(UpdatesState state, UiSettingsControl* out, UiSettingsContro
     } else {
         v.channel = UpdateChannel::stable;
         v.own_version = update_version_number(0, 5, state == UpdatesState::ready ? 3 : 4, 0);
+        if (state == UpdatesState::long_build) {
+            // The owner's line: a dev build with its commit wraps in a narrow card.
+            v.own_version = update_version_number(0, 5, 5, 9);
+            copy_bytes(v.own_commit, "de4eb0a", 7);
+        }
         u.log.channel = UpdateChannel::stable;
         u.log.version = update_version_number(0, 5, 4, 0);
         u.log.base = update_version_number(0, 4, 0, 0);
@@ -310,7 +315,7 @@ u32 build_showcase(Fixture& f) noexcept {
                              {kChips, 2}, 0, utf8_literal("Check now")};
     status.detail = utf8_literal("Last checked 4 minutes ago");
     UiSettingsControlPresentation status_look{UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
-    status_look.more = ui_settings_more_bold_lead;
+    status_look.more = ui_settings_more_meta_parts;
     status_look.chip_tones = ui_settings_chip_positive | (ui_settings_chip_positive << 2);
     status_look.icon_plus_one = static_cast<u8>(UiIcon::circle_check) + 1;
     add(status, status_look, 1000);
@@ -506,12 +511,15 @@ bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
         stage = __LINE__;
     // Every page state of Updates: up to date, checking (with the retained frame's spinner), ready,
     // a preview download and an error; then the interval dropdown's themed menu.
-    const auto updates_state = [&](UpdatesState state, const wchar_t* name) noexcept {
+    const auto updates_state_in = [&](UpdatesState state, const wchar_t* name, const UiRect& where) noexcept {
         const u32 panel_index = static_cast<u32>(SettingsPanel::updates);
         const u32 count = project_updates(state, f.controls[panel_index], f.looks[panel_index], f.update_meters);
         f.contents[panel_index].controls = {f.controls[panel_index], count};
         ++f.contents[panel_index].revision;
-        return count && show(f, renderer, page(SettingsPanel::updates), viewport, name, capture);
+        return count && show(f, renderer, page(SettingsPanel::updates), where, name, capture);
+    };
+    const auto updates_state = [&](UpdatesState state, const wchar_t* name) noexcept {
+        return updates_state_in(state, name, viewport);
     };
     if (valid)
         stage = __LINE__;
@@ -549,6 +557,13 @@ bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
     }
     valid = valid && updates_state(UpdatesState::preview_downloading, L"updates-preview-downloading.bmp");
     valid = valid && updates_state(UpdatesState::error, L"updates-error.bmp");
+    // The long identity line at the full width and wrapped in two narrower cards: continuation lines start at the
+    // left edge and only whole " · " parts move down.
+    if (valid)
+        stage = __LINE__;
+    valid = valid && updates_state(UpdatesState::long_build, L"updates-long-wide.bmp") &&
+            updates_state_in(UpdatesState::long_build, L"updates-long-narrow.bmp", {0, 0, 840, 720}) &&
+            updates_state_in(UpdatesState::long_build, L"updates-long-narrower.bmp", {0, 0, 720, 720});
     // The shell's new rows at rest: status card, trailing controls, disclosures, markdown, footnote and empty state.
     if (valid)
         stage = __LINE__;

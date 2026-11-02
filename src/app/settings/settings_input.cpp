@@ -438,9 +438,9 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
         if (message == WM_LBUTTONDOWN && control && control->kind == UiSettingsControlKind::slider &&
             !ui_settings_scene_slider_hit(settings->scene, hit, x, y))
             return true;
-        if (message == WM_MOUSEMOVE && control &&
-            (control->kind == UiSettingsControlKind::palette || control->kind == UiSettingsControlKind::radio) &&
-            ui_settings_scene_palette_hover(&settings->scene, hit, x, y))
+        // Every pointer move tracks the option under it (swatches, radios, segments, tabs, buttons, list parts) and
+        // clears it elsewhere, so a row never paints the option a previous row left hovered.
+        if (message == WM_MOUSEMOVE && ui_settings_scene_palette_hover(&settings->scene, hit, x, y))
             application_request_frame();
         const auto pointer = ui_button_pointer(&settings->scene.widgets,
                                                message == WM_LBUTTONDOWN ? UiButtonPointerEvent::press

@@ -273,7 +273,8 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
         const auto generation = scene->widgets.generation;
         g_app.frame_pending = false;
         SendMessageW(f.window, WM_MOUSEMOVE, 0, section_point);
-        pointer_settings = scene->widgets.hovered.generation && scene->revision == revision &&
+        // Hovering repaints (the option a swatch row left hovered clears, a paint-only revision step) but never relays out.
+        pointer_settings = scene->widgets.hovered.generation && scene->revision - revision <= 1 &&
                            scene->widgets.generation == generation && g_app.frame_pending;
         SendMessageW(f.window, WM_LBUTTONDOWN, MK_LBUTTON, section_point);
         pointer_settings =
@@ -321,6 +322,16 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
         SendMessageW(f.window, WM_MOUSELEAVE, 0, 0);
         check(!scene->widgets.hovered.generation && !f.background_pointer_events,
               "settings pointer: native leave clears hover while preserving modal ownership");
+    }
+    // Every pointer move tracks the option under it: the option a swatch or radio row left hovered clears as soon as
+    // the pointer is on any other control, so a segmented row never paints it. (Segment hover itself is covered by
+    // the scene test; the segmented rows here are disabled without an account.)
+    if (pointer_settings) {
+        auto* scene = const_cast<UiSettingsScene*>(g_app.renderer.settings_scene);
+        scene->palette_hovered_index = 2;
+        SendMessageW(f.window, WM_MOUSEMOVE, 0, toggle_point);
+        check(scene->palette_hovered_index == ~u32{0},
+              "settings pointer: moving onto another control clears the option a previous row left hovered");
     }
     check(open() && !chosen.calls && g_app.popup_scene.item_count == 33 &&
               (g_app.popup_scene.items[0].flags & popup_item_checked),

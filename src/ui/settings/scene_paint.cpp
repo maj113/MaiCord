@@ -846,19 +846,14 @@ void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTo
     }
     if (c.kind == UiSettingsControlKind::status) {
         text(handle, c.label, r.label, tc.text_strong, kUiKitTextHeading);
-        u32 lead = 0;
-        if (more(scene.content, index, ui_settings_more_bold_lead))
-            for (u32 i = 0; !lead && i + 3 <= c.description.bytes; ++i)
-                if (static_cast<u8>(c.description.data[i]) == ' ' && static_cast<u8>(c.description.data[i + 1]) == 0xC2 &&
-                    static_cast<u8>(c.description.data[i + 2]) == 0xB7)
-                    lead = i;
-        if (lead) {
-            // The bold run is its own label; the rest of the line follows it.
-            const Utf8View head{c.description.data, lead}, tail{c.description.data + lead, c.description.bytes - lead};
-            UiRect rest = r.description;
-            rest.left = minimum(rest.right, rest.left + ui_kit_text_width(scene.measure, head, kUiKitTextSmallBold));
-            text(handle, head, r.description, tc.text_default, kUiKitTextSmallBold);
-            text(handle, tail, rest, tc.text_subtle, text_description, ui_text_wrap);
+        if (more(scene.content, index, ui_settings_more_meta_parts)) {
+            // Whole parts flow left to right; the identity leads in bold and the brighter ink.
+            StatusMetaPart parts[kStatusMetaParts];
+            u32 count = 0;
+            status_meta_flow(scene.measure, c.description, r.description, parts, &count);
+            for (u32 i = 0; i < count; ++i)
+                text(handle, parts[i].text, parts[i].rect, parts[i].lead ? tc.text_default : tc.text_subtle,
+                     parts[i].lead ? kUiKitTextSmallBold : text_description);
         } else
             text(handle, c.description, r.description, tc.text_subtle, text_description, ui_text_wrap);
         if (ui_rect_has_area(r.chips)) {

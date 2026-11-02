@@ -103,6 +103,18 @@ float button_label_width(const UiKitMeasure* measure, const Utf8View& label) noe
 inline constexpr float kStatusGlyphSize = 16, kStatusGlyphGap = 8;
 bool status_glyph(const UiSettingsPageContent& content, u32 index) noexcept;
 UiRect status_button_label(const UiKitMeasure* measure, const Utf8View& label, const UiRect& button, UiRect* glyph) noexcept;
+// A status meta line of " · "-separated parts, flowed in `box`: each part is one unbreakable label and a line breaks
+// only between parts. A part that is not first on its line leads with its separator ("· Stable channel"); the
+// separator at a break is dropped, so no line ends with a dot or starts with one. `out` (kStatusMetaParts entries,
+// optional) receives each label and its rectangle; the result is the number of lines.
+inline constexpr u32 kStatusMetaParts = 8;
+struct StatusMetaPart {
+    Utf8View text;
+    UiRect rect;
+    bool lead;
+};
+u32 status_meta_flow(const UiKitMeasure* measure, const Utf8View& meta, const UiRect& box, StatusMetaPart* out,
+                     u32* count) noexcept;
 ListParts list_parts(const UiSettingsLayoutTokens& t, const UiSettingsPageContent& content, u32 index,
                      const UiRect& row) noexcept;
 // True when the row's presentation `more` byte has `flag` (UiSettingsPresentationMore).

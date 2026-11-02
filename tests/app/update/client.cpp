@@ -456,6 +456,7 @@ void test_status_card() noexcept {
     v.state = ApplicationUpdateState::idle;
     check(row(SettingBinding::update_status) && same(c.label, "Check for updates") && same(c.action_label, "Check now") && c.enabled && !c.checked &&
               same(c.description, "MaiCord 0.3.3 · Stable channel · Not checked yet") && icon(UiIcon::download) && meter == kUiSettingsNoMeter &&
+              p.more == ui_settings_more_meta_parts &&
               !c.detail.bytes && c.choices.count == 0,
         "update status: idle offers Check now and says it has not checked yet");
     v.checked_unix = now;
@@ -489,10 +490,11 @@ void test_status_card() noexcept {
         "update status: verifying fills the meter");
     v.state = ApplicationUpdateState::ready; v.ready_version = v.offer_version;
     check(row(SettingBinding::update_status) && same(c.label, "Preview build 0.3.4-dev.16 is ready") && same(c.action_label, "Restart to update") && c.enabled &&
-              p.variant == UiSettingsVariant::primary && same(c.description, "Installed: 0.3.3 · Downloaded and verified · Built Oct 9, 2025") &&
+              p.variant == UiSettingsVariant::primary &&
               c.choices.count == 4 && same(c.choices[0], "Preview build") && same(c.choices[1], "581fd44") && same(c.choices[2], "8.0 MB") &&
               same(c.choices[3], "Signature verified") && (p.chip_tones >> 6 & 3) == ui_settings_chip_positive && (p.chip_tones & 63) == 0 &&
-              same(c.detail, "8.0 MB · takes a few seconds") && meter == kUiSettingsNoMeter && p.more == ui_settings_more_bold_lead,
+              same(c.detail, "8.0 MB · takes a few seconds") && meter == kUiSettingsNoMeter && p.more == ui_settings_more_meta_parts &&
+              same(c.description, "Installed: 0.3.3 · Downloaded and verified · Built Oct 9, 2025"),
         "update status: a ready preview build names its build, commit, size and verification beside Restart to update");
     v.channel = UpdateChannel::stable; v.offer_version = v.ready_version = update_version_number(0, 3, 4, 0); v.offer_commit[0] = 0;
     check(row(SettingBinding::update_status) && same(c.label, "MaiCord 0.3.4 is ready to install") && c.choices.count == 3 &&

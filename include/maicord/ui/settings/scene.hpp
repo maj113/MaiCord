@@ -157,8 +157,9 @@ enum UiSettingsPresentationMore : u8 {
     ui_settings_more_progress_button = 1u << 0,
     // A disclosure row that is a static line of a list: no chevron, never focusable.
     ui_settings_more_plain = 1u << 1,
-    // A status row's meta line leads with a bold run: the text before its first " · ".
-    ui_settings_more_bold_lead = 1u << 2,
+    // A status row's meta line is " · "-separated parts, the first one (the identity) bold and bright. The scene
+    // flows whole parts left to right and wraps between them, drawing a separator only between parts on one line.
+    ui_settings_more_meta_parts = 1u << 2,
 };
 // Action rows' choices become chips under the text.
 struct UiSettingsControlPresentation {

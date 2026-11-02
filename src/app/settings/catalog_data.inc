@@ -232,7 +232,7 @@ constexpr UiSettingsSchemaNode updates[]{
          utf8_literal("Open the complete notes on GitHub."), utf8_literal("release notes github page"),
          SettingBinding::update_release_notes, {}, none, utf8_literal("Open"), dynamic | hidden),
     node(utf8_literal("updates.assets"), K::footnote,
-         utf8_literal("Updates replace the app and its account module. Fonts and licenses come with a fresh download from the releases page."),
+         utf8_literal("Updates replace MaiCord.exe. Fonts and licenses come with a fresh download from the releases page."),
          {}, {}, SettingBinding::update_notice, {}, none, {}, dynamic | hidden),
 };
 
