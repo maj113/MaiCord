@@ -44,6 +44,7 @@ bool client_preferences_valid(const ClientPreferences& preferences) noexcept {
         if (!background_effect_settings_valid(profile))
             return false;
     return static_cast<u8>(preferences.theme) <= static_cast<u8>(ClientTheme::custom_light_gradient) &&
+           static_cast<u8>(preferences.builtin_theme) <= static_cast<u8>(ClientTheme::custom_light_gradient) &&
            preferences.output_volume <= 200 && notification_soundpack_valid(preferences.soundpack) &&
            preferences.message_group_spacing < kClientPreferencesGroupSpacingCount &&
            pane_width_valid(preferences.channel_pane_width) && pane_width_valid(preferences.member_pane_width) &&
@@ -58,7 +59,7 @@ bool client_preferences_equal(const ClientPreferences& a, const ClientPreference
         if (x.speed != y.speed || x.strength != y.strength || x.density != y.density)
             return false;
     }
-    return a.theme == b.theme && a.reduced_motion == b.reduced_motion &&
+    return a.theme == b.theme && a.builtin_theme == b.builtin_theme && a.reduced_motion == b.reduced_motion &&
            a.smooth_scroll == b.smooth_scroll && a.member_pane_visible == b.member_pane_visible &&
            a.desktop_enabled == b.desktop_enabled && a.message_sounds_enabled == b.message_sounds_enabled &&
            a.selected_message_sounds_enabled == b.selected_message_sounds_enabled &&
@@ -98,6 +99,7 @@ ClientPreferencesResult client_preferences_encode(const ClientPreferences& prefe
     record.data[18] = preferences.output_volume;
     record.data[19] = static_cast<u8>(preferences.soundpack);
     gradient_record_store(record.data, preferences.gradient, preferences.effect_profiles);
+    record.data[57] = static_cast<u8>(static_cast<u8>(preferences.builtin_theme) + 1);
     record.data[58] = static_cast<u8>(preferences.expression_picker_width);
     record.data[59] = static_cast<u8>(preferences.expression_picker_width >> 8);
     // Image zoom: flags (bit 0 off, bit 1 square lens), zoom in halves, size in tens of DIPs.
@@ -178,6 +180,10 @@ ClientPreferencesResult client_preferences_decode(ConstSlice<u8> record,
     decoded.image_zoom_factor = record.data[61] ? record.data[61] : kClientPreferencesDefaultZoomFactor;
     decoded.image_zoom_size = record.data[62] ? record.data[62] : kClientPreferencesDefaultZoomSize;
     decoded.message_group_spacing = record.data[67];
+    // Records written before the last built-in theme existed restore the record's own theme.
+    decoded.builtin_theme = record.data[57] && record.data[57] <= static_cast<u8>(ClientTheme::custom_light_gradient) + 1
+                                ? static_cast<ClientTheme>(record.data[57] - 1)
+                                : decoded.theme;
     decoded.expression_picker_width = byte_load_le16(record.data + 58);
     decoded.channel_pane_width = byte_load_le16(record.data + 68);
     decoded.member_pane_width = byte_load_le16(record.data + 70);

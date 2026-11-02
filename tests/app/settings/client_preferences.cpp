@@ -80,10 +80,25 @@ void test_client_preferences(void (*check)(bool, const char*) noexcept) noexcept
     both.gradient.effect = BackgroundEffect::stars_and_comets;
     both.effect_profiles[2] = {0, 100, 37};
     check(client_preferences_encode(both, {record, 80}).ok() && record[44] == 3 && record[54] == 0 &&
-              record[55] == 100 && record[56] == 37 && record[57] == 0 && record[65] == 0 &&
+              record[55] == 100 && record[56] == 37 && record[57] == 1 && record[65] == 0 &&
               client_preferences_decode({record, 80}, &decoded).ok() &&
               client_preferences_equal(decoded, both),
           "preferences: exact third profile and Stars and comets mode share the existing80-byte record");
+    // The last built-in theme survives a custom theme's base (byte 57 = theme + 1); a record written before it
+    // existed (zero) takes the record's own theme.
+    auto remembered = defaults;
+    remembered.theme = ClientTheme::dark;
+    remembered.builtin_theme = ClientTheme::sunset;
+    bool builtin_kept = client_preferences_encode(remembered, {record, 80}).ok() && record[57] == 4 &&
+                        client_preferences_decode({record, 80}, &decoded).ok() &&
+                        decoded.builtin_theme == ClientTheme::sunset && decoded.theme == ClientTheme::dark;
+    remembered.theme = ClientTheme::ocean;
+    builtin_kept = builtin_kept && client_preferences_encode(remembered, {record, 80}).ok();
+    record[57] = 0;
+    byte_store_le64(record + 72, hash64_bytes(kHash64Seed, record, 72));
+    builtin_kept = builtin_kept && client_preferences_decode({record, 80}, &decoded).ok() &&
+                   decoded.builtin_theme == ClientTheme::ocean;
+    check(builtin_kept, "preferences: the last built-in theme round trips and older records migrate to their theme");
     // A saved effect that no longer exists restores None with its default tuning; the
     // rest of the record (theme, palette, other profiles) is kept.
     bool removed_effects = true;

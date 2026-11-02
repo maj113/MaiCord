@@ -15,15 +15,12 @@ extern ApplicationCustomThemeAction custom_theme_last_action;
 
 extern u32 custom_theme_actions;
 
-extern bool custom_theme_pointer_transition;
-
-// The installed-themes dropdown the settings stubs report: a long list for the choice runtime test. selected is
-// the last index the controller chose; dismissed says whether the popup and its borrowed labels were already
-// gone when it did; invalidate makes the choice invalidate the account scope from inside the callback.
-extern ConstSlice<Utf8View> installed_themes;
+// The installed themes the settings stubs report (Appearance's "Your themes" and the Themes page). calls/last/preview
+// record what the controller applied; active is the installed theme in use (~0u none); builtin counts Use built-in.
+extern ConstSlice<ClientThemeCatalogEntry> installed_themes;
 struct InstalledSelection {
-    u32 calls, last;
-    bool dismissed, invalidate;
+    u32 calls, last, active = ~0u, builtin;
+    bool preview;
 };
 extern InstalledSelection installed_selection;
 

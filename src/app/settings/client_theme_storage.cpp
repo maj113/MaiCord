@@ -123,8 +123,91 @@ ClientThemeStorageResult read_workspace(const wchar_t* path, u32 maximum, const 
     *output = workspace;
     return result;
 }
+wchar_t ascii_lower(wchar_t c) noexcept {
+    return c >= L'A' && c <= L'Z' ? static_cast<wchar_t>(c + 32) : c;
+}
+bool ascii_equal_folded(const wchar_t* a, const wchar_t* b, u32 units) noexcept {
+    for (u32 i = 0; i < units; ++i)
+        if (ascii_lower(a[i]) != ascii_lower(b[i]))
+            return false;
+    return true;
+}
+// Writes bytes as <directory>\<leaf> atomically, creating the directory.
+ClientThemeStorageResult install_file(const wchar_t* directory, u32 length, const wchar_t* leaf, u32 leaf_units,
+                                      ConstSlice<u8> bytes) noexcept {
+    const u32 units = length + 1 + leaf_units;
+    if (!leaf_units || leaf_units >= kClientThemeCatalogFileUnits || units >= kClientThemeIoMaximumPathUnits - 4)
+        return failure(ClientThemeStorageError::path, ERROR_BAD_PATHNAME);
+    wchar_t target[kClientThemeIoMaximumPathUnits];
+    copy_bytes(target, directory, length * sizeof(wchar_t));
+    target[length] = L'\\';
+    copy_bytes(target + length + 1, leaf, leaf_units * sizeof(wchar_t));
+    target[units] = 0;
+    u32 native = 0;
+    if (!directory_ensure(directory, &native))
+        return failure(ClientThemeStorageError::directory, native);
+    return write_result(file_persistence_write_atomic(target, units, bytes));
+}
+// A picked file joins the installed themes under its own name; one picked from that directory is already there.
+ClientThemeStorageResult install_copy(const wchar_t* directory, const wchar_t* source, ConstSlice<u8> bytes) noexcept {
+    u32 length = 0, source_units = 0;
+    if (!path_length(directory, &length) || !path_length(source, &source_units))
+        return failure(ClientThemeStorageError::path, ERROR_BAD_PATHNAME);
+    u32 start = source_units;
+    while (start && source[start - 1] != L'\\' && source[start - 1] != L'/')
+        --start;
+    if (start == length + 1 && ascii_equal_folded(source, directory, length))
+        return {};
+    wchar_t leaf[kClientThemeCatalogFileUnits + 5];
+    u32 leaf_units = source_units - start;
+    if (!leaf_units || leaf_units >= kClientThemeCatalogFileUnits)
+        return failure(ClientThemeStorageError::path, ERROR_BAD_PATHNAME);
+    copy_bytes(leaf, source + start, leaf_units * sizeof(wchar_t));
+    static constexpr wchar_t json[] = L".json";
+    if (leaf_units < 5 || !ascii_equal_folded(leaf + leaf_units - 5, json, 5)) {
+        copy_bytes(leaf + leaf_units, json, 5 * sizeof(wchar_t));
+        leaf_units += 5;
+    }
+    return install_file(directory, length, leaf, leaf_units, bytes);
+}
+// The document as "<name>.json": characters a file name can't hold become '-'.
+ClientThemeStorageResult export_document(const wchar_t* directory, const ClientThemeDocument& document) noexcept {
+    u32 length = 0;
+    if (!path_length(directory, &length))
+        return failure(ClientThemeStorageError::path, ERROR_BAD_PATHNAME);
+    wchar_t leaf[kClientThemeCatalogFileUnits];
+    int converted = document.name_bytes ? MultiByteToWideChar(CP_UTF8, 0, document.name, static_cast<int>(document.name_bytes),
+                                                              leaf, kClientThemeCatalogFileUnits - 8)
+                                        : 0;
+    u32 units = converted > 0 ? static_cast<u32>(converted) : 0;
+    for (u32 i = 0; i < units; ++i) {
+        const wchar_t c = leaf[i];
+        if (c < 32 || c == L'\\' || c == L'/' || c == L':' || c == L'*' || c == L'?' || c == L'"' || c == L'<' ||
+            c == L'>' || c == L'|')
+            leaf[i] = L'-';
+    }
+    while (units && (leaf[units - 1] == L'.' || leaf[units - 1] == L' '))
+        --units;
+    if (!units) {
+        copy_bytes(leaf, L"Theme", 5 * sizeof(wchar_t));
+        units = 5;
+    }
+    copy_bytes(leaf + units, L".json", 5 * sizeof(wchar_t));
+    units += 5;
+    auto* text = static_cast<char*>(
+        VirtualAlloc(nullptr, kClientThemeDocumentMaximumBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!text)
+        return failure(ClientThemeStorageError::memory, ERROR_NOT_ENOUGH_MEMORY);
+    u32 bytes = 0;
+    auto result = client_theme_document_write(document, {text, kClientThemeDocumentMaximumBytes}, &bytes).error ==
+                          ClientThemeDocumentError::none
+                      ? install_file(directory, length, leaf, units, {reinterpret_cast<const u8*>(text), bytes})
+                      : failure(ClientThemeStorageError::document);
+    VirtualFree(text, 0, MEM_RELEASE);
+    return result;
+}
 ClientThemeStorageResult import_file(const wchar_t* path, const FileSnapshot& expected,
-                                     const ClientThemeStorageSnapshot& baseline,
+                                     const ClientThemeStorageSnapshot& baseline, const wchar_t* install_directory,
                                      ClientThemeStorageSnapshot* output) noexcept {
     Workspace* workspace{};
     u32 bytes = 0;
@@ -136,13 +219,16 @@ ClientThemeStorageResult import_file(const wchar_t* path, const FileSnapshot& ex
     const auto parsed = client_theme_document_parse({reinterpret_cast<const char*>(workspace->record), bytes},
                                                     defaults, {workspace->structurals, kClientThemeImportMaximumBytes},
                                                     &candidate.custom);
-    if (parsed.ok()) {
+    if (parsed.ok() && install_directory)
+        result = install_copy(install_directory, path, {workspace->record, bytes});
+    if (!parsed.ok())
+        result = document_failure(parsed);
+    else if (result.ok()) {
         candidate.custom_present = true;
         candidate.custom_active = false;
         *output = candidate;
         result.unsupported_fields = parsed.unsupported_fields;
-    } else
-        result = document_failure(parsed);
+    }
     VirtualFree(workspace, 0, MEM_RELEASE);
     return result;
 }
@@ -364,6 +450,20 @@ bool client_theme_catalog_path(const wchar_t* directory, const ClientThemeCatalo
     output.data[*units] = 0;
     return path_valid({output.data, *units});
 }
+ClientThemeStorageResult client_theme_catalog_remove(const ClientThemeCatalogEntry& entry) noexcept {
+    wchar_t directory[kClientThemeIoMaximumPathUnits]{}, path[kClientThemeIoMaximumPathUnits]{};
+    u32 units = 0;
+    auto result = client_theme_catalog_directory({directory, kClientThemeIoMaximumPathUnits});
+    if (!result.ok())
+        return result;
+    if (!client_theme_catalog_path(directory, entry, {path, kClientThemeIoMaximumPathUnits}, &units))
+        return failure(ClientThemeStorageError::path, ERROR_BAD_PATHNAME);
+    if (DeleteFileW(path))
+        return {};
+    const u32 native = thread_last_error();
+    return native == ERROR_FILE_NOT_FOUND || native == ERROR_PATH_NOT_FOUND ? ClientThemeStorageResult{}
+                                                                            : failure(ClientThemeStorageError::write, native);
+}
 ClientThemeStorageResult client_theme_catalog_scan(const wchar_t* directory, ClientThemeCatalog* output) noexcept {
     u32 length = 0;
     if (!output || !path_length(directory, &length) ||
@@ -437,6 +537,18 @@ ClientThemeStorageResult client_theme_catalog_scan(const wchar_t* directory, Cli
                 }
             }
             entry.base = document.base;
+            if (background_theme_valid(document.theme.background) && document.theme.background.color_count >= 2) {
+                entry.preview = document.theme.background;
+            } else {
+                const Color surface = document.theme.base_low;
+                entry.preview = background_theme_defaults();
+                entry.preview.colors[0] = entry.preview.colors[1] =
+                    static_cast<u32>(surface.red * 255 + .5f) << 16 | static_cast<u32>(surface.green * 255 + .5f) << 8 |
+                    static_cast<u32>(surface.blue * 255 + .5f);
+                entry.preview.colors[2] = entry.preview.colors[3] = entry.preview.colors[4] = 0;
+                entry.preview.color_count = 2;
+                entry.preview.effect = BackgroundEffect::none;
+            }
             u32 at = catalog.count++;
             while (at && wide_less(entry.file, entry.file_units, catalog.entries[at - 1].file,
                                    catalog.entries[at - 1].file_units))
@@ -462,6 +574,7 @@ struct ClientThemeIoRequest {
     wchar_t path[kClientThemeIoMaximumPathUnits];
     u64 generation;
     ClientThemeIoOperation operation;
+    bool install; // import: copy into the installed directory; save: export the custom document there
 };
 // The worker starts with a submission and exits once nothing is pending, so
 // no thread (or its stack) stays parked between the rare theme loads/saves.
@@ -504,29 +617,33 @@ DWORD WINAPI io_work(void* opaque) noexcept {
         ClientThemeIoCompletion completed{};
         completed.generation = request.generation;
         completed.operation = request.operation;
-        if (request.operation == ClientThemeIoOperation::import_document)
-            completed.result =
-                import_file(request.path, request.expected, request.snapshot, &completed.snapshot);
-        else {
-            wchar_t path[kClientThemeIoMaximumPathUnits]{};
+        wchar_t path[kClientThemeIoMaximumPathUnits]{};
+        wchar_t directory[kClientThemeIoMaximumPathUnits]{};
+        const bool import = request.operation == ClientThemeIoOperation::import_document;
+        if (!import || request.install) {
             if (io->explicit_path)
                 copy_bytes(path, io->storage_path, sizeof(path));
             else
-                completed.result =
-                    client_theme_storage_user_path({path, kClientThemeIoMaximumPathUnits},
-                                                   request.operation == ClientThemeIoOperation::save);
-            if (completed.result.ok() && request.operation == ClientThemeIoOperation::catalog) {
-                wchar_t directory[kClientThemeIoMaximumPathUnits]{};
-                completed.result = catalog_directory_beside(path, directory)
-                                       ? client_theme_catalog_scan(directory, &completed.catalog)
-                                       : failure(ClientThemeStorageError::path, ERROR_BAD_PATHNAME);
-            } else if (completed.result.ok()) {
-                if (request.operation == ClientThemeIoOperation::save) {
-                    completed.snapshot = request.snapshot;
-                    completed.result = client_theme_storage_save_file(path, request.snapshot);
-                } else
-                    completed.result = client_theme_storage_load_file(path, &completed.snapshot);
-            }
+                completed.result = client_theme_storage_user_path(
+                    {path, kClientThemeIoMaximumPathUnits},
+                    request.operation == ClientThemeIoOperation::save || request.install);
+            if (completed.result.ok() && (request.install || request.operation == ClientThemeIoOperation::catalog) &&
+                !catalog_directory_beside(path, directory))
+                completed.result = failure(ClientThemeStorageError::path, ERROR_BAD_PATHNAME);
+        }
+        if (completed.result.ok()) {
+            if (import)
+                completed.result = import_file(request.path, request.expected, request.snapshot,
+                                               request.install ? directory : nullptr, &completed.snapshot);
+            else if (request.operation == ClientThemeIoOperation::catalog)
+                completed.result = client_theme_catalog_scan(directory, &completed.catalog);
+            else if (request.operation == ClientThemeIoOperation::save) {
+                completed.snapshot = request.snapshot;
+                completed.result = client_theme_storage_save_file(path, request.snapshot);
+                if (completed.result.ok() && request.install && request.snapshot.custom_present)
+                    completed.result = export_document(directory, request.snapshot.custom);
+            } else
+                completed.result = client_theme_storage_load_file(path, &completed.snapshot);
         }
         AcquireSRWLockExclusive(&io->lock);
         if (!io->active_cancelled) {
@@ -598,7 +715,7 @@ bool client_theme_io_submit_load(ClientThemeIo* io, u64* generation) noexcept {
 }
 bool client_theme_io_submit_import(ClientThemeIo* io, ConstSlice<wchar_t> path,
                                    const FileSnapshot& expected, const ClientThemeStorageSnapshot& baseline,
-                                   u64* generation) noexcept {
+                                   bool install, u64* generation) noexcept {
     if (!path_valid(path) || !expected.bytes || expected.bytes > kClientThemeImportMaximumBytes ||
         expected.identity.reserved || !client_theme_storage_valid(baseline))
         return reject(ERROR_INVALID_PARAMETER);
@@ -606,16 +723,18 @@ bool client_theme_io_submit_import(ClientThemeIo* io, ConstSlice<wchar_t> path,
     request.snapshot = baseline;
     request.expected = expected;
     request.operation = ClientThemeIoOperation::import_document;
+    request.install = install;
     copy_bytes(request.path, path.data, path.count * sizeof(wchar_t));
     return submit(io, request, generation);
 }
-bool client_theme_io_submit_save(ClientThemeIo* io, const ClientThemeStorageSnapshot& snapshot,
+bool client_theme_io_submit_save(ClientThemeIo* io, const ClientThemeStorageSnapshot& snapshot, bool export_document,
                                  u64* generation) noexcept {
     if (!client_theme_storage_valid(snapshot))
         return reject(ERROR_INVALID_PARAMETER);
     ClientThemeIoRequest request{};
     request.snapshot = snapshot;
     request.operation = ClientThemeIoOperation::save;
+    request.install = export_document;
     return submit(io, request, generation);
 }
 bool client_theme_io_submit_catalog(ClientThemeIo* io, u64* generation) noexcept {

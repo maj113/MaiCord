@@ -1,6 +1,8 @@
 #include "theme_editor.hpp"
 #include "../shell/cursor.hpp"
 #include "settings.hpp"
+#include "../effects/effects.hpp"
+#include "../store/store_host.hpp"
 #include "custom_theme.hpp"
 #include "../account/account_presentation.hpp"
 #include "../shell/state.hpp"
@@ -36,6 +38,7 @@ struct ApplicationThemeEditor {
     u16 captured_generation;
     u32 edit_revision, held_key, range_key;
     bool dragging, dirty;
+    char package_name[kMcfxNameBytes + 1]; // the installed effect in use, as the editor shows it
 };
 static_assert(sizeof(ApplicationThemeEditor) +
                   kUiThemeEditorElements * (sizeof(UiWidget) + sizeof(UiLayoutNode)) <
@@ -127,6 +130,23 @@ bool effect_control(UiThemeEditorElement element) noexcept {
 }
 bool flat_theme(ClientTheme theme) noexcept {
     return theme == ClientTheme::dark || theme == ClientTheme::amoled || theme == ClientTheme::light;
+}
+// The installed effects row follows the library and the effect in use.
+void sync_packages(ApplicationThemeEditor& e) noexcept {
+    const u32 count = application_effects_count();
+    const i32 chosen = application_effects_selected_index();
+    const EffectInfo* info = chosen >= 0 ? application_effects_info(static_cast<u32>(chosen)) : nullptr;
+    const u32 bytes = info ? c_string_length(info->name) : 0;
+    const bool knobs = info && info->knob_count;
+    if (count == e.scene.package_count && knobs == e.scene.package_knobs && bytes == e.scene.package_name.bytes &&
+        (!bytes || bytes_equal(e.package_name, info->name, bytes)))
+        return;
+    if (bytes)
+        copy_bytes(e.package_name, info->name, bytes);
+    e.scene.package_name = {e.package_name, bytes};
+    e.scene.package_count = count;
+    e.scene.package_knobs = knobs;
+    ++e.scene.revision;
 }
 void preview(ApplicationThemeEditor& e, const BackgroundTheme& draft, bool color_edit = true) noexcept {
     if (!current(e))
@@ -221,6 +241,38 @@ bool action(ApplicationThemeEditor& e, UiThemeEditorElement element) noexcept {
         }
         return true;
     }
+    // Installed effects: step through the library, or open the one in use on its knobs page.
+    if (element == UiThemeEditorElement::effect_previous || element == UiThemeEditorElement::effect_next ||
+        element == UiThemeEditorElement::effect_installed) {
+        const u32 count = application_effects_count();
+        if (!count)
+            return true;
+        const i32 chosen = application_effects_selected_index();
+        const u32 index = element == UiThemeEditorElement::effect_previous
+                              ? (chosen <= 0 ? count - 1 : static_cast<u32>(chosen) - 1)
+                              : (chosen < 0 ? 0 : (static_cast<u32>(chosen) + 1) % count);
+        application_effects_select(index);
+        sync_packages(e);
+        return true;
+    }
+    if (element == UiThemeEditorElement::effect_knobs) {
+        const i32 chosen = application_effects_selected_index();
+        const EffectInfo* info = chosen >= 0 ? application_effects_info(static_cast<u32>(chosen)) : nullptr;
+        if (!info)
+            return true;
+        char slug[sizeof(info->slug)];
+        const u32 bytes = c_string_length(info->slug);
+        copy_bytes(slug, info->slug, bytes);
+        application_theme_editor_close(true);
+        return application_store_open_effect_knobs({slug, bytes});
+    }
+    // A built-in effect replaces the installed one in use.
+    const bool builtin_effect =
+        element >= UiThemeEditorElement::effect_none && element <= UiThemeEditorElement::effect_both;
+    if (builtin_effect && application_effects_selected_index() >= 0) {
+        application_effects_select_none();
+        sync_packages(e);
+    }
     BackgroundTheme next{};
     if (ui_theme_editor_action(&e.scene, element, static_cast<u32>(clock_now()), &next)) {
         if (element >= UiThemeEditorElement::stop0 && element <= UiThemeEditorElement::stop4) {
@@ -279,6 +331,7 @@ bool application_theme_editor_open() noexcept {
     auto draft = application_theme().background;
     if (!background_theme_valid(draft))
         draft = g_app.preferences.gradient;
+    sync_packages(*e);
     const auto style = ui_theme_editor_style(application_theme());
     if (!ui_theme_editor_update(&e->scene, draft, 0, application_viewport_dips(), &style,
                                 g_app.preferences.effect_profiles)) {
@@ -390,6 +443,7 @@ bool application_theme_editor_synchronize() noexcept {
         return true;
     }
     const auto generation = e->scene.widgets.generation;
+    sync_packages(*e);
     const auto style = ui_theme_editor_style(application_theme());
     if (!ui_theme_editor_update(&e->scene, e->scene.draft, e->scene.selected_stop,
                                 application_viewport_dips(), &style, e->scene.effect_profiles)) {

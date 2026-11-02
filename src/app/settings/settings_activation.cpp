@@ -31,6 +31,15 @@ bool resolve_palette(void*, u64 control, u32 choice, BackgroundTheme* output) no
     }
     SettingBinding binding{};
     control_node(control, &binding);
+    if (output && binding == SettingBinding::installed_themes) {
+        // An installed theme shows its own preview; the Browse themes tile has none.
+        const auto installed = application_custom_theme_installed();
+        const u32 at = installed_theme_at(choice);
+        if (choice >= kInstalledThemeTiles || at >= installed.count)
+            return false;
+        *output = installed[at].preview;
+        return true;
+    }
     return settings_theme_swatch(g_app.preferences, binding, choice, output);
 }
 void close_choice() noexcept {
@@ -223,8 +232,19 @@ bool open_result(ApplicationSettings& settings, u64 control_id) noexcept {
     UiSettingsSchemaLocation location{};
     if (navigate_link(settings, control_id))
         return true;
-    return settings_control_location(control_id, &location) &&
-           navigate(settings, {kNativeSettingsOwner, location.panel + 1}, control_id);
+    if (!settings_control_location(control_id, &location))
+        return false;
+    const UiPageKey page{kNativeSettingsOwner, location.panel + 1};
+    // A store page draws its own column, with no row to reveal: its search-only rows open the page and start their
+    // action there (Themes > Import theme…).
+    if (page.page_id == kThemesPage || page.page_id == kPluginsPage || page.page_id == kEffectsPage) {
+        SettingBinding binding{};
+        control_node(control_id, &binding);
+        return navigate(settings, page, 0) &&
+               (binding != SettingBinding::import_theme ||
+                settled(settings, application_custom_theme_action(ApplicationCustomThemeAction::import_file)));
+    }
+    return navigate(settings, page, control_id);
 }
 bool searching(const ApplicationSettings& settings) noexcept {
     return ui_page_key_equal(settings.scene.selected_page, {kNativeSettingsOwner, kSettingsSearchPage});
@@ -342,32 +362,23 @@ bool activate(const UiSettingsTarget& target, bool reverse, bool picker, u32 sel
     switch (binding) {
     case SettingBinding::customize_theme:
         return application_theme_editor_open();
-    case SettingBinding::browse_themes:
     case SettingBinding::browse_effects:
         // The store pages are settings pages: selecting one swaps the panel, keeping the modal.
-        return application_settings_select_page({kNativeSettingsOwner, binding == SettingBinding::browse_themes ? kThemesPage : kEffectsPage});
+        return application_settings_select_page({kNativeSettingsOwner, kEffectsPage});
+    case SettingBinding::import_theme:
+        // Search leads to Themes (leaving the results), whose header owns Import; the picker opens from there.
+        return navigate(*settings, {kNativeSettingsOwner, kThemesPage}, 0) &&
+               settled(*settings, application_custom_theme_action(ApplicationCustomThemeAction::import_file));
+    case SettingBinding::installed_themes: {
+        // The tiles are the installed themes, then Browse themes.
+        const u32 installed = application_custom_theme_installed().count;
+        const u32 shown = installed < kInstalledThemeTiles ? installed : kInstalledThemeTiles;
+        if (request.selected_choice >= shown)
+            return navigate(*settings, {kNativeSettingsOwner, kThemesPage}, 0);
+        return settled(*settings, application_custom_theme_apply_installed(installed_theme_at(request.selected_choice), false));
+    }
     case SettingBinding::spotify_account:
         return settled(*settings, media_account_action());
-    case SettingBinding::custom_builtin:
-        return settled(*settings, application_custom_theme_preferences_changed(true, true));
-    case SettingBinding::custom_installed:
-        return settled(*settings, application_custom_theme_select_installed(request.selected_choice));
-    case SettingBinding::custom_import:
-    case SettingBinding::custom_preview:
-    case SettingBinding::custom_apply:
-    case SettingBinding::custom_cancel:
-    case SettingBinding::custom_restore:
-    case SettingBinding::custom_retry_read:
-    case SettingBinding::custom_retry_save: {
-        const auto action = binding == SettingBinding::custom_import    ? ApplicationCustomThemeAction::import_file
-                            : binding == SettingBinding::custom_preview ? ApplicationCustomThemeAction::preview
-                            : binding == SettingBinding::custom_apply   ? ApplicationCustomThemeAction::apply
-                            : binding == SettingBinding::custom_cancel  ? ApplicationCustomThemeAction::cancel
-                            : binding == SettingBinding::custom_restore ? ApplicationCustomThemeAction::restore_imported
-                            : binding == SettingBinding::custom_retry_read ? ApplicationCustomThemeAction::retry_read
-                                                                           : ApplicationCustomThemeAction::retry_save;
-        return settled(*settings, application_custom_theme_action(action));
-    }
     case SettingBinding::notification_setup:
         // Setup is a user action; showing status or entering the page never enrolls.
         application_notifications_setup(&g_app);

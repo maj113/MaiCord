@@ -151,7 +151,7 @@ StoreCommand primary(const StoreModel& m, StorePageState* st, u32 index, u32 scr
     if (item.update)
         return cmd(item.needs_review ? StoreCommandKind::review : StoreCommandKind::update, index);
     if (item.kind == CatalogKind::theme)
-        return cmd(StoreCommandKind::apply_theme, index);
+        return item.active ? cmd(StoreCommandKind::none) : cmd(StoreCommandKind::apply_theme, index);
     if (item.kind == CatalogKind::effect) {
         if (!item.active)
             return cmd(StoreCommandKind::use_effect, index);
@@ -178,6 +178,8 @@ StoreCommand store_page_act(const StoreModel& m, StorePageState* st, u32 action,
         st->link_dialog = true;
         st->link_text_focus = true;
         return cmd(StoreCommandKind::link_preview);
+    case StoreAct::import_theme:
+        return cmd(StoreCommandKind::import_theme, 0, arg < 3 ? arg : 0);
     case StoreAct::sort:
         return menu(StoreMenu::sort, 0, anchor);
     case StoreAct::chip: {
@@ -240,7 +242,7 @@ StoreCommand store_page_act(const StoreModel& m, StorePageState* st, u32 action,
             break;
         const StoreItem& item = m.items[item_index];
         if (item.kind == CatalogKind::theme)
-            return cmd(StoreCommandKind::try_theme, item_index);
+            return cmd(item.active ? StoreCommandKind::use_builtin_theme : StoreCommandKind::try_theme, item_index);
         if (item.kind == CatalogKind::effect) {
             st->knobs = true;
             return cmd(StoreCommandKind::request_details, item_index);
@@ -404,14 +406,16 @@ StoreCommand store_page_escape(const StoreModel& m, StorePageState* st, bool* ha
 // ---- Menus -----------------------------------------------------------------------------------------------------
 namespace {
 
-enum class Row : u8 { settings, catalog, rollback, auto_update, uninstall, apply, try_it, remove, use, knobs };
+enum class Row : u8 { settings, catalog, rollback, auto_update, uninstall, apply, try_it, remove, use, knobs, builtin };
 
 PopupItem row_item(const Utf8View& label, u32 action, UiIcon icon, u16 flags = 0) noexcept {
     PopupItem p{};
     p.label = label;
     p.action = action + 1; // an item's action is never 0: that is no selection
     p.flags = static_cast<u16>(popup_item_enabled | flags);
-    p.presentation = ui_menu_row_presentation(icon);
+    // UiIcon::count is no icon: a plain row (its presentation would be rejected as an unknown icon).
+    if (icon != UiIcon::count)
+        p.presentation = ui_menu_row_presentation(icon);
     return p;
 }
 
@@ -433,6 +437,8 @@ u32 overflow_rows(const StoreModel& m, u32 item, Row (&rows)[8]) noexcept {
             rows[n++] = Row::apply;
         if (!it.active)
             rows[n++] = Row::try_it;
+        if (it.active)
+            rows[n++] = Row::builtin; // back to the last built-in theme
         if (it.item != ~0u)
             rows[n++] = Row::catalog;
         rows[n++] = Row::remove;
@@ -491,11 +497,12 @@ u32 store_menu_items(const StoreModel& m, const StorePageState& st, StoreMenu wh
     const StoreItem& it = m.items[item < m.count ? item : 0];
     // Row order is the enum's: the label, glyph and flags of each row.
     static constexpr char kRowLabels[] = "Settings\0View in catalog\0Roll back to \0Update automatically\0Uninstall...\0Apply\0Try it\0"
-                                         "Remove...\0Use as background\0Knobs\0";
+                                         "Remove...\0Use as background\0Knobs\0Use built-in theme\0";
     static constexpr UiIcon kRowIcons[]{UiIcon::settings, UiIcon::external_link, UiIcon::retry, UiIcon::refresh, UiIcon::trash,
-                                        UiIcon::check,    UiIcon::eye,           UiIcon::trash, UiIcon::check,   UiIcon::filters};
-    static_assert(sizeof(kRowIcons) / sizeof(kRowIcons[0]) == static_cast<u32>(Row::knobs) + 1 &&
-                  name_list_count(kRowLabels) == static_cast<u32>(Row::knobs) + 1);
+                                        UiIcon::check,    UiIcon::eye,           UiIcon::trash, UiIcon::check,   UiIcon::filters,
+                                        UiIcon::palette};
+    static_assert(sizeof(kRowIcons) / sizeof(kRowIcons[0]) == static_cast<u32>(Row::builtin) + 1 &&
+                  name_list_count(kRowLabels) == static_cast<u32>(Row::builtin) + 1);
     for (u32 i = 0; i < count; ++i) {
         const Row row = rows[i];
         Utf8View label = name_at(kRowLabels, static_cast<u32>(row));
@@ -554,6 +561,8 @@ StoreCommand store_menu_choose(const StoreModel& m, StorePageState* st, StoreMen
         return cmd(StoreCommandKind::try_theme, item);
     case Row::use:
         return cmd(StoreCommandKind::use_effect, item);
+    case Row::builtin:
+        return cmd(StoreCommandKind::use_builtin_theme, item);
     case Row::knobs:
         st->detail_from = StoreTab::installed;
         st->detail = true;

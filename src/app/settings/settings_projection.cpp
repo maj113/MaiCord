@@ -120,6 +120,14 @@ bool theme_panel(const UiPageKey& page) noexcept {
     return page.owner_id == kNativeSettingsOwner && (page.page_id == static_cast<u64>(SettingsPanel::appearance) + 1 ||
                                                      page.page_id == static_cast<u64>(SettingsPanel::themes) + 1);
 }
+u32 installed_theme_at(u32 tile) noexcept {
+    const u32 count = application_custom_theme_installed().count;
+    const u32 active = application_custom_theme_installed_active();
+    return count > kInstalledThemeTiles && active < count && active >= kInstalledThemeTiles &&
+                   tile == kInstalledThemeTiles - 1
+               ? active
+               : tile;
+}
 // Rows of side-by-side options that a click picks directly.
 bool option_row(UiSettingsControlKind kind) noexcept {
     return kind == UiSettingsControlKind::segments || kind == UiSettingsControlKind::swatches ||
@@ -204,6 +212,9 @@ bool same_presentation(const UiSettingsControlPresentation& a, const UiSettingsC
 Utf8View search_query(const ApplicationSettings& settings) noexcept {
     return {settings.search_text, settings.search_bytes};
 }
+// The "Your themes" tile captions: installed theme names (borrowed from the installed list, which only changes
+// with a new theme revision and so a new projection), then "Browse" (opens Themes; a swatch caption fits one word).
+Utf8View g_theme_tiles[kInstalledThemeTiles + 1];
 
 // Live projection of one catalog node. Returns false when the node has no
 // backing in the current state and must be omitted.
@@ -213,7 +224,6 @@ bool project_node(const ApplicationSettings& settings, u32 panel, u32 index, UiS
     const auto binding = binding_of(node);
     const auto custom = application_custom_theme_view();
     const bool theme_idle = !custom.busy && !custom.previewing;
-    const bool idle = !custom.candidate_ready && !custom.previewing && !custom.busy;
     *control = {settings_control_id(panel, index), node.label(), node.description(), node.kind, true, false,
                 node.choices(), 0, node.action_label(), nullptr};
     *presentation = {static_cast<UiSettingsVariant>(node.variant),
@@ -229,7 +239,7 @@ bool project_node(const ApplicationSettings& settings, u32 panel, u32 index, UiS
     if (binding == SettingBinding::update_changelog)
         return application_updates_project(binding, control, presentation);
     if (node.kind == UiSettingsControlKind::category)
-        return !(node.flags & ui_settings_schema_dynamic) || custom.revision != 0;
+        return true;
     if (application_desktop_settings_project(binding, control))
         return true;
     if (binding != SettingBinding::game_detection && application_activity_settings_project(binding, control))
@@ -264,53 +274,39 @@ bool project_node(const ApplicationSettings& settings, u32 panel, u32 index, UiS
     switch (binding) {
     case SettingBinding::theme_base:
     case SettingBinding::theme_color:
+        // A custom theme only borrows its base: no built-in tile is the current theme.
+        if (custom.custom_active)
+            control->selected_choice = kUiSettingsNoChoice;
+        control->enabled = theme_idle;
+        return true;
     case SettingBinding::background_effect:
     case SettingBinding::gradient_direction:
     case SettingBinding::gradient_intensity:
     case SettingBinding::customize_theme:
         control->enabled = theme_idle;
         return true;
-    case SettingBinding::browse_themes:
     case SettingBinding::browse_effects:
+    case SettingBinding::import_theme:
         return true;
-    case SettingBinding::custom_import:
-        control->description = custom.current;
-        control->action_label =
-            custom.can_retry_read ? utf8_literal("Choose another file…") : utf8_literal("Import theme…");
-        control->enabled = !custom.busy;
-        return custom.revision != 0;
-    case SettingBinding::custom_installed: {
-        const auto installed = application_custom_theme_catalog();
-        control->choices = installed;
-        control->selected_choice = 0;
-        for (u32 i = 0; i < installed.count; ++i)
-            if (custom.custom_active && utf8_equal(installed[i], custom.current))
+    case SettingBinding::installed_themes: {
+        // Installed and imported themes, then the tile that opens Themes; the active one is checked.
+        const auto installed = application_custom_theme_installed();
+        const u32 active = application_custom_theme_installed_active();
+        const u32 shown = minimum(installed.count, kInstalledThemeTiles);
+        control->selected_choice = kUiSettingsNoChoice;
+        for (u32 i = 0; i < shown; ++i) {
+            const u32 at = installed_theme_at(i);
+            g_theme_tiles[i] = {installed[at].name, installed[at].name_bytes};
+            if (at == active)
                 control->selected_choice = i;
-        control->enabled = !custom.busy;
-        return custom.revision && installed.count;
+        }
+        g_theme_tiles[shown] = utf8_literal("Browse");
+        control->choices = {g_theme_tiles, shown + 1};
+        control->enabled = theme_idle;
+        // The row icon marks the last tile as the Browse tile: the scene draws it as an arrow, not a theme.
+        presentation->icon_plus_one = static_cast<u8>(UiIcon::arrow_right) + 1;
+        return true;
     }
-    case SettingBinding::custom_preview:
-        control->description = custom.candidate;
-        return custom.revision && custom.candidate_ready && !custom.previewing;
-    case SettingBinding::custom_apply:
-        control->description = custom.candidate;
-        return custom.revision && custom.candidate_ready && custom.previewing;
-    case SettingBinding::custom_cancel:
-        return custom.revision && (custom.candidate_ready || custom.previewing || custom.busy);
-    case SettingBinding::custom_builtin:
-        control->enabled = !custom.busy;
-        return custom.revision && idle && !custom.can_retry_read && custom.custom_active;
-    case SettingBinding::custom_restore:
-        control->enabled = !custom.busy;
-        return custom.revision && idle && !custom.can_retry_read && !custom.custom_active && custom.imported;
-    case SettingBinding::custom_retry_read:
-        control->description = custom.status;
-        control->enabled = !custom.busy;
-        return custom.revision && idle && custom.can_retry_read;
-    case SettingBinding::custom_retry_save:
-        control->description = custom.status;
-        control->enabled = !custom.previewing;
-        return custom.revision && idle && custom.save_failed;
     case SettingBinding::notification_setup:
         control->description = application_notifications_status(&g_app);
         return true;
@@ -480,12 +476,10 @@ void project(ApplicationSettings& settings) noexcept {
                                                  : SettingsPanel::count);
     }
     auto& appearance = settings.content[static_cast<u32>(SettingsPanel::appearance)];
-    // The page's one-line subtitle, until the custom theme has a status to show in its place.
-    const Utf8View status = custom.revision && custom.status.bytes
-                                ? custom.status
-                                : settings_catalog_panel(SettingsPanel::appearance).summary;
-    if (!utf8_equal(appearance.description, status)) {
-        appearance.description = status;
+    // The page's one-line subtitle; theme import and save feedback lives on the Themes page.
+    const Utf8View summary = settings_catalog_panel(SettingsPanel::appearance).summary;
+    if (!utf8_equal(appearance.description, summary)) {
+        appearance.description = summary;
         changed[static_cast<u32>(SettingsPanel::appearance)] = true;
     }
     CatalogKind store_kind{};

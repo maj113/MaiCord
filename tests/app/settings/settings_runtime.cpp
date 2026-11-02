@@ -21,6 +21,7 @@ void test_application_plugin_surfaces_revision(void (*check)(bool, const char*) 
 void test_application_plugin_reads(void (*check)(bool, const char*) noexcept) noexcept;
 void test_application_settings_choice_runtime(void (*check)(bool, const char*) noexcept) noexcept;
 void test_application_custom_theme(void (*check)(bool, const char*) noexcept) noexcept;
+void test_application_store_routing_runtime(void (*check)(bool, const char*) noexcept) noexcept;
 void test_settings_catalog_pack(void (*check)(bool, const char*) noexcept) noexcept;
 namespace app_detail {
 // The captured plugin menu bank, observed by the navigation test that includes its owner.
@@ -36,8 +37,7 @@ namespace settings_runtime_test {
 ApplicationCustomThemeView custom_theme_projection{};
 ApplicationCustomThemeAction custom_theme_last_action{};
 u32 custom_theme_actions{};
-bool custom_theme_pointer_transition{};
-ConstSlice<Utf8View> installed_themes{};
+ConstSlice<ClientThemeCatalogEntry> installed_themes{};
 InstalledSelection installed_selection{};
 
 Observations observed{};
@@ -1719,96 +1719,76 @@ void test_controller() noexcept {
               "shell: actual gear click opens account settings controller");
         check(application_settings_lifetime() > ending_settings_lifetime,
               "settings: recreated owner has a fresh lifetime even if its address is reused");
-        custom_theme_projection = {utf8_literal("Original theme"), utf8_literal("Imported candidate"),
-                                   utf8_literal("Theme ready to preview."), 1};
+        // Appearance > Your themes: the installed themes after the built-ins, the one in use checked, then a
+        // Browse themes tile. One activation applies a theme: there is no preview step.
+        static ClientThemeCatalogEntry installed[2]{};
+        copy_bytes(installed[0].name, "Neon Grid", 9);
+        installed[0].name_bytes = 9;
+        copy_bytes(installed[1].name, "Fjord", 5);
+        installed[1].name_bytes = 5;
+        for (auto& entry : installed) {
+            entry.preview = background_theme_defaults();
+            entry.preview.colors[0] = 0x6935b8;
+            entry.preview.colors[1] = 0x16836f;
+        }
+        installed_themes = {installed, 2};
+        installed_selection = {};
+        custom_theme_projection = {utf8_literal("Sunset"), {}, {}, 1};
         application_settings_refresh_pages();
-        const auto* palette =
+        const UiSettingsTarget yours{UiSettingsTargetKind::control, kAppearancePage, cid("appearance.your_themes")};
+        u32 tiles_index = 0;
+        const auto* tiles = ui_settings_scene_control(*scene(), yours, &tiles_index);
+        check(tiles && tiles->kind == UiSettingsControlKind::palette && tiles->choices.count == 3 &&
+                  utf8_equal(tiles->choices[0], utf8_literal("Neon Grid")) &&
+                  utf8_equal(tiles->choices[2], utf8_literal("Browse")) &&
+                  tiles->selected_choice == kUiSettingsNoChoice,
+              "your themes: installed themes follow the built-ins with a Browse themes tile, none checked under a "
+              "built-in theme");
+        check(tiles && scene()->content.presentation &&
+                  scene()->content.presentation[tiles_index].icon_plus_one == static_cast<u8>(UiIcon::arrow_right) + 1,
+              "your themes: the Browse tile is marked as an action tile with the arrow icon");
+        check(activate_control(kAppearancePage, cid("appearance.your_themes"), VK_RIGHT) && installed_selection.calls == 1 &&
+                  installed_selection.last == 0 && !installed_selection.preview,
+              "your themes: one activation applies the installed theme without a preview");
+        application_settings_refresh_pages();
+        tiles = ui_settings_scene_control(*scene(), yours);
+        const auto* builtin_tiles =
             ui_settings_scene_control(*scene(), {UiSettingsTargetKind::control, kAppearancePage, cid("appearance.theme")});
-        const auto* import =
-            ui_settings_scene_control(*scene(), {UiSettingsTargetKind::control, kAppearancePage, cid("appearance.imported.import")});
-        check(
-            palette && palette->choices.count == 3 && import && import->enabled &&
-                utf8_equal(import->description, utf8_literal("Original theme")),
-            "custom theme settings: named current theme and native import preserve all eight builtin IDs");
-        check(activate_control(kAppearancePage, cid("appearance.imported.import")) &&
-                  custom_theme_last_action == ApplicationCustomThemeAction::import_file,
-              "custom theme settings: actual keyboard control routes explicit Import to owner");
-        custom_theme_projection.candidate_ready = true;
-        ++custom_theme_projection.revision;
+        check(tiles && tiles->selected_choice == 0 && builtin_tiles && builtin_tiles->choices.count == 3 &&
+                  builtin_tiles->selected_choice == kUiSettingsNoChoice,
+              "your themes: the applied theme is checked and no built-in tile claims to be in use");
+        check(activate_control(kAppearancePage, cid("appearance.your_themes"), VK_RIGHT) && installed_selection.calls == 2 &&
+                  installed_selection.last == 1,
+              "your themes: the next tile applies the next installed theme");
         application_settings_refresh_pages();
-        check(activate_control(kAppearancePage, cid("appearance.imported.preview")) &&
-                  custom_theme_last_action == ApplicationCustomThemeAction::preview,
-              "custom theme settings: validated candidate exposes explicit Preview action");
-        custom_theme_projection.previewing = true;
-        ++custom_theme_projection.revision;
-        application_settings_refresh_pages();
-        palette = ui_settings_scene_control(*scene(), {UiSettingsTargetKind::control, kAppearancePage, cid("appearance.theme")});
-        check(palette && !palette->enabled &&
-                  !ui_settings_scene_control(*scene(), {UiSettingsTargetKind::control, kAppearancePage, cid("appearance.imported.preview")}) &&
-                  activate_control(kAppearancePage, cid("appearance.imported.apply")) &&
-                  custom_theme_last_action == ApplicationCustomThemeAction::apply,
-              "custom theme settings: preview retires old Preview target and routes explicit Apply");
-        check(activate_control(kAppearancePage, cid("appearance.imported.cancel")) &&
-                  custom_theme_last_action == ApplicationCustomThemeAction::cancel,
-              "custom theme settings: actual Cancel control routes complete rollback intent");
-        const auto custom_previous_window = g_app.window;
-        const auto custom_previous_dpi = g_app.renderer.dpi;
-        const auto custom_previous_viewport = observed.viewport;
-        HWND custom_window = CreateWindowExW(0, L"STATIC", L"", WS_POPUP, -16000, -16000, 1000, 700,
-                                             nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
-        g_app.window = custom_window;
-        g_app.renderer.dpi = 96;
-        observed.viewport = {0, 0, 1000, 700};
-        custom_theme_projection.previewing = false;
-        ++custom_theme_projection.revision;
-        custom_theme_pointer_transition = true;
-        application_settings_refresh_pages();
-        UiSettingsControlGeometry custom_geometry{};
-        const UiSettingsTarget preview_target{UiSettingsTargetKind::control, kAppearancePage, cid("appearance.imported.preview")};
-        const bool preview_geometry =
-            custom_window && ui_settings_scene_focus(scene(), preview_target) &&
-            ui_settings_scene_control_geometry(*scene(), preview_target, &custom_geometry);
-        const auto custom_button = ui_rect_intersection(custom_geometry.field, custom_geometry.clip);
-        const LPARAM custom_point =
-            MAKELPARAM(static_cast<short>((custom_button.left + custom_button.right) * .5f),
-                       static_cast<short>((custom_button.top + custom_button.bottom) * .5f));
-        check(preview_geometry && ui_rect_has_area(custom_button) &&
-                  application_settings_window_message(WM_LBUTTONDOWN, MK_LBUTTON, custom_point) &&
-                  application_settings_window_message(WM_LBUTTONUP, 0, custom_point) &&
-                  custom_theme_projection.previewing &&
-                  custom_theme_last_action == ApplicationCustomThemeAction::preview,
-              "custom theme settings: real pointer Preview release publishes Apply at the same button "
-              "position");
-        const auto actions_before_double_click = custom_theme_actions;
-        const auto apply_hit =
-            ui_settings_scene_hit_test(*scene(), (custom_button.left + custom_button.right) * .5f,
-                                       (custom_button.top + custom_button.bottom) * .5f);
-        check(apply_hit.control_id == cid("appearance.imported.apply") &&
-                  application_settings_window_message(WM_LBUTTONDBLCLK, MK_LBUTTON, custom_point) &&
-                  application_settings_window_message(WM_LBUTTONUP, 0, custom_point) &&
-                  custom_theme_actions == actions_before_double_click &&
-                  custom_theme_last_action == ApplicationCustomThemeAction::preview,
-              "custom theme settings: Preview double-click tail cannot automatically activate replacement "
-              "Apply");
-        check(
-            application_settings_window_message(WM_LBUTTONDOWN, MK_LBUTTON, custom_point) &&
-                application_settings_window_message(WM_LBUTTONUP, 0, custom_point) &&
-                custom_theme_actions == actions_before_double_click + 1 &&
-                custom_theme_last_action == ApplicationCustomThemeAction::apply,
-            "custom theme settings: fresh ordinary pointer press release still explicitly applies preview");
-        custom_theme_pointer_transition = false;
-        if (custom_window)
-            DestroyWindow(custom_window);
-        g_app.window = custom_previous_window;
-        g_app.renderer.dpi = custom_previous_dpi;
-        observed.viewport = custom_previous_viewport;
-        custom_theme_projection.candidate_ready = custom_theme_projection.previewing = false;
-        custom_theme_projection.save_failed = true;
-        ++custom_theme_projection.revision;
-        application_settings_refresh_pages();
-        check(activate_control(kAppearancePage, cid("appearance.imported.retry_save")) &&
-                  custom_theme_last_action == ApplicationCustomThemeAction::retry_save,
-              "custom theme settings: unsaved applied theme exposes explicit Try again");
+        const UiPageKey themes_page{1, static_cast<u64>(SettingsPanel::themes) + 1};
+        check(activate_control(kAppearancePage, cid("appearance.your_themes"), VK_RIGHT) && installed_selection.calls == 2 &&
+                  ui_page_key_equal(scene()->selected_page, themes_page),
+              "your themes: the Browse themes tile opens Settings > Themes");
+        // Settings search: the theme import keywords lead to Themes and start its Import.
+        UiSettingsSearchHit import_hits[4]{};
+        const u32 import_found =
+            ui_settings_schema_search(settings_catalog(), utf8_literal("theme file import"), {import_hits, 4});
+        check(import_found >= 1 && settings_control_id(import_hits[0].panel, import_hits[0].node) == cid("themes.import"),
+              "settings search: theme file import finds the Themes page's Import row");
+        ui_settings_scene_select(scene(), kAppearancePage);
+        ui_settings_scene_focus(scene(), {UiSettingsTargetKind::page, kAppearancePage, 0});
+        for (const char* c = "import"; *c; ++c)
+            application_settings_window_message(WM_CHAR, static_cast<WPARAM>(*c), 0);
+        application_settings_synchronize();
+        // The results page is already selected: focus the row and press Enter there.
+        const u32 actions_before_import = custom_theme_actions;
+        const UiSettingsTarget import_row{UiSettingsTargetKind::control, kSearchPage, cid("themes.import")};
+        check(ui_page_key_equal(scene()->selected_page, kSearchPage) && ui_settings_scene_control(*scene(), import_row) &&
+                  ui_settings_scene_focus(scene(), import_row) &&
+                  application_settings_input(UiInputKind::key_down, VK_RETURN, false) &&
+                  application_settings_input(UiInputKind::key_up, VK_RETURN, false) && application_settings_synchronize() &&
+                  custom_theme_actions == actions_before_import + 1 &&
+                  custom_theme_last_action == ApplicationCustomThemeAction::import_file &&
+                  ui_page_key_equal(scene()->selected_page, themes_page),
+              "settings search: the Import result opens Themes and starts the file import there");
+        installed_themes = {};
+        installed_selection = {};
         custom_theme_projection = {};
         application_settings_refresh_pages();
         application_settings_release();
@@ -1920,7 +1900,7 @@ void test_settings_catalog() noexcept {
               !settings_store_write(&preferences, SettingBinding::output_volume, {false, 201}) &&
               !settings_store_write(&preferences, SettingBinding::customize_theme, {true, 0}) &&
               settings_binding_backend(SettingBinding::developer_mode) == SettingBackend::local &&
-              settings_binding_backend(SettingBinding::custom_import) == SettingBackend::action,
+              settings_binding_backend(SettingBinding::import_theme) == SettingBackend::action,
           "settings store: local bindings write preferences; actions have no stored value");
     // Every theme swatch previews its own theme: flat themes as their own
     // surface (one repeated stop), colour themes as their own stops and
@@ -1996,6 +1976,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_settings_runtime_entry() noe
     maicord::test_application_plugin_surfaces_revision(check);
     maicord::test_application_plugin_reads(check);
     maicord::test_application_settings_choice_runtime(check);
+    maicord::test_application_store_routing_runtime(check);
     maicord::test_application_custom_theme(check);
     maicord::app_detail::test_application_user_settings_runtime(check);
     test_retained_hover_projection();

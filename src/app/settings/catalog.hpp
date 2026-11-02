@@ -20,15 +20,8 @@ enum class SettingBinding : u16 {
     background_effect,
     gradient_direction,
     gradient_intensity,
-    custom_import,
-    custom_preview,
-    custom_apply,
-    custom_cancel,
-    custom_builtin,
-    custom_restore,
-    custom_retry_read,
-    custom_retry_save,
-    custom_installed,
+    // Appearance's "Your themes" palette: the installed themes, then a Browse themes tile.
+    installed_themes,
     member_list,
     reduced_motion,
     smooth_scroll,
@@ -152,9 +145,10 @@ enum class SettingBinding : u16 {
     image_zoom_factor,
     image_zoom_size,
     spotify_account,
-    // Appearance's link rows to the store pages.
-    browse_themes,
+    // Appearance's link row to the Effects page.
     browse_effects,
+    // Themes' header action, reached from settings search: pick a theme file, install it and apply it.
+    import_theme,
     count
 };
 enum class SettingBackend : u8 {

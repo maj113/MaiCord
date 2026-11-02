@@ -50,6 +50,10 @@ struct StoreItem {
     u8 busy;
     u32 library;        // effects: the library index, else ~0u
     u32 order;          // installed items: the order they were installed in (the Installed list's order)
+    // Themes: the installed theme file (application_custom_theme_installed), else ~0u. A local theme is a file in
+    // the themes folder no catalog or link install owns: imported, or put there by hand.
+    u32 file;
+    bool local;
 };
 
 struct StoreKnobChoice {
@@ -128,6 +132,10 @@ struct StoreModel {
     bool auto_update_all;
     bool trying;         // a theme is being tried
     Utf8View trying_name;
+    // Themes page: a theme loading or saving, and the last import or save failure (0 none, 1 read, 2 save).
+    bool theme_busy;
+    u8 theme_error;
+    Utf8View theme_status;
     // The selected item's detail content.
     Utf8View details_markdown, changelog_markdown;
     bool details_loading;
@@ -149,6 +157,7 @@ enum class StoreAct : u8 {
     none,
     tab,          // arg: StoreTab
     header_link,  // Install from link...
+    import_theme, // Import theme... (Themes); arg 1 retries a failed read, 2 a failed save
     search,       // the field
     search_clear,
     sort,         // opens the sort menu
@@ -226,7 +235,7 @@ enum class StoreCommandKind : u8 {
     install, update, review, remove, rollback, enable, disable, set_auto_update, skip_update,
     update_all, check_now, set_auto_update_all,
     open_plugin_settings, open_folder, open_source, open_homepage, copy_text,
-    apply_theme, try_theme, keep_theme, revert_theme, use_effect, unuse_effect,
+    apply_theme, try_theme, keep_theme, revert_theme, import_theme, use_builtin_theme, use_effect, unuse_effect,
     knob_set, knob_reset, knobs_reset, universal_set, universal_reset, global_set, knob_color,
     consent_answer,  // arg 0 cancel, 1 accept; flag: enable now
     link_begin, link_commit, link_cancel, link_open_file, link_preview,

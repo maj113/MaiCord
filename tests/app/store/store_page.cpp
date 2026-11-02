@@ -1,5 +1,7 @@
 #include "../../../src/app/store/store_model.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/ui/controls/settings_tokens.hpp"
+#include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/text/presentation.hpp"
 
 // The store pages' projection and actions over hand-made models: chips and counts, search, filters and sorts,
@@ -160,6 +162,8 @@ void test_store_page(void (*check)(bool, const char*) noexcept) noexcept {
 }
 
 static void store_tree(void (*check)(bool, const char*) noexcept) noexcept;
+static void store_focus_rings(void (*check)(bool, const char*) noexcept) noexcept;
+static void store_themes(void (*check)(bool, const char*) noexcept) noexcept;
 
 void test_store_actions(void (*check)(bool, const char*) noexcept) noexcept {
     fixture();
@@ -227,6 +231,8 @@ void test_store_actions(void (*check)(bool, const char*) noexcept) noexcept {
     check(store_permission_risk(u64{1} << 4, false) == 2, "store: network is high access");
 
     store_tree(check);
+    store_focus_rings(check);
+    store_themes(check);
 }
 
 static void store_tree(void (*check)(bool, const char*) noexcept) noexcept {
@@ -328,6 +334,212 @@ static void store_tree(void (*check)(bool, const char*) noexcept) noexcept {
     g_model.console_count = kStoreConsoleLines;
     g_model.console_total = 40;
     check(console_page(&lines, &clears) && clears == 1 && lines >= kStoreConsoleLines, "store: a full console still lays out");
+    ui_store_scene_release(&g_scene);
+}
+
+// Keyboard focus rings on the store pages inside the real settings modal (1440x900). The ring of every focused
+// control in view, the first and last grid columns' cards included, lies whole inside the clip the page paints
+// under, and nothing drawn after it covers its stroke. The viewport reaches ui_settings_focus_reach past the
+// column's start and top edges for that. A control within that reach of the viewport's bottom edge (only part-way
+// through a scroll: the page ends in tail padding and keyboard focus scrolls 16 DIP clear) is cut by the viewport
+// like the rest of its row, so it is not checked here.
+static void store_focus_rings(void (*check)(bool, const char*) noexcept) noexcept {
+    static UiSettingsPageContent content{utf8_literal("Store"), {}, {}, 1};
+    content.host = content.wide = true;
+    UiPage pages[1]{};
+    UiPageRegistry registry{};
+    UiSettingsScene settings{};
+    UiRect page{}, clip{};
+    const UiSettingsThemeTokens t(kDefaultTheme);
+    const float reach = ui_settings_focus_reach(t.metric);
+    PaintStream paint{};
+    const bool ready = ui_page_registry_initialize(&registry, {pages, 1}) &&
+                       ui_page_registry_register(&registry, {{1, 7}, utf8_literal("Store"), &content}).ok() &&
+                       ui_settings_scene_set_presentation(&settings, UiSettingsPresentation::modal) &&
+                       ui_settings_scene_update(&settings, &registry, {0, 32, 1440, 900}) &&
+                       ui_settings_scene_host_rect(settings, &page, &clip) && ui_store_scene_open(&g_scene) &&
+                       paint_stream_initialize(&paint);
+    check(ready && clip.left <= page.left - reach && clip.top <= page.top - reach,
+          "store focus: the host page's clip reaches a focus ring's outset past the column's start and top");
+    const auto inside = [](const UiRect& r, const PaintClip& c) noexcept {
+        return r.left >= c.left - .01f && r.top >= c.top - .01f && r.right <= c.right + .01f && r.bottom <= c.bottom + .01f;
+    };
+    const auto covers_stroke = [](const PaintQuad& q, const UiRect& ring, float width) noexcept {
+        const UiRect hole{ring.left + width, ring.top + width, ring.right - width, ring.bottom - width};
+        const bool overlaps = q.left < ring.right && q.right > ring.left && q.top < ring.bottom && q.bottom > ring.top;
+        const bool within_hole = q.left >= hole.left && q.right <= hole.right && q.top >= hole.top && q.bottom <= hole.bottom;
+        return overlaps && !within_hole && (q.fill.alpha > 0 || q.border.alpha > 0);
+    };
+    for (u32 k = 0; ready && k < 6; ++k) {
+        const auto kind = static_cast<CatalogKind>(k % 3);
+        fixture();
+        for (u32 i = 0; i < g_model.count; ++i)
+            g_model.items[i].kind = kind;
+        StorePageState st{};
+        store_page_reset(&st, kind);
+        st.tab = k < 3 ? StoreTab::browse : StoreTab::installed;
+        ui_store_scene_begin(&g_scene);
+        StoreLayoutInput in{&g_model, &st, nullptr, ui_rect_width(page), false, nullptr, nullptr};
+        store_page_build(&g_scene, in);
+        g_scene.active = ui_store_scene_commit(&g_scene, clip, page, settings.layout.modal);
+        // The first grid row's start and end columns.
+        float first_x = 1e9f, last_x = -1, row_y = -1;
+        for (u32 i = 0; i < g_scene.count; ++i) {
+            const auto& n = g_scene.nodes[i];
+            if (n.kind != UiStoreKind::card || store_act(n.action) != StoreAct::card || (row_y >= 0 && n.y != row_y))
+                continue;
+            row_y = n.y;
+            first_x = minimum(first_x, n.x);
+            last_x = maximum(last_x, n.x);
+        }
+        u32 tested = 0, edge_cards = 0, failures = 0, hidden = 0;
+        for (u32 i = 0; g_scene.active && i < g_scene.count && i < g_scene.dialog_root; ++i) {
+            const auto& n = g_scene.nodes[i];
+            if (!n.action || (n.flags & (ui_store_hidden | ui_store_disabled)))
+                continue;
+            ui_store_scene_scroll_to(&g_scene, 0);
+            if (!ui_store_scene_focus(&g_scene, n.action, true) || g_scene.focus_action != n.action)
+                continue;
+            UiRect r{};
+            if (!ui_store_scene_rect(g_scene, n.action, &r) || r.top < page.top || r.bottom > clip.bottom - reach)
+                continue;
+            const bool card = n.kind == UiStoreKind::card && store_act(n.action) == StoreAct::card;
+            const bool edge = card && n.y == row_y && (n.x == first_x || n.x == last_x);
+            if (!paint_stream_reset(&paint, 1440, 900) || !ui_store_scene_paint(g_scene, kDefaultTheme, &paint, 0, 96) ||
+                !ui_store_scene_paint(g_scene, kDefaultTheme, &paint, 1, 96)) {
+                ++failures;
+                continue;
+            }
+            u32 rings = 0;
+            for (u32 b = 0; b < paint.batch_count; ++b)
+                for (u32 q = paint.batches[b].first_quad; q < paint.batches[b].first_quad + paint.batches[b].quad_count; ++q) {
+                    const auto& quad = paint.quads[q];
+                    if (quad.fill.alpha > 0 || quad.border_width != t.metric.focus_width ||
+                        !bytes_equal(&quad.border, &t.color.focus_ring, sizeof(Color)))
+                        continue;
+                    ++rings;
+                    const UiRect ring{quad.left, quad.top, quad.right, quad.bottom};
+                    if (!inside(ring, paint.clips[paint.batches[b].clip_index]))
+                        ++failures;
+                    for (u32 later = q + 1; later < paint.count; ++later)
+                        hidden += covers_stroke(paint.quads[later], ring, quad.border_width);
+                    if (edge && ring.left < r.left && ring.right > r.right)
+                        edge_cards += n.x == first_x ? (ring.left < page.left ? 1u : 0u) : 1u;
+                }
+            failures += card && !rings;
+            ++tested;
+        }
+        check(g_scene.active && tested >= (k < 3 ? 12u : 4u) && !failures,
+              k < 3 ? "store focus: on Browse every focused control in view, cards included, rings inside the page clip"
+                    : "store focus: on Installed every focused control in view rings inside the page clip");
+        check(k >= 3 || (first_x < last_x && edge_cards == 2),
+              "store focus: the first column's card ring reaches past the column's start edge and is kept, like the last column's");
+        check(!hidden, "store focus: nothing drawn after a focus ring covers its stroke");
+    }
+    paint_stream_release(&paint);
+    ui_store_scene_release(&g_scene);
+    ui_settings_scene_release(&settings);
+}
+
+// The Themes page: imported and local theme files list with the installed ones, Apply is the one click, the theme in
+// use reads Applied, Try it stays secondary, Import sits in the header and its failures offer Try again.
+static void store_themes(void (*check)(bool, const char*) noexcept) noexcept {
+    reset_value(&g_model);
+    g_model.catalog = StoreCatalogState::ready;
+    g_model.installable = true;
+    const auto theme = [](Utf8View slug, Utf8View name, bool installed, bool local, u32 file) noexcept -> StoreItem& {
+        StoreItem& item = add(slug, name, utf8_literal("A theme."), utf8_literal("MaiCord"), utf8_literal("dark"), 0, installed, installed);
+        item.kind = CatalogKind::theme;
+        item.local = local;
+        item.file = file;
+        if (local) {
+            item.item = ~0u;
+            item.installed_version = item.version = {};
+        }
+        return item;
+    };
+    theme(utf8_literal("fjord"), utf8_literal("Fjord"), true, false, 0);
+    theme(utf8_literal("~0123456789abcdef"), utf8_literal("Neon Grid"), true, true, 1);
+    theme(utf8_literal("sunrise"), utf8_literal("Sunrise"), false, false, ~0u);
+    StorePageState st{};
+    store_page_reset(&st, CatalogKind::theme);
+    StoreList list{};
+    store_installed_list(g_model, st, &list);
+    check(list.counts[0] == 2 && list.count == 2, "store themes: an imported theme file lists with the installed themes");
+    const UiRect anchor{10, 10, 20, 20};
+    StoreCommand c = store_page_act(g_model, &st, store_action(StoreAct::row_primary, 1), 0, anchor);
+    check(c.kind == StoreCommandKind::apply_theme && c.item == 1, "store themes: Apply on an imported theme applies it in one click");
+    c = store_page_act(g_model, &st, store_action(StoreAct::card_primary, 2), 0, anchor);
+    check(c.kind == StoreCommandKind::install, "store themes: a theme that isn't installed offers Install");
+    g_model.items[1].active = true;
+    c = store_page_act(g_model, &st, store_action(StoreAct::row_primary, 1), 0, anchor);
+    check(c.kind == StoreCommandKind::none, "store themes: the theme in use has nothing left to apply");
+    PopupItem rows[16]{};
+    char labels[48];
+    u32 n = store_menu_items(g_model, st, StoreMenu::overflow, 0, rows, 16, {labels, sizeof(labels)});
+    check(n == 4 && same(rows[0].label, utf8_literal("Apply")) && same(rows[1].label, utf8_literal("Try it")),
+          "store themes: Try it is a secondary action in the overflow menu, after Apply");
+    n = store_menu_items(g_model, st, StoreMenu::overflow, 1, rows, 16, {labels, sizeof(labels)});
+    check(n == 2 && same(rows[0].label, utf8_literal("Use built-in theme")) && same(rows[1].label, utf8_literal("Remove...")) &&
+              (rows[1].flags & popup_item_danger),
+          "store themes: the imported theme in use offers Use built-in theme and Remove in its overflow menu");
+    c = store_menu_choose(g_model, &st, StoreMenu::overflow, 1, 0);
+    check(c.kind == StoreCommandKind::use_builtin_theme, "store themes: Use built-in theme asks the host to restore the last built-in");
+    store_menu_choose(g_model, &st, StoreMenu::overflow, 1, 1);
+    c = store_page_act(g_model, &st, store_action(StoreAct::dialog_confirm), 0, anchor);
+    check(c.kind == StoreCommandKind::remove && c.item == 1, "store themes: confirming removes the imported theme");
+    c = store_page_act(g_model, &st, store_action(StoreAct::import_theme), 0, anchor);
+    check(c.kind == StoreCommandKind::import_theme && c.arg == 0, "store themes: the header's Import theme starts an import");
+    c = store_page_act(g_model, &st, store_action(StoreAct::import_theme, 2), 0, anchor);
+    check(c.kind == StoreCommandKind::import_theme && c.arg == 2, "store themes: Try again retries the failed save");
+    // The page: Import in the header, Applied (disabled) on the theme in use, Apply on the others, the failure notice.
+    g_model.theme_error = 1;
+    g_model.theme_status = utf8_literal("Couldn't read the theme file. Try again or choose another file.");
+    st.tab = StoreTab::installed;
+    check(ui_store_scene_open(&g_scene), "store themes: scene opens");
+    ui_store_scene_begin(&g_scene);
+    StoreLayoutInput in{&g_model, &st, nullptr, 792, false, nullptr, nullptr};
+    store_page_build(&g_scene, in);
+    const bool laid = ui_store_scene_commit(&g_scene, {0, 0, 900, 700}, {40, 28, 832, 700}, {0, 0, 900, 700});
+    u32 imports = 0, retries = 0, applied = 0, applies = 0, locals = 0;
+    for (u32 i = 0; i < g_scene.count; ++i) {
+        const auto& node = g_scene.nodes[i];
+        imports += node.kind == UiStoreKind::button && node.action == store_action(StoreAct::import_theme);
+        retries += node.kind == UiStoreKind::button && node.action == store_action(StoreAct::import_theme, 1);
+        applied += node.kind == UiStoreKind::button && same(node.text, utf8_literal("Applied")) &&
+                   (node.flags & ui_store_disabled);
+        applies += node.kind == UiStoreKind::button && store_act(node.action) == StoreAct::row_primary &&
+                   same(node.text, utf8_literal("Apply"));
+        locals += same(node.text, utf8_literal("Local file"));
+    }
+    check(laid && imports >= 2 && retries == 1, "store themes: Import theme sits in the header and a failed read offers Try again");
+    check(applied == 1 && applies == 1 && locals == 1,
+          "store themes: the theme in use reads Applied, the other installed theme offers Apply, the imported one is a local file");
+    // Both header actions fit the column, side by side, without overlapping.
+    UiRect import_rect{}, link_rect{};
+    const bool header_rects = ui_store_scene_rect(g_scene, store_action(StoreAct::import_theme), &import_rect) &&
+                              ui_store_scene_rect(g_scene, store_action(StoreAct::header_link), &link_rect);
+    check(header_rects && ui_rect_has_area(import_rect) && ui_rect_has_area(link_rect),
+          "store themes: Import theme and Install from link both lay out");
+    check(header_rects && import_rect.left >= 40 && link_rect.right <= 832 && import_rect.right <= link_rect.left,
+          "store themes: the header actions fit the column side by side");
+    UiStoreEvent pressed{}, released{};
+    const float link_x = (link_rect.left + link_rect.right) * .5f, link_y = (link_rect.top + link_rect.bottom) * .5f;
+    g_scene.active = true;
+    check(header_rects && ui_store_scene_press(&g_scene, link_x, link_y, &pressed) &&
+              ui_store_scene_release_pointer(&g_scene, link_x, link_y, &released) &&
+              released.action == store_action(StoreAct::header_link),
+          "store themes: a click on Install from link reaches it");
+    // Not installed: the detail offers Install, never Try it.
+    st.detail = true;
+    copy_bytes(st.slug, "sunrise", 8);
+    ui_store_scene_begin(&g_scene);
+    store_page_build(&g_scene, in);
+    u32 tries = 0;
+    for (u32 i = 0; i < g_scene.count; ++i)
+        tries += store_act(g_scene.nodes[i].action) == StoreAct::detail_secondary;
+    check(ui_store_scene_commit(&g_scene, {0, 0, 900, 700}, {40, 28, 832, 700}, {0, 0, 900, 700}) && !tries,
+          "store themes: a theme that isn't installed has no Try it step");
     ui_store_scene_release(&g_scene);
 }
 

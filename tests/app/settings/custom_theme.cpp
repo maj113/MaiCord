@@ -14,9 +14,11 @@ namespace maicord {
 bool custom_fixture_io_create(ClientThemeIo**, const wchar_t* = nullptr) noexcept;
 bool custom_fixture_io_load(ClientThemeIo*, u64*) noexcept;
 bool custom_fixture_io_import(ClientThemeIo*, ConstSlice<wchar_t>, const FileSnapshot&,
-                              const ClientThemeStorageSnapshot&, u64*) noexcept;
-bool custom_fixture_io_save(ClientThemeIo*, const ClientThemeStorageSnapshot&, u64*) noexcept;
+                              const ClientThemeStorageSnapshot&, bool, u64*) noexcept;
+bool custom_fixture_io_save(ClientThemeIo*, const ClientThemeStorageSnapshot&, bool, u64*) noexcept;
 bool custom_fixture_io_catalog(ClientThemeIo*, u64*) noexcept;
+ClientThemeStorageResult custom_fixture_catalog_directory(Slice<wchar_t>) noexcept;
+ClientThemeStorageResult custom_fixture_catalog_remove(const ClientThemeCatalogEntry&) noexcept;
 HANDLE custom_fixture_io_event(const ClientThemeIo*) noexcept;
 bool custom_fixture_io_poll(ClientThemeIo*, ClientThemeIoCompletion*, bool*) noexcept;
 bool custom_fixture_io_pending(ClientThemeIo*) noexcept;
@@ -51,8 +53,15 @@ bool custom_fixture_request_frame() noexcept;
 #define application_custom_theme_preferences_changed custom_fixture_preferences_changed
 #define application_custom_theme_snapshot custom_fixture_snapshot
 #define application_custom_theme_restore custom_fixture_restore
-#define application_custom_theme_catalog custom_fixture_catalog
-#define application_custom_theme_select_installed custom_fixture_select_installed
+#define application_custom_theme_installed custom_fixture_installed
+#define application_custom_theme_installed_active custom_fixture_installed_active
+#define application_custom_theme_apply_installed custom_fixture_apply_installed
+#define application_custom_theme_remove_installed custom_fixture_remove_installed
+#define application_custom_theme_offer custom_fixture_offer
+#define application_custom_theme_rescan custom_fixture_rescan
+#define application_custom_theme_use_builtin custom_fixture_use_builtin
+#define client_theme_catalog_directory custom_fixture_catalog_directory
+#define client_theme_catalog_remove custom_fixture_catalog_remove
 #define application_settings_appearance_selected custom_fixture_appearance_selected
 #define application_settings_active custom_fixture_settings_active
 #define application_settings_lifetime custom_fixture_settings_lifetime
@@ -85,10 +94,10 @@ struct Transport {
     ClientThemeIoCompletion completion{};
     ClientThemeStorageSnapshot requested{};
     FileSnapshot imported_identity{};
-    u64 serial{}, generation{}, cancelled{};
-    u32 loads{}, imports{}, saves{}, publications{}, frames{}, preparations{};
+    u64 serial{}, generation{}, cancelled{}, catalog_generation{};
+    u32 loads{}, imports{}, saves{}, publications{}, frames{}, preparations{}, catalogs{}, removals{};
     ClientThemeIoOperation operation{};
-    bool ready{}, picker_ready{}, publication_failed{}, stop_failed{}, blocked{};
+    bool ready{}, picker_ready{}, publication_failed{}, stop_failed{}, blocked{}, install{}, exported{}, scans{};
     bool settings_active{true};
     u64 settings_lifetime{1};
     bool custom_published{};
@@ -106,17 +115,18 @@ void receipt(ClientThemeStorageError error, const ClientThemeStorageSnapshot* sn
     transport.ready = true;
     application_custom_theme_poll();
 }
-bool import_candidate(const ClientThemeDocument& document) noexcept {
-    if (!application_custom_theme_action(ApplicationCustomThemeAction::import_file))
-        return false;
-    transport.picker_ready = true;
+// The store's install card offers a document: the candidate the preview, apply and cancel actions work on.
+bool offer_candidate(const ClientThemeDocument& document) noexcept {
+    return application_custom_theme_offer(document) && application_custom_theme_view().candidate_ready;
+}
+// The installed theme scan completes with these entries.
+void catalog_receipt(const ClientThemeCatalog& catalog) noexcept {
+    transport.completion = {};
+    transport.completion.generation = transport.catalog_generation;
+    transport.completion.operation = ClientThemeIoOperation::catalog;
+    transport.completion.catalog = catalog;
+    transport.ready = true;
     application_custom_theme_poll();
-    auto candidate = transport.requested;
-    candidate.custom = document;
-    candidate.custom_present = true;
-    candidate.custom_active = false;
-    receipt(ClientThemeStorageError::none, &candidate);
-    return application_custom_theme_view().candidate_ready;
 }
 } // namespace custom_theme_test
 bool custom_fixture_io_create(ClientThemeIo** io, const wchar_t*) noexcept {
@@ -131,28 +141,46 @@ bool custom_fixture_io_load(ClientThemeIo*, u64* generation) noexcept {
     return true;
 }
 bool custom_fixture_io_import(ClientThemeIo*, ConstSlice<wchar_t> selected, const FileSnapshot& identity,
-                              const ClientThemeStorageSnapshot& baseline, u64* generation) noexcept {
+                              const ClientThemeStorageSnapshot& baseline, bool install, u64* generation) noexcept {
     auto& t = custom_theme_test::transport;
     if (selected.count != sizeof(custom_theme_test::path) / sizeof(wchar_t) - 1)
         return false;
     t.requested = baseline;
     t.imported_identity = identity;
+    t.install = install;
     ++t.imports;
     t.operation = ClientThemeIoOperation::import_document;
     *generation = t.generation = ++t.serial;
     return true;
 }
-bool custom_fixture_io_catalog(ClientThemeIo*, u64*) noexcept {
-    return false; // Catalog scans are covered by the theme storage tests.
+// Scans answer only while a test asks for them, through catalog_receipt and their own generation.
+bool custom_fixture_io_catalog(ClientThemeIo*, u64* generation) noexcept {
+    auto& t = custom_theme_test::transport;
+    if (!t.scans)
+        return false;
+    ++t.catalogs;
+    *generation = t.catalog_generation = ++t.serial;
+    return true;
 }
-bool custom_fixture_io_save(ClientThemeIo*, const ClientThemeStorageSnapshot& snapshot,
+bool custom_fixture_io_save(ClientThemeIo*, const ClientThemeStorageSnapshot& snapshot, bool export_document,
                             u64* generation) noexcept {
     auto& t = custom_theme_test::transport;
     t.requested = snapshot;
+    t.exported = export_document;
     ++t.saves;
     t.operation = ClientThemeIoOperation::save;
     *generation = t.generation = ++t.serial;
     return true;
+}
+// The installed themes live in the picker fixture's folder, so their paths are the picked file's.
+ClientThemeStorageResult custom_fixture_catalog_directory(Slice<wchar_t> output) noexcept {
+    constexpr wchar_t directory[] = LR"(D:\native-fixture)";
+    copy_bytes(output.data, directory, sizeof(directory));
+    return {};
+}
+ClientThemeStorageResult custom_fixture_catalog_remove(const ClientThemeCatalogEntry&) noexcept {
+    ++custom_theme_test::transport.removals;
+    return {};
 }
 HANDLE custom_fixture_io_event(const ClientThemeIo*) noexcept {
     return nullptr;
@@ -318,25 +346,30 @@ void test_application_custom_theme(void (*check)(bool, const char*) noexcept) no
     transport.publication_failed = false;
     application_custom_theme_initialize();
     receipt(ClientThemeStorageError::missing);
-    check(parsed.ok() && import_candidate(document) && transport.imported_identity.identity.index == 41 &&
-              transport.imported_identity.identity.last_write == 42 && !transport.custom_published &&
-              transport.saves == 0,
-          "custom theme owner: exact picker identity admits validated owning candidate without apply or "
-          "write");
+    // A built-in choice before any custom theme is remembered apart from the custom theme's base.
+    g_app.preferences.theme = ClientTheme::sunset;
+    check(application_custom_theme_preferences_changed(true, true) &&
+              g_app.preferences.builtin_theme == ClientTheme::sunset,
+          "custom theme owner: choosing a built-in theme remembers it as the last built-in theme");
+    receipt(ClientThemeStorageError::none);
+    const u32 saves_before_offer = transport.saves;
+    check(parsed.ok() && offer_candidate(document) && !transport.custom_published &&
+              transport.saves == saves_before_offer,
+          "custom theme owner: an offered document is a candidate without apply or write");
     const auto candidate = document;
     document.name[0] = 'X';
     check(application_custom_theme_action(ApplicationCustomThemeAction::preview) &&
               application_custom_theme_view().previewing &&
               client_theme_document_equal(*application_custom_theme_document(), candidate) &&
-              transport.saves == 0,
+              transport.saves == saves_before_offer,
           "custom theme owner: explicit preview owns every palette/font/metric token independently of "
-          "import storage");
+          "the offered document");
     application_custom_theme_cancel_interaction();
     check(!application_custom_theme_document() && !application_custom_theme_view().previewing &&
-              g_app.preferences.theme == ClientTheme::dark && transport.saves == 0,
+              g_app.preferences.theme == ClientTheme::sunset && transport.saves == saves_before_offer,
           "custom theme owner: Settings X Escape or page withdrawal restores the complete prior theme "
           "without saving");
-    check(import_candidate(candidate), "custom theme owner: a new import can follow cancelled preview");
+    check(offer_candidate(candidate), "custom theme owner: a new offer can follow a cancelled preview");
     transport.publication_failed = true;
     const auto preference_before = g_app.preferences;
     check(!application_custom_theme_action(ApplicationCustomThemeAction::preview) &&
@@ -356,12 +389,13 @@ void test_application_custom_theme(void (*check)(bool, const char*) noexcept) no
     receipt(ClientThemeStorageError::commit);
     check(application_custom_theme_document() && application_custom_theme_view().save_failed &&
               application_custom_theme_action(ApplicationCustomThemeAction::retry_save) &&
-              transport.saves == 2,
+              transport.saves == saves_before_offer + 2,
           "custom theme owner: failed disk commit truthfully remains applied and explicit Try agains the "
           "same snapshot");
     receipt(ClientThemeStorageError::none);
-    check(!application_custom_theme_view().save_failed,
-          "custom theme owner: exact successful save receipt clears the unsaved state");
+    check(!application_custom_theme_view().save_failed && g_app.preferences.theme == ClientTheme::light &&
+              g_app.preferences.builtin_theme == ClientTheme::sunset,
+          "custom theme owner: an applied custom theme borrows its base and keeps the last built-in theme");
     const auto stable_document = *application_custom_theme_document();
     g_app.preferences.output_volume = 53;
     const auto writes_before_independent_edit = transport.saves;
@@ -380,22 +414,101 @@ void test_application_custom_theme(void (*check)(bool, const char*) noexcept) no
               ui_theme_typography_equal(application_custom_theme_document()->typography,
                                         candidate.typography) &&
               ui_theme_metrics_equal(application_custom_theme_document()->metrics, candidate.metrics) &&
-              application_custom_theme_document()->theme.accent.red == candidate.theme.accent.red,
-          "custom theme owner: background edit preserves imported foreground typography and geometry");
+              application_custom_theme_document()->theme.accent.red == candidate.theme.accent.red &&
+              utf8_equal(application_custom_theme_view().current, utf8_literal("Original theme (edited)")),
+          "custom theme owner: a background edit forks the theme into an edited copy and keeps its foreground "
+          "typography and geometry");
+    check(application_custom_theme_preferences_changed(false, true) && transport.exported &&
+              transport.requested.custom_active &&
+              utf8_equal({transport.requested.custom.name, transport.requested.custom.name_bytes},
+                         utf8_literal("Original theme (edited)")),
+          "custom theme owner: saving the edited copy also exports it to the installed themes");
+    receipt(ClientThemeStorageError::none);
     check(application_custom_theme_restore(baseline) &&
               client_theme_document_equal(*application_custom_theme_document(), candidate),
           "custom theme owner: gesture rollback restores the complete custom snapshot");
-    g_app.preferences.theme = ClientTheme::amoled;
-    g_app.preferences.output_volume = 37;
-    check(application_custom_theme_preferences_changed(true, true) &&
-              !application_custom_theme_document() && application_custom_theme_view().imported &&
-              transport.requested.builtin_theme == ClientTheme::amoled,
-          "custom theme owner: explicit built-in selection persists while retaining imported document");
+    // A restart: the preferences record and the theme store load back.
+    check(application_custom_theme_preferences_changed(false, true) && !transport.exported,
+          "custom theme owner: the restored original saves without exporting a copy");
     receipt(ClientThemeStorageError::none);
-    check(
-        application_custom_theme_action(ApplicationCustomThemeAction::restore_imported) &&
-            application_custom_theme_document() && g_app.preferences.output_volume == 37,
-        "custom theme owner: restoring imported theme leaves independent notification preferences intact");
+    const auto stored = transport.requested;
+    u8 record[kClientPreferencesRecordBytes]{};
+    ClientPreferences reloaded = client_preferences_defaults();
+    const bool record_ok = client_preferences_encode(g_app.preferences, {record, sizeof(record)}).ok() &&
+                           client_preferences_decode({record, sizeof(record)}, &reloaded).ok();
+    application_custom_theme_release();
+    g_app.preferences = reloaded;
+    application_custom_theme_initialize();
+    receipt(ClientThemeStorageError::none, &stored);
+    check(record_ok && application_custom_theme_document() && g_app.preferences.builtin_theme == ClientTheme::sunset,
+          "custom theme owner: after a restart the custom theme is back and the last built-in theme is still known");
+    g_app.preferences.output_volume = 37;
+    check(application_custom_theme_use_builtin() && !application_custom_theme_document() &&
+              g_app.preferences.theme == ClientTheme::sunset && transport.requested.builtin_theme == ClientTheme::sunset &&
+              !transport.requested.custom_active && g_app.preferences.output_volume == 37,
+          "custom theme owner: Use built-in restores the last built-in theme, not Dark, and saves it");
+    receipt(ClientThemeStorageError::none);
+    // Installed themes: Apply applies once the file loads, Try it previews, Remove falls back to the built-in.
+    static ClientThemeCatalog installed{};
+    installed.count = 1;
+    auto& entry = installed.entries[0];
+    copy_bytes(entry.name, candidate.name, candidate.name_bytes);
+    entry.name_bytes = candidate.name_bytes;
+    constexpr wchar_t file[] = L"original-theme.json";
+    copy_bytes(entry.file, file, sizeof(file));
+    entry.file_units = sizeof(file) / sizeof(wchar_t) - 1;
+    entry.identity = selected_identity;
+    transport.scans = true;
+    application_custom_theme_installed();
+    catalog_receipt(installed);
+    transport.scans = false;
+    check(transport.catalogs == 1 && application_custom_theme_installed().count == 1 &&
+              application_custom_theme_installed_active() == ~0u,
+          "custom theme owner: the installed themes come from one scan per Settings lifetime");
+    const u32 imports_before_apply = transport.imports;
+    check(application_custom_theme_apply_installed(0, false) && transport.imports == imports_before_apply + 1 &&
+              !transport.install,
+          "custom theme owner: Apply loads the installed file in place");
+    auto loaded = transport.requested;
+    loaded.custom = candidate;
+    loaded.custom_present = true;
+    loaded.custom_active = false;
+    receipt(ClientThemeStorageError::none, &loaded);
+    check(application_custom_theme_document() && !application_custom_theme_view().previewing &&
+              !application_custom_theme_view().candidate_ready && transport.operation == ClientThemeIoOperation::save &&
+              transport.requested.custom_active && application_custom_theme_installed_active() == 0,
+          "custom theme owner: Apply makes the installed theme active as soon as it loads, with no preview state");
+    receipt(ClientThemeStorageError::none);
+    check(application_custom_theme_remove_installed(0) && transport.removals == 1 &&
+              !application_custom_theme_document() && g_app.preferences.theme == ClientTheme::sunset &&
+              transport.requested.builtin_theme == ClientTheme::sunset && !transport.requested.custom_active,
+          "custom theme owner: removing the active installed theme falls back to the last built-in theme");
+    receipt(ClientThemeStorageError::none);
+    check(application_custom_theme_apply_installed(0, true), "custom theme owner: Try it loads the installed file");
+    receipt(ClientThemeStorageError::none, &loaded);
+    check(application_custom_theme_view().previewing && application_custom_theme_document(),
+          "custom theme owner: Try it previews the installed theme until it is kept or reverted");
+    application_custom_theme_cancel_interaction();
+    check(!application_custom_theme_document() && g_app.preferences.theme == ClientTheme::sunset,
+          "custom theme owner: reverting a trial restores the built-in theme");
+    // Themes > Import theme…: the picked file joins the installed themes and is applied.
+    check(application_custom_theme_action(ApplicationCustomThemeAction::import_file),
+          "custom theme owner: Import opens the file picker");
+    transport.picker_ready = true;
+    application_custom_theme_poll();
+    check(transport.install && transport.imported_identity.identity.index == 41 &&
+              transport.imported_identity.identity.last_write == 42,
+          "custom theme owner: the picked file is read by its exact identity and installed");
+    auto picked = transport.requested;
+    picked.custom = candidate;
+    picked.custom_present = true;
+    picked.custom_active = false;
+    receipt(ClientThemeStorageError::none, &picked);
+    check(application_custom_theme_document() &&
+              client_theme_document_equal(*application_custom_theme_document(), candidate) &&
+              !application_custom_theme_view().previewing && !application_custom_theme_view().candidate_ready &&
+              transport.operation == ClientThemeIoOperation::save && transport.requested.custom_active,
+          "custom theme owner: Import from Themes applies the theme with no preview state");
     receipt(ClientThemeStorageError::none);
     const auto revision = application_custom_theme_view().revision;
     const auto publications = transport.publications, frames = transport.frames, saves = transport.saves;

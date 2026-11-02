@@ -126,33 +126,43 @@ bool application_custom_theme_synchronize() noexcept {
 }
 void application_custom_theme_cancel_interaction() noexcept {
 }
-ConstSlice<Utf8View> application_custom_theme_catalog() noexcept {
+ConstSlice<ClientThemeCatalogEntry> application_custom_theme_installed() noexcept {
     return settings_runtime_test::installed_themes;
 }
-bool application_custom_theme_select_installed(u32 index) noexcept {
+u32 application_custom_theme_installed_active() noexcept {
+    return settings_runtime_test::installed_selection.active;
+}
+bool application_custom_theme_apply_installed(u32 index, bool preview) noexcept {
     using namespace settings_runtime_test;
-    const auto themes = installed_themes;
-    if (index >= themes.count)
+    if (index >= installed_themes.count)
         return false;
     ++installed_selection.calls;
     installed_selection.last = index;
-    installed_selection.dismissed = !g_app.popup_scene.active && g_app.popup_owner_kind != PopupOwnerKind::settings_choice &&
-                                    !g_app.popup_scene.items[0].label.data;
-    custom_theme_projection.current = themes[index];
-    custom_theme_projection.custom_active = true;
+    installed_selection.preview = preview;
+    if (!preview) {
+        installed_selection.active = index;
+        custom_theme_projection.current = {installed_themes[index].name, installed_themes[index].name_bytes};
+        custom_theme_projection.custom_active = true;
+    }
     ++custom_theme_projection.revision;
-    if (installed_selection.invalidate)
-        application_plugins_account_scope_invalidated();
     return true;
+}
+bool application_custom_theme_remove_installed(u32 index) noexcept {
+    return index < settings_runtime_test::installed_themes.count;
+}
+bool application_custom_theme_use_builtin() noexcept {
+    using namespace settings_runtime_test;
+    ++installed_selection.builtin;
+    installed_selection.active = ~0u;
+    custom_theme_projection.custom_active = false;
+    ++custom_theme_projection.revision;
+    return true;
+}
+void application_custom_theme_rescan() noexcept {
 }
 bool application_custom_theme_action(ApplicationCustomThemeAction action) noexcept {
     settings_runtime_test::custom_theme_last_action = action;
     ++settings_runtime_test::custom_theme_actions;
-    if (settings_runtime_test::custom_theme_pointer_transition &&
-        action == ApplicationCustomThemeAction::preview) {
-        settings_runtime_test::custom_theme_projection.previewing = true;
-        ++settings_runtime_test::custom_theme_projection.revision;
-    }
     return true;
 }
 // The isolated Settings host borrows the real shared author geometry instead
@@ -426,34 +436,6 @@ bool application_video_viewer_cursor(UiPoint, UiCursor*) noexcept {
     return false;
 }
 void end_scrollbar_drag() noexcept {
-}
-// The store pages (src/app/store) are not part of these tests: their host page is a bare rectangle.
-bool application_store_kind(u64 page, CatalogKind* kind) noexcept {
-    if (page == static_cast<u64>(SettingsPanel::plugins) + 1)
-        *kind = CatalogKind::plugin;
-    else if (page == static_cast<u64>(SettingsPanel::themes) + 1)
-        *kind = CatalogKind::theme;
-    else if (page == static_cast<u64>(SettingsPanel::effects) + 1)
-        *kind = CatalogKind::effect;
-    else
-        return false;
-    return true;
-}
-void application_store_visible(bool, CatalogKind) noexcept {
-}
-bool application_store_synchronize(UiSettingsScene*) noexcept {
-    return false;
-}
-bool application_store_window_message(UINT, WPARAM, LPARAM) noexcept {
-    return false;
-}
-bool application_store_input(UiInputKind, u32, bool) noexcept {
-    return false;
-}
-bool application_store_character(u32) noexcept {
-    return false;
-}
-void application_store_release() noexcept {
 }
 void application_sync_attachment_drop_target() noexcept {
     ++settings_runtime_test::observed.drop_updates;

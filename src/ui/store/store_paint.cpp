@@ -92,7 +92,22 @@ struct Pass {
         return {!(n.flags & ui_store_disabled), on && n.action == s.hover_action, on && n.action == s.press_action,
                 on && s.focus_visible && n.action == s.focus_action};
     }
+    // The focused node's ring waits for the end of its layer, so a neighbour drawn later (the next segment of a
+    // track) cannot cover it.
+    mutable UiRect ring{}, ring_clip{};
+    mutable float ring_radius = 0;
+    mutable bool ring_set = false;
+    void focus(const UiRect& shape, float radius) const noexcept {
+        ring = shape;
+        ring_radius = radius;
+        ring_set = true;
+    }
 };
+
+void paint_ring(UiPaint& p, const Pass& k) noexcept {
+    if (k.ring_set)
+        p.clip(k.ring_clip).use<ui_settings_focus_paint>(k.t, k.ring, k.ring_radius).unclip();
+}
 
 struct ChipLook {
     UiStoreFill fill;
@@ -226,7 +241,7 @@ void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r
             border = {};
         p.rounded_border(r, fill, border, kRadius, border.alpha > 0 ? 1.f : 0.f);
         if (state.focused)
-            p.use<ui_settings_focus_paint>(t, r, kRadius);
+            k.focus(r, kRadius);
         break;
     }
     case UiStoreKind::preview: {
@@ -295,9 +310,9 @@ void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r
             if (state.hovered || state.pressed)
                 p.rounded(r, c.mod_subtle, t.metric.control_radius);
             if (state.focused)
-                p.use<ui_settings_focus_paint>(t, r, t.metric.control_radius);
+                k.focus(r, t.metric.control_radius);
         } else if (state.focused)
-            p.use<ui_settings_focus_paint>(t, r, 4.f);
+            k.focus(r, 4.f);
         const Color ink = button_ink(k, n);
         const float pad = variant == UiStoreButton::link ? 0 : n.type ? 16 : 12;
         const float content = leaf_text_content(n);
@@ -319,7 +334,7 @@ void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r
             p.rounded(r, n.variant == 2 ? k.theme.tokens.overlay.scrim : state.pressed ? c.mod_normal : c.mod_subtle,
                       n.variant == 2 ? ui_rect_height(r) * .5f : 8);
         if (state.focused)
-            p.use<ui_settings_focus_paint>(t, r, n.variant == 2 ? ui_rect_height(r) * .5f : 8.f);
+            k.focus(r, n.variant == 2 ? ui_rect_height(r) * .5f : 8.f);
         const Color ink = n.ink == static_cast<u8>(UiStoreInk::normal) ? (state.hovered ? c.text_strong : c.text_subtle)
                                                                        : k.ink(n.ink);
         paint_icon(p, n.icon, centred(r, ui_rect_height(r) >= 32 ? 18 : 16), n.variant == 2 ? k.theme.tokens.text.on_accent : ink);
@@ -334,7 +349,7 @@ void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r
         if (n.value)
             p.icon(UiIcon::check, {box.left + 1, box.top + 1, box.right - 1, box.bottom - 1}, c.on_brand);
         if (state.focused)
-            p.use<ui_settings_focus_paint>(t, box, 4.f);
+            k.focus(box, 4.f);
         break;
     }
     case UiStoreKind::filter: {
@@ -352,7 +367,7 @@ void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r
         else if (n.icon != kNoIcon)
             p.icon(static_cast<UiIcon>(n.icon), {r.left + 12, cy - 7, r.left + 26, cy + 7}, c.text_default);
         if (state.focused)
-            p.use<ui_settings_focus_paint>(t, r, kFilterHeight * .5f);
+            k.focus(r, kFilterHeight * .5f);
         break;
     }
     case UiStoreKind::tab: {
@@ -365,7 +380,7 @@ void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r
             p.rounded(badge, attention ? c.brand : c.mod_strong, kBadgeHeight * .5f);
         }
         if (state.focused)
-            p.use<ui_settings_focus_paint>(t, UiRect{r.left - 4, r.top + 6, r.right + 4, r.bottom - 4}, 6.f);
+            k.focus(UiRect{r.left - 4, r.top + 6, r.right + 4, r.bottom - 4}, 6.f);
         break;
     }
     case UiStoreKind::search: {
@@ -399,7 +414,7 @@ void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r
         else if (state.hovered)
             p.rounded(r, c.mod_subtle, 6);
         if (state.focused)
-            p.use<ui_settings_focus_paint>(t, r, 6.f);
+            k.focus(r, 6.f);
         break;
     case UiStoreKind::slider: {
         const u32 steps = n.count > 1 ? n.count : 2;
@@ -454,12 +469,14 @@ bool ui_store_scene_paint(const UiStoreScene& s, const Theme& theme, PaintStream
     UiPaint p{out, theme};
     if (layer < 2) {
         p.clip(s.panel);
+        k.ring_clip = s.panel;
         for (u32 i = 0; p && i < page_end(s); ++i) {
             const auto& n = s.nodes[i];
             const UiRect r = screen_rect(s, static_cast<u16>(i));
             if (!hidden(n) && ui_rect_has_area(r) && ui_rect_intersects(r, s.panel))
                 paint_node(p, k, n, r, layer);
         }
+        paint_ring(p, k);
         if (layer == 0 && s.content_height > ui_rect_height(s.panel))
             p.scrollbar(ui_scrollbar_geometry({s.panel.left, s.column.top, s.panel.right, s.panel.bottom}, s.scroll,
                                               s.content_height));
@@ -478,9 +495,13 @@ bool ui_store_scene_paint(const UiStoreScene& s, const Theme& theme, PaintStream
         if (hidden(n) || !ui_rect_has_area(r) || !ui_rect_intersects(r, clip))
             continue;
         p.clip(clip);
+        const bool ringed = k.ring_set;
         paint_node(p, k, n, r, layer);
         p.unclip();
+        if (!ringed && k.ring_set)
+            k.ring_clip = clip;
     }
+    paint_ring(p, k);
     return p.unclip().end();
 }
 

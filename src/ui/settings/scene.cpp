@@ -414,8 +414,9 @@ bool ui_settings_scene_host_rect(const UiSettingsScene& scene, UiRect* page, UiR
     const auto* node = ui_widget_manager_layout_node(scene.widgets, scene.body);
     if (!node)
         return false;
+    // The page starts at the body's content edge; the clip keeps the body's focus ring gutter past it.
     if (page)
-        *page = {scene.layout.column.left, node->rectangle.top, scene.layout.column.right, node->rectangle.bottom};
+        *page = {scene.layout.column.left, node->content_rectangle.top, scene.layout.column.right, node->rectangle.bottom};
     if (clip)
         *clip = ui_rect_overlap(node->rectangle, node->clip_rectangle);
     return true;
@@ -613,16 +614,23 @@ bool ui_settings_scene_scroll(UiSettingsScene* scene, bool sidebar, float delta)
     offset = clamp_offset(*scene, sidebar, offset + delta, t.metric);
     return apply_scroll(scene, sidebar, previous);
 }
-UiScrollbarGeometry ui_settings_scene_scrollbar(const UiSettingsScene& scene, bool sidebar) noexcept {
+bool ui_settings_scene_scroll_viewport(const UiSettingsScene& scene, bool sidebar, UiRect* viewport) noexcept {
     if (!current(scene))
-        return {};
+        return false;
     const auto* node = ui_widget_manager_layout_node(scene.widgets, sidebar ? scene.sidebar : scene.body);
     if (!node)
+        return false;
+    *viewport = ui_rect_overlap(node->rectangle, node->clip_rectangle);
+    // The sidebar's scrollbar sits in its right padding, beside the rows.
+    if (sidebar)
+        viewport->right = minimum(scene.layout.sidebar.right, viewport->right + 12);
+    return true;
+}
+UiScrollbarGeometry ui_settings_scene_scrollbar(const UiSettingsScene& scene, bool sidebar) noexcept {
+    UiRect viewport{};
+    if (!ui_settings_scene_scroll_viewport(scene, sidebar, &viewport))
         return {};
     const SceneTokens t(scene);
-    auto viewport = ui_rect_overlap(node->rectangle, node->clip_rectangle);
-    if (sidebar)
-        viewport.right = minimum(scene.layout.sidebar.right, viewport.right + 12);
     return ui_scrollbar_geometry(viewport, sidebar ? scene.sidebar_offset : scene.content_offset,
                                  sidebar ? nav_extent(scene, t.metric) : content_extent(scene, t.metric));
 }

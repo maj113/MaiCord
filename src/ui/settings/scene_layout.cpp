@@ -1306,7 +1306,12 @@ bool build(UiSettingsScene* scene) noexcept {
     scene->title = add(scene, root, UiWidgetKind::text, utf8_literal("Page title"), placed(f.title, viewport));
     scene->description =
         add(scene, root, UiWidgetKind::text, utf8_literal("Page description"), placed(f.description, viewport));
-    style = placed(f.body, viewport);
+    // The viewport reaches a focus ring's outset past the column's start edge (and a host page's top, where its
+    // own controls start) as padding: rows and the host's page keep the column, and a ring at its edge stays whole.
+    const float reach = ui_settings_focus_reach(m), reach_top = scene->content.host ? reach : 0.f;
+    style = placed({f.body.left - reach, f.body.top - reach_top, f.body.right, f.body.bottom}, viewport);
+    style.padding.left = reach;
+    style.padding.top = reach_top;
     style.flow = UiLayoutFlow::vertical;
     style.flags |= ui_layout_node_clip_children | ui_layout_node_scroll_vertical;
     scene->body = add(scene, root, UiWidgetKind::scroll_view, utf8_literal("Controls"), style);

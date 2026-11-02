@@ -14,11 +14,9 @@
 namespace maicord {
 namespace settings_choice_runtime {
 using namespace app_detail;
-// 1024 installed themes in the Appearance dropdown: the longest list a choice popup pages through.
-constexpr u32 kThemes = 1024;
+// The Appearance Background effect dropdown: the settings choice popup over a real catalog control. (The
+// widget test pages a 1024-choice list; this runtime covers the controller's ownership and invalidation.)
 struct Fixture {
-    char theme_text[kThemes][12];
-    Utf8View themes[kThemes];
     PopupItem items[34];
     PopupRowWidget rows[34];
     UiWidget widgets[70];
@@ -59,26 +57,6 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
     }
     return DefWindowProcW(window, message, wparam, lparam);
 }
-// The Appearance page lists the installed themes; the settings stubs answer with this list and record choices.
-void install_themes() noexcept {
-    auto& f = fixture;
-    for (u32 i = 0; i < kThemes; ++i) {
-        char* text = f.theme_text[i];
-        copy_bytes(text, "Theme ", 6);
-        text[6] = static_cast<char>('0' + i / 1000 % 10);
-        text[7] = static_cast<char>('0' + i / 100 % 10);
-        text[8] = static_cast<char>('0' + i / 10 % 10);
-        text[9] = static_cast<char>('0' + i % 10);
-        f.themes[i] = {text, 10};
-    }
-    using namespace settings_runtime_test;
-    installed_themes = {f.themes, kThemes};
-    installed_selection = {};
-    custom_theme_projection = {};
-    custom_theme_projection.current = f.themes[0];
-    custom_theme_projection.custom_active = true;
-    custom_theme_projection.revision = 1;
-}
 bool key(u32 code) noexcept {
     return application_settings_input(UiInputKind::key_down, code, false) &&
            application_settings_input(UiInputKind::key_up, code, false);
@@ -118,9 +96,13 @@ bool open(u32 key_code = VK_RETURN) noexcept {
     auto* scene = const_cast<UiSettingsScene*>(g_app.renderer.settings_scene);
     return application_settings_open_page(kAppearancePage) &&
            (scene = const_cast<UiSettingsScene*>(g_app.renderer.settings_scene)) &&
-           ui_settings_scene_focus(scene, {UiSettingsTargetKind::control, kAppearancePage, cid("appearance.imported.installed")}) &&
+           ui_settings_scene_focus(scene, {UiSettingsTargetKind::control, kAppearancePage, cid("appearance.background_effect")}) &&
            key(key_code) && g_app.popup_scene.active &&
            g_app.popup_owner_kind == PopupOwnerKind::settings_choice;
+}
+// The built-in effect the preferences hold (choices 0..3 of the dropdown).
+u32 effect() noexcept {
+    return static_cast<u32>(g_app.preferences.gradient.effect);
 }
 bool initialize() noexcept {
     if (g_app.account_ui || g_app.settings)
@@ -153,7 +135,6 @@ bool initialize() noexcept {
     g_app.context_focus = nullptr;
     g_app.text_form = nullptr;
     g_app.settings_held_key = 0;
-    install_themes();
     application_plugins_account_scope_invalidated();
     fixture.previous_window = g_app.window;
     WNDCLASSW window_class{};
@@ -190,8 +171,6 @@ void cleanup() noexcept {
     if (!fixture.account_owned)
         return;
     application_settings_release();
-    settings_runtime_test::installed_themes = {};
-    settings_runtime_test::custom_theme_projection = {};
     popup_scene_release(&g_app.popup_scene);
     g_app.popup_scene = {};
     if (GetCapture() == fixture.window)
@@ -214,14 +193,15 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
     using namespace settings_choice_runtime;
     using namespace app_detail;
     const bool initialized = initialize();
-    check(initialized, "choice runtime: real controller, installed-themes dropdown and shared popup initialize");
+    check(initialized, "choice runtime: real controller, Background effect dropdown and shared popup initialize");
     if (!initialized) {
         cleanup();
         return;
     }
     auto& f = fixture;
-    auto& chosen = settings_runtime_test::installed_selection;
     auto& projection = settings_runtime_test::custom_theme_projection;
+    projection = {};
+    projection.revision = 1;
     const auto theme = g_app.preferences.theme;
     const auto preference_revision = g_app.preferences_request_revision;
     const UiSettingsTarget theme_target{UiSettingsTargetKind::control, kAppearancePage, cid("appearance.theme")};
@@ -333,29 +313,21 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
         check(scene->palette_hovered_index == ~u32{0},
               "settings pointer: moving onto another control clears the option a previous row left hovered");
     }
-    check(open() && !chosen.calls && g_app.popup_scene.item_count == 33 &&
-              (g_app.popup_scene.items[0].flags & popup_item_checked),
-          "choice runtime: Enter opens a checked first window without cycling or choosing");
-    bool paged = true;
-    for (u32 page = 1; page < 32; ++page) {
-        paged = paged && key(VK_NEXT) && g_app.popup_scene.active &&
-                g_app.popup_scene.items[1].action == kUiSettingsChoiceActionFirst + page * 32 &&
-                g_app.popup_scene.item_count <= 34;
-    }
     bool changed = false;
-    check(paged && g_app.popup_scene.item_count == 33 &&
-              popup_scene_select_index(&g_app.popup_scene, 32, &changed) && key(VK_RETURN) &&
-              chosen.calls == 1 && chosen.last == 1023 && chosen.dismissed && !g_app.popup_scene.active,
-          "choice runtime: all 1024 values are reachable and the last selection dismisses borrowed data before "
-          "the choice is applied");
-    check(open(VK_SPACE) && g_app.popup_scene.selected_index == 32 &&
-              (g_app.popup_scene.items[32].flags & popup_item_checked) && key(VK_ESCAPE) &&
-              application_settings_active() && !g_app.popup_scene.active,
-          "choice runtime: Space opens the current last window and Escape closes only the picker");
-    check(key(VK_RIGHT) && chosen.calls == 2 && chosen.last == 0 && key(VK_LEFT) && chosen.calls == 3 &&
-              chosen.last == 1023,
-          "choice runtime: Left and Right retain wraparound cycling without opening a popup");
-    projection.current = f.themes[0];
+    const bool opened = open();
+    const u32 initial = effect();
+    check(opened && g_app.popup_scene.item_count >= kBackgroundEffectCount &&
+              (g_app.popup_scene.items[initial].flags & popup_item_checked) && effect() == initial,
+          "choice runtime: Enter opens the list with the current value checked, without cycling or choosing");
+    check(popup_scene_select_index(&g_app.popup_scene, 1, &changed) && key(VK_RETURN) && effect() == 1 &&
+              !g_app.popup_scene.active,
+          "choice runtime: Enter on an item dismisses the popup and applies that choice");
+    check(open(VK_SPACE) && g_app.popup_scene.selected_index == 1 &&
+              (g_app.popup_scene.items[1].flags & popup_item_checked) && key(VK_ESCAPE) &&
+              application_settings_active() && !g_app.popup_scene.active && effect() == 1,
+          "choice runtime: Space opens on the current value and Escape closes only the picker");
+    check(key(VK_RIGHT) && effect() == 2 && key(VK_LEFT) && effect() == 1 && !g_app.popup_scene.active,
+          "choice runtime: Left and Right step the value without opening a popup");
     ++projection.revision;
     application_settings_synchronize();
     PopupItemLayout item{};
@@ -368,7 +340,7 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
     const bool focused = GetFocus() == f.window;
     check(focused, "choice runtime: owned hidden window focus is established before pointer picker opens");
     bool mouse = focused && application_settings_synchronize() && open() &&
-                 popup_scene_resolve_item_layout(g_app.popup_scene, 1, &item) && item.visible;
+                 popup_scene_resolve_item_layout(g_app.popup_scene, 2, &item) && item.visible;
     if (mouse) {
         const LPARAM point = MAKELPARAM(
             static_cast<short>((item.visible_rectangle.left + item.visible_rectangle.right) * .5f),
@@ -376,9 +348,8 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
         mouse = application_settings_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point);
         mouse = mouse && application_settings_window_message(WM_LBUTTONUP, 0, point);
     }
-    const bool mouse_passed = mouse && chosen.calls == 4 && chosen.last == 1 && chosen.dismissed &&
-                              !g_app.popup_scene.active && f.capture_cancellations > cancellations &&
-                              GetCapture() != f.window;
+    const bool mouse_passed = mouse && effect() == 2 && !g_app.popup_scene.active &&
+                              f.capture_cancellations > cancellations && GetCapture() != f.window;
     check(mouse_passed, "choice runtime: mouse release synchronously cancels real hidden-window capture "
                         "before the chosen index is applied");
     bool replaced = open() && popup_scene_resolve_item_layout(g_app.popup_scene, 1, &item) && item.visible;
@@ -390,7 +361,7 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
         f.replace_on_capture = true;
         replaced = replaced && application_settings_window_message(WM_LBUTTONUP, 0, point);
     }
-    const bool replacement_passed = replaced && chosen.calls == 4 && g_app.popup_scene.active &&
+    const bool replacement_passed = replaced && effect() == 2 && g_app.popup_scene.active &&
                                     g_app.popup_scene.items[0].action == 731;
     check(replacement_passed, "choice runtime: capture cancellation's reentrant replacement bank rejects "
                               "the old choice and preserves its new owner");
@@ -399,23 +370,25 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
     g_app.popup_owner_kind = PopupOwnerKind::none;
     check(open(), "choice runtime: revised selected control can recapture a window");
     ++projection.revision;
-    const u32 calls = chosen.calls;
-    check(application_settings_synchronize() && key(VK_RETURN) && !g_app.popup_scene.active && chosen.calls == calls,
+    const u32 chosen = effect();
+    check(popup_scene_select_index(&g_app.popup_scene, 3, &changed) && application_settings_synchronize() &&
+              key(VK_RETURN) && !g_app.popup_scene.active && effect() == chosen,
           "choice runtime: a revised page expires the copied choice token before the choice is applied");
     check(open(), "choice runtime: current descriptors reopen after revision refresh");
     auto* scene = const_cast<UiSettingsScene*>(g_app.renderer.settings_scene);
     check(ui_settings_scene_select(scene, kAccessibilityPage) && application_settings_synchronize() &&
-              !g_app.popup_scene.active && chosen.calls == calls,
+              !g_app.popup_scene.active && effect() == chosen,
           "choice runtime: switching pages drops the old borrowing window before text projection");
     check(open(), "choice runtime: the dropdown recaptures after native page selection");
     const auto serial = g_app.plugin_account_scope_serial;
     application_plugins_account_scope_invalidated();
     check(g_app.plugin_account_scope_serial == serial + 1 && !g_app.popup_scene.active &&
-              !g_app.popup_scene.items[0].label.data && chosen.calls == calls,
+              !g_app.popup_scene.items[0].label.data && effect() == chosen,
           "choice runtime: real account invalidation releases borrowed descriptors immediately");
     check(open(), "choice runtime: current account scope opens a new choice window");
     ++g_app.popup_scene.opens;
-    check(key(VK_RETURN) && !g_app.popup_scene.active && chosen.calls == calls,
+    check(popup_scene_select_index(&g_app.popup_scene, 3, &changed) && key(VK_RETURN) && !g_app.popup_scene.active &&
+              effect() == chosen,
           "choice runtime: reopened popup identity invalidates the old selection even with unchanged "
           "content");
     check(open(), "choice runtime: popup identity can be recaptured");
@@ -423,11 +396,9 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
               application_settings_active(),
           "choice runtime: focus cancellation closes borrowed picker while retaining settings");
     check(open(), "choice runtime: the dropdown opens again after the focus loss");
-    chosen.invalidate = true;
-    check(popup_scene_select_index(&g_app.popup_scene, 1, &changed) && key(VK_RETURN) &&
-              chosen.calls == calls + 1 && chosen.dismissed && !g_app.popup_scene.active,
-          "choice runtime: nested callback account invalidation cannot retain an old window or follow up "
-          "in old scope");
+    check(popup_scene_select_index(&g_app.popup_scene, 0, &changed) && key(VK_RETURN) && effect() == 0 &&
+              !g_app.popup_scene.active,
+          "choice runtime: a recaptured window applies its own choice");
     cleanup();
 }
 } // namespace maicord

@@ -54,7 +54,8 @@ struct StoreHost {
     u32 menu_item, menu_pressed;
     PopupItem menu_items[16];
     char menu_labels[48];
-    // Pointer.
+    // Pointer: the release belongs to the store only when the store took the press.
+    bool pressing;
     u32 slider_action;
     bool dragging_scrollbar;
     float scrollbar_grab;
@@ -178,6 +179,13 @@ void close_menu() noexcept {
     g->dirty = true;
 }
 
+// Settings closes the shared choice popup on a capture change or focus loss, the store's menu among them.
+bool menu_shown() noexcept {
+    if (g->menu_open && !(g_app.popup_scene.active && g_app.popup_scene.owner_id == kMenuOwner))
+        close_menu();
+    return g->menu_open;
+}
+
 bool open_menu(StoreMenu which, u32 item, const UiRect& anchor) noexcept {
     close_menu();
     const u32 count = store_menu_items(g->model, page(), which, item, g->menu_items, 16, {g->menu_labels, sizeof(g->menu_labels)});
@@ -207,19 +215,6 @@ bool open_menu(StoreMenu which, u32 item, const UiRect& anchor) noexcept {
 }
 
 // ---- Commands --------------------------------------------------------------------------------------------------
-bool theme_index(const StoreItem& item, u32* index) noexcept {
-    const auto names = application_custom_theme_catalog();
-    for (u32 i = 0; i < names.count; ++i) {
-        const Utf8View name = names[i];
-        if ((name.bytes == item.name.bytes && bytes_equal(name.data, item.name.data, name.bytes)) ||
-            (name.bytes == item.slug.bytes && bytes_equal(name.data, item.slug.data, name.bytes))) {
-            *index = i;
-            return true;
-        }
-    }
-    return false;
-}
-
 void end_trial() noexcept {
     g->trying = false;
     g->trying_bytes = 0;
@@ -271,9 +266,13 @@ void execute(const StoreCommand& c, float scroll) noexcept {
         break;
     case StoreCommandKind::remove:
         if (item) {
+            // A local theme is only its file; catalog and link installs go through the catalog.
+            if (item->local)
+                toast(application_custom_theme_remove_installed(item->file), {}, "Couldn't remove it. Try again.");
+            else
+                toast(application_catalog_remove(item->kind, item->slug, c.flag), {}, "Couldn't remove it. Try again.");
             if (item->kind == CatalogKind::theme)
                 application_custom_theme_rescan();
-            toast(application_catalog_remove(item->kind, item->slug, c.flag), {}, "Couldn't remove it. Try again.");
             if (page().detail && item->kind != CatalogKind::plugin)
                 page().detail = page().knobs = false;
         }
@@ -351,26 +350,21 @@ void execute(const StoreCommand& c, float scroll) noexcept {
         break;
     }
     case StoreCommandKind::apply_theme:
-    case StoreCommandKind::try_theme:
-        if (item) {
-            u32 index = 0;
-            if (!theme_index(*item, &index) || !application_custom_theme_select_installed(index)) {
-                toast(false, {}, "Couldn't open that theme. Try again.");
-                break;
-            }
-            if (c.kind == StoreCommandKind::try_theme) {
-                if (application_custom_theme_action(ApplicationCustomThemeAction::preview)) {
-                    g->trying = true;
-                    g->trying_bytes = minimum<u32>(item->name.bytes, sizeof(g->trying_name));
-                    copy_bytes(g->trying_name, item->name.data, g->trying_bytes);
-                    g->last_input_ms = clock_monotonic_milliseconds();
-                }
-            } else {
-                application_custom_theme_action(ApplicationCustomThemeAction::preview);
-                application_custom_theme_action(ApplicationCustomThemeAction::apply);
-            }
+    case StoreCommandKind::try_theme: {
+        // Apply applies as soon as the file has loaded; Try it previews it until Keep or Revert.
+        const bool trial = c.kind == StoreCommandKind::try_theme;
+        if (!item || item->file == ~0u || !application_custom_theme_apply_installed(item->file, trial)) {
+            toast(false, {}, "Couldn't open that theme. Try again.");
+            break;
+        }
+        if (trial) {
+            g->trying = true;
+            g->trying_bytes = minimum<u32>(item->name.bytes, sizeof(g->trying_name));
+            copy_bytes(g->trying_name, item->name.data, g->trying_bytes);
+            g->last_input_ms = clock_monotonic_milliseconds();
         }
         break;
+    }
     case StoreCommandKind::keep_theme:
         application_custom_theme_action(ApplicationCustomThemeAction::apply);
         end_trial();
@@ -378,6 +372,14 @@ void execute(const StoreCommand& c, float scroll) noexcept {
     case StoreCommandKind::revert_theme:
         application_custom_theme_action(ApplicationCustomThemeAction::cancel);
         end_trial();
+        break;
+    case StoreCommandKind::import_theme:
+        application_custom_theme_action(c.arg == 1   ? ApplicationCustomThemeAction::retry_read
+                                        : c.arg == 2 ? ApplicationCustomThemeAction::retry_save
+                                                     : ApplicationCustomThemeAction::import_file);
+        break;
+    case StoreCommandKind::use_builtin_theme:
+        toast(application_custom_theme_use_builtin(), {}, "Couldn't switch back to the built-in theme. Try again.");
         break;
     case StoreCommandKind::use_effect:
         if (item && item->library != ~0u)
@@ -877,6 +879,13 @@ bool application_store_synchronize(UiSettingsScene* settings) noexcept {
         application_custom_theme_action(ApplicationCustomThemeAction::cancel);
         end_trial();
         g->dirty = true;
+    } else if (g->trying) {
+        // The trial's theme failed to load, or something else ended its preview: drop the bar.
+        const auto theme = application_custom_theme_view();
+        if (!theme.busy && !theme.previewing) {
+            end_trial();
+            g->dirty = true;
+        }
     }
     const u64 stamp = sources_stamp() ^ (static_cast<u64>(settings->theme_geometry_revision) << 40);
     const bool moved = !ui_rect_equal(page_rect, g->host_page) || !ui_rect_equal(clip, g->host_clip) ||
@@ -1003,11 +1012,24 @@ bool application_store_window_message(UINT message, WPARAM wparam, LPARAM lparam
     }
     if (message == WM_LBUTTONDBLCLK)
         message = WM_LBUTTONDOWN;
-    if (g->menu_open)
+    // A release ends the press of whoever took it: Settings' own presses (the sidebar, the close button) get theirs.
+    if (message == WM_LBUTTONDOWN)
+        g->pressing = false;
+    else if (message == WM_LBUTTONUP) {
+        const bool owned = g->pressing;
+        g->pressing = false;
+        if (!owned)
+            return false;
+    }
+    if (menu_shown()) {
+        if (message == WM_LBUTTONDOWN)
+            g->pressing = true;
         return message == WM_MOUSEWHEEL ? true : menu_pointer(message, x, y);
+    }
     const bool dialog = g->scene.dialog_open && !g->scene.dialog_bar;
     const bool in_dialog = ui_store_scene_modal_hit(g->scene, x, y);
-    const bool inside = ui_rect_contains(g->host_clip, x, y);
+    // The panel's body runs under Settings' close button, which stays Settings'.
+    const bool inside = ui_rect_contains(g->host_clip, x, y) && !ui_rect_contains(settings.layout.close, x, y);
     if (message == WM_MOUSEWHEEL) {
         if (!inside && !dialog)
             return false;
@@ -1035,10 +1057,11 @@ bool application_store_window_message(UINT message, WPARAM wparam, LPARAM lparam
         return dialog;
     }
     if (message == WM_LBUTTONDOWN) {
+        if (!inside && !in_dialog && !dialog)
+            return false;
+        g->pressing = true;
         if (dialog && !in_dialog)
             return true;
-        if (!inside && !in_dialog)
-            return false;
         ui_settings_scene_focus(&settings, host_target(settings));
         application_focus_window();
         if (!dialog) {
@@ -1069,11 +1092,14 @@ bool application_store_window_message(UINT message, WPARAM wparam, LPARAM lparam
     g->slider_action = 0;
     const bool scrollbar = g->dragging_scrollbar;
     g->dragging_scrollbar = false;
+    // Take the release before giving up the capture: the WM_CAPTURECHANGED that ReleaseCapture sends cancels the
+    // press it still finds.
+    UiStoreEvent event{};
+    if (!scrollbar)
+        ui_store_scene_release_pointer(&g->scene, x, y, &event);
     application_release_capture();
     if (scrollbar)
         return true;
-    UiStoreEvent event{};
-    ui_store_scene_release_pointer(&g->scene, x, y, &event);
     if (slider) {
         // Commit the value the drag ended on.
         UiStoreEvent end{};
@@ -1121,7 +1147,7 @@ bool application_store_input(UiInputKind kind, u32 code, bool repeated) noexcept
     UiSettingsScene& settings = *active_scene;
     g->last_input_ms = clock_monotonic_milliseconds();
     const bool control = application_control_down(), shift = application_shift_down(), alt = application_alt_down();
-    if (g->menu_open) {
+    if (menu_shown()) {
         bool changed = false;
         if (code == VK_ESCAPE || code == VK_LEFT || code == VK_RIGHT) {
             close_menu();
@@ -1309,6 +1335,19 @@ bool application_store_open(PackageLinkKind kind) noexcept {
         g->scene.scroll = 0;
     }
     return application_settings_select_page({kSettingsNativeOwner, static_cast<u64>(panel) + 1}) && application_settings_synchronize();
+}
+
+bool application_store_open_effect_knobs(const Utf8View& slug) noexcept {
+    if (!slug.bytes || slug.bytes > kCatalogSlugMaximumBytes || !ensure())
+        return false;
+    StorePageState& target = g->pages[static_cast<u32>(CatalogKind::effect)];
+    copy_bytes(target.slug, slug.data, slug.bytes);
+    target.slug[slug.bytes] = 0;
+    target.detail = target.knobs = target.entered = true;
+    target.detail_from = StoreTab::installed;
+    target.tab = StoreTab::installed;
+    g->scene.scroll = 0;
+    return application_settings_select_page({kSettingsNativeOwner, static_cast<u64>(SettingsPanel::effects) + 1});
 }
 
 void application_store_release() noexcept {

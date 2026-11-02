@@ -17,12 +17,17 @@ u32 effect_index(UiThemeEditorElement e) noexcept {
                ? at(e) - at(UiThemeEditorElement::effect_none)
                : kBackgroundEffectCount;
 }
+bool package_element(UiThemeEditorElement e) noexcept {
+    return e >= UiThemeEditorElement::effect_previous && e <= UiThemeEditorElement::effect_knobs;
+}
 // Same primitive and tokens as the Settings buttons; Apply and the selected
 // segment use the primary (emphasis) variant.
 bool editor_primary(const UiThemeEditorScene& s, UiThemeEditorElement e) noexcept {
     return e == UiThemeEditorElement::apply || (e == UiThemeEditorElement::dark && !s.light_mode) ||
            (e == UiThemeEditorElement::light && s.light_mode) ||
-           (effect_index(e) < kBackgroundEffectCount && effect_index(e) == static_cast<u32>(s.draft.effect));
+           (effect_index(e) < kBackgroundEffectCount && !s.package_name.bytes &&
+            effect_index(e) == static_cast<u32>(s.draft.effect)) ||
+           (e == UiThemeEditorElement::effect_installed && s.package_name.bytes);
 }
 UiControlState editor_button_state(const UiThemeEditorScene& s, UiWidgetHandle handle) noexcept {
     const bool enabled = ui_widget_manager_input_enabled(s.widgets, handle);
@@ -146,8 +151,16 @@ bool tree(UiThemeEditorScene& s) noexcept {
         const auto element = static_cast<UiThemeEditorElement>(at(UiThemeEditorElement::effect_none) + i);
         rectangles[at(element)] = {x, y, x + (bw - 8) * .5f, y + 32};
     }
-    // The fixed offsets below leave room for three rows of two effect cards.
-    const float effect_extra_height = (static_cast<float>((kBackgroundEffectCount + 1) / 2) - 3.f) * 40.f;
+    // Installed effects take the row after the built-in ones, while there are any.
+    s.packages_laid_out = s.package_count != 0;
+    const float package_y = 562 + static_cast<float>((kBackgroundEffectCount + 1) / 2) * 40.f;
+    rectangles[at(UiThemeEditorElement::effect_previous)] = {0, package_y, 32, package_y + 32};
+    rectangles[at(UiThemeEditorElement::effect_installed)] = {40, package_y, bw - 128, package_y + 32};
+    rectangles[at(UiThemeEditorElement::effect_next)] = {bw - 120, package_y, bw - 88, package_y + 32};
+    rectangles[at(UiThemeEditorElement::effect_knobs)] = {bw - 80, package_y, bw, package_y + 32};
+    // The fixed offsets below leave room for three rows of effect controls.
+    const float effect_extra_height =
+        (static_cast<float>((kBackgroundEffectCount + 1) / 2 + (s.packages_laid_out ? 1 : 0)) - 3.f) * 40.f;
     rectangles[at(UiThemeEditorElement::speed)] = {0, 690 + effect_extra_height, bw,
                                                    740 + effect_extra_height};
     rectangles[at(UiThemeEditorElement::strength)] = {0, 752 + effect_extra_height, bw,
@@ -176,10 +189,12 @@ bool tree(UiThemeEditorScene& s) noexcept {
         // Hex opens the scoped native text form. It has no inline edit
         // document, so its launcher uses the same button dispatch as actions.
         // Icon-only buttons carry their action as the widget name.
-        const Utf8View name = e == UiThemeEditorElement::close    ? utf8_literal("Close theme editor")
-                              : e == UiThemeEditorElement::add    ? utf8_literal("Add color stop")
-                              : e == UiThemeEditorElement::remove ? utf8_literal("Remove color stop")
-                                                                  : utf8_literal("ThemeEditor");
+        const Utf8View name = e == UiThemeEditorElement::close             ? utf8_literal("Close theme editor")
+                              : e == UiThemeEditorElement::add             ? utf8_literal("Add color stop")
+                              : e == UiThemeEditorElement::remove          ? utf8_literal("Remove color stop")
+                              : e == UiThemeEditorElement::effect_previous ? utf8_literal("Previous installed effect")
+                              : e == UiThemeEditorElement::effect_next     ? utf8_literal("Next installed effect")
+                                                                           : utf8_literal("ThemeEditor");
         const auto added = ui_widget_manager_add_keyed(
             &s.widgets, parent, i + 1,
             e == UiThemeEditorElement::body ? UiWidgetKind::scroll_view
@@ -216,6 +231,11 @@ void enabled(UiThemeEditorScene& s) noexcept {
                         i < s.draft.color_count);
     set_interactive(s, UiThemeEditorElement::add, s.draft.color_count < 5);
     set_interactive(s, UiThemeEditorElement::remove, s.draft.color_count > 1);
+    const bool packages = s.packages_laid_out && s.package_count;
+    set_interactive(s, UiThemeEditorElement::effect_previous, packages);
+    set_interactive(s, UiThemeEditorElement::effect_installed, packages);
+    set_interactive(s, UiThemeEditorElement::effect_next, packages);
+    set_interactive(s, UiThemeEditorElement::effect_knobs, packages && s.package_knobs && s.package_name.bytes);
 }
 UiRect track(UiRect r) noexcept {
     return {r.left + 8, r.bottom - 18, r.right - 8, r.bottom - 10};
@@ -272,8 +292,9 @@ bool ui_theme_editor_update(UiThemeEditorScene* s, const BackgroundTheme& draft,
             profiles_changed || !bytes_equal(&s->effect_profiles[i], &settings, sizeof(settings));
         s->effect_profiles[i] = settings;
     }
-    const bool layout =
-        opening || !ui_rect_equal(s->viewport, viewport) || !bytes_equal(&s->style, &style, sizeof(style));
+    const bool layout = opening || !ui_rect_equal(s->viewport, viewport) ||
+                        !bytes_equal(&s->style, &style, sizeof(style)) ||
+                        (s->package_count != 0) != s->packages_laid_out;
     const bool selected_changed =
         !s->active || s->selected_stop != selected || s->draft.colors[selected] != draft.colors[selected];
     const bool changed = layout || profiles_changed || !background_theme_equal(s->draft, draft) ||
@@ -360,6 +381,10 @@ bool ui_theme_editor_move_focus(UiThemeEditorScene* s, bool reverse) noexcept {
                                            UiThemeEditorElement::effect_stars,
                                            UiThemeEditorElement::effect_comets,
                                            UiThemeEditorElement::effect_both,
+                                           UiThemeEditorElement::effect_previous,
+                                           UiThemeEditorElement::effect_installed,
+                                           UiThemeEditorElement::effect_next,
+                                           UiThemeEditorElement::effect_knobs,
                                            UiThemeEditorElement::speed,
                                            UiThemeEditorElement::strength,
                                            UiThemeEditorElement::density,
@@ -587,7 +612,8 @@ bool ui_theme_editor_paint(const UiThemeEditorScene& s, const Theme& theme, Pain
                                      &theme.interactive);
     for (u32 i = at(UiThemeEditorElement::close); p && i < kUiThemeEditorElements; ++i) {
         const auto e = static_cast<UiThemeEditorElement>(i);
-        if (e == UiThemeEditorElement::effect_label || e == UiThemeEditorElement::scrollbar)
+        if (e == UiThemeEditorElement::effect_label || e == UiThemeEditorElement::scrollbar ||
+            (package_element(e) && !s.packages_laid_out))
             continue;
         const auto* n = ui_theme_editor_node(s, e);
         if (!n)
@@ -642,14 +668,17 @@ bool ui_theme_editor_paint(const UiThemeEditorScene& s, const Theme& theme, Pain
                 editor_primary(s, e) ? UiSettingsButtonVariant::primary : UiSettingsButtonVariant::secondary;
             const auto state = editor_button_state(s, s.elements[i]);
             p.use<ui_settings_button_paint>(tokens, r, variant, state);
-            // Close and the stop count buttons are icon buttons (x, plus, minus), not text glyphs.
+            // Close, the stop count and the installed-effect steppers are icon buttons, not text glyphs.
             if (p && (e == UiThemeEditorElement::close || e == UiThemeEditorElement::add ||
-                      e == UiThemeEditorElement::remove)) {
+                      e == UiThemeEditorElement::remove || e == UiThemeEditorElement::effect_previous ||
+                      e == UiThemeEditorElement::effect_next)) {
                 const float extent = ui_icon_button_extent(minimum(ui_rect_width(r), ui_rect_height(r)) - 12);
                 const float x = (r.left + r.right - extent) * .5f, y = (r.top + r.bottom - extent) * .5f;
-                p.icon(e == UiThemeEditorElement::close ? UiIcon::close
-                       : e == UiThemeEditorElement::add ? UiIcon::plus
-                                                        : UiIcon::minus,
+                p.icon(e == UiThemeEditorElement::close             ? UiIcon::close
+                       : e == UiThemeEditorElement::add             ? UiIcon::plus
+                       : e == UiThemeEditorElement::remove          ? UiIcon::minus
+                       : e == UiThemeEditorElement::effect_previous ? UiIcon::chevron_left
+                                                                    : UiIcon::chevron_right,
                        {x, y, x + extent, y + extent}, ui_settings_button_text(tokens, variant, state));
             }
         }
@@ -681,14 +710,20 @@ Utf8View caption(const UiThemeEditorScene& s, UiThemeEditorElement e) noexcept {
         {E::effect_both, utf8_literal("Stars and comets")}, {E::speed, utf8_literal("Speed")},
         {E::strength, utf8_literal("Strength")},     {E::density, utf8_literal("Density")},
         {E::surprise, utf8_literal("Surprise me")},  {E::reset, utf8_literal("Reset")},
+        {E::effect_knobs, utf8_literal("Knobs")},
     };
+    if (package_element(e) && !s.packages_laid_out)
+        return {};
     for (const auto& entry : kCaptions)
         if (entry.element == e)
             return entry.text;
     return e == E::hex ? Utf8View{s.hex, 7}
            : e == E::effect_label
-               ? (s.draft.effect == BackgroundEffect::none ? utf8_literal("Choose an effect to tune motion")
-                                                           : utf8_literal("Background effects"))
+               ? (s.draft.effect == BackgroundEffect::none && !s.package_name.bytes
+                      ? utf8_literal("Choose an effect to tune motion")
+                      : utf8_literal("Background effects"))
+           : e == E::effect_installed
+               ? (s.package_name.bytes ? s.package_name : utf8_literal("Installed effects"))
            : e == E::apply ? (s.save_failed ? utf8_literal("Retry save") : utf8_literal("Apply"))
                            : Utf8View{};
 }

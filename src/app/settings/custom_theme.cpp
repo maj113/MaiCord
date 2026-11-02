@@ -25,9 +25,12 @@ struct CustomThemeOwner {
     char diagnostic[192];
     bool selecting, picker_consumed, importing, loading, saving, save_failed;
     bool candidate_ready, previewing, read_failed, releasing, storage_dirty, offered;
-    // Installed theme catalog; names borrow catalog entries until the next scan.
+    // What a finished import does: apply the theme, or preview it (Try it); install also copies the picked file
+    // into the installed themes. fork_dirty: the active theme was edited into "<Name> (edited)" and its next save
+    // exports it there.
+    bool import_apply, import_preview, import_install, fork_dirty;
+    // Installed themes; entries stay until the next scan completes.
     ClientThemeCatalog catalog;
-    Utf8View catalog_names[kClientThemeCatalogCapacity];
     u64 catalog_generation, catalog_lifetime;
     bool catalog_scanning, catalog_wanted;
 };
@@ -62,7 +65,6 @@ CustomThemeOwner* ensure() noexcept {
     }
     o->effective = o->applied;
     o->revision = 1;
-    o->status = utf8_literal("Import a theme file to preview its colors, type and spacing.");
     owner = o;
     return o;
 }
@@ -78,6 +80,13 @@ void submit_catalog(CustomThemeOwner& o) noexcept {
     }
     o.catalog_wanted = false;
     o.catalog_scanning = io_ready(o) && client_theme_io_submit_catalog(o.io, &o.catalog_generation);
+}
+// A load, import or save replaces a scan still queued: it scans again once that one is done.
+void displace_catalog(CustomThemeOwner& o) noexcept {
+    if (o.catalog_scanning) {
+        o.catalog_scanning = false;
+        o.catalog_wanted = true;
+    }
 }
 bool interaction_current(const CustomThemeOwner& o) noexcept {
     return !o.releasing && g_app.account_ui && !g_app.login.visible &&
@@ -103,6 +112,9 @@ bool publish(CustomThemeOwner& o, const ClientThemeStorageSnapshot& snapshot) no
     auto next = preferences;
     if (!client_theme_storage_apply_theme_fields(snapshot, &next))
         return false;
+    // A built-in theme is remembered apart from any custom one, which only borrows its base.
+    if (!snapshot.custom_active)
+        next.builtin_theme = snapshot.builtin_theme;
     o.effective = snapshot;
     g_app.preferences = next;
     if (!application_custom_theme_publish(snapshot.custom_active ? &o.effective.custom : nullptr)) {
@@ -121,16 +133,27 @@ void adopt_effective(CustomThemeOwner& o) noexcept {
     o.storage_dirty = o.storage_dirty || !same(o.applied, o.effective);
     o.applied = o.effective;
 }
+constexpr Utf8View kEdited = utf8_literal(" (edited)");
+bool forked(const ClientThemeDocument& d) noexcept {
+    return d.name_bytes >= kEdited.bytes && bytes_equal(d.name + d.name_bytes - kEdited.bytes, kEdited.data, kEdited.bytes);
+}
 bool save(CustomThemeOwner& o) noexcept {
     if (o.previewing)
         return false;
     if (o.saving && same(o.save_request, o.applied))
         return true;
-    if (!io_ready(o) || !client_theme_io_submit_save(o.io, o.applied, &o.save_generation)) {
+    // An edited copy of an installed theme joins the installed themes as its own file.
+    const bool export_document = o.fork_dirty && o.applied.custom_present && forked(o.applied.custom);
+    displace_catalog(o);
+    if (!io_ready(o) || !client_theme_io_submit_save(o.io, o.applied, export_document, &o.save_generation)) {
         o.save_failed = true;
         o.status = utf8_literal("Theme applied, but couldn't be saved. Try again.");
         changed(o);
         return false;
+    }
+    if (export_document) {
+        o.fork_dirty = false;
+        o.catalog_wanted = true;
     }
     o.saving = true;
     o.save_request = o.applied;
@@ -149,6 +172,24 @@ Utf8View builtin_name(ClientTheme theme) noexcept {
 }
 Utf8View document_name(const ClientThemeDocument& d) noexcept {
     return d.name_bytes ? Utf8View{d.name, d.name_bytes} : utf8_literal("Imported theme");
+}
+// "<Name> (edited)": the copy an edit makes of an installed theme, so the installed file stays as it was.
+void fork(ClientThemeDocument& d) noexcept {
+    if (forked(d))
+        return;
+    const Utf8View base = document_name(d);
+    u32 kept = minimum<u32>(base.bytes, kClientThemeNameMaximumBytes - kEdited.bytes);
+    while (kept && kept < base.bytes && (static_cast<u8>(base.data[kept]) & 0xC0) == 0x80)
+        --kept;
+    if (base.data != d.name)
+        copy_bytes(d.name, base.data, kept);
+    copy_bytes(d.name + kept, kEdited.data, kEdited.bytes);
+    d.name_bytes = kept + kEdited.bytes;
+    d.name[d.name_bytes] = 0;
+}
+bool same_name(const ClientThemeCatalogEntry& entry, const ClientThemeDocument& d) noexcept {
+    const Utf8View name = document_name(d);
+    return entry.name_bytes == name.bytes && bytes_equal(entry.name, name.data, name.bytes);
 }
 void activate_document(ClientThemeStorageSnapshot& snapshot) noexcept {
     snapshot.custom_active = true;
@@ -209,9 +250,10 @@ void saved_theme_resource_failure(CustomThemeOwner& o) noexcept {
     changed(o);
 }
 bool start_import(CustomThemeOwner& o) noexcept {
+    displace_catalog(o);
     if (!interaction_current(o) || !o.import_units || !io_ready(o) ||
         !client_theme_io_submit_import(o.io, {o.import_path, o.import_units}, o.import_identity, o.applied,
-                                       &o.import_generation)) {
+                                       o.import_install, &o.import_generation)) {
         o.read_failed = true;
         o.status = utf8_literal("Couldn't read the theme file. Try again or choose another file.");
         changed(o);
@@ -222,6 +264,35 @@ bool start_import(CustomThemeOwner& o) noexcept {
     o.status = utf8_literal("Loading theme…");
     changed(o);
     return true;
+}
+bool preview_candidate(CustomThemeOwner& o) noexcept {
+    if (!o.candidate_ready)
+        return false;
+    activate_document(o.candidate);
+    if (!publish(o, o.candidate)) {
+        o.status = utf8_literal("Couldn't preview this theme. Try again.");
+        changed(o);
+        return false;
+    }
+    o.previewing = true;
+    o.status = utf8_literal("Previewing theme. Apply to keep it.");
+    changed(o);
+    return true;
+}
+// Applies the loaded candidate directly: no preview state in between.
+bool apply_candidate(CustomThemeOwner& o) noexcept {
+    if (!o.candidate_ready)
+        return false;
+    activate_document(o.candidate);
+    if (!publish(o, o.candidate)) {
+        o.status = utf8_literal("Couldn't apply this theme. Try again.");
+        changed(o);
+        return false;
+    }
+    o.applied = o.effective;
+    o.storage_dirty = true;
+    o.previewing = o.candidate_ready = o.offered = false;
+    return save(o);
 }
 void cancel(CustomThemeOwner& o) noexcept {
     if (o.selecting)
@@ -263,10 +334,7 @@ const ClientThemeDocument* application_custom_theme_document() noexcept {
 ApplicationCustomThemeView application_custom_theme_view() noexcept {
     const auto* o = owner;
     if (!o)
-        return {builtin_name(g_app.preferences.theme),
-                {},
-                utf8_literal("Import a theme file to customize colors, type and spacing."),
-                0};
+        return {builtin_name(g_app.preferences.theme), {}, {}, 0};
     return {o->effective.custom_active ? document_name(o->effective.custom)
                                        : builtin_name(o->effective.builtin_theme),
             o->candidate_ready ? document_name(o->candidate.custom) : Utf8View{},
@@ -275,7 +343,6 @@ ApplicationCustomThemeView application_custom_theme_view() noexcept {
             o->selecting || o->importing || o->loading,
             o->candidate_ready,
             o->previewing,
-            o->applied.custom_present,
             o->effective.custom_active,
             o->save_failed,
             o->read_failed && o->import_units != 0};
@@ -302,6 +369,8 @@ bool application_custom_theme_action(ApplicationCustomThemeAction action) noexce
         o->previewing = o->candidate_ready = false;
         if (o->picker.runtime && !native_file_picker_release(&o->picker, 0))
             return false;
+        o->import_apply = o->import_install = true;
+        o->import_preview = false;
         o->picker_consumed = false;
         o->selecting =
             native_file_picker_start(&o->picker, g_app.window, 1, utf8_literal("Import a MaiCord theme")) ==
@@ -311,18 +380,7 @@ bool application_custom_theme_action(ApplicationCustomThemeAction action) noexce
         changed(*o);
         return o->selecting;
     case ApplicationCustomThemeAction::preview:
-        if (!o->candidate_ready)
-            return false;
-        activate_document(o->candidate);
-        if (!publish(*o, o->candidate)) {
-            o->status = utf8_literal("Couldn't preview this theme. Try again.");
-            changed(*o);
-            return false;
-        }
-        o->previewing = true;
-        o->status = utf8_literal("Previewing theme. Apply to keep it.");
-        changed(*o);
-        return true;
+        return preview_candidate(*o);
     case ApplicationCustomThemeAction::apply:
         if (!o->candidate_ready || !o->previewing)
             return false;
@@ -330,18 +388,6 @@ bool application_custom_theme_action(ApplicationCustomThemeAction action) noexce
         o->storage_dirty = true;
         o->previewing = o->candidate_ready = o->offered = false;
         return save(*o);
-    case ApplicationCustomThemeAction::restore_imported: {
-        if (!o->applied.custom_present)
-            return false;
-        auto restored = o->applied;
-        activate_document(restored);
-        if (!publish(*o, restored))
-            return false;
-        o->applied = o->effective;
-        o->storage_dirty = true;
-        o->previewing = o->candidate_ready = false;
-        return save(*o);
-    }
     case ApplicationCustomThemeAction::retry_read:
         return o->read_failed && start_import(*o);
     case ApplicationCustomThemeAction::retry_save:
@@ -350,7 +396,7 @@ bool application_custom_theme_action(ApplicationCustomThemeAction action) noexce
         return false;
     }
 }
-ConstSlice<Utf8View> application_custom_theme_catalog() noexcept {
+ConstSlice<ClientThemeCatalogEntry> application_custom_theme_installed() noexcept {
     auto* o = owner;
     if (!o || o->releasing)
         return {};
@@ -359,9 +405,18 @@ ConstSlice<Utf8View> application_custom_theme_catalog() noexcept {
         o->catalog_lifetime = application_settings_lifetime();
         submit_catalog(*o);
     }
-    return {o->catalog_names, o->catalog.count};
+    return {o->catalog.entries, o->catalog.count};
 }
-bool application_custom_theme_select_installed(u32 index) noexcept {
+u32 application_custom_theme_installed_active() noexcept {
+    const auto* o = owner;
+    if (!o || o->releasing || !o->effective.custom_active)
+        return ~0u;
+    for (u32 i = 0; i < o->catalog.count; ++i)
+        if (same_name(o->catalog.entries[i], o->effective.custom))
+            return i;
+    return ~0u;
+}
+bool application_custom_theme_apply_installed(u32 index, bool preview) noexcept {
     auto* o = ensure();
     if (!o || index >= o->catalog.count || application_theme_editor_active() || o->loading || o->selecting ||
         o->importing || !capture_interaction(*o))
@@ -377,7 +432,21 @@ bool application_custom_theme_select_installed(u32 index) noexcept {
         return false;
     o->import_units = units;
     o->import_identity = o->catalog.entries[index].identity;
+    o->import_apply = !preview;
+    o->import_preview = preview;
+    o->import_install = false;
     return start_import(*o);
+}
+bool application_custom_theme_remove_installed(u32 index) noexcept {
+    auto* o = owner;
+    if (!o || o->releasing || index >= o->catalog.count)
+        return false;
+    const auto entry = o->catalog.entries[index];
+    if (o->effective.custom_active && same_name(entry, o->effective.custom) && !application_custom_theme_use_builtin())
+        return false;
+    const bool removed = client_theme_catalog_remove(entry).ok();
+    submit_catalog(*o);
+    return removed;
 }
 void application_custom_theme_cancel_interaction() noexcept {
     if (owner && (owner->previewing || owner->selecting || owner->importing || owner->candidate_ready))
@@ -404,6 +473,19 @@ void application_custom_theme_rescan() noexcept {
     if (owner && !owner->releasing)
         submit_catalog(*owner);
 }
+bool application_custom_theme_use_builtin() noexcept {
+    auto* o = ensure();
+    if (!o || o->loading || o->releasing)
+        return false;
+    if (o->previewing)
+        cancel(*o);
+    const ClientTheme prior = g_app.preferences.theme;
+    g_app.preferences.theme = g_app.preferences.builtin_theme;
+    if (application_custom_theme_preferences_changed(true, true))
+        return true;
+    g_app.preferences.theme = prior;
+    return false;
+}
 bool application_custom_theme_preferences_changed(bool choose_builtin, bool persist) noexcept {
     auto* o = ensure();
     if (!o || o->loading || o->releasing)
@@ -412,10 +494,17 @@ bool application_custom_theme_preferences_changed(bool choose_builtin, bool pers
     if (!client_theme_storage_capture(&next, g_app.preferences, next.custom, next.custom_present,
                                       choose_builtin ? false : next.custom_active))
         return false;
-    if (next.custom_active && !same(next, o->effective))
+    bool forking = false;
+    if (next.custom_active && !same(next, o->effective)) {
         next.custom.theme.background = client_theme_projection(g_app.preferences).background;
+        // An edit never changes the installed theme it came from: the active theme becomes its own copy.
+        forking = !client_theme_document_equal(next.custom, o->effective.custom);
+        if (forking)
+            fork(next.custom);
+    }
     if (!publish(*o, next))
         return false;
+    o->fork_dirty = o->fork_dirty || forking;
     if (choose_builtin)
         o->previewing = o->candidate_ready = false;
     adopt_effective(*o);
@@ -431,6 +520,7 @@ bool application_custom_theme_restore(const ClientThemeStorageSnapshot& snapshot
     auto* o = ensure();
     if (!o || !publish(*o, snapshot))
         return false;
+    o->fork_dirty = o->fork_dirty && o->effective.custom_active && forked(o->effective.custom);
     adopt_effective(*o);
     return true;
 }
@@ -474,26 +564,31 @@ __declspec(noinline) void complete_io(CustomThemeOwner* o) noexcept {
             ready_status(*o, completion.result.unsupported_fields
                                  ? utf8_literal("Theme loaded. Some settings aren't supported and were skipped.")
                                  : utf8_literal("Theme ready to preview."));
+            // An imported file now lists among the installed themes.
+            o->catalog_wanted = o->catalog_wanted || o->import_install;
+            if (o->import_preview)
+                preview_candidate(*o);
+            else if (o->import_apply)
+                apply_candidate(*o);
         } else {
             o->read_failed = true;
-            if (completion.result.error == ClientThemeStorageError::document)
+            const auto error = completion.result.error;
+            if (error == ClientThemeStorageError::document)
                 document_failure(*o, completion.result.document_offset);
             else
                 o->status =
-                    completion.result.error == ClientThemeStorageError::changed
-                        ? utf8_literal("The file changed while loading. Choose it again.")
-                        : utf8_literal(
-                              "Couldn't read the theme file. Try again or choose another file.");
+                    error == ClientThemeStorageError::changed ? utf8_literal("The file changed while loading. Choose it again.")
+                    : error == ClientThemeStorageError::write || error == ClientThemeStorageError::flush ||
+                            error == ClientThemeStorageError::commit || error == ClientThemeStorageError::directory
+                        ? utf8_literal("Couldn't add the theme to Themes. Try again.")
+                        : utf8_literal("Couldn't read the theme file. Try again or choose another file.");
         }
         changed(*o);
     } else if (completion.operation == ClientThemeIoOperation::catalog &&
                completion.generation == o->catalog_generation && o->catalog_scanning) {
         o->catalog_scanning = false;
-        if (completion.result.ok()) {
+        if (completion.result.ok())
             o->catalog = completion.catalog;
-            for (u32 i = 0; i < o->catalog.count; ++i)
-                o->catalog_names[i] = {o->catalog.entries[i].name, o->catalog.entries[i].name_bytes};
-        }
         changed(*o);
     } else if (completion.operation == ClientThemeIoOperation::save &&
                completion.generation == o->save_generation && o->saving) {

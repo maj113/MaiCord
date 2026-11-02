@@ -39,6 +39,8 @@ void meta_row(Ctx& c, const StoreItem& item) noexcept {
         c.b.chip("Reviewed", UiStoreTone::positive, UiIcon::circle_check);
     if (item.unreviewed)
         c.b.chip("Not reviewed", UiStoreTone::warning);
+    if (item.local)
+        c.b.chip("Local file", UiStoreTone::subtle, UiIcon::file);
     if (item.kind == CatalogKind::theme) {
         c.b.chip(base_label(item.base), UiStoreTone::subtle);
     }
@@ -75,9 +77,6 @@ void rail(Ctx& c, const StoreItem& item, u32 index) noexcept {
                   : kind == CatalogKind::plugin ? utf8_literal("You'll see what it can do and approve it before it runs.")
                   : kind == CatalogKind::theme  ? utf8_literal("A theme is data. It installs in one click.")
                                                 : utf8_literal("An effect is data. It runs on your GPU, never as code on your PC.");
-        if (kind == CatalogKind::theme) {
-            // Try it works from the catalog too: it installs nothing.
-        }
     } else if (item.update) {
         auto& b = stretch(c.b.button(join(c.b, item.needs_review ? utf8_literal("Review ") : utf8_literal("Update to "), item.update_version),
                                      UiStoreButton::primary, primary, UiIcon::download));
@@ -100,8 +99,11 @@ void rail(Ctx& c, const StoreItem& item, u32 index) noexcept {
             b.flags |= ui_store_disabled;
         stretch(c.b.button("Knobs", UiStoreButton::secondary, secondary, UiIcon::filters));
     }
-    if (kind == CatalogKind::theme && !item.active && !item.revoked)
-        stretch(c.b.button("Try it for a moment", UiStoreButton::secondary, secondary, UiIcon::eye));
+    // Try it is secondary: a moment's preview of an installed theme, never needed to apply one. The theme in use
+    // offers the way back to the last built-in theme instead.
+    if (kind == CatalogKind::theme && item.installed && !item.update && !item.revoked)
+        stretch(c.b.button(item.active ? utf8_literal("Use built-in theme") : utf8_literal("Try it for a moment"),
+                           UiStoreButton::secondary, secondary, item.active ? UiIcon::palette : UiIcon::eye));
     if (caption.bytes)
         c.b.text(caption, UiStoreType::small, UiStoreInk::subtle, ui_store_wrap);
     c.b.leaf(UiStoreKind::rule);

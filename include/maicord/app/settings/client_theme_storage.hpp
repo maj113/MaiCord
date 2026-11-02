@@ -81,6 +81,8 @@ struct ClientThemeCatalogEntry {
     u32 file_units;
     FileSnapshot identity;
     ClientThemeBase base;
+    // What a swatch shows: the document's gradient, or its flat surface as two equal stops.
+    BackgroundTheme preview;
 };
 struct ClientThemeCatalog {
     ClientThemeCatalogEntry entries[kClientThemeCatalogCapacity];
@@ -93,6 +95,9 @@ ClientThemeStorageResult client_theme_catalog_scan(const wchar_t* directory, Cli
 // Full path of an entry inside directory; false when it does not fit.
 bool client_theme_catalog_path(const wchar_t* directory, const ClientThemeCatalogEntry&,
                                const Slice<wchar_t>&, u32* units) noexcept;
+// Deletes an installed theme file from the user's theme directory; one already gone counts as removed.
+// Blocking: an explicit user action, never a frame or poll call.
+ClientThemeStorageResult client_theme_catalog_remove(const ClientThemeCatalogEntry&) noexcept;
 
 enum class ClientThemeIoOperation : u8 {
     load,
@@ -113,9 +118,13 @@ struct ClientThemeIo;
 // worker that a submission starts and that exits once nothing is pending.
 bool client_theme_io_create(ClientThemeIo**, const wchar_t* storage_path = nullptr) noexcept;
 bool client_theme_io_submit_load(ClientThemeIo*, u64* generation) noexcept;
+// install: a valid document is also copied into the installed theme directory under its file name (".json"
+// appended when missing), unless it is already there.
 bool client_theme_io_submit_import(ClientThemeIo*, ConstSlice<wchar_t> path, const FileSnapshot&,
-                                   const ClientThemeStorageSnapshot& baseline, u64* generation) noexcept;
-bool client_theme_io_submit_save(ClientThemeIo*, const ClientThemeStorageSnapshot&,
+                                   const ClientThemeStorageSnapshot& baseline, bool install, u64* generation) noexcept;
+// export_document: the snapshot's custom document is also written into the installed theme directory as
+// "<name>.json" (characters a file name can't hold become '-').
+bool client_theme_io_submit_save(ClientThemeIo*, const ClientThemeStorageSnapshot&, bool export_document,
                                  u64* generation) noexcept;
 // Scans the installed theme directory (beside the storage file's directory).
 bool client_theme_io_submit_catalog(ClientThemeIo*, u64* generation) noexcept;

@@ -255,7 +255,7 @@ void test_client_theme_storage(void (*check)(bool, const char*) noexcept) noexce
     copy_bytes(copied_import, import_path, sizeof(import_path));
     const bool accepted = written.ok() && persisted.ok() && captured &&
                           client_theme_io_submit_import(io, {copied_import, path_units(copied_import)},
-                                                        imported, inactive, &generation);
+                                                        imported, inactive, false, &generation);
     copied_import[0] = 0;
     check(accepted && await(io, generation, &completion) && completion.result.ok() &&
               completion.operation == ClientThemeIoOperation::import_document &&
@@ -267,11 +267,53 @@ void test_client_theme_storage(void (*check)(bool, const char*) noexcept) noexce
     auto wrong_identity = imported;
     ++wrong_identity.identity.last_write;
     check(client_theme_io_submit_import(io, {import_path, path_units(import_path)}, wrong_identity,
-                                        inactive, &generation) &&
+                                        inactive, false, &generation) &&
               await(io, generation, &completion) &&
               completion.result.error == ClientThemeStorageError::changed,
           "theme changed selected file is rejected by exact worker reopen identity fence");
-    check(client_theme_io_submit_save(io, inactive, &generation) &&
+    // Import with install copies the picked file into <storage directory>\themes as "<leaf>.json"; a save with
+    // export writes the custom document there as "<name>.json". Both then list in a scan.
+    wchar_t themes[MAX_PATH]{}, copied[MAX_PATH]{}, exported[MAX_PATH]{};
+    u32 themes_units = path_units(path);
+    while (themes_units && path[themes_units - 1] != L'\\')
+        --themes_units;
+    copy_bytes(themes, path, themes_units * sizeof(wchar_t));
+    copy_bytes(themes + themes_units, L"themes", 7 * sizeof(wchar_t));
+    u32 leaf = path_units(import_path);
+    while (leaf && import_path[leaf - 1] != L'\\')
+        --leaf;
+    const u32 leaf_units = path_units(import_path) - leaf;
+    copy_bytes(copied, themes, (themes_units + 6) * sizeof(wchar_t));
+    copied[themes_units + 6] = L'\\';
+    copy_bytes(copied + themes_units + 7, import_path + leaf, leaf_units * sizeof(wchar_t));
+    copy_bytes(copied + themes_units + 7 + leaf_units, L".json", 6 * sizeof(wchar_t));
+    copy_bytes(exported, themes, (themes_units + 6) * sizeof(wchar_t));
+    copy_bytes(exported + themes_units + 6, L"\\Retained.json", 15 * sizeof(wchar_t));
+    const bool installed = client_theme_io_submit_import(io, {import_path, path_units(import_path)}, imported, inactive,
+                                                         true, &generation) &&
+                           await(io, generation, &completion) && completion.result.ok() &&
+                           GetFileAttributesW(copied) != INVALID_FILE_ATTRIBUTES;
+    const bool exported_ok = client_theme_io_submit_save(io, inactive, true, &generation) &&
+                             await(io, generation, &completion) && completion.result.ok() &&
+                             GetFileAttributesW(exported) != INVALID_FILE_ATTRIBUTES;
+    auto* installed_catalog = static_cast<ClientThemeCatalog*>(
+        VirtualAlloc(nullptr, sizeof(ClientThemeCatalog), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    u32 listed = 0;
+    if (installed_catalog && client_theme_catalog_scan(themes, installed_catalog).ok())
+        for (u32 i = 0; i < installed_catalog->count; ++i)
+            listed += installed_catalog->entries[i].name_bytes == 8 &&
+                              bytes_equal(installed_catalog->entries[i].name, "Retained", 8) &&
+                              installed_catalog->entries[i].preview.color_count >= 2
+                          ? 1
+                          : 0;
+    if (installed_catalog)
+        VirtualFree(installed_catalog, 0, MEM_RELEASE);
+    DeleteFileW(copied);
+    DeleteFileW(exported);
+    RemoveDirectoryW(themes);
+    check(installed && exported_ok && listed == 2,
+          "theme import installs the picked file and a save exports the edited document into the themes folder");
+    check(client_theme_io_submit_save(io, inactive, false, &generation) &&
               WaitForSingleObject(client_theme_io_completion_event(io), 1500) == WAIT_OBJECT_0 &&
               client_theme_io_completion_pending(io),
           "theme accepted save publishes completion for exact cancellation test");
@@ -286,7 +328,7 @@ void test_client_theme_storage(void (*check)(bool, const char*) noexcept) noexce
     for (u32 i = 0; i < 64; ++i) {
         latest.custom_active = (i & 1) != 0;
         latest.gradient.angle_degrees = static_cast<u16>(i);
-        submissions &= client_theme_io_submit_save(io, latest, &generation);
+        submissions &= client_theme_io_submit_save(io, latest, false, &generation);
     }
     check(submissions && await(io, generation, &completion) && completion.result.ok() &&
               equal(latest, completion.snapshot) &&

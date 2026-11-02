@@ -74,6 +74,9 @@ struct ClientPreferences {
     // Shared expression drawer width in DIPs; layout clamps it to the current
     // theme minimum and viewport. Zero keeps the theme default.
     u16 expression_picker_width = 0;
+    // The last built-in theme chosen, kept while a custom or catalog theme is active: leaving the custom
+    // theme (Use built-in, removing it) restores this one.
+    ClientTheme builtin_theme = ClientTheme::dark;
 };
 inline constexpr u8 kClientPreferencesGroupSpacingCount = 6;
 inline constexpr u16 kClientPreferencesPaneWidthMinimum = 120;
@@ -119,7 +122,9 @@ bool client_preferences_valid(const ClientPreferences& preferences) noexcept;
 bool client_preferences_equal(const ClientPreferences& a, const ClientPreferences& b) noexcept;
 
 // Bytes 48..56 hold the three effect profiles; 58..59 hold the expression
-// drawer width (little-endian u16). Bytes 57 and 63..64 are reserved and ignored.
+// drawer width (little-endian u16). Byte 57 holds the last built-in theme + 1;
+// zero (records written before it existed) restores the record's theme. Bytes
+// 63..64 are reserved and ignored.
 // Byte 60 bits: 0 image zoom off, 1 square lens (other bits must be zero);
 // byte 61 is the zoom in half units (2..100) and byte 62 the lens size in tens
 // of DIPs (5..100); zero in either restores its default.

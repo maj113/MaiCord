@@ -547,11 +547,11 @@ UiScrollBinding application_settings_scroll_binding(bool sidebar) noexcept {
                     return false;
                 const auto& scene = settings->scene;
                 const bool left = key != 0;
-                const auto* node = ui_widget_manager_layout_node(scene.widgets, left ? scene.sidebar : scene.body);
-                if (!node)
+                UiRect viewport{};
+                if (!ui_settings_scene_scroll_viewport(scene, left, &viewport))
                     return false;
                 const auto geometry = ui_settings_scene_scrollbar(scene, left);
-                *range = {ui_rect_intersection(node->rectangle, node->clip_rectangle),
+                *range = {viewport,
                           left ? scene.sidebar_offset : scene.content_offset,
                           geometry.maximum_scroll,
                           32,

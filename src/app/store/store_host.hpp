@@ -26,6 +26,8 @@ bool application_store_input(UiInputKind kind, u32 code, bool repeated) noexcept
 bool application_store_character(u32 code) noexcept;
 // The next frame time the store needs (a skeleton pulse, a trial deadline), or 0.
 u64 application_store_next_wake(u64 now_ms) noexcept;
+// Settings > Effects on an installed effect's knobs (the theme editor's Knobs button).
+bool application_store_open_effect_knobs(const Utf8View& slug) noexcept;
 // Settings closed.
 void application_store_release() noexcept;
 

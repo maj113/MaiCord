@@ -167,7 +167,8 @@ struct UiSettingsControlPresentation {
     u8 flags;
     u16 default_choice;
     u16 chip_tones;
-    // UiIcon + 1 (zero: none) of a status tile.
+    // UiIcon + 1 (zero: none) of a status tile, or of a palette's last tile when the palette leaves it
+    // unresolved (an action tile such as Browse, drawn as this icon on a neutral surface).
     u8 icon_plus_one;
     u8 more;
 };
@@ -446,7 +447,8 @@ bool ui_settings_scene_bind_measure(UiSettingsScene*, const UiKitMeasure*) noexc
 // Sets the look of the sidebar's (or the page's) scrollbar: 0 at rest, 1 hovered, 2 dragged. Paint only.
 bool ui_settings_scene_set_scrollbar_state(UiSettingsScene*, bool sidebar, u8 state) noexcept;
 // A host page's column: the rectangle the host draws in (in page coordinates, under the title band's
-// place) and its clip (the panel's body). False when the page is not a host page or the scene is inactive.
+// place) and its clip (the panel's body, reaching ui_settings_focus_reach past the column's start and top so
+// focus rings at those edges stay whole). False when the page is not a host page or the scene is inactive.
 bool ui_settings_scene_host_rect(const UiSettingsScene&, UiRect* page, UiRect* clip) noexcept;
 bool ui_settings_scene_update(UiSettingsScene* scene, UiPageRegistry* registry, const UiRect& viewport) noexcept;
 // The page check ui_settings_scene_update applies; owners use it to tell a
@@ -472,6 +474,8 @@ bool ui_settings_scene_move_zone(UiSettingsScene* scene, bool reverse) noexcept;
 bool ui_settings_scene_move_within(UiSettingsScene* scene, bool reverse) noexcept;
 void ui_settings_scene_set_focus_visible(UiSettingsScene* scene, bool visible) noexcept;
 bool ui_settings_scene_scroll(UiSettingsScene* scene, bool sidebar, float delta) noexcept;
+// The region the sidebar (or the page) scrolls under the wheel: its rows and its scrollbar. False when inactive.
+bool ui_settings_scene_scroll_viewport(const UiSettingsScene& scene, bool sidebar, UiRect* viewport) noexcept;
 UiScrollbarGeometry ui_settings_scene_scrollbar(const UiSettingsScene& scene, bool sidebar) noexcept;
 // Builds a semantic request; never mutates settings or invokes module code.
 // Page selection and close are also returned to the host as target kinds.

@@ -232,8 +232,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
     }
     // Native action controls receive a second press as DBLCLK, not DOWN.
     // Inline text editors are routed above this settings-only controller.
-    const bool double_click = message == WM_LBUTTONDBLCLK;
-    if (double_click)
+    if (message == WM_LBUTTONDBLCLK)
         message = WM_LBUTTONDOWN;
     if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE || message == WM_KILLFOCUS || message == WM_SIZE ||
         message == WM_DPICHANGED) {
@@ -424,16 +423,6 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                 return true;
             }
         const auto hit = ui_settings_scene_hit_test(settings->scene, x, y);
-        SettingBinding hit_binding{};
-        if (hit.kind == UiSettingsTargetKind::control && hit.page.owner_id == kNativeSettingsOwner)
-            control_node(hit.control_id, &hit_binding);
-        // Preview replaces its button with Apply at the same position. The
-        // second click of Preview's double-click must not commit that new
-        // action; a fresh press/release still applies.
-        if (double_click && hit_binding == SettingBinding::custom_apply) {
-            application_settings_cancel_pointer();
-            return true;
-        }
         const auto* control = ui_settings_scene_control(settings->scene, hit);
         if (message == WM_LBUTTONDOWN && control && control->kind == UiSettingsControlKind::slider &&
             !ui_settings_scene_slider_hit(settings->scene, hit, x, y))

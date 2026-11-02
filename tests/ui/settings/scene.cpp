@@ -1046,6 +1046,11 @@ void test_card_pages(Check check) noexcept {
     check(ui_settings_scene_update(&scene, &registry, viewport) && ui_settings_scene_control_geometry(scene, target(9), &expanded) &&
               ui_rect_height(expanded.control) > ui_rect_height(markdown.control) + 60 && !ui_settings_scene_focus(&scene, target(9)),
           "settings markdown: showing all notes grows the row and drops the link");
+    // The page's viewport reaches a focus ring's outset past the column's start edge; rows keep the column.
+    const auto* body = ui_widget_manager_layout_node(scene.widgets, scene.body);
+    check(body && close_to(body->rectangle.left, scene.layout.column.left - ui_settings_focus_reach(m)) &&
+              close_to(body->content_rectangle.left, scene.layout.column.left),
+          "settings focus: the body clip reaches a focus ring's outset past the column, whose rows stay put");
 
     // Layer and dialog pages keep their flat rows.
     UiSettingsScene layer{};

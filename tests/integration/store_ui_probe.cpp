@@ -11,6 +11,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
+#include "maicord/render/d3d11/layer_presentation.hpp"
 #include "maicord/render/d3d11/renderer_presentation.hpp"
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/shell/popup_scene.hpp"
@@ -557,6 +558,40 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
     themes();
     f.state[1].tab = StoreTab::browse;
     next(L"store-02-browse-themes.bmp", kThemes, nullptr, sunset);
+    // 12 the first card with the keyboard focus ring: the ring sits past the column's start edge and stays whole.
+    if (valid) {
+        stage = __LINE__;
+        u32 card = 0;
+        for (u32 i = 0; !card && i < f.store.count; ++i)
+            if (store_act(f.store.nodes[i].action) == StoreAct::card)
+                card = f.store.nodes[i].action;
+        valid = card && ui_store_scene_focus(&f.store, card, true);
+        if (valid) {
+            ++f.scene.revision;
+            renderer.retained_presentation.valid = false;
+            valid = renderer_rebuild_content_text(&renderer, sunset) && probe_present(&renderer, sunset) &&
+                    capture(L"store-12-focus-ring.bmp", sunset);
+        }
+    }
+    // The same page mid-entrance: the host page's cards, focus ring, pictures and glyphs move and fade with the
+    // modal; only the scrim before it draws apart.
+    if (valid) {
+        stage = __LINE__;
+        renderer_set_settings_modal_progress(&renderer, .5f);
+        valid = probe_present(&renderer, sunset) && renderer.content_text &&
+                renderer.settings_modal_paint_first_batch < renderer.paint_stream.batch_count &&
+                renderer.settings_preview_paint_first_batch < renderer.settings_preview_paint_end_batch;
+        if (valid) {
+            const u32 scrim = renderer.paint_stream.batches[renderer.settings_modal_paint_first_batch].first_quad;
+            const u32 glyphs = renderer.content_text->quad_count;
+            log_u64(LogLevel::info, "probe", "store_mid_open_modal_instances", renderer.modal_layer_instances_last_frame);
+            log_u64(LogLevel::info, "probe", "store_mid_open_other_instances", renderer.other_layer_instances_last_frame);
+            valid = capture(L"store-mid-open.bmp", sunset) && scrim && glyphs &&
+                    renderer.other_layer_instances_last_frame == scrim &&
+                    renderer.modal_layer_instances_last_frame >= renderer.paint_stream.count - scrim + glyphs;
+        }
+        renderer_set_settings_modal_progress(&renderer, 1);
+    }
     // 03 plugin detail
     plugins();
     permissions(&f.model.consent);
@@ -632,6 +667,23 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
     }
     next(L"store-07-theme-detail.bmp", kThemes, nullptr, sunset);
     f.state[1].detail = false;
+    // 13 Themes > Installed: a catalog theme to Apply, and an imported file (an edited copy) in use, read as Applied.
+    themes();
+    f.model.items[1].active = false;
+    {
+        StoreItem& local = add(CatalogKind::theme, utf8_literal("~5f3a9c0d7e21b846"), utf8_literal("Sample Neon Grid (edited)"),
+                               utf8_literal("A theme file in your MaiCord themes folder."), {}, {}, {}, {});
+        local.item = ~0u;
+        local.local = local.installed = local.active = true;
+        local.order = 2;
+        local.has_swatches = true;
+        const u32 sw[4]{0x0b0614, 0x140b24, 0xf3e9ff, 0xff3ea5};
+        for (u32 i = 0; i < 4; ++i)
+            local.swatches[i] = sw[i];
+    }
+    f.state[1].tab = StoreTab::installed;
+    next(L"store-13-themes-installed.bmp", kThemes, nullptr, sunset);
+    f.state[1].tab = StoreTab::browse;
     // 08 install from link (an unreviewed effect), previewing live at the Low budget
     effects();
     f.model.items[1].active = false;

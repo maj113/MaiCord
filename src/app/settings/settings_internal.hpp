@@ -125,6 +125,11 @@ constexpr u64 kNativeSettingsOwner = kSettingsNativeOwner;
 constexpr u64 kPluginsPage = static_cast<u64>(SettingsPanel::plugins) + 1;
 constexpr u64 kThemesPage = static_cast<u64>(SettingsPanel::themes) + 1;
 constexpr u64 kEffectsPage = static_cast<u64>(SettingsPanel::effects) + 1;
+// Appearance's "Your themes" palette shows up to this many installed themes, then its Browse themes tile
+// (the palette control holds 12 options).
+constexpr u32 kInstalledThemeTiles = 11;
+// The installed theme a tile shows: the first ones by file name, with the active theme always among them.
+u32 installed_theme_at(u32 tile) noexcept;
 
 bool theme_panel(const UiPageKey& page) noexcept;
 bool option_row(UiSettingsControlKind kind) noexcept;

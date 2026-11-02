@@ -704,7 +704,7 @@ void application_packages_deactivate(PackageLinkKind kind, const Utf8View& slug)
     if (kind == PackageLinkKind::effect)
         application_effects_deactivate(slug.data, slug.bytes);
     else if (kind == PackageLinkKind::theme && theme_is_applied(text))
-        application_custom_theme_preferences_changed(true, true);
+        application_custom_theme_use_builtin();
 }
 
 bool application_packages_remove(PackageLinkKind kind, Utf8View slug) noexcept {

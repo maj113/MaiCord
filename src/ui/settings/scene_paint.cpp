@@ -39,7 +39,8 @@ UiSettingsButtonVariant button_variant(const UiSettingsPageContent& content, u32
            : tone == UiSettingsVariant::primary ? UiSettingsButtonVariant::primary
                                                 : UiSettingsButtonVariant::secondary;
 }
-// The icon a status tile shows (its presentation's icon, else `fallback`).
+// The icon a status tile shows (its presentation's icon, else `fallback`). On a palette, an icon marks the
+// last tile as an action tile (e.g. Appearance's Browse): a neutral surface with that icon, not a theme.
 UiIcon row_icon(const UiSettingsPageContent& content, u32 index, UiIcon fallback) noexcept {
     const auto* p = presentation(content, index);
     return p && p->icon_plus_one && p->icon_plus_one - 1 < static_cast<u32>(UiIcon::count)
@@ -475,6 +476,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
     case UiSettingsControlKind::palette: {
         const u32 columns = ui_swatch_columns(t, ui_rect_width(r.control));
         const auto palette = scene.palette;
+        const UiIcon action_icon = row_icon(scene.content, index, UiIcon::count);
         for (u32 i = 0; p && i < c.choices.count; ++i) {
             const auto swatch = ui_swatch_rect(t, r.control, i, columns);
             BackgroundTheme colors{};
@@ -487,12 +489,19 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
                 return false;
             UiControlState option_state = hover_option(scene, state, i);
             option_state.focused = state.focused && c.selected_choice == i;
-            Color fill = theme.base_lowest;
+            const bool action = !resolved && i + 1 == c.choices.count && action_icon != UiIcon::count;
+            Color fill = action ? tc.mod_normal : theme.base_lowest;
             if (resolved && background_theme_valid(colors) && colors.color_count >= 2 &&
                 colors.colors[0] == colors.colors[1])
                 fill = color_from_rgb24(colors.colors[0]);
             const bool gradient = resolved && background_theme_valid(colors) && colors.colors[0] != colors.colors[1];
             p.use<ui_swatch_paint>(t, swatch, fill, gradient ? &colors : nullptr, c.selected_choice == i, option_state);
+            if (action) {
+                const float cx = (swatch.left + swatch.right) * .5f, cy = (swatch.top + swatch.bottom) * .5f;
+                p.icon(action_icon, {cx - 12, cy - 12, cx + 12, cy + 12},
+                       ui_settings_color_alpha(option_state.hovered ? tc.text_strong : tc.text_subtle,
+                                               c.enabled ? 1.f : t.disabled_alpha));
+            }
         }
         break;
     }

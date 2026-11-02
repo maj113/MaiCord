@@ -4,6 +4,7 @@
 #include "update/updates.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/render/d3d11/renderer_presentation.hpp"
+#include "maicord/render/d3d11/layer_presentation.hpp"
 #include "maicord/render/text/form_surface.hpp"
 #include "maicord/ui/shell/popup_scene.hpp"
 #include "maicord/ui/widgets/settings_choice.hpp"
@@ -48,6 +49,9 @@ UiScene g_shell;
 constexpr Utf8View kDevices[]{utf8_literal("Default"), utf8_literal("Headset (Synthetic Audio)")};
 constexpr Utf8View kGames[]{utf8_literal("Example Game")};
 constexpr Utf8View kThemes[]{utf8_literal("Light"), utf8_literal("Dark"), utf8_literal("AMOLED")};
+// Appearance's "Your themes": two installed themes (the edited copy in use) and the Browse themes tile.
+constexpr Utf8View kYourThemes[]{utf8_literal("Sample Neon Grid (edited)"), utf8_literal("Fjord"), utf8_literal("Browse")};
+constexpr u32 kYourThemeStops[][2]{{0x140b24, 0xff3ea5}, {0x2e3440, 0x88c0d0}};
 constexpr Utf8View kSpacing[]{utf8_literal("0px"), utf8_literal("4px"), utf8_literal("8px"), utf8_literal("16px"),
                               utf8_literal("24px")};
 constexpr Utf8View kDisplay[]{utf8_literal("Default"), utf8_literal("Compact")};
@@ -75,6 +79,16 @@ bool palette(void*, u64 id, u32 choice, BackgroundTheme* output) noexcept {
         output->colors[0] = output->colors[1] = kRoleRgb[choice];
         return true;
     }
+    if (binding_of(id) == SettingBinding::installed_themes) {
+        if (choice >= 2)
+            return false;
+        *output = background_theme_defaults();
+        output->color_count = 2;
+        output->colors[0] = kYourThemeStops[choice][0];
+        output->colors[1] = kYourThemeStops[choice][1];
+        output->colors[2] = 0;
+        return true;
+    }
     return settings_theme_swatch(kPreferences, id == 1000 + 15 ? SettingBinding::theme_base : binding_of(id), choice,
                                  output);
 }
@@ -95,7 +109,8 @@ u32 project_panel(u32 panel, UiSettingsControl* out, UiSettingsControlPresentati
             c.choices = n.binding() == static_cast<u32>(SettingBinding::add_game) ? ConstSlice<Utf8View>{kGames, 1}
                                                                                   : ConstSlice<Utf8View>{kDevices, 2};
         if (n.kind == UiSettingsControlKind::palette && !c.choices.count)
-            c.choices = {kThemes, 3};
+            c.choices = n.binding() == static_cast<u32>(SettingBinding::installed_themes) ? ConstSlice<Utf8View>{kYourThemes, 3}
+                                                                                         : ConstSlice<Utf8View>{kThemes, 3};
         if (n.kind == UiSettingsControlKind::slider && c.choices.count > 120)
             c.selected_choice = c.choices.count * 2 / 3;
         if (n.kind == UiSettingsControlKind::category && n.binding())
@@ -110,6 +125,12 @@ u32 project_panel(u32 panel, UiSettingsControl* out, UiSettingsControlPresentati
         if (n.kind == UiSettingsControlKind::palette &&
             settings_store_read(kPreferences, static_cast<SettingBinding>(n.binding()), &value))
             c.selected_choice = value.choice;
+        // The edited copy is in use: it is checked, and no built-in tile is. The arrow marks the Browse tile.
+        if (n.binding() == static_cast<u32>(SettingBinding::installed_themes))
+            c.selected_choice = 0, looks[count].icon_plus_one = static_cast<u8>(UiIcon::arrow_right) + 1;
+        else if (n.binding() == static_cast<u32>(SettingBinding::theme_base) ||
+                 n.binding() == static_cast<u32>(SettingBinding::theme_color))
+            c.selected_choice = kUiSettingsNoChoice;
         ++count;
     }
     return count;
@@ -496,6 +517,26 @@ bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
     if (valid)
         stage = __LINE__;
     valid = valid && show(f, renderer, page(SettingsPanel::appearance), viewport, L"user-settings-appearance.bmp", capture);
+    // Mid-entrance, every quad (plates, rings, icons), glyph and picture of the modal draws under the one
+    // entrance transform; only the scrim before it draws apart.
+    if (valid) {
+        stage = __LINE__;
+        renderer_set_settings_modal_progress(&renderer, .5f);
+        valid = probe_present(&renderer, kDefaultTheme) && renderer.content_text &&
+                renderer.settings_modal_paint_first_batch < renderer.paint_stream.batch_count;
+        if (valid) {
+            const u32 scrim = renderer.paint_stream.batches[renderer.settings_modal_paint_first_batch].first_quad;
+            const u32 glyphs = renderer.content_text->quad_count;
+            log_u64(LogLevel::info, "probe", "settings_mid_open_modal_instances",
+                    renderer.modal_layer_instances_last_frame);
+            log_u64(LogLevel::info, "probe", "settings_mid_open_other_instances",
+                    renderer.other_layer_instances_last_frame);
+            valid = capture(L"settings-mid-open.bmp") && scrim && glyphs &&
+                    renderer.other_layer_instances_last_frame == scrim &&
+                    renderer.modal_layer_instances_last_frame >= renderer.paint_stream.count - scrim + glyphs;
+        }
+        renderer_set_settings_modal_progress(&renderer, 1);
+    }
     if (valid)
         stage = __LINE__;
     valid = valid &&

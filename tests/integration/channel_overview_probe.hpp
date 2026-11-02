@@ -186,11 +186,13 @@ inline bool channel_overview_ui_probe(D3D11Renderer& renderer, UiTextMeasureCach
                                                ui_widget_manager_parent(scene.widgets, scene.footer_status))
                : nullptr;
     const auto* save = ui_widget_manager_layout_node(scene.widgets, scene.footer_save);
-    // Fields and the footer bar share the form column; the scrolling body
-    // starts at that column and runs to the panel edge, so its scrollbar lane
-    // lies right of every field.
+    // Fields and the footer bar share the form column; the scrolling body's
+    // content starts at that column (its viewport reaches a focus ring's
+    // outset further) and runs to the panel edge, so its scrollbar lane lies
+    // right of every field.
     if (!body || !status || !footer_box || !save ||
-        body->rectangle.left != topic_geometry.field.left ||
+        body->content_rectangle.left != topic_geometry.field.left ||
+        body->rectangle.left >= topic_geometry.field.left ||
         body->rectangle.right != scene.layout.panel.right - kUiSettingsBodyEdgeInset ||
         body->rectangle.right <= topic_geometry.field.right ||
         footer_box->rectangle.left != topic_geometry.field.left ||

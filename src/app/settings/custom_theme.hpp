@@ -6,18 +6,17 @@
 
 namespace maicord::app_detail {
 enum class ApplicationCustomThemeAction : u8 {
-    import_file,
+    import_file, // Themes > Import theme…: pick a file, add it to the installed themes and apply it
     preview,
     apply,
     cancel,
-    restore_imported,
     retry_read,
     retry_save,
 };
 struct ApplicationCustomThemeView {
     Utf8View current, candidate, status;
     u64 revision;
-    bool busy, candidate_ready, previewing, imported, custom_active, save_failed;
+    bool busy, candidate_ready, previewing, custom_active, save_failed;
     bool can_retry_read;
 };
 // Root resolves all renderer/style consumers before accepting a publication.
@@ -32,17 +31,25 @@ const ClientThemeDocument* application_custom_theme_document() noexcept;
 ApplicationCustomThemeView application_custom_theme_view() noexcept;
 bool application_custom_theme_action(ApplicationCustomThemeAction) noexcept;
 void application_custom_theme_cancel_interaction() noexcept;
-// Names of installed themes (%LOCALAPPDATA%\MaiCord\themes\*.json), rescanned
-// once per Settings lifetime. Selecting one imports it as the candidate.
-ConstSlice<Utf8View> application_custom_theme_catalog() noexcept;
-bool application_custom_theme_select_installed(u32 index) noexcept;
-// A theme from the store's install card (not the Appearance file picker) becomes the candidate: the usual
+// Installed themes (%LOCALAPPDATA%\MaiCord\themes\*.json): catalog and link installs, imported files and files
+// put there by hand. Scanned once per Settings lifetime and again after each change.
+ConstSlice<ClientThemeCatalogEntry> application_custom_theme_installed() noexcept;
+// The installed theme the active custom theme is (by name), or ~0u.
+u32 application_custom_theme_installed_active() noexcept;
+// Loads an installed theme and applies it once it has loaded; preview loads it as a trial instead ("Try it").
+bool application_custom_theme_apply_installed(u32 index, bool preview) noexcept;
+// Deletes an installed theme file; an active one first falls back to the last built-in theme.
+bool application_custom_theme_remove_installed(u32 index) noexcept;
+// A theme from the store's install card (not an installed file) becomes the candidate: the usual
 // preview, apply and cancel actions then work from any settings page. The page that shows the card must count
 // as a theme panel, or leaving Appearance cancels the interaction.
 bool application_custom_theme_offer(const ClientThemeDocument&) noexcept;
 // A theme file was added or removed: the installed list scans again.
 void application_custom_theme_rescan() noexcept;
-// Existing background edits retain every custom foreground/font/layout token.
+// Leaves the custom theme for the last built-in one (ClientPreferences::builtin_theme) and saves.
+bool application_custom_theme_use_builtin() noexcept;
+// Existing background edits retain every custom foreground/font/layout token. Editing an active custom theme's
+// background forks it: the document becomes "<Name> (edited)" and its saves export it to the installed themes.
 // choose_builtin is true only for an explicit built-in palette selection.
 bool application_custom_theme_preferences_changed(bool choose_builtin, bool persist) noexcept;
 bool application_custom_theme_snapshot(ClientThemeStorageSnapshot*) noexcept;

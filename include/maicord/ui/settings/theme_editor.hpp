@@ -35,6 +35,11 @@ enum class UiThemeEditorElement : u8 {
     effect_stars,
     effect_comets,
     effect_both,
+    // Installed (package) effects: step through them, the one in use by name, and its knobs.
+    effect_previous,
+    effect_installed,
+    effect_next,
+    effect_knobs,
     speed,
     strength,
     density,
@@ -64,6 +69,11 @@ struct UiThemeEditorScene {
     u8 direction_bytes, intensity_bytes;
     u8 speed_bytes, strength_bytes, density_bytes;
     bool active, save_failed, light_mode;
+    // Installed effects, set by the owner before each update: how many, the one in use (empty: a built-in
+    // effect), and whether it declares knobs. The row only lays out while there is one.
+    Utf8View package_name;
+    u32 package_count;
+    bool package_knobs, packages_laid_out;
 };
 static_assert(sizeof(UiThemeEditorScene) +
                   kUiThemeEditorElements * (sizeof(UiWidget) + sizeof(UiLayoutNode)) <=

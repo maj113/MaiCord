@@ -7,6 +7,7 @@
 #include "../shell/state.hpp"
 #include "maicord/app/plugins/binding.hpp"
 #include "maicord/app/plugins/consent.hpp"
+#include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord::app_detail {
@@ -66,7 +67,7 @@ StoreItem* add_item(StoreModel* m) noexcept {
         return nullptr;
     StoreItem* item = &m->items[m->count++];
     reset_value(item);
-    item->item = item->library = ~0u;
+    item->item = item->library = item->file = ~0u;
     return item;
 }
 
@@ -297,13 +298,64 @@ void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
         if (!out->bytes)
             out->bytes = info->bytes;
     }
-    // The applied theme.
+    // Installed theme files: catalog and link installs are <slug>.maicord-theme.json; any other file is a local
+    // theme (imported, an edited copy, or put there by hand) and lists as installed on its own.
+    const auto files = application_custom_theme_installed();
+    for (u32 f = 0; f < files.count; ++f) {
+        const ClientThemeCatalogEntry& entry = files[f];
+        static constexpr wchar_t kSuffix[] = L".maicord-theme.json";
+        constexpr u32 suffix = sizeof(kSuffix) / sizeof(wchar_t) - 1;
+        StoreItem* owner = nullptr;
+        for (u32 k = 0; k < m->count && !owner; ++k) {
+            StoreItem& it = m->items[k];
+            if (it.kind != CatalogKind::theme || !it.installed || entry.file_units != it.slug.bytes + suffix)
+                continue;
+            bool match = true;
+            for (u32 c = 0; c < it.slug.bytes && match; ++c)
+                match = entry.file[c] == static_cast<wchar_t>(it.slug.data[c]);
+            for (u32 c = 0; c < suffix && match; ++c)
+                match = entry.file[it.slug.bytes + c] == kSuffix[c];
+            if (match)
+                owner = &it;
+        }
+        if (!owner && (owner = add_item(m)) != nullptr) {
+            char slug[17];
+            u64 h = hash64_bytes(kHash64Seed, entry.file, entry.file_units * sizeof(wchar_t));
+            slug[0] = '~';
+            for (u32 i = 0; i < 16; ++i, h >>= 4)
+                slug[1 + i] = "0123456789abcdef"[h & 15];
+            owner->kind = CatalogKind::theme;
+            owner->slug = w.add({slug, 17});
+            owner->name = {entry.name, entry.name_bytes};
+            owner->summary = utf8_literal("A theme file in your MaiCord themes folder.");
+            owner->base = static_cast<u8>(entry.base);
+            owner->installed = owner->enabled = owner->local = true;
+            owner->order = 0x20000 + f;
+        }
+        if (!owner)
+            break;
+        owner->file = f;
+        if (owner->item == ~0u && !owner->local)
+            owner->name = {entry.name, entry.name_bytes}; // a link install: its name, not its slug
+        if (!owner->has_swatches) {
+            // The file's own colours stand in for the catalog's swatches.
+            owner->has_swatches = true;
+            for (u32 s = 0; s < 4; ++s)
+                owner->swatches[s] = entry.preview.colors[s < entry.preview.color_count ? s : 0];
+        }
+    }
+    // The applied theme: the installed file it came from, else the item of the same name.
     const auto theme = application_custom_theme_view();
+    const u32 active_file = application_custom_theme_installed_active();
     for (u32 i = 0; i < m->count; ++i)
-        if (m->items[i].kind == CatalogKind::theme && theme.custom_active && same(m->items[i].name, theme.current))
+        if (m->items[i].kind == CatalogKind::theme && theme.custom_active &&
+            (active_file != ~0u ? m->items[i].file == active_file : same(m->items[i].name, theme.current)))
             m->items[i].active = true;
     m->trying = hooks.trying;
     m->trying_name = hooks.trying_name;
+    m->theme_busy = theme.busy;
+    m->theme_error = theme.can_retry_read ? 1 : theme.save_failed ? 2 : 0;
+    m->theme_status = m->theme_error ? theme.status : Utf8View{};
     // A running consent.
     m->consent.open = false;
     if (view.operation.phase == CatalogPhase::consent) {

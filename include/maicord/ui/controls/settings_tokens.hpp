@@ -58,6 +58,11 @@ struct UiSettingsMetrics {
     // whatever their resting size.
     float slider_grabber_grow, slider_bar_grow;
 };
+// The farthest a focus ring draws outside its control: around a selection ring (a selected swatch).
+// Scroll viewports keep this much room past their content's edges, so a ring at an edge stays whole.
+inline float ui_settings_focus_reach(const UiSettingsMetrics& m) noexcept {
+    return m.ring_gap + m.ring_width + m.focus_gap + m.focus_width;
+}
 
 struct UiSettingsDurations {
     u32 switch_ms, switch_reduced_ms, modal_enter_ms, flash_ms, flash_fade_ms;

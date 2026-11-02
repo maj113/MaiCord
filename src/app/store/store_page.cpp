@@ -270,14 +270,54 @@ void build_header(Ctx& c) noexcept {
     auto& sub = c.b.text(subtitle, UiStoreType::small, UiStoreInk::subtle, ui_store_wrap);
     sub.rw = 560;
     sub.count = 2;
+    // Themes has two header actions: they sit under the subtitle and wrap, so a narrow column keeps both whole.
+    if (kind == CatalogKind::theme) {
+        auto& actions = c.b.open(UiStoreKind::flow);
+        actions.gap = 8;
+        // Import adds a theme file to the installed themes and applies it.
+        auto& import = c.b.button("Import theme...", UiStoreButton::secondary, store_action(StoreAct::import_theme),
+                                  UiIcon::upload, true);
+        import.group = 1;
+        if (c.m.theme_busy)
+            import.flags |= ui_store_busy | ui_store_disabled;
+        c.b.button("Install from link...", UiStoreButton::secondary, store_action(StoreAct::header_link), UiIcon::link,
+                   true)
+            .group = 1;
+        c.b.close();
+    }
     c.b.close();
-    if (kind != CatalogKind::plugin) {
+    if (kind == CatalogKind::effect) {
         auto& b = c.b.button("Install from link...", UiStoreButton::secondary, store_action(StoreAct::header_link),
                              UiIcon::link, true);
         b.group = 1;
     }
     c.b.close();
     c.b.spacer(0, 16);
+    // A theme that couldn't be read or saved says so above the tabs, with its retry.
+    if (kind == CatalogKind::theme && c.m.theme_error) {
+        card_open(c, UiStoreFill::critical_tint);
+        c.b.node().pad_x = 16;
+        c.b.node().pad_y = 12;
+        auto& line = c.b.open(UiStoreKind::row);
+        line.gap = 12;
+        line.flags = ui_store_center;
+        auto& glyph = c.b.leaf(UiStoreKind::icon);
+        glyph.icon = static_cast<u8>(UiIcon::warning);
+        glyph.ink = static_cast<u8>(UiStoreInk::critical);
+        auto& text = c.b.open(UiStoreKind::column);
+        text.gap = 2;
+        text.flags = ui_store_flex;
+        c.b.text(c.m.theme_error == 1 ? utf8_literal("Couldn't read theme file") : utf8_literal("Couldn't save theme"),
+                 UiStoreType::body_bold, UiStoreInk::strong);
+        subtle(c, c.m.theme_status, ui_store_wrap);
+        c.b.close();
+        if (c.m.theme_error == 1)
+            c.b.button("Choose another file...", UiStoreButton::ghost, store_action(StoreAct::import_theme));
+        c.b.button("Try again", UiStoreButton::secondary, store_action(StoreAct::import_theme, c.m.theme_error));
+        c.b.close();
+        c.b.close();
+        c.b.spacer(0, 16);
+    }
 }
 
 void build_tabs(Ctx& c) noexcept {
@@ -366,16 +406,17 @@ void card_control(Ctx& c, const StoreItem& item, u32 index, bool row) noexcept {
         t.text = item.enabled ? utf8_literal("On") : utf8_literal("Off");
         return;
     }
+    if (item.active && kind == CatalogKind::theme) {
+        // The theme in use: a checked, disabled Applied; Remove and the catalog page stay in More.
+        auto& applied = c.b.button("Applied", UiStoreButton::secondary, 0, UiIcon::check);
+        applied.flags |= ui_store_disabled;
+        c.b.icon_button(UiIcon::ellipsis, "More", overflow);
+        return;
+    }
     if (item.active) {
         if (row)
-            c.b.chip(kind == CatalogKind::theme ? utf8_literal("Active") : utf8_literal("Current"), UiStoreTone::positive,
-                     UiIcon::check);
-        if (kind == CatalogKind::effect)
-            c.b.icon_button(UiIcon::filters, "Knobs", primary);
-        else
-            c.b.icon_button(UiIcon::ellipsis, "More", overflow);
-        if (row && kind == CatalogKind::theme)
-            ;
+            c.b.chip(utf8_literal("Current"), UiStoreTone::positive, UiIcon::check);
+        c.b.icon_button(UiIcon::filters, "Knobs", primary);
         return;
     }
     c.b.button(kind == CatalogKind::theme ? utf8_literal("Apply") : utf8_literal("Use"), UiStoreButton::primary, primary);
@@ -397,7 +438,7 @@ void build_card(Ctx& c, u32 index) noexcept {
         view.value = index + 1;
         view.data = item.has_swatches ? item.swatches : nullptr;
         if (item.active) {
-            auto& tag = c.b.chip(kind == CatalogKind::theme ? utf8_literal("Active") : utf8_literal("Current"),
+            auto& tag = c.b.chip(kind == CatalogKind::theme ? utf8_literal("Applied") : utf8_literal("Current"),
                                  UiStoreTone::positive, UiIcon::check);
             tag.anchor = static_cast<u8>(UiStoreAnchor::top_left);
             tag.flags = ui_store_foreground;
@@ -670,7 +711,10 @@ void installed_row(Ctx& c, const StoreItem& item, u32 index, bool last) noexcept
     names.gap = 8;
     names.flags = ui_store_center;
     c.b.text(item.name, UiStoreType::body, UiStoreInk::strong);
-    c.b.text(join(c.b, utf8_literal("v"), item.installed_version), UiStoreType::small, UiStoreInk::subtle);
+    if (item.installed_version.bytes)
+        c.b.text(join(c.b, utf8_literal("v"), item.installed_version), UiStoreType::small, UiStoreInk::subtle);
+    if (item.local)
+        c.b.chip("Local file", UiStoreTone::subtle, UiIcon::file);
     if (item.update)
         c.b.chip(join(c.b, utf8_literal("Update "), item.update_version), item.needs_review ? UiStoreTone::warning : UiStoreTone::brand);
     if (item.update && item.needs_review)
@@ -717,8 +761,10 @@ void build_installed(Ctx& c) noexcept {
         actions_row(c);
         c.b.button(join(c.b, utf8_literal("Browse "), kind_plural(kind)), UiStoreButton::primary, store_action(StoreAct::tab, static_cast<u32>(StoreTab::browse)),
                    UiIcon::count, true);
-        if (kind == CatalogKind::theme)
+        if (kind == CatalogKind::theme) {
+            c.b.button("Import theme", UiStoreButton::secondary, store_action(StoreAct::import_theme), UiIcon::count, true);
             c.b.button("Install from link", UiStoreButton::secondary, store_action(StoreAct::header_link), UiIcon::count, true);
+        }
         c.b.close();
         c.b.close();
         return;

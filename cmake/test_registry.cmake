@@ -406,6 +406,10 @@ maicord_test(MaiCordSettingsRuntimeTests ENTRY maicord_settings_runtime_entry
         src/render/text/content_text_retention.cpp src/core/log.cpp src/app/update/updates.cpp
         src/app/voice/settings.cpp src/app/voice/settings_binding.cpp
         src/app/settings/keybinds_settings.cpp src/app/account/activity.cpp src/app/account/game_detection.cpp
+        tests/app/store/store_routing_runtime.cpp tests/app/store/store_runtime_stubs.cpp src/app/store/store_host.cpp
+        src/app/store/store_source.cpp src/app/store/store_projection.cpp src/app/store/store_page.cpp
+        src/app/store/store_detail.cpp src/app/store/store_dialogs.cpp src/app/store/store_act.cpp
+        src/app/store/store_preview_pump.cpp src/app/store/store_preview_decode.cpp src/app/media/local_preview_thumbnail.cpp
     LIBS bcrypt ws2_32 maicord_sspicli maicord_compile_contract maicord_core maicord_platform maicord_app_core
         maicord_ui maicord_client_preferences maicord_plugin_runtime
         maicord_message_media maicord_ui_input maicord_packages maicord_media_core kernel32 user32 shell32 ole32
