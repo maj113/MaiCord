@@ -107,6 +107,9 @@ bool shortcuts_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*,
 bool call_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*, const Theme&) noexcept) noexcept;
 bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
                             bool (*capture)(const wchar_t*) noexcept) noexcept;
+// Glyph spacing of the settings title and caption title across one-pixel width steps.
+bool resize_text_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache, bool (*resize)(u32, u32) noexcept,
+                          bool (*capture)(const wchar_t*) noexcept) noexcept;
 
 bool store_ui_probe(D3D11Renderer& renderer, PopupScene& popup, UiTextMeasureCache& cache, bool (*relayout)() noexcept,
                     bool (*capture)(const wchar_t*, const Theme&) noexcept) noexcept;
@@ -2003,6 +2006,7 @@ int run_probe() noexcept {
     const bool notification_settings_requested =
         probe_option_enabled(L"MAICORD_NOTIFICATION_SETTINGS_UI_PROBE");
     const bool user_settings_requested = probe_option_enabled(L"MAICORD_USER_SETTINGS_UI_PROBE");
+    const bool resize_text_requested = probe_option_enabled(L"MAICORD_UI_RESIZE_TEXT_PROBE");
     const bool store_requested = probe_option_enabled(L"MAICORD_STORE_UI_PROBE");
     const bool flag_surfaces_requested = probe_option_enabled(L"MAICORD_REGIONAL_FLAG_SURFACES_PROBE");
     if (!flag_surfaces_requested &&
@@ -2440,6 +2444,14 @@ int run_probe() noexcept {
         const bool valid = initialize_fixture(true) &&
                            user_settings_ui_probe(g_probe.renderer, g_probe.text_measure_cache, probe_capture_frame);
         return finish_probe(valid ? 0 : 302);
+    }
+    if (resize_text_requested) {
+        const auto resize = [](u32 width, u32 height) noexcept {
+            return renderer_resize(&g_probe.renderer, width, height) && probe_sync_shell_and_text();
+        };
+        const bool valid = initialize_fixture(true) &&
+                           resize_text_ui_probe(g_probe.renderer, g_probe.text_measure_cache, resize, probe_capture_frame);
+        return finish_probe(valid ? 0 : 304);
     }
     const char password_mask[] = {static_cast<char>(0xE2u), static_cast<char>(0x80u),
                                   static_cast<char>(0xA2u), static_cast<char>(0xE2u),

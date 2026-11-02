@@ -62,6 +62,14 @@ bool d3d11_glyph_text_rasterize_lottie_program(D3D11GlyphTextOwner* owner, ID3D1
 namespace {
 constexpr u16 color_face_flag = 2;
 
+// The nearest whole device pixel, also for the negative origins of text
+// scrolled above its clip.
+float whole_pixels(float pixels) noexcept {
+    const float shifted = pixels + .5f;
+    const i32 truncated = static_cast<i32>(shifted);
+    return static_cast<float>(static_cast<float>(truncated) > shifted ? truncated - 1 : truncated);
+}
+
 struct GlyphTextStorage {
     wchar_t utf16[kRendererGlyphCapacity];
     TextGlyph glyphs[kRendererGlyphCapacity];
@@ -408,9 +416,10 @@ bool role_color_for_decoration(const D3D11GlyphTextAppendRequest& request, const
     return false;
 }
 
+// `origin_x`/`origin_y` are the block's origin on whole device pixels.
 bool append_color_glyph_run(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context,
                             const D3D11GlyphTextAppendRequest& request, const TextRun& run,
-                            const Color& foreground) noexcept {
+                            const Color& foreground, float origin_x, float origin_y) noexcept {
     if (!color_owner(owner))
         return false;
     auto& color = *owner->color;
@@ -500,9 +509,9 @@ bool append_color_glyph_run(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* con
         // advance before applying its directional offset.
         const bool rtl = (run.bidi_level & 1) != 0;
         const float x =
-            request.origin_x + run.baseline_x +
+            origin_x + run.baseline_x +
             (rtl ? -(advance + glyph.advance + glyph.advance_offset) : advance + glyph.advance_offset);
-        const float y = request.origin_y + run.baseline_y - glyph.ascender_offset;
+        const float y = origin_y + run.baseline_y - glyph.ascender_offset;
         auto& q = request.output[(*request.count)++];
         q = {x + bounds.left / pixel_scale,
              y + bounds.top / pixel_scale,
@@ -571,6 +580,14 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
     if (!(pixel_scale > 0.0f)) {
         return false;
     }
+    // The block moves as one on whole device pixels and each glyph rounds only
+    // its offset inside it. Rounding every glyph's absolute position instead
+    // made the spacing inside a word depend on the block's fractional origin:
+    // centred text at odd window sizes moved some letters a pixel and not
+    // their neighbours.
+    const float origin_x_pixels = whole_pixels(request.origin_x * pixel_scale);
+    const float origin_y_pixels = whole_pixels(request.origin_y * pixel_scale);
+    const float origin_x = origin_x_pixels / pixel_scale, origin_y = origin_y_pixels / pixel_scale;
     GlyphOutline outline{};
     if (!glyph_outline_initialize(&outline,
                                   Slice<GlyphPathCommand>{owner->path_commands, kRendererPathCapacity})) {
@@ -602,7 +619,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
             role_color.alpha = (decoration.style_flags & text_style_interactive_hover) ? .3f : .18f;
             decoration_color = role_color;
         }
-        if (!d3d11_glyph_text_append_solid(decoration, request.origin_x, request.origin_y, decoration_color,
+        if (!d3d11_glyph_text_append_solid(decoration, origin_x, origin_y, decoration_color,
                                            request.output, request.capacity, request.count)) {
             return false;
         }
@@ -617,7 +634,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
                 continue;
             const TextDecoration highlight{region.left,   region.top, region.right,
                                            region.bottom, 0,          TextDecorationKind::background};
-            if (!d3d11_glyph_text_append_solid(highlight, request.origin_x, request.origin_y, selected,
+            if (!d3d11_glyph_text_append_solid(highlight, origin_x, origin_y, selected,
                                                request.output, request.capacity, request.count))
                 return false;
         }
@@ -650,7 +667,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
         if (retained_font_face_is_color(owner, face_id)) {
             if (!raster.finish())
                 return false;
-            if (!append_color_glyph_run(owner, context, request, run, foreground))
+            if (!append_color_glyph_run(owner, context, request, run, foreground, origin_x, origin_y))
                 return false;
             continue;
         }
@@ -730,17 +747,13 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
                 return false;
             }
             const float inverse_scale = 1.0f / pixel_scale;
-            const float baseline_x_unaligned =
-                (run.bidi_level & 1)
-                    ? request.origin_x + run.baseline_x - (advance + glyph.advance + glyph.advance_offset)
-                    : request.origin_x + run.baseline_x + advance + glyph.advance_offset;
-            const float baseline_x =
-                static_cast<float>(static_cast<i32>(baseline_x_unaligned * pixel_scale + 0.5f)) *
-                inverse_scale;
-            const float baseline_y = static_cast<float>(static_cast<i32>(
-                                         (request.origin_y + run.baseline_y) * pixel_scale + 0.5f)) *
-                                         inverse_scale -
-                                     glyph.ascender_offset;
+            const float offset_x = (run.bidi_level & 1)
+                                       ? run.baseline_x - (advance + glyph.advance + glyph.advance_offset)
+                                       : run.baseline_x + advance + glyph.advance_offset;
+            const float baseline_x = (origin_x_pixels + whole_pixels(offset_x * pixel_scale)) * inverse_scale;
+            const float baseline_y =
+                (origin_y_pixels + whole_pixels(run.baseline_y * pixel_scale)) * inverse_scale -
+                glyph.ascender_offset;
             GlyphQuad& quad = request.output[(*request.count)++];
             quad.left = baseline_x + static_cast<float>(bounds.left) * inverse_scale;
             quad.top = baseline_y + static_cast<float>(bounds.top) * inverse_scale;
@@ -809,7 +822,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
         if (role_color_for_decoration(request, decoration, &role_color)) {
             decoration_color = role_color;
         }
-        if (!d3d11_glyph_text_append_solid(decoration, request.origin_x, request.origin_y, decoration_color,
+        if (!d3d11_glyph_text_append_solid(decoration, origin_x, origin_y, decoration_color,
                                            request.output, request.capacity, request.count)) {
             return false;
         }
