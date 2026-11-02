@@ -13,10 +13,6 @@ bool byte_ranges_overlap(const void* first, usize first_bytes, const void* secon
 inline bool byte_ranges_overlap(const ConstSlice<u8>& a, const ConstSlice<u8>& b) noexcept {
     return byte_ranges_overlap(a.data, a.count, b.data, b.count);
 }
-// Both ranges are valid and do not overlap.
-inline bool byte_ranges_disjoint(const ConstSlice<u8>& a, const ConstSlice<u8>& b) noexcept {
-    return byte_range_valid(a) && byte_range_valid(b) && !byte_ranges_overlap(a, b);
-}
 // Every range is valid and none overlaps another.
 inline bool byte_ranges_all_disjoint(const ConstSlice<ConstSlice<u8>>& ranges) noexcept {
     for (u32 i = 0; i < ranges.count; ++i) {

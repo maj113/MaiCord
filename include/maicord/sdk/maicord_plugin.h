@@ -1,86 +1,46 @@
 /*
- * MaiCord native plugin SDK, ABI 5. Pure C (C11 or C++), Windows x64 only.
+ * MaiCord native plugin SDK, ABI 6. Pure C (C11 or C++), Windows x64 only.
  *
  * OVERVIEW
- *   A plugin is a DLL next to a "<name>.maicord-plugin.json" manifest in
- *   %LOCALAPPDATA%\MaiCord\plugins\<folder>. It exports
+ *   A plugin is a DLL whose only export is one const data object:
  *
- *     mc_status MC_CALL maicord_plugin_query_v5(const mc_host_info*, mc_plugin_definition*);
+ *     MC_EXPORT const mc_descriptor maicord_plugin_v6 = { ... };
  *
- *   The query fills the definition (owner, permissions, state size, start/stop)
- *   and must not start work. The host then allocates zeroed, host-owned state
- *   and calls start(), passing an mc_host by pointer. Copy what you need: no
- *   pointer the host hands to plugin code survives the call that received it,
- *   except the immutable interface tables returned by get_interface.
- *   Every call happens on the UI thread. Do not create threads that call the host.
+ *   The DLL has no entry point and no TLS callbacks (link /NOENTRY, no CRT),
+ *   so loading it runs none of its code. The host checks this in the PE
+ *   headers before LoadLibrary, then validates the descriptor once: strings,
+ *   counts, settings offsets, hooks, commands, menus, buttons, network hosts
+ *   and api_level. Everything the plugin does is declared there: metadata,
+ *   permissions, settings schema, state size, hooks, slash commands, context
+ *   menu items, buttons and the HTTPS hosts it may reach.
+ *   maicord/sdk/plugin.hpp generates the descriptor from C++ declarations; C
+ *   plugins write it by hand. maicord/sdk/README.md is the API reference.
  *
- * MANIFEST (schema 3)
- *   { "schema": 3, "owner_id": 1234, "abi": 5, "min_host_abi": 5,
- *     "name": "Dice", "version": "1.0.0", "description": "...",
- *     "publisher": "Example", "permissions": ["commands", "store"],
- *     "dll": "dice.dll", "sha256": "<64 lowercase hex>" }
- *   Permission names are the MC_PERM_* names below in lower case without the
- *   prefix ("read_guilds", "act_messages", ...). The user sees and approves the
- *   list when enabling the plugin (Settings > Plugins shows it again on the
- *   plugin's row); the definition may request only approved permissions and
- *   every interface function checks the permission it needs.
+ * CALLS
+ *   Every entry point (start, stop, hooks) receives an mc_ctx* that is valid
+ *   until it returns. Host functions are reached through ctx->api; a stale
+ *   context makes them fail with MC_E_INACTIVE. Every call happens on the UI
+ *   thread. Strings are UTF-8, not NUL-terminated, and valid for the call;
+ *   copy what you keep. State must not hold pointers into the DLL image or
+ *   into memory the host passed in.
  *
- * STRUCT GROWTH (size prefix)
- *   Every struct crossing the boundary starts with uint32_t size = sizeof as the
- *   writer compiled it. Readers use min(size, known) bytes and treat the rest as
- *   zero, so fields are only ever appended. Arrays carry an explicit stride.
- *   Output structs (mc_*_info) are filled up to the size the caller set; set
- *   size = sizeof before the call. Interface tables also start with size:
- *   check that a function pointer lies inside table->size before calling it
- *   (MC_HAS_FIELD).
- *
- * INTERFACES (mc_host.get_interface(binding, generation, name, version, &table))
- *   "mc.ui.pages"    1  settings pages in the Settings navigation   [settings]
- *   "mc.settings"    3  page content and keybind firing             [settings, keybinds]
- *   "mc.ui.menus"    2  items in user/message/channel/guild/
- *                       attachment/link/emoji context menus         [menus]
- *   "mc.msg.hooks"   2  pre-send transform                          [message_send]
- *   "mc.cmd"         1  local slash commands run by the composer    [commands]
- *   "mc.ui.slots"    2  declarative nodes the host lays out/paints  [ui_slots]
- *   "mc.store"       1  per-plugin bounded key-value storage        [store]
- *   "mc.read"        2  copies of client state                      [read_*]
- *   "mc.events"      1  batched change notifications                [read_*]
- *   "mc.msg.render"  1  message presentation decorators             [message_render]
- *   "mc.actions"     1  host-executed, rate-limited actions         [act_*, navigate, ...]
- *   "mc.timer"       1  coarse UI-thread timers                     [timer]
- *   A missing permission yields MC_E_DENIED; an unknown name or another version
- *   yields MC_E_UNSUPPORTED. Pages and commands register during start only;
- *   everything else may be called any time the plugin is enabled.
+ * VERSIONING
+ *   The host supports exactly one ABI. Within ABI 6 the mc_api table and
+ *   the structs the host writes only grow by appending; each addition bumps
+ *   MC_API_LEVEL. A plugin declares the api_level it needs and a host with a
+ *   lower level refuses to load it, so a plugin may use every field and
+ *   function of its level. MC_API_HAS tests for newer optional entries. The
+ *   descriptor and the structs it points to are frozen; new capabilities
+ *   append descriptor fields, read up to descriptor.size.
  *
  * SAFETY
- *   Every call into plugin code is timed. Each callback has a time budget
- *   (50 ms; query, start and stop 500 ms); a plugin that overruns it three
- *   times is turned off after the call returns and stays off until the user
- *   enables it again. A background effect whose GPU time stays above its
- *   budget is turned off the same way. The host records which plugin call is
- *   in progress; if MaiCord exits during a call, that plugin stays off at the
- *   next start and the user sees a notice. There is no in-process fault
- *   containment: plugins are trusted native code and must not rely on their
- *   own structured or C++ exceptions. This is crash attribution, not a sandbox.
- *   No interface exposes tokens, credentials, cookies or raw network access;
- *   actions go through MaiCord's own protocol code.
- *
- * USER GESTURES
- *   Handlers the user triggered directly (settings controls, menu items, slot
- *   and accessory buttons, popover rows, keybinds, commands and modal results)
- *   run inside a gesture. copy_text, open_url, open_modal, open_channel,
- *   open_profile and open_page are accepted only inside a gesture; elsewhere
- *   they return MC_E_INACTIVE.
- *
- * LIMITS (host may raise them; never rely on lower values)
- *   4 pages x 32 controls, 12 KiB of text and 101 slider steps per page;
- *   choices: 16 per control; 8 keybind controls per plugin; 16 menu items;
- *   8 commands x 4 options; 256 slot entries x 4 nodes; popovers: 8 nodes;
- *   store: 32 keys, 2 KiB values, 16 KiB total; 4 timers, interval >= 250 ms;
- *   pre-send output 4000 bytes; events: 32 per batch, 4 batches per plugin per
- *   pass, 512 queued; decorations: content <= 2000 bytes, 2 badges and 4
- *   accessory nodes per plugin; 2 effects per plugin, 64 KiB bytecode each;
- *   state <= 64 KiB, alignment <= 64.
+ *   Every call into plugin code is timed against a budget per call class
+ *   (hooks 10 ms; start and stop 500 ms). Repeated overruns turn the plugin
+ *   off. The host records which plugin call is in progress, so a crash or
+ *   hang is attributed and the plugin stays off at the next start. This is
+ *   attribution, not a sandbox: plugins are trusted native code. No host
+ *   function exposes tokens, credentials, cookies, Discord's REST API or
+ *   network access beyond the declared HTTPS hosts.
  */
 #ifndef MAICORD_PLUGIN_H
 #define MAICORD_PLUGIN_H
@@ -92,1016 +52,1081 @@
 extern "C" {
 #endif
 
+#define MC_ABI 6u
+#define MC_API_LEVEL 1u /* highest mc_api level this header describes */
 #define MC_CALL __stdcall
 #define MC_EXPORT __declspec(dllexport)
-#define MC_ABI_VERSION 5u
-#define MC_QUERY_EXPORT "maicord_plugin_query_v5"
-/* True when a size-prefixed struct or table written by the other side contains `field`. */
-#define MC_HAS_FIELD(object, type, field) \
-    ((object) && (object)->size >= offsetof(type, field) + sizeof(((type*)0)->field))
+#define MC_DESCRIPTOR_SYMBOL maicord_plugin_v6
+#define MC_DESCRIPTOR_EXPORT "maicord_plugin_v6"
 
 typedef struct mc_str {
     const char* data; /* UTF-8, not NUL-terminated */
     uint32_t bytes;
+    uint32_t reserved; /* 0 */
 } mc_str;
+/* An mc_str initializer from a string literal. */
+#define MC_S(literal) {(literal), (uint32_t)(sizeof(literal) - 1u), 0u}
+
+typedef struct mc_list {
+    const mc_str* items;
+    uint32_t count;
+    uint32_t reserved; /* 0 */
+} mc_list;
+
+/* A list of Discord ids (USER_LIST settings). */
+typedef struct mc_ids {
+    const uint64_t* items;
+    uint32_t count;
+    uint32_t reserved; /* 0 */
+} mc_ids;
 
 typedef int32_t mc_status;
 enum {
     MC_OK = 0,
-    MC_E_INVALID = 1,     /* malformed argument or struct */
-    MC_E_DENIED = 2,      /* permission not approved */
-    MC_E_BUDGET = 3,      /* per-plugin limit reached */
-    MC_E_NOT_FOUND = 4,   /* unknown id, or not cached (the host never fetches for a read) */
-    MC_E_INACTIVE = 5,    /* stale binding/generation or not allowed now (e.g. outside a gesture) */
-    MC_E_UNSUPPORTED = 6, /* unknown interface or version */
-    MC_E_CAPACITY = 7,    /* value larger than the host accepts */
-    MC_E_TRUNCATED = 8,   /* output did not fit; the needed size is reported */
-    MC_E_BUSY = 9,        /* the host can't take this now (another request in progress) */
-    MC_E_RATE_LIMITED = 10 /* the action's rate limit is exhausted; retry later */
+    MC_E_INVALID = 1,      /* malformed argument */
+    MC_E_DENIED = 2,       /* permission not declared or not approved */
+    MC_E_BUDGET = 3,       /* per-plugin quota reached */
+    MC_E_NOT_FOUND = 4,    /* unknown key or id */
+    MC_E_INACTIVE = 5,     /* the context is stale, or the call isn't allowed now */
+    MC_E_UNSUPPORTED = 6,  /* not available at this host's level */
+    MC_E_CAPACITY = 7,     /* value larger than the host accepts */
+    MC_E_TRUNCATED = 8,    /* output did not fit; the needed size is reported */
+    MC_E_BUSY = 9,         /* the host can't take this now */
+    MC_E_RATE_LIMITED = 10, /* the rate limit is exhausted; retry later */
+    MC_E_GESTURE = 11       /* needs a user gesture (or, for writes, MC_PERM_AUTOMATED_ACTIONS) */
 };
 
-/* Permissions (bit mask, manifest names in brackets). */
-#define MC_PERM_SETTINGS (1ull << 0)       /* [settings] settings pages */
-#define MC_PERM_MENUS (1ull << 1)          /* [menus] context menu items */
-#define MC_PERM_MESSAGE_SEND (1ull << 2)   /* [message_send] change your messages before sending */
-#define MC_PERM_COMMANDS (1ull << 3)       /* [commands] local slash commands */
-#define MC_PERM_UI_SLOTS (1ull << 4)       /* [ui_slots] badges and buttons */
-#define MC_PERM_STORE (1ull << 5)          /* [store] own data storage */
-#define MC_PERM_TIMER (1ull << 6)          /* [timer] timers */
-#define MC_PERM_READ_CONTEXT (1ull << 7)   /* [read_context] open channel, your account */
-#define MC_PERM_READ_GUILDS (1ull << 8)    /* [read_guilds] servers, channels, roles */
-#define MC_PERM_READ_MEMBERS (1ull << 9)   /* [read_members] users, members, friends, profiles */
-#define MC_PERM_READ_PRESENCE (1ull << 10) /* [read_presence] status, devices, activities */
-#define MC_PERM_READ_VOICE (1ull << 11)    /* [read_voice] who is in voice */
-#define MC_PERM_READ_MESSAGES (1ull << 12) /* [read_messages] messages you receive */
-#define MC_PERM_MESSAGE_RENDER (1ull << 13) /* [message_render] change how messages look */
-#define MC_PERM_ACT_MESSAGES (1ull << 14)  /* [act_messages] send, edit, react, mark read */
-#define MC_PERM_ACT_PRESENCE (1ull << 15)  /* [act_presence] custom status and activity */
-#define MC_PERM_NAVIGATE (1ull << 16)      /* [navigate] open channels, profiles, own pages */
-#define MC_PERM_CLIPBOARD (1ull << 17)     /* [clipboard] copy text */
-#define MC_PERM_OPEN_LINKS (1ull << 18)    /* [open_links] open links (with confirmation) */
-#define MC_PERM_NOTIFY (1ull << 19)        /* [notify] notices and dialogs */
-#define MC_PERM_KEYBINDS (1ull << 20)      /* [keybinds] keyboard shortcuts */
-#define MC_PERM_ALL ((1ull << 21) - 1)
+/* Permissions the user approves at enable. Hooks, buttons and network hosts
+   imply theirs and the host ORs them into descriptor.permissions, so plugins
+   list only what their API calls need. */
+#define MC_PERM_MESSAGE_SEND (1ull << 0)    /* PRE_SEND, PRE_EDIT, PRE_TYPING: change what you send */
+#define MC_PERM_READ_MESSAGES (1ull << 1)   /* message hooks, popover buttons, message events: read messages */
+#define MC_PERM_MESSAGE_HISTORY (1ull << 2) /* MESSAGE_DELETED, MESSAGE_EDITED: keep them visible this session */
+#define MC_PERM_READ_ACTIVITY (1ull << 3)   /* other events: presence, voice, servers, members, friends */
+#define MC_PERM_NETWORK (1ull << 4)         /* descriptor.network: HTTPS to the declared hosts */
+#define MC_PERM_COMPOSER (1ull << 5)        /* read and change the composer, start replies and edits */
+#define MC_PERM_ACT_MESSAGES (1ull << 6)    /* send, edit and delete your messages, react, mark read */
+#define MC_PERM_ACT_PRESENCE (1ull << 7)    /* set your activity and custom status */
+#define MC_PERM_CLIPBOARD (1ull << 8)       /* copy text */
+/* The official catalog refuses these; sideloaded plugins may declare them and
+   the consent dialog lists them separately. */
+#define MC_PERM_AUTOMATED_ACTIONS (1ull << 9) /* writes without a gesture; implies ACT_MESSAGES */
+#define MC_PERM_PERSISTENT_LOG (1ull << 10)   /* restore kept messages from the plugin's own log (keep_restore) */
+#define MC_PERM_KNOWN ((1ull << 11) - 1u)
 
-/* Tones map to theme roles; plugins never choose colours or draw. */
+/* Tones map to theme roles; plugins never choose colours. */
 enum {
     MC_TONE_NEUTRAL = 0,
     MC_TONE_ACCENT = 1,
     MC_TONE_POSITIVE = 2,
     MC_TONE_WARNING = 3,
     MC_TONE_CRITICAL = 4,
-    MC_TONE_ROLE = 5 /* decorations only: the author's role colour (name suffix/prefix) */
+    MC_TONE_ROLE = 5 /* the author's role colour; name prefix and suffix only */
 };
-
-/* ---- Lifecycle ---------------------------------------------------------- */
-
-typedef struct mc_host {
-    uint32_t size;
-    uint32_t abi_version;
-    void* binding;       /* opaque; pass back with generation on every call */
-    uint64_t generation; /* changes on every enable; stale copies are refused */
-    mc_status (MC_CALL* get_interface)(void* binding, uint64_t generation, const char* name,
-                                       uint32_t version, const void** table);
-} mc_host;
-
-typedef struct mc_host_info {
-    uint32_t size;
-    uint32_t abi_version; /* host ABI (>= 5) */
-} mc_host_info;
-
-typedef struct mc_plugin_definition {
-    uint32_t size;
-    uint32_t abi_version; /* MC_ABI_VERSION */
-    uint64_t owner_id;    /* must equal the manifest owner_id */
-    uint64_t permissions; /* MC_PERM_* requested; subset of the approved set */
-    uint32_t state_bytes; /* host-owned zeroed state passed to callbacks */
-    uint32_t state_alignment;
-    uint32_t min_host_abi;
-    uint32_t reserved;
-    /* Return MC_OK to stay enabled. stop always follows an attempted start
-       unless the plugin faulted; it must accept partially initialized state. */
-    mc_status (MC_CALL* start)(const mc_host* host, void* state, uint32_t state_bytes);
-    void (MC_CALL* stop)(void* state, uint32_t state_bytes);
-} mc_plugin_definition;
-
-typedef mc_status (MC_CALL* mc_query_fn)(const mc_host_info* host, mc_plugin_definition* definition);
-
-/* Copies the plugin's definition into the host buffer by the prefix rule. */
-static __inline mc_status mc_definition_publish(mc_plugin_definition* out, const mc_plugin_definition* local) {
-    uint32_t bytes, i;
-    if (!out || !local || out->size < offsetof(mc_plugin_definition, start)) return MC_E_INVALID;
-    bytes = out->size < local->size ? out->size : local->size;
-    for (i = 0; i < bytes; ++i) ((unsigned char*)out)[i] = ((const unsigned char*)local)[i];
-    out->size = bytes;
-    return MC_OK;
-}
-
-/* ---- Declarative nodes (slots, decorations, popovers, modals) ----------- */
 
 enum {
-    MC_NODE_LABEL = 0,     /* text */
-    MC_NODE_ICON = 1,      /* icon (tooltip as its accessible name) */
-    MC_NODE_BADGE = 2,     /* compact pill: text and/or icon */
-    MC_NODE_BUTTON = 3,    /* text and/or icon, action_id != 0 */
-    MC_NODE_LINK = 4,      /* text opening `value` (https URL) through the link confirmation */
-    MC_NODE_SEPARATOR = 5, /* popovers and modals: a divider */
-    MC_NODE_INPUT = 6      /* modals only: single-line field; text = label, value = initial text */
+    MC_LOG_DEBUG = 0,
+    MC_LOG_INFO = 1,
+    MC_LOG_WARNING = 2,
+    MC_LOG_ERROR = 3
 };
 
-typedef struct mc_slot_node {
-    uint32_t size;
-    uint32_t kind;  /* MC_NODE_* */
-    mc_str text;    /* badges/buttons <= 32 bytes; labels and links <= 256 bytes */
-    mc_str icon;    /* icon pack name, e.g. "lucide/star"; unknown names show the plugin glyph */
-    mc_str tooltip; /* <= 64 bytes */
-    uint32_t tone;  /* MC_TONE_* */
-    uint32_t reserved;
-    uint64_t action_id; /* buttons: non-zero, reported back to the handler */
-    mc_str value;       /* links: https URL <= 512 bytes; inputs: initial text */
-} mc_slot_node;
+/* ---- Context -------------------------------------------------------------- */
 
-/* ---- mc.ui.pages@1 ------------------------------------------------------ */
+typedef struct mc_api mc_api;
 
-typedef struct mc_pages_v1 {
-    uint32_t size;
-    uint32_t version;
-    /* The label is copied. Content comes from mc.settings set_page. */
-    mc_status (MC_CALL* register_page)(void* binding, uint64_t generation, uint64_t page_id, mc_str label);
-    mc_status (MC_CALL* unregister_page)(void* binding, uint64_t generation, uint64_t page_id);
-} mc_pages_v1;
+#define MC_CTX_GESTURE 1u     /* the user triggered this call directly */
+#define MC_CTX_RELOADED 2u    /* start: state survived a reload */
+#define MC_CTX_FIRST_START 4u /* start: state was just zeroed */
 
-/* ---- mc.settings@3 ------------------------------------------------------ */
+/* Passed to every plugin entry point. Host-owned; valid until it returns. */
+typedef struct mc_ctx {
+    const mc_api* api;    /* immutable host table; api->size bounds availability */
+    void* state;          /* descriptor.state_bytes, zeroed at first start; null when 0 */
+    const void* settings; /* settings block (descriptor.settings_bytes); read-only; null when 0 */
+    uint32_t flags;       /* MC_CTX_* */
+    uint32_t call;        /* host call token */
+} mc_ctx;
 
+/* ---- Settings schema ------------------------------------------------------ */
+/* The host owns a block of descriptor.settings_bytes (8-byte aligned) and
+   writes each setting's value at its offset in the encoding of its type.
+   Values change only between calls. */
 enum {
-    MC_SETTING_TOGGLE = 0,
-    MC_SETTING_CHOICE = 1,
-    MC_SETTING_ACTION = 2,
-    MC_SETTING_TEXT = 3,    /* single line, max_bytes */
-    MC_SETTING_SLIDER = 4,  /* minimum..maximum by step, at most 101 steps */
-    MC_SETTING_COLOUR = 5,  /* 0xRRGGBB */
-    MC_SETTING_KEYBIND = 6, /* "Ctrl+Shift+K" style chord, normalized by the host; fires the keybind handler */
-    MC_SETTING_HEADER = 7,  /* section heading */
-    MC_SETTING_NOTICE = 8   /* status text with an optional action button */
+    MC_SET_TOGGLE = 1,     /* uint8_t 0 or 1; default_int */
+    MC_SET_INT = 2,        /* int32_t in [minimum, maximum]; default_int */
+    MC_SET_SLIDER = 3,     /* int32_t in [minimum, maximum] by step; default_int */
+    MC_SET_CHOICE = 4,     /* uint32_t index into items; default_int */
+    MC_SET_TEXT = 5,       /* mc_str, at most max_bytes; default_text */
+    MC_SET_SECRET = 6,     /* mc_str, at most max_bytes; no default; sealed at rest, shown masked */
+    MC_SET_COLOUR = 7,     /* uint32_t 0..0xFFFFFF (0xRRGGBB); default_int */
+    MC_SET_KEYBIND = 8,    /* uint32_t MC_KEY(vk, modifiers) with Ctrl or Alt, or F1..F24 alone;
+                              0 = unbound; default_int; pressing it calls MC_HOOK_KEYBIND */
+    MC_SET_TEXT_LIST = 9,  /* mc_list of mc_str, each at most max_bytes; defaults in items */
+    MC_SET_CHANNEL = 10,   /* uint64_t channel id, 0 = none */
+    MC_SET_USER_LIST = 11, /* mc_ids of at most MC_SETTING_ITEM_MAX non-zero user ids; empty by default */
+    MC_SET_HEADER = 12     /* a section label; no value, offset ignored */
 };
+#define MC_SET_HIDDEN 1u    /* not shown in the settings page */
+#define MC_SET_DANGER 2u    /* critical tone */
+#define MC_SET_MULTILINE 4u /* TEXT: multi-line input */
 
-typedef struct mc_setting {
-    uint32_t size;
-    uint32_t kind;
-    uint64_t id; /* non-zero, unique on the page */
+/* MC_SET_KEYBIND values: a Windows virtual-key code and modifiers. */
+#define MC_KEY_CTRL 0x10000u
+#define MC_KEY_SHIFT 0x20000u
+#define MC_KEY_ALT 0x40000u
+#define MC_KEY(vk, modifiers) ((uint32_t)(vk) | (uint32_t)(modifiers))
+
+#define MC_SETTING_MAX 64u          /* settings per plugin */
+#define MC_SETTINGS_BYTES_MAX 4096u /* descriptor.settings_bytes */
+#define MC_SETTING_KEY_MAX 32u      /* key: 1..32 bytes of [a-z0-9_] */
+#define MC_SETTING_LABEL_MAX 64u
+#define MC_SETTING_TEXT_MAX 1024u       /* description, default_text, values; max_bytes may lower it */
+#define MC_SETTING_ITEM_MAX 64u         /* choice labels, list items */
+#define MC_SETTING_LIST_BYTES_MAX 4096u /* all items of a TEXT_LIST value */
+
+typedef struct mc_setting_def {
+    mc_str key; /* unique; names the persisted value */
     mc_str label;
-    mc_str description;
-    uint32_t enabled;
-    uint32_t checked; /* toggle */
-    const mc_str* choices; /* choice */
-    uint32_t choice_count;
-    uint32_t selected;
-    mc_str action_label; /* action, notice */
-    mc_str text;         /* text, keybind */
-    uint32_t max_bytes;  /* text; 0 means 256 */
-    int32_t minimum, maximum, step, value; /* slider */
-    uint32_t colour;     /* colour */
-} mc_setting;
+    mc_str description;  /* optional help text */
+    mc_str hint;         /* optional placeholder for text inputs */
+    mc_str default_text; /* TEXT */
+    const mc_str* items; /* CHOICE: labels; TEXT_LIST: default items */
+    uint32_t item_count;
+    uint32_t type;   /* MC_SET_* */
+    uint32_t offset; /* into the settings block, aligned for the type */
+    uint32_t flags;  /* MC_SET_HIDDEN, MC_SET_DANGER, MC_SET_MULTILINE */
+    int32_t minimum, maximum, step, default_int;
+    uint16_t visible_if;    /* 1-based index of a TOGGLE that must be on or a CHOICE that must equal
+                               visible_value; 0 = always */
+    uint16_t max_bytes;     /* TEXT, SECRET, TEXT_LIST items; 0 = MC_SETTING_TEXT_MAX */
+    uint32_t visible_value; /* visible_if names a CHOICE: the index it must have; else 0 */
+} mc_setting_def;
 
-typedef struct mc_settings_page {
-    uint32_t size;
-    uint32_t control_count;
-    mc_str title;
-    mc_str description;
-    const mc_setting* controls;
-    uint32_t control_stride; /* sizeof(mc_setting) as compiled by the plugin */
-    uint32_t reserved;
-} mc_settings_page;
-
-/* Host -> plugin when the user changes a control. text is valid during the call. */
-typedef struct mc_setting_value {
-    uint32_t size;
-    uint32_t kind;
-    uint64_t page_id;
-    uint64_t control_id;
-    uint32_t checked;
-    uint32_t selected;
-    int32_t value;
-    uint32_t colour;
-    mc_str text;
-} mc_setting_value;
-
-/* Republish with set_page (allowed inside the handler) when values change. */
-typedef mc_status (MC_CALL* mc_setting_fn)(void* state, uint32_t state_bytes, const mc_setting_value* value);
-/* A published, enabled keybind control's chord was pressed (a gesture). */
-typedef void (MC_CALL* mc_keybind_fn)(void* state, uint32_t state_bytes, uint64_t page_id, uint64_t control_id);
-
-/*
- * Keybinds: every enabled MC_SETTING_KEYBIND control with a chord is
- * registered with MaiCord's shortcut registry when its page is published,
- * provided the plugin holds [keybinds] and set a keybind handler. A chord
- * needs Ctrl or Alt (or is F1-F24), may not use Win, and is refused when it
- * matches a built-in shortcut, a system/editing chord (Ctrl+C, Alt+F4, ...),
- * a custom keybind or another plugin's chord; the control's row then says
- * what it conflicts with. Plugin chords fire while a text field or the
- * composer has focus only when they include Ctrl or Alt, never while a
- * dialog or menu is open, and never when the window is in the background.
- */
-typedef struct mc_settings_v3 {
-    uint32_t size;
-    uint32_t version;
-    /* Copies the whole page; the page must be registered by mc.ui.pages. */
-    mc_status (MC_CALL* set_page)(void* binding, uint64_t generation, uint64_t page_id, const mc_settings_page* page);
-    mc_status (MC_CALL* set_handler)(void* binding, uint64_t generation, mc_setting_fn handler);
-    /* [keybinds] */
-    mc_status (MC_CALL* set_keybind_handler)(void* binding, uint64_t generation, mc_keybind_fn handler);
-} mc_settings_v3;
-
-/* ---- mc.ui.menus@2 ------------------------------------------------------ */
+/* ---- Views ---------------------------------------------------------------- */
+/* Host-written and valid for the call, strings included. Views only grow by
+   appending fields. */
 
 enum {
-    MC_MENU_USER = 0,       /* any user: member list, author, DM row, voice row, profile, friends */
-    MC_MENU_MESSAGE = 1,    /* chat message */
-    MC_MENU_CHANNEL = 2,    /* channel, thread, category or DM row */
-    MC_MENU_GUILD = 3,      /* server rail icon or server header */
-    MC_MENU_ATTACHMENT = 4, /* attachment, image, video or file */
-    MC_MENU_LINK = 5,       /* link in a message */
-    MC_MENU_EMOJI = 6,      /* reaction or emoji */
-    MC_MENU_TARGET_COUNT = 7
+    MC_RELATIONSHIP_NONE = 0,
+    MC_RELATIONSHIP_FRIEND = 1,
+    MC_RELATIONSHIP_BLOCKED = 2,
+    MC_RELATIONSHIP_INCOMING = 3, /* friend request to you */
+    MC_RELATIONSHIP_OUTGOING = 4  /* friend request from you */
 };
-#define MC_MENU_ITEM_DANGER 1u   /* critical tone */
-#define MC_MENU_ITEM_DISABLED 2u
+enum {
+    MC_PRESENCE_UNKNOWN = 0,
+    MC_PRESENCE_ONLINE = 1,
+    MC_PRESENCE_IDLE = 2,
+    MC_PRESENCE_DND = 3,
+    MC_PRESENCE_OFFLINE = 4
+};
 
-/* Typed context; ids that don't apply are zero. Strings are valid during the call. */
-#define MC_MENU_OWN 1u      /* own message or own user */
-#define MC_MENU_PRIVATE 2u  /* the channel is a DM or group DM */
-#define MC_MENU_ANIMATED 4u /* animated emoji */
-typedef struct mc_menu_context {
-    uint32_t size;
-    uint32_t target; /* MC_MENU_* */
-    uint64_t item_id;
-    uint64_t user_id;    /* user target, message author, DM recipient */
-    uint64_t channel_id;
-    uint64_t message_id;
-    uint64_t guild_id;
-    uint64_t emoji_id;   /* custom emoji; zero for Unicode */
-    uint32_t attachment_index;
-    uint32_t flags;      /* MC_MENU_OWN, MC_MENU_PRIVATE, MC_MENU_ANIMATED */
-    mc_str url;          /* link and attachment URL */
-    mc_str text;         /* link text, attachment filename, emoji name or Unicode emoji */
-} mc_menu_context;
-
-/* Runs inside a gesture: actions such as copy_text are allowed. */
-typedef mc_status (MC_CALL* mc_menu_fn)(void* state, uint32_t state_bytes, const mc_menu_context* context);
-
-typedef struct mc_menus_v2 {
-    uint32_t size;
-    uint32_t version;
-    /* label <= 64 bytes, copied; item_id non-zero and unique per plugin. */
-    mc_status (MC_CALL* register_item)(void* binding, uint64_t generation, uint64_t item_id, uint32_t target,
-                                       mc_str label, uint32_t flags);
-    mc_status (MC_CALL* unregister_item)(void* binding, uint64_t generation, uint64_t item_id);
-    mc_status (MC_CALL* set_handler)(void* binding, uint64_t generation, mc_menu_fn handler);
-} mc_menus_v2;
-
-/* ---- mc.msg.hooks@2 ----------------------------------------------------- */
-
+/* mc_message.flags */
 #define MC_MESSAGE_OWN 1u
 #define MC_MESSAGE_BOT 2u
 #define MC_MESSAGE_EDITED 4u
 #define MC_MESSAGE_PINNED 8u
 #define MC_MESSAGE_REPLY 16u
-#define MC_MESSAGE_MEDIA 32u /* has attachments or embeds */
+#define MC_MESSAGE_MEDIA 32u    /* attachments or embeds with images or video */
+#define MC_MESSAGE_SYSTEM 64u   /* joins, pins, calls and other non-user messages */
+#define MC_MESSAGE_DELETED 128u /* a kept tombstone */
+#define MC_MESSAGE_LOCAL 256u   /* a local message only you see */
+#define MC_MESSAGE_PRIVATE 512u /* in a DM or group DM */
+#define MC_MESSAGE_NSFW 1024u   /* in an age-restricted channel */
+#define MC_MESSAGE_CACHED 2048u /* content and author come from MaiCord's cache (MESSAGE_DELETED) */
 
-typedef struct mc_message_view {
-    uint32_t size;
-    uint32_t flags; /* MC_MESSAGE_* */
+typedef struct mc_message {
+    uint64_t message_id;
     uint64_t channel_id;
-    uint64_t message_id; /* zero for drafts */
+    uint64_t guild_id;     /* 0 in DMs */
     uint64_t author_id;
-    uint64_t guild_id;
-    uint64_t timestamp_ms;
-    mc_str content;
-    mc_str author_name;
-} mc_message_view;
+    uint64_t reply_to;     /* the replied-to message, or 0 */
+    uint64_t timestamp_ms; /* sent, Unix milliseconds */
+    uint64_t edited_ms;    /* 0 when never edited */
+    mc_str content;        /* markdown as sent; DECORATE_MESSAGE: only with MC_NEED_CONTENT */
+    mc_str author_name;    /* the name shown in this channel; DECORATE_MESSAGE: only with MC_NEED_AUTHOR */
+    uint32_t flags;        /* MC_MESSAGE_* */
+    uint32_t type;         /* Discord message type */
+    uint32_t revision;     /* changes whenever what the host shows for the message changes */
+    uint32_t relationship; /* yours to the author: MC_RELATIONSHIP_* */
+    uint32_t attachment_count;
+    uint32_t embed_count;
+} mc_message;
 
-enum { MC_SEND_UNCHANGED = 0, MC_SEND_REPLACE = 1, MC_SEND_CANCEL = 2 };
+/* mc_user.where: the surface asking (DECORATE_USER); 0 from read_user. */
+enum { MC_USER_MEMBER_ROW = 1, MC_USER_MESSAGE_AUTHOR = 2, MC_USER_PROFILE = 3 };
+#define MC_USER_BOT 1u
+#define MC_USER_SELF 2u
+/* mc_user.platforms: where the user is online. */
+#define MC_PLATFORM_DESKTOP 1u
+#define MC_PLATFORM_MOBILE 2u
+#define MC_PLATFORM_WEB 4u
 
-/* Host-owned output buffer; write at most capacity bytes of UTF-8. */
-typedef struct mc_text_output {
-    uint32_t size;
-    uint32_t action;   /* MC_SEND_* or MC_CMD_* */
-    char* data;
-    uint32_t capacity;
-    uint32_t bytes;
-} mc_text_output;
-
-typedef mc_status (MC_CALL* mc_pre_send_fn)(void* state, uint32_t state_bytes, const mc_message_view* draft,
-                                            mc_text_output* output);
-
-typedef struct mc_msg_hooks_v2 {
-    uint32_t size;
-    uint32_t version;
-    mc_status (MC_CALL* set_pre_send)(void* binding, uint64_t generation, mc_pre_send_fn handler);
-} mc_msg_hooks_v2;
-
-/* ---- mc.cmd@1 ----------------------------------------------------------- */
-
-enum { MC_OPTION_STRING = 0, MC_OPTION_INTEGER = 1, MC_OPTION_BOOLEAN = 2 };
-
-typedef struct mc_command_option {
-    uint32_t size;
-    uint32_t type;
-    mc_str name;
-    mc_str description;
-    uint32_t required;
-    uint32_t reserved;
-} mc_command_option;
-
-typedef struct mc_command {
-    uint32_t size;
-    uint32_t option_count;
-    uint64_t command_id;
-    mc_str name; /* lowercase a-z 0-9 - _, 1..32 bytes, typed as /name */
-    mc_str description;
-    const mc_command_option* options; /* positional; a last string option takes the rest */
-    uint32_t option_stride;
-    uint32_t reserved;
-} mc_command;
-
-typedef struct mc_command_argument {
-    uint32_t size;
-    uint32_t type;
-    uint32_t present;
-    uint32_t boolean;
-    int64_t integer;
-    mc_str name;
-    mc_str text;
-} mc_command_argument;
-
-typedef struct mc_command_invocation {
-    uint32_t size;
-    uint32_t argument_count;
-    uint64_t command_id;
-    uint64_t channel_id;
-    uint64_t guild_id;
-    const mc_command_argument* arguments;
-    uint32_t argument_stride;
-    uint32_t reserved;
-    mc_str raw; /* text after the command name */
-} mc_command_invocation;
-
-/* Command result actions in mc_text_output.action. */
-enum { MC_CMD_DONE = 0, MC_CMD_SEND = 1, MC_CMD_REPLACE = 2, MC_CMD_NOTICE = 3 };
-
-/* Runs inside a gesture. */
-typedef mc_status (MC_CALL* mc_command_fn)(void* state, uint32_t state_bytes, const mc_command_invocation* call,
-                                           mc_text_output* result);
-
-typedef struct mc_cmd_v1 {
-    uint32_t size;
-    uint32_t version;
-    mc_status (MC_CALL* register_command)(void* binding, uint64_t generation, const mc_command* command);
-    mc_status (MC_CALL* unregister_command)(void* binding, uint64_t generation, uint64_t command_id);
-    mc_status (MC_CALL* set_handler)(void* binding, uint64_t generation, mc_command_fn handler);
-} mc_cmd_v1;
-
-/* ---- mc.ui.slots@2 ------------------------------------------------------ */
-
-enum {
-    MC_SLOT_MESSAGE_ACCESSORY = 0, /* badge after the author name; target: channel_id + message_id */
-    MC_SLOT_COMPOSER_TOOLBAR = 1,  /* square buttons by the composer; global */
-    MC_SLOT_MEMBER_BADGE = 2,      /* badge on member list rows; target: user_id */
-    MC_SLOT_PROFILE_SECTION = 3,   /* rows in profiles and popouts; target: user_id */
-    MC_SLOT_HEADER_TOOLBAR = 4,    /* badge in the channel header; global */
-    MC_SLOT_CHANNEL_ROW = 5,       /* badge on channel and DM rows; target: channel_id */
-    MC_SLOT_GUILD_RAIL = 6,        /* badge on a server icon; target: guild_id */
-    MC_SLOT_ACCOUNT_PANEL = 7,     /* square buttons in the account panel; global */
-    MC_SLOT_MESSAGE_HOVER = 8,     /* buttons in the message hover toolbar; global, clicks carry the message */
-    MC_SLOT_SURFACE_COUNT = 9
-};
-
-typedef struct mc_slot_target {
-    uint32_t size;
-    uint32_t surface;
-    uint64_t channel_id;
-    uint64_t message_id;
+typedef struct mc_user {
     uint64_t user_id;
-    uint64_t guild_id;
-} mc_slot_target;
-
-typedef struct mc_slot_content {
-    uint32_t size;
-    uint32_t node_count; /* <= 4 */
-    const mc_slot_node* nodes;
-    uint32_t node_stride;
+    uint64_t guild_id;   /* the guild the name and roles come from, or 0 */
+    uint64_t channel_id; /* the channel shown, or 0 */
+    uint32_t where;      /* MC_USER_* */
+    uint32_t flags;      /* MC_USER_BOT, MC_USER_SELF */
+    uint32_t relationship;
+    uint32_t presence;  /* MC_PRESENCE_* */
+    uint32_t platforms; /* MC_PLATFORM_* */
     uint32_t reserved;
-} mc_slot_content;
-
-/* What was clicked: the surface's target ids (for MESSAGE_HOVER the hovered
-   message; for popover rows the popover's anchor) and the node's action_id. */
-typedef struct mc_slot_event {
-    uint32_t size;
-    uint32_t surface;
-    uint64_t channel_id;
-    uint64_t message_id;
-    uint64_t user_id;
-    uint64_t guild_id;
-    uint64_t action_id;
-} mc_slot_event;
-
-/* Optional handler output: up to 8 nodes the host shows as a popover anchored
-   to the clicked control (buttons run the handler again with their action_id,
-   links open through the link confirmation, labels and separators are inert). */
-typedef struct mc_popover {
-    uint32_t size;
-    uint32_t node_count;
-    const mc_slot_node* nodes;
-    uint32_t node_stride;
-    uint32_t reserved;
-} mc_popover;
-
-/* Runs inside a gesture. popover is copied after the call returns. */
-typedef mc_status (MC_CALL* mc_slot_action_fn)(void* state, uint32_t state_bytes, const mc_slot_event* event,
-                                               mc_popover* popover);
-
-typedef struct mc_slots_v2 {
-    uint32_t size;
-    uint32_t version;
-    /* Replaces this plugin's nodes for the target. Oldest entries are evicted.
-       Global surfaces ignore target ids; zero nodes clears. */
-    mc_status (MC_CALL* set)(void* binding, uint64_t generation, const mc_slot_target* target,
-                             const mc_slot_content* content);
-    mc_status (MC_CALL* clear)(void* binding, uint64_t generation, const mc_slot_target* target);
-    /* Removes every entry of one surface (MC_SLOT_SURFACE_COUNT: all surfaces). */
-    mc_status (MC_CALL* clear_surface)(void* binding, uint64_t generation, uint32_t surface);
-    mc_status (MC_CALL* set_handler)(void* binding, uint64_t generation, mc_slot_action_fn handler);
-} mc_slots_v2;
-
-/* ---- mc.store@1 --------------------------------------------------------- */
-
-typedef struct mc_store_v1 {
-    uint32_t size;
-    uint32_t version;
-    /* Keys: 1..64 bytes of printable ASCII. */
-    mc_status (MC_CALL* get)(void* binding, uint64_t generation, mc_str key, void* buffer, uint32_t capacity,
-                             uint32_t* bytes);
-    mc_status (MC_CALL* set)(void* binding, uint64_t generation, mc_str key, const void* value, uint32_t bytes);
-    mc_status (MC_CALL* remove)(void* binding, uint64_t generation, mc_str key);
-    mc_status (MC_CALL* usage)(void* binding, uint64_t generation, uint32_t* used_bytes, uint32_t* limit_bytes);
-} mc_store_v1;
-
-/* ---- mc.read@2 ---------------------------------------------------------- */
-/*
- * Copy-out getters. Each fills the caller's struct up to its size and never
- * fetches: data MaiCord doesn't hold yields MC_E_NOT_FOUND. Text is truncated
- * on a UTF-8 boundary to the inline arrays; *_bytes reports what was copied.
- * Ids are snowflakes; times are Unix milliseconds; zero means unknown.
- */
-
-enum { MC_STATUS_UNKNOWN = 0, MC_STATUS_ONLINE = 1, MC_STATUS_IDLE = 2, MC_STATUS_DND = 3, MC_STATUS_OFFLINE = 4 };
-enum {
-    MC_RELATIONSHIP_NONE = 0,
-    MC_RELATIONSHIP_FRIEND = 1,
-    MC_RELATIONSHIP_BLOCKED = 2,
-    MC_RELATIONSHIP_INCOMING = 3,
-    MC_RELATIONSHIP_OUTGOING = 4,
-    MC_RELATIONSHIP_IMPLICIT = 5
-};
-
-/* [read_context] */
-typedef struct mc_context_info {
-    uint32_t size;
-    uint32_t flags;      /* reserved */
-    uint64_t channel_id; /* zero when no channel is open */
-    uint64_t guild_id;
-    uint64_t user_id;    /* your account */
-    uint32_t channel_name_bytes;
-    uint32_t user_name_bytes;
-    char channel_name[100];
-    char user_name[64];
-} mc_context_info;
-
-/* [read_guilds] */
-#define MC_GUILD_UNAVAILABLE 1u
-#define MC_GUILD_OWNER 2u        /* you own it */
-#define MC_GUILD_COMMUNITY 4u
-#define MC_GUILD_COUNTS 8u       /* member_count/online_count are known */
-typedef struct mc_guild_info {
-    uint32_t size;
-    uint32_t flags;
-    uint64_t guild_id;
-    uint64_t owner_id;
-    uint64_t created_ms;
-    uint64_t self_permissions; /* base permission bits for your account */
-    uint32_t member_count;
-    uint32_t online_count;
-    uint32_t name_bytes;
-    uint32_t icon_bytes;
-    char name[100];
-    char icon_hash[40];
-} mc_guild_info;
+    mc_str name;     /* display name: nickname, global name or username */
+    mc_str username; /* the unique username */
+} mc_user;
 
 #define MC_CHANNEL_NSFW 1u
-#define MC_CHANNEL_PERMISSIONS 2u /* self_permissions is resolved */
-#define MC_CHANNEL_THREAD 4u
-#define MC_CHANNEL_PRIVATE 8u     /* DM or group DM */
-#define MC_CHANNEL_CAN_SEND 16u
-typedef struct mc_channel_info {
-    uint32_t size;
-    uint32_t type; /* channel type (wire value) */
+#define MC_CHANNEL_UNREAD 2u
+#define MC_CHANNEL_MUTED 4u
+#define MC_CHANNEL_PRIVATE 8u  /* a DM or group DM */
+#define MC_CHANNEL_CAN_SEND 16u /* you may send messages here */
+
+typedef struct mc_channel {
+    uint64_t channel_id;
+    uint64_t guild_id;         /* 0 for DMs */
+    uint64_t parent_id;        /* category or parent channel, or 0 */
+    uint64_t self_permissions; /* yours, Discord permission bits; 0 in DMs */
+    uint32_t type;             /* Discord channel type */
+    uint32_t flags;            /* MC_CHANNEL_* */
+    uint32_t mention_count;
+    uint32_t reserved;
+    mc_str name; /* DMs: the other user's name */
+} mc_channel;
+
+#define MC_GUILD_UNREAD 1u
+#define MC_GUILD_MUTED 2u
+
+typedef struct mc_guild {
+    uint64_t guild_id;
+    uint64_t owner_id;
+    uint64_t self_permissions; /* yours, Discord permission bits */
+    uint32_t flags;            /* MC_GUILD_* */
+    uint32_t mention_count;
+    uint32_t member_count; /* 0 when unknown */
+    uint32_t online_count; /* 0 when unknown */
+    mc_str name;
+} mc_guild;
+
+/* mc_header.where (DECORATE_HEADER) */
+enum { MC_HEADER_CHANNEL = 1, MC_HEADER_MEMBER_LIST = 2 };
+
+typedef struct mc_header {
     uint64_t channel_id;
     uint64_t guild_id;
-    uint64_t parent_id;
-    uint64_t last_message_id;
-    uint64_t self_permissions; /* computed permission bits (MC_CHANNEL_PERMISSIONS) */
-    uint64_t recipient_id;     /* DMs: the other user */
-    uint32_t flags;
-    uint32_t position;
-    uint32_t name_bytes;
+    uint32_t where;        /* MC_HEADER_* */
+    uint32_t member_count; /* 0 when unknown */
+    uint32_t online_count; /* 0 when unknown */
     uint32_t reserved;
-    char name[100];
-} mc_channel_info;
+    mc_str name; /* the channel's name */
+} mc_header;
 
-#define MC_ROLE_HOIST 1u
-#define MC_ROLE_MANAGED 2u
-#define MC_ROLE_MENTIONABLE 4u
-typedef struct mc_role_info {
-    uint32_t size;
-    uint32_t flags;
-    uint64_t role_id;
+/* ---- Message pipeline ----------------------------------------------------- */
+
+/* mc_draft.flags (PRE_SEND); in and out. */
+#define MC_DRAFT_SILENT 1u /* @silent: no push notification */
+#define MC_DRAFT_SUPPRESS_EMBEDS 2u
+#define MC_DRAFT_REPLY_PING 4u /* the reply pings the replied-to author */
+
+/* mc_draft.verdict, set by the plugin; the host sets MC_DRAFT_KEEP first. */
+enum {
+    MC_DRAFT_KEEP = 0,    /* unchanged */
+    MC_DRAFT_REPLACE = 1, /* buffer[0, replaced_bytes) replaces text */
+    MC_DRAFT_CANCEL = 2,  /* don't send or save; the composer keeps the text */
+    MC_DRAFT_CONFIRM = 3  /* PRE_SEND: ask first; buffer[0, replaced_bytes) is the question */
+};
+
+#define MC_DRAFT_TEXT_MAX 4000u  /* buffer_capacity is at least this */
+#define MC_CONFIRM_TEXT_MAX 256u /* MC_DRAFT_CONFIRM question */
+
+/* Hooks run in descriptor order per plugin and plugin enable order across
+   plugins; each sees the text earlier hooks produced. A status other than
+   MC_OK, or an overrun, leaves the draft as it was before the call. */
+typedef struct mc_draft {
+    uint64_t channel_id;
+    uint64_t guild_id;        /* 0 in DMs */
+    uint64_t message_id;      /* PRE_EDIT: the message being edited; PRE_SEND: 0 */
+    uint64_t reply_to;        /* PRE_SEND: the replied-to message, or 0 */
+    mc_str text;              /* in: the current text */
+    char* buffer;             /* out: host-owned; never aliases text */
+    uint32_t buffer_capacity; /* bytes */
+    uint32_t replaced_bytes;  /* out, with MC_DRAFT_REPLACE or CONFIRM: valid UTF-8, not empty */
+    uint32_t flags;           /* in/out: MC_DRAFT_* (PRE_SEND); PRE_EDIT ignores changes */
+    uint32_t verdict;         /* out: MC_DRAFT_* */
+} mc_draft;
+
+/* MESSAGE_CLICK. hook.filter: the clicks the hook wants, 0 = all. */
+enum { MC_CLICK_LEFT = 0, MC_CLICK_MIDDLE = 1 };
+#define MC_CLICK_FILTER_LEFT 1u
+#define MC_CLICK_FILTER_DOUBLE 2u /* left double click */
+#define MC_CLICK_FILTER_MIDDLE 4u
+#define MC_MOD_SHIFT 1u
+#define MC_MOD_CTRL 2u
+#define MC_MOD_ALT 4u
+typedef struct mc_click {
+    uint32_t button;    /* MC_CLICK_LEFT, MC_CLICK_MIDDLE */
+    uint32_t count;     /* 1, or 2 for a double click */
+    uint32_t modifiers; /* MC_MOD_* */
+    uint32_t reserved;
+} mc_click;
+enum { MC_CLICK_PASS = 0, MC_CLICK_HANDLED = 1 /* skip the host's own handling */ };
+
+/* MESSAGE_DELETED: called before the host forgets the message. MESSAGE_EDITED:
+   MC_KEEP keeps the previous content in the message's edit history. Any
+   plugin's MC_KEEP wins. Kept messages live in a session store. */
+enum { MC_DROP = 0, MC_KEEP = 1 };
+#define MC_KEEP_MESSAGES_MAX 500u
+#define MC_KEEP_PER_CHANNEL_MAX 32u
+#define MC_KEEP_EDITS_MAX 8u
+#define MC_KEEP_CONTENT_MAX 4000u
+#define MC_KEEP_RESTORE_MAX 64u /* items per keep_restore */
+
+#define MC_KEPT_DELETED 1u
+/* keep_info() */
+typedef struct mc_kept_info {
+    uint32_t flags;      /* MC_KEPT_DELETED */
+    uint32_t edit_count; /* older versions held */
+    uint64_t author_id;
+    uint64_t timestamp_ms;
+    uint64_t edited_ms;
+} mc_kept_info;
+/* keep_restore(): re-seeds the session store, e.g. from the plugin's own store. */
+typedef struct mc_kept {
+    uint32_t flags; /* MC_KEPT_DELETED */
+    uint32_t edit_count;
+    uint64_t channel_id;
+    uint64_t message_id;
+    uint64_t author_id;
+    uint64_t timestamp_ms;
+    uint64_t edited_ms;
+    mc_str content;
+    mc_str author_name;
+    const mc_str* edits; /* edit_count older versions, most recent first */
+} mc_kept;
+
+/* PRE_TYPING verdicts */
+enum { MC_ALLOW = 0, MC_SUPPRESS = 1 };
+
+/* EVENTS: hook.filter is a non-zero mask of MC_EVENT_BIT(kind); OVERFLOW is
+   always delivered. Batches hold at most MC_EVENT_BATCH_MAX events. Unless
+   noted, ids that don't apply are 0 and strings empty. */
+enum {
+    MC_EVENT_MESSAGE_CREATE = 0,   /* text: content; name: author */
+    MC_EVENT_MESSAGE_UPDATE = 1,   /* text: new content when the update carries it (MC_EVENT_TEXT) */
+    MC_EVENT_MESSAGE_DELETE = 2,   /* text, name, user_id: the last cached copy (MC_EVENT_CACHED); MC_EVENT_BULK */
+    MC_EVENT_TYPING = 3,           /* user_id is typing in channel_id */
+    MC_EVENT_REACTION_ADD = 4,     /* value: emoji id (0: Unicode); text: emoji; user_id: who reacted */
+    MC_EVENT_REACTION_REMOVE = 5,
+    MC_EVENT_PRESENCE = 6,         /* value: MC_PRESENCE_* */
+    MC_EVENT_VOICE_STATE = 7,      /* channel_id: the voice channel, 0 after leaving */
+    MC_EVENT_CHANNEL_CREATE = 8,   /* value: channel type */
+    MC_EVENT_CHANNEL_UPDATE = 9,
+    MC_EVENT_CHANNEL_DELETE = 10,  /* also when you are removed from a group DM */
+    MC_EVENT_GUILD_CREATE = 11,
+    MC_EVENT_GUILD_UPDATE = 12,
+    MC_EVENT_GUILD_DELETE = 13,    /* you left or were removed, or it was deleted */
+    MC_EVENT_MEMBER_ADD = 14,
+    MC_EVENT_MEMBER_UPDATE = 15,
+    MC_EVENT_MEMBER_REMOVE = 16,
+    MC_EVENT_RELATIONSHIP_ADD = 17,    /* user_id: the other user; value: MC_RELATIONSHIP_* */
+    MC_EVENT_RELATIONSHIP_REMOVE = 18, /* value: the relationship that ended */
+    MC_EVENT_KIND_COUNT = 19,
+    MC_EVENT_OVERFLOW = 63 /* value: events lost */
+};
+#define MC_EVENT_BIT(kind) (1ull << (kind))
+/* Message, typing and reaction kinds imply MC_PERM_READ_MESSAGES; the rest MC_PERM_READ_ACTIVITY. */
+#define MC_EVENT_MESSAGE_KINDS ((1ull << (MC_EVENT_REACTION_REMOVE + 1)) - 1u)
+#define MC_EVENT_KINDS ((1ull << MC_EVENT_KIND_COUNT) - 1u)
+#define MC_EVENT_BATCH_MAX 64u
+/* mc_event.flags */
+#define MC_EVENT_OWN 1u    /* your own message, reaction, presence or voice state */
+#define MC_EVENT_BOT 2u
+#define MC_EVENT_BULK 4u   /* part of a bulk delete */
+#define MC_EVENT_CACHED 8u /* text and name come from MaiCord's cache */
+#define MC_EVENT_TEXT 16u  /* text is present */
+#define MC_EVENT_TRUNCATED 32u /* text was cut */
+
+typedef struct mc_event {
+    uint32_t kind;  /* MC_EVENT_* */
+    uint32_t flags; /* MC_EVENT_* flags */
     uint64_t guild_id;
-    uint64_t permissions;
-    uint32_t colour;   /* 0xRRGGBB as data (plugins never paint); zero for none */
-    uint32_t position;
-    uint32_t name_bytes;
-    uint32_t reserved;
-    char name[100];
-} mc_role_info;
+    uint64_t channel_id;
+    uint64_t message_id;
+    uint64_t user_id;
+    uint64_t value;   /* per kind */
+    uint64_t time_ms; /* when MaiCord received it, Unix milliseconds */
+    mc_str text;
+    mc_str name;
+} mc_event;
 
-/* [read_members] */
-#define MC_MEMBER_ROLES 1u     /* role_ids are known */
-#define MC_MEMBER_TRUNCATED 2u /* more than 16 roles */
-#define MC_MEMBER_TIMED_OUT 4u
-typedef struct mc_member_info {
-    uint32_t size;
-    uint32_t flags;
+/* ---- Decorations ---------------------------------------------------------- */
+/* Decorate hooks run in the host's prepare pass, never while painting; the
+   result is cached by entity revision until invalidate() or decorate_push().
+   The host zeroes the mc_decoration and copies its strings after the call. A
+   hook that takes over 1 ms, fails, or writes an invalid decoration decorates
+   nothing for that revision. Badges show on message author lines, member
+   rows and both headers; channel rows and server icons show the first one.
+   BADGE and ICON nodes need text or an icon; LABEL, LINK and BUTTON need text. */
+
+/* hook.flags of DECORATE_MESSAGE: fields the hook reads. */
+#define MC_NEED_CONTENT 1u
+#define MC_NEED_AUTHOR 2u
+/* hook.filter of DECORATE_MESSAGE: the hook sees only messages matching every
+   bit set. DECORATE_USER: a mask of (1u << MC_USER_*) surfaces, 0 = all. */
+#define MC_FILTER_GUILD_ONLY 1u
+#define MC_FILTER_DM_ONLY 2u
+#define MC_FILTER_HAS_MEDIA 4u
+#define MC_FILTER_NOT_OWN 8u
+
+enum {
+    MC_NODE_LABEL = 0,
+    MC_NODE_ICON = 1,  /* tooltip is its accessible name */
+    MC_NODE_BADGE = 2, /* compact pill: text and/or icon */
+    MC_NODE_BUTTON = 3, /* tag reported to NODE_ACTION */
+    MC_NODE_LINK = 4,  /* value: https URL, opened with the host's link confirmation */
+    MC_NODE_CARD_BUTTON = 5 /* mc_node_action.kind only */
+};
+#define MC_NODE_TEXT_MAX 256u /* labels and links; badges and buttons 32 */
+#define MC_NODE_SHORT_MAX 32u
+#define MC_NODE_TOOLTIP_MAX 64u
+#define MC_URL_MAX 512u
+
+typedef struct mc_node {
+    uint32_t kind; /* MC_NODE_* */
+    uint32_t tone; /* MC_TONE_* */
+    mc_str text;
+    mc_str icon;    /* host icon name, e.g. "lucide/star"; unknown names show a placeholder */
+    mc_str tooltip; /* at most MC_NODE_TOOLTIP_MAX */
+    mc_str value;   /* LINK: the URL */
+    uint64_t tag;   /* BUTTON: 1..2^63-1 */
+} mc_node;
+
+#define MC_CARD_BUTTONS 2u
+#define MC_CARD_TITLE_MAX 64u
+#define MC_CARD_TEXT_MAX 1024u
+
+typedef struct mc_card_button {
+    mc_str label; /* 1..MC_NODE_SHORT_MAX */
+    uint64_t tag; /* 1..2^63-1; reported to NODE_ACTION as MC_NODE_CARD_BUTTON */
+    uint32_t tone;
+    uint32_t reserved;
+} mc_card_button;
+
+/* A rich block: message accessories and local messages. */
+typedef struct mc_card {
+    mc_str title;     /* at most MC_CARD_TITLE_MAX; a card needs a title or text */
+    mc_str text;      /* plain text with line feeds, at most MC_CARD_TEXT_MAX */
+    mc_str caption;   /* at most MC_CARD_TITLE_MAX */
+    mc_str link;      /* optional https URL the title opens */
+    mc_str thumbnail; /* optional https image on Discord's CDN or a declared, approved network host */
+    mc_card_button buttons[MC_CARD_BUTTONS];
+    uint32_t button_count;
+    uint32_t tone; /* accent bar */
+} mc_card;
+
+enum { MC_VIS_NORMAL = 0, MC_VIS_COLLAPSED = 1, MC_VIS_HIDDEN = 2 };
+enum { MC_MEDIA_SHOW = 0, MC_MEDIA_BLUR = 1, MC_MEDIA_HIDE = 2 };
+#define MC_DECO_REPLACE_CONTENT 1u /* show content instead of the message text */
+#define MC_DECORATION_BADGES 4u
+#define MC_DECORATION_ACCESSORIES 8u
+#define MC_DECORATION_CONTENT_MAX 2000u
+
+typedef struct mc_decoration {
+    uint32_t visibility; /* MC_VIS_*; messages only */
+    uint32_t media;      /* MC_MEDIA_*; messages only */
+    uint32_t name_tone;  /* MC_TONE_* for the prefix and suffix */
+    uint32_t flags;      /* MC_DECO_* */
+    mc_str collapsed_label; /* at most 64; empty = the host's text */
+    mc_str name_prefix;     /* plain text, at most MC_NODE_SHORT_MAX */
+    mc_str name_suffix;     /* plain text, at most MC_NODE_SHORT_MAX */
+    mc_str content;         /* with MC_DECO_REPLACE_CONTENT: display-only markdown */
+    uint32_t badge_count;
+    uint32_t accessory_count;
+    uint32_t has_card;
+    uint32_t reserved;
+    mc_node badges[MC_DECORATION_BADGES];           /* by the name, row or icon */
+    mc_node accessories[MC_DECORATION_ACCESSORIES]; /* rows below a message; profile section rows */
+    mc_card card;                                   /* messages: below the accessories */
+} mc_decoration;
+
+/* NODE_ACTION: a BUTTON node or card button was clicked (a gesture). */
+typedef struct mc_node_action {
+    uint64_t tag;
+    uint64_t channel_id;
+    uint64_t message_id;
+    uint64_t user_id;
     uint64_t guild_id;
-    uint64_t user_id;
-    uint64_t timeout_until_ms;
-    uint64_t colour_role_id;
-    uint32_t status;     /* MC_STATUS_* as seen in this server's member list */
-    uint32_t role_count;
-    uint64_t role_ids[16];
-    uint32_t nick_bytes;
+    uint32_t source; /* the MC_HOOK_DECORATE_* kind, or 0 for a pushed decoration or local message */
+    uint32_t kind;   /* MC_NODE_BUTTON or MC_NODE_CARD_BUTTON */
+} mc_node_action;
+
+/* invalidate(what, id) */
+enum {
+    MC_INVALIDATE_MESSAGE = 1,
+    MC_INVALIDATE_USER = 2,
+    MC_INVALIDATE_CHANNEL = 3,
+    MC_INVALIDATE_GUILD = 4,
+    MC_INVALIDATE_HEADER = 5,
+    MC_INVALIDATE_BUTTONS = 6
+};
+
+/* ---- Buttons (descriptor.buttons) ------------------------------------------ */
+
+enum {
+    MC_SURFACE_CHAT_BAR = 1,
+    MC_SURFACE_MESSAGE_POPOVER = 2, /* two visible per message; more go into a "Plugins" submenu */
+    MC_SURFACE_ACCOUNT_PANEL = 3,
+    MC_SURFACE_HEADER = 4,
+    MC_SURFACE_SERVER_LIST_TOP = 5,
+    MC_SURFACE_SERVER_LIST_BOTTOM = 6
+};
+#define MC_BUTTON_TOGGLE 1u /* shows its active state */
+#define MC_BUTTON_DANGER 2u
+#define MC_BUTTON_MAX 16u
+#define MC_BUTTON_LABEL_MAX 64u
+
+typedef struct mc_button_event {
+    uint64_t channel_id;        /* the open channel, or 0 */
+    uint64_t guild_id;          /* 0 in DMs */
+    const mc_message* message;  /* MESSAGE_POPOVER: the message; else null */
+    uint32_t button;            /* index in descriptor.buttons */
     uint32_t reserved;
-    char nick[96];
-} mc_member_info;
+} mc_button_event;
 
-#define MC_USER_SELF 1u
-typedef struct mc_user_info {
-    uint32_t size;
-    uint32_t flags;
+typedef uint32_t(MC_CALL* mc_button_visible_fn)(mc_ctx* ctx, const mc_button_event* event); /* non-zero: shown */
+typedef mc_status(MC_CALL* mc_button_fn)(mc_ctx* ctx, const mc_button_event* event);          /* gesture */
+
+typedef struct mc_button_def {
+    uint32_t surface; /* MC_SURFACE_* */
+    uint32_t flags;   /* MC_BUTTON_TOGGLE, MC_BUTTON_DANGER */
+    mc_str label;     /* 1..MC_BUTTON_LABEL_MAX: tooltip and accessible name */
+    mc_str icon;      /* host icon name */
+    mc_button_visible_fn visible; /* optional */
+    mc_button_fn click;
+} mc_button_def;
+
+/* button_state() */
+#define MC_BUTTON_ACTIVE 1u
+#define MC_BUTTON_DISABLED 2u
+#define MC_BUTTON_HIDDEN 4u
+typedef struct mc_button_state {
+    uint32_t flags;       /* MC_BUTTON_ACTIVE, MC_BUTTON_DISABLED, MC_BUTTON_HIDDEN */
+    uint32_t badge_count; /* 0 = none; above 99 shows 99+ */
+    mc_str tooltip;       /* empty = the label */
+    mc_str icon;          /* empty = the declared icon */
+} mc_button_state;
+
+/* ---- Context menus (descriptor.menus) ---------------------------------------- */
+
+#define MC_MENU_USER 0x1u
+#define MC_MENU_MESSAGE 0x2u
+#define MC_MENU_CHANNEL 0x4u
+#define MC_MENU_GUILD 0x8u
+#define MC_MENU_LINK 0x10u
+#define MC_MENU_IMAGE 0x20u /* images and other attachments */
+#define MC_MENU_EMOJI 0x40u
+#define MC_MENU_TARGETS 0x7Fu      /* the targets this ABI implements */
+#define MC_MENU_ROLE 0x80u         /* reserved: refused */
+#define MC_MENU_VOICE_USER 0x100u  /* reserved: refused */
+
+/* mc_menu_def.flags */
+#define MC_MENU_CHECKBOX 1u
+#define MC_MENU_DANGER 2u
+#define MC_MENU_SUBMENU 4u /* opens its children; no select */
+/* What visible returns; without a visible function an item is shown. */
+#define MC_MENU_HIDE 0u
+#define MC_MENU_SHOW 1u
+#define MC_MENU_DISABLED 2u
+#define MC_MENU_CHECKED 4u
+/* mc_menu_target.flags */
+#define MC_MENU_OWN 1u      /* your message or yourself */
+#define MC_MENU_PRIVATE 2u  /* in a DM or group DM */
+#define MC_MENU_ANIMATED 4u /* an animated emoji */
+
+#define MC_MENU_MAX 32u
+#define MC_MENU_LABEL_MAX 64u
+
+typedef struct mc_menu_target {
+    uint32_t kind;  /* one MC_MENU_* bit */
+    uint32_t flags; /* MC_MENU_OWN, MC_MENU_PRIVATE, MC_MENU_ANIMATED */
     uint64_t user_id;
-    uint32_t name_bytes;     /* display (global) name, or username */
-    uint32_t username_bytes;
-    uint32_t avatar_bytes;
+    uint64_t channel_id;
+    uint64_t guild_id;
+    uint64_t message_id;
+    uint64_t item_id;          /* EMOJI: the emoji (0: Unicode); IMAGE: the attachment */
+    mc_str url;                /* LINK, IMAGE: the URL; EMOJI: its image */
+    mc_str text;               /* LINK: link text; IMAGE: file name; EMOJI: name */
+    mc_str content_type;       /* IMAGE */
+    uint32_t attachment_index; /* IMAGE: its position in the message */
+    uint32_t width, height;    /* IMAGE; 0 when unknown */
     uint32_t reserved;
-    char name[64];
-    char username[40];
-    char avatar_hash[40];
-} mc_user_info;
+} mc_menu_target;
 
-typedef struct mc_relationship_info {
-    uint32_t size;
-    uint32_t type;   /* MC_RELATIONSHIP_* */
-    uint64_t user_id;
-    uint32_t status; /* friends: MC_STATUS_* */
-    uint32_t nickname_bytes;
-    char nickname[64];
-} mc_relationship_info;
+typedef uint32_t(MC_CALL* mc_menu_visible_fn)(mc_ctx* ctx, const mc_menu_target* target); /* MC_MENU_* bits */
+typedef mc_status(MC_CALL* mc_menu_fn)(mc_ctx* ctx, const mc_menu_target* target);          /* gesture */
 
-/* Held only while that profile is open in MaiCord. */
-typedef struct mc_profile_info {
-    uint32_t size;
-    uint32_t flags; /* reserved */
-    uint64_t user_id;
-    uint64_t guild_id;  /* server profile shown, or zero */
-    uint64_t joined_ms; /* server join time when guild_id is set */
-    uint32_t pronouns_bytes;
-    uint32_t bio_bytes;
-    char pronouns[64];
-    char bio[800];
-} mc_profile_info;
+typedef struct mc_menu_def {
+    mc_str label;     /* 1..MC_MENU_LABEL_MAX */
+    uint32_t targets; /* MC_MENU_* mask; children: a subset of the parent's */
+    uint32_t flags;   /* MC_MENU_CHECKBOX, MC_MENU_DANGER, MC_MENU_SUBMENU */
+    uint32_t parent;  /* 0, or the 1-based index of an earlier SUBMENU item (one level) */
+    uint32_t reserved;
+    mc_menu_visible_fn visible; /* optional; runs when the menu opens */
+    mc_menu_fn select;          /* null exactly for SUBMENU items */
+} mc_menu_def;
 
-/* [read_presence] */
-typedef struct mc_presence_info {
-    uint32_t size;
-    uint32_t status; /* MC_STATUS_* */
-    uint64_t user_id;
-    uint32_t desktop; /* per platform (client_status): MC_STATUS_*; MC_STATUS_OFFLINE when absent */
-    uint32_t mobile;
-    uint32_t web;
-    uint32_t activity_count;
-} mc_presence_info;
+/* ---- Slash commands (descriptor.commands) ------------------------------------- */
+
+enum { MC_ARG_TEXT = 1, MC_ARG_INT = 2, MC_ARG_BOOL = 3, MC_ARG_USER = 4, MC_ARG_CHANNEL = 5 };
+#define MC_ARG_REQUIRED 1u    /* required arguments come first */
+#define MC_COMMAND_GUILD_ONLY 1u
+#define MC_COMMAND_MAX 16u
+#define MC_COMMAND_ARGS_MAX 8u
+#define MC_COMMAND_NAME_MAX 32u        /* names: 1..32 bytes of [a-z0-9_-] */
+#define MC_COMMAND_DESCRIPTION_MAX 100u /* descriptions: 1..100 bytes */
+#define MC_ARG_CHOICES_MAX 25u
+#define MC_REPLY_TEXT_MAX 4000u
+
+typedef struct mc_arg_def {
+    mc_str name;
+    mc_str description;
+    uint32_t type;  /* MC_ARG_* */
+    uint32_t flags; /* MC_ARG_REQUIRED */
+    int64_t minimum, maximum; /* INT: value range; TEXT: length in characters; both 0 = unbounded */
+    const mc_str* choices;    /* TEXT: the allowed values, or null */
+    uint32_t choice_count;
+    uint32_t reserved;
+} mc_arg_def;
+
+/* One per mc_arg_def, in order. */
+typedef struct mc_arg {
+    uint32_t type;
+    uint32_t present; /* 0 for an omitted optional argument */
+    mc_str text;      /* TEXT */
+    int64_t integer;  /* INT; BOOL 0 or 1 */
+    uint64_t id;      /* USER, CHANNEL */
+} mc_arg;
+
+enum {
+    MC_REPLY_NONE = 0,
+    MC_REPLY_SEND = 1,   /* send the reply text through PRE_SEND; needs MC_PERM_MESSAGE_SEND */
+    MC_REPLY_INSERT = 2, /* put it in the composer */
+    MC_REPLY_LOCAL = 3,  /* a local message only you see, in reply_tone */
+    MC_REPLY_TOAST = 4   /* a toast in reply_tone */
+};
+
+typedef struct mc_command_call {
+    uint64_t channel_id;
+    uint64_t guild_id; /* 0 in DMs */
+    const mc_arg* args;
+    uint32_t arg_count;
+    uint32_t reply_kind; /* out: MC_REPLY_* */
+    char* reply;         /* out: host-owned buffer */
+    uint32_t reply_capacity;
+    uint32_t reply_bytes; /* out */
+    uint32_t reply_tone;  /* out: MC_TONE_* */
+    uint32_t reserved;
+} mc_command_call;
+
+typedef mc_status(MC_CALL* mc_command_fn)(mc_ctx* ctx, mc_command_call* call); /* gesture */
+
+typedef struct mc_command_def {
+    mc_str name;
+    mc_str description;
+    const mc_arg_def* args;
+    uint32_t arg_count;
+    uint32_t flags; /* MC_COMMAND_GUILD_ONLY */
+    mc_command_fn run;
+} mc_command_def;
+
+/* ---- Network ---------------------------------------------------------------- */
+/* descriptor.network lists the hosts http() may reach: lower-case ASCII
+   names, exact or "*.example.com", never Discord's. A non-empty list implies
+   MC_PERM_NETWORK and needs a MC_HOOK_COMPLETION hook; the consent dialog
+   shows every host. Requests are HTTPS only, with no cookies and no
+   redirects off the list; responses arrive as MC_COMPLETION_HTTP. */
+
+#define MC_NETWORK_HOSTS_MAX 8u
+#define MC_HOST_MAX 253u
+#define MC_HTTP_URL_MAX 2048u /* https://host/path?query; no user info, port or fragment */
+#define MC_HTTP_HEADERS_MAX 8u
+#define MC_HTTP_HEADER_VALUE_MAX 1024u
+#define MC_HTTP_BODY_MAX 4096u /* POST body */
+#define MC_HTTP_RESPONSE_MAX (1u << 20)
+#define MC_HTTP_REDIRECTS_MAX 3u
+#define MC_HTTP_REQUESTS_PER_MINUTE 30u
+#define MC_HTTP_PENDING_MAX 4u /* in flight per plugin */
+
+enum { MC_HTTP_GET = 1, MC_HTTP_POST = 2 };
+
+typedef struct mc_http_header {
+    mc_str name;  /* a token; not Host, Cookie, Content-Length, Connection, Transfer-Encoding,
+                     Accept-Encoding or User-Agent */
+    mc_str value; /* at most MC_HTTP_HEADER_VALUE_MAX */
+} mc_http_header;
+
+typedef struct mc_http_request {
+    uint32_t method; /* MC_HTTP_* */
+    uint32_t flags;  /* 0 */
+    mc_str url;      /* https:// on a declared host, at most MC_HTTP_URL_MAX */
+    const mc_http_header* headers;
+    uint32_t header_count;
+    uint32_t reserved;
+    const void* body;            /* POST only */
+    uint32_t body_bytes;         /* 0..MC_HTTP_BODY_MAX; 0 for GET */
+    uint32_t max_response_bytes; /* 0 = MC_HTTP_RESPONSE_MAX */
+} mc_http_request;
+
+/* mc_completion.error for MC_COMPLETION_HTTP */
+enum {
+    MC_HTTP_OK = 0,           /* a response arrived; see status */
+    MC_HTTP_E_NETWORK = 1,    /* resolve, connect, TLS, timeout or a malformed response */
+    MC_HTTP_E_TOO_LARGE = 2,  /* the response exceeded max_response_bytes */
+    MC_HTTP_E_REDIRECT = 3,   /* a redirect off the list, not HTTPS, to Discord, or too many */
+    MC_HTTP_E_DENIED = 4      /* the user revoked the host before the request ran */
+};
+
+/* ---- Feedback: banners and modals ------------------------------------------------ */
+
+typedef struct mc_banner {
+    uint32_t tone; /* MC_TONE_NEUTRAL or MC_TONE_WARNING */
+    uint32_t reserved;
+    uint64_t tag;  /* reported in MC_COMPLETION_BANNER */
+    mc_str title;  /* 1..96 bytes */
+    mc_str text;   /* 0..192 bytes */
+    mc_str action; /* 0..32 bytes: the button label; empty = none */
+} mc_banner;
+enum { MC_BANNER_ACTION = 1, MC_BANNER_DISMISSED = 2 };
+
+/* A host dialog: a confirmation, optionally with one toggle, or a form with
+   one text input, optionally with one dropdown. */
+#define MC_MODAL_DANGER 1u         /* the accept button is destructive */
+#define MC_MODAL_ACCEPT_FOCUSED 2u /* accept has the initial focus */
+#define MC_MODAL_MULTILINE 4u      /* the input takes several lines */
+#define MC_MODAL_SELECT_MAX 16u
+
+typedef struct mc_modal {
+    uint32_t flags;     /* MC_MODAL_* */
+    uint32_t has_input; /* 1: a form with a text input */
+    mc_str title;       /* 1..64 bytes */
+    mc_str body;        /* 0..512 bytes */
+    mc_str accept;      /* 0..32 bytes; empty = "OK" */
+    mc_str cancel;      /* 0..32 bytes; empty = "Cancel" */
+    mc_str input_label;
+    mc_str input_initial;
+    mc_str input_hint;
+    uint32_t input_max_chars; /* 0 = none; else 1..2000 */
+    uint32_t toggle_initial;  /* 0 or 1 */
+    mc_str toggle_label;      /* confirmation only; empty = no toggle */
+    mc_str select_label;      /* form only; empty = no dropdown */
+    const mc_str* select_items;
+    uint32_t select_count; /* 0..MC_MODAL_SELECT_MAX */
+    uint32_t select_initial;
+} mc_modal;
+
+/* ---- Completions -------------------------------------------------------------- */
+/* Results of asynchronous calls arrive at MC_HOOK_COMPLETION with the
+   caller's tag; strings and the body are valid for the call. A completion
+   of a call made inside a gesture (PRE_SEND counts as one) carries
+   MC_CTX_GESTURE until 5 seconds after that gesture; calls started from that
+   completion keep the same deadline. */
+
+enum { MC_COMPLETION_HTTP = 1, MC_COMPLETION_MODAL = 2, MC_COMPLETION_BANNER = 3 };
+
+typedef struct mc_completion {
+    uint32_t kind;  /* MC_COMPLETION_* */
+    uint32_t error; /* HTTP: MC_HTTP_E_*, else 0 */
+    uint64_t tag;
+    uint32_t status;      /* HTTP: 200..599, 0 on error */
+    uint32_t body_bytes;  /* HTTP */
+    const void* body;     /* HTTP: the response; null when body_bytes is 0 */
+    uint32_t result;      /* MODAL: 1 accepted, 0 cancelled; BANNER: MC_BANNER_* */
+    uint32_t toggle;      /* MODAL: the toggle, 0 or 1 */
+    uint32_t select_index; /* MODAL: the dropdown */
+    uint32_t reserved;
+    mc_str text; /* MODAL: the input text */
+} mc_completion;
+
+/* ---- Actions ------------------------------------------------------------------ */
+/* Writes (send, edit, react, delete, mark read) need MC_PERM_ACT_MESSAGES and a
+   gesture or its completion window; MC_PERM_AUTOMATED_ACTIONS lifts the
+   gesture requirement. They're rate-limited per plugin (MC_E_RATE_LIMITED).
+   open_url, copy_text and open always need a gesture. */
+
+typedef struct mc_send {
+    uint64_t channel_id;
+    uint64_t reply_to; /* 0 = not a reply */
+    mc_str text;       /* 1..MC_DRAFT_TEXT_MAX; not run through PRE_SEND */
+    uint32_t flags;    /* MC_DRAFT_SILENT, MC_DRAFT_SUPPRESS_EMBEDS, MC_DRAFT_REPLY_PING */
+    uint32_t reserved;
+} mc_send;
+
+#define MC_REACT_REMOVE 1u /* react(): remove your reaction instead */
+#define MC_ACTION_TEXT_MAX 4000u /* edit, local messages, copy_text */
+enum { MC_READ_CHANNEL = 1, MC_READ_GUILD = 2, MC_READ_ALL = 3 };
+enum {
+    MC_OPEN_CHANNEL = 1, /* id: channel */
+    MC_OPEN_PROFILE = 2  /* id: user; sub: guild or 0 */
+};
 
 enum {
     MC_ACTIVITY_PLAYING = 0,
     MC_ACTIVITY_STREAMING = 1,
     MC_ACTIVITY_LISTENING = 2,
     MC_ACTIVITY_WATCHING = 3,
-    MC_ACTIVITY_CUSTOM = 4,
+    MC_ACTIVITY_CUSTOM = 4, /* custom status: state and emoji */
     MC_ACTIVITY_COMPETING = 5
 };
-typedef struct mc_activity_info {
-    uint32_t size;
-    uint32_t type; /* MC_ACTIVITY_* */
-    uint64_t application_id;
-    uint64_t start_ms;
-    uint64_t end_ms;
-    uint32_t name_bytes;
-    uint32_t details_bytes;
-    uint32_t state_bytes;
-    uint32_t reserved;
-    char name[128];
-    char details[128];
-    char state[128];
-} mc_activity_info;
-
-/* [read_voice] */
-#define MC_VOICE_MUTE 1u
-#define MC_VOICE_DEAF 2u
-#define MC_VOICE_SELF_MUTE 4u
-#define MC_VOICE_SELF_DEAF 8u
-#define MC_VOICE_STREAMING 16u
-#define MC_VOICE_VIDEO 32u
-#define MC_VOICE_SUPPRESSED 64u
-typedef struct mc_voice_info {
-    uint32_t size;
-    uint32_t flags; /* MC_VOICE_* */
-    uint64_t guild_id;
-    uint64_t channel_id;
-    uint64_t user_id;
-} mc_voice_info;
-
-/* [read_messages] Messages in MaiCord's cache (the open channel's window).
-   Set content/content_capacity to receive the text; content_bytes reports
-   the full size, and MC_E_TRUNCATED means the text was cut (other fields are
-   complete). */
-typedef struct mc_message_info {
-    uint32_t size;
-    uint32_t content_capacity; /* in */
-    char* content;             /* in: caller buffer, or null */
-    uint32_t content_bytes;
-    uint32_t flags;            /* MC_MESSAGE_* */
-    uint64_t channel_id;
-    uint64_t message_id;
-    uint64_t author_id;
-    uint64_t guild_id;
-    uint64_t timestamp_ms;
-    uint64_t edited_ms;
-    uint64_t reply_message_id;
-    uint64_t reply_channel_id;
-    uint32_t type;             /* message type (wire value) */
-    uint32_t revision;         /* changes whenever MaiCord updates the message */
-    uint32_t attachment_count;
-    uint32_t embed_count;
-    uint32_t reaction_count;
-    uint32_t author_name_bytes;
-    char author_name[64];
-} mc_message_info;
-
-#define MC_ATTACHMENT_SPOILER 1u
-typedef struct mc_attachment_info {
-    uint32_t size;
-    uint32_t flags;
-    uint64_t attachment_id;
-    uint64_t bytes;
-    uint32_t width;
-    uint32_t height;
-    uint32_t filename_bytes;
-    uint32_t content_type_bytes;
-    uint32_t url_bytes;
-    uint32_t reserved;
-    char filename[128];
-    char content_type[64];
-    char url[512];
-} mc_attachment_info;
-
-typedef struct mc_embed_info {
-    uint32_t size;
-    uint32_t reserved;
-    uint64_t timestamp_ms;
-    uint32_t title_bytes;
-    uint32_t url_bytes;
-    uint32_t description_bytes;
-    uint32_t provider_bytes;
-    char title[256];
-    char url[512];
-    char description[512];
-    char provider[64];
-} mc_embed_info;
-
-#define MC_REACTION_ME 1u
-#define MC_REACTION_ANIMATED 2u
-typedef struct mc_reaction_info {
-    uint32_t size;
-    uint32_t flags;
-    uint64_t emoji_id; /* zero for Unicode */
-    uint32_t count;
-    uint32_t name_bytes;
-    char name[64]; /* custom emoji name or the Unicode emoji */
-} mc_reaction_info;
-
-/* Monotonic change counters per data class (cheap polling). */
-typedef struct mc_read_revisions {
-    uint32_t size;
-    uint32_t reserved;
-    uint64_t guilds;   /* guilds, channels, roles */
-    uint64_t members;  /* users, members, relationships */
-    uint64_t presence;
-    uint64_t voice;
-    uint64_t messages;
-} mc_read_revisions;
-
-enum {
-    MC_LIST_GUILDS = 0,        /* scope 0; [read_guilds] */
-    MC_LIST_CHANNELS = 1,      /* scope guild, or 0 for DMs; [read_guilds] */
-    MC_LIST_ROLES = 2,         /* scope guild; [read_guilds] */
-    MC_LIST_MEMBERS = 3,       /* scope guild: members MaiCord holds; [read_members] */
-    MC_LIST_RELATIONSHIPS = 4, /* scope 0: user ids; [read_members] */
-    MC_LIST_VOICE = 5,         /* scope channel: user ids in it; [read_voice] */
-    MC_LIST_MESSAGES = 6       /* scope channel: cached message ids, newest first; [read_messages] */
-};
-
-typedef struct mc_read_v2 {
-    uint32_t size;
-    uint32_t version;
-    mc_status (MC_CALL* context)(void* binding, uint64_t generation, mc_context_info* info);
-    mc_status (MC_CALL* guild)(void* binding, uint64_t generation, uint64_t guild_id, mc_guild_info* info);
-    mc_status (MC_CALL* channel)(void* binding, uint64_t generation, uint64_t channel_id, mc_channel_info* info);
-    mc_status (MC_CALL* role)(void* binding, uint64_t generation, uint64_t guild_id, uint64_t role_id,
-                              mc_role_info* info);
-    mc_status (MC_CALL* member)(void* binding, uint64_t generation, uint64_t guild_id, uint64_t user_id,
-                                mc_member_info* info);
-    /* Your own user is readable with [read_context] alone. */
-    mc_status (MC_CALL* user)(void* binding, uint64_t generation, uint64_t user_id, mc_user_info* info);
-    mc_status (MC_CALL* relationship)(void* binding, uint64_t generation, uint64_t user_id,
-                                      mc_relationship_info* info);
-    mc_status (MC_CALL* profile)(void* binding, uint64_t generation, uint64_t user_id, mc_profile_info* info);
-    /* guild_id selects which member list's status to prefer; zero uses friends first. */
-    mc_status (MC_CALL* presence)(void* binding, uint64_t generation, uint64_t user_id, uint64_t guild_id,
-                                  mc_presence_info* info);
-    mc_status (MC_CALL* activity)(void* binding, uint64_t generation, uint64_t user_id, uint32_t index,
-                                  mc_activity_info* info);
-    /* guild_id zero searches every server and private calls. */
-    mc_status (MC_CALL* voice)(void* binding, uint64_t generation, uint64_t guild_id, uint64_t user_id,
-                               mc_voice_info* info);
-    mc_status (MC_CALL* message)(void* binding, uint64_t generation, uint64_t channel_id, uint64_t message_id,
-                                 mc_message_info* info);
-    mc_status (MC_CALL* attachment)(void* binding, uint64_t generation, uint64_t channel_id, uint64_t message_id,
-                                    uint32_t index, mc_attachment_info* info);
-    mc_status (MC_CALL* embed)(void* binding, uint64_t generation, uint64_t channel_id, uint64_t message_id,
-                               uint32_t index, mc_embed_info* info);
-    mc_status (MC_CALL* reaction)(void* binding, uint64_t generation, uint64_t channel_id, uint64_t message_id,
-                                  uint32_t index, mc_reaction_info* info);
-    /* Bounded iteration: copies up to capacity ids starting at cursor (0 first);
-       *next is the cursor to continue with, 0 at the end. */
-    mc_status (MC_CALL* list)(void* binding, uint64_t generation, uint32_t list, uint64_t scope, uint32_t cursor,
-                              uint64_t* ids, uint32_t capacity, uint32_t* count, uint32_t* next);
-    /* Fills the counters of the classes this plugin may read; others stay zero. */
-    mc_status (MC_CALL* revisions)(void* binding, uint64_t generation, mc_read_revisions* revisions);
-} mc_read_v2;
-
-/* ---- mc.events@1 -------------------------------------------------------- */
-/*
- * Change notifications, copied out of the gateway stream before MaiCord
- * applies them and delivered in batches on the UI thread during the next
- * host pass (32 events per call, 4 calls per plugin per pass, oldest first).
- * The queue holds 512 events across plugins; a plugin that falls behind gets
- * one MC_EVENT_OVERFLOW with value = events lost. Each kind needs its read
- * permission: messages, typing and reactions [read_messages], presence
- * [read_presence], voice [read_voice], channels and guilds [read_guilds],
- * members [read_members]. Events cover every channel MaiCord receives.
- */
-enum {
-    MC_EVENT_MESSAGE_CREATE = 0, /* text: content, name: author */
-    MC_EVENT_MESSAGE_UPDATE = 1, /* text: new content when the update carries it (MC_EVENT_TEXT) */
-    MC_EVENT_MESSAGE_DELETE = 2, /* text/name/user_id: last cached copy (MC_EVENT_CACHED); MC_EVENT_BULK */
-    MC_EVENT_TYPING = 3,         /* user_id typing in channel_id */
-    MC_EVENT_REACTION_ADD = 4,   /* value: emoji id, text: emoji name, user_id: reactor */
-    MC_EVENT_REACTION_REMOVE = 5,
-    MC_EVENT_PRESENCE = 6,       /* value: MC_STATUS_* */
-    MC_EVENT_VOICE_STATE = 7,    /* channel_id: joined channel (0 left), value: MC_VOICE_* */
-    MC_EVENT_CHANNEL_CREATE = 8, /* value: channel type */
-    MC_EVENT_CHANNEL_UPDATE = 9,
-    MC_EVENT_CHANNEL_DELETE = 10,
-    MC_EVENT_GUILD_CREATE = 11,
-    MC_EVENT_GUILD_UPDATE = 12,
-    MC_EVENT_GUILD_DELETE = 13,
-    MC_EVENT_MEMBER_ADD = 14,
-    MC_EVENT_MEMBER_UPDATE = 15,
-    MC_EVENT_MEMBER_REMOVE = 16,
-    MC_EVENT_KIND_COUNT = 17,
-    MC_EVENT_OVERFLOW = 63       /* always delivered; value: events lost */
-};
-#define MC_EVENT_MASK(kind) (1ull << (kind))
-#define MC_EVENT_OWN 1u    /* your own message, reaction, presence or voice state */
-#define MC_EVENT_BOT 2u
-#define MC_EVENT_BULK 4u   /* part of a bulk delete */
-#define MC_EVENT_CACHED 8u /* text/name come from MaiCord's cache */
-#define MC_EVENT_TEXT 16u  /* text is present */
-
-typedef struct mc_event {
-    uint32_t size;
-    uint32_t kind; /* MC_EVENT_* */
-    uint64_t sequence; /* host order */
-    uint64_t guild_id;
-    uint64_t channel_id;
-    uint64_t message_id;
-    uint64_t user_id;
-    uint64_t value;   /* per kind, see above */
-    uint64_t time_ms; /* when MaiCord received it */
-    uint32_t flags;   /* MC_EVENT_* flags */
-    uint32_t reserved;
-    mc_str text;      /* valid during the call */
-    mc_str name;
-} mc_event;
-
-typedef void (MC_CALL* mc_event_fn)(void* state, uint32_t state_bytes, const mc_event* events, uint32_t count,
-                                    uint32_t stride);
-
-typedef struct mc_events_v1 {
-    uint32_t size;
-    uint32_t version;
-    /* Replaces the subscription; kinds is a mask of MC_EVENT_MASK(kind). Every
-       requested kind must be permitted. Zero kinds or a null handler unsubscribes. */
-    mc_status (MC_CALL* subscribe)(void* binding, uint64_t generation, uint64_t kinds, mc_event_fn handler);
-} mc_events_v1;
-
-/* ---- mc.msg.render@1 ---------------------------------------------------- */
-/*
- * Pull-style presentation decorators. The host calls the decorator once per
- * message revision (and again after invalidate) before laying the message
- * out, caches the merged result of every plugin, and never asks while
- * painting. A decorator returns a verdict, not pixels: plugins can't draw.
- * Across plugins: the strongest visibility and media verdict wins, prefixes
- * and suffixes join in plugin order, the first content replacement wins,
- * badges and accessories are appended up to the host limits.
- */
-enum { MC_RENDER_NORMAL = 0, MC_RENDER_COLLAPSED = 1, MC_RENDER_HIDDEN = 2 };
-enum { MC_MEDIA_SHOW = 0, MC_MEDIA_BLUR = 1, MC_MEDIA_HIDE = 2 };
-
-typedef struct mc_render_message {
-    uint32_t size;
-    uint32_t flags; /* MC_MESSAGE_* */
-    uint64_t channel_id;
-    uint64_t message_id;
-    uint64_t author_id;
-    uint64_t guild_id;
-    uint64_t timestamp_ms;
-    uint64_t edited_ms;
-    uint32_t revision;
-    uint32_t relationship; /* MC_RELATIONSHIP_* between you and the author */
-    uint32_t attachment_count;
-    uint32_t embed_count;
-    mc_str content;
-    mc_str author_name;
-} mc_render_message;
-
-/* Host-zeroed output. Strings and node arrays are copied after the call. */
-typedef struct mc_render_decoration {
-    uint32_t size;
-    uint32_t visibility;    /* MC_RENDER_*; collapsed rows show the label and a "Show" link */
-    mc_str collapsed_label; /* <= 64 bytes; the host's default when empty */
-    mc_str name_prefix;     /* <= 32 bytes, before the author name */
-    mc_str name_suffix;     /* <= 32 bytes, after the author name */
-    uint32_t name_tone;     /* MC_TONE_* (MC_TONE_ROLE: the author's role colour) */
-    uint32_t media;         /* MC_MEDIA_* for attachments and embeds */
-    uint32_t replace_content; /* non-zero: show content instead of the message text */
-    uint32_t reserved;
-    mc_str content;         /* display-only markdown source, <= 2000 bytes; never sent or copied as the message */
-    const mc_slot_node* badges;      /* <= 2 badge/icon nodes after the author name */
-    uint32_t badge_count;
-    uint32_t badge_stride;
-    const mc_slot_node* accessories; /* <= 4 label/button/link nodes in a row below the content */
-    uint32_t accessory_count;
-    uint32_t accessory_stride;
-} mc_render_decoration;
-
-typedef mc_status (MC_CALL* mc_render_fn)(void* state, uint32_t state_bytes, const mc_render_message* message,
-                                          mc_render_decoration* decoration);
-
-typedef struct mc_render_v1 {
-    uint32_t size;
-    uint32_t version;
-    mc_status (MC_CALL* set_decorator)(void* binding, uint64_t generation, mc_render_fn decorator);
-    /* Asks again for one message (or every message when message_id is zero). */
-    mc_status (MC_CALL* invalidate)(void* binding, uint64_t generation, uint64_t channel_id, uint64_t message_id);
-    /* Accessory buttons report surface MC_SLOT_MESSAGE_ACCESSORY with the message ids. */
-    mc_status (MC_CALL* set_action_handler)(void* binding, uint64_t generation, mc_slot_action_fn handler);
-} mc_render_v1;
-
-/* ---- mc.actions@1 ------------------------------------------------------- */
-/*
- * Host-executed actions through MaiCord's normal paths; MC_OK means the
- * request was accepted and queued, and failures are shown by the regular UI
- * (a failed send stays in the chat with a retry). Rate limits per plugin:
- * messages (send/edit) 5 per 5 s, reactions 10 per 10 s, mark read 10 per
- * 10 s, presence (status/activity) 2 per 10 s, notices 3 per 10 s; one modal
- * at a time. Exhausted limits return MC_E_RATE_LIMITED.
- */
-#define MC_SEND_SILENT 1u        /* @silent: no push notification */
-#define MC_SEND_MENTION_REPLY 2u /* replies ping the replied-to author */
-typedef struct mc_send_request {
-    uint32_t size;
-    uint32_t flags;      /* MC_SEND_* */
-    uint64_t channel_id; /* must be sendable */
-    uint64_t reply_to;   /* message id in channel_id, or zero */
-    mc_str text;         /* 1..2000 bytes; not run through pre-send hooks or commands */
-} mc_send_request;
-
-/* A rich presence activity published with your status while set. Shown only
-   when Settings > Activity sharing is on; it replaces the detected game. */
 typedef struct mc_activity {
-    uint32_t size;
-    uint32_t type;           /* MC_ACTIVITY_PLAYING, _LISTENING, _WATCHING or _COMPETING */
+    uint32_t type; /* MC_ACTIVITY_* */
+    uint32_t flags; /* 0 */
     uint64_t application_id; /* optional */
-    uint64_t start_ms;       /* optional */
-    uint64_t end_ms;         /* optional */
-    mc_str name;             /* 1..128 bytes */
-    mc_str details;          /* <= 128 bytes */
-    mc_str state;            /* <= 128 bytes */
+    uint64_t start_ms;       /* optional Unix milliseconds */
+    uint64_t end_ms;
+    mc_str name;
+    mc_str details;
+    mc_str state;
+    mc_str url;   /* STREAMING */
+    mc_str emoji; /* CUSTOM: a Unicode emoji */
 } mc_activity;
 
-/* A host dialog built from nodes: labels form the body, at most one INPUT
-   (its text is the label, value the initial text), at most one BUTTON (its
-   text is the accept label; MC_TONE_CRITICAL marks it dangerous). Links and
-   separators are shown inline. Without an INPUT the dialog is a confirmation. */
-typedef struct mc_modal {
-    uint32_t size;
-    uint32_t node_count; /* <= 8 */
-    uint64_t modal_id;   /* echoed in the result */
-    mc_str title;        /* <= 64 bytes */
-    const mc_slot_node* nodes;
-    uint32_t node_stride;
-    uint32_t input_max_bytes; /* 1..2000; 0 means 256 */
-} mc_modal;
+#define MC_TIMERS_MAX 16u
+#define MC_TIMER_INTERVAL_MIN 100u /* milliseconds */
 
-typedef struct mc_modal_result {
-    uint32_t size;
-    uint32_t accepted; /* zero when cancelled or dismissed */
-    uint64_t modal_id;
-    mc_str text;       /* the input's text when accepted */
-} mc_modal_result;
+/* ---- Hooks -------------------------------------------------------------------- */
 
-/* Runs inside a gesture. */
-typedef mc_status (MC_CALL* mc_modal_fn)(void* state, uint32_t state_bytes, const mc_modal_result* result);
+enum {
+    MC_HOOK_PRE_SEND = 1,          /* draft: before a message you typed is sent */
+    MC_HOOK_PRE_EDIT = 2,          /* draft: before an edit of your message is saved */
+    MC_HOOK_MESSAGE_CLICK = 3,     /* click: a message was clicked (gesture) */
+    MC_HOOK_MESSAGE_DELETED = 4,   /* deleted: a message was deleted */
+    MC_HOOK_MESSAGE_EDITED = 5,    /* edited: a message was edited */
+    MC_HOOK_EVENTS = 6,            /* events: filter = MC_EVENT_BIT mask; batched per UI pass */
+    MC_HOOK_DECORATE_MESSAGE = 7,  /* decorate_message */
+    MC_HOOK_DECORATE_USER = 8,     /* decorate_user: member rows, message authors, profiles */
+    MC_HOOK_DECORATE_CHANNEL = 9,  /* decorate_channel: channel and DM rows */
+    MC_HOOK_DECORATE_GUILD = 10,   /* decorate_guild: server rail icons */
+    MC_HOOK_DECORATE_HEADER = 11,  /* decorate_header: channel header, member-list header */
+    MC_HOOK_NODE_ACTION = 12,      /* node_action: a decoration button was clicked (gesture) */
+    MC_HOOK_PRE_TYPING = 13,       /* typing: before a typing notice is sent */
+    MC_HOOK_SETTING_CHANGED = 14,  /* setting: the user changed a setting on its page (gesture); not set_setting */
+    MC_HOOK_KEYBIND = 15,          /* setting: a KEYBIND setting's keys were pressed (gesture) */
+    MC_HOOK_TIMER = 16,            /* timer */
+    MC_HOOK_COMPLETION = 17,       /* completion */
+    MC_HOOK_LAST = MC_HOOK_COMPLETION
+};
 
-typedef struct mc_actions_v1 {
-    uint32_t size;
-    uint32_t version;
-    /* [act_messages] */
-    mc_status (MC_CALL* send_message)(void* binding, uint64_t generation, const mc_send_request* request);
-    /* Your own messages only; the message must be in MaiCord's cache. */
-    mc_status (MC_CALL* edit_message)(void* binding, uint64_t generation, uint64_t channel_id, uint64_t message_id,
-                                      mc_str text);
-    /* emoji: a Unicode emoji, or "name:id" for a custom one. */
-    mc_status (MC_CALL* react)(void* binding, uint64_t generation, uint64_t channel_id, uint64_t message_id,
-                               mc_str emoji);
-    mc_status (MC_CALL* mark_read)(void* binding, uint64_t generation, uint64_t channel_id);
-    /* [act_presence] Empty text and emoji clear the custom status; expires_ms is a
-       Unix time in milliseconds, zero for never. */
-    mc_status (MC_CALL* set_custom_status)(void* binding, uint64_t generation, mc_str text, mc_str emoji,
-                                           uint64_t expires_ms);
-    /* Null clears this plugin's activity. */
-    mc_status (MC_CALL* set_activity)(void* binding, uint64_t generation, const mc_activity* activity);
-    /* [navigate] gesture only. message_id zero opens the channel. */
-    mc_status (MC_CALL* open_channel)(void* binding, uint64_t generation, uint64_t channel_id, uint64_t message_id);
-    mc_status (MC_CALL* open_profile)(void* binding, uint64_t generation, uint64_t user_id, uint64_t guild_id);
-    /* Also needs [settings]: opens one of the plugin's own pages. */
-    mc_status (MC_CALL* open_page)(void* binding, uint64_t generation, uint64_t page_id);
-    /* [clipboard] gesture only; <= 16 KiB. */
-    mc_status (MC_CALL* copy_text)(void* binding, uint64_t generation, mc_str text);
-    /* [open_links] gesture only; https URLs <= 2048 bytes, always confirmed unless trusted. */
-    mc_status (MC_CALL* open_url)(void* binding, uint64_t generation, mc_str url);
-    /* [notify] A notice above the composer for 8 s; text <= 200 bytes. */
-    mc_status (MC_CALL* notice)(void* binding, uint64_t generation, mc_str text, uint32_t tone);
-    /* [notify] gesture only. The result arrives at the modal handler. */
-    mc_status (MC_CALL* open_modal)(void* binding, uint64_t generation, const mc_modal* modal);
-    mc_status (MC_CALL* set_modal_handler)(void* binding, uint64_t generation, mc_modal_fn handler);
-} mc_actions_v1;
+typedef mc_status(MC_CALL* mc_draft_fn)(mc_ctx* ctx, mc_draft* draft);
+typedef uint32_t(MC_CALL* mc_click_fn)(mc_ctx* ctx, const mc_message* message, const mc_click* click);
+typedef uint32_t(MC_CALL* mc_deleted_fn)(mc_ctx* ctx, const mc_message* message);
+typedef uint32_t(MC_CALL* mc_edited_fn)(mc_ctx* ctx, const mc_message* before, const mc_message* after);
+typedef void(MC_CALL* mc_events_fn)(mc_ctx* ctx, const mc_event* events, uint32_t count);
+typedef mc_status(MC_CALL* mc_decorate_message_fn)(mc_ctx* ctx, const mc_message* message, mc_decoration* out);
+typedef mc_status(MC_CALL* mc_decorate_user_fn)(mc_ctx* ctx, const mc_user* user, mc_decoration* out);
+typedef mc_status(MC_CALL* mc_decorate_channel_fn)(mc_ctx* ctx, const mc_channel* channel, mc_decoration* out);
+typedef mc_status(MC_CALL* mc_decorate_guild_fn)(mc_ctx* ctx, const mc_guild* guild, mc_decoration* out);
+typedef mc_status(MC_CALL* mc_decorate_header_fn)(mc_ctx* ctx, const mc_header* header, mc_decoration* out);
+typedef mc_status(MC_CALL* mc_node_action_fn)(mc_ctx* ctx, const mc_node_action* action);
+typedef uint32_t(MC_CALL* mc_typing_fn)(mc_ctx* ctx, uint64_t channel_id);
+typedef void(MC_CALL* mc_setting_fn)(mc_ctx* ctx, uint32_t setting_index);
+typedef void(MC_CALL* mc_timer_fn)(mc_ctx* ctx, uint64_t timer_id);
+typedef void(MC_CALL* mc_completion_fn)(mc_ctx* ctx, const mc_completion* completion);
 
-/* ---- mc.timer@1 --------------------------------------------------------- */
+/* The member matching kind is called. */
+typedef union mc_hook_fn {
+    mc_draft_fn draft;                       /* PRE_SEND, PRE_EDIT */
+    mc_click_fn click;                       /* MESSAGE_CLICK */
+    mc_deleted_fn deleted;                   /* MESSAGE_DELETED */
+    mc_edited_fn edited;                     /* MESSAGE_EDITED */
+    mc_events_fn events;                     /* EVENTS */
+    mc_decorate_message_fn decorate_message; /* DECORATE_MESSAGE */
+    mc_decorate_user_fn decorate_user;       /* DECORATE_USER */
+    mc_decorate_channel_fn decorate_channel; /* DECORATE_CHANNEL */
+    mc_decorate_guild_fn decorate_guild;     /* DECORATE_GUILD */
+    mc_decorate_header_fn decorate_header;   /* DECORATE_HEADER */
+    mc_node_action_fn node_action;           /* NODE_ACTION */
+    mc_typing_fn typing;                     /* PRE_TYPING */
+    mc_setting_fn setting;                   /* SETTING_CHANGED, KEYBIND */
+    mc_timer_fn timer;                       /* TIMER */
+    mc_completion_fn completion;             /* COMPLETION */
+} mc_hook_fn;
 
-typedef void (MC_CALL* mc_timer_fn)(void* state, uint32_t state_bytes, uint64_t timer_id);
+typedef struct mc_hook {
+    uint32_t kind;   /* MC_HOOK_*; at most one hook per kind */
+    uint32_t flags;  /* DECORATE_MESSAGE: MC_NEED_*; otherwise 0 */
+    uint64_t filter; /* EVENTS: MC_EVENT_BIT mask, not 0; MESSAGE_CLICK: MC_CLICK_FILTER_*;
+                        DECORATE_MESSAGE: MC_FILTER_*; DECORATE_USER: surfaces; otherwise 0 */
+    mc_hook_fn fn;
+} mc_hook;
 
-typedef struct mc_timer_v1 {
-    uint32_t size;
-    uint32_t version;
-    mc_status (MC_CALL* set_handler)(void* binding, uint64_t generation, mc_timer_fn handler);
-    mc_status (MC_CALL* start)(void* binding, uint64_t generation, uint64_t timer_id, uint32_t interval_ms,
-                               uint32_t repeat);
-    mc_status (MC_CALL* cancel)(void* binding, uint64_t generation, uint64_t timer_id);
-} mc_timer_v1;
+/* ---- Descriptor ----------------------------------------------------------- */
+
+struct mc_theme_token; /* reserved: theme_count must be 0 */
+
+#define MC_NAME_MAX 64u     /* name: 1..64 bytes; author: 0..64 */
+#define MC_VERSION_MAX 32u  /* version: 1..32 bytes */
+#define MC_SUMMARY_MAX 256u /* summary, homepage: 0..256 bytes */
+#define MC_STATE_MAX (1u << 20)
+#define MC_STATE_ALIGN_MAX 64u
+
+typedef struct mc_descriptor {
+    uint32_t size;      /* sizeof(mc_descriptor) as compiled */
+    uint32_t abi;       /* MC_ABI */
+    uint32_t api_level; /* the mc_api level the plugin needs, 1..MC_API_LEVEL of its header */
+    uint32_t flags;     /* 0 */
+    uint64_t owner_id;  /* non-zero; identifies the plugin and its data */
+    mc_str name, version, summary, author, homepage; /* homepage: empty or https:// */
+    uint64_t permissions;                            /* MC_PERM_* the APIs need; the host adds implied ones */
+    const mc_str* network;                           /* HTTPS hosts (see Network) */
+    uint32_t network_count;  /* 0..MC_NETWORK_HOSTS_MAX */
+    uint32_t state_bytes;    /* 0..MC_STATE_MAX */
+    uint32_t state_align;    /* power of two, 1..MC_STATE_ALIGN_MAX; 0 when state_bytes is 0 */
+    uint32_t settings_bytes; /* 0..MC_SETTINGS_BYTES_MAX */
+    uint64_t state_layout;   /* equal across a reload keeps state */
+    const mc_setting_def* settings;
+    uint32_t setting_count; /* 0..MC_SETTING_MAX */
+    uint32_t hook_count;    /* 0..MC_HOOK_LAST */
+    const mc_hook* hooks;
+    const mc_command_def* commands;
+    uint32_t command_count; /* 0..MC_COMMAND_MAX */
+    uint32_t menu_count;    /* 0..MC_MENU_MAX */
+    const mc_menu_def* menus;
+    const mc_button_def* buttons;
+    uint32_t button_count; /* 0..MC_BUTTON_MAX */
+    uint32_t theme_count;  /* reserved: 0 */
+    const struct mc_theme_token* theme;
+    mc_status(MC_CALL* start)(mc_ctx* ctx); /* optional; a failure disables the plugin */
+    void(MC_CALL* stop)(mc_ctx* ctx);       /* optional */
+} mc_descriptor;
+
+/* ---- Host functions ------------------------------------------------------- */
+
+#define MC_LOG_TEXT_MAX 512u
+#define MC_TOAST_TEXT_MAX 256u
+#define MC_STORE_KEY_MAX 64u           /* keys: 1..64 bytes of printable ASCII (0x21..0x7E) */
+#define MC_STORE_VALUE_MAX (64u << 10) /* bytes per value */
+#define MC_STORE_KEYS_MAX 256u
+#define MC_STORE_TOTAL_MAX (1u << 20) /* bytes of keys and values */
+
+/* Immutable; append-only within ABI 6. level 1 is everything below. */
+struct mc_api {
+    uint32_t size; /* bytes of this table the host provides */
+    uint32_t level;
+    /* Appends a line to the plugin's log: the Developer console of Settings > Plugins, which holds lines only
+       while Developer Mode is on (never message content, tokens or URLs). Longer text is cut at MC_LOG_TEXT_MAX. */
+    void(MC_CALL* log)(mc_ctx* ctx, uint32_t level, mc_str text);
+    /* Changes one of the plugin's own settings (index into descriptor.settings)
+       and persists it. Encoding: TOGGLE 1 byte (0 or 1); INT, SLIDER int32_t;
+       CHOICE, COLOUR, KEYBIND uint32_t; CHANNEL uint64_t; TEXT, SECRET UTF-8;
+       TEXT_LIST UTF-8 items separated by '\n'; USER_LIST uint64_t ids.
+       ctx->settings shows the new value from the next call. */
+    mc_status(MC_CALL* set_setting)(mc_ctx* ctx, uint32_t index, const void* value, uint32_t bytes);
+    /* Copies a stored value into out. *bytes receives the value's size;
+       MC_E_TRUNCATED when it exceeds capacity (nothing is copied), MC_E_NOT_FOUND
+       when the key has no value. */
+    mc_status(MC_CALL* store_get)(mc_ctx* ctx, mc_str key, void* out, uint32_t capacity, uint32_t* bytes);
+    /* Sets a value (0..MC_STORE_VALUE_MAX bytes); MC_E_BUDGET past the key or
+       total limits. Persisted shortly after the last write and on disable. */
+    mc_status(MC_CALL* store_set)(mc_ctx* ctx, mc_str key, const void* value, uint32_t bytes);
+    /* MC_E_NOT_FOUND when the key had no value. */
+    mc_status(MC_CALL* store_remove)(mc_ctx* ctx, mc_str key);
+    /* A short in-app notice, 1..MC_TOAST_TEXT_MAX bytes; flags must be 0. */
+    mc_status(MC_CALL* toast)(mc_ctx* ctx, mc_str text, uint32_t tone, uint32_t flags);
+
+    /* -- Decorations, buttons and cache reads ---------------------------------- */
+    /* Asks the decorate hook of `what` (MC_INVALIDATE_*) again for id at the next
+       pass, showing the old verdict until then; id 0 = every entity of that kind.
+       BUTTONS re-runs visible functions. */
+    mc_status(MC_CALL* invalidate)(mc_ctx* ctx, uint32_t what, uint64_t id);
+    /* Sets a decoration without a pull hook; it replaces a pulled one for that
+       entity, which isn't asked again until a null or empty push clears it.
+       kind: MC_HOOK_DECORATE_*; id: the message, user, channel or guild (HEADER:
+       0 = both headers, or MC_HEADER_*); scope: MESSAGE the channel, else 0.
+       The host keeps the most recent pushes per plugin (about 250 messages). */
+    mc_status(MC_CALL* decorate_push)(mc_ctx* ctx, uint32_t kind, uint64_t id, uint64_t scope,
+                                      const mc_decoration* decoration);
+    /* button: index in descriptor.buttons; allowed in start. An all-zero state
+       restores the declared look. */
+    mc_status(MC_CALL* button_state)(mc_ctx* ctx, uint32_t button, const mc_button_state* state);
+    /* Copies from MaiCord's cache; never fetches. MC_E_NOT_FOUND when not cached.
+       Strings stay valid until the calling entry point returns. read_user:
+       names come from guild when it isn't 0. */
+    mc_status(MC_CALL* read_user)(mc_ctx* ctx, uint64_t user, uint64_t guild, mc_user* out);
+    mc_status(MC_CALL* read_channel)(mc_ctx* ctx, uint64_t channel, mc_channel* out);
+    mc_status(MC_CALL* read_guild)(mc_ctx* ctx, uint64_t guild, mc_guild* out);
+    /* The user's permissions in channel (or guild-wide when channel is 0), as
+       Discord permission bits. */
+    mc_status(MC_CALL* read_permissions)(mc_ctx* ctx, uint64_t guild, uint64_t channel, uint64_t user,
+                                         uint64_t* bits);
+
+    /* -- Feedback and navigation ------------------------------------------------- */
+    /* One banner per plugin; a new one replaces it. The result arrives as
+       MC_COMPLETION_BANNER. */
+    mc_status(MC_CALL* banner)(mc_ctx* ctx, const mc_banner* banner);
+    /* MC_E_NOT_FOUND unless tag is the current banner's. */
+    mc_status(MC_CALL* banner_clear)(mc_ctx* ctx, uint64_t tag);
+    /* Gesture; MC_E_BUSY while any modal is open. The result arrives as
+       MC_COMPLETION_MODAL, with a gesture when accepted. */
+    mc_status(MC_CALL* modal)(mc_ctx* ctx, const mc_modal* modal, uint64_t tag);
+    /* Gesture; http or https, at most MC_HTTP_URL_MAX; the host confirms external links. */
+    mc_status(MC_CALL* open_url)(mc_ctx* ctx, mc_str url);
+    /* Gesture and MC_PERM_CLIPBOARD; at most MC_ACTION_TEXT_MAX. */
+    mc_status(MC_CALL* copy_text)(mc_ctx* ctx, mc_str text);
+    /* Gesture; what: MC_OPEN_*. */
+    mc_status(MC_CALL* open)(mc_ctx* ctx, uint32_t what, uint64_t id, uint64_t sub);
+
+    /* -- Network ---------------------------------------------------------------- */
+    /* Queues a request; the response arrives as MC_COMPLETION_HTTP with tag.
+       MC_E_DENIED: the host isn't declared or approved, or is Discord's;
+       MC_E_RATE_LIMITED past MC_HTTP_REQUESTS_PER_MINUTE; MC_E_BUSY past
+       MC_HTTP_PENDING_MAX in flight. */
+    mc_status(MC_CALL* http)(mc_ctx* ctx, const mc_http_request* request, uint64_t tag);
+
+    /* -- Local messages and the composer ------------------------------------------- */
+    /* A message only you see, in the open channel (else MC_E_NOT_FOUND); cards
+       attach with decorate_push(MC_HOOK_DECORATE_MESSAGE, *message_id, channel). */
+    mc_status(MC_CALL* local_message)(mc_ctx* ctx, uint64_t channel, mc_str text, uint64_t* message_id);
+    mc_status(MC_CALL* local_message_remove)(mc_ctx* ctx, uint64_t channel, uint64_t message);
+    /* The composer calls need MC_PERM_COMPOSER. composer_text copies the
+       open channel's draft like store_get. */
+    mc_status(MC_CALL* composer_text)(mc_ctx* ctx, void* out, uint32_t capacity, uint32_t* bytes);
+    mc_status(MC_CALL* composer_insert)(mc_ctx* ctx, mc_str text); /* at the caret */
+    mc_status(MC_CALL* composer_replace)(mc_ctx* ctx, mc_str text);
+    mc_status(MC_CALL* composer_focus)(mc_ctx* ctx);
+    mc_status(MC_CALL* composer_reply)(mc_ctx* ctx, uint64_t channel, uint64_t message, uint32_t ping);
+    mc_status(MC_CALL* composer_edit)(mc_ctx* ctx, uint64_t channel, uint64_t message);
+
+    /* -- Actions (see Actions) ------------------------------------------------------ */
+    mc_status(MC_CALL* send_message)(mc_ctx* ctx, const mc_send* send);
+    mc_status(MC_CALL* edit_message)(mc_ctx* ctx, uint64_t channel, uint64_t message, mc_str text);
+    /* emoji: Unicode, or name:id for a custom emoji; flags: MC_REACT_REMOVE. */
+    mc_status(MC_CALL* react)(mc_ctx* ctx, uint64_t channel, uint64_t message, mc_str emoji, uint32_t flags);
+    mc_status(MC_CALL* delete_own)(mc_ctx* ctx, uint64_t channel, uint64_t message);
+    mc_status(MC_CALL* mark_read)(mc_ctx* ctx, uint32_t scope, uint64_t id); /* MC_READ_*; ALL: id 0 */
+    /* MC_PERM_ACT_PRESENCE; no gesture needed, 2 per 10 s; null clears. */
+    mc_status(MC_CALL* set_activity)(mc_ctx* ctx, const mc_activity* activity);
+
+    /* -- Timers --------------------------------------------------------------------- */
+    /* Calls MC_HOOK_TIMER with id after interval_ms (>= MC_TIMER_INTERVAL_MIN),
+       once or repeatedly; the same id replaces a timer. MC_TIMERS_MAX per plugin. */
+    mc_status(MC_CALL* timer)(mc_ctx* ctx, uint64_t id, uint32_t interval_ms, uint32_t repeat);
+    mc_status(MC_CALL* cancel_timer)(mc_ctx* ctx, uint64_t id);
+
+    /* -- Kept messages (MESSAGE_DELETED / MESSAGE_EDITED) ------------------------------ */
+    mc_status(MC_CALL* keep_info)(mc_ctx* ctx, uint64_t channel, uint64_t message, mc_kept_info* out);
+    /* version 0: the latest content; 1..edit_count: older ones, 1 the most recent. */
+    mc_status(MC_CALL* keep_text)(mc_ctx* ctx, uint64_t channel, uint64_t message, uint32_t version, void* out,
+                                  uint32_t capacity, uint32_t* bytes);
+    /* MC_PERM_PERSISTENT_LOG; at most MC_KEEP_RESTORE_MAX items per call. */
+    mc_status(MC_CALL* keep_restore)(mc_ctx* ctx, const mc_kept* items, uint32_t count);
+};
+
+/* True when the host's table contains `field` (for entries above the plugin's api_level). */
+#define MC_API_HAS(ctx, field) ((ctx)->api->size >= offsetof(mc_api, field) + sizeof((ctx)->api->field))
 
 #ifdef __cplusplus
-}
+} /* extern "C" */
 #endif
 
 #endif /* MAICORD_PLUGIN_H */

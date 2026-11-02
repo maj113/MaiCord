@@ -1,10 +1,12 @@
 #include "maicord/app/plugins/http.hpp"
 #include "maicord/app/plugins/loader.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/sys/crypto.hpp"
 
 namespace maicord {
 namespace {
@@ -294,6 +296,171 @@ bool button_ok(const mc_button_def& b, const Image& image) noexcept {
            (!b.visible || image.code(reinterpret_cast<const void*>(b.visible)));
 }
 
+// ---- The pinned directory and the file opened beside it -------------------------------------------
+
+// CON, PRN, AUX, NUL, COM1-9 and LPT1-9 in any case: Windows device names, with or without an extension.
+bool reserved_device_name(const wchar_t* name, u32 stem) noexcept {
+    const auto is = [name](const char* word) noexcept {
+        return ascii_lower(name[0]) == word[0] && ascii_lower(name[1]) == word[1] && ascii_lower(name[2]) == word[2];
+    };
+    if (stem == 3) return is("con") || is("prn") || is("aux") || is("nul");
+    return stem == 4 && name[3] >= '1' && name[3] <= '9' && (is("com") || is("lpt"));
+}
+// One Windows path component naming an ordinary file or directory: nonempty, no leading or trailing dot,
+// no trailing space, no reserved device name and no control, delimiter, wildcard, '~' or surrogate unit.
+bool path_component_valid(ConstSlice<wchar_t> part) noexcept {
+    if (!part.count || part[0] == L'.' || part[part.count - 1] == L'.' || part[part.count - 1] == L' ') return false;
+    u32 stem = 0;
+    while (stem < part.count && part[stem] != L'.') ++stem;
+    if (reserved_device_name(part.data, stem)) return false;
+    for (u32 i = 0; i < part.count; ++i) {
+        const wchar_t c = part[i];
+        if (c < 32 || c == L'/' || c == L'\\' || c == L':' || c == L'*' || c == L'?' || c == L'"' || c == L'<' ||
+            c == L'>' || c == L'|' || c == L'~' || (c >= 127 && c <= 159) || (c >= 0xd800 && c <= 0xdfff))
+            return false;
+    }
+    return true;
+}
+// A drive-rooted path whose every component is an ordinary name, at most kPluginPathMaximumAncestors deep.
+bool directory_valid(ConstSlice<wchar_t> path) noexcept {
+    if (!path.data || path.count < 3 || path.count >= kPluginPathCapacity || ascii_lower(path[0]) < L'a' ||
+        ascii_lower(path[0]) > L'z' || path[1] != L':' || path[2] != L'\\')
+        return false;
+    u32 start = 3, ancestors = 1;
+    for (u32 i = 3; i <= path.count; ++i)
+        if (i == path.count || path[i] == L'\\') {
+            if (i == 3 && path.count == 3) return true;
+            if (!path_component_valid({path.data + start, i - start}) || ++ancestors > kPluginPathMaximumAncestors)
+                return false;
+            start = i + 1;
+        }
+    return true;
+}
+// Closes the held ancestors, deepest first. False (with the error) leaves the rest held for a retry.
+bool directory_release(PluginDirectory* directory, DWORD* error) noexcept {
+    while (directory->ancestor_count) {
+        if (!CloseHandle(directory->ancestors[directory->ancestor_count - 1])) {
+            *error = GetLastError();
+            return false;
+        }
+        directory->ancestors[--directory->ancestor_count] = nullptr;
+    }
+    reset_value(directory);
+    return true;
+}
+// Every directory component is opened without following its own reparse point, then held while descendants
+// are opened: a checked ancestor cannot be renamed or replaced between the hash and the DLL load.
+bool directory_pin(PluginDirectory* directory, ConstSlice<wchar_t> path, DWORD* error) noexcept {
+    if (!directory_valid(path)) return false;
+    copy_bytes(directory->path, path.data, path.count * 2u);
+    directory->path[path.count] = 0;
+    directory->path_characters = path.count;
+    for (u32 end = 3; end <= path.count; ++end) {
+        if (end != 3 && end != path.count && path[end] != L'\\') continue;
+        if (end == 3 && path.count == 3 && directory->ancestor_count) continue;
+        const wchar_t saved = directory->path[end];
+        directory->path[end] = 0;
+        HANDLE handle = CreateFileW(directory->path, FILE_READ_ATTRIBUTES, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        directory->path[end] = saved;
+        if (handle == INVALID_HANDLE_VALUE) {
+            *error = GetLastError();
+            return false;
+        }
+        directory->ancestors[directory->ancestor_count++] = handle;
+        BY_HANDLE_FILE_INFORMATION info{};
+        if (!GetFileInformationByHandle(handle, &info)) {
+            *error = GetLastError();
+            return false;
+        }
+        if (!(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT))
+            return false;
+    }
+    return true;
+}
+
+// A DLL opened beside the pinned directory; the handle denies writes and deletes while it is open.
+struct PinnedFile {
+    HANDLE file;
+    wchar_t path[kPluginPathCapacity];
+    u32 path_characters;
+    u64 bytes;
+};
+constexpr u32 kLeafMaximumCharacters = 128;
+bool file_open(const PluginDirectory& directory, ConstSlice<wchar_t> leaf, PinnedFile* out, DWORD* error) noexcept {
+    if (!directory.ancestor_count || !leaf.data || leaf.count >= kLeafMaximumCharacters || !path_component_valid(leaf))
+        return false;
+    const u32 separator = directory.path_characters == 3 ? 0 : 1;
+    if (directory.path_characters + separator + leaf.count >= kPluginPathCapacity) return false;
+    copy_bytes(out->path, directory.path, directory.path_characters * 2u);
+    u32 at = directory.path_characters;
+    if (separator) out->path[at++] = L'\\';
+    for (u32 i = 0; i < leaf.count; ++i) out->path[at++] = leaf[i];
+    out->path[at] = 0;
+    out->path_characters = at;
+    out->file = CreateFileW(out->path, GENERIC_READ | FILE_READ_ATTRIBUTES, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                            FILE_FLAG_SEQUENTIAL_SCAN | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (out->file == INVALID_HANDLE_VALUE) {
+        out->file = nullptr;
+        *error = GetLastError();
+        return false;
+    }
+    BY_HANDLE_FILE_INFORMATION info{};
+    if (GetFileType(out->file) != FILE_TYPE_DISK || !GetFileInformationByHandle(out->file, &info)) {
+        *error = GetLastError();
+        return false;
+    }
+    if (info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) return false;
+    // Reject DOS drive aliases and any normalized target that left the exact pinned drive-rooted path.
+    wchar_t final_path[kPluginPathCapacity + 4];
+    const DWORD final_count = GetFinalPathNameByHandleW(out->file, final_path, kPluginPathCapacity + 4,
+                                                        FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    if (!final_count) {
+        *error = GetLastError();
+        return false;
+    }
+    if (final_count != out->path_characters + 4 || final_path[0] != L'\\' || final_path[1] != L'\\' ||
+        final_path[2] != L'?' || final_path[3] != L'\\')
+        return false;
+    for (u32 i = 0; i < out->path_characters; ++i)
+        if (ascii_lower(final_path[i + 4]) != ascii_lower(out->path[i])) return false;
+    LARGE_INTEGER size{};
+    if (!GetFileSizeEx(out->file, &size)) {
+        *error = GetLastError();
+        return false;
+    }
+    if (size.QuadPart <= 0) return false;
+    out->bytes = static_cast<u64>(size.QuadPart);
+    return true;
+}
+// Whether the whole file, from offset zero, hashes to expected (32 bytes of SHA-256).
+bool file_digest_equals(HANDLE file, u64 bytes, const u8* expected) noexcept {
+    Win32LargeInteger start{0};
+    if (!bytes || bytes > kPluginDllMaximumBytes || !SetFilePointerEx(file, *start.native(), nullptr, FILE_BEGIN)) return false;
+    BCRYPT_ALG_HANDLE algorithm{};
+    if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) return false;
+    BCRYPT_HASH_HANDLE hash{};
+    bool match = false;
+    // CNG owns the hash object, so a failed destroy never leaves a live handle into expired stack storage.
+    if (BCryptCreateHash(algorithm, &hash, nullptr, 0, nullptr, 0, 0) >= 0) {
+        u8 buffer[8192], digest[32];
+        bool good = true;
+        for (u64 remaining = bytes; remaining && good;) {
+            const DWORD wanted = static_cast<DWORD>(minimum<u64>(remaining, sizeof(buffer)));
+            DWORD read = 0;
+            good = ReadFile(file, buffer, wanted, &read, nullptr) && read == wanted &&
+                   BCryptHashData(hash, buffer, read, 0) >= 0;
+            remaining -= wanted;
+        }
+        DWORD trailing = 0;
+        good = good && ReadFile(file, buffer, 1, &trailing, nullptr) && !trailing;
+        match = good && BCryptFinishHash(hash, digest, sizeof(digest), 0) >= 0 && bytes_equal(digest, expected, sizeof(digest));
+        BCryptDestroyHash(hash);
+    }
+    BCryptCloseAlgorithmProvider(algorithm, 0);
+    return match;
+}
+
 } // namespace
 
 PluginLoadResult plugin_pe_check(HANDLE file, u64 file_bytes, PluginImage* output) noexcept {
@@ -499,18 +666,19 @@ PluginLoadResult plugin_descriptor_check(const u8* base, const PluginImage& pe, 
 
 PluginLoadResult plugin_directory_open(PluginDirectory* directory, ConstSlice<wchar_t> absolute_path) noexcept {
     if (!directory) return failure(PluginLoadError::invalid_argument);
-    if (directory->pin.ancestor_count || directory->pin.file) return failure(PluginLoadError::already_loaded);
-    const auto pinned = native_plugin_directory_pin(absolute_path, &directory->pin);
-    if (pinned.ok()) return success();
+    if (directory->ancestor_count) return failure(PluginLoadError::already_loaded);
+    DWORD error = 0;
+    if (directory_pin(directory, absolute_path, &error)) return success();
     // A failed pin keeps the handles it acquired; give them back before reporting.
-    const auto released = native_plugin_verified_file_release(&directory->pin);
-    return failure(released.ok() ? PluginLoadError::directory : PluginLoadError::release, pinned.win32_error);
+    DWORD release_error = 0;
+    if (!directory_release(directory, &release_error)) return failure(PluginLoadError::release, release_error);
+    return failure(PluginLoadError::directory, error);
 }
 
 PluginLoadResult plugin_directory_close(PluginDirectory* directory) noexcept {
     if (!directory) return failure(PluginLoadError::invalid_argument);
-    const auto released = native_plugin_verified_file_release(&directory->pin);
-    return released.ok() ? success() : failure(PluginLoadError::release, released.win32_error);
+    DWORD error = 0;
+    return directory_release(directory, &error) ? success() : failure(PluginLoadError::release, error);
 }
 
 PluginLoadResult plugin_image_load(PluginImage* image, const PluginDirectory& directory, ConstSlice<wchar_t> leaf,
@@ -518,13 +686,13 @@ PluginLoadResult plugin_image_load(PluginImage* image, const PluginDirectory& di
     if (!image || !leaf.data || !leaf.count) return failure(PluginLoadError::invalid_argument);
     if (image->module) return failure(PluginLoadError::already_loaded);
     reset_value(image);
-    NativePluginVerifiedFile file{};
+    PinnedFile file{};
     PluginLoadResult result = success();
     HMODULE module = nullptr;
-    const auto opened = native_plugin_pinned_file_open(directory.pin, leaf, &file);
-    if (!opened.ok()) result = failure(PluginLoadError::open, opened.win32_error);
+    DWORD open_error = 0;
+    if (!file_open(directory, leaf, &file, &open_error)) result = failure(PluginLoadError::open, open_error);
     else if (file.bytes > kPluginDllMaximumBytes) result = failure(PluginLoadError::not_pe);
-    else if (sha256 && !native_plugin_verified_file_hash(&file, {sha256, 32}).ok()) result = failure(PluginLoadError::digest);
+    else if (sha256 && !file_digest_equals(file.file, file.bytes, sha256)) result = failure(PluginLoadError::digest);
     else result = plugin_pe_check(file.file, file.bytes, image);
     if (result.ok()) {
         module = LoadLibraryExW(file.path, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
@@ -553,7 +721,7 @@ PluginLoadResult plugin_image_load(PluginImage* image, const PluginDirectory& di
         reset_value(image);
     }
     // A failed handle close cannot be acted on here: the image is already mapped or already refused.
-    native_plugin_verified_file_release(&file);
+    if (file.file) CloseHandle(file.file);
     return result;
 }
 

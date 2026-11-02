@@ -1,6 +1,6 @@
 #include "store_build.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/sdk/plugin_abi.h"
+#include "maicord/sdk/maicord_plugin.h"
 
 namespace maicord::app_detail {
 using namespace store_build;
@@ -256,8 +256,6 @@ StoreCommand store_page_act(const StoreModel& m, StorePageState* st, u32 action,
         return cmd(arg == 0 ? StoreCommandKind::open_source : StoreCommandKind::open_homepage, 0, arg);
     case StoreAct::detail_copy_sha:
         return cmd(StoreCommandKind::copy_text, arg, 1);
-    case StoreAct::detail_author:
-        return cmd(StoreCommandKind::open_author, 0);
     case StoreAct::update_all:
         return cmd(StoreCommandKind::update_all);
     case StoreAct::check_now:
@@ -376,7 +374,9 @@ StoreCommand store_page_act(const StoreModel& m, StorePageState* st, u32 action,
     case StoreAct::dev_load:
         return cmd(StoreCommandKind::dev_load);
     case StoreAct::dev_reload:
-        return cmd(st->kind == CatalogKind::plugin ? StoreCommandKind::ledger : StoreCommandKind::dev_reload);
+        return cmd(StoreCommandKind::dev_reload);
+    case StoreAct::console_clear:
+        return cmd(StoreCommandKind::console_clear);
     case StoreAct::updates_expand:
         if (arg < 8)
             st->updates_open[arg] = !st->updates_open[arg];

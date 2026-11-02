@@ -1,9 +1,15 @@
+#include "maicord/core/win32_types.hpp"
+#include "maicord_effect_aurora.hpp"
 #include "probe_present.hpp"
 #include "../support/ui_scene_fixtures.hpp"
 #include "settings/catalog.hpp"
 #include "store/store_model.hpp"
+#include "store/store_preview.hpp"
+#include "maicord/app/settings/client_theme.hpp"
+#include "maicord/core/hash.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/render/d3d11/renderer_presentation.hpp"
 #include "maicord/ui/settings/scene.hpp"
@@ -11,7 +17,10 @@
 #include "maicord/ui/widgets/kit_markdown.hpp"
 
 // The Plugins, Themes and Effects pages through the real settings modal, layout, paint and text paths: one
-// capture per screen of store-ui.md (mockups 01-11) at 1440x900 DIP, with the content of the mockups.
+// capture per screen of store-ui.md (mockups 01-11) at 1440x900 DIP, with the content of the mockups, on the
+// Sunset theme like the mockups (11 is the flat dark one). MAICORD_STORE_PREVIEW_DIR names a folder of the
+// catalog fixture's `previews/<sha>.png`: the tiles then show the real pictures, decoded and uploaded the way the
+// host does, and 04 and 08 run the Aurora sample as the window background so their live tiles have an effect.
 namespace maicord {
 namespace {
 using namespace app_detail;
@@ -39,6 +48,126 @@ struct Fixture {
     UiLayoutNode menu_nodes[2 + 16 * kPopupWidgetsPerItem];
 };
 Fixture fixture;
+
+// The catalog fixture's pictures: the first preview of each themed or effect item, by slug.
+struct PreviewFile {
+    Utf8View slug;
+    const char* sha;
+};
+constexpr PreviewFile kPreviews[]{
+    {utf8_literal("deep-ocean"), "429bf0b6c82a403f3909b583837cf2010e6cdd539efb8c631cb2b240d9c778d2"},
+    {utf8_literal("warm-paper"), "e4a97cd56c371ecd9ab524ebf9bcb77097342a117c1b7becf45678cbcc8c0241"},
+    {utf8_literal("high-contrast"), "ccb844638e2dfcea33a1a68fab9ed33004336e77516e1cfacbd8407814812c87"},
+    {utf8_literal("fjord"), "b5800f26df7e34131295ba2ca64a77ad8a50e8eb18a594abe90381b9fe86487f"},
+    {utf8_literal("rose-dusk"), "71eb1908781d58c313e2bcaf36469a52ceb274bbf2be32e604edfa5aa8afff47"},
+    {utf8_literal("obsidian"), "55397c10d7f75cfd960c59643ed03b7a65f425d40ff86d33822352f0920e1ff4"},
+    {utf8_literal("sample-neon-grid"), "8f1c021d00000000000000000000000000000000000000000000000000000000"},
+    {utf8_literal("ascii-rain"), "b62e84a1272683816d8bf7af0ba66247df69488a646f4e2c67ff1939dd6745a5"},
+    {utf8_literal("aurora"), "c98761d5636b1a6f01862883d52db8d3e9e5bc34615daaab4ca14ac1ce702d00"},
+    {utf8_literal("bokeh"), "8c23df884adb03f1d017ddc4b858f44ea1af4dd008192ac3636fbf2864cc6569"},
+    {utf8_literal("film-grain"), "1bd5739a7db8d9cc7f7cc13046f26ddabed3dc91c025778ba9092050e7d62f2d"},
+    {utf8_literal("plasma"), "38bae74cf751a84b496301a591dfef98a9ad7902619dcd186fabf9fb7c45752f"},
+    {utf8_literal("starfield"), "080b0653749c9dee3d47b455523e7118e3442201689138e8fcf701e1769918a9"},
+    {utf8_literal("wave-lines"), "fb9de290619af0f20b5ea512e7558f7c2a3bb29ec4647f755fd64a4dac326979"},
+};
+
+// The probe window's media atlases are 256 px square; tiles of a real page need room for their pictures.
+constexpr u32 kAtlasEntries = 64, kAtlasRows = 64;
+struct AtlasStorage {
+    MediaAtlas atlas;
+    MediaAtlasEntry entries[kAtlasEntries];
+    u32 buckets[kAtlasEntries * 2];
+    GlyphAtlasEntry allocations[kAtlasEntries];
+    GlyphAtlasRow rows[kAtlasRows];
+};
+AtlasStorage g_primary_atlas, g_preview_atlas;
+
+bool bind_page_atlases(D3D11Renderer& renderer) noexcept {
+    renderer_unbind_media_atlas(&renderer);
+    AtlasStorage* const storage[]{&g_primary_atlas, &g_preview_atlas};
+    for (AtlasStorage* s : storage)
+        if (!media_atlas_initialize(&s->atlas, 2048, 2048, 1, {s->entries, kAtlasEntries}, {s->buckets, kAtlasEntries * 2},
+                                    {s->allocations, kAtlasEntries}, {s->rows, kAtlasRows}))
+            return false;
+    return renderer_bind_media_atlas(&renderer, &g_primary_atlas.atlas) &&
+           renderer_bind_preview_media_atlas(&renderer, &g_preview_atlas.atlas);
+}
+
+wchar_t g_preview_directory[512];
+u32 g_preview_dpi = 96;
+u8 g_preview_file[512 * 1024];
+
+u32 hex_digit(char c) noexcept {
+    return c >= '0' && c <= '9' ? static_cast<u32>(c - '0') : static_cast<u32>(c - 'a' + 10);
+}
+
+bool preview_sha(u32 slot, u8 (&sha)[32], const char** hex) noexcept {
+    if (!g_preview_directory[0] || !slot || slot > fixture.model.count)
+        return false;
+    const StoreItem& item = fixture.model.items[slot - 1];
+    for (const auto& file : kPreviews)
+        if (file.slug.bytes == item.slug.bytes && bytes_equal(file.slug.data, item.slug.data, item.slug.bytes)) {
+            for (u32 i = 0; i < 32; ++i)
+                sha[i] = static_cast<u8>(hex_digit(file.sha[i * 2]) << 4 | hex_digit(file.sha[i * 2 + 1]));
+            *hex = file.sha;
+            return true;
+        }
+    return false;
+}
+
+bool preview_media_key(const void*, u32 slot, const UiRect& rect, MediaAssetKey* key, u8* domain) noexcept {
+    u8 sha[32];
+    const char* hex = nullptr;
+    if (!preview_sha(slot, sha, &hex))
+        return false;
+    *key = store_preview_key(sha, store_preview_pixels(ui_rect_width(rect), g_preview_dpi), false);
+    *domain = 1;
+    return true;
+}
+
+// What the host's pump does for the visible tiles: read the verified bytes, decode to the tile's size, upload.
+bool upload_previews(D3D11Renderer& renderer) noexcept {
+    UiStoreMedia media{};
+    u32 cursor = 0;
+    while (ui_store_scene_next_media(fixture.store, &cursor, &media)) {
+        if (media_atlas_peek(renderer.preview_media_atlas, media.key).ok())
+            continue;
+        u8 sha[32];
+        const char* hex = nullptr;
+        if (!preview_sha(media.slot, sha, &hex))
+            continue;
+        wchar_t path[600];
+        u32 n = 0;
+        for (; g_preview_directory[n]; ++n)
+            path[n] = g_preview_directory[n];
+        path[n++] = L'\\';
+        for (u32 i = 0; i < 64; ++i)
+            path[n++] = static_cast<wchar_t>(hex[i]);
+        for (const wchar_t c : L".png")
+            path[n++] = c;
+        HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE)
+            continue;
+        DWORD read = 0;
+        const bool loaded = ReadFile(file, g_preview_file, sizeof(g_preview_file), &read, nullptr) && read;
+        CloseHandle(file);
+        StorePreviewImage image{};
+        if (!loaded || !store_preview_decode({g_preview_file, read}, media.key.variant & 0x1fffffffu, &image)) {
+            log_u64(LogLevel::error, "probe", loaded ? "store_preview_decode_failed_bytes" : "store_preview_read_failed", read);
+            return false;
+        }
+        const bool uploaded = renderer_upload_media_straight_rgba8(&renderer, media.key, static_cast<u16>(image.width),
+                                                                   static_cast<u16>(image.height), image.width * 4u,
+                                                                   {image.pixels, image.width * image.height * 4u})
+                                  .ok();
+        store_preview_free(&image);
+        if (!uploaded) {
+            log_u64(LogLevel::error, "probe", "store_preview_upload_failed", media.key.variant);
+            return false;
+        }
+    }
+    return true;
+}
 
 StoreItem& add(CatalogKind kind, Utf8View slug, Utf8View name, Utf8View summary, Utf8View authors, Utf8View version,
                Utf8View c0, Utf8View c1 = {}) noexcept {
@@ -75,10 +204,11 @@ void plugins() noexcept {
     m.protocol_state = 0;
     StoreItem& clear = add(CatalogKind::plugin, utf8_literal("clear-urls"), utf8_literal("Clear URLs"),
                            utf8_literal("Removes tracking parameters from links you send."), utf8_literal("Maj Sokoli\xC4\x8D"), utf8_literal("1.0.0"),
-                           utf8_literal("Chat"), utf8_literal("Privacy"));
+                           utf8_literal("Privacy"), utf8_literal("Chat"));
     clear.installed = clear.enabled = clear.running = true;
     clear.risk = 1;
     clear.has_settings = true;
+    clear.order = 0;
     StoreItem& translate = add(CatalogKind::plugin, utf8_literal("translate"), utf8_literal("Translate"),
                                utf8_literal("Translate messages with Google or DeepL from the message menu, or with /tr."),
                                utf8_literal("MaiCord"), utf8_literal("1.0.0"), utf8_literal("Chat"), utf8_literal("Utility"));
@@ -86,6 +216,7 @@ void plugins() noexcept {
     translate.sha = utf8_literal("8059942b\xE2\x80\xA6" "6e1018");
     translate.commit = utf8_literal("b76ad03");
     translate.api_level = 6;
+    translate.source = utf8_literal("https://github.com/maj113/MaiCord/tree/master/samples/plugins/translate");
     StoreItem& names = add(CatalogKind::plugin, utf8_literal("show-me-your-name"), utf8_literal("Show Me Your Name"),
                            utf8_literal("Shows usernames next to nicknames in chat, so you always know who's who."), utf8_literal("MaiCord"),
                            utf8_literal("1.2.0"), utf8_literal("Appearance"), utf8_literal("Chat"));
@@ -94,6 +225,7 @@ void plugins() noexcept {
     names.update = true;
     names.update_version = utf8_literal("1.2.0");
     names.risk = 1;
+    names.order = 1;
     StoreItem& reverse = add(CatalogKind::plugin, utf8_literal("reverse-image-search"), utf8_literal("Reverse Image Search"),
                              utf8_literal("Adds a Search image submenu to images: Google Lens, Bing, Yandex and TinEye."), utf8_literal("MaiCord"),
                              utf8_literal("1.0.0"), utf8_literal("Chat"), utf8_literal("Utility"));
@@ -102,11 +234,13 @@ void plugins() noexcept {
     reverse.can_roll_back = true;
     reverse.previous_version = utf8_literal("0.9.2");
     reverse.auto_update = true;
+    reverse.order = 3;
     StoreItem& silent = add(CatalogKind::plugin, utf8_literal("silent-toggle"), utf8_literal("Silent Toggle"),
                             utf8_literal("A chat bar button that sends your next message silently, without pinging anyone."), utf8_literal("MaiCord"),
                             utf8_literal("1.0.0"), utf8_literal("Notifications"));
     silent.installed = true;
     silent.risk = 1;
+    silent.order = 2;
     StoreItem& pin = add(CatalogKind::plugin, utf8_literal("pin-counter"), utf8_literal("Pin Counter"), utf8_literal("Counts pins."),
                          utf8_literal("Lumen"), utf8_literal("0.3.0"), utf8_literal("Utility"));
     pin.installed = pin.enabled = pin.running = true;
@@ -114,6 +248,7 @@ void plugins() noexcept {
     pin.item = ~0u;
     pin.folder = utf8_literal("D:\\dev\\pin-counter");
     pin.summary = utf8_literal("Loaded from D:\\dev\\pin-counter");
+    pin.order = 4;
     names.has_settings = false;
 }
 
@@ -143,35 +278,43 @@ void themes() noexcept {
     m.catalog = StoreCatalogState::ready;
     m.installable = true;
     static constexpr struct {
-        Utf8View slug, name, summary, category;
+        Utf8View slug, name, summary, c0, c1;
         u32 sw[4];
         u8 base;
     } kThemes[]{
         {utf8_literal("deep-ocean"), utf8_literal("Deep Ocean"), utf8_literal("A deep navy dark theme with a cool teal accent."), utf8_literal("Blue"),
-         {0x0c1a2a, 0x142638, 0xe6eef6, 0x3ec3d6}, 0},
+         utf8_literal("Cool"), {0x0b1a29, 0x10253a, 0xe4f1f8, 0x22b8cf}, 0},
         {utf8_literal("fjord"), utf8_literal("Fjord"), utf8_literal("A muted, frosty blue-grey dark theme in the spirit of the Nord palette."),
-         utf8_literal("Muted"), {0x2e3440, 0x363d4b, 0xe5e9f0, 0x88c0d0}, 0},
-        {utf8_literal("high-contrast"), utf8_literal("High Contrast"), utf8_literal("Pure black and white with a yellow accent, strong borders and heavier text."),
-         utf8_literal("Accessibility"), {0x000000, 0x101010, 0xffffff, 0xffd400}, 0},
-        {utf8_literal("oled"), utf8_literal("OLED"), utf8_literal("True black for OLED screens."), utf8_literal("OLED"),
-         {0x000000, 0x0a0a0a, 0xf2f2f2, 0x7c5cff}, 0},
-        {utf8_literal("dusk"), utf8_literal("Dusk"), utf8_literal("Purple evenings."), utf8_literal("Purple"), {0x1b1530, 0x261e42, 0xece8f7, 0xb28cff}, 0},
-        {utf8_literal("paper"), utf8_literal("Paper"), utf8_literal("A warm light theme."), utf8_literal("Warm"), {0xf5f0e6, 0xece5d6, 0x2b2a27, 0xc8742c}, 1},
-        {utf8_literal("ember"), utf8_literal("Ember"), utf8_literal("Dark with warm embers."), utf8_literal("Warm"), {0x1c1210, 0x2a1b17, 0xf3e9e4, 0xf0713a}, 0},
+         utf8_literal("Muted"), utf8_literal("Cool"), {0x2e3440, 0x363d4b, 0xe5e9f0, 0x88c0d0}, 0},
+        {utf8_literal("high-contrast"), utf8_literal("High Contrast"),
+         utf8_literal("Pure black and white with a yellow accent, strong borders and heavier icons. Passes WCAG AAA for text."),
+         utf8_literal("Accessibility"), {}, {0x000000, 0x161616, 0xffffff, 0xffd23f}, 0},
+        {utf8_literal("obsidian"), utf8_literal("Obsidian"), utf8_literal("True black chat and surfaces for OLED panels, with neutral greys and an emerald accent."),
+         utf8_literal("OLED"), {}, {0x000000, 0x101011, 0xececee, 0x34d399}, 0},
+        {utf8_literal("rose-dusk"), utf8_literal("Rose Dusk"), utf8_literal("Deep plum surfaces with a soft rose accent, like the sky just after sunset."),
+         utf8_literal("Warm"), utf8_literal("Purple"), {0x241540, 0x321f4d, 0xf6ecf8, 0xf08fb8}, 0},
+        {utf8_literal("sample-neon-grid"), utf8_literal("Sample Neon Grid"),
+         utf8_literal("Synthwave purples and hot pink, with drifting stars behind the chat. This is a sample entry that exists only to lay out the page."),
+         utf8_literal("Colorful"), utf8_literal("Animated"), {0x0b0614, 0x140b24, 0xf3e9ff, 0xff3ea5}, 0},
+        {utf8_literal("warm-paper"), utf8_literal("Warm Paper"), utf8_literal("A warm, cream-coloured light theme with a terracotta accent, easy on the eyes."),
+         utf8_literal("Warm"), utf8_literal("Cream"), {0xf7f0e1, 0xfdf8ec, 0x2b2118, 0xb04a24}, 1},
     };
     for (const auto& t : kThemes) {
-        StoreItem& item = add(CatalogKind::theme, t.slug, t.name, t.summary, utf8_literal("MaiCord"), utf8_literal("1.0.0"), t.category);
+        StoreItem& item = add(CatalogKind::theme, t.slug, t.name, t.summary, utf8_literal("MaiCord"), utf8_literal("1.0.0"), t.c0, t.c1);
         item.base = t.base;
         item.has_swatches = true;
         for (u32 i = 0; i < 4; ++i)
             item.swatches[i] = t.sw[i];
         item.bytes = 1331;
         item.license = utf8_literal("MIT");
+        item.released = 1793534400;
+        item.source = utf8_literal("https://github.com/maj113/MaiCord-plugins/tree/b76ad03b224c41d6b9338e769370aded6a3a5d01/themes");
+        item.contrast = utf8_literal("WCAG AA for text");
     }
     m.items[0].installed = true;
+    m.items[0].order = 0;
     m.items[1].installed = m.items[1].active = true;
-    m.items[1].sha = utf8_literal("c1a09f3e\xE2\x80\xA6" "77b2d0");
-    m.items[1].contrast = utf8_literal("WCAG AA for text");
+    m.items[1].order = 1;
 }
 
 void effects() noexcept {
@@ -179,18 +322,38 @@ void effects() noexcept {
     reset_value(&m);
     m.catalog = StoreCatalogState::ready;
     m.installable = true;
-    StoreItem& aurora = add(CatalogKind::effect, utf8_literal("aurora"), utf8_literal("Aurora"), utf8_literal("Slow curtains of green light."),
-                            utf8_literal("MaiCord"), utf8_literal("1.0.0"), utf8_literal("Nature"));
+    static constexpr struct {
+        Utf8View slug, name, summary, c0, c1;
+    } kEffects[]{
+        {utf8_literal("ascii-rain"), utf8_literal("ASCII rain"), utf8_literal("Columns of glyphs falling down the window, a bright head with a fading trail."),
+         utf8_literal("Retro"), utf8_literal("Text")},
+        {utf8_literal("aurora"), utf8_literal("Aurora"),
+         utf8_literal("Soft curtains of light drifting across the top of the window, tinted by the theme's accent and positive roles over its background."),
+         utf8_literal("Ambient"), utf8_literal("Nature")},
+        {utf8_literal("bokeh"), utf8_literal("Soft bokeh"), utf8_literal("Out-of-focus discs drifting slowly upward in three depth layers, in the theme's accent and text colours."),
+         utf8_literal("Ambient"), utf8_literal("Soft")},
+        {utf8_literal("film-grain"), utf8_literal("Film grain"),
+         utf8_literal("A faint, constantly changing speckle over everything, light and dark, for a printed-paper feel."), utf8_literal("Texture"),
+         utf8_literal("Retro")},
+        {utf8_literal("plasma"), utf8_literal("Plasma"), utf8_literal("The classic sum of sines, tinted toward the theme so it never fights the UI."),
+         utf8_literal("Abstract"), utf8_literal("Retro")},
+        {utf8_literal("starfield"), utf8_literal("Starfield"),
+         utf8_literal("Three parallax layers of twinkling stars drifting sideways, sized in DIPs so they look the same at every DPI and resolution."),
+         utf8_literal("Space"), utf8_literal("Ambient")},
+        {utf8_literal("wave-lines"), utf8_literal("Wave lines"),
+         utf8_literal("A stack of thin horizontal lines rippling with a few overlaid sines, fading from the theme's accent to its positive colour down the window."),
+         utf8_literal("Abstract"), utf8_literal("Minimal")},
+    };
+    for (const auto& e : kEffects) {
+        StoreItem& item = add(CatalogKind::effect, e.slug, e.name, e.summary, utf8_literal("MaiCord"), utf8_literal("1.0.0"), e.c0, e.c1);
+        item.cost = 0;
+        item.released = 1793534400;
+        item.source = utf8_literal("https://github.com/maj113/MaiCord/tree/master/samples/effects");
+    }
+    StoreItem& aurora = m.items[1];
     aurora.installed = aurora.active = aurora.has_knobs = true;
     aurora.library = 0;
-    StoreItem& grain = add(CatalogKind::effect, utf8_literal("film-grain"), utf8_literal("Film grain"),
-                           utf8_literal("Soft, constantly changing speckle over everything, light and dark, for a filmic feel."), utf8_literal("MaiCord"),
-                           utf8_literal("1.0.0"), utf8_literal("Texture"));
-    grain.cost = 0;
-    add(CatalogKind::effect, utf8_literal("starfield"), utf8_literal("Starfield"), utf8_literal("A quiet drift of stars."), utf8_literal("MaiCord"),
-        utf8_literal("1.0.0"), utf8_literal("Space"));
-    m.items[0].cost = 0;
-    m.items[2].cost = 0;
+    aurora.order = 0;
 }
 
 void knobs() noexcept {
@@ -199,12 +362,13 @@ void knobs() noexcept {
     static constexpr struct {
         Utf8View label, hint;
         u8 type;
+        bool percent;
         float min, max, value, fallback;
     } kKnobs[]{
-        {utf8_literal("Drift speed"), {}, 0, 0, 1, .35f, .3f},
-        {utf8_literal("Brightness"), {}, 0, 0, 1, .7f, .6f},
-        {utf8_literal("Reach"), utf8_literal("Share of the window the curtains cover."), 0, 0, 1, .75f, .7f},
-        {utf8_literal("Curtains"), {}, 1, 1, 5, 3, 3},
+        {utf8_literal("Drift speed"), {}, 0, false, 0, 2, .35f, .35f},
+        {utf8_literal("Brightness"), {}, 0, false, .2f, 1, .7f, .7f},
+        {utf8_literal("Reach"), utf8_literal("Share of the window the curtains cover."), 0, true, .3f, 1, .75f, .75f},
+        {utf8_literal("Curtains"), {}, 1, false, 1, 4, 3, 3},
     };
     for (const auto& k : kKnobs) {
         StoreKnob& out = m.knobs[m.knob_count++];
@@ -212,6 +376,7 @@ void knobs() noexcept {
         out.label = k.label;
         out.hint = k.hint;
         out.type = k.type;
+        out.percent = k.percent;
         out.minimum = k.min;
         out.maximum = k.max;
         out.value = k.value;
@@ -231,8 +396,29 @@ void knobs() noexcept {
     m.global_universal = u;
 }
 
+// The Aurora sample as the window background: what a live tile shows.
+bool run_aurora(D3D11Renderer& renderer) noexcept {
+    BackgroundEffectSpec spec{};
+    spec.bytecode = {g_maicord_effect_aurora, sizeof(g_maicord_effect_aurora)};
+    spec.identity = hash64_bytes(kHash64Seed, g_maicord_effect_aurora, sizeof(g_maicord_effect_aurora)) | 1;
+    spec.uses = effect_use_blue_noise;
+    spec.blend = EffectBlend::normal;
+    spec.requested_resolution = spec.requested_frame_rate = 3;
+    const float values[]{.35f, .7f, .75f, 3};
+    for (u32 i = 0; i < 4; ++i)
+        spec.knobs[0][i] = values[i];
+    const EffectSettings settings{1.f, 1.f, EffectBlend::normal, 2, 2, EffectBudget::high, false};
+    const auto selected = renderer_select_effect(&renderer, spec, settings);
+    if (selected.state == EffectSelect::rejected || FAILED(selected.native_error))
+        return false;
+    // The first redraw is the clock's zero: start the picture a few seconds in, where the curtains have formed.
+    renderer.effect.time = 6.f;
+    return renderer_set_background_phase(&renderer, 6.f);
+}
+
 bool show(Fixture& f, D3D11Renderer& renderer, UiPageKey page, const UiRect& viewport, const wchar_t* name,
-          bool (*capture)(const wchar_t*) noexcept, bool (*before)(Fixture&) noexcept = nullptr) noexcept {
+          bool (*capture)(const wchar_t*, const Theme&) noexcept, const Theme& theme,
+          bool (*before)(Fixture&) noexcept = nullptr) noexcept {
     const CatalogKind kind = page.page_id == kPlugins.page_id ? CatalogKind::plugin : page.page_id == kThemes.page_id ? CatalogKind::theme : CatalogKind::effect;
     if (!ui_page_registry_select(&f.registry, page).ok() || !ui_settings_scene_update(&f.scene, &f.registry, viewport))
         return false;
@@ -255,17 +441,21 @@ bool show(Fixture& f, D3D11Renderer& renderer, UiPageKey page, const UiRect& vie
     f.store.active = true;
     if (!ui_store_scene_commit(&f.store, clip, rect, f.scene.layout.modal))
         return false;
+    f.store.media_key = preview_media_key;
     ++f.scene.revision;
     renderer.settings_store = &f.store;
     renderer.retained_presentation.valid = false;
+    // The pictures of the visible tiles, as the host's pump delivers them.
+    if (!upload_previews(renderer))
+        return false;
     // The second frame draws the glyphs the first one rasterised.
-    return renderer_rebuild_content_text(&renderer, kDefaultTheme) && probe_present(&renderer, kDefaultTheme) &&
-           probe_present(&renderer, kDefaultTheme) && capture(name);
+    return renderer_rebuild_content_text(&renderer, theme) && probe_present(&renderer, theme) &&
+           probe_present(&renderer, theme) && capture(name, theme);
 }
 } // namespace
 
 bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& cache, bool (*relayout)() noexcept,
-                    bool (*capture)(const wchar_t*) noexcept) noexcept {
+                    bool (*capture)(const wchar_t*, const Theme&) noexcept) noexcept {
     if (!capture || !relayout || renderer.login_visible || !renderer.dpi)
         return false;
     auto& f = fixture;
@@ -286,7 +476,13 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
         const PopupScene* old_popup;
         const UiSettingsScene* old_scene;
         u32 width, height;
+        MediaAtlas* primary;
+        MediaAtlas* preview;
         ~Restore() noexcept {
+            renderer_clear_effect(&renderer);
+            renderer_unbind_media_atlas(&renderer);
+            renderer_bind_media_atlas(&renderer, primary);
+            renderer_bind_preview_media_atlas(&renderer, preview);
             renderer.settings_store = nullptr;
             renderer_bind_settings_scene(&renderer, old_scene);
             ui_markdown_bank_release(&f.bank);
@@ -297,9 +493,23 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
             ui_page_registry_clear(&f.registry);
             renderer_resize(&renderer, width, height);
         }
-    } restore{renderer, f, popup, old_popup, old_scene, width, height};
+    } restore{renderer, f, popup, old_popup, old_scene, width, height, renderer.media_atlas, renderer.preview_media_atlas};
     u32 stage = __LINE__;
-    bool valid = ui_page_registry_initialize(&f.registry, {f.pages, kSettingsPanelCount + 1});
+    // Sunset, like the mockups; 11 is the flat dark theme.
+    static Theme sunset;
+    {
+        ClientPreferences preferences = client_preferences_defaults();
+        preferences.theme = ClientTheme::sunset;
+        sunset = client_theme_projection(preferences);
+    }
+    g_preview_dpi = renderer.dpi;
+    g_preview_directory[0] = 0;
+    {
+        const DWORD n = GetEnvironmentVariableW(L"MAICORD_STORE_PREVIEW_DIR", g_preview_directory, 500);
+        if (!n || n >= 500)
+            g_preview_directory[0] = 0;
+    }
+    bool valid = bind_page_atlases(renderer) && ui_page_registry_initialize(&f.registry, {f.pages, kSettingsPanelCount + 1});
     for (u32 panel = 0; valid && panel < kSettingsPanelCount; ++panel) {
         const auto& source = settings_catalog_panel(static_cast<SettingsPanel>(panel));
         f.contents[panel] = {source.title, {}, {}, 1};
@@ -331,21 +541,22 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
             ui_settings_scene_bind_navigation(&f.scene, settings_catalog_navigation(true), 1);
     if (valid)
         renderer_bind_settings_scene(&renderer, &f.scene);
-    const auto next = [&](const wchar_t* name, UiPageKey page, bool (*before)(Fixture&) noexcept) noexcept {
+    const auto next = [&](const wchar_t* name, UiPageKey page, bool (*before)(Fixture&) noexcept, const Theme& theme) noexcept {
         if (valid)
             stage = __LINE__;
-        valid = valid && show(f, renderer, page, viewport, name, capture, before);
+        valid = valid && show(f, renderer, page, viewport, name, capture, theme, before);
     };
     // 01 Plugins > Browse
     plugins();
+    f.model.items[3].installed = f.model.items[3].enabled = f.model.items[3].running = false; // Reverse Image Search: not installed yet
     f.state[0].tab = StoreTab::browse;
-    next(L"store-01-browse-plugins.bmp", kPlugins, nullptr);
-    // 11 the same page once more (the flat dark theme is what the probe draws with)
-    next(L"store-11-browse-plugins-dark.bmp", kPlugins, nullptr);
+    next(L"store-01-browse-plugins.bmp", kPlugins, nullptr, sunset);
+    // 11 the same page in the flat dark theme
+    next(L"store-11-browse-plugins-dark.bmp", kPlugins, nullptr, kDefaultTheme);
     // 02 Themes > Browse
     themes();
     f.state[1].tab = StoreTab::browse;
-    next(L"store-02-browse-themes.bmp", kThemes, nullptr);
+    next(L"store-02-browse-themes.bmp", kThemes, nullptr, sunset);
     // 03 plugin detail
     plugins();
     permissions(&f.model.consent);
@@ -356,29 +567,34 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
         st.detail_from = StoreTab::browse;
         copy_bytes(st.slug, "translate", 10);
     }
-    next(L"store-03-plugin-detail.bmp", kPlugins, nullptr);
+    next(L"store-03-plugin-detail.bmp", kPlugins, nullptr, sunset);
     f.state[0].detail = false;
-    // 04 effect knobs
+    // 04 effect knobs: Aurora is the window background, so its live tile has the effect to show
     effects();
     knobs();
+    if (valid) {
+        stage = __LINE__;
+        valid = run_aurora(renderer);
+    }
     {
         StorePageState& st = f.state[2];
         st.detail = st.knobs = true;
         st.detail_from = StoreTab::installed;
         copy_bytes(st.slug, "aurora", 7);
     }
-    next(L"store-04-effect-knobs.bmp", kEffects, nullptr);
+    next(L"store-04-effect-knobs.bmp", kEffects, nullptr, sunset);
     f.state[2].detail = f.state[2].knobs = false;
     // 05 Plugins > Installed with the overflow menu open
+    renderer_clear_effect(&renderer);
     plugins();
     f.state[0].tab = StoreTab::installed;
-    next(L"store-05-installed.bmp", kPlugins, nullptr);
+    next(L"store-05-installed.bmp", kPlugins, nullptr, sunset);
     if (valid) {
         stage = __LINE__;
         UiRect anchor{};
         u32 item = 0, seen = 0;
         for (u32 i = 0; i < f.store.count; ++i)
-            if (store_act(f.store.nodes[i].action) == StoreAct::row_overflow && ++seen == 3 &&
+            if (store_act(f.store.nodes[i].action) == StoreAct::row_overflow && ++seen == 4 &&
                 ui_store_scene_rect(f.store, f.store.nodes[i].action, &anchor))
                 item = store_arg(f.store.nodes[i].action);
         const u32 count = store_menu_items(f.model, f.state[0], StoreMenu::overflow, item, f.items, 16, {f.labels, sizeof(f.labels)});
@@ -387,8 +603,8 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
         if (valid) {
             bool changed = false;
             popup_scene_select_index(&popup, 1, &changed);
-            valid = renderer_rebuild_content_text(&renderer, kDefaultTheme) && probe_present(&renderer, kDefaultTheme) &&
-                    capture(L"store-05-installed-menu.bmp");
+            valid = renderer_rebuild_content_text(&renderer, sunset) && probe_present(&renderer, sunset) &&
+                    capture(L"store-05-installed-menu.bmp", sunset);
             popup_scene_close(&popup);
         }
     }
@@ -403,9 +619,10 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
     f.model.consent.author = utf8_literal("MaiCord");
     f.model.consent.bytes = 9216;
     f.state[0].dialog_check = true;
-    next(L"store-06-consent.bmp", kPlugins, nullptr);
-    // 07 theme detail
+    next(L"store-06-consent.bmp", kPlugins, nullptr, sunset);
+    // 07 theme detail: installed, not the applied one, so it offers Apply theme and Try it
     themes();
+    f.model.items[1].active = false;
     f.state[1].tab = StoreTab::browse;
     {
         StorePageState& st = f.state[1];
@@ -413,11 +630,11 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
         st.detail_from = StoreTab::browse;
         copy_bytes(st.slug, "fjord", 6);
     }
-    f.model.details_markdown = utf8_literal("A muted, frosty blue-grey dark theme.");
-    next(L"store-07-theme-detail.bmp", kThemes, nullptr);
+    next(L"store-07-theme-detail.bmp", kThemes, nullptr, sunset);
     f.state[1].detail = false;
-    // 08 install from link (an unreviewed effect)
+    // 08 install from link (an unreviewed effect), previewing live at the Low budget
     effects();
+    f.model.items[1].active = false;
     f.state[2].tab = StoreTab::browse;
     f.model.link = {};
     f.model.link.open = true;
@@ -430,23 +647,29 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
     f.model.link.based_on = utf8_literal("Plasma by MaiCord");
     f.model.link.size_text = utf8_literal("18.4 KB");
     f.model.link.cost_known = true;
+    f.model.link.cost_level = 0;
     f.model.link.cost_text = utf8_literal("Light \xC2\xB7 0.6 ms");
     f.model.link.previewing = true;
-    next(L"store-08-install-from-link.bmp", kEffects, nullptr);
+    if (valid) {
+        stage = __LINE__;
+        valid = run_aurora(renderer);
+    }
+    next(L"store-08-install-from-link.bmp", kEffects, nullptr, sunset);
+    renderer_clear_effect(&renderer);
     f.model.link = {};
     // 09 first load
     effects();
     f.model.catalog = StoreCatalogState::loading;
     f.model.count = 0;
     f.state[2].tab = StoreTab::browse;
-    next(L"store-09-loading-skeleton.bmp", kEffects, nullptr);
+    next(L"store-09-loading-skeleton.bmp", kEffects, nullptr, sunset);
     // 10 the catalog is unreachable
     plugins();
     f.model.catalog = StoreCatalogState::unreachable;
     f.model.error_text = utf8_literal("the connection timed out after 15 s");
     f.state[0].tab = StoreTab::browse;
     f.state[0].show_saved = false;
-    next(L"store-10-catalog-unavailable.bmp", kPlugins, nullptr);
+    next(L"store-10-catalog-unavailable.bmp", kPlugins, nullptr, sunset);
     if (!valid)
         log_u64(LogLevel::error, "probe", "store_ui_failure_line", stage);
     log_write(valid ? LogLevel::info : LogLevel::error, "probe", valid ? "store_ui_pages_passed" : "store_ui_failed");

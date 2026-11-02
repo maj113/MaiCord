@@ -4,7 +4,7 @@
 #include "../../support/settings_schema_validation.hpp"
 #include "settings/settings.hpp"
 #include "account/friends.hpp"
-#include "plugins/runtime.hpp"
+#include "../../support/plugin_ui_fixture_runtime.hpp"
 #include "chat/messages/interaction.hpp"
 #include "shell/input.hpp"
 #include "settings/theme_editor.hpp"
@@ -17,8 +17,8 @@
 
 namespace maicord {
 void test_application_plugin_navigation_runtime(void (*check)(bool, const char*) noexcept) noexcept;
+void test_application_plugin_surfaces_revision(void (*check)(bool, const char*) noexcept) noexcept;
 void test_application_settings_choice_runtime(void (*check)(bool, const char*) noexcept) noexcept;
-void test_application_plugins_read_runtime(void (*check)(bool, const char*) noexcept) noexcept;
 void test_application_custom_theme(void (*check)(bool, const char*) noexcept) noexcept;
 namespace app_detail {
 // The captured plugin menu bank, observed by the navigation test that includes its owner.
@@ -26,7 +26,6 @@ const ApplicationPluginMenu& application_plugins_menu_state() noexcept;
 void test_application_user_settings_runtime(void (*check)(bool, const char*) noexcept) noexcept;
 void test_application_account_settings_connection_runtime(void (*check)(bool, const char*) noexcept) noexcept;
 void test_application_keybinds_settings_runtime(void (*check)(bool, const char*) noexcept) noexcept;
-void test_application_plugins_actions_runtime(void (*check)(bool, const char*) noexcept) noexcept;
 
 } // namespace app_detail
 
@@ -36,6 +35,8 @@ ApplicationCustomThemeView custom_theme_projection{};
 ApplicationCustomThemeAction custom_theme_last_action{};
 u32 custom_theme_actions{};
 bool custom_theme_pointer_transition{};
+ConstSlice<Utf8View> installed_themes{};
+InstalledSelection installed_selection{};
 
 Observations observed{};
 
@@ -56,20 +57,6 @@ bool find_friend(void* context, u64 id, u32* index) noexcept {
     return true;
 }
 
-PickerBoundary picker_boundary{};
-
-HMODULE manual_rollback_reference = nullptr;
-void manual_scope_change() noexcept {
-    application_plugins_account_scope_invalidated();
-}
-void manual_failed_free() noexcept {
-    if (!g_app.plugins)
-        return;
-    // The genuine reference remains pinned and is restored immediately after
-    // the asserted API failure. No pointer is freed or dereferenced by this seam.
-    manual_rollback_reference = g_app.plugins->modules[0].module;
-    g_app.plugins->modules[0].module = reinterpret_cast<HMODULE>(static_cast<usize>(1));
-}
 u32 failures = 0;
 void check(bool success, const char* name) noexcept {
     test_check(&failures, success, name);
@@ -309,22 +296,6 @@ bool freed(void* address) noexcept {
     return address && VirtualQuery(address, &region, sizeof(region)) == sizeof(region) &&
            region.State == MEM_FREE;
 }
-bool fixture_path(wchar_t* output, u32* count) noexcept {
-    const DWORD length = GetModuleFileNameW(nullptr, output, kNativePluginModuleMaxPathCharacters + 1);
-    if (!length || length > kNativePluginModuleMaxPathCharacters)
-        return false;
-    u32 start = length;
-    while (start && output[start - 1] != L'\\')
-        --start;
-    constexpr wchar_t name[] = L"MaiCordPluginFixture.dll";
-    constexpr u32 chars = sizeof(name) / sizeof(name[0]) - 1;
-    if (!start || start + chars > kNativePluginModuleMaxPathCharacters)
-        return false;
-    for (u32 i = 0; i <= chars; ++i)
-        output[start + i] = name[i];
-    *count = start + chars;
-    return true;
-}
 LPARAM shell_point(UiSemantic semantic) noexcept {
     const auto* node = ui_scene_node(g_app.shell_scene, semantic);
     if (!node)
@@ -354,8 +325,8 @@ bool menu_fixture_initialize() noexcept {
            message_store_initialize(&g_app.message_view.store, {fixture.records, 4}, {fixture.order, 4},
                                     {fixture.text, 256});
 }
-// The fixture DLL registers one user item (1) and one message item (2).
-bool open_plugin_menu(ApplicationPluginMenuSurface surface, u64 id, u32 expected_count = 1,
+// The UI fixture registers two user items and, on a message, an inspect, a submenu and a checkbox.
+bool open_plugin_menu(ApplicationPluginMenuSurface surface, u64 id, u32 expected_count = 2,
                       bool bind = true) noexcept {
     PopupItem plugins[8]{};
     const u32 count = application_plugins_menu_items(surface, id, {plugins, 8});
@@ -386,48 +357,57 @@ void menu_fixture_release() noexcept {
     g_app.message_view.store = {};
     g_app.context_focus = nullptr;
 }
-// Plugin rows through the real DLL, the SDK registry and the shipping
-// projection, binder and dispatcher.
-void test_menu_runtime(FixtureAudit& audit) noexcept {
+// Plugin rows of the UI fixture through the real plugin runtime and the shipping projection, binder and
+// dispatcher: what each target shows, what a captured row is checked against, and what the plugin is told.
+void test_menu_runtime() noexcept {
     using S = ApplicationPluginMenuSurface;
+    using namespace plugin_ui_fixture_runtime;
     constexpr u32 first = kApplicationPluginPopupActionFirst;
+    static Fixture fixture{};
     const auto saved_store = g_app.message_view.store;
     const u64 profile = g_app.account.status.profile_id;
     const u64 channel = g_app.account_ui->chat_state.selected_channel_id;
     application_settings_close(false);
     check(menu_fixture_initialize(), "plugins menu: actual popup and message store initialize");
     g_app.account.status.profile_id = 77;
-    audit.popup = &g_app.popup_scene;
+    check(fixture.enable() && fixture.state(), "plugins menu: the UI fixture is enabled through the plugin runtime");
+    State* const plugin = fixture.state();
+    if (!plugin) {
+        menu_fixture_release();
+        fixture.release();
+        return;
+    }
     void* owner_memory = g_app.settings;
     bool repeated_projection = true;
     for (u32 index = 0; index < 3; ++index) {
         PopupItem projected[8]{};
         repeated_projection = repeated_projection &&
-                              application_plugins_menu_items(S::user, 1234, {projected, 8}) == 1 &&
-                              utf8_equal(projected[0].label, utf8_literal("Open native fixture for friend"));
+                              application_plugins_menu_items(S::user, 1234, {projected, 8}) == 2 &&
+                              utf8_equal(projected[0].label, utf8_literal("Inspect")) &&
+                              utf8_equal(projected[1].label, utf8_literal("Others only"));
     }
     check(repeated_projection && g_app.settings == owner_memory && !g_app.popup_scene.active &&
-              !g_app.popup_scene.owned_storage.base && !audit.menu_activations,
-          "plugins menu: repeated projection copies the DLL's user row without popup allocation or DLL entry");
-    const u32 callbacks = audit.menu_activations;
+              !g_app.popup_scene.owned_storage.base && !plugin->menu_calls,
+          "plugins menu: repeated projection copies the plugin's user rows without popup allocation or plugin entry");
+    const u32 callbacks = plugin->menu_calls;
     check(open_plugin_menu(S::user, 1234), "plugins menu: widget generation test opens actual bound popup");
     const u32 opens = g_app.popup_scene.opens;
     const u16 generation = g_app.popup_scene.widgets.generation;
     ui_widget_manager_reset(&g_app.popup_scene.widgets);
     check(g_app.popup_scene.opens == opens && g_app.popup_scene.widgets.generation != generation &&
               application_plugins_menu_action(first) && !g_app.popup_scene.active &&
-              !application_plugins_menu_state().count && audit.menu_activations == callbacks,
-          "plugins menu: real widget reset rejects stale generation without entering the DLL");
-    check(open_plugin_menu(S::user, 1234, 1, false) && !application_plugins_menu_state().bound &&
+              !application_plugins_menu_state().count && plugin->menu_calls == callbacks,
+          "plugins menu: real widget reset rejects stale generation without entering the plugin");
+    check(open_plugin_menu(S::user, 1234, 2, false) && !application_plugins_menu_state().bound &&
               g_app.popup_scene.active,
-          "plugins menu: projected DLL rows materialize before explicit bind");
+          "plugins menu: projected plugin rows materialize before explicit bind");
     g_app.popup_owner_kind = PopupOwnerKind::message;
     check(!application_plugins_menu_bind() && !g_app.popup_scene.active && !application_plugins_menu_state().count &&
-              audit.menu_activations == callbacks,
+              plugin->menu_calls == callbacks,
           "plugins menu: failed bind dismisses materialized rows and clears the bank");
     check(open_plugin_menu(S::user, 1234), "plugins menu: account-scoped user popup opens");
     ++g_app.account.status.profile_id;
-    check(application_plugins_menu_action(first) && audit.menu_activations == callbacks,
+    check(application_plugins_menu_action(first) && plugin->menu_calls == callbacks,
           "plugins menu: switched profile rejects captured semantic target");
     --g_app.account.status.profile_id;
     check(open_plugin_menu(S::user, 1234), "plugins menu: popup generation test opens bound model");
@@ -435,137 +415,75 @@ void test_menu_runtime(FixtureAudit& audit) noexcept {
     check(popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, 1234, {replacement, 1},
                            {30, 30, 50, 50}, observed.viewport, 300)
                   .ok() &&
-              application_plugins_menu_action(first) && audit.menu_activations == callbacks,
+              application_plugins_menu_action(first) && plugin->menu_calls == callbacks,
           "plugins menu: reopening actual popup invalidates earlier bank even for identical owner");
     check(open_plugin_menu(S::user, 1234) && application_plugins_menu_action(first) &&
-              audit.menu_activations == callbacks + 1 && audit.menu_callback_popup_dismissed &&
-              audit.last_menu_activation.target == MC_MENU_USER && audit.last_menu_activation.user_id == 1234 &&
-              !audit.last_menu_activation.channel_id && !audit.last_menu_activation.message_id &&
-              !g_app.popup_scene.active && !application_plugins_menu_state().count && !application_settings_active(),
-          "plugins menu: actual DLL user handler runs after popup dismissal with the copied user ID");
+              plugin->menu_calls == callbacks + 1 && plugin->menu_gesture && plugin->menu_item == 0 &&
+              plugin->menu_kind == MC_MENU_USER && plugin->user_id == 1234 && !plugin->channel_id &&
+              !plugin->message_id && !g_app.popup_scene.active && !application_plugins_menu_state().count &&
+              !application_settings_active(),
+          "plugins menu: the plugin's user handler runs in a gesture after popup dismissal with the copied user ID");
     // A Friends row menu carries the same user rows; its relationship is the fence.
     observed.friends_active = true;
     check(open_plugin_menu(S::friends, 1234) && g_app.popup_owner_kind == PopupOwnerKind::friends,
           "plugins menu: Friends row popup binds the user rows to the Friends owner");
     menu_fixture.row.kind = UiFriendsKind::blocked;
-    check(application_plugins_menu_action(first) && audit.menu_activations == callbacks + 1 &&
-              !g_app.popup_scene.active,
-          "plugins menu: changed Friends relationship rejects the captured row before DLL entry");
+    check(application_plugins_menu_action(first) && plugin->menu_calls == callbacks + 1 && !g_app.popup_scene.active,
+          "plugins menu: changed Friends relationship rejects the captured row before plugin entry");
     menu_fixture.row.kind = UiFriendsKind::friend_user;
-    check(open_plugin_menu(S::friends, 1234) && application_plugins_menu_action(first) &&
-              audit.menu_activations == callbacks + 2 && audit.last_menu_activation.target == MC_MENU_USER &&
-              audit.last_menu_activation.user_id == 1234 && audit.menu_callback_popup_dismissed,
+    check(open_plugin_menu(S::friends, 1234) && application_plugins_menu_action(first + 1) &&
+              plugin->menu_calls == callbacks + 2 && plugin->menu_item == 0 && plugin->menu_kind == MC_MENU_USER &&
+              plugin->user_id == 1234,
           "plugins menu: Friends row dispatches the user context after dismissal");
     observed.friends_active = false;
     g_app.account_ui->chat_state.selected_channel_id = 9012;
     MessageInput message{3456, 9012, 5678, 1, 0, utf8_literal("Fixture message"), 0};
-    check(message_store_upsert(&g_app.message_view.store, message).ok() && open_plugin_menu(S::message, 3456),
+    check(message_store_upsert(&g_app.message_view.store, message).ok() && open_plugin_menu(S::message, 3456, 2),
           "plugins menu: actual message store supplies the message popup");
     message.content = utf8_literal("Changed fixture message");
     check(message_store_upsert(&g_app.message_view.store, message).ok() && application_plugins_menu_action(first) &&
-              audit.menu_activations == callbacks + 2,
-          "plugins menu: changed message revision rejects action before DLL entry");
-    check(open_plugin_menu(S::message, 3456), "plugins menu: chat popup captures current message generation");
+              plugin->menu_calls == callbacks + 2,
+          "plugins menu: changed message revision rejects action before plugin entry");
+    check(open_plugin_menu(S::message, 3456, 2), "plugins menu: chat popup captures current message generation");
     check(message_store_delete(&g_app.message_view.store, 3456) &&
               message_store_upsert(&g_app.message_view.store, message).ok() &&
-              application_plugins_menu_action(first) && audit.menu_activations == callbacks + 2,
+              application_plugins_menu_action(first) && plugin->menu_calls == callbacks + 2,
           "plugins menu: delete and recreate with same message ID cannot revive captured generation");
-    check(open_plugin_menu(S::message, 3456), "plugins menu: channel scope test opens live chat popup");
+    check(open_plugin_menu(S::message, 3456, 2), "plugins menu: channel scope test opens live chat popup");
     g_app.account_ui->chat_state.selected_channel_id = 9013;
-    check(application_plugins_menu_action(first) && audit.menu_activations == callbacks + 2,
+    check(application_plugins_menu_action(first) && plugin->menu_calls == callbacks + 2,
           "plugins menu: channel switch rejects captured chat target");
     g_app.account_ui->chat_state.selected_channel_id = 9012;
-    check(open_plugin_menu(S::message, 3456) && application_plugins_menu_action(first) &&
-              audit.menu_activations == callbacks + 3 && audit.menu_callback_popup_dismissed &&
-              audit.last_menu_activation.target == MC_MENU_MESSAGE && audit.last_menu_activation.item_id == 2 &&
-              audit.last_menu_activation.user_id == 5678 && audit.last_menu_activation.channel_id == 9012 &&
-              audit.last_menu_activation.message_id == 3456,
+    check(open_plugin_menu(S::message, 3456, 2) && application_plugins_menu_action(first) &&
+              plugin->menu_calls == callbacks + 3 && plugin->menu_kind == MC_MENU_MESSAGE && plugin->menu_item == 0 &&
+              plugin->user_id == 5678 && plugin->channel_id == 9012 && plugin->message_id == 3456,
           "plugins menu: actual message dispatch delivers the copied author, channel and message IDs");
-    const auto configure = reinterpret_cast<Configure>(
-        GetProcAddress(GetModuleHandleW(L"MaiCordPluginFixture.dll"), "maicord_plugin_fixture_configure"));
-    check(configure != nullptr, "plugins menu: actual loaded DLL exposes failure configuration");
-    if (configure) {
-        configure(9, fixture_owner, &audit);
-        check(open_plugin_menu(S::message, 3456) && application_plugins_menu_action(first) &&
-                  audit.menu_activations == callbacks + 4 && audit.menu_callback_popup_dismissed &&
-                  !g_app.popup_scene.active && !application_settings_active(),
-              "plugins menu: a rejecting DLL handler leaves no popup and opens nothing");
-        configure(0, fixture_owner, &audit);
-    }
-    // Any registry change expires captured rows, then the removed item is gone.
-    check(open_plugin_menu(S::user, 1234) && audit.remove_menu && audit.remove_menu(2) &&
-              application_plugins_menu_action(first) && !g_app.popup_scene.active &&
-              audit.menu_activations == callbacks + 4,
-          "plugins menu: a menu revision change rejects a captured row before DLL entry");
+    // A submenu row opens its children in place of the menu without entering the plugin; a checkbox child runs
+    // its handler once and shows the mark the plugin reports the next time.
+    check(open_plugin_menu(S::message, 3456, 2) && utf8_equal(g_app.popup_scene.items[2].label, utf8_literal("More")) &&
+              application_plugins_menu_action(first + 1) && g_app.popup_scene.active &&
+              g_app.popup_scene.item_count == 1 &&
+              utf8_equal(g_app.popup_scene.items[0].label, utf8_literal("Pin to top")) &&
+              !(g_app.popup_scene.items[0].flags & popup_item_checked) && plugin->menu_calls == callbacks + 3 &&
+              !plugin->checked && application_plugins_menu_action(first) && plugin->checked &&
+              plugin->menu_item == 3 && plugin->menu_calls == callbacks + 4 && !g_app.popup_scene.active,
+          "plugins menu: a submenu opens its checkbox child in place, and the child runs its handler once");
+    check(open_plugin_menu(S::message, 3456, 2) && application_plugins_menu_action(first + 1) &&
+              g_app.popup_scene.item_count == 1 && (g_app.popup_scene.items[0].flags & popup_item_checked),
+          "plugins menu: the checkbox child shows the mark the plugin reports");
+    dismiss_popup();
+    // The plugin goes: its revision moves, the captured row is rejected and nothing projects again.
+    check(open_plugin_menu(S::user, 1234) && fixture.disable() && application_plugins_menu_action(first) &&
+              !g_app.popup_scene.active && plugin_menu_present(PluginMenuKind::user) == false,
+          "plugins menu: disabling the plugin rejects a captured row before it could enter freed code");
     PopupItem removed[8]{};
     check(!application_plugins_menu_items(S::message, 3456, {removed, 8}) && !application_plugins_menu_state().count,
-          "plugins menu: a removed DLL item projects no row");
+          "plugins menu: a disabled plugin projects no row");
     menu_fixture_release();
-    audit.popup = nullptr;
+    fixture.release();
     g_app.message_view.store = saved_store;
     g_app.account.status.profile_id = profile;
     g_app.account_ui->chat_state.selected_channel_id = channel;
-}
-void test_popup_unload(ConstSlice<wchar_t> dll_path) noexcept {
-    static FixtureAudit audit{};
-    audit.pages = application_settings_pages();
-    const auto saved_store = g_app.message_view.store;
-    const u64 profile = g_app.account.status.profile_id;
-    application_settings_close(false);
-    HMODULE pin = LoadLibraryExW(dll_path.data, nullptr,
-                                 LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
-    check(pin != nullptr, "plugins menu: unload fixture pins actual DLL for explicit reload");
-    if (!pin) {
-        application_settings_open();
-        return;
-    }
-    const auto configure = reinterpret_cast<Configure>(
-        GetProcAddress(pin, "maicord_plugin_fixture_configure"));
-    if (configure)
-        configure(0, fixture_owner, &audit);
-    application_plugins_sdk_bind_host(*g_app.plugins, application_settings_plugin_host());
-    const auto loaded = configure
-                            ? native_plugin_module_load(&g_app.plugins->modules[0],
-                                                        application_settings_plugin_host(), dll_path, MC_PERM_ALL)
-                            : NativePluginModuleResult{NativePluginModuleError::missing_export, {}, 0};
-    FreeLibrary(pin);
-    check(loaded.ok(), "plugins menu: actual DLL reload registers fresh generation for popup unload");
-    if (!loaded.ok()) {
-        application_settings_open();
-        return;
-    }
-    check(menu_fixture_initialize(), "plugins menu: popup unload initializes real borrowing surfaces");
-    g_app.account.status.profile_id = 77;
-    check(open_plugin_menu(ApplicationPluginMenuSurface::user, 1234),
-          "plugins menu: DLL user row is borrowed by an open popup before unload");
-    observed.detaching_module = &g_app.plugins->modules[0];
-    observed.audit = &audit;
-    observed.detached_active_popup = observed.detached_popup_labels = false;
-    observed.detached_live_code = observed.detached_live_state = false;
-    auto* sdk = application_settings_plugin_host()->sdk;
-    check(application_plugins_unload(0) && !g_app.popup_scene.active &&
-              g_app.popup_owner_kind == PopupOwnerKind::none && !application_plugins_menu_state().count &&
-              observed.detached_active_popup && observed.detached_popup_labels && observed.detached_live_code &&
-              observed.detached_live_state && audit.host_detaches == 1 && audit.stops == 1 &&
-              audit.stop_after_detach && audit.stop_without_pages && audit.stop_services_inactive &&
-              audit.stop_menu_services_inactive && audit.dll_detaches == 1 && audit.dll_after_stop &&
-              !application_plugins_present(0) && !application_settings_active() &&
-              GetModuleHandleW(L"MaiCordPluginFixture.dll") == nullptr,
-          "plugins menu: unload dismisses the borrowing popup while DLL/state/labels live, clears the bank, then "
-          "stops and frees the DLL");
-    NativePluginSdkMenuContext context{};
-    context.target = MC_MENU_USER;
-    context.user_id = 1234;
-    NativePluginSdkMenuItem items[4]{};
-    check(sdk && !native_plugin_sdk_menu_items(*sdk, MC_MENU_USER, {items, 4}) &&
-              !native_plugin_sdk_menu_activate(sdk, fixture_owner, 1, context) && !audit.menu_activations,
-          "plugins menu: popup unload leaves no item that could enter the freed DLL");
-    observed.detaching_module = nullptr;
-    observed.audit = nullptr;
-    menu_fixture_release();
-    g_app.message_view.store = saved_store;
-    g_app.account.status.profile_id = profile;
-    check(application_settings_open(), "plugins menu: native Settings reopens after popup owner unload");
 }
 struct Cleanup {
     wchar_t path[MAX_PATH]{};
@@ -580,7 +498,7 @@ struct Cleanup {
         if (g_app.preferences_writer)
             return;
         application_settings_release();
-        if (g_app.settings || g_app.plugins)
+        if (g_app.settings)
             return;
         ui_scene_release(&g_app.shell_scene);
         animation_visual_runtime_release(&g_app.animations);
@@ -621,9 +539,9 @@ void test_modal_scroll_binding(UiScrollBinding binding, const char* label) noexc
 void test_controller() noexcept {
     Cleanup cleanup{};
     PopupItem dormant_menu[8]{};
-    check(!application_settings_plugin_host_current() && !application_plugins_menu_state().count &&
+    check(!application_plugins_menu_state().count &&
               !application_plugins_menu_items(ApplicationPluginMenuSurface::user, 1234, {dormant_menu, 8}) &&
-              !g_app.settings && !g_app.plugins && !g_app.popup_scene.active &&
+              !g_app.settings && !g_app.popup_scene.active &&
               !g_app.popup_scene.owned_storage.base,
           "plugins menu: dormant projection and current-owner getters allocate no settings or plugin "
           "runtime");
@@ -1760,274 +1678,8 @@ void test_controller() noexcept {
               "settings: retried save completes and reaches the fixture file");
     }
 
-    // Inject an owned completed slot, then exercise the actual runtime's unload
-    // and reopen behavior. No choose() call, picker, or user account is involved.
-    g_app.plugins = static_cast<ApplicationPlugins*>(
-        VirtualAlloc(nullptr, sizeof(ApplicationPlugins), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    check(g_app.plugins != nullptr, "plugins: owned zeroed runtime allocated without starting picker");
-    if (g_app.plugins) {
-        // The ABI-4 runtime the loader needs. Memory-only: no marker file, so this
-        // test never touches the real profile; the plugins owner frees it on release.
-        auto* sdk = static_cast<ApplicationPluginsSdk*>(
-            VirtualAlloc(nullptr, sizeof(ApplicationPluginsSdk), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-        if (sdk) {
-            sdk->runtime.ledger = &sdk->ledger;
-            sdk->ledger_open = true;
-        }
-        g_app.plugins->sdk = sdk;
-    }
-    wchar_t dll_path[kNativePluginModuleMaxPathCharacters + 1]{};
-    u32 dll_chars = 0;
-    // DLL_PROCESS_DETACH may run at process exit after a failed release. Keep
-    // the fixture's caller-owned audit alive for that entire lifetime.
-    static FixtureAudit audit{};
-    audit.pages = application_settings_pages();
-    HMODULE pin = nullptr;
-    if (g_app.plugins && fixture_path(dll_path, &dll_chars))
-        pin = LoadLibraryExW(dll_path, nullptr,
-                             LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
-    check(pin != nullptr, "plugins: actual fixture DLL loads beside settings runtime executable");
-    if (pin) {
-        auto configure =
-            reinterpret_cast<Configure>(GetProcAddress(pin, "maicord_plugin_fixture_configure"));
-        check(configure != nullptr, "plugins: fixture configure export has expected contract");
-        if (configure) {
-            configure(0, fixture_owner, &audit);
-            application_plugins_sdk_bind_host(*g_app.plugins, application_settings_plugin_host());
-            const auto loaded_module = native_plugin_module_load(
-                &g_app.plugins->modules[0], application_settings_plugin_host(), {dll_path, dll_chars}, MC_PERM_ALL);
-            check(loaded_module.ok(),
-                  "plugins: fixture loads through actual application settings plugin host");
-        }
-        FreeLibrary(pin);
-        pin = nullptr;
-        if (application_plugins_present(0)) {
-            application_settings_refresh_pages();
-            check(!application_plugins_busy() && !application_plugins_notification() &&
-                      !application_plugins_present(8) && !application_plugins_unload(8),
-                  "plugins: completed runtime reports bounded slots and no picker notification");
-            test_menu_runtime(audit);
-            const auto before_plugin = g_app.preferences;
-            const u64 request_revision = g_app.preferences_request_revision;
-            check(application_settings_open_plugin_page({fixture_owner, 1}) &&
-                      activate_control({fixture_owner, 1}, 1) && scene() &&
-                      scene()->content.controls.count == 1 && scene()->content.controls[0].checked &&
-                      scene()->content_revision == 3 && /* register, first publish, toggle */
-                      client_preferences_equal(before_plugin, g_app.preferences) &&
-                      g_app.preferences_request_revision == request_revision,
-                  "plugins: real Enter routes semantic activation into DLL and refreshes current scene "
-                  "without native preference write");
-            check(application_preferences_member_visibility(g_app.preferences.member_pane_visible) &&
-                      g_app.preferences_save_pending && application_settings_synchronize() &&
-                      await_save_retained(),
-                  "plugins: native preference completion updates Storage status while retaining current "
-                  "plugin scene");
-            NativePluginUiToken stale{};
-            check(native_plugin_host_settings_token(application_settings_plugin_host(), {fixture_owner, 1},
-                                                    &stale)
-                      .ok(),
-                  "plugins: current fixture UI token captured before unload");
-            observed.detaching_module = &g_app.plugins->modules[0];
-            observed.audit = &audit;
-            check(application_plugins_unload(0) && application_settings_active() && scene() &&
-                      scene()->selected_page.owner_id == 1 && !application_plugins_present(0) &&
-                      !ui_page_registry_find(*audit.pages, {fixture_owner, 1}) &&
-                      observed.detached_live_code && observed.detached_live_state &&
-                      observed.detached_active_scene && observed.detached_live_menu_labels &&
-                      audit.stops == 1 && audit.stop_after_detach &&
-                      audit.stop_without_pages && audit.stop_services_inactive &&
-                      audit.stop_menu_services_inactive &&
-                      audit.dll_detaches == 1 && audit.dll_after_stop &&
-                      GetModuleHandleW(L"MaiCordPluginFixture.dll") == nullptr &&
-                      !g_app.plugins->modules[0].state && !application_settings_plugin_host()->state_bytes,
-                  "plugins: actual runtime detaches active UI while code/state are live, unloads DLL, then "
-                  "reopens native settings");
-            const UiSettingsActivation obsolete{{UiSettingsTargetKind::control, {fixture_owner, 1}, 1},
-                                                UiSettingsControlKind::toggle,
-                                                false,
-                                                0};
-            check(native_plugin_host_activate_settings(application_settings_plugin_host(), stale, obsolete)
-                          .error == NativePluginError::stale,
-                  "plugins: unloaded fixture token cannot route into freed code");
-            observed.detaching_module = nullptr;
-            observed.audit = nullptr;
-            test_popup_unload({dll_path, dll_chars});
-        }
-    }
-    // Choosing a DLL without a manifest is a Developer Mode action.
-    g_app.preferences.developer_mode = true;
-    // A failed DLL start detaches the active settings scene before picker
-    // release. Preserve the original modal intent across a nonblocking retry.
-    if (g_app.plugins && dll_chars) {
-        static FixtureAudit retry_audit{};
-        retry_audit.pages = application_settings_pages();
-        pin = LoadLibraryExW(dll_path, nullptr,
-                             LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
-        check(pin != nullptr, "plugins: failed-start picker fixture pins real DLL for configuration");
-        if (pin) {
-            auto configure =
-                reinterpret_cast<Configure>(GetProcAddress(pin, "maicord_plugin_fixture_configure"));
-            check(configure != nullptr, "plugins: retry fixture exposes configuration export");
-            if (configure) {
-                configure(3, fixture_owner, &retry_audit);
-                picker_boundary.next_path = {dll_path, dll_chars};
-                picker_boundary.release_timeouts = 1;
-                const u32 path_reads = picker_boundary.path_reads;
-                observed.detaching_module = &g_app.plugins->modules[0];
-                observed.audit = &retry_audit;
-                check(application_settings_active() && application_plugins_choose() &&
-                          application_plugins_busy(),
-                      "plugins: deterministic completed picker starts through actual choose controller");
-                const HANDLE notification = application_plugins_notification();
-                application_plugins_poll();
-                check(!application_settings_active() && application_plugins_busy() &&
-                          g_app.plugins->picker_consumed && g_app.plugins->reopen_settings &&
-                          application_plugins_notification() == notification && notification &&
-                          WaitForSingleObject(notification, 0) == WAIT_OBJECT_0 &&
-                          retry_audit.queries == 1 && retry_audit.starts == 1 && retry_audit.stops == 1 &&
-                          picker_boundary.path_reads == path_reads + 1,
-                      "plugins: failed DLL start detaches modal and first picker release timeout retains "
-                      "original reopen intent");
-                application_plugins_poll();
-                check(application_settings_active() && !application_plugins_busy() &&
-                          !application_plugins_notification() && !g_app.plugins->reopen_settings &&
-                          retry_audit.queries == 1 && retry_audit.starts == 1 && retry_audit.stops == 1 &&
-                          picker_boundary.path_reads == path_reads + 1,
-                      "plugins: second poll releases picker and reopens original modal without querying or "
-                      "starting DLL twice");
-                observed.detaching_module = nullptr;
-                observed.audit = nullptr;
-            }
-            FreeLibrary(pin);
-            pin = nullptr;
-            check(retry_audit.dll_detaches == 1 && retry_audit.dll_after_stop,
-                  "plugins: failed-start retry fixture frees actual DLL after its single stop");
-        }
-        // A module's operation guard deterministically rejects shutdown after
-        // picker release has succeeded. That partial shutdown must not leave
-        // selecting/closing latched or prevent starting another selection.
-        picker_boundary.next_path = {dll_path, dll_chars};
-        picker_boundary.release_timeouts = 0;
-        check(application_plugins_choose(), "plugins: deterministic picker begins before partial shutdown");
-        g_app.plugins->picker_consumed = true;
-        g_app.plugins->reopen_settings = true;
-        g_app.plugins->modules[0].busy = true;
-        auto* runtime_memory = g_app.plugins;
-        const u32 releases = picker_boundary.releases;
-        check(!application_plugins_release() && g_app.plugins == runtime_memory &&
-                  !application_plugins_busy() && !g_app.plugins->picker.runtime &&
-                  !application_plugins_notification() && !g_app.plugins->picker_consumed &&
-                  !g_app.plugins->reopen_settings && picker_boundary.releases == releases + 1,
-              "plugins: successful picker shutdown clears selection state even when busy module prevents "
-              "runtime release");
-        check(application_plugins_choose() && application_plugins_busy(),
-              "plugins: a new selection can start after partial shutdown module failure");
-        g_app.plugins->modules[0].busy = false;
-        // Cancellation after publication cannot change the immutable success
-        // batch. A timed-out shutdown must mark it abandoned before polling.
-        static FixtureAudit abandoned_audit{};
-        abandoned_audit.pages = application_settings_pages();
-        pin = LoadLibraryExW(dll_path, nullptr,
-                             LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
-        check(pin != nullptr, "plugins: abandoned picker fixture pins DLL for zero-load audit");
-        if (pin) {
-            auto configure =
-                reinterpret_cast<Configure>(GetProcAddress(pin, "maicord_plugin_fixture_configure"));
-            check(configure != nullptr, "plugins: abandoned picker fixture exposes configuration export");
-            if (configure) {
-                configure(0, fixture_owner, &abandoned_audit);
-                application_settings_close(false);
-                g_app.plugins->reopen_settings = true;
-                picker_boundary.release_timeouts = 1;
-                const u32 reads = picker_boundary.path_reads;
-                const HANDLE abandoned_notification = application_plugins_notification();
-                check(!application_plugins_release() && g_app.plugins->picker_consumed &&
-                          !g_app.plugins->reopen_settings && application_plugins_busy() &&
-                          native_file_picker_status(&g_app.plugins->picker).ok() &&
-                          application_plugins_notification() == abandoned_notification,
-                      "plugins: timed-out shutdown abandons already published success before requesting "
-                      "picker cancellation");
-                application_plugins_poll();
-                check(!application_settings_active() && !application_plugins_busy() &&
-                          !application_plugins_notification() && !g_app.plugins->picker.runtime &&
-                          abandoned_audit.queries == 0 && abandoned_audit.starts == 0 &&
-                          abandoned_audit.stops == 0 && picker_boundary.path_reads == reads &&
-                          !application_plugins_present(0) &&
-                          !application_settings_plugin_host()->active_count,
-                      "plugins: poll after abandoned shutdown only joins picker and never loads DLL or "
-                      "reopens modal");
-            }
-            FreeLibrary(pin);
-            pin = nullptr;
-            check(abandoned_audit.dll_detaches == 1 &&
-                      GetModuleHandleW(L"MaiCordPluginFixture.dll") == nullptr,
-                  "plugins: abandoned selection leaves no DLL reference after test configuration pin is "
-                  "released");
-        }
-        check(application_settings_open(),
-              "settings: native modal can reopen after abandoned plugin selection");
-    }
-    if (dll_chars && g_app.plugins) {
-        static FixtureAudit changed_scope_audit{};
-        changed_scope_audit.pages = application_settings_pages();
-        HMODULE scope_pin = LoadLibraryExW(dll_path, nullptr,
-                                           LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
-        const auto configure = scope_pin
-                                   ? reinterpret_cast<Configure>(
-                                         GetProcAddress(scope_pin, "maicord_plugin_fixture_configure"))
-                                   : nullptr;
-        check(configure != nullptr, "plugins: manual rollback fixture configures known native DLL");
-        if (configure) {
-            changed_scope_audit.start_callback_hook = manual_scope_change;
-            configure(0, fixture_owner, &changed_scope_audit);
-            picker_boundary.next_path = {dll_path, dll_chars};
-            picker_boundary.release_timeouts = 0;
-            const u64 serial = g_app.plugin_account_scope_serial;
-            check(application_plugins_choose(),
-                  "plugins: manual scope-change fixture starts deterministic picker");
-            application_plugins_poll();
-            check(g_app.plugin_account_scope_serial != serial && changed_scope_audit.queries == 1 &&
-                      changed_scope_audit.starts == 1 && changed_scope_audit.stops == 1 &&
-                      !g_app.plugins->modules[0].enabled && !application_plugins_present(0) &&
-                      !application_plugins_busy() && !application_settings_active() &&
-                      !utf8_equal(application_plugins_status(), utf8_literal("Plugin enabled.")),
-                  "plugins: changed scope rolls back native load and reports cancellation instead of false "
-                  "Loaded status");
-            changed_scope_audit.start_callback_hook = nullptr;
-            check(application_settings_open(),
-                  "plugins: native Settings reopens after scope-change rollback");
-            static FixtureAudit failed_rollback_audit{};
-            failed_rollback_audit.pages = application_settings_pages();
-            failed_rollback_audit.start_callback_hook = manual_scope_change;
-            failed_rollback_audit.stop_callback_hook = manual_failed_free;
-            configure(0, fixture_owner, &failed_rollback_audit);
-            check(application_plugins_choose(),
-                  "plugins: manual failed-rollback fixture starts deterministic picker");
-            application_plugins_poll();
-            check(manual_rollback_reference && failed_rollback_audit.stops == 1 &&
-                      !g_app.plugins->modules[0].enabled && application_plugins_present(0) &&
-                      g_app.plugins->modules[0].state && !application_plugins_busy() &&
-                      utf8_equal(application_plugins_status(),
-                                 utf8_literal("Couldn't unload the plugin. Try again.")),
-                  "plugins: failed rollback preserves cleanup owner and reports unloading error instead of "
-                  "Loaded");
-            failed_rollback_audit.start_callback_hook = failed_rollback_audit.stop_callback_hook = nullptr;
-            if (manual_rollback_reference) {
-                g_app.plugins->modules[0].module = manual_rollback_reference;
-                manual_rollback_reference = nullptr;
-            }
-            check(application_plugins_unload(0) && !application_plugins_present(0),
-                  "plugins: explicit retry releases restored genuine reference after failed rollback");
-            check(application_settings_open(),
-                  "plugins: native modal reopens after rollback cleanup retry");
-        }
-        if (scope_pin)
-            FreeLibrary(scope_pin);
-    }
-    auto* plugin_memory = g_app.plugins;
-    check(application_plugins_release() && !g_app.plugins && (!plugin_memory || freed(plugin_memory)) &&
-              application_plugins_release(),
-          "plugins: runtime release frees owned VM and is idempotent");
+    test_menu_runtime();
+    check(application_settings_open(), "settings: native modal reopens after the plugin menu tests");
     check(application_settings_input(UiInputKind::key_down, VK_ESCAPE, false) &&
               !application_settings_active() &&
               application_settings_input(UiInputKind::key_down, VK_ESCAPE, true) &&
@@ -2314,114 +1966,23 @@ void test_settings_catalog() noexcept {
     check(pages && panel_pages == kSettingsPanelCount && developer >= 1 &&
               settings_control_id(hits[0].panel, hits[0].node) == cid("advanced.developer_mode"),
           "settings catalog: sidebar lists every panel once; search finds Developer mode by its purpose");
+    UiSettingsNavEntry dotted_storage[kUiSettingsNavigationMaximum]{};
+    const auto dotted = settings_catalog_navigation_dotted(navigation, dotted_storage);
+    u32 dots = 0;
+    bool only_updates = dotted.count == navigation.count;
+    for (u32 i = 0; i < dotted.count; ++i) {
+        only_updates = only_updates && dotted[i].kind == navigation[i].kind && navigation[i].badge == 0;
+        if (dotted[i].badge == kUiSettingsNavDot) {
+            ++dots;
+            only_updates = only_updates && dotted[i].page.page_id == static_cast<u64>(SettingsPanel::updates) + 1;
+        } else
+            only_updates = only_updates && dotted[i].badge == 0;
+    }
+    check(only_updates && dots == 1 &&
+              settings_catalog_navigation_dotted(navigation, nullptr).count == 0 &&
+              settings_catalog_navigation_dotted({navigation.data, kUiSettingsNavigationMaximum + 1}, dotted_storage).count == 0,
+          "settings catalog: the attention dot marks Updates alone, leaves the catalog untouched and refuses a list that does not fit");
 }
-// Plugin slot popovers: row projection, opening at the anchor, link rows
-// through the link trust path, inert rows, and dismissal when the runtime's
-// rows change (owner unload) or the account scope ends.
-void test_plugin_popover() noexcept {
-    static PopupItem items[16]{};
-    static PopupRowWidget rows[16]{};
-    static UiWidget widgets[34]{};
-    static UiLayoutNode nodes[34]{};
-    const bool owned_plugins = !g_app.plugins, owned_ui = !g_app.account_ui;
-    if (owned_plugins)
-        g_app.plugins = static_cast<ApplicationPlugins*>(
-            VirtualAlloc(nullptr, sizeof(ApplicationPlugins), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (owned_ui)
-        g_app.account_ui = static_cast<AccountUiRuntime*>(
-            VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    const bool owned_sdk = g_app.plugins && !g_app.plugins->sdk;
-    if (owned_sdk)
-        g_app.plugins->sdk = static_cast<ApplicationPluginsSdk*>(
-            VirtualAlloc(nullptr, sizeof(ApplicationPluginsSdk), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    const bool ready = g_app.plugins && g_app.plugins->sdk && g_app.account_ui && !g_app.popup_scene.active &&
-                       popup_scene_initialize(&g_app.popup_scene, {items, 16}, {rows, 16}, {widgets, 34}, {nodes, 34});
-    check(ready, "plugin popover: fixture initializes");
-    if (ready) {
-        auto& rt = g_app.plugins->sdk->runtime;
-        const auto node = [&](u32 index, u32 kind, const char* text, u64 action, u32 tone = 0,
-                              const char* value = "") noexcept {
-            auto& out = rt.popover[index];
-            out = {};
-            out.kind = static_cast<u8>(kind);
-            out.tone = static_cast<u8>(tone);
-            out.icon = kPluginSdkNoIcon;
-            out.action_id = action;
-            while (text[out.text_bytes]) out.text[out.text_bytes] = text[out.text_bytes], ++out.text_bytes;
-            while (value[out.value_bytes]) out.value[out.value_bytes] = value[out.value_bytes], ++out.value_bytes;
-        };
-        node(0, MC_NODE_LABEL, "Status: idle", 0);
-        node(1, MC_NODE_SEPARATOR, "", 0);
-        node(2, MC_NODE_BUTTON, "Refresh", 7);
-        node(3, MC_NODE_LINK, "Docs", 0, 0, "https://example.com/docs");
-        node(4, MC_NODE_BUTTON, "Remove", 9, MC_TONE_CRITICAL);
-        const auto arm = [&]() noexcept {
-            rt.popover_count = 5;
-            rt.popover_owner = 0x77;
-            ++rt.popover_revision;
-        };
-        arm();
-        PopupItem projected[8]{};
-        const u32 count = application_plugins_popover_items(rt.popover, rt.popover_count, {projected, 8});
-        check(count == 4 && !(projected[0].flags & popup_item_enabled) &&
-                  projected[1].flags == (popup_item_enabled | popup_item_separator_before) &&
-                  projected[1].action == kApplicationPluginPopoverActionFirst + 2 &&
-                  (projected[2].flags & popup_item_enabled) &&
-                  projected[2].presentation.icon_plus_one == static_cast<u8>(UiIcon::link) + 1 &&
-                  projected[3].flags == (popup_item_enabled | popup_item_danger),
-              "plugin popover: separators fold, labels inert, links and buttons enabled, critical tone is danger");
-        const UiRect anchor{100, 100, 132, 132};
-        const bool opened = application_plugins_popover_open(anchor) && g_app.popup_scene.active &&
-                            g_app.popup_owner_kind == PopupOwnerKind::plugin_popover &&
-                            g_app.popup_scene.item_count == 4 &&
-                            g_app.popup_scene.items[0].label.data != rt.popover[0].text &&
-                            utf8_equal(g_app.popup_scene.items[2].label, utf8_literal("Docs"));
-        check(opened && application_plugins_popover_action(kApplicationPluginPopoverActionFirst + 3) &&
-                  !application_plugins_popover_action(kApplicationPluginPopupActionFirst),
-              "plugin popover: opens as its own popup owner with copied labels and a distinct action range");
-        const u32 urls = observed.opened_urls;
-        application_plugins_popover_activate(kApplicationPluginPopoverActionFirst + 3);
-        check(!g_app.popup_scene.active && g_app.popup_owner_kind == PopupOwnerKind::none &&
-                  observed.opened_urls == urls + 1,
-              "plugin popover: a link row dismisses the popup and opens through the link trust path");
-        application_plugins_popover_open(anchor);
-        application_plugins_popover_activate(kApplicationPluginPopoverActionFirst + 0);
-        check(!g_app.popup_scene.active && observed.opened_urls == urls + 1,
-              "plugin popover: a label row is inert");
-        application_plugins_popover_open(anchor);
-        // No binding owns 0x77: the button's handler can't run and nothing reopens.
-        application_plugins_popover_activate(kApplicationPluginPopoverActionFirst + 2);
-        check(!g_app.popup_scene.active, "plugin popover: a button whose owner is gone only dismisses");
-        application_plugins_popover_open(anchor);
-        rt.popover_count = 0; // the owner unloaded
-        ++rt.popover_revision;
-        application_plugins_popover_poll();
-        check(!g_app.popup_scene.active && g_app.popup_owner_kind == PopupOwnerKind::none,
-              "plugin popover: closes when the runtime clears its owner's rows");
-        arm();
-        application_plugins_popover_open(anchor);
-        ++g_app.plugin_account_scope_serial;
-        application_plugins_popover_poll();
-        check(!g_app.popup_scene.active && rt.popover_count == 0,
-              "plugin popover: account scope invalidation closes it and drops the rows");
-        check(!application_plugins_popover_open(anchor), "plugin popover: nothing to show without rows");
-        popup_scene_release(&g_app.popup_scene);
-        g_app.popup_scene = {};
-    }
-    if (owned_sdk && g_app.plugins->sdk) {
-        VirtualFree(g_app.plugins->sdk, 0, MEM_RELEASE);
-        g_app.plugins->sdk = nullptr;
-    }
-    if (owned_plugins && g_app.plugins) {
-        VirtualFree(g_app.plugins, 0, MEM_RELEASE);
-        g_app.plugins = nullptr;
-    }
-    if (owned_ui && g_app.account_ui) {
-        VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
-        g_app.account_ui = nullptr;
-    }
-}
-
 } // namespace maicord::settings_runtime_test
 
 extern "C" __declspec(noreturn) void WINAPI maicord_settings_runtime_entry() noexcept {
@@ -2429,14 +1990,12 @@ extern "C" __declspec(noreturn) void WINAPI maicord_settings_runtime_entry() noe
     test_settings_catalog();
     test_controller();
     maicord::test_application_plugin_navigation_runtime(check);
+    maicord::test_application_plugin_surfaces_revision(check);
     maicord::test_application_settings_choice_runtime(check);
-    maicord::test_application_plugins_read_runtime(check);
     maicord::test_application_custom_theme(check);
     maicord::app_detail::test_application_user_settings_runtime(check);
-    maicord::app_detail::test_application_plugins_actions_runtime(check);
     test_retained_hover_projection();
     test_window_resize_lifecycle();
-    test_plugin_popover();
     maicord::test_exit(failures, "application settings runtime");
 }
 

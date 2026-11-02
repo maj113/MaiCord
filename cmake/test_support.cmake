@@ -254,17 +254,6 @@ function(maicord_ui_probe_test test variable)
         TEST ${test})
 endfunction()
 
-# maicord_c_plugin(<target> <entry> <source>...)
-# A plain C plugin DLL against the public SDK header, freestanding like the
-# client: no CRT, no stack cookies, runtime helpers from maicord_runtime.
-function(maicord_c_plugin target entry)
-    add_library(${target} SHARED ${ARGN} $<TARGET_OBJECTS:maicord_runtime>)
-    target_link_libraries(${target} PRIVATE maicord_compile_contract kernel32)
-    target_compile_options(${target} PRIVATE /Zl /GS- /W4 /WX /utf-8 /O2 /Ob2 ${MAICORD_WHOLE_PROGRAM_OPTION})
-    target_link_options(${target} PRIVATE /ENTRY:${entry} /SUBSYSTEM:WINDOWS,6.02)
-    set_target_properties(${target} PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
-endfunction()
-
 # maicord_plugin(<target> <source>...)
 # An ABI-6 plugin DLL built as samples/plugins/clear-urls/README.md documents:
 # only the SDK headers (<stdint.h> and <stddef.h> from sys/libc), /W4 /WX

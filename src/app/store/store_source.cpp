@@ -2,6 +2,7 @@
 #include "../effects/effects.hpp"
 #include "../packages/packages.hpp"
 #include "../plugins/catalog_service.hpp"
+#include "../plugins/dev_console.hpp"
 #include "../settings/custom_theme.hpp"
 #include "../shell/state.hpp"
 #include "maicord/app/plugins/binding.hpp"
@@ -73,6 +74,7 @@ void apply_state(Writer& w, const CatalogView& view, StoreItem* out, const Catal
     const CatalogItemState st = application_catalog_item_state(out->kind, out->slug);
     if (st.installed) {
         out->installed = true;
+        out->order = view.state ? static_cast<u32>(st.installed - view.state->entries) : 0;
         out->installed_version = catalog_entry_version(*st.installed);
         out->previous_version = {st.installed->previous_version, st.installed->previous_version_bytes};
         out->sha = hex_sha(w, st.installed->sha256);
@@ -121,6 +123,26 @@ void apply_state(Writer& w, const CatalogView& view, StoreItem* out, const Catal
 
 } // namespace
 
+Utf8View store_cost_text(StoreModel* m, const EffectCost& cost, bool here) noexcept {
+    Writer w{m};
+    const u32 tenths = static_cast<u32>(cost.milliseconds * 10.f + .5f);
+    Utf8View head = cost.refused ? utf8_literal("Too heavy") : cost.level == EffectCostClass::light ? utf8_literal("Light")
+                    : cost.level == EffectCostClass::medium ? utf8_literal("Medium") : utf8_literal("Heavy");
+    char digits[16];
+    u32 n = 0, r = 0;
+    char rev[8];
+    u32 v = tenths / 10;
+    do {
+        rev[r++] = static_cast<char>('0' + v % 10);
+        v /= 10;
+    } while (v && r < sizeof(rev));
+    while (r)
+        digits[n++] = rev[--r];
+    digits[n++] = '.';
+    digits[n++] = static_cast<char>('0' + tenths % 10);
+    return w.add(head, here ? utf8_literal(" here \xC2\xB7 ") : utf8_literal(" \xC2\xB7 "), Utf8View{digits, n}, utf8_literal(" ms"));
+}
+
 void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
     m->count = 0;
     m->text_used = 0;
@@ -128,6 +150,27 @@ void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
     const CatalogView& view = application_catalog_view();
     const CatalogIndex* index = view.index;
     m->developer_mode = g_app.preferences.developer_mode;
+    m->console_count = m->console_total = 0;
+    if (m->developer_mode) {
+        // The newest lines of the Developer console, oldest first.
+        const u32 held = application_dev_console_count();
+        const u32 shown = held < kStoreConsoleLines ? held : kStoreConsoleLines;
+        m->console_total = held;
+        for (u32 i = 0; i < shown; ++i) {
+            const DevLine* line = application_dev_console_line(held - shown + i);
+            if (!line)
+                break;
+            const u32 s = line->second_of_day;
+            const char stamp[8]{static_cast<char>('0' + s / 36000), static_cast<char>('0' + s / 3600 % 10), ':',
+                                static_cast<char>('0' + s / 60 % 60 / 10), static_cast<char>('0' + s / 60 % 10), ':',
+                                static_cast<char>('0' + s % 60 / 10), static_cast<char>('0' + s % 10)};
+            StoreConsoleLine& out = m->console[m->console_count++];
+            out.kind = static_cast<u8>(line->kind);
+            out.time = w.add({stamp, 8});
+            out.name = w.add({line->name, line->name_bytes});
+            out.text = w.add({line->text, line->text_bytes});
+        }
+    }
     m->installable = view.installable;
     m->fetching = view.fetching;
     m->expired = view.status == CatalogStatus::stale;
@@ -241,6 +284,7 @@ void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
             out->authors = w.c_text(info->authors);
             out->summary = info->developer ? utf8_literal("Loaded from your development folder.") : utf8_literal("Installed from a link or a file.");
             out->installed = true;
+            out->order = 0x10000 + i;
             out->installed_version = out->version;
             out->sideloaded = info->developer;
             out->unreviewed = !info->developer;
@@ -329,6 +373,7 @@ void store_model_fill_detail(StoreModel* m, CatalogKind kind, Utf8View slug, con
             out.label = w.c_text(k.label);
             out.hint = w.c_text(k.hint);
             out.type = static_cast<u8>(k.type);
+            out.percent = k.percent;
             out.minimum = k.minimum;
             out.maximum = k.maximum;
             out.fallback = k.type == McfxKnobType::color ? 0.f : k.fallback;
@@ -362,27 +407,8 @@ void store_model_fill_detail(StoreModel* m, CatalogKind kind, Utf8View slug, con
         u.pointer_available = (package->uses & effect_use_pointer) != 0;
         const EffectCost cost = application_effects_cost(application_effects_identity(item.library));
         m->effect_cost_state = cost.known ? (cost.refused ? 2 : 1) : 0;
-        if (cost.known) {
-            const u32 tenths = static_cast<u32>(cost.milliseconds * 10.f + .5f);
-            m->effect_cost_text = w.add(cost.refused ? utf8_literal("Too heavy here") : cost.level == EffectCostClass::light ? utf8_literal("Light here")
-                                                      : cost.level == EffectCostClass::medium ? utf8_literal("Medium here") : utf8_literal("Heavy here"),
-                                        utf8_literal(" \xC2\xB7 "));
-            char digits[16];
-            u32 n = 0;
-            const u32 whole = tenths / 10;
-            u32 v = whole;
-            char rev[8];
-            u32 r = 0;
-            do {
-                rev[r++] = static_cast<char>('0' + v % 10);
-                v /= 10;
-            } while (v);
-            while (r)
-                digits[n++] = rev[--r];
-            digits[n++] = '.';
-            digits[n++] = static_cast<char>('0' + tenths % 10);
-            m->effect_cost_text = w.add(m->effect_cost_text, {digits, n}, utf8_literal(" ms"));
-        }
+        if (cost.known)
+            m->effect_cost_text = store_cost_text(m, cost, true);
     } else if (kind == CatalogKind::effect && index && item.item != ~0u) {
         const CatalogItem& ci = index->items[item.item];
         for (u32 i = 0; i < ci.knob_count && i < kStoreKnobMaximum; ++i) {
@@ -391,6 +417,7 @@ void store_model_fill_detail(StoreModel* m, CatalogKind kind, Utf8View slug, con
             reset_value(&out);
             out.label = catalog_text(*index, k.label);
             out.type = static_cast<u8>(k.type == CatalogKnobType::float_value ? 0 : k.type == CatalogKnobType::int_value ? 1 : k.type == CatalogKnobType::toggle ? 2 : k.type == CatalogKnobType::color ? 3 : 4);
+            out.percent = k.percent;
             out.minimum = static_cast<float>(k.minimum) / 1000.f;
             out.maximum = static_cast<float>(k.maximum) / 1000.f;
             out.value = out.fallback = static_cast<float>(k.value) / 1000.f;

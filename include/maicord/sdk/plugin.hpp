@@ -1,4 +1,4 @@
-// MaiCord plugin authoring layer for ABI 6: header-only C++23 over plugin_abi.h.
+// MaiCord plugin authoring layer for ABI 6: header-only C++23 over maicord_plugin.h.
 // Standalone: no MaiCord core headers, no STL, CRT, exceptions or RTTI.
 // maicord/sdk/README.md is the full reference.
 //
@@ -61,7 +61,7 @@
 // memcpy, memmove, memset, memcmp, __chkstk and _fltused without a CRT.
 #pragma once
 
-#include "plugin_abi.h"
+#include "maicord_plugin.h"
 
 namespace mc {
 

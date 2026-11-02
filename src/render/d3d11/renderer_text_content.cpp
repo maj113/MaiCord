@@ -506,7 +506,7 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
         command.text, ui_rect_width(command.rectangle), ui_rect_height(command.rectangle),
         command.rectangle.left, command.rectangle.top, &command.clip,
         command.effect.kind ? nullptr : batch_clip, &command.color, styles,
-        composer_edit || bio ? &theme : nullptr, nullptr, bio_semantics, command.owner, 0, 0,
+        composer_edit || bio || command.effect.themed_styles ? &theme : nullptr, nullptr, bio_semantics, command.owner, 0, 0,
         composer_edit ? composer->display_anchor : 0, composer_edit ? composer->display_caret : 0,
         command.horizontal_alignment, command.vertical_alignment, command.wrapping, command.overflow,
         command.face, force_new_batch,

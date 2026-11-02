@@ -2,6 +2,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/text/presentation.hpp"
 #include "maicord/ui/accessibility/accessibility.hpp"
+#include "maicord/media/core/asset.hpp"
+#include "maicord/ui/theme/background_surface.hpp"
 
 // The store scene: layout of the retained element tree, grid columns by width, wrapping chips, hit testing,
 // the keyboard model (roving focus in groups, sliders), scrolling and the centred dialog.
@@ -168,6 +170,52 @@ void test_store_scene(void (*check)(bool, const char*) noexcept) noexcept {
           "store scene: a dialog is 600 wide and centred in the modal");
     check(!ui_store_scene_hover(&g_scene, card.left + 5, card.top + 5) || g_scene.hover_action == 0,
           "store scene: nothing behind a dialog is hot");
+    // Preview tiles: a still asks the host for its picture at its size; a live tile is a canvas quad with a radius
+    // (the renderer fills it with the running effect) and has no picture of its own.
+    {
+        static u32 asked_slot, asks;
+        static float asked_width;
+        ui_store_scene_begin(&g_scene);
+        UiStoreBuilder page(&g_scene);
+        auto& still = page.open(UiStoreKind::preview);
+        still.variant = static_cast<u8>(UiStoreAspect::r16x9);
+        still.value = 3;
+        page.close();
+        auto& live = page.open(UiStoreKind::preview);
+        live.variant = static_cast<u8>(UiStoreAspect::live);
+        live.rh = 220;
+        live.value = 4;
+        page.close();
+        const bool laid = ui_store_scene_commit(&g_scene, {0, 0, 900, 700}, {40, 30, 832, 700}, {0, 0, 900, 700});
+        g_scene.active = true;
+        g_scene.media_key = [](const void*, u32 slot, const UiRect& rect, MediaAssetKey* key, u8* domain) noexcept {
+            asked_slot = slot;
+            asked_width = ui_rect_width(rect);
+            ++asks;
+            *key = media_asset_local_draft_preview(slot, 1, MediaAttachmentFormat::png);
+            *domain = 1;
+            return true;
+        };
+        UiStoreMedia media{};
+        u32 cursor = 0, pictures = 0;
+        while (ui_store_scene_next_media(g_scene, &cursor, &media))
+            ++pictures;
+        check(laid && pictures == 1 && asks == 1 && asked_slot == 3 && asked_width == 792 && media.slot == 3 && media.domain == 1 &&
+                  media_asset_key_valid(media.key),
+              "store scene: a still tile asks for its picture by slot and width; a live tile never does");
+        PaintStream paint{};
+        check(paint_stream_initialize(&paint) && paint_stream_reset(&paint, 900, 700) &&
+                  ui_store_scene_paint(g_scene, kDefaultTheme, &paint, 0, 96),
+              "store scene: the tiles paint");
+        u32 tiles = 0, canvases = 0;
+        for (u32 i = 0; i < paint.count; ++i) {
+            canvases += ui_background_canvas_quad(paint.quads[i]) ? 1 : 0;
+            tiles += ui_background_canvas_quad(paint.quads[i]) && paint.quads[i].radius > 0 ? 1 : 0;
+        }
+        check(tiles == 1 && canvases == 1, "store scene: a live tile is one rounded canvas quad for the effect pass");
+        paint_stream_release(&paint);
+        g_scene.media_key = nullptr;
+    }
     ui_store_scene_release(&g_scene);
 }
 

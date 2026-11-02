@@ -4,6 +4,7 @@
 #include "../shell/state.hpp"
 #include "../shell/toast.hpp"
 #include "maicord/core/data_path.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 // The client's catalog configuration and the hosts the service calls. Build inputs from CMake:
 // MAICORD_PLUGIN_CATALOG_REPOSITORY and the catalog keys (current, and the next one held offline for
@@ -47,7 +48,21 @@ void package_removed(CatalogKind kind, Utf8View slug, bool keep_file) noexcept {
 }
 } // namespace
 
+namespace {
+// The plugin list and call marker of the retired first plugin system. Nothing reads them now and no
+// install depends on them, so every start removes what an earlier version left behind; a missing file is the
+// normal case.
+void remove_retired_files() noexcept {
+    const wchar_t* const names[]{L"plugins.bin", L"plugin-call.bin"};
+    for (const wchar_t* name : names) {
+        wchar_t path[480];
+        if (data_path(path, 480, name).ok()) DeleteFileW(path);
+    }
+}
+} // namespace
+
 bool application_catalog_initialize_default() noexcept {
+    remove_retired_files();
     u8 keys[2][65];
     const u8* key_list[2];
     u32 key_count = 0;

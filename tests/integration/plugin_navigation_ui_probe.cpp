@@ -8,7 +8,7 @@
 
 namespace maicord {
 namespace {
-// A native menu shows at most eight plugin rows (mc.ui.menus@2).
+// A native menu shows at most eight plugin rows.
 constexpr u32 kRows = 8;
 constexpr u32 kExtraFirst = 0xF400, kMarkRead = 0xF301, kCloseDm = 0xF302, kCopyGuild = 0xF303;
 constexpr Utf8View kLabels[2][kRows]{

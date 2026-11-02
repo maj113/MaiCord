@@ -1,9 +1,8 @@
 #pragma once
 
-#include "maicord/app/plugins/catalog.hpp"
-#include "maicord/core/slice.hpp"
 #include "maicord/core/win32_types.hpp"
-#include "maicord/sdk/plugin_abi.h"
+#include "maicord/core/slice.hpp"
+#include "maicord/sdk/maicord_plugin.h"
 
 // Loads plugin DLLs: a pinned plugins directory, the PE header checks that make
 // LoadLibrary run no plugin code, and the one-time validation of the exported
@@ -66,8 +65,13 @@ struct PluginLoadResult {
 
 // The plugins directory, pinned once with every ancestor (no reparse points, no
 // replacement while open). Zero-initialized, caller-owned, stable address.
+inline constexpr u32 kPluginPathCapacity = 1024;
+inline constexpr u32 kPluginPathMaximumAncestors = 64;
 struct PluginDirectory {
-    NativePluginVerifiedFile pin;
+    HANDLE ancestors[kPluginPathMaximumAncestors];
+    u32 ancestor_count;
+    wchar_t path[kPluginPathCapacity];
+    u32 path_characters;
 };
 
 PluginLoadResult plugin_directory_open(PluginDirectory*, ConstSlice<wchar_t> absolute_path) noexcept;

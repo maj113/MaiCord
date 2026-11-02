@@ -1,9 +1,9 @@
-/* A plain C11 plugin against maicord/sdk/plugin_abi.h: the C path of ABI 6
+/* A plain C11 plugin against maicord/sdk/maicord_plugin.h: the C path of ABI 6
    and the frozen layouts. Its pre_send prefixes "[c] " and cancels "cancel";
    its message decoration adds a "C" badge; /shout inserts its text in upper
    case; a "C tools" submenu on links holds "Count"; a chat-bar button
    counts clicks; start and stop count in the state block. */
-#include "maicord/sdk/plugin_abi.h"
+#include "maicord/sdk/maicord_plugin.h"
 
 #define OFFSET(type, field, at) (offsetof(type, field) == (at))
 _Static_assert(sizeof(mc_str) == 16 && OFFSET(mc_str, bytes, 8), "mc_str");

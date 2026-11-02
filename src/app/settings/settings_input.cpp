@@ -67,8 +67,7 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
             close_choice();
             g_app.settings_held_key = code;
             if (choice_control(choice))
-                activate({UiSettingsTargetKind::control, choice.token.page, choice.control_id}, code == VK_LEFT,
-                         choice.token.page.owner_id == kNativeSettingsOwner ? nullptr : &choice.token);
+                activate({UiSettingsTargetKind::control, choice.token.page, choice.control_id}, code == VK_LEFT);
             if (plugin_ui_scope_current(g_app.plugin_account_scope_serial, choice.account_serial) &&
                 choice.profile_id == g_app.account.status.profile_id)
                 refresh();
@@ -149,7 +148,7 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
                 }
                 if (preview)
                     settings->preference_key = code;
-                activate(focused, false, nullptr, false, activation.selected_choice, !preview);
+                activate(focused, false, false, activation.selected_choice, !preview);
             }
             return true;
         }
@@ -192,7 +191,7 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
         }
         if ((code == VK_LEFT || code == VK_RIGHT) && zone != UiSettingsFocusZone::panel)
             return true;
-        activate(focused, code == VK_LEFT || reverse, nullptr, code == VK_RETURN || code == VK_SPACE);
+        activate(focused, code == VK_LEFT || reverse, code == VK_RETURN || code == VK_SPACE);
         return true;
     }
     if (code == VK_PRIOR || code == VK_NEXT) {
@@ -293,7 +292,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                 UiSettingsActivation value{};
                 if (ui_settings_scene_slider_pointer(settings->scene, target, x - settings->slider_grab, &value) &&
                     value.selected_choice != control->selected_choice)
-                    activate(target, false, nullptr, false, value.selected_choice, false);
+                    activate(target, false, false, value.selected_choice, false);
             } else if (message == WM_LBUTTONUP) {
                 settings->slider_preview = false;
                 application_settings_cancel_pointer();
@@ -452,18 +451,15 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
             application_request_frame();
         if (message == WM_LBUTTONDOWN) {
             const u64 account_serial = g_app.plugin_account_scope_serial, profile = g_app.account.status.profile_id;
-            const u64 catalog_revision = application_plugins_catalog_revision();
             settings->pressed = hit;
             ui_settings_scene_focus(&settings->scene, hit);
             application_focus_window();
             application_capture_pointer();
             refresh();
             if (g_app.settings != settings || !settings->scene.active ||
-                account_serial != g_app.plugin_account_scope_serial || profile != g_app.account.status.profile_id ||
-                catalog_revision != application_plugins_catalog_revision())
+                account_serial != g_app.plugin_account_scope_serial || profile != g_app.account.status.profile_id)
                 return true;
             settings->pressed_revision = settings->scene.revision;
-            settings->pressed_catalog_revision = catalog_revision;
             // A press in the search field places the caret and may drag a selection.
             if (hit.kind == UiSettingsTargetKind::search && application_pointer_captured()) {
                 settings->search_selecting = true;
@@ -490,13 +486,8 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                     settings->slider_grab = ui_slider_grab_offset(slider.thumb, x, y);
                 UiSettingsActivation value{};
                 if (ui_settings_scene_slider_pointer(settings->scene, hit, x - settings->slider_grab, &value))
-                    activate(hit, false, nullptr, false, value.selected_choice, false);
+                    activate(hit, false, false, value.selected_choice, false);
             }
-            settings->pressed_plugin =
-                hit.kind == UiSettingsTargetKind::control && hit.page.owner_id != kNativeSettingsOwner;
-            if (settings->pressed_plugin &&
-                !native_plugin_host_settings_token(&settings->plugins, hit.page, &settings->pressed_token).ok())
-                reset_value(&settings->pressed);
             if (!application_pointer_captured()) {
                 reset_value(&settings->pressed);
                 if (ui_button_pointer(&settings->scene.widgets, UiButtonPointerEvent::cancel, {}).changed)
@@ -504,43 +495,34 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
             }
         } else if (message == WM_LBUTTONUP) {
             const auto pressed = settings->pressed;
-            const auto token = settings->pressed_token;
-            const bool plugin = settings->pressed_plugin;
             const u32 revision = settings->pressed_revision;
-            const u64 catalog_revision = settings->pressed_catalog_revision;
             const u64 serial = settings->pressed_account_serial, profile = settings->pressed_profile;
             reset_value(&settings->pressed);
-            settings->pressed_plugin = false;
             application_release_capture();
             if (g_app.settings == settings && settings->scene.active && serial == g_app.plugin_account_scope_serial &&
-                profile == g_app.account.status.profile_id &&
-                catalog_revision == application_plugins_catalog_revision() && pointer.activate &&
+                profile == g_app.account.status.profile_id && pointer.activate &&
                 ui_settings_target_equal(hit, pressed) && revision == settings->scene.revision) {
                 UiSettingsActivation value{};
                 if (control && control->kind == UiSettingsControlKind::palette) {
                     if (ui_settings_scene_palette_pointer(settings->scene, hit, x, y, &value))
-                        activate(hit, false, plugin ? &token : nullptr, false, value.selected_choice);
+                        activate(hit, false, false, value.selected_choice);
                 } else if (control && control->kind == UiSettingsControlKind::radio) {
                     if (ui_settings_scene_radio_pointer(settings->scene, hit, x, y, &value))
-                        activate(hit, false, plugin ? &token : nullptr, false, value.selected_choice);
+                        activate(hit, false, false, value.selected_choice);
                 } else if (control && option_row(control->kind)) {
                     // Tabs, segments, swatches and button groups take the
                     // option under the pointer; a click between them does nothing.
                     if (ui_settings_scene_option_pointer(settings->scene, hit, x, y, &value))
-                        activate(hit, false, plugin ? &token : nullptr, false, value.selected_choice);
-                } else if (plugin && control && control->kind == UiSettingsControlKind::slider) {
-                    // Plugin sliders take the clicked step; dragging stays native-only.
-                    if (ui_settings_scene_slider_pointer(settings->scene, hit, x, &value))
-                        activate(hit, false, &token, false, value.selected_choice);
+                        activate(hit, false, false, value.selected_choice);
                 } else if (control && (control->kind == UiSettingsControlKind::action ||
                                        control->kind == UiSettingsControlKind::notice ||
                                        control->kind == UiSettingsControlKind::status ||
                                        control->kind == UiSettingsControlKind::footnote ||
                                        control->kind == UiSettingsControlKind::markdown)) {
                     if (ui_settings_scene_button_hit(settings->scene, hit, x, y))
-                        activate(hit, false, plugin ? &token : nullptr, true);
+                        activate(hit, false, true);
                 } else
-                    activate(hit, false, plugin ? &token : nullptr, true);
+                    activate(hit, false, true);
             }
         }
         return true;

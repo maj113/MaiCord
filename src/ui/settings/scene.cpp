@@ -355,9 +355,14 @@ bool ui_settings_scene_update(UiSettingsScene* scene, UiPageRegistry* registry, 
         for (auto& animation : scene->animations)
             reset_value(&animation);
     }
+    // A page that opens, or changes by keyboard or a link, scrolls its sidebar entry into view.
+    const UiSettingsTarget entry{UiSettingsTargetKind::page, selected, 0};
+    const bool reveal = changed_page || !previous_active;
     if (retain_layout) {
         synchronize_input(*scene);
         ++scene->revision;
+        if (reveal)
+            ui_settings_scene_reveal(scene, entry);
         return true;
     }
     if (!build(scene)) {
@@ -365,6 +370,8 @@ bool ui_settings_scene_update(UiSettingsScene* scene, UiPageRegistry* registry, 
         return false;
     }
     scene->active = true;
+    if (reveal)
+        ui_settings_scene_reveal(scene, entry);
     return true;
 }
 void ui_settings_scene_close(UiSettingsScene* scene) noexcept {
@@ -839,10 +846,11 @@ bool ui_settings_scene_button_hit(const UiSettingsScene& scene, const UiSettings
            ui_settings_scene_control_geometry(scene, target, &geometry) && ui_rect_contains(geometry.clip, x, y);
 }
 namespace {
-u32 option_hit(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiRect& field, float x, float y) noexcept {
+u32 option_hit(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiRect& field, float x, float y,
+               const UiKitMeasure* measure) noexcept {
     const u32 count = c.choices.count + (c.kind == UiSettingsControlKind::colors && c.action_label.bytes ? 1u : 0u);
     for (u32 i = 0; i < count; ++i)
-        if (ui_rect_contains(option_rect(t, c, field, i), x, y))
+        if (ui_rect_contains(option_rect(t, c, field, i, measure), x, y))
             return i;
     return ~0u;
 }
@@ -880,7 +888,7 @@ bool ui_settings_scene_option_pointer(const UiSettingsScene& scene, const UiSett
                                        : ui_segmented_hit(t, geometry.field, c->choices.count, x, y))
                        : c->kind == UiSettingsControlKind::swatches
                            ? ui_color_grid_hit(t, geometry.field, c->choices.count, x, y)
-                           : option_hit(t, *c, geometry.field, x, y);
+                           : option_hit(t, *c, geometry.field, x, y, scene.measure);
     if (choice == ~0u)
         return false;
     return report(target, *c, choice, output);
@@ -915,7 +923,7 @@ bool ui_settings_scene_choice_rectangle(const UiSettingsScene& scene, const UiSe
               : c->kind == UiSettingsControlKind::segments
                   ? (tristate ? ui_tristate_option(t, geometry.field, choice)
                               : ui_segmented_option(t, geometry.field, c->choices.count, choice))
-                  : option_rect(t, *c, geometry.field, choice);
+                  : option_rect(t, *c, geometry.field, choice, scene.measure);
     return ui_rect_has_area(*output);
 }
 bool ui_settings_scene_grip_hit(const UiSettingsScene& scene, const UiSettingsTarget& target, float x, float y) noexcept {

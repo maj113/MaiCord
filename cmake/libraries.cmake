@@ -449,27 +449,18 @@ maicord_library(maicord_ui
 maicord_library(maicord_uia src/platform/uia/provider.cpp src/platform/uia/provider_patterns.cpp
     src/platform/uia/provider_text.cpp LIBS maicord_core maicord_ui)
 
-# Native extension ownership stays in independent archives. The shell links
-# settings pages and manual session loading; the account module owns no plugin UI.
-maicord_library(maicord_plugin_host
-    src/app/plugins/host.cpp src/app/plugins/plugin_settings_projection.cpp src/app/plugins/call_ledger.cpp
-    src/app/plugins/plugin_sdk.cpp src/app/plugins/plugin_sdk_store.cpp src/app/plugins/sdk_surfaces.cpp src/app/plugins/sdk_data.cpp
-    LIBS maicord_core maicord_ui)
-maicord_library(maicord_plugin_modules
-    src/app/plugins/module_loader.cpp src/app/plugins/manifest.cpp src/app/plugins/catalog.cpp
-    src/app/plugins/bundle_install.cpp src/app/plugins/preferences.cpp
-    LIBS maicord_core maicord_plugin_host kernel32 bcrypt)
 # The native plugin runtime: the pinned-directory loader with its PE checks, per-plugin bindings
 # (state, settings, persisted store, call ledger), the mc_api host table and the hook dispatch lists.
 maicord_library(maicord_plugin_runtime
-    src/app/plugins/loader.cpp src/app/plugins/binding.cpp src/app/plugins/api.cpp src/app/plugins/store.cpp
+    src/app/plugins/call_ledger.cpp src/app/plugins/loader.cpp src/app/plugins/binding.cpp src/app/plugins/api.cpp
+    src/app/plugins/store.cpp
     src/app/plugins/dispatch.cpp src/app/plugins/call_watchdog.cpp src/app/plugins/http.cpp src/app/plugins/secrets.cpp
     src/app/plugins/consent.cpp src/app/plugins/settings_page.cpp
     src/app/plugins/ui_registry.cpp src/app/plugins/ui_menu.cpp src/app/plugins/ui_command.cpp
     src/app/plugins/ui_feedback.cpp src/app/plugins/keep.cpp src/app/plugins/pipeline.cpp
     src/app/plugins/pipeline_api.cpp
-    src/app/plugins/decorations.cpp src/app/plugins/buttons.cpp src/app/plugins/reads.cpp
-    LIBS maicord_core maicord_protocol maicord_platform maicord_app_core maicord_plugin_host maicord_plugin_modules kernel32)
+    src/app/plugins/decorations.cpp src/app/plugins/buttons.cpp src/app/plugins/reads.cpp src/app/plugins/icons.cpp
+    LIBS maicord_core maicord_protocol maicord_platform maicord_app_core maicord_ui kernel32 bcrypt)
 # The official catalog's pure parts: the format-2 index verifier and the catalog-state.bin record.
 maicord_library(maicord_plugin_catalog
     src/app/plugins/catalog_index.cpp src/app/plugins/catalog_state.cpp

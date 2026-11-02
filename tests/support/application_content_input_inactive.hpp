@@ -28,7 +28,7 @@ bool application_interaction_card_toggle(u64) noexcept {
 bool application_profile_open(u64, const UiRect&, ProfileAnchor) noexcept {
     return false;
 }
-bool application_plugins_slot_activate(u64, NativePluginSdkSlotTarget, u64, UiRect) noexcept {
+bool application_plugin_surfaces_activate(u64, const PluginSurfaceTarget&, u64) noexcept {
     return false;
 }
 bool application_guild_folders_close_all() noexcept {
@@ -40,7 +40,7 @@ bool application_channel_hidden(u64) noexcept {
 bool application_hidden_channel_open(u64, UiRect) noexcept {
     return false;
 }
-bool application_plugins_render_click(const MessageTextHit&, UiRect) noexcept {
+bool application_plugin_surfaces_text_click(const MessageTextHit&) noexcept {
     return false;
 }
 bool open_reaction_picker(u64, UiRect) noexcept {

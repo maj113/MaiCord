@@ -39,6 +39,20 @@ __declspec(noinline) inline bool ui_background_paint_canvas(
     }
     return true;
 }
+// A live-effect tile (a store preview): a rounded plate whose rectangle the effect pass fills with the whole
+// package effect, cover-fitted and rounded to `radius`. A canvas quad with a radius is the mark; the renderer
+// skips it when no package effect is drawing and the plate stays.
+__declspec(noinline) inline bool ui_background_paint_tile(PaintStream* stream, const UiRect& rectangle,
+                                                          const Color& fill, float radius) noexcept {
+    if (!stream || !(radius > 0))
+        return false;
+    const u32 first = stream->count;
+    if (!paint_stream_push_rounded(stream, rectangle, fill, radius))
+        return false;
+    if (stream->count != first)
+        stream->quads[first].reserved_x = kUiBackgroundCanvasMarker;
+    return true;
+}
 // Static caller tokens remain opaque; only gradientable controls
 // sample the global palette. Semantic borders keep focus/status/brand RGB.
 __declspec(noinline) inline bool ui_background_paint_surface(

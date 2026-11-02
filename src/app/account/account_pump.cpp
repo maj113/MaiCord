@@ -32,7 +32,6 @@
 #include "../chat/private_channel.hpp"
 #include "../shell/state.hpp"
 #include "login/ui.hpp"
-#include "../plugins/plugins.hpp"
 #include "../plugins/catalog_service.hpp"
 #include "../chat/read_state.hpp"
 #include "../chat/scoped_read.hpp"
@@ -818,7 +817,7 @@ bool application_pump_account() noexcept {
         application_request_frame();
     if (!present_private_conversation_error() || !application_private_channel_present_error())
         log_write(LogLevel::warning, "private", "error_presentation_failed");
-    // A startup shell released the view before READY; the plugins wait for it.
+    // A startup shell released the view before READY; the catalog waits for it.
     if (status.running && (g_app.login.status == RendererLoginStatus::restoring_session ||
                            application_startup_shell_take_release())) {
         application_trace_load_stage("authenticated_shell_released");
@@ -826,8 +825,6 @@ bool application_pump_account() noexcept {
         g_app.login.status = RendererLoginStatus::idle;
         if (!application_synchronize_login_view())
             return false;
-        if (!application_plugins_restore())
-            log_write(LogLevel::warning, "plugins", "remembered_restore_incomplete");
         application_catalog_restore();
         application_request_frame();
     }

@@ -6,7 +6,6 @@
 #include "../messages/send.hpp"
 #include "text_form.hpp"
 #include "attachments.hpp"
-#include "../../plugins/plugins.hpp"
 #include "../../account/user_actions.hpp"
 #include "maicord/protocol/messages/interaction.hpp"
 #include "maicord/core/hash.hpp"
@@ -149,17 +148,6 @@ bool application_commands_activate(u32 action) noexcept {
         c.offset = c.rail_offset = 0;
         c.revision = 0;
         edit_result = message_composer_clear(&g_app.message_composer);
-    } else if (action >= plugin_base) {
-        const auto input = message_composer_text(g_app.message_composer);
-        NativePluginSdkCommandView local[plugin_rows];
-        const u32 local_count = input.bytes ? application_plugins_commands(
-            command_query({input.data + 1, input.bytes - 1}), {local, plugin_rows}) : 0;
-        if (action - plugin_base >= local_count)
-            return true;
-        char insertion[64];
-        const auto value = copy_label(insertion, 64, utf8_literal("/"), local[action - plugin_base].name, utf8_literal(" "));
-        edit_result = message_composer_replace_range(&g_app.message_composer, 0, input.bytes, value);
-        c.revision = 0;
     } else if (action >= value_base) {
         const u32 slot = action - value_base;
         const auto input = message_composer_text(g_app.message_composer);
@@ -715,10 +703,6 @@ bool rail_key(Commands& c, u32 key) noexcept {
     return key == VK_LEFT;
 }
 bool picker_key(Commands& c, u32 key) noexcept {
-    if (key == VK_RETURN && application_plugins_command_pending()) {
-        close_popup();
-        return queue_message_send();
-    }
     if (c.rail_focus != no_row && c.rail_focus < c.rail_count)
         return rail_key(c, key);
     if (key == VK_LEFT && c.discovery && c.rail_count) {

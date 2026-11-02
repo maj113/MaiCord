@@ -56,6 +56,14 @@ foreach(output IN ITEMS "${MAICORD_APP_ICON}" "${MAICORD_EMOJI_CATALOG_INCLUDE}"
     endif()
     set_property(GLOBAL APPEND PROPERTY MAICORD_OWNED_OUTPUTS "file|${output}\n")
 endforeach()
+# What tools/maicord-plugin writes for MaiCordPluginDevTests (cmake/test_registry.cmake).
+if(DEFINED maicord_dx)
+    foreach(output IN ITEMS stamp hello/.clangd hello/.gitignore hello/plugin.cpp hello/README.md hello/build/hello.dll
+            plugin-dev/hello.dll soft-rain/.gitignore soft-rain/README.md soft-rain/soft-rain.effect
+            soft-rain/soft-rain.hlsl soft-rain/build/soft-rain.mcfx effect-dev/soft-rain.mcfx)
+        set_property(GLOBAL APPEND PROPERTY MAICORD_OWNED_OUTPUTS "file|${maicord_dx}/${output}\n")
+    endforeach()
+endif()
 get_property(maicord_owned_outputs GLOBAL PROPERTY MAICORD_OWNED_OUTPUTS)
 string(JOIN "" maicord_owned_outputs ${maicord_owned_outputs})
 file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/maicord-build-outputs.txt"

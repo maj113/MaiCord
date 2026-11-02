@@ -9,6 +9,16 @@
 // UI thread only.
 namespace maicord {
 
+// Monotonic account-scope token. A target captured under one scope is stale once the scope moves;
+// zero and saturated values never capture a target, so teardown keeps invalidating an exhausted
+// scope without wrapping.
+inline bool plugin_ui_scope_current(u64 current, u64 captured) noexcept {
+    return current && current != ~u64{0} && current == captured;
+}
+inline void plugin_ui_scope_invalidate(u64* serial) noexcept {
+    if (serial && *serial != ~u64{0}) ++*serial;
+}
+
 // ---- Context menus ------------------------------------------------------------------
 
 enum class PluginMenuKind : u8 { user, message, channel, guild, link, image, emoji };

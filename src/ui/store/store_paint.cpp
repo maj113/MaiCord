@@ -2,6 +2,7 @@
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/ui/kit/scene_kit.hpp"
+#include "maicord/ui/theme/background_surface.hpp"
 #include "maicord/ui/layout/scrollbar.hpp"
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/text/edit_field.hpp"
@@ -230,8 +231,13 @@ void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r
     }
     case UiStoreKind::preview: {
         const bool top_only = (n.flags & ui_store_clip) != 0;
+        const bool live = n.variant == static_cast<u8>(UiStoreAspect::live) && !(n.flags & ui_store_critical);
+        const float radius = ui_rect_width(r) < 100 ? 6.f : kRadius;
         p.clip(r);
-        p.rounded(top_only ? UiRect{r.left, r.top, r.right, r.bottom + kRadius} : r, c.mod_subtle, kRadius);
+        if (live)
+            p.use<ui_background_paint_tile>(r, k.theme.base_lowest, radius);
+        else
+            p.rounded(top_only ? UiRect{r.left, r.top, r.right, r.bottom + radius} : r, c.mod_subtle, radius);
         if (n.flags & ui_store_critical)
             p.icon(UiIcon::image_off, centred(r, 32), c.text_subtle);
         else if (n.data)
@@ -240,7 +246,7 @@ void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r
         if (top_only)
             p.fill({r.left, r.bottom - 1, r.right, r.bottom}, c.border_subtle);
         else
-            p.rounded_border(r, Color{}, c.border_subtle, kRadius, 1);
+            p.rounded_border(r, Color{}, c.border_subtle, radius, 1);
         break;
     }
     case UiStoreKind::icon:
@@ -597,9 +603,16 @@ bool ui_store_scene_text_output(const UiStoreScene& s, const Theme& theme, UiTex
             put(n.text, {r.left + 28, r.top, r.right, r.bottom}, c.text_default, static_cast<u8>(UiStoreType::body));
             break;
         case UiStoreKind::markdown:
-            if (n.data)
-                text.emit(ui_markdown_command(*static_cast<const UiMarkdown*>(n.data), {&s.widgets, s.root}, r, clip, c.text_default));
-            else
+            if (n.data) {
+                auto* block = const_cast<UiMarkdown*>(static_cast<const UiMarkdown*>(n.data));
+                for (u32 part = 0, parts = ui_markdown_part_count(*block); part < parts; ++part)
+                    for (u32 marker = 0; marker < 2; ++marker) {
+                        const auto command = ui_markdown_command(block, part, marker != 0, nullptr, {&s.widgets, s.root}, r,
+                                                                 clip, c.text_default, c.text_subtle);
+                        if (command.text.bytes)
+                            text.emit(command);
+                    }
+            } else
                 put(n.text, r, c.text_default, static_cast<u8>(UiStoreType::paragraph), ui_text_wrap);
             break;
         default:
@@ -614,18 +627,20 @@ bool ui_store_scene_next_media(const UiStoreScene& s, u32* cursor, UiStoreMedia*
         return false;
     for (; *cursor < page_end(s); ++*cursor) {
         const auto& n = s.nodes[*cursor];
-        if (n.kind != UiStoreKind::preview || !n.value || hidden(n) || (n.flags & (ui_store_critical | ui_store_busy)))
+        if (n.kind != UiStoreKind::preview || !n.value || hidden(n) ||
+            (n.flags & (ui_store_critical | ui_store_busy)) || n.variant == static_cast<u8>(UiStoreAspect::live))
             continue;
         const UiRect r = screen_rect(s, static_cast<u16>(*cursor));
         if (!ui_rect_intersects(r, s.panel))
             continue;
         UiStoreMedia result{};
-        if (!s.media_key(s.media_context, n.value, &result.key, &result.domain))
+        if (!s.media_key(s.media_context, n.value, r, &result.key, &result.domain))
             continue;
+        result.slot = n.value;
         result.rect = r;
         result.clip = s.panel;
         result.mask = (n.flags & ui_store_clip) ? UiRect{r.left, r.top, r.right, r.bottom + kRadius} : r;
-        result.mask_radius = kRadius;
+        result.mask_radius = ui_rect_width(r) < 100 ? 6.f : kRadius;
         *media = result;
         ++*cursor;
         return true;

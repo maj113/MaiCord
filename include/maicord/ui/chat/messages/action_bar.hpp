@@ -43,7 +43,7 @@ enum class MessageActionBarAction : u8 {
     delete_message,
     copy_id,
     retry,
-    // Plugin buttons (mc.ui.slots MESSAGE_HOVER); catalog_index is the slot index.
+    // Plugin buttons (the message hover surface); catalog_index is the slot index.
     plugin_0,
     plugin_1,
 };

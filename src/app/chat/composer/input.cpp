@@ -13,7 +13,7 @@
 #include "../messages/send.hpp"
 #include "../../shell/state.hpp"
 #include "reply_draft.hpp"
-#include "../../plugins/plugins.hpp"
+#include "../../plugins/surface_host.hpp"
 #include "../../voice/application_voice_message.hpp"
 
 #include "maicord/app/chat/composer/message_composer_controller.hpp"
@@ -32,12 +32,9 @@ namespace {
 bool activate_plugin_slot(u32 index) noexcept {
     UiPluginSlotNode nodes[kMessageComposerPluginSlots]{};
     const u32 count = ui_plugin_slot_toolbar(kUiPluginSlotComposerToolbar, {nodes, kMessageComposerPluginSlots});
-    if (index < count && nodes[index].action_id) {
-        const auto* node = ui_widget_manager_layout_node(g_app.message_composer_scene.widgets,
-                                                         g_app.message_composer_scene.plugin_slots[index]);
-        application_plugins_slot_activate(nodes[index].owner_id, {kUiPluginSlotComposerToolbar, 0, 0, 0, 0},
-                                          nodes[index].action_id, node ? node->rectangle : UiRect{});
-    }
+    if (index < count && nodes[index].action_id)
+        application_plugin_surfaces_activate(nodes[index].owner_id, {kUiPluginSlotComposerToolbar, 0, 0, 0, 0},
+                                             nodes[index].action_id);
     return true;
 }
 

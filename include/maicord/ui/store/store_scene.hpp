@@ -77,7 +77,8 @@ enum class UiStoreFill : u8 {
 enum class UiStoreTone : u8 { neutral, subtle, risk_low, risk_medium, risk_high, positive, warning, dev, brand, mono, scrim };
 enum class UiStoreButton : u8 { secondary, primary, ghost, critical, ghost_critical, link };
 enum class UiStoreAnchor : u8 { none, top_left, top_right, bottom_left, bottom_right, center };
-enum class UiStoreAspect : u8 { r16x10, r16x9, fixed };
+// live: a fixed-height plate the renderer fills with the running package effect (ui_background_paint_tile).
+enum class UiStoreAspect : u8 { r16x10, r16x9, fixed, live };
 
 enum UiStoreFlag : u16 {
     ui_store_flex = 1u << 0,      // takes the free space of a row
@@ -178,6 +179,7 @@ struct UiStoreSearch {
 
 struct UiStoreMedia {
     MediaAssetKey key;
+    u32 slot;        // the preview node's value
     u8 domain;       // 0: the media atlas, 1: the local preview atlas
     UiRect rect, clip, mask;
     float mask_radius;
@@ -213,9 +215,10 @@ struct UiStoreScene {
     u8 spinner_phase;
     const UiStoreSearch* search;
     const UiStoreMeasure* measure;
-    // Resolves a preview's slot to its media identity (the renderer queues the picture when it is resident).
+    // Resolves a preview's slot and its rectangle (DIPs) to its media identity; false: no picture for it. The
+    // renderer queues the picture when it is resident.
     const void* media_context;
-    bool (*media_key)(const void* context, u32 slot, MediaAssetKey* key, u8* domain) noexcept;
+    bool (*media_key)(const void* context, u32 slot, const UiRect& rect, MediaAssetKey* key, u8* domain) noexcept;
 };
 
 // Lifecycle. The arrays are allocated once while a store page is open.

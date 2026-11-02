@@ -1054,8 +1054,7 @@ bool open_context(const DownloadSource& source, UiRect anchor) noexcept {
     const ReceivedAttachmentMenuFacts facts{
         kind, {source.url, source.url_bytes}, kind == ReceivedAttachmentKind::image, true};
     const u32 count = received_attachment_menu(facts, {q->menu_items, kReceivedAttachmentMenuItems});
-    // Plugins see the attachment's index in the message, its URL and filename, and for an image
-    // its id, type and size.
+    // Plugins see an image's index in the message, its URL, filename, id, type and size.
     const bool image = attachment && (kind == ReceivedAttachmentKind::image ||
                                       kind == ReceivedAttachmentKind::animated_image);
     const Utf8View content_type = format == MediaAttachmentFormat::png    ? utf8_literal("image/png")
@@ -1063,12 +1062,12 @@ bool open_context(const DownloadSource& source, UiRect anchor) noexcept {
                                   : format == MediaAttachmentFormat::webp ? utf8_literal("image/webp")
                                   : format == MediaAttachmentFormat::gif  ? utf8_literal("image/gif")
                                                                           : Utf8View{};
-    const ApplicationPluginMenuExtra plugin{MC_MENU_ATTACHMENT, index, 0, false, {source.url, source.url_bytes},
-                                            {source.filename, source.filename_bytes}, image, source.attachment,
-                                            content_type, image ? static_cast<u32>(rich->attachments[index].width) : 0u,
+    const ApplicationPluginMenuExtra plugin{PluginMenuKind::image, index, 0, false, {source.url, source.url_bytes},
+                                            {source.filename, source.filename_bytes}, source.attachment, content_type,
+                                            image ? static_cast<u32>(rich->attachments[index].width) : 0u,
                                             image ? static_cast<u32>(rich->attachments[index].height) : 0u};
     if (!count || !open_message_media_context_popup(source.message, anchor, {q->menu_items, count},
-                                                    attachment ? &plugin : nullptr))
+                                                    image ? &plugin : nullptr))
         return false;
     q->menu = source;
     q->menu_kind = kind;

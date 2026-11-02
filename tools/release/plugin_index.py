@@ -80,7 +80,7 @@ KNOB_SCALAR_MAX = 10 ** 9
 KNOB_LIMITS = {"scalar": 16, "color": 4, "choice": 8}
 
 KINDS = ("plugin", "theme", "effect")
-# MC_PERM_* names in bit order (include/maicord/sdk/plugin_abi.h).
+# MC_PERM_* names in bit order (include/maicord/sdk/maicord_plugin.h).
 PERMISSIONS = ("message_send", "read_messages", "message_history", "read_activity", "network", "composer",
                "act_messages", "act_presence", "clipboard", "automated_actions", "persistent_log")
 SEVERITIES = ("malicious", "broken", "withdrawn")
@@ -469,7 +469,8 @@ def _knob_post(knob: dict) -> None:
 _KNOB_COMMON = [("id", _grammar(_knob_id_valid, "identifier"), True), ("type", _choice(KNOB_TYPES), True),
                 ("label", _text(KNOB_LABEL_MAX), True)]
 _KNOB_BY_TYPE = {
-    "float": _obj(_KNOB_COMMON + [("min", _decimal, True), ("max", _decimal, True), ("default", _decimal, True)], _knob_post),
+    "float": _obj(_KNOB_COMMON + [("min", _decimal, True), ("max", _decimal, True), ("default", _decimal, True),
+                                  ("percent", _boolean, False)], _knob_post),
     "int": _obj(_KNOB_COMMON + [("min", _integer(-KNOB_SCALAR_MAX, KNOB_SCALAR_MAX), True),
                                 ("max", _integer(-KNOB_SCALAR_MAX, KNOB_SCALAR_MAX), True),
                                 ("default", _integer(-KNOB_SCALAR_MAX, KNOB_SCALAR_MAX), True)], _knob_post),

@@ -5,18 +5,39 @@
 #include "maicord/ui/widgets/kit.hpp"
 
 // Markdown block: the chat's parser (message_markdown_parse) into display text and style spans the text layer
-// shapes as one styled command. Retained per source and width: a block is parsed once per source hash and its
-// height measured once per width bucket. The storage is the caller's (a UiMarkdownBank, or any arrays).
+// shapes. Retained per source and width: a block is parsed once per source hash and its height measured once
+// per width bucket. The storage is the caller's (a UiMarkdownBank, or any arrays).
+// The block is cut into parts: a run of plain paragraphs, or one list item. An item is its own wrapped text
+// command inset by its level, with its marker (a bullet, a dash from the second level, or the number) drawn
+// beside it, so wrapped lines hang under the item's text. This is the kit's own list style: chat keeps the
+// parser's bullet decoration.
 namespace maicord {
 
-inline constexpr u32 kUiMarkdownSourceMaximum = 8 * 1024, kUiMarkdownSpanMaximum = kTextStyleSpanMaximum;
-// A block's own storage: the transformed text (never longer than its source) and the span list.
+inline constexpr u32 kUiMarkdownSourceMaximum = 8 * 1024, kUiMarkdownSpanMaximum = kTextStyleSpanMaximum,
+                     kUiMarkdownPartMaximum = 64;
+// Span storage holds the parse output in its upper half and the per-part spans in its lower half.
+inline constexpr u32 kUiMarkdownSpanStorage = 2 * kUiMarkdownSpanMaximum;
+enum class UiMarkdownMarker : u8 { none, bullet, dash, number };
+struct UiMarkdownPart {
+    // The text of the part (an item's text starts after its marker) and its spans, relative to it.
+    u32 offset, bytes;
+    u16 span_first, span_count;
+    // A number marker's text ("1.") inside the block text.
+    u32 marker_offset;
+    u8 marker_bytes, level;
+    UiMarkdownMarker marker;
+    // Placement at the block's measured width.
+    float top, height;
+};
+// A block's own storage: the transformed text (never longer than its source), the span storage
+// (kUiMarkdownSpanStorage entries) and the parts (kUiMarkdownPartMaximum entries).
 struct UiMarkdown {
     Slice<char> text;
     Slice<TextStyleSpan> spans;
-    u32 text_bytes, span_count;
+    Slice<UiMarkdownPart> parts;
+    u32 text_bytes, span_count, part_count;
     u64 source_signature;
-    // The width bucket the cached height was measured at (DIPs, whole), and the height.
+    // The width bucket the parts were placed at (DIPs, whole), and the height.
     float measured_width, height;
     // Size of the body text in TextSize codes (text_size_sm: 14/20, text_size_md: 16/22).
     u8 body_size;
@@ -31,11 +52,16 @@ struct UiMarkdownOptions {
 // per source byte for the parser's work and may be reused by the next call. An unchanged source (same
 // signature and options) keeps the previous parse. False on a parse error: the block is left unparsed.
 bool ui_markdown_parse(UiMarkdown*, const Utf8View& source, const UiMarkdownOptions&, Slice<u32> scratch) noexcept;
-// Wrapped height at `width`, cached for the bucket (width rounded to whole DIPs).
+// Wrapped height at `width`, cached with the parts' placement for the bucket (width rounded to whole DIPs).
 float ui_markdown_height(UiMarkdown*, float width, const UiKitMeasure*) noexcept;
-// The block as one text command; the command borrows the block's storage.
-UiTextCommand ui_markdown_command(const UiMarkdown&, UiWidgetReference owner, const UiRect& rectangle, const UiRect& clip,
-                                  const Color& color) noexcept;
+u32 ui_markdown_part_count(const UiMarkdown&) noexcept;
+// The text of part `index` (`marker` false) or its list marker (true) inside `rectangle`, whose width is the one the
+// block is measured at (the block is measured here when it is not); empty when the part has none or lies outside
+// `clip`. Nested items take `muted`. A `fade` above zero fades the parts that end within that many DIPs above the
+// rectangle's bottom edge (a block shown clipped), line by part. The command borrows the block's storage.
+UiTextCommand ui_markdown_command(UiMarkdown*, u32 index, bool marker, const UiKitMeasure*, UiWidgetReference owner,
+                                  const UiRect& rectangle, const UiRect& clip, const Color& color, const Color& muted,
+                                  float fade = 0) noexcept;
 // Body line height of a size code.
 float ui_markdown_line_height(u8 body_size) noexcept;
 

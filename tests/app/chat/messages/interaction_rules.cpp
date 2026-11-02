@@ -253,7 +253,7 @@ void test_action_bar(Check check) noexcept {
               MessageActionBarAction::delete_message,
           "action_bar_expanded_delete_is_hit_testable");
     {
-        // Plugin hover buttons (mc.ui.slots MESSAGE_HOVER) sit before More/Delete, at most two.
+        // Plugin hover buttons (the message hover surface) sit before More/Delete, at most two.
         static u32 hover_count = 3;
         g_ui_plugin_slot_query = [](u32 surface, u64, u64, u64, u64, Slice<UiPluginSlotNode> output) noexcept -> u32 {
             u32 used = 0;

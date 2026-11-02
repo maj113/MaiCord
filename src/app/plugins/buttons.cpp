@@ -9,9 +9,6 @@
 
 namespace maicord {
 
-// Icon pack name to UiIcon, or 0xffff (sdk_surfaces.cpp).
-u16 native_plugin_sdk_icon(Utf8View name) noexcept;
-
 namespace plugin_surfaces_detail {
 namespace {
 
@@ -103,7 +100,7 @@ void buttons_init(Plugin& plugin) noexcept {
     for (u32 i = 0; i < plugin.button_count; ++i) {
         const mc_str icon = descriptor.buttons[i].icon;
         ButtonState& state = plugin.buttons[i];
-        state.declared = state.icon = icon.bytes ? native_plugin_sdk_icon({icon.data, icon.bytes}) : kNoIcon;
+        state.declared = state.icon = icon.bytes ? plugin_icon({icon.data, icon.bytes}) : kNoIcon;
     }
 }
 
@@ -136,7 +133,7 @@ mc_status buttons_set_state(PluginBinding* binding, u32 button, const mc_button_
     next.flags = state.flags;
     next.badge = state.badge_count;
     next.declared = target.declared;
-    next.icon = state.icon.bytes ? native_plugin_sdk_icon({state.icon.data, state.icon.bytes}) : target.declared;
+    next.icon = state.icon.bytes ? plugin_icon({state.icon.data, state.icon.bytes}) : target.declared;
     next.tooltip_bytes = static_cast<u8>(state.tooltip.bytes);
     copy_bytes(next.tooltip, state.tooltip.data, state.tooltip.bytes);
     if (next.flags == target.flags && next.badge == target.badge && next.icon == target.icon &&

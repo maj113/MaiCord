@@ -18,7 +18,6 @@ bool plugin_ui_probe(D3D11Renderer& renderer, PopupScene& popup,
                      bool (*capture)(const wchar_t*) noexcept) noexcept;
 bool plugin_navigation_ui_probe(D3D11Renderer& renderer, PopupScene& popup,
                                 bool (*capture)(const wchar_t*) noexcept) noexcept;
-bool plugin_catalog_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) noexcept) noexcept;
 bool settings_choice_ui_probe(D3D11Renderer& renderer, PopupScene& popup,
                               bool (*capture)(const wchar_t*) noexcept) noexcept;
 

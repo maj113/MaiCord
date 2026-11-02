@@ -5,6 +5,8 @@
 
 namespace maicord {
 struct UiPluginSlotNode;
+// An icon pack name ("lucide/star") as a UiIcon value, or plugin_surfaces_detail::kNoIcon (icons.cpp).
+u16 plugin_icon(Utf8View name) noexcept;
 } // namespace maicord
 // Shared by decorations.cpp (the per-plugin verdict caches, hooks and UI queries) and buttons.cpp (descriptor
 // buttons). UI thread only.

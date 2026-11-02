@@ -90,6 +90,20 @@ bool application_catalog_set_auto_update_all(bool on) noexcept;
 bool application_catalog_skip_update(CatalogKind, Utf8View slug) noexcept;
 // Developer Mode: copies a DLL into the plugins directory and asks the sideload consent.
 bool application_catalog_sideload(ConstSlice<wchar_t> dll_path) noexcept;
+// Developer Mode: the dev folder (%LOCALAPPDATA%\MaiCord\plugins\dev, or %MAICORD_PLUGIN_DEV%) is watched. A DLL
+// that appears or changes there is copied in and reviewed like a sideload; the first build of an owner asks the
+// sideload consent, and every later build whose permissions and hosts the user already allowed replaces the
+// running one without a question: disable, unload, load and enable, keeping the plugin's state when its
+// state_layout is unchanged (MC_CTX_RELOADED) and its settings and store always. What happens, and the
+// plugins' log lines and budget strikes, goes to the Developer console (dev_console.hpp).
+// The effects dev folder (effects\\dev, or %MAICORD_EFFECT_DEV%) is watched too: a settled change calls
+// CatalogServiceHost::library_changed, so the effect library scans again and keeps the selection and knob values.
+// The two change notifications (0: plugins, 1: effects) join the UI wait set; null outside Developer Mode.
+HANDLE application_catalog_dev_notification(u32 folder) noexcept;
+// Scans the dev folder now and loads every DLL in it again ("Reload" on the Developer page).
+bool application_catalog_dev_reload() noexcept;
+// A dev folder as UTF-8 (0: plugins, 1: effects; empty until Developer Mode has opened it).
+Utf8View application_catalog_dev_folder(u32 folder) noexcept;
 
 // While view.operation.phase is consent: what the dialog asks. Answer once; the answer returns true when the
 // plugin was installed (a decline ends the operation with CatalogError::declined).

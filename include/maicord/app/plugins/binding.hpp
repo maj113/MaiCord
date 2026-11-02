@@ -80,6 +80,8 @@ struct PluginRuntime {
     // mc_api.toast fails with MC_E_UNSUPPORTED; without a log sink log lines are dropped.
     void (*toast)(void* context, u64 owner_id, Utf8View text, u32 tone) noexcept;
     void (*log)(void* context, u64 owner_id, u32 level, Utf8View text) noexcept;
+    // A call that ran past its budget (the Developer console): strike counts toward kPluginCallOverrunLimit.
+    void (*strike)(void* context, u64 owner_id, PluginCallKind kind, u32 strike, u64 elapsed_us) noexcept;
     void* sink_context;
     PluginBinding* bindings[kPluginMaximumBindings];
     u32 binding_count;
@@ -87,6 +89,12 @@ struct PluginRuntime {
     // The HTTP broker; created by the first request (http.cpp).
     PluginHttp* http;
     u32 generation_serial;
+    // Developer Mode reload: the state of a plugin being replaced (plugin_runtime_keep_state).
+    struct {
+        u64 owner_id, layout;
+        u32 bytes, alignment;
+        u8* state;
+    } carry;
 };
 
 enum class PluginEnableError : u8 {
@@ -100,10 +108,14 @@ enum class PluginEnableError : u8 {
     release,          // the DLL could not be freed; disable again later
 };
 
+// What happened to the state a reload carried (plugin_runtime_keep_state).
+enum class PluginStateCarry : u8 { none, kept, reset };
+
 struct PluginEnableResult {
     PluginEnableError error;
     PluginLoadResult load;
     PluginBinding* binding;
+    PluginStateCarry carried;
     constexpr bool ok() const noexcept { return error == PluginEnableError::none; }
 };
 
@@ -126,6 +138,11 @@ PluginEnableResult plugin_runtime_enable(PluginRuntime*, ConstSlice<wchar_t> lea
 // binding. False when the DLL could not be freed: the plugin is stopped and silent, and a
 // later disable retries.
 bool plugin_runtime_disable(PluginRuntime*, PluginBinding*) noexcept;
+// Developer Mode reload: copies the state of binding aside, to be given back to the next enable of the same
+// owner when its descriptor's state_layout, size and alignment are unchanged (the plugin then starts with
+// MC_CTX_RELOADED); a changed layout starts it zeroed with MC_CTX_FIRST_START. The next enable of any plugin
+// consumes the copy. False when the state could not be copied.
+bool plugin_runtime_keep_state(PluginRuntime*, const PluginBinding*) noexcept;
 // Writes settings and store changes older than the flush delay, and disables plugins the
 // ledger flagged for repeated overruns. Returns the owner of one disabled plugin, else 0;
 // call again until it returns 0.

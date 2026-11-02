@@ -167,7 +167,7 @@ bool hex_color(Parse& p, JsonValue value, u32* rgb) noexcept {
 }
 
 // ---- Knobs ------------------------------------------------------------------------------------------------
-enum KnobMember : u32 { k_id, k_type, k_label, k_min, k_max, k_default, k_choices, k_hint };
+enum KnobMember : u32 { k_id, k_type, k_label, k_min, k_max, k_default, k_choices, k_hint, k_percent };
 
 bool choice_entry(void* context, u32 index, JsonValue value) noexcept {
     auto& p = *static_cast<Parse*>(context);
@@ -181,12 +181,12 @@ bool choice_entry(void* context, u32 index, JsonValue value) noexcept {
 
 bool knob_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<Parse*>(context);
-    static constexpr const char* names[]{"id", "type", "label", "min", "max", "default", "choices", "hint"};
-    u32 id = 8;
-    for (u32 i = 0; i < 8; ++i)
+    static constexpr const char* names[]{"id", "type", "label", "min", "max", "default", "choices", "hint", "percent"};
+    u32 id = 9;
+    for (u32 i = 0; i < 9; ++i)
         if (json_string_equals_ascii_bytes(name.encoded.data, name.encoded.bytes, names[i], c_string_length(names[i])))
             id = i;
-    if (id == 8 || (p.knob_seen & 1u << id))
+    if (id == 9 || (p.knob_seen & 1u << id))
         return p.fail(name.source_offset);
     p.knob_seen |= 1u << id;
     auto& k = p.knob;
@@ -198,6 +198,7 @@ bool knob_member(void* context, JsonString name, JsonValue value) noexcept {
                    : p.fail(value.source_offset);
     case k_label: return text_value(p, value, k.label, kMcfxLabelBytes);
     case k_hint: return text_value(p, value, k.hint, kMcfxHintBytes);
+    case k_percent: return json_value_to_bool(value, &k.percent) ? true : p.fail(value.source_offset);
     case k_type: p.type_value = value; return true;
     case k_min: p.minimum = value; return true;
     case k_max: p.maximum = value; return true;
@@ -221,7 +222,7 @@ bool finish_knob(Parse& p, u32 at) noexcept {
     k.type = static_cast<McfxKnobType>(t);
     constexpr u32 base = 1u << k_id | 1u << k_type | 1u << k_label | 1u << k_default;
     const u32 need = t <= 1 ? base | 1u << k_min | 1u << k_max : t == 4 ? base | 1u << k_choices : base;
-    if ((p.knob_seen & ~(1u << k_hint)) != need)
+    if ((p.knob_seen & ~(1u << k_hint | 1u << k_percent)) != need || (k.percent && t != 0))
         return p.fail(at);
     if (t <= 1) {
         if (!number_value(p, p.minimum, &k.minimum) || !number_value(p, p.maximum, &k.maximum) ||

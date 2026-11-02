@@ -86,8 +86,9 @@ rasterizes its own text, and draws its own interface on the GPU.
 **Make it yours**
 - Themes control colors, typography, spacing, components and animated
   backgrounds
-- Native plugins with a stable C API: read data, react to events, decorate
-  messages, add buttons and menus, register shortcuts, ship background shaders
+- Native plugins with a stable C ABI and a header-only C++ SDK: hooks and
+  events, message decorations, buttons and menus, slash commands, settings and
+  shortcuts, installed from a signed catalog
 
 ## Install
 
@@ -199,7 +200,7 @@ assets/            fonts, sounds, themes and license notices
 
 - Sending camera video and screen share
 - An installer
-- More plugin APIs: composer hooks and network access
+- More plugin APIs: on-demand Discord fetches and the voice panel
 - Remaining Discord features, tracked in
   [issues](https://github.com/maj113/MaiCord/issues?q=is%3Aopen+label%3Aparity)
 

@@ -20,19 +20,15 @@ using namespace commands_detail;
 namespace commands_detail {
 
 constexpr u32 choose_base = 100000, rail_base = 200000, option_base = 300000, value_base = 400000;
-// Local plugin commands, ordered as application_plugins_commands returns them.
-constexpr u32 plugin_base = 500000;
 constexpr u32 clear_selection = choose_base - 3;
-// The picker's sections: MaiCord's local plugin commands, Frequently Used, each
-// app (by name) and Built-in last.
-enum class SectionKind : u8 { plugins, frequent, app, builtin };
+// The picker's sections: Frequently Used, each app (by name) and Built-in last.
+enum class SectionKind : u8 { frequent, app, builtin };
 struct Section {
-    const CommandApplication* app; // null for plugins and Frequently Used
-    u32 first, count;              // rows in entries (plugins: the local list)
+    const CommandApplication* app; // null for Frequently Used
+    u32 first, count;              // rows in entries
     u32 placeholders;              // loading rows after them
     SectionKind kind;
 };
-constexpr u32 plugin_rows = 8;
 // The lane's built-in request (the API operation is the action's own).
 constexpr u8 builtin_operation = 9;
 constexpr u32 no_row = ~0u;
@@ -73,12 +69,12 @@ struct Commands {
     Arena projection;
     Arena retired_index_storage;
     // Picker rows in body order (discovery: section by section; a query:
-    // ranked), the rail's sections, the body's sections (the filtered one
-    // alone) and the local plugin rows leading the body.
+    // ranked), the rail's sections and the body's sections (the filtered one
+    // alone).
     Entry* entries;
     u32 count;
     Section *rail, *body;
-    u32 rail_count, body_count, plugin_count, query_placeholders;
+    u32 rail_count, body_count, query_placeholders;
     // The query text the results answer ("/" prefixed in their title).
     char query[128];
     u32 query_bytes;
@@ -200,7 +196,6 @@ bool retired_text(Utf8View text, const Arena& storage) noexcept;
 Utf8View field_text(const CommandIndex& index, JsonValue value, const char* key,
                     Slice<char> scratch) noexcept;
 bool command_space(char value) noexcept;
-Utf8View command_query(Utf8View text) noexcept;
 Utf8View copy_label(char* out, u32 capacity, Utf8View a, Utf8View b = {}, Utf8View c = {},
                     Utf8View d = {}) noexcept;
 void close_popup() noexcept;

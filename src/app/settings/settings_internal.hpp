@@ -2,7 +2,6 @@
 // Shared by settings.cpp and its parts (settings_*.cpp); private to them.
 #include "settings.hpp"
 #include "../shell/state.hpp"
-#include "../plugins/plugins.hpp"
 #include "custom_theme.hpp"
 #include "catalog.hpp"
 #include "../voice/settings.hpp"
@@ -19,8 +18,13 @@ namespace maicord::app_detail {
 namespace settings_detail {}
 using namespace settings_detail;
 
+// The page a choice popup was opened on and the revisions it was projected under: any change retires it.
+struct ApplicationSettingsToken {
+    UiPageKey page;
+    u32 registry_revision, content_revision;
+};
 struct ApplicationSettingsChoice {
-    NativePluginUiToken token;
+    ApplicationSettingsToken token;
     u64 control_id, account_serial, profile_id;
     UiRect anchor;
     u32 first, control_index, choice_count, popup_opens, pressed_action;
@@ -28,18 +32,9 @@ struct ApplicationSettingsChoice {
     bool active;
 };
 
-// Native panels, search and plugin pages share one registry.
+// Native panels and search share one registry.
 inline constexpr u32 kSettingsPageCapacity = 24;
-struct ApplicationPluginSettingsPage {
-    UiPageRegistry registry;
-    UiPage pages[kSettingsPageCapacity];
-    UiSettingsPageContent content;
-    UiSettingsControl* controls;
-    NativePluginUiToken token;
-    u32 backed_count;
-};
-// One bank serves the plugin catalog (its 21-row ceiling), any catalog panel
-// and search results. Keybinds, which lists every default shortcut, projects
+// One bank serves any catalog panel and search results. Keybinds, which lists every default shortcut, projects
 // into its own bank (application_keybinds_settings_bank).
 inline constexpr u32 kSettingsControlCapacity = 40;
 
@@ -53,17 +48,14 @@ struct ApplicationSettings {
     UiSettingsScene scene;
     UiPageRegistry registry;
     UiPage pages[kSettingsPageCapacity];
-    NativePluginHost plugins;
-    NativePluginSlot plugin_slots[8];
-    // One selected native page borrows this descriptor bank. Native panels,
-    // search results and the plugin catalog never borrow it at the same time.
+    // One selected native page borrows this descriptor bank. Native panels and
+    // search results never borrow it at the same time.
     UiSettingsControl controls[kSettingsControlCapacity];
     UiSettingsControlPresentation presentation[kSettingsControlCapacity];
     UiSettingsAvatarMedia avatar_media[kSettingsAvatarRows];
     u64 custom_theme_revision;
     u32 native_page;
-    ApplicationPluginCatalogText catalog_text[kApplicationPluginCatalogWindow];
-    u64 catalog_revision, pressed_catalog_revision, pressed_account_serial, pressed_profile;
+    u64 pressed_account_serial, pressed_profile;
     UiSettingsPageContent content[kSettingsSearchPage];
     // The search field edits search_text through the shared text model, like
     // every other single-line field; search_bytes is the applied query.
@@ -77,11 +69,8 @@ struct ApplicationSettings {
     UiWidgetManager* previous_focus;
     UiSettingsTarget pressed;
     u32 pressed_revision;
-    NativePluginUiToken pressed_token;
-    bool pressed_plugin;
     bool previous_composer_focus, save_failed;
     bool notifications_active, notifications_settings_failed;
-    NativePluginError plugin_error;
     bool scrollbar_dragging, scrollbar_sidebar;
     bool slider_dragging;
     u16 slider_generation;
@@ -95,8 +84,6 @@ struct ApplicationSettings {
     float slider_grab;
     float scrollbar_grab;
     ApplicationSettingsChoice choice;
-    ApplicationPluginSettingsPage* plugin_page;
-    bool plugin_page_committed;
 };
 
 namespace settings_detail {
@@ -145,7 +132,6 @@ bool theme_binding(SettingBinding binding) noexcept;
 const UiSettingsSchemaNode* control_node(u64 id, SettingBinding* binding = nullptr) noexcept;
 bool release_slider_theme(ApplicationSettings& settings) noexcept;
 bool capture_slider_theme(ApplicationSettings& settings, const UiSettingsTarget& target) noexcept;
-bool release_plugin_page(ApplicationSettings& settings) noexcept;
 BackgroundTheme gradient_edit_base() noexcept;
 bool persist() noexcept;
 void project(ApplicationSettings& settings) noexcept;
@@ -167,8 +153,8 @@ bool navigate(ApplicationSettings& settings, const UiPageKey& page, u64 control_
 bool open_result(ApplicationSettings& settings, u64 control_id) noexcept;
 bool searching(const ApplicationSettings& settings) noexcept;
 bool settled(ApplicationSettings& settings, bool result) noexcept;
-bool activate(const UiSettingsTarget& target, bool reverse, const NativePluginUiToken* expected = nullptr, bool picker = false,
-              u32 selected = ~0u, bool save = true) noexcept;
+bool activate(const UiSettingsTarget& target, bool reverse, bool picker = false, u32 selected = ~0u,
+              bool save = true) noexcept;
 bool choice_action(u32 action, const ApplicationSettingsChoice* captured = nullptr) noexcept;
 bool search_character(ApplicationSettings& settings, u32 code) noexcept;
 bool search_key(ApplicationSettings& settings, u32 key, bool control, bool shift) noexcept;

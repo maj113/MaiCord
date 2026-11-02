@@ -88,6 +88,8 @@ type	"default":0.35	"default":0.3512
 type	"default":0.35	"default":3.5e-1
 limit	"max":4,"default":3}	"max":4,"default":5}
 type	"max":4,"default":3}	"max":4,"default":3.0}
+unknown_field	"max":4,"default":3}	"max":4,"default":3,"percent":true}
+type	"default":0.35	"default":0.35,"percent":1
 identifier	"id":"speed"	"id":"Speed"
 duplicate	"id":"curtains"	"id":"speed"
 text	"label":"Drift speed"	"label":""

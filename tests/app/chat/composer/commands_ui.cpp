@@ -48,9 +48,6 @@ void set_popup_owner(PopupOwnerKind owner) noexcept {
     g_app.popup_owner_kind = owner;
 }
 bool reveal_command_row(float, float, bool) noexcept { return true; }
-// No plugins are loaded in this fixture.
-u32 application_plugins_commands(Utf8View, Slice<NativePluginSdkCommandView>) noexcept { return 0; }
-bool application_plugins_command_pending() noexcept { return false; }
 void application_plugins_menu_dismissed() noexcept {}
 bool queue_message_send() noexcept { return true; }
 // Slowmode tests leave reaction, edit, history and connection UI effects idle.

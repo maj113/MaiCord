@@ -685,7 +685,6 @@ constexpr UiSettingsNavEntry navigation[]{
     nav_page(SettingsPanel::plugins),
     nav_page(SettingsPanel::themes),
     nav_page(SettingsPanel::effects),
-    {UiSettingsNavKind::contributed, false, UiIcon::count, {}, {}, 0},
     nav_page(SettingsPanel::advanced, true),
     {UiSettingsNavKind::action, true, UiIcon::log_out, utf8_literal("Log Out"), {}, kSettingsLogOutAction, true},
 };
@@ -874,6 +873,17 @@ constexpr UiSettingsNavEntry signed_out_navigation[]{
 };
 ConstSlice<UiSettingsNavEntry> settings_catalog_navigation_signed_out() noexcept {
     return {signed_out_navigation, sizeof(signed_out_navigation) / sizeof(signed_out_navigation[0])};
+}
+ConstSlice<UiSettingsNavEntry> settings_catalog_navigation_dotted(ConstSlice<UiSettingsNavEntry> navigation,
+                                                                   UiSettingsNavEntry* storage) noexcept {
+    if (!storage || navigation.count > kUiSettingsNavigationMaximum)
+        return {};
+    copy_bytes(storage, navigation.data, navigation.count * sizeof(UiSettingsNavEntry));
+    for (u32 i = 0; i < navigation.count; ++i)
+        if (storage[i].kind == UiSettingsNavKind::page &&
+            ui_page_key_equal(storage[i].page, {kSettingsNativeOwner, static_cast<u64>(SettingsPanel::updates) + 1}))
+            storage[i].badge = kUiSettingsNavDot;
+    return {storage, navigation.count};
 }
 
 bool settings_control_location(u64 id, UiSettingsSchemaLocation* location) noexcept {

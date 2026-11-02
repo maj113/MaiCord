@@ -123,8 +123,10 @@ bool d3d11_effect_begin_frame(D3D11EffectOwner*, ID3D11Device*, ID3D11DeviceCont
 // Composites the target over one canvas (DIP rectangle, paint quad index) under the bound scissor, layer
 // transform, strip topology and bilinear sampler, which it leaves alone. True when it drew: it bound its
 // shaders, pixel constant slot 0, pixel view 0 and the blend state, which the caller binds again. Skips
-// canvases already drawn this frame.
-bool d3d11_effect_draw(D3D11EffectOwner*, ID3D11DeviceContext*, UiRect canvas, u32 quad_index) noexcept;
+// canvases already drawn this frame. A positive tile_radius draws a tile instead: the whole effect, cover-fitted
+// to the rectangle (a miniature of the window background) with corners rounded to that radius in DIPs.
+bool d3d11_effect_draw(D3D11EffectOwner*, ID3D11DeviceContext*, UiRect canvas, u32 quad_index,
+                       float tile_radius = 0) noexcept;
 void d3d11_effect_end_frame(D3D11EffectOwner*, ID3D11DeviceContext*) noexcept;
 // Releases the device objects but keeps the selection, so the next frame rebuilds them.
 void d3d11_effect_release_device(D3D11EffectOwner*) noexcept;

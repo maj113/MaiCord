@@ -32,11 +32,8 @@ constexpr Utf8View kBases[]{utf8_literal("Dark"), utf8_literal("Light"), utf8_li
 void meta_row(Ctx& c, const StoreItem& item) noexcept {
     auto& row = c.b.open(UiStoreKind::flow);
     row.gap = 8;
-    if (item.authors.bytes) {
-        c.b.text(utf8_literal("by"), UiStoreType::small, UiStoreInk::subtle);
-        c.b.button(item.authors, UiStoreButton::link, store_action(StoreAct::detail_author));
-        c.b.text(utf8_literal("\xC2\xB7"), UiStoreType::small, UiStoreInk::subtle);
-    }
+    if (item.authors.bytes)
+        c.b.text(join(c.b, utf8_literal("by "), item.authors, utf8_literal("  \xC2\xB7")), UiStoreType::small, UiStoreInk::subtle);
     if (item.released)
         c.b.text(join(c.b, utf8_literal("Updated "), date_text(c.b, item.released)), UiStoreType::small, UiStoreInk::subtle);
     if (item.item != ~0u && !item.unreviewed && !item.sideloaded)
@@ -461,7 +458,11 @@ void knob_row(Ctx& c, u32 i, bool last) noexcept {
     }
     default: {
         const u32 steps = knob_steps(k);
-        value_row(c, k.label, k.type == 1 ? number_text(c.b, k.value, 0) : number_text(c.b, k.value, 2), false, 0);
+        value_row(c, k.label,
+                  k.type == 1  ? number_text(c.b, k.value, 0)
+                  : k.percent ? join(c.b, number_text(c.b, k.value * 100.f, 0), utf8_literal(" %"))
+                              : number_text(c.b, k.value, 2),
+                  false, 0);
         auto& s = c.b.leaf(UiStoreKind::slider);
         s.count = static_cast<u16>(steps);
         s.value = knob_index(k, k.value, steps);
@@ -649,13 +650,23 @@ void build_knobs(Ctx& c, const StoreItem& item, u32 index) noexcept {
     c.b.button(utf8_literal("Remove"), UiStoreButton::ghost_critical, store_action(StoreAct::detail_remove, index), UiIcon::trash, true);
     c.b.close();
     c.b.spacer(0, 16);
-    // The live preview: the effect draws behind the settings; the plate names it.
+    // The live preview: the effect draws behind the settings and the renderer fills this plate with it. An effect
+    // that is not the background has no picture to show: the plate says how to see it.
+    static constexpr u32 kResolutions[]{25, 35, 50, 75, 100}, kFrames[]{10, 15, 24, 30, 60};
+    const StoreUniversal& u = c.m.universal;
+    const u32 resolution = u.resolution ? u.resolution : u.global_resolution ? u.global_resolution : 3;
+    const u32 frames = u.frame_rate ? u.frame_rate : u.global_frame_rate ? u.global_frame_rate : u.requested_frame_rate ? u.requested_frame_rate : 3;
     auto& view = c.b.open(UiStoreKind::preview);
-    view.variant = static_cast<u8>(UiStoreAspect::fixed);
+    view.variant = static_cast<u8>(item.active ? UiStoreAspect::live : UiStoreAspect::fixed);
     view.rh = 220;
     if (c.m.effect_cost_state == 2)
         view.flags = ui_store_critical;
-    auto& pill = c.b.chip(c.m.effect_cost_state == 2 ? utf8_literal("Too heavy for this GPU") : utf8_literal("Live preview"), UiStoreTone::scrim, UiIcon::play);
+    const Utf8View live_text = join(c.b, utf8_literal("Live preview \xC2\xB7 "), join(c.b, c.b.number(kFrames[(frames - 1) % 5]), utf8_literal(" fps \xC2\xB7 ")),
+                                    join(c.b, c.b.number(kResolutions[(resolution - 1) % 5]), utf8_literal(" %")));
+    auto& pill = c.b.chip(c.m.effect_cost_state == 2 ? utf8_literal("Too heavy for this GPU")
+                          : item.active              ? live_text
+                                                     : utf8_literal("Use it as the background to see it live"),
+                          UiStoreTone::scrim, UiIcon::play);
     pill.anchor = static_cast<u8>(UiStoreAnchor::bottom_left);
     pill.flags = ui_store_foreground;
     auto& panels = c.b.open(UiStoreKind::row);

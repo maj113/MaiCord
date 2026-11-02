@@ -63,12 +63,13 @@ static_assert(__builtin_offsetof(EffectFrameConstants, palette) == 32 &&
 
 // The composite pass's constants: a canvas rectangle in DIPs, the map from a DIP to a position in the effect
 // target (uv = dip * scale + offset), the used part of the target (inset half a texel, for the bilinear
-// fetch), and the user's opacity. VS b2 and PS b0 both see all of it.
+// fetch), the user's opacity and, for a tile, its corner radius in DIPs (0: the plain rectangle). VS b2 and
+// PS b0 both see all of it.
 struct EffectCompositeConstants {
     float canvas[4];
     float uv[4];
     float limits[4];
-    float opacity, reserved[3];
+    float opacity, radius, reserved[2];
 };
 static_assert(sizeof(EffectCompositeConstants) == 64);
 

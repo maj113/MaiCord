@@ -195,7 +195,7 @@ inline constexpr u32 kSettingsPanelCount = static_cast<u32>(SettingsPanel::count
 const UiSettingsSchema& settings_catalog() noexcept;
 const UiSettingsSchemaPanel& settings_catalog_panel(SettingsPanel) noexcept;
 // Sidebar: section headers, native panel pages (owner 1, page panel + 1),
-// contributed plugin pages under MaiCord, then the destructive Log out action.
+// the destructive Log out action.
 inline constexpr u64 kSettingsNativeOwner = 1;
 inline constexpr u64 kSettingsLogOutAction = 1;
 ConstSlice<UiSettingsNavEntry> settings_catalog_navigation(bool log_out) noexcept;
@@ -217,6 +217,10 @@ constexpr bool settings_panel_signed_out(SettingsPanel panel) noexcept {
     }
 }
 ConstSlice<UiSettingsNavEntry> settings_catalog_navigation_signed_out() noexcept;
+// `navigation` copied into `storage` (kUiSettingsNavigationMaximum entries) with the attention dot on Updates, shown
+// while an update waits for Restart to update; empty when the list does not fit.
+ConstSlice<UiSettingsNavEntry> settings_catalog_navigation_dotted(ConstSlice<UiSettingsNavEntry> navigation,
+                                                                   UiSettingsNavEntry* storage) noexcept;
 
 // Dynamic list rows (devices, authorized apps): list binding in bits 8..15,
 // row index in bits 0..7.

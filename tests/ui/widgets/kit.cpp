@@ -397,26 +397,39 @@ void test_panels(Check check, const UiSettingsThemeTokens& t) noexcept {
 
 void test_markdown(Check check) noexcept {
     static char text[kUiMarkdownSourceMaximum];
-    static TextStyleSpan spans[64];
+    static TextStyleSpan spans[128];
+    static UiMarkdownPart parts[16];
     static u32 scratch[kUiMarkdownSourceMaximum];
     UiMarkdown block{};
     block.text = {text, sizeof(text)};
-    block.spans = {spans, 64};
+    block.spans = {spans, 128};
+    block.parts = {parts, 16};
     const auto source = utf8_literal("### What's new\n\nFirst **bold** line with `code`.\n- one\n  - nested\n- two\n");
     const UiMarkdownOptions options{true, text_size_sm};
     check(ui_markdown_parse(&block, source, options, {scratch, kUiMarkdownSourceMaximum}) && block.parsed && block.span_count > 3 &&
               contains_bytes(text, block.text_bytes, "WHAT'S NEW") && !contains_bytes(text, block.text_bytes, "###") &&
               !contains_bytes(text, block.text_bytes, "**") && block.text_bytes <= source.bytes,
           "markdown: the chat parser's output with the ### heading as an uppercase eyebrow");
-    bool folded = true, covers = true;
-    u32 offset = 0;
-    for (u32 i = 0; i < block.span_count; ++i) {
-        folded = folded && spans[i].size == 0 && text_style_size_code_ratio(spans[i].flags) > 0;
-        covers = covers && spans[i].byte_offset == offset;
-        offset += spans[i].byte_count;
+    constexpr u32 kListFlagsMask = text_style_list | text_style_list_bullet | kTextStyleListDepthMask;
+    bool folded = true, covers = true, plain = true;
+    for (u32 p = 0; p < block.part_count; ++p) {
+        u32 offset = 0;
+        for (u32 i = parts[p].span_first; i < parts[p].span_first + parts[p].span_count; ++i) {
+            folded = folded && spans[i].size == 0 && text_style_size_code_ratio(spans[i].flags) > 0;
+            covers = covers && spans[i].byte_offset == offset;
+            plain = plain && (p == 0 || !(spans[i].flags & kListFlagsMask));
+            offset += spans[i].byte_count;
+        }
+        covers = covers && offset == parts[p].bytes;
     }
-    check(folded && covers && offset == block.text_bytes && (spans[0].flags & kTextStyleHeadingMask) == kTextStyleSizeCodeXs,
-          "markdown: spans are folded to shaping flags and cover the text; the eyebrow uses the 12 pt code");
+    check(block.part_count == 4 && folded && covers && plain &&
+              (spans[0].flags & kTextStyleHeadingMask) == kTextStyleSizeCodeXs,
+          "markdown: the text is cut into a run and its items; spans are part-relative, folded to shaping flags and "
+          "cover each part; the eyebrow uses the 12 pt code; items carry no list flags");
+    check(parts[0].marker == UiMarkdownMarker::none && parts[1].marker == UiMarkdownMarker::bullet && parts[1].level == 0 &&
+              parts[2].marker == UiMarkdownMarker::dash && parts[2].level == 1 && parts[2].bytes == 6 &&
+              parts[3].marker == UiMarkdownMarker::bullet,
+          "markdown: a first-level item has a bullet and a nested item a dash");
     const u64 signature = block.source_signature;
     check(ui_markdown_parse(&block, source, options, {scratch, kUiMarkdownSourceMaximum}) && block.source_signature == signature &&
               block.parsed,
@@ -426,11 +439,31 @@ void test_markdown(Check check) noexcept {
     const float narrow = ui_markdown_height(&block, 120, nullptr);
     check(wide >= 5 * 20 && near(wide, cached) && block.measured_width == 120 && narrow > wide &&
               ui_markdown_height(&block, 600, nullptr) == wide,
-          "markdown: heights come per paragraph, are cached per whole-DIP width and grow when narrower");
-    UiTextCommand command = ui_markdown_command(block, {}, {0, 0, 300, 100}, {0, 0, 300, 50}, {1, 1, 1, 1});
-    check(command.text.bytes == block.text_bytes && command.styles.count == block.span_count && command.wrapping == TextWrapping::wrap &&
-              command.clip.bottom == 50,
-          "markdown: the block is one wrapped text command over its own storage");
+          "markdown: heights come per part, are cached per whole-DIP width and grow when narrower");
+    const Color ink{1, 1, 1, 1}, quiet{.5f, .5f, .5f, 1};
+    const UiTextCommand run = ui_markdown_command(&block, 0, false, nullptr, {}, {0, 0, 300, 400}, {0, 0, 300, 50}, ink, quiet);
+    const UiTextCommand item = ui_markdown_command(&block, 2, false, nullptr, {}, {0, 0, 300, 400}, {0, 0, 300, 400}, ink, quiet);
+    const UiTextCommand dash = ui_markdown_command(&block, 2, true, nullptr, {}, {0, 0, 300, 400}, {0, 0, 300, 400}, ink, quiet);
+    const UiTextCommand bullet = ui_markdown_command(&block, 1, true, nullptr, {}, {0, 0, 300, 400}, {0, 0, 300, 400}, ink, quiet);
+    const UiTextCommand outside = ui_markdown_command(&block, 3, false, nullptr, {}, {0, 0, 300, 400}, {0, 0, 300, 10}, ink, quiet);
+    const UiRect shown{0, 0, 300, parts[3].top + parts[3].height};
+    const UiTextCommand faint = ui_markdown_command(&block, 3, false, nullptr, {}, shown, shown, ink, quiet, 48);
+    const UiTextCommand clear = ui_markdown_command(&block, 0, false, nullptr, {}, shown, shown, ink, quiet, 48);
+    check(run.text.bytes == parts[0].bytes && run.styles.count == parts[0].span_count && run.wrapping == TextWrapping::wrap &&
+              run.effect.themed_styles && run.clip.bottom == 50 && near(run.rectangle.left, 0),
+          "markdown: a run is one wrapped, themed text command over the block's own storage");
+    check(item.text.bytes == 6 && near(item.rectangle.left, 40) && near(item.rectangle.right, 300) &&
+              item.rectangle.top == parts[2].top && dash.text.bytes == 3 && static_cast<u8>(dash.text.data[2]) == 0x93 &&
+              bullet.text.bytes == 3 && static_cast<u8>(bullet.text.data[2]) == 0xA2 &&
+              dash.horizontal_alignment == UiTextAlignment::end && dash.wrapping == TextWrapping::no_wrap &&
+              dash.rectangle.right < item.rectangle.left && ui_markdown_part_count(block) == 4,
+          "markdown: an item is inset by its level with its marker hanging in front, a dash from the second level");
+    check(near(item.color.red, .5f) && near(dash.color.red, .5f) && near(bullet.color.red, 1) && near(run.color.red, 1) &&
+              near(faint.color.red, 1) && faint.color.alpha < .5f && faint.color.alpha >= .2f && near(clear.color.alpha, 1),
+          "markdown: nested items are muted and a part ending in the fade band is fainter");
+    check(outside.text.bytes == 0 && ui_markdown_command(&block, 9, false, nullptr, {}, {0, 0, 300, 400}, {0, 0, 300, 400}, {}, {}).text.bytes == 0 &&
+              ui_markdown_command(&block, 0, true, nullptr, {}, {0, 0, 300, 400}, {0, 0, 300, 400}, {}, {}).text.bytes == 0,
+          "markdown: a part outside the clip, an unknown part and the marker of a plain run give no command");
     check(!ui_markdown_parse(&block, source, options, {scratch, 8}) && !block.parsed,
           "markdown: scratch smaller than the source is rejected and leaves the block unparsed");
 

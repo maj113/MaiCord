@@ -213,7 +213,7 @@ void test_no_plugins() noexcept {
           "dispatching with no plugin calls nothing and allocates nothing");
 }
 
-// Every entry plugin_abi.h declares is implemented: the table is complete and has no null slot.
+// Every entry maicord_plugin.h declares is implemented: the table is complete and has no null slot.
 void test_api_table() noexcept {
     const auto* entries = reinterpret_cast<void* const*>(reinterpret_cast<const u8*>(&kApi) + 8);
     const u32 count = (sizeof(mc_api) - 8) / sizeof(void*);
@@ -481,10 +481,10 @@ void test_ledger_classes(const Root& root) noexcept {
     Sleep(8);
     PluginCallOutcome outcome = plugin_call_finish(&ledger, ticket);
     check(outcome.overran && !outcome.disable && outcome.elapsed_us >= 1000, "a decorate call past 1 ms is a strike");
-    ticket = plugin_call_begin(&ledger, 8, PluginCallKind::decorate);
+    ticket = plugin_call_begin(&ledger, 8, PluginCallKind::menu, PluginCallClass::gesture);
     Sleep(8);
     outcome = plugin_call_finish(&ledger, ticket);
-    check(!outcome.overran, "a legacy call keeps the gesture budget");
+    check(!outcome.overran, "a gesture call keeps the 50 ms budget");
     for (u32 i = 0; i < 2; ++i) {
         ticket = plugin_call_begin(&ledger, 7, PluginCallKind::decorate, PluginCallClass::decorate);
         Sleep(8);

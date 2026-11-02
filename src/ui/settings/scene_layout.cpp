@@ -110,8 +110,21 @@ bool progress(const UiSettingsPageContent& content, u32 index) noexcept {
     return content.controls[index].kind == UiSettingsControlKind::action && content.meters &&
            content.meters[index] != kUiSettingsNoMeter && !list_item(content, index);
 }
-float button_label_width(const Utf8View& label) noexcept {
-    return ui_kit_text_width(nullptr, label, kUiKitTextLabelBold);
+float button_label_width(const UiKitMeasure* measure, const Utf8View& label) noexcept {
+    return ui_kit_text_width(measure, label, kUiKitTextLabelBold);
+}
+bool status_glyph(const UiSettingsPageContent& content, u32 index) noexcept {
+    const auto& c = content.controls[index];
+    const u16 level = content.meters ? content.meters[index] : kUiSettingsNoMeter;
+    const bool filled = more(content, index, ui_settings_more_progress_button) && level != kUiSettingsNoMeter &&
+                        level != kUiSettingsIndeterminateMeter;
+    return c.kind == UiSettingsControlKind::status && c.action_label.bytes && !c.checked && !filled;
+}
+UiRect status_button_label(const UiKitMeasure* measure, const Utf8View& label, const UiRect& button, UiRect* glyph) noexcept {
+    const float group = kStatusGlyphSize + kStatusGlyphGap + ui_kit_text_width(measure, label, kUiKitTextLabelBold);
+    const float left = (button.left + button.right - group) * .5f, middle = (button.top + button.bottom) * .5f;
+    *glyph = {left, middle - kStatusGlyphSize * .5f, left + kStatusGlyphSize, middle + kStatusGlyphSize * .5f};
+    return {left + kStatusGlyphSize + kStatusGlyphGap, button.top, button.right, button.bottom};
 }
 RowContext row_context(const UiSettingsScene& scene) noexcept {
     return {scene.measure, &scene.markdown, scene.presentation == UiSettingsPresentation::modal};
@@ -334,7 +347,7 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
         const float pad = m.notice_padding;
         const bool button = c.action_label.bytes != 0;
         const float button_width =
-            button ? ui_settings_button_width(t, UiSettingsButtonSize::compact, button_label_width(c.action_label)) : 0;
+            button ? ui_settings_button_width(t, UiSettingsButtonSize::compact, button_label_width(measure, c.action_label)) : 0;
         const float text_width = width - pad * 2 - (button ? button_width + pad : 0);
         const float text_height = maximum(kUiSettingsDescriptionLine, text_block(m, c.label, c.description, text_width, measure));
         const float inner = maximum(text_height, button ? m.button_small : 0.f);
@@ -375,7 +388,8 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
         const bool button = c.action_label.bytes != 0, caption = c.detail.bytes != 0;
         const float button_width =
             button ? ui_settings_button_width(t, UiSettingsButtonSize::regular,
-                                              ui_kit_text_width(measure, c.action_label, kUiKitTextLabelBold))
+                                              ui_kit_text_width(measure, c.action_label, kUiKitTextLabelBold) +
+                                                  (status_glyph(content, index) ? kStatusGlyphSize + kStatusGlyphGap : 0.f))
                    : 0;
         const float caption_width = caption ? ui_kit_text_width(measure, c.detail, kUiKitTextSmall) : 0;
         const float action_width = maximum(button_width, caption_width);
@@ -658,16 +672,8 @@ bool page_registered(const UiSettingsScene& scene, UiPageKey key) noexcept {
             return true;
     return false;
 }
-// Contributed rows list owners the bound entries never name (plugins), so
-// unlisted pages of a named owner (search results) stay hidden.
-bool owner_named(const UiSettingsScene& scene, u64 owner) noexcept {
-    for (u32 i = 0; i < scene.navigation.count; ++i)
-        if (scene.navigation[i].kind == UiSettingsNavKind::page && scene.navigation[i].page.owner_id == owner)
-            return true;
-    return false;
-}
-// Flat sidebar rows: bound entries with contributed entries expanded, or a
-// header plus every registered page when nothing is bound. Pinned entries are the trailing ones.
+// Flat sidebar rows: the bound entries, or a header plus every registered page when nothing is bound. Pinned
+// entries are the trailing ones.
 void visit_nav(const UiSettingsScene& scene, UiVisitRef<const NavRow&> visit) noexcept {
     if (scene.presentation == UiSettingsPresentation::dialog)
         return;
@@ -687,16 +693,6 @@ void visit_nav(const UiSettingsScene& scene, UiVisitRef<const NavRow&> visit) no
     }
     for (u32 i = 0; i < scene.navigation.count; ++i) {
         const auto& e = scene.navigation[i];
-        if (e.kind == UiSettingsNavKind::contributed) {
-            for (u32 p = 0; p < scene.registry->count; ++p) {
-                const auto& page = scene.registry->storage[p];
-                if (!owner_named(scene, page.key.owner_id) &&
-                    !visit(NavRow{UiSettingsNavKind::page, false, false, UiIcon::count, page.label,
-                                  {UiSettingsTargetKind::page, page.key, 0}, 0}))
-                    return;
-            }
-            continue;
-        }
         NavRow row{e.kind, e.destructive, e.pinned, e.icon, e.label, {}, e.badge};
         if (e.kind == UiSettingsNavKind::page) {
             if (!page_registered(scene, e.page))
@@ -994,8 +990,8 @@ bool valid_navigation(ConstSlice<UiSettingsNavEntry> navigation) noexcept {
         return false;
     for (u32 i = 0; i < navigation.count; ++i) {
         const auto& e = navigation[i];
-        if (e.kind > UiSettingsNavKind::contributed || !valid_text(e.label) ||
-            (e.kind != UiSettingsNavKind::separator && e.kind != UiSettingsNavKind::contributed && !e.label.bytes) ||
+        if (e.kind > UiSettingsNavKind::action || !valid_text(e.label) ||
+            (e.kind != UiSettingsNavKind::separator && !e.label.bytes) ||
             (e.kind == UiSettingsNavKind::action && !e.action) ||
             (e.icon > UiIcon::count))
             return false;
@@ -1327,11 +1323,11 @@ bool build(UiSettingsScene* scene) noexcept {
                                    0, false, EntryRole::footer_status);
         const float reset_width = ui_settings_button_width(
             t, UiSettingsButtonSize::compact,
-            button_label_width(scene->footer.reset_label.bytes ? scene->footer.reset_label : utf8_literal("Reset")));
+            button_label_width(scene->measure, scene->footer.reset_label.bytes ? scene->footer.reset_label : utf8_literal("Reset")));
         const float save_width = ui_settings_button_width(
             t, UiSettingsButtonSize::compact,
-            button_label_width(scene->footer.save_label.bytes ? scene->footer.save_label
-                                                              : utf8_literal("Save changes")));
+            button_label_width(scene->measure, scene->footer.save_label.bytes ? scene->footer.save_label
+                                                                              : utf8_literal("Save changes")));
         scene->footer_reset = add(scene, footer, UiWidgetKind::button, utf8_literal("Reset draft"),
                                   sized(reset_width, m.button_small),
                                   {UiSettingsTargetKind::reset, scene->selected_page, 0}, 0, !scene->footer.saving,

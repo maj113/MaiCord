@@ -1,7 +1,7 @@
 /* An ABI-6 plugin for the menu, command and feedback tests (tests/app/plugins/plugin_ui.cpp): context menu
    items with a submenu, a checkbox and visibility rules, typed slash commands with every reply kind, banners,
    modals and the navigation actions. It records what it was asked in its state block, which the test reads. */
-#include "maicord/sdk/plugin_abi.h"
+#include "maicord/sdk/maicord_plugin.h"
 
 #define OWNER 0x4D43525455494658ull
 

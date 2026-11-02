@@ -11,7 +11,7 @@
      SLOW       pre_send sleeps past any small budget
      CRASH      pre_send writes through a null pointer
      NET        HTTP to declared hosts, completions, secret and the other typed settings, setting and keybind hooks */
-#include "maicord/sdk/plugin_abi.h"
+#include "maicord/sdk/maicord_plugin.h"
 
 #if defined(FIXTURE_FULL)
 #define OWNER 0x4D43525446554C4Cull

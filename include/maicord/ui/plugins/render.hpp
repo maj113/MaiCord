@@ -4,7 +4,7 @@
 
 namespace maicord {
 
-// Plugin message decorations (mc.msg.render@1) as the message scene, text
+// Plugin message decorations as the message scene, text
 // projection and renderer read them. The application installs one query that
 // returns the host's cached verdict for a message revision; it never runs
 // plugin code (decorators run only in the application's prepare pass). Views

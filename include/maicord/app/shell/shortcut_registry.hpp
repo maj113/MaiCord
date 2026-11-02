@@ -196,10 +196,4 @@ bool custom_keybinds_save_file(const wchar_t* path, const CustomKeybinds&) noexc
 bool custom_keybinds_load(CustomKeybinds*) noexcept;
 bool custom_keybinds_save(const CustomKeybinds&) noexcept;
 
-// Plugin keybinds: why a plugin chord can't be used (a built-in action's label,
-// "a system shortcut", "a custom keybind", "Push to talk", ...), or empty when
-// it is free. Chords need Ctrl or Alt unless the key is F1-F24.
-// push_to_talk_key is the bound push-to-talk key, or zero.
-Utf8View shortcut_plugin_chord_conflict(const CustomKeybinds&, ShortcutChord, u8 push_to_talk_key) noexcept;
-
 } // namespace maicord

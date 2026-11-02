@@ -1,7 +1,7 @@
 #pragma once
 
 #include "maicord/core/slice.hpp"
-#include "maicord/sdk/plugin_abi.h"
+#include "maicord/sdk/maicord_plugin.h"
 
 // The message pipeline for plugins (design section 8, T1): the hooks around messages (click,
 // deleted, edited, typing), the batched event feed, timers, and the actions plugins may take

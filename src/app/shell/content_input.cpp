@@ -44,7 +44,7 @@
 #include "../chat/read_state.hpp"
 #include "../chat/messages/mutation_notice.hpp"
 #include "../chat/messages/navigation.hpp"
-#include "../plugins/plugins.hpp"
+#include "../plugins/surface_host.hpp"
 #include "../chat/application_link_trust.hpp"
 #include "toast.hpp"
 
@@ -1019,10 +1019,8 @@ bool handle_content_click(LPARAM lparam) noexcept {
                                                          *renderer.chat_state, *renderer.user_store,
                                                          renderer.message_measure_cache, application_theme(), x, y);
         if (slot.action_id) {
-            // The badge sits on the author line; anchor the popover under the click.
-            application_plugins_slot_activate(slot.owner_id,
-                {kUiPluginSlotMessageAccessory, slot.channel_id, slot.message_id, 0, 0}, slot.action_id,
-                {x - 8, y - 10, x + 8, y + 10});
+            application_plugin_surfaces_activate(slot.owner_id,
+                {kUiPluginSlotMessageAccessory, slot.channel_id, slot.message_id, 0, 0}, slot.action_id);
             return true;
         }
         // A server tag chip opens the server tag popout, not the profile.
@@ -1041,7 +1039,7 @@ bool handle_content_click(LPARAM lparam) noexcept {
         return false;
     }
     // Plugin decoration text: the collapsed row's Show link and accessories.
-    if (application_plugins_render_click(hit, {x, y, x + 1, y + 1}))
+    if (application_plugin_surfaces_text_click(hit))
         return true;
     // Generated rows carry their actions in semantic targets: system rows
     // (referenced message, pinned messages, created thread) and the ephemeral

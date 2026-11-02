@@ -1,18 +1,13 @@
-// Plugin slot surfaces and popovers (mc.ui.slots@2) in the application.
+// Plugin slot surfaces in the application.
 //
 // Scenes paint plugin decorations from host-copied slot nodes; this file owns
 // their input: hit testing for channel/DM row badges, server rail badges and
-// account panel buttons, the message hover bar's plugin buttons, and the
-// popover a slot action leaves in the runtime.
+// account panel buttons, and the message hover bar's plugin buttons.
 #include "plugins.hpp"
-#include "popover.hpp"
 #include "surface_host.hpp"
 #include "maicord/core/memory.hpp"
-#include "runtime.hpp"
 #include "../shell/state.hpp"
 #include "../account/account_presentation.hpp"
-#include "../chat/composer/composer.hpp"
-#include "../shell/content_input.hpp"
 #include "../chat/messages/interaction.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/ui/plugins/slot_surfaces.hpp"
@@ -20,27 +15,6 @@
 
 namespace maicord::app_detail {
 namespace {
-
-// The open popover. Row labels are copied here so the popup never borrows
-// runtime storage (which the plugin host frees on close).
-struct PopoverState {
-    UiRect anchor;
-    u64 revision, owner_id, scope;
-    u32 opens;
-    bool open;
-    char text[kPluginSdkPopoverNodes][sizeof(NativePluginSdkPopoverNode::text)];
-};
-constinit PopoverState g_popover{};
-
-bool popover_owned() noexcept {
-    return g_popover.open && g_app.popup_scene.active && g_app.popup_owner_kind == PopupOwnerKind::plugin_popover &&
-           g_app.popup_scene.opens == g_popover.opens;
-}
-bool popover_current(const NativePluginSdkRuntime* rt) noexcept {
-    return rt && rt->popover_count && rt->popover_revision == g_popover.revision &&
-           rt->popover_owner == g_popover.owner_id && g_popover.scope == g_app.plugin_account_scope_serial &&
-           g_app.account_ui && !g_app.login.visible;
-}
 
 const UiLayoutNode* account_footer() noexcept {
     if (!g_app.account_ui || g_app.login.visible) return nullptr;
@@ -136,7 +110,7 @@ bool application_plugins_surface_hit(float x, float y, ApplicationPluginSurfaceH
 bool application_plugins_surface_click(float x, float y) noexcept {
     ApplicationPluginSurfaceHit hit{};
     if (!application_plugins_surface_hit(x, y, &hit)) return false;
-    if (hit.action_id) application_plugins_slot_activate(hit.owner_id, hit.target, hit.action_id, hit.anchor);
+    if (hit.action_id) application_plugin_surfaces_activate(hit.owner_id, hit.target, hit.action_id);
     // Inert row and rail badges let the click select their row; an account
     // panel square always owns its click.
     return hit.action_id != 0 || hit.target.surface == kUiPluginSlotAccountPanel ||
@@ -155,21 +129,7 @@ bool application_plugins_surface_hover(float x, float y) noexcept {
     return over;
 }
 
-bool application_plugins_slot_activate(u64 owner_id, NativePluginSdkSlotTarget target, u64 action_id,
-                                       UiRect anchor) noexcept {
-    if (g_plugin_surfaces &&
-        application_plugin_surfaces_activate(owner_id,
-                                             {target.surface, target.channel_id, target.message_id, target.user_id,
-                                              target.guild_id},
-                                             action_id))
-        return true;
-    if (!application_plugins_slot_action(owner_id, target, action_id)) return false;
-    const auto* rt = application_plugins_runtime();
-    if (rt && rt->popover_count && rt->popover_owner == owner_id) application_plugins_popover_open(anchor);
-    return true;
-}
-
-bool application_plugins_hover_activate(u32 index, u64 message_id, UiRect anchor) noexcept {
+bool application_plugins_hover_activate(u32 index, u64 message_id) noexcept {
     UiPluginSlotNode nodes[kUiPluginSlotHoverButtons]{};
     const u32 count = ui_plugin_slot_toolbar(kUiPluginSlotMessageHover, message_id, {nodes, kUiPluginSlotHoverButtons});
     if (index >= count || !nodes[index].action_id || !g_app.account_ui || !message_id) return false;
@@ -177,10 +137,10 @@ bool application_plugins_hover_activate(u32 index, u64 message_id, UiRect anchor
     if (!record) return false;
     const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, record->channel_id);
     // The global surface's click context is the hovered message.
-    return application_plugins_slot_activate(
+    return application_plugin_surfaces_activate(
         nodes[index].owner_id,
         {kUiPluginSlotMessageHover, record->channel_id, message_id, record->author_id, channel ? channel->guild_id : 0},
-        nodes[index].action_id, anchor);
+        nodes[index].action_id);
 }
 
 Utf8View application_plugins_hover_label(u32 index) noexcept {
@@ -188,82 +148,6 @@ Utf8View application_plugins_hover_label(u32 index) noexcept {
     const u32 count = ui_plugin_slot_toolbar(kUiPluginSlotMessageHover, g_app.message_action_bar.message_id,
                                              {nodes, kUiPluginSlotHoverButtons});
     return index < count ? ui_plugin_slot_label(nodes[index]) : Utf8View{};
-}
-
-bool application_plugins_popover_open(UiRect anchor) noexcept {
-    const auto* rt = application_plugins_runtime();
-    if (!rt || !rt->popover_count || !g_app.account_ui || g_app.login.visible) return false;
-    PopupItem items[kPluginSdkPopoverNodes]{};
-    const u32 count = application_plugins_popover_items(rt->popover, rt->popover_count, {items, kPluginSdkPopoverNodes});
-    if (!count) return false;
-    if (g_app.popup_scene.active && !dismiss_popup()) return false;
-    for (u32 i = 0; i < count; ++i) {
-        const u32 index = items[i].action - kApplicationPluginPopoverActionFirst;
-        copy_bytes(g_popover.text[index], items[i].label.data, items[i].label.bytes);
-        items[i].label.data = g_popover.text[index];
-    }
-    if (!ui_rect_has_area(anchor)) anchor = {anchor.left, anchor.top, anchor.left + 1, anchor.top + 1};
-    if (!popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, rt->popover_owner, {items, count}, anchor,
-                          application_viewport_dips(), 220.0f)
-             .ok())
-        return false;
-    set_popup_owner(PopupOwnerKind::plugin_popover);
-    g_popover.anchor = anchor;
-    g_popover.revision = rt->popover_revision;
-    g_popover.owner_id = rt->popover_owner;
-    g_popover.scope = g_app.plugin_account_scope_serial;
-    g_popover.opens = g_app.popup_scene.opens;
-    g_popover.open = true;
-    return refresh_popup_text();
-}
-
-bool application_plugins_popover_action(u32 action) noexcept {
-    return action >= kApplicationPluginPopoverActionFirst &&
-           action < kApplicationPluginPopoverActionFirst + kPluginSdkPopoverNodes &&
-           g_app.popup_owner_kind == PopupOwnerKind::plugin_popover;
-}
-
-bool application_plugins_popover_activate(u32 action) noexcept {
-    auto* rt = application_plugins_runtime();
-    const u32 index = action - kApplicationPluginPopoverActionFirst;
-    const bool valid = popover_owned() && popover_current(rt) && index < rt->popover_count;
-    const UiRect anchor = g_popover.anchor;
-    const u64 revision = g_popover.revision, owner = g_popover.owner_id;
-    u8 kind = 0;
-    char url[sizeof(NativePluginSdkPopoverNode::value)];
-    u32 url_bytes = 0;
-    if (valid) {
-        kind = rt->popover[index].kind;
-        url_bytes = minimum(rt->popover[index].value_bytes, static_cast<u32>(sizeof(url)));
-        copy_bytes(url, rt->popover[index].value, url_bytes);
-    }
-    // The popup goes first; the handler may produce the next popover.
-    g_popover.open = false;
-    dismiss_popup();
-    if (!valid) return true;
-    if (kind == MC_NODE_LINK) {
-        if (url_bytes) application_open_content_url({url, url_bytes});
-        return true;
-    }
-    if (kind != MC_NODE_BUTTON || application_plugins_busy()) return true;
-    if (native_plugin_sdk_popover_action(rt, revision, index) && rt->popover_count && rt->popover_owner == owner)
-        application_plugins_popover_open(anchor);
-    return true;
-}
-
-void application_plugins_popover_poll() noexcept {
-    if (!g_popover.open) return;
-    if (!popover_owned()) {
-        g_popover.open = false;
-        return;
-    }
-    auto* rt = application_plugins_runtime();
-    if (popover_current(rt)) return;
-    // Owner unloaded (the runtime cleared its popover), rows replaced, or the
-    // account scope ended: the rows no longer mean anything.
-    g_popover.open = false;
-    if (rt && g_popover.scope != g_app.plugin_account_scope_serial) native_plugin_sdk_popover_clear(rt);
-    dismiss_popup();
 }
 
 void application_plugins_surfaces_changed() noexcept {

@@ -18,5 +18,8 @@ struct StoreDetailHooks {
     bool details_loading;
 };
 void store_model_fill_detail(StoreModel*, CatalogKind, Utf8View slug, const StoreDetailHooks&) noexcept;
+// "Light here · 0.4 ms" (here) or "Light · 0.4 ms": a measured cost, written into the model's text.
+struct EffectCost;
+Utf8View store_cost_text(StoreModel*, const EffectCost&, bool here) noexcept;
 
 } // namespace maicord::app_detail

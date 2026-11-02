@@ -17,8 +17,6 @@
 namespace maicord::app_detail {
 
 static bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
-    if (application_plugins_popover_action(action))
-        return application_plugins_popover_activate(action);
     if (application_profile_menu_action(action))
         return application_profile_menu_activate(action);
     if (application_voice_menu_action(action))

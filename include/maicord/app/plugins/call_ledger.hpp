@@ -12,8 +12,7 @@ enum class PluginCallKind : u8 {
     keybind, event, decorate, modal, pre_edit,
     last = pre_edit,
 };
-// Which budget a call runs under. Every legacy kind keeps the gesture or lifecycle
-// budget it always had; the hook runtime names the class of each hook.
+// Which budget a call runs under; the hook runtime names the class of each call.
 enum class PluginCallClass : u8 { gesture, lifecycle, decorate, pre, event };
 inline constexpr u32 kPluginCallLedgerOwners = 32;
 inline constexpr u32 kPluginCallOverrunLimit = 3;
@@ -80,9 +79,6 @@ struct PluginCallLedger {
 // Opens or creates the marker. A record left in a call by a previous process is
 // reported through leftover and then cleared. Without a path only timing works.
 bool plugin_call_ledger_open(PluginCallLedger*, const wchar_t* path, PluginCallMarker* leftover) noexcept;
-// %LOCALAPPDATA%\MaiCord\plugin-call.bin; creates the MaiCord folder if needed.
-bool plugin_call_ledger_open_default(PluginCallLedger*, PluginCallMarker* leftover) noexcept;
-bool plugin_call_ledger_default_path(wchar_t (&path)[1024]) noexcept;
 // Startup check without creating anything: reports and removes a marker that a
 // previous process left inside a call.
 bool plugin_call_ledger_peek(const wchar_t* path, PluginCallMarker* leftover) noexcept;
@@ -90,8 +86,6 @@ bool plugin_call_ledger_peek(const wchar_t* path, PluginCallMarker* leftover) no
 // that dies keeps one.
 void plugin_call_ledger_close(PluginCallLedger*) noexcept;
 // A null ledger makes begin/end no-ops so hosts without accounting still work.
-// The kind alone selects the gesture or lifecycle budget; hooks name their class.
-PluginCallTicket plugin_call_begin(PluginCallLedger*, u64 owner_id, PluginCallKind) noexcept;
 PluginCallTicket plugin_call_begin(PluginCallLedger*, u64 owner_id, PluginCallKind, PluginCallClass) noexcept;
 // True when this call pushed the owner over the overrun limit.
 bool plugin_call_end(PluginCallLedger*, const PluginCallTicket&) noexcept;

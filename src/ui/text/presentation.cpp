@@ -27,7 +27,7 @@ __forceinline u64 append_bytes(u64 signature, const void* source, u32 bytes) noe
 }
 
 u64 append_signature(u64 signature, const UiTextCommand& command, u32 index) noexcept {
-    signature = hash64_mix(signature, index);
+    signature = hash64_mix(signature, index | (command.effect.themed_styles ? 0x8000'0000u : 0u));
     signature = append_bytes(signature, command.text.data, command.text.bytes);
     signature = hash64_mix(signature, static_cast<u64>(reinterpret_cast<ULONG_PTR>(command.owner.manager)));
     signature = hash64_mix(signature, command.owner.handle.slot);

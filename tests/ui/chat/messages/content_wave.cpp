@@ -900,7 +900,7 @@ void test_presentation(Check check) noexcept {
 }
 
 
-// Plugin decorations (mc.msg.render): the scene, text projection and author
+// Plugin decorations (message decorations): the scene, text projection and author
 // header read cached verdicts through the UI query; nothing evaluates here.
 u64 g_render_ids[kRows];
 UiPluginRenderDecoration g_render_decorations[kRows];

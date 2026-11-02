@@ -395,7 +395,7 @@ void attachment_menu_tests() noexcept {
     const char* file[]{"Save File", "Copy Link", "Open Link"};
     check(open_menu(520, 620) && labels_are(image, 4) && menu_message == 520 &&
               g_app.popup_owner_kind == PopupOwnerKind::message && g_app.downloads &&
-              g_app.downloads->menu_valid && plugin_target == MC_MENU_ATTACHMENT && !plugin_index &&
+              g_app.downloads->menu_valid && plugin_target == static_cast<u32>(PluginMenuKind::image) && !plugin_index &&
               utf8_equal({plugin_text, plugin_text_bytes}, utf8_literal("cat.png")),
           "Attachment menu: an image merges Copy Image, Save Image and its image-link pair into the "
           "message menu");
@@ -1336,7 +1336,7 @@ void application_user_settings_request_content_confirmation() noexcept {
 bool open_message_media_context_popup(u64 message_id, UiRect, ConstSlice<PopupItem> media,
                                       const ApplicationPluginMenuExtra* plugin) noexcept {
     using namespace downloads_runtime_test;
-    plugin_target = plugin ? plugin->target : 0;
+    plugin_target = plugin ? static_cast<u32>(plugin->target) : ~0u;
     plugin_index = plugin ? plugin->attachment_index : ~0u;
     plugin_text_bytes = plugin ? minimum(plugin->text.bytes, 64u) : 0;
     copy_bytes(plugin_text, plugin ? plugin->text.data : nullptr, plugin_text_bytes);

@@ -69,7 +69,6 @@ namespace maicord {
     X(member_avatar_fixture) \
     X(member_media_fixture) \
     X(test_ui_page_registry) \
-    X(test_plugin_host) \
     X(test_message_context_controller_extensions) \
     X(test_settings_scene) \
     X(test_ui_kit) \
@@ -102,9 +101,6 @@ namespace maicord {
     X(test_menu_row) \
     X(test_icon_pack) \
     X(test_client_preferences_writer) \
-    X(test_plugin_module_loader) \
-    X(test_plugin_catalog) \
-    X(test_plugin_bundle_install) \
     X(test_video_controls) \
     X(test_audio_controls) \
     X(test_ui_cursor) \
@@ -170,9 +166,7 @@ namespace maicord {
     X(test_browser_sign_in) \
     X(test_browser_sign_in_receiver) \
     X(test_browser_login_ui) \
-    X(test_gateway_self_status) \
-    X(test_application_plugin_settings_projection) \
-    X(test_plugin_preferences)
+    X(test_gateway_self_status)
 #define MAICORD_DECLARE_FIXTURE(name) void name(void (*check)(bool, const char*) noexcept) noexcept;
 MAICORD_NATIVE_EXTENSION_FIXTURES(MAICORD_DECLARE_FIXTURE)
 #undef MAICORD_DECLARE_FIXTURE
@@ -221,11 +215,10 @@ constexpr ExtensionFixture extension_fixtures[]{
 constexpr u32 kExtensionFixtureCount = sizeof(extension_fixtures) / sizeof(extension_fixtures[0]);
 constexpr u32 kExtensionShardCount = 4;
 constexpr u32 kUpdateFixtureCount = 5;
-static_assert(kExtensionFixtureCount == 169);
+static_assert(kExtensionFixtureCount == 163);
 static_assert(extension_fixtures[0] == test_update_manifest &&
               extension_fixtures[kUpdateFixtureCount - 1] == test_update_package &&
               extension_fixtures[kUpdateFixtureCount] == test_desktop_integration);
-static_assert((kExtensionFixtureCount - kUpdateFixtureCount) % kExtensionShardCount == 0);
 
 constexpr u32 fixture_shard(u32 index) noexcept {
     return index < kUpdateFixtureCount ? 0 : (index - kUpdateFixtureCount) % kExtensionShardCount;
@@ -236,8 +229,8 @@ constexpr u32 shard_fixture_count(u32 shard) noexcept {
         count += fixture_shard(index) == shard;
     return count;
 }
-static_assert(shard_fixture_count(0) == 46 && shard_fixture_count(1) == 41 &&
-              shard_fixture_count(2) == 41 && shard_fixture_count(3) == 41);
+static_assert(shard_fixture_count(0) == 45 && shard_fixture_count(1) == 40 &&
+              shard_fixture_count(2) == 39 && shard_fixture_count(3) == 39);
 static_assert(shard_fixture_count(0) + shard_fixture_count(1) + shard_fixture_count(2) +
                   shard_fixture_count(3) == kExtensionFixtureCount);
 

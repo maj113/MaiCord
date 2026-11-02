@@ -1,5 +1,7 @@
 #include "catalog_service.hpp"
 #include "catalog_worker.hpp"
+#include "dev_console.hpp"
+#include "dev_watch.hpp"
 #include "maicord/app/plugins/consent.hpp"
 #include "maicord/app/plugins/http.hpp"
 #include "maicord/app/update/log.hpp"
@@ -8,7 +10,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/sdk/plugin_abi.h"
+#include "maicord/sdk/maicord_plugin.h"
 
 namespace maicord::app_detail {
 namespace {
@@ -33,6 +35,19 @@ struct Operation {
     u64 job;         // the worker job in flight
     u8 sha256[32];   // the file being installed
     bool update, enable_after;
+    // A Developer Mode reload (a build the dev folder watch found); dev_file indexes Service::dev_files.
+    bool reload;
+    u8 dev_file;
+    char dev_name[kDevLineNameBytes]; // the plugin's name once known, else the file's
+    u8 dev_name_bytes;
+    u64 dev_started_ms;
+};
+// A DLL seen in the dev folder.
+struct DevFile {
+    wchar_t name[64];
+    u64 modified;
+    u32 bytes;
+    bool pending;
 };
 struct AssetSlot {
     u8 sha256[32];
@@ -70,6 +85,18 @@ struct Service {
     u32 host_snapshot[kPluginMaximumBindings];
     bool restored, browsing, worker;
     bool auto_due; // something changed that may make an automatic update due
+    // Developer Mode: the dev folder (plugins\dev or %MAICORD_PLUGIN_DEV%), its watch and the DLLs seen in it.
+    DevWatch dev_watch, effect_watch; // the plugin dev folder, and the effects one (a change there rescans the effect library)
+    wchar_t dev_folder[480];
+    u32 dev_folder_characters;
+    char dev_folder_text[1440], effect_folder_text[1440]; // UTF-8, for the Developer page
+    u32 dev_folder_text_bytes, effect_folder_text_bytes;
+    DevFile dev_files[8];
+    u32 dev_count;
+    bool dev_scan, dev_force, dev_failed; // scan the folder at the next poll (force: every DLL again); the folder can't be watched
+    char dev_detail[kDevLineTextBytes]; // why the current reload failed, when known
+    u32 dev_detail_bytes;
+    PluginEnableResult last_enable;
 };
 Service* g;
 
@@ -161,6 +188,10 @@ Runtime* runtime() noexcept {
         return nullptr;
     }
     r.runtime.toast = g->host.plugin_toast;
+    // Log lines and budget strikes reach the Developer console (which holds them only in Developer Mode).
+    r.runtime.sink_context = &r.runtime;
+    r.runtime.log = application_dev_console_log;
+    r.runtime.strike = application_dev_console_strike;
     r.open = true;
     return &r;
 }
@@ -181,6 +212,7 @@ bool disable(CatalogStateEntry& e) noexcept {
     return plugin_runtime_disable(&g->runtime->runtime, b);
 }
 CatalogError enable(CatalogStateEntry& e) noexcept {
+    g->last_enable = {};
     if (e.kind != CatalogKind::plugin) return CatalogError::none;
     if (binding_of(e.owner_id)) return CatalogError::none;
     if (e.flags & kCatalogEntryRevoked) return CatalogError::revoked;
@@ -189,6 +221,7 @@ CatalogError enable(CatalogStateEntry& e) noexcept {
     wchar_t leaf[69];
     catalog_plugin_leaf(e.sha256, leaf);
     const auto enabled = plugin_runtime_enable(&r->runtime, {leaf, 68}, e.approved_permissions, e.host_bits, e.sha256);
+    g->last_enable = enabled;
     if (enabled.ok()) return CatalogError::none;
     UpdateLog(kLog, "plugin_enable_failed").hex("owner", e.owner_id).field("error", static_cast<u8>(enabled.error))
         .field("load", static_cast<u8>(enabled.load.error)).field("problem", static_cast<u8>(enabled.load.problem)).write(LogLevel::warning);
@@ -312,8 +345,46 @@ void begin(CatalogAction action, CatalogKind kind, Utf8View slug) noexcept {
     o.slug_bytes = g->op.slug_bytes;
     copy_bytes(o.slug, g->op.slug, g->op.slug_bytes);
     o.phase = CatalogPhase::queued;
+    g->dev_detail_bytes = 0;
     bump();
 }
+// ---- Developer Mode: the dev folder (plugin design 9.2) --------------------------------------------------------
+bool developer() noexcept { return g->host.developer_mode && g->host.developer_mode(); }
+
+void dev_line(DevLineKind kind, Utf8View text) noexcept {
+    application_dev_console_add(kind, {g->op.dev_name, g->op.dev_name_bytes}, text);
+}
+// Why a reload didn't happen: the details the step recorded, else the error's own sentence.
+void dev_problem(CatalogError error) noexcept {
+    DevText t{};
+    t.add(utf8_literal("Not reloaded: "));
+    if (g->dev_detail_bytes) t.add({g->dev_detail, g->dev_detail_bytes});
+    else if (error == CatalogError::declined) t.add(utf8_literal("you declined it."));
+    else t.add(application_catalog_error_text(error));
+    dev_line(DevLineKind::problem, t.view());
+}
+void dev_detail_set(const DevText& text) noexcept {
+    g->dev_detail_bytes = text.used;
+    copy_bytes(g->dev_detail, text.data, text.used);
+}
+// "Reloaded in 12 ms. State kept." after a rebuild replaced a running build; "Loaded" when none was running.
+void dev_reloaded(bool was_running) noexcept {
+    DevText t{};
+    t.add(was_running ? utf8_literal("Reloaded in ") : utf8_literal("Loaded in "));
+    t.number(clock_monotonic_milliseconds() - g->op.dev_started_ms);
+    t.add(utf8_literal(" ms."));
+    if (g->last_enable.carried == PluginStateCarry::kept) t.add(utf8_literal(" State kept."));
+    else if (g->last_enable.carried == PluginStateCarry::reset) t.add(utf8_literal(" State reset: its layout changed."));
+    dev_line(DevLineKind::reload, t.view());
+}
+// The new build was refused or didn't start; the old one is already gone, so the plugin stays off.
+void dev_enable_failed() noexcept {
+    DevText t{};
+    application_dev_enable_error_text(g->last_enable, &t);
+    t.add(utf8_literal(" The plugin stays off until the next build."));
+    dev_detail_set(t);
+}
+
 bool finish(CatalogError error) noexcept {
     g->view.operation.phase = error == CatalogError::none ? CatalogPhase::done : CatalogPhase::failed;
     g->view.operation.error = error;
@@ -322,6 +393,11 @@ bool finish(CatalogError error) noexcept {
         toast(error);
         UpdateLog(kLog, "operation_failed").field("action", static_cast<u8>(g->op.action)).field("kind", static_cast<u8>(g->op.kind))
             .field("error", static_cast<u8>(error)).write(LogLevel::warning);
+    }
+    if (g->op.reload && error != CatalogError::none) {
+        dev_problem(error);
+        // The next change to the folder (or its Reload button) tries this file again; a decline stays declined.
+        if (error != CatalogError::declined && g->op.dev_file < g->dev_count) g->dev_files[g->op.dev_file].modified = 0;
     }
     bump();
     return error == CatalogError::none;
@@ -381,9 +457,15 @@ bool apply_plugin(u64 permissions, u32 host_bits, bool enable_now) noexcept {
     const bool existed = e != nullptr;
     if (!e && !(e = catalog_state_add(g->state, CatalogKind::plugin, slug_of(g->op)))) return finish(CatalogError::capacity);
     const bool was_running = existed && binding_of(e->owner_id);
+    // A reload carries the running build's state over to its replacement (when the layout allows).
+    if (g->op.reload && was_running) plugin_runtime_keep_state(&g->runtime->runtime, binding_of(e->owner_id));
     if (existed && !disable(*e)) return finish(CatalogError::busy);
+    u8 replaced[32];
+    copy_bytes(replaced, e->sha256, 32);
     const bool keep_previous = existed && g->op.action == CatalogAction::update;
     catalog_state_install(e, version, g->op.sha256, now_unix(), keep_previous);
+    // Every rebuild is a new file; the replaced one is of no use any more.
+    if (existed && g->op.reload && !bytes_equal(replaced, g->op.sha256, 32)) delete_plugin_file(replaced);
     e->owner_id = owner;
     catalog_state_approve(e, permissions, host_list, host_bits);
     e->host_bits = static_cast<u8>(host_bits);
@@ -393,7 +475,10 @@ bool apply_plugin(u64 permissions, u32 host_bits, bool enable_now) noexcept {
     if (run) e->flags |= kCatalogEntryEnabled;
     else e->flags &= static_cast<u16>(~kCatalogEntryEnabled);
     if (!save_state()) return finish(CatalogError::storage);
-    if (!run) return finish(CatalogError::none);
+    if (!run) {
+        if (g->op.reload) dev_line(DevLineKind::reload, utf8_literal("Updated. The plugin is off; turn it on to run this build."));
+        return finish(CatalogError::none);
+    }
     const CatalogError enabled = enable(*e);
     if (enabled != CatalogError::none && keep_previous && catalog_entry_has_previous(*e)) {
         // The new build would not start: go back to the one that did.
@@ -402,6 +487,10 @@ bool apply_plugin(u64 permissions, u32 host_bits, bool enable_now) noexcept {
         enable(*e);
     }
     bump();
+    if (g->op.reload) {
+        if (enabled == CatalogError::none) dev_reloaded(was_running);
+        else dev_enable_failed();
+    }
     return finish(enabled);
 }
 // Checks a downloaded plugin against its listing (owner, permissions, hosts, API level, version) and asks
@@ -415,11 +504,19 @@ bool review_plugin() noexcept {
     const auto loaded = plugin_image_load(&g->consent_image, r->runtime.directory, {leaf, 68}, ~0ull, g->op.sha256);
     if (!loaded.ok()) {
         UpdateLog(kLog, "plugin_refused").field("error", static_cast<u8>(loaded.error)).field("problem", static_cast<u8>(loaded.problem)).write(LogLevel::warning);
+        if (g->op.reload) {
+            DevText why{};
+            application_dev_load_error_text(loaded, &why);
+            dev_detail_set(why);
+        }
         reset_value(&g->consent_image);
         delete_plugin_file(g->op.sha256);
         return finish(loaded.error == PluginLoadError::digest ? CatalogError::digest : CatalogError::plugin_load);
     }
     const PluginImage& image = g->consent_image;
+    if (g->op.reload) {
+        g->op.dev_name_bytes = static_cast<u8>(utf8_copy_truncated(g->op.dev_name, {image.info.name, image.info.name_bytes}));
+    }
     const mc_descriptor& d = *image.descriptor;
     CatalogStateEntry* e = catalog_state_find(g->state, CatalogKind::plugin, slug_of(g->op));
     CatalogStateEntry* same_owner = catalog_state_find_owner(g->state, image.owner_id);
@@ -442,6 +539,11 @@ bool review_plugin() noexcept {
         copy_bytes(g->view.operation.slug, slug, 20);
         e = catalog_state_find(g->state, CatalogKind::plugin, slug_of(g->op));
         g->op.update = e != nullptr;
+        // The build this folder already has running: nothing to do.
+        if (g->op.reload && e && bytes_equal(e->sha256, g->op.sha256, 32)) {
+            unload_consent_image();
+            return finish(CatalogError::none);
+        }
     }
     if (!matches || (e && e->owner_id != image.owner_id) || (same_owner && same_owner != e)) {
         const bool conflict = matches;
@@ -453,9 +555,10 @@ bool review_plugin() noexcept {
     request.approved_permissions = e ? e->approved_permissions : 0;
     request.approved_hosts = e ? catalog_state_approved_hosts(*e, request.hosts) : 0;
     const u32 all = request.hosts.count ? (1u << request.hosts.count) - 1 : 0;
-    // Updates within the approval apply at once; installs and sideloads always ask.
-    if (g->op.update && g->op.action != CatalogAction::sideload && !(request.permissions & ~request.approved_permissions) &&
-        request.approved_hosts == all)
+    // Updates within the approval apply at once, and so does a rebuild of a plugin the user already allowed
+    // (Developer Mode); installs and first sideloads always ask.
+    const bool within = !(request.permissions & ~request.approved_permissions) && request.approved_hosts == all;
+    if (within && ((g->op.update && g->op.action != CatalogAction::sideload) || (g->op.reload && e)))
         return apply_plugin(request.permissions, all, true);
     g->consent_request = request;
     g->consent.request = &g->consent_request;
@@ -571,6 +674,154 @@ void take_results() noexcept {
         default: break;
         }
     }
+}
+
+// ---- Developer Mode: watching the dev folder -----------------------------------------------------------------------
+constexpr u32 kNoDevFile = 0xFFFFFFFFu;
+
+// Copies a DLL into plugins\ and reviews it. file is the dev folder entry for a reload (a plugin the user
+// allowed before then swaps without a question, and its state carries over), else kNoDevFile.
+bool sideload_file(const wchar_t* path, u32 characters, u32 file) noexcept {
+    begin(CatalogAction::sideload, CatalogKind::plugin, {});
+    if (!developer()) return finish(CatalogError::developer_mode);
+    if (file != kNoDevFile) {
+        g->op.reload = true;
+        g->op.dev_file = static_cast<u8>(file);
+        g->op.dev_started_ms = clock_monotonic_milliseconds();
+        const wchar_t* name = g->dev_files[file].name;
+        const u32 stem = wide_length(name, 64) - 4; // without ".dll"
+        for (u32 i = 0; i < stem && g->op.dev_name_bytes < kDevLineNameBytes; ++i)
+            g->op.dev_name[g->op.dev_name_bytes++] = name[i] < 0x80 ? static_cast<char>(name[i]) : '?';
+    }
+    CatalogJob job{CatalogJobKind::copy};
+    copy_bytes(job.path, path, characters * 2);
+    job.path_characters = characters;
+    g->op.job = submit(job);
+    if (!g->op.job) return finish(CatalogError::busy);
+    g->view.operation.phase = CatalogPhase::downloading;
+    bump();
+    return true;
+}
+
+// A dev folder: the environment variable's folder, else <base>\<relative> (whose parent is made first); created
+// when it is missing. path receives it.
+bool dev_folder_path(const wchar_t* variable, const wchar_t* parent, const wchar_t* relative, wchar_t (&path)[600], u32* length) noexcept {
+    *length = GetEnvironmentVariableW(variable, path, 480);
+    if (!*length || *length >= 480) {
+        wchar_t above[600];
+        if (!catalog_path(base(), parent, above) || !directory_ensure(g->base) || !directory_ensure(above)) return false;
+        *length = catalog_path(base(), relative, path);
+    }
+    return *length && *length < 480 && directory_ensure(path);
+}
+
+u32 dev_utf8(const wchar_t* path, u32 length, char (&text)[1440]) noexcept {
+    const int bytes = WideCharToMultiByte(CP_UTF8, 0, path, static_cast<int>(length), text, static_cast<int>(sizeof(text)), nullptr, nullptr);
+    return bytes > 0 ? static_cast<u32>(bytes) : 0;
+}
+
+// plugins\dev, or %MAICORD_PLUGIN_DEV%.
+bool dev_folder_resolve() noexcept {
+    wchar_t path[600];
+    u32 length = 0;
+    if (!dev_folder_path(L"MAICORD_PLUGIN_DEV", L"plugins", L"plugins\\dev", path, &length)) return false;
+    copy_bytes(g->dev_folder, path, (length + 1) * 2);
+    g->dev_folder_characters = length;
+    g->dev_folder_text_bytes = dev_utf8(path, length, g->dev_folder_text);
+    return true;
+}
+
+// effects\dev, or %MAICORD_EFFECT_DEV%: the effects module lists its .mcfx files; a settled change only has to
+// tell it to scan again (a rebuilt effect keeps its selection and its knob values there).
+bool dev_effects_watch() noexcept {
+    wchar_t path[600];
+    u32 length = 0;
+    if (!dev_folder_path(L"MAICORD_EFFECT_DEV", L"effects", L"effects\\dev", path, &length)) return false;
+    g->effect_folder_text_bytes = dev_utf8(path, length, g->effect_folder_text);
+    return dev_watch_open(&g->effect_watch, path);
+}
+
+bool dev_dll(const wchar_t* name, u32 length) noexcept {
+    static constexpr wchar_t kExtension[] = L".dll";
+    if (length <= 4 || length >= 64) return false;
+    for (u32 i = 0; i < 4; ++i) {
+        const wchar_t c = name[length - 4 + i];
+        if ((c | 0x20) != kExtension[i]) return false;
+    }
+    return true;
+}
+
+// The DLLs in the folder: new ones and ones whose time or size changed are pending (everything when force).
+void dev_scan(bool force) noexcept {
+    wchar_t pattern[600];
+    u32 length = g->dev_folder_characters;
+    copy_bytes(pattern, g->dev_folder, (length + 1) * 2);
+    if (!wide_append(pattern, 600, &length, L"\\*.dll")) return;
+    DevFile seen[8]{};
+    u32 count = 0;
+    WIN32_FIND_DATAW found{};
+    const HANDLE scan = FindFirstFileW(pattern, &found);
+    if (scan == INVALID_HANDLE_VALUE) {
+        g->dev_count = 0; // an empty folder: a DLL that comes back is new
+        return;
+    }
+    do {
+        const u32 name_length = wide_length(found.cFileName, 64);
+        if ((found.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) || !dev_dll(found.cFileName, name_length) ||
+            count == 8)
+            continue;
+        DevFile& file = seen[count++];
+        copy_bytes(file.name, found.cFileName, (name_length + 1) * 2);
+        file.modified = static_cast<u64>(found.ftLastWriteTime.dwHighDateTime) << 32 | found.ftLastWriteTime.dwLowDateTime;
+        file.bytes = found.nFileSizeLow;
+        file.pending = true;
+        for (u32 i = 0; i < g->dev_count && !force; ++i) {
+            const DevFile& before = g->dev_files[i];
+            if (wide_length(before.name, 64) == name_length && bytes_equal(before.name, file.name, name_length * 2))
+                file.pending = before.pending || before.modified != file.modified || before.bytes != file.bytes;
+        }
+    } while (FindNextFileW(scan, &found));
+    FindClose(scan);
+    copy_bytes(g->dev_files, seen, sizeof(seen));
+    g->dev_count = count;
+}
+
+// The next pending build, once nothing else is in progress.
+void dev_next() noexcept {
+    for (u32 i = 0; i < g->dev_count && !busy(); ++i) {
+        DevFile& file = g->dev_files[i];
+        if (!file.pending) continue;
+        file.pending = false;
+        wchar_t path[600];
+        u32 length = g->dev_folder_characters;
+        copy_bytes(path, g->dev_folder, (length + 1) * 2);
+        if (wide_append(path, 600, &length, L"\\") && wide_append(path, 600, &length, file.name) && length < 520)
+            sideload_file(path, length, i);
+    }
+}
+
+void dev_poll() noexcept {
+    const bool on = g->restored && developer();
+    application_dev_console_enable(on);
+    if (!on) {
+        dev_watch_close(&g->dev_watch);
+        dev_watch_close(&g->effect_watch);
+        g->dev_count = 0;
+        g->dev_failed = false;
+        return;
+    }
+    const u64 now = clock_monotonic_milliseconds();
+    if (!g->dev_failed && (!g->dev_watch.handle || !g->effect_watch.handle)) {
+        g->dev_failed = !dev_folder_resolve() || !dev_watch_open(&g->dev_watch, g->dev_folder) || !dev_effects_watch();
+        g->dev_scan = true;
+    }
+    if (dev_watch_settled(&g->dev_watch, now)) g->dev_scan = true;
+    if (dev_watch_settled(&g->effect_watch, now) && g->host.library_changed) g->host.library_changed();
+    if (g->dev_scan && g->dev_watch.handle) {
+        dev_scan(g->dev_force);
+        g->dev_scan = g->dev_force = false;
+    }
+    dev_next();
 }
 } // namespace
 
@@ -811,16 +1062,22 @@ bool application_catalog_skip_update(CatalogKind kind, Utf8View slug) noexcept {
 
 bool application_catalog_sideload(ConstSlice<wchar_t> path) noexcept {
     if (!g || busy() || !path.data || !path.count || path.count >= 520) return false;
-    begin(CatalogAction::sideload, CatalogKind::plugin, {});
-    if (!g->host.developer_mode || !g->host.developer_mode()) return finish(CatalogError::developer_mode);
-    CatalogJob job{CatalogJobKind::copy};
-    copy_bytes(job.path, path.data, path.count * 2);
-    job.path_characters = path.count;
-    g->op.job = submit(job);
-    if (!g->op.job) return finish(CatalogError::busy);
-    g->view.operation.phase = CatalogPhase::downloading;
-    bump();
+    return sideload_file(path.data, path.count, kNoDevFile);
+}
+
+HANDLE application_catalog_dev_notification(u32 folder) noexcept {
+    return g ? (folder == 0 ? g->dev_watch.handle : folder == 1 ? g->effect_watch.handle : nullptr) : nullptr;
+}
+
+bool application_catalog_dev_reload() noexcept {
+    if (!g || !g->restored || !developer()) return false;
+    g->dev_scan = g->dev_force = true;
     return true;
+}
+
+Utf8View application_catalog_dev_folder(u32 folder) noexcept {
+    if (!g) return {};
+    return folder == 0 ? Utf8View{g->dev_folder_text, g->dev_folder_text_bytes} : Utf8View{g->effect_folder_text, g->effect_folder_text_bytes};
 }
 
 const CatalogConsent* application_catalog_consent() noexcept {
@@ -957,6 +1214,9 @@ void application_catalog_restore() noexcept {
 void application_catalog_release() noexcept {
     if (!g) return;
     unload_consent_image();
+    dev_watch_close(&g->dev_watch);
+    dev_watch_close(&g->effect_watch);
+    application_dev_console_enable(false);
     if (g->runtime && g->runtime->open) {
         bool changed = false;
         for (u32 i = 0; i < g->state.count; ++i) {
@@ -1023,6 +1283,7 @@ void application_catalog_poll() noexcept {
         g->next_check_unix = now_unix() + kRetrySeconds;
         check();
     }
+    dev_poll();
     auto_update();
 }
 
@@ -1045,6 +1306,12 @@ u32 application_catalog_wait_timeout(u64 now_ms) noexcept {
     if (configured() && g->restored && g->next_check_unix && (g->browsing || catalog_installed())) {
         const u64 now = now_unix();
         wait = minimum<u64>(wait, g->next_check_unix <= now ? 0 : minimum<u64>(g->next_check_unix - now, 3600) * 1000);
+    }
+    if (g->dev_watch.handle) {
+        wait = minimum<u64>(wait, minimum<u64>(dev_watch_timeout(g->dev_watch, now_ms), dev_watch_timeout(g->effect_watch, now_ms)));
+        bool ready = g->dev_scan;
+        for (u32 i = 0; i < g->dev_count; ++i) ready = ready || g->dev_files[i].pending;
+        if (ready && !busy()) wait = 0; // a build is waiting for its turn (a consent in progress holds it)
     }
     return static_cast<u32>(minimum<u64>(wait, INFINITE));
 }

@@ -6,7 +6,7 @@
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/name_list.hpp"
-#include "maicord/sdk/plugin_abi.h"
+#include "maicord/sdk/maicord_plugin.h"
 
 namespace maicord {
 namespace {
@@ -471,9 +471,10 @@ bool version_entry(void* context, u32 index, JsonValue value) noexcept {
 }
 
 // ---- effect knobs ----------------------------------------------------------------------------------
-enum KnobField : u32 { kn_id, kn_type, kn_label, kn_min, kn_max, kn_default, kn_choices };
-constexpr char kKnobNames[] = "id\0type\0label\0min\0max\0default\0choices\0";
-constexpr u32 kKnobFields[]{0x3F, 0x3F, 0x27, 0x27, 0x67}; // by CatalogKnobType
+enum KnobField : u32 { kn_id, kn_type, kn_label, kn_min, kn_max, kn_default, kn_choices, kn_percent };
+constexpr char kKnobNames[] = "id\0type\0label\0min\0max\0default\0choices\0percent\0";
+constexpr u32 kKnobFields[]{0x3F, 0x3F, 0x27, 0x27, 0x67}; // by CatalogKnobType; required, and allowed
+constexpr u32 kKnobPercent = 1u << kn_percent;           // also allowed on a float knob
 struct KnobContext {
     Parse* p;
     CatalogKnob* knob;
@@ -501,9 +502,13 @@ bool knob_member(void* context, JsonString name, JsonValue value) noexcept {
     const auto type = k.type;
     const bool number = type == CatalogKnobType::float_value || type == CatalogKnobType::int_value;
     i64* bound = nullptr;
-    switch (member(p, name, kKnobNames, kKnobFields[static_cast<u32>(type)], &c.seen)) {
+    switch (member(p, name, kKnobNames,
+                   kKnobFields[static_cast<u32>(type)] | (type == CatalogKnobType::float_value ? kKnobPercent : 0u), &c.seen)) {
     case kn_id: return grammar(p, value, knob_id_valid, E::identifier, &k.id);
     case kn_type: return true; // read before the visit
+    case kn_percent:
+        if (value.kind != JsonValueKind::boolean || !json_value_to_bool(value, &k.percent)) return fail(p, E::type);
+        return true;
     case kn_label: return display(p, value, kKnobLabelMaximumBytes, true, &k.label);
     case kn_min: bound = &k.minimum; break;
     case kn_max: bound = &k.maximum; break;

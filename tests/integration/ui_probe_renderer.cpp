@@ -135,8 +135,6 @@ bool probe_popup_overlays() noexcept {
         return false;
     if (!plugin_navigation_ui_probe(g_probe.renderer, g_probe.popup_scene, probe_capture_frame))
         return false;
-    if (!plugin_catalog_ui_probe(g_probe.renderer, probe_capture_frame))
-        return false;
     if (!settings_choice_ui_probe(g_probe.renderer, g_probe.popup_scene, probe_capture_frame))
         return false;
 

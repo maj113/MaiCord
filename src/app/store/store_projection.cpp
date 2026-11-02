@@ -40,6 +40,8 @@ bool same(Utf8View a, Utf8View b) noexcept {
 
 // Strict weak order of two items under a sort, then the name.
 bool before(const StoreItem& a, const StoreItem& b, CatalogKind kind, StoreSort sort) noexcept {
+    if (sort == StoreSort::installed && a.order != b.order)
+        return a.order < b.order;
     if (sort == StoreSort::newest && a.released != b.released)
         return a.released > b.released;
     if (sort == StoreSort::lightest) {
@@ -220,7 +222,7 @@ void store_installed_list(const StoreModel& model, const StorePageState& state, 
                              (state.filter == StoreFilter::updates && item.update);
         if (!segment || !store_item_matches(item, query))
             continue;
-        insert_sorted(model, out->order, &out->count, static_cast<u16>(i), state.kind, StoreSort::name);
+        insert_sorted(model, out->order, &out->count, static_cast<u16>(i), state.kind, StoreSort::installed);
     }
 }
 

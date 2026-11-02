@@ -15,8 +15,6 @@
 #include "keybinds_settings.hpp"
 #include "../notifications/desktop.hpp"
 #include "maicord/app/account/login/oauth_account.hpp"
-#include "maicord/app/plugins/plugin_settings_projection.hpp"
-#include "../plugins/application_plugin_settings_projection.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/guild/icon_media.hpp"
@@ -24,9 +22,7 @@
 
 namespace maicord::app_detail {
 
-static_assert(sizeof(ApplicationSettingsChoice) == 96);
-
-static_assert(kSettingsControlCapacity >= kApplicationPluginSettingsMaximumControls);
+static_assert(sizeof(ApplicationSettingsChoice) == 88);
 
 inline constexpr u32 kSettingsPanelRowLimit = kKeybindsSettingsBankCapacity;
 static_assert(kSettingsPanelRowLimit >= kSettingsControlCapacity);
@@ -169,33 +165,6 @@ bool capture_slider_theme(ApplicationSettings& settings, const UiSettingsTarget&
     release_slider_theme(settings);
     return false;
 }
-bool release_plugin_page(ApplicationSettings& settings) noexcept {
-    auto* page = settings.plugin_page;
-    if (!page)
-        return true;
-    if (settings.plugin_page_committed) {
-        if (page->controls)
-            clear_bytes(page->controls, page->backed_count * static_cast<u32>(sizeof(UiSettingsControl)));
-        clear_bytes(page, sizeof(*page));
-    }
-    if (!VirtualFree(page, 0, MEM_RELEASE))
-        return false;
-    settings.plugin_page = nullptr;
-    settings.plugin_page_committed = false;
-    return true;
-}
-
-} // namespace settings_detail
-namespace {
-
-void detach_plugin(void*, u64 owner_id) noexcept {
-    application_plugins_detach_owner(owner_id);
-    application_settings_close();
-}
-
-} // namespace
-namespace settings_detail {
-
 BackgroundTheme gradient_edit_base() noexcept {
     const auto& background = application_theme().background;
     return static_cast<u8>(g_app.preferences.theme) >= static_cast<u8>(ClientTheme::aurora) &&
@@ -717,12 +686,6 @@ ApplicationSettings* ensure() noexcept {
         VirtualFree(settings, 0, MEM_RELEASE);
         return nullptr;
     }
-    if (!native_plugin_host_initialize(&settings->plugins, &settings->registry, {settings->plugin_slots, 8},
-                                       {native_plugin_known_capabilities, 4, 64 * 1024 + kPluginSdkStateHeaderBytes, 256 * 1024, detach_plugin,
-                                        nullptr, kNativeSettingsOwner})) {
-        VirtualFree(settings, 0, MEM_RELEASE);
-        return nullptr;
-    }
     const auto& schema = settings_catalog();
     for (u32 i = 0; i < kSettingsSearchPage; ++i) {
         const Utf8View label = i < kSettingsPanelCount ? schema.panels[i].title : utf8_literal("Search results");
@@ -773,19 +736,44 @@ bool refresh() noexcept {
 namespace {
 
 UiKitMeasure g_measure;
+// Before sign-in no account cache exists; the settings measure through a cache of their own over the renderer.
+UiTextMeasureRecord g_measure_records[128];
+UiTextMeasureCache g_measure_cache;
+u32 g_measure_typography;
+// The catalog's sidebar with the attention dot on Updates while an update waits for Restart to update.
+UiSettingsNavEntry g_navigation[kUiSettingsNavigationMaximum];
+
+UiTextMeasureCache* measure_cache() noexcept {
+    if (g_app.account_ui)
+        return &g_app.account_ui->text_measure_cache;
+    if (!g_measure_cache.storage.data &&
+        !ui_text_measure_cache_initialize(&g_measure_cache, {g_measure_records, 128}, renderer_text_measure_backend,
+                                          &g_app.renderer))
+        return nullptr;
+    if (g_measure_typography != renderer_typography_revision(g_app.renderer)) {
+        g_measure_typography = renderer_typography_revision(g_app.renderer);
+        ui_text_measure_cache_invalidate(&g_measure_cache);
+    }
+    return &g_measure_cache;
+}
 
 void bind_chrome(ApplicationSettings& settings) noexcept {
-    // Widths and wrapped heights come from the shell's text cache (shaped, not estimated) once an account is up.
-    ui_kit_measure_cache(&g_measure, g_app.account_ui ? &g_app.account_ui->text_measure_cache : nullptr);
+    // Widths and wrapped heights come from a text cache (shaped, not estimated).
+    ui_kit_measure_cache(&g_measure, measure_cache());
     ui_settings_scene_bind_measure(&settings.scene, &g_measure);
-    // Contributed pages expand from the registry, so its revision relayouts;
-    // the signed-out list is a navigation of its own.
+    // The signed-out list is a navigation of its own.
     const bool signed_out = g_signed_out.active;
-    const auto navigation =
-        signed_out ? settings_catalog_navigation_signed_out()
-                   : settings_catalog_navigation(application_account_logout_available());
+    auto navigation = signed_out ? settings_catalog_navigation_signed_out()
+                                 : settings_catalog_navigation(application_account_logout_available());
+    bool attention = application_update_badge_restarts(application_updates_view().state);
+    if (attention) {
+        const auto dotted = settings_catalog_navigation_dotted(navigation, g_navigation);
+        attention = dotted.count != 0;
+        if (attention)
+            navigation = dotted;
+    }
     ui_settings_scene_bind_navigation(&settings.scene, navigation,
-                                      settings.registry.revision ^ (signed_out ? 0x8000'0000u : 0u));
+                                      settings.registry.revision ^ (signed_out ? 0x8000'0000u : 0u) ^ (attention ? 0x4000'0000u : 0u));
     const bool focused = settings.scene.focus.kind == UiSettingsTargetKind::search &&
                          application_window_keyboard_focus();
     ui_settings_scene_set_search(
@@ -802,70 +790,7 @@ namespace settings_detail {
 bool update_scene(ApplicationSettings& settings, const UiRect& viewport) noexcept {
     ui_settings_scene_bind_theme_styles(&settings.scene, application_theme().styles);
     bind_chrome(settings);
-    const auto* selected = ui_page_registry_selected(settings.registry);
-    if (!selected || selected->key.owner_id == kNativeSettingsOwner) {
-        const bool updated = ui_settings_scene_update(&settings.scene, &settings.registry, viewport);
-        if (updated && !release_plugin_page(settings))
-            log_write(LogLevel::warning, "plugins", "settings_projection_release_pending");
-        return updated;
-    }
-    const auto* slot = native_plugin_host_find(settings.plugins, selected->key.owner_id);
-    NativePluginSettingsSnapshot source{};
-    const auto read = slot ? native_plugin_settings_snapshot(selected->context, &source)
-                           : NativePluginSettingsError::invalid_argument;
-    auto fail = [&](NativePluginSettingsError error) noexcept {
-        close_choice();
-        settings.plugin_error = error == NativePluginSettingsError::unsupported ? NativePluginError::unsupported
-                                : error == NativePluginSettingsError::capacity  ? NativePluginError::capacity
-                                                                                : NativePluginError::invalid_argument;
-        project(settings);
-        if (!ui_page_registry_select(&settings.registry, {kNativeSettingsOwner, kPluginsPage}).ok())
-            return false;
-        return update_scene(settings, viewport);
-    };
-    if (read != NativePluginSettingsError::none)
-        return fail(read);
-    auto* page = settings.plugin_page;
-    if (!page) {
-        const usize maximum_bytes = sizeof(ApplicationPluginSettingsPage) +
-                                    static_cast<usize>(kNativePluginSettingsMaximumControls) * sizeof(UiSettingsControl);
-        page = static_cast<ApplicationPluginSettingsPage*>(VirtualAlloc(nullptr, maximum_bytes, MEM_RESERVE, PAGE_READWRITE));
-        if (!page)
-            return fail(NativePluginSettingsError::capacity);
-        settings.plugin_page = page;
-    }
-    if (!settings.plugin_page_committed) {
-        if (!VirtualAlloc(page, sizeof(*page), MEM_COMMIT, PAGE_READWRITE))
-            return fail(NativePluginSettingsError::capacity);
-        settings.plugin_page_committed = true;
-    }
-    // A failed release leaves an erased holder that can be retried or reused.
-    page->controls = reinterpret_cast<UiSettingsControl*>(reinterpret_cast<u8*>(page) + sizeof(*page));
-    if (source.controls.count > page->backed_count) {
-        const usize bytes = sizeof(*page) + static_cast<usize>(source.controls.count) * sizeof(UiSettingsControl);
-        if (!VirtualAlloc(page, bytes, MEM_COMMIT, PAGE_READWRITE))
-            return fail(NativePluginSettingsError::capacity);
-        page->backed_count = source.controls.count;
-    }
-    const NativePluginUiToken observed{selected->key, slot->generation, settings.registry.revision, source.revision};
-    if (!ui_page_key_equal(page->token.page, observed.page) || page->token.generation != observed.generation ||
-        page->token.registry_revision != observed.registry_revision ||
-        page->token.content_revision != observed.content_revision) {
-        const auto projected =
-            native_plugin_settings_project(source, {page->controls, page->backed_count}, &page->content);
-        if (projected != NativePluginSettingsError::none)
-            return fail(projected);
-        page->registry = settings.registry;
-        page->registry.storage = {page->pages, kSettingsPageCapacity};
-        for (u32 i = 0; i < settings.registry.count; ++i) {
-            page->pages[i] = settings.pages[i];
-            if (page->pages[i].key.owner_id != kNativeSettingsOwner)
-                page->pages[i].context = nullptr;
-        }
-        page->pages[page->registry.selected_index].context = &page->content;
-        page->token = observed;
-    }
-    return ui_settings_scene_update(&settings.scene, &page->registry, viewport);
+    return ui_settings_scene_update(&settings.scene, &settings.registry, viewport);
 }
 
 } // namespace settings_detail

@@ -97,7 +97,7 @@ u32 normal_media_pumps, forum_preview_pumps, covered_media_pumps;
 bool fixture_forum_active, fixture_preview_ok = true;
 bool navigation_ok = true, history_ok = true, order_ok = true, rejected;
 AccountModuleStatus next_status{};
-u32 failures, plugin_restores, scoped_read_syncs, scoped_read_menu_refreshes;
+u32 failures, catalog_restores, scoped_read_syncs, scoped_read_menu_refreshes;
 u64 scoped_read_wake;
 bool scoped_read_menu_ok = true;
 u32 diagnostic_source_reads, diagnostic_pops, diagnostic_logs, normal_pops, notification_callbacks;
@@ -288,22 +288,15 @@ bool application_private_channel_present_error() noexcept {
 bool application_synchronize_login_view() noexcept {
     return true;
 }
-bool application_plugins_restore() noexcept {
-    ++plugin_restores;
-    return true;
+void application_catalog_restore() noexcept {
+    ++catalog_restores;
 }
-void application_catalog_restore() noexcept {}
-bool application_plugins_slots_stale() noexcept {
+bool application_plugin_surfaces_stale() noexcept {
     return false;
 }
-void application_plugins_slots_rendered() noexcept {
+void application_plugin_surfaces_rendered() noexcept {
 }
-void application_plugins_render_prepare() noexcept {
-}
-bool application_plugins_render_stale() noexcept {
-    return false;
-}
-void application_plugins_render_rendered() noexcept {
+void application_plugin_surfaces_prepare() noexcept {
 }
 void application_notifications_message(void*, const GatewayClientEvent&, ConstSlice<u8>) noexcept {
     ++notification_callbacks;

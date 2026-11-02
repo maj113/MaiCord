@@ -543,17 +543,18 @@ bool draw_paint_batches(D3D11Renderer* renderer, DrawSubmissionState* submission
                           batch.quad_count, pixels, pixel_scale, kDrawQuadNoSign, &scissor);
         u32 first = batch.first_quad;
         const u32 end = batch.first_quad + batch.quad_count;
+        const bool package = renderer->effect.active;
         for (u32 quad = first; effects && quad < end; ++quad) {
             const PaintQuad& canvas = renderer->paint_stream.quads[quad];
-            if (!ui_background_canvas_quad(canvas))
+            // A canvas quad with a radius is a live tile (a store preview): only a package effect fills it.
+            if (!ui_background_canvas_quad(canvas) || (canvas.radius > 0 && !package))
                 continue;
             append_run(target, &run, scissor, first, quad + 1);
             draw_run(target, run);
             reset_value(&run);
             first = quad + 1;
             const UiRect rectangle{canvas.left, canvas.top, canvas.right, canvas.bottom};
-            const bool package = renderer->effect.active;
-            if (package ? d3d11_effect_draw(&renderer->effect, context, rectangle, quad)
+            if (package ? d3d11_effect_draw(&renderer->effect, context, rectangle, quad, canvas.radius)
                         : d3d11_background_fx_draw(&renderer->background_fx, context, rectangle, quad)) {
                 ++renderer->draw_calls_last_frame;
                 // The effect bound its own shaders, constants and blend state; a package effect also bound

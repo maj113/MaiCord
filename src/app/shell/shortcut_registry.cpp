@@ -433,24 +433,6 @@ CustomKeybindError custom_keybind_check(const CustomKeybinds& keybinds, CustomKe
         return CustomKeybindError::full;
     return CustomKeybindError::none;
 }
-Utf8View shortcut_plugin_chord_conflict(const CustomKeybinds& keybinds, ShortcutChord chord,
-                                        u8 push_to_talk_key) noexcept {
-    if (!chord.key || chord.key == 0xff || (chord.modifiers & ~shortcut_modifier_mask) ||
-        shortcut_key_is_modifier(chord.key) || chord.key < VK_BACK || chord.key == VK_LWIN || chord.key == VK_RWIN ||
-        chord.key == VK_APPS)
-        return utf8_literal("a key that can't be used");
-    if (!(chord.modifiers & (shortcut_ctrl | shortcut_alt)) && !(chord.key >= VK_F1 && chord.key <= VK_F24))
-        return utf8_literal("a shortcut that needs Ctrl or Alt");
-    if (const auto* built_in = shortcut_built_in(chord))
-        return built_in->label;
-    if (system_chord(chord) || (chord.key == VK_F10 && !(chord.modifiers & ~shortcut_shift)))
-        return utf8_literal("a system shortcut");
-    if (custom_keybinds_find(keybinds, chord) < kCustomKeybindMaximum)
-        return utf8_literal("a custom keybind");
-    if (push_to_talk_key && chord.key == push_to_talk_key)
-        return custom_keybind_action_label(CustomKeybindAction::push_to_talk);
-    return {};
-}
 bool custom_keybinds_add(CustomKeybinds* keybinds, CustomKeybind keybind, CustomKeybindError* error) noexcept {
     const auto result = keybinds ? custom_keybind_check(*keybinds, keybind) : CustomKeybindError::invalid;
     if (error)

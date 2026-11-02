@@ -291,7 +291,8 @@ constexpr Utf8View kEmptyButtons[]{utf8_literal("Browse plugins")};
 constexpr Utf8View kNotes = utf8_literal(
     "### What's new\n- Rebuilt the settings window with cards and a pinned footer\n- Added a **Browse themes** link to Appearance\n"
     "- Fixed `Ctrl F` focusing the wrong field\n  - nested notes keep their level\n- Search results group by page\n"
-    "- Segmented controls replace radio groups\n- Sliders show their value\n");
+    "- Segmented controls replace radio groups\n- Sliders show their value\n- Nested lists hang under their item and use a dash\n"
+    "  - a second level reads quieter than the first\n- Long notes fade out above their Show all link\n- Links ask before they open\n");
 u32 build_showcase(Fixture& f) noexcept {
     auto* c = f.controls[kShowcaseIndex];
     auto* p = f.looks[kShowcaseIndex];
@@ -306,10 +307,11 @@ u32 build_showcase(Fixture& f) noexcept {
                      ? look
                      : UiSettingsControlPresentation{UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
     };
-    UiSettingsControl status{0, utf8_literal("You're up to date"), utf8_literal("MaiCord 0.5.4 - Stable channel"), K::status, true, false,
+    UiSettingsControl status{0, utf8_literal("You're up to date"), utf8_literal("MaiCord 0.5.4 \xC2\xB7 Stable channel"), K::status, true, false,
                              {kChips, 2}, 0, utf8_literal("Check now")};
     status.detail = utf8_literal("Last checked 4 minutes ago");
     UiSettingsControlPresentation status_look{UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
+    status_look.more = ui_settings_more_bold_lead;
     status_look.chip_tones = ui_settings_chip_positive | (ui_settings_chip_positive << 2);
     status_look.icon_plus_one = static_cast<u8>(UiIcon::circle_check) + 1;
     add(status, status_look, 1000);
@@ -436,7 +438,7 @@ bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
     for (u32 panel = 0; valid && panel < kSettingsPanelCount; ++panel) {
         const auto& source = settings_catalog_panel(static_cast<SettingsPanel>(panel));
         const u32 count = project_panel(panel, f.controls[panel], f.looks[panel]);
-        f.contents[panel] = {source.title, {}, {f.controls[panel], count}, 1};
+        f.contents[panel] = {source.title, source.summary, {f.controls[panel], count}, 1};
         f.contents[panel].presentation = f.looks[panel];
         if (panel == static_cast<u32>(SettingsPanel::updates)) {
             f.contents[panel].controls = {f.controls[panel],
@@ -536,12 +538,34 @@ bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
     if (valid)
         stage = __LINE__;
     valid = valid && updates_state(UpdatesState::ready, L"updates-ready.bmp");
+    // The sidebar's attention dot on Updates while an update waits for Restart to update, as the host binds it,
+    // with the sidebar scrolled to the entry.
+    static UiSettingsNavEntry dotted[kUiSettingsNavigationMaximum];
+    if (valid) {
+        stage = __LINE__;
+        const auto marked = settings_catalog_navigation_dotted(navigation, dotted);
+        valid = marked.count == navigation.count && ui_settings_scene_bind_navigation(&f.scene, marked, 2) &&
+                ui_page_registry_select(&f.registry, page(SettingsPanel::updates)).ok() &&
+                ui_settings_scene_update(&f.scene, &f.registry, viewport) &&
+                ui_settings_scene_reveal(&f.scene, {UiSettingsTargetKind::page, page(SettingsPanel::updates), 0}) &&
+                renderer_rebuild_content_text(&renderer, kDefaultTheme) && probe_present(&renderer, kDefaultTheme) &&
+                capture(L"updates-sidebar-dot.bmp") && ui_settings_scene_bind_navigation(&f.scene, navigation, 3);
+        ui_settings_scene_scroll(&f.scene, true, -f.scene.sidebar_offset);
+    }
     valid = valid && updates_state(UpdatesState::preview_downloading, L"updates-preview-downloading.bmp");
     valid = valid && updates_state(UpdatesState::error, L"updates-error.bmp");
     // The shell's new rows at rest: status card, trailing controls, disclosures, markdown, footnote and empty state.
     if (valid)
         stage = __LINE__;
     valid = valid && show(f, renderer, kShowcasePage, viewport, L"settings-showcase.bmp", capture);
+    // The notes row clipped under its Show all link, scrolled into view.
+    if (valid) {
+        stage = __LINE__;
+        valid = ui_settings_scene_reveal(&f.scene, {UiSettingsTargetKind::control, kShowcasePage, 2008}) &&
+                renderer_rebuild_content_text(&renderer, kDefaultTheme) && probe_present(&renderer, kDefaultTheme) &&
+                capture(L"settings-showcase-notes.bmp");
+        ui_settings_scene_scroll(&f.scene, false, -f.scene.content_offset);
+    }
     // The gallery with keyboard focus on its first switch, then scrolled to
     // the swatches with focus on them.
     if (valid)

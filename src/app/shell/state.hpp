@@ -72,7 +72,6 @@ struct ApplicationTextForm;
 struct ApplicationComposerTextInput;
 struct ApplicationSettings;
 struct ApplicationThemeEditor;
-struct ApplicationPlugins;
 struct ApplicationFriends;
 struct ApplicationReadState;
 struct ApplicationScopedRead;
@@ -196,7 +195,6 @@ enum class PopupOwnerKind : u8 {
     guild_folder, // Guild rail folder header (owner_id is the folder's own id).
     message_components, // An open message select menu (owner_id is the message).
     soundboard,         // The call bar's soundboard picker (owner_id is the channel).
-    plugin_popover,     // A plugin slot popover (owner_id is the plugin).
     profile,            // A profile card menu: Edit Profile, Friend Actions, role picker.
     hidden_channel,     // The read-only explanation of a locked channel (owner_id is the channel).
 };
@@ -317,7 +315,6 @@ struct Application {
         u64 profile, account_scope;
         bool pending;
     } local_poster_presentation;
-    ApplicationPlugins* plugins;
     ApplicationFriends* friends;
     ApplicationReadState* read_state;
     ApplicationScopedRead* scoped_read;

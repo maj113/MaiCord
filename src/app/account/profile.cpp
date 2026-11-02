@@ -16,7 +16,7 @@
 #include "../chat/application_private_conversation.hpp"
 #include "../chat/private_channel.hpp"
 #include "maicord/ui/chat/private_channel_rows.hpp"
-#include "../plugins/plugins.hpp"
+#include "../plugins/surface_host.hpp"
 #include "user_actions.hpp"
 #include "profile_editor.hpp"
 #include "../chat/composer/composer.hpp"
@@ -447,8 +447,8 @@ bool activate(ProfileAction action, UiWidgetHandle target = {}) noexcept {
             return true;
         }
         if (node.action_id)
-            application_plugins_slot_activate(node.owner_id, {kUiPluginSlotProfileSection, 0, 0, user, 0},
-                                              node.action_id, part_rectangle(*p, target));
+            application_plugin_surfaces_activate(node.owner_id, {kUiPluginSlotProfileSection, 0, 0, user, 0},
+                                                 node.action_id);
         return true;
     }
     case ProfileAction::open_friend:

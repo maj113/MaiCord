@@ -13,9 +13,6 @@
 
 namespace maicord {
 
-// Icon pack name ("lucide/star") to UiIcon, or 0xffff (sdk_surfaces.cpp).
-u16 native_plugin_sdk_icon(Utf8View name) noexcept;
-
 namespace plugin_surfaces_detail {
 Plugin g_plugins[kMaximumPlugins];
 u32 g_plugin_count;
@@ -231,7 +228,7 @@ void encode(Sink& s, const mc_decoration& d, u32 total) noexcept {
             record.text = static_cast<u16>(node.text.bytes);
             record.tooltip = static_cast<u16>(node.tooltip.bytes);
             record.value = static_cast<u16>(node.value.bytes);
-            record.icon = node.icon.bytes ? native_plugin_sdk_icon({node.icon.data, node.icon.bytes}) : kNoIcon;
+            record.icon = node.icon.bytes ? plugin_icon({node.icon.data, node.icon.bytes}) : kNoIcon;
             record.kind = static_cast<u8>(node.kind);
             record.tone = static_cast<u8>(node.tone);
             s.put(&record, sizeof(record));

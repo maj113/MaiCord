@@ -104,7 +104,8 @@ UiRect list_count_icon(const UiSettingsLayoutTokens& t, const UiSettingsControl&
 } // namespace
 // One option of a tabs, buttons or colors row inside its control rectangle;
 // colours report their trailing button as index choices.count.
-UiRect option_rect(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiRect& field, u32 index) noexcept {
+UiRect option_rect(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiRect& field, u32 index,
+                   const UiKitMeasure* measure) noexcept {
     float x = field.left;
     if (c.kind == UiSettingsControlKind::tabs) {
         for (u32 i = 0; i < c.choices.count; ++i) {
@@ -117,7 +118,7 @@ UiRect option_rect(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, 
     }
     if (c.kind == UiSettingsControlKind::buttons) {
         for (u32 i = 0; i < c.choices.count; ++i) {
-            const float w = ui_settings_button_width(t, UiSettingsButtonSize::compact, button_label_width(c.choices[i]));
+            const float w = ui_settings_button_width(t, UiSettingsButtonSize::compact, button_label_width(measure, c.choices[i]));
             if (i == index)
                 return {x, field.top, minimum(field.right, x + w), field.bottom};
             x += w + kButtonGroupGap;
@@ -130,7 +131,7 @@ UiRect option_rect(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, 
         UiRect rects[3]{};
         const u32 count = minimum<u32>(c.choices.count, 3);
         for (u32 i = 0; i < count; ++i)
-            widths[i] = ui_settings_button_width(t, UiSettingsButtonSize::regular, button_label_width(c.choices[i]));
+            widths[i] = ui_settings_button_width(t, UiSettingsButtonSize::regular, button_label_width(measure, c.choices[i]));
         ui_empty_place_actions(t, field, widths, count, rects);
         return index < count ? rects[index] : UiRect{};
     }
@@ -139,8 +140,8 @@ UiRect option_rect(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, 
         if (index < c.choices.count)
             return {x, field.top, x + kColorSwatchWidth, field.top + kColorSwatchHeight};
         if (index == c.choices.count && c.action_label.bytes) {
-            const float w =
-                ui_settings_button_width(t, UiSettingsButtonSize::compact, button_label_width(c.action_label));
+            const float w = ui_settings_button_width(t, UiSettingsButtonSize::compact,
+                                                     button_label_width(measure, c.action_label));
             const float top = field.top + (kColorSwatchHeight - t.metric.button_small) * .5f;
             return {x - kColorSwatchGap + kButtonGroupGap, top, x - kColorSwatchGap + kButtonGroupGap + w,
                     top + t.metric.button_small};
@@ -398,7 +399,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         // The brand tab bar: a hairline under every tab and a 2 DIP
         // brand underline under the active one.
         p.fill({r.control.left, r.control.bottom - 1, r.control.right, r.control.bottom}, tc.separator);
-        const auto tab = option_rect(t, c, r.control, c.selected_choice);
+        const auto tab = option_rect(t, c, r.control, c.selected_choice, scene.measure);
         if (c.selected_choice < c.choices.count && ui_rect_has_area(tab))
             p.rounded({tab.left, r.control.bottom - 2, tab.right, r.control.bottom}, tc.brand, theme.scale.radius_xs);
         if (state.focused && scene.focus_visible && ui_rect_has_area(tab))
@@ -412,7 +413,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         for (u32 i = 0; p && i < c.choices.count; ++i) {
             UiControlState option = hover_option(scene, state, i);
             option.focused = state.focused && i == focus_choice(c);
-            p.use<ui_settings_button_paint>(t, option_rect(t, c, r.control, i),
+            p.use<ui_settings_button_paint>(t, option_rect(t, c, r.control, i, scene.measure),
                                             i ? UiSettingsButtonVariant::secondary : UiSettingsButtonVariant::primary,
                                             option);
         }
@@ -421,7 +422,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         // Profile theme swatches: the colour with a matching
         // border and a pencil at the top end, its caption below.
         for (u32 i = 0; p && i < c.choices.count; ++i) {
-            const auto swatch = option_rect(t, c, r.control, i);
+            const auto swatch = option_rect(t, c, r.control, i, scene.measure);
             Color fill = tc.mod_strong;
             resolve_color(scene, c.id, i, &fill);
             if (!c.enabled)
@@ -435,7 +436,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
                                               c.enabled ? 1.f : .3f));
         }
         if (c.action_label.bytes)
-            p.use<ui_settings_button_paint>(t, option_rect(t, c, r.control, c.choices.count),
+            p.use<ui_settings_button_paint>(t, option_rect(t, c, r.control, c.choices.count, scene.measure),
                                             UiSettingsButtonVariant::secondary,
                                             hover_option(scene, state, c.choices.count));
         break;
@@ -579,6 +580,14 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
                 p.spinner({r.control.left + 12, (r.control.top + r.control.bottom) * .5f - 8, r.control.left + 28,
                            (r.control.top + r.control.bottom) * .5f + 8},
                           ui_settings_button_text(t, UiSettingsButtonVariant::secondary, state), scene.spinner_phase);
+            else if (status_glyph(scene.content, index)) {
+                UiRect glyph;
+                status_button_label(scene.measure, c.action_label, r.control, &glyph);
+                p.icon(UiIcon::reset, glyph,
+                       ui_settings_button_text(t, tone == UiSettingsVariant::primary ? UiSettingsButtonVariant::primary
+                                                                                      : UiSettingsButtonVariant::secondary,
+                                               state));
+            }
         }
         break;
     }
@@ -604,7 +613,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         for (u32 i = 0; p && i < c.choices.count && i < 3; ++i) {
             UiControlState option = hover_option(scene, state, i);
             option.focused = state.focused && i == focus_choice(c);
-            p.use<ui_settings_button_paint>(t, option_rect(t, c, r.control, i),
+            p.use<ui_settings_button_paint>(t, option_rect(t, c, r.control, i, scene.measure),
                                             i ? UiSettingsButtonVariant::secondary : UiSettingsButtonVariant::primary, option);
         }
         break;
@@ -860,7 +869,21 @@ void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTo
     }
     if (c.kind == UiSettingsControlKind::status) {
         text(handle, c.label, r.label, tc.text_strong, kUiKitTextHeading);
-        text(handle, c.description, r.description, tc.text_subtle, text_description, ui_text_wrap);
+        u32 lead = 0;
+        if (more(scene.content, index, ui_settings_more_bold_lead))
+            for (u32 i = 0; !lead && i + 3 <= c.description.bytes; ++i)
+                if (static_cast<u8>(c.description.data[i]) == ' ' && static_cast<u8>(c.description.data[i + 1]) == 0xC2 &&
+                    static_cast<u8>(c.description.data[i + 2]) == 0xB7)
+                    lead = i;
+        if (lead) {
+            // The bold run is its own label; the rest of the line follows it.
+            const Utf8View head{c.description.data, lead}, tail{c.description.data + lead, c.description.bytes - lead};
+            UiRect rest = r.description;
+            rest.left = minimum(rest.right, rest.left + ui_kit_text_width(scene.measure, head, kUiKitTextSmallBold));
+            text(handle, head, r.description, tc.text_default, kUiKitTextSmallBold);
+            text(handle, tail, rest, tc.text_subtle, text_description, ui_text_wrap);
+        } else
+            text(handle, c.description, r.description, tc.text_subtle, text_description, ui_text_wrap);
         if (ui_rect_has_area(r.chips)) {
             UiRect chips[8];
             float height = 0;
@@ -876,16 +899,22 @@ void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTo
             const bool filled = more(scene.content, index, ui_settings_more_progress_button) && level != kUiSettingsNoMeter &&
                                 level != kUiSettingsIndeterminateMeter;
             UiRect label = r.control;
-            // A running action keeps its place: the spinner leads the label.
+            u32 mode = ui_text_center;
+            // A running action keeps its place: the spinner leads the label. Other actions lead with their glyph.
             if (c.checked)
                 label.left += 28;
+            else if (status_glyph(scene.content, index)) {
+                UiRect glyph;
+                label = status_button_label(scene.measure, c.action_label, r.control, &glyph);
+                mode = 0;
+            }
             text(handle, c.action_label, label,
                  filled ? ui_settings_color_alpha(tc.text_strong, dim)
                         : ui_settings_button_text(t, variant(scene.content, index) == UiSettingsVariant::primary
                                                          ? UiSettingsButtonVariant::primary
                                                          : UiSettingsButtonVariant::secondary,
                                                   state),
-                 text_button, ui_text_center);
+                 text_button, mode);
         }
         text(handle, c.detail, r.value, tc.text_subtle, text_description, ui_text_end);
         return;
@@ -902,10 +931,20 @@ void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTo
         return;
     }
     if (c.kind == UiSettingsControlKind::markdown) {
-        const auto* block = markdown_block(scene.content, index, row_context(scene));
+        auto* block = markdown_block(scene.content, index, row_context(scene));
         const auto visible = ui_rect_overlap(r.body, clip);
-        if (block && ui_rect_has_area(visible))
-            pen.emit(ui_markdown_command(*block, {&scene.widgets, handle}, r.body, visible, tc.text_default));
+        if (block && ui_rect_has_area(visible)) {
+            // Notes shown clipped fade out over their last 48 DIP.
+            const float fade = ui_markdown_height(block, ui_rect_width(r.body), scene.measure) > ui_rect_height(r.body) + 1 ? 48.f : 0.f;
+            for (u32 part = 0, parts = ui_markdown_part_count(*block); part < parts; ++part)
+                for (u32 marker = 0; marker < 2; ++marker) {
+                    const auto command = ui_markdown_command(block, part, marker != 0, scene.measure,
+                                                             {&scene.widgets, handle}, r.body, visible, tc.text_default,
+                                                             tc.text_subtle, fade);
+                    if (command.text.bytes)
+                        pen.emit(command);
+                }
+        }
         if (ui_rect_has_area(r.control))
             text(handle, c.detail, r.control, tc.link, text_button);
         return;
@@ -921,7 +960,7 @@ void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTo
         text(handle, c.description, r.description, tc.text_subtle, text_description, ui_text_wrap | ui_text_center);
         text(handle, c.detail, r.value, tc.text_subtle, text_description, ui_text_center);
         for (u32 i = 0; i < c.choices.count && i < 3; ++i)
-            text(handle, c.choices[i], option_rect(t, c, r.control, i),
+            text(handle, c.choices[i], option_rect(t, c, r.control, i, scene.measure),
                  ui_settings_button_text(t, i ? UiSettingsButtonVariant::secondary : UiSettingsButtonVariant::primary,
                                          hover_option(scene, state, i)),
                  text_button, ui_text_center);
@@ -929,7 +968,7 @@ void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTo
     }
     if (c.kind == UiSettingsControlKind::tabs) {
         for (u32 i = 0; i < c.choices.count; ++i) {
-            const auto tab = option_rect(t, c, r.control, i);
+            const auto tab = option_rect(t, c, r.control, i, scene.measure);
             const bool hovered = state.hovered && scene.palette_hovered_index == i;
             text(handle, c.choices[i], {tab.left, tab.top, tab.right, tab.top + kUiSettingsLabelLine},
                  ui_settings_color_alpha(c.selected_choice == i ? tc.text_strong
@@ -992,19 +1031,19 @@ void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTo
         break;
     case UiSettingsControlKind::buttons:
         for (u32 i = 0; i < c.choices.count; ++i)
-            text(handle, c.choices[i], option_rect(t, c, r.control, i),
+            text(handle, c.choices[i], option_rect(t, c, r.control, i, scene.measure),
                  ui_settings_button_text(t, i ? UiSettingsButtonVariant::secondary : UiSettingsButtonVariant::primary,
                                          hover_option(scene, state, i)),
                  text_button, ui_text_center);
         break;
     case UiSettingsControlKind::colors:
         for (u32 i = 0; i < c.choices.count; ++i) {
-            const auto swatch = option_rect(t, c, r.control, i);
+            const auto swatch = option_rect(t, c, r.control, i, scene.measure);
             text(handle, c.choices[i], {swatch.left - 8, swatch.bottom + 4, swatch.right + 8, swatch.bottom + kColorCaption},
                  ui_settings_color_alpha(tc.text_default, dim), text_description, ui_text_center);
         }
         if (c.action_label.bytes)
-            text(handle, c.action_label, option_rect(t, c, r.control, c.choices.count),
+            text(handle, c.action_label, option_rect(t, c, r.control, c.choices.count, scene.measure),
                  ui_settings_button_text(t, UiSettingsButtonVariant::secondary, hover_option(scene, state, c.choices.count)),
                  text_button, ui_text_center);
         break;

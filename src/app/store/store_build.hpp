@@ -24,7 +24,7 @@ Utf8View cost_label(u8 cost) noexcept;
 // "Oct 28, 2026" and "9.0 KB" into the scene arena.
 Utf8View date_text(UiStoreBuilder&, u64 unix) noexcept;
 Utf8View size_text(UiStoreBuilder&, u32 bytes) noexcept;
-Utf8View byline(UiStoreBuilder&, const StoreItem&) noexcept;
+Utf8View byline(UiStoreBuilder&, const StoreItem&, bool listed = false) noexcept;
 // "Updated 1.1 / Update 1.2.0" style label pieces.
 Utf8View join(UiStoreBuilder&, Utf8View a, Utf8View b, Utf8View c = {}, Utf8View d = {}) noexcept;
 
@@ -53,7 +53,7 @@ void build_dialog(Ctx&) noexcept;
 void build_trial_bar(Ctx&) noexcept;
 
 // Facts and permissions (detail rail and consent).
-void fact(Ctx&, Utf8View label, Utf8View value, bool mono = false, bool link = false, u32 action = 0) noexcept;
+void fact(Ctx&, Utf8View label, Utf8View value, bool mono = false, bool link = false, u32 action = 0, u8 dot = 0) noexcept;
 void notice_card(Ctx&, UiIcon icon, Utf8View title, Utf8View body, UiStoreFill fill, UiStoreInk ink) noexcept;
 void permission_group(Ctx&, u8 risk, const StorePermission* rows, u32 count, ConstSlice<Utf8View> hosts) noexcept;
 

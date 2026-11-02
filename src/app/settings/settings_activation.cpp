@@ -53,14 +53,6 @@ const UiSettingsControl* choice_control(const ApplicationSettingsChoice& choice)
         !ui_page_key_equal(settings->scene.selected_page, choice.token.page) ||
         settings->registry.revision != choice.token.registry_revision)
         return nullptr;
-    if (choice.token.page.owner_id != kNativeSettingsOwner) {
-        NativePluginUiToken current{};
-        if (!native_plugin_host_settings_token(&settings->plugins, choice.token.page, &current).ok() ||
-            current.generation != choice.token.generation ||
-            current.registry_revision != choice.token.registry_revision ||
-            current.content_revision != choice.token.content_revision)
-            return nullptr;
-    }
     const auto* content = &settings->scene.content;
     if (content->revision != choice.token.content_revision || content->controls.count > 8192 ||
         !content->controls.data || choice.control_index >= content->controls.count)
@@ -113,20 +105,14 @@ bool project_choice(ApplicationSettingsChoice choice) noexcept {
 } // namespace settings_detail
 namespace {
 
-bool open_choice(const UiSettingsTarget& target, const NativePluginUiToken* expected) noexcept {
+bool open_choice(const UiSettingsTarget& target) noexcept {
     auto* settings = g_app.settings;
     ApplicationSettingsChoice choice{};
     const auto* control = settings ? ui_settings_scene_control(settings->scene, target, &choice.control_index) : nullptr;
     if (!control || control->kind != UiSettingsControlKind::choice || !control->enabled ||
         !ui_settings_scene_control_anchor(settings->scene, target, &choice.anchor))
         return false;
-    choice.token = {target.page, 0, settings->registry.revision, settings->scene.content_revision};
-    if (target.page.owner_id != kNativeSettingsOwner) {
-        if (expected)
-            choice.token = *expected;
-        else if (!native_plugin_host_settings_token(&settings->plugins, target.page, &choice.token).ok())
-            return false;
-    }
+    choice.token = {target.page, settings->registry.revision, settings->scene.content_revision};
     choice.control_id = target.control_id;
     choice.account_serial = g_app.plugin_account_scope_serial;
     choice.profile_id = g_app.account.status.profile_id;
@@ -156,7 +142,6 @@ void apply_search(ApplicationSettings& settings) noexcept {
     close_choice();
     const UiPageKey fallback{kNativeSettingsOwner, static_cast<u64>(SettingsPanel::appearance) + 1};
     if (valid && !searching) {
-        // Plugin pages are not remembered; clearing returns to Appearance.
         settings.search_return =
             selected && selected->key.owner_id == kNativeSettingsOwner ? selected->key.page_id : fallback.page_id;
         ui_page_registry_select(&settings.registry, search);
@@ -276,59 +261,10 @@ bool settled_toggle(ApplicationSettings& settings, const UiSettingsTarget& targe
     return settled(settings, result);
 }
 
-bool activate_plugin(ApplicationSettings& settings, const UiSettingsTarget& target, const UiSettingsActivation& request,
-                     const NativePluginUiToken* expected) noexcept {
-    // ABI-5 text, colour and keybind rows edit through the text form.
-    if (request.kind == UiSettingsControlKind::action && application_plugins_settings_edit(target.page, target.control_id))
-        return true;
-    NativePluginUiToken token{};
-    if (expected)
-        token = *expected;
-    else if (!native_plugin_host_settings_token(&settings.plugins, target.page, &token).ok())
-        return false;
-    const u64 serial = g_app.plugin_account_scope_serial, profile = g_app.account.status.profile_id;
-    const auto result = native_plugin_host_activate_settings(&settings.plugins, token, request);
-    if (!plugin_ui_scope_current(g_app.plugin_account_scope_serial, serial) ||
-        profile != g_app.account.status.profile_id)
-        return false;
-    if (result.ok())
-        animate_toggle(settings, target, request);
-    return result.ok() && (!result.changed || refresh());
-}
-bool activate_plugin_catalog(ApplicationSettings& settings, const UiSettingsTarget& target, const UiSettingsActivation&) noexcept {
-    settings.plugin_error = NativePluginError::none;
-    if (target.control_id == 1) {
-        if (application_plugins_save_pending())
-            application_plugins_retry_save();
-        else
-            application_plugins_choose();
-        return settled(settings, true);
-    }
-    if (target.control_id == kApplicationPluginInstallAction) {
-        application_plugins_install();
-        return settled(settings, true);
-    }
-    if (target.control_id >= 100 && target.control_id < 108)
-        return application_plugins_unload(static_cast<u32>(target.control_id - 100));
-    if (target.control_id == kApplicationPluginDiscoverAction)
-        return application_plugins_discover();
-    const u64 revision = settings.catalog_revision;
-    if (target.control_id == kApplicationPluginForgetAction)
-        return application_plugins_catalog_forget(revision);
-    if (target.control_id == kApplicationPluginPreviousAction || target.control_id == kApplicationPluginNextAction)
-        return application_plugins_catalog_page(target.control_id == kApplicationPluginPreviousAction, revision);
-    if (target.control_id >= kApplicationPluginCatalogActionFirst &&
-        target.control_id < kApplicationPluginCatalogActionFirst + kNativePluginCatalogMaximumEntries)
-        return application_plugins_catalog_enable(
-            static_cast<u32>(target.control_id - kApplicationPluginCatalogActionFirst), revision);
-    return false;
-}
-
 } // namespace
 namespace settings_detail {
 
-bool activate(const UiSettingsTarget& target, bool reverse, const NativePluginUiToken* expected, bool picker,
-              u32 selected, bool save) noexcept {
+bool activate(const UiSettingsTarget& target, bool reverse, bool picker, u32 selected, bool save) noexcept {
     auto* settings = g_app.settings;
     if (!settings || !settings->scene.active)
         return false;
@@ -340,7 +276,7 @@ bool activate(const UiSettingsTarget& target, bool reverse, const NativePluginUi
                              option_row(request.kind);
     if (choice_kind && target.kind == UiSettingsTargetKind::control) {
         if (picker && request.kind == UiSettingsControlKind::choice)
-            return open_choice(target, expected);
+            return open_choice(target);
         if (selected != ~0u) {
             const auto* control = ui_settings_scene_control(settings->scene, target);
             // A colours row reports its trailing button as choices.count.
@@ -382,10 +318,9 @@ bool activate(const UiSettingsTarget& target, bool reverse, const NativePluginUi
     default:
         break;
     }
-    if (target.page.owner_id != kNativeSettingsOwner)
-        return activate_plugin(*settings, target, request, expected);
+    // The Plugins page is the store's and takes its own input.
     if (target.page.page_id == kPluginsPage)
-        return activate_plugin_catalog(*settings, target, request);
+        return false;
     if (request.kind == UiSettingsControlKind::category)
         return navigate_link(*settings, target.control_id);
     if (application_keybinds_settings_row(target.control_id))

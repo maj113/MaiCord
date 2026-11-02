@@ -53,12 +53,11 @@ bool choice_action(u32 action, const ApplicationSettingsChoice* captured) noexce
     const auto* control = choice_control(choice);
     if (!control || !ui_settings_choice_selected(*control, choice.first, action, &selected))
         return false;
-    close_choice(); // No module label/descriptor survives the callback.
+    close_choice();
     if (!choice_control(choice))
         return refresh();
     const bool result =
-        activate({UiSettingsTargetKind::control, choice.token.page, choice.control_id}, false,
-                 choice.token.page.owner_id == kNativeSettingsOwner ? nullptr : &choice.token, false, selected);
+        activate({UiSettingsTargetKind::control, choice.token.page, choice.control_id}, false, false, selected);
     if (!plugin_ui_scope_current(g_app.plugin_account_scope_serial, choice.account_serial) ||
         g_app.account.status.profile_id != choice.profile_id)
         return false;
@@ -267,7 +266,6 @@ void application_settings_cancel_pointer() noexcept {
     release_slider_theme(*settings);
     close_choice();
     reset_value(&settings->pressed);
-    settings->pressed_plugin = false;
     settings->slider_dragging = false;
     settings->search_selecting = false;
     settings->backdrop_pressed = false;
@@ -278,29 +276,8 @@ UiPageRegistry* application_settings_pages() noexcept {
     auto* settings = ensure();
     return settings ? &settings->registry : nullptr;
 }
-NativePluginHost* application_settings_plugin_host() noexcept {
-    auto* settings = ensure();
-    return settings ? &settings->plugins : nullptr;
-}
-NativePluginHost* application_settings_plugin_host_current() noexcept {
-    return g_app.settings ? &g_app.settings->plugins : nullptr;
-}
 u64 application_settings_lifetime() noexcept {
     return g_app.settings_lifetime_serial;
-}
-bool application_settings_open_plugin_page(UiPageKey page) noexcept {
-    auto* settings = g_app.settings;
-    const auto* slot = settings ? native_plugin_host_find(settings->plugins, page.owner_id) : nullptr;
-    if (!slot || slot->phase != NativePluginPhase::enabled || !ui_page_registry_find(settings->registry, page))
-        return false;
-    if (!application_settings_open())
-        return false;
-    set_search(*settings, {});
-    if (!ui_page_registry_select(&settings->registry, page).ok()) {
-        application_settings_close();
-        return false;
-    }
-    return refresh();
 }
 bool application_settings_open_key(Utf8View key) noexcept {
     UiSettingsSchemaLocation location{};
@@ -311,7 +288,7 @@ bool application_settings_open_key(Utf8View key) noexcept {
 }
 bool application_settings_open_page(UiPageKey page) noexcept {
     if (page.owner_id != kNativeSettingsOwner)
-        return application_settings_open_plugin_page(page);
+        return false;
     const auto* pages = application_settings_pages();
     if (!pages || !ui_page_registry_find(*pages, page) || !application_settings_open() || !g_app.settings)
         return false;
@@ -546,8 +523,6 @@ void application_settings_close(bool restore_focus) noexcept {
     renderer_bind_settings_scene(&g_app.renderer, nullptr);
     renderer_set_settings_modal_progress(&g_app.renderer, 1);
     ui_settings_scene_close(&settings->scene);
-    if (!release_plugin_page(*settings))
-        log_write(LogLevel::warning, "plugins", "settings_projection_release_pending");
     application_preferences_apply();
     application_sync_attachment_drop_target();
     if (restore_focus && g_app.account_ui && !g_app.login.visible) {
@@ -640,14 +615,6 @@ bool application_settings_synchronize() noexcept {
         application_settings_close(false);
         return true;
     }
-    if (auto* page = settings->plugin_page; page && settings->plugin_page_committed &&
-                                            settings->scene.registry == &page->registry &&
-                                            settings->registry.revision == page->token.registry_revision &&
-                                            page->registry.revision != page->token.registry_revision) {
-        const auto* requested = ui_page_registry_selected(page->registry);
-        if (requested)
-            ui_page_registry_select(&settings->registry, requested->key);
-    }
     const auto* selected = ui_page_registry_selected(settings->registry);
     const u32 native_page = selected && selected->key.owner_id == kNativeSettingsOwner &&
                                     selected->key.page_id <= kSettingsSearchPage
@@ -728,24 +695,6 @@ bool application_settings_synchronize() noexcept {
 void application_settings_choice_account_invalidated() noexcept {
     close_choice();
 }
-void application_settings_plugin_catalog_unbind() noexcept {
-    application_settings_close(false);
-    if (!g_app.settings)
-        return;
-    auto& settings = *g_app.settings;
-    reset_value(&settings.pressed);
-    settings.pressed_plugin = false;
-    for (auto& control : settings.controls)
-        reset_value(&control);
-    reset_value(&settings.content[kPluginsPage - 1].controls);
-    ++settings.content[kPluginsPage - 1].revision;
-}
-bool application_settings_plugin_catalog_reopen() noexcept {
-    if (!application_settings_open() || !g_app.settings)
-        return false;
-    set_search(*g_app.settings, {});
-    return ui_page_registry_select(&g_app.settings->registry, {kNativeSettingsOwner, kPluginsPage}).ok() && refresh();
-}
 void application_settings_release() noexcept {
     application_store_release();
     application_theme_editor_release();
@@ -759,20 +708,8 @@ void application_settings_release() noexcept {
         log_write(LogLevel::warning, "preferences", "slider_theme_release_pending");
         return;
     }
-    if (!application_plugins_release()) {
-        log_write(LogLevel::error, "plugins", "module_release_pending");
-        return;
-    }
-    if (!native_plugin_host_disable_all(&settings->plugins).ok()) {
-        log_write(LogLevel::error, "plugins", "settings_release_busy");
-        return;
-    }
     renderer_bind_settings_scene(&g_app.renderer, nullptr);
     ui_settings_scene_release(&settings->scene);
-    if (!release_plugin_page(*settings)) {
-        log_write(LogLevel::error, "plugins", "settings_projection_release_pending");
-        return;
-    }
     ui_page_registry_clear(&settings->registry);
     message_composer_release(&settings->search_edit);
     g_app.settings = nullptr;

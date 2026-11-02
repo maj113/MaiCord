@@ -4,7 +4,7 @@
 #include "maicord/app/plugins/catalog_state.hpp"
 #include "maicord/core/name_list.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/sdk/plugin_abi.h"
+#include "maicord/sdk/maicord_plugin.h"
 #include "catalog_fixture.hpp"
 
 namespace maicord::catalog_index_tests {

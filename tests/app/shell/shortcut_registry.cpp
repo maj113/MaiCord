@@ -120,22 +120,6 @@ void test_custom(Check check) noexcept {
           "custom keybinds: duplicates, built-in chords, typing keys and stored-elsewhere actions are refused");
     check(custom_keybinds_find(keybinds, {VK_F9, 0}) == 1 && custom_keybinds_find(keybinds, {VK_F9, C}) == kCustomKeybindMaximum,
           "custom keybinds: lookup matches exact chords");
-    const auto conflict = [&](ShortcutChord chord, Utf8View expected, u8 ptt = 0) noexcept {
-        return utf8_equal(shortcut_plugin_chord_conflict(keybinds, chord, ptt), expected);
-    };
-    check(conflict({'M', C | H}, utf8_literal("Toggle mute")) && conflict({'C', C}, utf8_literal("a system shortcut")) &&
-              conflict({VK_F4, L}, utf8_literal("a system shortcut")) &&
-              conflict({VK_F10, 0}, utf8_literal("a system shortcut")) &&
-              conflict({'M', C | L}, utf8_literal("a custom keybind")) &&
-              conflict({VK_F9, 0}, utf8_literal("a custom keybind")) &&
-              conflict({'K', H}, utf8_literal("a shortcut that needs Ctrl or Alt")) &&
-              conflict({VK_PAUSE, 0}, utf8_literal("a shortcut that needs Ctrl or Alt")) &&
-              conflict({VK_LWIN, C}, utf8_literal("a key that can't be used")) &&
-              conflict({VK_CONTROL, C}, utf8_literal("a key that can't be used")) &&
-              conflict({VK_F13, 0}, utf8_literal("Push to talk"), VK_F13) && conflict({VK_F13, 0}, {}) &&
-              conflict({'K', C | H}, {}) && conflict({'P', C | L | H}, {}),
-          "plugin keybinds: built-in, system, custom and push-to-talk chords are refused with a label; "
-          "chords need Ctrl or Alt unless F1-F24");
     for (u32 key = VK_F1; keybinds.count < kCustomKeybindMaximum; ++key)
         custom_keybinds_add(&keybinds, {K::toggle_mute, {static_cast<u8>(key), C}});
     check(rejects({K::toggle_mute, {VK_F10, 0}}, E::full), "custom keybinds: the list holds eight keybinds");

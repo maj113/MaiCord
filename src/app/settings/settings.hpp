@@ -1,8 +1,8 @@
 #pragma once
 #include "maicord/protocol/auth/oauth.hpp"
 #include "maicord/ui/core/input_router.hpp"
+#include "maicord/app/plugins/ui.hpp"
 #include "maicord/ui/shell/page_registry.hpp"
-#include "maicord/app/plugins/host.hpp"
 #include "maicord/ui/layout/scroll_host.hpp"
 namespace maicord { struct UiSettingsAvatarMedia; struct UiSettingsScene; }
 #include "maicord/core/win32_types.hpp"
@@ -66,9 +66,6 @@ void application_settings_choice_account_invalidated() noexcept;
 // UI-thread contribution registry. Allocate lazily; unregister owner before
 // unloading any borrowed descriptors. Registration alone does not open settings.
 UiPageRegistry* application_settings_pages() noexcept;
-NativePluginHost* application_settings_plugin_host() noexcept;
-NativePluginHost* application_settings_plugin_host_current() noexcept;
-bool application_settings_open_plugin_page(UiPageKey) noexcept;
 // Opens Settings at a catalog panel or setting key ("appearance.theme"),
 // scrolling to and flashing a setting.
 bool application_settings_open_key(Utf8View key) noexcept;

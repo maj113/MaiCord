@@ -206,18 +206,6 @@ Utf8View field_text(const CommandIndex& index, JsonValue value, const char* key,
 bool command_space(char value) noexcept {
     return value == ' ' || value == '\t' || value == '\r' || value == '\n';
 }
-Utf8View command_query(Utf8View text) noexcept {
-    // Root/group/subcommand names cannot contain ':'. Named arguments belong
-    // to the composer, not catalog filtering, and must survive selection.
-    u32 end = text.bytes;
-    u32 token = 0;
-    for (u32 at = 0; at < text.bytes; ++at) {
-        if (command_space(text.data[at])) token = at + 1;
-        else if (text.data[at] == ':') { end = token; break; }
-    }
-    while (end && command_space(text.data[end - 1])) --end;
-    return {text.data, end};
-}
 Utf8View copy_label(char* out, u32 capacity, Utf8View a, Utf8View b, Utf8View c,
                     Utf8View d) noexcept {
     u32 n = 0;

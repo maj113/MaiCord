@@ -1029,13 +1029,13 @@ u32 run_account_pump_tests() noexcept {
     g_app.login.visible = true;
     check(application_pump_account() && refreshes == 1 && forced == 1 && history_calls == 1 && order_ok,
           "ready_transition_coalesces_model_and_phase_presentation");
-    check(plugin_restores == 1 && !g_app.login.visible && g_app.login.status == RendererLoginStatus::idle,
-          "remembered_plugins_restore_once_after_authenticated_shell_transition");
+    check(catalog_restores == 1 && !g_app.login.visible && g_app.login.status == RendererLoginStatus::idle,
+          "catalog_restores_once_after_authenticated_shell_transition");
     reset_counts();
     history_ok = false;
     check(application_pump_account() && history_calls == 1 && refreshes == 1 && !stops && order_ok,
           "history_failure_keeps_presentation_and_account_alive");
-    check(plugin_restores == 1, "unchanged_account_pump_never_polls_saved_plugins_again");
+    check(catalog_restores == 1, "unchanged_account_pump_never_restores_the_catalog_again");
     reset_counts();
     forum_sync_ok = false;
     presentation_failures = 0;

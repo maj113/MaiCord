@@ -1,9 +1,11 @@
 #include "store_host.hpp"
+#include "store_preview.hpp"
 #include "store_source.hpp"
 #include "../account/account_presentation.hpp"
 #include "../chat/application_link_trust.hpp"
 #include "../chat/composer/text_edit_keys.hpp"
 #include "../effects/effects.hpp"
+#include "../plugins/dev_console.hpp"
 #include "../packages/packages.hpp"
 #include "../plugins/catalog_service.hpp"
 #include "../plugins/settings_dialog.hpp"
@@ -77,7 +79,14 @@ struct StoreHost {
     u8 pick_for; // 0 link dialog, 1 dev load
     u32 revisions[4];
     bool swallow_char;
+    bool trial_asked; // the open card's effect trial was started
+    u32 preview_changes;
     UiRect host_page, host_clip;
+    // The pictures of the visible tiles and the loop of the card under the pointer or focus.
+    StorePreviews previews;
+    StorePreviewSource preview_source;
+    u32 hover_slot;
+    u64 hover_since_ms;
 };
 
 StoreHost* g = nullptr;
@@ -232,19 +241,14 @@ void open_url_text(const char* url, u32 bytes) noexcept {
     application_link_open({url, bytes}, true);
 }
 
+// The page's dev folder in Explorer.
 void open_folder_command() noexcept {
-    // Plugin files, or the effect development folder.
-    const StorePageState& st = page();
-    if (st.kind == CatalogKind::plugin) {
-        wchar_t base[MAX_PATH]{};
-        const DWORD n = GetEnvironmentVariableW(L"LOCALAPPDATA", base, MAX_PATH - 24);
-        if (n && n < MAX_PATH - 24) {
-            static constexpr wchar_t kSuffix[] = L"\\MaiCord\\plugins";
-            copy_bytes(base + n, kSuffix, sizeof(kSuffix));
-            ShellExecuteW(nullptr, L"open", base, nullptr, nullptr, 1);
-        }
-    } else {
-        application_effects_reload();
+    const Utf8View folder = application_catalog_dev_folder(page().kind == CatalogKind::plugin ? 0 : 1);
+    wchar_t path[MAX_PATH];
+    const int n = folder.bytes ? MultiByteToWideChar(CP_UTF8, 0, folder.data, static_cast<int>(folder.bytes), path, MAX_PATH - 1) : 0;
+    if (n > 0) {
+        path[n] = 0;
+        ShellExecuteW(nullptr, L"open", path, nullptr, nullptr, 1);
     }
 }
 
@@ -341,8 +345,6 @@ void execute(const StoreCommand& c, float scroll) noexcept {
         }
         break;
     }
-    case StoreCommandKind::open_author:
-        break;
     case StoreCommandKind::copy_text: {
         const u32 at = store_find_item(m, kind, Utf8View{page().slug, c_string_length(page().slug)});
         Utf8View text = c.arg == 1 && at < m.count ? m.items[at].sha : m.error_text;
@@ -505,7 +507,13 @@ void execute(const StoreCommand& c, float scroll) noexcept {
         start_pick(1);
         break;
     case StoreCommandKind::dev_reload:
-        application_effects_reload();
+        if (kind == CatalogKind::plugin)
+            application_catalog_dev_reload();
+        else
+            application_effects_reload();
+        break;
+    case StoreCommandKind::console_clear:
+        application_dev_console_clear();
         break;
     case StoreCommandKind::request_details:
         g->details_bytes = g->changelog_bytes = 0;
@@ -558,9 +566,16 @@ u64 sources_stamp() noexcept {
     h ^= (static_cast<u64>(application_effects_count()) << 20) ^ static_cast<u64>(application_effects_selected_index() + 1);
     h = h * 31 + theme.revision + (theme.custom_active ? 1 : 0) + (theme.previewing ? 2 : 0);
     h = h * 31 + status.revision + static_cast<u64>(status.phase);
-    h = h * 31 + (g_app.preferences.developer_mode ? 1 : 0);
+    h = h * 31 + (g_app.preferences.developer_mode ? 1 + 2 * static_cast<u64>(application_dev_console_revision()) : 0);
     const EffectUserSettings user = application_effects_user_settings();
     h = h * 31 + user.resolution + user.frame_rate * 7 + static_cast<u64>(user.budget) * 13 + static_cast<u64>(user.unfocused) * 17;
+    // A measured cost arrives a few frames after its effect starts drawing.
+    const EffectCost trial_cost = application_packages_preview_cost();
+    h = h * 31 + (trial_cost.known ? 1 : 0) + (trial_cost.refused ? 2 : 0) + static_cast<u64>(application_effects_trial_state()) * 4;
+    if (const i32 chosen = application_effects_selected_index(); chosen >= 0) {
+        const EffectCost cost = application_effects_cost(application_effects_identity(static_cast<u32>(chosen)));
+        h = h * 31 + (cost.known ? 1 : 0) + (cost.refused ? 2 : 0) + static_cast<u64>(cost.level) * 4 + static_cast<u64>(cost.milliseconds * 10.f);
+    }
     return h;
 }
 
@@ -639,8 +654,60 @@ void poll_picker() noexcept {
     request();
 }
 
-bool media_key(const void*, u32, MediaAssetKey*, u8*) noexcept {
-    return false;
+// The catalog picture behind a preview tile: its still, or the loop of an effect.
+bool preview_blob(const void*, u32 slot, bool loop, CatalogBlob* out) noexcept {
+    const CatalogIndex* index = application_catalog_view().index;
+    if (!g || !index || !slot || slot > g->model.count)
+        return false;
+    const u32 at = g->model.items[slot - 1].item;
+    if (at >= index->item_count)
+        return false;
+    const CatalogItem& item = index->items[at];
+    if (loop ? !item.has_loop : !item.preview_count)
+        return false;
+    *out = loop ? item.loop.blob : item.previews[0].blob;
+    return true;
+}
+
+bool media_key(const void*, u32 slot, const UiRect& rect, MediaAssetKey* key, u8* domain) noexcept {
+    if (!g_app.renderer.preview_media_atlas)
+        return false;
+    *domain = 1;
+    return store_previews_key(g->previews, g->preview_source, slot, store_preview_pixels(ui_rect_width(rect), g_app.renderer.dpi), key);
+}
+
+// The slot whose loop plays: an uninstalled effect's open detail, else the effect card under the pointer (after
+// a beat, so a pointer passing over does not flicker) or under keyboard focus. Never under reduced motion.
+u32 loop_slot(u64 now, bool* pending) noexcept {
+    *pending = false;
+    if (g_app.preferences.reduced_motion || g->kind != CatalogKind::effect || g->scene.dialog_open)
+        return 0;
+    const StorePageState& st = page();
+    if (st.detail) {
+        const u32 at = store_find_item(g->model, st.kind, {st.slug, c_string_length(st.slug)});
+        return !st.knobs && at < g->model.count && !g->model.items[at].installed ? at + 1 : 0;
+    }
+    const auto card = [](u32 action) noexcept -> u32 {
+        switch (store_act(action)) {
+        case StoreAct::card:
+        case StoreAct::card_primary:
+        case StoreAct::card_switch:
+        case StoreAct::card_settings:
+        case StoreAct::card_overflow:
+            return store_arg(action) < g->model.count ? store_arg(action) + 1 : 0;
+        default:
+            return 0;
+        }
+    };
+    if (g->scene.focus_visible && card(g->scene.focus_action))
+        return card(g->scene.focus_action);
+    const u32 hover = card(g->scene.hover_action);
+    if (hover != g->hover_slot) {
+        g->hover_slot = hover;
+        g->hover_since_ms = now;
+    }
+    *pending = hover && now - g->hover_since_ms < 300;
+    return hover && !*pending ? hover : 0;
 }
 
 void build_and_commit(UiSettingsScene* settings) noexcept {
@@ -651,7 +718,10 @@ void build_and_commit(UiSettingsScene* settings) noexcept {
     if (st.detail)
         store_model_fill_detail(&m, st.kind, {st.slug, c_string_length(st.slug)},
                                 {{g->details, g->details_bytes}, {g->changelog, g->changelog_bytes}, g->details_loading});
-    m.dev_folder = utf8_literal("%LOCALAPPDATA%\\MaiCord\\effects\\dev");
+    m.dev_folder = application_catalog_dev_folder(st.kind == CatalogKind::plugin ? 0 : 1);
+    if (!m.dev_folder.bytes)
+        m.dev_folder = st.kind == CatalogKind::plugin ? utf8_literal("%LOCALAPPDATA%\\MaiCord\\plugins\\dev")
+                                                      : utf8_literal("%LOCALAPPDATA%\\MaiCord\\effects\\dev");
     PackageStatus status = application_packages_status();
     StoreLink& l = m.link;
     reset_value(&l);
@@ -676,14 +746,26 @@ void build_and_commit(UiSettingsScene* settings) noexcept {
             l.effect_slug = {card->effect_slug, c_string_length(card->effect_slug)};
             l.has_effect = card->effect_slug[0] != 0;
             l.effect_installed = card->effect_installed;
-            const EffectCost cost = application_packages_preview_cost();
-            l.cost_known = cost.known;
-            l.cost_refused = cost.refused;
-            UiStoreBuilder sizes(&g->scene);
-            static_cast<void>(sizes);
+            l.bytes = card->bytes;
+            if (card->kind == PackageLinkKind::effect) {
+                // The card's picture is the candidate running as the window background at the Low budget, once.
+                if (!g->trial_asked) {
+                    g->trial_asked = true;
+                    application_packages_preview_start();
+                }
+                l.previewing = application_packages_previewing() && application_effects_trial_state() == EffectTrialState::drawing;
+                const EffectCost cost = application_packages_preview_cost();
+                l.cost_known = cost.known;
+                l.cost_refused = cost.refused;
+                l.cost_level = static_cast<u8>(cost.level);
+                if (cost.known)
+                    l.cost_text = store_cost_text(&m, cost, false);
+            }
         }
-    } else if (st.link_dialog) {
-        l.phase = 0;
+    } else {
+        g->trial_asked = false;
+        if (st.link_dialog)
+            l.phase = 0;
     }
     g->view = {message_composer_text(editor()), minimum(editor().anchor, editor().bytes), minimum(editor().caret, editor().bytes), g->editing,
                g->editing && application_window_keyboard_focus(), g->editing && application_window_keyboard_focus()};
@@ -726,6 +808,10 @@ void application_store_visible(bool visible, CatalogKind kind) noexcept {
             g->scene.active = false;
             g_app.renderer.settings_store = nullptr;
             application_packages_drop_enable(false);
+            // Nothing draws for a closed store: the pictures leave the atlas and a candidate effect's trial ends.
+            store_previews_release(&g->previews);
+            if (application_packages_previewing())
+                application_packages_cancel();
             if (g->trying) {
                 application_custom_theme_action(ApplicationCustomThemeAction::cancel);
                 end_trial();
@@ -735,9 +821,11 @@ void application_store_visible(bool visible, CatalogKind kind) noexcept {
     }
     if (!ensure())
         return;
+    g->preview_source = {nullptr, preview_blob};
     if (g->shown && g->kind != kind) {
         close_menu();
         leave_editor();
+        store_previews_release(&g->previews);
     }
     g->kind = kind;
     g->shown = true;
@@ -814,9 +902,20 @@ bool application_store_synchronize(UiSettingsScene* settings) noexcept {
     g->scene.media_context = g;
     g->scene.media_key = media_key;
     g_app.renderer.settings_store = &g->scene;
-    if (g->trying || g->picking)
+    // Pictures of the visible tiles; the loop frame, and the beat before a hovered card starts it, keep frames coming.
+    bool beat = false;
+    const u32 playing = loop_slot(now, &beat);
+    const u64 due = store_previews_pump(&g->previews, {&g->scene, &g->preview_source, playing, g_app.renderer.dpi, now});
+    if (g->previews.changes != g->preview_changes) {
+        // The renderer queues the pictures that are resident when it lays the scene out: do that again.
+        g->preview_changes = g->previews.changes;
+        ++g->scene.motion;
+        g->revisions[1] = g->scene.motion;
+        ++settings->motion_revision;
+    }
+    if (g->trying || g->picking || beat || due)
         application_request_frame();
-    return animating;
+    return animating || beat || due != 0;
 }
 
 // ---- Input -----------------------------------------------------------------------------------------------------
@@ -1223,6 +1322,7 @@ void application_store_release() noexcept {
     }
     if (g->trying)
         application_custom_theme_action(ApplicationCustomThemeAction::cancel);
+    store_previews_release(&g->previews);
     ui_markdown_bank_release(&g->bank);
     g_app.renderer.settings_store = nullptr;
     ui_store_scene_release(&g->scene);

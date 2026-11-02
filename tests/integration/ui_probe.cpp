@@ -109,7 +109,7 @@ bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
                             bool (*capture)(const wchar_t*) noexcept) noexcept;
 
 bool store_ui_probe(D3D11Renderer& renderer, PopupScene& popup, UiTextMeasureCache& cache, bool (*relayout)() noexcept,
-                    bool (*capture)(const wchar_t*) noexcept) noexcept;
+                    bool (*capture)(const wchar_t*, const Theme&) noexcept) noexcept;
 
 bool notification_settings_ui_probe(D3D11Renderer& renderer,
                                     bool (*capture)(const wchar_t*) noexcept) noexcept;
@@ -1998,7 +1998,6 @@ int run_probe() noexcept {
         }
         log_write(LogLevel::info, "probe", "native_renderer_bootstrap_passed");
     }
-    const bool plugin_catalog_requested = probe_option_enabled(L"MAICORD_PLUGIN_CATALOG_UI_PROBE");
     const bool caption_requested = probe_option_enabled(L"MAICORD_UI_CAPTION_PROBE");
     const bool inbox_requested = probe_option_enabled(L"MAICORD_INBOX_UI_PROBE");
     const bool notification_settings_requested =
@@ -2405,14 +2404,6 @@ int run_probe() noexcept {
         log_write(valid ? LogLevel::info : LogLevel::error, "probe",
                   valid ? "video_controls_injected_ui_passed" : "video_controls_injected_ui_failed");
         return finish_probe(valid ? 0 : 250);
-    }
-    if (plugin_catalog_requested) {
-        const bool valid =
-            initialize_fixture(true) && plugin_catalog_ui_probe(g_probe.renderer, probe_capture_frame);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "plugin_catalog_isolated_production_descriptors_passed"
-                        : "plugin_catalog_isolated_failed");
-        return finish_probe(valid ? 0 : 247);
     }
     if (caption_requested) {
         bool valid = initialize_fixture(true);

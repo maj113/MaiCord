@@ -271,7 +271,7 @@ bool composer_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* t
         if (index >= ui_plugin_slot_toolbar(kUiPluginSlotComposerToolbar, {nodes, kMessageComposerPluginSlots}))
             return false;
         return widget_target(scene.widgets, scene.plugin_slots[index], scope, g_app.account_ui->active_channel_id,
-                             application_plugins_slot_revision(), 0x180u + index,
+                             g_plugin_surface_revision, 0x180u + index,
                              nodes[index].tooltip.bytes ? nodes[index].tooltip : nodes[index].text, target);
     }
     default:
@@ -552,7 +552,7 @@ bool plugin_surface_target(UiPoint point, u64 scope, UiTooltipTarget* target) no
         !ui_rect_has_area(hit.anchor))
         return false;
     const u64 identity = hit.target.channel_id ? hit.target.channel_id : hit.target.guild_id;
-    *target = {{{hit.manager, hit.owner}, scope, identity, application_plugins_slot_revision(),
+    *target = {{{hit.manager, hit.owner}, scope, identity, g_plugin_surface_revision,
                 0x5700u + hit.target.surface * 4 + hit.index},
                hit.anchor,
                hit.label};

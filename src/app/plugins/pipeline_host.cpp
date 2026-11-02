@@ -2,6 +2,8 @@
 // clicks, typing, the actions a plugin may take, and kept messages on screen.
 #include "pipeline_host.hpp"
 #include "ui_host.hpp"
+#include "plugins.hpp"
+#include "surface_host.hpp"
 #include "maicord/app/plugins/dispatch.hpp"
 #include "maicord/protocol/user/relationships.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -722,7 +724,8 @@ void application_plugins_pipeline_gateway(const GatewayClientEvent& event, Const
     }
 }
 
-void application_plugins_pipeline_poll() noexcept {
+namespace {
+void poll_pipeline() noexcept {
     // With no plugin keeping or listening this is a handful of loads.
     const bool keepers = plugin_hook_subscribed(PluginHook::message_deleted) ||
                          plugin_hook_subscribed(PluginHook::message_edited);
@@ -759,12 +762,22 @@ void application_plugins_pipeline_poll() noexcept {
     }
     if (pending || due) application_request_frame();
 }
+} // namespace
 
-u32 application_plugins_pipeline_wait_timeout(u64 now_ms) noexcept {
+// Once per loop pass: what plugins changed since the UI last built from it, the pipeline's queues and timers,
+// and the composer notice that has run out.
+void application_plugins_poll() noexcept {
+    application_plugins_composer_notice_poll(clock_monotonic_milliseconds());
+    application_plugin_surfaces_poll();
+    poll_pipeline();
+}
+
+u32 application_plugins_wait_timeout(u64 now_ms) noexcept {
+    u32 wait = application_plugins_composer_notice_wait(now_ms);
     if (plugin_events_pending()) return 0;
     const u64 due = plugin_timers_next_due();
-    if (!due) return INFINITE;
-    return due <= now_ms ? 0 : static_cast<u32>(minimum<u64>(due - now_ms, 0x7FFFFFFFu));
+    if (due) wait = minimum(wait, due <= now_ms ? 0u : static_cast<u32>(minimum<u64>(due - now_ms, 0x7FFFFFFFu)));
+    return wait;
 }
 
 bool application_plugins_message_click(LPARAM lparam, bool middle, u32 count) noexcept {

@@ -365,6 +365,8 @@ constexpr PluginReader kReader{reader_user, reader_channel, reader_guild, reader
 } // namespace
 
 void application_plugin_surfaces_prepare() noexcept {
+    // The scene reads cached verdicts through the installed query; with none installed every row skips the lookup.
+    g_app.message_scene.plugin_decorations = true;
     g_plugin_reader = &kReader;
     const PluginSurfaceHost* host = g_plugin_surfaces;
     if (!host || !g_app.account_ui || g_app.login.visible) {
@@ -384,7 +386,8 @@ void application_plugin_surfaces_prepare() noexcept {
 }
 
 bool application_plugin_surfaces_stale() noexcept {
-    return g_plugin_surfaces && (g_host.pending || g_host.rendered_revision != g_plugin_surface_revision);
+    // A plugin that just left changed the revision too: its decorations leave the text on the next build.
+    return (g_plugin_surfaces && g_host.pending) || g_host.rendered_revision != g_plugin_surface_revision;
 }
 
 void application_plugin_surfaces_rendered() noexcept {
@@ -439,8 +442,12 @@ bool application_plugin_surfaces_activate(u64 owner_id, const PluginSurfaceTarge
 }
 
 bool application_plugin_surfaces_text_click(const MessageTextHit& hit) noexcept {
+    if (!hit.valid || hit.kind != MessageMarkdownSemanticKind::link ||
+        !ui_plugin_render_source(static_cast<u16>(hit.source_offset >> 16u)) || !hit.message_id)
+        return false;
     const PluginSurfaceHost* host = g_plugin_surfaces;
-    if (!host || !hit.valid || !hit.message_id) return false;
+    // The plugin that wrote the link is gone: it means nothing now.
+    if (!host) return true;
     const MessageStore& store = g_app.message_view.store;
     const MessageStoreResult found = message_store_find(store, hit.message_id);
     const MessageRecord* record = found.ok() ? message_store_resolve(store, found.handle) : nullptr;

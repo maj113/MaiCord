@@ -513,12 +513,8 @@ GatewayClientPopResult application_pop_account_gateway(void* source, GatewayClie
         *event, {reinterpret_cast<const char*>(payload_output.data), popped.payload_bytes});
     if (event->kind == GatewayClientEventKind::ready)
         application_plugins_account_scope_invalidated();
-    // Plugin events copy from the cached state before the pump applies the event.
-    // An oversized guild record lives outside this buffer; its event goes without a name.
-    application_plugins_gateway(*event, popped.payload_bytes <= payload_output.count
-                                            ? ConstSlice<u8>{payload_output.data, popped.payload_bytes}
-                                            : ConstSlice<u8>{});
-    // Kept deletions and edits, and the plugin event feed, see the event before the stores apply it.
+    // Kept deletions and edits, and the plugin event feed, copy from the cached state before the pump applies the
+    // event. An oversized guild record lives outside this buffer; its event goes without a name.
     application_plugins_pipeline_gateway(*event, popped.payload_bytes <= payload_output.count
                                                      ? ConstSlice<u8>{payload_output.data, popped.payload_bytes}
                                                      : ConstSlice<u8>{});

@@ -895,9 +895,6 @@ bool application_search_navigation_source(const ApplicationSearchSourceTicket&,
 bool application_search_source_notice(const ApplicationSearchSourceTicket&, Utf8View) noexcept {
     return false;
 }
-bool application_plugins_slot_action(u64, NativePluginSdkSlotTarget, u64) noexcept {
-    return false;
-}
 bool application_friends_active() noexcept {
     return false;
 }

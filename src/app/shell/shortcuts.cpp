@@ -268,7 +268,6 @@ bool application_custom_keybind_input(UiInputKind kind, u32 code, bool repeated)
 }
 
 void application_shortcuts_pump() noexcept {
-    application_plugins_keybinds_synchronize();
     const auto& keybinds = application_custom_keybinds();
     const bool background = g_app.window && !application_window_foreground();
     if (!background || !keybinds.count || !in_call()) {

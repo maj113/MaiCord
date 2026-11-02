@@ -97,7 +97,12 @@ bool avatar_backed(const UiSettingsPageContent& content, u32 index) noexcept;
 const UiSettingsListItem* list_item(const UiSettingsPageContent& content, u32 index) noexcept;
 bool list_style(const UiSettingsPageContent& content, u32 index, UiSettingsListStyle style) noexcept;
 bool progress(const UiSettingsPageContent& content, u32 index) noexcept;
-float button_label_width(const Utf8View& label) noexcept;
+float button_label_width(const UiKitMeasure* measure, const Utf8View& label) noexcept;
+// A status card's action leads with a 16 DIP refresh glyph unless it is running (spinner) or fills as a progress
+// button. With the glyph the pair is centred in the button; the label then starts after the glyph.
+inline constexpr float kStatusGlyphSize = 16, kStatusGlyphGap = 8;
+bool status_glyph(const UiSettingsPageContent& content, u32 index) noexcept;
+UiRect status_button_label(const UiKitMeasure* measure, const Utf8View& label, const UiRect& button, UiRect* glyph) noexcept;
 ListParts list_parts(const UiSettingsLayoutTokens& t, const UiSettingsPageContent& content, u32 index,
                      const UiRect& row) noexcept;
 // True when the row's presentation `more` byte has `flag` (UiSettingsPresentationMore).
@@ -160,6 +165,7 @@ bool apply_scroll(UiSettingsScene* scene, bool sidebar, float previous) noexcept
 bool visit_targets(const UiSettingsScene& scene, UiSettingsFocusZone zone,
                    UiVisitRef<UiSettingsTarget> visit) noexcept;
 UiSettingsFocusZone zone_of(const UiSettingsTarget& target) noexcept;
-UiRect option_rect(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiRect& field, u32 index) noexcept;
+UiRect option_rect(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiRect& field, u32 index,
+                   const UiKitMeasure* measure) noexcept;
 
 } // namespace maicord::settings_scene_detail

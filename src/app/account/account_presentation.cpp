@@ -35,6 +35,7 @@
 #include "../voice/voice.hpp"
 #include "../voice/application_voice_message.hpp"
 #include "../plugins/plugins.hpp"
+#include "../plugins/surface_host.hpp"
 #include "../chat/private_channel.hpp"
 #include "../settings/user_settings.hpp"
 #include "../chat/messages/intro.hpp"
@@ -373,10 +374,7 @@ bool synchronize_shell_widget_scenes() noexcept {
                 application_message_mutation_notice_is_error() ||
                     application_composer_status_notice_is_error() || voice_notice_error,
                 !application_reply_draft().message_id ||
-                    application_channel_readable(g_app, application_reply_draft().channel_id),
-                account_notice.bytes && account_notice.data == application_plugins_composer_notice().data
-                    ? application_plugins_composer_notice_tone()
-                    : u8{0})
+                    application_channel_readable(g_app, application_reply_draft().channel_id))
                 .ok());
         // Someone typing animates the dots; a notice in that row does not.
         g_app.message_composer_scene.typing_dots = typing_label.bytes && typing_label.data == typing_label_storage;
@@ -726,7 +724,7 @@ bool account_text_sources_stale(const AccountUiRuntime& ui) noexcept {
            ui.rendered_typing_revision != ui.typing_store.revision ||
            ui.rendered_permission_mutations != ui.chat_state.permission_mutations ||
            ui.rendered_composer_revision != g_app.message_composer.revision ||
-           application_plugins_slots_stale() || application_plugins_render_stale() ||
+           application_plugin_surfaces_stale() ||
            ui.rendered_channel_id != ui.active_channel_id;
 }
 bool account_polls_expired(const AccountUiRuntime& ui, u64 now_ms) noexcept {
@@ -796,7 +794,7 @@ bool refresh_shell_text(bool force) noexcept {
         ui.chat_state.private_channels ? ui.chat_state.private_channels->revision : 0;
     const bool retry_pending = ui.text_rebuild_retry_at_ms && application_account_text_retry_eligible();
     // Plugin decorators run here, bounded, before text reads their verdicts.
-    application_plugins_render_prepare();
+    application_plugin_surfaces_prepare();
     const bool stale = force || retry_pending || account_text_sources_stale(ui);
     if (!stale) {
         return true;
@@ -869,8 +867,7 @@ bool refresh_shell_text(bool force) noexcept {
     ui.rendered_typing_revision = ui.typing_store.revision;
     ui.rendered_permission_mutations = ui.chat_state.permission_mutations;
     ui.rendered_composer_revision = g_app.message_composer.revision;
-    application_plugins_slots_rendered();
-    application_plugins_render_rendered();
+    application_plugin_surfaces_rendered();
     ui.rendered_channel_id = ui.active_channel_id;
     if (retry_pending)
         application_request_frame();

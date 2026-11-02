@@ -1,6 +1,5 @@
-// Plugin rows in native context menus (mc.ui.menus@2). Projection copies the
-// SDK's items and the target's identity; dispatch dismisses the borrowing
-// popup, revalidates the copy and only then enters the plugin.
+// Plugin rows in native context menus. Projection copies the plugins' items and the target's identity;
+// dispatch dismisses the borrowing popup, revalidates the copy and only then enters the plugin.
 #include "plugins.hpp"
 #include "maicord/core/memory.hpp"
 #include "../settings/settings.hpp"
@@ -15,7 +14,6 @@
 #include "maicord/ui/shell/navigation_context.hpp"
 #include "../account/account_presentation.hpp"
 #include "../chat/composer/composer.hpp"
-#include "maicord/app/plugins/ui.hpp"
 #include "maicord/ui/widgets/menu_row.hpp"
 #include "../account/account_ui_runtime.hpp"
 
@@ -30,10 +28,6 @@ bool popup_borrows_plugin_items() noexcept {
     for (u32 i = 0; i < g_app.popup_scene.item_count; ++i)
         if (application_plugins_menu_action_id(g_app.popup_scene.items[i].action)) return true;
     return false;
-}
-NativePluginSdkRuntime* runtime() noexcept {
-    auto* host = application_settings_plugin_host_current();
-    return host ? host->sdk : nullptr;
 }
 bool surfaces_available() noexcept {
     return g_app.account_ui && !g_app.login.visible && !application_settings_active() && !g_app.text_form;
@@ -67,7 +61,7 @@ bool capture(ApplicationPluginMenu& menu, Surface surface, u64 id, u64 guild_id)
         menu.user_id = id;
         menu.popup_owner = static_cast<u8>(PopupOwnerKind::member);
         menu.popup_owner_id = id;
-        if (id == self) menu.flags |= MC_MENU_OWN;
+        if (id == self) menu.flags |= kPluginMenuTargetOwn;
         if (guild_id) {
             const auto* guild = chat_state_store_find_guild(chat, guild_id);
             if (!guild) return false;
@@ -94,8 +88,8 @@ bool capture(ApplicationPluginMenu& menu, Surface surface, u64 id, u64 guild_id)
         menu.channel_id = record->channel_id;
         menu.message_id = id;
         menu.guild_id = channel ? channel->guild_id : 0;
-        if (record->author_id && record->author_id == self) menu.flags |= MC_MENU_OWN;
-        if (channel && channel_is_private(channel->type)) menu.flags |= MC_MENU_PRIVATE;
+        if (record->author_id && record->author_id == self) menu.flags |= kPluginMenuTargetOwn;
+        if (channel && channel_is_private(channel->type)) menu.flags |= kPluginMenuTargetPrivate;
         menu.popup_owner = static_cast<u8>(PopupOwnerKind::message);
         menu.popup_owner_id = id;
         menu.target_revision = record->revision;
@@ -108,7 +102,7 @@ bool capture(ApplicationPluginMenu& menu, Surface surface, u64 id, u64 guild_id)
         const auto* record = chat_state_store_find_channel(chat, id);
         menu.channel_id = id;
         menu.guild_id = record->guild_id;
-        if (channel_is_private(record->type)) menu.flags |= MC_MENU_PRIVATE;
+        if (channel_is_private(record->type)) menu.flags |= kPluginMenuTargetPrivate;
         if (record->type == 1) menu.recipient_id = menu.user_id = dm_recipient(id);
         menu.popup_owner = static_cast<u8>(channel_owner(id));
         menu.popup_owner_id = id;
@@ -169,74 +163,17 @@ bool target_current(const ApplicationPluginMenu& menu, bool popup_scope = true) 
     }
     return false;
 }
-// Appends target's items while rows remain.
-void project(ApplicationPluginMenu& menu, const NativePluginSdkRuntime& sdk, u32 target, u32 capacity) noexcept {
-    NativePluginSdkMenuItem items[kApplicationPluginMenuRows]{};
-    const u32 count = native_plugin_sdk_menu_items(sdk, target, {items, kApplicationPluginMenuRows});
-    for (u32 i = 0; i < count && menu.count < capacity; ++i) {
-        auto& row = menu.rows[menu.count++];
-        row.owner_id = items[i].owner_id;
-        row.item_id = items[i].item_id;
-        row.target = target;
-        row.flags = items[i].flags;
-        u16 bytes = 0;
-        copy_text(row.label, kPluginSdkMenuLabelBytes, items[i].label, &bytes);
-        row.label_bytes = bytes;
-    }
-}
-NativePluginSdkMenuContext context_for(const ApplicationPluginMenu& menu, const ApplicationPluginMenuRow& row) noexcept {
-    NativePluginSdkMenuContext context{};
-    context.target = row.target;
-    switch (row.target) {
-    case MC_MENU_USER:
-        context.user_id = menu.surface == Surface::channel ? menu.recipient_id : menu.user_id;
-        context.guild_id = menu.guild_id;
-        context.channel_id = menu.surface == Surface::channel ? menu.channel_id : 0;
-        if (context.user_id && context.user_id == g_app.account_ui->chat_state.self_user_id)
-            context.flags = MC_MENU_OWN;
-        break;
-    case MC_MENU_CHANNEL:
-        context.channel_id = menu.channel_id;
-        context.guild_id = menu.guild_id;
-        context.user_id = menu.recipient_id;
-        context.flags = menu.flags & MC_MENU_PRIVATE;
-        break;
-    case MC_MENU_GUILD:
-        context.guild_id = menu.guild_id;
-        break;
-    default: // message, attachment, link and emoji rows share the message identity
-        context.user_id = menu.user_id;
-        context.channel_id = menu.channel_id;
-        context.message_id = menu.message_id;
-        context.guild_id = menu.guild_id;
-        context.flags = menu.flags & (MC_MENU_OWN | MC_MENU_PRIVATE);
-        if (row.target == MC_MENU_ATTACHMENT) context.attachment_index = menu.attachment_index;
-        if (row.target == MC_MENU_EMOJI) {
-            context.emoji_id = menu.emoji_id;
-            context.flags |= menu.flags & MC_MENU_ANIMATED;
-        }
-        if (row.target != MC_MENU_MESSAGE) {
-            if (row.target != MC_MENU_EMOJI) context.url = {menu.url, menu.url_bytes};
-            context.text = {menu.text, menu.text_bytes};
-        }
-        break;
-    }
-    return context;
-}
-// ---- ABI-6 plugins -------------------------------------------------------------------------
-void clear() noexcept;
 
-static_assert(kPluginMenuTargetOwn == MC_MENU_OWN && kPluginMenuTargetPrivate == MC_MENU_PRIVATE &&
-              kPluginMenuTargetAnimated == MC_MENU_ANIMATED && kPluginMenuLabelBytes == kPluginSdkMenuLabelBytes);
+void clear() noexcept { reset_value(&g_menu); }
 
-bool native_menus_present() noexcept {
+bool menus_present() noexcept {
     for (u8 kind = 0; kind <= static_cast<u8>(PluginMenuKind::emoji); ++kind)
         if (plugin_menu_present(static_cast<PluginMenuKind>(kind))) return true;
     return false;
 }
 
-// The target a native row's plugin sees: the captured identity, per kind.
-PluginMenuTarget native_target(const ApplicationPluginMenu& menu, PluginMenuKind kind) noexcept {
+// The target a row's plugin sees: the captured identity, per kind.
+PluginMenuTarget plugin_target(const ApplicationPluginMenu& menu, PluginMenuKind kind) noexcept {
     PluginMenuTarget target{};
     target.kind = kind;
     switch (kind) {
@@ -280,38 +217,31 @@ PluginMenuTarget native_target(const ApplicationPluginMenu& menu, PluginMenuKind
     return target;
 }
 
-void add_native(ApplicationPluginMenu& menu, const PluginMenuRow& source, u32 kind) noexcept {
+void add_row(ApplicationPluginMenu& menu, const PluginMenuRow& source, u32 kind) noexcept {
     auto& row = menu.rows[menu.count++];
     row = {};
     row.owner_id = source.owner_id;
     row.item_id = source.item;
     row.target = kind;
     row.flags = source.flags;
-    row.native = true;
     copy_bytes(row.label, source.label, source.label_bytes);
     row.label_bytes = source.label_bytes;
 }
 
-// Appends the ABI-6 plugins' items for kind while rows remain.
-void project_native(ApplicationPluginMenu& menu, PluginMenuKind kind, u32 capacity) noexcept {
+// Appends the plugins' items for kind while rows remain.
+void project(ApplicationPluginMenu& menu, PluginMenuKind kind, u32 capacity) noexcept {
     if (menu.count >= capacity) return;
     PluginMenuRow rows[kApplicationPluginMenuRows];
-    const u32 count = plugin_menu_collect(native_target(menu, kind), {rows, capacity - menu.count});
-    for (u32 i = 0; i < count; ++i) add_native(menu, rows[i], static_cast<u32>(kind));
+    const u32 count = plugin_menu_collect(plugin_target(menu, kind), {rows, capacity - menu.count});
+    for (u32 i = 0; i < count; ++i) add_row(menu, rows[i], static_cast<u32>(kind));
 }
 
 PopupItem popup_item(const ApplicationPluginMenuRow& row, u32 index) noexcept {
-    u32 flags;
-    if (row.native) {
-        flags = (row.flags & kPluginMenuRowDisabled) ? 0u : static_cast<u32>(popup_item_enabled);
-        if (row.flags & kPluginMenuRowDanger) flags |= popup_item_danger;
-        if (row.flags & kPluginMenuRowChecked) flags |= popup_item_checked;
-    } else {
-        flags = (row.flags & MC_MENU_ITEM_DISABLED) ? 0u : static_cast<u32>(popup_item_enabled);
-        if (row.flags & MC_MENU_ITEM_DANGER) flags |= popup_item_danger;
-    }
+    u32 flags = (row.flags & kPluginMenuRowDisabled) ? 0u : static_cast<u32>(popup_item_enabled);
+    if (row.flags & kPluginMenuRowDanger) flags |= popup_item_danger;
+    if (row.flags & kPluginMenuRowChecked) flags |= popup_item_checked;
     PopupItem item{{row.label, row.label_bytes}, kApplicationPluginPopupActionFirst + index, static_cast<u16>(flags)};
-    if (row.native && (row.flags & kPluginMenuRowSubmenu))
+    if (row.flags & kPluginMenuRowSubmenu)
         item.presentation = ui_menu_row_presentation(UiIcon::chevron_right, false, UiMenuIconPlacement::trailing);
     return item;
 }
@@ -321,7 +251,7 @@ bool open_submenu(const ApplicationPluginMenuRow& parent_row) noexcept {
     ApplicationPluginMenu& menu = g_menu;
     const ApplicationPluginMenuRow parent = parent_row; // the rows are replaced below
     PluginMenuRow children[kApplicationPluginMenuRows];
-    const u32 count = plugin_menu_children(native_target(menu, static_cast<PluginMenuKind>(parent.target)),
+    const u32 count = plugin_menu_children(plugin_target(menu, static_cast<PluginMenuKind>(parent.target)),
                                            parent.owner_id, static_cast<u32>(parent.item_id),
                                            {children, kApplicationPluginMenuRows});
     if (!count) { dismiss_popup(); clear(); return true; }
@@ -330,7 +260,7 @@ bool open_submenu(const ApplicationPluginMenuRow& parent_row) noexcept {
     menu.bound = false;
     PopupItem items[kApplicationPluginMenuRows];
     for (u32 i = 0; i < count; ++i) {
-        add_native(menu, children[i], parent.target);
+        add_row(menu, children[i], parent.target);
         items[i] = popup_item(menu.rows[i], i);
     }
     const auto owner = static_cast<PopupOwnerKind>(menu.popup_owner);
@@ -346,12 +276,11 @@ bool open_submenu(const ApplicationPluginMenuRow& parent_row) noexcept {
     return true;
 }
 
-void run_native(const ApplicationPluginMenu& menu, const ApplicationPluginMenuRow& row) noexcept {
-    const PluginMenuRun ran = plugin_menu_activate(native_target(menu, static_cast<PluginMenuKind>(row.target)),
+void run(const ApplicationPluginMenu& menu, const ApplicationPluginMenuRow& row) noexcept {
+    const PluginMenuRun ran = plugin_menu_activate(plugin_target(menu, static_cast<PluginMenuKind>(row.target)),
                                                    row.owner_id, static_cast<u32>(row.item_id));
     if (ran != PluginMenuRun::ran) log_u64(LogLevel::warning, "plugins", "menu_activation_refused", row.owner_id);
 }
-void clear() noexcept { reset_value(&g_menu); }
 } // namespace
 
 bool application_plugins_menu_action_id(u32 action) noexcept {
@@ -371,8 +300,7 @@ void application_plugins_account_scope_invalidated() noexcept {
 }
 u32 application_plugins_menu_items(Surface surface, u64 id, Slice<PopupItem> output, u64 guild_id,
                                    const ApplicationPluginMenuExtra* extra) noexcept {
-    const auto* sdk = runtime();
-    if (!output.data || !output.count || (!sdk && !native_menus_present())) return 0;
+    if (!output.data || !output.count || !menus_present()) return 0;
     // Dismiss an earlier borrowing menu before replacing its labels: a failed
     // open could otherwise leave old rows pointing at new copies.
     if (g_menu.count && (g_menu.bound || popup_borrows_plugin_items()) && g_app.popup_scene.active && !dismiss_popup())
@@ -380,41 +308,31 @@ u32 application_plugins_menu_items(Surface surface, u64 id, Slice<PopupItem> out
     clear();
     ApplicationPluginMenu& menu = g_menu;
     if (!capture(menu, surface, id, surface == Surface::user ? guild_id : 0)) { clear(); return 0; }
-    menu.menu_revision = sdk ? sdk->menu_revision : 0;
-    menu.native_revision = plugin_ui_revision();
+    menu.revision = plugin_ui_revision();
     const u32 capacity = minimum(output.count, kApplicationPluginMenuRows);
-    // Rows of both kinds of plugin for one target: ABI-5 first, then ABI-6.
-    const auto both = [&](u32 legacy, PluginMenuKind kind) noexcept {
-        if (sdk) project(menu, *sdk, legacy, capacity);
-        project_native(menu, kind, capacity);
-    };
-    if (surface == Surface::message && extra &&
-        (extra->target == MC_MENU_LINK || extra->target == MC_MENU_ATTACHMENT || extra->target == MC_MENU_EMOJI)) {
-        menu.attachment_index = extra->target == MC_MENU_ATTACHMENT ? extra->attachment_index : 0;
-        menu.emoji_id = extra->target == MC_MENU_EMOJI ? extra->emoji_id : 0;
-        if (extra->target == MC_MENU_EMOJI && extra->animated) menu.flags |= MC_MENU_ANIMATED;
-        if (extra->target != MC_MENU_EMOJI) copy_text(menu.url, kPluginSdkUrlBytes, extra->url, &menu.url_bytes);
+    if (surface == Surface::message && extra) {
+        menu.attachment_index = extra->target == PluginMenuKind::image ? extra->attachment_index : 0;
+        menu.emoji_id = extra->target == PluginMenuKind::emoji ? extra->emoji_id : 0;
+        if (extra->target == PluginMenuKind::emoji && extra->animated) menu.flags |= kPluginMenuTargetAnimated;
+        if (extra->target != PluginMenuKind::emoji) copy_text(menu.url, kApplicationPluginMenuUrlBytes, extra->url, &menu.url_bytes);
         copy_text(menu.text, kApplicationPluginMenuTextBytes, extra->text, &menu.text_bytes);
-        if (extra->target == MC_MENU_ATTACHMENT) {
+        if (extra->target == PluginMenuKind::image) {
             menu.attachment_id = extra->attachment_id;
             menu.width = extra->width;
             menu.height = extra->height;
             copy_text(menu.content_type, sizeof(menu.content_type), extra->content_type, &menu.content_type_bytes);
         }
-        if (sdk) project(menu, *sdk, extra->target, capacity);
-        if (extra->target == MC_MENU_LINK) project_native(menu, PluginMenuKind::link, capacity);
-        else if (extra->target == MC_MENU_EMOJI) project_native(menu, PluginMenuKind::emoji, capacity);
-        else if (extra->image) project_native(menu, PluginMenuKind::image, capacity);
+        project(menu, extra->target, capacity);
     }
     switch (surface) {
     case Surface::user:
-    case Surface::friends: both(MC_MENU_USER, PluginMenuKind::user); break;
-    case Surface::message: both(MC_MENU_MESSAGE, PluginMenuKind::message); break;
+    case Surface::friends: project(menu, PluginMenuKind::user, capacity); break;
+    case Surface::message: project(menu, PluginMenuKind::message, capacity); break;
     case Surface::channel:
-        both(MC_MENU_CHANNEL, PluginMenuKind::channel);
-        if (menu.recipient_id) both(MC_MENU_USER, PluginMenuKind::user);
+        project(menu, PluginMenuKind::channel, capacity);
+        if (menu.recipient_id) project(menu, PluginMenuKind::user, capacity);
         break;
-    case Surface::guild: both(MC_MENU_GUILD, PluginMenuKind::guild); break;
+    case Surface::guild: project(menu, PluginMenuKind::guild, capacity); break;
     case Surface::none: break;
     }
     if (!menu.count) { clear(); return 0; }
@@ -442,48 +360,26 @@ bool application_plugins_menu_bind() noexcept {
     g_menu.bound = true;
     return true;
 }
-void application_plugins_detach_owner(u64 owner_id) noexcept {
-    if (!owner_id) return;
-    for (u32 i = 0; i < g_menu.count; ++i)
-        if (g_menu.rows[i].owner_id == owner_id) {
-            if (g_app.popup_scene.active && (g_menu.bound || popup_borrows_plugin_items())) dismiss_popup();
-            clear();
-            return;
-        }
-}
 bool application_plugins_menu_action(u32 action) noexcept {
     if (!application_plugins_menu_action_id(action)) return false;
     const u32 index = action - kApplicationPluginPopupActionFirst;
-    const auto* sdk = runtime();
     const bool known = g_menu.bound && index < g_menu.count;
-    const bool native = known && g_menu.rows[index].native;
-    const bool stale = !known || (native ? g_menu.native_revision != plugin_ui_revision()
-                                         : !sdk || g_menu.menu_revision != sdk->menu_revision);
-    const bool disabled = known && (native ? (g_menu.rows[index].flags & kPluginMenuRowDisabled) != 0
-                                           : (g_menu.rows[index].flags & MC_MENU_ITEM_DISABLED) != 0);
+    const bool stale = !known || g_menu.revision != plugin_ui_revision();
+    const bool disabled = known && (g_menu.rows[index].flags & kPluginMenuRowDisabled) != 0;
     if (stale || disabled || !g_app.popup_scene.active || g_menu.popup_opens != g_app.popup_scene.opens ||
         g_menu.popup_generation != g_app.popup_scene.widgets.generation || !target_current(g_menu)) {
         dismiss_popup();
         clear();
         return true;
     }
-    if (native && (g_menu.rows[index].flags & kPluginMenuRowSubmenu)) return open_submenu(g_menu.rows[index]);
+    if (g_menu.rows[index].flags & kPluginMenuRowSubmenu) return open_submenu(g_menu.rows[index]);
     // Everything dispatch needs is copied; the popup's labels die with it.
     const ApplicationPluginMenu expected = g_menu;
     const auto row = expected.rows[index];
     if (!dismiss_popup()) { clear(); return true; }
     clear();
-    if (row.native) {
-        if (expected.native_revision != plugin_ui_revision() || !target_current(expected, false)) return true;
-        run_native(expected, row);
-        application_request_frame();
-        return true;
-    }
-    auto* current = runtime();
-    if (!current || current->menu_revision != expected.menu_revision || !target_current(expected, false)) return true;
-    const auto context = context_for(expected, row);
-    if (!native_plugin_sdk_menu_activate(current, row.owner_id, row.item_id, context))
-        log_u64(LogLevel::warning, "plugins", "menu_activation_refused", row.owner_id);
+    if (expected.revision != plugin_ui_revision() || !target_current(expected, false)) return true;
+    run(expected, row);
     application_request_frame();
     return true;
 }

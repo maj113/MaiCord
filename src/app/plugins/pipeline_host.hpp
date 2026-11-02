@@ -15,10 +15,11 @@ void application_plugins_pipeline_install() noexcept;
 // One popped Gateway event, before the stores apply it: MESSAGE_DELETED and MESSAGE_EDITED hooks see the
 // cached copy, and the event feed queues what some plugin asked for. A no-op without a subscriber.
 void application_plugins_pipeline_gateway(const GatewayClientEvent&, ConstSlice<u8> payload) noexcept;
-// Once per loop pass: delivers queued events, runs due timers and puts tombstones back on screen.
-void application_plugins_pipeline_poll() noexcept;
-// Milliseconds until the pipeline needs a pass (0: now, INFINITE: never).
-u32 application_plugins_pipeline_wait_timeout(u64 now_ms) noexcept;
+// Once per loop pass: what plugins changed since the UI last built from it (decorations, buttons), delivers
+// queued events, runs due timers, puts tombstones back on screen and clears an expired composer notice.
+void application_plugins_poll() noexcept;
+// Milliseconds until plugins need a pass (0: now, INFINITE: never).
+u32 application_plugins_wait_timeout(u64 now_ms) noexcept;
 // A click on the message under the pointer (a left press, a left double click or a middle press).
 // True when a plugin handled it and the application must skip its own handling.
 bool application_plugins_message_click(LPARAM lparam, bool middle, u32 count) noexcept;

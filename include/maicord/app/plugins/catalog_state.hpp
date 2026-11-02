@@ -3,9 +3,8 @@
 #include "maicord/app/account/login/acceptance_record.hpp"
 #include "maicord/app/plugins/catalog_index.hpp"
 
-// The catalog's one state file (%LOCALAPPDATA%\MaiCord\catalog-state.bin: "plugins.bin" v2, renamed so the
-// ABI-5 plugins.bin it replaces can't overwrite it): every installed plugin, theme and effect with its
-// version and SHA-256, the permissions and hosts the user approved, whether it is on, automatic updates,
+// The catalog's one state file (%LOCALAPPDATA%\MaiCord\catalog-state.bin): every installed plugin, theme and
+// effect with its version and SHA-256, the permissions and hosts the user approved, whether it is on, automatic updates,
 // the previous version kept for rollback, and the catalog's replay floor. Pure encode and decode plus the
 // record IO of acceptance_record.hpp (atomic replace).
 namespace maicord {

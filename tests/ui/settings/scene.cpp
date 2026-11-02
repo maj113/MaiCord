@@ -861,7 +861,7 @@ void build_card_fixture(CardFixture* f) noexcept {
     f->controls[3] = {4, utf8_literal("Volume"), {}, UiSettingsControlKind::slider, true, false, {f->values, 11}, 5};
     f->controls[4] = {5, utf8_literal("Channel"), utf8_literal("Stable or preview builds."), UiSettingsControlKind::segments,
                       true, false, {f->channel, 2}, 0};
-    f->controls[5] = {6, utf8_literal("You're up to date"), utf8_literal("MaiCord 0.5.4 - Stable channel"),
+    f->controls[5] = {6, utf8_literal("You're up to date"), utf8_literal("MaiCord 0.5.4 \xC2\xB7 Stable channel"),
                       UiSettingsControlKind::status, true, false, {f->chips, 2}, 0, utf8_literal("Check now")};
     f->controls[5].detail = utf8_literal("Takes a few seconds");
     f->controls[6] = {7, utf8_literal("MaiCord 0.5.4"), utf8_literal("Nov 1"), UiSettingsControlKind::disclosure, true, false};
@@ -883,6 +883,7 @@ void build_card_fixture(CardFixture* f) noexcept {
     f->meters[5] = 500;
     f->presentation[5].chip_tones = ui_settings_chip_positive << 2;
     f->presentation[5].icon_plus_one = static_cast<u8>(UiIcon::circle_check) + 1;
+    f->presentation[5].more = ui_settings_more_bold_lead;
     f->presentation[6].variant = UiSettingsVariant::primary;
     f->presentation[7].more = ui_settings_more_plain;
     f->content = {utf8_literal("Updates"), utf8_literal("MaiCord updates itself from signed releases."), {f->controls, 11}, 1};
@@ -984,7 +985,9 @@ void test_card_pages(Check check) noexcept {
                    ui_text_command_stream_initialize(&stream, {commands, 160}) &&
                    ui_settings_scene_text_output(scene, kDefaultTheme, &output);
     bool title = false, subtitle = false, hint = false, caption = false, tag = false, link = false, styled = false, eyebrow = false,
-         esc = false, heading = false, button_rect = false, button_clip = false, segment_rect = false;
+         esc = false, heading = false, button_rect = false, button_clip = false, segment_rect = false, lead = false,
+         rest = false;
+    u32 bullets = 0;
     for (u32 i = 0; painted && i < stream.count; ++i) {
         const auto& c = commands[i];
         title = title || (utf8_equal(c.text, utf8_literal("Updates")) && (c.style_flags & text_style_heading_1) &&
@@ -994,14 +997,19 @@ void test_card_pages(Check check) noexcept {
         caption = caption || utf8_equal(c.text, utf8_literal("Takes a few seconds"));
         tag = tag || utf8_equal(c.text, utf8_literal("dev.38"));
         link = link || utf8_equal(c.text, utf8_literal("Show all notes"));
-        styled = styled || (c.styles.count >= 1 && c.text.bytes > 100);
+        // Each list item is its own themed command with a bullet of its own hanging in front of it.
+        styled = styled || (c.effect.themed_styles && c.styles.count >= 1 && c.text.bytes > 20);
+        bullets += c.text.bytes == 3 && utf8_equal(c.text, utf8_literal("\xE2\x80\xA2"));
         eyebrow = eyebrow || utf8_equal(c.text, utf8_literal("MAICORD"));
         esc = esc || utf8_equal(c.text, utf8_literal("ESC"));
         heading = heading || (utf8_equal(c.text, utf8_literal("You're up to date")) && (c.style_flags & text_style_heading_2));
         if (utf8_equal(c.text, utf8_literal("Check now"))) {
-            button_rect = close_to(c.rectangle.left, status.field.left) && close_to(c.rectangle.right, status.field.right);
-            button_clip = c.clip.left <= status.field.left + .01f && c.clip.right >= status.field.right - .01f;
+            // The refresh glyph leads the label: the label starts inside the button and ends at its edge, unclipped.
+            button_rect = c.rectangle.left > status.field.left + 16 && close_to(c.rectangle.right, status.field.right);
+            button_clip = c.clip.left <= c.rectangle.left + .01f && c.clip.right >= status.field.right - .01f;
         }
+        lead = lead || (utf8_equal(c.text, utf8_literal("MaiCord 0.5.4")) && (c.style_flags & text_style_bold));
+        rest = rest || (utf8_equal(c.text, utf8_literal(" \xC2\xB7 Stable channel")) && !(c.style_flags & text_style_bold));
         if (utf8_equal(c.text, utf8_literal("Preview")))
             segment_rect = c.clip.right - c.clip.left + .01f >= ui_kit_text_width(nullptr, utf8_literal("Preview"), kUiKitTextLabelBold);
     }
@@ -1010,8 +1018,9 @@ void test_card_pages(Check check) noexcept {
     check(caption, "settings cards: the status caption emits");
     check(tag, "settings cards: the disclosure tag emits");
     check(link, "settings cards: the markdown link emits");
-    check(styled, "settings cards: markdown text carries style spans");
-    check(button_rect && button_clip, "settings cards: a status button's label owns the whole button and is clipped by nothing narrower");
+    check(styled && bullets >= 3, "settings cards: markdown items are themed text commands, each with its own bullet");
+    check(button_rect && button_clip, "settings cards: a status button's glyph leads its label, which reaches the button's edge unclipped");
+    check(lead && rest, "settings cards: a status meta line leads with its bold run and continues in the regular face");
     check(segment_rect, "settings cards: a segmented label's clip fits the label");
 
     // The sidebar's foot: the last two entries stand pinned under the scrolling pages.
@@ -1086,6 +1095,41 @@ void test_card_pages(Check check) noexcept {
     ui_settings_scene_release(&scene);
     paint_stream_release(&paint);
 }
+// The sidebar scrolls to the selected entry when a page opens or the selection moves (a link, the keyboard), and
+// keeps the user's own scrolling while the page stays.
+void test_sidebar_follows_selection(Check check) noexcept {
+    constexpr u32 kPages = 30;
+    static UiPage pages[kPages];
+    static UiSettingsPageContent content{utf8_literal("Page"), {}, {}, 1};
+    static UiSettingsNavEntry navigation[kPages];
+    UiPageRegistry registry{};
+    UiSettingsScene scene{};
+    bool built = ui_page_registry_initialize(&registry, {pages, kPages});
+    for (u32 i = 0; built && i < kPages; ++i) {
+        navigation[i] = {UiSettingsNavKind::page, false, UiIcon::puzzle, utf8_literal("Entry"), {1, i + 1}, 0};
+        built = ui_page_registry_register(&registry, {{1, i + 1}, utf8_literal("Entry"), &content}).ok();
+    }
+    const UiRect viewport{0, 0, 1440, 600};
+    const auto select = [&](u64 page) noexcept {
+        return ui_page_registry_select(&registry, {1, page}).ok() && ui_settings_scene_update(&scene, &registry, viewport);
+    };
+    // Opening on the last entry scrolls it into view; the first entry brings the list back to the top.
+    check(built && ui_settings_scene_set_presentation(&scene, UiSettingsPresentation::modal) &&
+              ui_settings_scene_bind_navigation(&scene, {navigation, kPages}, 1) && select(kPages) &&
+              scene.sidebar_offset > 0,
+          "settings sidebar: a page that opens on a far entry scrolls it into view");
+    const float last = scene.sidebar_offset;
+    ui_settings_scene_scroll(&scene, true, 100000);
+    check(close_to(scene.sidebar_offset, last) && select(1) && close_to(scene.sidebar_offset, 0) && select(15) &&
+              scene.sidebar_offset > 0 && scene.sidebar_offset < last,
+          "settings sidebar: selecting another page by link or keyboard scrolls its entry into view, both ways");
+    const float middle = scene.sidebar_offset;
+    ui_settings_scene_scroll(&scene, true, 40);
+    ++content.revision;
+    check(ui_settings_scene_update(&scene, &registry, viewport) && close_to(scene.sidebar_offset, middle + 40),
+          "settings sidebar: the same page keeps the user's own scroll position");
+    ui_settings_scene_release(&scene);
+}
 } // namespace
 void test_settings_scene(void (*check)(bool, const char*) noexcept) noexcept {
     test_controls(check);
@@ -1095,5 +1139,6 @@ void test_settings_scene(void (*check)(bool, const char*) noexcept) noexcept {
     test_layer_scene(check);
     test_dialog_scene(check);
     test_focus_recovery(check);
+    test_sidebar_follows_selection(check);
 }
 } // namespace maicord

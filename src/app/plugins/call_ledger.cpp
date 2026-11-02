@@ -1,7 +1,6 @@
 #include "maicord/app/plugins/call_ledger.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/data_path.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -36,10 +35,6 @@ void initialize_timing(PluginCallLedger* ledger) noexcept {
     if (!ledger->pre_budget_us) ledger->pre_budget_us = kPluginCallPreBudgetUs;
     if (!ledger->event_budget_us) ledger->event_budget_us = kPluginCallEventBudgetUs;
     if (!ledger->overrun_limit) ledger->overrun_limit = kPluginCallOverrunLimit;
-}
-PluginCallClass legacy_class(PluginCallKind kind) noexcept {
-    return kind == PluginCallKind::query || kind == PluginCallKind::start || kind == PluginCallKind::stop
-               ? PluginCallClass::lifecycle : PluginCallClass::gesture;
 }
 u64 class_budget(const PluginCallLedger& ledger, PluginCallClass call_class) noexcept {
     switch (call_class) {
@@ -109,16 +104,6 @@ bool plugin_call_ledger_open(PluginCallLedger* ledger, const wchar_t* path, Plug
     return true;
 }
 
-bool plugin_call_ledger_default_path(wchar_t (&path)[1024]) noexcept {
-    return data_path(path, 1024, L"plugin-call.bin").ok();
-}
-
-bool plugin_call_ledger_open_default(PluginCallLedger* ledger, PluginCallMarker* leftover) noexcept {
-    wchar_t path[1024];
-    const bool located = data_path(path, 1024, L"plugin-call.bin", true).ok();
-    return plugin_call_ledger_open(ledger, located ? path : nullptr, leftover);
-}
-
 namespace {
 PluginCallTicket begin_call(PluginCallLedger* ledger, u64 owner, PluginCallKind kind,
                             PluginCallClass call_class) noexcept {
@@ -162,10 +147,6 @@ void plugin_call_ledger_close(PluginCallLedger* ledger) noexcept {
     ledger->mapping = nullptr;
     ledger->file = nullptr;
     ledger->path[0] = 0;
-}
-
-PluginCallTicket plugin_call_begin(PluginCallLedger* ledger, u64 owner, PluginCallKind kind) noexcept {
-    return begin_call(ledger, owner, kind, legacy_class(kind));
 }
 
 PluginCallTicket plugin_call_begin(PluginCallLedger* ledger, u64 owner, PluginCallKind kind,

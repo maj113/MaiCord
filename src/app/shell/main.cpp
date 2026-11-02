@@ -50,7 +50,7 @@
 #include "shutdown_metrics.hpp"
 #include "../settings/settings.hpp"
 #include "../settings/custom_theme.hpp"
-#include "../plugins/plugins.hpp"
+#include "../plugins/pipeline_host.hpp"
 #include "../packages/packages.hpp"
 #include "scrolling.hpp"
 #include "../chat/read_state.hpp"
@@ -315,7 +315,7 @@ int application_run() noexcept {
         application_downloads_pump();
         application_account_logout_pump();
         application_account_switch_pump();
-        HANDLE wait_handles[kAccountHostNotificationHandleCapacity + 17];
+        HANDLE wait_handles[kAccountHostNotificationHandleCapacity + 19];
         const u32 account_handle_count =
             application_account_logout_blocked()
                 ? 0
@@ -334,13 +334,14 @@ int application_run() noexcept {
         push_handle(application_preferences_notification());
         push_handle(application_media_auth_notification());
         push_handle(application_custom_theme_notification());
-        push_handle(application_plugins_notification());
         push_handle(application_downloads_notification());
         push_handle(application_account_logout_notification());
         push_handle(application_account_switch_notification());
         push_handle(application_updates_notification());
         push_handle(application_catalog_notification());
         push_handle(application_catalog_http_notification());
+        push_handle(application_catalog_dev_notification(0));
+        push_handle(application_catalog_dev_notification(1));
         push_handle(application_packages_notification());
         const u32 video_handle_index = wait_handle_count;
         if (!application_account_logout_blocked())

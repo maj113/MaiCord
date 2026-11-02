@@ -21,6 +21,7 @@
 #include "state.hpp"
 #include "../voice/voice.hpp"
 #include "../plugins/plugins.hpp"
+#include "../plugins/surface_host.hpp"
 
 #include "maicord/render/d3d11/renderer.hpp"
 #include "../../render/d3d11/renderer_interaction_state.hpp"
@@ -380,8 +381,7 @@ bool handle_shell_click(LPARAM lparam) noexcept {
     if (application_voice_shell_click(client_dip_x(lparam), client_dip_y(lparam)))
         return true;
     if (const auto header = header_plugin_hit(client_dip_x(lparam), client_dip_y(lparam)); header.action_id) {
-        application_plugins_slot_activate(header.owner_id, {kUiPluginSlotHeaderToolbar, 0, 0, 0, 0}, header.action_id,
-                                          header.badge.rectangle);
+        application_plugin_surfaces_activate(header.owner_id, {kUiPluginSlotHeaderToolbar, 0, 0, 0, 0}, header.action_id);
         return true;
     }
     // Channel/DM row and server rail badges, account panel buttons.
@@ -582,8 +582,7 @@ bool handle_member_click(LPARAM lparam) noexcept {
     u64 badge_user = 0;
     const auto badge = member_list_plugin_hit(g_app.member_list_scene, x, y, &badge_user);
     if (badge.action_id) {
-        application_plugins_slot_activate(badge.owner_id, {kUiPluginSlotMemberBadge, 0, 0, badge_user, 0}, badge.action_id,
-                                          badge.badge.rectangle);
+        application_plugin_surfaces_activate(badge.owner_id, {kUiPluginSlotMemberBadge, 0, 0, badge_user, 0}, badge.action_id);
         return true;
     }
     member_list_scene_focus_user(&g_app.member_list_scene, hit.user_id);

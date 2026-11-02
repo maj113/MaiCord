@@ -1,6 +1,5 @@
 #include "commands_internal.hpp"
 #include "../../account/account_presentation.hpp"
-#include "../../plugins/plugins.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/model/chat/asset_hash.hpp"
@@ -91,8 +90,6 @@ bool project(Utf8View input) noexcept {
     c.rail = c.body = nullptr;
     c.count = c.rail_count = c.body_count = 0;
     c.query_bytes = utf8_copy_truncated(c.query, sizeof(c.query), query.text);
-    NativePluginSdkCommandView local[plugin_rows];
-    c.plugin_count = application_plugins_commands(command_query(input), {local, plugin_rows});
     const CommandIndex* builtins = builtin_commands_index();
     const CommandIndex* plugin_index = plugin_commands_index();
     const u32 capacity = c.index[0].command_count + c.index[1].command_count +
@@ -261,8 +258,6 @@ bool project(Utf8View input) noexcept {
             c.count = filtered->count;
             c.body[c.body_count++] = {filtered->app, 0, filtered->count, 0, filtered->kind};
         } else {
-            if (c.plugin_count)
-                c.body[c.body_count++] = {nullptr, 0, c.plugin_count, 0, SectionKind::plugins};
             for (u32 n = 0; n < frequent; ++n)
                 c.entries[c.count++] = candidates[picked[n]];
             for (u32 n = 0; n < candidate_count; ++n)
@@ -271,11 +266,8 @@ bool project(Utf8View input) noexcept {
                 c.body[c.body_count++] = c.rail[s];
         }
         // While an index loads, the first section ends in placeholder rows.
-        for (u32 s = 0; c.pending && s < c.body_count; ++s)
-            if (c.body[s].kind != SectionKind::plugins) {
-                c.body[s].placeholders = discovery_placeholder_rows;
-                break;
-            }
+        if (c.pending && c.body_count)
+            c.body[0].placeholders = discovery_placeholder_rows;
     }
     c.query_placeholders = !c.discovery && c.pending ? query_placeholder_rows : 0;
     c.offset = c.rail_offset = 0;
@@ -840,7 +832,7 @@ namespace commands_detail {
 float body_extent(const Commands& c) noexcept {
     if (!c.discovery)
         return kCommandTitleHeight +
-               static_cast<float>(c.plugin_count + maximum(c.count + c.query_placeholders, 1u)) * kCommandRowHeight +
+               static_cast<float>(maximum(c.count + c.query_placeholders, 1u)) * kCommandRowHeight +
                kCommandListInset;
     return c.body_count && !c.error.bytes ? section_top(c, c.body_count) - kCommandSectionGap
                                           : kCommandListInset + kCommandRowHeight;
@@ -848,10 +840,10 @@ float body_extent(const Commands& c) noexcept {
 // Virtual top of the row of entry k.
 float row_top(const Commands& c, u32 k) noexcept {
     if (!c.discovery)
-        return kCommandTitleHeight + static_cast<float>(c.plugin_count + k) * kCommandRowHeight;
+        return kCommandTitleHeight + static_cast<float>(k) * kCommandRowHeight;
     for (u32 s = 0; s < c.body_count; ++s) {
         const auto& section = c.body[s];
-        if (section.kind != SectionKind::plugins && k >= section.first && k < section.first + section.count)
+        if (k >= section.first && k < section.first + section.count)
             return section_top(c, s) + kCommandSectionHeight + static_cast<float>(k - section.first) * kCommandRowHeight;
     }
     return 0;
@@ -868,18 +860,14 @@ u32 active_rail(const Commands& c) noexcept {
     for (u32 s = 1; s < c.body_count; ++s)
         if (section_top(c, s) <= c.offset + spy_lead)
             spy = s;
-    // Local plugin commands lead the body but have no rail entry.
-    const u32 lead = c.body_count && c.body[0].kind == SectionKind::plugins ? 1u : 0u;
-    return spy >= lead ? minimum(spy - lead, c.rail_count - 1) : 0;
+    return minimum(spy, c.rail_count - 1);
 }
 
 } // namespace commands_detail
 namespace {
 
 Utf8View section_label(const Section& section) noexcept {
-    return section.kind == SectionKind::plugins    ? utf8_literal("Plugins")
-           : section.kind == SectionKind::frequent ? utf8_literal("Frequently Used")
-                                                   : section_name(*section.app);
+    return section.kind == SectionKind::frequent ? utf8_literal("Frequently Used") : section_name(*section.app);
 }
 // The section's rail and header picture: the clock, Built-in's slash, the
 // app's bot (a generic app glyph without one).
@@ -918,12 +906,6 @@ void command_row(PopupItem& item, u32 slot, u32 entry_index, bool picture) noexc
     else if (picture && entry.app->id == kBuiltinCommandApplication)
         item.presentation = ui_menu_row_presentation(UiIcon::command);
 }
-void plugin_row(PopupItem& item, u32 slot, u32 n, const NativePluginSdkCommandView& local) noexcept {
-    auto& c = *commands;
-    item = {copy_label(c.labels[slot], 512, utf8_literal("/"), local.name), plugin_base + n,
-            popup_item_enabled | popup_item_command_row, 0};
-    item.detail = copy_label(c.details[slot], 1024, local.description, utf8_literal("\x1F"), utf8_literal("Plugins"));
-}
 constexpr u32 section_base = 600000, pinned_base = 700000, placeholder_base = 800000;
 
 } // namespace
@@ -937,12 +919,6 @@ bool render_picker(const UiLayoutNode& surface) noexcept {
     PopupItem items[32]{};
     u32 count = 0;
     float fraction = 0, rail_fraction = 0;
-    NativePluginSdkCommandView local[plugin_rows];
-    const auto input = message_composer_text(g_app.message_composer);
-    const u32 local_count =
-        input.bytes ? application_plugins_commands(command_query({input.data + 1, input.bytes - 1}),
-                                                   {local, plugin_rows})
-                    : 0;
     const Utf8View status = c.error.bytes ? c.error : utf8_literal("No matching commands");
     if (c.discovery) {
         const u32 active = active_rail(c), divider = rail_divider(c);
@@ -967,7 +943,7 @@ bool render_picker(const UiLayoutNode& surface) noexcept {
             items[0].presentation = ui_menu_row_presentation(UiIcon::command);
         }
     } else {
-        if (!c.count && !local_count && !c.query_placeholders && !c.error.bytes) {
+        if (!c.count && !c.query_placeholders && !c.error.bytes) {
             // Command results that match nothing are hidden.
             close_popup();
             c.rendered_generation = c.generation;
@@ -983,12 +959,10 @@ bool render_picker(const UiLayoutNode& surface) noexcept {
         ++count;
     }
     const u32 body_begin = count;
-    if (c.error.bytes || (!c.count && !local_count && !c.query_placeholders && !c.discovery)) {
+    if (c.error.bytes || (!c.count && !c.query_placeholders && !c.discovery)) {
         items[count++] = {status, choose_base - 1, popup_item_command_row, 0};
         fraction = 0;
     } else if (!c.discovery) {
-        for (u32 n = 0; n < local_count && count < 31; ++n, ++count)
-            plugin_row(items[count], count, n, local[n]);
         for (u32 n = 0; n < c.count && count < 31; ++n, ++count)
             command_row(items[count], count, n, true);
         // Three loading rows follow the results.
@@ -1038,12 +1012,8 @@ bool render_picker(const UiLayoutNode& surface) noexcept {
                     continue;
                 if (k >= section.count)
                     items[count] = popup_placeholder_row(placeholder_base + k, k, popup_item_command_row);
-                else if (section.kind != SectionKind::plugins)
-                    command_row(items[count], count, section.first + k, section.kind == SectionKind::frequent);
-                else if (k < local_count)
-                    plugin_row(items[count], count, k, local[k]);
                 else
-                    continue;
+                    command_row(items[count], count, section.first + k, section.kind == SectionKind::frequent);
                 ++count;
             }
         }

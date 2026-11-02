@@ -97,8 +97,9 @@ Utf8View size_text(UiStoreBuilder& b, u32 bytes) noexcept {
     return join(b, b.number(tenths / 10), utf8_literal("."), b.number(tenths % 10),
                 unit == 1024 ? utf8_literal(" KB") : utf8_literal(" MB"));
 }
-Utf8View byline(UiStoreBuilder& b, const StoreItem& item) noexcept {
-    const Utf8View version = item.installed && item.installed_version.bytes ? item.installed_version : item.version;
+Utf8View byline(UiStoreBuilder& b, const StoreItem& item, bool listed) noexcept {
+    // A Browse card names what the catalog offers; an installed item's own pages name what is installed.
+    const Utf8View version = item.installed && item.installed_version.bytes && !(listed && item.version.bytes) ? item.installed_version : item.version;
     if (!item.authors.bytes)
         return join(b, utf8_literal("v"), version);
     return join(b, item.authors, utf8_literal(" \xC2\xB7 v"), version);
@@ -124,12 +125,18 @@ UiStoreNode& hairline_row(Ctx& c, bool last, float pad_x, float pad_y) noexcept 
     return n;
 }
 
-void fact(Ctx& c, Utf8View label, Utf8View value, bool mono, bool link, u32 action) noexcept {
+void fact(Ctx& c, Utf8View label, Utf8View value, bool mono, bool link, u32 action, u8 dot) noexcept {
     if (!value.bytes)
         return;
     auto& row = c.b.open(UiStoreKind::row);
     row.gap = 8;
+    row.flags = dot ? ui_store_center : 0;
     c.b.text(label, UiStoreType::small, UiStoreInk::subtle).rw = 80;
+    if (dot) {
+        auto& mark = c.b.leaf(UiStoreKind::swatch);
+        mark.variant = dot;
+        mark.rw = mark.rh = 8;
+    }
     if (action) {
         auto& b = c.b.button(value, UiStoreButton::link, action);
         b.type = 0;
@@ -420,12 +427,12 @@ void build_card(Ctx& c, u32 index) noexcept {
         names.gap = 0;
         names.flags = ui_store_flex;
         c.b.text(item.name, UiStoreType::body_bold, UiStoreInk::strong);
-        c.b.text(byline(c.b, item), UiStoreType::small, UiStoreInk::subtle);
+        c.b.text(byline(c.b, item, true), UiStoreType::small, UiStoreInk::subtle);
         c.b.close();
         c.b.close();
     } else {
         c.b.text(item.name, UiStoreType::body_bold, UiStoreInk::strong);
-        c.b.text(byline(c.b, item), UiStoreType::small, UiStoreInk::subtle);
+        c.b.text(byline(c.b, item, true), UiStoreType::small, UiStoreInk::subtle);
     }
     auto& summary = c.b.text(item.summary, UiStoreType::small, UiStoreInk::normal, ui_store_wrap);
     summary.count = 2;
@@ -946,26 +953,61 @@ void build_developer(Ctx& c) noexcept {
         col.gap = 2;
         col.flags = ui_store_flex;
         c.b.text(utf8_literal("Reload"), UiStoreType::body, UiStoreInk::strong);
-        subtle(c, kind == CatalogKind::plugin ? utf8_literal("Show the call ledger of every plugin.") : utf8_literal("Scan the dev folder again now."));
+        subtle(c, utf8_literal("Scan the dev folder again now."));
         c.b.close();
-        c.b.button(kind == CatalogKind::plugin ? utf8_literal("Call ledger") : utf8_literal("Reload"), UiStoreButton::secondary,
-                   store_action(StoreAct::dev_reload));
+        c.b.button(utf8_literal("Reload"), UiStoreButton::secondary, store_action(StoreAct::dev_reload));
         c.b.close();
     }
     c.b.close();
     u32 loaded = 0;
     for (u32 i = 0; i < c.m.count; ++i)
         loaded += c.m.items[i].kind == kind && c.m.items[i].installed && c.m.items[i].sideloaded ? 1 : 0;
-    if (!loaded)
+    if (loaded) {
+        c.b.spacer(0, 16);
+        card_open(c);
+        c.b.node().pad_x = 0;
+        u32 seen = 0;
+        for (u32 i = 0; i < c.m.count; ++i) {
+            const auto& item = c.m.items[i];
+            if (item.kind == kind && item.installed && item.sideloaded)
+                installed_row(c, item, i, ++seen == loaded);
+        }
+        c.b.close();
+    }
+    if (kind != CatalogKind::plugin)
         return;
+    // The console: what the plugins log, the time-budget strikes and the reloads (src/app/plugins/dev_console.hpp).
     c.b.spacer(0, 16);
     card_open(c);
     c.b.node().pad_x = 0;
-    u32 seen = 0;
-    for (u32 i = 0; i < c.m.count; ++i) {
-        const auto& item = c.m.items[i];
-        if (item.kind == kind && item.installed && item.sideloaded)
-            installed_row(c, item, i, ++seen == loaded);
+    {
+        hairline_row(c, !c.m.console_count);
+        auto& col = c.b.open(UiStoreKind::column);
+        col.gap = 2;
+        col.flags = ui_store_flex;
+        c.b.text(utf8_literal("Console"), UiStoreType::body, UiStoreInk::strong);
+        subtle(c, c.m.console_total > c.m.console_count
+                      ? join(c.b, utf8_literal("The newest "), c.b.number(c.m.console_count), utf8_literal(" of "), c.b.number(c.m.console_total))
+                      : utf8_literal("Plugin logs, time-budget strikes and reloads."));
+        c.b.close();
+        if (c.m.console_count)
+            c.b.button(utf8_literal("Clear"), UiStoreButton::ghost, store_action(StoreAct::console_clear));
+        c.b.close();
+    }
+    for (u32 i = 0; i < c.m.console_count; ++i) {
+        const StoreConsoleLine& line = c.m.console[i];
+        // debug, info, warning, error, strike, reload, problem
+        static constexpr UiStoreInk kInk[]{UiStoreInk::subtle, UiStoreInk::normal, UiStoreInk::warning, UiStoreInk::critical,
+                                           UiStoreInk::warning, UiStoreInk::positive, UiStoreInk::critical};
+        hairline_row(c, i + 1 == c.m.console_count, 16, 6);
+        c.b.text(join(c.b, line.time, utf8_literal("  "), line.name, utf8_literal("  ")), UiStoreType::mono, UiStoreInk::subtle);
+        c.b.text(line.text, UiStoreType::mono, kInk[line.kind < 7 ? line.kind : 1], ui_store_flex);
+        c.b.close();
+    }
+    if (!c.m.console_count) {
+        hairline_row(c, true);
+        subtle(c, utf8_literal("Nothing yet. Build a plugin with maicord-plugin dev and its ctx.log lines show here."), ui_store_wrap);
+        c.b.close();
     }
     c.b.close();
 }

@@ -485,8 +485,11 @@ void copy(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
     if (!bytes || !crypto.digest({bytes, count}, r.sha256)) r.error = CatalogError::plugin_load;
     else {
         catalog_plugin_leaf(r.sha256, leaf);
+        // Content-addressed: a file of this name is this build (the loader checks the digest), and one that is
+        // loaded right now (a dev folder build that did not change) can't be written over.
         if (!ensure(w, L"plugins", path) || !catalog_path(base(w), L"plugins\\", path) ||
-            !append(path, wide_length(path, 600), leaf) || !write_file(path, {bytes, count}))
+            !append(path, wide_length(path, 600), leaf) ||
+            (GetFileAttributesW(path) == INVALID_FILE_ATTRIBUTES && !write_file(path, {bytes, count})))
             r.error = CatalogError::storage;
     }
     release(bytes);

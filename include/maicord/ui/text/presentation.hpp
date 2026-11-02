@@ -17,6 +17,9 @@ struct UiTextEffect {
     u32 colors[8];
     u8 kind, count;
     bool animate;
+    // Not an effect: the command's spans carry theme-coloured styles (links, code plates, syntax) and the renderer
+    // resolves them with the theme. It rides in the padding so UiTextCommand keeps its size.
+    bool themed_styles = false;
     u64 started_ms = 0;
 };
 

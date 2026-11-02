@@ -24,7 +24,7 @@ extern bool navigation_ok, history_ok, order_ok, rejected;
 
 extern AccountModuleStatus next_status;
 
-extern u32 failures, plugin_restores, scoped_read_syncs, scoped_read_menu_refreshes;
+extern u32 failures, catalog_restores, scoped_read_syncs, scoped_read_menu_refreshes;
 
 extern u64 scoped_read_wake;
 

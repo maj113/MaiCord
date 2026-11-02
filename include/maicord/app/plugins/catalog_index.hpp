@@ -121,7 +121,7 @@ struct CatalogAuthor {
 struct CatalogVersion {
     u64 code; // major * 1000000 + minor * 1000 + patch
     u64 released;
-    u64 permissions; // MC_PERM_* (plugin_abi.h)
+    u64 permissions; // MC_PERM_* (maicord_plugin.h)
     CatalogString text, changelog;
     u32 api_level;
     u32 first_host, host_count; // into CatalogIndex::hosts
@@ -132,6 +132,7 @@ struct CatalogVersion {
 struct CatalogKnob {
     CatalogString id, label;
     CatalogKnobType type;
+    bool percent; // a float knob shown as a percentage (0.75 reads "75 %")
     // float and int: thousandths; toggle: value 0 or 1; color: value 0xRRGGBB; choice: value is the index.
     i64 minimum, maximum, value;
     u32 first_choice, choice_count; // into CatalogIndex::choices

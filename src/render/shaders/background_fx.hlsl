@@ -139,6 +139,7 @@ cbuffer McFxComposite : register(b2) {
 struct FxCompositeOutput {
     float4 position : SV_Position;
     float2 uv : TEXCOORD0;
+    float2 dip : TEXCOORD1;
 };
 
 FxCompositeOutput fx_composite_vertex(uint vertex_id : SV_VertexID) {
@@ -147,6 +148,7 @@ FxCompositeOutput fx_composite_vertex(uint vertex_id : SV_VertexID) {
     FxCompositeOutput output;
     output.position = float4(position * coordinate_scale + coordinate_translation, 0.0f, 1.0f);
     output.uv = position * composite_uv.xy + composite_uv.zw;
+    output.dip = position;
     return output;
 }
 #elif defined(FX_COMPOSITE_PIXEL)
@@ -154,14 +156,23 @@ cbuffer McFxCompositePixel : register(b0) {
     float4 composite_skip[2] : packoffset(c0);
     float4 composite_clamp : packoffset(c2); // the used part of the target, inset half a texel
     float composite_opacity : packoffset(c3.x);
+    float composite_radius : packoffset(c3.y); // a tile's corner radius in DIPs; 0 fills the canvas rectangle
 };
 Texture2D<float4> fx_target : register(t0);
 SamplerState fx_sampler : register(s0); // the pipeline's bilinear clamp sampler
 
 // The target holds premultiplied colour; the user's opacity scales all four channels.
-float4 fx_composite_pixel(float4 position : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
-    return fx_target.SampleLevel(fx_sampler, clamp(uv, composite_clamp.xy, composite_clamp.zw), 0.0f) *
-           composite_opacity;
+float4 fx_composite_pixel(float4 position : SV_Position, float2 uv : TEXCOORD0, float2 dip : TEXCOORD1) : SV_Target {
+    float4 color = fx_target.SampleLevel(fx_sampler, clamp(uv, composite_clamp.xy, composite_clamp.zw), 0.0f) *
+                   composite_opacity;
+    // A tile is a rounded rectangle: coverage from the signed distance to its outline, one pixel wide.
+    [branch] if (composite_radius > 0.0f) {
+        const float2 half_size = (composite_skip[0].zw - composite_skip[0].xy) * 0.5f;
+        const float2 q = abs(dip - (composite_skip[0].xy + half_size)) - (half_size - composite_radius);
+        const float edge = length(max(q, 0.0f)) + min(max(q.x, q.y), 0.0f) - composite_radius;
+        color *= saturate(0.5f - edge / max(fwidth(edge), 0.0001f));
+    }
+    return color;
 }
 #else
 struct FxVertexOutput {

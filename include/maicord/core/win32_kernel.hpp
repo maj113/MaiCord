@@ -82,6 +82,9 @@
 #define FILE_SHARE_READ 0x00000001
 #define FILE_SHARE_WRITE 0x00000002
 #define FILE_SHARE_DELETE 0x00000004
+#define FILE_NOTIFY_CHANGE_FILE_NAME 0x00000001
+#define FILE_NOTIFY_CHANGE_SIZE 0x00000008
+#define FILE_NOTIFY_CHANGE_LAST_WRITE 0x00000010
 #define FILE_ATTRIBUTE_HIDDEN 0x00000002
 #define FILE_ATTRIBUTE_DIRECTORY 0x00000010
 #define FILE_ATTRIBUTE_ARCHIVE 0x00000020
@@ -401,6 +404,10 @@ extern "C" __declspec(dllimport) HANDLE WINAPI CreateFileW(LPCWSTR lpFileName, D
     DWORD dwShareMode, LPSECURITY_ATTRIBUTES lpSecurityAttributes, DWORD dwCreationDisposition,
     DWORD dwFlagsAndAttributes, HANDLE hTemplateFile);
 extern "C" __declspec(dllimport) BOOL WINAPI DeleteFileW(LPCWSTR lpFileName);
+extern "C" __declspec(dllimport) BOOL WINAPI FindCloseChangeNotification(HANDLE hChangeHandle);
+extern "C" __declspec(dllimport) HANDLE WINAPI FindFirstChangeNotificationW(LPCWSTR lpPathName, BOOL bWatchSubtree,
+    DWORD dwNotifyFilter);
+extern "C" __declspec(dllimport) BOOL WINAPI FindNextChangeNotification(HANDLE hChangeHandle);
 extern "C" __declspec(dllimport) BOOL WINAPI FindClose(HANDLE hFindFile);
 extern "C" __declspec(dllimport) HANDLE WINAPI FindFirstFileW(LPCWSTR lpFileName, LPWIN32_FIND_DATAW lpFindFileData);
 extern "C" __declspec(dllimport) BOOL WINAPI FindNextFileW(HANDLE hFindFile, LPWIN32_FIND_DATAW lpFindFileData);

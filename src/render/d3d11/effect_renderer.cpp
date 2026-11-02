@@ -562,8 +562,8 @@ bool d3d11_effect_begin_frame(D3D11EffectOwner* owner, ID3D11Device* device, ID3
     return true;
 }
 
-bool d3d11_effect_draw(D3D11EffectOwner* owner, ID3D11DeviceContext* context, UiRect canvas,
-                       u32 quad_index) noexcept {
+bool d3d11_effect_draw(D3D11EffectOwner* owner, ID3D11DeviceContext* context, UiRect canvas, u32 quad_index,
+                       float tile_radius) noexcept {
     if (!owner || !context || !owner->active)
         return false;
     for (u32 i = 0; i < owner->drawn_count; ++i)
@@ -578,17 +578,32 @@ bool d3d11_effect_draw(D3D11EffectOwner* owner, ID3D11DeviceContext* context, Ui
     const float allocated_width = static_cast<float>(owner->target_width);
     const float allocated_height = static_cast<float>(owner->target_height);
     const float used_width = static_cast<float>(owner->used_width), used_height = static_cast<float>(owner->used_height);
-    const float scale_x = owner->pixel_scale / static_cast<float>(owner->window_width) * used_width / allocated_width;
-    const float scale_y =
-        owner->pixel_scale / static_cast<float>(owner->window_height) * used_height / allocated_height;
-    const float offset_y = static_cast<float>(owner->caption_pixels) / static_cast<float>(owner->window_height) *
-                           used_height / allocated_height;
+    const float share_x = used_width / allocated_width, share_y = used_height / allocated_height;
+    const float window_width = static_cast<float>(owner->window_width), window_height = static_cast<float>(owner->window_height);
+    float scale_x = owner->pixel_scale / window_width * share_x;
+    float scale_y = owner->pixel_scale / window_height * share_y;
+    float offset_x = 0.f;
+    float offset_y = static_cast<float>(owner->caption_pixels) / window_height * share_y;
+    if (tile_radius > 0) {
+        // The tile shows the content area (below the caption) scaled by `cover` so it fills the rectangle; the
+        // part that overflows is centred.
+        const float caption = static_cast<float>(owner->caption_pixels) / owner->pixel_scale;
+        const float content_width = window_width / owner->pixel_scale, content_height = window_height / owner->pixel_scale - caption;
+        const float tile_width = canvas.right - canvas.left, tile_height = canvas.bottom - canvas.top;
+        const float cover = maximum(tile_width / content_width, tile_height / content_height);
+        const float window_dip_height = window_height / owner->pixel_scale;
+        scale_x = share_x / (cover * content_width);
+        scale_y = share_y / (cover * window_dip_height);
+        offset_x = share_x * ((content_width - tile_width / cover) * .5f - canvas.left / cover) / content_width;
+        offset_y = share_y * (caption + (content_height - tile_height / cover) * .5f - canvas.top / cover) / window_dip_height;
+    }
     const EffectCompositeConstants constants{{canvas.left, canvas.top, canvas.right, canvas.bottom},
-                                             {scale_x, scale_y, 0.f, offset_y},
+                                             {scale_x, scale_y, offset_x, offset_y},
                                              {.5f / allocated_width, .5f / allocated_height,
                                               (used_width - .5f) / allocated_width,
                                               (used_height - .5f) / allocated_height},
                                              owner->settings.opacity,
+                                             tile_radius > 0 ? tile_radius : 0.f,
                                              {}};
     context->UpdateSubresource(owner->composite_buffer, 0, nullptr, &constants, 0, 0);
     // The strip topology, the layer transform and the bilinear sampler stay: the vertex shader reads only SV_VertexID.

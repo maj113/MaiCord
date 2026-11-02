@@ -110,6 +110,8 @@ void test_text_emitter(void (*check)(bool, const char*) noexcept) noexcept {
     }
     auto animated = base; animated.effect.animate = true;
     complete_signature &= signature_of(animated) != base_signature;
+    auto themed = base; themed.effect.themed_styles = true;
+    complete_signature &= signature_of(themed) != base_signature;
     u64 layouts[36]; u32 layout_count = 0;
     for (u32 horizontal = 0; horizontal < 3; ++horizontal)
         for (u32 vertical = 0; vertical < 3; ++vertical)

@@ -465,7 +465,7 @@ void application_user_note_flush(u64) noexcept {
 bool application_guild_card_open(u64, UiRect) noexcept {
     return false;
 }
-bool application_plugins_slot_activate(u64, NativePluginSdkSlotTarget, u64, UiRect) noexcept {
+bool application_plugin_surfaces_activate(u64, const PluginSurfaceTarget&, u64) noexcept {
     return false;
 }
 bool application_open_content_url(Utf8View url) noexcept {

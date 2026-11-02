@@ -242,7 +242,7 @@ void build_link(Ctx& c) noexcept {
     auto& row = c.b.open(UiStoreKind::row);
     row.gap = 16;
     auto& view = c.b.open(UiStoreKind::preview);
-    view.variant = static_cast<u8>(UiStoreAspect::fixed);
+    view.variant = static_cast<u8>(l.previewing && l.kind == CatalogKind::effect ? UiStoreAspect::live : UiStoreAspect::fixed);
     view.rw = 320;
     view.rh = 180;
     if (l.kind == CatalogKind::theme && l.swatches[0] + l.swatches[1] + l.swatches[2] + l.swatches[3]) {
@@ -268,9 +268,15 @@ void build_link(Ctx& c) noexcept {
     facts_pair(c, utf8_literal("Author"), l.authors);
     facts_pair(c, utf8_literal("License"), l.license);
     facts_pair(c, utf8_literal("Based on"), l.based_on);
-    facts_pair(c, utf8_literal("Size"), l.size_text);
-    if (l.kind == CatalogKind::effect)
-        facts_pair(c, utf8_literal("Cost here"), l.cost_known ? l.cost_text : utf8_literal("Measuring..."));
+    facts_pair(c, utf8_literal("Size"), l.size_text.bytes || !l.bytes ? l.size_text : size_text(c.b, l.bytes));
+    if (l.kind == CatalogKind::effect) {
+        // The dot is the measured class: green light, amber medium, red heavy or refused.
+        const u8 dot = l.cost_refused || l.cost_level >= 2 ? 3 : l.cost_level == 1 ? 4 : 5;
+        if (l.cost_known)
+            fact(c, utf8_literal("Cost here"), l.cost_text, false, false, 0, dot);
+        else
+            facts_pair(c, utf8_literal("Cost here"), utf8_literal("Measuring..."));
+    }
     if (l.has_effect)
         facts_pair(c, utf8_literal("Effect"), l.effect_installed ? join(c.b, l.effect_slug, utf8_literal(" (installed)")) : l.effect_slug);
     if (l.kind == CatalogKind::effect)

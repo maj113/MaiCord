@@ -353,16 +353,20 @@ struct Call {
         binding.ctx.flags = 0;
         binding.gesture_until_ms = 0;
         ++binding.calls;
-        if (outcome.overran) ++binding.strikes;
+        if (outcome.overran) {
+            ++binding.strikes;
+            const PluginRuntime& runtime = *binding.runtime;
+            if (runtime.strike) runtime.strike(runtime.sink_context, binding.owner_id, ticket.kind, binding.strikes, outcome.elapsed_us);
+        }
         if (outcome.disable) binding.struck_out = true;
         return outcome;
     }
 };
 
-bool start_plugin(PluginBinding& binding) noexcept {
+bool start_plugin(PluginBinding& binding, u32 flags) noexcept {
     const auto start = binding.image.descriptor->start;
     if (!start) return true;
-    Call call(binding, PluginCallKind::start, PluginCallClass::lifecycle, MC_CTX_FIRST_START);
+    Call call(binding, PluginCallKind::start, PluginCallClass::lifecycle, flags);
     const mc_status status = start(&binding.ctx);
     return !call.finish().overran && status == MC_OK;
 }
@@ -418,6 +422,22 @@ bool allocate_data(PluginBinding& binding) noexcept {
 PluginEnableResult enable_failed(PluginEnableError error, PluginLoadResult load = {}) noexcept {
     return {error, load, nullptr};
 }
+
+using Carry = decltype(PluginRuntime::carry);
+
+void release_carry(PluginRuntime& runtime) noexcept {
+    if (runtime.carry.state) VirtualFree(runtime.carry.state, 0, MEM_RELEASE);
+    runtime.carry = {};
+}
+
+// A reload's state belongs to the next enable, whatever its outcome: it is taken at the start and freed at the end.
+struct CarryHold {
+    Carry carry;
+    explicit CarryHold(PluginRuntime* runtime) noexcept : carry(runtime->carry) { runtime->carry = {}; }
+    ~CarryHold() {
+        if (carry.state) VirtualFree(carry.state, 0, MEM_RELEASE);
+    }
+};
 
 } // namespace
 
@@ -628,6 +648,7 @@ PluginLoadResult plugin_runtime_close(PluginRuntime* runtime) noexcept {
         plugin_runtime_disable(runtime, runtime->bindings[before - 1]);
         if (runtime->binding_count == before) return {PluginLoadError::release, PluginDescriptorProblem::none, 0, 0};
     }
+    release_carry(*runtime);
     plugin_http_close(runtime);
     if (g_runtime == runtime) g_runtime = nullptr;
     return plugin_directory_close(&runtime->directory);
@@ -635,7 +656,9 @@ PluginLoadResult plugin_runtime_close(PluginRuntime* runtime) noexcept {
 
 PluginEnableResult plugin_runtime_enable(PluginRuntime* runtime, ConstSlice<wchar_t> leaf, u64 approved_permissions,
                                          u32 approved_hosts, const u8* sha256) noexcept {
-    if (!runtime || !runtime->directory.pin.ancestor_count) return enable_failed(PluginEnableError::invalid_argument);
+    if (!runtime || !runtime->directory.ancestor_count) return enable_failed(PluginEnableError::invalid_argument);
+    const CarryHold hold(runtime);
+    const Carry& carry = hold.carry;
     if (runtime->binding_count == kPluginMaximumBindings) return enable_failed(PluginEnableError::capacity);
     auto* binding = static_cast<PluginBinding*>(VirtualAlloc(nullptr, align_up(sizeof(PluginBinding), kPageBytes),
                                                              MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -669,9 +692,21 @@ PluginEnableResult plugin_runtime_enable(PluginRuntime* runtime, ConstSlice<wcha
     }
     apply_defaults(*binding);
     load_settings(*binding);
+    // A reload hands the replaced build's state over when the layout is the one the new descriptor declares.
+    u32 start_flags = MC_CTX_FIRST_START;
+    PluginStateCarry carried = PluginStateCarry::none;
+    if (carry.owner_id == binding->owner_id) {
+        const mc_descriptor& d = *binding->image.descriptor;
+        carried = PluginStateCarry::reset;
+        if (d.state_layout == carry.layout && d.state_bytes == carry.bytes && d.state_align == carry.alignment) {
+            if (carry.bytes) copy_bytes(binding->data, carry.state, carry.bytes);
+            carried = PluginStateCarry::kept;
+        }
+        if (carried == PluginStateCarry::kept) start_flags = MC_CTX_RELOADED;
+    }
     runtime->bindings[runtime->binding_count++] = binding;
     PluginEnableError failure = PluginEnableError::none;
-    if (!start_plugin(*binding)) {
+    if (!start_plugin(*binding, start_flags)) {
         failure = PluginEnableError::start_failed;
     } else {
         binding->started = true;
@@ -687,7 +722,7 @@ PluginEnableResult plugin_runtime_enable(PluginRuntime* runtime, ConstSlice<wcha
         // Undo everything, exactly as a disable does.
         return enable_failed(plugin_runtime_disable(runtime, binding) ? failure : PluginEnableError::release);
     }
-    return {PluginEnableError::none, {}, binding};
+    return {PluginEnableError::none, {}, binding, carried};
 }
 
 bool plugin_runtime_disable(PluginRuntime* runtime, PluginBinding* binding) noexcept {
@@ -714,6 +749,20 @@ bool plugin_runtime_disable(PluginRuntime* runtime, PluginBinding* binding) noex
     for (u32 i = slot + 1; i < runtime->binding_count; ++i) runtime->bindings[i - 1] = runtime->bindings[i];
     runtime->bindings[--runtime->binding_count] = nullptr;
     destroy(binding);
+    return true;
+}
+
+bool plugin_runtime_keep_state(PluginRuntime* runtime, const PluginBinding* binding) noexcept {
+    if (!runtime || !binding || !binding->image.descriptor) return false;
+    release_carry(*runtime);
+    const mc_descriptor& d = *binding->image.descriptor;
+    u8* copy = nullptr;
+    if (d.state_bytes) {
+        copy = static_cast<u8*>(VirtualAlloc(nullptr, d.state_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        if (!copy) return false;
+        copy_bytes(copy, binding->data, d.state_bytes);
+    }
+    runtime->carry = {binding->owner_id, d.state_layout, d.state_bytes, d.state_align, copy};
     return true;
 }
 

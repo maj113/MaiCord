@@ -621,9 +621,6 @@ Utf8View application_guild_rail_label(const GuildViewRow&, Slice<char>) noexcept
 Utf8View application_voice_tooltip(float, float, UiRect*, u32*) noexcept {
     return {};
 }
-u64 application_plugins_slot_revision() noexcept {
-    return 0;
-}
 struct ApplicationPluginSurfaceHit;
 bool application_plugins_surface_hit(float, float, ApplicationPluginSurfaceHit*) noexcept {
     return false;

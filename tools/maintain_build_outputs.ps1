@@ -97,11 +97,10 @@ foreach ($profile in Get-ChildItem -LiteralPath $releaseRoot -Directory -Force) 
     Add-Tree $candidateProfile
 }
 # Test-only files the ownership manifest omits: configure_file() resources (found in the build definition, removed even
-# when a failed run left them) and the showcase plugin's stamped manifest, which every link rewrites.
+# when a failed run left them).
 foreach ($match in Select-String -Path "$repository\CMakeLists.txt", "$repository\cmake\*.cmake" -Pattern 'configure_file\(tests/[^\s")]+\.rc\.in\s+"\$\{CMAKE_CURRENT_BINARY_DIR\}/([^"/\\]+\.rc)"') {
     Add-File (Join-Path $releaseRoot $match.Matches[0].Groups[1].Value)
 }
-Add-File (Join-Path $releaseRoot 'showcase.maicord-plugin.json')
 if ($RuntimeOnly) {
     $ownership = Assert-ReleasePath (Join-Path $releaseRoot 'maicord-build-outputs.txt')
     if (!(Test-Path -LiteralPath $ownership -PathType Leaf)) {

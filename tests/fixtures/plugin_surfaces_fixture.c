@@ -1,7 +1,7 @@
 /* An ABI-6 plugin that decorates every surface and declares a button for each, for the surface tests and the UI
    probe. What it decorates depends on the message content's first word (see decorate_message), on the user's id
    and surface, the channel's unread flag, and so on. Its state (plugin_surfaces_fixture.h) records every call. */
-#include "maicord/sdk/plugin_abi.h"
+#include "maicord/sdk/maicord_plugin.h"
 #include "plugin_surfaces_fixture.h"
 
 __declspec(dllimport) void __stdcall Sleep(unsigned long milliseconds);

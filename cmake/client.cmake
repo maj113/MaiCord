@@ -30,10 +30,9 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/settings/theme_editor.cpp src/app/settings/custom_theme.cpp
     src/app/settings/theme_publication.cpp src/app/account/friends.cpp
     src/app/account/friends_search.cpp src/app/account/friends_storage.cpp
-    src/app/plugins/plugins.cpp src/app/plugins/plugins_sdk.cpp src/app/plugins/read.cpp
-    src/app/plugins/actions.cpp src/app/plugins/surfaces.cpp
+    src/app/plugins/surfaces.cpp src/app/plugins/keybinds.cpp
     src/app/plugins/settings_dialog.cpp
-    src/app/plugins/render.cpp src/app/effects/effects.cpp src/app/packages/packages.cpp
+    src/app/effects/effects.cpp src/app/packages/packages.cpp
     src/app/plugins/compose.cpp src/app/plugins/menus.cpp src/app/plugins/ui_host.cpp
     src/app/plugins/pipeline_host.cpp src/app/plugins/surface_host.cpp
     src/app/shell/window.cpp src/app/shell/window_runtime.cpp src/app/shell/input_routing.cpp
@@ -115,8 +114,10 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/accessibility/accessibility.cpp src/app/accessibility/accessibility_describe.cpp
     src/app/accessibility/accessibility_actions.cpp src/app/update/updates.cpp src/app/update/entry.cpp
     src/app/plugins/catalog_worker.cpp src/app/plugins/catalog_service.cpp src/app/plugins/catalog_app.cpp
+    src/app/plugins/dev_console.cpp
     src/app/store/store_projection.cpp src/app/store/store_page.cpp src/app/store/store_detail.cpp src/app/store/store_dialogs.cpp
     src/app/store/store_act.cpp src/app/store/store_source.cpp src/app/store/store_host.cpp
+    src/app/store/store_preview_decode.cpp src/app/store/store_preview_pump.cpp
     # Voice calls: soundboard, voice messages, preferences, voice card, mute/deafen,
     # the voice user menu, the call view, stage channels and Go Live.
     src/app/voice/soundboard.cpp src/app/voice/application_voice_message.cpp src/app/voice/voice.cpp
@@ -127,7 +128,7 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/guild/invite_cards.cpp src/app/voice/stream.cpp
     LIBS maicord_compile_contract
     maicord_core maicord_text maicord_ui maicord_model maicord_client_preferences maicord_packages
-    maicord_notification_sound_assets maicord_plugin_host maicord_plugin_modules maicord_plugin_catalog
+    maicord_notification_sound_assets maicord_plugin_catalog
     maicord_plugin_runtime maicord_ui_input
     maicord_message_runtime maicord_message_media maicord_account_paths maicord_account_host
     maicord_render_core maicord_atlas_gpu maicord_renderer maicord_media_core maicord_webauthn
@@ -379,8 +380,8 @@ maicord_compact_sources(
         src/platform/desktop/staged_file.cpp src/platform/desktop/browser_sign_in_launcher.cpp
         src/platform/net/file.cpp src/platform/desktop/file_picker.cpp src/platform/desktop/clipboard_attachment.cpp
         src/platform/desktop/file_identity.cpp src/platform/desktop/timezone.cpp src/platform/crypto/secure_buffer.cpp
-    TARGETS MaiCord maicord_protocol maicord_model maicord_plugin_host maicord_plugin_modules maicord_plugin_catalog
-        maicord_plugin_runtime
+    TARGETS MaiCord maicord_protocol maicord_model maicord_plugin_catalog
+        maicord_plugin_runtime maicord_packages
         maicord_account_host maicord_client_preferences maicord_account_paths maicord_webauthn
     # The user store resolves every member name and presence update: member-list
     # model time is 6% lower with it at /O2, for 2 KiB. The guild member store

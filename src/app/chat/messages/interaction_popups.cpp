@@ -447,7 +447,7 @@ static bool open_message_link_context_popup(const MessageTextHit& hit, UiRect an
     const u32 count = chip ? attachment_link_menu({link_menu.items, kMessageLinkMenuItems})
                            : message_link_menu(url, {link_menu.items, kMessageLinkMenuItems});
     // Plugins get the URL and the link's visible text (an autolink's is the URL).
-    const ApplicationPluginMenuExtra plugin{MC_MENU_LINK, 0, 0, false, url, chip ? name : url};
+    const ApplicationPluginMenuExtra plugin{PluginMenuKind::link, 0, 0, false, url, chip ? name : url};
     if (!count || !open_message_media_context_popup(hit.message_id, anchor, {link_menu.items, count}, &plugin))
         return false;
     link_menu.hit = hit;
@@ -587,8 +587,8 @@ bool application_message_action_bar_activate(const MessageActionBarHit& hit, boo
         return retry_failed_message(id);
     case MessageActionBarAction::plugin_0:
     case MessageActionBarAction::plugin_1:
-        // The click carries the hovered message; a popover anchors to the cell.
-        application_plugins_hover_activate(hit.catalog_index, id, hit.rectangle);
+        // The click carries the hovered message.
+        application_plugins_hover_activate(hit.catalog_index, id);
         return true;
     case MessageActionBarAction::none:
         return true;
@@ -686,7 +686,7 @@ bool open_reaction_context_popup(const MessageSceneHit& hit, UiRect anchor) noex
     if (!name.bytes && reaction.emoji_id)
         if (const auto* emoji = chat_state_store_find_emoji(g_app.account_ui->chat_state, reaction.emoji_id))
             name = chat_state_store_emoji_name(*emoji);
-    const ApplicationPluginMenuExtra plugin{MC_MENU_EMOJI, 0, reaction.emoji_id, (reaction.flags & 4) != 0, {}, name};
+    const ApplicationPluginMenuExtra plugin{PluginMenuKind::emoji, 0, reaction.emoji_id, (reaction.flags & 4) != 0, {}, name};
     return open_message_media_context_popup(hit.message_id, anchor, {}, &plugin);
 }
 

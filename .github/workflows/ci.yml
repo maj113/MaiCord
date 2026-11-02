@@ -107,6 +107,11 @@ jobs:
           MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY: ${{ vars.MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY }}
         run: ./tools/build.ps1
 
+      # new, build, dev, check, pack and the effect commands against the pinned toolchain build.ps1 just fetched.
+      - name: maicord-plugin tool self-test
+        shell: powershell
+        run: python -B tools/maicord-plugin/test_maicord_plugin.py
+
       - name: Collect client binaries
         id: collect
         shell: powershell

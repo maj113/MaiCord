@@ -845,7 +845,7 @@ bool dismiss_popup() noexcept {
 bool application_voice_shell_click(float, float) noexcept {
     return false;
 }
-bool application_plugins_slot_activate(u64, NativePluginSdkSlotTarget, u64, UiRect) noexcept {
+bool application_plugin_surfaces_activate(u64, const PluginSurfaceTarget&, u64) noexcept {
     return false;
 }
 bool application_plugins_surface_hit(float, float, ApplicationPluginSurfaceHit*) noexcept {

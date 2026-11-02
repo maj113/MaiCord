@@ -13,7 +13,7 @@
 // installs in g_ui_plugin_render_query and g_ui_plugin_slot_query. Nothing the UI calls runs plugin code.
 namespace maicord {
 
-// The numbers the inputs' flag and enum fields carry are the plugin ABI's (plugin_abi.h; reads.cpp checks them), so
+// The numbers the inputs' flag and enum fields carry are the plugin ABI's (maicord_plugin.h; reads.cpp checks them), so
 // application code names them without including the ABI header.
 inline constexpr u32 kPluginMessageOwn = 1, kPluginMessageBot = 2, kPluginMessageEdited = 4, kPluginMessagePinned = 8,
                      kPluginMessageReply = 16, kPluginMessageMedia = 32, kPluginMessageSystem = 64,

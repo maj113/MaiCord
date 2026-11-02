@@ -14,7 +14,7 @@ struct MessageAuthorLayout {
     const UserAppearanceRecord* appearance;
     // Plugin message accessory, after the author badge.
     UiPluginSlotBadge plugin;
-    // Plugin decorations (mc.msg.render): muted text around the name and up
+    // Plugin decorations (message decorations): muted text around the name and up
     // to four badges after the accessory, read from the host cache.
     UiTextCommand name_prefix, name_suffix;
     UiPluginSlotBadge decorations[kUiPluginRenderBadges];

@@ -160,6 +160,8 @@ enum UiSettingsPresentationMore : u8 {
     ui_settings_more_progress_button = 1u << 0,
     // A disclosure row that is a static line of a list: no chevron, never focusable.
     ui_settings_more_plain = 1u << 1,
+    // A status row's meta line leads with a bold run: the text before its first " · ".
+    ui_settings_more_bold_lead = 1u << 2,
 };
 // Action rows' choices become chips under the text.
 struct UiSettingsControlPresentation {
@@ -331,15 +333,12 @@ inline constexpr float kUiSettingsDialogPadding = 24;
 // Space below the last row of a dialog's body before its footer band.
 inline constexpr float kUiSettingsDialogBodyEnd = 8;
 // Sidebar data. Page entries reference registered pages; action entries
-// report UiSettingsTargetKind::action with their id; a contributed entry
-// expands to registered pages of owners no page entry names (plugin pages).
-// Labels are borrowed.
+// report UiSettingsTargetKind::action with their id. Labels are borrowed.
 enum class UiSettingsNavKind : u8 {
     header,
     page,
     separator,
-    action,
-    contributed
+    action
 };
 // A badge on a page entry: none, an attention dot, or a count.
 inline constexpr u16 kUiSettingsNavDot = 0xffff;

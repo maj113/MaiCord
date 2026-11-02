@@ -12,72 +12,8 @@
 
 namespace maicord {
 
-// Deterministic picker boundary: actual plugin controller code is exercised,
-// while every picker has owned VM and a real completion handle but no dialog,
-// worker thread, Shell work, or account interaction.
-NativeFilePickerError native_file_picker_start(NativeFilePicker* picker, HWND owner, u32 maximum_files,
-                                               Utf8View) noexcept {
-    using namespace settings_runtime_test;
-    if (!picker || picker->runtime || owner || maximum_files != 1 || !picker_boundary.next_path.data)
-        return NativeFilePickerError::invalid_input;
-    auto* runtime = static_cast<PickerRuntime*>(
-        VirtualAlloc(nullptr, sizeof(PickerRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!runtime)
-        return NativeFilePickerError::memory;
-    const HANDLE notification = CreateEventW(nullptr, TRUE, TRUE, nullptr);
-    if (!notification) {
-        VirtualFree(runtime, 0, MEM_RELEASE);
-        return NativeFilePickerError::memory;
-    }
-    runtime->path = picker_boundary.next_path;
-    runtime->result = {1, 0, NativeFilePickerError::none, NativeFilePickerPhase::complete};
-    picker->runtime = runtime;
-    picker->notification = notification;
-    picker->phase = static_cast<LONG>(NativeFilePickerPhase::complete);
-    ++picker_boundary.starts;
-    return NativeFilePickerError::none;
-}
-NativeFilePickerResult native_file_picker_status(const NativeFilePicker* picker) noexcept {
-    using namespace settings_runtime_test;
-    return picker && picker->runtime
-               ? static_cast<const PickerRuntime*>(picker->runtime)->result
-               : NativeFilePickerResult{0, 0, NativeFilePickerError::none, NativeFilePickerPhase::empty};
-}
-ConstSlice<wchar_t> native_file_picker_path(const NativeFilePicker* picker, u32 index) noexcept {
-    using namespace settings_runtime_test;
-    if (!picker || !picker->runtime || index)
-        return {};
-    ++picker_boundary.path_reads;
-    return static_cast<const PickerRuntime*>(picker->runtime)->path;
-}
-void native_file_picker_cancel(NativeFilePicker* picker) noexcept {
-    using namespace settings_runtime_test;
-    if (!picker || !picker->runtime)
-        return;
-    ++picker_boundary.cancellations;
-    // Completion was published before cancellation. Like the real worker,
-    // retain that immutable success so the controller must abandon it itself.
-}
-bool native_file_picker_release(NativeFilePicker* picker, u32) noexcept {
-    using namespace settings_runtime_test;
-    if (!picker)
-        return false;
-    ++picker_boundary.releases;
-    if (!picker->runtime)
-        return true;
-    if (picker_boundary.release_timeouts) {
-        --picker_boundary.release_timeouts;
-        SetLastError(WAIT_TIMEOUT);
-        return false;
-    }
-    CloseHandle(picker->notification);
-    VirtualFree(picker->runtime, 0, MEM_RELEASE);
-    *picker = {};
-    return true;
-}
-
 // Rendering and surrounding account interactions are deliberate test seams.
-// The controller, state, scene, storage, preference writer and DLL host remain
+// The controller, state, scene, storage, preference writer and plugin menus remain
 // production implementations.
 void renderer_bind_theme_editor_scene(D3D11Renderer* renderer, const UiThemeEditorScene* current) noexcept {
     renderer->theme_editor_scene = current;
@@ -103,24 +39,6 @@ void renderer_release_settings_backdrop(D3D11Renderer* renderer) noexcept {
 }
 void renderer_bind_settings_scene(D3D11Renderer* renderer, const UiSettingsScene* current) noexcept {
     using namespace settings_runtime_test;
-    if (!current && renderer->settings_scene && observed.detaching_module && observed.audit) {
-        ++observed.audit->host_detaches;
-        observed.detached_active_scene = renderer->settings_scene->active;
-        observed.detached_live_code =
-            observed.detaching_module->module && GetModuleHandleW(L"MaiCordPluginFixture.dll");
-        // The plugin's menu items are still registered while its UI detaches.
-        const auto* host = application_settings_plugin_host_current();
-        NativePluginSdkMenuItem items[4]{};
-        observed.detached_live_menu_labels =
-            host && host->sdk && native_plugin_sdk_menu_items(*host->sdk, MC_MENU_USER, {items, 4}) == 1 &&
-            items[0].owner_id == fixture_owner &&
-            utf8_equal(items[0].label, utf8_literal("Open native fixture for friend"));
-        MEMORY_BASIC_INFORMATION region{};
-        observed.detached_live_state =
-            observed.detaching_module->state &&
-            VirtualQuery(observed.detaching_module->state, &region, sizeof(region)) == sizeof(region) &&
-            region.State == MEM_COMMIT;
-    }
     renderer->settings_scene = current;
     renderer->interaction_text_settings_revision = ~(current ? current->revision : 0u);
     renderer->retained_presentation.valid = false;
@@ -209,10 +127,23 @@ bool application_custom_theme_synchronize() noexcept {
 void application_custom_theme_cancel_interaction() noexcept {
 }
 ConstSlice<Utf8View> application_custom_theme_catalog() noexcept {
-    return {};
+    return settings_runtime_test::installed_themes;
 }
-bool application_custom_theme_select_installed(u32) noexcept {
-    return false;
+bool application_custom_theme_select_installed(u32 index) noexcept {
+    using namespace settings_runtime_test;
+    const auto themes = installed_themes;
+    if (index >= themes.count)
+        return false;
+    ++installed_selection.calls;
+    installed_selection.last = index;
+    installed_selection.dismissed = !g_app.popup_scene.active && g_app.popup_owner_kind != PopupOwnerKind::settings_choice &&
+                                    !g_app.popup_scene.items[0].label.data;
+    custom_theme_projection.current = themes[index];
+    custom_theme_projection.custom_active = true;
+    ++custom_theme_projection.revision;
+    if (installed_selection.invalidate)
+        application_plugins_account_scope_invalidated();
+    return true;
 }
 bool application_custom_theme_action(ApplicationCustomThemeAction action) noexcept {
     settings_runtime_test::custom_theme_last_action = action;
@@ -248,10 +179,6 @@ MessageProfileHit application_message_profile_hit_test(float x, float y) noexcep
 }
 void application_surface_motion_retire(RendererLayerSurface) noexcept {
 }
-void application_plugins_actions_install(NativePluginSdkRuntime& runtime) noexcept { runtime.actions = {}; }
-// No plugin pipeline runs in this test.
-void application_plugins_pipeline_poll() noexcept {}
-u32 application_plugins_pipeline_wait_timeout(u64) noexcept { return INFINITE; }
 // Account settings open the service's web pages through the link flow.
 namespace {
 u32 settings_link_opens{};
@@ -360,6 +287,9 @@ bool application_friends_user_relation(u64 user_id, u8* relation) noexcept {
     *relation = static_cast<u8>(row.kind);
     return true;
 }
+const RelationshipStore* application_friends_relationships() noexcept {
+    return nullptr;
+}
 bool application_thread_browser_read_blocked() noexcept {
     return false;
 }
@@ -426,7 +356,7 @@ bool focus_message_composer_control(MessageComposerControl control) noexcept {
 }
 void reset_message_composer_caret_timing(bool) noexcept {
 }
-// Popover glue (app/plugins/surfaces.cpp is linked for real).
+// Popup glue the plugin menus and surfaces (app/plugins/menus.cpp, surfaces.cpp) are linked against.
 bool refresh_popup_text() noexcept {
     return true;
 }
@@ -442,23 +372,8 @@ bool application_message_action_bar_modifiers_changed() noexcept {
 }
 bool dismiss_popup() noexcept {
     using namespace settings_runtime_test;
-    if (g_app.popup_scene.active) {
-        if (observed.detaching_module && observed.audit) {
-            ++observed.audit->host_detaches;
-            observed.detached_active_popup = true;
-            observed.detached_popup_labels = g_app.popup_scene.item_count >= 2 &&
-                                             utf8_equal(g_app.popup_scene.items[1].label,
-                                                        utf8_literal("Open native fixture for friend"));
-            observed.detached_live_code =
-                observed.detaching_module->module && GetModuleHandleW(L"MaiCordPluginFixture.dll");
-            MEMORY_BASIC_INFORMATION region{};
-            observed.detached_live_state =
-                observed.detaching_module->state &&
-                VirtualQuery(observed.detaching_module->state, &region, sizeof(region)) == sizeof(region) &&
-                region.State == MEM_COMMIT;
-        }
+    if (g_app.popup_scene.active)
         popup_scene_close(&g_app.popup_scene);
-    }
     application_plugins_menu_dismissed();
     g_app.popup_owner_kind = PopupOwnerKind::none;
     return true;
@@ -543,6 +458,14 @@ void application_store_release() noexcept {
 void application_sync_attachment_drop_target() noexcept {
     ++settings_runtime_test::observed.drop_updates;
 }
-
 } // namespace app_detail
+
+// The signed-out settings measure through the renderer's text backend; the runtime test has none, so every
+// measurement fails and layout keeps its per-character estimates.
+bool renderer_text_measure_backend(void*, const UiTextMeasureRequest&, UiTextMeasureValue*) noexcept {
+    return false;
+}
+u32 renderer_typography_revision(const D3D11Renderer&) noexcept {
+    return 0;
+}
 } // namespace maicord

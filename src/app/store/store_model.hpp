@@ -18,7 +18,7 @@ inline constexpr u32 kStoreKnobMaximum = 28;
 inline constexpr u32 kStoreHostMaximum = 8;
 
 enum class StoreTab : u8 { browse, installed, updates, developer };
-enum class StoreSort : u8 { name, newest, lightest };    // plugins: the third is "Least access"
+enum class StoreSort : u8 { name, newest, lightest, installed }; // plugins: the third is "Least access"; installed: the Installed list's order
 enum class StoreFilter : u8 { all, on, off, updates };   // Installed segments
 enum class StoreCatalogState : u8 { loading, ready, unreachable, stale, not_configured };
 
@@ -49,6 +49,7 @@ struct StoreItem {
     // The operation running on this item: 0 none, else a phase (1 downloading, 2 verifying, 3 applying).
     u8 busy;
     u32 library;        // effects: the library index, else ~0u
+    u32 order;          // installed items: the order they were installed in (the Installed list's order)
 };
 
 struct StoreKnobChoice {
@@ -58,6 +59,7 @@ struct StoreKnobChoice {
 struct StoreKnob {
     Utf8View label, hint;
     u8 type; // CatalogKnobType
+    bool percent; // a float knob read as a percentage
     float minimum, maximum, value, fallback;
     u32 rgb;
     u32 choice_count;
@@ -100,8 +102,17 @@ struct StoreLink {
     Utf8View host, name, authors, license, based_on, size_text, source_note, cost_text;
     CatalogKind kind;
     bool replaces, has_effect, effect_installed, cost_known, cost_refused, previewing;
+    u8 cost_level; // EffectCostClass of the measured cost: the dot's colour
+    u32 bytes;     // the candidate file; size_text overrides it
     u32 swatches[4];
     Utf8View effect_slug;
+};
+
+// One line of the Developer console (src/app/plugins/dev_console.hpp), as the Developer page shows it.
+inline constexpr u32 kStoreConsoleLines = 12;
+struct StoreConsoleLine {
+    u8 kind; // DevLineKind: debug, info, warning, error, strike, reload, problem
+    Utf8View time, name, text;
 };
 
 struct StoreModel {
@@ -128,6 +139,8 @@ struct StoreModel {
     StoreConsent consent;
     StoreLink link;
     Utf8View dev_folder;
+    StoreConsoleLine console[kStoreConsoleLines]; // the newest lines, oldest first (Developer Mode only)
+    u32 console_count, console_total;             // shown, held
     char text[24576];       // scratch the source writes display strings into
     u32 text_used;
 };
@@ -159,7 +172,6 @@ enum class StoreAct : u8 {
     detail_remove,
     detail_source,
     detail_copy_sha,
-    detail_author,
     update_all,
     check_now,
     retry,
@@ -192,6 +204,7 @@ enum class StoreAct : u8 {
     dev_reload,
     perf_battery,
     updates_expand,
+    console_clear,
     count
 };
 enum class StoreUniversalRow : u8 { resolution, frame_rate, speed, opacity, blend, unfocused, budget, pointer, count };
@@ -212,7 +225,7 @@ enum class StoreCommandKind : u8 {
     menu,            // open a menu: arg = StoreMenu, item, anchor
     install, update, review, remove, rollback, enable, disable, set_auto_update, skip_update,
     update_all, check_now, set_auto_update_all,
-    open_plugin_settings, open_folder, open_source, open_homepage, copy_text, open_author,
+    open_plugin_settings, open_folder, open_source, open_homepage, copy_text,
     apply_theme, try_theme, keep_theme, revert_theme, use_effect, unuse_effect,
     knob_set, knob_reset, knobs_reset, universal_set, universal_reset, global_set, knob_color,
     consent_answer,  // arg 0 cancel, 1 accept; flag: enable now
@@ -222,7 +235,7 @@ enum class StoreCommandKind : u8 {
     open_page,       // arg: CatalogKind
     request_details, // the open detail needs its details text
     request_preview,
-    ledger,
+    console_clear,
     saved_catalog,
 };
 enum class StoreMenu : u8 { sort, overflow, knob_choice, universal_choice, installed_overflow_theme, installed_overflow_effect };

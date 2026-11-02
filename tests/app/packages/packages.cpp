@@ -235,6 +235,11 @@ void test_manifest(Check check) noexcept {
               refuses("\"default\":\"#1aff59\"", "\"default\":\"1aff59\"") && refuses("\"id\":\"gain\"", "\"id\":\"speed\"") &&
               refuses("\"id\":\"mirror\"", "\"id\":\"Mirror\""),
           "mcfx manifest: knob ranges, defaults, choices, colours and ids are checked");
+    const char* percent = edit("\"id\":\"gain\",\"type\":\"float\"", "\"id\":\"gain\",\"type\":\"float\",\"percent\":true");
+    check(percent && parses(good_package(percent)) && workspace.package.knobs[5].percent && !workspace.package.knobs[0].percent &&
+              refuses("\"id\":\"count\",\"type\":\"int\"", "\"id\":\"count\",\"type\":\"int\",\"percent\":true") &&
+              refuses("\"id\":\"gain\",\"type\":\"float\"", "\"id\":\"gain\",\"type\":\"float\",\"percent\":true,\"percent\":false"),
+          "mcfx manifest: a float knob may be a percentage; other knobs and a repeated flag are refused");
     // Nine colours need nine rows.
     static char many[4096];
     u32 n = 0;

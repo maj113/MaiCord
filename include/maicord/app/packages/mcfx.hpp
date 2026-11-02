@@ -44,6 +44,7 @@ enum class McfxKnobType : u8 { number, integer, toggle, color, choice };
 struct McfxKnob {
     McfxKnobType type;
     u8 slot, choice_index, choice_count; // choice_index: into McfxPackage::choices
+    bool percent;                        // a float knob shown as a percentage (0.75 reads "75 %"); the manifest's "percent"
     float minimum, maximum, fallback;    // toggle 0..1; choice 0..count-1; colour unused
     u32 rgb;                             // the colour's default, 0xRRGGBB (sRGB)
     char id[kMcfxIdBytes + 1], label[kMcfxLabelBytes + 1], hint[kMcfxHintBytes + 1];

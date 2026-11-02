@@ -143,6 +143,16 @@ void test_store_page(void (*check)(bool, const char*) noexcept) noexcept {
     store_updates_list(g_model, &list);
     check(list.count == 1 && same(g_model.items[list.order[0]].update_version, utf8_literal("1.2.0")), "store: the Updates tab lists installed plugins with an update");
     st.filter = StoreFilter::all;
+    // Installed lists in the order things were installed in, not by name.
+    g_model.items[4].order = 0; // Silent Toggle
+    g_model.items[2].order = 1; // Show Me Your Name
+    g_model.items[5].order = 2; // Pin Counter
+    g_model.items[0].order = 3; // Clear URLs
+    store_installed_list(g_model, st, &list);
+    check(list.count == 4 && list.order[0] == 4 && list.order[1] == 2 && list.order[2] == 5 && list.order[3] == 0,
+          "store: the Installed list keeps the order things were installed in");
+    for (auto& item : g_model.items)
+        item.order = 0;
     check(store_initial_tab(g_model, CatalogKind::plugin) == StoreTab::installed &&
               store_initial_tab(g_model, CatalogKind::theme) == StoreTab::browse,
           "store: a page opens on Installed when something is installed");
@@ -287,6 +297,37 @@ static void store_tree(void (*check)(bool, const char*) noexcept) noexcept {
         retry = retry || store_act(g_scene.nodes[i].action) == StoreAct::retry;
     check(ui_store_scene_commit(&g_scene, {0, 0, 900, 700}, {40, 28, 832, 700}, {0, 0, 900, 700}) && retry,
           "store: an unreachable catalog shows Try again");
+    // The Developer tab: the console's lines are on the page, and Clear only when there is something to clear.
+    g_model.catalog = StoreCatalogState::ready;
+    g_model.developer_mode = true;
+    g_model.console_count = 0;
+    st.tab = StoreTab::developer;
+    const auto console_page = [&](u32* lines, u32* clears) noexcept {
+        ui_store_scene_begin(&g_scene);
+        store_page_build(&g_scene, in);
+        const bool laid = ui_store_scene_commit(&g_scene, {0, 0, 900, 700}, {40, 28, 832, 700}, {0, 0, 900, 700});
+        *lines = *clears = 0;
+        for (u32 i = 0; i < g_scene.count; ++i) {
+            const auto& node = g_scene.nodes[i];
+            *clears += store_act(node.action) == StoreAct::console_clear;
+            for (u32 k = 0; k < g_model.console_count; ++k)
+                *lines += node.text.bytes && node.text.bytes == g_model.console[k].text.bytes &&
+                          bytes_equal(node.text.data, g_model.console[k].text.data, node.text.bytes);
+        }
+        return laid;
+    };
+    u32 lines = 0, clears = 0;
+    check(console_page(&lines, &clears) && lines == 0 && clears == 0, "store: an empty console has no lines and nothing to clear");
+    g_model.console[0] = {static_cast<u8>(1), utf8_literal("12:00:01"), utf8_literal("Hello"), utf8_literal("started")};
+    g_model.console[1] = {static_cast<u8>(5), utf8_literal("12:00:02"), utf8_literal("Hello"), utf8_literal("Reloaded in 12 ms. State kept.")};
+    g_model.console[2] = {static_cast<u8>(6), utf8_literal("12:00:03"), utf8_literal("Hello"), utf8_literal("Not reloaded: It isn't an x64 DLL.")};
+    g_model.console_count = g_model.console_total = 3;
+    check(console_page(&lines, &clears) && lines == 3 && clears == 1, "store: the Developer tab lists the console's lines and offers Clear");
+    for (u32 i = 0; i < kStoreConsoleLines; ++i)
+        g_model.console[i] = g_model.console[i % 3];
+    g_model.console_count = kStoreConsoleLines;
+    g_model.console_total = 40;
+    check(console_page(&lines, &clears) && clears == 1 && lines >= kStoreConsoleLines, "store: a full console still lays out");
     ui_store_scene_release(&g_scene);
 }
 

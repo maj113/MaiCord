@@ -492,7 +492,7 @@ void test_status_card() noexcept {
               p.variant == UiSettingsVariant::primary && same(c.description, "Installed: 0.3.3 · Downloaded and verified · Built Oct 9, 2025") &&
               c.choices.count == 4 && same(c.choices[0], "Preview build") && same(c.choices[1], "581fd44") && same(c.choices[2], "8.0 MB") &&
               same(c.choices[3], "Signature verified") && (p.chip_tones >> 6 & 3) == ui_settings_chip_positive && (p.chip_tones & 63) == 0 &&
-              same(c.detail, "8.0 MB · takes a few seconds") && meter == kUiSettingsNoMeter && p.more == 0,
+              same(c.detail, "8.0 MB · takes a few seconds") && meter == kUiSettingsNoMeter && p.more == ui_settings_more_bold_lead,
         "update status: a ready preview build names its build, commit, size and verification beside Restart to update");
     v.channel = UpdateChannel::stable; v.offer_version = v.ready_version = update_version_number(0, 3, 4, 0); v.offer_commit[0] = 0;
     check(row(SettingBinding::update_status) && same(c.label, "MaiCord 0.3.4 is ready to install") && c.choices.count == 3 &&
@@ -1542,8 +1542,7 @@ void test_signed_out_pages() noexcept {
     bool updates = false, appearance = false, voice = false, advanced = false;
     for (u32 i = 0; i < navigation.count; ++i) {
         const auto& entry = navigation[i];
-        allowed = allowed && entry.kind != UiSettingsNavKind::action &&
-                  entry.kind != UiSettingsNavKind::contributed;
+        allowed = allowed && entry.kind != UiSettingsNavKind::action;
         if (entry.kind != UiSettingsNavKind::page)
             continue;
         const auto panel = static_cast<SettingsPanel>(entry.page.page_id - 1);
