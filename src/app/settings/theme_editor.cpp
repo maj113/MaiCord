@@ -151,23 +151,37 @@ void sync_packages(ApplicationThemeEditor& e) noexcept {
 void preview(ApplicationThemeEditor& e, const BackgroundTheme& draft, bool color_edit = true) noexcept {
     if (!current(e))
         return;
-    if (color_edit)
-        g_app.preferences.gradient = draft;
-    else {
-        // The displayed preset palette is only an editor view. Effects must
-        // not replace the user's custom colors beneath that preset.
-        g_app.preferences.gradient.effect = draft.effect;
-        g_app.preferences.gradient.speed = draft.speed;
-        g_app.preferences.gradient.strength = draft.strength;
-        g_app.preferences.gradient.density = draft.density;
-    }
     copy_bytes(g_app.preferences.effect_profiles, e.scene.effect_profiles, sizeof(e.scene.effect_profiles));
-    if (color_edit)
-        g_app.preferences.theme =
-            e.scene.light_mode ? ClientTheme::custom_light_gradient : ClientTheme::custom_gradient;
-    if (!application_custom_theme_preferences_changed(false, false))
-        return;
-    e.dirty = !client_preferences_equal(g_app.preferences, e.baseline);
+    if (const auto* document = application_custom_theme_document()) {
+        // An installed theme is edited as itself (forked on the first edit); the built-in gradient stays as it was.
+        BackgroundTheme background = color_edit ? draft : document->theme.background;
+        if (!color_edit) {
+            background.effect = draft.effect;
+            background.speed = draft.speed;
+            background.strength = draft.strength;
+            background.density = draft.density;
+        }
+        if (!application_custom_theme_edit_background(background))
+            return;
+        e.dirty = true;
+    } else {
+        if (color_edit)
+            g_app.preferences.gradient = draft;
+        else {
+            // The displayed preset palette is only an editor view. Effects must
+            // not replace the user's custom colors beneath that preset.
+            g_app.preferences.gradient.effect = draft.effect;
+            g_app.preferences.gradient.speed = draft.speed;
+            g_app.preferences.gradient.strength = draft.strength;
+            g_app.preferences.gradient.density = draft.density;
+        }
+        if (color_edit)
+            g_app.preferences.theme =
+                e.scene.light_mode ? ClientTheme::custom_light_gradient : ClientTheme::custom_gradient;
+        if (!application_custom_theme_preferences_changed(false, false))
+            return;
+        e.dirty = !client_preferences_equal(g_app.preferences, e.baseline);
+    }
     ++e.edit_revision;
     application_preferences_apply();
     application_request_frame();
@@ -227,7 +241,8 @@ bool action(ApplicationThemeEditor& e, UiThemeEditorElement element) noexcept {
     }
     if (element == UiThemeEditorElement::dark || element == UiThemeEditorElement::light) {
         const bool light = element == UiThemeEditorElement::light;
-        if (light != e.scene.light_mode) {
+        // An installed theme's base is its own; the switch picks the built-in Custom or Custom light theme.
+        if (light != e.scene.light_mode && !application_custom_theme_document()) {
             const bool was_flat = flat_theme(g_app.preferences.theme);
             e.scene.light_mode = light;
             ++e.scene.revision;
@@ -328,7 +343,9 @@ bool application_theme_editor_open() noexcept {
     e->pressed = UiThemeEditorElement::count;
     e->edit_revision = 1;
     e->lifetime = g_app.theme_editor_lifetime_serial + 1;
-    auto draft = application_theme().background;
+    // An installed theme starts from its own look, never from the built-in gradient.
+    const auto* document = application_custom_theme_document();
+    auto draft = document ? client_theme_document_swatch(*document) : application_theme().background;
     if (!background_theme_valid(draft))
         draft = g_app.preferences.gradient;
     sync_packages(*e);
@@ -339,8 +356,9 @@ bool application_theme_editor_open() noexcept {
         VirtualFree(e, 0, MEM_RELEASE);
         return false;
     }
-    e->scene.light_mode = g_app.preferences.theme == ClientTheme::light ||
-                          g_app.preferences.theme == ClientTheme::custom_light_gradient;
+    e->scene.light_mode = document ? document->base == ClientThemeBase::light
+                                   : g_app.preferences.theme == ClientTheme::light ||
+                                         g_app.preferences.theme == ClientTheme::custom_light_gradient;
     g_app.theme_editor = e;
     if (!current(*e)) {
         application_theme_editor_close(false);

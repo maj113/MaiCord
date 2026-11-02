@@ -81,9 +81,12 @@ struct ClientThemeCatalogEntry {
     u32 file_units;
     FileSnapshot identity;
     ClientThemeBase base;
-    // What a swatch shows: the document's gradient, or its flat surface as two equal stops.
+    // What a swatch shows (client_theme_document_swatch).
     BackgroundTheme preview;
 };
+// A document's look as a gradient: its own gradient, or its flat surface as two equal stops (keeping its effect).
+// Theme swatches show it, and the theme editor starts from it.
+BackgroundTheme client_theme_document_swatch(const ClientThemeDocument&) noexcept;
 struct ClientThemeCatalog {
     ClientThemeCatalogEntry entries[kClientThemeCatalogCapacity];
     u32 count, skipped;

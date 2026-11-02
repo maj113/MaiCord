@@ -23,6 +23,8 @@ struct InstalledSelection {
     bool preview;
 };
 extern InstalledSelection installed_selection;
+// Calls into the custom theme owner: built-in preference changes and the editor's document background edits.
+extern u32 theme_preference_changes, theme_background_edits;
 
 struct Observations {
     UiRect viewport{0, 0, 1000, 700};

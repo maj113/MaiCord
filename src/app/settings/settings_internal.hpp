@@ -76,7 +76,6 @@ struct ApplicationSettings {
     u16 slider_generation;
     u32 preference_key;
     ClientPreferences slider_baseline;
-    ClientThemeStorageSnapshot* slider_theme_baseline;
     UiSettingsTarget slider_target;
     bool slider_preview;
     UiRect slider_viewport;
@@ -135,8 +134,6 @@ bool theme_panel(const UiPageKey& page) noexcept;
 bool option_row(UiSettingsControlKind kind) noexcept;
 bool theme_binding(SettingBinding binding) noexcept;
 const UiSettingsSchemaNode* control_node(u64 id, SettingBinding* binding = nullptr) noexcept;
-bool release_slider_theme(ApplicationSettings& settings) noexcept;
-bool capture_slider_theme(ApplicationSettings& settings, const UiSettingsTarget& target) noexcept;
 BackgroundTheme gradient_edit_base() noexcept;
 bool persist() noexcept;
 void project(ApplicationSettings& settings) noexcept;

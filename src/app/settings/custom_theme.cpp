@@ -490,25 +490,33 @@ bool application_custom_theme_preferences_changed(bool choose_builtin, bool pers
     auto* o = ensure();
     if (!o || o->loading || o->releasing)
         return false;
+    // Built-in preferences never reach an active custom document: it keeps its own colours, gradient and effect.
     auto next = o->effective;
     if (!client_theme_storage_capture(&next, g_app.preferences, next.custom, next.custom_present,
-                                      choose_builtin ? false : next.custom_active))
+                                      choose_builtin ? false : next.custom_active) ||
+        !publish(*o, next))
         return false;
-    bool forking = false;
-    if (next.custom_active && !same(next, o->effective)) {
-        next.custom.theme.background = client_theme_projection(g_app.preferences).background;
-        // An edit never changes the installed theme it came from: the active theme becomes its own copy.
-        forking = !client_theme_document_equal(next.custom, o->effective.custom);
-        if (forking)
-            fork(next.custom);
-    }
-    if (!publish(*o, next))
-        return false;
-    o->fork_dirty = o->fork_dirty || forking;
     if (choose_builtin)
         o->previewing = o->candidate_ready = false;
     adopt_effective(*o);
     return !persist || (!o->storage_dirty && !o->save_failed) || save(*o);
+}
+bool application_custom_theme_edit_background(const BackgroundTheme& background) noexcept {
+    auto* o = ensure();
+    if (!o || o->loading || o->releasing || !o->effective.custom_active)
+        return false;
+    auto next = o->effective;
+    next.custom.theme.background = background;
+    if (client_theme_document_equal(next.custom, o->effective.custom))
+        return true;
+    // The copy starts from the active document itself, so only the background differs from it.
+    fork(next.custom);
+    activate_document(next);
+    if (!client_theme_document_valid(next.custom) || !publish(*o, next))
+        return false;
+    o->fork_dirty = true;
+    adopt_effective(*o);
+    return true;
 }
 bool application_custom_theme_snapshot(ClientThemeStorageSnapshot* out) noexcept {
     if (!out || !owner)

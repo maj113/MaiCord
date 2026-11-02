@@ -113,6 +113,11 @@ const ClientThemeDocument* application_custom_theme_document() noexcept {
     return nullptr;
 }
 bool application_custom_theme_preferences_changed(bool, bool) noexcept {
+    ++settings_runtime_test::theme_preference_changes;
+    return true;
+}
+bool application_custom_theme_edit_background(const BackgroundTheme&) noexcept {
+    ++settings_runtime_test::theme_background_edits;
     return true;
 }
 bool application_custom_theme_snapshot(ClientThemeStorageSnapshot*) noexcept {

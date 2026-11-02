@@ -227,8 +227,6 @@ bool application_preferences_image_zoom(u8 factor, u8 size) noexcept {
 bool application_settings_commit_preferences() noexcept {
     const bool accepted = persist();
     if (g_app.settings) {
-        if (!g_app.settings->slider_preview && !release_slider_theme(*g_app.settings))
-            return false;
         project(*g_app.settings);
         if (g_app.settings->scene.active && !update_scene(*g_app.settings, g_app.settings->scene.viewport))
             return false;
@@ -253,17 +251,13 @@ void application_settings_cancel_pointer() noexcept {
             g_app.preferences.gradient = settings->slider_baseline.gradient;
             copy_bytes(g_app.preferences.effect_profiles, settings->slider_baseline.effect_profiles,
                        sizeof(g_app.preferences.effect_profiles));
-            if (settings->slider_theme_baseline)
-                application_custom_theme_restore(*settings->slider_theme_baseline);
-            else
-                application_custom_theme_preferences_changed(false, false);
+            application_custom_theme_preferences_changed(false, false);
         } else if (binding == SettingBinding::output_volume)
             g_app.preferences.output_volume = settings->slider_baseline.output_volume;
         application_preferences_apply();
         project(*settings);
         refresh();
     }
-    release_slider_theme(*settings);
     close_choice();
     reset_value(&settings->pressed);
     settings->slider_dragging = false;
@@ -511,10 +505,6 @@ void application_settings_close(bool restore_focus) noexcept {
     ui_scroll_host_cancel(&g_app.scroll_host);
     application_voice_settings_visible(false);
     application_settings_cancel_pointer();
-    if (!release_slider_theme(*settings)) {
-        log_write(LogLevel::warning, "preferences", "slider_theme_release_pending");
-        return;
-    }
     const auto* previous = settings->previous_focus;
     const bool composer = settings->previous_composer_focus;
     application_release_capture();
@@ -704,10 +694,6 @@ void application_settings_release() noexcept {
     if (!settings)
         return;
     application_settings_cancel_pointer();
-    if (!release_slider_theme(*settings)) {
-        log_write(LogLevel::warning, "preferences", "slider_theme_release_pending");
-        return;
-    }
     renderer_bind_settings_scene(&g_app.renderer, nullptr);
     ui_settings_scene_release(&settings->scene);
     ui_page_registry_clear(&settings->registry);

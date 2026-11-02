@@ -60,6 +60,7 @@ bool custom_fixture_request_frame() noexcept;
 #define application_custom_theme_offer custom_fixture_offer
 #define application_custom_theme_rescan custom_fixture_rescan
 #define application_custom_theme_use_builtin custom_fixture_use_builtin
+#define application_custom_theme_edit_background custom_fixture_edit_background
 #define client_theme_catalog_directory custom_fixture_catalog_directory
 #define client_theme_catalog_remove custom_fixture_catalog_remove
 #define application_settings_appearance_selected custom_fixture_appearance_selected
@@ -406,18 +407,32 @@ void test_application_custom_theme(void (*check)(bool, const char*) noexcept) no
           "theme store");
     ClientThemeStorageSnapshot baseline{};
     application_custom_theme_snapshot(&baseline);
+    // The built-in gradient (another look, like a remembered Sunset) never reaches the installed theme.
     g_app.preferences.gradient = background_theme_defaults();
     g_app.preferences.gradient.angle_degrees = 212;
     g_app.preferences.theme = ClientTheme::custom_light_gradient;
     check(application_custom_theme_preferences_changed(false, false) &&
-              application_custom_theme_document()->theme.background.angle_degrees == 212 &&
-              ui_theme_typography_equal(application_custom_theme_document()->typography,
-                                        candidate.typography) &&
-              ui_theme_metrics_equal(application_custom_theme_document()->metrics, candidate.metrics) &&
-              application_custom_theme_document()->theme.accent.red == candidate.theme.accent.red &&
-              utf8_equal(application_custom_theme_view().current, utf8_literal("Original theme (edited)")),
-          "custom theme owner: a background edit forks the theme into an edited copy and keeps its foreground "
-          "typography and geometry");
+              client_theme_document_equal(*application_custom_theme_document(), candidate) &&
+              utf8_equal(application_custom_theme_view().current, utf8_literal("Original theme")),
+          "custom theme owner: built-in gradient changes neither edit nor fork the installed theme");
+    // The editor starts from the theme's own look: this flat theme's surface, not the built-in gradient.
+    BackgroundTheme edited = client_theme_document_swatch(candidate);
+    const BackgroundTheme builtin_gradient = background_theme_defaults();
+    check(edited.color_count == 2 && edited.colors[0] == edited.colors[1] &&
+              edited.colors[0] != builtin_gradient.colors[0] && edited.effect == candidate.theme.background.effect,
+          "custom theme owner: the editor's starting gradient is the installed theme's surface");
+    edited.angle_degrees = 212;
+    ClientThemeDocument expected = candidate;
+    expected.theme.background = edited;
+    constexpr Utf8View fork_name = utf8_literal("Original theme (edited)");
+    copy_bytes(expected.name, fork_name.data, fork_name.bytes);
+    expected.name_bytes = fork_name.bytes;
+    expected.name[fork_name.bytes] = 0;
+    check(application_custom_theme_edit_background(edited) &&
+              client_theme_document_equal(*application_custom_theme_document(), expected) &&
+              utf8_equal(application_custom_theme_view().current, fork_name),
+          "custom theme owner: an editor edit forks the theme into a copy of the theme itself (colours, type, "
+          "geometry) with only the edited background");
     check(application_custom_theme_preferences_changed(false, true) && transport.exported &&
               transport.requested.custom_active &&
               utf8_equal({transport.requested.custom.name, transport.requested.custom.name_bytes},

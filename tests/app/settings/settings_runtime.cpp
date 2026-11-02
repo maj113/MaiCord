@@ -39,6 +39,7 @@ ApplicationCustomThemeAction custom_theme_last_action{};
 u32 custom_theme_actions{};
 ConstSlice<ClientThemeCatalogEntry> installed_themes{};
 InstalledSelection installed_selection{};
+u32 theme_preference_changes{}, theme_background_edits{};
 
 Observations observed{};
 
@@ -1765,6 +1766,35 @@ void test_controller() noexcept {
         check(activate_control(kAppearancePage, cid("appearance.your_themes"), VK_RIGHT) && installed_selection.calls == 2 &&
                   ui_page_key_equal(scene()->selected_page, themes_page),
               "your themes: the Browse themes tile opens Settings > Themes");
+        // An installed theme in use: the built-in gradient knobs are disabled, say why, and never act on it.
+        ui_settings_scene_select(scene(), kAppearancePage);
+        application_settings_refresh_pages();
+        const auto knob = [](const char* id) noexcept {
+            return ui_settings_scene_control(*scene(), {UiSettingsTargetKind::control, kAppearancePage, cid(id)});
+        };
+        const auto* effect_row = knob("appearance.background_effect");
+        const auto* intensity_row = knob("appearance.gradient_intensity");
+        const auto* direction_row = knob("appearance.gradient_direction");
+        check(effect_row && intensity_row && direction_row && !effect_row->enabled && !intensity_row->enabled &&
+                  !direction_row->enabled &&
+                  utf8_equal(effect_row->description,
+                             utf8_literal("Gradient settings apply to built-in themes. Use Customize to edit Fjord.")),
+              "installed theme: the built-in gradient knobs are disabled with a hint naming the theme");
+        const u32 theme_changes_before = theme_preference_changes;
+        const BackgroundTheme gradient_before = g_app.preferences.gradient;
+        activate_control(kAppearancePage, cid("appearance.gradient_intensity"), VK_RIGHT);
+        activate_control(kAppearancePage, cid("appearance.gradient_direction"), VK_LEFT);
+        activate_control(kAppearancePage, cid("appearance.background_effect"), VK_RIGHT);
+        check(theme_preference_changes == theme_changes_before && theme_background_edits == 0 &&
+                  background_theme_equal(g_app.preferences.gradient, gradient_before),
+              "installed theme: gradient knob input never reaches (or forks) the theme");
+        check(application_custom_theme_use_builtin(), "installed theme: Use built-in theme leaves it");
+        application_settings_refresh_pages();
+        effect_row = knob("appearance.background_effect");
+        intensity_row = knob("appearance.gradient_intensity");
+        check(effect_row && intensity_row && effect_row->enabled && intensity_row->enabled &&
+                  utf8_equal(effect_row->description, utf8_literal("Animated effect drawn behind gradient themes.")),
+              "built-in theme: the gradient knobs are back once a built-in theme is in use");
         // Settings search: the theme import keywords lead to Themes and start its Import.
         UiSettingsSearchHit import_hits[4]{};
         const u32 import_found =

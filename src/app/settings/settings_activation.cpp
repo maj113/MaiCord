@@ -429,6 +429,11 @@ bool activate(const UiSettingsTarget& target, bool reverse, bool picker, u32 sel
                                   : application_account_settings_activate(binding));
     if (backend != SettingBackend::local)
         return false;
+    // The built-in gradient knobs never act on (or fork) an installed theme: the projection disables them.
+    if ((binding == SettingBinding::background_effect || binding == SettingBinding::gradient_direction ||
+         binding == SettingBinding::gradient_intensity) &&
+        application_custom_theme_view().custom_active)
+        return false;
     if (bool result = false; binding == SettingBinding::background_effect &&
                              application_effects_activate(request.selected_choice, &result))
         return settled(*settings, result);

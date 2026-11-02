@@ -48,10 +48,12 @@ bool application_custom_theme_offer(const ClientThemeDocument&) noexcept;
 void application_custom_theme_rescan() noexcept;
 // Leaves the custom theme for the last built-in one (ClientPreferences::builtin_theme) and saves.
 bool application_custom_theme_use_builtin() noexcept;
-// Existing background edits retain every custom foreground/font/layout token. Editing an active custom theme's
-// background forks it: the document becomes "<Name> (edited)" and its saves export it to the installed themes.
-// choose_builtin is true only for an explicit built-in palette selection.
+// Built-in preference changes (palettes, gradient, effect, Use built-in). They never change an active custom
+// document. choose_builtin is true only for an explicit built-in palette selection.
 bool application_custom_theme_preferences_changed(bool choose_builtin, bool persist) noexcept;
+// The theme editor's background edit of the active custom document. The edit forks it: the copy is the active
+// document itself with this background, renamed "<Name> (edited)", and its saves export it to the installed themes.
+bool application_custom_theme_edit_background(const BackgroundTheme&) noexcept;
 bool application_custom_theme_snapshot(ClientThemeStorageSnapshot*) noexcept;
 bool application_custom_theme_restore(const ClientThemeStorageSnapshot&) noexcept;
 } // namespace maicord::app_detail

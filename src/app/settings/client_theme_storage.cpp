@@ -243,6 +243,24 @@ bool client_theme_storage_valid(const ClientThemeStorageSnapshot& value) noexcep
             return false;
     return true;
 }
+BackgroundTheme client_theme_document_swatch(const ClientThemeDocument& document) noexcept {
+    const auto& background = document.theme.background;
+    if (background_theme_valid(background) && background.color_count >= 2)
+        return background;
+    const Color surface = document.theme.base_low;
+    BackgroundTheme swatch = background_theme_defaults();
+    swatch.colors[0] = swatch.colors[1] = static_cast<u32>(surface.red * 255 + .5f) << 16 |
+                                          static_cast<u32>(surface.green * 255 + .5f) << 8 |
+                                          static_cast<u32>(surface.blue * 255 + .5f);
+    swatch.colors[2] = 0;
+    swatch.color_count = 2;
+    // A flat theme keeps its own effect, if any.
+    swatch.effect = background.effect;
+    swatch.speed = background.speed;
+    swatch.strength = background.strength;
+    swatch.density = background.density;
+    return background_theme_valid(swatch) ? swatch : background_theme_defaults();
+}
 bool client_theme_storage_capture(ClientThemeStorageSnapshot* output, const ClientPreferences& preferences,
                                   const ClientThemeDocument& document, bool present, bool active) noexcept {
     if (!output)
@@ -537,18 +555,7 @@ ClientThemeStorageResult client_theme_catalog_scan(const wchar_t* directory, Cli
                 }
             }
             entry.base = document.base;
-            if (background_theme_valid(document.theme.background) && document.theme.background.color_count >= 2) {
-                entry.preview = document.theme.background;
-            } else {
-                const Color surface = document.theme.base_low;
-                entry.preview = background_theme_defaults();
-                entry.preview.colors[0] = entry.preview.colors[1] =
-                    static_cast<u32>(surface.red * 255 + .5f) << 16 | static_cast<u32>(surface.green * 255 + .5f) << 8 |
-                    static_cast<u32>(surface.blue * 255 + .5f);
-                entry.preview.colors[2] = entry.preview.colors[3] = entry.preview.colors[4] = 0;
-                entry.preview.color_count = 2;
-                entry.preview.effect = BackgroundEffect::none;
-            }
+            entry.preview = client_theme_document_swatch(document);
             u32 at = catalog.count++;
             while (at && wide_less(entry.file, entry.file_units, catalog.entries[at - 1].file,
                                    catalog.entries[at - 1].file_units))

@@ -146,33 +146,6 @@ const UiSettingsSchemaNode* control_node(u64 id, SettingBinding* binding) noexce
         *binding = node ? binding_of(*node) : SettingBinding::none;
     return node;
 }
-bool release_slider_theme(ApplicationSettings& settings) noexcept {
-    if (!settings.slider_theme_baseline)
-        return true;
-    if (!VirtualFree(settings.slider_theme_baseline, 0, MEM_RELEASE))
-        return false;
-    settings.slider_theme_baseline = nullptr;
-    return true;
-}
-bool capture_slider_theme(ApplicationSettings& settings, const UiSettingsTarget& target) noexcept {
-    if (!release_slider_theme(settings))
-        return false;
-    // Built-in and notification gestures already have a preferences
-    // baseline. Only an active imported background needs a whole document.
-    SettingBinding binding{};
-    control_node(target.control_id, &binding);
-    if (!theme_binding(binding) || !application_custom_theme_document())
-        return true;
-    auto* snapshot = static_cast<ClientThemeStorageSnapshot*>(
-        VirtualAlloc(nullptr, sizeof(ClientThemeStorageSnapshot), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!snapshot)
-        return false;
-    settings.slider_theme_baseline = snapshot;
-    if (application_custom_theme_snapshot(snapshot))
-        return true;
-    release_slider_theme(settings);
-    return false;
-}
 BackgroundTheme gradient_edit_base() noexcept {
     const auto& background = application_theme().background;
     return static_cast<u8>(g_app.preferences.theme) >= static_cast<u8>(ClientTheme::aurora) &&
@@ -282,6 +255,18 @@ bool project_node(const ApplicationSettings& settings, u32 panel, u32 index, UiS
     case SettingBinding::background_effect:
     case SettingBinding::gradient_direction:
     case SettingBinding::gradient_intensity:
+        // These edit the built-in gradient. An installed theme is edited with Customize, which keeps its own look.
+        control->enabled = theme_idle && !custom.custom_active;
+        if (custom.custom_active && binding == SettingBinding::background_effect) {
+            static char hint[128 + kClientThemeNameMaximumBytes];
+            constexpr Utf8View head = utf8_literal("Gradient settings apply to built-in themes. Use Customize to edit ");
+            const u32 name = minimum<u32>(custom.current.bytes, kClientThemeNameMaximumBytes);
+            copy_bytes(hint, head.data, head.bytes);
+            copy_bytes(hint + head.bytes, custom.current.data, name);
+            hint[head.bytes + name] = '.';
+            control->description = {hint, head.bytes + name + 1};
+        }
+        return true;
     case SettingBinding::customize_theme:
         control->enabled = theme_idle;
         return true;

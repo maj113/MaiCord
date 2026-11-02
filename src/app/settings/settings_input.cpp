@@ -139,8 +139,6 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
                                      focused.page.owner_id == kNativeSettingsOwner;
                 if (preview && !settings->slider_preview) {
                     settings->slider_baseline = g_app.preferences;
-                    if (!capture_slider_theme(*settings, focused))
-                        return true;
                     settings->slider_target = focused;
                     settings->pressed_account_serial = g_app.plugin_account_scope_serial;
                     settings->pressed_profile = g_app.account.status.profile_id;
@@ -461,10 +459,6 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                 application_pointer_captured()) {
                 settings->slider_dragging = true;
                 settings->slider_baseline = g_app.preferences;
-                if (!capture_slider_theme(*settings, hit)) {
-                    application_settings_cancel_pointer();
-                    return true;
-                }
                 settings->slider_target = hit;
                 settings->slider_preview = true;
                 settings->slider_generation = settings->scene.widgets.generation;
