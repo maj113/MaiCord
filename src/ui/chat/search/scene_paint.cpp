@@ -156,13 +156,15 @@ bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStre
         if (hovered || captured || selected) {
             const float radius =
                 action == UiSearchAction::filter_value ? ui_theme_metrics(s.theme_styles).compact_radius : 4.f;
+            // Chooser and sort rows stack, so their plates keep the shared menu row gap.
+            const UiRect plate = filter || sort ? ui_menu_row_plate(r, theme.scale.space_1) : r;
             if (hovered || captured)
-                p.rounded(r,
+                p.rounded(plate,
                           ui_background_hover_color(theme, captured ? theme.interactive : theme.interactive_hover,
                                                     captured ? .32f : .20f),
                           radius);
             if (selected)
-                p.rounded(r, ui_background_hover_color(theme, theme.interactive, .28f), radius);
+                p.rounded(plate, ui_background_hover_color(theme, theme.interactive, .28f), radius);
         }
         if (action == UiSearchAction::close) {
             const float icon = ui_icon_button_extent(ui_rect_width(r) - 8);

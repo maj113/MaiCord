@@ -502,8 +502,11 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
                                              : ui_background_hover_color(theme, theme.surface_high, .28f);
         const bool lit = (item.flags & popup_item_enabled) &&
                          (scene.selected_index == index || (item.flags & popup_item_checked));
+        // Stacked rows inset their plate; quick reaction cells stand apart already.
         if (lit)
-            p.rounded_border(layout->rectangle, highlight, highlight, row_radius, 0.0f);
+            p.rounded_border(ui_menu_row_plate(layout->rectangle,
+                                               item.flags & popup_item_quick_reaction ? 0.f : theme.scale.space_1),
+                             highlight, highlight, row_radius, 0.0f);
         if (item.flags & popup_item_avatar) {
             const auto avatar = popup_avatar_rectangle(*layout);
             p.rounded(avatar, theme.interactive, theme.scale.radius_lg);

@@ -217,6 +217,11 @@ inline bool row_states(const D3D11Renderer& r, const surface_motion_probe_detail
     const auto selected_fill = ui_background_hover_color(theme, theme.interactive, .28f);
     const auto hovered_fill = ui_background_hover_color(theme, theme.interactive_hover, .20f);
     bool selected_quad{}, hovered_quad{};
+    // Adjacent row plates keep the shared menu row gap and never touch.
+    selected = ui_menu_row_plate(selected, theme.scale.space_1);
+    hovered = ui_menu_row_plate(hovered, theme.scale.space_1);
+    if (ui_rect_intersects(selected, hovered))
+        return false;
     for (u32 i = 0; i < r.paint_stream.count; ++i) {
         const auto& q = r.paint_stream.quads[i];
         const UiRect rectangle{q.left, q.top, q.right, q.bottom};

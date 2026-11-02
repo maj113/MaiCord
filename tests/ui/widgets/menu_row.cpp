@@ -153,6 +153,50 @@ void test_menu_row(void (*check)(bool, const char*) noexcept) noexcept {
                   popup_scene_menu_row_geometry(mixed.scene, 0, &lone) && lone.primary.left < plain.primary.left;
         check(aligned, "menu row: icon-less rows share the label column and row height of icon rows in the same menu");
     }
+    {
+        // A Sort menu: the checked row and the hovered neighbour keep the menu
+        // row gap between their plates, while the gap still hit-tests as a row.
+        MenuFixture sort{};
+        PopupItem rows[2]{{utf8_literal("Name"), 1, popup_item_enabled | popup_item_checked},
+                          {utf8_literal("Newest"), 2, popup_item_enabled}};
+        bool hovered = false;
+        bool gap = popup_scene_initialize(&sort.scene, {sort.items, 4}, {sort.rows, 4}, {sort.widgets, 10},
+                                          {sort.nodes, 10}) &&
+                   popup_scene_open(&sort.scene, PopupKind::settings_choice, 3, {rows, 2}, {10, 10, 120, 40},
+                                    {0, 0, 320, 240}, 200, false)
+                       .ok();
+        const auto* checked_row = gap ? popup_scene_layout_node(sort.scene, sort.rows[0].widget) : nullptr;
+        const auto* hovered_row = gap ? popup_scene_layout_node(sort.scene, sort.rows[1].widget) : nullptr;
+        gap = gap && checked_row && hovered_row && checked_row->rectangle.bottom == hovered_row->rectangle.top &&
+              popup_scene_set_hover(&sort.scene, (hovered_row->rectangle.left + hovered_row->rectangle.right) * .5f,
+                                    (hovered_row->rectangle.top + hovered_row->rectangle.bottom) * .5f, &hovered) &&
+              hovered && sort.scene.selected_index == 1;
+        PaintStream plates{};
+        gap = gap && paint_stream_initialize(&plates) && paint_stream_reset(&plates, 320, 240) &&
+              popup_presentation_build(sort.scene, kDefaultTheme, &plates);
+        const float space = kDefaultTheme.scale.space_1;
+        const UiRect checked = gap ? ui_menu_row_plate(checked_row->rectangle, space) : UiRect{};
+        const UiRect pointed = gap ? ui_menu_row_plate(hovered_row->rectangle, space) : UiRect{};
+        const Color checked_fill = ui_emphasis_selected(kDefaultTheme, UiElevation::popover);
+        const Color hover_fill = ui_background_hover_color(kDefaultTheme, kDefaultTheme.surface_high, .28f);
+        bool checked_plate = false, pointed_plate = false, touching = false;
+        for (u32 i = 0; gap && i < plates.count; ++i) {
+            const auto& q = plates.quads[i];
+            const UiRect quad{q.left, q.top, q.right, q.bottom};
+            checked_plate |= ui_rect_equal(quad, checked) && bytes_equal(&q.fill, &checked_fill, sizeof(Color));
+            pointed_plate |= ui_rect_equal(quad, pointed) && bytes_equal(&q.fill, &hover_fill, sizeof(Color));
+            touching |= ui_rect_equal(quad, checked_row->rectangle) || ui_rect_equal(quad, hovered_row->rectangle);
+        }
+        paint_stream_release(&plates);
+        const float seam = gap ? checked_row->rectangle.bottom : 0.f;
+        const float x = gap ? (checked_row->rectangle.left + checked_row->rectangle.right) * .5f : 0.f;
+        const PopupHit above = popup_scene_hit_test(sort.scene, x, seam - space * .25f);
+        const PopupHit below = popup_scene_hit_test(sort.scene, x, seam + space * .25f);
+        check(gap && space > 0 && checked_plate && pointed_plate && !touching && !ui_rect_intersects(checked, pointed) &&
+                  pointed.top - checked.bottom == space && above.inside && above.source_index == 0 &&
+                  above.action == 1 && below.inside && below.source_index == 1 && below.action == 2,
+              "menu row: checked and hovered plates keep the row gap and the gap still hit-tests as rows");
+    }
 
     {
         PaintStream themed_paint{};

@@ -52,6 +52,12 @@ inline UiRect ui_menu_row_slot_clip(const UiMenuRowGeometry& geometry, UiRect sl
     return ui_rect_intersection(geometry.clip, slot);
 }
 
+// A row's hover/selected plate: half the gap off its top and bottom, so the
+// plates of adjacent rows never touch while the rows' hit areas stay contiguous.
+constexpr UiRect ui_menu_row_plate(UiRect row, float gap) noexcept {
+    return {row.left, row.top + gap * .5f, row.right, row.bottom - gap * .5f};
+}
+
 // Borrowed, allocation-free rectangles shared by row paint and text output.
 // Intrinsic label shaping, ownership and keyboard actions remain in the scene.
 bool ui_menu_row_project(UiRect content, UiRect clip, UiMenuRowPresentation presentation, bool has_detail,
