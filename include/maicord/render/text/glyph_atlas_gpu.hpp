@@ -80,8 +80,10 @@ struct GlyphRasterBatch {
     ~GlyphRasterBatch() noexcept {cancel();}
     // A positive stroke half-width (pixels, < 128) also covers every contour's
     // centreline with round caps and joins; zero keeps text coverage unchanged.
+    // `pen_offset` (pixels, [0, 1)) draws the outline that far right of the tile's
+    // integer origin; `bounds` must already enclose the shifted outline.
     GlyphAtlasGpuResult add(const GlyphOutline&,const GlyphRasterBounds&,const GlyphAtlasAllocation&,float,u16,
-                            float stroke_half_width=0) noexcept;
+                            float stroke_half_width=0,float pen_offset=0) noexcept;
     bool finish() noexcept;
     void cancel() noexcept;
     bool pending() const noexcept {return count||mapped||failed;}

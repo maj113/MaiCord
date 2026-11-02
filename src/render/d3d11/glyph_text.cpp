@@ -10,6 +10,7 @@
 #include "maicord/media/image/regional_flag_svg.hpp"
 #include "maicord/render/text/native_glyph_outlines.hpp"
 #include "maicord/text/fonts/run.hpp"
+#include "maicord/sys/simd.hpp"
 
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/ui/chat/messages/markdown.hpp"
@@ -69,6 +70,17 @@ float whole_pixels(float pixels) noexcept {
     const i32 truncated = static_cast<i32>(shifted);
     return static_cast<float>(static_cast<float>(truncated) > shifted ? truncated - 1 : truncated);
 }
+
+// The nearest integer (ties to even) in one conversion, for the hot glyph loop.
+inline i32 nearest_i32(float value) noexcept {
+    return _mm_cvtss_si32(_mm_set_ss(value));
+}
+
+// Horizontal pen positions per pixel. Glyphs keep the advances layout used and
+// rasterize at the nearest quarter pixel, as Skia, WebRender and Qt do; a whole
+// pixel per glyph made one gap in a word up to a pixel wider than its neighbours.
+// Baselines stay on whole pixels.
+constexpr i32 kSubpixelShift = 2, kSubpixelBins = 1 << kSubpixelShift;
 
 struct GlyphTextStorage {
     wchar_t utf16[kRendererGlyphCapacity];
@@ -588,6 +600,8 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
     const float origin_x_pixels = whole_pixels(request.origin_x * pixel_scale);
     const float origin_y_pixels = whole_pixels(request.origin_y * pixel_scale);
     const float origin_x = origin_x_pixels / pixel_scale, origin_y = origin_y_pixels / pixel_scale;
+    const float inverse_scale = 1.0f / pixel_scale, step_scale = pixel_scale * kSubpixelBins;
+    GlyphAtlasIndex* const index = atlas_index(owner);
     GlyphOutline outline{};
     if (!glyph_outline_initialize(&outline,
                                   Slice<GlyphPathCommand>{owner->path_commands, kRendererPathCapacity})) {
@@ -655,9 +669,14 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
             return false;
         }
         const u32 em_fixed = static_cast<u32>(run.em_size * 64.0f + 0.5f);
-        if (em_fixed == 0 || em_fixed > 0xFFFFu || request.dpi > 0xFFFFu) {
+        // Atlas key: face, DPI (14 bits) above the subpixel bin, em size and glyph. The
+        // bin sits in bits 32-33, which the atlas index hash spreads across its buckets.
+        if (em_fixed == 0 || em_fixed > 0xFFFFu || request.dpi > 0x3FFFu) {
             return false;
         }
+        const u64 run_key = (static_cast<u64>(face_id) << 48) |
+                            (static_cast<u64>(request.dpi) << (32 + kSubpixelShift)) |
+                            (static_cast<u64>(em_fixed) << 16);
         Color foreground =
             text_style_color(request.theme, request.color, run.style_flags, request.inline_role_color);
         Color role_color{};
@@ -673,6 +692,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
         }
         const float pixels_per_em = run.em_size * pixel_scale;
         float advance = 0.0f;
+        const float baseline_y_pixels = origin_y_pixels + whole_pixels(run.baseline_y * pixel_scale);
         for (u32 offset = 0; offset < run.glyph_count; ++offset) {
             const u32 glyph_index = run.first_glyph + offset;
             if (glyph_index >= request.text->glyph_count) {
@@ -684,9 +704,17 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
                 advance += glyph.advance;
                 continue;
             }
-            const u64 key = (static_cast<u64>(face_id) << 48) | (static_cast<u64>(request.dpi) << 32) |
-                            (static_cast<u64>(em_fixed) << 16) | glyph.index;
-            auto allocation = glyph_atlas_find_indexed(&owner->allocator, atlas_index(owner), key);
+            const float offset_x = (run.bidi_level & 1)
+                                       ? run.baseline_x - (advance + glyph.advance + glyph.advance_offset)
+                                       : run.baseline_x + advance + glyph.advance_offset;
+            // The pen inside the block in quarter pixels: whole pixels (floored, also
+            // for negative offsets) and the bin, the atlas tile's subpixel offset.
+            const i32 steps = nearest_i32(offset_x * step_scale);
+            const i32 whole = steps >> kSubpixelShift;
+            const u32 bin = static_cast<u32>(steps & (kSubpixelBins - 1));
+            const float pen_offset = static_cast<float>(bin) / kSubpixelBins;
+            const u64 key = run_key | (static_cast<u64>(bin) << 32) | glyph.index;
+            auto allocation = glyph_atlas_find_indexed(&owner->allocator, index, key);
             GlyphRasterBounds bounds{};
             if (allocation.ok()) {
                 const auto origin = owner->atlas_origins[allocation.handle.slot];
@@ -709,7 +737,9 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
                     advance += glyph.advance;
                     continue;
                 }
-                if (!glyph_raster_bounds(outline, pixels_per_em, 1, &bounds)) {
+                const float shift = pen_offset / pixels_per_em;
+                if (!glyph_raster_bounds(outline.minimum_x + shift, outline.minimum_y, outline.maximum_x + shift,
+                                         outline.maximum_y, pixels_per_em, 1, &bounds)) {
                     return false;
                 }
                 const AtlasGrowth growth_result = grow_atlas(owner, context, bounds.width, bounds.height, &raster);
@@ -725,7 +755,7 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
                 }
                 if (!allocation.cached) {
                     const GlyphAtlasGpuResult rasterized =
-                        raster.add(outline, bounds, allocation, pixels_per_em, owner->allocator.padding);
+                        raster.add(outline, bounds, allocation, pixels_per_em, owner->allocator.padding, 0, pen_offset);
                     if (!rasterized.ok()) {
                         raster.cancel();
                         glyph_atlas_reset(&owner->allocator);
@@ -746,14 +776,8 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
             if (*request.count >= request.capacity) {
                 return false;
             }
-            const float inverse_scale = 1.0f / pixel_scale;
-            const float offset_x = (run.bidi_level & 1)
-                                       ? run.baseline_x - (advance + glyph.advance + glyph.advance_offset)
-                                       : run.baseline_x + advance + glyph.advance_offset;
-            const float baseline_x = (origin_x_pixels + whole_pixels(offset_x * pixel_scale)) * inverse_scale;
-            const float baseline_y =
-                (origin_y_pixels + whole_pixels(run.baseline_y * pixel_scale)) * inverse_scale -
-                glyph.ascender_offset;
+            const float baseline_x = (origin_x_pixels + static_cast<float>(whole)) * inverse_scale;
+            const float baseline_y = baseline_y_pixels * inverse_scale - glyph.ascender_offset;
             GlyphQuad& quad = request.output[(*request.count)++];
             quad.left = baseline_x + static_cast<float>(bounds.left) * inverse_scale;
             quad.top = baseline_y + static_cast<float>(bounds.top) * inverse_scale;

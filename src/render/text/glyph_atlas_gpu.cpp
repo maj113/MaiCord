@@ -116,7 +116,8 @@ GlyphAtlasGpuResult glyph_atlas_gpu_initialize(GlyphAtlasGpu* gpu, ID3D11Device*
 #pragma clang attribute pop
 
 GlyphAtlasGpuResult GlyphRasterBatch::add(const GlyphOutline& outline,const GlyphRasterBounds& bounds,
-    const GlyphAtlasAllocation& allocation,float pixels_per_em,u16 allocation_padding,float stroke_half_width) noexcept {
+    const GlyphAtlasAllocation& allocation,float pixels_per_em,u16 allocation_padding,float stroke_half_width,
+    float pen_offset) noexcept {
     auto* gpu=owner;
     if(failed)return gpu_error(GlyphAtlasGpuError::upload,E_FAIL);
     if (!gpu || !context || !gpu->texture_uav || !gpu->raster_shader || !outline.commands ||
@@ -161,7 +162,8 @@ GlyphAtlasGpuResult GlyphRasterBatch::add(const GlyphOutline& outline,const Glyp
     const GlyphRasterJob constants{
         x|(y<<16),width|(height<<16),outline.count|(outline.fill_rule==GlyphFillRule::winding?1u<<16:0)|
             (static_cast<u32>(stroke_half_width*256.0f+0.5f)<<17),
-        cursor|(static_cast<u32>(allocation_padding)<<16),pixels_per_em,bounds.left/pixels_per_em,bounds.top/pixels_per_em};
+        cursor|(static_cast<u32>(allocation_padding)<<16),pixels_per_em,(bounds.left-pen_offset)/pixels_per_em,
+        bounds.top/pixels_per_em};
     copy_bytes(jobs[count++],&constants,sizeof(constants));cursor+=outline.count;
     groups_x=maximum(groups_x,(width+7)/8);groups_y=maximum(groups_y,(height+7)/8);
     large=large||width>=glyph_raster_culling_extent||height>=glyph_raster_culling_extent;

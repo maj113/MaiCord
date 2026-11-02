@@ -1,10 +1,11 @@
-// Text keeps its glyph spacing while the window width changes by one pixel.
-// At 125% a centred surface (the settings modal, the caption title) moves by
-// half a device pixel per pixel of width. A text block lands on whole pixels
-// as one, so every glyph of a word moves by the same whole number of pixels;
-// rounding each glyph on its own moved some letters and not their neighbours.
-// Checks the settings page title's glyph quads and the caption title's pixels
-// at consecutive widths. Frames go to MAICORD_UI_PROBE_CAPTURE_DIR when set.
+// Glyph placement at 125%. A centred surface (the settings modal, the caption
+// title) moves by half a device pixel per pixel of window width; a text block
+// lands on whole pixels as one, so every glyph of a word moves by the same whole
+// number of pixels. Checks the settings page title's glyph quads and the caption
+// title's pixels at consecutive widths. Inside a block glyphs sit on quarter
+// pixels: every adjacent-glyph gap of common UI words, in the kit's text styles
+// at 100%, 125% and 150%, stays within half a pixel of the font's advances.
+// Frames go to MAICORD_UI_PROBE_CAPTURE_DIR when set.
 #include "probe_capture.hpp"
 #include "probe_present.hpp"
 #include "settings/catalog.hpp"
@@ -231,6 +232,199 @@ bool caption_titles(D3D11Renderer& renderer, bool (*resize)(u32, u32) noexcept) 
     return true;
 }
 
+// One shaped word with its own storage.
+struct SpacingLine {
+    ShapedText shape;
+    TextGlyph glyphs[kGlyphs];
+    TextRun runs[8];
+    u16 clusters[kGlyphs];
+    wchar_t utf16[kGlyphs];
+};
+SpacingLine g_line;
+
+bool shape_line(D3D11Renderer& renderer, Utf8View text, u32 flags) noexcept {
+    auto& line = g_line;
+    if (!line.shape.glyphs &&
+        !shaped_text_initialize(&line.shape, {line.glyphs, kGlyphs}, {line.runs, 8}, {line.clusters, kGlyphs}))
+        return false;
+    // Plain body text carries no span, as the kit shapes it.
+    const TextStyleSpan style{0, text.bytes, flags, 0, {}};
+    return text_shape_utf8(&renderer.glyph_text.system, text, {&style, flags ? 1u : 0u}, 4000, 400,
+                           {line.utf16, kGlyphs}, &line.shape, TextWrapping::no_wrap)
+        .ok();
+}
+
+bool append_line(D3D11Renderer& renderer, const ShapedText& text, float x, float y, GlyphQuad* output,
+                 u32 capacity, u32* count) noexcept {
+    bool invalidated = false;
+    *count = 0;
+    D3D11GlyphTextAppendRequest request{};
+    request.text = &text;
+    request.output = output;
+    request.count = count;
+    request.atlas_invalidated = &invalidated;
+    request.color = {1, 1, 1, 1};
+    request.origin_x = x;
+    request.origin_y = y;
+    request.capacity = capacity;
+    request.dpi = renderer.dpi;
+    return d3d11_glyph_text_append(&renderer.glyph_text, renderer.graphics.context, request) && !invalidated;
+}
+
+// The ink centroid (device pixels) a glyph quad draws, from its atlas tile.
+float ink_centroid(const ProbeTargetReadback& atlas, const GlyphQuad& quad, float scale) noexcept {
+    const float width = static_cast<float>(atlas.width), height = static_cast<float>(atlas.height);
+    const u32 x0 = static_cast<u32>(quad.u0 * width + .5f), x1 = static_cast<u32>(quad.u1 * width + .5f);
+    const u32 y0 = static_cast<u32>(quad.v0 * height + .5f), y1 = static_cast<u32>(quad.v1 * height + .5f);
+    double sum = 0, moment = 0;
+    for (u32 y = y0; y < y1; ++y) {
+        const u8* row = static_cast<const u8*>(atlas.mapped.pData) + y * atlas.mapped.RowPitch;
+        for (u32 x = x0; x < x1; ++x) {
+            sum += row[x];
+            moment += row[x] * (x - x0 + .5);
+        }
+    }
+    return quad.left * scale + static_cast<float>(sum > 0 ? moment / sum : 0);
+}
+
+// The largest error (device pixels) of an adjacent-glyph gap in `word` against the
+// font's advances: each glyph's drawn ink against the same glyph drawn alone at
+// an exact pen. Fails on words the measurement cannot map (spaces, bidi, runs).
+bool word_gap_error(D3D11Renderer& renderer, Utf8View word, u32 flags, float origin, float* worst,
+                    u32* worst_glyph) noexcept {
+    auto& owner = renderer.glyph_text;
+    d3d11_glyph_text_reset_atlas(&owner);
+    if (!shape_line(renderer, word, flags))
+        return false;
+    ShapedText& text = g_line.shape;
+    if (text.run_count != 1 || (text.runs[0].bidi_level & 1))
+        return false;
+    const TextRun run = text.runs[0];
+    const u32 n = run.glyph_count;
+    const float scale = static_cast<float>(renderer.dpi) / 96.f;
+    u32 count = 0;
+    static GlyphQuad drawn[kGlyphs], alone[kGlyphs];
+    if (n < 2 || n > kGlyphs || !append_line(renderer, text, origin, 8, drawn, kGlyphs, &count) || count != n)
+        return false;
+    float ideal[kGlyphs]{}, alone_ideal[kGlyphs]{};
+    float pen = run.baseline_x;
+    for (u32 i = 0; i < n; ++i) {
+        const TextGlyph& glyph = text.glyphs[run.first_glyph + i];
+        ideal[i] = (origin + pen + glyph.advance_offset) * scale;
+        alone_ideal[i] = glyph.advance_offset * scale;
+        pen += glyph.advance;
+        text.runs[0].first_glyph = run.first_glyph + i;
+        text.runs[0].glyph_count = 1;
+        text.runs[0].baseline_x = 0;
+        const bool appended = append_line(renderer, text, 0, 8, &alone[i], 1, &count) && count == 1;
+        text.runs[0] = run;
+        if (!appended)
+            return false;
+    }
+    ProbeTargetReadback atlas{};
+    D3D11_TEXTURE2D_DESC description{};
+    if (atlas.read(renderer, owner.gpu.texture, description))
+        return false;
+    float previous = 0;
+    *worst = 0;
+    *worst_glyph = 0;
+    for (u32 i = 0; i < n; ++i) {
+        const float error = (ink_centroid(atlas, drawn[i], scale) - ink_centroid(atlas, alone[i], scale)) -
+                            (ideal[i] - alone_ideal[i]);
+        if (i) {
+            const float gap = error - previous;
+            if ((gap < 0 ? -gap : gap) > *worst)
+                *worst = gap < 0 ? -gap : gap, *worst_glyph = i;
+        }
+        previous = error;
+    }
+    return true;
+}
+
+// Common UI words in the kit's text styles. Every gap between adjacent glyphs
+// must stay within half a pixel of the font's advances; whole-pixel glyphs
+// missed by up to a pixel (the "Da rk" of the Appearance swatch label).
+constexpr Utf8View kGapWords[]{
+    utf8_literal("Dark"), utf8_literal("Light"), utf8_literal("AMOLED"), utf8_literal("Aurora"),
+    utf8_literal("Sunset"), utf8_literal("Ocean"), utf8_literal("Custom"), utf8_literal("Appearance"),
+    utf8_literal("Settings"), utf8_literal("Profiles"), utf8_literal("Account"), utf8_literal("Notifications"),
+    utf8_literal("Accessibility"), utf8_literal("Keybinds"), utf8_literal("Language"), utf8_literal("Developer"),
+    utf8_literal("Messages"), utf8_literal("Search"), utf8_literal("Friends"), utf8_literal("Online"),
+    utf8_literal("Members"), utf8_literal("Voice"), utf8_literal("Video"), utf8_literal("Browse"),
+    utf8_literal("Customize"), utf8_literal("Theme"), utf8_literal("background"), utf8_literal("Privacy"),
+    utf8_literal("Permissions"), utf8_literal("Devices"), utf8_literal("System"), utf8_literal("general"),
+    utf8_literal("Reply"), utf8_literal("Edit"), utf8_literal("Delete"), utf8_literal("Today"),
+    utf8_literal("Yesterday"), utf8_literal("everyone"), utf8_literal("Nitro"), utf8_literal("Update")};
+constexpr u32 kGapStyles[]{kUiKitTextSmall, kUiKitTextLabel, kUiKitTextBody, kUiKitTextSmallBold, kUiKitTextBodyBold};
+constexpr u32 kGapWordCount = sizeof(kGapWords) / sizeof(kGapWords[0]);
+constexpr u32 kGapStyleCount = sizeof(kGapStyles) / sizeof(kGapStyles[0]);
+
+// The words drawn small at 125%, one per row, for the capture.
+bool capture_words(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) noexcept) noexcept {
+    static GlyphQuad quads[kGapWordCount * kGlyphs];
+    GlyphDrawBatch batch{{0, 0, 4000, 4000}, 0, 0};
+    RendererTextStorage content{};
+    content.quads = quads;
+    content.quad_capacity = kGapWordCount * kGlyphs;
+    content.batches = &batch;
+    content.batch_count = 1;
+    RendererTextStorage* const previous = renderer.content_text;
+    const u32 overlay = renderer.overlay_text_first_batch;
+    struct Restore {
+        D3D11Renderer& renderer;
+        RendererTextStorage* previous;
+        u32 overlay;
+        ~Restore() noexcept {
+            renderer.content_text = previous;
+            renderer.uploaded_text_storage = nullptr;
+            renderer.overlay_text_first_batch = overlay;
+        }
+    } restore{renderer, previous, overlay};
+    d3d11_glyph_text_reset_atlas(&renderer.glyph_text);
+    for (u32 w = 0; w < kGapWordCount; ++w) {
+        u32 count = 0;
+        if (!shape_line(renderer, kGapWords[w], kUiKitTextSmall) ||
+            !append_line(renderer, g_line.shape, 100.f + (w / 20) * 120.f, 8.f + (w % 20) * 18.f,
+                         quads + content.quad_count, kGlyphs, &count))
+            return false;
+        content.quad_count += count;
+    }
+    batch.quad_count = content.quad_count;
+    ++content.rebuilds;
+    renderer.content_text = &content;
+    renderer.overlay_text_first_batch = 1;
+    const float black[4]{0, 0, 0, 1};
+    renderer.graphics.context->ClearRenderTargetView(renderer.graphics.target, black);
+    return capture(L"spacing-words.bmp");
+}
+
+bool glyph_gaps(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) noexcept) noexcept {
+    constexpr u32 dpis[]{96, 120, 144};
+    float worst_all = 0;
+    bool valid = true;
+    for (u32 dpi : dpis) {
+        renderer_set_dpi(&renderer, dpi);
+        for (u32 style = 0; style < kGapStyleCount; ++style)
+            for (u32 word = 0; word < kGapWordCount; ++word) {
+                float worst = 0;
+                u32 glyph = 0;
+                if (!word_gap_error(renderer, kGapWords[word], kGapStyles[style], 10.3f, &worst, &glyph) ||
+                    worst >= .5f) {
+                    log_u64(LogLevel::error, "probe", "glyph_gap_dpi", dpi);
+                    log_u64(LogLevel::error, "probe", "glyph_gap_style", style);
+                    log_u64(LogLevel::error, "probe", "glyph_gap_word", word);
+                    log_u64(LogLevel::error, "probe", "glyph_gap_glyph", glyph);
+                    log_u64(LogLevel::error, "probe", "glyph_gap_error_x100", static_cast<u64>(worst * 100 + .5f));
+                    valid = false;
+                }
+                worst_all = maximum(worst_all, worst);
+            }
+    }
+    log_u64(LogLevel::info, "probe", "glyph_gap_worst_x100", static_cast<u64>(worst_all * 100 + .5f));
+    renderer_set_dpi(&renderer, kDpi);
+    return capture_words(renderer, capture) && valid;
+}
+
 } // namespace
 
 bool resize_text_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache, bool (*resize)(u32, u32) noexcept,
@@ -239,9 +433,10 @@ bool resize_text_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache, bo
         return fail(0);
     const u32 dpi = renderer.dpi, width = renderer.width, height = renderer.height;
     renderer_set_dpi(&renderer, kDpi);
-    // Both surfaces run, so a failure reports each of them.
+    // Every surface runs, so a failure reports each of them.
     const bool settings = settings_titles(renderer, cache, resize, capture);
-    const bool valid = caption_titles(renderer, resize) && settings;
+    const bool caption = caption_titles(renderer, resize);
+    const bool valid = glyph_gaps(renderer, capture) && caption && settings;
     renderer_set_dpi(&renderer, dpi);
     const bool restored = resize(width, height);
     log_write(valid ? LogLevel::info : LogLevel::error, "probe",

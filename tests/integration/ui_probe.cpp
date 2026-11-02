@@ -107,7 +107,8 @@ bool shortcuts_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*,
 bool call_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*, const Theme&) noexcept) noexcept;
 bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
                             bool (*capture)(const wchar_t*) noexcept) noexcept;
-// Glyph spacing of the settings title and caption title across one-pixel width steps.
+// Glyph placement: settings and caption titles across one-pixel width steps, and
+// adjacent-glyph gaps of common UI words against the font's advances.
 bool resize_text_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache, bool (*resize)(u32, u32) noexcept,
                           bool (*capture)(const wchar_t*) noexcept) noexcept;
 
