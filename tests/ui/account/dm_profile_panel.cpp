@@ -992,7 +992,7 @@ bool application_commands_insert(u64 application, u64 command, Utf8View name) no
 bool application_guild_card_open(u64, UiRect) noexcept {
     return true;
 }
-bool application_open_content_url(Utf8View) noexcept {
+bool application_open_content_url(const Utf8View&) noexcept {
     return true;
 }
 bool application_link_open(Utf8View, bool) noexcept {

@@ -26,7 +26,7 @@ const UiVideoControlDescriptor* descriptor(const UiVideoScene& scene, UiVideoCon
 }
 inline bool eligible(const UiVideoScene& scene, UiVideoControl id) noexcept {
     const auto* control = descriptor(scene, id);
-    return scene.active && control && control->enabled && control->visible &&
+    return scene.active && control && control->enabled && !control->hidden &&
            rectangle(ui_rect_overlap(control->bounds, scene.clip));
 }
 inline bool same_playback_source(const UiVideoScene& scene, const UiVideoPlaybackState& playback) noexcept {
@@ -196,8 +196,8 @@ u64 text_revision(const UiVideoScene& scene, const Theme& theme) noexcept {
     for (const auto& control : scene.projection.controls) {
         hash = hash64_bytes(hash, &control.bounds, sizeof(UiRect));
         hash = hash64_mix(hash, control.text_style);
-        hash = hash64_mix(hash, control.visible);
-        if (control.visible &&
+        hash = hash64_mix(hash, !control.hidden);
+        if (!control.hidden &&
             (control.id == UiVideoControl::time || control.id == UiVideoControl::status || control.id == UiVideoControl::track)) {
             const auto label = ui_video_scene_label(scene, control.id);
             hash = hash64_counted_bytes(hash, label.data, label.bytes);
@@ -230,17 +230,17 @@ bool ui_video_scene_project(UiVideoScene* scene, const UiVideoPlaybackState& pla
     auto& status = projected_controls.controls[5];
     // The descriptor retains its semantic loading label; this visual scene
     // renders loading as native geometry and keeps error text available.
-    status.visible = playback.error && status.label.bytes != 0;
+    status.hidden = !playback.error || status.label.bytes == 0;
     const float status_bottom = bounds.top - maximum(controls.gap, 4.0f);
     status.bounds = {bounds.left + controls.padding + 8, status_bottom - controls.status_height,
                      bounds.right - controls.padding - 8, status_bottom};
-    if (status.visible && status.bounds.top < preview.top + style.inset) {
+    if (!status.hidden && status.bounds.top < preview.top + style.inset) {
         status.bounds = {
             projected_controls.controls[2].bounds.left, projected_controls.controls[2].bounds.top,
             projected_controls.controls[1].bounds.right, projected_controls.controls[2].bounds.bottom};
-        projected_controls.controls[2].visible = false;
-        projected_controls.controls[1].visible = false;
-        projected_controls.controls[4].visible = false;
+        projected_controls.controls[2].hidden = true;
+        projected_controls.controls[1].hidden = true;
+        projected_controls.controls[4].hidden = true;
     }
     const UiRect effective = ui_rect_overlap(preview, clip);
     const bool geometry_same = same_source && ui_rect_equal(scene->clip, effective) &&
@@ -773,7 +773,7 @@ bool ui_video_scene_paint(const UiVideoScene& scene, const Theme& theme, PaintSt
         p.clip(bar).rounded({bar.left, bar.top - radius, bar.right, bar.bottom}, surface, radius).unclip();
     }
     for (const auto& control : scene.projection.controls) {
-        if (!p || opacity == 0 || !control.visible || !rectangle(ui_rect_overlap(control.bounds, scene.clip)))
+        if (!p || opacity == 0 || control.hidden || !rectangle(ui_rect_overlap(control.bounds, scene.clip)))
             continue;
         const bool engaged = scene.hover == control.id || scene.capture == control.id;
         if (control.kind == UiVideoControlKind::button) {
@@ -909,7 +909,7 @@ bool ui_video_scene_text_output(const UiVideoScene& scene, const Theme& theme, U
     for (const auto& control : scene.projection.controls) {
         const auto label = ui_video_scene_label(scene, control.id);
         const auto clip = ui_rect_overlap(control.bounds, scene.clip);
-        if (!control.visible || !label.bytes || !rectangle(clip) ||
+        if (control.hidden || !label.bytes || !rectangle(clip) ||
             control.kind == UiVideoControlKind::button)
             continue;
         Color color = control.enabled || control.kind == UiVideoControlKind::label

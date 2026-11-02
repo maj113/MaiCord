@@ -46,7 +46,7 @@ void application_forum_preview_rejected(MediaAssetKey) noexcept {
 }
 // The composer strip owner shares the forum fixture's local-preview routing.
 bool application_composer_preview_request(u64, u64) noexcept { return true; }
-bool application_local_preview_key_current(MediaAssetKey key) noexcept {
+bool application_local_preview_key_current(const MediaAssetKey& key) noexcept {
     return application_forum_preview_key_current(key);
 }
 // The profile editor's preview card (a fixture while its test runs) and dialogs.
@@ -55,7 +55,7 @@ bool fixture_editor_frame_current;
 ProfileScene* application_profile_editor_preview() noexcept {
     return fixture_editor_preview;
 }
-bool application_profile_editor_frame_current(MediaAssetKey) noexcept {
+bool application_profile_editor_frame_current(const MediaAssetKey&) noexcept {
     return fixture_editor_frame_current;
 }
 const UiProfileDialogScene* application_profile_editor_dialog() noexcept {
@@ -121,7 +121,7 @@ bool application_video_ordinary(const MediaAssetKey&) noexcept {
 MediaAssetKey fixture_catalog_owner_key{};
 bool fixture_catalog_owner_retained;
 bool fixture_catalog_visible;
-bool application_media_picker_preview_current(MediaAssetKey key, u64 scope, u32 revision) noexcept {
+bool application_media_picker_preview_current(const MediaAssetKey& key, u64 scope, u32 revision) noexcept {
     return fixture_catalog_visible && scope == 600 && revision == 20 &&
            media_asset_key_equal(key, fixture_catalog_owner_key);
 }

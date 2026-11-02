@@ -5,7 +5,7 @@
 // Local draft previews belong to the forum form or the composer strip; keys
 // never collide because composer variants carry the thumbnail bit.
 namespace maicord::app_detail {
-bool application_local_preview_key_current(MediaAssetKey key) noexcept {
+bool application_local_preview_key_current(const MediaAssetKey& key) noexcept {
     return application_forum_preview_key_current(key) || application_composer_preview_key_current(key) ||
            application_profile_editor_frame_current(key);
 }

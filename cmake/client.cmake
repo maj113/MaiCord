@@ -537,6 +537,14 @@ maicord_compact_sources(
         src/platform/decode/h264_gpu_decoder.cpp src/platform/decode/h264_gpu_stream_decoder.cpp
         src/platform/decode/hevc_gpu_decoder.cpp src/platform/decode/hevc_gpu_stream_decoder.cpp
         src/platform/decode/mp4_decoder.cpp)
+# Ogg/Opus page parsing, the window icon decode, local-file thumbnails and COLR paint program building.
+# The rare-script shapers (Sinhala, Tamil, Myanmar, Khmer, Tibetan, Hebrew) stay /O2: -Oz cost them up to 6%
+# more cycles per shaped run in the text benchmark.
+maicord_compact_sources(
+    SOURCES
+        src/media/containers/ogg_opus.cpp src/media/containers/ogg_opus_writer.cpp
+        src/app/shell/app_icon.cpp src/app/media/local_preview_thumbnail.cpp
+        src/render/effects/colr_program.cpp src/render/effects/colr_paint.cpp)
 # The contract's /Ob1 emits every function not declared inline as noinline, so
 # the helpers of a -Oz source stay calls even where inlining them is smaller.
 # /Ob2 lets the size-driven inliner (-Oz keeps its minimum threshold) fold

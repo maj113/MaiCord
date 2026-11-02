@@ -133,7 +133,7 @@ u32 editor_of(u64 control) noexcept {
 struct Bank {
     char* data;
     u32 capacity, used;
-    Utf8View add(Utf8View text) noexcept {
+    Utf8View add(const Utf8View& text) noexcept {
         const u32 take = minimum(text.bytes, capacity - used);
         copy_bytes(data + used, text.data, take);
         used += take;

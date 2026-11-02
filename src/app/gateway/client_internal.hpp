@@ -319,7 +319,7 @@ void publish_phase(GatewayClient* client, GatewayClientPhase phase) noexcept;
 void publish_event(GatewayClientRuntime* runtime, const GatewayClientEvent& event) noexcept;
 void notify_consumer(GatewayClient* client, GatewayClientRuntime* runtime) noexcept;
 bool publish_event_payload(GatewayClient* client, GatewayClientRuntime* runtime,
-                           const GatewayClientEvent& event, ConstSlice<u8> payload) noexcept;
+                           const GatewayClientEvent& event, const ConstSlice<u8>& payload) noexcept;
 bool acquire_large_record(void* opaque, u32 bytes, Slice<char>* storage) noexcept;
 void settle_large_record(GatewayClientRuntime* runtime) noexcept;
 void release_large_record(GatewayClientRuntime* runtime) noexcept;

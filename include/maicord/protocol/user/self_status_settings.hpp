@@ -49,7 +49,7 @@ struct SelfCustomStatus {
 };
 static_assert(sizeof(SelfCustomStatus) == 608);
 // Absent or unreadable custom status reads as not present.
-bool self_status_settings_read_custom(ConstSlice<u8> group, SelfCustomStatus* output) noexcept;
+bool self_status_settings_read_custom(const ConstSlice<u8>& group, SelfCustomStatus* output) noexcept;
 // Shown while present with text or emoji and not past its expiry.
 bool self_custom_status_active(const SelfCustomStatus&, u64 unix_now_ms) noexcept;
 bool self_custom_status_equal(const SelfCustomStatus&, const SelfCustomStatus&) noexcept;
@@ -60,7 +60,7 @@ GatewayCommandWriteResult self_status_settings_write_custom_patch(ConstSlice<u8>
                                                                   Slice<u8> scratch, Slice<u8> output) noexcept;
 // StatusSettings.show_current_game (field 3, BoolValue): "Share my activity".
 // Absent reads as shared, the service default.
-bool self_status_settings_read_show_game(ConstSlice<u8> group, bool* share) noexcept;
+bool self_status_settings_read_show_game(const ConstSlice<u8>& group, bool* share) noexcept;
 // Replaces show_current_game and keeps every other StatusSettings field.
 // Scratch must hold group.size+16 bytes and must not alias group or output.
 GatewayCommandWriteResult self_status_settings_write_show_game_patch(ConstSlice<u8> group, bool share,

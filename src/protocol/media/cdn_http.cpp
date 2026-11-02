@@ -10,7 +10,7 @@
 
 namespace maicord {
 bool catalog_provider_request_valid(CdnHost host, CdnImageType type,
-                                    ConstSlice<u8> target) noexcept {
+                                    const ConstSlice<u8>& target) noexcept {
     if (!catalog_provider_target_valid(host, target) || target.count < 5)
         return false;
     const auto suffix = [&](const char* text, u32 bytes) noexcept {
@@ -35,7 +35,7 @@ bool cdn_target_valid(ConstSlice<u8> target) noexcept {
     return true;
 }
 
-bool cdn_etag_valid(ConstSlice<u8> etag) noexcept {
+bool cdn_etag_valid(const ConstSlice<u8>& etag) noexcept {
     return ascii_graphic_string(etag, kCdnMaximumEtagBytes);
 }
 namespace {
@@ -80,7 +80,7 @@ bool parse_delta_seconds(ConstSlice<u8> value, u64* result) noexcept {
     return decimal_parse_padded(value, result);
 }
 
-bool name_equal(ConstSlice<u8> name, const char* literal) noexcept {
+bool name_equal(const ConstSlice<u8>& name, const char* literal) noexcept {
     return http_ascii_equal_case_insensitive(name, literal);
 }
 

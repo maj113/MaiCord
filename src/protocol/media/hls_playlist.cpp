@@ -10,9 +10,13 @@ namespace {
 using E = HlsPlaylistError;
 // The front ends are inlined so that a literal argument travels as a pointer and a length.
 bool equal_chars(const Utf8View& a, const char* b, u32 bytes) noexcept { return a.bytes == bytes && bytes_equal(a.data, b, bytes); }
-__forceinline bool equal(const Utf8View& a, Utf8View b) noexcept { return equal_chars(a, b.data, b.bytes); }
+__forceinline bool equal(const Utf8View& a, const Utf8View& b) noexcept {
+    return equal_chars(a, b.data, b.bytes);
+}
 bool prefix_chars(const Utf8View& a, const char* b, u32 bytes) noexcept { return a.bytes >= bytes && bytes_equal(a.data, b, bytes); }
-__forceinline bool prefix(const Utf8View& a, Utf8View b) noexcept { return prefix_chars(a, b.data, b.bytes); }
+__forceinline bool prefix(const Utf8View& a, const Utf8View& b) noexcept {
+    return prefix_chars(a, b.data, b.bytes);
+}
 bool duration(Utf8View s, u32* output) noexcept {
     u32 at = 0; while (at < s.bytes && ascii_is_digit(s.data[at])) ++at;
     u64 seconds{};
@@ -56,7 +60,7 @@ struct Reader {
         *output = {input.data + start, end - start}; return true;
     }
 };
-struct Attribute { Utf8View name{}, value{}; bool quoted{}; };
+struct Attribute { Utf8View name, value; bool quoted; };
 bool attributes(Utf8View text, Attribute* output, u32* count) noexcept {
     u32 at = 0, used = 0;
     while (at < text.bytes) {

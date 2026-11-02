@@ -9,7 +9,7 @@ namespace {
 constexpr u8 version[]{'H', 'P', 'K', 'E', '-', 'v', '1'};
 constexpr u8 kem_suite[]{'K', 'E', 'M', 0, 0x10};
 constexpr u8 hpke_suite[]{'H', 'P', 'K', 'E', 0, 0x10, 0, 1, 0, 1};
-bool external(const KdfSha256Workspace& workspace, ConstSlice<u8> span) noexcept {
+bool external(const KdfSha256Workspace& workspace, const ConstSlice<u8>& span) noexcept {
     return byte_range_valid(span) && !aliases_workspace(workspace, span);
 }
 bool ready(const KdfSha256Workspace& workspace) noexcept {
@@ -26,19 +26,22 @@ HpkeDerivationResult from_key(P256Result result) noexcept {
     return {result.bytes, result.native_status,
             result.ok() ? HpkeDerivationError::none : HpkeDerivationError::key_failure};
 }
-KdfResult extract(KdfSha256Workspace& workspace, ConstSlice<u8> suite, ConstSlice<u8> salt,
-                  ConstSlice<u8> operation, ConstSlice<u8> a, ConstSlice<u8> b, Slice<u8> output) noexcept {
+KdfResult extract(KdfSha256Workspace& workspace, const ConstSlice<u8>& suite, const ConstSlice<u8>& salt,
+                  const ConstSlice<u8>& operation, const ConstSlice<u8>& a, const ConstSlice<u8>& b,
+                  const Slice<u8>& output) noexcept {
     const ConstSlice<u8> parts[]{{version, sizeof(version)}, suite, operation, a, b};
     return hmac_sha256(workspace, salt, {parts, 5}, output);
 }
-KdfResult expand(KdfSha256Workspace& workspace, ConstSlice<u8> suite, ConstSlice<u8> secret,
-                 ConstSlice<u8> operation, ConstSlice<u8> a, ConstSlice<u8> b, Slice<u8> output) noexcept {
+KdfResult expand(KdfSha256Workspace& workspace, const ConstSlice<u8>& suite, const ConstSlice<u8>& secret,
+                 const ConstSlice<u8>& operation, const ConstSlice<u8>& a, const ConstSlice<u8>& b,
+                 const Slice<u8>& output) noexcept {
     const u8 length[]{static_cast<u8>(output.count >> 8), static_cast<u8>(output.count)};
     const ConstSlice<u8> parts[]{{length, 2}, {version, sizeof(version)}, suite, operation, a, b};
     return hkdf_sha256_expand(workspace, secret, {parts, 6}, output);
 }
-HpkeDerivationResult kem_secret(KdfSha256Workspace& workspace, ConstSlice<u8> dh, ConstSlice<u8> enc,
-                                ConstSlice<u8> recipient, Slice<u8> output) noexcept {
+HpkeDerivationResult kem_secret(KdfSha256Workspace& workspace, const ConstSlice<u8>& dh,
+                                const ConstSlice<u8>& enc, const ConstSlice<u8>& recipient,
+                                const Slice<u8>& output) noexcept {
     u8 prk[32];
     auto result =
         extract(workspace, {kem_suite, sizeof(kem_suite)}, {}, text_bytes("eae_prk"), dh, {}, {prk, 32});
@@ -49,8 +52,8 @@ HpkeDerivationResult kem_secret(KdfSha256Workspace& workspace, ConstSlice<u8> dh
     return from_kdf(result);
 }
 HpkeDerivationResult kem_preflight(const KdfSha256Workspace& workspace, const P256Key& key,
-                                   ConstSlice<u8> point, Slice<u8> shared, Slice<u8> encapsulated,
-                                   bool sender) noexcept {
+                                   const ConstSlice<u8>& point, const Slice<u8>& shared,
+                                   const Slice<u8>& encapsulated, bool sender) noexcept {
     if (!ready(workspace) || !key.handle)
         return {0, 0, HpkeDerivationError::not_initialized};
     if (key.kind != P256Kind::ecdh || !key.has_private)
@@ -164,8 +167,8 @@ void hpke_base_secrets_clear(HpkeBaseSecrets* secrets) noexcept {
     if (secrets)
         secure_clear_bytes(secrets, sizeof(*secrets));
 }
-KdfResult hpke_info_hash(KdfSha256Workspace& workspace, ConstSlice<ConstSlice<u8>> info,
-                         Slice<u8> output) noexcept {
+KdfResult hpke_info_hash(KdfSha256Workspace& workspace, const ConstSlice<ConstSlice<u8>>& info,
+                         const Slice<u8>& output) noexcept {
     static constexpr u8 prefix[]{'H', 'P', 'K', 'E', '-', 'v', '1', 'H', 'P', 'K', 'E', 0,   0x10,
                           0,   1,   0,   1,   'i', 'n', 'f', 'o', '_', 'h', 'a', 's', 'h'};
     return hmac_sha256_prefixed(workspace, {}, {prefix, sizeof(prefix)}, info, output);

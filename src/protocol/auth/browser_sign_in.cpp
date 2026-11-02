@@ -13,7 +13,7 @@ namespace {
 using namespace protocol_detail;
 constexpr Utf8View kOrigin = utf8_literal("https://discord.com");
 constexpr Utf8View kCallback = utf8_literal("https://discord.com/handoff?done=true");
-bool folded(Utf8View value, const char* literal) noexcept {
+bool folded(const Utf8View& value, const char* literal) noexcept {
     return http_ascii_equal_case_insensitive({reinterpret_cast<const u8*>(value.data), value.bytes}, literal);
 }
 static_assert(static_cast<u8>(BrowserSignInError::capacity) == static_cast<u8>(HttpRequestError::capacity) &&
@@ -30,7 +30,8 @@ bool key_valid(Utf8View key) noexcept {
     }
     return true;
 }
-bool destination(Slice<u8> output, Utf8View first = {}, Utf8View second = {}) noexcept {
+bool destination(const Slice<u8>& output, const Utf8View& first = {},
+                 const Utf8View& second = {}) noexcept {
     return output.data && byte_range_valid({output.data, output.count}) &&
         !byte_ranges_overlap({output.data, output.count}, {reinterpret_cast<const u8*>(first.data), first.bytes}) &&
         !byte_ranges_overlap({output.data, output.count}, {reinterpret_cast<const u8*>(second.data), second.bytes});
@@ -190,7 +191,8 @@ BrowserSignInWriteResult browser_sign_in_write_key(ConstSlice<u8> random, Slice<
     }
     return {cursor, BrowserSignInError::none};
 }
-BrowserSignInWriteResult browser_sign_in_write_url(u16 port, Utf8View key, Slice<u8> output) noexcept {
+BrowserSignInWriteResult browser_sign_in_write_url(u16 port, const Utf8View& key,
+                                                   const Slice<u8>& output) noexcept {
     if (!port_valid(port) || !key_valid(key) || !destination(output, key)) return {0, BrowserSignInError::invalid_input};
     // Nested internal redirect: no arbitrary scheme, origin, callback or path.
     static constexpr char prefix[] = "https://discord.com/login?redirect_to=%2Fhandoff%3Frpc%3D";

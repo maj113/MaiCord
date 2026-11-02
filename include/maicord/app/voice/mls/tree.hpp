@@ -43,8 +43,8 @@ MlsStatus mls_tree_node_count(u32 leaf_count, u32* node_count) noexcept;
 MlsStatus mls_tree_full_leaf_count(u32 leaf_count, u32* full_leaf_count) noexcept;
 MlsStatus mls_tree_root(u32 leaf_count, u32* root) noexcept;
 MlsStatus mls_tree_leaf_ancestor(u32 left_leaf, u32 right_leaf, u32* ancestor) noexcept;
-MlsStatus mls_tree_direct_path(u32 node, u32 leaf_count, Slice<u32> path, u32* count) noexcept;
-MlsStatus mls_tree_copath(u32 node, u32 leaf_count, Slice<u32> path, u32* count) noexcept;
+MlsStatus mls_tree_direct_path(u32 node, u32 leaf_count, const Slice<u32>& path, u32* count) noexcept;
+MlsStatus mls_tree_copath(u32 node, u32 leaf_count, const Slice<u32>& path, u32* count) noexcept;
 
 // DAVE LeafNode profile: two P-256 points, Basic credential carrying the
 // big-endian user snowflake, version 1/suite 2/Basic capabilities.
@@ -121,9 +121,9 @@ MlsStatus mls_tree_resolution(const MlsTreeIndex& index, u32 subtree_root, Slice
 MlsStatus mls_tree_filtered_direct_path(const MlsRatchetTree& tree, u32 leaf_index, Slice<u32> nodes,
                                         u32* count) noexcept;
 // RFC 9420 tree hashes, computed in one flat walk with a fixed depth stack.
-MlsStatus mls_leaf_tree_hash(KdfSha256Workspace& kdf, u32 leaf_index, ConstSlice<u8> leaf,
+MlsStatus mls_leaf_tree_hash(KdfSha256Workspace& kdf, u32 leaf_index, const ConstSlice<u8>& leaf,
                              u8* hash) noexcept;
-MlsStatus mls_parent_tree_hash(KdfSha256Workspace& kdf, ConstSlice<u8> parent, const u8* left_hash,
+MlsStatus mls_parent_tree_hash(KdfSha256Workspace& kdf, const ConstSlice<u8>& parent, const u8* left_hash,
                                const u8* right_hash, u8* hash) noexcept;
 MlsStatus mls_parent_hash(KdfSha256Workspace& kdf, const u8* public_key, const u8* parent_hash,
                           u32 parent_hash_bytes, const u8* sibling_hash, u8* hash) noexcept;
@@ -136,7 +136,7 @@ MlsStatus mls_tree_parent_hash_chain(KdfSha256Workspace& kdf, const MlsRatchetTr
 // parent-hash coverage. Scratch sizing from mls_tree_validation_bytes. The
 // check hashes every subtree, so tree_hash, when given, receives the root's.
 u32 mls_tree_validation_bytes(u32 leaf_count, u32 node_count) noexcept;
-MlsStatus mls_tree_validate(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, Slice<u8> scratch,
+MlsStatus mls_tree_validate(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, const Slice<u8>& scratch,
                             u8* tree_hash) noexcept;
 
 struct MlsHpkeCiphertext {
@@ -163,7 +163,7 @@ MlsStatus mls_hpke_ciphertext_next(ConstSlice<u8> ciphertexts, u32* offset, MlsH
 // Merge an authenticated path into a proposal-adjusted tree; the result is
 // reparsed and validated, giving its tree hash. Scratch: mls_tree_validation_bytes.
 MlsStatus mls_tree_merge_update_path(KdfSha256Workspace& kdf, const MlsRatchetTree& tree,
-                                     u32 committer_leaf, const MlsUpdatePath& path, Slice<u8> scratch,
-                                     Slice<u8> output, u32* written, MlsRatchetTree* merged,
-                                     u8* tree_hash) noexcept;
+                                     u32 committer_leaf, const MlsUpdatePath& path,
+                                     const Slice<u8>& scratch, const Slice<u8>& output, u32* written,
+                                     MlsRatchetTree* merged, u8* tree_hash) noexcept;
 } // namespace maicord

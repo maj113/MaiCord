@@ -19,7 +19,7 @@ bool reserve(ThreadMemberStore* store, u32 count) noexcept {
 void compact_stage(ThreadMemberStore* store) noexcept {
     if (store->staging_sorted) return;
     const auto bank = store->banks[store->active_bank ^ 1];
-    heap_sort(bank.data, store->staging_count, [](u64 a, u64 b) noexcept { return a < b; });
+    heap_sort_shared(bank.data, store->staging_count, [](u64 a, u64 b) noexcept { return a < b; });
     u32 unique = 0;
     for (u32 i = 0; i < store->staging_count; ++i)
         if (!unique || bank[i] != bank[unique - 1]) bank[unique++] = bank[i];

@@ -384,7 +384,7 @@ bool visit_resumed_member(void* opaque, JsonString name, JsonValue value) noexce
 }
 
 // Scans and visits the members of an object value.
-GatewayEventDecodeResult visit_object(JsonValue data, Slice<u32> scratch, u32 maximum_depth,
+GatewayEventDecodeResult visit_object(JsonValue data, const Slice<u32>& scratch, u32 maximum_depth,
                                       JsonMemberVisitor visitor, void* context,
                                       const GatewayEventDecodeError* visitor_error,
                                       GatewayEventDecodeError fallback,
@@ -448,7 +448,7 @@ GatewayEventDecodeResult gateway_decode_member_chunk_receipt(JsonValue data, Sli
     return decode_failure(GatewayEventDecodeError::none);
 }
 
-GatewayEventDecodeResult gateway_decode_hello(JsonValue data, Slice<u32> structural_scratch,
+GatewayEventDecodeResult gateway_decode_hello(JsonValue data, const Slice<u32>& structural_scratch,
                                               u32 maximum_depth, GatewayHello* output) noexcept {
     if (data.kind != JsonValueKind::object) {
         return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);

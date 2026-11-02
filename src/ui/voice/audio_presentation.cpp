@@ -122,7 +122,7 @@ bool ui_audio_controls_paint(const UiAudioControlsProjection& projection, const 
             !waveform_paint(projection, style, paint))
             return false;
         for (const auto& control : projection.controls) {
-            if (!control.visible || !ui_rect_has_area(control.bounds))
+            if (control.hidden || !ui_rect_has_area(control.bounds))
                 continue;
             if (control.kind == UiAudioControlKind::button) {
                 const bool primary = control.id == UiAudioControl::play_pause;
@@ -175,7 +175,7 @@ bool ui_audio_controls_text_output(const UiAudioControlsProjection& projection, 
         return false;
     const auto visible = ui_rect_intersection(projection.geometry.bounds, clip);
     for (const auto& control : projection.controls) {
-        if (!control.visible || control.kind != UiAudioControlKind::label)
+        if (control.hidden || control.kind != UiAudioControlKind::label)
             continue;
         const auto label = ui_audio_controls_label(projection, control.id);
         if (!label.bytes || !ui_rect_intersects(control.bounds, visible))
@@ -245,7 +245,7 @@ u64 ui_audio_scene_paint_revision(const UiAudioScene& scene) noexcept {
         hash = hash64_bytes(hash, &control.foreground, sizeof(control.foreground));
         hash = hash64_mix(hash, control.value);
         hash = hash64_mix(hash, control.maximum);
-        hash = hash64_mix(hash, u32{control.enabled} | (u32{control.visible} << 1u));
+        hash = hash64_mix(hash, u32{control.enabled} | (u32{!control.hidden} << 1u));
     }
     return hash64_counted_bytes(hash, state.waveform.data, state.waveform.count);
 }

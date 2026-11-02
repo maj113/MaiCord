@@ -38,14 +38,14 @@ u32 guild_context_policy_build(const ChatStateStore& state, u64 guild_id, u32 co
         return 0;
     u32 used = 0;
     if (mark)
-        output[used++] = {utf8_literal("Mark as read"), scoped.mark_action,
-                          static_cast<u16>(scoped.pending ? 0u : popup_item_enabled)};
+        popup_item_set(&output[used++], utf8_literal("Mark as read"), scoped.mark_action,
+                       static_cast<u16>(scoped.pending ? 0u : popup_item_enabled));
     if (retry)
-        output[used++] = {utf8_literal("Retry mark as read"), scoped.retry_action, popup_item_enabled};
+        popup_item_set(&output[used++], utf8_literal("Retry mark as read"), scoped.retry_action, popup_item_enabled);
     if (settings) {
         auto& item = output[used];
-        item = {utf8_literal("Server settings"), settings_action,
-                static_cast<u16>(popup_item_enabled | (used ? popup_item_separator_before : 0u))};
+        popup_item_set(&item, utf8_literal("Server settings"), settings_action,
+                       static_cast<u16>(popup_item_enabled | (used ? popup_item_separator_before : 0u)));
         item.presentation = ui_menu_row_presentation(UiIcon::settings);
         ++used;
     }
@@ -148,11 +148,11 @@ u32 guild_context_create_channel_items(const ChatStateStore& state, u64 guild_id
         !guild_context_can_create_channel(state, guild_id, category_id))
         return 0;
     const bool voice = category_id && voice_action && output.count >= 2;
-    output[0] = {category_id ? utf8_literal("Create text channel") : utf8_literal("Create channel"), text_action,
-                 static_cast<u16>(popup_item_enabled | popup_item_separator_before)};
+    popup_item_set(&output[0], category_id ? utf8_literal("Create text channel") : utf8_literal("Create channel"), text_action,
+                   static_cast<u16>(popup_item_enabled | popup_item_separator_before));
     output[0].presentation = ui_menu_row_presentation(UiIcon::channel);
     if (voice) {
-        output[1] = {utf8_literal("Create voice channel"), voice_action, popup_item_enabled};
+        popup_item_set(&output[1], utf8_literal("Create voice channel"), voice_action, popup_item_enabled);
         output[1].presentation = ui_menu_row_presentation(UiIcon::speaker);
     }
     return voice ? 2 : 1;
@@ -161,7 +161,7 @@ u32 guild_context_create_category_item(const ChatStateStore& state, u64 guild_id
                                        const Slice<PopupItem>& output) noexcept {
     if (!action || !output.data || !output.count || !guild_context_can_create_channel(state, guild_id, 0))
         return 0;
-    output[0] = {utf8_literal("Create category"), action, popup_item_enabled};
+    popup_item_set(&output[0], utf8_literal("Create category"), action, popup_item_enabled);
     return 1;
 }
 
@@ -170,8 +170,8 @@ u32 guild_context_hide_muted_item(const ChatStateStore& state, u64 guild_id, u32
     const auto* guild = chat_state_store_find_guild(state, guild_id);
     if (!action || !output.data || !output.count || !guild || guild->unavailable)
         return 0;
-    output[0] = {utf8_literal("Hide muted channels"), action,
-                 static_cast<u16>(popup_item_enabled | (guild->hide_muted_channels ? popup_item_checked : 0u))};
+    popup_item_set(&output[0], utf8_literal("Hide muted channels"), action,
+                   static_cast<u16>(popup_item_enabled | (guild->hide_muted_channels ? popup_item_checked : 0u)));
     return 1;
 }
 
@@ -196,7 +196,7 @@ u32 guild_header_menu_build(const ChatStateStore& state, u64 guild_id, u64 prefe
     const auto row = [&](Utf8View label, u32 action, UiIcon icon = UiIcon::count, u16 flags = 0) noexcept {
         if (!action)
             return 0u;
-        rows[count] = {label, action, static_cast<u16>(popup_item_enabled | flags)};
+        popup_item_set(&rows[count], label, action, static_cast<u16>(popup_item_enabled | flags));
         if (icon != UiIcon::count)
             rows[count].presentation = ui_menu_row_presentation(icon, false, UiMenuIconPlacement::trailing);
         return 1u;

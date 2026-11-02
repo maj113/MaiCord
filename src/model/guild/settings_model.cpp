@@ -279,7 +279,7 @@ u32 guild_settings_sorted_roles(const ChatStateStore& store, u64 guild_id,
         else if (count < output.count)
             output[count++] = &role;
     }
-    heap_sort(output.data, count, [](const RoleRecord* a, const RoleRecord* b) noexcept {
+    heap_sort_shared(output.data, count, [](const RoleRecord* a, const RoleRecord* b) noexcept {
         return rank_above(a->position, a->id, *b);
     });
     if (everyone && count < output.count)
@@ -321,7 +321,7 @@ u32 guild_settings_role_positions(ConstSlice<const RoleRecord*> order, u64 guild
     for (u32 i = 0; i < order.count && count < kGuildRoleMaximum; ++i)
         if (order[i] && order[i]->id != guild_id)
             slots[count++] = order[i]->position;
-    heap_sort(slots, count, [](u32 a, u32 b) noexcept { return a > b; });
+    heap_sort_shared(slots, count, [](u32 a, u32 b) noexcept { return a > b; });
     u32 used = 0, slot = 0;
     for (u32 i = 0; i < order.count && slot < count; ++i) {
         if (!order[i] || order[i]->id == guild_id)

@@ -249,7 +249,8 @@ bool history_message_mentions_current_member(const ChatStateStore& state,
     return false;
 }
 
-MessageHistoryDecodeResult decode_page(Utf8View body, const MessageHistoryDecodeScratch& scratch) noexcept {
+MessageHistoryDecodeResult decode_page(const Utf8View& body,
+                                       const MessageHistoryDecodeScratch& scratch) noexcept {
     return decode_message_history_page(body, scratch.page_structurals,
                                        scratch.maximum_depth, scratch.content, scratch.messages,
                                        scratch.mention_users, scratch.rich);
@@ -350,7 +351,7 @@ MessageHistoryRestResult accept_page_rest(Machine* machine, const RestClientResp
 
 bool message_history_observe_page(UserStore* users, GuildMemberStore* members,
                                   ChatStateStore* state,
-                                  ConstSlice<GatewayMessageEvent> messages) noexcept {
+                                  const ConstSlice<GatewayMessageEvent>& messages) noexcept {
     return observe_history_users(users, messages) && observe_history_members(members, state, messages);
 }
 
@@ -1199,7 +1200,7 @@ MessageHistoryApplyResult message_history_older_apply_page(
 
 MessageHistoryRestResult message_history_catchup_accept_rest(
     MessageHistoryCatchup* catchup, MessageEventPump* pump, const RestClientResponse& response,
-    Utf8View body, const MessageHistoryDecodeScratch& scratch,
+    const Utf8View& body, const MessageHistoryDecodeScratch& scratch,
     MessageContentAvailability empty_content_availability, u64 now_ms) noexcept {
     if (!catchup || !pump || !pump->timeline ||
         catchup->state != MessageHistoryCatchupState::awaiting_page || (!body.data && body.bytes != 0) ||

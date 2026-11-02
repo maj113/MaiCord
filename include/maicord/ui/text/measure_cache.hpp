@@ -21,7 +21,7 @@ struct UiTextMeasureRequest {
     ConstSlice<TextStyleSpan> styles;
     UiSize constraint;
     bool no_wrap;
-    UiTextFace face = UiTextFace::normal;
+    UiTextFace face;
 };
 
 struct UiTextMeasureValue {

@@ -43,7 +43,7 @@ bool application_hidden_channel_open(u64, UiRect) noexcept {
 bool application_plugin_surfaces_text_click(const MessageTextHit&) noexcept {
     return false;
 }
-bool open_reaction_picker(u64, UiRect) noexcept {
+bool open_reaction_picker(u64, const UiRect&) noexcept {
     return false;
 }
 bool application_poll_cursor(UiPoint, UiCursor*) noexcept {

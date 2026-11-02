@@ -77,7 +77,7 @@ StageRole self_role(const ChannelRecord& channel, bool* hand = nullptr) noexcept
         *hand = role == StageRole::requested;
     return role;
 }
-void set_notice(u64 channel_id, Utf8View text) noexcept {
+void set_notice(u64 channel_id, const Utf8View& text) noexcept {
     stage.notice_bytes = minimum(text.bytes, kUiCallStageNoticeBytes);
     copy_bytes(stage.notice, text.data, stage.notice_bytes);
     stage.notice_channel = channel_id;

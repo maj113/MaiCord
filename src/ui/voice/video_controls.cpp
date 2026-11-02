@@ -202,15 +202,15 @@ bool ui_video_controls_project(const UiVideoPlaybackState& state, const UiRect& 
     projection.controls[4].enabled = state.has_audio && state.can_volume && !state.error;
     projection.controls[4].value = state.volume;
     projection.controls[4].maximum = 100;
-    projection.controls[4].visible = projection.volume_expanded;
-    projection.controls[2].visible = !swap;
+    projection.controls[4].hidden = !projection.volume_expanded;
+    projection.controls[2].hidden = swap;
     projection.controls[5].label = state.error       ? style.error
                                    : state.buffering ? style.buffering
                                                      : Utf8View{};
-    projection.controls[5].visible = projection.controls[5].label.bytes != 0;
+    projection.controls[5].hidden = projection.controls[5].label.bytes == 0;
     projection.controls[5].foreground = state.error ? theme.notification : theme.text_secondary;
     projection.controls[6].label = state.expanded ? style.collapse : style.expand;
-    projection.controls[6].visible = expand;
+    projection.controls[6].hidden = !expand;
     projection.controls[6].enabled = expand && !state.error;
     projection.controls[6].selected = state.expanded;
     projection.controls[7].label = style.previous_track;
@@ -220,7 +220,7 @@ bool ui_video_controls_project(const UiVideoPlaybackState& state, const UiRect& 
     projection.controls[9].enabled = collection && state.can_change_track && state.collection_count > 1;
     projection.controls[9].value = collection ? state.collection_track - 1 : 0;
     projection.controls[9].maximum = collection ? state.collection_count - 1 : 0;
-    for (u32 i = 7; i < kUiVideoControlCount; ++i) projection.controls[i].visible = collection;
+    for (u32 i = 7; i < kUiVideoControlCount; ++i) projection.controls[i].hidden = !collection;
     if (collection) {
         copy_bytes(projection.track_text, "Track ", 6); projection.track_bytes = 6;
         append_number(projection.track_text, projection.track_bytes, state.collection_track);
@@ -251,7 +251,7 @@ UiVideoControl ui_video_controls_hit(const UiVideoControlsProjection& projection
     if (!paint_coordinate_valid(point.x) || !paint_coordinate_valid(point.y))
         return UiVideoControl::none;
     for (const auto& descriptor : projection.controls)
-        if (descriptor.visible && descriptor.enabled && point.x >= descriptor.bounds.left &&
+        if (!descriptor.hidden && descriptor.enabled && point.x >= descriptor.bounds.left &&
             point.x < descriptor.bounds.right && point.y >= descriptor.bounds.top &&
             point.y < descriptor.bounds.bottom)
             return descriptor.id;

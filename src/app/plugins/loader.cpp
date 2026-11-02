@@ -677,8 +677,9 @@ PluginLoadResult plugin_directory_close(PluginDirectory* directory) noexcept {
     return directory_release(directory, &error) ? success() : failure(PluginLoadError::release, error);
 }
 
-PluginLoadResult plugin_image_load(PluginImage* image, const PluginDirectory& directory, ConstSlice<wchar_t> leaf,
-                                   u64 approved, const u8* sha256) noexcept {
+PluginLoadResult plugin_image_load(PluginImage* image, const PluginDirectory& directory,
+                                   const ConstSlice<wchar_t>& leaf, u64 approved,
+                                   const u8* sha256) noexcept {
     if (!image || !leaf.data || !leaf.count) return failure(PluginLoadError::invalid_argument);
     if (image->module) return failure(PluginLoadError::already_loaded);
     reset_value(image);

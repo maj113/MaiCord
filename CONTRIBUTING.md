@@ -76,7 +76,7 @@ to the tag and the `.sha256` value.
 | Module | Contents |
 | --- | --- |
 | `build_contract.cmake` | Compiler/linker contract, `maicord_library()`, `maicord_program()` |
-| `generated_sources.cmake` | Packed UI data (including the settings catalog, `tools/pack_settings_catalog.py`, and the permission grid and built-in games, `tools/pack_tables.py`), shaders (`maicord_shader()`), icon, sounds |
+| `generated_sources.cmake` | Packed UI data (including the emoji name pools and entry tables, `tools/pack_emoji_pools.py`, the settings catalog, `tools/pack_settings_catalog.py`, the permission grid and built-in games, `tools/pack_tables.py`, and cold text such as the built-in command index, `tools/pack_text_blobs.py`), shaders (`maicord_shader()`), icon, sounds |
 | `libraries.cmake` | Shipping static libraries |
 | `client.cmake` | `MaiCord.exe` with the account module, updater identity, cold-code `-Oz` (the only code the machine outliner touches) |
 | `tests.cmake`, `test_support.cmake` | The temporary test configuration and its helpers |
@@ -142,6 +142,12 @@ files instead of re-sorting the lists.
   crash-dump stacks through MaiCord code are heuristic. Only the perf probe and
   `benchmark_gateway_pipeline.ps1 -Profile`, which walk stacks in-process,
   configure with `MAICORD_UNWIND_TABLES`.
+- **Structs default to zero without initializers.** A struct with any default
+  member initializer, even `= {}`, makes each `T x{}` store its fields one by
+  one; without them it is a single fill. Leave zero-valued members bare and
+  value-initialise (`T x{}`, `T{}`), and encode a nonzero default so that zero
+  is the default (`hidden` rather than `visible = true`, a minus-one count)
+  instead of initialising it; `T x;` leaves members unset.
 - Format with the repository `.clang-format` and match the file you are editing.
 - Mention any EXE/DLL size change in the PR description, and back performance
   changes with before/after numbers from [`tools/perf`](tools/perf/README.md).

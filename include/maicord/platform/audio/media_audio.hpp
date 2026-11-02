@@ -7,13 +7,13 @@ inline constexpr u32 kMediaAudioMinimumRingFrames=2048;
 inline constexpr u32 kMediaAudioMaximumRingFrames=16384;
 inline constexpr u32 kMediaAudioMaximumWriteFrames=2048;
 enum class MediaAudioError:u8 {none,invalid_input,stale_epoch,capacity,memory,event,thread,device,stream,clock,stopped,join_pending,wait,release,timeline};
-struct MediaAudioResult {MediaAudioError error{};u32 native_error{};bool ok()const noexcept{return error==MediaAudioError::none;}};
+struct MediaAudioResult {MediaAudioError error;u32 native_error;bool ok()const noexcept{return error==MediaAudioError::none;}};
 // Ring storage belongs to the caller: aligned, interleaved, finite float32 at the
 // native source rate, mono or stereo. The caller must serialize the pure helpers
 // below; the live transport guards its ring with a short metadata/copy lock.
 struct MediaAudioRing {
-    Slice<float> samples{};u64 epoch{},written{},submitted{},consumed{};
-    u32 channels{},sample_rate{};bool ended{};
+    Slice<float> samples;u64 epoch,written,submitted,consumed;
+    u32 channels,sample_rate;bool ended;
 };
 bool media_audio_ring_initialize(MediaAudioRing*,Slice<float>,u32 rate,u32 channels,u64 epoch) noexcept;
 u32 media_audio_ring_free(const MediaAudioRing&) noexcept;
@@ -44,11 +44,11 @@ struct MediaAudioConfig {
     HANDLE status_event{};
 };
 struct MediaAudioStatus {
-    u64 desired_epoch{},observed_epoch{},written_frames{},submitted_frames{},consumed_frames{};
-    i64 presentation_time_100ns{};u64 clock_frequency{};
-    u32 free_frames{},owned_handles{},native_error{},wake_error{};MediaAudioError error{};
-    float desired_volume{},applied_volume{};bool volume_valid{};
-    bool playing{},paused{},buffering{},ended{},stream_open{},worker_started{},worker_exited{},clock_valid{};
+    u64 desired_epoch,observed_epoch,written_frames,submitted_frames,consumed_frames;
+    i64 presentation_time_100ns;u64 clock_frequency;
+    u32 free_frames,owned_handles,native_error,wake_error;MediaAudioError error;
+    float desired_volume,applied_volume;bool volume_valid;
+    bool playing,paused,buffering,ended,stream_open,worker_started,worker_exited,clock_valid;
 };
 struct MediaAudio {MediaAudioConfig config{};MediaAudioRing ring{};void* runtime{};u64 epoch{};bool initialized{};};
 // Only records the configuration: no allocation, COM, endpoint, worker or ring write.

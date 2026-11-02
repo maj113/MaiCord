@@ -127,7 +127,7 @@ u32 allocate(u32 bytes, const Record* protect) noexcept {
     }
 }
 
-bool store_text(Block* block, Utf8View text, const Record* protect) noexcept {
+bool store_text(Block* block, const Utf8View& text, const Record* protect) noexcept {
     const u32 at = allocate(text.bytes, protect);
     if (at == kNone) return false;
     copy_bytes(g_store->pool + at, text.data, text.bytes);
@@ -192,7 +192,7 @@ bool keep_deleted(const KeepMessage& message) noexcept {
     return true;
 }
 
-bool keep_edited(const KeepMessage& before, Utf8View after, u64 edited_ms) noexcept {
+bool keep_edited(const KeepMessage& before, const Utf8View& after, u64 edited_ms) noexcept {
     if (!valid(before) || !after.bytes || after.bytes > kKeepContentMax || !utf8_validate(after).valid || !ensure())
         return false;
     Record* existing = find(before.message_id);

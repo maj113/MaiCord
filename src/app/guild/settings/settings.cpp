@@ -916,7 +916,7 @@ void open_channel_menu(Menu menu, u32 types, u64 current, const Utf8View& none, 
     auto& rows = p.popup_rows;
     for (u32 i = first; i < count; ++i)
         rows[i - first] = {p.popup_items[i], chat_state_store_find_channel(s, p.menu_channel[i])};
-    heap_sort(rows, count - first, [&s, order](const Row& a, const Row& b) noexcept {
+    heap_sort_shared(rows, count - first, [&s, order](const Row& a, const Row& b) noexcept {
         return a.channel && b.channel && guild_settings_channel_before(s, order, *a.channel, *b.channel);
     });
     for (u32 i = first; i < count; ++i) {
@@ -1119,7 +1119,8 @@ void request_close() noexcept {
 } // namespace maicord::app_detail::server_settings
 namespace maicord::app_detail {
 
-bool application_image_file_read(ConstSlice<wchar_t> path, u8** data, u32* bytes, Utf8View* error) noexcept {
+bool application_image_file_read(const ConstSlice<wchar_t>& path, u8** data, u32* bytes,
+                                 Utf8View* error) noexcept {
     *error = utf8_literal("Couldn't read that file.");
     if (!path.data || !path.count || path.count >= kNativeFilePickerMaximumPathUnits)
         return false;

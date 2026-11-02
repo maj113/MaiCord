@@ -42,8 +42,8 @@ struct HpkeBaseSecrets {
 void hpke_base_secrets_clear(HpkeBaseSecrets* secrets) noexcept;
 // HPKE LabeledExtract("", "info_hash", info), NOT raw SHA-256(info).
 // Segments avoid copying arbitrary protocol framing/labels/context.
-KdfResult hpke_info_hash(KdfSha256Workspace& workspace, ConstSlice<ConstSlice<u8>> info,
-                         Slice<u8> output) noexcept;
+KdfResult hpke_info_hash(KdfSha256Workspace& workspace, const ConstSlice<ConstSlice<u8>>& info,
+                         const Slice<u8>& output) noexcept;
 // Trusted prehashed input from hpke_info_hash (exactly 32 bytes). The output
 // is written atomically and must not overlap the inputs or the workspace.
 HpkeDerivationResult hpke_base_key_schedule_hashed_info(KdfSha256Workspace& workspace,

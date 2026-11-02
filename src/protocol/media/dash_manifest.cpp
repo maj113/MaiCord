@@ -10,7 +10,9 @@ using E = DashManifestError;
 constexpr u32 maximum_bytes = 64 * 1024, maximum_segments = 8192;
 bool equal_chars(const Utf8View& a, const char* b, u32 bytes) noexcept { return a.bytes == bytes && bytes_equal(a.data, b, bytes); }
 // The front ends are inlined so that a literal argument travels as a pointer and a length.
-__forceinline bool equal(const Utf8View& a, Utf8View b) noexcept { return equal_chars(a, b.data, b.bytes); }
+__forceinline bool equal(const Utf8View& a, const Utf8View& b) noexcept {
+    return equal_chars(a, b.data, b.bytes);
+}
 bool name_char(char c) noexcept { return ascii_is_alnum(c) || c == '_' || c == '-' || c == '.' || c == ':'; }
 bool name_start(char c) noexcept { return (ascii_is_alnum(c) && !ascii_is_digit(c)) || c == '_'; }
 bool duration(Utf8View s, u64* out, bool allow_zero = false) noexcept {
@@ -41,8 +43,8 @@ bool duration(Utf8View s, u64* out, bool allow_zero = false) noexcept {
     if (!total && !allow_zero) return false;
     *out = total; return true;
 }
-struct Attribute { Utf8View name{}, value{}; };
-struct Element { Utf8View name{}, text{}; Attribute attributes[20]{}; u32 count{}; bool closing{}, empty{}; };
+struct Attribute { Utf8View name, value; };
+struct Element { Utf8View name, text; Attribute attributes[20]; u32 count; bool closing, empty; };
 struct Reader { Utf8View input; u32 at{}, tokens{}; };
 E next(Reader& r, Element& e) noexcept {
     reset_value(&e);
@@ -113,7 +115,9 @@ Utf8View attribute_chars(const Element& e, const char* name, u32 bytes) noexcept
     for (u32 i = 0; i < e.count; ++i) if (equal_chars(e.attributes[i].name, name, bytes)) return e.attributes[i].value;
     return {};
 }
-__forceinline Utf8View attribute(const Element& e, Utf8View name) noexcept { return attribute_chars(e, name.data, name.bytes); }
+__forceinline Utf8View attribute(const Element& e, const Utf8View& name) noexcept {
+    return attribute_chars(e, name.data, name.bytes);
+}
 bool identifier(Utf8View s) noexcept {
     if (!s.data || !s.bytes || s.bytes > 32) return false;
     for (u32 i = 0; i < s.bytes; ++i) if (!ascii_is_alnum(s.data[i]) && s.data[i] != '_' && s.data[i] != '-') return false;
@@ -154,14 +158,14 @@ u32 path(const DashTrack& t, u32 index, bool init, u8* output) noexcept {
     return !init && numbers != 1 ? 0 : size;
 }
 enum class Tag : u8 { other, mpd, period, adaptation, representation, segment_template };
-Tag tag(Utf8View name) noexcept {
+Tag tag(const Utf8View& name) noexcept {
     return equal(name, utf8_literal("MPD")) ? Tag::mpd : equal(name, utf8_literal("Period")) ? Tag::period :
         equal(name, utf8_literal("AdaptationSet")) ? Tag::adaptation :
         equal(name, utf8_literal("Representation")) ? Tag::representation :
         equal(name, utf8_literal("SegmentTemplate")) ? Tag::segment_template : Tag::other;
 }
-struct Candidate { DashTrack track{}; bool video{}, audio{}, has_template{}; };
-bool unsigned_attribute(const Element& e, Utf8View name, u32* value) noexcept {
+struct Candidate { DashTrack track; bool video, audio, has_template; };
+bool unsigned_attribute(const Element& e, const Utf8View& name, u32* value) noexcept {
     const auto s = attribute(e, name); if (!s.data) return true;
     u64 n{}; if (!decimal_parse_padded(s, &n) || n > ~u32{0}) return false;
     *value = static_cast<u32>(n); return true;
@@ -267,6 +271,7 @@ DashManifestError dash_manifest_parse(Utf8View input, u16 cap, DashManifest* out
                 if (!element.empty) stack[depth++] = element.name;
                 continue;
             }
+            t.start_number = 1; // The template's default; a startNumber attribute replaces it below.
             t.initialization = attribute(element, utf8_literal("initialization")); t.media = attribute(element, utf8_literal("media"));
             if (!unsigned_attribute(element, utf8_literal("timescale"), &t.timescale) || !t.timescale || t.timescale > 1000000000 ||
                 !unsigned_attribute(element, utf8_literal("startNumber"), &t.start_number) ||

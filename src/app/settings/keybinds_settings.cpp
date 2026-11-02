@@ -54,8 +54,9 @@ Utf8View key_chip(Chips& chips, u8 key) noexcept {
     const u32 bytes = shortcut_key_label(key, {chips.text[0], kChipBytes});
     return chips.views[0] = {chips.text[0], bytes};
 }
-UiSettingsControl row(u32 index, Utf8View label, Utf8View description, UiSettingsControlKind kind,
-                      ConstSlice<Utf8View> choices, u32 selected, Utf8View action) noexcept {
+UiSettingsControl row(u32 index, const Utf8View& label, const Utf8View& description,
+                      UiSettingsControlKind kind, const ConstSlice<Utf8View>& choices, u32 selected,
+                      const Utf8View& action) noexcept {
     return {settings_list_control_id(SettingBinding::keybinds_custom, index), label, description, kind, true, false,
             choices, selected, action, nullptr};
 }

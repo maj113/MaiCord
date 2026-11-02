@@ -100,8 +100,8 @@ AttachmentDownloadRequestResult attachment_download_write_request(Utf8View url, 
     return write_get({target, parsed.target_bytes}, parsed.host, output);
 }
 
-AttachmentDownloadRequestResult attachment_download_write_media_request(Utf8View url,
-                                                                        Slice<u8> output) noexcept {
+AttachmentDownloadRequestResult attachment_download_write_media_request(const Utf8View& url,
+                                                                        const Slice<u8>& output) noexcept {
     if (!url.data || !url.bytes || !output.data)
         return {0, CdnHost::none, AttachmentDownloadRequestError::invalid_input};
     u8 target[kCdnMaximumTargetBytes];
@@ -160,7 +160,8 @@ bool attachment_download_risk_extension(Utf8View name) noexcept {
     return false;
 }
 
-AttachmentDownloadFilenameResult attachment_download_safe_filename(Utf8View name, Slice<char> output) noexcept {
+AttachmentDownloadFilenameResult attachment_download_safe_filename(Utf8View name,
+                                                                   const Slice<char>& output) noexcept {
     if ((!name.data && name.bytes) || name.bytes > kAttachmentDownloadMaximumFilenameBytes ||
         !utf8_validate(name).valid || !output.data)
         return {0, AttachmentDownloadFilenameError::invalid_input, false};

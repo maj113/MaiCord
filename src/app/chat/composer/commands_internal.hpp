@@ -192,16 +192,16 @@ bool frecency_save_due(u64 now) noexcept;
 const CommandFrecencyEntry* frecency_entry(const ApplicationCommand& command, u64 guild) noexcept;
 i32 frequently_score(const ApplicationCommand& command, u64 guild) noexcept;
 void advance_channel_index_epoch(Commands& c) noexcept;
-bool retired_text(Utf8View text, const Arena& storage) noexcept;
+bool retired_text(const Utf8View& text, const Arena& storage) noexcept;
 Utf8View field_text(const CommandIndex& index, JsonValue value, const char* key,
-                    Slice<char> scratch) noexcept;
+                    const Slice<char>& scratch) noexcept;
 bool command_space(char value) noexcept;
-Utf8View copy_label(char* out, u32 capacity, Utf8View a, Utf8View b = {}, Utf8View c = {},
-                    Utf8View d = {}) noexcept;
+Utf8View copy_label(char* out, u32 capacity, const Utf8View& a, const Utf8View& b = {},
+                    const Utf8View& c = {}, const Utf8View& d = {}) noexcept;
 void close_popup() noexcept;
 const CommandApplication* find_app(const CommandIndex& source, u64 id) noexcept;
 Utf8View section_name(const CommandApplication& app) noexcept;
-bool starts_with_ignore_case(Utf8View text, Utf8View prefix) noexcept;
+bool starts_with_ignore_case(const Utf8View& text, const Utf8View& prefix) noexcept;
 bool fuzzy_ignore_case(Utf8View needle, Utf8View text) noexcept;
 i32 compare_names(Utf8View a, Utf8View b) noexcept;
 
@@ -225,7 +225,7 @@ struct OptionMatch {
     u32 score;
 };
 
-bool project(Utf8View input) noexcept;
+bool project(const Utf8View& input) noexcept;
 MediaAssetKey app_picture(const CommandApplication* app) noexcept;
 
 constexpr u32 no_option = ~0u;
@@ -238,9 +238,9 @@ struct OptionList {
 OptionList command_options() noexcept;
 bool option_flag(JsonValue option, const char* key) noexcept;
 u64 option_type(const CommandIndex& index, JsonValue option) noexcept;
-u32 typed_options(Utf8View input, Slice<CommandArgumentSpan> spans) noexcept;
-u32 chip_at(Utf8View, const CommandArgumentSpan* spans, u32 count, u32 caret) noexcept;
-bool option_end_at(Utf8View input, u32 at) noexcept;
+u32 typed_options(const Utf8View& input, Slice<CommandArgumentSpan> spans) noexcept;
+u32 chip_at(const Utf8View&, const CommandArgumentSpan* spans, u32 count, u32 caret) noexcept;
+bool option_end_at(const Utf8View& input, u32 at) noexcept;
 Utf8View caret_word(Utf8View input, u32 caret) noexcept;
 ConstSlice<CommandAcceptedChoice> accepted_choices() noexcept;
 void check_options(const CommandArgumentSpan* spans, u32 count, u32 active_slot, bool validate_all,
@@ -266,17 +266,17 @@ constexpr u32 message_flag_loading = 1u << 7;
 Echo* find_echo(u64 nonce, u64 interaction_id) noexcept;
 void echo_write(Echo& echo, Utf8View content, u32 flags, MessageDeliveryState delivery) noexcept;
 u64 echo_author(u64 application_id, const CommandApplication* app) noexcept;
-void queue_command(u64 application, u64 author, Utf8View name, u16 type) noexcept;
-void echo_fail(Echo& echo, Utf8View reason) noexcept;
+void queue_command(u64 application, u64 author, const Utf8View& name, u16 type) noexcept;
+void echo_fail(Echo& echo, const Utf8View& reason) noexcept;
 void echo_remove(Echo& echo) noexcept;
 void mark_indexes_stale(Commands& c) noexcept;
 bool find_entry(u64 application_id, u64 command_id, Utf8View name, Entry* output) noexcept;
 bool has_attachment_option(const CommandIndex& index, const ApplicationCommand& command) noexcept;
 bool commands_permitted(const Commands& c) noexcept;
-void resolve_wanted(Utf8View input) noexcept;
+void resolve_wanted(const Utf8View& input) noexcept;
 bool select_typed(Utf8View input) noexcept;
 MessageComposerResult normalize_markers(Utf8View input, bool command) noexcept;
-MessageComposerResult chip_single_option(Utf8View input, u32 typed) noexcept;
+MessageComposerResult chip_single_option(const Utf8View& input, u32 typed) noexcept;
 MessageComposerResult set_up_command() noexcept;
 MessageComposerResult select_chip(const CommandArgumentSpan& span) noexcept;
 void shake_app() noexcept;

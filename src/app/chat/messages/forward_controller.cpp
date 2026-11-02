@@ -9,7 +9,7 @@ void changed(MessageForwardController* c) noexcept { ++c->revision; if (!c->revi
 bool fail(MessageForwardController* c, MessageForwardError error) noexcept {
     if (c) { c->error = error; changed(c); } return false;
 }
-u16 copy_text(char* out, u32 capacity, Utf8View text) noexcept {
+u16 copy_text(char* out, u32 capacity, const Utf8View& text) noexcept {
     return static_cast<u16>(utf8_copy_truncated(out, capacity, text));
 }
 bool valid_source_channel(QuickSwitcherSources sources, const MessageForwardSource& source) noexcept {
@@ -173,7 +173,7 @@ bool message_forward_toggle(MessageForwardController* c, QuickSwitcherScope scop
     auto& d = c->destinations[c->destination_count++]; reset_value(&d); d.row = c->candidates.rows[index];
     c->error = MessageForwardError::none; changed(c); return true;
 }
-bool message_forward_set_caption(MessageForwardController* c, Utf8View caption) noexcept {
+bool message_forward_set_caption(MessageForwardController* c, const Utf8View& caption) noexcept {
     if (!c || !c->initialized || c->committed) return fail(c, MessageForwardError::busy);
     const auto valid = utf8_validate(caption);
     if (caption.bytes > sizeof(c->caption) || !valid.valid || valid.codepoints > kMessageComposerDefaultMaximumCodepoints) {

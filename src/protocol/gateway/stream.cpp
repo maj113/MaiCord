@@ -205,7 +205,7 @@ GatewayStreamKey gateway_stream_key_for(u64 guild_id, u64 channel_id, u64 owner_
     return gateway_stream_key_valid(key) ? key : GatewayStreamKey{};
 }
 
-u32 gateway_stream_key_write(const GatewayStreamKey& key, Slice<char> output) noexcept {
+u32 gateway_stream_key_write(const GatewayStreamKey& key, const Slice<char>& output) noexcept {
     if (!gateway_stream_key_valid(key))
         return 0;
     char text[kGatewayStreamKeyMaximumBytes];

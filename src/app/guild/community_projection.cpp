@@ -263,7 +263,7 @@ bool binding_ready(void* model, u64 identity) noexcept {
 namespace community_detail {
 
 // Binds editor slot `slot` to `control` with initial text.
-void bind_editor(u32 slot, u64 control, Utf8View text, u32 limit, bool multiline) noexcept {
+void bind_editor(u32 slot, u64 control, const Utf8View& text, u32 limit, bool multiline) noexcept {
     auto& p = *owner;
     const u32 bytes = minimum<u32>(text.bytes, kEditorBytes);
     copy_bytes(p.editor_text[slot], text.data, bytes);
@@ -353,7 +353,7 @@ Utf8View guild_name(u64 guild_id) noexcept {
     const auto* g = guild(guild_id);
     return g ? chat_state_store_guild_name(state(), *g) : Utf8View{};
 }
-Utf8View failure_text(const RestClientResponse& response, Utf8View fallback) noexcept {
+Utf8View failure_text(const RestClientResponse& response, const Utf8View& fallback) noexcept {
     if (!response.transport_ok())
         return utf8_literal("Couldn't reach Discord. Try again.");
     switch (guild_community_classify(response.status_code)) {

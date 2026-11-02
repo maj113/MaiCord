@@ -120,8 +120,8 @@ struct GuardedWriter {
     ProtocolWriter writer;
     bool ok = true;
 
-    explicit GuardedWriter(Slice<u8> output) noexcept : writer{output, 0} {}
-    explicit GuardedWriter(Slice<char> output) noexcept
+    explicit GuardedWriter(const Slice<u8>& output) noexcept : writer{output, 0} {}
+    explicit GuardedWriter(const Slice<char>& output) noexcept
         : writer{{reinterpret_cast<u8*>(output.data), output.count}, 0} {}
     // The bytes still free, and the bytes written (0 once a write failed).
     u32 room() const noexcept { return writer.output.count - writer.used; }

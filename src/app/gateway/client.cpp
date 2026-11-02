@@ -284,7 +284,7 @@ namespace {
 RestClientSubmitResult submit_self_settings_locked(GatewayClientRuntime* runtime,
                                                    RestClient* rest,
                                                    SelfStatusSettingsOperation operation,
-                                                   ConstSlice<u8> body, u64 request_id) noexcept {
+                                                   const ConstSlice<u8>& body, u64 request_id) noexcept {
     const bool update = operation == SelfStatusSettingsOperation::update;
     static constexpr char target[] = "/api/v10/users/@me/settings-proto/1";
     const RestClientRequest rest_request{{reinterpret_cast<const u8*>(target), sizeof(target) - 1},

@@ -479,7 +479,7 @@ ApplicationMessageReactionEnqueueResult queue(u64 id, u64 emoji, Utf8View text, 
 } // namespace
 
 ApplicationMessageReactionEnqueueResult application_queue_message_reaction_emoji(u64 message_id, u64 emoji_id,
-                                                                             Utf8View label,
+                                                                             const Utf8View& label,
                                                                              bool animated) noexcept {
     return queue(message_id, emoji_id, label, animated, false);
 }
@@ -1012,7 +1012,8 @@ bool queue_message_reaction(u64 message_id, u32 index) noexcept {
     return result == ApplicationMessageReactionEnqueueResult::accepted ||
            result == ApplicationMessageReactionEnqueueResult::coalesced;
 }
-bool queue_message_reaction_emoji(u64 message_id, u64 emoji_id, Utf8View label, bool animated) noexcept {
+bool queue_message_reaction_emoji(u64 message_id, u64 emoji_id, const Utf8View& label,
+                                  bool animated) noexcept {
     const auto result = application_queue_message_reaction_emoji(message_id, emoji_id, label, animated);
     return result == ApplicationMessageReactionEnqueueResult::accepted ||
            result == ApplicationMessageReactionEnqueueResult::coalesced;

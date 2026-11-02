@@ -12,7 +12,7 @@ struct ApplicationComposerPreview {
 };
 ApplicationComposerPreview application_composer_preview_view(u64 draft_id) noexcept;
 // Format whose codec MaiCord owns for this filename, or unknown.
-MediaAttachmentFormat application_composer_preview_format(Utf8View filename) noexcept;
+MediaAttachmentFormat application_composer_preview_format(const Utf8View& filename) noexcept;
 // Admits current active-channel drafts and retires everything else.
 bool application_composer_preview_request(u64 now_ms, u64 unix_now_seconds) noexcept;
 bool application_composer_preview_key_current(MediaAssetKey) noexcept;
@@ -30,7 +30,7 @@ u64 application_composer_preview_next_wake() noexcept;
 u32 application_composer_preview_revision() noexcept;
 
 // Local-preview routing shared by the forum form and the composer strip.
-bool application_local_preview_key_current(MediaAssetKey) noexcept;
+bool application_local_preview_key_current(const MediaAssetKey&) noexcept;
 bool application_local_preview_frame_current(const AccountMediaFrame&) noexcept;
 void application_local_preview_frame_uploaded(const AccountMediaFrame&) noexcept;
 void application_local_preview_rejected(MediaAssetKey) noexcept;

@@ -28,7 +28,7 @@ static_assert(kPluginChannelNsfw == MC_CHANNEL_NSFW && kPluginChannelUnread == M
               kPluginHeaderMemberList == MC_HEADER_MEMBER_LIST);
 
 namespace {
-mc_str view(Utf8View text) noexcept { return {text.data, text.bytes, 0}; }
+mc_str view(const Utf8View& text) noexcept { return {text.data, text.bytes, 0}; }
 } // namespace
 
 mc_status read_user(u64 user_id, u64 guild_id, mc_user* out) noexcept {

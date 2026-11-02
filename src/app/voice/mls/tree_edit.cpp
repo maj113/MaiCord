@@ -140,7 +140,7 @@ const MlsKeyPackage* add_at(ConstSlice<MlsProposal> proposals, ConstSlice<u32> j
 struct NodeWriter {
     MlsWriter writer;
     u32 blanks;
-    explicit NodeWriter(Slice<u8> output) noexcept
+    explicit NodeWriter(const Slice<u8>& output) noexcept
         : writer({output.data, minimum(output.count, kMlsMaxRatchetTreeBytes)}), blanks(0) {
     }
     void blank() noexcept {
@@ -199,8 +199,8 @@ u32 mls_tree_edit_bytes(const MlsRatchetTree& tree, ConstSlice<MlsProposal> prop
                : 0;
 }
 MlsStatus mls_tree_apply_proposals(const MlsRatchetTree& tree, ConstSlice<MlsProposal> proposals,
-                                   Slice<u8> scratch, Slice<u32> joiners, u32* joiner_count,
-                                   Slice<u8> output, u32* written) noexcept {
+                                   const Slice<u8>& scratch, Slice<u32> joiners, u32* joiner_count,
+                                   const Slice<u8>& output, u32* written) noexcept {
     if (!joiner_count || !written)
         return MlsStatus::invalid_argument;
     *joiner_count = 0;
@@ -333,9 +333,9 @@ i32 slot_of(const u32* values, u32 count, u32 target) noexcept {
 }
 } // namespace
 MlsStatus mls_tree_merge_update_path(KdfSha256Workspace& kdf, const MlsRatchetTree& tree,
-                                     u32 committer_leaf, const MlsUpdatePath& path, Slice<u8> scratch,
-                                     Slice<u8> output, u32* written, MlsRatchetTree* merged,
-                                     u8* tree_hash) noexcept {
+                                     u32 committer_leaf, const MlsUpdatePath& path,
+                                     const Slice<u8>& scratch, const Slice<u8>& output, u32* written,
+                                     MlsRatchetTree* merged, u8* tree_hash) noexcept {
     if (!written || !merged)
         return MlsStatus::invalid_argument;
     *written = 0;

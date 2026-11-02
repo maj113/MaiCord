@@ -227,8 +227,7 @@ bool message_scene_poll_projection(const MessageScene& scene, const MessageScene
         row.poll_result_revision != poll->result_revision || !node ||
         !poll_state(scene, *record, row.message, answers, &state))
         return false;
-    UiPollStyle style;
-    ui_theme_fill_poll_style(scene.theme_styles, &style);
+    const UiPollStyle style = ui_theme_poll_style(scene.theme_styles);
     return ui_poll_controls_project(state, node->content_rectangle, style,
                                     theme, scene.polls->measure, scene.polls->backend_revision, out);
 }

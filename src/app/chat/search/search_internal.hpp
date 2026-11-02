@@ -155,10 +155,10 @@ struct ApplicationSearch {
 namespace search_detail {
 
 extern u32 filter_publication_counter;
-Utf8View without_prefix(Utf8View value, char prefix) noexcept;
+Utf8View without_prefix(const Utf8View& value, char prefix) noexcept;
 __declspec(noinline) void menus_close(ApplicationSearch& s) noexcept;
 __declspec(noinline) void suggestions_open(ApplicationSearch& s) noexcept;
-bool edit_replace(ApplicationSearch& s, u32 begin, u32 end, Utf8View text) noexcept;
+bool edit_replace(ApplicationSearch& s, u32 begin, u32 end, const Utf8View& text) noexcept;
 void member_query_withdraw(ApplicationSearch& s, bool invalidate_choices = false) noexcept;
 void choices_release(ApplicationSearch& s) noexcept;
 MessagePollResultTicket poll_ticket(const ApplicationSearch& s, u64 id) noexcept;

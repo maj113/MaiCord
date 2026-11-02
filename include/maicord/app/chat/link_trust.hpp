@@ -55,8 +55,8 @@ bool link_trust_builtin_host(Utf8View host) noexcept;
 bool link_trust_has_host(const LinkTrustStore& store, Utf8View host) noexcept;
 bool link_trust_has_protocol(const LinkTrustStore& store, Utf8View protocol) noexcept;
 // Adds a lowercase host or protocol; full stores keep their entries.
-bool link_trust_add_host(LinkTrustStore* store, Utf8View host) noexcept;
-bool link_trust_add_protocol(LinkTrustStore* store, Utf8View protocol) noexcept;
+bool link_trust_add_host(LinkTrustStore* store, const Utf8View& host) noexcept;
+bool link_trust_add_protocol(LinkTrustStore* store, const Utf8View& protocol) noexcept;
 
 enum class LinkOpenDecision : u8 {
     open,

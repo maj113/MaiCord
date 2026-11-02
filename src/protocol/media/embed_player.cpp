@@ -11,7 +11,7 @@ bool id_chars(const Utf8View& id, bool dashes) noexcept {
         if (!ascii_is_alnum(id.data[i]) && !(dashes && (id.data[i] == '_' || id.data[i] == '-'))) return false;
     return true;
 }
-bool video_id(Utf8View id) noexcept { return id.bytes == 11 && id_chars(id, true); }
+bool video_id(const Utf8View& id) noexcept { return id.bytes == 11 && id_chars(id, true); }
 // Decimal identifier of at most 20 digits without a leading zero; 0 when invalid or above 2^64.
 u64 numeric_id(const Utf8View& id) noexcept {
     u64 value = 0;
@@ -372,7 +372,9 @@ bool twitter_variant(void* context,u32,JsonValue value) noexcept {
 }
 } // namespace embed_player_detail
 using namespace embed_player_detail;
-bool twitch_clip_id(Utf8View id) noexcept { return id.bytes && id.bytes <= 128 && id_chars(id, true); }
+bool twitch_clip_id(const Utf8View& id) noexcept {
+    return id.bytes && id.bytes <= 128 && id_chars(id, true);
+}
 u32 twitch_clip_body(Utf8View id, Slice<u8> out) noexcept {
     if (!twitch_clip_id(id)) return 0;
     u8 staged[1024];

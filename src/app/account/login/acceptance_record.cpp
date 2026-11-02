@@ -77,7 +77,7 @@ AcceptanceRecordResult acceptance_record_disk_file(HANDLE file) noexcept {
     return {};
 }
 
-AcceptanceRecordResult acceptance_record_read(const wchar_t* path, Slice<u8> record) noexcept {
+AcceptanceRecordResult acceptance_record_read(const wchar_t* path, const Slice<u8>& record) noexcept {
     HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
         FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
     if (file == INVALID_HANDLE_VALUE) {
@@ -95,7 +95,8 @@ AcceptanceRecordResult acceptance_record_read(const wchar_t* path, Slice<u8> rec
     return result;
 }
 
-AcceptanceRecordResult acceptance_record_write(const wchar_t* path, u32 count, ConstSlice<u8> record) noexcept {
+AcceptanceRecordResult acceptance_record_write(const wchar_t* path, u32 count,
+                                               const ConstSlice<u8>& record) noexcept {
     wchar_t temporary[kAcceptanceRecordMaximumPathCharacters + 1];
     acceptance_record_sibling(path, count, L".new", temporary);
     // CREATE_NEW never truncates or follows an attacker-controlled/stale sibling.

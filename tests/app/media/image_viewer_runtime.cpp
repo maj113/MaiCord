@@ -594,7 +594,7 @@ bool refresh_account_frame(bool) noexcept {
 void application_user_settings_request_content_confirmation() noexcept {
     ++image_viewer_runtime_test::confirmations;
 }
-bool application_open_content_url(Utf8View url) noexcept {
+bool application_open_content_url(const Utf8View& url) noexcept {
     using namespace image_viewer_runtime_test;
     ++opened_urls; opened_bytes = minimum<u32>(url.bytes, sizeof(opened_url));
     copy_bytes(opened_url, url.data, opened_bytes);

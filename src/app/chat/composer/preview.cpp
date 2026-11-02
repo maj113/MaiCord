@@ -86,7 +86,7 @@ void retire(ComposerPreviewEntry& entry, u64 now) noexcept {
 }
 } // namespace
 
-MediaAttachmentFormat application_composer_preview_format(Utf8View filename) noexcept {
+MediaAttachmentFormat application_composer_preview_format(const Utf8View& filename) noexcept {
     char lowered[8];
     const Utf8View extension{lowered, ui_attachment_file_extension(filename, {lowered, 8})};
     if (utf8_equal(extension, utf8_literal("png")))

@@ -9,7 +9,8 @@ namespace {
 
 constexpr char kDomain[] = "MaiCord plugin secret v1";
 
-u32 entropy_for(u64 owner_id, mc_str key, u8 (&entropy)[sizeof(kDomain) + 8 + MC_SETTING_KEY_MAX]) noexcept {
+u32 entropy_for(u64 owner_id, const mc_str& key,
+                u8 (&entropy)[sizeof(kDomain) + 8 + MC_SETTING_KEY_MAX]) noexcept {
     u32 used = sizeof(kDomain) - 1;
     copy_bytes(entropy, kDomain, used);
     for (u32 shift = 0; shift < 64; shift += 8) entropy[used++] = static_cast<u8>(owner_id >> shift);

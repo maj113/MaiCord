@@ -107,6 +107,6 @@ using MlsEncodeResult = ByteResult<MlsWireError>;
 // overlap the input object or any active field, and the input must not change
 // during the call. A package TBS includes its signed leaf. Leaf update/commit
 // callers must append their external group binding before signing.
-MlsEncodeResult mls_encode_tbs(const MlsLeafView& input, Slice<u8> output) noexcept;
+MlsEncodeResult mls_encode_tbs(const MlsLeafView& input, const Slice<u8>& output) noexcept;
 MlsEncodeResult mls_encode_tbs(const MlsKeyPackageView& input, Slice<u8> output) noexcept;
 } // namespace maicord

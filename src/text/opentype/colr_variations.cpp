@@ -105,7 +105,7 @@ SfntStatus colr_resolve_color_stops(const ColrFont& font,const ColrVariationInst
     if(ordered)return SfntStatus::ok;
     // Heap sort with original-index tie breaking: stable order in O(n log n) time
     // and O(1) extra space, including for adversarial stops.
-    heap_sort(output.data,line.count,before);
+    heap_sort_shared(output.data,line.count,[](const ColrResolvedColorStop& a,const ColrResolvedColorStop& b) noexcept { return before(a,b); });
     return SfntStatus::ok;
 }
 #pragma float_control(pop)

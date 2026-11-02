@@ -29,7 +29,7 @@ bool gateway_stream_key_valid(const GatewayStreamKey& key) noexcept;
 // The stream of owner_id in a voice channel; guild zero selects a private call.
 GatewayStreamKey gateway_stream_key_for(u64 guild_id, u64 channel_id, u64 owner_id) noexcept;
 // Writes the textual key; zero when invalid or the output is too small.
-u32 gateway_stream_key_write(const GatewayStreamKey& key, Slice<char> output) noexcept;
+u32 gateway_stream_key_write(const GatewayStreamKey& key, const Slice<char>& output) noexcept;
 // Strict: canonical decimal snowflakes, exact field count, known prefix.
 bool gateway_stream_key_parse(Utf8View text, GatewayStreamKey* output) noexcept;
 

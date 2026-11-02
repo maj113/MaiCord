@@ -7,7 +7,7 @@
 namespace maicord {
 namespace {
 using namespace protocol_detail;
-bool valid_view(Utf8View value) noexcept {
+bool valid_view(const Utf8View& value) noexcept {
     return value.data && value.bytes &&
         byte_range_valid({reinterpret_cast<const u8*>(value.data), value.bytes});
 }
@@ -16,7 +16,7 @@ UserAuthWriteError encode_reset(Utf8View value, u32 maximum, EncodedString* enco
     if (value.bytes > maximum) return UserAuthWriteError::value_too_large;
     return encoded_string(value, maximum, encoded) ? UserAuthWriteError::none : UserAuthWriteError::invalid_utf8;
 }
-bool valid_destination(Slice<u8> output, Utf8View a, Utf8View b = {}) noexcept {
+bool valid_destination(const Slice<u8>& output, const Utf8View& a, const Utf8View& b = {}) noexcept {
     return output.data && byte_range_valid({output.data, output.count}) &&
         !byte_ranges_overlap({output.data, output.count}, {reinterpret_cast<const u8*>(a.data), a.bytes}) &&
         !byte_ranges_overlap({output.data, output.count}, {reinterpret_cast<const u8*>(b.data), b.bytes});

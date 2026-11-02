@@ -227,7 +227,7 @@ void copy_event_link() noexcept {
     if (application_copy_text({link, bytes}, kToastLinkCopied, kToastLinkCopyFailed))
         owner->copied_until = deadline_after(clock_monotonic_milliseconds(), kCopiedMs);
 }
-void open_menu(Menu menu, UiRect anchor) noexcept {
+void open_menu(Menu menu, const UiRect& anchor) noexcept {
     auto& p = *owner;
     u32 count = 0, selected = 0;
     const Utf8View* labels = nullptr;
@@ -664,7 +664,7 @@ bool application_guild_community_can_create(u64 guild_id) noexcept {
 }
 
 u32 application_guild_community_menu_items(u64 guild_id, u32 onboarding_action, u32 create_event_action,
-                                           Slice<PopupItem> output) noexcept {
+                                           const Slice<PopupItem>& output) noexcept {
     const auto* g = guild(guild_id);
     if (!g || g->unavailable || !output.data || !g_app.account.api.guild_community)
         return 0;

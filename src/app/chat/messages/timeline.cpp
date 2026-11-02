@@ -418,7 +418,7 @@ bool message_timeline_set_item_height(MessageTimeline* timeline, u32 index, u32 
 }
 
 static MessageTimelineApplyResult insert_resident(MessageTimeline* timeline, const MessageInput& input,
-                                                  ConstSlice<GatewayMessageAttachment> attachments,
+                                                  const ConstSlice<GatewayMessageAttachment>& attachments,
                                                   bool retained) noexcept {
     const MessageTimelineError validation = validate_timeline(timeline);
     if (validation != MessageTimelineError::none ||
@@ -505,7 +505,7 @@ static MessageTimelineApplyResult insert_resident(MessageTimeline* timeline, con
 
 MessageTimelineApplyResult message_timeline_insert_local(
     MessageTimeline* timeline, const MessageInput& input,
-    ConstSlice<GatewayMessageAttachment> attachments) noexcept {
+    const ConstSlice<GatewayMessageAttachment>& attachments) noexcept {
     return insert_resident(timeline, input, attachments, false);
 }
 
@@ -796,8 +796,8 @@ MessageTimelineApplyResult message_timeline_apply_updated(
 }
 
 MessageTimelineApplyResult message_timeline_apply(
-    MessageTimeline* timeline, const GatewayClientEvent& event, ConstSlice<u8> payload, Slice<u64> bulk_ids,
-    MessageContentAvailability content_availability) noexcept {
+    MessageTimeline* timeline, const GatewayClientEvent& event, const ConstSlice<u8>& payload,
+    Slice<u64> bulk_ids, MessageContentAvailability content_availability) noexcept {
     const MessageTimelineError validation = validate_timeline(timeline);
     if (validation != MessageTimelineError::none || (!payload.data && payload.count != 0) ||
         (!bulk_ids.data && bulk_ids.count != 0)) {

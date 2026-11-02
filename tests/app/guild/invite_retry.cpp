@@ -24,7 +24,7 @@ RestClientSubmitResult WINAPI submit_retry(void*, const GuildInviteRequest* requ
 } // namespace
 
 bool application_action_captcha_capture(ApplicationActionCaptchaKind, u64, const RestClientResponse&,
-                                        Utf8View) noexcept {
+                                        const Utf8View&) noexcept {
     ++retry_captures;
     retry_phase = ApplicationActionCaptchaPhase::captured;
     return true;

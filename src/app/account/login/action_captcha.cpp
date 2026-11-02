@@ -68,7 +68,7 @@ bool open_url(const SecureBuffer& url) noexcept {
 } // namespace
 
 bool application_action_captcha_capture(ApplicationActionCaptchaKind kind, u64 subject,
-                                        const RestClientResponse& response, Utf8View body) noexcept {
+                                        const RestClientResponse& response, const Utf8View& body) noexcept {
     if (kind == ApplicationActionCaptchaKind::none || !subject || !response.transport_ok() ||
         response.status_code != 400 || !response.rejection.captcha || !body.data || !body.bytes ||
         body.bytes > kMaximumBodyBytes || !available())

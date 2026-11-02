@@ -31,7 +31,7 @@ bool cursor_instant(const MessagePinsCursor& cursor, PinInstant* instant) noexce
     return true;
 }
 
-bool later(PinInstant left, PinInstant right) noexcept {
+bool later(const PinInstant& left, const PinInstant& right) noexcept {
     return left.milliseconds > right.milliseconds ||
            (left.milliseconds == right.milliseconds && left.submillisecond_ns > right.submillisecond_ns);
 }

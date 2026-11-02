@@ -615,7 +615,7 @@ bool application_video_tooltip_target(UiPoint point, bool keyboard, u64 scope,
     target->key.scope = scope;
     return true;
 }
-Utf8View application_guild_rail_label(const GuildViewRow&, Slice<char>) noexcept {
+Utf8View application_guild_rail_label(const GuildViewRow&, const Slice<char>&) noexcept {
     return {};
 }
 Utf8View application_voice_tooltip(float, float, UiRect*, u32*) noexcept {

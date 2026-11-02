@@ -159,6 +159,10 @@ constexpr bool popup_items_command_picker(ConstSlice<PopupItem> items) noexcept 
 // the command skeleton (usage, description and source bars); elsewhere its
 // generic Loading row (one 60-120 DIP bar).
 PopupItem popup_placeholder_row(u32 action, u32 seed, u16 flags = popup_item_none) noexcept;
+// Fills one menu row (every other field zero) from a label, an action and flags; the one shared body of the
+// row literals that would each store the zeroed tail fields inline.
+void popup_item_set(PopupItem* item, Utf8View label, u32 action, u16 flags = popup_item_none,
+                    u16 shortcut = popup_shortcut_none) noexcept;
 
 UiMenuRowPresentation popup_item_menu_presentation(const PopupItem& item) noexcept;
 

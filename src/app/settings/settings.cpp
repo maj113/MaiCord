@@ -491,7 +491,7 @@ bool application_settings_resume() noexcept {
 UiSettingsScene* application_settings_scene() noexcept {
     return g_app.settings && g_app.settings->scene.active ? &g_app.settings->scene : nullptr;
 }
-bool application_settings_select_page(UiPageKey page) noexcept {
+bool application_settings_select_page(const UiPageKey& page) noexcept {
     return g_app.settings && ui_page_registry_select(&g_app.settings->registry, page).ok() && refresh();
 }
 void application_settings_close(bool restore_focus) noexcept {

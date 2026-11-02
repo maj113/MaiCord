@@ -84,7 +84,8 @@ void announce_new_message(const UiAccessTree& tree) noexcept {
                                 utf8_literal("MaiCord.NewMessage"));
 }
 
-void announce(Utf8View text, bool assertive, Utf8View activity = utf8_literal("MaiCord.Status")) noexcept {
+void announce(const Utf8View& text, bool assertive,
+              const Utf8View& activity = utf8_literal("MaiCord.Status")) noexcept {
     if (!ui_access_announce_admit(&g_access.announcer, text,
                                   assertive ? UiAccessPoliteness::assertive : UiAccessPoliteness::polite,
                                   GetTickCount64()))
@@ -95,7 +96,7 @@ void announce(Utf8View text, bool assertive, Utf8View activity = utf8_literal("M
                                 text, activity);
 }
 
-u64 text_hash(Utf8View text) noexcept {
+u64 text_hash(const Utf8View& text) noexcept {
     return text.bytes ? hash64_bytes(kHash64Seed, text.data, text.bytes) : 0;
 }
 

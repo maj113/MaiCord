@@ -21,11 +21,11 @@ bool text_within(const Utf8View& value, u32 codepoints, u32 bytes) noexcept {
     const auto checked = utf8_validate(value);
     return checked.valid && checked.codepoints <= codepoints && value.bytes <= bytes;
 }
-bool image_valid(Utf8View value) noexcept {
+bool image_valid(const Utf8View& value) noexcept {
     return !value.bytes || (data_uri(value) && utf8_validate(value).valid);
 }
 // An optional image whose description needs it.
-bool md5_valid(Utf8View md5, Utf8View image) noexcept {
+bool md5_valid(Utf8View md5, const Utf8View& image) noexcept {
     if (!md5.bytes)
         return true;
     if (md5.bytes != 32 || !image.bytes)
@@ -35,7 +35,7 @@ bool md5_valid(Utf8View md5, Utf8View image) noexcept {
             return false;
     return true;
 }
-bool avatar_valid(Utf8View avatar, Utf8View description, Utf8View md5) noexcept {
+bool avatar_valid(const Utf8View& avatar, const Utf8View& description, const Utf8View& md5) noexcept {
     return image_valid(avatar) && md5_valid(md5, avatar) && (!description.bytes || avatar.bytes) &&
            text_within(description, kProfileEditDescriptionBytes, kProfileEditDescriptionBytes);
 }
@@ -83,7 +83,7 @@ bool profile_valid(const ProfilePatch& p, bool member) noexcept {
     return image_valid(p.banner) && md5_valid(p.banner_md5, p.banner) && text_within(p.bio, kProfileBioMaximumCodepoints, kProfileBioMaximumUtf8Bytes) &&
            text_within(p.pronouns, kProfileEditPronounsCodepoints, kProfileEditPronounsCodepoints * 4);
 }
-void escaped(Utf8View value, u32* bytes) noexcept {
+void escaped(const Utf8View& value, u32* bytes) noexcept {
     *bytes += 2 + value.bytes * 6;
 }
 void write_user(JsonBody& b, const UserPatch& p) noexcept {

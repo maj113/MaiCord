@@ -89,7 +89,8 @@ GuildSettings guild_settings(const GatewayClientStateMutation& state) noexcept {
     return settings;
 }
 
-RoleInput packed_role_input(u64 guild_id, const GatewayClientRoleMutation& role, Utf8View name) noexcept {
+RoleInput packed_role_input(u64 guild_id, const GatewayClientRoleMutation& role,
+                            const Utf8View& name) noexcept {
     return RoleInput{role.id,
                      guild_id,
                      role.permissions,
@@ -127,7 +128,7 @@ GuildInput guild_input(const GatewayClientEvent& event, ConstSlice<u8> payload, 
     return input;
 }
 
-ChannelInput channel_input(const GatewayClientStateMutation& state, Utf8View name) noexcept {
+ChannelInput channel_input(const GatewayClientStateMutation& state, const Utf8View& name) noexcept {
     return ChannelInput{state.id,       state.guild_id, state.parent_id, name,
                                state.position, state.flags,    state.type,
                                state.last_message_id,
@@ -168,7 +169,7 @@ bool validate_channel_state(const GatewayClientStateMutation& state, bool allow_
             !(state.fields & gateway_client_state_field_permission_overwrites) : state.guild_id != 0);
 }
 
-bool read_u64(ConstSlice<u8> payload, u32 offset, u64* value) noexcept {
+bool read_u64(const ConstSlice<u8>& payload, u32 offset, u64* value) noexcept {
     if (!value || offset > payload.count || 8 > payload.count - offset) {
         return false;
     }
@@ -177,7 +178,7 @@ bool read_u64(ConstSlice<u8> payload, u32 offset, u64* value) noexcept {
     return decoded != 0;
 }
 
-bool payload_disjoint(ConstSlice<u8> payload, const void* base, u64 bytes) noexcept {
+bool payload_disjoint(const ConstSlice<u8>& payload, const void* base, u64 bytes) noexcept {
     if (payload.count == 0 || !base || bytes == 0) return true;
     const usize source = reinterpret_cast<usize>(payload.data);
     const usize target = reinterpret_cast<usize>(base);
@@ -185,7 +186,7 @@ bool payload_disjoint(ConstSlice<u8> payload, const void* base, u64 bytes) noexc
     return source < target ? target - source >= payload.count : source - target >= bytes;
 }
 
-bool state_payload_disjoint(const ChatStateStore& store, ConstSlice<u8> payload) noexcept {
+bool state_payload_disjoint(const ChatStateStore& store, const ConstSlice<u8>& payload) noexcept {
     // Publication reparses borrowed role/emoji data; none may live in backing
     // changed by sorted shifts, name compaction, guild metadata or recompute.
     return payload_disjoint(payload, &store, sizeof(store)) &&
@@ -462,7 +463,7 @@ struct ThreadSyncInputs {
     ConstSlice<u8> payload;
     ConstSlice<u32> offsets;
 };
-bool thread_sync_record(ConstSlice<u8> payload, u32 offset, GatewayClientStateMutation* channel,
+bool thread_sync_record(const ConstSlice<u8>& payload, u32 offset, GatewayClientStateMutation* channel,
                         Utf8View* name, u32* next) noexcept {
     if (offset > payload.count || sizeof(*channel) > payload.count - offset) return false;
     copy_bytes(channel, payload.data + offset, sizeof(*channel));
@@ -794,7 +795,7 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
             if (count == kPrivateRecipientMaximum) return apply_error(ChatStateApplyError::capacity);
             ids[count++] = user.id;
         }
-        if (add) heap_sort(ids, count, [](u64 a, u64 b) noexcept { return a < b; });
+        if (add) heap_sort_shared(ids, count, [](u64 a, u64 b) noexcept { return a < b; });
         const PrivateChannelInput input{channel->id, 0, {ids, count}, {}, true, false, false};
         auto& nicks = private_scratch.nicks;
         u32 nick_count = 0;
@@ -935,7 +936,7 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                 }
                 const u32 id_count = minimum(index, kGuildChannelIdCapacity);
                 if (!ids_increasing) {
-                    heap_sort(channel_ids.values, id_count, [](u64 a, u64 b) noexcept { return a < b; });
+                    heap_sort_shared(channel_ids.values, id_count, [](u64 a, u64 b) noexcept { return a < b; });
                     for (u32 id = 1; id < id_count; ++id)
                         if (channel_ids.values[id - 1] == channel_ids.values[id])
                             return apply_error(ChatStateApplyError::invalid_payload);

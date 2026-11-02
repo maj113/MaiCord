@@ -103,7 +103,7 @@ bool message_timeline_set_item_height(MessageTimeline* timeline, u32 index, u32 
                                       MessageTimelineInvalidation* invalidation) noexcept;
 MessageTimelineApplyResult message_timeline_insert_local(
     MessageTimeline* timeline, const MessageInput& input,
-    ConstSlice<GatewayMessageAttachment> attachments = {}) noexcept;
+    const ConstSlice<GatewayMessageAttachment>& attachments = {}) noexcept;
 MessageTimelineApplyResult message_timeline_remove_local(
     MessageTimeline* timeline, u64 message_id) noexcept;
 // Puts a kept deleted message back as a tombstone (delivery retained), at its place in time, when
@@ -130,7 +130,8 @@ MessageTimelineApplyResult message_timeline_apply_updated(
     MessageTimeline* timeline, const GatewayMessageEvent& message,
     MessageContentAvailability content_availability = MessageContentAvailability::available) noexcept;
 MessageTimelineApplyResult message_timeline_apply(
-    MessageTimeline* timeline, const GatewayClientEvent& event, ConstSlice<u8> payload, Slice<u64> bulk_ids,
+    MessageTimeline* timeline, const GatewayClientEvent& event, const ConstSlice<u8>& payload,
+    Slice<u64> bulk_ids,
     MessageContentAvailability content_availability = MessageContentAvailability::available) noexcept;
 
 } // namespace maicord

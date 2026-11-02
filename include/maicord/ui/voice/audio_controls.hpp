@@ -34,14 +34,14 @@ enum class UiAudioKey : u8 {
 
 struct UiAudioPlaybackState {
     // Authority changes invalidate actions; elapsed ticks alone need not change revision.
-    u64 owner{}, generation{}, revision{}, elapsed_ms{}, duration_ms{};
-    u32 volume{};
-    bool playing{}, muted{}, loading{}, error{}, can_play{}, can_seek{}, can_volume{}, can_download{};
-    bool has_duration{}, voice{};
-    Utf8View title{};
+    u64 owner, generation, revision, elapsed_ms, duration_ms;
+    u32 volume;
+    bool playing, muted, loading, error, can_play, can_seek, can_volume, can_download;
+    bool has_duration, voice;
+    Utf8View title;
     // Decoded amplitudes, 0..255. The owner retains storage through paint/input.
     // Missing data uses a neutral seek rail, never a fabricated waveform.
-    ConstSlice<u8> waveform{};
+    ConstSlice<u8> waveform;
 };
 
 struct UiAudioControlsStyle {
@@ -62,36 +62,36 @@ inline constexpr u32 kUiAudioControlCount = 8;
 inline constexpr u32 kUiAudioWaveformMaximum = 256;
 
 struct UiAudioCardGeometry {
-    UiRect bounds{}, title{}, play_pause{}, seek{}, time{}, mute{}, volume{}, download{}, status{};
-    u8 footer_rows{};
-    bool voice{}, compact{}, volume_expanded{};
+    UiRect bounds, title, play_pause, seek, time, mute, volume, download, status;
+    u8 footer_rows;
+    bool voice, compact, volume_expanded;
 };
 
 struct UiAudioControlDescriptor {
-    UiAudioControl id{};
-    UiAudioControlKind kind{};
-    UiRect bounds{};
-    Utf8View label{};
-    Color foreground{}, background{};
-    u32 value{}, maximum{}, text_style{};
-    bool enabled{}, selected{}, visible{true};
+    UiAudioControl id;
+    UiAudioControlKind kind;
+    UiRect bounds;
+    Utf8View label;
+    Color foreground, background;
+    u32 value, maximum, text_style;
+    bool enabled, selected, hidden;
 };
 
 struct UiAudioControlsProjection {
-    UiAudioPlaybackState playback{};
-    UiAudioCardGeometry geometry{};
-    UiAudioControlDescriptor controls[kUiAudioControlCount]{};
-    Color surface{}, focus{}, track{}, waveform{}, played{};
-    char time_text[64]{};
-    u32 time_bytes{};
-    float volume_thumb_inset{};
+    UiAudioPlaybackState playback;
+    UiAudioCardGeometry geometry;
+    UiAudioControlDescriptor controls[kUiAudioControlCount];
+    Color surface, focus, track, waveform, played;
+    char time_text[64];
+    u32 time_bytes;
+    float volume_thumb_inset;
 };
 
 struct UiAudioAction {
-    UiAudioControl control{};
-    u64 owner{}, generation{}, revision{}, position_ms{};
-    u32 volume{};
-    bool value{};
+    UiAudioControl control;
+    u64 owner, generation, revision, position_ms;
+    u32 volume;
+    bool value;
 };
 
 // One selected borrowed projection; no clocks, allocations or retained child widgets.
@@ -139,8 +139,8 @@ struct UiAudioScene {
     bool keyboard_focus{}, active{};
 };
 struct UiAudioSceneResult {
-    UiAudioAction action{};
-    bool handled{}, request_capture{}, release_capture{}, action_requested{};
+    UiAudioAction action;
+    bool handled, request_capture, release_capture, action_requested;
 };
 // Metadata/style labels remain borrowed from the host's publication. Reprojection
 // clears capture when authority, owner or geometry changes; the host releases OS capture.

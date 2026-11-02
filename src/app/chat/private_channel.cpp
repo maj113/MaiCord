@@ -57,7 +57,7 @@ ChatStateStore& state() noexcept { return g_app.account_ui->chat_state; }
 void wake() noexcept {
     if (g_app.window) PostMessageW(g_app.window, WM_NULL, 0, 0);
 }
-Utf8View title(u64 channel_id, Slice<char> storage) noexcept {
+Utf8View title(u64 channel_id, const Slice<char>& storage) noexcept {
     const auto* channel = chat_state_store_find_channel(state(), channel_id);
     return channel ? private_channel_title(state(), &g_app.account_ui->user_store, *channel, storage) : Utf8View{};
 }
@@ -251,10 +251,10 @@ u32 application_private_channel_menu_items(u64 channel_id, Slice<PopupItem> outp
                                                   : nullptr;
     if (record && private_channel_is_request(*record)) {
         if (output.count < 2) return 0;
-        output[0] = {utf8_literal("Accept request"), popup_action_private_accept_request, popup_item_enabled, 0};
+        popup_item_set(&output[0], utf8_literal("Accept request"), popup_action_private_accept_request, popup_item_enabled);
         output[0].presentation = ui_menu_row_presentation(UiIcon::check);
-        output[1] = {utf8_literal("Ignore request"), popup_action_private_ignore_request,
-                     static_cast<u16>(popup_item_enabled | popup_item_danger), 0};
+        popup_item_set(&output[1], utf8_literal("Ignore request"), popup_action_private_ignore_request,
+                       static_cast<u16>(popup_item_enabled | popup_item_danger));
         output[1].presentation = ui_menu_row_presentation(UiIcon::close);
         return 2;
     }
@@ -264,14 +264,14 @@ u32 application_private_channel_menu_items(u64 channel_id, Slice<PopupItem> outp
     if (!count || output.count < count) return 0;
     u32 used = 0;
     if (add)
-        output[used++] = {utf8_literal("Add people"), popup_action_private_add_people, popup_item_enabled, 0};
+        popup_item_set(&output[used++], utf8_literal("Add people"), popup_action_private_add_people, popup_item_enabled);
     if (group) {
         auto& rename = output[used++];
-        rename = {utf8_literal("Rename group"), popup_action_private_rename, popup_item_enabled, 0};
+        popup_item_set(&rename, utf8_literal("Rename group"), popup_action_private_rename, popup_item_enabled);
         rename.presentation = ui_menu_row_presentation(UiIcon::edit);
         auto& leave = output[used++];
-        leave = {utf8_literal("Leave group"), popup_action_private_leave,
-                 static_cast<u16>(popup_item_enabled | popup_item_danger | popup_item_separator_before), 0};
+        popup_item_set(&leave, utf8_literal("Leave group"), popup_action_private_leave,
+                       static_cast<u16>(popup_item_enabled | popup_item_danger | popup_item_separator_before));
         leave.presentation = ui_menu_row_presentation(UiIcon::log_out);
     }
     return used;
@@ -280,8 +280,8 @@ u32 application_private_channel_member_items(u64 user_id, Slice<PopupItem> outpu
     if (!scope_current() || !output.count || !output.data ||
         !private_channel_can_remove(state(), state().selected_channel_id, user_id))
         return 0;
-    output[0] = {utf8_literal("Remove from group"), popup_action_private_remove_member,
-                 static_cast<u16>(popup_item_enabled | popup_item_danger | popup_item_separator_before), 0};
+    popup_item_set(&output[0], utf8_literal("Remove from group"), popup_action_private_remove_member,
+                   static_cast<u16>(popup_item_enabled | popup_item_danger | popup_item_separator_before));
     return 1;
 }
 bool application_private_channel_menu_action(u32 action, u64 owner_id, bool shift, bool* applied) noexcept {

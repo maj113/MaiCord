@@ -30,29 +30,29 @@ enum class AacDecodeError : u8 {
     release
 };
 struct AacDecodeResult {
-    AacDecodeError error{};
-    i32 native_status{};
+    AacDecodeError error;
+    i32 native_status;
     bool ok() const noexcept {
         return error == AacDecodeError::none;
     }
 };
 struct AacDecodedBlock {
-    AacDecodeError error{};
-    i32 native_status{};
-    u32 bytes{}, frames{};
-    i64 presentation_time_100ns{};
-    bool timestamp_valid{};
+    AacDecodeError error;
+    i32 native_status;
+    u32 bytes, frames;
+    i64 presentation_time_100ns;
+    bool timestamp_valid;
     bool ok() const noexcept {
         return error == AacDecodeError::none;
     }
 };
 struct AacDecoder {
-    void* runtime{};
-    u8 asc[16]{};
-    u32 asc_bytes{}, sample_rate{}, channels{}, thread_id{};
-    i32 native_status{};
-    u64 accepted_frames{}, output_frames{};
-    bool initialized{}, draining{}, ended{};
+    void* runtime;
+    u8 asc[16];
+    u32 asc_bytes, sample_rate, channels, thread_id;
+    i32 native_status;
+    u64 accepted_frames, output_frames;
+    bool initialized, draining, ended;
 };
 // Pure metadata init: copies only <=16 ASC bytes. AAC-LC or signaled
 // SBR/PS, output mono/stereo and 1024/2048 PCM frames. No PCE/core dependency or

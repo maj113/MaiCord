@@ -19,8 +19,8 @@ KdfResult validate(KdfSha256Workspace& workspace, ConstSlice<ConstSlice<u8>> inp
             return {0, 0, KdfError::invalid_input};
     return {};
 }
-KdfResult expand(KdfSha256Workspace& workspace, ConstSlice<u8> secret, ConstSlice<u8> label,
-                 ConstSlice<u8> context, u8* output) noexcept {
+KdfResult expand(KdfSha256Workspace& workspace, const ConstSlice<u8>& secret, const ConstSlice<u8>& label,
+                 const ConstSlice<u8>& context, u8* output) noexcept {
     return mls_expand_label(workspace, secret, label, context, {output, 32});
 }
 KdfResult finish(KdfSha256Workspace& workspace, MlsEpochSecrets& next, ConstSlice<u8> psk,
@@ -55,8 +55,8 @@ KdfResult finish(KdfSha256Workspace& workspace, MlsEpochSecrets& next, ConstSlic
                              {next.confirmation_tag, 32});
     return result;
 }
-KdfResult derive(KdfSha256Workspace& workspace, ConstSlice<u8> initial, ConstSlice<u8> commit,
-                 ConstSlice<u8> psk, ConstSlice<u8> confirmed, ConstSlice<u8> context,
+KdfResult derive(KdfSha256Workspace& workspace, const ConstSlice<u8>& initial, const ConstSlice<u8>& commit,
+                 const ConstSlice<u8>& psk, const ConstSlice<u8>& confirmed, const ConstSlice<u8>& context,
                  MlsEpochSecrets* output, bool from_joiner) noexcept {
     if (initial.count != 32 || psk.count != 32 || (!from_joiner && commit.count != 32) ||
         (confirmed.count != 0 && confirmed.count != 32) || context.count > 0x3fffffff)
@@ -115,7 +115,7 @@ KdfResult mls_transcript_interim(KdfSha256Workspace& workspace, ConstSlice<u8> c
     const ConstSlice<u8> parts[]{confirmed_hash, {&length, 1}, confirmation_tag};
     return sha256(workspace, {parts, 3}, output);
 }
-bool mls_confirmation_matches(ConstSlice<u8> expected, ConstSlice<u8> received) noexcept {
+bool mls_confirmation_matches(const ConstSlice<u8>& expected, const ConstSlice<u8>& received) noexcept {
     if (expected.count != 32 || received.count != 32 || !byte_range_valid(expected) ||
         !byte_range_valid(received))
         return false;

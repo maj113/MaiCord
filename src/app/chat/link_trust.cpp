@@ -147,7 +147,7 @@ bool link_trust_has_protocol(const LinkTrustStore& store, Utf8View protocol) noe
     return false;
 }
 
-bool link_trust_add_host(LinkTrustStore* store, Utf8View host) noexcept {
+bool link_trust_add_host(LinkTrustStore* store, const Utf8View& host) noexcept {
     if (!store || !entry_valid(host, kLinkTrustHostBytes))
         return false;
     if (link_trust_has_host(*store, host))
@@ -160,7 +160,7 @@ bool link_trust_add_host(LinkTrustStore* store, Utf8View host) noexcept {
     return true;
 }
 
-bool link_trust_add_protocol(LinkTrustStore* store, Utf8View protocol) noexcept {
+bool link_trust_add_protocol(LinkTrustStore* store, const Utf8View& protocol) noexcept {
     if (!store || !protocol_valid(protocol))
         return false;
     if (link_trust_has_protocol(*store, protocol))
@@ -284,12 +284,7 @@ bool link_trust_decode(ConstSlice<u8> input, LinkTrustStore* store) noexcept {
 }
 
 bool link_trust_path(u64 profile_id, wchar_t* path, u32 capacity) noexcept {
-    if (!profile_id)
-        return false;
-    const DataPathResult built = data_path(path, capacity, L"accounts\\links-");
-    u32 length = built.length;
-    return built.ok() && wide_append_hex(path, capacity, &length, profile_id) &&
-           wide_append(path, capacity, &length, L".trust");
+    return profile_data_path(profile_id, path, capacity, L"accounts\\links-", L".trust");
 }
 
 bool link_trust_load_file(const wchar_t* path, LinkTrustStore* store) noexcept {

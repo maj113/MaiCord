@@ -49,7 +49,7 @@ inline bool mention_member_query_fold(Utf8View query, char* output, u32* bytes) 
     return true;
 }
 
-inline u64 mention_member_query_key(u64 guild_id, Utf8View folded) noexcept {
+inline u64 mention_member_query_key(u64 guild_id, const Utf8View& folded) noexcept {
     return hash64_counted_bytes(hash64_mix(kHash64Seed, guild_id), folded.data, folded.bytes) | 1;
 }
 

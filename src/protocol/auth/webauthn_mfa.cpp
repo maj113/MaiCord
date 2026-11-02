@@ -238,7 +238,7 @@ bool visit_extension(void* opaque, JsonString name, JsonValue value) noexcept {
     return true;
 }
 
-WebAuthnMfaResult visit_object(JsonValue value, Slice<u32> scratch, u32 maximum_depth,
+WebAuthnMfaResult visit_object(JsonValue value, const Slice<u32>& scratch, u32 maximum_depth,
                                JsonMemberVisitor visitor, void* context) noexcept {
     const JsonScanResult scan = json_scan_structurals_avx1(value.source, scratch);
     if (!scan.ok()) {
@@ -251,7 +251,7 @@ WebAuthnMfaResult visit_object(JsonValue value, Slice<u32> scratch, u32 maximum_
                                read.error);
 }
 
-WebAuthnMfaResult visit_array(JsonValue value, Slice<u32> scratch, u32 maximum_depth,
+WebAuthnMfaResult visit_array(JsonValue value, const Slice<u32>& scratch, u32 maximum_depth,
                               JsonArrayVisitor visitor, void* context) noexcept {
     const JsonScanResult scan = json_scan_structurals_avx1(value.source, scratch);
     if (!scan.ok()) {

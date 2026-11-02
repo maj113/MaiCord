@@ -333,8 +333,7 @@ bool poll_height(const MessageScene& scene, const MessageRecord& record, Message
     UiPollAnswer answers[kUiPollMaximumAnswers]{};
     UiPollState state{};
     UiPollLayout layout{};
-    UiPollStyle style;
-    ui_theme_fill_poll_style(scene.theme_styles, &style);
+    const UiPollStyle style = ui_theme_poll_style(scene.theme_styles);
     if (!scene.polls->measure ||
         !poll_state(scene, record, handle, {answers, kUiPollMaximumAnswers}, &state) ||
         !ui_poll_measure_layout(state, width, style, scene.polls->measure,

@@ -201,7 +201,7 @@ bool project_removed(void* opaque, u32, JsonValue value) noexcept {
         return false;
     return !p.publishing || append_record(p, {p.guild_id, 0, user_id, 0, 0});
 }
-bool visit_array(Projection& p, JsonValue array, Slice<u32> index, JsonArrayVisitor visit) noexcept {
+bool visit_array(Projection& p, JsonValue array, const Slice<u32>& index, JsonArrayVisitor visit) noexcept {
     if (array.kind != JsonValueKind::array)
         return true;
     const auto scan = json_scan_structurals_avx1(array.source, index);

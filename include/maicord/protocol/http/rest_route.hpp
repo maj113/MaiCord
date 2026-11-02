@@ -26,7 +26,7 @@ bool route_append_path_component(RouteWriter* writer,
 // literal, a char, an unsigned integer (decimal digits), a Utf8View (as is) or path_component(view) (percent-encoded,
 // nonempty).
 struct PathComponent { Utf8View value; };
-constexpr PathComponent path_component(Utf8View value) noexcept { return {value}; }
+constexpr PathComponent path_component(const Utf8View& value) noexcept { return {value}; }
 
 template <usize Count> __forceinline bool route_put(RouteWriter* writer, const char (&literal)[Count]) noexcept {
     return route_append_bytes(writer, literal, Count - 1);

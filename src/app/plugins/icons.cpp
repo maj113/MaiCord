@@ -12,47 +12,18 @@ constexpr char kIconNames[] =
 #include "maicord/ui/widgets/icon_ids.inc"
 #undef MAICORD_ICON
 ;
-struct IconName { u16 offset, bytes, id; };
-static_assert(sizeof(IconName) == 6);
-struct IconNames { IconName entries[static_cast<u32>(UiIcon::count)]; };
-consteval IconNames icon_names() noexcept {
-    IconNames names{};
-    u32 at = 0, id = 0;
-    for (auto& entry : names.entries) {
-        entry.offset = static_cast<u16>(at);
-        entry.id = static_cast<u16>(id++);
-        while (kIconNames[at]) ++at;
-        entry.bytes = static_cast<u16>(at - entry.offset);
-        ++at;
-    }
-    // Stable length ordering preserves declaration order among possible duplicates.
-    for (u32 i = 1; i < static_cast<u32>(UiIcon::count); ++i) {
-        const auto value = names.entries[i];
-        u32 j = i;
-        while (j && names.entries[j - 1].bytes > value.bytes) {
-            names.entries[j] = names.entries[j - 1];
-            --j;
-        }
-        names.entries[j] = value;
-    }
-    return names;
-}
-static_assert(sizeof(kIconNames) < 65536);
-constexpr auto kIconNameIndex = icon_names();
 
 } // namespace
 
+// Cold (a plugin names an icon once per button or decoration): a scan of the 150-odd names in declaration
+// order, which is also the order the first of two equal names wins.
 u16 plugin_icon(Utf8View name) noexcept {
-    u32 first = 0, last = static_cast<u32>(UiIcon::count);
-    while (first < last) {
-        const u32 middle = first + (last - first) / 2;
-        if (kIconNameIndex.entries[middle].bytes < name.bytes) first = middle + 1;
-        else last = middle;
-    }
-    for (u32 i = first; i < static_cast<u32>(UiIcon::count); ++i) {
-        const auto& entry = kIconNameIndex.entries[i];
-        if (entry.bytes != name.bytes) break;
-        if (bytes_equal(kIconNames + entry.offset, name.data, name.bytes)) return entry.id;
+    const char* at = kIconNames;
+    for (u32 id = 0; id < static_cast<u32>(UiIcon::count); ++id) {
+        u32 bytes = 0;
+        while (at[bytes]) ++bytes;
+        if (bytes == name.bytes && bytes_equal(at, name.data, bytes)) return static_cast<u16>(id);
+        at += bytes + 1;
     }
     return plugin_surfaces_detail::kNoIcon;
 }

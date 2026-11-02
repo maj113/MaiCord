@@ -40,7 +40,8 @@ struct UiShortcutsScene {
     u32 row_count{}, columns{}, content_revision{}, revision{};
     bool active{};
 };
-bool ui_shortcuts_scene_update(UiShortcutsScene*, const UiShortcutsContent*, UiRect viewport) noexcept;
+__declspec(noinline) bool ui_shortcuts_scene_update(UiShortcutsScene*, const UiShortcutsContent*,
+                                                    UiRect viewport) noexcept;
 void ui_shortcuts_scene_release(UiShortcutsScene*) noexcept;
 bool ui_shortcuts_scene_current(const UiShortcutsScene&) noexcept;
 UiShortcutsTarget ui_shortcuts_scene_hit_test(const UiShortcutsScene&, float x, float y) noexcept;

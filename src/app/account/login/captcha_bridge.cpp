@@ -190,6 +190,42 @@ CaptchaBridgeStatus captcha_bridge_start(CaptchaBridge* bridge, u64 generation, 
     }
     return loopback_snapshot(runtime);
 }
+CaptchaBridgeStatus captcha_bridge_start_copied(CaptchaBridge* bridge, u64 generation, u32 timeout_ms,
+                                                CaptchaProvider provider, bool invisible,
+                                                CaptchaSecretCopy copy_secret, void* context,
+                                                u32 copy_native_error) noexcept {
+    SecureBuffer sitekey{}, rqdata{}, user_flow{};
+    const bool copied =
+        secure_buffer_initialize(&sitekey, kCaptchaChallengeSitekeyBytes + kCaptchaChallengeUserFlowBytes)
+            .ok() &&
+        secure_buffer_initialize(&rqdata, kCaptchaChallengeRqdataBytes).ok() &&
+        copy_secret(context, CaptchaChallengeSecretKind::sitekey, &sitekey).ok();
+    // user_flow borrows the locked tail; only sitekey owns/releases the arena.
+    if (sitekey.data)
+        user_flow = {sitekey.data + kCaptchaChallengeSitekeyBytes, kCaptchaChallengeUserFlowBytes, 0,
+                     sitekey.locked};
+    if (copied && !copy_secret(context, CaptchaChallengeSecretKind::rqdata, &rqdata).ok())
+        secure_buffer_clear(&rqdata);
+    if (copied && !copy_secret(context, CaptchaChallengeSecretKind::user_flow, &user_flow).ok())
+        secure_buffer_clear(&user_flow);
+    const CaptchaBridgeStatus status =
+        copied ? captcha_bridge_start(bridge, generation, timeout_ms,
+                                      {{reinterpret_cast<const char*>(sitekey.data), sitekey.bytes},
+                                       {reinterpret_cast<const char*>(rqdata.data), rqdata.bytes},
+                                       provider,
+                                       invisible,
+                                       {reinterpret_cast<const char*>(user_flow.data), user_flow.bytes}})
+               : CaptchaBridgeStatus{generation,
+                                     0,
+                                     copy_native_error,
+                                     0,
+                                     CaptchaBridgePhase::failed,
+                                     CaptchaBridgeError::invalid_input,
+                                     false};
+    secure_buffer_release(&sitekey);
+    secure_buffer_release(&rqdata);
+    return status;
+}
 CaptchaBridgeStatus captcha_bridge_status(const CaptchaBridge* bridge) noexcept {
     auto* runtime = runtime_of(bridge); return runtime ? loopback_snapshot(runtime) : CaptchaBridgeStatus{};
 }

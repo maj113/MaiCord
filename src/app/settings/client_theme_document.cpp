@@ -1017,7 +1017,7 @@ struct Writer {
         text({digits, decimal_write(digits, value)});
     }
     // Starts an object member: a comma after the first, then "name":.
-    void key(bool& comma, Utf8View name) noexcept {
+    void key(bool& comma, const Utf8View& name) noexcept {
         if (comma)
             character(',');
         comma = true;
@@ -1377,7 +1377,7 @@ ClientThemeDocumentResult client_theme_document_parse(Utf8View input, const Clie
     return {ClientThemeDocumentError::none, 0, parse.unsupported};
 }
 ClientThemeDocumentResult client_theme_document_write(const ClientThemeDocument& document,
-                                                      Slice<char> output, u32* bytes) noexcept {
+                                                      const Slice<char>& output, u32* bytes) noexcept {
     if (!bytes || output.count > kClientThemeDocumentMaximumBytes || (!output.data && output.count) ||
         !client_theme_document_valid(document))
         return {ClientThemeDocumentError::invalid_input};

@@ -12,7 +12,7 @@ bool same(const ReceivedAttachmentOpenIdentity& a, const ReceivedAttachmentOpenI
            a.message_id == b.message_id && a.attachment_id == b.attachment_id &&
            a.message_revision == b.message_revision && a.source_channel_id == b.source_channel_id;
 }
-bool url_valid(const ReceivedAttachmentOpenIdentity& id, Utf8View url) noexcept {
+bool url_valid(const ReceivedAttachmentOpenIdentity& id, const Utf8View& url) noexcept {
     // Match the native URL opener's bounded UTF-16 conversion and accept only
     // a CDN HTTPS attachment path, never a file or executable path.
     if (!identity_valid(id) || !url.data || !url.bytes || url.bytes > 2047)

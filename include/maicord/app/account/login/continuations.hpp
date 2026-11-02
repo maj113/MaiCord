@@ -5,7 +5,7 @@
 namespace maicord {
 inline constexpr u32 kLoginVerificationMaximumLinkBytes = 3 * 4096 + 1024;
 // Exact supported origin/path prefix; this does not establish token validity.
-bool login_verification_link_candidate(Utf8View link) noexcept;
+bool login_verification_link_candidate(const Utf8View& link) noexcept;
 enum class LoginVerificationLinkError : u8 {
     none, invalid_input, unsupported_link, missing_token, duplicate_token,
     malformed_encoding, token_too_large, output_too_small,
@@ -26,7 +26,7 @@ LoginVerificationLinkResult login_verification_consume_link(
 inline constexpr u32 kLoginResetMaximumLinkBytes = 3 * 4096 + 1024;
 using LoginResetLinkError = LoginVerificationLinkError;
 using LoginResetLinkResult = LoginVerificationLinkResult;
-bool login_reset_link_candidate(Utf8View link) noexcept;
+bool login_reset_link_candidate(const Utf8View& link) noexcept;
 // Exact HTTPS discord.com/reset. Both components must be well-formed UTF-8
 // form parameters without duplicate/array token keys; fragment takes priority.
 // Valid locked output is erased on every failure. Input must not alias output;

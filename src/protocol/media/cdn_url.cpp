@@ -16,7 +16,7 @@ bool ascii_equal(const char* value, u32 bytes, const char* literal) noexcept {
     return bytes == c_string_length(literal) && bytes_equal(value, literal, bytes);
 }
 
-bool bytes_begin_with(ConstSlice<u8> value, u32 bytes, const char* literal) noexcept {
+bool bytes_begin_with(const ConstSlice<u8>& value, u32 bytes, const char* literal) noexcept {
     const u32 literal_bytes = c_string_length(literal);
     return bytes <= value.count && literal_bytes <= bytes && bytes_equal(value.data, literal, literal_bytes);
 }
@@ -59,7 +59,8 @@ CdnTargetResult failure(CdnTargetError error) noexcept {
     return CdnTargetResult{0, CdnHost::none, error};
 }
 
-CdnTargetResult publish_target(ConstSlice<u8> target, CdnHost host, Slice<u8> output) noexcept {
+CdnTargetResult publish_target(const ConstSlice<u8>& target, CdnHost host,
+                               const Slice<u8>& output) noexcept {
     if (target.count > output.count)
         return failure(CdnTargetError::output_capacity);
     copy_bytes(output.data, target.data, target.count);
@@ -375,7 +376,7 @@ struct KlipyOrigin {
     CdnHost host;
     u32 bytes;
 };
-KlipyOrigin klipy_origin(Utf8View url) noexcept {
+KlipyOrigin klipy_origin(const Utf8View& url) noexcept {
     static constexpr char first[] = "https://static.klipy.com";
     static constexpr char second[] = "https://static2.klipy.com";
     if (url.data && url.bytes > sizeof(first) - 1 && ascii_equal(url.data, sizeof(first) - 1, first))
@@ -461,7 +462,7 @@ bool catalog_proxy_target_valid(ConstSlice<u8> target) noexcept {
 }
 } // namespace
 
-bool sticker_json_target_valid(ConstSlice<u8> target) noexcept {
+bool sticker_json_target_valid(const ConstSlice<u8>& target) noexcept {
     if (!target.data || target.count <= 15 || target.count > kCdnMaximumTargetBytes ||
         !bytes_begin_with(target, target.count, "/stickers/") ||
         !ascii_equal(reinterpret_cast<const char*>(target.data + target.count - 5), 5, ".json"))
@@ -470,7 +471,7 @@ bool sticker_json_target_valid(ConstSlice<u8> target) noexcept {
     return parse_decimal(reinterpret_cast<const char*>(target.data + 10), target.count - 15, &sticker) &&
            sticker != 0;
 }
-bool soundboard_target_valid(ConstSlice<u8> target) noexcept {
+bool soundboard_target_valid(const ConstSlice<u8>& target) noexcept {
     constexpr u32 prefix = sizeof("/soundboard-sounds/") - 1;
     if (!target.data || target.count <= prefix || target.count > prefix + 20 ||
         !bytes_begin_with(target, target.count, "/soundboard-sounds/"))
@@ -532,7 +533,8 @@ u32 segment_count(const char* path, u32 bytes) noexcept {
     for (u32 i = 0; i < bytes; ++i) count += path[i] == '/';
     return count;
 }
-MediaUrlResult publish_provider(CdnHost host, const u8* target, u32 bytes, Slice<u8> output) noexcept {
+MediaUrlResult publish_provider(CdnHost host, const u8* target, u32 bytes,
+                                const Slice<u8>& output) noexcept {
     if (!catalog_provider_target_valid(host, {target, bytes}))
         return media_url_failure(MediaUrlError::invalid_target);
     if (bytes > output.count)
@@ -553,7 +555,7 @@ bool giphy_host(const char* host, u32 bytes) noexcept {
 // provider's tiny animated WebP: Tenor ids end in AAA + a two-letter format
 // code (A1 is tinywebp); Giphy serves /media/<id>/200w.webp for every id.
 MediaUrlResult provider_preview(const char* host, u32 host_bytes, const char* path, u32 path_bytes,
-                                Slice<u8> output) noexcept {
+                                const Slice<u8>& output) noexcept {
     u8 target[256];
     const char* part = nullptr;
     u32 part_bytes = 0;
@@ -712,7 +714,7 @@ MediaUrlResult external_proxy_webp(ConstSlice<u8> wrapped, u32 path_end, CdnHost
 // when Klipy had no gif_src), a Discord attachment MP4, or an MP4 behind the
 // external media proxy. Tenor and Giphy videos use their providers' tiny
 // animated WebP instead (cheaper).
-MediaUrlResult video_favourite(Utf8View url, Slice<u8> output) noexcept {
+MediaUrlResult video_favourite(const Utf8View& url, const Slice<u8>& output) noexcept {
     const char* host = nullptr;
     const char* path = nullptr;
     u32 host_bytes = 0, path_bytes = 0;
@@ -757,8 +759,8 @@ MediaUrlResult video_favourite(Utf8View url, Slice<u8> output) noexcept {
     return {target.count, parsed.host, MediaUrlError::none};
 }
 // A Klipy favourite's bare asset path ending in suffix, fetched from its origin.
-MediaUrlResult klipy_favourite(Utf8View url, const KlipyOrigin& klipy, const char* suffix, u32 suffix_bytes,
-                               Slice<u8> output) noexcept {
+MediaUrlResult klipy_favourite(const Utf8View& url, const KlipyOrigin& klipy, const char* suffix,
+                               u32 suffix_bytes, const Slice<u8>& output) noexcept {
     const ConstSlice<u8> target{reinterpret_cast<const u8*>(url.data + klipy.bytes), url.bytes - klipy.bytes};
     const u32 path = klipy_favourite_path(target, suffix, suffix_bytes);
     if (!path)
@@ -770,7 +772,7 @@ MediaUrlResult klipy_favourite(Utf8View url, const KlipyOrigin& klipy, const cha
 }
 } // namespace
 
-bool catalog_provider_target_valid(CdnHost host, ConstSlice<u8> target) noexcept {
+bool catalog_provider_target_valid(CdnHost host, const ConstSlice<u8>& target) noexcept {
     switch (host) {
     case CdnHost::catalog_klipy:
     case CdnHost::catalog_klipy2:

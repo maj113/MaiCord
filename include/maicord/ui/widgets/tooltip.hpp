@@ -61,15 +61,15 @@ struct UiTooltipTarget {
     UiTooltipKey key;
     UiRect anchor;
     Utf8View label;
-    UiTooltipPlacement placement = UiTooltipPlacement::above;
+    UiTooltipPlacement placement;
     // Bold label ranges (offset and count; flags are ignored), ascending and
     // disjoint. With an emoji the label starts beside it instead of centred.
-    ConstSlice<TextStyleSpan> bold{};
-    UiTooltipEmoji emoji{};
+    ConstSlice<TextStyleSpan> bold;
+    UiTooltipEmoji emoji;
     // A second line in the muted colour below the label ("Click to learn more").
     // With one, the label keeps to one line; an icon
     // then leads the label on its line and both lines centre.
-    Utf8View detail{};
+    Utf8View detail;
 };
 struct UiTooltipScene {
     UiTooltipKey key;

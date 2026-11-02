@@ -385,7 +385,7 @@ ApplicationTextFormProgress confirm_progress(TextFormOwnerKey key) noexcept {
             true};
 }
 
-u32 append(char* output, u32 used, u32 capacity, Utf8View text) noexcept {
+u32 append(char* output, u32 used, u32 capacity, const Utf8View& text) noexcept {
     return used + utf8_copy_truncated(output + used, capacity - used, text);
 }
 

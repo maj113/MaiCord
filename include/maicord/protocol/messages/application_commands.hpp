@@ -27,15 +27,15 @@ struct CommandIndex {
 };
 inline constexpr u8 kCommandTypeUser = 2;
 inline constexpr u8 kCommandTypeMessage = 3;
-JsonValue command_member(const JsonIndexedDocument&, JsonValue, Utf8View name) noexcept;
-bool command_json_text(JsonValue, Slice<char>, Utf8View*) noexcept;
+JsonValue command_member(const JsonIndexedDocument&, JsonValue, const Utf8View& name) noexcept;
+bool command_json_text(JsonValue, const Slice<char>&, Utf8View*) noexcept;
 bool command_index_decode(Utf8View, Slice<u32> scratch, CommandIndex*) noexcept;
 void command_index_release(CommandIndex*) noexcept;
 // The options JSON is produced by the typed composer; the original command
 // metadata stays intact, including its version and root/subcommand structure.
 // attachments_json, when present, is the staged uploads array (data.attachments).
-bool command_data(const ApplicationCommand&, Utf8View options_json, ProtocolWriter*,
-                  Utf8View attachments_json = {}) noexcept;
+bool command_data(const ApplicationCommand&, const Utf8View& options_json, ProtocolWriter*,
+                  const Utf8View& attachments_json = {}) noexcept;
 // Context menu invocation data: {"version","id","guild_id"?,"name","type",
 // "options":[],"application_command","target_id"}.
 bool command_context_data(const ApplicationCommand&, u8 type, u64 target_id, ProtocolWriter*) noexcept;
@@ -147,7 +147,8 @@ bool command_frecency_decode_response(Utf8View body, Slice<u8> scratch, Slice<Co
 u32 command_frecency_compute(Slice<CommandFrecencyEntry> entries, u32 count, u64 now_unix_ms) noexcept;
 // Records one use (only the latest ten are kept); a new key replaces the least
 // frecent entry when the table is full.
-void command_frecency_track(Slice<CommandFrecencyEntry> entries, u32* count, Utf8View key, u64 now_unix_ms) noexcept;
+void command_frecency_track(Slice<CommandFrecencyEntry> entries, u32* count, const Utf8View& key,
+                            u64 now_unix_ms) noexcept;
 // PATCH body {"settings":"<base64>","required_data_version":N} carrying only
 // application_command_frecency. Zero on capacity failure.
 u32 command_frecency_write_patch(ConstSlice<CommandFrecencyEntry> entries, u32 data_version, Slice<u8> scratch,

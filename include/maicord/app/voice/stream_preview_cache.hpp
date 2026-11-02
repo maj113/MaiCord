@@ -49,7 +49,8 @@ void stream_preview_deferred(StreamPreviewCache* cache, const GatewayStreamKey& 
 // any failure); retry_at_ms is the response's 429 deadline (zero if none).
 // Returns the entry, or null when no fetch had that ID (cancelled/recycled).
 const StreamPreviewEntry* stream_preview_complete(StreamPreviewCache* cache, u64 request_id, u16 status,
-                                                  Utf8View url, u64 retry_at_ms, u64 now_ms) noexcept;
+                                                  const Utf8View& url, u64 retry_at_ms,
+                                                  u64 now_ms) noexcept;
 // Drops everything (sign-out).
 void stream_preview_clear(StreamPreviewCache* cache) noexcept;
 // Image identity of the entry's current URL: an embed-style key that changes

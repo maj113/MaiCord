@@ -72,7 +72,7 @@ u64 echo_author(u64 application_id, const CommandApplication* app) noexcept {
 // Queues the command data already in c.payload on the command lane with a
 // fresh nonce, expects its modal and shows the local
 // "Sending command..." message when its channel is visible.
-void queue_command(u64 application, u64 author, Utf8View name, u16 type) noexcept {
+void queue_command(u64 application, u64 author, const Utf8View& name, u16 type) noexcept {
     auto& c = *commands;
     c.queued = true;
     c.send_application = application;
@@ -100,7 +100,7 @@ void queue_command(u64 application, u64 author, Utf8View name, u16 type) noexcep
 }
 // A quick refusal shows the API's reason, and "did not respond" once the
 // response window has passed.
-void echo_fail(Echo& echo, Utf8View reason) noexcept {
+void echo_fail(Echo& echo, const Utf8View& reason) noexcept {
     const u64 sent = snowflake_timestamp_ms(echo.nonce);
     const Utf8View text = clock_unix_milliseconds() > sent + echo_response_window_ms ? echo_no_response
                           : reason.bytes                                              ? reason
@@ -178,7 +178,7 @@ bool commands_permitted(const Commands& c) noexcept {
 }
 // Selects a command picked outside the picker once its index is loaded, while
 // the draft still starts with its name; dropped once both indexes lack it.
-void resolve_wanted(Utf8View input) noexcept {
+void resolve_wanted(const Utf8View& input) noexcept {
     auto& c = *commands;
     if (!c.insert_wanted || c.selected.command || c.channel != g_app.message_composer.channel_id)
         return;
@@ -355,7 +355,7 @@ MessageComposerResult normalize_markers(Utf8View input, bool command) noexcept {
 // The single optional option: with no chip yet, text typed
 // after "/<name> " becomes the value of a command's only option when that is
 // optional and not an ATTACHMENT.
-MessageComposerResult chip_single_option(Utf8View input, u32 typed) noexcept {
+MessageComposerResult chip_single_option(const Utf8View& input, u32 typed) noexcept {
     const auto& c = *commands;
     const auto list = command_options();
     const u32 start = c.selected.command->name.bytes + 2;

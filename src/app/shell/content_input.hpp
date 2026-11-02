@@ -15,7 +15,7 @@ namespace maicord::app_detail {
 
 // A link opened from outside message text (attachment, button, viewer):
 // it is treated as a named link, so untrusted hosts show the warning.
-bool application_open_content_url(Utf8View url) noexcept;
+bool application_open_content_url(const Utf8View& url) noexcept;
 // A link in message text, as a click opens it (the context menu's Open Link).
 bool application_open_content_link(const MessageTextHit& hit) noexcept;
 // An attachment chip's Copy Media Link: copies its URL, refreshed first when

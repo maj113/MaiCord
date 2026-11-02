@@ -306,7 +306,7 @@ void application_desktop_request_quit() noexcept {
     g_desktop.quit_requested = true;
 }
 
-bool application_desktop_open_link(ConstSlice<wchar_t> url) noexcept {
+bool application_desktop_open_link(const ConstSlice<wchar_t>& url) noexcept {
     if (url.count > 8 && (url[0] | 0x20) == L'm' && (url[1] | 0x20) == L'a' && (url[2] | 0x20) == L'i' &&
         (url[3] | 0x20) == L'c' && (url[4] | 0x20) == L'o' && (url[5] | 0x20) == L'r' && (url[6] | 0x20) == L'd' &&
         url[7] == L':')

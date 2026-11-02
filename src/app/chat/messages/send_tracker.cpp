@@ -129,11 +129,10 @@ bool message_send_tracker_initialize(MessageSendTracker* tracker) noexcept {
     return true;
 }
 
-MessageSendBeginResult message_send_tracker_begin(MessageSendTracker* tracker, MessageTimeline* timeline,
-                                                  u64 channel_id, u64 author_id, Utf8View content,
-                                                  u64 now_unix_ms, u64 now_monotonic_ms, bool has_attachments,
-                                                  ConstSlice<GatewayMessageAttachment> local_attachments,
-                                                  bool insert_local_preview) noexcept {
+MessageSendBeginResult message_send_tracker_begin(
+    MessageSendTracker* tracker, MessageTimeline* timeline, u64 channel_id, u64 author_id,
+    const Utf8View& content, u64 now_unix_ms, u64 now_monotonic_ms, bool has_attachments,
+    const ConstSlice<GatewayMessageAttachment>& local_attachments, bool insert_local_preview) noexcept {
     if (!tracker || !tracker->initialized || !timeline || !timeline->store || channel_id == 0 ||
         author_id == 0 || now_unix_ms == 0 || now_monotonic_ms == 0 || (!content.data && content.bytes) ||
         (content.bytes == 0 && !has_attachments)) {

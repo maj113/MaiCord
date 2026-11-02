@@ -230,8 +230,8 @@ UserAuthDecodeResult user_auth_decode_phone_response(u16 status_code, Utf8View b
 UserAuthDecodeResult user_auth_classify_reset_response(u16 status_code, Utf8View body,
     Slice<u32> structural_scratch, u32 maximum_depth, UserAuthResponse* output,
     bool final_mfa = false) noexcept;
-UserAuthDecodeResult user_auth_decode_reset_response(u16 status_code, Utf8View body,
-    Slice<u32> structural_scratch, u32 maximum_depth, UserAuthResponseStorage storage,
+UserAuthDecodeResult user_auth_decode_reset_response(u16 status_code, const Utf8View& body,
+    const Slice<u32>& structural_scratch, u32 maximum_depth, UserAuthResponseStorage storage,
     UserAuthResponse* output, bool final_mfa = false) noexcept;
 
 enum class UserAuthPhase : u8 {

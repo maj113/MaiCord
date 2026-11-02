@@ -105,7 +105,7 @@ void test_video_time_and_expand(void (*check)(bool,const char*) noexcept) noexce
         "video time: the time slot widens for h:mm:ss instead of overlapping the seek range");
     state.duration_ms=120000; state.can_expand=true;
     check(ui_video_controls_project(state,{0,0,640,32},style,kDefaultTheme,&projection)&&
-        projection.controls[6].visible&&projection.controls[6].enabled&&projection.controls[6].bounds.right==640&&
+        !projection.controls[6].hidden&&projection.controls[6].enabled&&projection.controls[6].bounds.right==640&&
         projection.controls[3].bounds.right==projection.controls[6].bounds.left,
         "video expand: the expand target sits at the trailing edge after the speaker");
     UiVideoAction action{}; const auto expand=projection.controls[6].bounds;
@@ -117,7 +117,7 @@ void test_video_time_and_expand(void (*check)(bool,const char*) noexcept) noexce
         ui_video_controls_key(projection,UiVideoKey::activate,&focus,&action)&&action.control==UiVideoControl::expand,
         "video expand: Tab reaches expand after volume and Enter activates it");
     check(ui_video_controls_project(state,{0,0,200,32},style,kDefaultTheme,&projection,true)&&
-        !projection.controls[6].visible&&!projection.controls[6].enabled&&
+        projection.controls[6].hidden&&!projection.controls[6].enabled&&
         ui_rect_width(projection.controls[1].bounds)>=style.range_height,
         "video expand: a narrow player drops the optional expand slot before the seek range");
 }
@@ -141,21 +141,21 @@ void test_video_controls(void (*check)(bool,const char*) noexcept) noexcept {
         "video controls: copied projection time accessor owns its own buffer");
     check(project(256)&&projection.compact,"video controls: minimum compact player retains every descriptor");
     bool contained=true;
-    for(const auto& c:projection.controls) if(c.visible) contained=contained&&c.bounds.left>=projection.bounds.left&&
+    for(const auto& c:projection.controls) if(!c.hidden) contained=contained&&c.bounds.left>=projection.bounds.left&&
         c.bounds.right<=projection.bounds.right&&c.bounds.top>=projection.bounds.top&&c.bounds.bottom<=projection.bounds.bottom;
-    check(contained&&projection.controls[2].visible&&projection.controls[4].visible&&
+    check(contained&&!projection.controls[2].hidden&&!projection.controls[4].hidden&&
         projection.controls[4].bounds.right==projection.controls[3].bounds.left&&
         projection.controls[1].bounds.right<=projection.controls[4].bounds.left&&
         ui_video_controls_height(style,256)==kUiVideoControlBarHeight,
         "video controls: the expanded slider opens beside the speaker while time and seek share the row");
-    check(project(200)&&!projection.controls[2].visible&&
+    check(project(200)&&projection.controls[2].hidden&&
         projection.controls[4].bounds.left==projection.controls[2].bounds.left&&
         projection.controls[4].bounds.right<=projection.controls[1].bounds.left&&
         ui_rect_width(projection.controls[1].bounds)>=style.range_height&&project(256),
         "video controls: a narrow player hands the time slot to the slider instead of starving seek");
     UiVideoControlsProjection collapsed{};
     check(ui_video_controls_project(state,{0,0,240,40},style,kDefaultTheme,&collapsed)&&
-        collapsed.controls[2].visible&&!collapsed.controls[4].visible&&collapsed.controls[4].enabled&&
+        !collapsed.controls[2].hidden&&collapsed.controls[4].hidden&&collapsed.controls[4].enabled&&
         ui_video_controls_hit(collapsed,{collapsed.controls[4].bounds.left+1,20})!=UiVideoControl::volume,
         "video controls: narrow collapsed player keeps time and keyboard volume without an invisible pointer target");
     UiVideoAction action{}; const auto play=projection.controls[0].bounds;

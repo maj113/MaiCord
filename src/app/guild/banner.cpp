@@ -41,7 +41,7 @@ const GuildRecord* selected_guild() noexcept {
     const auto* guild = state.selected_guild_id ? chat_state_store_find_guild(state, state.selected_guild_id) : nullptr;
     return guild && !guild->unavailable && chat_state_store_guild_banner_hash(*guild).bytes ? guild : nullptr;
 }
-bool inside(UiRect r) noexcept {
+bool inside(const UiRect& r) noexcept {
     return g_banner.pointer_inside && ui_rect_has_area(r) && ui_rect_contains(r, g_banner.pointer_x, g_banner.pointer_y);
 }
 void retire(MediaAssetKey key) noexcept {

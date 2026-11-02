@@ -722,7 +722,7 @@ bool application_pinned_messages_read_blocked() noexcept {
 bool application_thread_browser_read_blocked() noexcept {
     return false;
 }
-u32 application_notification_menu_items(u64, u64, Slice<PopupItem>) noexcept {
+u32 application_notification_menu_items(u64, u64, const Slice<PopupItem>&) noexcept {
     return 0;
 }
 // The notification controls own the user guild settings writes; here they
@@ -748,7 +748,7 @@ bool application_guild_lifecycle_open_privacy(u64 guild_id) noexcept {
     fixture->privacy_guild = guild_id;
     return true;
 }
-u32 application_guild_community_menu_items(u64, u32, u32, Slice<PopupItem>) noexcept {
+u32 application_guild_community_menu_items(u64, u32, u32, const Slice<PopupItem>&) noexcept {
     return 0;
 }
 // Server menu feature entry points: recorded, never opened.

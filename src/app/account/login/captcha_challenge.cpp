@@ -30,7 +30,7 @@ Slice<char> storage(CaptchaChallenge* challenge, u32 offset, u32 capacity) noexc
 
 } // namespace
 
-CaptchaProvider captcha_provider_from_service(ConstSlice<u8> service) noexcept {
+CaptchaProvider captcha_provider_from_service(const ConstSlice<u8>& service) noexcept {
     struct Name {
         Utf8View text;
         CaptchaProvider provider;
@@ -133,9 +133,9 @@ void captcha_challenge_release(CaptchaChallenge* challenge) noexcept {
     reset_value<CaptchaChallenge>(challenge);
 }
 
-CaptchaChallengeResult captcha_challenge_decode(CaptchaChallenge* challenge, u16 status_code, Utf8View body,
-                                                Slice<u32> structural_scratch, u32 maximum_depth,
-                                                UserAuthResponse* response) noexcept {
+CaptchaChallengeResult captcha_challenge_decode(CaptchaChallenge* challenge, u16 status_code,
+                                                const Utf8View& body, const Slice<u32>& structural_scratch,
+                                                u32 maximum_depth, UserAuthResponse* response) noexcept {
     if (!challenge || !challenge->secrets.data || !challenge->secrets.locked || !response) {
         return CaptchaChallengeResult{ERROR_INVALID_PARAMETER, CaptchaChallengeError::invalid_input,
                                       UserAuthDecodeError::none};

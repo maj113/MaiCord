@@ -118,7 +118,7 @@ MlsStatus validate_joiners(ConstSlice<u32> joiners, u32 leaf_count, u32 receiver
     return MlsStatus::ok;
 }
 // Index plus resolution scratch carved from one caller buffer.
-MlsStatus index_scratch(const MlsRatchetTree& tree, Slice<u8> scratch, MlsTreeIndex* index,
+MlsStatus index_scratch(const MlsRatchetTree& tree, const Slice<u8>& scratch, MlsTreeIndex* index,
                         Slice<u32>* resolution) noexcept {
     const u32 index_bytes = mls_tree_index_bytes(tree);
     if (scratch.count < mls_treekem_scratch_bytes(tree) || (reinterpret_cast<usize>(scratch.data) & 3))
@@ -235,7 +235,7 @@ MlsStatus mls_treekem_joiner_init(KdfSha256Workspace& kdf, MlsTreeKemPrivate* st
 }
 MlsStatus mls_treekem_carry_forward(KdfSha256Workspace& kdf, MlsTreeKemPrivate* next,
                                     const MlsTreeKemPrivate& current, const MlsRatchetTree& tree,
-                                    Slice<u8> scratch) noexcept {
+                                    const Slice<u8>& scratch) noexcept {
     if (!next || next == &current || !current.initialized || current.path_count > kMaxPrivateNodes ||
         current.leaf_index >= tree.leaf_count)
         return MlsStatus::invalid_argument;

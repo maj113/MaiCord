@@ -120,7 +120,7 @@ GatewayEventDecodeResult decode_as(T Decode::*member, bool server_event, bool se
     return result;
 }
 } // namespace
-GatewayEventDecodeResult gateway_decode_voice_state(JsonValue data, Slice<u32> scratch, u32 depth,
+GatewayEventDecodeResult gateway_decode_voice_state(JsonValue data, const Slice<u32>& scratch, u32 depth,
                                                     GatewayVoiceState* output) noexcept {
     return decode_as(&Decode::state, false, false, data, scratch, depth, output);
 }

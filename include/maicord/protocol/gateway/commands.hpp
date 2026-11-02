@@ -158,7 +158,7 @@ struct GatewayUserProperties {
 // launch ID, signature and heartbeat session UUIDs and the build number set.
 // A short output gets output_too_small and no bytes.
 GatewayCommandWriteResult gateway_write_user_properties(const GatewayUserProperties& properties,
-                                                        Slice<u8> output) noexcept;
+                                                        const Slice<u8>& output) noexcept;
 
 // Normal-user Gateway v9 fresh-session Identify. It has no application intents/shard
 // tuple and claims no cached versions. Use the same client compatibility
@@ -189,7 +189,7 @@ struct GatewayUserIdentify {
 };
 
 GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify& identify,
-                                                      Slice<u8> output) noexcept;
+                                                      const Slice<u8>& output) noexcept;
 GatewayCommandWriteResult gateway_write_resume(const GatewayResume& resume, Slice<u8> output) noexcept;
 // Opcode 41, the analytics heartbeat session: {"op":41,"d":{"initialization_timestamp":ms,
 // "session_id":uuid,"client_launch_id":uuid}}. Both IDs must be UUIDs.

@@ -36,7 +36,7 @@ struct KeepStats {
 bool keep_deleted(const KeepMessage&) noexcept;
 // Records an edit: `before` becomes the newest earlier text and `after` the latest (the message
 // is kept too). kKeepEditsMax earlier texts are kept; the oldest goes first.
-bool keep_edited(const KeepMessage& before, Utf8View after, u64 edited_ms) noexcept;
+bool keep_edited(const KeepMessage& before, const Utf8View& after, u64 edited_ms) noexcept;
 bool keep_is_deleted(u64 message_id) noexcept;
 bool keep_info(u64 channel_id, u64 message_id, KeepInfo* info) noexcept;
 // version 0: the latest text; 1..edit_count: earlier texts, most recent first. Valid until the next keep call.

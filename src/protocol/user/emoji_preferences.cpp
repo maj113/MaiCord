@@ -40,7 +40,7 @@ Utf8View view(const u8* data, u32 begin, u32 end) noexcept {
     return {reinterpret_cast<const char*>(data + begin), end - begin};
 }
 
-bool key_valid(Utf8View key) noexcept {
+bool key_valid(const Utf8View& key) noexcept {
     return key.bytes && key.bytes <= kEmojiPreferencesMaximumKeyBytes && utf8_validate(key).valid;
 }
 
@@ -128,7 +128,7 @@ E map_entry(Reader r, Utf8View& key, EmojiFrecencyItem& item) noexcept {
     return E::none;
 }
 
-E check_favorites(ConstSlice<u8> group) noexcept {
+E check_favorites(const ConstSlice<u8>& group) noexcept {
     Reader r{group.data, 0, group.count};
     while (r.at < r.end) {
         u32 f = 0, t = 0;
@@ -147,7 +147,7 @@ E check_favorites(ConstSlice<u8> group) noexcept {
     return E::none;
 }
 
-E check_frecency(ConstSlice<u8> group) noexcept {
+E check_frecency(const ConstSlice<u8>& group) noexcept {
     Reader r{group.data, 0, group.count};
     while (r.at < r.end) {
         u32 f = 0, t = 0;
@@ -210,7 +210,7 @@ u32 item_bytes(const EmojiFrecencyItem& item) noexcept {
     return counter.at;
 }
 
-void write_entry(ProtoWriter& out, Utf8View key, const EmojiFrecencyItem& item) noexcept {
+void write_entry(ProtoWriter& out, const Utf8View& key, const EmojiFrecencyItem& item) noexcept {
     const u32 value = item_bytes(item);
     const u32 entry = 1 + proto_varint_size(key.bytes) + key.bytes + 1 + proto_varint_size(value) + value;
     out.tag(1, 2);
@@ -232,12 +232,12 @@ struct Identities {
     u64 of(Utf8View key) const noexcept {
         return patch->identity ? patch->identity(patch->identity_context, key) : 0;
     }
-    u64 observed(const u64* cache, u32 ordinal, Utf8View key) const noexcept {
+    u64 observed(const u64* cache, u32 ordinal, const Utf8View& key) const noexcept {
         return ordinal < kCachedIdentities ? cache[ordinal] : of(key);
     }
 };
 
-bool same_emoji(u64 a, Utf8View a_key, u64 b, Utf8View b_key) noexcept {
+bool same_emoji(u64 a, const Utf8View& a_key, u64 b, const Utf8View& b_key) noexcept {
     return (a && a == b) || utf8_equal(a_key, b_key);
 }
 
@@ -262,7 +262,7 @@ template <class Visit> void each_key(ConstSlice<u8> group, bool map, Visit visit
     }
 }
 
-void cache_observed(const Identities& ids, ConstSlice<u8> group, bool map, u64* cache) noexcept {
+void cache_observed(const Identities& ids, const ConstSlice<u8>& group, bool map, u64* cache) noexcept {
     u32 ordinal = 0;
     each_key(group, map, [&](Utf8View key) noexcept {
         if (ordinal < kCachedIdentities)

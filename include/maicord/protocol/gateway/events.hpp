@@ -94,7 +94,7 @@ struct GatewayEventDecodeResult {
     }
 };
 
-GatewayEventDecodeResult gateway_decode_hello(JsonValue data, Slice<u32> structural_scratch,
+GatewayEventDecodeResult gateway_decode_hello(JsonValue data, const Slice<u32>& structural_scratch,
                                               u32 maximum_depth, GatewayHello* output) noexcept;
 // Bounded, allocation-free decoder. Decimal seconds round up to milliseconds.
 // Unknown fields are ignored; malformed/duplicate fields leave output unchanged.

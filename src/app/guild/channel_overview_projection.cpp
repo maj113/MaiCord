@@ -367,7 +367,7 @@ u32 target_order(u32* order) noexcept {
     for (u32 i = 0; i < d.count; ++i)
         order[count++] = i;
     const u64 guild = owner->identity.guild_id;
-    heap_sort(order, count, [&](u32 a, u32 b) noexcept {
+    heap_sort_shared(order, count, [&](u32 a, u32 b) noexcept {
         const auto ea = d.entries[a], eb = d.entries[b];
         const int ra = ea.id == guild ? 0 : ea.type == 0 ? 1 : 2, rb = eb.id == guild ? 0 : eb.type == 0 ? 1 : 2;
         if (ra != rb)
@@ -677,7 +677,7 @@ void confirm_delete() noexcept {
     request.danger = true;
     application_text_form_open(request);
 }
-void open_slowmode(UiRect anchor, u32 current) noexcept {
+void open_slowmode(const UiRect& anchor, u32 current) noexcept {
     for (u32 i = 0; i < 14; ++i) {
         auto& item = owner->popup_items[i];
         reset_value(&item);

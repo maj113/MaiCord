@@ -288,7 +288,7 @@ bool message_interaction_write_component_data(u16 component_type, Utf8View custo
     return ok && protocol_write(output, '}');
 }
 
-bool message_interaction_event_decode(Utf8View json, Slice<u32> structurals,
+bool message_interaction_event_decode(const Utf8View& json, const Slice<u32>& structurals,
                                       MessageInteractionEvent* output) noexcept {
     if (!output || !json.data || !json.bytes || !structurals.data)
         return false;

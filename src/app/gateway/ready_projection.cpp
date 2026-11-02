@@ -16,7 +16,7 @@ struct MemberArrayCursor {
     JsonValue array;
     u32 offset = 1, count = 0;
     bool valid = false;
-    bool init(JsonValue value, Slice<u32> scratch) noexcept {
+    bool init(JsonValue value, const Slice<u32>& scratch) noexcept {
         reset_value(this);
         array = value;
         offset = 1;

@@ -220,7 +220,7 @@ bool ensure_receive(GatewayClientRuntime* runtime) noexcept {
 } // namespace client_detail
 namespace {
 
-bool start_send(GatewayClientRuntime* runtime, ConstSlice<u8> bytes, SendPurpose purpose) noexcept {
+bool start_send(GatewayClientRuntime* runtime, const ConstSlice<u8>& bytes, SendPurpose purpose) noexcept {
     if (!bytes.data || bytes.count == 0) {
         return false;
     }

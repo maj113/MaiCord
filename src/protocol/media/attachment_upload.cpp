@@ -48,7 +48,7 @@ bool root(void* context, JsonString name, JsonValue value) noexcept {
     return json_visit_indexed_array(r.document, value, 8, item, &r).ok();
 }
 }
-bool attachment_upload_valid_filename(Utf8View filename) noexcept {
+bool attachment_upload_valid_filename(const Utf8View& filename) noexcept {
     return valid_text(filename, kAttachmentUploadMaximumFilenameBytes, false);
 }
 AttachmentUploadWriteResult attachment_upload_write(u64 channel_id, u32 id, Utf8View filename,

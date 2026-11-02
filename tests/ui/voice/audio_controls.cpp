@@ -302,12 +302,12 @@ void test_audio_controls(void (*check)(bool, const char*) noexcept) noexcept {
                              ui_rect_height(projection.geometry.bounds) == (voice ? 86 : 112) &&
                              ui_rect_width(projection.geometry.bounds) <= style.maximum_width;
             for (const auto& descriptor : projection.controls)
-                if (descriptor.visible)
+                if (!descriptor.hidden)
                     geometry_valid =
                         geometry_valid && contained(projection.geometry.bounds, descriptor.bounds);
             for (u32 i = 0; i < kUiAudioControlCount; ++i)
                 for (u32 j = i + 1; j < kUiAudioControlCount; ++j)
-                    if (projection.controls[i].visible && projection.controls[j].visible)
+                    if (!projection.controls[i].hidden && !projection.controls[j].hidden)
                         geometry_valid = geometry_valid && separate(projection.controls[i].bounds,
                                                                     projection.controls[j].bounds);
         }
@@ -334,9 +334,9 @@ void test_audio_controls(void (*check)(bool, const char*) noexcept) noexcept {
           "audio controls: host metrics and semantic theme tokens change real geometry and colors "
           "independently");
     state.voice = true;
-    check(project(160) && projection.controls[2].visible && !projection.controls[4].visible &&
-              projection.controls[4].enabled && project(160, true) && !projection.controls[2].visible &&
-              projection.controls[4].visible,
+    check(project(160) && !projection.controls[2].hidden && projection.controls[4].hidden &&
+              projection.controls[4].enabled && project(160, true) && projection.controls[2].hidden &&
+              !projection.controls[4].hidden,
           "audio controls: narrow volume replaces time without hiding seek or download and keeps keyboard "
           "volume available");
     UiAudioAction request{};
@@ -377,8 +377,8 @@ void test_audio_controls(void (*check)(bool, const char*) noexcept) noexcept {
     check(!ui_audio_action_current(changed, request),
           "audio controls: stale interaction revision refuses a retained action");
     state.loading = true;
-    check(project(160) && !projection.controls[0].enabled && !projection.controls[1].visible &&
-              projection.controls[6].visible && projection.controls[5].enabled &&
+    check(project(160) && !projection.controls[0].enabled && projection.controls[1].hidden &&
+              !projection.controls[6].hidden && projection.controls[5].enabled &&
               ui_rect_height(projection.geometry.bounds) == 86,
           "audio controls: loading occupies waveform space, gates transport and preserves download without "
           "timeline reflow");
@@ -439,9 +439,9 @@ void test_audio_controls(void (*check)(bool, const char*) noexcept) noexcept {
                                                      UiAudioSourceSurface::timeline, style, kLightTheme);
     };
     check(scene_project() && ui_audio_scene_focus(&scene, UiAudioControl::volume, true) &&
-              scene.projection.controls[4].visible && !scene.projection.controls[2].visible &&
+              !scene.projection.controls[4].hidden && scene.projection.controls[2].hidden &&
               scene_project() && scene.focus == UiAudioControl::volume &&
-              scene.projection.controls[4].visible,
+              !scene.projection.controls[4].hidden,
           "audio scene: real widget ownership preserves keyboard volume and expanded geometry across "
           "current reprojection");
     const auto warm_geometry = scene.projection.geometry;
@@ -451,7 +451,7 @@ void test_audio_controls(void (*check)(bool, const char*) noexcept) noexcept {
                     scene.keyboard_focus && scene.capture == UiAudioControl::none &&
                     ui_rect_equal(scene.projection.geometry.bounds, warm_geometry.bounds) &&
                     ui_rect_equal(scene.projection.geometry.volume, warm_geometry.volume) &&
-                    scene.projection.controls[4].visible && !scene.projection.controls[2].visible &&
+                    !scene.projection.controls[4].hidden && scene.projection.controls[2].hidden &&
                     utf8_equal(ui_audio_controls_label(scene.projection, UiAudioControl::time),
                                utf8_literal("0:30\n2:00"));
     check(unchanged, "audio scene: sixty-four unchanged pure projections retain geometry, labels and "

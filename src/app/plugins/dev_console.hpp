@@ -44,7 +44,7 @@ void application_dev_console_strike(void* runtime, u64 owner_id, PluginCallKind 
 struct DevText {
     char data[kDevLineTextBytes];
     u32 used;
-    void add(Utf8View text) noexcept;
+    void add(const Utf8View& text) noexcept;
     void add(const char* literal) noexcept; // counted here, so a call site passes one pointer
     void number(u64 value) noexcept;
     Utf8View view() const noexcept { return {data, used}; }

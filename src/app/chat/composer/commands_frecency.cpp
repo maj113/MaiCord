@@ -21,12 +21,7 @@ namespace {
 
 // Unsaved uses outlive a restart: one small file per account profile.
 bool frecency_store_path(u64 profile, wchar_t* path, u32 capacity) noexcept {
-    if (!profile)
-        return false;
-    const DataPathResult built = data_path(path, capacity, L"accounts\\command-uses-");
-    u32 length = built.length;
-    return built.ok() && wide_append_hex(path, capacity, &length, profile) &&
-           wide_append(path, capacity, &length, L".pending");
+    return profile_data_path(profile, path, capacity, L"accounts\\command-uses-", L".pending");
 }
 void frecency_store_write() noexcept {
     const auto& f = *frecency;
@@ -77,7 +72,7 @@ namespace {
 
 // The frecency key: a built-in's negative id; otherwise the id, "\0group",
 // "\0sub", and ":<guild>" for a server's own command used in that server.
-Utf8View frecency_key(const ApplicationCommand& command, u64 guild, Slice<char> output) noexcept {
+Utf8View frecency_key(const ApplicationCommand& command, u64 guild, const Slice<char>& output) noexcept {
     ProtocolWriter w{{reinterpret_cast<u8*>(output.data), output.count}, 0};
     // Plugin commands are local; their ids are not Discord's and never reach the account's settings.
     if (plugin_command_application(command.application_id))
@@ -192,13 +187,13 @@ void advance_channel_index_epoch(Commands& c) noexcept {
     if (++c.channel_index_epoch == 0)
         ++c.channel_index_epoch;
 }
-bool retired_text(Utf8View text, const Arena& storage) noexcept {
+bool retired_text(const Utf8View& text, const Arena& storage) noexcept {
     const usize pointer = reinterpret_cast<usize>(text.data);
     const usize base = reinterpret_cast<usize>(storage.base);
     return text.bytes && storage.base && pointer >= base && pointer - base < storage.reserved;
 }
 Utf8View field_text(const CommandIndex& index, JsonValue value, const char* key,
-                    Slice<char> scratch) noexcept {
+                    const Slice<char>& scratch) noexcept {
     Utf8View text{};
     command_json_text(command_member(index.document, value, {key, c_string_length(key)}), scratch, &text);
     return text;
@@ -206,8 +201,8 @@ Utf8View field_text(const CommandIndex& index, JsonValue value, const char* key,
 bool command_space(char value) noexcept {
     return value == ' ' || value == '\t' || value == '\r' || value == '\n';
 }
-Utf8View copy_label(char* out, u32 capacity, Utf8View a, Utf8View b, Utf8View c,
-                    Utf8View d) noexcept {
+Utf8View copy_label(char* out, u32 capacity, const Utf8View& a, const Utf8View& b, const Utf8View& c,
+                    const Utf8View& d) noexcept {
     u32 n = 0;
     const Utf8View parts[] = {a, b, c, d};
     for (const auto part : parts)
@@ -230,7 +225,7 @@ const CommandApplication* find_app(const CommandIndex& source, u64 id) noexcept 
 Utf8View section_name(const CommandApplication& app) noexcept {
     return app.bot_name.bytes ? app.bot_name : app.name;
 }
-bool starts_with_ignore_case(Utf8View text, Utf8View prefix) noexcept {
+bool starts_with_ignore_case(const Utf8View& text, const Utf8View& prefix) noexcept {
     return text.bytes >= prefix.bytes && ascii_equal_ignore_case({text.data, prefix.bytes}, prefix);
 }
 // Fuzzy match: needle's characters appear in order in text.

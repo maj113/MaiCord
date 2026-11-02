@@ -44,7 +44,8 @@ void builtin_commands_release() noexcept;
 // The inline results of the selected command (any; only /gif and /sticker
 // have them) for its query option, above anchor (the commands popup). A null
 // command or an empty query hides them.
-bool builtin_command_results(const ApplicationCommand* command, Utf8View query, UiRect anchor) noexcept;
+bool builtin_command_results(const ApplicationCommand* command, const Utf8View& query,
+                             const UiRect& anchor) noexcept;
 // Up/Down, Enter and Tab while results show (application_media_picker_inline_key);
 // Enter also waits for loading results.
 bool builtin_command_results_key(u32 key, bool* handled) noexcept;

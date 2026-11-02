@@ -82,13 +82,13 @@ constexpr bool definitions_valid() noexcept {
     return true;
 }
 static_assert(definitions_valid());
-u32 put(Slice<char> output, u32 at, Utf8View text) noexcept {
+u32 put(const Slice<char>& output, u32 at, const Utf8View& text) noexcept {
     if (!output.data || at + text.bytes > output.count)
         return at;
     copy_bytes(output.data + at, text.data, text.bytes);
     return at + text.bytes;
 }
-u32 put_char(Slice<char> output, u32 at, char value) noexcept {
+u32 put_char(const Slice<char>& output, u32 at, char value) noexcept {
     if (!output.data || at >= output.count)
         return at;
     output.data[at] = value;
@@ -201,7 +201,7 @@ bool query_matches(Utf8View query, const Utf8View* texts, u32 count) noexcept {
 
 static constexpr u8 kMagic[8]{'M', 'A', 'I', 'K', 'E', 'Y', 'S', '1'};
 constexpr u32 kChecksumOffset = 24;
-u64 checksum(ConstSlice<u8> record) noexcept {
+u64 checksum(const ConstSlice<u8>& record) noexcept {
     const u64 hash = hash64_bytes(kHash64Seed, record.data, kChecksumOffset);
     return hash64_bytes(hash, record.data + kCustomKeybindsHeaderBytes, record.count - kCustomKeybindsHeaderBytes);
 }
@@ -289,7 +289,7 @@ const ShortcutDefinition* shortcut_built_in(ShortcutChord chord) noexcept {
     return nullptr;
 }
 
-u32 shortcut_key_label(u8 key, Slice<char> output) noexcept {
+u32 shortcut_key_label(u8 key, const Slice<char>& output) noexcept {
     if (!key || !output.data)
         return 0;
     if ((key >= 'A' && key <= 'Z') || (key >= '0' && key <= '9'))

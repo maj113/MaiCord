@@ -118,7 +118,7 @@ bool scan_document(Utf8View input, Slice<u32> scratch, JsonIndexedDocument* docu
     *document = {input, {scratch.data, scan.count}};
     return true;
 }
-bool valid_input(Utf8View input, Slice<u32> scratch) noexcept {
+bool valid_input(const Utf8View& input, const Slice<u32>& scratch) noexcept {
     return input.bytes && input.bytes <= kRelationshipsMaximumBytes && scratch.count &&
         scratch.count <= ~u32{0} / sizeof(u32) &&
         byte_range_valid({reinterpret_cast<const u8*>(input.data), input.bytes}) &&
@@ -261,7 +261,7 @@ RelationshipsDecodeResult relationships_replace(RelationshipStore* store, Utf8Vi
     Snapshot snapshot{&document, store, candidate};
     const auto read = json_visit_root_array(input, document.structurals, 64, visit_snapshot, &snapshot);
     if (!read.ok()) return failure(snapshot.error == RelationshipsDecodeError::none ? RelationshipsDecodeError::json : snapshot.error);
-    heap_sort(candidate.data, snapshot.count, [](const auto& a, const auto& b) noexcept { return a.user_id < b.user_id; });
+    heap_sort_shared(candidate.data, snapshot.count, [](const auto& a, const auto& b) noexcept { return a.user_id < b.user_id; });
     for (u32 i = 1; i < snapshot.count; ++i) if (candidate[i - 1].user_id == candidate[i].user_id) return failure(RelationshipsDecodeError::duplicate);
     // Apply the store's own validity checks before the owner commits its
     // destination; presence may be inherited from the previous store.

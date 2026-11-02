@@ -109,7 +109,7 @@ ApplicationAttachments* ensure() noexcept {
     g_app.attachments = state;
     return state;
 }
-void notice(ApplicationAttachments* state, Utf8View text) noexcept {
+void notice(ApplicationAttachments* state, const Utf8View& text) noexcept {
     state->notice_bytes = minimum(text.bytes, static_cast<u32>(sizeof(state->notice)));
     copy_bytes(state->notice, text.data, state->notice_bytes);
 }
@@ -141,7 +141,7 @@ void close_menu() noexcept {
     }
     if (g_app.attachments) g_app.attachments->detail_id = 0;
 }
-bool open_menu(ConstSlice<PopupItem> items) noexcept {
+bool open_menu(const ConstSlice<PopupItem>& items) noexcept {
     const auto* anchor = message_composer_scene_layout_node(g_app.message_composer_scene, MessageComposerControl::attachments);
     if (!anchor || !ui_rect_has_area(anchor->rectangle)) anchor = message_composer_scene_layout_node(g_app.message_composer_scene, MessageComposerControl::add_attachment);
     const UiRect rectangle = anchor ? anchor->rectangle : ui_scene_content_rectangle(g_app.shell_scene, UiSemantic::title_bar);
@@ -326,7 +326,7 @@ bool application_manage_attachments() noexcept {
     auto* state = g_app.attachments; if (!current(state)) return true;
     state->detail_id = 0;
     PopupItem items[kAttachmentUploadMaximumCount + 4]{}; u32 used = 0;
-    if (state->notice_bytes) items[used++] = {{state->notice, state->notice_bytes}, popup_action_attachment_title, 0, 0};
+    if (state->notice_bytes) popup_item_set(&items[used++], {state->notice, state->notice_bytes}, popup_action_attachment_title);
     state->menu_count = message_attachment_drafts_channel(&state->drafts, g_app.account_ui->active_channel_id,
         {state->menu_ids, kAttachmentUploadMaximumCount});
     for (u32 i = 0; i < state->menu_count; ++i) {
@@ -334,12 +334,12 @@ bool application_manage_attachments() noexcept {
         if (message_attachment_drafts_get(&state->drafts, state->menu_ids[i])->spoiler)
             protocol_writer_append_literal(&writer, "Spoiler: ");
         append_name(&writer, message_attachment_drafts_filename(&state->drafts, state->menu_ids[i]), 220);
-        items[used++] = {{state->menu_labels[i], writer.used}, popup_action_attachment_file_first + i, popup_item_enabled, 0};
+        popup_item_set(&items[used++], {state->menu_labels[i], writer.used}, popup_action_attachment_file_first + i, popup_item_enabled);
     }
-    items[used++] = {utf8_literal("Retry failed uploads"), popup_action_attachment_retry, popup_item_enabled, 0};
+    popup_item_set(&items[used++], utf8_literal("Retry failed uploads"), popup_action_attachment_retry, popup_item_enabled);
     if (preparing(state, g_app.account_ui->active_channel_id))
-        items[used++] = {utf8_literal("Cancel"), popup_action_attachment_cancel_selection, popup_item_enabled, 0};
-    items[used++] = {utf8_literal("Dismiss"), popup_action_attachment_dismiss, popup_item_enabled, 0};
+        popup_item_set(&items[used++], utf8_literal("Cancel"), popup_action_attachment_cancel_selection, popup_item_enabled);
+    popup_item_set(&items[used++], utf8_literal("Dismiss"), popup_action_attachment_dismiss, popup_item_enabled);
     return open_menu({items, used});
 }
 bool application_attachment_add_menu() noexcept {
@@ -347,10 +347,10 @@ bool application_attachment_add_menu() noexcept {
     const u64 channel = g_app.account_ui->active_channel_id;
     if (!application_poll_create_available(channel)) return application_pick_attachments();
     PopupItem items[2]{};
-    items[0] = {utf8_literal("Upload a file"), popup_action_attachment_upload,
-        static_cast<u16>(can_attach() ? popup_item_enabled : 0), 0};
+    popup_item_set(&items[0], utf8_literal("Upload a file"), popup_action_attachment_upload,
+        static_cast<u16>(can_attach() ? popup_item_enabled : 0));
     items[0].presentation = ui_menu_row_presentation(UiIcon::upload);
-    items[1] = {utf8_literal("Create poll"), popup_action_attachment_create_poll, popup_item_enabled, 0};
+    popup_item_set(&items[1], utf8_literal("Create poll"), popup_action_attachment_create_poll, popup_item_enabled);
     items[1].presentation = ui_menu_row_presentation(UiIcon::poll);
     const auto* anchor = message_composer_scene_layout_node(g_app.message_composer_scene, MessageComposerControl::add_attachment);
     const UiRect rectangle = anchor ? anchor->rectangle : ui_scene_content_rectangle(g_app.shell_scene, UiSemantic::title_bar);

@@ -97,7 +97,7 @@ bool settings_allowed() noexcept {
     return g_app.account_ui && (!g_app.login.visible || g_signed_out.active);
 }
 
-bool page_allowed(UiPageKey page) noexcept {
+bool page_allowed(const UiPageKey& page) noexcept {
     return !g_signed_out.active ||
            (page.owner_id == kSettingsNativeOwner && page.page_id >= 1 &&
             page.page_id <= kSettingsPanelCount &&
@@ -116,7 +116,7 @@ SettingBinding binding_of(const UiSettingsSchemaNode& node) noexcept {
 } // namespace
 namespace settings_detail {
 
-bool theme_panel(UiPageKey page) noexcept {
+bool theme_panel(const UiPageKey& page) noexcept {
     return page.owner_id == kNativeSettingsOwner && (page.page_id == static_cast<u64>(SettingsPanel::appearance) + 1 ||
                                                      page.page_id == static_cast<u64>(SettingsPanel::themes) + 1);
 }

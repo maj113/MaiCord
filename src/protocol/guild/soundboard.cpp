@@ -461,7 +461,8 @@ bool visit_envelope(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 } // namespace
 
-SoundboardDecodeResult soundboard_decode_sound(Utf8View object, u64 guild_id, Slice<u32> scratch,
+SoundboardDecodeResult soundboard_decode_sound(const Utf8View& object, u64 guild_id,
+                                               const Slice<u32>& scratch,
                                                SoundboardSound* output) noexcept {
     if (!output)
         return {0, SoundboardDecodeError::input};
@@ -481,8 +482,9 @@ SoundboardDecodeResult soundboard_decode_sound(Utf8View object, u64 guild_id, Sl
     return {1, SoundboardDecodeError::none};
 }
 
-SoundboardDecodeResult soundboard_decode_sound_list(Utf8View body, u64 guild_id, Slice<u32> scratch,
-                                                    Slice<SoundboardSound> output, u64* document_guild) noexcept {
+SoundboardDecodeResult soundboard_decode_sound_list(Utf8View body, u64 guild_id, const Slice<u32>& scratch,
+                                                    const Slice<SoundboardSound>& output,
+                                                    u64* document_guild) noexcept {
     if (!output.data && output.count)
         return {0, SoundboardDecodeError::input};
     const auto s = scan_json<SoundboardDecodeError>(body, scratch);

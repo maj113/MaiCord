@@ -436,7 +436,7 @@ bool complete_tls_handshake(RemoteAuthClient* client, RemoteAuthClientRuntime* r
 }
 
 bool send_frame(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, WebSocketOpcode opcode,
-                ConstSlice<u8> payload, u32* native_error) noexcept {
+                const ConstSlice<u8>& payload, u32* native_error) noexcept {
     u32 masking_key = 0;
     if (!secure_random_u32(&masking_key).ok()) {
         *native_error = ERROR_GEN_FAILURE;
@@ -940,7 +940,7 @@ bool initialize_runtime(RemoteAuthClientRuntime* runtime, u32* native_error) noe
 
 // source_bytes names the field guarded by the snapshot lock, so it is read under that lock.
 bool copy_snapshot(const RemoteAuthClient& client, const char* source, const u32& source_bytes,
-                   Slice<char> output, u32* output_bytes) noexcept {
+                   const Slice<char>& output, u32* output_bytes) noexcept {
     if (!output_bytes || (!output.data && output.count != 0))
         return false;
     AcquireSRWLockShared(client.snapshot_lock.native());
@@ -1139,7 +1139,7 @@ bool remote_auth_client_copy_qr_url(const RemoteAuthClient& client, Slice<char> 
     return copy_snapshot(client, client.qr_url, client.qr_url_bytes, output, output_bytes);
 }
 
-bool remote_auth_client_copy_user(const RemoteAuthClient& client, Slice<char> output,
+bool remote_auth_client_copy_user(const RemoteAuthClient& client, const Slice<char>& output,
                                   u32* output_bytes) noexcept {
     return copy_snapshot(client, client.user, client.user_bytes, output, output_bytes);
 }

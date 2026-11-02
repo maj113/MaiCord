@@ -1,5 +1,6 @@
 #include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/ui/text/form.hpp"
 #include "maicord/ui/theme/foreground_color.hpp"
 #include "maicord/ui/widgets/icon.hpp"
@@ -170,15 +171,11 @@ bool build(TextFormScene* scene) noexcept {
         element = ui_widget_invalid_handle();
     if (!ui_widget_manager_set_measure_callback(&scene->widgets, measure_label, scene))
         return false;
-    static constexpr Utf8View names[] = {
-        utf8_literal("TextForm"), utf8_literal("Panel"),   utf8_literal("Title"),   utf8_literal("Context"),
-        utf8_literal("Choices"),  utf8_literal("Choice1"), utf8_literal("Choice2"), utf8_literal("Choice3"),
-        utf8_literal("Choice4"),  utf8_literal("Label"),   utf8_literal("Edit"),    utf8_literal("SelectLabel"),
-        utf8_literal("Select"),   utf8_literal("Option1"), utf8_literal("Option2"), utf8_literal("Option3"),
-        utf8_literal("Option4"),  utf8_literal("Option5"), utf8_literal("Option6"), utf8_literal("Option7"),
-        utf8_literal("Option8"),  utf8_literal("Status"),  utf8_literal("Option"),  utf8_literal("Actions"),
-        utf8_literal("Cancel"),   utf8_literal("Accept")};
-    static_assert(sizeof(names) / sizeof(names[0]) == kTextFormElements);
+    static constexpr char names[] =
+        "TextForm\0Panel\0Title\0Context\0Choices\0Choice1\0Choice2\0Choice3\0Choice4\0Label\0Edit\0SelectLabel\0"
+        "Select\0Option1\0Option2\0Option3\0Option4\0Option5\0Option6\0Option7\0Option8\0Status\0Option\0Actions\0"
+        "Cancel\0Accept\0";
+    static_assert(name_list_count(names) == kTextFormElements);
     const auto parent_of = [](TextFormElement element) noexcept {
         return element == TextFormElement::root    ? TextFormElement::count
                : element == TextFormElement::panel ? TextFormElement::root
@@ -243,7 +240,7 @@ bool build(TextFormScene* scene) noexcept {
         const UiWidgetHandle parent = parent_element == TextFormElement::count
                                           ? ui_widget_invalid_handle()
                                           : scene->elements[index(parent_element)];
-        const UiWidgetResult added = widgets.widget(parent, {i + 1, names[i]}, kind, flags, style);
+        const UiWidgetResult added = widgets.widget(parent, {i + 1, name_list_at(names, i)}, kind, flags, style);
         if (!added.ok()) {
             return false;
         }

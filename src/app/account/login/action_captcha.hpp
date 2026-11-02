@@ -21,7 +21,7 @@ enum class ApplicationActionCaptchaPhase : u8 {
 };
 // subject identifies the retried request (message nonce, invite/user key).
 bool application_action_captcha_capture(ApplicationActionCaptchaKind, u64 subject,
-                                        const RestClientResponse&, Utf8View body) noexcept;
+                                        const RestClientResponse&, const Utf8View& body) noexcept;
 ApplicationActionCaptchaPhase application_action_captcha_phase(ApplicationActionCaptchaKind, u64 subject) noexcept;
 // Subject of the pending challenge of this kind, or 0.
 u64 application_action_captcha_subject(ApplicationActionCaptchaKind) noexcept;

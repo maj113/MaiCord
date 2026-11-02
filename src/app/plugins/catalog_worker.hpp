@@ -62,7 +62,7 @@ void catalog_worker_progress(u64* bytes, u64* total) noexcept;
 void catalog_worker_free(void* memory) noexcept;
 
 // <base>\<relative>, NUL-terminated; characters written or 0.
-u32 catalog_path(ConstSlice<wchar_t> base, const wchar_t* relative, wchar_t (&output)[600]) noexcept;
+u32 catalog_path(const ConstSlice<wchar_t>& base, const wchar_t* relative, wchar_t (&output)[600]) noexcept;
 // "<64 hex>.dll": a catalog plugin's file in plugins\.
 void catalog_plugin_leaf(const u8 (&sha256)[32], wchar_t (&leaf)[69]) noexcept;
 

@@ -17,7 +17,7 @@ enum class UiFriendsSectionKind : u8 { incoming, outgoing, spam, ignored };
 enum class UiFriendsAction : u8 { none, select_tab, open_dm, profile, accept, ignore, cancel, remove, block, unblock, add_friend, retry, search, clear_search, more, toggle_section, toggle_hidden, clear_hidden, clear_incoming, decline, unignore,
     // Active Now column: collapse/expand it, or open a card's first member.
     active_toggle, active_card };
-struct UiFriendsTarget {UiFriendsAction action;u64 user_id;UiFriendsTab tab;UiFriendsSectionKind section = UiFriendsSectionKind::incoming;};
+struct UiFriendsTarget {UiFriendsAction action;u64 user_id;UiFriendsTab tab;UiFriendsSectionKind section;};
 constexpr bool ui_friends_target_equal(const UiFriendsTarget& a,const UiFriendsTarget& b) noexcept {
     return a.action==b.action&&a.user_id==b.user_id&&a.tab==b.tab&&
         (a.action!=UiFriendsAction::toggle_section||a.section==b.section);

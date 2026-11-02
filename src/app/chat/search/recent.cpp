@@ -17,7 +17,7 @@ bool text_valid(Utf8View text) noexcept {
             return false;
     return true;
 }
-bool same(const SearchRecentList& list, u32 index, Utf8View text) noexcept {
+bool same(const SearchRecentList& list, u32 index, const Utf8View& text) noexcept {
     return list.bytes[index] == text.bytes && bytes_equal(list.text[index], text.data, text.bytes);
 }
 } // namespace
@@ -126,12 +126,7 @@ bool search_recent_decode(ConstSlice<u8> input, SearchRecentList* list) noexcept
 }
 
 bool search_recent_path(u64 profile_id, wchar_t* path, u32 capacity) noexcept {
-    if (!profile_id)
-        return false;
-    const DataPathResult built = data_path(path, capacity, L"accounts\\search-");
-    u32 length = built.length;
-    return built.ok() && wide_append_hex(path, capacity, &length, profile_id) &&
-           wide_append(path, capacity, &length, L".recent");
+    return profile_data_path(profile_id, path, capacity, L"accounts\\search-", L".recent");
 }
 
 bool search_recent_load_file(const wchar_t* path, SearchRecentList* list) noexcept {

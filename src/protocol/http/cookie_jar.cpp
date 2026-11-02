@@ -68,12 +68,12 @@ bool begins_with(Utf8View text, const char* literal) noexcept {
     return true;
 }
 
-bool host_equal(Utf8View host, Utf8View domain) noexcept {
+bool host_equal(const Utf8View& host, const Utf8View& domain) noexcept {
     return host.bytes == domain.bytes && ascii_equal_ignore_case(host, domain);
 }
 
 // host is domain or one of its subdomains.
-bool domain_match(Utf8View host, Utf8View domain) noexcept {
+bool domain_match(const Utf8View& host, const Utf8View& domain) noexcept {
     if (host_equal(host, domain))
         return true;
     return host.bytes > domain.bytes && host.data[host.bytes - domain.bytes - 1] == '.' &&
@@ -440,7 +440,7 @@ bool visit_set_cookie(void* opaque, HttpField field) noexcept {
 
 } // namespace
 
-u32 cookie_jar_store_response(CookieJar* jar, const CookieRequest& request, ConstSlice<u8> head,
+u32 cookie_jar_store_response(CookieJar* jar, const CookieRequest& request, const ConstSlice<u8>& head,
                               u64 now_ms) noexcept {
     if (!jar || !head.data || !head.count)
         return 0;

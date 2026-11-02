@@ -411,23 +411,30 @@ template <class Move> constexpr Ring ui_ring(Move move) noexcept {
 }
 template <class Target, class Enumerate, class Equal>
 bool ui_ring_pick(Enumerate enumerate, Equal equal, const Target& selected, Ring move, Target* out) noexcept {
-    u32 count = 0, found = ~0u;
-    if (!enumerate([&](const Target& candidate) noexcept {
-            if (equal(candidate, selected))
-                found = count;
-            ++count;
-        }) ||
-        !count)
-        return false;
-    u32 index = move == Ring::first ? 0
+    u32 count = 0, found = ~0u, index = 0;
+    // One call of `enumerate` in a loop: the enumerator is expanded once, whatever its size.
+    for (bool pick = false;; pick = true) {
+        u32 at = 0;
+        if (!enumerate([&](const Target& candidate) noexcept {
+                if (pick) {
+                    if (at++ == index)
+                        *out = candidate;
+                } else {
+                    if (equal(candidate, selected))
+                        found = count;
+                    ++count;
+                }
+            }))
+            return false;
+        if (pick)
+            return true;
+        if (!count)
+            return false;
+        index = move == Ring::first ? 0
                 : move == Ring::last ? count - 1
                 : move == Ring::previous ? (found >= count || !found ? count - 1 : found - 1)
                                          : (found >= count || found + 1 == count ? 0 : found + 1);
-    u32 at = 0;
-    return enumerate([&](const Target& candidate) noexcept {
-        if (at++ == index)
-            *out = candidate;
-    });
+    }
 }
 
 } // namespace maicord

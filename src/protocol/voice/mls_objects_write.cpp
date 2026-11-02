@@ -13,7 +13,7 @@ struct Writer {
         if (error == MlsWireError::none)
             error = value;
     }
-    void raw(ConstSlice<u8> data) noexcept {
+    void raw(const ConstSlice<u8>& data) noexcept {
         if (error != MlsWireError::none)
             return;
         if (!emit) {
@@ -36,7 +36,7 @@ struct Writer {
             bytes[count - i - 1] = static_cast<u8>(value >> (i * 8));
         raw({bytes, count});
     }
-    void vector(ConstSlice<u8> data) noexcept {
+    void vector(const ConstSlice<u8>& data) noexcept {
         u8 prefix[4];
         const u32 count = mls_vector_length(data.count, prefix);
         if (!count) {
@@ -46,7 +46,7 @@ struct Writer {
         raw({prefix, count});
         raw(data);
     }
-    void integers16(ConstSlice<u8> data) noexcept {
+    void integers16(const ConstSlice<u8>& data) noexcept {
         if (data.count & 1)
             fail(MlsWireError::malformed);
         vector(data);
@@ -124,7 +124,7 @@ template <typename T> MlsEncodeResult encode_tbs(const T& input, Slice<u8> outpu
     return {writer.used, MlsWireError::none};
 }
 } // namespace
-MlsEncodeResult mls_encode_tbs(const MlsLeafView& v, Slice<u8> out) noexcept {
+MlsEncodeResult mls_encode_tbs(const MlsLeafView& v, const Slice<u8>& out) noexcept {
     return encode_tbs(v, out);
 }
 MlsEncodeResult mls_encode_tbs(const MlsKeyPackageView& v, Slice<u8> out) noexcept {

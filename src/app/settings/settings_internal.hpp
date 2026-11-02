@@ -119,14 +119,14 @@ struct SignedOutSession {
 
 extern SignedOutSession g_signed_out;
 bool settings_allowed() noexcept;
-bool page_allowed(UiPageKey page) noexcept;
+bool page_allowed(const UiPageKey& page) noexcept;
 
 constexpr u64 kNativeSettingsOwner = kSettingsNativeOwner;
 constexpr u64 kPluginsPage = static_cast<u64>(SettingsPanel::plugins) + 1;
 constexpr u64 kThemesPage = static_cast<u64>(SettingsPanel::themes) + 1;
 constexpr u64 kEffectsPage = static_cast<u64>(SettingsPanel::effects) + 1;
 
-bool theme_panel(UiPageKey page) noexcept;
+bool theme_panel(const UiPageKey& page) noexcept;
 bool option_row(UiSettingsControlKind kind) noexcept;
 bool theme_binding(SettingBinding binding) noexcept;
 const UiSettingsSchemaNode* control_node(u64 id, SettingBinding* binding = nullptr) noexcept;

@@ -5,11 +5,11 @@ namespace maicord {
 enum class HlsPlaylistError : u8 { none, invalid_input, malformed, unsupported, capacity, stale, gap };
 enum class HlsPlaylistMode : u8 { complete, sliding, complete_uri };
 struct HlsVariant {
-    Utf8View uri{};
-    u32 bandwidth{};
-    u16 width{}, height{};
+    Utf8View uri;
+    u32 bandwidth;
+    u16 width, height;
 };
-struct HlsMasterPlaylist { HlsVariant video{}, audio{}; };
+struct HlsMasterPlaylist { HlsVariant video, audio; };
 // Select direct AVC/AAC video and an independent AAC rendition from a bounded
 // master playlist. AUDIO references select only their matching EXT-X-MEDIA
 // group, preferring its default rendition. Borrowed URLs still require
@@ -22,16 +22,16 @@ HlsPlaylistError hls_master_playlist(Utf8View, u16 maximum_height, HlsMasterPlay
 // Returns bytes written, or zero without touching output; no allocation.
 u32 hls_resolve_uri(Utf8View base, Utf8View reference, Slice<char> output) noexcept;
 struct HlsMediaPlaylist {
-    Utf8View input{}, initialization{};
-    u64 duration_us{}, sequence{}, discontinuity_sequence{};
-    u32 segments{}, target_seconds{}, first_offset{}, maximum_duration_us{};
-    HlsPlaylistMode mode{};
-    bool ended{}, transport{};
+    Utf8View input, initialization;
+    u64 duration_us, sequence, discontinuity_sequence;
+    u32 segments, target_seconds, first_offset, maximum_duration_us;
+    HlsPlaylistMode mode;
+    bool ended, transport;
 };
 struct HlsMediaSegment {
-    Utf8View uri{};
-    u64 time_us{};
-    u32 duration_us{}, index{}, next_offset{};
+    Utf8View uri;
+    u64 time_us;
+    u32 duration_us, index, next_offset;
 };
 static_assert(sizeof(HlsMediaPlaylist) <= 80 && sizeof(HlsMediaSegment) <= 48);
 // Bounded clear, complete fMP4 VOD/ended-event playlist: one initialization, relative
@@ -45,7 +45,7 @@ static_assert(sizeof(HlsMediaPlaylist) <= 80 && sizeof(HlsMediaSegment) <= 48);
 // A sliding playlist without MAP selects MPEG-TS or timestamped packed AAC;
 // each file must supply validated configuration. Format changes require resync.
 HlsPlaylistError hls_media_playlist(Utf8View, HlsMediaPlaylist*, HlsPlaylistMode = HlsPlaylistMode::complete) noexcept;
-struct HlsPlaylistAdvance { u64 discarded_us{}; u32 new_segments{}; bool changed{}; };
+struct HlsPlaylistAdvance { u64 discarded_us; u32 new_segments; bool changed; };
 // Validate two parser-produced sliding snapshots before replacing borrowed text. Overlapping media
 // must retain identity and duration; no hidden sequence gaps or clock resets.
 // discarded_us advances the caller's window origin, never a decoder timestamp.

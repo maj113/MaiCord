@@ -118,11 +118,11 @@ bool validate_base64url(JsonString string, u32 expected_bytes) noexcept {
     return result.error == Base64UrlError::output_too_small && result.bytes == expected_bytes;
 }
 
-void copy_string(JsonString source, Slice<char> destination) noexcept {
+void copy_string(JsonString source, const Slice<char>& destination) noexcept {
     copy_bytes(destination.data, source.encoded.data, source.encoded.bytes);
 }
 
-RemoteAuthDecodeResult parse(Utf8View body, Slice<u32> structural_scratch, u32 maximum_depth,
+RemoteAuthDecodeResult parse(const Utf8View& body, const Slice<u32>& structural_scratch, u32 maximum_depth,
                              DecodeContext* context) noexcept {
     if (!body.data || body.bytes == 0 || body.bytes > kRemoteAuthMaximumPacketBytes ||
         !structural_scratch.data || structural_scratch.count == 0 || maximum_depth == 0) {
@@ -152,8 +152,8 @@ RemoteAuthWriteResult write_literal(Utf8View literal, Slice<char> output) noexce
     return RemoteAuthWriteResult{literal.bytes, RemoteAuthWriteError::none};
 }
 
-RemoteAuthWriteResult write_safe_field(Utf8View prefix, Utf8View value, Utf8View suffix,
-                                       Slice<char> output) noexcept {
+RemoteAuthWriteResult write_safe_field(const Utf8View& prefix, const Utf8View& value,
+                                       const Utf8View& suffix, const Slice<char>& output) noexcept {
     const u64 required64 = static_cast<u64>(prefix.bytes) + value.bytes + suffix.bytes;
     if (required64 > 0xFFFFFFFFull) {
         return RemoteAuthWriteResult{0, RemoteAuthWriteError::invalid_input};

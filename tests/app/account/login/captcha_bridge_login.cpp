@@ -81,7 +81,7 @@ RestClientTakeResult rest_client_consume_user_auth_response(
 }
 HANDLE rest_client_notification_handle(const RestClient*) noexcept { return reinterpret_cast<HANDLE>(1); }
 bool rest_client_cancel(RestClient*, u64) noexcept { return true; }
-bool rest_client_arm_headers(RestClient*, u64 request_id, ConstSlice<u8> headers) noexcept {
+bool rest_client_arm_headers(RestClient*, u64 request_id, const ConstSlice<u8>& headers) noexcept {
     return !request_id && !headers.count;
 }
 RestClientResult rest_client_stop_user_auth(RestClient* client, u32 timeout_ms,
@@ -111,7 +111,9 @@ RemoteAuthClientResult remote_auth_client_cancel(RemoteAuthClient*) noexcept { r
 RemoteAuthClientResult remote_auth_client_stop(RemoteAuthClient* client, u32) noexcept { *client = {}; return {}; }
 bool remote_auth_client_pop_event(RemoteAuthClient*, RemoteAuthClientEvent*) noexcept { return false; }
 bool remote_auth_client_copy_qr_url(const RemoteAuthClient&, Slice<char>, u32*) noexcept { return false; }
-bool remote_auth_client_copy_user(const RemoteAuthClient&, Slice<char>, u32*) noexcept { return false; }
+bool remote_auth_client_copy_user(const RemoteAuthClient&, const Slice<char>&, u32*) noexcept {
+    return false;
+}
 SecureBufferResult remote_auth_client_take_credential(RemoteAuthClient*, SecureBuffer*) noexcept {
     return {0, ERROR_INVALID_STATE, SecureBufferError::invalid_input};
 }

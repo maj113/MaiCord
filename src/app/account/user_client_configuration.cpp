@@ -81,7 +81,7 @@ Utf8View language_of(Utf8View locale) noexcept {
     return {locale.data, end};
 }
 
-u32 emit(Utf8View value, Slice<char> output) noexcept {
+u32 emit(const Utf8View& value, const Slice<char>& output) noexcept {
     if (value.bytes > output.count)
         return 0;
     copy_bytes(output.data, value.data, value.bytes);

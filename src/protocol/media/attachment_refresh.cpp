@@ -6,7 +6,7 @@
 namespace maicord {
 namespace {
 
-bool reference(Utf8View url, Slice<u8> target, AttachmentUrlResult* result,
+bool reference(const Utf8View& url, Slice<u8> target, AttachmentUrlResult* result,
                u32* path_bytes) noexcept {
     const auto parsed = parse_media_url(url, target);
     if (!parsed.ok() || (parsed.host != CdnHost::cdn && parsed.host != CdnHost::media)) return false;
@@ -76,7 +76,7 @@ bool expiring(const AttachmentUrlResult& url, u64 now_seconds) noexcept {
 }
 } // namespace
 
-bool attachment_refresh_needed(Utf8View url, u64 now_seconds) noexcept {
+bool attachment_refresh_needed(const Utf8View& url, u64 now_seconds) noexcept {
     u8 target[kCdnMaximumTargetBytes];
     AttachmentUrlResult parsed{};
     u32 path = 0;

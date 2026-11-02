@@ -4,10 +4,11 @@
 
 // These fixtures exercise other host owners without a selected poll session.
 namespace maicord::app_detail {
-bool application_poll_state(u64, Slice<UiPollAnswer>, UiPollState*, ApplicationPollSource*) noexcept {
+bool application_poll_state(u64, const Slice<UiPollAnswer>&, UiPollState*,
+                            ApplicationPollSource*) noexcept {
     return false;
 }
-bool application_poll_search_state(u64, u32, Slice<UiPollAnswer>, UiPollState*,
+bool application_poll_search_state(u64, u32, const Slice<UiPollAnswer>&, UiPollState*,
                                    ApplicationPollSource*) noexcept {
     return false;
 }

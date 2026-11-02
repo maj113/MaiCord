@@ -98,7 +98,7 @@ void application_effects_library_changed() noexcept;
 
 // A trial: the candidate (bytes owned by the caller, parsed in `package`) draws as the window background at the
 // Low budget until the trial ends, whatever else is chosen. false: a trial is already running.
-bool application_effects_trial_begin(ConstSlice<u8> file, const McfxPackage& package) noexcept;
+bool application_effects_trial_begin(const ConstSlice<u8>& file, const McfxPackage& package) noexcept;
 void application_effects_trial_end() noexcept;
 // A trial the renderer turned down: the error is a verdict (rejected -> refused_shader semantics).
 enum class EffectTrialState : u8 { none, drawing, rejected, refused };

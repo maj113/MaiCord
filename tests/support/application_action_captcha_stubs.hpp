@@ -5,7 +5,7 @@
 
 namespace maicord::app_detail {
 bool application_action_captcha_capture(ApplicationActionCaptchaKind, u64, const RestClientResponse&,
-                                        Utf8View) noexcept {
+                                        const Utf8View&) noexcept {
     return false;
 }
 ApplicationActionCaptchaPhase application_action_captcha_phase(ApplicationActionCaptchaKind, u64) noexcept {

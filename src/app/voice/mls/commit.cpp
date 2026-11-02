@@ -19,13 +19,13 @@ u32 references_offset(u32 proposal_count) noexcept {
 u32 path_offset(u32 proposal_count) noexcept {
     return references_offset(proposal_count) + proposal_count * kOneReferenceBytes + 1;
 }
-MlsStatus confirmed_hash(KdfSha256Workspace& kdf, const u8* interim, ConstSlice<u8> content,
-                         ConstSlice<u8> signature, u8* confirmed) noexcept {
+MlsStatus confirmed_hash(KdfSha256Workspace& kdf, const u8* interim, const ConstSlice<u8>& content,
+                         const ConstSlice<u8>& signature, u8* confirmed) noexcept {
     const ConstSlice<u8> parts[]{{interim, kMlsHashBytes}, content, signature};
     return mls_hash(kdf, {parts, 3}, confirmed);
 }
 MlsStatus next_epoch(KdfSha256Workspace& kdf, const MlsEpochSecrets& current, const u8* commit_secret,
-                     const u8* confirmed, ConstSlice<u8> context, MlsEpochSecrets* next) noexcept {
+                     const u8* confirmed, const ConstSlice<u8>& context, MlsEpochSecrets* next) noexcept {
     // DAVE carries only Add/Remove proposals, so the PSK secret is always zero.
     return mls_status(mls_epoch_next(kdf, {current.init_secret, kMlsHashBytes},
                                      {commit_secret, kMlsHashBytes}, {kZeroSecret, kMlsHashBytes},

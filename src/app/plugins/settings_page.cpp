@@ -30,7 +30,7 @@ const mc_setting_def* settings_of(const PluginBinding& binding) noexcept {
 const u8* block_of(const PluginBinding& binding) noexcept {
     return static_cast<const u8*>(binding.ctx.settings);
 }
-Utf8View view_of(mc_str text) noexcept {
+Utf8View view_of(const mc_str& text) noexcept {
     return {text.data, text.bytes};
 }
 bool edit_type(u32 type) noexcept {

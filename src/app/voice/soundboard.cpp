@@ -145,7 +145,7 @@ const ChannelRecord* voice_channel(u64 channel_id) noexcept {
 bool premium() noexcept {
     return g_app.account_ui && g_app.account_ui->chat_state.self_premium_type != 0;
 }
-void set_notice(u64 guild_id, Utf8View text) noexcept {
+void set_notice(u64 guild_id, const Utf8View& text) noexcept {
     board.notice_bytes = utf8_copy_truncated(board.notice, sizeof(board.notice), text);
     board.notice_guild = guild_id;
     board.notice_until_ms = now_ms() + kNoticeMs;
@@ -239,7 +239,8 @@ u32 effect_text(char* output, u32 capacity, Utf8View emoji, bool custom_emoji, U
     bytes += utf8_copy_truncated(output + bytes, capacity - bytes, name);
     return bytes;
 }
-void add_effect(u64 user_id, u64 channel_id, Utf8View emoji, bool custom_emoji, Utf8View name) noexcept {
+void add_effect(u64 user_id, u64 channel_id, const Utf8View& emoji, bool custom_emoji,
+                const Utf8View& name) noexcept {
     u32 slot = 0;
     for (u32 i = 0; i < kEffectCapacity; ++i) {
         if (board.effects[i].user_id == user_id) {
@@ -366,7 +367,7 @@ bool query_matches(const SoundboardSound& sound) noexcept {
     const auto& p = board.picker;
     return ascii_contains_ignore_case({sound.name, sound.name_bytes}, {p.query, p.query_bytes});
 }
-void set_footer(Utf8View text, bool error) noexcept {
+void set_footer(const Utf8View& text, bool error) noexcept {
     auto& p = board.picker;
     p.footer_bytes = utf8_copy_truncated(p.footer, sizeof(p.footer), text);
     p.error_until_ms = error ? now_ms() + kNoticeMs : 0;

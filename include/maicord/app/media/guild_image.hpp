@@ -12,7 +12,7 @@ struct GuildImageBuffer {
 };
 
 // Recognizes PNG, APNG, GIF, JPEG, WebP and Lottie JSON by content.
-GuildImageKind guild_image_sniff(ConstSlice<u8> source) noexcept;
+GuildImageKind guild_image_sniff(const ConstSlice<u8>& source) noexcept;
 
 // Validates a picked file for one image use. Files that already satisfy the
 // use upload unchanged; a static PNG that is too large, oversized or of the

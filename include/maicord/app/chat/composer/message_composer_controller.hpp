@@ -149,9 +149,9 @@ MessageComposerControllerResult message_composer_controller_queue_send(
     MessageComposerController* controller, bool channel_allows_send,
     u64 author_id, u64 now_unix_ms, u64 now_monotonic_ms,
     u64 reply_message_id = 0,
-    ConstSlice<UploadedAttachment> attachments = {},
-    ConstSlice<u64> attachment_sizes = {},
-    MessageComposer* source = nullptr, ConstSlice<u64> sticker_ids = {},
+    const ConstSlice<UploadedAttachment>& attachments = {},
+    const ConstSlice<u64>& attachment_sizes = {},
+    MessageComposer* source = nullptr, const ConstSlice<u64>& sticker_ids = {},
     bool mention_reply_author = true,
     const MessageComposerReplySnapshot* reply_snapshot = nullptr, bool suppress_embeds = false) noexcept;
 // A complete message from outside the composer (plugin actions). The reply

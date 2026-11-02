@@ -23,22 +23,22 @@ enum class UiInboxAction : u8 {
     jump, open_channel, mark_channel, mark_guild, load_more, retry
 };
 struct UiInboxTarget {
-    UiInboxAction action{};
-    u64 id{}, channel_id{};
+    UiInboxAction action;
+    u64 id, channel_id;
 };
 constexpr bool ui_inbox_target_equal(UiInboxTarget a, UiInboxTarget b) noexcept {
     return a.action == b.action && a.id == b.id && a.channel_id == b.channel_id;
 }
 struct UiInboxRow {
-    UiInboxRowKind kind{};
+    UiInboxRowKind kind;
     // Mention: message and channel; group: guild; channel: channel and guild.
-    u64 id{}, channel_id{}, guild_id{};
-    Utf8View title{}, detail{}, body{}, timestamp{};
-    u32 mention_count{};
-    bool muted{};
+    u64 id, channel_id, guild_id;
+    Utf8View title, detail, body, timestamp;
+    u32 mention_count;
+    bool muted;
     // Mention author identity for the card avatar; the hash is borrowed with the row.
-    u64 author_id{};
-    Utf8View avatar_hash{};
+    u64 author_id;
+    Utf8View avatar_hash;
 };
 struct UiInboxSource {
     void* context{};

@@ -198,7 +198,7 @@ Admission queue(u64 id, Operation operation, ApplicationThreadActionTicket* outp
         *output = owner->source;
     return Admission::accepted;
 }
-bool channel_receipt(const Flight& flight, const ChannelRecord& current, Utf8View body,
+bool channel_receipt(const Flight& flight, const ChannelRecord& current, const Utf8View& body,
                      GatewayClientStateMutation* output) noexcept {
     auto& ui = *g_app.account_ui;
     GatewayClientEvent event{};

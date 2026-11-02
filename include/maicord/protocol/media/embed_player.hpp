@@ -98,14 +98,14 @@ EmbedPlayerError pornhub_video_streams(Utf8View json, u16 maximum_height, u64 no
 constexpr bool embed_playlist_host(CdnHost host) noexcept {
     return host==CdnHost::twitch_playlist || host==CdnHost::youtube_playlist;
 }
-u64 twitter_post_id(Utf8View) noexcept;
+u64 twitter_post_id(const Utf8View&) noexcept;
 u32 twitter_video_target(Utf8View id, Slice<u8>) noexcept;
 inline constexpr u32 kTwitterMetadataMaximumBytes = 128 * 1024;
 // Public, identity-bound post metadata. Only its own clear MP4 media is used;
 // quoted posts, unavailable media and HLS-only variants never substitute for it.
 EmbedPlayerError twitter_video_streams(Utf8View json, Utf8View id, u16 maximum_height,
     u8 media_index, Slice<u32> scratch, EmbedStreams*) noexcept;
-bool imgur_video_id(Utf8View) noexcept;
+bool imgur_video_id(const Utf8View&) noexcept;
 // Single-file Imgur IDs map directly to their public MP4; no metadata request
 // or allocation. Native range/MIME/container validation still proves playback.
 // Albums and gallery IDs are not image IDs. Output is transactional.
@@ -122,7 +122,7 @@ u32 steam_id(const Utf8View&) noexcept;
 u32 steam_video_target(Utf8View app, Slice<u8>) noexcept;
 bool steam_manifest_location(Utf8View url, Utf8View app = {}, EmbedStreamLocation* = nullptr) noexcept;
 bool steam_media_location(Utf8View url, EmbedStreamLocation* = nullptr) noexcept;
-bool twitch_vod_id(Utf8View) noexcept;
+bool twitch_vod_id(const Utf8View&) noexcept;
 bool twitch_channel_id(Utf8View) noexcept;
 u32 twitch_playback_body(Utf8View id, Slice<u8>, bool live = false) noexcept;
 // Builds the exact usher target only after binding public token claims to ID,
@@ -139,14 +139,14 @@ inline constexpr u32 kAppleMusicMetadataMaximumBytes = 64 * 1024;
 // audio or music-video preview; decoded bytes still require clear codecs.
 EmbedPlayerError apple_music_track_preview(Utf8View json, Utf8View id, Utf8View country,
     Slice<u32> scratch, EmbedStream*, bool video = false) noexcept;
-bool streamable_video_id(Utf8View) noexcept;
+bool streamable_video_id(const Utf8View&) noexcept;
 inline constexpr u32 kStreamableMetadataMaximumBytes = 64 * 1024;
 u32 streamable_video_target(Utf8View id, Slice<u8>) noexcept;
 // One completed video; selects a bounded progressive MP4 rendition from the
 // public metadata endpoint. Signed media URL and output publish transactionally.
 EmbedPlayerError streamable_video_streams(Utf8View json, Utf8View id, u16 maximum_height,
     u64 unix_seconds, Slice<u32> scratch, EmbedStreams*) noexcept;
-bool spotify_audio_id(Utf8View) noexcept;
+bool spotify_audio_id(const Utf8View&) noexcept;
 inline constexpr u32 kSpotifyEmbedMaximumBytes = 128 * 1024;
 u32 spotify_audio_target(Utf8View id, Slice<u8>, bool episode = false) noexcept;
 // Reads the embed page's declarative JSON only; no HTML/JS execution. One
@@ -155,7 +155,7 @@ u32 spotify_audio_target(Utf8View id, Slice<u8>, bool episode = false) noexcept;
 EmbedPlayerError spotify_audio_preview(Utf8View html, Utf8View id, Slice<u32> scratch, EmbedStream*, bool episode = false) noexcept;
 // Video requires a range; audio previews permit a bounded whole-preview GET (0, 0).
 u32 embed_stream_get(CdnHost, Utf8View url, u64 first, u32 bytes, Slice<u8>) noexcept;
-bool twitch_clip_id(Utf8View) noexcept;
+bool twitch_clip_id(const Utf8View&) noexcept;
 u32 twitch_clip_body(Utf8View id, Slice<u8>) noexcept;
 EmbedPlayerError twitch_clip_streams(Utf8View json, Utf8View id, u16 maximum_height,
     u64 unix_seconds, Slice<u32> scratch, EmbedStreams*) noexcept;

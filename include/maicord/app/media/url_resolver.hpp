@@ -36,6 +36,6 @@ Utf8View media_url_resolve(MediaUrlResolver* resolver, Utf8View source, u64 now_
 MediaUrlState media_url_resolution_state(const MediaUrlResolver&, Utf8View source) noexcept;
 MediaUrlEntry* media_url_next(MediaUrlResolver* resolver, u64 now_ms) noexcept;
 void media_url_complete(MediaUrlResolver* resolver, const RestClientResponse& response,
-                        Utf8View body, u64 now_ms, u64 now_seconds) noexcept;
+                        const Utf8View& body, u64 now_ms, u64 now_seconds) noexcept;
 u64 media_url_next_wake(const MediaUrlResolver& resolver) noexcept;
 } // namespace maicord

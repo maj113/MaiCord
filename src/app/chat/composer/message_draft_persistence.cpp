@@ -30,7 +30,7 @@ MessageDraftPersistenceResult failure(MessageDraftPersistenceError error, u32 na
     return MessageDraftPersistenceResult{bytes, 0, 0, native_error, error};
 }
 
-bool text_boundary(Utf8View text, u32 offset) noexcept {
+bool text_boundary(const Utf8View& text, u32 offset) noexcept {
     return offset <= text.bytes &&
            (offset == 0 || offset == text.bytes || (static_cast<u8>(text.data[offset]) & 0xC0u) != 0x80u);
 }

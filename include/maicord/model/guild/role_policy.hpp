@@ -89,7 +89,7 @@ inline bool role_display_order(ConstSlice<RoleRecord> roles, Slice<u16> order,
         return false;
     for (u32 index = 0; index < roles.count; ++index)
         order[index] = static_cast<u16>(index);
-    heap_sort(order.data, roles.count,
+    heap_sort_shared(order.data, roles.count,
               [&](u16 left, u16 right) noexcept { return before(roles[left], roles[right]); });
     return true;
 }

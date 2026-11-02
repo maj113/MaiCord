@@ -696,8 +696,8 @@ bool choose_card(UiPoint point, bool keyboard) noexcept {
 } // namespace
 
 // Projects a captured card source; the source is handed back on success.
-static bool project_source(const ApplicationPollSource& s, Slice<UiPollAnswer> answers, UiPollState* out,
-                           ApplicationPollSource* source) noexcept {
+static bool project_source(const ApplicationPollSource& s, const Slice<UiPollAnswer>& answers,
+                           UiPollState* out, ApplicationPollSource* source) noexcept {
     const auto* p = poll(s);
     if (!p || !project_state(s, *p, answers, out))
         return false;
@@ -705,12 +705,12 @@ static bool project_source(const ApplicationPollSource& s, Slice<UiPollAnswer> a
         *source = s;
     return true;
 }
-bool application_poll_state(u64 id, Slice<UiPollAnswer> answers, UiPollState* out,
+bool application_poll_state(u64 id, const Slice<UiPollAnswer>& answers, UiPollState* out,
                             ApplicationPollSource* source) noexcept {
     ApplicationPollSource s{};
     return capture(id, &s) && project_source(s, answers, out, source);
 }
-bool application_poll_search_state(u64 id, u32 source_publication, Slice<UiPollAnswer> answers,
+bool application_poll_search_state(u64 id, u32 source_publication, const Slice<UiPollAnswer>& answers,
                                    UiPollState* out, ApplicationPollSource* source) noexcept {
     ApplicationSearchSourceView view{};
     const auto a = actor();

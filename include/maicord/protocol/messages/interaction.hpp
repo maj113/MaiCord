@@ -46,7 +46,8 @@ struct MessageInteractionEvent {
     u64 id;
     u64 nonce;
 };
-bool message_interaction_event_decode(Utf8View json, Slice<u32> structurals, MessageInteractionEvent* output) noexcept;
+bool message_interaction_event_decode(const Utf8View& json, const Slice<u32>& structurals,
+                                      MessageInteractionEvent* output) noexcept;
 
 // INTERACTION_MODAL_CREATE: a form of short/paragraph text inputs and text
 // paragraphs. Strings borrow the caller's pool.

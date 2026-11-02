@@ -24,9 +24,9 @@ bool copy_message_text_selection() noexcept;
 bool dismiss_popup() noexcept;
 bool refresh_popup_text() noexcept;
 bool open_reaction_picker(u64 message_id) noexcept;
-bool open_reaction_picker(u64 message_id, UiRect anchor) noexcept;
+bool open_reaction_picker(u64 message_id, const UiRect& anchor) noexcept;
 bool refresh_reaction_viewer_presentation() noexcept;
-bool open_message_context_popup(u64 message_id, UiRect anchor) noexcept;
+bool open_message_context_popup(u64 message_id, const UiRect& anchor) noexcept;
 // The message menu with a right-clicked attachment's media and link groups
 // (received_attachment_menu rows) before the developer-mode Copy ID. plugin
 // names what the pointer was on for plugin rows (attachment, link, emoji).

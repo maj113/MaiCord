@@ -112,7 +112,7 @@ struct PluginImage {
 // open against writes until the call returns, so a nonnull sha256 is checked on
 // exactly the bytes that are mapped. approved must contain every permission the
 // descriptor needs; on any failure nothing stays loaded.
-PluginLoadResult plugin_image_load(PluginImage*, const PluginDirectory&, ConstSlice<wchar_t> leaf,
+PluginLoadResult plugin_image_load(PluginImage*, const PluginDirectory&, const ConstSlice<wchar_t>& leaf,
                                    u64 approved_permissions, const u8* sha256 = nullptr) noexcept;
 // FreeLibrary and reset. The caller stopped the plugin and removed its hooks first.
 PluginLoadResult plugin_image_unload(PluginImage*) noexcept;

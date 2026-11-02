@@ -741,13 +741,12 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
             const UiWidgetReference owner{&scene.widgets, item_widget};
             const float item_left = item_layout->content_rectangle.left;
             const auto& attachment = rich->attachments[index];
-            UiAudioControlsStyle audio_style;
-            float audio_height = 0;
-            if (message_rich_attachment_audio_supported(*rich_store, attachment)) {
-                ui_theme_fill_audio_style(scene.theme_styles, &audio_style);
-                audio_height = ui_audio_card_height(audio_style, ui_rect_width(item_layout->content_rectangle),
-                                                    message_rich_record_voice(*rich));
-            }
+            const UiAudioControlsStyle audio_style = ui_theme_audio_style(scene.theme_styles);
+            const float audio_height =
+                message_rich_attachment_audio_supported(*rich_store, attachment)
+                    ? ui_audio_card_height(audio_style, ui_rect_width(item_layout->content_rectangle),
+                                           message_rich_record_voice(*rich))
+                    : 0.f;
             const float item_width =
                 minimum(audio_height > 0 ? audio_style.maximum_width : 420.0f,
                         ui_rect_width(item_layout->content_rectangle));
@@ -1139,8 +1138,7 @@ __declspec(noinline) bool append_poll_text(MessageTextPresentation* presentation
                                            const UiRect& row_clip, const MessageRecord* record) noexcept {
     if (row.poll_unavailable) {
         const auto* node = message_scene_layout_node(scene, row.poll);
-        UiPollStyle poll_style;
-        ui_theme_fill_poll_style(scene.theme_styles, &poll_style);
+        const UiPollStyle poll_style = ui_theme_poll_style(scene.theme_styles);
         if (!node ||
             !append_command(
                 presentation, poll_style.unavailable, kNoStyles, kNoSemantics,
@@ -1189,8 +1187,7 @@ __declspec(noinline) bool append_poll_text(MessageTextPresentation* presentation
     };
     UiTextEmitter emitter{};
     UiTextOutput output{nullptr, &emitter};
-    UiPollStyle poll_style;
-    ui_theme_fill_poll_style(scene.theme_styles, &poll_style);
+    const UiPollStyle poll_style = ui_theme_poll_style(scene.theme_styles);
     if (!message_scene_poll_projection(scene, row, theme, {answers, kUiPollMaximumAnswers}, &poll) ||
         !ui_text_emitter_initialize(&emitter, append_poll, &poll_context) ||
         !ui_poll_controls_text_output(poll, poll_style, row_clip, {&scene.widgets, row.poll}, &output))

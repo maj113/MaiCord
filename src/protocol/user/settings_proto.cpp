@@ -193,7 +193,7 @@ UserSettingsExtractResult extract(const Wire& w, u32 mask, Utf8View hash, Slice<
     result.bytes = out.at;
     return result;
 }
-bool range_valid(Slice<u8> s) noexcept {
+bool range_valid(const Slice<u8>& s) noexcept {
     return byte_range_valid({s.data, s.count});
 }
 // Writes the tag and length of a length-delimited field into five bytes
@@ -220,7 +220,8 @@ UserSettingsValue user_settings_text(Utf8View text) noexcept {
     value.text_bytes = static_cast<u8>(bytes);
     return value;
 }
-bool user_settings_proto_read(ConstSlice<u8> group, UserSettingsField field, UserSettingsValue* value) noexcept {
+bool user_settings_proto_read(const ConstSlice<u8>& group, UserSettingsField field,
+                              UserSettingsValue* value) noexcept {
     if (!field_valid(field) || field.kind == K::id_member || !byte_range_valid(group))
         return false;
     UserSettingsValue result{};
@@ -357,8 +358,9 @@ u32 user_settings_proto_rewrite(ConstSlice<u8> group, UserSettingsField field, c
     return close_reserved_field(output, start, field.field, contents);
 }
 
-UserSettingsExtractResult user_settings_proto_extract_base64(Utf8View base64, u32 mask, Utf8View hash,
-                                                             Slice<u8> output) noexcept {
+UserSettingsExtractResult user_settings_proto_extract_base64(const Utf8View& base64, u32 mask,
+                                                             const Utf8View& hash,
+                                                             const Slice<u8>& output) noexcept {
     UserSettingsExtractResult result{0, 0, E::input};
     if (base64.bytes > base64_encoded_size(kUserSettingsProtoMaximumProtoBytes) || !range_valid(output) ||
         (base64.bytes && !base64.data) || hash.bytes > kUserSettingsSessionHashBytes ||
@@ -395,7 +397,7 @@ bool user_settings_proto_partial(ConstSlice<u8> extracted) noexcept {
     return false;
 }
 
-bool user_settings_proto_patch_valid(ConstSlice<u8> partial) noexcept {
+bool user_settings_proto_patch_valid(const ConstSlice<u8>& partial) noexcept {
     if (!partial.count || partial.count > kUserSettingsPartialMaximumBytes || !byte_range_valid(partial))
         return false;
     const Wire w = proto_source(partial);
@@ -449,7 +451,8 @@ bool envelope_member(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 } // namespace
 
-UserSettingsResponse user_settings_proto_decode_response(Utf8View body, u32 mask, Slice<u8> output) noexcept {
+UserSettingsResponse user_settings_proto_decode_response(const Utf8View& body, u32 mask,
+                                                         const Slice<u8>& output) noexcept {
     UserSettingsResponse result{{0, 0, E::input}, false, false};
     if (!body.data || !body.bytes)
         return result;
@@ -682,7 +685,8 @@ u32 user_settings_store_begin(UserSettingsStore* store, Slice<u8> partial, u32* 
 }
 
 UserSettingsCompletion user_settings_store_complete(UserSettingsStore* store, UserSettingsOutcome outcome,
-                                                    ConstSlice<u8> response, u64 retry_at_ms) noexcept {
+                                                    const ConstSlice<u8>& response,
+                                                    u64 retry_at_ms) noexcept {
     UserSettingsCompletion result{};
     if (!store->inflight_active)
         return result;

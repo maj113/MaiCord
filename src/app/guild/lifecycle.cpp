@@ -211,7 +211,7 @@ bool binding_ready(void* model, u64 identity) noexcept {
     return owner && owner->lifetime == identity && editable() &&
            settings_layer_editor(&owner->layer, nullptr, &focused, nullptr) && focused == model;
 }
-void load_editor(Utf8View text, u32 limit) noexcept {
+void load_editor(const Utf8View& text, u32 limit) noexcept {
     application_composer_text_input_suspend();
     const u32 bytes = minimum<u32>(text.bytes, kNameBytes);
     copy_bytes(owner->name, text.data, bytes);
@@ -522,7 +522,7 @@ bool repaint() noexcept {
     return settings_modal_present(project());
 }
 
-void open_menu(Menu menu, UiRect anchor) noexcept {
+void open_menu(Menu menu, const UiRect& anchor) noexcept {
     auto& p = *owner;
     const bool expiry = menu == Menu::expiry;
     const u32 count = expiry ? kGuildInviteExpiryCount : kGuildInviteUsesCount;

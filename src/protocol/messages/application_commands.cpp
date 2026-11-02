@@ -157,10 +157,10 @@ bool visit_application(void* context, u32, JsonValue value) noexcept {
     return true;
 }
 } // namespace
-JsonValue command_member(const JsonIndexedDocument& doc, JsonValue object, Utf8View name) noexcept {
+JsonValue command_member(const JsonIndexedDocument& doc, JsonValue object, const Utf8View& name) noexcept {
     return protocol_detail::object_member(doc, object, name, depth_limit);
 }
-bool command_json_text(JsonValue value, Slice<char> output, Utf8View* result) noexcept {
+bool command_json_text(JsonValue value, const Slice<char>& output, Utf8View* result) noexcept {
     JsonString string{};
     if (!result || !json_value_as_string(value, &string))
         return false;
@@ -233,8 +233,8 @@ bool command_index_decode(Utf8View body, Slice<u32> scratch, CommandIndex* outpu
     *output = index;
     return true;
 }
-bool command_data(const ApplicationCommand& command, Utf8View options, ProtocolWriter* w,
-                  Utf8View attachments) noexcept {
+bool command_data(const ApplicationCommand& command, const Utf8View& options, ProtocolWriter* w,
+                  const Utf8View& attachments) noexcept {
     if (!w || !command.id || !command.version || !command.root_name.bytes || !options.bytes)
         return false;
     // The key order: version, id, guild_id, name, type, options,
@@ -336,7 +336,7 @@ Utf8View trimmed(Utf8View input, u32 first, u32 last) noexcept {
         --last;
     return {input.data + first, last - first};
 }
-bool option_end_at(Utf8View input, u32 at) noexcept {
+bool option_end_at(const Utf8View& input, u32 at) noexcept {
     return at + kCommandOptionEndBytes <= input.bytes &&
            bytes_equal(input.data + at, kCommandOptionEnd, kCommandOptionEndBytes);
 }
@@ -533,8 +533,8 @@ bool safe_integer(double value) noexcept {
     return value >= -max_safe_integer && value <= max_safe_integer &&
            static_cast<double>(static_cast<i64>(value)) == value;
 }
-Utf8View join(Slice<char> output, Utf8View a, Utf8View b = {}, Utf8View c = {}, Utf8View d = {},
-              Utf8View e = {}) noexcept {
+Utf8View join(Slice<char> output, const Utf8View& a, const Utf8View& b = {}, const Utf8View& c = {},
+              const Utf8View& d = {}, const Utf8View& e = {}) noexcept {
     u32 used = 0;
     const Utf8View parts[] = {a, b, c, d, e};
     for (const auto part : parts) {
@@ -1203,7 +1203,7 @@ u32 command_frecency_compute(Slice<CommandFrecencyEntry> entries, u32 count, u64
     return kept;
 }
 
-void command_frecency_track(Slice<CommandFrecencyEntry> entries, u32* count, Utf8View key,
+void command_frecency_track(Slice<CommandFrecencyEntry> entries, u32* count, const Utf8View& key,
                             u64 now_unix_ms) noexcept {
     if (!count || !key.bytes || key.bytes > kCommandFrecencyKeyBytes || !entries.count)
         return;

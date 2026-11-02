@@ -31,8 +31,8 @@ enum ThreadMemberField : u32 {
 // IDs omitted by the server are filled in from the request; `fields` records
 // which values were actually on the wire. No response strings are borrowed.
 struct ThreadMemberSnapshot {
-    u64 thread_id{}, user_id{}, join_timestamp_ms{};
-    u32 flags{}, fields{};
+    u64 thread_id, user_id, join_timestamp_ms;
+    u32 flags, fields;
 };
 bool thread_action_request_valid(const ThreadActionRequest&) noexcept;
 // Writers preserve output on failure. Unarchive emits archived=false only.

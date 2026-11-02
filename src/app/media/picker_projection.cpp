@@ -75,7 +75,7 @@ void sticker_list_remove(u64 guild_id) noexcept {
             return;
         }
 }
-bool sticker_list_put(u64 guild_id, Utf8View json) noexcept {
+bool sticker_list_put(u64 guild_id, const Utf8View& json) noexcept {
     auto& store = g_sticker_store;
     if (!guild_id || !json.bytes || json.bytes > kMediaCatalogMaximumStickerResponseBytes)
         return false;
@@ -154,7 +154,8 @@ u32 inline_cache_index(const ApplicationMediaPicker& p, Utf8View query) noexcept
     return kInlineGifCacheCapacity;
 }
 // Makes `bank` the first entry, shifting the entries before `last` down over slot `last`.
-void inline_cache_front(ApplicationMediaPicker& p, u32 last, Utf8View query, CatalogBank* bank) noexcept {
+void inline_cache_front(ApplicationMediaPicker& p, u32 last, const Utf8View& query,
+                        CatalogBank* bank) noexcept {
     for (u32 i = last; i; --i) {
         p.inline_cache[i] = p.inline_cache[i - 1];
         p.inline_cache_query_bytes[i] = p.inline_cache_query_bytes[i - 1];

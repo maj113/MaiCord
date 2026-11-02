@@ -40,8 +40,8 @@ enum class ClientThemeStorageError : u8 {
     commit
 };
 struct ClientThemeStorageResult {
-    u32 native_error{}, document_offset{}, unsupported_fields{};
-    ClientThemeStorageError error{};
+    u32 native_error, document_offset, unsupported_fields;
+    ClientThemeStorageError error;
     bool ok() const noexcept {
         return error == ClientThemeStorageError::none;
     }
@@ -67,7 +67,7 @@ ClientThemeStorageResult client_theme_storage_load_file(const wchar_t*,
 ClientThemeStorageResult client_theme_storage_save_file(const wchar_t*,
                                                         const ClientThemeStorageSnapshot&) noexcept;
 // Resolve %LOCALAPPDATA%\MaiCord\themes.bin; directory creation only when requested.
-ClientThemeStorageResult client_theme_storage_user_path(Slice<wchar_t>,
+ClientThemeStorageResult client_theme_storage_user_path(const Slice<wchar_t>&,
                                                         bool create_directory = false) noexcept;
 
 // Installed themes: every *.json document in %LOCALAPPDATA%\MaiCord\themes.
@@ -91,8 +91,8 @@ ClientThemeStorageResult client_theme_catalog_directory(Slice<wchar_t>) noexcept
 // directory is an empty catalog. Output is replaced only on success.
 ClientThemeStorageResult client_theme_catalog_scan(const wchar_t* directory, ClientThemeCatalog*) noexcept;
 // Full path of an entry inside directory; false when it does not fit.
-bool client_theme_catalog_path(const wchar_t* directory, const ClientThemeCatalogEntry&, Slice<wchar_t>,
-                               u32* units) noexcept;
+bool client_theme_catalog_path(const wchar_t* directory, const ClientThemeCatalogEntry&,
+                               const Slice<wchar_t>&, u32* units) noexcept;
 
 enum class ClientThemeIoOperation : u8 {
     load,

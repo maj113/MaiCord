@@ -136,8 +136,8 @@ bool description_field(void* opaque, JsonString name, JsonValue value) noexcept 
     }
     return valid || reject(read, GatewayEventDecodeError::invalid_data, value.source_offset);
 }
-GatewayEventDecodeResult decode(JsonValue data, Slice<u32> scratch, u32 depth, JsonMemberVisitor visitor,
-                                Read& read) noexcept {
+GatewayEventDecodeResult decode(JsonValue data, const Slice<u32>& scratch, u32 depth,
+                                JsonMemberVisitor visitor, Read& read) noexcept {
     if (data.kind != JsonValueKind::object)
         return {data.source_offset, GatewayEventDecodeError::invalid_input};
     const auto scan = json_scan_structurals_avx1(data.source, scratch);

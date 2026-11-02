@@ -33,5 +33,5 @@ KdfResult mls_transcript_interim(KdfSha256Workspace& workspace, ConstSlice<u8> c
                                  ConstSlice<u8> confirmation_tag, Slice<u8> output) noexcept;
 // Fixed-length, full-byte comparison; never a prefix comparison. Call only on
 // a successfully derived candidate's tag, then complete all other MLS checks.
-bool mls_confirmation_matches(ConstSlice<u8> expected, ConstSlice<u8> received) noexcept;
+bool mls_confirmation_matches(const ConstSlice<u8>& expected, const ConstSlice<u8>& received) noexcept;
 } // namespace maicord

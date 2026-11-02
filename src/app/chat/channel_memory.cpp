@@ -109,12 +109,7 @@ bool channel_memory_decode(ConstSlice<u8> input, ChannelMemory* memory) noexcept
 }
 
 bool channel_memory_path(u64 profile_id, wchar_t* path, u32 capacity) noexcept {
-    if (!profile_id)
-        return false;
-    const DataPathResult built = data_path(path, capacity, L"accounts\\channels-");
-    u32 length = built.length;
-    return built.ok() && wide_append_hex(path, capacity, &length, profile_id) &&
-           wide_append(path, capacity, &length, L".last");
+    return profile_data_path(profile_id, path, capacity, L"accounts\\channels-", L".last");
 }
 
 bool channel_memory_load_file(const wchar_t* path, ChannelMemory* memory) noexcept {

@@ -1650,7 +1650,7 @@ void run() noexcept {
             UiRect mute_bounds{};
             if (scene)
                 for (const auto& control : scene->projection.controls)
-                    if (control.id == UiVideoControl::mute && control.enabled && control.visible)
+                    if (control.id == UiVideoControl::mute && control.enabled && !control.hidden)
                         mute_bounds = control.bounds;
             check(ui_rect_has_area(mute_bounds) &&
                   application_video_pointer(WM_LBUTTONDOWN, point(mute_bounds)) &&

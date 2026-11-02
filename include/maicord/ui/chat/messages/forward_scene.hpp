@@ -13,22 +13,22 @@ enum class UiMessageForwardState : u8 { ready, sending, sent, failed, cancelled 
 enum class UiMessageForwardPhase : u8 { ready, no_matches, unavailable };
 enum class UiMessageForwardAction : u8 { none, edit, caption, toggle, remove, retry, send, close, cancel_pending };
 struct UiMessageForwardSelection {
-    u64 channel_id{};
-    Utf8View label{}, detail{};
-    UiMessageForwardState state{};
+    u64 channel_id;
+    Utf8View label, detail;
+    UiMessageForwardState state;
 };
 struct UiMessageForwardContent {
-    UiEditView edit{}, caption{};
-    Utf8View author{}, preview{}, media_summary{}, status{};
-    UiMessageForwardSelection selected[kUiMessageForwardMaximumTargets]{};
-    u32 selected_count{}, revision{};
-    UiMessageForwardPhase phase{};
-    bool can_send{}, sending{}, committed{};
+    UiEditView edit, caption;
+    Utf8View author, preview, media_summary, status;
+    UiMessageForwardSelection selected[kUiMessageForwardMaximumTargets];
+    u32 selected_count, revision;
+    UiMessageForwardPhase phase;
+    bool can_send, sending, committed;
 };
 struct UiMessageForwardTarget {
-    UiMessageForwardAction action{};
-    u64 channel_id{};
-    u32 index{}, source_revision{};
+    UiMessageForwardAction action;
+    u64 channel_id;
+    u32 index, source_revision;
 };
 struct UiMessageForwardScene {
     UiFixedWidgetStorageOwner storage;

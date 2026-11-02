@@ -35,7 +35,7 @@ struct CacheLeaseScope {
     }
 };
 
-ConstSlice<u8> copy_result_etag(CdnMediaPipeline* pipeline, ConstSlice<u8> etag) noexcept {
+ConstSlice<u8> copy_result_etag(CdnMediaPipeline* pipeline, const ConstSlice<u8>& etag) noexcept {
     pipeline->result_etag_bytes = 0;
     if (!etag.data || etag.count == 0 || etag.count > sizeof(pipeline->result_etag)) {
         return {};

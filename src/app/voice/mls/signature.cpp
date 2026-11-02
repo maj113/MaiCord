@@ -7,8 +7,9 @@
 
 namespace maicord {
 namespace {
-KdfResult validate(const KdfSha256Workspace& workspace, ConstSlice<u8> label, ConstSlice<u8> a,
-                   ConstSlice<u8> b, ConstSlice<u8> destination, u32 prefix) noexcept {
+KdfResult validate(const KdfSha256Workspace& workspace, const ConstSlice<u8>& label,
+                   const ConstSlice<u8>& a, const ConstSlice<u8>& b, const ConstSlice<u8>& destination,
+                   u32 prefix) noexcept {
     if (!workspace.storage.data || !workspace.storage.locked)
         return {0, 0, KdfError::not_initialized};
     if (label.count > 0x3fffffff - prefix || a.count > 0x3fffffff || b.count > 0x3fffffff - a.count)
@@ -22,8 +23,8 @@ KdfResult validate(const KdfSha256Workspace& workspace, ConstSlice<u8> label, Co
         return {0, 0, KdfError::invalid_input};
     return {};
 }
-KdfResult framed_hash(KdfSha256Workspace& workspace, ConstSlice<u8> label, ConstSlice<u8> a,
-                      ConstSlice<u8> b, Slice<u8> output, bool sign) noexcept {
+KdfResult framed_hash(KdfSha256Workspace& workspace, const ConstSlice<u8>& label, const ConstSlice<u8>& a,
+                      const ConstSlice<u8>& b, const Slice<u8>& output, bool sign) noexcept {
     auto result = validate(workspace, label, a, b, {output.data, output.count}, sign ? 8 : 0);
     if (!result.ok())
         return result;
@@ -47,9 +48,9 @@ MlsSignatureResult hash_error(KdfResult result) noexcept {
             : result.error == KdfError::invalid_input ? MlsSignatureError::invalid_input
                                                       : MlsSignatureError::hash_failure};
 }
-MlsSignatureResult preflight(const KdfSha256Workspace& workspace, const P256Key& key, ConstSlice<u8> label,
-                             ConstSlice<u8> a, ConstSlice<u8> b, ConstSlice<u8> signature,
-                             bool sign) noexcept {
+MlsSignatureResult preflight(const KdfSha256Workspace& workspace, const P256Key& key,
+                             const ConstSlice<u8>& label, const ConstSlice<u8>& a, const ConstSlice<u8>& b,
+                             const ConstSlice<u8>& signature, bool sign) noexcept {
     auto checked = validate(workspace, label, a, b, signature, 8);
     if (!checked.ok())
         return hash_error(checked);
@@ -71,17 +72,18 @@ MlsSignatureResult preflight(const KdfSha256Workspace& workspace, const P256Key&
     return {};
 }
 } // namespace
-KdfResult mls_signature_hash(KdfSha256Workspace& workspace, ConstSlice<u8> label, ConstSlice<u8> a,
-                             ConstSlice<u8> b, Slice<u8> digest) noexcept {
+KdfResult mls_signature_hash(KdfSha256Workspace& workspace, const ConstSlice<u8>& label,
+                             const ConstSlice<u8>& a, const ConstSlice<u8>& b,
+                             const Slice<u8>& digest) noexcept {
     return framed_hash(workspace, label, a, b, digest, true);
 }
-KdfResult mls_reference_hash(KdfSha256Workspace& workspace, ConstSlice<u8> label, ConstSlice<u8> value,
-                             Slice<u8> digest) noexcept {
+KdfResult mls_reference_hash(KdfSha256Workspace& workspace, const ConstSlice<u8>& label,
+                             const ConstSlice<u8>& value, const Slice<u8>& digest) noexcept {
     return framed_hash(workspace, label, value, {}, digest, false);
 }
 MlsSignatureResult mls_sign_with_label(KdfSha256Workspace& workspace, const P256Key& key,
-                                       ConstSlice<u8> label, ConstSlice<u8> a, ConstSlice<u8> b,
-                                       Slice<u8> signature) noexcept {
+                                       const ConstSlice<u8>& label, const ConstSlice<u8>& a,
+                                       const ConstSlice<u8>& b, const Slice<u8>& signature) noexcept {
     auto result = preflight(workspace, key, label, a, b, {signature.data, signature.count}, true);
     if (!result.ok())
         return result;
@@ -104,8 +106,9 @@ MlsSignatureResult mls_sign_with_label(KdfSha256Workspace& workspace, const P256
     return result;
 }
 MlsSignatureResult mls_verify_with_label(KdfSha256Workspace& workspace, const P256Key& key,
-                                         ConstSlice<u8> label, ConstSlice<u8> a, ConstSlice<u8> b,
-                                         ConstSlice<u8> signature) noexcept {
+                                         const ConstSlice<u8>& label, const ConstSlice<u8>& a,
+                                         const ConstSlice<u8>& b,
+                                         const ConstSlice<u8>& signature) noexcept {
     auto result = preflight(workspace, key, label, a, b, signature, false);
     if (!result.ok())
         return result;

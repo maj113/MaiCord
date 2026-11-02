@@ -1,22 +1,29 @@
 #!/usr/bin/env python3
-"""Deflate-pack the emoji name and glyph string pools into one generated include.
+"""Deflate-pack the emoji name and glyph string pools and both entry tables into one generated include.
 
 Usage: pack_emoji_pools.py OUTPUT CATALOG_INCLUDE SHORTCODE_INCLUDE
 
-The catalog name prefix, shared shortcode names, and shared glyphs form one
-zlib stream. Generated alias rows use offsets from the shared name suffix.
-src/ui/text/emoji_catalog.cpp inflates the stream once and checks its layout.
+The catalog name prefix, shared shortcode names, shared glyphs, the 6-byte catalog and alias rows and the
+primary-shortcode bit set form one zlib stream. Generated alias rows use offsets from the shared name suffix.
+Rows ship as byte planes of BLOCK-row blocks (a plane of one field deflates far better than interleaved
+rows); src/ui/text/emoji_catalog.cpp inflates the stream once, interleaves the rows back in place and checks
+the layout constants emitted here (interleave() below is the same permutation, checked against the sources).
 """
 import ast
 import pathlib
 import re
+import struct
 import sys
 import zlib
+import optimal_deflate
 from font_reference.embed_fixture import embed_arrays, write_if_changed
 from generate_unicode_emoji_catalog import pool_strings
 
+
 LITERAL = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
 SHORTCODE_NAME_BASE = 0
+ROW = 6  # bytes per catalog and alias row
+BLOCK = 256  # rows per plane block; emoji_catalog.cpp interleaves one block through a 1.5 KB stack buffer
 PACKED_FILE = "emoji_pool_packed.bin"  # beside the include, read by #embed
 
 
@@ -38,16 +45,45 @@ def read_pool(source, symbol, ascii_only):
 
 
 def pack(data):
-    best = None
-    for level in (9,):
+    def fallback(data):
+        best = None
         for mem in (8, 9):
             for strategy in (zlib.Z_DEFAULT_STRATEGY, zlib.Z_FILTERED):
-                c = zlib.compressobj(level, zlib.DEFLATED, 15, mem, strategy)
+                c = zlib.compressobj(9, zlib.DEFLATED, 15, mem, strategy)
                 out = c.compress(data) + c.flush()
                 if best is None or len(out) < len(best):
                     best = out
+        return best
+
+    cache = optimal_deflate.DeflateCache("emoji")
+    best = cache.stream(data, fallback)
+    cache.save()
     assert zlib.decompress(best) == data
     return best
+
+
+def planes(rows):
+    """Rows (bytes, ROW each) as per-block byte planes."""
+    out = bytearray()
+    count = len(rows) // ROW
+    for first in range(0, count, BLOCK):
+        n = min(BLOCK, count - first)
+        block = rows[first * ROW:(first + n) * ROW]
+        for column in range(ROW):
+            out += bytes(block[i * ROW + column] for i in range(n))
+    return bytes(out)
+
+
+def interleave(data, count):
+    """The permutation emoji_catalog.cpp applies in place."""
+    out = bytearray()
+    for first in range(0, count, BLOCK):
+        n = min(BLOCK, count - first)
+        block = data[first * ROW:(first + n) * ROW]
+        for i in range(n):
+            out += bytes(block[column * n + i] for column in range(ROW))
+    return bytes(out)
+
 
 
 def shared_names(catalog_names, shortcode_names, shortcode_glyphs, shortcode_source):
@@ -78,6 +114,23 @@ def shared_names(catalog_names, shortcode_names, shortcode_glyphs, shortcode_sou
     return shared, remapped
 
 
+def catalog_rows(catalog_source):
+    fragment = catalog_source.split("kUnicodeEmoji16Entries[] =", 1)[1]
+    return [tuple(map(int, row)) for row in re.findall(r"\{(\d+), (\d+), (\d+), (\d+)\}", fragment)]
+
+
+def category_ranges(catalog_source):
+    fragment = catalog_source.split("kUnicodeEmoji16CategoryRanges[][2] =", 1)[1].split(";", 1)[0]
+    return [tuple(map(int, row)) for row in re.findall(r"\{(\d+), (\d+)\}", fragment)]
+
+
+def primary_rows(shortcode_source):
+    match = re.search(r"kEmojiPrimaryShortcodes\[\]\s*=\s*\{(.*?)\};", shortcode_source, re.S)
+    if not match:
+        raise SystemExit("kEmojiPrimaryShortcodes not found")
+    return [int(value) for value in re.findall(r"\d+", match[1])]
+
+
 def generate(catalog_source, shortcode_source):
     catalog_names = read_pool(catalog_source, "kUnicodeEmojiCatalogNames", True)
     shortcode_names = read_pool(shortcode_source, "kEmojiShortcodeNames", True)
@@ -86,19 +139,53 @@ def generate(catalog_source, shortcode_source):
     if not glyphs.startswith(shortcode_glyphs) or len(glyphs) >= 65536:
         raise SystemExit("Catalog must share the exact shortcode glyph prefix within u16 bounds")
     names, aliases = shared_names(catalog_names, shortcode_names, shortcode_glyphs, shortcode_source)
-    blob = names + glyphs
+    entries = catalog_rows(catalog_source)
+    ranges = category_ranges(catalog_source)
+    primary = primary_rows(shortcode_source)
+    for name_offset, glyph_offset, name_bytes, glyph_bytes in entries:
+        if (not 0 < name_bytes < 128 or not 0 < glyph_bytes < 64 or name_offset + name_bytes > len(catalog_names) or
+                glyph_offset + glyph_bytes > len(glyphs) or name_offset >= 65536):
+            raise SystemExit("Invalid catalog string range")
+    # The primary row of a glyph is looked up by glyph: a set of rows replaces the ordered list only when no
+    # two of them share a glyph (emoji_catalog.cpp walks the rows in order and takes the first match).
+    if len(set(primary)) != len(primary) or not all(0 <= row < len(aliases) for row in primary):
+        raise SystemExit("Invalid primary shortcode rows")
+    if len({(aliases[row][1], aliases[row][3]) for row in primary}) != len(primary):
+        raise SystemExit("Two primary shortcode rows share a glyph")
+    bits = bytearray((len(aliases) + 7) // 8)
+    for row in primary:
+        bits[row >> 3] |= 1 << (row & 7)
+    catalog_bytes = b"".join(struct.pack("<HHBB", *row) for row in entries)
+    alias_bytes = b"".join(struct.pack("<HHBB", offset & 0xFFFF, glyph, length | ((offset >> 16) << 7), glyph_bytes)
+                           for offset, glyph, length, glyph_bytes in aliases)
+    pool = names + glyphs
+    pool += bytes(-len(pool) % 2)
+    catalog_offset = len(pool)
+    alias_offset = catalog_offset + len(catalog_bytes)
+    primary_offset = alias_offset + len(alias_bytes)
+    blob = pool + planes(catalog_bytes) + planes(alias_bytes) + bytes(bits)
+    assert interleave(blob[catalog_offset:alias_offset], len(entries)) == catalog_bytes
+    assert interleave(blob[alias_offset:primary_offset], len(aliases)) == alias_bytes
     lines = ["// Generated by tools/pack_emoji_pools.py; do not edit.",
              "constexpr u32 kEmojiPoolCatalogNamesOffset=0;",
              f"constexpr u32 kEmojiPoolCatalogNamePrefixBytes={len(catalog_names)};",
              f"constexpr u32 kEmojiPoolShortcodeNamesOffset={SHORTCODE_NAME_BASE};",
              f"constexpr u32 kEmojiPoolCatalogGlyphsOffset={len(names)};",
-             f"constexpr u32 kEmojiPoolShortcodeGlyphsOffset={len(names)};"]
-    lines.append(f"constexpr u32 kEmojiPoolBytes={len(blob)};")
+             f"constexpr u32 kEmojiPoolShortcodeGlyphsOffset={len(names)};",
+             f"constexpr u32 kEmojiPoolCatalogGlyphBytes={len(glyphs)};",
+             f"constexpr u32 kEmojiPoolShortcodeGlyphBytes={len(shortcode_glyphs)};",
+             f"constexpr u32 kEmojiPoolShortcodeNameBytes={len(names) - SHORTCODE_NAME_BASE};",
+             f"constexpr u32 kEmojiPoolCatalogEntryOffset={catalog_offset};",
+             f"constexpr u32 kEmojiPoolCatalogEntryCount={len(entries)};",
+             f"constexpr u32 kEmojiPoolAliasOffset={alias_offset};",
+             f"constexpr u32 kEmojiPoolAliasCount={len(aliases)};",
+             f"constexpr u32 kEmojiPoolPrimaryOffset={primary_offset};",
+             f"constexpr u32 kEmojiPoolMaximumNameBytes={max(row[2] for row in entries)};",
+             f"constexpr u32 kEmojiPoolMaximumGlyphBytes={max(row[3] for row in entries)};",
+             "constexpr u16 kEmojiPoolCategoryRanges[][2]={" + ", ".join("{%d, %d}" % row for row in ranges) + "};",
+             f"constexpr u32 kEmojiPoolBytes={len(blob)};"]
     packed = pack(bytes(blob))
     lines.append(embed_arrays([("constexpr u8 kEmojiPoolPacked[]", PACKED_FILE)]).rstrip("\n"))
-    lines.append("constexpr EmojiAliasEntry kEmojiSharedNameShortcodes[]={")
-    lines.extend("    {%d, %d, %d, %d}," % row for row in aliases)
-    lines.append("};")
     return "\n".join(lines) + "\n", packed
 
 

@@ -122,7 +122,8 @@ bool rest_audit_reason_valid(const ConstSlice<u8>& encoded) noexcept;
 bool rest_extra_headers_valid(const ConstSlice<u8>& headers) noexcept;
 // Appends one allowlisted header line; returns the new length, or ~0u when it
 // does not fit or the value is invalid. The output is unchanged on failure.
-u32 rest_append_extra_header(Slice<u8> output, u32 used, Utf8View name, ConstSlice<u8> value) noexcept;
+u32 rest_append_extra_header(const Slice<u8>& output, u32 used, const Utf8View& name,
+                             const ConstSlice<u8>& value) noexcept;
 
 // How many times the client retries a GET on a transport failure or a 502, 504, 507, 598, 599, 522,
 // 523 or 524 (its `retries` option, backed off, with X-Failed-Requests counting the failed tries):
@@ -143,7 +144,7 @@ constexpr bool rest_retryable_status(u16 status) noexcept {
 // byte (including a credential) is copied to output.
 // The caller owns secure erasure of the plaintext output after TLS framing.
 RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
-                                               Slice<u8> output) noexcept;
+                                               const Slice<u8>& output) noexcept;
 
 enum class RestUserPropertiesError : u8 {
     none,
@@ -158,8 +159,9 @@ using RestUserPropertiesResult = ByteResult<RestUserPropertiesError>;
 // Writes base64(JSON(properties)) for X-Super-Properties. The property schema
 // is shared with the normal-user Gateway Identify; callers provide scratch so
 // this stays allocation-free.
-RestUserPropertiesResult write_rest_user_super_properties(
-    const GatewayUserProperties& properties, Slice<u8> json_scratch, Slice<u8> output) noexcept;
+RestUserPropertiesResult write_rest_user_super_properties(const GatewayUserProperties& properties,
+                                                          const Slice<u8>& json_scratch,
+                                                          const Slice<u8>& output) noexcept;
 
 enum class RateLimitScope : u8 {
     none,
@@ -294,7 +296,7 @@ RateLimitBodyResult decode_rate_limit_body(Utf8View body, Slice<u32> structural_
 // omitted retry_after requires code 110000; a supplied code must also be 110000.
 // Valid missing/zero delays permit a short retry. Global never establishes a
 // 429 rate-limit scope through this decoder.
-RateLimitBodyResult decode_search_indexing_body(Utf8View body, Slice<u32> structural_scratch,
+RateLimitBodyResult decode_search_indexing_body(const Utf8View& body, const Slice<u32>& structural_scratch,
                                             u32 maximum_depth) noexcept;
 
 enum class RestMajorParameter : u8 {

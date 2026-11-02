@@ -36,7 +36,7 @@ constexpr UpdateChannel update_version_channel(u64 version) noexcept {
 }
 // "1.2.3" or "1.2.3-preview.4" (plugin index versions); returns bytes
 // written, 0 when it does not fit.
-u32 update_version_text(u64 version, Slice<char> output) noexcept;
+u32 update_version_text(u64 version, const Slice<char>& output) noexcept;
 // An application build: "1.2.3", or "1.2.4-dev.5" for a master build,
 // followed by "+<commit>" when commit is not empty (at most 12 characters).
 u32 update_build_version_text(u64 version, Utf8View commit, Slice<char> output) noexcept;
@@ -50,7 +50,7 @@ struct UpdateTextWriter {
         if (!ok || bytes > out.count - used) { ok = false; return; }
         copy_bytes(out.data + used, text, bytes); used += bytes;
     }
-    void add(Utf8View text) noexcept { add(text.data, text.bytes); }
+    void add(const Utf8View& text) noexcept { add(text.data, text.bytes); }
     void number(u64 value) noexcept { char digits[20]; add(digits, decimal_write(digits, value)); }
 };
 

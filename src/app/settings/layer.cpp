@@ -242,7 +242,7 @@ bool settings_layer_editor(SettingsLayer* layer, u64* control_id, MessageCompose
 }
 
 UiSettingsEditor settings_layer_editor_view(SettingsLayer* layer, u64 control_id, MessageComposer& model,
-                                            Utf8View placeholder, bool can_edit) noexcept {
+                                            const Utf8View& placeholder, bool can_edit) noexcept {
     const auto target = layer->scene->active ? ui_settings_scene_focused(*layer->scene) : UiSettingsTarget{};
     const bool focused = can_edit && !layer->choice && target.kind == UiSettingsTargetKind::control &&
                          target.control_id == control_id;

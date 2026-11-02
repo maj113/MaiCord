@@ -11,7 +11,7 @@ void store16(u8* output, u32 value) noexcept {
 }
 // Validates space for `bytes` (a multiple of four) at offset and writes the
 // common header: V=2, no padding, count/FMT, packet type and word length - 1.
-u8* header(Slice<u8> output, u32 offset, u32 bytes, u8 count, u8 type) noexcept {
+u8* header(const Slice<u8>& output, u32 offset, u32 bytes, u8 count, u8 type) noexcept {
     if (!output.data || !byte_range_valid({output.data, output.count}) || offset > output.count ||
         bytes > output.count - offset || bytes < 4 || (bytes & 3) || count > 31)
         return nullptr;

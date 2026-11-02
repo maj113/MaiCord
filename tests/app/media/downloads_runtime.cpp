@@ -1353,7 +1353,7 @@ bool open_message_media_context_popup(u64 message_id, UiRect, ConstSlice<PopupIt
     g_app.popup_owner_kind = PopupOwnerKind::message;
     return true;
 }
-bool application_open_content_url(Utf8View) noexcept {
+bool application_open_content_url(const Utf8View&) noexcept {
     ++downloads_runtime_test::opened_links;
     return true;
 }

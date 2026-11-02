@@ -9,7 +9,7 @@
 
 namespace maicord {
 namespace {
-bool name_valid(Utf8View name) noexcept {
+bool name_valid(const Utf8View& name) noexcept {
     return protocol_detail::name_text_valid(name, kThreadCreationNameMaximumBytes, kThreadCreationNameMaximumScalars,
                                             true);
 }

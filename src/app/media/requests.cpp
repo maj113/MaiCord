@@ -169,7 +169,7 @@ enum class ScanStep : u8 { next, stopped, failed };
 // One avatar of a scene's visible list: skips a resident animation, stops at the upload budget and
 // otherwise requests it.
 __declspec(noinline) ScanStep request_scene_avatar(ApplicationMediaPump& pump, const MediaAssetKey& key,
-                                                   Utf8View hash, bool* stop) noexcept {
+                                                   const Utf8View& hash, bool* stop) noexcept {
     bool force = false;
     if ((key.flags & media_asset_flag_animated) && pump.animation_resident(key, &force))
         return ScanStep::next;

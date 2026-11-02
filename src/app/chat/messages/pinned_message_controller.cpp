@@ -42,7 +42,7 @@ bool request_equal(const PinnedMessageController& value, const PinnedMessageRequ
         request.payload.query.limit == value.pending.query.limit &&
         cursor_equal(request.payload.query.before, value.pending.query.before);
 }
-u16 excerpt(char* destination, u32 capacity, Utf8View source) noexcept {
+u16 excerpt(char* destination, u32 capacity, const Utf8View& source) noexcept {
     return static_cast<u16>(utf8_copy_truncated(destination, capacity, source));
 }
 bool page_valid(const PinnedMessageController& value, const MessagePinsPage& page,

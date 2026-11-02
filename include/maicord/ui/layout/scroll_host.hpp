@@ -13,8 +13,8 @@ struct UiScrollRange {
     double maximum;
     double line;
     double units_per_dip;
-    double origin = 0;
-    u64 generation = 0;
+    double origin;
+    u64 generation;
 };
 
 // Virtualized content provides geometry and an absolute offset setter only.

@@ -58,16 +58,16 @@ enum class MarkdownCacheMode : u8 { content = 1, reply = 2 };
 // How a command is measured, aligned and shaped. The presets are the labels
 // that recur; the defaults are a plain wrapping block.
 struct CommandLook {
-    MessageTextMeasurementKind kind{};
-    float minimum_height{};
-    float gap_after{};
-    bool themed{};
-    UiTextAlignment horizontal{};
-    UiTextAlignment vertical{};
-    TextWrapping wrapping = TextWrapping::wrap;
-    u8 slot{};
-    TextOverflow overflow{};
-    u16 source_id{};
+    MessageTextMeasurementKind kind;
+    float minimum_height;
+    float gap_after;
+    bool themed;
+    UiTextAlignment horizontal;
+    UiTextAlignment vertical;
+    TextWrapping wrapping;
+    u8 slot;
+    TextOverflow overflow;
+    u16 source_id;
 };
 
 inline constexpr CommandLook kLookMiddle{.vertical = UiTextAlignment::center,

@@ -71,10 +71,7 @@ AccountLoginStatus WINAPI module_login_start_captcha_bridge(void* instance, u64 
     }
     runtime->captcha_status = captcha_bridge_start_copied(
         &runtime->captcha_bridge, generation, timeout_ms, current.captcha_provider, current.captcha_invisible,
-        [runtime](CaptchaChallengeSecretKind kind, SecureBuffer* output) noexcept {
-            return module_login_copy_captcha_secret(runtime, kind, output);
-        },
-        ERROR_INVALID_DATA);
+        module_login_copy_captcha_secret, runtime, ERROR_INVALID_DATA);
     if (!runtime->captcha_status.ok()) {
         runtime->captcha_status.generation = generation;
         runtime->captcha_status.phase = CaptchaBridgePhase::failed;

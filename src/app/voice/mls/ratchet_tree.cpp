@@ -5,8 +5,9 @@
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
-MlsStatus mls_verify_point(KdfSha256Workspace& kdf, const u8* signature_key, ConstSlice<u8> label,
-                           ConstSlice<u8> a, ConstSlice<u8> b, ConstSlice<u8> signature) noexcept {
+MlsStatus mls_verify_point(KdfSha256Workspace& kdf, const u8* signature_key, const ConstSlice<u8>& label,
+                           const ConstSlice<u8>& a, const ConstSlice<u8>& b,
+                           const ConstSlice<u8>& signature) noexcept {
     P256Key key{};
     auto status = mls_status(p256_import_public(&key, P256Kind::ecdsa, {signature_key, kMlsPointBytes}));
     if (status == MlsStatus::ok)
@@ -430,7 +431,7 @@ MlsStatus mls_tree_filtered_direct_path(const MlsRatchetTree& tree, u32 leaf_ind
     return MlsStatus::ok;
 }
 
-MlsStatus mls_leaf_tree_hash(KdfSha256Workspace& kdf, u32 leaf_index, ConstSlice<u8> leaf,
+MlsStatus mls_leaf_tree_hash(KdfSha256Workspace& kdf, u32 leaf_index, const ConstSlice<u8>& leaf,
                              u8* hash) noexcept {
     if (!hash || leaf.count > kMlsMaxLeafNodeBytes || (!leaf.data && leaf.count))
         return MlsStatus::invalid_argument;
@@ -443,7 +444,7 @@ MlsStatus mls_leaf_tree_hash(KdfSha256Workspace& kdf, u32 leaf_index, ConstSlice
     const ConstSlice<u8> parts[]{{header, sizeof(header)}, leaf};
     return mls_hash(kdf, {parts, 2}, hash);
 }
-MlsStatus mls_parent_tree_hash(KdfSha256Workspace& kdf, ConstSlice<u8> parent, const u8* left_hash,
+MlsStatus mls_parent_tree_hash(KdfSha256Workspace& kdf, const ConstSlice<u8>& parent, const u8* left_hash,
                                const u8* right_hash, u8* hash) noexcept {
     if (!left_hash || !right_hash || !hash || (!parent.data && parent.count))
         return MlsStatus::invalid_argument;

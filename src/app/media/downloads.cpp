@@ -70,7 +70,7 @@ bool channel_current(u64 id) noexcept {
 } // namespace
 namespace downloads_detail {
 
-bool url_current(Utf8View url, u64 origin, u64 attachment) noexcept {
+bool url_current(const Utf8View& url, u64 origin, u64 attachment) noexcept {
     u8 target[kCdnMaximumTargetBytes], prefix[80];
     const auto parsed = parse_signed_attachment_url(url, attachment, {target, sizeof(target)});
     if (!parsed.ok())
@@ -191,7 +191,7 @@ bool embed_media(const MessageRichStore& store, const MessageRichRecord& rich, u
     return tile ? message_rich_embed_gallery_select(store, rich.embeds[index], selected)
                 : message_rich_embed_media_select(store, rich.embeds[index], selected);
 }
-bool media_downloadable(Utf8View url) noexcept {
+bool media_downloadable(const Utf8View& url) noexcept {
     u8 request[kCdnMaximumTargetBytes + 192];
     return url.bytes && attachment_download_write_media_request(url, {request, sizeof(request)}).ok();
 }
@@ -1037,7 +1037,7 @@ ReceivedAttachmentKind source_kind(MediaAttachmentFormat format, const MessageRi
 namespace downloads_detail {
 
 // The official client's attachment groups merged into the message menu, before Copy ID.
-bool open_context(const DownloadSource& source, UiRect anchor) noexcept {
+bool open_context(const DownloadSource& source, const UiRect& anchor) noexcept {
     auto* q = ensure_owner();
     if (!q || !source_current(source) || !dismiss_popup())
         return false;
@@ -1194,7 +1194,7 @@ bool embed_image_at(float x, float y, DownloadSource* out, u32* embed_index = nu
 } // namespace
 namespace downloads_detail {
 
-bool open_sticker_context(const DownloadSource& source, UiRect anchor) noexcept {
+bool open_sticker_context(const DownloadSource& source, const UiRect& anchor) noexcept {
     auto* q = ensure_owner();
     if (!q || !dismiss_popup())
         return false;
@@ -1293,7 +1293,7 @@ bool copy_image(const DownloadSource& source, MediaAttachmentFormat format) noex
                   read ? "copy_image_clipboard_failed" : "copy_image_not_resident");
     return copied;
 }
-void copy_link(Utf8View link) noexcept {
+void copy_link(const Utf8View& link) noexcept {
     if (!application_copy_text(link, kToastLinkCopied, kToastLinkCopyFailed))
         log_write(LogLevel::warning, "downloads", "copy_link_failed");
 }

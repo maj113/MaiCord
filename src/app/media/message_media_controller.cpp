@@ -181,14 +181,14 @@ bool first_asset_observation(MessageMediaController* controller, MediaAssetKey k
     return true;
 }
 
-bool asset_resident(MediaAtlas* atlas, MediaAssetKey key) noexcept {
+bool asset_resident(MediaAtlas* atlas, const MediaAssetKey& key) noexcept {
     return atlas && media_atlas_find(atlas, key).ok();
 }
 
 // True when the asset still needs its callback. A paused animation (play false) keeps its current
 // frame: the timeline entry is only looked up, so it is never marked visible and never advances.
 // A paused or held asset is left unmarked so a hovered row or group sharing it can still play it.
-bool needs_request(MessageMediaController* controller, MediaAssetKey key, bool animated,
+bool needs_request(MessageMediaController* controller, const MediaAssetKey& key, bool animated,
                    AnimationTimeline* animations, MediaAtlas* atlas, u64 now_us, bool play,
                    bool* force_request) noexcept {
     if (animated && !play && animation_timeline_find(animations, key).ok() && asset_resident(atlas, key))

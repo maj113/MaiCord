@@ -188,7 +188,7 @@ u32 collect_roles(u64 guild_id, u64 user_id, u64* ids, bool* held, u32 capacity)
             continue;
         found[count++] = &role;
     }
-    heap_sort(found, count,
+    heap_sort_shared(found, count,
               [](const RoleRecord* left, const RoleRecord* right) noexcept { return role_before(*left, *right); });
     count = minimum(count, minimum<u32>(capacity, kUserContextRoleItems));
     for (u32 i = 0; i < count; ++i) {
@@ -211,7 +211,7 @@ bool menu_current(u64 user_id) noexcept {
         return g_state->menu_dm_channel && g_app.popup_scene.owner_id == g_state->menu_dm_channel;
     return g_app.popup_scene.owner_id == user_id && g_app.popup_owner_kind == PopupOwnerKind::member;
 }
-bool reopen(ConstSlice<PopupItem> items, u64 owner, PopupOwnerKind kind, float width) noexcept {
+bool reopen(const ConstSlice<PopupItem>& items, u64 owner, PopupOwnerKind kind, float width) noexcept {
     const UiRect anchor = g_app.popup_scene.anchor;
     application_plugins_menu_dismissed();
     if (!popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, owner, items, anchor,
@@ -455,10 +455,10 @@ bool application_user_menu_open(u64 user_id, UiRect anchor, u64 guild_id, UserMe
     if (extra)
         items[count].flags |= popup_item_separator_before;
     count += extra;
-    items[count++] = {utf8_literal("Copy username"), popup_action_copy_member_name,
-                      static_cast<u16>(popup_item_enabled | popup_item_separator_before), 0};
+    popup_item_set(&items[count++], utf8_literal("Copy username"), popup_action_copy_member_name,
+                   static_cast<u16>(popup_item_enabled | popup_item_separator_before));
     if (g_app.preferences.developer_mode)
-        items[count++] = {utf8_literal("Copy user ID"), popup_action_copy_member_id, popup_item_enabled, 0};
+        popup_item_set(&items[count++], utf8_literal("Copy user ID"), popup_action_copy_member_id, popup_item_enabled);
     const u32 native = count;
     count += application_plugins_menu_items(ApplicationPluginMenuSurface::user, user_id,
                                             {items + count, kApplicationPluginMenuRows}, guild);

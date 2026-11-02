@@ -26,7 +26,7 @@ enum class CaptchaProvider : u8 {
 };
 
 // Classifies a borrowed service value without copying or retaining its bytes.
-CaptchaProvider captcha_provider_from_service(ConstSlice<u8> service) noexcept;
+CaptchaProvider captcha_provider_from_service(const ConstSlice<u8>& service) noexcept;
 
 enum class CaptchaChallengeSecretKind : u8 {
     service,
@@ -82,9 +82,9 @@ void captcha_challenge_release(CaptchaChallenge* challenge) noexcept;
 
 // Decodes only the bounded public CAPTCHA schema directly into locked memory.
 // A non-CAPTCHA response or any decode failure leaves the owner empty.
-CaptchaChallengeResult captcha_challenge_decode(CaptchaChallenge* challenge, u16 status_code, Utf8View body,
-                                                Slice<u32> structural_scratch, u32 maximum_depth,
-                                                UserAuthResponse* response) noexcept;
+CaptchaChallengeResult captcha_challenge_decode(CaptchaChallenge* challenge, u16 status_code,
+                                                const Utf8View& body, const Slice<u32>& structural_scratch,
+                                                u32 maximum_depth, UserAuthResponse* response) noexcept;
 CaptchaChallengeSnapshot captcha_challenge_snapshot(const CaptchaChallenge* challenge) noexcept;
 // The locked destination must be disjoint from the challenge owner.
 SecureBufferResult captcha_challenge_copy_secret(const CaptchaChallenge* challenge,

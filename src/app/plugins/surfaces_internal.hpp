@@ -96,7 +96,7 @@ u32 button_surfaces() noexcept;
 mc_status plugin_surfaces_push(PluginBinding*, u32 hook_kind, u64 id, u64 scope, const mc_decoration*) noexcept;
 mc_status plugin_surfaces_invalidate(PluginBinding*, u32 what, u64 id) noexcept;
 // decorations.cpp helpers the buttons use.
-bool text_valid(mc_str text, u32 maximum) noexcept;
+bool text_valid(const mc_str& text, u32 maximum) noexcept;
 void fill_message(const PluginMessageInput&, mc_message*) noexcept;
 // reads.cpp: mc_api.read_*, from g_plugin_reader.
 mc_status read_user(u64 user_id, u64 guild_id, mc_user* out) noexcept;

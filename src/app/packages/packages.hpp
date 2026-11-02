@@ -136,6 +136,6 @@ bool application_packages_drop(HANDLE drop) noexcept;
 // ---- Installed themes and effects --------------------------------------------------------------------------
 bool application_packages_remove(PackageLinkKind kind, Utf8View slug) noexcept;
 // Whatever is active from that item falls back (effect: the theme's, else None; theme: the built-in one).
-void application_packages_deactivate(PackageLinkKind kind, Utf8View slug) noexcept;
+void application_packages_deactivate(PackageLinkKind kind, const Utf8View& slug) noexcept;
 
 } // namespace maicord::app_detail

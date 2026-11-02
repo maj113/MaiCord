@@ -34,7 +34,7 @@ u32 text_limit(const AccountSettingsRequest& r) noexcept {
            : r.field == AccountProfileField::pronouns ? kAccountSettingsPronounsBytes
                                                                                : kAccountSettingsBioBytes;
 }
-Utf8View text(ConstSlice<u8> payload) noexcept {
+Utf8View text(const ConstSlice<u8>& payload) noexcept {
     return {reinterpret_cast<const char*>(payload.data), payload.count};
 }
 

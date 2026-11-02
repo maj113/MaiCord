@@ -197,7 +197,7 @@ void process_gateway_message(GatewaySession* session, Utf8View message, u32 hear
     }
 }
 
-bool output_disjoint(const GatewaySession& session, Slice<u8> candidate) noexcept {
+bool output_disjoint(const GatewaySession& session, const Slice<u8>& candidate) noexcept {
     if (session.structural_scratch.count > ~0u / sizeof(u32)) return false;
     const ConstSlice<u8> output{candidate.data, candidate.count};
     const ConstSlice<u8> decoder{reinterpret_cast<const u8*>(session.zstd_stream), sizeof(*session.zstd_stream)};

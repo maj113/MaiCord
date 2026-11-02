@@ -231,7 +231,7 @@ bool application_guild_folders_close_all() noexcept {
     return rebuild();
 }
 
-Utf8View application_guild_rail_label(const GuildViewRow& row, Slice<char> output) noexcept {
+Utf8View application_guild_rail_label(const GuildViewRow& row, const Slice<char>& output) noexcept {
     if (!g_app.account_ui || !output.data)
         return {};
     const auto& state = g_app.account_ui->chat_state;

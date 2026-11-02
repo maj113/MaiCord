@@ -6,7 +6,7 @@
 
 namespace maicord {
 namespace {
-bool hpke_aliases(const HpkeContext& context, ConstSlice<u8> span) noexcept {
+bool hpke_aliases(const HpkeContext& context, const ConstSlice<u8>& span) noexcept {
     return byte_ranges_overlap(span, object_bytes(context)) ||
            byte_ranges_overlap(span, {context.cipher.object.data, context.cipher.object.capacity});
 }
@@ -14,8 +14,8 @@ bool initialized(const HpkeContext& context) noexcept {
     return (context.role == HpkeRole::sender || context.role == HpkeRole::recipient) && context.cipher.handle;
 }
 HpkeResult setup_preflight(const HpkeContext* context, const KdfSha256Workspace& workspace,
-                           ConstSlice<u8> point, ConstSlice<ConstSlice<u8>> info, ConstSlice<u8> output,
-                           bool sender) noexcept {
+                           const ConstSlice<u8>& point, ConstSlice<ConstSlice<u8>> info,
+                           ConstSlice<u8> output, bool sender) noexcept {
     if (!context)
         return {0, 0, HpkeError::invalid_input};
     if (!workspace.storage.data || !workspace.storage.locked)
@@ -47,8 +47,8 @@ HpkeResult from_derivation(HpkeDerivationResult result) noexcept {
     return {result.bytes, result.native_status,
             result.ok() ? HpkeError::none : HpkeError::derivation_failure};
 }
-HpkeResult install(HpkeContext* context, KdfSha256Workspace& workspace, ConstSlice<u8> shared,
-                   ConstSlice<u8> info_hash, HpkeRole role) noexcept {
+HpkeResult install(HpkeContext* context, KdfSha256Workspace& workspace, const ConstSlice<u8>& shared,
+                   const ConstSlice<u8>& info_hash, HpkeRole role) noexcept {
     HpkeBaseSecrets material{};
     HpkeContext candidate{};
     auto result =
@@ -74,8 +74,8 @@ HpkeResult install(HpkeContext* context, KdfSha256Workspace& workspace, ConstSli
     hpke_release(&candidate);
     return result;
 }
-HpkeResult crypt(HpkeContext& context, ConstSlice<u8> aad, ConstSlice<u8> input, Slice<u8> output,
-                 bool seal) noexcept {
+HpkeResult crypt(HpkeContext& context, const ConstSlice<u8>& aad, const ConstSlice<u8>& input,
+                 const Slice<u8>& output, bool seal) noexcept {
     if (!initialized(context))
         return {0, 0, HpkeError::not_initialized};
     if (context.role != (seal ? HpkeRole::sender : HpkeRole::recipient))

@@ -19,41 +19,41 @@ enum class Mp3Error : u8 {
 };
 using Mp3Cancelled = bool (*)(void*) noexcept;
 struct Mp3Stream {
-    ConstSlice<u8> encoded{};
-    u64 raw_frames{}, total_frames{}, cursor_frame{}, discard_before{};
-    u32 sample_rate{}, audio_begin{}, audio_end{}, cursor_offset{}, frame_count{};
-    u32 delay_frames{}, padding_frames{};
-    u16 frames_per_packet{};
-    u8 channels{}, mpeg_version{};
-    bool gapless{}, ready{};
+    ConstSlice<u8> encoded;
+    u64 raw_frames, total_frames, cursor_frame, discard_before;
+    u32 sample_rate, audio_begin, audio_end, cursor_offset, frame_count;
+    u32 delay_frames, padding_frames;
+    u16 frames_per_packet;
+    u8 channels, mpeg_version;
+    bool gapless, ready;
 };
 struct Mp3SeekPoint {
-    u64 first_frame{}, main_data_bytes{};
-    u32 offset{}, frame_index{};
+    u64 first_frame, main_data_bytes;
+    u32 offset, frame_index;
 };
 struct Mp3SeekIndex {
-    Slice<Mp3SeekPoint> points{};
-    const u8* source{};
-    u32 source_bytes{}, point_count{}, frame_count{};
+    Slice<Mp3SeekPoint> points;
+    const u8* source;
+    u32 source_bytes, point_count, frame_count;
 };
 struct Mp3Packet {
-    ConstSlice<u8> bytes{};
-    u64 decoded_first_frame{};
-    u32 duration_frames{}, trim_front_frames{}, trim_back_frames{};
-    Mp3Error error{};
+    ConstSlice<u8> bytes;
+    u64 decoded_first_frame;
+    u32 duration_frames, trim_front_frames, trim_back_frames;
+    Mp3Error error;
     bool ok() const noexcept {
         return error == Mp3Error::none;
     }
 };
 struct Mp3Decoder {
-    void* state{};
-    u32 state_bytes{}, sample_rate{};
-    u8 channels{};
-    bool initialized{};
+    void* state;
+    u32 state_bytes, sample_rate;
+    u8 channels;
+    bool initialized;
 };
 struct Mp3DecodeResult {
-    Mp3Error error{};
-    u32 frames{};
+    Mp3Error error;
+    u32 frames;
     bool ok() const noexcept {
         return error == Mp3Error::none;
     }

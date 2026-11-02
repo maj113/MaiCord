@@ -71,7 +71,7 @@ MediaUrlEntry* media_url_next(MediaUrlResolver* resolver, u64 now_ms) noexcept {
 }
 
 void media_url_complete(MediaUrlResolver* resolver, const RestClientResponse& response,
-                        Utf8View body, u64 now_ms, u64 now_seconds) noexcept {
+                        const Utf8View& body, u64 now_ms, u64 now_seconds) noexcept {
     if (!resolver || resolver->pending_slot == 0 || resolver->pending_slot > 32)
         return;
     auto& entry = resolver->entries[resolver->pending_slot - 1];

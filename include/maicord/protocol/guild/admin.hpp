@@ -502,14 +502,16 @@ struct GuildAdminProfile {
     char custom_banner[kGuildAdminHashBytes];
     char brand_color[kGuildAdminBrandColorBytes];
 };
-GuildAdminResult guild_admin_decode_profile(Utf8View body, Slice<u32> scratch, GuildAdminProfile* output) noexcept;
+GuildAdminResult guild_admin_decode_profile(const Utf8View& body, const Slice<u32>& scratch,
+                                            GuildAdminProfile* output) noexcept;
 // GET or PATCH /guilds/{g}/vanity-url: the code (null as empty) and uses.
 struct GuildAdminVanity {
     u32 uses;
     u8 code_bytes;
     char code[kGuildAdminVanityCodeBytes];
 };
-GuildAdminResult guild_admin_decode_vanity(Utf8View body, Slice<u32> scratch, GuildAdminVanity* output) noexcept;
+GuildAdminResult guild_admin_decode_vanity(const Utf8View& body, const Slice<u32>& scratch,
+                                           GuildAdminVanity* output) noexcept;
 GuildAdminResult guild_admin_decode_role(Utf8View body, Slice<u32> scratch, GuildAdminRole* output) noexcept;
 GuildAdminResult guild_admin_decode_role_counts(Utf8View body, Slice<u32> scratch,
                                                 Slice<GuildAdminRoleCount> output) noexcept;
@@ -519,7 +521,8 @@ GuildAdminResult guild_admin_decode_audit_log(Utf8View body, Slice<u32> scratch,
 GuildAdminResult guild_admin_decode_invites(Utf8View body, Slice<u32> scratch,
                                             Slice<GuildAdminInvite> output) noexcept;
 // One invite object (the invite_create response).
-GuildAdminResult guild_admin_decode_invite(Utf8View body, Slice<u32> scratch, GuildAdminInvite* output) noexcept;
+GuildAdminResult guild_admin_decode_invite(const Utf8View& body, const Slice<u32>& scratch,
+                                           GuildAdminInvite* output) noexcept;
 
 static_assert(sizeof(GuildAdminRequest) == 152);
 

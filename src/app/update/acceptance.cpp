@@ -26,7 +26,7 @@ bool equal(const UpdateAcceptanceState& a, const UpdateAcceptanceState& b) noexc
             !bytes_equal(a.channels[i].manifest_sha256, b.channels[i].manifest_sha256, 32)) return false;
     return true;
 }
-bool object_and_buffer(const void* object, u32 bytes, ConstSlice<u8> buffer) noexcept {
+bool object_and_buffer(const void* object, u32 bytes, const ConstSlice<u8>& buffer) noexcept {
     const ConstSlice<u8> ranges[]{{static_cast<const u8*>(object), bytes}, buffer};
     return object && byte_ranges_all_disjoint({ranges, 2});
 }
@@ -117,7 +117,7 @@ UpdateAcceptanceResult update_acceptance_load(ConstSlice<wchar_t> path, UpdateAc
     const auto result = convert(acceptance_record_ancestors(terminated, path.count));
     return result.ok() ? load(terminated, state) : result;
 }
-UpdateAcceptanceResult update_acceptance_begin(ConstSlice<wchar_t> path,
+UpdateAcceptanceResult update_acceptance_begin(const ConstSlice<wchar_t>& path,
     UpdateAcceptanceTransaction* transaction, bool allow_first_use) noexcept {
     if (!transaction || !acceptance_record_path_valid(path) || !object_and_buffer(transaction, sizeof(*transaction),
         {reinterpret_cast<const u8*>(path.data), path.count * static_cast<u32>(sizeof(wchar_t))}) || transaction->lock)
@@ -158,9 +158,10 @@ UpdateAcceptanceResult update_acceptance_capture_policy(const UpdateAcceptanceTr
     *captured = candidate;
     return {};
 }
-UpdateAcceptanceResult update_acceptance_verify_commit(UpdateAcceptanceTransaction* transaction,
-    Utf8View document, ConstSlice<u8> signature, const P256Key& key, KdfSha256Workspace& workspace,
-    UpdateManifestPolicy* policy, Slice<u32> scratch, UpdateManifest* approved) noexcept {
+UpdateAcceptanceResult update_acceptance_verify_commit(
+    UpdateAcceptanceTransaction* transaction, const Utf8View& document, const ConstSlice<u8>& signature,
+    const P256Key& key, KdfSha256Workspace& workspace, UpdateManifestPolicy* policy,
+    const Slice<u32>& scratch, UpdateManifest* approved) noexcept {
     if (!transaction || !policy || !approved || scratch.count > ~u32{0} / sizeof(u32))
         return fail(UpdateAcceptanceError::invalid_input);
     const ConstSlice<u8> ranges[]{

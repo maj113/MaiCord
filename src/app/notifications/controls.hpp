@@ -11,7 +11,8 @@ inline constexpr u32 kNotificationMenuActionLast = 0x4e43003f;
 inline constexpr u32 kNotificationMenuItemCount = 2;
 // Rows for a context menu: "Mute …"/"Unmute …" and "Notification settings".
 // guild_id alone targets a server; channel_id targets a channel or DM.
-u32 application_notification_menu_items(u64 guild_id, u64 channel_id, Slice<PopupItem> output) noexcept;
+u32 application_notification_menu_items(u64 guild_id, u64 channel_id,
+                                        const Slice<PopupItem>& output) noexcept;
 constexpr bool application_notification_menu_action(u32 action) noexcept {
     return action >= kNotificationMenuActionFirst && action <= kNotificationMenuActionLast;
 }

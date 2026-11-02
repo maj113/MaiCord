@@ -11,24 +11,24 @@ inline constexpr u32 kUiPollAnswerMaximumBytes = 220;
 inline constexpr u32 kUiPollEmojiMaximumBytes = 128;
 
 struct UiPollAnswer {
-    u32 id{};
-    Utf8View text{}, emoji_name{};
-    u64 emoji_id{};
-    u32 count{};
-    bool emoji_animated{}, count_known{}, me_voted{}, me_known{}, selected{};
+    u32 id;
+    Utf8View text, emoji_name;
+    u64 emoji_id;
+    u32 count;
+    bool emoji_animated, count_known, me_voted, me_known, selected;
 };
 struct UiPollState {
     // Publication identity guards against stale input. Content-only identity keys wrapping
     // measurements, so count/selection/pending updates reuse the same layouts.
-    u64 owner{}, generation{}, revision{};
-    u32 content_revision{}, result_revision{};
-    Utf8View question{};
-    Utf8View status{};
-    ConstSlice<UiPollAnswer> answers{};
-    u64 now_ms{}, expiry_ms{}, total_votes{};
-    bool expiry_known{}, finalized{}, finalized_known{}, multiselect{}, results{}, results_known{};
-    bool total_votes_known{}, supported{}, loading{}, error{}, can_vote{}, can_remove_vote{};
-    bool can_view_results{}, can_view_voters{}, can_retry{};
+    u64 owner, generation, revision;
+    u32 content_revision, result_revision;
+    Utf8View question;
+    Utf8View status;
+    ConstSlice<UiPollAnswer> answers;
+    u64 now_ms, expiry_ms, total_votes;
+    bool expiry_known, finalized, finalized_known, multiselect, results, results_known;
+    bool total_votes_known, supported, loading, error, can_vote, can_remove_vote;
+    bool can_view_results, can_view_voters, can_retry;
 };
 // Finalized, or past a known expiry.
 bool ui_poll_closed(const UiPollState& state) noexcept;
@@ -68,8 +68,8 @@ enum class UiPollControl : u8 {
     retry
 };
 struct UiPollTarget {
-    UiPollControl control{};
-    u32 answer_id{};
+    UiPollControl control;
+    u32 answer_id;
 };
 constexpr bool ui_poll_target_equal(UiPollTarget a, UiPollTarget b) noexcept {
     return a.control == b.control && a.answer_id == b.answer_id;
@@ -77,42 +77,42 @@ constexpr bool ui_poll_target_equal(UiPollTarget a, UiPollTarget b) noexcept {
 // marker: the right-hand radio/checkbox (or own-vote check); result: the
 // "N votes" count and percent: "NN%" before it, both shown with results.
 struct UiPollAnswerGeometry {
-    UiRect bounds{}, marker{}, emoji{}, text{}, result{}, percent{};
+    UiRect bounds, marker, emoji, text, result, percent;
 };
 struct UiPollGeometry {
-    UiRect bounds{}, question{}, instruction{}, status{}, summary{}, expiry{};
-    UiPollAnswerGeometry answers[kUiPollMaximumAnswers]{};
-    UiRect vote{}, remove_vote{}, results{}, retry{};
-    u8 footer_rows{};
-    bool compact{};
+    UiRect bounds, question, instruction, status, summary, expiry;
+    UiPollAnswerGeometry answers[kUiPollMaximumAnswers];
+    UiRect vote, remove_vote, results, retry;
+    u8 footer_rows;
+    bool compact;
 };
 struct UiPollProjection {
-    UiPollState state{};
-    UiPollGeometry geometry{};
-    Color surface{}, foreground{}, secondary{}, accent{}, primary_foreground{}, border{}, selected{},
-        error{};
-    Color answer_fill{}, outline{}, outline_hover{}, bar{}, bar_voted{}, bar_victor{}, victor{};
-    char count_text[kUiPollMaximumAnswers][24]{};
-    u8 count_bytes[kUiPollMaximumAnswers]{};
-    char percent_text[kUiPollMaximumAnswers][8]{};
-    u8 percent_bytes[kUiPollMaximumAnswers]{};
-    u32 percentages[kUiPollMaximumAnswers]{};
-    bool victor_answers[kUiPollMaximumAnswers]{};
+    UiPollState state;
+    UiPollGeometry geometry;
+    Color surface, foreground, secondary, accent, primary_foreground, border, selected,
+        error;
+    Color answer_fill, outline, outline_hover, bar, bar_voted, bar_victor, victor;
+    char count_text[kUiPollMaximumAnswers][24];
+    u8 count_bytes[kUiPollMaximumAnswers];
+    char percent_text[kUiPollMaximumAnswers][8];
+    u8 percent_bytes[kUiPollMaximumAnswers];
+    u32 percentages[kUiPollMaximumAnswers];
+    bool victor_answers[kUiPollMaximumAnswers];
     // "N votes ∙ 3d left" (summary) and its time part (expiry).
-    char summary_text[64]{}, expiry_text[32]{};
-    u8 summary_bytes{}, expiry_bytes{};
-    bool vote_enabled{}, remove_enabled{}, results_enabled{}, retry_enabled{}, answers_enabled{};
+    char summary_text[64], expiry_text[32];
+    u8 summary_bytes, expiry_bytes;
+    bool vote_enabled, remove_enabled, results_enabled, retry_enabled, answers_enabled;
     // The results control shows as the "Show results" text action, or as the
     // "Go back to vote" button in the primary slot.
-    bool results_primary{};
+    bool results_primary;
 };
 struct UiPollLayout {
-    UiPollGeometry geometry{};
-    u64 content_signature{};
-    u32 content_revision{};
-    float width{}, height{};
+    UiPollGeometry geometry;
+    u64 content_signature;
+    u32 content_revision;
+    float width, height;
     // Footer action label widths, for state-dependent placement.
-    float vote_width{}, remove_width{}, back_width{}, show_width{}, retry_width{};
+    float vote_width, remove_width, back_width, show_width, retry_width;
 };
 bool ui_poll_measure_layout(const UiPollState&, float width, const UiPollStyle&, UiTextMeasureCache*,
                             u16 backend_revision, UiPollLayout*) noexcept;
@@ -139,9 +139,9 @@ enum class UiPollActionKind : u8 {
     retry
 };
 struct UiPollAction {
-    u64 owner{}, generation{}, revision{};
-    UiPollActionKind kind{};
-    u32 answer_id{};
+    u64 owner, generation, revision;
+    UiPollActionKind kind;
+    u32 answer_id;
 };
 bool ui_poll_controls_action(const UiPollProjection&, UiPollTarget, UiPollAction*) noexcept;
 bool ui_poll_action_current(const UiPollState&, const UiPollAction&) noexcept;
@@ -175,8 +175,8 @@ struct UiPollScene {
     bool keyboard_focus{}, active{};
 };
 struct UiPollSceneResult {
-    UiPollAction action{};
-    bool handled{}, request_capture{}, release_capture{}, action_requested{};
+    UiPollAction action;
+    bool handled, request_capture, release_capture, action_requested;
 };
 bool ui_poll_scene_project(UiPollScene*, const UiPollState&, UiRect bounds, UiRect clip, UiWidgetReference,
                            UiPollSourceSurface, const UiPollStyle&, const Theme&, UiTextMeasureCache*,
@@ -189,20 +189,20 @@ UiPollSceneResult ui_poll_scene_key(UiPollScene*, UiPollKey) noexcept;
 inline constexpr u32 kUiPollVoterPageMaximum = 100;
 inline constexpr u32 kUiPollVisibleVotersMaximum = 25;
 struct UiPollVoter {
-    u64 id{};
-    Utf8View name{};
-    u32 avatar_variant{};
-    bool avatar_animated{};
+    u64 id;
+    Utf8View name;
+    u32 avatar_variant;
+    bool avatar_animated;
     // Borrowed with the page; requests the shared user-avatar identity.
-    Utf8View avatar_hash{};
+    Utf8View avatar_hash;
 };
 struct UiPollVotersState {
-    u64 owner{}, generation{}, revision{};
-    u32 content_revision{}, answer_id{}, page_index{};
-    Utf8View question{}, status{};
-    ConstSlice<UiPollAnswer> answers{};
-    ConstSlice<UiPollVoter> voters{};
-    bool loading{}, error{}, has_previous{}, has_next{}, can_retry{};
+    u64 owner, generation, revision;
+    u32 content_revision, answer_id, page_index;
+    Utf8View question, status;
+    ConstSlice<UiPollAnswer> answers;
+    ConstSlice<UiPollVoter> voters;
+    bool loading, error, has_previous, has_next, can_retry;
 };
 struct UiPollVotersStyle {
     float preferred_width{480}, preferred_height{640}, margin{16}, padding{16}, gap{8};
@@ -225,8 +225,8 @@ enum class UiPollVotersControl : u8 {
     retry
 };
 struct UiPollVotersTarget {
-    UiPollVotersControl control{};
-    u64 id{};
+    UiPollVotersControl control;
+    u64 id;
 };
 constexpr bool ui_poll_voters_target_equal(UiPollVotersTarget a, UiPollVotersTarget b) noexcept {
     return a.control == b.control && a.id == b.id;
@@ -234,9 +234,9 @@ constexpr bool ui_poll_voters_target_equal(UiPollVotersTarget a, UiPollVotersTar
 // Wide panels list the answers in a left column (text and vote count) beside
 // the selected answer's voters; narrow panels keep numbered answer chips.
 struct UiPollVotersGeometry {
-    UiRect viewport{}, panel{}, title{}, close{}, question{}, answer{}, status{}, body{};
-    UiRect answers[kUiPollMaximumAnswers]{}, previous{}, next{}, retry{}, page{};
-    bool columns{};
+    UiRect viewport, panel, title, close, question, answer, status, body;
+    UiRect answers[kUiPollMaximumAnswers], previous, next, retry, page;
+    bool columns;
 };
 struct UiPollVotersScene {
     UiPollVotersState state{};
@@ -252,13 +252,13 @@ struct UiPollVotersScene {
     bool keyboard_focus{}, active{};
 };
 struct UiPollVotersAction {
-    u64 owner{}, generation{}, revision{};
-    UiPollVotersControl control{};
-    u64 id{};
+    u64 owner, generation, revision;
+    UiPollVotersControl control;
+    u64 id;
 };
 struct UiPollVotersSceneResult {
-    UiPollVotersAction action{};
-    bool handled{}, request_capture{}, release_capture{}, action_requested{};
+    UiPollVotersAction action;
+    bool handled, request_capture, release_capture, action_requested;
 };
 bool ui_poll_voters_scene_project(UiPollVotersScene*, const UiPollVotersState&, const UiRect& viewport,
                                   UiWidgetReference, const UiPollVotersStyle&, const Theme&,

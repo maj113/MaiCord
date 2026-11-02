@@ -145,7 +145,7 @@ void test_media_controls(Check check) noexcept {
                     (ui_video_scene_hover(&player, center(preview)), true);
     u32 video_hands = 0;
     for (const auto& control : player.projection.controls) {
-        if (!control.visible || !control.enabled || !ui_rect_has_area(control.bounds))
+        if (control.hidden || !control.enabled || !ui_rect_has_area(control.bounds))
             continue;
         const auto point = center(control.bounds);
         if (ui_video_scene_hit(player, point) != control.id)

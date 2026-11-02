@@ -143,7 +143,7 @@ bool user_input(const AccountUiRuntime& ui, u64 user_id, u64 guild_id, u32 where
 
 // A DM is named after its other member, an unnamed group DM after its members (written into storage).
 bool channel_input(const AccountUiRuntime& ui, const ChannelRecord& channel, PluginChannelInput* out,
-                   Slice<char> storage) noexcept {
+                   const Slice<char>& storage) noexcept {
     PluginChannelInput in{};
     in.channel_id = channel.id;
     in.guild_id = channel.guild_id;

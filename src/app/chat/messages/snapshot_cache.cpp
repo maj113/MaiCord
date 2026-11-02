@@ -140,7 +140,7 @@ u32 row_bytes(u32 content_bytes, u32 rich_bytes) noexcept {
     return align8(static_cast<u32>(sizeof(MessageSnapshotRow)) + content_bytes + rich_bytes);
 }
 
-bool write_row(u8* destination, u32 bytes, const MessageRecord& record, Utf8View content,
+bool write_row(u8* destination, u32 bytes, const MessageRecord& record, const Utf8View& content,
                const MessageRichStore* rich, u32 rich_bytes, u32 item_units) noexcept {
     auto* row = reinterpret_cast<MessageSnapshotRow*>(destination);
     *row = MessageSnapshotRow{record.id, record.author_id, record.timestamp_ms, record.edited_timestamp_ms,

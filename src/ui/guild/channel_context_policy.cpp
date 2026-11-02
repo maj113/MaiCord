@@ -73,22 +73,22 @@ u32 channel_context_policy_build(const ChatStateStore& state, u64 channel_id, u3
         return 0;
     u32 used = 0;
     if (category_mark)
-        output[used++] = {utf8_literal("Mark as read"), scoped.mark_action,
-                          static_cast<u16>(scoped.pending ? 0u : popup_item_enabled)};
+        popup_item_set(&output[used++], utf8_literal("Mark as read"), scoped.mark_action,
+                       static_cast<u16>(scoped.pending ? 0u : popup_item_enabled));
     if (category_retry)
-        output[used++] = {utf8_literal("Retry mark as read"), scoped.retry_action, popup_item_enabled};
+        popup_item_set(&output[used++], utf8_literal("Retry mark as read"), scoped.retry_action, popup_item_enabled);
     if (readable)
-        output[used++] = {utf8_literal("Mark as read"), mark_read_action, popup_item_enabled, 0};
+        popup_item_set(&output[used++], utf8_literal("Mark as read"), mark_read_action, popup_item_enabled);
     if (unread)
-        output[used++] = {utf8_literal("Mark as unread"), mark_unread_action, popup_item_enabled, 0};
+        popup_item_set(&output[used++], utf8_literal("Mark as unread"), mark_unread_action, popup_item_enabled);
     if (retry_unread)
-        output[used++] = {utf8_literal("Retry mark as unread"), retry_unread_action, popup_item_enabled, 0};
+        popup_item_set(&output[used++], utf8_literal("Retry mark as unread"), retry_unread_action, popup_item_enabled);
     if (close)
-        output[used++] = {utf8_literal("Close DM"), close_dm_action, popup_item_enabled, 0};
+        popup_item_set(&output[used++], utf8_literal("Close DM"), close_dm_action, popup_item_enabled);
     if (editable) {
         auto& item = output[used++];
-        item = {channel->type == 4 ? utf8_literal("Edit category") : utf8_literal("Edit channel"), edit_action,
-                popup_item_enabled, 0};
+        popup_item_set(&item, channel->type == 4 ? utf8_literal("Edit category") : utf8_literal("Edit channel"), edit_action,
+                       popup_item_enabled);
         item.presentation = ui_menu_row_presentation(UiIcon::settings);
     }
     return used;

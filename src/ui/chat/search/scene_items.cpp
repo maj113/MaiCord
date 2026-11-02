@@ -1126,8 +1126,7 @@ bool rebuild(UiSearchScene& s) noexcept {
                             if (message_rich_attachment_audio_supported(*native.timeline->rich_store,
                                                                         record->attachments[item])) {
                                 UiAudioCardGeometry geometry{};
-                                UiAudioControlsStyle audio_style;
-                                ui_theme_fill_audio_style(native.theme_styles, &audio_style);
+                                const UiAudioControlsStyle audio_style = ui_theme_audio_style(native.theme_styles);
                                 if (!ui_audio_card_geometry(node->content_rectangle, audio_style,
                                                             &geometry, message_rich_record_voice(*record)))
                                     continue;

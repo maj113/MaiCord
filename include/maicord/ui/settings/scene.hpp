@@ -107,7 +107,7 @@ struct UiSettingsControl {
     const UiSettingsEditor* editor;
     // A second small text of the kinds that have one (status caption, disclosure tag, markdown link,
     // footnote link); a category row's detail is the inline note after its title.
-    Utf8View detail{};
+    Utf8View detail;
 };
 
 enum class UiSettingsVariant : u8 {
@@ -165,10 +165,10 @@ struct UiSettingsControlPresentation {
     UiSettingsVariant variant;
     u8 flags;
     u16 default_choice;
-    u16 chip_tones = 0;
+    u16 chip_tones;
     // UiIcon + 1 (zero: none) of a status tile.
-    u8 icon_plus_one = 0;
-    u8 more = 0;
+    u8 icon_plus_one;
+    u8 more;
 };
 
 // Real image for an avatar row. An invalid key keeps the initials placeholder.

@@ -915,13 +915,13 @@ bool application_downloads_save_press(float, float) noexcept {
 bool begin_message_reply(u64) noexcept {
     return false;
 }
-bool queue_message_reaction_emoji(u64, u64, Utf8View, bool) noexcept {
+bool queue_message_reaction_emoji(u64, u64, const Utf8View&, bool) noexcept {
     return false;
 }
 bool application_quick_switcher_input(UiInputKind, u32, bool) noexcept {
     return false;
 }
-bool open_message_context_popup(u64, UiRect) noexcept {
+bool open_message_context_popup(u64, const UiRect&) noexcept {
     return false;
 }
 } // namespace maicord::app_detail

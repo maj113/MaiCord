@@ -128,7 +128,8 @@ bool application_media_picker_preview_request(u32 cell, AccountMediaCatalogPrevi
     out->format = format(*item);
     return true;
 }
-bool application_media_picker_preview_current(MediaAssetKey key, u64 scope, u32 generation) noexcept {
+bool application_media_picker_preview_current(const MediaAssetKey& key, u64 scope,
+                                              u32 generation) noexcept {
     const auto* p = g_app.media_picker;
     if (!p || p->scope != scope || key.variant != generation || !shown(p))
         return false;

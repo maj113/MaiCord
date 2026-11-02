@@ -4,9 +4,9 @@
 namespace maicord {
 struct Mp4AudioDemuxer {
     Mp4Demuxer samples;
-    u32 sample_rate{}, asc_offset{}, asc_bytes{};
-    u8 channels{};
-    u16 frames_per_packet{};
+    u32 sample_rate, asc_offset, asc_bytes;
+    u8 channels;
+    u16 frames_per_packet;
 };
 static_assert(sizeof(Mp4AudioDemuxer) == sizeof(Mp4Demuxer) + 16);
 // One internal mono/stereo AAC-LC or explicit HE-AAC mp4a track. sample_rate
@@ -18,11 +18,11 @@ ConstSlice<u8> mp4_audio_demux_asc(const Mp4AudioDemuxer&) noexcept;
 Mp4AccessUnit mp4_audio_demux_next(Mp4AudioDemuxer*) noexcept;
 void mp4_audio_demux_reset(Mp4AudioDemuxer*) noexcept;
 struct Mp4AudioSampleWindow {
-    u64 first_source_frame{}, end_source_frame{}, leading_silence_frames{};
-    i64 duration_100ns{};
+    u64 first_source_frame, end_source_frame, leading_silence_frames;
+    i64 duration_100ns;
 };
 struct Mp4AudioFrameTimeBounds {
-    i64 floor_100ns{}, ceil_100ns{};
+    i64 floor_100ns, ceil_100ns;
 };
 // Container-independent AAC clock. All three timebases retain their original
 // integers: no microsecond intermediate and no inferred encoder priming.
@@ -33,8 +33,8 @@ struct Mp4AudioFrameTimeBounds {
 // only the final native timestamp rounded DOWN to 100ns. Source frame includes
 // the endpoint sentinel; no decoder priming/delay is inferred.
 struct Mp4AudioTimeline {
-    u64 source_frames{}, source_start_ticks{}, media_start_ticks{}, empty_edit_ticks{}, content_ticks{};
-    u32 sample_rate{}, media_timescale{}, edit_timescale{}, content_timescale{};
+    u64 source_frames, source_start_ticks, media_start_ticks, empty_edit_ticks, content_ticks;
+    u32 sample_rate, media_timescale, edit_timescale, content_timescale;
 };
 bool mp4_audio_demux_timeline(const Mp4AudioDemuxer&, Mp4AudioTimeline*) noexcept;
 bool mp4_audio_frame_time_100ns(const Mp4AudioTimeline&, u64 source_frame, i64*) noexcept;

@@ -8,8 +8,8 @@
 // callers that decode REST bodies include this; the runtime struct does not need it.
 namespace maicord::app_detail {
 
-inline bool application_profile_decode_into(AccountProfileDecodeScratch& scratch, Utf8View body, u64 user,
-                                            u64 guild, UserProfile& retained) noexcept {
+inline bool application_profile_decode_into(AccountProfileDecodeScratch& scratch, const Utf8View& body,
+                                            u64 user, u64 guild, UserProfile& retained) noexcept {
     if (!user_profile_decode(body, {scratch.structurals, 16 * 1024}, user, guild, &scratch.temporary))
         return false;
     retained = scratch.temporary;

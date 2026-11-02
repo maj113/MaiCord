@@ -127,7 +127,7 @@ void overflow_compact(GuildMemberStore* store) noexcept {
         if (store->records[slot].occupied && store->records[slot].role_overflow)
             slots[count++] = slot;
     const GuildMemberRecord* records = store->records;
-    heap_sort(slots, count, [records](u32 left, u32 right) noexcept {
+    heap_sort_shared(slots, count, [records](u32 left, u32 right) noexcept {
         return records[left].role_overflow < records[right].role_overflow;
     });
     u64* data = overflow_data(*store);

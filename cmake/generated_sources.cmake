@@ -9,7 +9,7 @@ set(MAICORD_GENERATED_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY "${MAICORD_GENERATED_DIRECTORY}")
 
 # Preserve the canonical emoji catalog; emit the compact data in the build tree.
-# The catalog and shortcode name/glyph pools ship as one zlib stream that
+# The catalog and shortcode name/glyph pools and both entry tables ship as one zlib stream that
 # src/ui/text/emoji_catalog.cpp inflates on first use (lengths checked at compile time).
 set(MAICORD_EMOJI_CATALOG_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/unicode_emoji_16_optimized.inc")
 add_custom_command(
@@ -31,7 +31,7 @@ add_custom_command(
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/pack_emoji_pools.py" "${MAICORD_EMOJI_POOL_INCLUDE}"
         "${MAICORD_EMOJI_CATALOG_INCLUDE}" "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/text/emoji_shortcodes.inc"
     DEPENDS tools/pack_emoji_pools.py tools/generate_unicode_emoji_catalog.py tools/font_reference/embed_fixture.py
-        "${MAICORD_EMOJI_CATALOG_INCLUDE}" src/ui/text/emoji_shortcodes.inc
+        tools/optimal_deflate.py tools/deflate_cache.txt "${MAICORD_EMOJI_CATALOG_INCLUDE}" src/ui/text/emoji_shortcodes.inc
     VERBATIM)
 add_custom_target(maicord_emoji_catalog_data
     DEPENDS "${MAICORD_EMOJI_CATALOG_INCLUDE}" "${MAICORD_EMOJI_POOL_INCLUDE}")
@@ -121,6 +121,22 @@ set_source_files_properties(src/model/guild/permission_grid.cpp PROPERTIES
     COMPILE_OPTIONS "/I${MAICORD_GENERATED_DIRECTORY}")
 set_source_files_properties(src/app/account/game_detection.cpp PROPERTIES
     OBJECT_DEPENDS "${MAICORD_GAME_PACK}"
+    COMPILE_OPTIONS "/I${MAICORD_GENERATED_DIRECTORY}")
+
+# Cold text that is large and repetitive ships as a zlib stream its owner inflates on first use
+# (tools/pack_text_blobs.py): the built-in slash-command index.
+set(MAICORD_BUILTIN_COMMANDS_PACK "${MAICORD_GENERATED_DIRECTORY}/builtin_commands_pack.inc")
+add_custom_command(
+    OUTPUT "${MAICORD_BUILTIN_COMMANDS_PACK}"
+    BYPRODUCTS "${MAICORD_GENERATED_DIRECTORY}/builtin_commands_packed.bin"
+    COMMAND "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/pack_text_blobs.py" "${MAICORD_GENERATED_DIRECTORY}"
+        "BuiltinCommands=${CMAKE_CURRENT_SOURCE_DIR}/src/app/chat/composer/builtin_commands.json"
+    DEPENDS tools/pack_text_blobs.py tools/optimal_deflate.py tools/font_reference/embed_fixture.py
+        src/app/chat/composer/builtin_commands.json
+    VERBATIM)
+set_source_files_properties(src/app/chat/composer/builtin_commands.cpp PROPERTIES
+    OBJECT_DEPENDS "${MAICORD_BUILTIN_COMMANDS_PACK}"
     COMPILE_OPTIONS "/I${MAICORD_GENERATED_DIRECTORY}")
 
 set(MAICORD_NOTIFICATION_SOUND_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/assets/sounds")
@@ -244,10 +260,10 @@ add_custom_command(
         tools/font_reference/embed_fixture.py ${MAICORD_PACKED_SHADER_HEADERS}
     VERBATIM)
 
-# The icon pack, regional flags and shaders ship the deflate streams of tools/deflate_cache.txt
+# The icon pack, regional flags, shaders and emoji pool ship the deflate streams of tools/deflate_cache.txt
 # (tools/optimal_deflate.py): a build never searches, and for data the cache lacks it uses zlib
 # and warns (MAICORD_REQUIRE_DEFLATE_CACHE=1 makes that an error). After changing an icon,
-# flag or shader, build this target, which searches the missing streams (a minute or so for
+# flag, shader or emoji table, build this target, which searches the missing streams (a minute or so for
 # the flags) and rewrites the cache, then commit it.
 add_custom_target(maicord_update_deflate_cache
     COMMAND ${CMAKE_COMMAND} -E env MAICORD_UPDATE_DEFLATE_CACHE=1 "${Python3_EXECUTABLE}" -B
@@ -262,5 +278,8 @@ add_custom_target(maicord_update_deflate_cache
     COMMAND ${CMAKE_COMMAND} -E env MAICORD_UPDATE_DEFLATE_CACHE=1 "${Python3_EXECUTABLE}" -B
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/pack_shader_bytecode.py" "${MAICORD_SHADER_PACK_INCLUDE}"
         ${MAICORD_PACKED_SHADERS}
+    COMMAND ${CMAKE_COMMAND} -E env MAICORD_UPDATE_DEFLATE_CACHE=1 "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/pack_emoji_pools.py" "${MAICORD_EMOJI_POOL_INCLUDE}"
+        "${MAICORD_EMOJI_CATALOG_INCLUDE}" "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/text/emoji_shortcodes.inc"
     DEPENDS ${MAICORD_PACKED_SHADER_HEADERS}
     VERBATIM)

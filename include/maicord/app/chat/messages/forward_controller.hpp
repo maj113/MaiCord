@@ -45,7 +45,7 @@ bool message_forward_synchronize(MessageForwardController* controller, QuickSwit
 bool message_forward_toggle(MessageForwardController* controller, QuickSwitcherScope scope,
     QuickSwitcherSources sources, u32 index, u32 candidate_revision) noexcept;
 bool message_forward_remove(MessageForwardController* controller, u64 channel_id) noexcept;
-bool message_forward_set_caption(MessageForwardController* controller, Utf8View caption) noexcept;
+bool message_forward_set_caption(MessageForwardController* controller, const Utf8View& caption) noexcept;
 bool message_forward_confirm(MessageForwardController* controller, QuickSwitcherScope scope,
     QuickSwitcherSources sources, MessageComposerController* outbox, u64 unix_ms, u64 monotonic_ms) noexcept;
 bool message_forward_retry_failed(MessageForwardController* controller, QuickSwitcherScope scope,

@@ -80,7 +80,7 @@ UserSettingsValue user_settings_text(Utf8View text) noexcept;
 // Last occurrence wins, as in protobuf merging. Strings longer than
 // kUserSettingsTextBytes are reported as unreadable. id_member fields read
 // through user_settings_proto_contains instead.
-bool user_settings_proto_read(ConstSlice<u8> group, UserSettingsField, UserSettingsValue*) noexcept;
+bool user_settings_proto_read(const ConstSlice<u8>& group, UserSettingsField, UserSettingsValue*) noexcept;
 // Whether an id_member list holds `id`. False for malformed input too.
 bool user_settings_proto_contains(ConstSlice<u8> group, UserSettingsField, u64 id) noexcept;
 // Rewrites one group with field replaced (or cleared when !value.present).
@@ -96,8 +96,9 @@ struct UserSettingsExtractResult {
     UserSettingsProtoError error;
     constexpr bool ok() const noexcept { return error == UserSettingsProtoError::none; }
 };
-UserSettingsExtractResult user_settings_proto_extract_base64(Utf8View base64, u32 mask, Utf8View session_hash,
-                                                             Slice<u8> output) noexcept;
+UserSettingsExtractResult user_settings_proto_extract_base64(const Utf8View& base64, u32 mask,
+                                                             const Utf8View& session_hash,
+                                                             const Slice<u8>& output) noexcept;
 // True when an extracted message carries the partial-update marker.
 bool user_settings_proto_partial(ConstSlice<u8> extracted) noexcept;
 // Borrowed group bytes inside an extracted message; empty when absent.
@@ -108,7 +109,7 @@ ConstSlice<u8> user_settings_proto_group(ConstSlice<u8> extracted, u32 group) no
 // pins the data version it was made against, which may be 0). The partial message may contain only
 // length-delimited top-level groups 2..31 other than status; guild folders
 // (group 14) travel alone, from their own owner.
-bool user_settings_proto_patch_valid(ConstSlice<u8> partial) noexcept;
+bool user_settings_proto_patch_valid(const ConstSlice<u8>& partial) noexcept;
 u32 user_settings_proto_write_patch_json(ConstSlice<u8> partial, u32 required_data_version,
                                          Slice<u8> output, bool required = false) noexcept;
 // {"settings":"<base64>","out_of_date":bool} from GET/PATCH. A string with JSON escapes is refused (capacity).
@@ -116,7 +117,8 @@ struct UserSettingsResponse {
     UserSettingsExtractResult extracted;
     bool out_of_date, settings_present;
 };
-UserSettingsResponse user_settings_proto_decode_response(Utf8View body, u32 mask, Slice<u8> output) noexcept;
+UserSettingsResponse user_settings_proto_decode_response(const Utf8View& body, u32 mask,
+                                                         const Slice<u8>& output) noexcept;
 
 // Optimistic store. Single in-flight PATCH; edits made meanwhile wait for its
 // completion. Server snapshots never discard pending edits: they rebase.
@@ -165,6 +167,7 @@ u32 user_settings_store_begin(UserSettingsStore*, Slice<u8> partial, u32* requir
                               bool* required = nullptr) noexcept;
 // response is the extracted message of the reply (empty on failure).
 UserSettingsCompletion user_settings_store_complete(UserSettingsStore*, UserSettingsOutcome,
-                                                    ConstSlice<u8> response, u64 retry_at_ms) noexcept;
+                                                    const ConstSlice<u8>& response,
+                                                    u64 retry_at_ms) noexcept;
 
 } // namespace maicord

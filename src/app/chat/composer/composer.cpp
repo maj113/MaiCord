@@ -41,7 +41,7 @@ void cancel_member_query() noexcept {
     mention_member_query_cancel(&g_mention_member_query);
 }
 
-void note_member_query(u64 guild_id, u64 channel_id, Utf8View query) noexcept {
+void note_member_query(u64 guild_id, u64 channel_id, const Utf8View& query) noexcept {
     char folded[kGatewayGuildMemberQueryMaximumBytes]{};
     u32 bytes = 0;
     if (!guild_id || !channel_id || !mention_member_query_fold(query, folded, &bytes)) {

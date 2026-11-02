@@ -34,7 +34,7 @@ RestClientSubmitResult settings_proto(RestClient* rest, AccountGifFavoritesOpera
          update},
         kRestClientMaximumResponseBytes);
 }
-Utf8View text(ConstSlice<u8> patch) noexcept {
+Utf8View text(const ConstSlice<u8>& patch) noexcept {
     return {reinterpret_cast<const char*>(patch.data), patch.count};
 }
 } // namespace

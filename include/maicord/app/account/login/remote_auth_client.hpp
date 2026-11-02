@@ -160,7 +160,8 @@ RemoteAuthClientResult remote_auth_client_stop(RemoteAuthClient* client, u32 tim
 bool remote_auth_client_pop_event(RemoteAuthClient* client, RemoteAuthClientEvent* event) noexcept;
 bool remote_auth_client_copy_qr_url(const RemoteAuthClient& client, Slice<char> output,
                                     u32* bytes) noexcept;
-bool remote_auth_client_copy_user(const RemoteAuthClient& client, Slice<char> output, u32* bytes) noexcept;
+bool remote_auth_client_copy_user(const RemoteAuthClient& client, const Slice<char>& output,
+                                  u32* bytes) noexcept;
 SecureBufferResult remote_auth_client_take_credential(RemoteAuthClient* client,
                                                       SecureBuffer* output) noexcept;
 SecureBufferResult remote_auth_client_copy_captcha_secret(const RemoteAuthClient* client,

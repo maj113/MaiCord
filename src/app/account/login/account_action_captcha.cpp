@@ -74,10 +74,11 @@ CaptchaBridgeStatus account_action_captcha(AccountActionCaptcha* captcha, RestCl
         const CaptchaChallengeSnapshot snapshot = captcha_challenge_snapshot(&captcha->challenge);
         captcha->status = captcha_bridge_start_copied(
             &captcha->bridge, request.generation, request.timeout_ms, snapshot.provider, snapshot.invisible,
-            [captcha](CaptchaChallengeSecretKind kind, SecureBuffer* output) noexcept {
-                return captcha_challenge_copy_secret(&captcha->challenge, kind, output);
+            [](void* context, CaptchaChallengeSecretKind kind, SecureBuffer* output) noexcept {
+                return captcha_challenge_copy_secret(&static_cast<AccountActionCaptcha*>(context)->challenge, kind,
+                                                     output);
             },
-            0);
+            captcha, 0);
         captcha->challenge_ready = captcha->status.ok();
         if (!captcha->status.ok())
             erase(captcha);

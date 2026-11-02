@@ -66,6 +66,7 @@ struct GatewayStageInstance {
     JsonString topic;
     u8 privacy_level;
 };
-GatewayEventDecodeResult gateway_decode_stage_instance(JsonValue data, Slice<u32> scratch, u32 maximum_depth,
+GatewayEventDecodeResult gateway_decode_stage_instance(JsonValue data, const Slice<u32>& scratch,
+                                                       u32 maximum_depth,
                                                        GatewayStageInstance* output) noexcept;
 } // namespace maicord

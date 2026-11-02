@@ -83,7 +83,8 @@ void stream_preview_deferred(StreamPreviewCache* cache, const GatewayStreamKey& 
 }
 
 const StreamPreviewEntry* stream_preview_complete(StreamPreviewCache* cache, u64 request_id, u16 status,
-                                                  Utf8View url, u64 retry_at_ms, u64 now_ms) noexcept {
+                                                  const Utf8View& url, u64 retry_at_ms,
+                                                  u64 now_ms) noexcept {
     if (!cache || !request_id)
         return nullptr;
     StreamPreviewEntry* entry = nullptr;

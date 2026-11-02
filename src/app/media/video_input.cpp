@@ -535,7 +535,7 @@ bool application_video_tooltip_target(UiPoint point, bool keyboard, u64 scope,
         if (keyboard && (!video_input_focus_current(*video) || !scene.keyboard_focus))
             return false;
         const auto* control = ui_audio_controls_find(scene.projection, id);
-        if (!control || !control->enabled || !control->visible)
+        if (!control || !control->enabled || control->hidden)
             return false;
         const auto anchor = ui_rect_intersection(control->bounds, scene.clip);
         const auto label = ui_audio_controls_label(scene.projection, id);
@@ -573,7 +573,7 @@ bool application_video_tooltip_target(UiPoint point, bool keyboard, u64 scope,
                                   ? scene.center_play
                                   : control.bounds;
         const UiRect anchor = ui_rect_intersection(bounds, scene.clip);
-        if (control.id != control_id || !control.enabled || !control.visible || !ui_rect_has_area(anchor))
+        if (control.id != control_id || !control.enabled || control.hidden || !ui_rect_has_area(anchor))
             continue;
         const u64 revision =
             hash64_mix(hash64_mix(scene.projection.playback.generation, scene.projection.playback.revision),

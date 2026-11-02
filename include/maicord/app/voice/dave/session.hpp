@@ -125,6 +125,7 @@ struct DaveMediaResult {
 // Complete media frame from a mapped remote user (RTP/transport already
 // removed). Only a successful result may be played. Unmarked frames pass
 // through only within passthrough_until_ms; the Opus silence frame always does.
-DaveMediaResult dave_session_decrypt(DaveSession* session, u64 user_id, ConstSlice<u8> frame, u64 now_ms,
-                                     Slice<u8> scratch, Slice<u8> output) noexcept;
+DaveMediaResult dave_session_decrypt(DaveSession* session, u64 user_id, const ConstSlice<u8>& frame,
+                                     u64 now_ms, const Slice<u8>& scratch,
+                                     const Slice<u8>& output) noexcept;
 } // namespace maicord

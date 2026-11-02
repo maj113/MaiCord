@@ -207,7 +207,8 @@ void insert(QuickSwitcherController* c, QuickSwitcherRow& row, u32 limit) noexce
     copy_bytes(&c->rows[position + 1], &c->rows[position], (c->count - 1 - position) * static_cast<u32>(sizeof(row)));
     copy_value(&c->rows[position], row);
 }
-void consider(QuickSwitcherController* c, QuickSwitcherRow& row, Utf8View query, Utf8View alternate, u32 limit) noexcept {
+void consider(QuickSwitcherController* c, QuickSwitcherRow& row, const Utf8View& query,
+              const Utf8View& alternate, u32 limit) noexcept {
     row.score = match_score(query, {row.label, row.label_bytes}, {row.detail, row.detail_bytes}, alternate, row.target.id);
     if (!row.score) return;
     for (u32 i = 0; i < c->recent_count; ++i) if (row.target.channel_id == c->recent_channels[i]) {

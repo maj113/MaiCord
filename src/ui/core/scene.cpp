@@ -1,5 +1,6 @@
 #include "maicord/ui/core/scene.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 
 namespace maicord {
 namespace {
@@ -9,20 +10,13 @@ constexpr u32 semantic_id(UiSemantic semantic) noexcept {
 }
 
 Utf8View semantic_name(UiSemantic semantic) noexcept {
-    static constexpr Utf8View names[]{
-        utf8_literal("Shell"),          utf8_literal("GuildRail"),     utf8_literal("ChannelSidebar"),
-        utf8_literal("ChannelHeader"),  utf8_literal("ChannelNavigation"), utf8_literal("ChannelFooter"),
-        utf8_literal("Content"),        utf8_literal("TitleBar"),      utf8_literal("TitleLabel"),
-        utf8_literal("MemberToggle"),   utf8_literal("MessageView"),   utf8_literal("Composer"),
-        utf8_literal("MemberSidebar"),  utf8_literal("Home"),          utf8_literal("GuildNavigation"),
-        utf8_literal("UserSettings"),   utf8_literal("Friends"),       utf8_literal("PinnedMessages"),
-        utf8_literal("Threads"),        utf8_literal("ThreadHeader"),  utf8_literal("ThreadStatus"),
-        utf8_literal("ThreadPrimaryAction"), utf8_literal("ThreadActions"), utf8_literal("ThreadFeedback"),
-        utf8_literal("ThreadCancel"),   utf8_literal("CreateDirectMessage"), utf8_literal("AddPeople"),
-        utf8_literal("StartCall"),      utf8_literal("Inbox"),         utf8_literal("ServerMenu"),
-        utf8_literal("InvitePeople")};
-    static_assert(sizeof(names) / sizeof(names[0]) == static_cast<u32>(UiSemantic::count));
-    return names[static_cast<u32>(semantic)];
+    static constexpr char names[] =
+        "Shell\0GuildRail\0ChannelSidebar\0ChannelHeader\0ChannelNavigation\0ChannelFooter\0Content\0TitleBar\0"
+        "TitleLabel\0MemberToggle\0MessageView\0Composer\0MemberSidebar\0Home\0GuildNavigation\0UserSettings\0"
+        "Friends\0PinnedMessages\0Threads\0ThreadHeader\0ThreadStatus\0ThreadPrimaryAction\0ThreadActions\0"
+        "ThreadFeedback\0ThreadCancel\0CreateDirectMessage\0AddPeople\0StartCall\0Inbox\0ServerMenu\0InvitePeople\0";
+    static_assert(name_list_count(names) == static_cast<u32>(UiSemantic::count));
+    return name_list_at(names, static_cast<u32>(semantic));
 }
 
 bool semantic_button(UiSemantic semantic) noexcept {

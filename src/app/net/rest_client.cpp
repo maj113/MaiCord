@@ -361,7 +361,7 @@ RestClientSubmitResult rest_client_submit_user_auth(
     return RestClientSubmitResult{RestClientSubmitError::none};
 }
 
-bool rest_client_arm_headers(RestClient* client, u64 request_id, ConstSlice<u8> headers) noexcept {
+bool rest_client_arm_headers(RestClient* client, u64 request_id, const ConstSlice<u8>& headers) noexcept {
     auto* runtime = runtime_of(client);
     if (!runtime || runtime->user_auth_mode || !rest_extra_headers_valid(headers))
         return false;

@@ -82,7 +82,7 @@ i32 frecency_score(const ApplicationCommand& command, u64 guild) noexcept {
 } // namespace
 namespace commands_detail {
 
-bool project(Utf8View input) noexcept {
+bool project(const Utf8View& input) noexcept {
     auto& c = *commands;
     const PickerQuery query = picker_query(input);
     arena_release(&c.projection);
@@ -138,7 +138,7 @@ bool project(Utf8View input) noexcept {
             candidates[candidate_count++] = {&command, &source, app};
         }
     // Apps by section name; Built-in comes last.
-    heap_sort(apps, app_count, [](const CommandApplication* a, const CommandApplication* b) noexcept {
+    heap_sort_shared(apps, app_count, [](const CommandApplication* a, const CommandApplication* b) noexcept {
         const i32 order = compare_names(section_name(*a), section_name(*b));
         return order ? order < 0 : a->id < b->id;
     });
@@ -208,7 +208,7 @@ bool project(Utf8View input) noexcept {
     } else {
         // Discovery: each app's commands by name, then Frequently
         // Used (up to five by score among its hundred most frecent) ahead.
-        heap_sort(order, candidate_count, [&](u32 a, u32 b) noexcept {
+        heap_sort_shared(order, candidate_count, [&](u32 a, u32 b) noexcept {
             if (ranks[a] != ranks[b])
                 return ranks[a] < ranks[b];
             const i32 names = compare_names(candidates[a].command->name, candidates[b].command->name);
@@ -284,7 +284,7 @@ namespace {
 
 // Keeps a picture's URL for the media pump under its key (the URL's hash),
 // fetched as a still image of format. Kind none when the URL does not fit.
-MediaAssetKey url_picture(Utf8View url, MediaAttachmentFormat format) noexcept {
+MediaAssetKey url_picture(const Utf8View& url, MediaAttachmentFormat format) noexcept {
     auto& c = *commands;
     if (!url.bytes || url.bytes > sizeof(c.icon_urls[0].url))
         return {};
@@ -399,7 +399,7 @@ u64 option_type(const CommandIndex& index, JsonValue option) noexcept {
     return type;
 }
 // The selected command's typed options in the draft, in absolute bytes.
-u32 typed_options(Utf8View input, Slice<CommandArgumentSpan> spans) noexcept {
+u32 typed_options(const Utf8View& input, Slice<CommandArgumentSpan> spans) noexcept {
     const auto& c = *commands;
     const u32 start = c.selected.command->name.bytes + 1;
     if (input.bytes <= start)
@@ -416,13 +416,13 @@ u32 typed_options(Utf8View input, Slice<CommandArgumentSpan> spans) noexcept {
 }
 // The chip the caret is in (up to its end marker), or no_option: after the
 // marker the caret is outside.
-u32 chip_at(Utf8View, const CommandArgumentSpan* spans, u32 count, u32 caret) noexcept {
+u32 chip_at(const Utf8View&, const CommandArgumentSpan* spans, u32 count, u32 caret) noexcept {
     for (u32 n = 0; n < count; ++n)
         if (caret >= spans[n].value_first && caret <= spans[n].value_last)
             return n;
     return no_option;
 }
-bool option_end_at(Utf8View input, u32 at) noexcept {
+bool option_end_at(const Utf8View& input, u32 at) noexcept {
     return at + kCommandOptionEndBytes <= input.bytes &&
            bytes_equal(input.data + at, kCommandOptionEnd, kCommandOptionEndBytes);
 }
@@ -538,7 +538,7 @@ void list_title(PopupItem* items, u32* count, Utf8View title, Utf8View matching,
                 c.labels[n][at] = static_cast<char>(c.labels[n][at] - ('a' - 'A'));
     }
     // Popup actions are unique: each title takes its own below the messages'.
-    items[n] = {label, value_base - 2 - n, popup_item_command_section, 0};
+    popup_item_set(&items[n], label, value_base - 2 - n, popup_item_command_section);
 }
 // The focused option's choice list: BOOLEAN True/False, static choices ranked
 // against the option's text, or
@@ -555,11 +555,11 @@ bool render_choices(PopupItem* items, u32* count) noexcept {
         const auto& state = c.autocomplete;
         c.choice_suggested = true;
         if (state.phase == CommandAutocompletePhase::failed) {
-            items[(*count)++] = {utf8_literal("Loading options failed"), value_base - 1, popup_item_none, 0};
+            popup_item_set(&items[(*count)++], utf8_literal("Loading options failed"), value_base - 1);
             return true;
         }
         if (state.phase == CommandAutocompletePhase::ready && !state.suggestions.count) {
-            items[(*count)++] = {utf8_literal("No options match your search"), value_base - 1, popup_item_none, 0};
+            popup_item_set(&items[(*count)++], utf8_literal("No options match your search"), value_base - 1);
             return true;
         }
         list_title(items, count, utf8_literal("OPTIONS"), utf8_literal("OPTIONS MATCHING"), query);
@@ -574,8 +574,8 @@ bool render_choices(PopupItem* items, u32* count) noexcept {
             c.choice_bytes[slot] = copy_label(c.choice_names[slot], 512, choice.name).bytes;
             ++c.choice_count;
             if (*count < 31)
-                items[(*count)++] = {{c.choice_names[slot], c.choice_bytes[slot]}, value_base + slot,
-                                     popup_item_enabled, 0};
+                popup_item_set(&items[(*count)++], {c.choice_names[slot], c.choice_bytes[slot]}, value_base + slot,
+                               popup_item_enabled);
         }
         return true;
     }
@@ -623,13 +623,13 @@ bool render_choices(PopupItem* items, u32* count) noexcept {
             &visit);
     }
     if (!c.choice_count) {
-        items[(*count)++] = {utf8_literal("No options match your search"), value_base - 1, popup_item_none, 0};
+        popup_item_set(&items[(*count)++], utf8_literal("No options match your search"), value_base - 1);
         return true;
     }
     list_title(items, count, utf8_literal("OPTIONS"), utf8_literal("OPTIONS MATCHING"), query);
     for (u32 slot = 0; slot < c.choice_count && *count < 31; ++slot)
-        items[(*count)++] = {{c.choice_names[slot], c.choice_bytes[slot]}, value_base + slot,
-                             popup_item_enabled, 0};
+        popup_item_set(&items[(*count)++], {c.choice_names[slot], c.choice_bytes[slot]}, value_base + slot,
+                       popup_item_enabled);
     return true;
 }
 // The option list outside every chip: the options without
@@ -660,8 +660,7 @@ void render_options(PopupItem* items, u32* count, const CommandArgumentSpan* spa
                            query);
             }
             const u32 n = (*count)++;
-            items[n] = {copy_label(c.labels[n], 512, name), option_base + slot,
-                        popup_item_enabled, 0};
+            popup_item_set(&items[n], copy_label(c.labels[n], 512, name), option_base + slot, popup_item_enabled);
             items[n].detail = field_text(*c.selected.index, list.options[slot], "description", {c.details[n], 1024});
             ++c.option_count;
         }
@@ -703,8 +702,8 @@ bool render_command(const UiLayoutNode& surface) noexcept {
     } else if (!c.choices_shown && option_type(*c.selected.index, c.focused_option) == 11) {
         // An ATTACHMENT chip offers the file picker.
         list_title(items, &count, utf8_literal("OPTIONS"), {}, {});
-        items[count++] = {utf8_literal("Drag and drop or click to upload file"), option_base + c.focused_slot,
-                          popup_item_enabled, 0};
+        popup_item_set(&items[count++], utf8_literal("Drag and drop or click to upload file"), option_base + c.focused_slot,
+                       popup_item_enabled);
         c.option_count = 1;
     }
     if (c.choices_shown)
@@ -892,8 +891,8 @@ Utf8View row_source(const CommandApplication& app) noexcept {
 void command_row(PopupItem& item, u32 slot, u32 entry_index, bool picture) noexcept {
     auto& c = *commands;
     const auto& entry = c.entries[entry_index];
-    item = {copy_label(c.labels[slot], 512, utf8_literal("/"), entry.command->name), choose_base + entry_index,
-            popup_item_enabled | popup_item_command_row, 0};
+    popup_item_set(&item, copy_label(c.labels[slot], 512, utf8_literal("/"), entry.command->name), choose_base + entry_index,
+                   popup_item_enabled | popup_item_command_row);
     char summary[512];
     const Utf8View options = option_summary(*entry.index, *entry.command, {summary, sizeof(summary)});
     const u32 used = copy_label(c.details[slot], 1024, entry.command->description, utf8_literal("\x1F"),
@@ -929,7 +928,7 @@ bool render_picker(const UiLayoutNode& surface) noexcept {
         for (u32 r = first; r < c.rail_count && count < 12 && rail_top(c, r) < c.rail_offset + kCommandPickerHeight;
              ++r) {
             auto& item = items[count];
-            item = {section_label(c.rail[r]), rail_base + r, popup_item_enabled | popup_item_command_category, 0};
+            popup_item_set(&item, section_label(c.rail[r]), rail_base + r, popup_item_enabled | popup_item_command_category);
             if (r == active)
                 item.flags |= popup_item_checked;
             if (r == divider)
@@ -939,7 +938,7 @@ bool render_picker(const UiLayoutNode& surface) noexcept {
         }
         if (!count) {
             // Built-in is always listed; this only guards an empty catalog.
-            items[count++] = {utf8_literal("Built-in"), rail_base, popup_item_command_category, 0};
+            popup_item_set(&items[count++], utf8_literal("Built-in"), rail_base, popup_item_command_category);
             items[0].presentation = ui_menu_row_presentation(UiIcon::command);
         }
     } else {
@@ -955,12 +954,12 @@ bool render_picker(const UiLayoutNode& surface) noexcept {
         for (u32 at = 0; at < title.bytes; ++at)
             if (c.labels[count][at] >= 'a' && c.labels[count][at] <= 'z')
                 c.labels[count][at] = static_cast<char>(c.labels[count][at] - ('a' - 'A'));
-        items[count] = {title, section_base - 1, popup_item_command_section, 0};
+        popup_item_set(&items[count], title, section_base - 1, popup_item_command_section);
         ++count;
     }
     const u32 body_begin = count;
     if (c.error.bytes || (!c.count && !c.query_placeholders && !c.discovery)) {
-        items[count++] = {status, choose_base - 1, popup_item_command_row, 0};
+        popup_item_set(&items[count++], status, choose_base - 1, popup_item_command_row);
         fraction = 0;
     } else if (!c.discovery) {
         for (u32 n = 0; n < c.count && count < 31; ++n, ++count)
@@ -1000,7 +999,7 @@ bool render_picker(const UiLayoutNode& surface) noexcept {
             const float header_end = top + kCommandSectionHeight + (rows ? 0.f : gap);
             if (start(top, header_end)) {
                 auto& item = items[count];
-                item = {section_label(section), section_base + s, popup_item_command_section, 0};
+                popup_item_set(&item, section_label(section), section_base + s, popup_item_command_section);
                 section_picture(item, section);
                 ++count;
             }
@@ -1019,8 +1018,8 @@ bool render_picker(const UiLayoutNode& surface) noexcept {
         }
         if (pinned != no_row && count < 32) {
             auto& item = items[count];
-            item = {section_label(c.body[pinned]), pinned_base + pinned,
-                    popup_item_command_section | popup_item_command_pinned, 0};
+            popup_item_set(&item, section_label(c.body[pinned]), pinned_base + pinned,
+                           popup_item_command_section | popup_item_command_pinned);
             section_picture(item, c.body[pinned]);
             ++count;
         }

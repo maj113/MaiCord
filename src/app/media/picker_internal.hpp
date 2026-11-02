@@ -59,7 +59,7 @@ struct StickerStore {
 extern StickerStore g_sticker_store;
 const StickerServerList* sticker_list(u64 guild_id) noexcept;
 void sticker_list_remove(u64 guild_id) noexcept;
-bool sticker_list_put(u64 guild_id, Utf8View json) noexcept;
+bool sticker_list_put(u64 guild_id, const Utf8View& json) noexcept;
 void sticker_store_clear() noexcept;
 MediaAttachmentFormat format(const MediaCatalogItem& item) noexcept;
 MediaAssetKey catalog_key(u64 id, u32 generation, const MediaCatalogItem& item) noexcept;

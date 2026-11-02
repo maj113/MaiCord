@@ -232,7 +232,7 @@ DWORD WINAPI worker_main(void* parameter) noexcept {
 Utf8View commit_of(const char (&commit)[kApplicationUpdatesCommitChars]) noexcept {
     return {commit, commit[0] ? kApplicationUpdatesCommitChars : 0u};
 }
-void add_build(TextBank& t, u64 version, Utf8View commit = {}) noexcept {
+void add_build(TextBank& t, u64 version, const Utf8View& commit = {}) noexcept {
     char text[40];
     t.add({text, update_build_version_text(version, commit, {text, sizeof(text)})});
 }
@@ -780,7 +780,7 @@ bool application_updates_activate_row(u64 control_id) noexcept {
     return application_updates_changelog_row(control_id) && g_rows &&
            application_updates_changelog_toggle(g_rows, static_cast<u32>(control_id & 0xff));
 }
-u32 application_updates_release_notes(Slice<char> output) noexcept {
+u32 application_updates_release_notes(const Slice<char>& output) noexcept {
     return g_worker ? application_updates_release_notes_url(g_view, {g_worker->config.repository, g_worker->config.repository_bytes}, output) : 0;
 }
 ApplicationUpdatesSettingsBank* application_updates_settings_bank() noexcept {

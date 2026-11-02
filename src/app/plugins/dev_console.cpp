@@ -1,5 +1,6 @@
 #include "dev_console.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_system_time.hpp"
@@ -23,16 +24,14 @@ Utf8View owner_name(const PluginRuntime* runtime, u64 owner_id) noexcept {
     return utf8_literal("plugin");
 }
 
-constexpr Utf8View kCallNames[]{
-    utf8_literal("a call"), utf8_literal("query"), utf8_literal("start"), utf8_literal("stop"), utf8_literal("a settings call"),
-    utf8_literal("a menu call"), utf8_literal("pre_send"), utf8_literal("observe"), utf8_literal("a command"),
-    utf8_literal("a button"), utf8_literal("a timer"), utf8_literal("a keybind"), utf8_literal("an event"),
-    utf8_literal("decorate"), utf8_literal("a modal"), utf8_literal("pre_edit")};
-static_assert(sizeof(kCallNames) / sizeof(kCallNames[0]) == static_cast<u32>(PluginCallKind::last) + 1);
+constexpr char kCallNames[] =
+    "a call\0query\0start\0stop\0a settings call\0a menu call\0pre_send\0observe\0a command\0a button\0a timer\0"
+    "a keybind\0an event\0decorate\0a modal\0pre_edit\0";
+static_assert(name_list_count(kCallNames) == static_cast<u32>(PluginCallKind::last) + 1);
 
 } // namespace
 
-void DevText::add(Utf8View text) noexcept {
+void DevText::add(const Utf8View& text) noexcept {
     const u32 room = kDevLineTextBytes - used;
     const u32 bytes = utf8_truncated_length(text, room);
     copy_bytes(data + used, text.data, bytes);
@@ -108,7 +107,7 @@ void application_dev_console_log(void* runtime, u64 owner_id, u32 level, Utf8Vie
 void application_dev_console_strike(void* runtime, u64 owner_id, PluginCallKind kind, u32 strike, u64 elapsed_us) noexcept {
     if (!g.enabled) return;
     DevText w{};
-    w.add(kCallNames[static_cast<u32>(kind) <= static_cast<u32>(PluginCallKind::last) ? static_cast<u32>(kind) : 0]);
+    w.add(name_list_at(kCallNames, static_cast<u32>(kind) <= static_cast<u32>(PluginCallKind::last) ? static_cast<u32>(kind) : 0));
     w.add(" ran past its time budget: ");
     w.number(elapsed_us / 1000);
     w.add(" ms. Strike ");
@@ -120,12 +119,9 @@ void application_dev_console_strike(void* runtime, u64 owner_id, PluginCallKind 
 }
 
 void application_dev_load_error_text(const PluginLoadResult& load, DevText* text) noexcept {
-    static constexpr Utf8View kProblems[]{
-        utf8_literal("a pointer leaves the image or the code"), utf8_literal("its size"), utf8_literal("the ABI"),
-        utf8_literal("flags or reserved fields"), utf8_literal("the owner id"), utf8_literal("a string"),
-        utf8_literal("the permissions"), utf8_literal("a reserved field"), utf8_literal("the state"),
-        utf8_literal("settings"), utf8_literal("hooks"), utf8_literal("commands"), utf8_literal("menus"),
-        utf8_literal("buttons"), utf8_literal("network hosts")};
+    static constexpr char kProblems[] =
+        "a pointer leaves the image or the code\0its size\0the ABI\0flags or reserved fields\0the owner id\0a string\0"
+        "the permissions\0a reserved field\0the state\0settings\0hooks\0commands\0menus\0buttons\0network hosts\0";
     DevText& w = *text;
     switch (load.error) {
     case PluginLoadError::directory: w.add("The plugins folder couldn't be opened."); break;
@@ -141,7 +137,7 @@ void application_dev_load_error_text(const PluginLoadResult& load, DevText* text
     case PluginLoadError::descriptor: {
         w.add("The descriptor is invalid: ");
         const u32 problem = static_cast<u32>(load.problem);
-        w.add(problem >= 1 && problem <= sizeof(kProblems) / sizeof(kProblems[0]) ? kProblems[problem - 1] : utf8_literal("it fails a rule"));
+        w.add(problem >= 1 && problem <= name_list_count(kProblems) ? name_list_at(kProblems, problem - 1) : utf8_literal("it fails a rule"));
         if (load.index) {
             w.add(" #");
             w.number(load.index);

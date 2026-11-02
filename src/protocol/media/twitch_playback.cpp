@@ -6,7 +6,7 @@
 #include "../encoding/json_field_lists.hpp"
 
 namespace maicord {
-bool twitch_vod_id(Utf8View id) noexcept {
+bool twitch_vod_id(const Utf8View& id) noexcept {
     u64 value = 0;
     return id.data && snowflake_parse(id, &value);
 }

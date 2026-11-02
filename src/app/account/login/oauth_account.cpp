@@ -16,7 +16,7 @@ struct Record {
     u8 encrypted[4096], entropy[kOAuthClientBytes + 32];
     ~Record() noexcept { secure_clear_bytes(this, sizeof(*this)); }
 };
-ConstSlice<u8> bind(Record& record, Utf8View client, OAuthProvider provider) noexcept {
+ConstSlice<u8> bind(Record& record, const Utf8View& client, OAuthProvider provider) noexcept {
     if (!oauth_client_valid(provider, client)) return {};
     const auto purpose = utf8_literal("MaiCord.Spotify.refresh.v1:");
     copy_bytes(record.entropy, purpose.data, purpose.bytes);
@@ -39,7 +39,7 @@ bool oauth_account_save(Utf8View client, Utf8View refresh, OAuthProvider provide
     return encrypted.ok() && location.ok() &&
         file_persistence_write_atomic(path, location.length, {record.encrypted, encrypted.bytes}).ok();
 }
-bool oauth_account_load(Utf8View client, SecureBuffer* output, OAuthProvider provider) noexcept {
+bool oauth_account_load(const Utf8View& client, SecureBuffer* output, OAuthProvider provider) noexcept {
     if (!empty(output) || !oauth_client_valid(provider, client)) return false;
     wchar_t path[1024];
     if (!data_path(path, 1024, filename(provider)).ok()) return false;
@@ -69,7 +69,7 @@ OAuthAuthorizationResult oauth_account_refresh(OAuthAuthorization* owner, Secure
         {reinterpret_cast<char*>(grant.value.data), grant.value.bytes}, output, transport,
         provider);
 }
-u32 oauth_account_client(OAuthProvider provider, Slice<char> output) noexcept {
+u32 oauth_account_client(OAuthProvider provider, const Slice<char>& output) noexcept {
     if (!output.data) return 0;
     if (provider != OAuthProvider::spotify || output.count < 32) return 0;
     wchar_t path[1024];

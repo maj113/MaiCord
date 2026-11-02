@@ -126,9 +126,10 @@
       "status": "modified",
       "upstream_sha256": "6579428627c7cbdc5de0e977bd81559f1e75cc7dd620bcb29ef7b4770ae13e44",
       "changes": [
-        "cwrsi()'s pulse count and dimension checks use celt_packet_check()."
+        "cwrsi()'s pulse count and dimension checks use celt_packet_check().",
+        "The CELT_PVQ_U table (and the CWRS_EXTRA_ROWS variant) is not shipped: encode_pulses() and decode_pulses() build it on first use from the recurrence."
       ],
-      "sha256": "3b43f230ef8ac788eca99e3e3c86f80f9061e956b4abd3ee5b089cec610bc35a"
+      "sha256": "f2483df76917cbc53398ee424abee6de29222d1de4a3e3bb75de227388903069"
     },
     {
       "path": "celt/cwrs.h",

@@ -105,14 +105,14 @@ struct Sink {
     template <usize N> void literal(const char (&text)[N]) noexcept {
         bytes(text, static_cast<u32>(N - 1));
     }
-    void text(Utf8View value) noexcept {
+    void text(const Utf8View& value) noexcept {
         bytes(value.data, value.bytes);
     }
     void number(u64 value) noexcept {
         char digits[20];
         bytes(digits, decimal_write(digits, value));
     }
-    void json_string(Utf8View value) noexcept {
+    void json_string(const Utf8View& value) noexcept {
         u32 encoded = 0;
         if (!ok || !protocol_detail::measure_json_string(value, &encoded)) {
             ok = false;
@@ -174,7 +174,8 @@ template <usize N> void part(Sink& s, ConstSlice<u8> boundary, const char (&name
     s.literal("\r\n");
 }
 
-void serialize(const GuildAssetRequest& r, GuildPreparedImage image, ConstSlice<u8> boundary, Sink& s) noexcept {
+void serialize(const GuildAssetRequest& r, GuildPreparedImage image, const ConstSlice<u8>& boundary,
+               Sink& s) noexcept {
     switch (r.operation) {
     case Op::guild_icon:
     case Op::role_icon: image_object(s, "icon", image); break;
@@ -586,7 +587,8 @@ u32 guild_image_data_uri_bytes(GuildImageKind kind, u32 image_bytes) noexcept {
     return framing + mime.bytes + encoded;
 }
 
-u32 guild_image_write_data_uri(GuildImageKind kind, ConstSlice<u8> image, Slice<u8> output) noexcept {
+u32 guild_image_write_data_uri(GuildImageKind kind, const ConstSlice<u8>& image,
+                               const Slice<u8>& output) noexcept {
     const u32 needed = guild_image_data_uri_bytes(kind, image.count);
     if (!needed || !byte_range_valid(image) || !output.data || output.count < needed)
         return 0;
@@ -617,15 +619,15 @@ bool guild_emoji_name_valid(Utf8View name) noexcept {
     return true;
 }
 
-bool guild_sticker_name_valid(Utf8View name) noexcept {
+bool guild_sticker_name_valid(const Utf8View& name) noexcept {
     return line_valid(name, kGuildStickerNameMinimum, kGuildStickerNameMaximum);
 }
 
-bool guild_sticker_tags_valid(Utf8View tags) noexcept {
+bool guild_sticker_tags_valid(const Utf8View& tags) noexcept {
     return line_valid(tags, 1, kGuildStickerTagsMaximum);
 }
 
-bool guild_sticker_description_valid(Utf8View description) noexcept {
+bool guild_sticker_description_valid(const Utf8View& description) noexcept {
     return !description.bytes ||
            line_valid(description, kGuildStickerDescriptionMinimum, kGuildStickerDescriptionMaximum);
 }
@@ -644,7 +646,7 @@ GuildAssetResult guild_asset_decode_stickers(Utf8View body, Slice<u32> scratch,
     return {body.bytes, list.count, GuildAssetError::none};
 }
 
-u64 guild_asset_error_code(Utf8View body, Slice<u32> scratch) noexcept {
+u64 guild_asset_error_code(const Utf8View& body, const Slice<u32>& scratch) noexcept {
     const auto s = scan_json<GuildAssetError>(body, scratch);
     if (s.error != GuildAssetError::none)
         return 0;

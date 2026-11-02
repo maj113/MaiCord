@@ -17,7 +17,7 @@ struct Shape {
     bool animated, ok;
 };
 
-bool starts(ConstSlice<u8> s, u32 at, const char* text, u32 bytes) noexcept {
+bool starts(const ConstSlice<u8>& s, u32 at, const char* text, u32 bytes) noexcept {
     return s.count >= at + bytes && bytes_equal(s.data + at, text, bytes);
 }
 
@@ -298,7 +298,7 @@ GuildImageInfo fail(GuildImageInfo info, GuildImageError error) noexcept {
 
 } // namespace
 
-GuildImageKind guild_image_sniff(ConstSlice<u8> s) noexcept {
+GuildImageKind guild_image_sniff(const ConstSlice<u8>& s) noexcept {
     if (!byte_range_valid(s) || !s.count)
         return GuildImageKind::none;
     if (s.count >= 8 && bytes_equal(s.data, kPngSignature, 8)) {

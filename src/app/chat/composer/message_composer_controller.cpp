@@ -332,7 +332,7 @@ namespace {
 MessageComposerControllerResult queue_send(
     MessageComposerController* controller, bool channel_allows_send, u64 author_id, u64 now_unix_ms,
     u64 now_monotonic_ms, u64 reply_message_id, ConstSlice<UploadedAttachment> attachments,
-    ConstSlice<u64> attachment_sizes, MessageComposer* source, ConstSlice<u64> sticker_ids,
+    const ConstSlice<u64>& attachment_sizes, MessageComposer* source, ConstSlice<u64> sticker_ids,
     bool mention_reply_author, const MessageComposerReplySnapshot* reply_snapshot, bool detached,
     bool silent, bool suppress_embeds) noexcept {
     auto* composer = source ? source : controller ? controller->composer : nullptr;
@@ -482,8 +482,8 @@ MessageComposerControllerResult queue_send(
 
 MessageComposerControllerResult message_composer_controller_queue_send(
     MessageComposerController* controller, bool channel_allows_send, u64 author_id, u64 now_unix_ms,
-    u64 now_monotonic_ms, u64 reply_message_id, ConstSlice<UploadedAttachment> attachments,
-    ConstSlice<u64> attachment_sizes, MessageComposer* source, ConstSlice<u64> sticker_ids,
+    u64 now_monotonic_ms, u64 reply_message_id, const ConstSlice<UploadedAttachment>& attachments,
+    const ConstSlice<u64>& attachment_sizes, MessageComposer* source, const ConstSlice<u64>& sticker_ids,
     bool mention_reply_author, const MessageComposerReplySnapshot* reply_snapshot, bool suppress_embeds) noexcept {
     return queue_send(controller, channel_allows_send, author_id, now_unix_ms, now_monotonic_ms, reply_message_id,
                       attachments, attachment_sizes, source, sticker_ids, mention_reply_author, reply_snapshot, false,
@@ -545,7 +545,7 @@ u32 first_global_mention(Utf8View content) noexcept {
     return 0;
 }
 
-u32 append_text(Slice<char> output, u32 used, Utf8View text) noexcept {
+u32 append_text(const Slice<char>& output, u32 used, const Utf8View& text) noexcept {
     if (used > output.count || text.bytes > output.count - used)
         return ~0u;
     copy_bytes(output.data + used, text.data, text.bytes);

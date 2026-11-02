@@ -49,7 +49,7 @@ struct Scan {
     JsonIndexedDocument document;
     bool ok;
 };
-Scan scan(Utf8View body, Slice<u32> scratch) noexcept {
+Scan scan(const Utf8View& body, const Slice<u32>& scratch) noexcept {
     if (!body.data || !body.bytes || body.bytes > kGuildCommunityMaximumResponseBytes || !scratch.data ||
         !scratch.count)
         return {{}, false};
@@ -438,7 +438,7 @@ bool timestamp_string(ProtocolWriter& w, u64 unix_seconds) noexcept {
     const u32 bytes = guild_admin_format_timestamp(unix_seconds, {stamp, sizeof(stamp)});
     return bytes && protocol_write(&w, '"', ConstSlice<u8>{reinterpret_cast<const u8*>(stamp), bytes}, '"');
 }
-u32 codepoints(Utf8View text, bool* valid) noexcept {
+u32 codepoints(const Utf8View& text, bool* valid) noexcept {
     const auto checked = utf8_validate(text);
     *valid = checked.valid;
     return checked.codepoints;
@@ -918,7 +918,8 @@ u32 guild_onboarding_write_responses(const GuildOnboarding& onboarding, u64 seen
 
 // Scheduled event decoding
 
-bool scheduled_event_decode(Utf8View object, Slice<u32> scratch, ScheduledEvent* output) noexcept {
+bool scheduled_event_decode(const Utf8View& object, const Slice<u32>& scratch,
+                            ScheduledEvent* output) noexcept {
     const auto s = scan(object, scratch);
     if (!s.ok || !output)
         return false;

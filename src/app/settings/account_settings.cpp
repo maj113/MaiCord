@@ -113,7 +113,7 @@ Utf8View self_name(bool username) noexcept {
     return user ? user_store_name(users, *user) : Utf8View{};
 }
 // The service's own pages are trusted hosts; they still leave through the link flow.
-bool open_browser(Utf8View url) noexcept {
+bool open_browser(const Utf8View& url) noexcept {
     return application_link_open(url, true);
 }
 Utf8View failure_text(Mutation mutation) noexcept {
@@ -207,7 +207,7 @@ void open_editor(Mutation mutation, Utf8View title, Utf8View label, Utf8View ini
     application_text_form_open(request);
 }
 
-void append(Row& row, bool description, Utf8View text) noexcept {
+void append(Row& row, bool description, const Utf8View& text) noexcept {
     char* data = description ? row.description : row.label;
     u8& used = description ? row.description_bytes : row.label_bytes;
     const u32 capacity = description ? sizeof(row.description) : sizeof(row.label);

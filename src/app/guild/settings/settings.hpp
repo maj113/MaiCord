@@ -14,7 +14,8 @@ namespace maicord::app_detail {
 // application_channel_overview, which forwards while this layer is active.
 // Reads a picked image file whole into a fresh VirtualAlloc allocation the caller frees; on failure
 // *error says why.
-bool application_image_file_read(ConstSlice<wchar_t> path, u8** data, u32* bytes, Utf8View* error) noexcept;
+bool application_image_file_read(const ConstSlice<wchar_t>& path, u8** data, u32* bytes,
+                                 Utf8View* error) noexcept;
 // Probes a picked image for `profile` the way the account module prepares it at submit; `info` says why it fails.
 // A `data_uri` buffer, sized by guild_image_data_uri_bytes, receives the prepared image's data URI.
 bool application_guild_image_probe(GuildImageProfile profile, ConstSlice<u8> image, GuildImageInfo* info,

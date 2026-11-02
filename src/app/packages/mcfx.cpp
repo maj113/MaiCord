@@ -447,7 +447,7 @@ McfxResult manifest_parse(ConstSlice<u8> text, McfxWorkspace* w) noexcept {
 }
 
 // ---- PNG --------------------------------------------------------------------------------------------------
-bool png_header(ConstSlice<u8> png, u32* width, u32* height, u32* depth, u32* colour) noexcept {
+bool png_header(const ConstSlice<u8>& png, u32* width, u32* height, u32* depth, u32* colour) noexcept {
     static constexpr u8 signature[8]{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a};
     if (png.count < 33 || !bytes_equal(png.data, signature, 8) || be32(png.data + 8) != 13 || !tag(png.data + 12, "IHDR"))
         return false;

@@ -94,7 +94,7 @@ u64 member_list_channel_id(const ChatStateStore& state, u64 channel_id) noexcept
         for (u32 j = 0; j < entry.bytes; ++j) entry.text[j] = prefix[j];
         entry.bytes = static_cast<u8>(entry.bytes + decimal_write(entry.text + entry.bytes, overwrite.id));
     }
-    heap_sort(entries, count, [](const VisibilityOverwrite& a, const VisibilityOverwrite& b) noexcept {
+    heap_sort_shared(entries, count, [](const VisibilityOverwrite& a, const VisibilityOverwrite& b) noexcept {
         for (u32 i = 0; i < minimum(a.bytes, b.bytes); ++i)
             if (a.text[i] != b.text[i]) return a.text[i] < b.text[i];
         return a.bytes < b.bytes;

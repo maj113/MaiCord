@@ -15,16 +15,16 @@ inline bool media_track_id_equal(const MediaTrackId& a, const MediaTrackId& b) n
 }
 inline constexpr u32 kMediaTrackTitleBytes = 512;
 struct MediaTrackTitle {
-    char text[kMediaTrackTitleBytes]{};
-    u16 bytes{};
+    char text[kMediaTrackTitleBytes];
+    u16 bytes;
 };
 // Metadata callbacks borrow one decoded title only for the duration of write.
-struct MediaTrackTitleSink { void* context{}; bool (*write)(void*, u16, const MediaTrackTitle&) noexcept{}; };
+struct MediaTrackTitleSink { void* context; bool (*write)(void*, u16, const MediaTrackTitle&) noexcept; };
 struct SoundcloudTitleBatch {
-    struct Track { u64 id{}; u16 index{}; };
-    char client[32]{};
-    u16 count{};
-    Track tracks[50]{};
+    struct Track { u64 id; u16 index; };
+    char client[32];
+    u16 count;
+    Track tracks[50];
 };
 
 }

@@ -578,7 +578,7 @@ u64 sources_stamp() noexcept {
     return h;
 }
 
-void parse_markdown(UiMarkdown** out, u64 owner, Utf8View source) noexcept {
+void parse_markdown(UiMarkdown** out, u64 owner, const Utf8View& source) noexcept {
     *out = nullptr;
     if (!source.bytes)
         return;

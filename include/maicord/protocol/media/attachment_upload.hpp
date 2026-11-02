@@ -22,7 +22,7 @@ struct UploadedAttachment {
 constexpr bool attachment_upload_is_voice(const UploadedAttachment& attachment) noexcept {
     return attachment.waveform.bytes != 0;
 }
-bool attachment_upload_valid_filename(Utf8View filename) noexcept;
+bool attachment_upload_valid_filename(const Utf8View& filename) noexcept;
 AttachmentUploadWriteResult attachment_upload_write(u64 channel_id, u32 id, Utf8View filename,
     u64 file_bytes, Slice<u8> target, Slice<u8> body) noexcept;
 // duration_secs: seconds with millisecond precision and no trailing zeros

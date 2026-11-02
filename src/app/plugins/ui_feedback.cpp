@@ -26,21 +26,21 @@ Modal g_modal;
 u32 g_banner_serial;
 u32 g_banner_revision;
 
-Utf8View view(mc_str text) noexcept {
+Utf8View view(const mc_str& text) noexcept {
     return {text.data, text.bytes};
 }
 
 // Short human text: UTF-8 without control characters, minimum..maximum bytes.
-bool text_ok(mc_str text, u32 minimum, u32 maximum) noexcept {
+bool text_ok(const mc_str& text, u32 minimum, u32 maximum) noexcept {
     return text.bytes >= minimum && text.bytes <= maximum && plugin_text_clean(text.data, text.bytes);
 }
 
 // Multi-line text: like text_ok, with line breaks and tabs allowed.
-bool body_ok(mc_str text, u32 maximum) noexcept {
+bool body_ok(const mc_str& text, u32 maximum) noexcept {
     return text.bytes <= maximum && plugin_text_clean(text.data, text.bytes, kPluginTextBody);
 }
 
-Utf8View keep(char* storage, mc_str text) noexcept {
+Utf8View keep(char* storage, const mc_str& text) noexcept {
     copy_bytes(storage, text.data, text.bytes);
     return {storage, text.bytes};
 }

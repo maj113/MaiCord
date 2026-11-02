@@ -27,7 +27,7 @@ constexpr u32 option_type(u32 type) noexcept {
     return types[type];
 }
 
-Utf8View view(mc_str text) noexcept {
+Utf8View view(const mc_str& text) noexcept {
     return {text.data, text.bytes};
 }
 

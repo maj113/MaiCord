@@ -52,7 +52,7 @@ void application_settings_cancel_pointer() noexcept;
 bool application_settings_open() noexcept;
 // The open settings scene, or null; and selecting one of its pages (the store pages' deep links).
 UiSettingsScene* application_settings_scene() noexcept;
-bool application_settings_select_page(UiPageKey page) noexcept;
+bool application_settings_select_page(const UiPageKey& page) noexcept;
 // The profile editor hands the modal back on a category switch: Settings
 // never visibly closed, so its entrance does not replay.
 bool application_settings_resume() noexcept;

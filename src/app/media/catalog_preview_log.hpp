@@ -32,7 +32,7 @@ struct CatalogPreviewLog {
             text[bytes++] = digits[i];
         return *this;
     }
-    CatalogPreviewLog& source(Utf8View url) noexcept {
+    CatalogPreviewLog& source(const Utf8View& url) noexcept {
         bytes += media_url_log_fields(url, {text + bytes, static_cast<u32>(sizeof(text) - 1 - bytes)});
         return *this;
     }

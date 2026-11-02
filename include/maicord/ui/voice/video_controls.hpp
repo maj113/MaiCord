@@ -21,17 +21,17 @@ enum class UiVideoPlayerKey : u8 {
 struct UiVideoPlaybackState {
     // Revision identifies interaction authority/capabilities, not each elapsed
     // time tick; the caller decides when outstanding actions become stale.
-    u64 owner{}, generation{}, revision{}, elapsed_ms{}, duration_ms{};
-    u32 volume{}; // Actual output volume, 0..100; UI never fabricates playback.
-    bool playing{}, muted{}, buffering{}, error{}, can_play{}, can_seek{}, has_audio{}, can_volume{};
-    bool can_expand{}, expanded{};
+    u64 owner, generation, revision, elapsed_ms, duration_ms;
+    u32 volume; // Actual output volume, 0..100; UI never fabricates playback.
+    bool playing, muted, buffering, error, can_play, can_seek, has_audio, can_volume;
+    bool can_expand, expanded;
     // Buffered media in 1/10000 of the duration, drawn on the seek track.
-    u16 buffered_begin[4]{}, buffered_end[4]{};
-    u8 buffered_count{};
-    bool live{};
-    u16 collection_count{}, collection_track{};
-    bool collection_more{};
-    bool can_change_track{};
+    u16 buffered_begin[4], buffered_end[4];
+    u8 buffered_count;
+    bool live;
+    u16 collection_count, collection_track;
+    bool collection_more;
+    bool can_change_track;
 };
 // Inline player metrics: a 32 DIP bar, 24 DIP glyphs in 32 DIP targets and
 // 12-13 DIP tabular time. Seek/volume keys step by the amounts below.
@@ -55,34 +55,34 @@ struct UiVideoControlsStyle {
     Utf8View previous_track{utf8_literal("Previous track")}, next_track{utf8_literal("Next track")};
 };
 struct UiVideoControlDescriptor {
-    UiVideoControl id{};
-    UiVideoControlKind kind{};
-    UiRect bounds{};
-    Utf8View label{};
-    Color foreground{}, background{};
-    u32 value{}, maximum{}, text_style{};
-    bool enabled{}, selected{};
-    bool visible{true}; // Hidden volume remains available to keyboard navigation.
+    UiVideoControl id;
+    UiVideoControlKind kind;
+    UiRect bounds;
+    Utf8View label;
+    Color foreground, background;
+    u32 value, maximum, text_style;
+    bool enabled, selected;
+    bool hidden; // A hidden volume remains available to keyboard navigation.
 };
 inline constexpr u32 kUiVideoControlCount = 10;
 struct UiVideoControlsProjection {
-    UiVideoPlaybackState playback{};
-    UiVideoControlDescriptor controls[kUiVideoControlCount]{};
-    UiRect bounds{};
-    Color surface{}, focus{};
-    char time_text[64]{};
-    u32 time_bytes{};
-    char track_text[32]{};
-    u32 track_bytes{};
-    bool compact{};
-    bool volume_expanded{};
+    UiVideoPlaybackState playback;
+    UiVideoControlDescriptor controls[kUiVideoControlCount];
+    UiRect bounds;
+    Color surface, focus;
+    char time_text[64];
+    u32 time_bytes;
+    char track_text[32];
+    u32 track_bytes;
+    bool compact;
+    bool volume_expanded;
 };
 struct UiVideoAction {
-    UiVideoControl control{};
-    u64 owner{}, generation{}, revision{}, position_ms{};
-    u32 volume{};
-    u16 collection_track{};
-    bool value{}; // Requested playing/muted/expanded value, never an optimistic state.
+    UiVideoControl control;
+    u64 owner, generation, revision, position_ms;
+    u32 volume;
+    u16 collection_track;
+    bool value; // Requested playing/muted/expanded value, never an optimistic state.
 };
 // One selected player. No allocations, retained widgets, clocks or OS calls.
 // Metrics and labels are host-controlled descriptors. Borrowed labels remain

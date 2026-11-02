@@ -95,7 +95,7 @@ bool captcha_headers_size(const UserAuthCaptchaHeaders& headers, bool allow_empt
     return true;
 }
 
-UserAuthWriteError string_error(Utf8View value, u32 maximum_bytes) noexcept {
+UserAuthWriteError string_error(const Utf8View& value, u32 maximum_bytes) noexcept {
     if (!value.data || value.bytes == 0)
         return UserAuthWriteError::invalid_input;
     return value.bytes > maximum_bytes ? UserAuthWriteError::value_too_large : UserAuthWriteError::invalid_utf8;
@@ -231,9 +231,10 @@ UserAuthDecodeError measured_string(const JsonString& value, u32 maximum_bytes) 
     return measured.bytes > maximum_bytes ? UserAuthDecodeError::value_too_large : UserAuthDecodeError::none;
 }
 
-UserAuthDecodeResult classify_response(u16 status_code, Utf8View body, Slice<u32> structural_scratch,
-                                       u32 maximum_depth, ResponseContext* context,
-                                       UserAuthResponse* output, bool recovery = false, u8 reset_mode = 0,
+UserAuthDecodeResult classify_response(u16 status_code, const Utf8View& body,
+                                       const Slice<u32>& structural_scratch, u32 maximum_depth,
+                                       ResponseContext* context, UserAuthResponse* output,
+                                       bool recovery = false, u8 reset_mode = 0,
                                        u8 phone_mode = 0) noexcept {
     if (output)
         reset_value<UserAuthResponse>(output);
@@ -726,8 +727,8 @@ UserAuthDecodeResult user_auth_classify_reset_response(u16 status_code, Utf8View
     return classify_response(status_code, body, structural_scratch, maximum_depth, &context, output, false,
         final_mfa ? 2 : 1);
 }
-UserAuthDecodeResult user_auth_decode_reset_response(u16 status_code, Utf8View body,
-    Slice<u32> structural_scratch, u32 maximum_depth, UserAuthResponseStorage storage,
+UserAuthDecodeResult user_auth_decode_reset_response(u16 status_code, const Utf8View& body,
+    const Slice<u32>& structural_scratch, u32 maximum_depth, UserAuthResponseStorage storage,
     UserAuthResponse* output, bool final_mfa) noexcept {
     return decode_response_impl(status_code, body, structural_scratch, maximum_depth, storage, output,
         final_mfa ? 2 : 1);

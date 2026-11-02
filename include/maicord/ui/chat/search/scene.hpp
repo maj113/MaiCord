@@ -103,13 +103,13 @@ struct UiSearchRow {
     bool hit, group_first;
     // Wrapped body area in DIPs; 0 uses the compact 48-DIP fallback.
     // Positive values must be finite and in [24, 464] (card max 512).
-    float body_height = 0;
+    float body_height;
     // Borrowed from the accepted result bank, not the selected channel's
     // user cache. Old pages stop holding media when the source revision changes.
-    u64 author_id = 0;
-    Utf8View avatar_hash{};
-    bool unavailable = false;
-    bool access_check = false; // Metadata-only private membership/hydration action.
+    u64 author_id;
+    Utf8View avatar_hash;
+    bool unavailable;
+    bool access_check; // Metadata-only private membership/hydration action.
 };
 struct UiSearchSource {
     void* context;

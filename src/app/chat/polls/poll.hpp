@@ -23,9 +23,9 @@ struct ApplicationPollSource {
 };
 // The scene owns its answer projection; this read-only query never allocates a
 // selected owner merely to display a received card.
-bool application_poll_state(u64 message_id, Slice<UiPollAnswer>, UiPollState*,
+bool application_poll_state(u64 message_id, const Slice<UiPollAnswer>&, UiPollState*,
                             ApplicationPollSource* = nullptr) noexcept;
-bool application_poll_search_state(u64 message_id, u32 source_publication, Slice<UiPollAnswer>,
+bool application_poll_search_state(u64 message_id, u32 source_publication, const Slice<UiPollAnswer>&,
                                    UiPollState*, ApplicationPollSource* = nullptr) noexcept;
 bool application_poll_action(const ApplicationPollSource&, const UiPollAction&) noexcept;
 bool application_poll_open(const ApplicationPollSource&) noexcept;

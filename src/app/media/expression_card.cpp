@@ -108,7 +108,7 @@ struct Text {
     char* data;
     u32 capacity, used;
     bool ok;
-    void add(Utf8View text) noexcept {
+    void add(const Utf8View& text) noexcept {
         if (!ok || text.bytes > capacity - used) {
             ok = false;
             return;

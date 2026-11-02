@@ -111,6 +111,16 @@ DataPathResult data_path(wchar_t* output, u32 capacity, const wchar_t* relative,
     return {length, 0, DataPathError::none};
 }
 
+bool profile_data_path(u64 profile_id, wchar_t* path, u32 capacity, const wchar_t* stem,
+                       const wchar_t* extension) noexcept {
+    if (!profile_id)
+        return false;
+    const DataPathResult built = data_path(path, capacity, stem);
+    u32 length = built.length;
+    return built.ok() && wide_append_hex(path, capacity, &length, profile_id) &&
+           wide_append(path, capacity, &length, extension);
+}
+
 bool directory_ensure(const wchar_t* path, u32* native_error) noexcept {
     if (CreateDirectoryW(path, nullptr))
         return true;

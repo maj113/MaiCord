@@ -78,7 +78,7 @@ void sha1_accept_source(const ConstSlice<u8>& client_key, u8* digest) noexcept {
     }
 }
 
-bool valid_client_key(ConstSlice<u8> key) noexcept {
+bool valid_client_key(const ConstSlice<u8>& key) noexcept {
     if (key.count != kWebSocketClientKeyBytes) {
         return false;
     }
@@ -160,7 +160,8 @@ WebSocketHandshakeValidation validation_error(WebSocketHandshakeError error,
 
 } // namespace
 
-WebSocketHandshakeWriteResult websocket_encode_client_key(ConstSlice<u8> nonce, Slice<u8> output) noexcept {
+WebSocketHandshakeWriteResult websocket_encode_client_key(const ConstSlice<u8>& nonce,
+                                                          const Slice<u8>& output) noexcept {
     if (!nonce.data || nonce.count != kWebSocketNonceBytes || !output.data) {
         return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_input};
     }
@@ -244,8 +245,8 @@ WebSocketHandshakeWriteResult websocket_write_opening_request(ConstSlice<u8> tar
                    : WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::output_too_small};
 }
 
-WebSocketHandshakeValidation websocket_validate_opening_response(ConstSlice<u8> response,
-                                                                 ConstSlice<u8> client_key,
+WebSocketHandshakeValidation websocket_validate_opening_response(const ConstSlice<u8>& response,
+                                                                 const ConstSlice<u8>& client_key,
                                                                  u32 maximum_header_bytes,
                                                                  u32 maximum_fields) noexcept {
     if ((!response.data && response.count != 0) || !valid_client_key(client_key)) {

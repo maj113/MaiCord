@@ -23,8 +23,8 @@ AttachmentDownloadRequestResult attachment_download_write_request(
     u64 now_seconds, Slice<u8> output) noexcept;
 // The same credential-free GET for embed media: a URL on Discord's CDN or
 // media proxy (images-ext-N, media.discordapp.net), never another host.
-AttachmentDownloadRequestResult attachment_download_write_media_request(Utf8View url,
-                                                                        Slice<u8> output) noexcept;
+AttachmentDownloadRequestResult attachment_download_write_media_request(const Utf8View& url,
+                                                                        const Slice<u8>& output) noexcept;
 
 enum class AttachmentDownloadResponseError : u8 {
     none, invalid_input, http_head, status, content_encoding, size_limit, size_mismatch,
@@ -61,7 +61,7 @@ struct AttachmentDownloadFilenameResult {
 // units. Input is at most 2048 bytes; output at most 512 bytes and 240 UTF-16
 // units (local policy, not a server limit).
 AttachmentDownloadFilenameResult attachment_download_safe_filename(
-    Utf8View metadata_filename, Slice<char> output) noexcept;
+    Utf8View metadata_filename, const Slice<char>& output) noexcept;
 
 // Executable, installer, script and archive extensions treated as risky; a
 // warning signal, never a statement that the server scanned bytes or that an

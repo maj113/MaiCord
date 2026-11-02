@@ -24,7 +24,7 @@ struct FavoriteAction {
     GifFavoriteFormat format;
     bool desired;
 };
-bool usable_text(Utf8View text) noexcept {
+bool usable_text(const Utf8View& text) noexcept {
     return text.data && text.bytes && text.bytes <= kUrlBytes && utf8_validate(text).valid;
 }
 void release_bank(FavoriteBank* bank) noexcept {
@@ -116,7 +116,7 @@ void changed(ApplicationGifFavorites& p, bool data = false) noexcept {
     application_media_picker_favorites_changed();
     application_request_frame();
 }
-bool favorite(const ApplicationGifFavorites& p, Utf8View url) noexcept {
+bool favorite(const ApplicationGifFavorites& p, const Utf8View& url) noexcept {
     return p.bank && gif_favorites_find({p.bank->records, p.bank->record_count},
                                         {p.bank->index, p.bank->index_words}, url);
 }

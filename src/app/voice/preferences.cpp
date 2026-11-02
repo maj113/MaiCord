@@ -19,7 +19,7 @@ u32 id_length(const wchar_t* id) noexcept {
         ++length;
     return length;
 }
-u64 checksum(ConstSlice<u8> record) noexcept {
+u64 checksum(const ConstSlice<u8>& record) noexcept {
     u64 hash = hash64_bytes(kHash64Seed, record.data, kChecksumOffset);
     return hash64_bytes(hash, record.data + kHeaderBytes, record.count - kHeaderBytes);
 }

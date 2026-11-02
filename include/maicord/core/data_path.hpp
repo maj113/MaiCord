@@ -41,6 +41,11 @@ struct DataPathResult {
 DataPathResult data_path(wchar_t* output, u32 capacity, const wchar_t* relative,
                          bool create_parents = false) noexcept;
 
+// data_path(stem), then the profile id as 16 lowercase hex digits and extension: one account's file, such as
+// profile_data_path(id, path, capacity, L"accounts\\links-", L".trust"). False for profile 0 or when it does not fit.
+bool profile_data_path(u64 profile_id, wchar_t* path, u32 capacity, const wchar_t* stem,
+                       const wchar_t* extension) noexcept;
+
 // Creates path as a directory when it is missing. True when it exists as a
 // directory; otherwise *native_error (when given) receives the Win32 error.
 bool directory_ensure(const wchar_t* path, u32* native_error = nullptr) noexcept;

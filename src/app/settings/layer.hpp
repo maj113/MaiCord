@@ -61,7 +61,7 @@ void settings_layer_reset(SettingsLayer*) noexcept;
 // Focused text control, if editable.
 bool settings_layer_editor(SettingsLayer*, u64* control_id, MessageComposer** model, BoundedEdit** binding) noexcept;
 UiSettingsEditor settings_layer_editor_view(SettingsLayer*, u64 control_id, MessageComposer& model,
-                                            Utf8View placeholder, bool editable) noexcept;
+                                            const Utf8View& placeholder, bool editable) noexcept;
 bool settings_layer_focus(SettingsLayer*, UiSettingsTarget) noexcept;
 // Builds the scene activation for a keyboard target and dispatches it.
 void settings_layer_activate_target(SettingsLayer*, UiSettingsTarget) noexcept;

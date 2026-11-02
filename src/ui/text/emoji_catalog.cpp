@@ -5,10 +5,6 @@
 
 namespace maicord {
 
-// The generated pools keep internal linkage: only their lengths are used here
-// (see the static_asserts below); the shipped bytes are the deflate stream.
-#include <unicode_emoji_16_optimized.inc>
-
 namespace emoji_pool_detail {
 const char* catalog_names;
 const char* catalog_glyphs;
@@ -16,53 +12,64 @@ const char* catalog_glyphs;
 
 namespace {
 
-#include "emoji_shortcodes.inc"
+// The generated pool: names, glyphs, then the catalog and alias rows (as plane blocks until published) and
+// the primary-shortcode bit set. tools/pack_emoji_pools.py checks every row against the sources.
 #include <emoji_pool_pack.inc>
 
 static_assert(kEmojiPoolCatalogNamesOffset == 0);
-static_assert(kEmojiPoolCatalogNamePrefixBytes == sizeof(kUnicodeEmojiCatalogNames) - 1);
-static_assert(kEmojiPoolShortcodeNamesOffset < kEmojiPoolCatalogNamePrefixBytes);
-static_assert(kEmojiPoolCatalogGlyphsOffset >= kEmojiPoolCatalogNamePrefixBytes);
-static_assert(kEmojiPoolCatalogGlyphsOffset - kEmojiPoolShortcodeNamesOffset < (1u << 17));
+static_assert(kEmojiPoolCatalogNamePrefixBytes == kUnicodeEmojiCatalogNameBytes);
+// Aliases share the catalog's name and glyph pools, so one base serves both.
+static_assert(kEmojiPoolShortcodeNamesOffset == kEmojiPoolCatalogNamesOffset);
 static_assert(kEmojiPoolShortcodeGlyphsOffset == kEmojiPoolCatalogGlyphsOffset);
-static_assert(kEmojiPoolBytes - kEmojiPoolCatalogGlyphsOffset == sizeof(kUnicodeEmojiCatalogGlyphs) - 1);
-static_assert(sizeof(kEmojiShortcodeGlyphs) <= sizeof(kUnicodeEmojiCatalogGlyphs));
-static_assert(sizeof(kEmojiSharedNameShortcodes) == sizeof(kEmojiShortcodes));
+static_assert(kEmojiPoolCatalogGlyphsOffset >= kEmojiPoolCatalogNamePrefixBytes);
+static_assert(kEmojiPoolCatalogGlyphsOffset < (1u << 17));
+static_assert(kEmojiPoolCatalogGlyphBytes == kUnicodeEmojiCatalogGlyphBytes);
+static_assert(kEmojiPoolShortcodeGlyphBytes <= kEmojiPoolCatalogGlyphBytes);
+static_assert(kEmojiPoolCatalogEntryCount == kUnicodeEmojiCatalogEntryCount);
+static_assert(sizeof(kEmojiPoolCategoryRanges) / sizeof(kEmojiPoolCategoryRanges[0]) == kEmojiCategoryCount);
+static_assert(kEmojiPoolMaximumNameBytes == kUnicodeEmojiMaximumNameBytes);
+static_assert(kEmojiPoolMaximumGlyphBytes == kUnicodeEmojiMaximumGlyphBytes);
+static_assert(kEmojiPoolCatalogEntryOffset >= kEmojiPoolCatalogGlyphsOffset + kEmojiPoolCatalogGlyphBytes);
+static_assert(kEmojiPoolCatalogEntryOffset % alignof(u16) == 0);
+static_assert(kEmojiPoolAliasOffset == kEmojiPoolCatalogEntryOffset + kEmojiPoolCatalogEntryCount * sizeof(EmojiCatalogEntry));
+static_assert(kEmojiPoolPrimaryOffset == kEmojiPoolAliasOffset + kEmojiPoolAliasCount * sizeof(EmojiAliasEntry));
+static_assert(kEmojiPoolBytes == kEmojiPoolPrimaryOffset + (kEmojiPoolAliasCount + 7) / 8);
 
-constexpr u32 shortcode_count = sizeof(kEmojiSharedNameShortcodes) / sizeof(kEmojiSharedNameShortcodes[0]);
-consteval bool shortcode_layout_valid(u32 first, u32 last) noexcept {
-    for (u32 i = first; i < last; ++i) {
-        const auto& entry = kEmojiSharedNameShortcodes[i];
-        const auto& original = kEmojiShortcodes[i];
-        if (entry.name_offset() + entry.name_bytes() > kEmojiPoolCatalogGlyphsOffset - kEmojiPoolShortcodeNamesOffset ||
-            entry.name_bytes() != original.name_bytes() || entry.glyph_offset != original.glyph_offset ||
-            entry.glyph_bytes != original.glyph_bytes)
-            return false;
-    }
-    return true;
-}
-// Separate ranges keep each constant evaluation within the compiler step limit.
-static_assert(shortcode_layout_valid(0, shortcode_count / 4));
-static_assert(shortcode_layout_valid(shortcode_count / 4, shortcode_count / 2));
-static_assert(shortcode_layout_valid(shortcode_count / 2, shortcode_count * 3 / 4));
-static_assert(shortcode_layout_valid(shortcode_count * 3 / 4, shortcode_count));
-
-const char* shortcode_names;
-const char* shortcode_glyphs;
 InflatedBlock pool_block;
 
+// A table's rows ship as byte planes of 256-row blocks; this interleaves each block back to 6-byte rows in place.
+void interleave_rows(u8* rows, u32 count) noexcept {
+    u8 block[256 * 6];
+    for (u32 first = 0; first < count; first += 256) {
+        const u32 n = minimum(count - first, 256u);
+        u8* at = rows + first * 6;
+        copy_bytes(block, at, n * 6);
+        for (u32 column = 0; column < 6; ++column)
+            for (u32 i = 0; i < n; ++i)
+                at[i * 6 + column] = block[column * n + i];
+    }
+}
+
 void publish_pool(const u8* bytes) noexcept {
-    const auto* pool = reinterpret_cast<const char*>(bytes);
-    emoji_pool_detail::catalog_names = pool + kEmojiPoolCatalogNamesOffset;
-    emoji_pool_detail::catalog_glyphs = pool + kEmojiPoolCatalogGlyphsOffset;
-    shortcode_names = pool + kEmojiPoolShortcodeNamesOffset;
-    shortcode_glyphs = pool + kEmojiPoolShortcodeGlyphsOffset;
+    auto* pool = const_cast<u8*>(bytes);
+    emoji_pool_detail::catalog_names = reinterpret_cast<const char*>(pool + kEmojiPoolCatalogNamesOffset);
+    emoji_pool_detail::catalog_glyphs = reinterpret_cast<const char*>(pool + kEmojiPoolCatalogGlyphsOffset);
+    interleave_rows(pool + kEmojiPoolCatalogEntryOffset, kEmojiPoolCatalogEntryCount);
+    interleave_rows(pool + kEmojiPoolAliasOffset, kEmojiPoolAliasCount);
 }
 
 bool pool_ready() noexcept {
     return pool_block.state == 2 ||
            inflated_block_load(pool_block, kEmojiPoolPacked, sizeof(kEmojiPoolPacked), kEmojiPoolBytes,
                                publish_pool);
+}
+
+// The table views below are valid once pool_ready() has returned true.
+const EmojiCatalogEntry* catalog_rows() noexcept {
+    return reinterpret_cast<const EmojiCatalogEntry*>(pool_block.data + kEmojiPoolCatalogEntryOffset);
+}
+const EmojiAliasEntry* alias_rows() noexcept {
+    return reinterpret_cast<const EmojiAliasEntry*>(pool_block.data + kEmojiPoolAliasOffset);
 }
 
 // Callers validate both pointers and the complete query range.
@@ -79,71 +86,30 @@ bool range_equal_folded_ascii(Utf8View candidate, u32 first, Utf8View query) noe
     return true;
 }
 
-consteval u32 maximum_name_bytes() noexcept {
-    u32 result = 0;
-    for (const EmojiCatalogEntry& entry : kUnicodeEmoji16Entries) {
-        result = maximum(result, static_cast<u32>(entry.name_length));
-    }
-    return result;
-}
-
-consteval u32 maximum_glyph_bytes() noexcept {
-    u32 result = 0;
-    for (const EmojiCatalogEntry& entry : kUnicodeEmoji16Entries) {
-        result = maximum(result, static_cast<u32>(entry.glyph_bytes));
-    }
-    return result;
-}
-
-inline constexpr u32 kGeneratedEntryCount =
-    static_cast<u32>(sizeof(kUnicodeEmoji16Entries) / sizeof(kUnicodeEmoji16Entries[0]));
-inline constexpr u32 kGeneratedCategoryBoundaryCount =
-    static_cast<u32>(sizeof(kUnicodeEmoji16CategoryRanges) /
-                     sizeof(kUnicodeEmoji16CategoryRanges[0]));
-
-consteval bool catalog_layout_valid() noexcept {
-    for (const EmojiCatalogEntry& entry : kUnicodeEmoji16Entries) {
-        if (entry.name_offset()+entry.name_length > kUnicodeEmojiCatalogNameBytes ||
-            entry.glyph_offset+entry.glyph_bytes > kUnicodeEmojiCatalogGlyphBytes) {
-            return false;
-        }
-    }
-    return true;
-}
-
-static_assert(kGeneratedEntryCount == kUnicodeEmojiCatalogEntryCount);
-static_assert(kGeneratedCategoryBoundaryCount == kEmojiCategoryCount);
-static_assert(sizeof(kUnicodeEmojiCatalogNames) - 1 == kUnicodeEmojiCatalogNameBytes);
-static_assert(sizeof(kUnicodeEmojiCatalogGlyphs) - 1 == kUnicodeEmojiCatalogGlyphBytes);
-static_assert(maximum_name_bytes() == kUnicodeEmojiMaximumNameBytes);
-static_assert(maximum_glyph_bytes() == kUnicodeEmojiMaximumGlyphBytes);
-static_assert(catalog_layout_valid());
-
 } // namespace
 
 Utf8View EmojiAliasEntry::name() const noexcept {
-    return {shortcode_names + name_offset(), name_bytes()};
+    return {emoji_pool_detail::catalog_names + name_offset(), name_bytes()};
 }
 Utf8View EmojiAliasEntry::glyph() const noexcept {
-    return {shortcode_glyphs + glyph_offset, glyph_bytes};
+    return {emoji_pool_detail::catalog_glyphs + glyph_offset, glyph_bytes};
 }
 ConstSlice<EmojiAliasEntry> emoji_shortcodes() noexcept {
     if (!pool_ready())
         return {};
-    return {kEmojiSharedNameShortcodes, shortcode_count};
+    return {alias_rows(), kEmojiPoolAliasCount};
 }
 
 ConstSlice<EmojiCatalogEntry> unicode_emoji_catalog() noexcept {
     if (!pool_ready())
         return {};
-    return ConstSlice<EmojiCatalogEntry>{kUnicodeEmoji16Entries, kGeneratedEntryCount};
+    return ConstSlice<EmojiCatalogEntry>{catalog_rows(), kEmojiPoolCatalogEntryCount};
 }
 
 EmojiCatalogRange emoji_catalog_category_range(EmojiCategory category) noexcept {
     const u32 index = static_cast<u32>(category);
     return index < kEmojiCategoryCount
-               ? EmojiCatalogRange{kUnicodeEmoji16CategoryRanges[index][0],
-                                   kUnicodeEmoji16CategoryRanges[index][1]}
+               ? EmojiCatalogRange{kEmojiPoolCategoryRanges[index][0], kEmojiPoolCategoryRanges[index][1]}
                : EmojiCatalogRange{};
 }
 
@@ -219,7 +185,7 @@ Utf8View plain_shortcode_glyph(Utf8View name) noexcept {
     if (const auto glyph = alias_glyph(name); glyph.bytes)
         return glyph;
     const u32 index = emoji_catalog_find_name(name);
-    return index == ~0u ? Utf8View{} : kUnicodeEmoji16Entries[index].glyph();
+    return index == ~0u ? Utf8View{} : catalog_rows()[index].glyph();
 }
 
 // emoji-test.txt lists every fully-qualified skin-tone variant directly after
@@ -228,8 +194,9 @@ Utf8View skin_tone_variant(Utf8View base, u8 tone) noexcept {
     const u32 index = emoji_catalog_find_glyph(base);
     if (index == ~0u || first_skin_tone(base))
         return {};
-    for (u32 i = index + 1; i < kGeneratedEntryCount; ++i) {
-        const auto candidate = kUnicodeEmoji16Entries[i].glyph();
+    const EmojiCatalogEntry* entries = catalog_rows();
+    for (u32 i = index + 1; i < kEmojiPoolCatalogEntryCount; ++i) {
+        const auto candidate = entries[i].glyph();
         if (!first_skin_tone(candidate))
             break;
         if (glyph_equal(candidate, base, tone))
@@ -241,12 +208,14 @@ Utf8View skin_tone_variant(Utf8View base, u8 tone) noexcept {
 // Primary rows are emoji whose shortcode key (favorites, frecency) is neither
 // the catalog name nor the base's key with _toneN.
 Utf8View primary_row(u32 index) noexcept {
-    const auto& glyph = kUnicodeEmoji16Entries[index];
-    // Both generators use the first occurrence in the shared, fully-qualified glyph pool.
-    for (const u16 row : kEmojiPrimaryShortcodes) {
-        const auto& alias = kEmojiSharedNameShortcodes[row];
-        if (alias.glyph_offset == glyph.glyph_offset && alias.glyph_bytes == glyph.glyph_bytes)
-            return alias.name();
+    const auto& glyph = catalog_rows()[index];
+    const EmojiAliasEntry* aliases = alias_rows();
+    const u8* primary = pool_block.data + kEmojiPoolPrimaryOffset;
+    // The packer guarantees at most one primary row per glyph.
+    for (u32 row = 0; row < kEmojiPoolAliasCount; ++row) {
+        if ((primary[row >> 3] >> (row & 7) & 1) && aliases[row].glyph_offset == glyph.glyph_offset &&
+            aliases[row].glyph_bytes == glyph.glyph_bytes)
+            return aliases[row].name();
     }
     return {};
 }
@@ -276,8 +245,9 @@ u32 emoji_catalog_find_name(Utf8View name) noexcept {
         return ~0u;
     // Length and first byte reject nearly every entry before any pool access.
     const char* pool = emoji_pool_detail::catalog_names;
-    for (u32 i = 0; i < kGeneratedEntryCount; ++i) {
-        const EmojiCatalogEntry& entry = kUnicodeEmoji16Entries[i];
+    const EmojiCatalogEntry* entries = catalog_rows();
+    for (u32 i = 0; i < kEmojiPoolCatalogEntryCount; ++i) {
+        const EmojiCatalogEntry& entry = entries[i];
         if (entry.name_length == name.bytes && pool[entry.name_offset()] == name.data[0] &&
             bytes_equal(pool + entry.name_offset(), name.data, name.bytes))
             return i;
@@ -295,8 +265,9 @@ u32 emoji_catalog_find_glyph(Utf8View glyph) noexcept {
                                     : lead >= 0xF0u && lead < 0xF8u ? 4u : 0u;
     if (lead == 0xEFu || prefix > glyph.bytes)
         prefix = 0;
-    for (u32 i = 0; i < kGeneratedEntryCount; ++i) {
-        const Utf8View candidate = kUnicodeEmoji16Entries[i].glyph();
+    const EmojiCatalogEntry* entries = catalog_rows();
+    for (u32 i = 0; i < kEmojiPoolCatalogEntryCount; ++i) {
+        const Utf8View candidate = entries[i].glyph();
         if (prefix && (candidate.bytes < prefix || !bytes_equal(candidate.data, glyph.data, prefix)))
             continue;
         if (glyph_equal(candidate, glyph))
@@ -309,7 +280,8 @@ u32 emoji_shortcode_key(Utf8View glyph, Slice<char> output) noexcept {
     const u32 index = output.data ? emoji_catalog_find_glyph(glyph) : ~0u;
     if (index == ~0u)
         return 0;
-    const auto entry = kUnicodeEmoji16Entries[index].glyph();
+    const EmojiCatalogEntry* entries = catalog_rows();
+    const auto entry = entries[index].glyph();
     const u8 tone = first_skin_tone(entry);
     Utf8View name = primary_row(index);
     u8 suffix = 0;
@@ -317,17 +289,17 @@ u32 emoji_shortcode_key(Utf8View glyph, Slice<char> output) noexcept {
         // The nearest preceding untoned entry is the base; other mixed tones
         // keep their catalog name.
         u32 base = index;
-        while (base && first_skin_tone(kUnicodeEmoji16Entries[base].glyph()))
+        while (base && first_skin_tone(entries[base].glyph()))
             --base;
-        if (glyph_equal(entry, kUnicodeEmoji16Entries[base].glyph(), tone)) {
+        if (glyph_equal(entry, entries[base].glyph(), tone)) {
             name = primary_row(base);
             if (!name.bytes)
-                name = kUnicodeEmoji16Entries[base].name();
+                name = entries[base].name();
             suffix = static_cast<u8>('0' + tone - 0xBA);
         }
     }
     if (!name.bytes)
-        name = kUnicodeEmoji16Entries[index].name();
+        name = entries[index].name();
     const u32 bytes = name.bytes + (suffix ? 6 : 0);
     if (bytes > output.count)
         return 0;

@@ -41,7 +41,7 @@ struct ProtoSource {
     }
 };
 
-inline ProtoSource proto_source(ConstSlice<u8> bytes) noexcept {
+inline ProtoSource proto_source(const ConstSlice<u8>& bytes) noexcept {
     return {bytes, {}, bytes.count};
 }
 
@@ -163,7 +163,7 @@ struct ProtoWriter {
         tag(field, 0);
         varint(value);
     }
-    void string(u32 field, Utf8View text) noexcept {
+    void string(u32 field, const Utf8View& text) noexcept {
         tag(field, 2);
         varint(text.bytes);
         bytes(text.data, text.bytes);
@@ -213,7 +213,7 @@ inline u32 proto_settings_patch_bytes(u32 proto_bytes, u32 version, bool present
 
 // Writes the PATCH body; output must hold proto_settings_patch_bytes. False
 // when the proto cannot be base64 encoded.
-inline bool proto_write_settings_patch(ConstSlice<u8> proto, u32 version, Slice<u8> output,
+inline bool proto_write_settings_patch(const ConstSlice<u8>& proto, u32 version, const Slice<u8>& output,
                                        bool present = false) noexcept {
     copy_bytes(output.data, kSettingsPatchHead, kSettingsPatchHeadBytes);
     u32 at = kSettingsPatchHeadBytes;

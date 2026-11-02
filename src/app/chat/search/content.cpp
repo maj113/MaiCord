@@ -39,7 +39,7 @@ SearchContentRequest capture_request(const ApplicationSearchSourceTicket& ticket
     return {ticket, target, account_scope(), g_app.account.status.profile_id,
         g_app.account_ui ? g_app.account_ui->chat_state.self_user_id : 0};
 }
-void notice(const SearchContentRequest& owner, Utf8View text) noexcept {
+void notice(const SearchContentRequest& owner, const Utf8View& text) noexcept {
     application_search_source_notice(owner.ticket, text);
 }
 bool attachment_media_allowed(const SearchContentRequest& owner, bool activate) noexcept {
@@ -92,7 +92,7 @@ bool embed_source(const SearchContentRequest& owner, Utf8View* source) noexcept 
 }
 // Every result link leaves through the link trust rules and the themed
 // "Leaving Discord" warning, which captures the exact URL it shows.
-bool confirm(const SearchContentRequest& owner, Utf8View url,
+bool confirm(const SearchContentRequest& owner, const Utf8View& url,
              const ReceivedAttachmentOpenIdentity* attachment) noexcept {
     if (!message_markdown_url_valid(url) || url.bytes > 2047) {
         notice(owner, utf8_literal("This link could not be opened."));
@@ -123,7 +123,7 @@ bool open_link(const ApplicationSearchSourceTicket& ticket, const SearchContentR
     return confirm(owner, source, nullptr);
 }
 void attachment_ready(const SearchContentRequest& owner, const ReceivedAttachmentOpenIdentity& identity,
-                      Utf8View ready) noexcept {
+                      const Utf8View& ready) noexcept {
     if (attachment_media_allowed(owner, false))
         confirm(owner, ready, &identity);
 }

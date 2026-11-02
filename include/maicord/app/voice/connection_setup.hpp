@@ -41,7 +41,8 @@ struct VoiceConnectionSetup {
 
 // Fresh READY binding invalidates the previous call. Resuming the same Gateway
 // session must not call bind. A zero-initialized owner requires release at teardown.
-VoiceSetupResult voice_setup_bind_utf8(VoiceConnectionSetup* setup, u64 user_id, Utf8View session) noexcept;
+VoiceSetupResult voice_setup_bind_utf8(VoiceConnectionSetup* setup, u64 user_id,
+                                       const Utf8View& session) noexcept;
 // Call only for a serialized, submitted Opcode 4 join/move request. Mute/deafen
 // changes in the same channel do not begin another negotiation. The Gateway has no
 // request ID for guild server events; generation tags cannot disambiguate

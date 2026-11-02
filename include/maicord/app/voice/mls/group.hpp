@@ -121,8 +121,8 @@ MlsStatus mls_proposal_cache_resolve_all(KdfSha256Workspace& kdf, const MlsPropo
 // Scratch: mls_tree_edit_bytes; one joiner leaf per Add in proposal order.
 u32 mls_tree_edit_bytes(const MlsRatchetTree& tree, ConstSlice<MlsProposal> proposals) noexcept;
 MlsStatus mls_tree_apply_proposals(const MlsRatchetTree& tree, ConstSlice<MlsProposal> proposals,
-                                   Slice<u8> scratch, Slice<u32> joiners, u32* joiner_count,
-                                   Slice<u8> output, u32* written) noexcept;
+                                   const Slice<u8>& scratch, Slice<u32> joiners, u32* joiner_count,
+                                   const Slice<u8>& output, u32* written) noexcept;
 
 // Compact TreeKEM private state; public tree bytes stay caller-owned.
 struct MlsTreeKemPrivate {
@@ -139,7 +139,7 @@ MlsStatus mls_treekem_joiner_init(KdfSha256Workspace& kdf, MlsTreeKemPrivate* st
                                   const P256Key& leaf_key, u32 signer, const u8* path_secret) noexcept;
 MlsStatus mls_treekem_carry_forward(KdfSha256Workspace& kdf, MlsTreeKemPrivate* next,
                                     const MlsTreeKemPrivate& current, const MlsRatchetTree& tree,
-                                    Slice<u8> scratch) noexcept;
+                                    const Slice<u8>& scratch) noexcept;
 // Fresh local path from leaf_secret: the stub holds the signed Commit leaf and
 // path keys without ciphertexts; merged is the resulting public tree, with its
 // tree hash.

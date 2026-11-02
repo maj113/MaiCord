@@ -52,7 +52,7 @@ bool valid_token(ConstSlice<u8> token) noexcept {
     return true;
 }
 
-bool parse_u32(ConstSlice<u8> value, u32* output) noexcept {
+bool parse_u32(const ConstSlice<u8>& value, u32* output) noexcept {
     u64 parsed = 0;
     if (!value.data || !decimal_parse_padded(value, &parsed) || parsed > ~u32{0})
         return false;
@@ -410,8 +410,9 @@ bool rest_route_valid(const RestRouteKey& route) noexcept {
     }
 }
 
-RestUserPropertiesResult write_rest_user_super_properties(
-    const GatewayUserProperties& properties, Slice<u8> json_scratch, Slice<u8> output) noexcept {
+RestUserPropertiesResult write_rest_user_super_properties(const GatewayUserProperties& properties,
+                                                          const Slice<u8>& json_scratch,
+                                                          const Slice<u8>& output) noexcept {
     if (!json_scratch.data || !output.data || json_scratch.data == output.data)
         return RestUserPropertiesResult{0, RestUserPropertiesError::invalid_input};
     const GatewayCommandWriteResult measured = gateway_write_user_properties(properties, {});
@@ -541,7 +542,8 @@ bool rest_extra_headers_valid(const ConstSlice<u8>& headers) noexcept {
     return true;
 }
 
-u32 rest_append_extra_header(Slice<u8> output, u32 used, Utf8View name, ConstSlice<u8> value) noexcept {
+u32 rest_append_extra_header(const Slice<u8>& output, u32 used, const Utf8View& name,
+                             const ConstSlice<u8>& value) noexcept {
     const u32 bytes = name.bytes + 2 + value.count + 2;
     if (!output.data || used > output.count || bytes > output.count - used ||
         used + bytes > kRestExtraHeadersMaximumBytes ||
@@ -678,7 +680,7 @@ u32 emit_request_head(Writer& writer, const RestRequestHead& request) noexcept {
 } // namespace
 
 RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
-                                               Slice<u8> output) noexcept {
+                                               const Slice<u8>& output) noexcept {
     const char* const method = method_literal(request.method);
     const bool multipart = request.multipart_boundary.count != 0;
     if ((!request.multipart_boundary.data && request.multipart_boundary.count) ||
@@ -765,8 +767,8 @@ RestBodyKind rest_classify_body(ConstSlice<u8> body) noexcept {
     return body[offset] >= 0x20 && body[offset] <= 0x7E ? RestBodyKind::utf8_text : RestBodyKind::binary;
 }
 
-static RateLimitBodyResult decode_retry_body(Utf8View body, Slice<u32> structural_scratch, u32 maximum_depth,
-                                             bool retry_only) noexcept {
+static RateLimitBodyResult decode_retry_body(const Utf8View& body, const Slice<u32>& structural_scratch,
+                                             u32 maximum_depth, bool retry_only) noexcept {
     if (!body.data || body.bytes == 0 || !structural_scratch.data || structural_scratch.count == 0 || maximum_depth == 0)
         return RateLimitBodyResult{0, RateLimitBodyError::invalid_input, false};
     const JsonScanResult scan = json_scan_structurals_avx1(body, structural_scratch);
@@ -791,7 +793,7 @@ RateLimitBodyResult decode_rate_limit_body(Utf8View body, Slice<u32> structural_
     return decode_retry_body(body, structural_scratch, maximum_depth, false);
 }
 
-RateLimitBodyResult decode_search_indexing_body(Utf8View body, Slice<u32> structural_scratch,
+RateLimitBodyResult decode_search_indexing_body(const Utf8View& body, const Slice<u32>& structural_scratch,
                                             u32 maximum_depth) noexcept {
     return decode_retry_body(body, structural_scratch, maximum_depth, true);
 }

@@ -257,7 +257,7 @@ MlsStatus parent_hash_matches(const Validation& v, u32 index, const u8* expected
         *matches = mls_equal(parent_hash, expected, kMlsHashBytes);
     return status;
 }
-MlsStatus relation_item(u32 child, u32 candidate, ConstSlice<u8> parent_unmerged, u32 item,
+MlsStatus relation_item(u32 child, u32 candidate, const ConstSlice<u8>& parent_unmerged, u32 item,
                         u32* remaining) noexcept {
     if (item == candidate)
         return MlsStatus::ok;
@@ -304,8 +304,9 @@ MlsStatus relation_valid(const Validation& v, u32 child, u32 candidate, ConstSli
         *valid = intersection == remaining;
     return status;
 }
-MlsStatus candidate_matches(const Validation& v, u32 child, u32 candidate, ConstSlice<u8> parent_unmerged,
-                            const u8* expected, u32* matches) noexcept {
+MlsStatus candidate_matches(const Validation& v, u32 child, u32 candidate,
+                            const ConstSlice<u8>& parent_unmerged, const u8* expected,
+                            u32* matches) noexcept {
     bool hash_matches = false, relation = false;
     auto status = parent_hash_matches(v, candidate, expected, &hash_matches);
     if (status == MlsStatus::ok && hash_matches)
@@ -338,7 +339,7 @@ MlsStatus resolution_matches(const Validation& v, u32 child, u32 index, ConstSli
     return status;
 }
 // The original hash of `child` under a parent with these unmerged leaves.
-MlsStatus sibling_hash(const Validation& v, u32 child, ConstSlice<u8> excluded, const u8* plain,
+MlsStatus sibling_hash(const Validation& v, u32 child, const ConstSlice<u8>& excluded, const u8* plain,
                        u8* hash) noexcept {
     if (excluded_below(excluded, child))
         return original_hash(v, child, excluded, hash);
@@ -405,7 +406,7 @@ u32 mls_tree_validation_bytes(u32 leaf_count, u32 node_count) noexcept {
     const u64 bytes = words * 4 + filtered;
     return bytes > 0x7fffffffu ? 0 : static_cast<u32>(bytes);
 }
-MlsStatus mls_tree_validate(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, Slice<u8> scratch,
+MlsStatus mls_tree_validate(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, const Slice<u8>& scratch,
                             u8* tree_hash) noexcept {
     const u32 required = mls_tree_validation_bytes(tree.leaf_count, tree.node_count);
     if (!required || !scratch.data || (reinterpret_cast<usize>(scratch.data) & 3))

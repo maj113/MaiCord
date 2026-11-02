@@ -182,10 +182,10 @@ AttachmentUrlResult parse_signed_attachment_url(const Utf8View& url, u64 attachm
 MediaUrlResult parse_media_url(const Utf8View& url, const Slice<u8>& target_output) noexcept;
 // Exact origin-form target for a catalog provider host: Klipy .webp/.gif/.mp4
 // assets, Tenor /<id>AAAA1/<slug>.webp, Giphy /media/<id>/200w.webp.
-bool catalog_provider_target_valid(CdnHost host, ConstSlice<u8> target) noexcept;
-bool sticker_json_target_valid(ConstSlice<u8> target) noexcept;
+bool catalog_provider_target_valid(CdnHost host, const ConstSlice<u8>& target) noexcept;
+bool sticker_json_target_valid(const ConstSlice<u8>& target) noexcept;
 // Exactly /soundboard-sounds/{id}.
-bool soundboard_target_valid(ConstSlice<u8> target) noexcept;
+bool soundboard_target_valid(const ConstSlice<u8>& target) noexcept;
 // Request target for the src of a synced GIF favourite; format selects the
 // accepted shapes.
 // webp: Tenor/Giphy media in any rendition (including mp4/webm VIDEO

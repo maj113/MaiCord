@@ -283,7 +283,7 @@ bool open_reaction_picker(u64 message_id) noexcept {
 
 // Add Reaction opens the shared emoji picker as a popout; it replaces the
 // menu it may have been chosen from.
-bool open_reaction_picker(u64 message_id, UiRect anchor) noexcept {
+bool open_reaction_picker(u64 message_id, const UiRect& anchor) noexcept {
     if (!g_app.account_ui || message_id == 0 || (g_app.popup_scene.active && !dismiss_popup()))
         return false;
     return application_media_picker_open_reaction(message_id, anchor);
@@ -351,7 +351,7 @@ bool discard_failed_message(u64 nonce) noexcept {
 
 } // namespace interaction_detail
 
-bool open_message_context_popup(u64 message_id, UiRect anchor) noexcept {
+bool open_message_context_popup(u64 message_id, const UiRect& anchor) noexcept {
     return open_message_media_context_popup(message_id, anchor, {});
 }
 
@@ -664,7 +664,7 @@ bool open_reaction_viewer(u64 message_id) noexcept {
 namespace {
 
 // The profile card offers the same user menu.
-bool open_profile_context_popup(UiRect anchor) noexcept {
+bool open_profile_context_popup(const UiRect& anchor) noexcept {
     const auto& profile = *g_app.profile;
     if (!profile.data.user_id || g_app.popup_scene.active || g_app.text_form)
         return true;
@@ -723,7 +723,7 @@ bool open_channel_context_popup(u64 channel_id, UiRect anchor) noexcept {
     // Text in voice: a voice channel's chat opens without joining the call.
     constexpr u32 chat_read = channel_action_view | channel_action_read_history;
     if (channel_is_voice_chat(channel->type) && channel->guild_id && (channel->actions & chat_read) == chat_read) {
-        items[builtins] = {utf8_literal("Open chat"), popup_action_open_voice_chat, popup_item_enabled};
+        popup_item_set(&items[builtins], utf8_literal("Open chat"), popup_action_open_voice_chat, popup_item_enabled);
         items[builtins++].presentation = ui_menu_row_presentation(UiIcon::direct_message);
     }
     const bool browse = application_thread_browser_available(channel_id);
@@ -733,8 +733,8 @@ bool open_channel_context_popup(u64 channel_id, UiRect anchor) noexcept {
                                         channel->generation}
                : ThreadBrowserMenuScope{};
     if (browse)
-        items[builtins++] = {utf8_literal("Browse threads"), popup_action_browse_threads,
-                             popup_item_enabled};
+        popup_item_set(&items[builtins++], utf8_literal("Browse threads"), popup_action_browse_threads,
+                       popup_item_enabled);
     builtins += application_private_channel_menu_items(channel_id, {items + builtins, native_capacity - builtins});
     builtins += application_notification_menu_items(0, channel_id, {items + builtins, native_capacity - builtins});
     if (channel->type == 1)
@@ -843,7 +843,7 @@ bool application_refresh_thread_actions_menu() noexcept {
 
 namespace {
 
-bool open_guild_context_popup(u64 guild_id, UiRect anchor) noexcept {
+bool open_guild_context_popup(u64 guild_id, const UiRect& anchor) noexcept {
     return application_scoped_read_menu_open(ReadScopeKind::guild, guild_id, anchor);
 }
 
@@ -854,7 +854,7 @@ bool open_folder_context_popup(u64 row_id, UiRect anchor) noexcept {
     if (!folder_id)
         return dismiss_popup();
     PopupItem items[1]{};
-    items[0] = {utf8_literal("Folder settings"), popup_action_folder_settings, popup_item_enabled};
+    popup_item_set(&items[0], utf8_literal("Folder settings"), popup_action_folder_settings, popup_item_enabled);
     items[0].presentation = ui_menu_row_presentation(UiIcon::settings);
     if (!popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, folder_id, {items, 1}, anchor,
                           application_viewport_dips(), 6 * kUiMenuRowHeight + 2 * kUiMenuPadding)

@@ -265,7 +265,9 @@ void delete_unreferenced_plugins() noexcept {
 }
 
 // ---- the index ------------------------------------------------------------------------------------------
-u32 item_of(CatalogKind kind, Utf8View slug) noexcept { return g->index ? catalog_index_find(*g->index, kind, slug) : kCatalogNone; }
+u32 item_of(CatalogKind kind, const Utf8View& slug) noexcept {
+    return g->index ? catalog_index_find(*g->index, kind, slug) : kCatalogNone;
+}
 ConstSlice<Utf8View> version_hosts(const CatalogVersion& v, Utf8View (&hosts)[MC_NETWORK_HOSTS_MAX]) noexcept {
     for (u32 i = 0; i < v.host_count && i < MC_NETWORK_HOSTS_MAX; ++i) hosts[i] = catalog_text(*g->index, g->index->hosts[v.first_host + i]);
     return {hosts, minimum<u32>(v.host_count, MC_NETWORK_HOSTS_MAX)};
@@ -332,7 +334,7 @@ bool busy() noexcept {
     const auto phase = g->view.operation.phase;
     return !g->restored || (phase != CatalogPhase::idle && phase != CatalogPhase::done && phase != CatalogPhase::failed);
 }
-void begin(CatalogAction action, CatalogKind kind, Utf8View slug) noexcept {
+void begin(CatalogAction action, CatalogKind kind, const Utf8View& slug) noexcept {
     reset_value(&g->op);
     g->op.action = action;
     g->op.kind = kind;
@@ -351,7 +353,7 @@ void begin(CatalogAction action, CatalogKind kind, Utf8View slug) noexcept {
 // ---- Developer Mode: the dev folder (plugin design 9.2) --------------------------------------------------------
 bool developer() noexcept { return g->host.developer_mode && g->host.developer_mode(); }
 
-void dev_line(DevLineKind kind, Utf8View text) noexcept {
+void dev_line(DevLineKind kind, const Utf8View& text) noexcept {
     application_dev_console_add(kind, {g->op.dev_name, g->op.dev_name_bytes}, text);
 }
 // Why a reload didn't happen: the details the step recorded, else the error's own sentence.
@@ -407,7 +409,8 @@ void unload_consent_image() noexcept {
     reset_value(&g->consent);
 }
 // Starts a download of a listed version.
-bool download(CatalogAction action, CatalogKind kind, Utf8View slug, u32 item, u32 version) noexcept {
+bool download(CatalogAction action, CatalogKind kind, const Utf8View& slug, u32 item,
+              u32 version) noexcept {
     if (busy()) return false;
     begin(action, kind, slug);
     g->op.version = version;

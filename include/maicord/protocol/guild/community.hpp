@@ -219,7 +219,8 @@ struct ScheduledEvent {
     char image[kScheduledEventImageBytes];
 };
 // Decodes one event object (REST or a GUILD_SCHEDULED_EVENT_* dispatch).
-bool scheduled_event_decode(Utf8View object, Slice<u32> scratch, ScheduledEvent* output) noexcept;
+bool scheduled_event_decode(const Utf8View& object, const Slice<u32>& scratch,
+                            ScheduledEvent* output) noexcept;
 using ScheduledEventVisitor = bool (*)(void* context, const ScheduledEvent&) noexcept;
 // Decodes an array of events (list response or guild_scheduled_events);
 // malformed rows are skipped. Returns the number visited, ~0u on failure.

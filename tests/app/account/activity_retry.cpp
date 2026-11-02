@@ -16,7 +16,7 @@ GameDetectionMatch game_detection_match(const RegisteredGames&, ConstSlice<Detec
 u32 game_detection_snapshot(Slice<char>, Slice<Utf8View>, bool) noexcept {
     return 0;
 }
-bool registered_games_add(RegisteredGames*, Utf8View, Utf8View) noexcept {
+bool registered_games_add(RegisteredGames*, const Utf8View&, const Utf8View&) noexcept {
     return false;
 }
 bool registered_games_remove(RegisteredGames*, u32) noexcept {

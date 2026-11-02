@@ -22,7 +22,7 @@
 // The probe links the application media pump without the editor owner: the
 // editor scenes are bound to the renderer directly below.
 namespace maicord::app_detail {
-bool application_profile_editor_frame_current(MediaAssetKey) noexcept {
+bool application_profile_editor_frame_current(const MediaAssetKey&) noexcept {
     return false;
 }
 void application_profile_editor_frame_uploaded(MediaAssetKey) noexcept {

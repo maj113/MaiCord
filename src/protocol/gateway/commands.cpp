@@ -13,7 +13,7 @@ using protocol_detail::EncodedString;
 using protocol_detail::write_encoded;
 using protocol_detail::write_literal;
 
-GatewayCommandWriteResult invalid_string_result(Utf8View value, bool require_nonempty) noexcept {
+GatewayCommandWriteResult invalid_string_result(const Utf8View& value, bool require_nonempty) noexcept {
     return (!value.data && value.bytes != 0) || (require_nonempty && value.bytes == 0)
                ? GatewayCommandWriteResult{0, GatewayCommandError::invalid_input}
                : GatewayCommandWriteResult{0, GatewayCommandError::invalid_utf8};
@@ -227,12 +227,12 @@ bool qos_token_valid(Utf8View token) noexcept {
 } // namespace
 
 GatewayCommandWriteResult gateway_write_user_properties(const GatewayUserProperties& properties,
-                                                        Slice<u8> output) noexcept {
+                                                        const Slice<u8>& output) noexcept {
     return write_properties(properties, nullptr, output);
 }
 
 GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify& identify,
-                                                      Slice<u8> output) noexcept {
+                                                      const Slice<u8>& output) noexcept {
     if (!output.data) {
         return GatewayCommandWriteResult{0, GatewayCommandError::invalid_input};
     }

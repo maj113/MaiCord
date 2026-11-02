@@ -74,7 +74,7 @@ bool image_hash_valid(Utf8View hash) noexcept {
 }
 
 // An image field: empty (null), a data URI or the stored hash.
-bool image_value_valid(Utf8View value) noexcept {
+bool image_value_valid(const Utf8View& value) noexcept {
     return !value.bytes || data_uri_valid(value) || image_hash_valid(value);
 }
 
@@ -847,7 +847,7 @@ GuildAdminResult guild_admin_write_reason(const GuildAdminRequest& r, Slice<u8> 
 
 namespace {
 // YYYY-MM-DDTHH:MM:SS into output[0..19); the caller checked the bounds.
-void write_civil_time(u64 unix_seconds, Slice<char> output) noexcept {
+void write_civil_time(u64 unix_seconds, const Slice<char>& output) noexcept {
     const u64 days = unix_seconds / 86'400;
     const u32 seconds = static_cast<u32>(unix_seconds % 86'400);
     // Civil date from days since 1970-01-01 (proleptic Gregorian).

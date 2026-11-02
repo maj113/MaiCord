@@ -79,7 +79,7 @@ bool ui_forum_post_matches(const ConstSlice<u64>& applied, const ConstSlice<u64>
 void ui_forum_sort(const Slice<UiForumSortKey>& keys, UiForumSort sort) noexcept {
     if (!keys.data) return;
     // Ties resolve by unique ID, so the unstable heap sort is deterministic.
-    heap_sort(keys.data, keys.count,
+    heap_sort_shared(keys.data, keys.count,
               [sort](const UiForumSortKey& a, const UiForumSortKey& b) noexcept { return before(a, b, sort); });
 }
 void ui_forum_toolbar_layout(const UiRect& band, const UiForumChannelView& view, const UiForumStyle& s,

@@ -361,8 +361,8 @@ RestClientSubmitResult rest_client_submit(RestClient* client,
 // The common request shape: default timeout, no audit reason, extra headers or
 // multipart boundary.
 __declspec(noinline) inline RestClientSubmitResult rest_client_submit(RestClient* client,
-                                                                      ConstSlice<u8> target,
-                                                                      ConstSlice<u8> body,
+                                                                      const ConstSlice<u8>& target,
+                                                                      const ConstSlice<u8>& body,
                                                                       RestRouteKey route, u64 request_id,
                                                                       bool json_body) noexcept {
     return rest_client_submit(
@@ -418,7 +418,7 @@ inline RestClientSubmitResult rest_client_cancel_result(RestClient* client,
 // Producer thread. Copies header lines (e.g. a solved CAPTCHA) that the next
 // submit with exactly this request ID appends once; any other submit leaves
 // them armed. Empty headers or a zero ID clear. Erased when consumed.
-bool rest_client_arm_headers(RestClient* client, u64 request_id, ConstSlice<u8> headers) noexcept;
+bool rest_client_arm_headers(RestClient* client, u64 request_id, const ConstSlice<u8>& headers) noexcept;
 
 RestClientTakeResult rest_client_take_response(RestClient* client,
                                                RestClientResponse* response,

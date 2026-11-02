@@ -102,10 +102,10 @@ struct MessageSendTracker {
 
 bool message_send_tracker_initialize(MessageSendTracker* tracker) noexcept;
 MessageSendBeginResult message_send_tracker_begin(
-    MessageSendTracker* tracker, MessageTimeline* timeline, u64 channel_id,
-    u64 author_id, Utf8View content, u64 now_unix_ms,
-    u64 now_monotonic_ms, bool has_attachments = false,
-    ConstSlice<GatewayMessageAttachment> local_attachments = {}, bool insert_local_preview = true) noexcept;
+    MessageSendTracker* tracker, MessageTimeline* timeline, u64 channel_id, u64 author_id,
+    const Utf8View& content, u64 now_unix_ms, u64 now_monotonic_ms, bool has_attachments = false,
+    const ConstSlice<GatewayMessageAttachment>& local_attachments = {},
+    bool insert_local_preview = true) noexcept;
 MessageSendObserveResult message_send_tracker_retry(
     MessageSendTracker* tracker, MessageTimeline* timeline, u64 nonce,
     u64 now_monotonic_ms) noexcept;

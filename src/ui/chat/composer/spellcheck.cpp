@@ -257,13 +257,13 @@ u32 composer_spellcheck_menu_build(ComposerSpellcheck* s, Utf8View text, u32 tex
     s->menu_text_revision = text_revision;
     u32 count = 0;
     for (u32 i = 0; i < s->suggestion_count; ++i)
-        items[count++] = {s->suggestions[i], kComposerSpellcheckActionBase + i, popup_item_enabled};
+        popup_item_set(&items[count++], s->suggestions[i], kComposerSpellcheckActionBase + i, popup_item_enabled);
     if (!count)
-        items[count++] = {utf8_literal("No suggestions"), kComposerSpellcheckActionBase, popup_item_none};
-    items[count] = {utf8_literal("Add to dictionary"), kComposerSpellcheckActionAdd,
-                    static_cast<u16>(popup_item_enabled | popup_item_separator_before)};
+        popup_item_set(&items[count++], utf8_literal("No suggestions"), kComposerSpellcheckActionBase);
+    popup_item_set(&items[count], utf8_literal("Add to dictionary"), kComposerSpellcheckActionAdd,
+                   static_cast<u16>(popup_item_enabled | popup_item_separator_before));
     items[count++].presentation = ui_menu_row_presentation(UiIcon::check);
-    items[count] = {utf8_literal("Ignore"), kComposerSpellcheckActionIgnore, popup_item_enabled};
+    popup_item_set(&items[count], utf8_literal("Ignore"), kComposerSpellcheckActionIgnore, popup_item_enabled);
     items[count++].presentation = ui_menu_row_presentation(UiIcon::eye_off);
     return count;
 }

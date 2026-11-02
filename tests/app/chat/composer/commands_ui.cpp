@@ -51,9 +51,9 @@ bool reveal_command_row(float, float, bool) noexcept { return true; }
 void application_plugins_menu_dismissed() noexcept {}
 bool queue_message_send() noexcept { return true; }
 // Slowmode tests leave reaction, edit, history and connection UI effects idle.
-bool queue_message_reaction_emoji(u64, u64, Utf8View, bool) noexcept { return false; }
+bool queue_message_reaction_emoji(u64, u64, const Utf8View&, bool) noexcept { return false; }
 u64 application_message_edit_latest_own() noexcept { return 0; }
-bool queue_message_edit_content(u64, Utf8View) noexcept { return false; }
+bool queue_message_edit_content(u64, const Utf8View&) noexcept { return false; }
 Utf8View application_account_notice() noexcept { return {}; }
 u32 context_changes;
 void application_user_actions_commands_changed() noexcept { ++context_changes; }

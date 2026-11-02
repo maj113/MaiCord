@@ -49,7 +49,8 @@ bool unique_ids(ConstSlice<u64> ids, u32 maximum_count) noexcept {
     }
     return true;
 }
-bool ranges_valid(Utf8View input, Slice<u32> scratch, const void* output, u32 output_bytes) noexcept {
+bool ranges_valid(const Utf8View& input, const Slice<u32>& scratch, const void* output,
+                  u32 output_bytes) noexcept {
     if (!output || !input.bytes || input.bytes > kForumPostMaximumResponseBytes || !scratch.count ||
         u64{scratch.count} * sizeof(u32) > 0xffffffffull)
         return false;
@@ -597,7 +598,7 @@ bool emit_body(const ForumPostRequest& request, Writer& writer) noexcept {
     writer.put("}}");
     return writer.ok;
 }
-bool writer_inputs_disjoint(const ForumPostRequest& request, Slice<u8> output) noexcept {
+bool writer_inputs_disjoint(const ForumPostRequest& request, const Slice<u8>& output) noexcept {
     const ConstSlice<u8> destination{output.data, output.count};
     const ConstSlice<u8> fixed[]{
         {reinterpret_cast<const u8*>(&request), sizeof(request)},

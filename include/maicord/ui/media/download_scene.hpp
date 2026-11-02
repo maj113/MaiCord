@@ -24,15 +24,15 @@ struct UiDownloadSource {
     bool (*current)(void*) noexcept{};
 };
 struct UiDownloadContent {
-    Utf8View heading{}, status{}, filename{}, warning{};
-    u64 confirmation_id{};
-    u32 revision{};
-    UiDownloadMode mode{};
+    Utf8View heading, status, filename, warning;
+    u64 confirmation_id;
+    u32 revision;
+    UiDownloadMode mode;
 };
 struct UiDownloadTarget {
-    UiDownloadAction action{};
-    u64 id{};
-    u32 index{}, source_revision{};
+    UiDownloadAction action;
+    u64 id;
+    u32 index, source_revision;
 };
 struct UiDownloadScene {
     static constexpr bool kZeroDefault = true; // Every member defaults to zero: reset_value clears bytes.

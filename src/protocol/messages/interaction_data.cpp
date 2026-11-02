@@ -16,7 +16,7 @@ struct Out {
     char* data;
     u32 capacity, used;
     bool overflow;
-    void put(Utf8View text) noexcept {
+    void put(const Utf8View& text) noexcept {
         if (overflow)
             return;
         if (text.bytes > capacity - used) {
@@ -27,7 +27,7 @@ struct Out {
         used += text.bytes;
     }
     // Line breaks read as spaces on the one-line card.
-    void put_line(Utf8View text) noexcept {
+    void put_line(const Utf8View& text) noexcept {
         const u32 begin = used;
         put(text);
         for (u32 i = begin; i < used; ++i)

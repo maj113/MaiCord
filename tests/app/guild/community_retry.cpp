@@ -62,7 +62,7 @@ void settings_layer_reset(SettingsLayer*) noexcept {
 bool settings_layer_editor(SettingsLayer*, u64*, MessageComposer**, BoundedEdit**) noexcept {
     return false;
 }
-UiSettingsEditor settings_layer_editor_view(SettingsLayer*, u64, MessageComposer&, Utf8View,
+UiSettingsEditor settings_layer_editor_view(SettingsLayer*, u64, MessageComposer&, const Utf8View&,
                                             bool) noexcept {
     return {};
 }

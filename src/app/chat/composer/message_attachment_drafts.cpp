@@ -141,7 +141,8 @@ Utf8View message_attachment_drafts_description(const MessageAttachmentDraftStore
     return record && !record->voice && record->description_bytes ? Utf8View{reinterpret_cast<const char*>(payload(store, id) + name_offset(*record) +
         record->filename_bytes + kAttachmentUploadMaximumUploadedFilenameBytes), record->description_bytes} : Utf8View{};
 }
-bool message_attachment_drafts_uploaded(MessageAttachmentDraftStore* store, u64 id, Utf8View uploaded_filename) noexcept {
+bool message_attachment_drafts_uploaded(MessageAttachmentDraftStore* store, u64 id,
+                                        const Utf8View& uploaded_filename) noexcept {
     auto* record = message_attachment_drafts_get(store, id);
     if (!record || record->phase == MessageAttachmentDraftPhase::queued) return false;
     const UploadedAttachment reference{message_attachment_drafts_filename(store, id), uploaded_filename, {}, 0, record->spoiler};
@@ -171,7 +172,8 @@ bool message_attachment_drafts_reference(const MessageAttachmentDraftStore* stor
     }
     return true;
 }
-bool message_attachment_drafts_describe(MessageAttachmentDraftStore* store, u64 id, Utf8View description, bool spoiler) noexcept {
+bool message_attachment_drafts_describe(MessageAttachmentDraftStore* store, u64 id,
+                                        const Utf8View& description, bool spoiler) noexcept {
     auto* record = message_attachment_drafts_get(store, id);
     if (!record || record->phase == MessageAttachmentDraftPhase::queued || description.bytes > 4096 || (!description.data && description.bytes)) return false;
     const auto valid = utf8_validate(description);

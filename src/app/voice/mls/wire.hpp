@@ -55,7 +55,8 @@ struct MlsWriter {
     u8* data;
     u32 capacity, used;
     MlsStatus status;
-    MlsWriter(Slice<u8> output) noexcept : data(output.data), capacity(output.count), used(0), status() {
+    MlsWriter(const Slice<u8>& output) noexcept
+        : data(output.data), capacity(output.count), used(0), status() {
     }
     bool ok() const noexcept {
         return status == MlsStatus::ok;
@@ -130,7 +131,8 @@ MlsStatus mls_derive_secret(KdfSha256Workspace& kdf, const u8* secret, const cha
     secure_clear_bytes(derived, sizeof(derived));
     return status;
 }
-inline MlsStatus mls_hash(KdfSha256Workspace& kdf, ConstSlice<ConstSlice<u8>> parts, u8* output) noexcept {
+inline MlsStatus mls_hash(KdfSha256Workspace& kdf, const ConstSlice<ConstSlice<u8>>& parts,
+                          u8* output) noexcept {
     u8 digest[kMlsHashBytes];
     const auto status = mls_status(sha256(kdf, parts, {digest, kMlsHashBytes}));
     if (status == MlsStatus::ok)
@@ -138,8 +140,9 @@ inline MlsStatus mls_hash(KdfSha256Workspace& kdf, ConstSlice<ConstSlice<u8>> pa
     return status;
 }
 // VerifyWithLabel against an encoded P-256 point, importing it for one call.
-MlsStatus mls_verify_point(KdfSha256Workspace& kdf, const u8* signature_key, ConstSlice<u8> label,
-                           ConstSlice<u8> a, ConstSlice<u8> b, ConstSlice<u8> signature) noexcept;
+MlsStatus mls_verify_point(KdfSha256Workspace& kdf, const u8* signature_key, const ConstSlice<u8>& label,
+                           const ConstSlice<u8>& a, const ConstSlice<u8>& b,
+                           const ConstSlice<u8>& signature) noexcept;
 // TreeKEM node key from a path secret: node_secret = DeriveSecret(path, "node").
 MlsStatus mls_node_key(KdfSha256Workspace& kdf, const u8* path_secret, P256Key* key,
                        u8* public_key) noexcept;

@@ -7,85 +7,85 @@ inline constexpr u32 kMessageReactionMaximumIntents = 64;
 inline constexpr u32 kMessageReactionMaximumRetries = 3;
 inline constexpr u64 kMessageReactionIntentLifetimeMs = 120'000;
 struct MessageReactionActor {
-    u64 account_scope{};
-    u64 profile_id{};
-    u64 self_user_id{};
-    usize instance{};
+    u64 account_scope;
+    u64 profile_id;
+    u64 self_user_id;
+    usize instance;
 };
 
 struct MessageReactionSource {
-    MessageHandle handle{};
-    u32 revision{};
-    u16 channel_generation{};
+    MessageHandle handle;
+    u32 revision;
+    u16 channel_generation;
 };
 
 struct MessageReactionTarget {
-    u64 channel_id{};
-    u64 message_id{};
-    u64 emoji_id{};
-    char name[kMessageReactionMaximumEmojiNameBytes]{};
-    u16 name_bytes{};
-    MessageReactionType type{};
-    bool animated{};
+    u64 channel_id;
+    u64 message_id;
+    u64 emoji_id;
+    char name[kMessageReactionMaximumEmojiNameBytes];
+    u16 name_bytes;
+    MessageReactionType type;
+    bool animated;
 };
 // Server-confirmed aggregate, independent of the optimistic loaded model.
 struct MessageReactionAuthority {
-    u32 total{};
-    u32 normal{};
-    u32 burst{};
-    bool mine_normal{};
-    bool mine_burst{};
-    bool present{};
-    bool known{};
+    u32 total;
+    u32 normal;
+    u32 burst;
+    bool mine_normal;
+    bool mine_burst;
+    bool present;
+    bool known;
 };
 
 struct MessageReactionIntent {
-    MessageReactionTarget target{};
-    MessageReactionSource source{};
-    MessageReactionAuthority authority{};
-    u64 serial{};
-    u64 mine_revision{};
-    u64 due_at_ms{};
-    u64 deadline_at_ms{};
-    u8 retries{};
-    bool desired_mine{};
+    MessageReactionTarget target;
+    MessageReactionSource source;
+    MessageReactionAuthority authority;
+    u64 serial;
+    u64 mine_revision;
+    u64 due_at_ms;
+    u64 deadline_at_ms;
+    u8 retries;
+    bool desired_mine;
     // A successful HTTP result keeps this slot until its final own
     // echo/snapshot or original deadline, without scheduling another request.
-    bool awaiting_echo{};
-    bool echo_matches{};
+    bool awaiting_echo;
+    bool echo_matches;
 };
 
 struct MessageReactionTicket {
-    u64 request_id{};
-    u64 generation{};
-    u64 serial{};
+    u64 request_id;
+    u64 generation;
+    u64 serial;
 };
 
 struct MessageReactionFlight {
-    MessageReactionIntent intent{};
-    MessageReactionActor actor{};
-    MessageReactionTicket ticket{};
-    bool active{};
-    bool retired{};
+    MessageReactionIntent intent;
+    MessageReactionActor actor;
+    MessageReactionTicket ticket;
+    bool active;
+    bool retired;
 };
 
 struct MessageReactionCooldown {
-    u64 channel_id{};
-    u64 until_ms{};
+    u64 channel_id;
+    u64 until_ms;
 };
 
 struct MessageReactionController {
     static constexpr bool kZeroDefault = true; // Every member defaults to zero: reset_value clears bytes.
-    Slice<MessageReactionIntent> entries{}; // writable backed prefix; fixed address
-    MessageReactionActor actor{};
-    MessageReactionFlight flight{};
-    MessageReactionCooldown cooldowns[kMessageReactionMaximumIntents]{};
-    u64 serial{};
-    u64 generation{};
-    u64 mine_revision{};
-    u64 global_cooldown_ms{};
-    u32 count{};
-    u32 revision{};
+    Slice<MessageReactionIntent> entries; // writable backed prefix; fixed address
+    MessageReactionActor actor;
+    MessageReactionFlight flight;
+    MessageReactionCooldown cooldowns[kMessageReactionMaximumIntents];
+    u64 serial;
+    u64 generation;
+    u64 mine_revision;
+    u64 global_cooldown_ms;
+    u32 count;
+    u32 revision;
 };
 enum class MessageReactionError : u8 {
     none,
@@ -115,21 +115,21 @@ enum class MessageReactionOutcomeKind : u8 {
 };
 
 struct MessageReactionProjection {
-    MessageReactionAuthority authority{};
-    bool desired_normal{};
-    bool desired_burst{};
-    bool optimistic{};
+    MessageReactionAuthority authority;
+    bool desired_normal;
+    bool desired_burst;
+    bool optimistic;
 };
 
 struct MessageReactionOutcome {
-    MessageReactionTarget target{};
-    MessageReactionSource source{};
-    MessageReactionProjection projection{};
-    u64 serial{};
-    MessageReactionOutcomeKind kind{};
-    MessageReactionError error{};
-    bool project{};
-    bool authority_conflict{};
+    MessageReactionTarget target;
+    MessageReactionSource source;
+    MessageReactionProjection projection;
+    u64 serial;
+    MessageReactionOutcomeKind kind;
+    MessageReactionError error;
+    bool project;
+    bool authority_conflict;
     constexpr bool ok() const noexcept {
         return error == MessageReactionError::none;
     }

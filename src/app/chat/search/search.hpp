@@ -12,8 +12,8 @@ struct ApplicationSearch;
 // Publication IDs are process-wide, monotonic and never reused. Layout/source
 // revision changes do not retire this immutable accepted content identity.
 struct ApplicationSearchSourceTicket {
-    u64 message_id{};
-    u32 publication_revision{}, index{};
+    u64 message_id;
+    u32 publication_revision, index;
 };
 // The Search target of one rich item (attachment, embed or sticker) of an accepted message.
 inline UiSearchTarget application_search_rich_target(const UiSearchScene& search, u64 channel_id, u64 message_id,
@@ -42,8 +42,8 @@ struct ApplicationSearchSourceView {
     bool snapshot;
 };
 struct ApplicationSearchNavigationSource {
-    ApplicationSearchSourceTicket ticket{};
-    u64 channel_id{}, guild_id{};
+    ApplicationSearchSourceTicket ticket;
+    u64 channel_id, guild_id;
 };
 bool application_search_source_ticket(u32 index, ApplicationSearchSourceTicket*) noexcept;
 // Valid while the Search panel remains open beneath viewer/download UI.

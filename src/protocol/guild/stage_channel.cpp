@@ -222,7 +222,7 @@ bool visit_instance(void* opaque, JsonString key, JsonValue value) noexcept {
 }
 } // namespace
 
-GatewayEventDecodeResult gateway_decode_stage_instance(JsonValue data, Slice<u32> scratch, u32 depth,
+GatewayEventDecodeResult gateway_decode_stage_instance(JsonValue data, const Slice<u32>& scratch, u32 depth,
                                                        GatewayStageInstance* output) noexcept {
     if (!output || !data.source.data || !data.source.bytes || !scratch.data || !scratch.count || !depth)
         return {0, GatewayEventDecodeError::invalid_input};

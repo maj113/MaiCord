@@ -30,7 +30,7 @@ struct TwitterMedia { JsonIndexedDocument doc; JsonValue selected{}; u8 index; u
 struct TwitterVariants { JsonIndexedDocument doc; EmbedStream selected{}; u16 cap; u32 count{}; };
 
 bool id_chars(const Utf8View& id, bool dashes = false) noexcept;
-bool video_id(Utf8View id) noexcept;
+bool video_id(const Utf8View& id) noexcept;
 u64 numeric_id(const Utf8View& id) noexcept;
 u64 decimal(const Utf8View& digits) noexcept;
 u32 id_target(const Utf8View& prefix, const Utf8View& id, const Slice<u8>& output) noexcept;

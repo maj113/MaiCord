@@ -26,7 +26,7 @@ Utf8View trim(Utf8View text) noexcept {
     }
     return {text.data + first, last - first};
 }
-u32 codepoints(Utf8View text) noexcept {
+u32 codepoints(const Utf8View& text) noexcept {
     const auto validation = utf8_validate(text);
     return validation.valid ? validation.codepoints : ~0u;
 }

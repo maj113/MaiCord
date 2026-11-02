@@ -85,7 +85,7 @@ u64 server_filter() noexcept {
     const auto& state = g_app.account_ui->chat_state;
     return !state.home_selected ? state.selected_guild_id : 0;
 }
-void append(char* output, u32 capacity, u32& used, Utf8View text) noexcept {
+void append(char* output, u32 capacity, u32& used, const Utf8View& text) noexcept {
     used += utf8_copy_truncated(output + used, capacity - used, text);
 }
 // Mentions read as names in a preview: <@id>, <@!id>, <@&id> and <#id>.
@@ -211,7 +211,7 @@ bool push_unread(const UnreadRow& row) noexcept {
     inbox->unreads[inbox->unread_count++] = row;
     return true;
 }
-void title(UnreadRow& row, Utf8View text) noexcept {
+void title(UnreadRow& row, const Utf8View& text) noexcept {
     u32 used = 0;
     append(row.title, sizeof(row.title), used, text);
     row.title_bytes = static_cast<u16>(used);

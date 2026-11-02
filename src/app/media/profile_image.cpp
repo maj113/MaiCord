@@ -186,8 +186,8 @@ u32 png_frames(ConstSlice<u8> s) noexcept {
 }
 
 // Parses a GIF into a workspace (plus extra bytes after it) owned by memory.
-ProfileImageError gif_open(ConstSlice<u8> s, usize extra, u32 minimum_frames, Block* memory, GifWorkspace** workspace,
-                           GifImage* image) noexcept {
+ProfileImageError gif_open(const ConstSlice<u8>& s, usize extra, u32 minimum_frames, Block* memory,
+                           GifWorkspace** workspace, GifImage* image) noexcept {
     void* storage = memory->allocate(sizeof(GifWorkspace) + extra);
     if (!storage)
         return ProfileImageError::memory;

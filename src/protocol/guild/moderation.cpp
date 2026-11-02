@@ -557,7 +557,8 @@ GuildModerationResult guild_moderation_write_target(const GuildModerationRequest
     return {w.used, GuildModerationError::none};
 }
 
-GuildModerationResult guild_moderation_write_body(const GuildModerationRequest& r, Slice<u8> output) noexcept {
+GuildModerationResult guild_moderation_write_body(const GuildModerationRequest& r,
+                                                  const Slice<u8>& output) noexcept {
     if (!guild_moderation_request_valid(r) || !byte_range_valid({output.data, output.count}))
         return {0, GuildModerationError::input};
     if (r.operation == Op::ban_search)

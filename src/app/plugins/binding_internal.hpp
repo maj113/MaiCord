@@ -31,10 +31,10 @@ bool kv_open(PluginKeyValue*, u32 maximum_keys, u32 maximum_key_bytes, u32 maxim
              u32 maximum_total_bytes) noexcept;
 void kv_close(PluginKeyValue*) noexcept;
 mc_status kv_get(const PluginKeyValue&, mc_str key, void* output, u32 capacity, u32* bytes) noexcept;
-mc_status kv_set(PluginKeyValue*, mc_str key, const void* value, u32 bytes, u64 now_ms) noexcept;
+mc_status kv_set(PluginKeyValue*, const mc_str& key, const void* value, u32 bytes, u64 now_ms) noexcept;
 mc_status kv_remove(PluginKeyValue*, mc_str key, u64 now_ms) noexcept;
 // The value's bytes, or null when the key has none.
-const u8* kv_find(const PluginKeyValue&, mc_str key, u32* bytes) noexcept;
+const u8* kv_find(const PluginKeyValue&, const mc_str& key, u32* bytes) noexcept;
 // A missing file is an empty table; a damaged one empties the table and fails.
 bool kv_load(PluginKeyValue*, const wchar_t* path) noexcept;
 // Writes through a temporary file and a rename. Creates the data and owner directories.

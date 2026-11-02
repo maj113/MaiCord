@@ -15,7 +15,7 @@ constexpr u32 target_bit(PluginMenuKind kind) noexcept {
     return bits[static_cast<u32>(kind)];
 }
 
-mc_str to_mc(Utf8View text) noexcept {
+mc_str to_mc(const Utf8View& text) noexcept {
     return {text.data, text.bytes, 0};
 }
 

@@ -884,8 +884,7 @@ void message_rich_fill_item_layout(const MessageRichStore* store, const MessageR
         float preview_width = 0.0f;
         float preview_height = 0.0f;
         if (message_rich_attachment_audio_supported(*store, rich->attachments[index])) {
-            UiAudioControlsStyle audio_style;
-            ui_theme_fill_audio_style(styles, &audio_style);
+            const UiAudioControlsStyle audio_style = ui_theme_audio_style(styles);
             const float audio_height = ui_audio_card_height(audio_style, available_width, rich->voice_message);
             if (audio_height > 0)
                 height = audio_height;

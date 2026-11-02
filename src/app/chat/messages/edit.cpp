@@ -119,7 +119,7 @@ bool apply_response(u32 body_bytes) noexcept {
 }
 
 // Queues content for the edit of record; the caller reserved its storage.
-void submit_edit(const MessageRecord& record, Utf8View content) noexcept {
+void submit_edit(const MessageRecord& record, const Utf8View& content) noexcept {
     MessageEditRuntime& edit = g_app.message_edit;
     copy_bytes(edit.content, content.data, content.bytes);
     edit.content_bytes = content.bytes;
@@ -276,7 +276,7 @@ bool queue_message_edit() noexcept {
     return refresh_message_composer_ui();
 }
 
-bool queue_message_edit_content(u64 message_id, Utf8View content) noexcept {
+bool queue_message_edit_content(u64 message_id, const Utf8View& content) noexcept {
     MessageEditRuntime& edit = g_app.message_edit;
     if (g_app.account.status.required_action != AccountRequirement::none || edit.message_id != 0 ||
         edit.editor_active || !content.bytes || content.bytes > kMessageComposerMaximumBytes ||

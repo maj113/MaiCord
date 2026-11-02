@@ -108,10 +108,9 @@ Request lane_request(RestClientSubmitResult (*)(RestClient*, const Request*, u64
 
 // The common body of a request entry: a null request cancels `request_id`, any other goes to `submit`,
 // which validates its own requests.
-template <typename Request>
-__declspec(noinline) RestClientSubmitResult lane_submit(
-    void* instance, const Request* request, u64 request_id,
-    RestClientSubmitResult (*submit)(RestClient*, const Request*, u64) noexcept) noexcept {
+using LaneSubmit = RestClientSubmitResult (*)(RestClient*, const void*, u64) noexcept;
+__declspec(noinline) inline RestClientSubmitResult lane_submit(void* instance, const void* request, u64 request_id,
+                                                              LaneSubmit submit) noexcept {
     auto* rest = request_lane(instance, request_id);
     if (!rest)
         return kInvalidSubmit;
@@ -126,7 +125,11 @@ template <auto Submit, auto Admit = nullptr, auto Session = nullptr>
 RestClientSubmitResult WINAPI module_lane(void* instance, const decltype(lane_request(Submit))* request,
                                           u64 request_id) noexcept {
     if constexpr (kUnset<Admit> && kUnset<Session>) {
-        return lane_submit(instance, request, request_id, Submit);
+        using Request = decltype(lane_request(Submit));
+        return lane_submit(instance, request, request_id,
+                           [](RestClient* rest, const void* payload, u64 id) noexcept {
+                               return Submit(rest, static_cast<const Request*>(payload), id);
+                           });
     } else {
         auto* rest = request_lane(instance, request_id);
         if (!rest)

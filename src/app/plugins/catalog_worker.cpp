@@ -87,7 +87,7 @@ u8* read_file(const wchar_t* path, u32 maximum, u32* bytes) noexcept {
     return data;
 }
 // Writes bytes to "<path>.new" and moves it over path, flushed before the rename.
-bool write_file(const wchar_t* path, ConstSlice<u8> bytes) noexcept {
+bool write_file(const wchar_t* path, const ConstSlice<u8>& bytes) noexcept {
     wchar_t staged[604];
     u32 length = wide_length(path, 600);
     copy_bytes(staged, path, length * 2);
@@ -114,11 +114,11 @@ struct Crypto {
     bool ready;
     ~Crypto() { if (ready) kdf_sha256_release(&workspace); }
     bool open() noexcept { return ready || (ready = kdf_sha256_initialize(&workspace).ok()); }
-    bool digest(ConstSlice<u8> bytes, u8 (&out)[32]) noexcept {
+    bool digest(const ConstSlice<u8>& bytes, u8 (&out)[32]) noexcept {
         const ConstSlice<u8> parts[]{bytes};
         return open() && sha256(workspace, {parts, 1}, {out, 32}).ok();
     }
-    bool matches(ConstSlice<u8> bytes, const u8* expected) noexcept {
+    bool matches(const ConstSlice<u8>& bytes, const u8* expected) noexcept {
         u8 actual[32];
         return digest(bytes, actual) && bytes_equal(actual, expected, 32);
     }
@@ -190,8 +190,8 @@ CatalogError fetch_error(const UpdateFetchResult& r) noexcept {
     }
 }
 // Fetches relative into a new allocation of exactly `exact` bytes (or at most `maximum` when exact is 0).
-CatalogError fetch(Worker& w, Network& net, Utf8View relative, u32 maximum, u32 exact, u8** out, u32* bytes,
-                   u64* retry_at = nullptr) noexcept {
+CatalogError fetch(Worker& w, Network& net, const Utf8View& relative, u32 maximum, u32 exact, u8** out,
+                   u32* bytes, u64* retry_at = nullptr) noexcept {
     UpdateLocation start{};
     if (!net.open() || !location(w, relative, &start)) return CatalogError::unreachable;
     ProgressSink sink{{allocate<u8>(exact ? exact : maximum), exact ? exact : maximum, 0}, &w};
@@ -223,8 +223,8 @@ struct Keys {
     }
 };
 // Verifies sig || document against the compiled keys and the replay floor.
-CatalogError verify(Worker& w, Crypto& crypto, const CatalogJob& job, ConstSlice<u8> signature, Utf8View document,
-                    bool accept_expired, CatalogIndex** out) noexcept {
+CatalogError verify(Worker& w, Crypto& crypto, const CatalogJob& job, const ConstSlice<u8>& signature,
+                    const Utf8View& document, bool accept_expired, CatalogIndex** out) noexcept {
     Keys keys{};
     if (!keys.open(w) || !crypto.open()) return CatalogError::not_configured;
     auto* index = allocate<CatalogIndex>();
@@ -509,7 +509,8 @@ DWORD WINAPI worker_main(void* parameter) noexcept {
 }
 } // namespace
 
-u32 catalog_path(ConstSlice<wchar_t> base, const wchar_t* relative, wchar_t (&output)[600]) noexcept {
+u32 catalog_path(const ConstSlice<wchar_t>& base, const wchar_t* relative,
+                 wchar_t (&output)[600]) noexcept {
     if (!base.data || !base.count || base.count >= 500) return 0;
     copy_bytes(output, base.data, base.count * 2);
     output[base.count] = 0;

@@ -3,6 +3,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/interlocked.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 
@@ -17,15 +18,12 @@ namespace {
 
 // Discord's own domains: the client's token and sessions belong to these, so no plugin request
 // reaches them, whatever the plugin declares or a redirect names.
-constexpr Utf8View kDeniedDomains[]{
-    utf8_literal("discord.com"),       utf8_literal("discordapp.com"),  utf8_literal("discordapp.net"),
-    utf8_literal("discord.gg"),        utf8_literal("discord.media"),   utf8_literal("discordcdn.com"),
-    utf8_literal("discord.co"),        utf8_literal("discord.gift"),    utf8_literal("discord.gifts"),
-    utf8_literal("discord.new"),       utf8_literal("discord.dev"),     utf8_literal("discord.design"),
-    utf8_literal("discordstatus.com"), utf8_literal("discordsays.com"), utf8_literal("discordmerch.com"),
-};
+constexpr char kDeniedDomains[] =
+    "discord.com\0discordapp.com\0discordapp.net\0discord.gg\0discord.media\0discordcdn.com\0discord.co\0"
+    "discord.gift\0discord.gifts\0discord.new\0discord.dev\0discord.design\0discordstatus.com\0discordsays.com\0"
+    "discordmerch.com\0";
 
-Utf8View pattern_base(Utf8View pattern) noexcept {
+Utf8View pattern_base(const Utf8View& pattern) noexcept {
     return pattern.bytes > 2 && pattern.data[0] == '*' && pattern.data[1] == '.'
                ? Utf8View{pattern.data + 2, pattern.bytes - 2}
                : pattern;
@@ -34,7 +32,8 @@ Utf8View pattern_base(Utf8View pattern) noexcept {
 } // namespace
 
 bool plugin_network_host_denied(Utf8View host) noexcept {
-    for (const Utf8View domain : kDeniedDomains) {
+    for (NameList list{kDeniedDomains}; list; list.next()) {
+        const Utf8View domain = list.name();
         if (host.bytes < domain.bytes) continue;
         const u32 prefix = host.bytes - domain.bytes;
         if (bytes_equal(host.data + prefix, domain.data, domain.bytes) && (!prefix || host.data[prefix - 1] == '.'))
@@ -43,7 +42,7 @@ bool plugin_network_host_denied(Utf8View host) noexcept {
     return false;
 }
 
-bool plugin_network_pattern_valid(Utf8View pattern) noexcept {
+bool plugin_network_pattern_valid(const Utf8View& pattern) noexcept {
     const Utf8View base = pattern_base(pattern);
     if (!update_origin_host_valid(base)) return false;
     for (u32 i = 0; i < base.bytes; ++i)
@@ -51,7 +50,7 @@ bool plugin_network_pattern_valid(Utf8View pattern) noexcept {
     return !plugin_network_host_denied(base);
 }
 
-bool plugin_network_pattern_matches(Utf8View pattern, Utf8View host) noexcept {
+bool plugin_network_pattern_matches(const Utf8View& pattern, const Utf8View& host) noexcept {
     const Utf8View base = pattern_base(pattern);
     if (base.data == pattern.data) return utf8_equal(pattern, host);
     // "*.example.com": a subdomain with at least one label in front of ".example.com".
@@ -170,16 +169,11 @@ bool parse_url(Utf8View url, UpdateLocation* out) noexcept {
 }
 
 bool header_name_reserved(Utf8View name) noexcept {
-    static constexpr Utf8View reserved[]{
-        utf8_literal("host"),           utf8_literal("content-length"), utf8_literal("transfer-encoding"),
-        utf8_literal("connection"),     utf8_literal("accept-encoding"), utf8_literal("cookie"),
-        utf8_literal("cookie2"),        utf8_literal("set-cookie"),      utf8_literal("user-agent"),
-        utf8_literal("upgrade"),        utf8_literal("expect"),          utf8_literal("te"),
-        utf8_literal("trailer"),        utf8_literal("keep-alive"),      utf8_literal("proxy-authorization"),
-        utf8_literal("proxy-connection"),
-    };
-    for (const Utf8View entry : reserved)
-        if (ascii_equal_ignore_case(name, entry)) return true;
+    static constexpr char reserved[] =
+        "host\0content-length\0transfer-encoding\0connection\0accept-encoding\0cookie\0cookie2\0set-cookie\0"
+        "user-agent\0upgrade\0expect\0te\0trailer\0keep-alive\0proxy-authorization\0proxy-connection\0";
+    for (NameList list{reserved}; list; list.next())
+        if (ascii_equal_ignore_case(name, list.name())) return true;
     return false;
 }
 

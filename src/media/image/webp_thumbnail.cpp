@@ -327,24 +327,27 @@ template <EdgeFilter Filter> __declspec(noinline) void filter_bytes(__m128i* v, 
         v[i] = _mm_packus_epi16(filtered[0][i], filtered[1][i]);
 }
 
+using FilterBytes = void (*)(__m128i*, const EdgeLimits&) noexcept;
+
 // An edge across rows (positions run along each row): p points at the first
-// q row; chroma packs eight positions of u and of v into one vector.
-template <EdgeFilter Filter>
-void filter_rows(u8* p, i32 stride, const EdgeLimits& limits) noexcept {
+// q row; chroma packs eight positions of u and of v into one vector. The edge
+// walkers take the filter kind as a pointer: one out-of-line body per walker
+// serves all three kinds.
+__declspec(noinline) void filter_rows(FilterBytes filter, u8* p, i32 stride, const EdgeLimits& limits) noexcept {
     __m128i v[8];
     for (i32 i = 0; i < 8; ++i)
         v[i] = _mm_loadu_si128(reinterpret_cast<const __m128i*>(p + (i - 4) * stride));
-    filter_bytes<Filter>(v, limits);
+    filter(v, limits);
     for (i32 i = 1; i < 7; ++i)
         _mm_storeu_si128(reinterpret_cast<__m128i*>(p + (i - 4) * stride), v[i]);
 }
-template <EdgeFilter Filter>
-void filter_chroma_rows(u8* u, u8* v_plane, i32 stride, const EdgeLimits& limits) noexcept {
+__declspec(noinline) void filter_chroma_rows(FilterBytes filter, u8* u, u8* v_plane, i32 stride,
+                                             const EdgeLimits& limits) noexcept {
     __m128i v[8];
     for (i32 i = 0; i < 8; ++i)
         v[i] = _mm_unpacklo_epi64(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(u + (i - 4) * stride)),
                                   _mm_loadl_epi64(reinterpret_cast<const __m128i*>(v_plane + (i - 4) * stride)));
-    filter_bytes<Filter>(v, limits);
+    filter(v, limits);
     for (i32 i = 1; i < 7; ++i) {
         _mm_storel_epi64(reinterpret_cast<__m128i*>(u + (i - 4) * stride), v[i]);
         _mm_storel_epi64(reinterpret_cast<__m128i*>(v_plane + (i - 4) * stride), _mm_unpackhi_epi64(v[i], v[i]));
@@ -354,7 +357,8 @@ void filter_chroma_rows(u8* u, u8* v_plane, i32 stride, const EdgeLimits& limits
 // An edge across columns: sixteen rows of eight pixels (p3..q3), the first
 // eight starting four before `first`, the rest four before `second`. They are
 // transposed so each pixel position becomes one vector, then back.
-template <EdgeFilter Filter> void filter_columns(u8* first, u8* second, i32 stride, const EdgeLimits& limits) noexcept {
+__declspec(noinline) void filter_columns(FilterBytes filter, u8* first, u8* second, i32 stride,
+                                         const EdgeLimits& limits) noexcept {
     const auto row = [&](u32 i) noexcept { return (i < 8 ? first : second) + (i & 7u) * stride - 4; };
     __m128i r[16];
     for (u32 i = 0; i < 16; ++i)
@@ -375,7 +379,7 @@ template <EdgeFilter Filter> void filter_columns(u8* first, u8* second, i32 stri
     __m128i v[8] = {_mm_unpacklo_epi64(w0, w2), _mm_unpackhi_epi64(w0, w2), _mm_unpacklo_epi64(w1, w3),
                     _mm_unpackhi_epi64(w1, w3), _mm_unpacklo_epi64(w4, w6), _mm_unpackhi_epi64(w4, w6),
                     _mm_unpacklo_epi64(w5, w7), _mm_unpackhi_epi64(w5, w7)};
-    filter_bytes<Filter>(v, limits);
+    filter(v, limits);
     // Back to rows: interleave the columns pairwise, then by 16 and 32 bits.
     const __m128i c01[2] = {_mm_unpacklo_epi8(v[0], v[1]), _mm_unpackhi_epi8(v[0], v[1])};
     const __m128i c23[2] = {_mm_unpacklo_epi8(v[2], v[3]), _mm_unpackhi_epi8(v[2], v[3])};
@@ -705,36 +709,36 @@ void filter_row(Decoder* d, u32 mb_y, const FilterStrength (*strengths)[2], bool
         const EdgeLimits interior = edge_limits(strength.limit, strength.interior, strength.hev);
         if (simple) {
             if (mb_x > 0)
-                filter_columns<EdgeFilter::simple>(y, y + 8 * ys, ys, macroblock);
+                filter_columns(filter_bytes<EdgeFilter::simple>, y, y + 8 * ys, ys, macroblock);
             if (inner)
                 for (u32 k = 4; k < 16; k += 4)
-                    filter_columns<EdgeFilter::simple>(y + k, y + k + 8 * ys, ys, interior);
+                    filter_columns(filter_bytes<EdgeFilter::simple>, y + k, y + k + 8 * ys, ys, interior);
             if (mb_y > 0)
-                filter_rows<EdgeFilter::simple>(y, ys, macroblock);
+                filter_rows(filter_bytes<EdgeFilter::simple>, y, ys, macroblock);
             if (inner)
                 for (u32 k = 4; k < 16; k += 4)
-                    filter_rows<EdgeFilter::simple>(y + k * d->w16, ys, interior);
+                    filter_rows(filter_bytes<EdgeFilter::simple>, y + k * d->w16, ys, interior);
             continue;
         }
         u8* u = d->w.u + static_cast<usize>(kPendingChroma) * d->w8 + mb_x * 8u;
         u8* v = d->w.v + static_cast<usize>(kPendingChroma) * d->w8 + mb_x * 8u;
         if (mb_x > 0) {
-            filter_columns<EdgeFilter::macroblock>(y, y + 8 * ys, ys, macroblock);
-            filter_columns<EdgeFilter::macroblock>(u, v, cs, macroblock);
+            filter_columns(filter_bytes<EdgeFilter::macroblock>, y, y + 8 * ys, ys, macroblock);
+            filter_columns(filter_bytes<EdgeFilter::macroblock>, u, v, cs, macroblock);
         }
         if (inner) {
             for (u32 k = 4; k < 16; k += 4)
-                filter_columns<EdgeFilter::inner>(y + k, y + k + 8 * ys, ys, interior);
-            filter_columns<EdgeFilter::inner>(u + 4, v + 4, cs, interior);
+                filter_columns(filter_bytes<EdgeFilter::inner>, y + k, y + k + 8 * ys, ys, interior);
+            filter_columns(filter_bytes<EdgeFilter::inner>, u + 4, v + 4, cs, interior);
         }
         if (mb_y > 0) {
-            filter_rows<EdgeFilter::macroblock>(y, ys, macroblock);
-            filter_chroma_rows<EdgeFilter::macroblock>(u, v, cs, macroblock);
+            filter_rows(filter_bytes<EdgeFilter::macroblock>, y, ys, macroblock);
+            filter_chroma_rows(filter_bytes<EdgeFilter::macroblock>, u, v, cs, macroblock);
         }
         if (inner) {
             for (u32 k = 4; k < 16; k += 4)
-                filter_rows<EdgeFilter::inner>(y + k * d->w16, ys, interior);
-            filter_chroma_rows<EdgeFilter::inner>(u + 4 * d->w8, v + 4 * d->w8, cs, interior);
+                filter_rows(filter_bytes<EdgeFilter::inner>, y + k * d->w16, ys, interior);
+            filter_chroma_rows(filter_bytes<EdgeFilter::inner>, u + 4 * d->w8, v + 4 * d->w8, cs, interior);
         }
     }
 }

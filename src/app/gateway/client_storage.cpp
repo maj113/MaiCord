@@ -418,7 +418,7 @@ void notify_consumer(GatewayClient* client, GatewayClientRuntime* runtime) noexc
 }
 
 bool publish_event_payload(GatewayClient* client, GatewayClientRuntime* runtime,
-                           const GatewayClientEvent& event, ConstSlice<u8> payload) noexcept {
+                           const GatewayClientEvent& event, const ConstSlice<u8>& payload) noexcept {
     const u64 deadline =
         runtime->mailbox_deadline_ms ? runtime->mailbox_deadline_ms : GetTickCount64() + kPhaseTimeoutMs;
     // A record routed into the large storage is handed over in place.

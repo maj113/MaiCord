@@ -84,7 +84,7 @@ void application_media_picker_edit_cancel_native_group(const TextInputTarget&) n
 // Resolve only against the currently shown picker and its visible cells.
 // Catalog keys never stand in for attachment IDs or provider URL hashes.
 bool application_media_picker_preview_owner_current(MediaAssetKey key, u64 scope, u32 generation) noexcept;
-bool application_media_picker_preview_current(MediaAssetKey key, u64 scope, u32 generation) noexcept;
+bool application_media_picker_preview_current(const MediaAssetKey& key, u64 scope, u32 generation) noexcept;
 bool application_media_picker_preview_request(u32 visible_cell,
                                               AccountMediaCatalogPreviewRequest* output) noexcept;
 bool application_media_picker_preview_visible(MediaAssetKey key) noexcept;

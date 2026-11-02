@@ -95,7 +95,7 @@ bool same_source(const VoiceSsrcBinding& a, const VoiceSsrcBinding& b) noexcept 
     return a.user_id == b.user_id && a.ssrc == b.ssrc && a.kind == b.kind &&
            a.primary_ssrc == b.primary_ssrc;
 }
-bool touches(const VoiceParticipants& participants, ConstSlice<u8> bytes) noexcept {
+bool touches(const VoiceParticipants& participants, const ConstSlice<u8>& bytes) noexcept {
     return byte_ranges_overlap(bytes, {reinterpret_cast<const u8*>(&participants), sizeof(participants)}) ||
            byte_ranges_overlap(bytes,
                                {reinterpret_cast<const u8*>(participants.users),
@@ -182,7 +182,7 @@ VoiceParticipantsError update_sources(VoiceParticipants& participants,
         clear_bytes(participants.sources + keep,
                     (before + stage.count - keep) * static_cast<u32>(sizeof(VoiceSsrcBinding)));
     participants.source_count = keep;
-    heap_sort(
+    heap_sort_shared(
         participants.sources, keep,
         [](const VoiceSsrcBinding& a, const VoiceSsrcBinding& b) noexcept { return a.ssrc < b.ssrc; });
     return VoiceParticipantsError::none;

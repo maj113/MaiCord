@@ -61,7 +61,7 @@ u32 search_publication_counter{};
 namespace search_detail {
 
 u32 filter_publication_counter{};
-Utf8View without_prefix(Utf8View value, char prefix) noexcept {
+Utf8View without_prefix(const Utf8View& value, char prefix) noexcept {
     return value.bytes && value.data[0] == prefix ? Utf8View{value.data + 1, value.bytes - 1} : value;
 }
 __declspec(noinline) void menus_close(ApplicationSearch& s) noexcept {
@@ -72,7 +72,7 @@ __declspec(noinline) void suggestions_open(ApplicationSearch& s) noexcept {
     s.suggestions = true;
 }
 // Replaces a range of the query as one undoable edit.
-bool edit_replace(ApplicationSearch& s, u32 begin, u32 end, Utf8View text) noexcept {
+bool edit_replace(ApplicationSearch& s, u32 begin, u32 end, const Utf8View& text) noexcept {
     if (!s.edit.history && !message_composer_enable_history(&s.edit, 4096))
         return false;
     message_composer_break_history_run(&s.edit);

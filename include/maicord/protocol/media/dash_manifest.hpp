@@ -4,14 +4,14 @@
 namespace maicord {
 enum class DashManifestError : u8 { none, invalid_input, malformed, unsupported, capacity };
 struct DashTrack {
-    Utf8View id{}, initialization{}, media{};
-    u64 segment_duration{};
-    u32 timescale{}, start_number{1}, segment_count{}, bandwidth{};
-    u16 width{}, height{};
+    Utf8View id, initialization, media;
+    u64 segment_duration;
+    u32 timescale, start_number, segment_count, bandwidth;
+    u16 width, height;
 };
 struct DashManifest {
-    DashTrack video{}, audio{};
-    u64 duration_us{};
+    DashTrack video, audio;
+    u64 duration_us;
 };
 static_assert(sizeof(DashManifest) <= 192);
 // Bounded clear static DASH profile: one Period, explicit fixed-duration

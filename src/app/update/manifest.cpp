@@ -79,10 +79,10 @@ bool artifact_matches_version(const UpdateManifest& manifest) noexcept {
     used += suffix.bytes;
     return utf8_equal({name, used}, {manifest.artifact_name, manifest.artifact_name_bytes});
 }
-UpdateManifestResult verify_manifest(Utf8View document, ConstSlice<u8> signature,
+UpdateManifestResult verify_manifest(const Utf8View& document, const ConstSlice<u8>& signature,
     const P256Key& trusted_key, KdfSha256Workspace& workspace,
     const UpdateManifestPolicy* admission, u64 maximum_artifact_bytes,
-    u64 maximum_validity_seconds, Slice<u32> structural_scratch,
+    u64 maximum_validity_seconds, const Slice<u32>& structural_scratch,
     UpdateManifest* output) noexcept {
     if (!output || !document.bytes || document.bytes > kUpdateManifestMaximumBytes || signature.count != 64 ||
         !trusted_key.handle || trusted_key.kind != P256Kind::ecdsa || !workspace.storage.data ||
@@ -140,9 +140,9 @@ UpdateManifestResult verify_manifest(Utf8View document, ConstSlice<u8> signature
 }
 } // namespace
 
-UpdateManifestResult update_manifest_verify(Utf8View document, ConstSlice<u8> signature,
+UpdateManifestResult update_manifest_verify(const Utf8View& document, const ConstSlice<u8>& signature,
     const P256Key& trusted_key, KdfSha256Workspace& workspace,
-    const UpdateManifestPolicy& policy, Slice<u32> structural_scratch,
+    const UpdateManifestPolicy& policy, const Slice<u32>& structural_scratch,
     UpdateManifest* output) noexcept {
     return verify_manifest(document, signature, trusted_key, workspace, &policy,
         policy.maximum_artifact_bytes, policy.maximum_validity_seconds, structural_scratch, output);

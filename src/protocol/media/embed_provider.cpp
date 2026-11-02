@@ -10,11 +10,15 @@ namespace {
 bool equal_chars(const Utf8View& a, const char* b, u32 bytes) noexcept {
     return a.bytes == bytes && (!bytes || bytes_equal(a.data, b, bytes));
 }
-__forceinline bool equal(const Utf8View& a, Utf8View b) noexcept { return equal_chars(a, b.data, b.bytes); }
+__forceinline bool equal(const Utf8View& a, const Utf8View& b) noexcept {
+    return equal_chars(a, b.data, b.bytes);
+}
 bool prefix_chars(const Utf8View& a, const char* b, u32 bytes) noexcept {
     return a.bytes >= bytes && bytes_equal(a.data, b, bytes);
 }
-__forceinline bool prefix(const Utf8View& a, Utf8View b) noexcept { return prefix_chars(a, b.data, b.bytes); }
+__forceinline bool prefix(const Utf8View& a, const Utf8View& b) noexcept {
+    return prefix_chars(a, b.data, b.bytes);
+}
 struct Url { Utf8View host, path, query, fragment; };
 bool parse(Utf8View text, Url* out) noexcept {
     if (!text.data || text.bytes > 2048 || text.bytes < 9 ||
@@ -41,7 +45,9 @@ bool parse(Utf8View text, Url* out) noexcept {
     return true;
 }
 bool host_chars(const Url& u, const char* value, u32 bytes) noexcept { return ascii_equal_ignore_case(u.host, {value, bytes}); }
-__forceinline bool host(const Url& u, Utf8View value) noexcept { return host_chars(u, value.data, value.bytes); }
+__forceinline bool host(const Url& u, const Utf8View& value) noexcept {
+    return host_chars(u, value.data, value.bytes);
+}
 // Rows of [provider][host name][NUL], ended by a zero provider byte: one table instead of a call per host.
 template <usize N> struct HostRow { char bytes[N]; };
 template <usize N> consteval HostRow<N + 1> row(EmbedProvider provider, const char (&host)[N]) noexcept {
@@ -170,7 +176,7 @@ EmbedProvider embed_provider(Utf8View url) noexcept {
     Url parsed{};
     return parse(url, &parsed) ? provider(parsed) : EmbedProvider::none;
 }
-SoundcloudStation soundcloud_station_locator(Utf8View path) noexcept {
+SoundcloudStation soundcloud_station_locator(const Utf8View& path) noexcept {
     if (!path.data) return {};
     constexpr auto track = utf8_literal("/discover/sets/track-stations:"), artist = utf8_literal("/discover/sets/artist-stations:");
     const bool from_track = prefix(path, track);
@@ -209,8 +215,8 @@ static Utf8View soundcloud_path(Utf8View url, bool collection) noexcept {
     }
     return path;
 }
-Utf8View soundcloud_track_path(Utf8View url) noexcept { return soundcloud_path(url, false); }
-Utf8View soundcloud_collection_path(Utf8View url) noexcept { return soundcloud_path(url, true); }
+Utf8View soundcloud_track_path(const Utf8View& url) noexcept { return soundcloud_path(url, false); }
+Utf8View soundcloud_collection_path(const Utf8View& url) noexcept { return soundcloud_path(url, true); }
 static SoundcloudCollectionLocator soundcloud_locator(Utf8View url, Slice<char> decoded, bool collection) noexcept {
     if (const auto path = soundcloud_path(url, collection); path.bytes) return {path};
     Url widget{}; Utf8View nested{};
@@ -239,19 +245,20 @@ static SoundcloudCollectionLocator soundcloud_locator(Utf8View url, Slice<char> 
     if (!snowflake_parse(id, &value)) return {};
     return {{}, value, start};
 }
-SoundcloudTrackLocator soundcloud_track_locator(Utf8View url, Slice<char> decoded) noexcept {
+SoundcloudTrackLocator soundcloud_track_locator(const Utf8View& url, const Slice<char>& decoded) noexcept {
     const auto result = soundcloud_locator(url, decoded, false);
     return {result.path, result.id};
 }
-SoundcloudCollectionLocator soundcloud_collection_locator(Utf8View url, Slice<char> decoded) noexcept {
+SoundcloudCollectionLocator soundcloud_collection_locator(const Utf8View& url,
+                                                          const Slice<char>& decoded) noexcept {
     return soundcloud_locator(url, decoded, true);
 }
-bool soundcloud_collection_url(Utf8View url) noexcept {
+bool soundcloud_collection_url(const Utf8View& url) noexcept {
     char decoded[1024];
     const auto locator = soundcloud_collection_locator(url, {decoded, sizeof(decoded)});
     return locator.path.bytes || locator.id;
 }
-bool soundcloud_track_url(Utf8View url) noexcept {
+bool soundcloud_track_url(const Utf8View& url) noexcept {
     char decoded[1024];
     const auto locator = soundcloud_track_locator(url, {decoded, sizeof(decoded)});
     return locator.path.bytes || locator.id;
@@ -334,8 +341,12 @@ static AppleMusicTrackLocator apple_music_locator(Utf8View url, bool collection)
     }
     return apple_music_track_id(track) ? AppleMusicTrackLocator{track, country, video} : AppleMusicTrackLocator{};
 }
-AppleMusicTrackLocator apple_music_track_locator(Utf8View url) noexcept { return apple_music_locator(url,false); }
-AppleMusicTrackLocator apple_music_album_locator(Utf8View url) noexcept { return apple_music_locator(url,true); }
+AppleMusicTrackLocator apple_music_track_locator(const Utf8View& url) noexcept {
+    return apple_music_locator(url, false);
+}
+AppleMusicTrackLocator apple_music_album_locator(const Utf8View& url) noexcept {
+    return apple_music_locator(url, true);
+}
 AppleMusicCollectionLocator apple_music_collection_locator(Utf8View url) noexcept {
     if (const auto album=apple_music_album_locator(url); album.id.bytes) return {album.id,album.country,false};
     Url u{}; Utf8View song{};
@@ -350,7 +361,10 @@ AppleMusicCollectionLocator apple_music_collection_locator(Utf8View url) noexcep
     for (u32 n=3;n<id.bytes;++n) if (!ascii_is_alnum(id.data[n]) && id.data[n]!='-' && id.data[n]!='_') return {};
     return {id,country,true,u.path};
 }
-bool embed_collection_url(Utf8View url) noexcept { return soundcloud_collection_url(url) || youtube_collection_locator(url).list.bytes || apple_music_collection_locator(url).id.bytes; }
+bool embed_collection_url(const Utf8View& url) noexcept {
+    return soundcloud_collection_url(url) || youtube_collection_locator(url).list.bytes ||
+           apple_music_collection_locator(url).id.bytes;
+}
 SteamVideoLocator steam_video_locator(Utf8View url) noexcept {
     Url u{};
     if (!parse(url, &u) || provider(u) != EmbedProvider::steam) return {};

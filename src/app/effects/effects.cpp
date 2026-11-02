@@ -128,7 +128,7 @@ bool save_state() noexcept {
 }
 
 // Reads a whole file into `buffer`; the byte count, or 0.
-u32 read_file(const wchar_t* path, Slice<u8> buffer) noexcept {
+u32 read_file(const wchar_t* path, const Slice<u8>& buffer) noexcept {
     const auto result = file_persistence_read_file(path, buffer);
     return result.ok() ? result.bytes : 0;
 }
@@ -1006,7 +1006,7 @@ bool application_effects_remove(const char* slug, u32 slug_bytes) noexcept {
     return removed;
 }
 
-bool application_effects_trial_begin(ConstSlice<u8> file, const McfxPackage& package) noexcept {
+bool application_effects_trial_begin(const ConstSlice<u8>& file, const McfxPackage& package) noexcept {
     if (g.trial.active)
         return false;
     load_state();

@@ -14,7 +14,7 @@ u64 status_value(MlsStatus status) noexcept {
 u64 active_epoch(const DaveSession& session) noexcept {
     return session.group.initialized ? session.group.active.context.epoch : 0;
 }
-bool enqueue(VoiceConnection& connection, bool binary, u8 opcode, ConstSlice<u8> payload) noexcept {
+bool enqueue(VoiceConnection& connection, bool binary, u8 opcode, const ConstSlice<u8>& payload) noexcept {
     if (connection.dave_outbox_count == kVoiceDaveOutbox || !payload.count) {
         voice_log(kError, "dave_outbox_rejected", "opcode", binary ? opcode : 0, "queued",
                   connection.dave_outbox_count);
@@ -58,7 +58,7 @@ u32 recognized_users(const VoiceConnection& connection, u64* users) noexcept {
 }
 // Keeps an opcode 25 package for the next group (Session Description, epoch
 // 1 or recovery) when the session cannot take it now.
-void retain_external_sender(VoiceConnection& connection, ConstSlice<u8> package) noexcept {
+void retain_external_sender(VoiceConnection& connection, const ConstSlice<u8>& package) noexcept {
     if (package.count > sizeof(connection.dave_external_sender)) {
         voice_log(kWarning, "dave_external_sender_oversized", "bytes", package.count);
         return;

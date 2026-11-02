@@ -80,7 +80,7 @@ bool apply_entry(void* opaque, const VoiceChannelInfoEntry& entry) noexcept {
         voice_channel_info_store_set_status(store, entry.guild_id, entry.channel_id, entry.status);
     return true;
 }
-void decode(VoiceChannelInfoEvent kind, ConstSlice<u8> payload) noexcept {
+void decode(VoiceChannelInfoEvent kind, const ConstSlice<u8>& payload) noexcept {
     if (!payload.data || !payload.count || !g_app.account_ui)
         return;
     const Utf8View data{reinterpret_cast<const char*>(payload.data), payload.count};
@@ -151,7 +151,7 @@ void follow_connection() noexcept {
 UiRect head_rectangle(UiRect row) noexcept {
     return {row.left, row.top, row.right, row.top + kShellNavigationVoiceHeadHeight};
 }
-bool on_screen(UiRect rectangle) noexcept {
+bool on_screen(const UiRect& rectangle) noexcept {
     return ui_rect_has_area(ui_rect_intersection(rectangle, g_app.shell_navigation_scene.viewport));
 }
 bool row_timer(const ChannelViewRow& row) noexcept {

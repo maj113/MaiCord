@@ -296,7 +296,7 @@ bool poll_member(void* opaque, JsonString name, JsonValue value) noexcept {
     }
     return true;
 }
-Utf8View relocate(Utf8View value, const Text& source, char* destination) noexcept {
+Utf8View relocate(const Utf8View& value, const Text& source, char* destination) noexcept {
     return value.bytes ? Utf8View{destination + (value.data - source.data), value.bytes} : Utf8View{};
 }
 struct Vote {

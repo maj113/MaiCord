@@ -28,8 +28,9 @@ struct JsonValue {
     JsonValueKind kind;
     // Set only by the reader, after the value's complete source passed RFC
     // 8259/UTF-8 validation. Visits of a validated value skip re-validating
-    // its contents; any other value is validated in full.
-    bool validated = false;
+    // its contents; any other value is validated in full. A value-initialised
+    // JsonValue ({}) is not validated; a default-initialised one holds nothing.
+    bool validated;
 };
 
 enum class JsonReadError : u8 {
@@ -94,7 +95,7 @@ JsonReadResult json_visit_value_array(const JsonValue& value, const ConstSlice<u
 struct JsonIndexedDocument {
     Utf8View input;
     ConstSlice<u32> structurals;
-    mutable u32 hint{};
+    mutable u32 hint;
 };
 JsonReadResult json_visit_indexed_object(const JsonIndexedDocument& document, const JsonValue& value,
     u32 maximum_depth, JsonMemberVisitor visitor, void* context) noexcept;

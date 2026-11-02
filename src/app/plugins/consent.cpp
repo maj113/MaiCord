@@ -47,7 +47,7 @@ constexpr Utf8View kPermissionsKey = utf8_literal("permissions"), kHostsKey = ut
 bool open_table(PluginKeyValue* table) noexcept {
     return plugin_runtime_detail::kv_open(table, 4, 16, MC_NETWORK_HOSTS_MAX * (MC_HOST_MAX + 1), 4096);
 }
-mc_str key_of(Utf8View text) noexcept {
+mc_str key_of(const Utf8View& text) noexcept {
     return {text.data, text.bytes, 0};
 }
 

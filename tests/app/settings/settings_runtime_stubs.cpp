@@ -363,7 +363,7 @@ bool refresh_popup_text() noexcept {
 void set_popup_owner(PopupOwnerKind owner) noexcept {
     g_app.popup_owner_kind = owner;
 }
-bool application_open_content_url(Utf8View url) noexcept {
+bool application_open_content_url(const Utf8View& url) noexcept {
     ++settings_runtime_test::observed.opened_urls;
     return url.bytes != 0;
 }

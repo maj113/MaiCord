@@ -11,7 +11,7 @@ bool live_location(bool youtube,Utf8View url,bool playlist,bool transport=false)
     return youtube ? embed_stream_location(playlist?CdnHost::youtube_playlist:CdnHost::youtube_live,url)
         : twitch_live_location(url,playlist,nullptr,transport);
 }
-u32 write_target(SegmentedVideoFetch& s, Slice<u8> path, bool initialization, u32 number) noexcept {
+u32 write_target(SegmentedVideoFetch& s, const Slice<u8>& path, bool initialization, u32 number) noexcept {
     if (s.folder_bytes > path.count) return 0;
     copy_bytes(path.data, s.folder, s.folder_bytes);
     if (s.playlist.input.bytes) {

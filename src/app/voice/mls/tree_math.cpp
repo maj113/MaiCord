@@ -109,10 +109,10 @@ MlsStatus walk(u32 node, u32 leaf_count, Slice<u32> path, u32* count, bool copat
     return MlsStatus::ok;
 }
 } // namespace
-MlsStatus mls_tree_direct_path(u32 node, u32 leaf_count, Slice<u32> path, u32* count) noexcept {
+MlsStatus mls_tree_direct_path(u32 node, u32 leaf_count, const Slice<u32>& path, u32* count) noexcept {
     return walk(node, leaf_count, path, count, false);
 }
-MlsStatus mls_tree_copath(u32 node, u32 leaf_count, Slice<u32> path, u32* count) noexcept {
+MlsStatus mls_tree_copath(u32 node, u32 leaf_count, const Slice<u32>& path, u32* count) noexcept {
     return walk(node, leaf_count, path, count, true);
 }
 } // namespace maicord

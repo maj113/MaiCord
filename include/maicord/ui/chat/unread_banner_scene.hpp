@@ -67,8 +67,10 @@ struct UiUnreadBannerScene {
 u32 ui_unread_banner_format_label(u32 count, bool estimated, Utf8View since, Slice<char> output) noexcept;
 // Copies the view and label, ticks both 150 ms slide/fade transitions and
 // projects geometry against the message viewport. Returns paint change.
-bool ui_unread_banner_update(UiUnreadBannerScene*, const UiUnreadBannerView&, Utf8View label, UiRect viewport,
-                             UiWidgetReference text_owner, u64 now_ms, bool animate) noexcept;
+__declspec(noinline) bool ui_unread_banner_update(UiUnreadBannerScene*, const UiUnreadBannerView&,
+                                                  Utf8View label, UiRect viewport,
+                                                  UiWidgetReference text_owner, u64 now_ms,
+                                                  bool animate) noexcept;
 // Replaces the notice card (null or a zero id hides it) before the next
 // update; returns true when its content changed. Text is truncated to fit.
 bool ui_unread_banner_set_notice(UiUnreadBannerScene*, const UiBannerNotice*) noexcept;

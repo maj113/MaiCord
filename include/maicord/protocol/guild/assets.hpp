@@ -196,15 +196,16 @@ bool guild_image_kind_allowed(GuildImageProfile profile, GuildImageKind kind) no
 
 // "data:<mime>;base64,<payload>". Returns bytes written, zero on failure.
 u32 guild_image_data_uri_bytes(GuildImageKind kind, u32 image_bytes) noexcept;
-u32 guild_image_write_data_uri(GuildImageKind kind, ConstSlice<u8> image, Slice<u8> output) noexcept;
+u32 guild_image_write_data_uri(GuildImageKind kind, const ConstSlice<u8>& image,
+                               const Slice<u8>& output) noexcept;
 Utf8View guild_image_mime(GuildImageKind kind) noexcept;
 
 // Emoji names: 2-32 of [A-Za-z0-9_]. Sticker names 2-30 characters, tags
 // 1-200, description empty or 2-100, all single-line.
 bool guild_emoji_name_valid(Utf8View) noexcept;
-bool guild_sticker_name_valid(Utf8View) noexcept;
-bool guild_sticker_tags_valid(Utf8View) noexcept;
-bool guild_sticker_description_valid(Utf8View) noexcept;
+bool guild_sticker_name_valid(const Utf8View&) noexcept;
+bool guild_sticker_tags_valid(const Utf8View&) noexcept;
+bool guild_sticker_description_valid(const Utf8View&) noexcept;
 
 // GET /guilds/{g}/stickers. Strings are owned, not NUL-terminated.
 struct GuildStickerRecord {
@@ -223,7 +224,7 @@ struct GuildStickerRecord {
 GuildAssetResult guild_asset_decode_stickers(Utf8View body, Slice<u32> scratch,
                                              Slice<GuildStickerRecord> output) noexcept;
 // Error code ("code") of a JSON error body; zero when absent or invalid.
-u64 guild_asset_error_code(Utf8View body, Slice<u32> scratch) noexcept;
+u64 guild_asset_error_code(const Utf8View& body, const Slice<u32>& scratch) noexcept;
 
 static_assert(sizeof(GuildImageInfo) == 28);
 static_assert(sizeof(GuildAssetRequest) == 128);

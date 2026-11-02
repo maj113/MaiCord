@@ -42,7 +42,7 @@ GuildFoldersError guild_folders_extract_base64(Utf8View settings, Slice<u8> grou
                                                bool* present) noexcept;
 // Decodes a GuildFolders message. Unknown fields are skipped; malformed known
 // fields reject the whole group and leave output untouched.
-GuildFoldersError guild_folders_decode(ConstSlice<u8> group, GuildFolderSettings* output) noexcept;
+GuildFoldersError guild_folders_decode(const ConstSlice<u8>& group, GuildFolderSettings* output) noexcept;
 // Serializes settings as a GuildFolders message: each folder with packed
 // guild_ids, then the Int64Value id, the StringValue name (omitted when empty)
 // and the UInt64Value color (omitted without a custom color); packed

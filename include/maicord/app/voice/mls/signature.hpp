@@ -27,18 +27,19 @@ struct MlsSignatureResult {
 // lengths supported; no fixed label scratch limit. RefHash has NO added prefix.
 // Hash/output failures preserve output; tails are untouched. External inputs/
 // outputs must not overlap the workspace (owner or storage), or each other.
-KdfResult mls_signature_hash(KdfSha256Workspace& workspace, ConstSlice<u8> label, ConstSlice<u8> a,
-                             ConstSlice<u8> b, Slice<u8> digest) noexcept;
-KdfResult mls_reference_hash(KdfSha256Workspace& workspace, ConstSlice<u8> label, ConstSlice<u8> value,
-                             Slice<u8> digest) noexcept;
+KdfResult mls_signature_hash(KdfSha256Workspace& workspace, const ConstSlice<u8>& label,
+                             const ConstSlice<u8>& a, const ConstSlice<u8>& b,
+                             const Slice<u8>& digest) noexcept;
+KdfResult mls_reference_hash(KdfSha256Workspace& workspace, const ConstSlice<u8>& label,
+                             const ConstSlice<u8>& value, const Slice<u8>& digest) noexcept;
 // Ciphersuite 2 ECDSA. Sign requires maximum DER capacity (72 bytes) before
 // doing cryptographic work. Only result.bytes is the signature, no outer MLS
 // vector length. Every failure preserves output. Inputs/output cannot overlap
 // the key owner. Caller authenticates the key and serialized content/label.
 MlsSignatureResult mls_sign_with_label(KdfSha256Workspace& workspace, const P256Key& key,
-                                       ConstSlice<u8> label, ConstSlice<u8> a, ConstSlice<u8> b,
-                                       Slice<u8> signature) noexcept;
+                                       const ConstSlice<u8>& label, const ConstSlice<u8>& a,
+                                       const ConstSlice<u8>& b, const Slice<u8>& signature) noexcept;
 MlsSignatureResult mls_verify_with_label(KdfSha256Workspace& workspace, const P256Key& key,
-                                         ConstSlice<u8> label, ConstSlice<u8> a, ConstSlice<u8> b,
-                                         ConstSlice<u8> signature) noexcept;
+                                         const ConstSlice<u8>& label, const ConstSlice<u8>& a,
+                                         const ConstSlice<u8>& b, const ConstSlice<u8>& signature) noexcept;
 } // namespace maicord

@@ -8,9 +8,9 @@ namespace maicord {
 // neither a padded input nor a temporary de-escaped allocation is required.
 struct H264Bits {
     ConstSlice<u8> source;
-    u32 offset{};
-    u8 byte{}, remaining{}, zeroes{};
-    H264Error error{};
+    u32 offset;
+    u8 byte, remaining, zeroes;
+    H264Error error;
 
     __declspec(noinline) u32 read(u32 count) noexcept {
         if (count > 32) { error = H264Error::invalid_input; return 0; }

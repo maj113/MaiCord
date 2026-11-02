@@ -11,7 +11,7 @@
 namespace maicord {
 namespace {
 
-bool folded(Utf8View value, const char* literal) noexcept {
+bool folded(const Utf8View& value, const char* literal) noexcept {
     return http_ascii_equal_case_insensitive({reinterpret_cast<const u8*>(value.data), value.bytes}, literal);
 }
 static_assert(static_cast<u8>(CaptchaBridgeProtocolError::capacity) == static_cast<u8>(HttpRequestError::capacity) &&
@@ -33,7 +33,7 @@ struct Writer {
         }
         bytes += count;
     }
-    void text(Utf8View value) noexcept { raw(value.data, value.bytes); }
+    void text(const Utf8View& value) noexcept { raw(value.data, value.bytes); }
     template <usize Count> void literal(const char (&value)[Count]) noexcept { raw(value, static_cast<u32>(Count - 1)); }
     void decimal(u32 value) noexcept {
         char digits[10];
@@ -226,7 +226,7 @@ bool captcha_bridge_rqdata_valid(Utf8View rqdata) noexcept {
     }
     return true;
 }
-bool captcha_bridge_user_flow_valid(Utf8View user_flow) noexcept {
+bool captcha_bridge_user_flow_valid(const Utf8View& user_flow) noexcept {
     return user_flow.bytes <= kCaptchaBridgeMaximumUserFlowBytes && utf8_validate(user_flow).valid;
 }
 bool captcha_bridge_token_valid(Utf8View token) noexcept {
@@ -365,7 +365,8 @@ CaptchaBridgeWriteResult captcha_bridge_write_page(const CaptchaBridgePage& page
     return {out.bytes, CaptchaBridgeProtocolError::none};
 }
 
-CaptchaBridgeWriteResult captcha_bridge_write_response(CaptchaBridgeResponse response, Slice<u8> output) noexcept {
+CaptchaBridgeWriteResult captcha_bridge_write_response(CaptchaBridgeResponse response,
+                                                       const Slice<u8>& output) noexcept {
     if (!output.data || !byte_range_valid({output.data, output.count})) return {0, CaptchaBridgeProtocolError::invalid_input};
     Writer out{output.data, output.count, 0, false};
     if (response == CaptchaBridgeResponse::accepted) {

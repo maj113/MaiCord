@@ -20,17 +20,17 @@ enum class WavePcmEncoding : u8 {
     ieee_float
 };
 struct WavePcmSource {
-    ConstSlice<u8> encoded{}, data{};
-    u64 total_frames{}, duration_ms{};
-    u32 sample_rate{}, channel_mask{};
-    u16 block_align{}, container_bits{}, valid_bits{};
-    u8 channels{};
-    WavePcmEncoding encoding{};
-    bool ready{};
+    ConstSlice<u8> encoded, data;
+    u64 total_frames, duration_ms;
+    u32 sample_rate, channel_mask;
+    u16 block_align, container_bits, valid_bits;
+    u8 channels;
+    WavePcmEncoding encoding;
+    bool ready;
 };
 struct WavePcmDecodeResult {
-    u32 frames{};
-    WavePcmError error{};
+    u32 frames;
+    WavePcmError error;
     bool ok() const noexcept {
         return error == WavePcmError::none;
     }

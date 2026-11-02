@@ -571,7 +571,7 @@ float roles(ProfileScene* s, UiWidgetHandle owner, float left, float top, float 
     for (u32 i = 0; i < p.role_count && i < kRoles; ++i)
         if (const auto* role = chat_state_store_find_role(*s->state, p.guild_id, p.roles[i]))
             ranked[ranked_count++] = role;
-    heap_sort(ranked, ranked_count,
+    heap_sort_shared(ranked, ranked_count,
               [](const RoleRecord* left, const RoleRecord* right) noexcept { return role_pill_before(*left, *right); });
     // Pill widths beside the ranked roles: the frame stays within a page.
     float widths[kRoles];

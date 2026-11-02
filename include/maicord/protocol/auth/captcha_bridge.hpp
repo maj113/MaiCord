@@ -53,7 +53,7 @@ struct CaptchaBridgePage {
 
 bool captcha_bridge_sitekey_valid(Utf8View sitekey) noexcept;
 bool captcha_bridge_rqdata_valid(Utf8View rqdata) noexcept;
-bool captcha_bridge_user_flow_valid(Utf8View user_flow) noexcept;
+bool captcha_bridge_user_flow_valid(const Utf8View& user_flow) noexcept;
 bool captcha_bridge_token_valid(Utf8View token) noexcept;
 bool captcha_bridge_hex_valid(Utf8View value, u32 bytes) noexcept;
 
@@ -69,6 +69,6 @@ CaptchaBridgeWriteResult captcha_bridge_write_url(u16 port, Utf8View state, Slic
 // Complete HTTP response with a per-page nonce CSP scoped to one provider.
 CaptchaBridgeWriteResult captcha_bridge_write_page(const CaptchaBridgePage& page, Slice<u8> output) noexcept;
 CaptchaBridgeWriteResult captcha_bridge_write_response(CaptchaBridgeResponse response,
-                                                       Slice<u8> output) noexcept;
+                                                       const Slice<u8>& output) noexcept;
 
 } // namespace maicord

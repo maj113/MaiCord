@@ -46,7 +46,7 @@ bool application_guild_community_open_event(u64 guild_id, u64 event_id) noexcept
 bool application_guild_community_open_create(u64 guild_id) noexcept;
 // Server menu rows: Channels & Roles and Create event, where they apply.
 u32 application_guild_community_menu_items(u64 guild_id, u32 onboarding_action, u32 create_event_action,
-                                           Slice<PopupItem> output) noexcept;
+                                           const Slice<PopupItem>& output) noexcept;
 bool application_guild_community_can_create(u64 guild_id) noexcept;
 // Fetches a linked event the store does not know (event cards).
 void application_guild_community_want_event(u64 guild_id, u64 event_id) noexcept;

@@ -270,7 +270,7 @@ bool private_channel_store_replace_nicknames(PrivateChannelStore* store, u64 cha
         staged[i].bytes = static_cast<u8>(names[i].name.bytes);
         copy_bytes(staged[i].name, names[i].name.data, names[i].name.bytes);
     }
-    heap_sort(staged, names.count, [](const auto& a, const auto& b) noexcept { return a.user_id < b.user_id; });
+    heap_sort_shared(staged, names.count, [](const auto& a, const auto& b) noexcept { return a.user_id < b.user_id; });
     const u32 first = nickname_first(*store, channel_id);
     u32 end = first;
     while (end < store->nickname_count && store->nicknames[end].channel_id == channel_id) ++end;

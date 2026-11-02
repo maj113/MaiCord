@@ -24,7 +24,7 @@ u32 redirect(u16 port, Slice<u8> out) noexcept {
     ProtocolWriter w{out, 0};
     return port >= 1024 && protocol_write(&w, "http://127.0.0.1:", port, "/oauth2callback") ? w.used : 0;
 }
-u32 finish(const ProtocolWriter& w, bool valid, Slice<u8> out) noexcept {
+u32 finish(const ProtocolWriter& w, bool valid, const Slice<u8>& out) noexcept {
     if (!valid || !out.data || out.count < w.used) return 0;
     copy_bytes(out.data, w.output.data, w.used);
     return w.used;
@@ -79,7 +79,7 @@ bool oauth_client_valid(OAuthProvider provider, Utf8View client) noexcept {
     }
     return false;
 }
-bool oauth_token_valid(Utf8View token) noexcept { return opaque(token, kOAuthTokenBytes); }
+bool oauth_token_valid(const Utf8View& token) noexcept { return opaque(token, kOAuthTokenBytes); }
 u32 oauth_authorize(OAuthProvider provider, Utf8View client, u16 port, Utf8View state, Utf8View challenge, Slice<u8> out) noexcept {
     if (!oauth_client_valid(provider,client) || !proof(state) || !proof(challenge)) return 0;
     u8 staged[1024], uri[64]; Erase clear{staged, sizeof(staged)};

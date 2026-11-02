@@ -19,7 +19,8 @@ bool join(wchar_t* out, const wchar_t* base, u32 base_count, const wchar_t* leaf
     return true;
 }
 // <path><suffix>, NUL-terminated.
-bool suffixed(wchar_t* out, ConstSlice<wchar_t> path, const wchar_t* suffix, u32* count = nullptr) noexcept {
+bool suffixed(wchar_t* out, const ConstSlice<wchar_t>& path, const wchar_t* suffix,
+              u32* count = nullptr) noexcept {
     const u32 suffix_count = wide_length(suffix, kUpdatePathCapacity);
     if (path.count + suffix_count >= kUpdatePathCapacity) return false;
     copy_bytes(out, path.data, path.count * sizeof(wchar_t));

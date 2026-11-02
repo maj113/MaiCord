@@ -230,7 +230,7 @@ EmbedPlayerError amazon_music_preview_stream(Utf8View url,u64 now,EmbedStreams* 
     staged.expires_seconds=static_cast<u32>(minimum<u64>(expires-now,3600));
     *out=staged;secure_clear_bytes(&staged,sizeof(staged));return E::none;
 }
-u64 twitter_post_id(Utf8View id) noexcept { return numeric_id(id); }
+u64 twitter_post_id(const Utf8View& id) noexcept { return numeric_id(id); }
 #pragma float_control(precise, on, push)
 u32 twitter_video_target(Utf8View id,Slice<u8> output) noexcept {
     const u64 post=twitter_post_id(id);
@@ -484,7 +484,9 @@ EmbedPlayerError pornhub_video_streams(Utf8View json, u16 height, u64 now, Slice
     secure_clear_bytes(&selected, sizeof(selected));
     return error;
 }
-bool imgur_video_id(Utf8View id) noexcept { return (id.bytes == 5 || id.bytes == 7) && id_chars(id); }
+bool imgur_video_id(const Utf8View& id) noexcept {
+    return (id.bytes == 5 || id.bytes == 7) && id_chars(id);
+}
 EmbedPlayerError imgur_video_streams(Utf8View id,EmbedStreams* output) noexcept {
     if(!output || !imgur_video_id(id)) return EmbedPlayerError::invalid_input;
     constexpr auto prefix=utf8_literal("https://i.imgur.com/");
@@ -496,7 +498,9 @@ EmbedPlayerError imgur_video_streams(Utf8View id,EmbedStreams* output) noexcept 
     value.combined=true;value.expires_seconds=3600;
     *output=value;return EmbedPlayerError::none;
 }
-bool streamable_video_id(Utf8View id) noexcept { return id.bytes >= 3 && id.bytes <= 12 && id_chars(id); }
+bool streamable_video_id(const Utf8View& id) noexcept {
+    return id.bytes >= 3 && id.bytes <= 12 && id_chars(id);
+}
 u32 streamable_video_target(Utf8View id, Slice<u8> output) noexcept {
     return streamable_video_id(id) ? id_target(utf8_literal("/videos/"), id, output) : 0;
 }

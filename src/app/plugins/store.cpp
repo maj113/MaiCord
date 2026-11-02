@@ -134,7 +134,7 @@ void kv_close(PluginKeyValue* kv) noexcept {
     reset_value(kv);
 }
 
-const u8* kv_find(const PluginKeyValue& kv, mc_str key, u32* bytes) noexcept {
+const u8* kv_find(const PluginKeyValue& kv, const mc_str& key, u32* bytes) noexcept {
     const u32 index = find_index(kv, key);
     if (index == ~0u) return nullptr;
     const Entry& entry = entries(kv)[index];
@@ -153,7 +153,7 @@ mc_status kv_get(const PluginKeyValue& kv, mc_str key, void* output, u32 capacit
     return MC_OK;
 }
 
-mc_status kv_set(PluginKeyValue* kv, mc_str key, const void* value, u32 bytes, u64 now_ms) noexcept {
+mc_status kv_set(PluginKeyValue* kv, const mc_str& key, const void* value, u32 bytes, u64 now_ms) noexcept {
     if (bytes > kv->maximum_value_bytes) return MC_E_CAPACITY;
     const u32 index = find_index(*kv, key);
     const u32 previous = index == ~0u ? 0u : entries(*kv)[index].key_bytes + entries(*kv)[index].value_bytes;

@@ -203,7 +203,7 @@ bool application_guild_invite_open_url(Utf8View url) noexcept {
     return true;
 }
 
-bool application_guild_invite_open(Utf8View code) noexcept {
+bool application_guild_invite_open(const Utf8View& code) noexcept {
     if (!g_app.account_ui || !g_app.account.instance || !g_app.account.api.guild_invite ||
         !guild_invite_code_valid(code.data, code.bytes) || g_app.text_form)
         return false;

@@ -141,7 +141,7 @@ template <MemberName... Names> __forceinline u32 wide_member_index(const JsonStr
     return wide_member_index(name, WideMemberNames<Names...>::data.bytes);
 }
 // One named member of an object: absent until seen.
-struct FieldValue { JsonValue value{}; bool seen{}; };
+struct FieldValue { JsonValue value; bool seen; };
 // Left uninitialized: every lookup clears its fields first, and each set is only read after one.
 template <MemberName... Names> struct FieldSet {
     union { FieldValue fields[sizeof...(Names)]; };

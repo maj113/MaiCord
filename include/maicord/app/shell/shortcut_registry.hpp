@@ -109,7 +109,7 @@ const ShortcutDefinition* shortcut_built_in(ShortcutChord) noexcept;
 
 // Display text. Keys use US names ("K", "↑", "Esc", "Page Up", "Num +");
 // chords join modifiers and key with "+" ("Ctrl+Shift+M"). Return bytes written.
-u32 shortcut_key_label(u8 key, Slice<char> output) noexcept;
+u32 shortcut_key_label(u8 key, const Slice<char>& output) noexcept;
 Utf8View shortcut_modifier_label(u8 modifier) noexcept;
 u32 shortcut_chord_label(ShortcutChord, Slice<char> output) noexcept;
 

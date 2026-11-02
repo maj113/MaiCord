@@ -34,7 +34,7 @@ bool private_channel_can_remove(const ChatStateStore& state, u64 channel_id, u64
 bool private_channel_is_group(const ChatStateStore& state, u64 channel_id) noexcept;
 
 bool private_channel_begin_create(PrivateChannelActionController* controller, const ChatStateStore& state,
-                                  ConstSlice<u64> users) noexcept;
+                                  const ConstSlice<u64>& users) noexcept;
 bool private_channel_begin_add(PrivateChannelActionController* controller, const ChatStateStore& state,
                                u64 channel_id, ConstSlice<u64> users) noexcept;
 bool private_channel_begin_remove(PrivateChannelActionController* controller, const ChatStateStore& state,

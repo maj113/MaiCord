@@ -28,7 +28,7 @@ bool folder_path(const wchar_t* root, PackageLinkKind kind, wchar_t (&path)[512]
 
 } // namespace
 
-bool package_sha256(ConstSlice<u8> bytes, u8 (&digest)[32]) noexcept {
+bool package_sha256(const ConstSlice<u8>& bytes, u8 (&digest)[32]) noexcept {
     KdfSha256Workspace workspace{};
     if (!kdf_sha256_initialize(&workspace).ok())
         return false;
@@ -37,8 +37,8 @@ bool package_sha256(ConstSlice<u8> bytes, u8 (&digest)[32]) noexcept {
     return ok;
 }
 
-bool package_file_path(const wchar_t* root, PackageLinkKind kind, Utf8View slug, const u8* digest, Slice<wchar_t> path,
-                       u32* units) noexcept {
+bool package_file_path(const wchar_t* root, PackageLinkKind kind, const Utf8View& slug, const u8* digest,
+                       Slice<wchar_t> path, u32* units) noexcept {
     wchar_t folder[512];
     u32 length = 0;
     if (!package_slug_valid(slug) || !path.data || !units || !folder_path(root, kind, folder, &length) ||
@@ -122,7 +122,7 @@ bool package_install(const wchar_t* root, PackageLinkKind kind, Utf8View slug, C
     return true;
 }
 
-bool package_prune(const wchar_t* root, Utf8View slug, const u8 (&keep)[32]) noexcept {
+bool package_prune(const wchar_t* root, const Utf8View& slug, const u8 (&keep)[32]) noexcept {
     wchar_t path[512];
     u32 units = 0;
     return package_file_path(root, PackageLinkKind::effect, slug, keep, {path, 512}, &units) &&

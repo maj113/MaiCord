@@ -114,7 +114,7 @@ void push(const UiSettingsControl& control,
     owner->presentation[owner->control_count] = presentation;
     owner->controls[owner->control_count++] = control;
 }
-UiSettingsControl notice(u64 id, Utf8View label, Utf8View description) noexcept {
+UiSettingsControl notice(u64 id, const Utf8View& label, const Utf8View& description) noexcept {
     return {id, label, description, UiSettingsControlKind::notice, true, false, {}, 0, {}, nullptr};
 }
 // The reported message (author and an excerpt) or user, as the menu's

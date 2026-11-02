@@ -129,7 +129,7 @@ bool message_silent_prefix(Utf8View content, Utf8View* remainder) noexcept {
 }
 
 namespace {
-bool poll_text_valid(Utf8View text, u32 maximum_codepoints) noexcept {
+bool poll_text_valid(const Utf8View& text, u32 maximum_codepoints) noexcept {
     if (!text.data || !text.bytes || text.bytes > maximum_codepoints * 4)
         return false;
     const auto validation = utf8_validate(text);

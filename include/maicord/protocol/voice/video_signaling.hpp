@@ -58,7 +58,7 @@ struct VoiceSinkWant {
 };
 inline constexpr u8 kVoiceSinkWantsDefaultQuality = 100;
 GatewayCommandWriteResult voice_gateway_write_media_sink_wants(u8 any_quality, ConstSlice<VoiceSinkWant> wants,
-                                                               Slice<u8> output) noexcept;
+                                                               const Slice<u8>& output) noexcept;
 
 // Session Update (op 14) from the server; every field is optional and null is
 // treated as absent. Strings borrow the input. Failure preserves output.

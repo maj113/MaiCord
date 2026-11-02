@@ -14,8 +14,8 @@ inline constexpr float kUiPinnedMessagesFooterHeight = 52.f;
 enum class UiPinnedMessagesPhase : u8 { empty, loading, ready, failed };
 enum class UiPinnedMessagesAction : u8 { none, close, refresh, jump, unpin, previous, next, retry };
 struct UiPinnedMessagesTarget {
-    UiPinnedMessagesAction action{};
-    u64 channel_id{}, message_id{};
+    UiPinnedMessagesAction action;
+    u64 channel_id, message_id;
 };
 constexpr bool ui_pinned_messages_target_equal(UiPinnedMessagesTarget a, UiPinnedMessagesTarget b) noexcept {
     return a.action == b.action && a.channel_id == b.channel_id && a.message_id == b.message_id;

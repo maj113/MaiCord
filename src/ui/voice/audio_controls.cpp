@@ -189,7 +189,7 @@ bool ui_audio_controls_project(const UiAudioPlaybackState& state, const UiRect& 
                      ? static_cast<u32>(static_cast<double>(state.elapsed_ms) /
                                         static_cast<double>(state.duration_ms) * 10000.0)
                      : 0;
-    seek.visible = !state.loading && !state.error;
+    seek.hidden = state.loading || state.error;
     auto& mute = projection.controls[3];
     mute.label = state.muted ? style.unmute : style.mute;
     mute.enabled = state.can_volume && !state.error;
@@ -198,18 +198,18 @@ bool ui_audio_controls_project(const UiAudioPlaybackState& state, const UiRect& 
     volume.enabled = state.can_volume && !state.error;
     volume.value = state.volume;
     volume.maximum = 100;
-    volume.visible = geometry.volume_expanded && volume.enabled;
-    projection.controls[2].visible = !geometry.compact || !volume.visible;
+    volume.hidden = !geometry.volume_expanded || !volume.enabled;
+    projection.controls[2].hidden = geometry.compact && !volume.hidden;
     auto& download = projection.controls[5];
     download.label = style.download;
     download.enabled = state.can_download;
     auto& status = projection.controls[6];
     status.label = state.error ? style.error : state.loading ? style.loading : Utf8View{};
-    status.visible = status.label.bytes != 0;
+    status.hidden = status.label.bytes == 0;
     status.foreground = state.error ? ui_foreground_color(theme, theme.notification) : theme.text_secondary;
     auto& title = projection.controls[7];
     title.label = state.voice ? style.voice_title : state.title;
-    title.visible = !state.voice && title.label.bytes != 0;
+    title.hidden = state.voice || title.label.bytes == 0;
     for (auto& descriptor : projection.controls)
         if (!descriptor.enabled && descriptor.kind != UiAudioControlKind::label)
             descriptor.foreground = theme.text_secondary;
@@ -233,7 +233,7 @@ UiAudioControl ui_audio_controls_hit(const UiAudioControlsProjection& projection
     if (!paint_coordinate_valid(point.x) || !paint_coordinate_valid(point.y))
         return UiAudioControl::none;
     for (const auto& descriptor : projection.controls)
-        if (descriptor.visible && descriptor.enabled && point.x >= descriptor.bounds.left &&
+        if (!descriptor.hidden && descriptor.enabled && point.x >= descriptor.bounds.left &&
             point.x < descriptor.bounds.right && point.y >= descriptor.bounds.top &&
             point.y < descriptor.bounds.bottom)
             return descriptor.id;
@@ -361,7 +361,7 @@ bool scene_current(const UiAudioScene& scene) noexcept {
 bool eligible(const UiAudioScene& scene, UiAudioControl id, bool require_visible = true) noexcept {
     const auto* descriptor = ui_audio_controls_find(scene.projection, id);
     return scene_current(scene) && descriptor && descriptor->enabled &&
-           (!require_visible || descriptor->visible) &&
+           (!require_visible || !descriptor->hidden) &&
            rectangle(ui_rect_overlap(descriptor->bounds, scene.clip));
 }
 void expand_volume(UiAudioScene& scene) noexcept {
@@ -372,8 +372,8 @@ void expand_volume(UiAudioScene& scene) noexcept {
                           (scene.keyboard_focus &&
                            (scene.focus == UiAudioControl::mute || scene.focus == UiAudioControl::volume));
     projection.geometry.volume_expanded = expanded;
-    volume.visible = volume.enabled && expanded;
-    projection.controls[2].visible = !projection.geometry.compact || !volume.visible;
+    volume.hidden = !volume.enabled || !expanded;
+    projection.controls[2].hidden = projection.geometry.compact && !volume.hidden;
 }
 bool captured_action(const UiAudioScene& scene, UiPoint point, UiAudioAction* out) noexcept {
     const auto* descriptor = ui_audio_controls_find(scene.projection, scene.capture);
@@ -447,10 +447,10 @@ bool ui_audio_scene_hover(UiAudioScene* scene, UiPoint point) noexcept {
     if (!scene)
         return false;
     const auto previous = scene->hover;
-    const bool previous_volume = scene->projection.controls[4].visible;
+    const bool previous_volume = scene->projection.controls[4].hidden;
     scene->hover = ui_audio_scene_hit(*scene, point);
     expand_volume(*scene);
-    return scene->hover != previous || scene->projection.controls[4].visible != previous_volume;
+    return scene->hover != previous || scene->projection.controls[4].hidden != previous_volume;
 }
 bool ui_audio_scene_focus(UiAudioScene* scene, UiAudioControl id, bool keyboard) noexcept {
     if (!scene || !eligible(*scene, id, false))

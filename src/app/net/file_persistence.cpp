@@ -27,11 +27,12 @@ __declspec(noinline) bool transfer_complete(HANDLE file, u8* bytes, u32 count, b
 
 } // namespace
 
-bool file_persistence_read_complete(HANDLE file, Slice<u8> bytes, u32* native_error) noexcept {
+bool file_persistence_read_complete(HANDLE file, const Slice<u8>& bytes, u32* native_error) noexcept {
     return transfer_complete(file, bytes.data, bytes.count, false, native_error);
 }
 
-FileReadResult file_persistence_read_file(const wchar_t* path, Slice<u8> buffer, u32 minimum_bytes) noexcept {
+FileReadResult file_persistence_read_file(const wchar_t* path, const Slice<u8>& buffer,
+                                          u32 minimum_bytes) noexcept {
     HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
                               FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) {
@@ -56,7 +57,7 @@ FileReadResult file_persistence_read_file(const wchar_t* path, Slice<u8> buffer,
 }
 
 __declspec(noinline) FilePersistenceWriteResult
-file_persistence_write_atomic(const wchar_t* path, u32 path_characters, ConstSlice<u8> bytes,
+file_persistence_write_atomic(const wchar_t* path, u32 path_characters, const ConstSlice<u8>& bytes,
                               bool durable) noexcept {
     if (!path || path_characters == 0 ||
         path_characters + 4 >= kAccountProfileMaximumPathCharacters || !bytes.data || bytes.count == 0) {

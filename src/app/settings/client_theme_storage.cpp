@@ -44,7 +44,7 @@ bool path_length(const wchar_t* path, u32* length) noexcept {
     *length = wide_length(path, kClientThemeIoMaximumPathUnits);
     return path_valid({path, *length});
 }
-u64 checksum(ConstSlice<u8> record) noexcept {
+u64 checksum(const ConstSlice<u8>& record) noexcept {
     return hash64_bytes(hash64_bytes(kHash64Seed, record.data, kChecksumOffset),
                         record.data + kChecksumOffset + 8, record.count - kChecksumOffset - 8);
 }
@@ -81,7 +81,7 @@ HANDLE open_read(const wchar_t* path, ClientThemeStorageResult* result) noexcept
     }
     return file;
 }
-ClientThemeStorageResult read_bytes(HANDLE file, Slice<u8> buffer, const FileSnapshot* expected,
+ClientThemeStorageResult read_bytes(HANDLE file, const Slice<u8>& buffer, const FileSnapshot* expected,
                                     u32* bytes) noexcept {
     FileSnapshot before{};
     u32 native = 0;
@@ -298,7 +298,7 @@ ClientThemeStorageResult client_theme_storage_save_file(
     VirtualFree(record, 0, MEM_RELEASE);
     return result;
 }
-ClientThemeStorageResult client_theme_storage_user_path(Slice<wchar_t> output,
+ClientThemeStorageResult client_theme_storage_user_path(const Slice<wchar_t>& output,
                                                         bool create_directory) noexcept {
     if (!output.data || output.count < kClientThemeIoMaximumPathUnits)
         return failure(ClientThemeStorageError::invalid_input);
@@ -352,7 +352,7 @@ ClientThemeStorageResult client_theme_catalog_directory(Slice<wchar_t> output) n
     return {};
 }
 bool client_theme_catalog_path(const wchar_t* directory, const ClientThemeCatalogEntry& entry,
-                               Slice<wchar_t> output, u32* units) noexcept {
+                               const Slice<wchar_t>& output, u32* units) noexcept {
     u32 length = 0;
     if (!units || !output.data || !path_length(directory, &length) || !entry.file_units ||
         entry.file_units >= kClientThemeCatalogFileUnits || length + 1 + entry.file_units >= output.count)

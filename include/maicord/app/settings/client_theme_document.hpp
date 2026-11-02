@@ -86,6 +86,6 @@ ClientThemeDocumentResult client_theme_document_parse(Utf8View, const ClientThem
 // Canonical version 2.0 document contains every resolved typed value. Invalid
 // input or insufficient capacity preserves output and bytes; null/zero output
 // is a supported size query, updating bytes only on success.
-ClientThemeDocumentResult client_theme_document_write(const ClientThemeDocument&, Slice<char> output,
+ClientThemeDocumentResult client_theme_document_write(const ClientThemeDocument&, const Slice<char>& output,
                                                       u32* bytes) noexcept;
 } // namespace maicord

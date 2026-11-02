@@ -126,7 +126,7 @@ void decode(const u8* record, u64 owner, Decoded* out) noexcept {
 // ---- Validation and encoding -----------------------------------------------------------------------
 
 // UTF-8 without control characters (a line feed stays in multi-line text), at most maximum bytes.
-bool text_ok(mc_str text, u32 maximum, bool multiline = false) noexcept {
+bool text_ok(const mc_str& text, u32 maximum, bool multiline = false) noexcept {
     return text.bytes <= maximum && plugin_text_clean(text.data, text.bytes, multiline ? kPluginTextLines : 0);
 }
 bool url_ok(mc_str url, u32 maximum) noexcept {
@@ -198,7 +198,7 @@ struct Sink {
         if (out && bytes) copy_bytes(out + size, data, bytes);
         size += bytes;
     }
-    void text(mc_str text) noexcept { put(text.data, text.bytes); }
+    void text(const mc_str& text) noexcept { put(text.data, text.bytes); }
 };
 
 void encode(Sink& s, const mc_decoration& d, u32 total) noexcept {
@@ -407,7 +407,7 @@ bool revealed(u64 message_id) noexcept {
 char g_join[4096];
 u32 g_join_head;
 
-Utf8View join(Utf8View first, Utf8View second) noexcept {
+Utf8View join(const Utf8View& first, const Utf8View& second) noexcept {
     if (!first.bytes) return second;
     if (!second.bytes) return first;
     constexpr u32 kJoined = 96;
@@ -861,7 +861,7 @@ u64 elapsed_us(i64 begin) noexcept {
     return clock_microseconds(clock, begin, clock_now());
 }
 
-bool text_valid(mc_str text, u32 maximum) noexcept { return text_ok(text, maximum); }
+bool text_valid(const mc_str& text, u32 maximum) noexcept { return text_ok(text, maximum); }
 
 void fill_message(const PluginMessageInput& m, mc_message* in) noexcept {
     in->message_id = m.message_id;

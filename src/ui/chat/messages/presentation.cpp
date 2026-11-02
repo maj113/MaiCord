@@ -242,8 +242,7 @@ __declspec(noinline) bool append_poll(const MessageScene& scene, const MessageSc
     UiPollAnswer answers[kUiPollMaximumAnswers]{};
     UiPollProjection poll{};
     const UiWidgetReference owner{&scene.widgets, row.poll};
-    UiPollStyle poll_style;
-    ui_theme_fill_poll_style(scene.theme_styles, &poll_style);
+    const UiPollStyle poll_style = ui_theme_poll_style(scene.theme_styles);
     if (row.poll_unavailable) {
         const auto* node = message_scene_layout_node(scene, row.poll);
         if (!node || !push_card(paint,
@@ -471,13 +470,12 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
         float preview_height = 0.0f;
         const MessageRichAttachment& attachment = rich->attachments[index];
         const MediaAttachmentFormat format = message_rich_attachment_format(*rich_store, attachment);
-        UiAudioControlsStyle audio_style;
-        float audio_height = 0;
-        if (message_rich_attachment_audio_supported(*rich_store, attachment)) {
-            ui_theme_fill_audio_style(scene.theme_styles, &audio_style);
-            audio_height = ui_audio_card_height(audio_style, ui_rect_width(item_layout->content_rectangle),
-                                                message_rich_record_voice(*rich));
-        }
+        const UiAudioControlsStyle audio_style = ui_theme_audio_style(scene.theme_styles);
+        const float audio_height =
+            message_rich_attachment_audio_supported(*rich_store, attachment)
+                ? ui_audio_card_height(audio_style, ui_rect_width(item_layout->content_rectangle),
+                                       message_rich_record_voice(*rich))
+                : 0.f;
         if (audio_height > 0) {
             const auto card = UiRect{item_layout->content_rectangle.left, top,
                                      item_layout->content_rectangle.right, top + audio_height};

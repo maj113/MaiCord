@@ -305,7 +305,7 @@ void finish_content_attachment(Utf8View url, bool copy) noexcept {
 }
 
 // Ready, failed or no refresh needed: act now and release the intent.
-bool resolve_content_attachment(Utf8View source) noexcept {
+bool resolve_content_attachment(const Utf8View& source) noexcept {
     const u64 now_ms = clock_monotonic_milliseconds(), now_seconds = clock_unix_milliseconds() / 1000;
     const Utf8View ready = media_url_resolve(&g_app.media_urls, source, now_ms, now_seconds);
     const auto state = ready.bytes ? MediaUrlState::ready : media_url_resolution_state(g_app.media_urls, source);
@@ -488,7 +488,7 @@ bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexc
 bool application_navigate_known_message(u64 channel_id, u64 message_id) noexcept {
     return navigate_content_message(channel_id, message_id);
 }
-bool application_open_content_url(Utf8View url) noexcept {
+bool application_open_content_url(const Utf8View& url) noexcept {
     return open_content_url_impl(url);
 }
 bool application_open_content_link(const MessageTextHit& hit) noexcept {

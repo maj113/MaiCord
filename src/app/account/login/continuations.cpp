@@ -12,7 +12,7 @@ bool link_candidate(Utf8View link, Utf8View prefix) noexcept {
         if (link.data[i] != prefix.data[i]) return false;
     return link.bytes == prefix.bytes || link.data[prefix.bytes] == '?' || link.data[prefix.bytes] == '#';
 }
-bool next_byte(Utf8View value, u32* cursor, u8* decoded) noexcept {
+bool next_byte(const Utf8View& value, u32* cursor, u8* decoded) noexcept {
     const char c = value.data[(*cursor)++];
     if (c != '%') {
         *decoded = c == '+' ? ' ' : static_cast<u8>(c);
@@ -116,7 +116,7 @@ LoginResetLinkError find_reset_token(Utf8View parameters, Utf8View* selected, bo
 }
 } // namespace
 
-bool login_verification_link_candidate(Utf8View link) noexcept {
+bool login_verification_link_candidate(const Utf8View& link) noexcept {
     return link_candidate(link, kPrefix);
 }
 
@@ -159,7 +159,9 @@ LoginVerificationLinkResult login_verification_consume_link(Utf8View link, Secur
         return fail_link(output, LoginVerificationLinkError::malformed_encoding);
     return {bytes, LoginVerificationLinkError::none};
 }
-bool login_reset_link_candidate(Utf8View link) noexcept { return link_candidate(link, kResetPrefix); }
+bool login_reset_link_candidate(const Utf8View& link) noexcept {
+    return link_candidate(link, kResetPrefix);
+}
 LoginResetLinkResult login_reset_consume_link(Utf8View link, SecureBuffer* output) noexcept {
     if (!output || !output->locked || !output->data || !output->capacity || !link.data || !link.bytes ||
         link.bytes > kLoginResetMaximumLinkBytes)

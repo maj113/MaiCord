@@ -112,7 +112,7 @@ bool private_channel_can_remove(const ChatStateStore& state, u64 channel_id, u64
 }
 
 bool private_channel_begin_create(PrivateChannelActionController* c, const ChatStateStore& state,
-                                  ConstSlice<u64> users) noexcept {
+                                  const ConstSlice<u64>& users) noexcept {
     if (!startable(c, state) || !valid_people(state, users)) return false;
     PrivateChannelActionRequest request{};
     request.kind = PrivateChannelActionKind::create;

@@ -15,6 +15,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/media/compression/inflated_block.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/win32_user.hpp"
@@ -46,22 +47,10 @@ enum Builtin : u64 {
     gif = 16,
     sticker = 17,
 };
-constexpr auto kIndex = utf8_literal(R"JSON({"applications":[{"id":"1","name":"Built-in"}],"application_commands":[
-{"id":"12","application_id":"1","version":"1","type":1,"name":"ban","description":"Ban user","options":[{"name":"user","description":"The user to ban","type":6,"required":true},{"name":"delete_messages","description":"How much of their recent message history to delete","type":4,"required":true,"choices":[{"name":"Don't Delete Any","value":0},{"name":"Previous Hour","value":3600},{"name":"Previous 6 Hours","value":21600},{"name":"Previous 12 Hours","value":43200},{"name":"Previous 24 Hours","value":86400},{"name":"Previous 3 Days","value":259200},{"name":"Previous 7 Days","value":604800}]},{"name":"reason","description":"The reason for banning, if any","type":3}]},
-{"id":"16","application_id":"1","version":"1","type":1,"name":"gif","description":"Search Animated GIFs on the Web","options":[{"name":"query","description":"Search for a GIF","type":3,"required":true}]},
-{"id":"11","application_id":"1","version":"1","type":1,"name":"kick","description":"Kick user","options":[{"name":"user","description":"The user to kick","type":6,"required":true},{"name":"reason","description":"The reason for kicking, if any","type":3}]},
-{"id":"15","application_id":"1","version":"1","type":1,"name":"leave","description":"Leave Group","options":[{"name":"silent","description":"Leave without notifying other members","type":5}]},
-{"id":"5","application_id":"1","version":"1","type":1,"name":"me","description":"Displays text with emphasis.","options":[{"name":"message","description":"Your message","type":3,"required":true}]},
-{"id":"14","application_id":"1","version":"1","type":1,"name":"msg","description":"Message user","options":[{"name":"user","description":"The user to message","type":6,"required":true},{"name":"message","description":"Message to send","type":3,"required":true}]},
-{"id":"7","application_id":"1","version":"1","type":1,"name":"nick","description":"Change nickname on this server.","options":[{"name":"new_nick","description":"New nickname","type":3,"max_length":32}]},
-{"id":"1","application_id":"1","version":"1","type":1,"name":"shrug","description":"Appends ¯\\_(ツ)_/¯ to your message.","options":[{"name":"message","description":"Your message","type":3}]},
-{"id":"6","application_id":"1","version":"1","type":1,"name":"spoiler","description":"Marks your message as a spoiler.","options":[{"name":"message","description":"Your message","type":3,"required":true}]},
-{"id":"17","application_id":"1","version":"1","type":1,"name":"sticker","description":"Search your stickers","options":[{"name":"query","description":"Search for a sticker","type":3,"required":true}]},
-{"id":"2","application_id":"1","version":"1","type":1,"name":"tableflip","description":"Appends (╯°□°)╯︵ ┻━┻ to your message.","options":[{"name":"message","description":"Your message","type":3}]},
-{"id":"10","application_id":"1","version":"1","type":1,"name":"thread","description":"Start new thread","options":[{"name":"name","description":"Type a name for your thread","type":3,"required":true,"max_length":100},{"name":"message","description":"Type the first message in your thread","type":3,"required":true}]},
-{"id":"13","application_id":"1","version":"1","type":1,"name":"timeout","description":"Time out user","options":[{"name":"user","description":"The user to time out","type":6,"required":true},{"name":"duration","description":"How long they should be timed out for","type":4,"required":true,"choices":[{"name":"60 secs","value":60},{"name":"5 mins","value":300},{"name":"10 mins","value":600},{"name":"1 hour","value":3600},{"name":"1 day","value":86400},{"name":"1 week","value":604800}]},{"name":"reason","description":"The reason for timing them out, if any","type":3}]},
-{"id":"3","application_id":"1","version":"1","type":1,"name":"unflip","description":"Appends ┬─┬ ノ( ゜-゜ノ) to your message.","options":[{"name":"message","description":"Your message","type":3}]}
-]})JSON");
+// The index (builtin_commands.json) ships as a zlib stream, inflated on first use into pages kept for the process
+// lifetime: the decoded index keeps views into it.
+#include <builtin_commands_pack.inc>
+InflatedBlock g_index_block;
 
 enum class Action : u8 { none, nick, thread, kick, ban, timeout };
 struct State {
@@ -95,7 +84,8 @@ Utf8View trim(Utf8View text) noexcept {
     return text;
 }
 // Joins parts into storage; empty on overflow.
-Utf8View join(Slice<char> storage, Utf8View a, Utf8View b = {}, Utf8View c = {}) noexcept {
+Utf8View join(Slice<char> storage, const Utf8View& a, const Utf8View& b = {},
+              const Utf8View& c = {}) noexcept {
     u32 used = 0;
     const Utf8View parts[] = {a, b, c};
     for (const auto part : parts) {
@@ -135,7 +125,7 @@ Options parse_options(Utf8View json) noexcept {
     options.document = {json, {ui.message_history_page_structurals, options.ok ? scan.count : 0u}};
     return options;
 }
-JsonValue option(const Options& options, Utf8View name) noexcept {
+JsonValue option(const Options& options, const Utf8View& name) noexcept {
     OptionFind find{&options.document, name, {}};
     if (options.ok)
         json_visit_indexed_array(options.document, {options.document.input, 0, JsonValueKind::array}, 8, find_option,
@@ -146,13 +136,13 @@ Utf8View option_text(const Options& options, Utf8View name, Slice<char> storage)
     Utf8View text{};
     return command_json_text(option(options, name), storage, &text) ? text : Utf8View{};
 }
-u64 option_number(const Options& options, Utf8View name) noexcept {
+u64 option_number(const Options& options, const Utf8View& name) noexcept {
     u64 value = 0;
     json_value_to_u64_or_string(option(options, name), &value);
     return value;
 }
 
-void notice(u64 channel, Utf8View text) noexcept {
+void notice(u64 channel, const Utf8View& text) noexcept {
     // The client's bot message, only in the channel it was asked from.
     if (!g_app.account_ui || !channel || g_app.account_ui->active_channel_id != channel || !text.bytes)
         return;
@@ -181,7 +171,7 @@ void clear_message() noexcept {
     if (s.message.text)
         message_composer_clear(&s.message);
 }
-bool hold_message(Utf8View text, u64 origin) noexcept {
+bool hold_message(const Utf8View& text, u64 origin) noexcept {
     auto& s = g_builtins;
     if (!s.message.text && !message_composer_initialize_owned(&s.message))
         return false;
@@ -246,10 +236,14 @@ bool moderate(Action action, const Options& options, u64 channel_id) noexcept {
 const CommandIndex* builtin_commands_index() noexcept {
     auto& s = g_builtins;
     if (!s.decoded && g_app.account_ui)
-        s.decoded = command_index_decode(kIndex,
-                                         {g_app.account_ui->message_history_page_structurals,
-                                          kMessageHistoryPageStructuralCount},
-                                         &s.index);
+        s.decoded = [] {
+            const u8* text = inflated_block_load(g_index_block, kBuiltinCommandsPacked, sizeof(kBuiltinCommandsPacked),
+                                                 kBuiltinCommandsBytes);
+            return text && command_index_decode({reinterpret_cast<const char*>(text), kBuiltinCommandsBytes},
+                                                {g_app.account_ui->message_history_page_structurals,
+                                                 kMessageHistoryPageStructuralCount},
+                                                &g_builtins.index);
+        }();
     return s.decoded ? &s.index : nullptr;
 }
 
@@ -563,7 +557,8 @@ void builtin_commands_release() noexcept {
     reset_value(&g_builtins);
 }
 
-bool builtin_command_results(const ApplicationCommand* command, Utf8View query, UiRect anchor) noexcept {
+bool builtin_command_results(const ApplicationCommand* command, const Utf8View& query,
+                             const UiRect& anchor) noexcept {
     if (!command || command->application_id != kBuiltinCommandApplication ||
         (command->id != gif && command->id != sticker)) {
         application_media_picker_inline_close();

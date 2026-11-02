@@ -283,7 +283,8 @@ void project_all(u64 unix_now) noexcept {
 }
 } // namespace
 
-u32 application_notification_menu_items(u64 guild_id, u64 channel_id, Slice<PopupItem> output) noexcept {
+u32 application_notification_menu_items(u64 guild_id, u64 channel_id,
+                                        const Slice<PopupItem>& output) noexcept {
     u64 guild = 0;
     u8 type = 0;
     if (!output.data || output.count < kNotificationMenuItemCount || !g_app.account.api.guild_settings ||

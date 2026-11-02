@@ -5,13 +5,13 @@ namespace maicord {
 // Borrowed, immutable metadata; no allocation or copied per-sample index.
 // Offsets and timestamps remain in source bytes / track ticks, without rounding.
 struct Mp4FragmentRange {
-    u64 offset{}, time{}, duration{};
-    u32 bytes{}, index{};
+    u64 offset, time, duration;
+    u32 bytes, index;
 };
 struct Mp4FragmentIndex {
-    ConstSlice<u8> entries{};
-    u64 first_offset{}, first_time{}, duration{};
-    u32 track_id{}, timescale{}, count{};
+    ConstSlice<u8> entries;
+    u64 first_offset, first_time, duration;
+    u32 track_id, timescale, count;
 };
 // One complete sidx box and its absolute source offset. Flat references only;
 // every referenced segment must fit the supplied entity length. Transactional.
@@ -26,18 +26,18 @@ bool mp4_fragment_index_follow(const Mp4FragmentIndex&, const Mp4FragmentRange&,
 bool mp4_fragment_index_seek(const Mp4FragmentIndex&, u64 track_time, Mp4FragmentRange*) noexcept;
 
 struct Mp4FragmentDefaults {
-    u32 track_id{}, duration{}, bytes{}, flags{};
+    u32 track_id, duration, bytes, flags;
 };
 Mp4DemuxError mp4_fragment_defaults(ConstSlice<u8> trex, Mp4FragmentDefaults*) noexcept;
 struct Mp4FragmentTrack {
-    ConstSlice<u8> configuration{}; // Borrowed avcC or decoded, validated AAC ASC.
-    Mp4FragmentDefaults defaults{};
-    u64 media_duration{}, empty_edit{}, edit_duration{};
-    i64 media_start{};
-    u32 timescale{}, movie_timescale{}, width{}, height{}, sar_width{}, sar_height{}, sample_rate{};
-    u16 frames_per_packet{};
-    u8 channels{}, nal_length_bytes{}, rotation{};
-    bool audio{}, edited{};
+    ConstSlice<u8> configuration; // Borrowed avcC or decoded, validated AAC ASC.
+    Mp4FragmentDefaults defaults;
+    u64 media_duration, empty_edit, edit_duration;
+    i64 media_start;
+    u32 timescale, movie_timescale, width, height, sar_width, sar_height, sample_rate;
+    u16 frames_per_packet;
+    u8 channels, nal_length_bytes, rotation;
+    bool audio, edited;
 };
 static_assert(sizeof(Mp4FragmentTrack) <= 112);
 // Complete ftyp/moov initialization segment, at most 1 MiB. Selects one clear
@@ -49,21 +49,21 @@ static_assert(sizeof(Mp4FragmentTrack) <= 112);
 Mp4DemuxError mp4_fragment_track_initialize(ConstSlice<u8> initialization, bool audio,
                                            Mp4FragmentTrack*) noexcept;
 struct Mp4FragmentSample {
-    u64 offset{}, decode_time{};
-    i64 presentation_time{};
-    u32 bytes{}, duration{}, index{};
-    bool sync{};
+    u64 offset, decode_time;
+    i64 presentation_time;
+    u32 bytes, duration, index;
+    bool sync;
 };
 struct Mp4FragmentRun {
-    u64 offset{};
-    u32 table{}, count{}, flags{}, first_flags{};
+    u64 offset;
+    u32 table, count, flags, first_flags;
 };
 struct Mp4Fragment {
-    ConstSlice<u8> metadata{};
-    Mp4FragmentDefaults defaults{};
-    Mp4FragmentRun runs[8]{};
-    u64 first_time{}, duration{}, decode_time{}, media_cursor{};
-    u32 count{}, index{}, run_count{}, run_index{}, run_sample{};
+    ConstSlice<u8> metadata;
+    Mp4FragmentDefaults defaults;
+    Mp4FragmentRun runs[8];
+    u64 first_time, duration, decode_time, media_cursor;
+    u32 count, index, run_count, run_index, run_sample;
 };
 static_assert(sizeof(Mp4Fragment) <= 288);
 // One selected clear track in a moof followed by one mdat. Up to 32 unique
@@ -80,10 +80,10 @@ void mp4_fragment_reset(Mp4Fragment*) noexcept;
 Mp4DemuxError mp4_fragment_next(Mp4Fragment*, Mp4FragmentSample*) noexcept;
 struct Mp4MediaSegment {
     static constexpr bool kZeroDefault = true; // Every member defaults to zero: reset_value clears bytes.
-    Mp4FragmentRange range{};
-    Mp4Fragment fragment{};
-    u64 presentation_end{};
-    u32 samples{}, next_fragment{};
+    Mp4FragmentRange range;
+    Mp4Fragment fragment;
+    u64 presentation_end;
+    u32 samples, next_fragment;
 };
 // One complete independently fetched media file: optional styp/flat sidx,
 // bounded emsg and up to 1024 moof/mdat pairs, 65536 samples in the selected

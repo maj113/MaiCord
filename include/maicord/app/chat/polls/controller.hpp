@@ -12,26 +12,26 @@ inline constexpr u32 kPollControllerMaximumBusyRetries = 6;
 // Failed reads retry after 500 ms, doubling.
 inline constexpr u32 kPollControllerReadRetryMs = 500;
 struct PollControllerActor {
-    u64 account_scope{}, profile_id{}, self_user_id{};
-    usize instance{};
+    u64 account_scope, profile_id, self_user_id;
+    usize instance;
 };
 struct PollControllerSource {
-    PollControllerActor actor{};
-    u64 channel_id{}, message_id{}, channel_epoch{};
-    MessageHandle handle{};
-    u32 poll_content_revision{};
-    u16 channel_generation{};
+    PollControllerActor actor;
+    u64 channel_id, message_id, channel_epoch;
+    MessageHandle handle;
+    u32 poll_content_revision;
+    u16 channel_generation;
 };
 // Caller normalizes the current owned poll record. Missing results mean
 // mine_known=false, never an invented empty vote or zero aggregate count.
 // expiry_ms 0: no known expiry (open).
 struct PollControllerSnapshot {
-    PollControllerSource source{};
-    u64 expiry_ms{};
-    u32 answer_ids[kPollControllerMaximumAnswers]{};
-    u16 mine_mask{};
-    u8 answer_count{};
-    bool mine_known{}, multiple{}, finalized{}, can_vote{}, can_inspect{};
+    PollControllerSource source;
+    u64 expiry_ms;
+    u32 answer_ids[kPollControllerMaximumAnswers];
+    u16 mine_mask;
+    u8 answer_count;
+    bool mine_known, multiple, finalized, can_vote, can_inspect;
 };
 enum class PollControllerWorkKind : u8 { none, vote, voters, refresh };
 enum class PollControllerVotePhase : u8 { idle, queued, sending, awaiting_authority, uncertain, failed };
@@ -40,37 +40,37 @@ enum class PollControllerError : u8 {
     transport, http, decode, uncertain, exhausted,
 };
 struct PollControllerCommand {
-    PollControllerSnapshot snapshot{};
-    u64 epoch{}, after_user_id{}, due_at_ms{};
-    u32 answer_id{}, limit{};
-    u16 desired_mask{};
-    u8 retries{}, busy_retries{};
-    PollControllerWorkKind kind{};
+    PollControllerSnapshot snapshot;
+    u64 epoch, after_user_id, due_at_ms;
+    u32 answer_id, limit;
+    u16 desired_mask;
+    u8 retries, busy_retries;
+    PollControllerWorkKind kind;
 };
-struct PollControllerTicket { u64 request_id{}, epoch{}; };
+struct PollControllerTicket { u64 request_id, epoch; };
 struct PollControllerFlight {
-    PollControllerCommand command{};
-    PollControllerTicket ticket{};
-    bool active{}, retired{};
+    PollControllerCommand command;
+    PollControllerTicket ticket;
+    bool active, retired;
 };
 struct PollControllerResult {
-    PollControllerError error{};
-    bool changed{}, stale{}, refresh_required{}, page_ready{};
+    PollControllerError error;
+    bool changed, stale, refresh_required, page_ready;
     bool ok() const noexcept { return error == PollControllerError::none; }
 };
 struct PollController {
     static constexpr bool kZeroDefault = true; // Every member defaults to zero: reset_value clears bytes.
-    PollControllerSnapshot snapshot{};
-    PollControllerCommand pending{};
-    PollControllerFlight flight{};
-    u64 epoch{}, after_user_id{};
-    u32 voter_answer_id{};
-    u16 desired_mask{};
-    PollControllerVotePhase vote_phase{};
-    PollControllerError last_error{};
-    PollControllerError vote_barrier{};
-    bool initialized{}, source_active{}, pending_ready{}, desired_active{};
-    bool refresh_required{}, voters_more{}, voters_failed{};
+    PollControllerSnapshot snapshot;
+    PollControllerCommand pending;
+    PollControllerFlight flight;
+    u64 epoch, after_user_id;
+    u32 voter_answer_id;
+    u16 desired_mask;
+    PollControllerVotePhase vote_phase;
+    PollControllerError last_error;
+    PollControllerError vote_barrier;
+    bool initialized, source_active, pending_ready, desired_active;
+    bool refresh_required, voters_more, voters_failed;
 };
 bool poll_controller_source_equal(const PollControllerSource&, const PollControllerSource&) noexcept;
 void poll_controller_initialize(PollController*) noexcept;

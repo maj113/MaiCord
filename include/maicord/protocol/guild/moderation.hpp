@@ -115,7 +115,8 @@ bool guild_moderation_request_valid(const GuildModerationRequest&) noexcept;
 RestRouteKey guild_moderation_route(const GuildModerationRequest&) noexcept;
 GuildModerationResult guild_moderation_write_target(const GuildModerationRequest&, Slice<u8> output) noexcept;
 // Zero bytes for ban_search. Output is cleared on failure.
-GuildModerationResult guild_moderation_write_body(const GuildModerationRequest&, Slice<u8> output) noexcept;
+GuildModerationResult guild_moderation_write_body(const GuildModerationRequest&,
+                                                  const Slice<u8>& output) noexcept;
 // Encoded X-Audit-Log-Reason value (bulk_ban only); zero bytes when none.
 GuildModerationResult guild_moderation_write_reason(const GuildModerationRequest&, Slice<u8> output) noexcept;
 // A bulk ban carries the header, possibly with an empty value.

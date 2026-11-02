@@ -30,7 +30,7 @@ struct RegisteredGames {
 bool game_detection_normalize(Utf8View basename, char* output, u8* bytes) noexcept;
 // "Stardew Valley.exe" -> "Stardew Valley": the display name of an added game.
 u32 game_detection_display_name(Utf8View basename, Slice<char> output) noexcept;
-bool registered_games_add(RegisteredGames*, Utf8View name, Utf8View executable) noexcept;
+bool registered_games_add(RegisteredGames*, const Utf8View& name, const Utf8View& executable) noexcept;
 bool registered_games_remove(RegisteredGames*, u32 index) noexcept;
 
 struct GameDetectionMatch {

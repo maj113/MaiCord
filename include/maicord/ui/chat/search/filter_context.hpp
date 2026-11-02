@@ -22,12 +22,12 @@ enum class UiSearchFilterKind : u8 {
 // Ranges are UTF-8 byte offsets. Decoded bytes are owned by this value, so
 // copying a context never keeps pointers into another context or edit.
 struct UiSearchFilterContext {
-    char decoded[kUiSearchFilterQueryBytes]{};
-    u32 token_begin{}, token_end{}, value_begin{}, value_end{};
-    u16 value_bytes{}, prefix_bytes{};
-    u16 other_value_count{};
-    UiSearchFilterKind kind{};
-    bool quoted{}, quote_complete{}, has_value{};
+    char decoded[kUiSearchFilterQueryBytes];
+    u32 token_begin, token_end, value_begin, value_end;
+    u16 value_bytes, prefix_bytes;
+    u16 other_value_count;
+    UiSearchFilterKind kind;
+    bool quoted, quote_complete, has_value;
     Utf8View value() const noexcept {
         return {decoded, value_bytes};
     }
@@ -48,11 +48,11 @@ static_assert(sizeof(UiSearchFilterContext) <= 320);
 UiSearchFilterContext ui_search_filter_context(Utf8View query, u32 anchor, u32 caret) noexcept;
 
 struct UiSearchFilterChoiceView {
-    u64 id{};
-    u32 semantic{};
-    Utf8View label{}, detail{}, value{};
+    u64 id;
+    u32 semantic;
+    Utf8View label, detail, value;
     // from:/mentions: people rows: the user's avatar hash (id is the user).
-    Utf8View avatar_hash{};
+    Utf8View avatar_hash;
 };
 struct UiSearchFilterChoiceSource {
     void* context{};

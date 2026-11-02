@@ -30,11 +30,11 @@ u32 ui_settings_choice_items(const UiSettingsControl& control, u32 first, Slice<
         if (!label.bytes || !byte_range_valid(text) || byte_ranges_overlap(text, destination) || !utf8_validate(label).valid) return 0;
     }
     u32 used = 0;
-    if (previous) output[used++] = {utf8_literal("Previous choices"), kUiSettingsChoicePrevious, popup_item_enabled};
+    if (previous) popup_item_set(&output[used++], utf8_literal("Previous choices"), kUiSettingsChoicePrevious, popup_item_enabled);
     for (u32 index = first; index < first + count; ++index)
-        output[used++] = {control.choices[index], kUiSettingsChoiceActionFirst + index,
-            static_cast<u16>(popup_item_enabled | (index == control.selected_choice ? popup_item_checked : 0))};
-    if (next) output[used++] = {utf8_literal("Next choices"), kUiSettingsChoiceNext, popup_item_enabled};
+        popup_item_set(&output[used++], control.choices[index], kUiSettingsChoiceActionFirst + index,
+            static_cast<u16>(popup_item_enabled | (index == control.selected_choice ? popup_item_checked : 0)));
+    if (next) popup_item_set(&output[used++], utf8_literal("Next choices"), kUiSettingsChoiceNext, popup_item_enabled);
     return used;
 }
 bool ui_settings_choice_page(u32 count, u32 first, bool previous, u32* next_first) noexcept {

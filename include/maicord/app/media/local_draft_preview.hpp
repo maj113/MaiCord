@@ -40,7 +40,7 @@ inline constexpr u32 kLocalDraftPreviewPathMaximum = 1023;
 // Composer upload-strip previews set this variant bit. It keeps their keys
 // apart from forum previews and asks the codec lane for a bounded thumbnail.
 inline constexpr u32 kLocalDraftPreviewThumbnailVariant = 0x80000000u;
-constexpr bool local_draft_preview_thumbnail(MediaAssetKey key) noexcept {
+constexpr bool local_draft_preview_thumbnail(const MediaAssetKey& key) noexcept {
     return key.kind == MediaAssetKind::local_draft_preview && (key.variant & kLocalDraftPreviewThumbnailVariant);
 }
 // Thumbnails decode large camera JPEGs at reduced scale (jpeg_thumbnail_*).

@@ -19,7 +19,7 @@ bool application_guild_folders_toggle(u64 folder_row_id) noexcept;
 // Home with "Close folders on Home": every open folder closes.
 bool application_guild_folders_close_all() noexcept;
 // Folder or guild name for a rail row (tooltips); empty when unknown.
-Utf8View application_guild_rail_label(const GuildViewRow& row, Slice<char> output) noexcept;
+Utf8View application_guild_rail_label(const GuildViewRow& row, const Slice<char>& output) noexcept;
 // A folder header row's own folder id; zero for other rows.
 u64 application_guild_folders_folder_id(const GuildViewRow& row) noexcept;
 struct ApplicationGuildFolder {

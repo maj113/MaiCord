@@ -97,7 +97,8 @@ u32 game_detection_display_name(Utf8View basename, Slice<char> output) noexcept 
         output.data[0] = static_cast<char>(output.data[0] - 'a' + 'A');
     return bytes;
 }
-bool registered_games_add(RegisteredGames* games, Utf8View name, Utf8View executable) noexcept {
+bool registered_games_add(RegisteredGames* games, const Utf8View& name,
+                          const Utf8View& executable) noexcept {
     if (!games || games->count >= kRegisteredGameMaximum || !name.bytes || name.bytes > kRegisteredGameNameBytes ||
         !utf8_validate(name).valid)
         return false;

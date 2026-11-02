@@ -69,7 +69,7 @@ Utf8View resolve_name(void*, InteractionDataEntity entity, u64 id) noexcept {
     return {};
 }
 
-void publish(Utf8View text) noexcept {
+void publish(const Utf8View& text) noexcept {
     g_card.text_bytes = minimum(text.bytes, static_cast<u32>(sizeof(g_card.text)));
     copy_bytes(g_card.text, text.data, g_card.text_bytes);
     ++g_card.revision;

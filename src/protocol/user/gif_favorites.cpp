@@ -326,7 +326,7 @@ void record_index(ConstSlice<GifFavoriteRecord> records, Index index) noexcept {
         }
     }
 }
-ConstSlice<u8> range(Slice<u8> s) noexcept {
+ConstSlice<u8> range(const Slice<u8>& s) noexcept {
     return {s.data, s.count};
 }
 template <class T> ConstSlice<u8> range(Slice<T> s) noexcept {

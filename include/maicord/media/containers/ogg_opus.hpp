@@ -20,33 +20,33 @@ enum class OggOpusError : u8 {
 };
 using OggOpusCancelled = bool (*)(void*) noexcept;
 struct OggOpusCursor {
-    u32 page_offset{}, data_offset{}, segment_index{}, packet_index{};
+    u32 page_offset, data_offset, segment_index, packet_index;
     // Geometry belongs only to page_offset. Zero end means not yet cached.
-    u32 page_body{}, page_end{};
-    u64 decoded_frame{};
+    u32 page_body, page_end;
+    u64 decoded_frame;
 };
 struct OggOpusDemuxer {
-    ConstSlice<u8> encoded{};
-    OggOpusCursor cursor{};
-    u64 granule_origin{}, decoded_frames{}, total_frames{};
-    u32 serial{}, first_audio_offset{}, packet_count{}, input_sample_rate{};
-    u16 pre_skip{};
-    i16 output_gain_q8{};
-    u8 channels{};
-    bool ready{};
+    ConstSlice<u8> encoded;
+    OggOpusCursor cursor;
+    u64 granule_origin, decoded_frames, total_frames;
+    u32 serial, first_audio_offset, packet_count, input_sample_rate;
+    u16 pre_skip;
+    i16 output_gain_q8;
+    u8 channels;
+    bool ready;
 };
 struct OggOpusPacket {
-    ConstSlice<u8> bytes{};
-    u64 decoded_first_frame{};
-    u32 duration_frames{}, trim_front_frames{}, trim_back_frames{}, packet_index{};
-    OggOpusError error{};
+    ConstSlice<u8> bytes;
+    u64 decoded_first_frame;
+    u32 duration_frames, trim_front_frames, trim_back_frames, packet_index;
+    OggOpusError error;
     bool ok() const noexcept {
         return error == OggOpusError::none;
     }
 };
 struct OggOpusSeekPoint {
-    u64 decoded_first_frame{}, target_frame{}, discard_frames{};
-    u32 packet_index{};
+    u64 decoded_first_frame, target_frame, discard_frames;
+    u32 packet_index;
 };
 // RFC 3533 page checksum over a complete page; its checksum field counts as zero.
 u32 ogg_page_checksum(ConstSlice<u8> page) noexcept;

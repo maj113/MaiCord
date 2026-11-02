@@ -26,7 +26,7 @@ Utf8View report_menu_name(ReportMenuName name) noexcept {
 }
 } // namespace
 
-bool user_note_valid(Utf8View note) noexcept {
+bool user_note_valid(const Utf8View& note) noexcept {
     if ((!note.data && note.bytes) || note.bytes > kUserNoteMaximumBytes)
         return false;
     const auto validation = utf8_validate(note);

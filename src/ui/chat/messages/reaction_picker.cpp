@@ -2,6 +2,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/model/chat/message_composer.hpp"
 #include "maicord/ui/text/emoji_catalog.hpp"
@@ -10,39 +11,21 @@
 namespace maicord {
 namespace {
 
-inline constexpr Utf8View kReactionSeeds[] = {
-    utf8_literal("hundred_points"),
-    utf8_literal("hundred_points"),
-    utf8_literal("thumbs_up"),
-    utf8_literal("thumbs_up"),
-    utf8_literal("thumbs_down"),
-    utf8_literal("thumbs_down"),
-    utf8_literal("red_heart"),
-    utf8_literal("index_pointing_up"),
-    utf8_literal("eyes"),
-    utf8_literal("weary_face"),
-    utf8_literal("grinning_squinting_face"),
-    utf8_literal("check_mark_button"),
-    utf8_literal("cross_mark"),
-};
+// Default reacted emoji (one catalog name each; the doubled names seed a higher count).
+inline constexpr char kReactionSeeds[] =
+    "hundred_points\0hundred_points\0thumbs_up\0thumbs_up\0thumbs_down\0thumbs_down\0red_heart\0index_pointing_up\0"
+    "eyes\0weary_face\0grinning_squinting_face\0check_mark_button\0cross_mark\0";
 // Default frequently-used emoji for the composer picker.
-inline constexpr Utf8View kMessageSeeds[] = {
-    utf8_literal("thumbs_up"),      utf8_literal("eyes"),
-    utf8_literal("grinning_squinting_face"), utf8_literal("watermelon"),
-    utf8_literal("fork_and_knife"), utf8_literal("face_savoring_food"),
-    utf8_literal("weary_face"),     utf8_literal("tired_face"),
-    utf8_literal("pile_of_poo"),    utf8_literal("hundred_points"),
-};
+inline constexpr char kMessageSeeds[] =
+    "thumbs_up\0eyes\0grinning_squinting_face\0watermelon\0fork_and_knife\0face_savoring_food\0weary_face\0"
+    "tired_face\0pile_of_poo\0hundred_points\0";
 
 inline constexpr u32 kReactionPickerCustomResult = 0x8000'0000u;
 
 // Picker section headers.
-inline constexpr Utf8View kSectionNames[] = {
-    utf8_literal("Frequently Used"), utf8_literal("Favorites"),  utf8_literal("People"),
-    utf8_literal("Nature"),          utf8_literal("Food"),       utf8_literal("Activities"),
-    utf8_literal("Travel"),          utf8_literal("Objects"),    utf8_literal("Symbols"),
-    utf8_literal("Flags"),           utf8_literal("Search results"),
-};
+inline constexpr char kSectionNames[] =
+    "Frequently Used\0Favorites\0People\0Nature\0Food\0Activities\0Travel\0Objects\0Symbols\0Flags\0Search results\0";
+static_assert(name_list_count(kSectionNames) == kReactionPickerSectionSearch + 1);
 // Reserved only; an open snapshot commits what it uses.
 inline constexpr usize kReactionPickerStorageBytes =
     sizeof(u32) * kReactionPickerResultCapacity + sizeof(u32) * kReactionPickerCustomEmojiCapacity +
@@ -137,7 +120,7 @@ Utf8View section_label(const ReactionPickerModel& picker, u32 section) noexcept 
         for (u32 i = 0; i < picker.guild_count; ++i)
             if (picker.guilds[i].id == source.guild_id)
                 return {picker.guilds[i].name, picker.guilds[i].name_bytes};
-    return kSectionNames[minimum(source.local, kReactionPickerSectionSearch)];
+    return name_list_at(kSectionNames, minimum(source.local, kReactionPickerSectionSearch));
 }
 bool custom_before(const CustomEmojiRecord& left, const CustomEmojiRecord& right) noexcept {
     const Utf8View left_name = custom_name(left);
@@ -224,7 +207,7 @@ bool snapshot_custom_emojis(ReactionPickerModel* picker, const ChatStateStore* s
             name = utf8_literal("Server emoji");
         target.name_bytes = static_cast<u16>(name.bytes);
         copy_bytes(target.name, name.data, name.bytes);
-        heap_sort(picker->custom_order + first, count, [emojis](u32 left, u32 right) noexcept {
+        heap_sort_shared(picker->custom_order + first, count, [emojis](u32 left, u32 right) noexcept {
             return custom_before(emojis[left], emojis[right]);
         });
     }
@@ -247,13 +230,10 @@ bool seed_preferences(ReactionPreferenceStore* preferences, ReactionPreferenceKi
     }
     if (table->usage_count == 0) {
         const bool reaction = kind == ReactionPreferenceKind::reaction;
-        const Utf8View* seeds = reaction ? kReactionSeeds : kMessageSeeds;
-        const u32 count = reaction ? static_cast<u32>(sizeof(kReactionSeeds) / sizeof(kReactionSeeds[0]))
-                                   : static_cast<u32>(sizeof(kMessageSeeds) / sizeof(kMessageSeeds[0]));
-        for (u32 index = 0; index < count; ++index) {
+        for (NameList seed{reaction ? kReactionSeeds : kMessageSeeds}; seed; seed.next()) {
             u32 catalog_index = 0;
             // Seeds are local defaults only; they are written with later real use.
-            if (!find_exact_name(seeds[index], &catalog_index) || catalog_index > 0xFFFEu ||
+            if (!find_exact_name(seed.name(), &catalog_index) || catalog_index > 0xFFFEu ||
                 !reaction_preferences_track_emoji(preferences, kind,
                                                   reaction_emoji_unicode(static_cast<u16>(catalog_index)),
                                                   now_ms, 1, false)
@@ -284,7 +264,7 @@ void preference_results(const ReactionPickerModel& picker, const ConstSlice<Reac
     }
     if (!wanted_count)
         return;
-    heap_sort(wanted, wanted_count, [](const Wanted& left, const Wanted& right) noexcept { return left.id < right.id; });
+    heap_sort_shared(wanted, wanted_count, [](const Wanted& left, const Wanted& right) noexcept { return left.id < right.id; });
     for (u32 p = 0; p < picker.custom_emoji_count; ++p) {
         const u32 index = picker.custom_order[p];
         const auto* emoji = custom_emoji(picker, index);

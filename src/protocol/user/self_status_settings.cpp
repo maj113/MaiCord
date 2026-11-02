@@ -145,11 +145,12 @@ bool custom_message(const Wire& w, u32 p, u32 end, SelfCustomStatus& out) noexce
     return utf8_validate({out.text, out.text_bytes}).valid &&
            utf8_validate({out.emoji_name, out.emoji_name_bytes}).valid;
 }
-bool range_valid(Slice<u8> s) noexcept {
+bool range_valid(const Slice<u8>& s) noexcept {
     return byte_range_valid({s.data, s.count});
 }
 // The observed group, scratch and output of a patch writer are valid and disjoint.
-bool patch_buffers_valid(ConstSlice<u8> observed, Slice<u8> scratch, Slice<u8> output) noexcept {
+bool patch_buffers_valid(const ConstSlice<u8>& observed, const Slice<u8>& scratch,
+                         const Slice<u8>& output) noexcept {
     return observed.count <= kSelfStatusSettingsMaximumGroupBytes && byte_range_valid(observed) &&
            range_valid(scratch) && range_valid(output) &&
            !byte_ranges_overlap(observed, {scratch.data, scratch.count}) &&
@@ -269,7 +270,7 @@ GatewayCommandWriteResult self_status_settings_write_patch(ConstSlice<u8> observ
     replace_wrapper(5, false);
     return finish_patch(scratch, at, output);
 }
-bool self_status_settings_read_custom(ConstSlice<u8> group, SelfCustomStatus* output) noexcept {
+bool self_status_settings_read_custom(const ConstSlice<u8>& group, SelfCustomStatus* output) noexcept {
     if (!byte_range_valid(group))
         return false;
     reset_value(output);
@@ -356,7 +357,7 @@ GatewayCommandWriteResult self_status_settings_write_custom_patch(ConstSlice<u8>
     }
     return finish_patch(scratch, at, output);
 }
-bool self_status_settings_read_show_game(ConstSlice<u8> group, bool* share) noexcept {
+bool self_status_settings_read_show_game(const ConstSlice<u8>& group, bool* share) noexcept {
     if (!byte_range_valid(group))
         return false;
     *share = true; // An absent BoolValue keeps the server default: shared.

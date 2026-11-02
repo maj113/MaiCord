@@ -93,7 +93,7 @@ template <typename Error> ScannedJson<Error> scan_json(const Utf8View& body, con
 struct JsonBody : GuardedWriter {
     bool comma = false;
 
-    explicit JsonBody(Slice<u8> output) noexcept : GuardedWriter{output} {}
+    explicit JsonBody(const Slice<u8>& output) noexcept : GuardedWriter{output} {}
 
     // The comma that a member or element after the first one needs.
     __declspec(noinline) void next() noexcept {
@@ -162,7 +162,7 @@ inline bool find_first_member(void* opaque, JsonString name, JsonValue value) no
 }
 // The first member `name` of an object of the indexed document; an empty value when absent.
 __declspec(noinline) inline JsonValue object_member(const JsonIndexedDocument& document, const JsonValue& object,
-                                                    Utf8View name, u32 maximum_depth) noexcept {
+                                                    const Utf8View& name, u32 maximum_depth) noexcept {
     MemberFinder finder{name, {}, false};
     if (object.source.bytes && object.kind == JsonValueKind::object)
         json_visit_indexed_object(document, object, maximum_depth, find_first_member, &finder);

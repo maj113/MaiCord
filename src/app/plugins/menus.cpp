@@ -43,7 +43,7 @@ PopupOwnerKind channel_owner(u64 channel_id) noexcept {
     const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, channel_id);
     return channel && channel->type == 1 ? PopupOwnerKind::private_channel : PopupOwnerKind::channel;
 }
-void copy_text(char* output, u32 capacity, Utf8View text, u16* bytes) noexcept {
+void copy_text(char* output, u32 capacity, const Utf8View& text, u16* bytes) noexcept {
     *bytes = static_cast<u16>(text.data ? utf8_copy_truncated(output, capacity, text) : 0);
 }
 

@@ -48,7 +48,7 @@ enum class ApplicationMessageReactionEnqueueResult : u8 {
     storage
 };
 ApplicationMessageReactionEnqueueResult application_queue_message_reaction_emoji(u64 message_id, u64 emoji_id,
-                                                                             Utf8View name,
+                                                                             const Utf8View& name,
                                                                              bool animated) noexcept;
 ApplicationMessageReactionEnqueueResult application_queue_message_reaction(u64 message_id,
                                                                        u32 reaction_index) noexcept;
@@ -68,7 +68,8 @@ void application_message_reaction_message_deleted(u64 channel_id, u64 message_id
 
 void reset_message_reaction() noexcept;
 bool queue_message_reaction(u64 message_id, u32 reaction_index) noexcept;
-bool queue_message_reaction_emoji(u64 message_id, u64 emoji_id, Utf8View name, bool animated) noexcept;
+bool queue_message_reaction_emoji(u64 message_id, u64 emoji_id, const Utf8View& name,
+                                  bool animated) noexcept;
 
 } // namespace app_detail
 } // namespace maicord

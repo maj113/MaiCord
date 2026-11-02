@@ -635,7 +635,7 @@ SettingsLayer* application_profile_editor_edit_layer() noexcept {
     return application_profile_editor_active() && owner->dialog_kind == Dialog::none ? &owner->layer : nullptr;
 }
 
-bool application_profile_editor_frame_current(MediaAssetKey key) noexcept {
+bool application_profile_editor_frame_current(const MediaAssetKey& key) noexcept {
     const auto* picked = picked_for(key);
     return picked && !picked->failed;
 }

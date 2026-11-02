@@ -250,8 +250,7 @@ bool ui_search_scene_rich_preview_geometry(const UiSearchScene& s, const UiSearc
         const auto& attachment = rich->attachments[target.rich_index];
         if (message_rich_attachment_audio_supported(store, attachment)) {
             UiAudioCardGeometry geometry{};
-            UiAudioControlsStyle audio_style;
-            ui_theme_fill_audio_style(scene->theme_styles, &audio_style);
+            const UiAudioControlsStyle audio_style = ui_theme_audio_style(scene->theme_styles);
             if (!ui_audio_card_geometry(node->content_rectangle, audio_style,
                                         &geometry, message_rich_record_voice(*rich)))
                 return false;
@@ -606,8 +605,7 @@ void hit_test(const UiSearchScene& s, float x, float y, UiSearchTarget* out) noe
                     message_rich_attachment_audio_supported(*rich_scene->timeline->rich_store,
                                                             rich->attachments[index])) {
                     UiAudioCardGeometry geometry{};
-                    UiAudioControlsStyle audio_style;
-                    ui_theme_fill_audio_style(rich_scene->theme_styles, &audio_style);
+                    const UiAudioControlsStyle audio_style = ui_theme_audio_style(rich_scene->theme_styles);
                     if (!ui_audio_card_geometry(node->content_rectangle, audio_style, &geometry,
                                                 message_rich_record_voice(*rich)))
                         return;

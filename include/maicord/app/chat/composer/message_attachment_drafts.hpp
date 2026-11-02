@@ -56,8 +56,10 @@ MessageAttachmentDraftError message_attachment_drafts_add_voice(MessageAttachmen
 ConstSlice<wchar_t> message_attachment_drafts_path(const MessageAttachmentDraftStore* store, u64 id) noexcept;
 Utf8View message_attachment_drafts_filename(const MessageAttachmentDraftStore* store, u64 id) noexcept;
 Utf8View message_attachment_drafts_description(const MessageAttachmentDraftStore* store, u64 id) noexcept;
-bool message_attachment_drafts_uploaded(MessageAttachmentDraftStore* store, u64 id, Utf8View uploaded_filename) noexcept;
-bool message_attachment_drafts_describe(MessageAttachmentDraftStore* store, u64 id, Utf8View description, bool spoiler) noexcept;
+bool message_attachment_drafts_uploaded(MessageAttachmentDraftStore* store, u64 id,
+                                        const Utf8View& uploaded_filename) noexcept;
+bool message_attachment_drafts_describe(MessageAttachmentDraftStore* store, u64 id,
+                                        const Utf8View& description, bool spoiler) noexcept;
 bool message_attachment_drafts_set_spoiler(MessageAttachmentDraftStore* store, u64 id, bool spoiler) noexcept;
 // Display filename sent with the message; the uploaded object keeps its name.
 bool message_attachment_drafts_rename(MessageAttachmentDraftStore* store, u64 id, Utf8View filename) noexcept;

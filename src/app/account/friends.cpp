@@ -142,7 +142,7 @@ void recovery(ApplicationFriends& friends, Utf8View status) noexcept {
 }
 void sort_snapshot(ApplicationFriends& friends) noexcept {
     if (friends.snapshot_sorted) return;
-    heap_sort(friends.candidate, friends.snapshot.count,
+    heap_sort_shared(friends.candidate, friends.snapshot.count,
         [](const auto& a, const auto& b) noexcept { return a.user_id < b.user_id; });
     for (u32 i = 1; i < friends.snapshot.count; ++i)
         if (friends.candidate[i - 1].user_id == friends.candidate[i].user_id) friends.snapshot_failed = true;
@@ -268,7 +268,7 @@ void project(ApplicationFriends& friends, bool force = false) noexcept {
                     user_store_name(g_app.account_ui->user_store, *user)).matched))
                     friends.indices[friends.source.count++] = i;
             }
-    heap_sort(friends.indices, friends.source.count,
+    heap_sort_shared(friends.indices, friends.source.count,
               [&friends](u32 a, u32 b) noexcept { return before(friends, a, b); });
     friends.store_revision = friends.store.revision;friends.user_revision = g_app.account_ui->user_store.revision;
     friends.query_revision = query_revision;
@@ -296,7 +296,7 @@ void project(ApplicationFriends& friends, bool force = false) noexcept {
                 if (row.type == RelationshipType::incoming &&
                     (pass == 0 ? row.ignored : row.spam && !row.ignored)) indices[count++] = i;
             }
-            heap_sort(indices + first, count - first,
+            heap_sort_shared(indices + first, count - first,
                 [&friends](u32 a, u32 b) noexcept { return before(friends, a, b); });
         }
         friends.requests_source.count = count;
@@ -486,15 +486,15 @@ bool more(ApplicationFriends& friends, const UiFriendsTarget& target, UiRect anc
     const auto* relationship = relationship_store_find(friends.store, target.user_id);
     if (!relationship) return false;
     PopupItem items[4 + kApplicationPluginMenuRows]{};u32 count = 0;
-    items[count++] = {utf8_literal("Profile"), friends_popup_action_base + static_cast<u32>(UiFriendsAction::profile), popup_item_enabled};
+    popup_item_set(&items[count++], utf8_literal("Profile"), friends_popup_action_base + static_cast<u32>(UiFriendsAction::profile), popup_item_enabled);
     if (relationship->type == RelationshipType::friend_)
-        items[count++] = {utf8_literal("Remove friend"), friends_popup_action_base + static_cast<u32>(UiFriendsAction::remove),
-            static_cast<u16>(popup_item_enabled | popup_item_danger | popup_item_separator_before)};
+        popup_item_set(&items[count++], utf8_literal("Remove friend"), friends_popup_action_base + static_cast<u32>(UiFriendsAction::remove),
+            static_cast<u16>(popup_item_enabled | popup_item_danger | popup_item_separator_before));
     if (relationship->type != RelationshipType::blocked) {
-        items[count++] = {utf8_literal("Block"), friends_popup_action_base + static_cast<u32>(UiFriendsAction::block),
-            static_cast<u16>(popup_item_enabled | popup_item_danger)};
-        items[count++] = {relationship->ignored ? utf8_literal("Unignore") : utf8_literal("Ignore"),
-            friends_popup_action_base + static_cast<u32>(relationship->ignored ? UiFriendsAction::unignore : UiFriendsAction::ignore), popup_item_enabled};
+        popup_item_set(&items[count++], utf8_literal("Block"), friends_popup_action_base + static_cast<u32>(UiFriendsAction::block),
+            static_cast<u16>(popup_item_enabled | popup_item_danger));
+        popup_item_set(&items[count++], relationship->ignored ? utf8_literal("Unignore") : utf8_literal("Ignore"),
+            friends_popup_action_base + static_cast<u32>(relationship->ignored ? UiFriendsAction::unignore : UiFriendsAction::ignore), popup_item_enabled);
     }
     const u32 builtins = count;
     count += application_plugins_menu_items(ApplicationPluginMenuSurface::friends, target.user_id,
@@ -518,7 +518,7 @@ bool more(ApplicationFriends& friends, const UiFriendsTarget& target, UiRect anc
     return renderer_rebuild_content_text(&g_app.renderer, application_theme()) && application_request_frame();
 }
 // Nonzero key of a relationship request a CAPTCHA belongs to.
-u64 captcha_subject(RelationshipOperation operation, u64 id, Utf8View username) noexcept {
+u64 captcha_subject(RelationshipOperation operation, u64 id, const Utf8View& username) noexcept {
     return hash64_bytes(1469598103934665603ull ^ (static_cast<u64>(operation) << 56) ^ id, username.data,
                         username.bytes) | 1;
 }

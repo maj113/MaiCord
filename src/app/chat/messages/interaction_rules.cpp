@@ -24,7 +24,7 @@ struct Writer {
     u32 used;
     bool ok;
 
-    void append(Utf8View value) noexcept {
+    void append(const Utf8View& value) noexcept {
         if (!ok || value.bytes > output.count - used) {
             ok = false;
             return;

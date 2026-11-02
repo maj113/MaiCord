@@ -6,8 +6,12 @@
 
 namespace maicord {
 namespace {
-Utf8View as_text(ConstSlice<u8> bytes) noexcept { return {reinterpret_cast<const char*>(bytes.data), bytes.count}; }
-bool equal_case(ConstSlice<u8> a, Utf8View b) noexcept { return ascii_equal_ignore_case(as_text(a), b); }
+Utf8View as_text(const ConstSlice<u8>& bytes) noexcept {
+    return {reinterpret_cast<const char*>(bytes.data), bytes.count};
+}
+bool equal_case(const ConstSlice<u8>& a, const Utf8View& b) noexcept {
+    return ascii_equal_ignore_case(as_text(a), b);
+}
 bool decimal(ConstSlice<u8> text, u64* value) noexcept {
     text = http_trim_ows(text);
     return text.count <= 19 && decimal_parse(as_text(text), value);
@@ -50,7 +54,7 @@ UpdateTextWriter version_writer(u64 version, Slice<char> output, Utf8View previe
 }
 } // namespace
 
-u32 update_version_text(u64 version, Slice<char> output) noexcept {
+u32 update_version_text(u64 version, const Slice<char>& output) noexcept {
     if (!output.data) return 0;
     const UpdateTextWriter w = version_writer(version, output, utf8_literal("-preview."));
     return w.ok ? w.used : 0;

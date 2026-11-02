@@ -114,7 +114,7 @@ EmbedPlayerError apple_music_album(Utf8View json, Utf8View id, Utf8View country,
     }
     *output=static_cast<u16>(album.count); return E::none;
 }
-bool spotify_audio_id(Utf8View id) noexcept { return id.bytes == 22 && id_chars(id); }
+bool spotify_audio_id(const Utf8View& id) noexcept { return id.bytes == 22 && id_chars(id); }
 u32 spotify_audio_target(Utf8View id, Slice<u8> output, bool episode) noexcept {
     return spotify_audio_id(id) ? id_target(episode ? utf8_literal("/embed/episode/") : utf8_literal("/embed/track/"), id, output) : 0;
 }

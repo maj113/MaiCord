@@ -1726,7 +1726,8 @@ bool handle_composer_click(LPARAM point) noexcept {
 void application_surface_motion_retire(RendererLayerSurface) noexcept {
 }
 ApplicationMessageReactionEnqueueResult application_queue_message_reaction_emoji(u64 message_id, u64,
-                                                                             Utf8View name, bool) noexcept {
+                                                                                 const Utf8View& name,
+                                                                                 bool) noexcept {
     using namespace media_picker_runtime_test;
     if (reaction_calls < 4) {
         reaction_messages[reaction_calls] = message_id;

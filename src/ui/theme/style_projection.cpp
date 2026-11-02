@@ -9,9 +9,11 @@ namespace maicord {
 const UiThemeMetrics& ui_theme_metrics(const UiResolvedThemeStyles* bank) noexcept {
     return bank && bank->ready ? bank->metrics : kUiThemeMetricsDefault;
 }
-void ui_theme_fill_audio_style(const UiResolvedThemeStyles* bank, UiAudioControlsStyle* output) noexcept {
+// Built where the caller's value lives (a return slot, no copy); out of line so the default-initialised
+// text and metrics of these two large styles are stored once, not at every call site.
+__declspec(noinline) UiAudioControlsStyle ui_theme_audio_style(const UiResolvedThemeStyles* bank) noexcept {
     const auto& m = ui_theme_metrics(bank);
-    UiAudioControlsStyle& style = *output;
+    UiAudioControlsStyle style;
     style.padding = m.audio_padding;
     style.gap = m.audio_gap;
     const float text_scale = bank && bank->ready ? maximum(1.f, bank->typography.body_size / 16.f) : 1.f;
@@ -23,15 +25,11 @@ void ui_theme_fill_audio_style(const UiResolvedThemeStyles* bank, UiAudioControl
     style.volume_width = maximum(m.audio_volume_width, style.target);
     style.time_width = maximum(m.audio_time_width, style.volume_width);
     style.corner_radius = m.audio_radius;
-}
-UiAudioControlsStyle ui_theme_audio_style(const UiResolvedThemeStyles* bank) noexcept {
-    UiAudioControlsStyle style;
-    ui_theme_fill_audio_style(bank, &style);
     return style;
 }
-void ui_theme_fill_poll_style(const UiResolvedThemeStyles* bank, UiPollStyle* output) noexcept {
+__declspec(noinline) UiPollStyle ui_theme_poll_style(const UiResolvedThemeStyles* bank) noexcept {
     const auto& m = ui_theme_metrics(bank);
-    UiPollStyle& style = *output;
+    UiPollStyle style;
     style.padding = m.poll_padding;
     style.gap = m.poll_gap;
     style.answer_padding = m.poll_answer_padding;
@@ -42,10 +40,6 @@ void ui_theme_fill_poll_style(const UiResolvedThemeStyles* bank, UiPollStyle* ou
     style.marker = m.poll_marker;
     style.emoji_extent = m.poll_emoji;
     style.radius = m.poll_radius;
-}
-UiPollStyle ui_theme_poll_style(const UiResolvedThemeStyles* bank) noexcept {
-    UiPollStyle style;
-    ui_theme_fill_poll_style(bank, &style);
     return style;
 }
 UiPollVotersStyle ui_theme_poll_voters_style(const UiResolvedThemeStyles* bank) noexcept {

@@ -217,7 +217,7 @@ bool capture_native_video_preview(D3D11Renderer& renderer, UiVideoScene& scene,
         playback.buffering = true;
         valid =
             require(ui_video_scene_project(&scene, playback, preview, viewport, {}, {}, kDefaultTheme) &&
-                        scene.text_revision == text_revision && !scene.projection.controls[5].visible &&
+                        scene.text_revision == text_revision && scene.projection.controls[5].hidden &&
                         ui_rect_has_area(scene.buffering_indicator) && !ui_rect_has_area(scene.center_play),
                     14) &&
             require(probe_present(&renderer, kDefaultTheme) &&

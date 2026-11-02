@@ -5,8 +5,9 @@
 
 namespace maicord {
 namespace {
-HpkeResult preflight(const KdfSha256Workspace& workspace, ConstSlice<u8> point, ConstSlice<u8> label,
-                     ConstSlice<u8> context, ConstSlice<u8> payload, Slice<u8> output, Slice<u8> enc,
+HpkeResult preflight(const KdfSha256Workspace& workspace, const ConstSlice<u8>& point,
+                     const ConstSlice<u8>& label, const ConstSlice<u8>& context,
+                     const ConstSlice<u8>& payload, const Slice<u8>& output, const Slice<u8>& enc,
                      bool encrypt) noexcept {
     if (!workspace.storage.data || !workspace.storage.locked)
         return {0, 0, HpkeError::not_initialized};

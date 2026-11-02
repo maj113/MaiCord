@@ -42,11 +42,12 @@ AcceptanceRecordResult acceptance_record_disk_file(HANDLE file) noexcept;
 // Reads exactly record.count bytes from the regular file at the NUL-terminated
 // path without following a final reparse point: `missing` when the file does
 // not exist, `size` for any other length. record holds the bytes only on success.
-AcceptanceRecordResult acceptance_record_read(const wchar_t* path, Slice<u8> record) noexcept;
+AcceptanceRecordResult acceptance_record_read(const wchar_t* path, const Slice<u8>& record) noexcept;
 // Writes a CREATE_NEW write-through "<path>.new" sibling (never truncating or
 // following a stale one), checks write, flush and close, then replaces path
 // with MOVEFILE_WRITE_THROUGH. On failure only that owned sibling is deleted.
-AcceptanceRecordResult acceptance_record_write(const wchar_t* path, u32 count, ConstSlice<u8> record) noexcept;
+AcceptanceRecordResult acceptance_record_write(const wchar_t* path, u32 count,
+                                               const ConstSlice<u8>& record) noexcept;
 // Opens the exclusive "<path>.lock" sibling (created when absent) that
 // serializes cooperating processes for a whole verify/commit (`lock`), and
 // checks it is a regular disk file (`file`, the handle then closed).

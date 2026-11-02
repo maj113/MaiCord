@@ -48,7 +48,7 @@ bool application_desktop_close_to_tray() noexcept;
 void application_desktop_request_quit() noexcept;
 void application_desktop_release() noexcept;
 // Queues a discord:// link for navigation once the account is ready.
-bool application_desktop_open_link(ConstSlice<wchar_t> url) noexcept;
+bool application_desktop_open_link(const ConstSlice<wchar_t>& url) noexcept;
 
 // The executable that startup, protocol and notification registrations name:
 // this process's MaiCord.exe, which an update replaces in place. Empty when it

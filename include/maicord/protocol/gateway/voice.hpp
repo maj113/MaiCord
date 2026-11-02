@@ -45,8 +45,8 @@ struct GatewayVoiceServer {
     JsonString token, endpoint;
     bool unavailable; // Null endpoint: stop the old transport and await reallocation.
 };
-GatewayEventDecodeResult gateway_decode_voice_state(JsonValue data, Slice<u32> scratch, u32 maximum_depth,
-                                                    GatewayVoiceState* output) noexcept;
+GatewayEventDecodeResult gateway_decode_voice_state(JsonValue data, const Slice<u32>& scratch,
+                                                    u32 maximum_depth, GatewayVoiceState* output) noexcept;
 // Roster rows describe other users too: READY_SUPPLEMENTAL and PASSIVE_UPDATE_V2
 // states may omit session_id, which only the local connection needs.
 GatewayEventDecodeResult gateway_decode_voice_state_row(JsonValue data, Slice<u32> scratch, u32 maximum_depth,

@@ -85,7 +85,7 @@ u32 checksum(const u8* record) noexcept {
         if (i < 20 || i >= 24) hash = (hash ^ record[i]) * 16777619u;
     return hash;
 }
-void copy_text(char* target, u8* target_bytes, u32 capacity, Utf8View text) noexcept {
+void copy_text(char* target, u8* target_bytes, u32 capacity, const Utf8View& text) noexcept {
     clear_bytes(target, capacity);
     const u32 bytes = text.bytes < capacity ? text.bytes : capacity;
     copy_bytes(target, text.data, bytes);
@@ -229,7 +229,7 @@ void catalog_state_swap_previous(CatalogStateEntry* e) noexcept {
     e->previous_host_bits = hosts;
 }
 
-u64 catalog_state_host_hash(Utf8View host) noexcept {
+u64 catalog_state_host_hash(const Utf8View& host) noexcept {
     const u64 hash = hash64_counted_bytes(kHash64Seed, host.data, host.bytes);
     return hash ? hash : 1;
 }

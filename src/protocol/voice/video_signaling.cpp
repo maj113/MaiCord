@@ -140,7 +140,7 @@ GatewayCommandWriteResult voice_gateway_write_select_protocol_media(const VoiceS
 }
 
 GatewayCommandWriteResult voice_gateway_write_media_sink_wants(u8 any_quality, ConstSlice<VoiceSinkWant> wants,
-                                                               Slice<u8> output) noexcept {
+                                                               const Slice<u8>& output) noexcept {
     const ConstSlice<u8> want_bytes{reinterpret_cast<const u8*>(wants.data),
                                     wants.count * static_cast<u32>(sizeof(VoiceSinkWant))};
     if (any_quality > 100 || (wants.count && !wants.data) || wants.count > 4096 ||

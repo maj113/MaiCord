@@ -14,9 +14,9 @@ namespace maicord {
 
 // A declared host pattern: "api.example.com" or "*.example.com" (every subdomain, not the apex);
 // lowercase ASCII DNS names as update_origin_host_valid accepts, never a Discord-owned host.
-bool plugin_network_pattern_valid(Utf8View pattern) noexcept;
+bool plugin_network_pattern_valid(const Utf8View& pattern) noexcept;
 // Whether a lowercase host name matches a valid pattern.
-bool plugin_network_pattern_matches(Utf8View pattern, Utf8View host) noexcept;
+bool plugin_network_pattern_matches(const Utf8View& pattern, const Utf8View& host) noexcept;
 // Hosts the broker refuses whatever a plugin declares: Discord's domains and their subdomains.
 bool plugin_network_host_denied(Utf8View host) noexcept;
 // The loader's check of descriptor.network once its memory is known to be inside the image: at most

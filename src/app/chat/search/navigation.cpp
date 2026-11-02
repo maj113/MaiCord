@@ -89,8 +89,9 @@ bool current() noexcept {
         application_search_navigation_source(navigation.source.ticket, &source) &&
         source.channel_id == navigation.source.channel_id && source.guild_id == navigation.source.guild_id;
 }
-void notice(Utf8View text, ApplicationMessageNavigationStage stage = ApplicationMessageNavigationStage::opening_history,
-    u16 code = 0) noexcept {
+void notice(const Utf8View& text,
+            ApplicationMessageNavigationStage stage = ApplicationMessageNavigationStage::opening_history,
+            u16 code = 0) noexcept {
     if (navigation.notice_valid && navigation.notice_stage == stage && navigation.notice_code == code &&
         navigation.notice_admitted == navigation.admitted) return;
     navigation.notice_valid = true; navigation.notice_stage = stage; navigation.notice_code = code;
@@ -103,8 +104,9 @@ void notice(Utf8View text, ApplicationMessageNavigationStage stage = Application
         refresh_message_composer_ui(); application_request_frame();
     }
 }
-void finish(Utf8View text, ApplicationMessageNavigationStage stage = ApplicationMessageNavigationStage::error,
-    u16 code = 0) noexcept {
+void finish(const Utf8View& text,
+            ApplicationMessageNavigationStage stage = ApplicationMessageNavigationStage::error,
+            u16 code = 0) noexcept {
     if (!navigation.timeline) application_search_source_notice(navigation.source.ticket, text);
     if (navigation.admitted || navigation.timeline) {
         const auto channel = navigation.admitted ? navigation.target_channel : navigation.timeline_source.channel_id;

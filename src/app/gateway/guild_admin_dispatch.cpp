@@ -22,7 +22,7 @@ struct MembershipRoot {
 };
 
 // A guild sticker list: an array, or a CLIENT_STATE_V2 {"items": [...]} set.
-JsonValue sticker_array(JsonValue value, Slice<u32> scratch) noexcept {
+JsonValue sticker_array(JsonValue value, const Slice<u32>& scratch) noexcept {
     if (value.kind != JsonValueKind::object)
         return value;
     JsonValue items{};

@@ -76,7 +76,7 @@ struct CookieRequest {
 
 // Applies every Set-Cookie field of a complete response head; returns how
 // many cookies were stored.
-u32 cookie_jar_store_response(CookieJar* jar, const CookieRequest& request, ConstSlice<u8> head,
+u32 cookie_jar_store_response(CookieJar* jar, const CookieRequest& request, const ConstSlice<u8>& head,
                               u64 now_ms) noexcept;
 // Writes the Cookie header value for the request ("a=1; b=2", longer paths
 // first, then older cookies first) and marks the cookies used. Returns the

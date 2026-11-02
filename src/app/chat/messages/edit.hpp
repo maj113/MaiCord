@@ -19,7 +19,7 @@ bool application_message_edit_retains_content() noexcept;
 bool begin_message_edit(u64 message_id) noexcept;
 bool queue_message_edit() noexcept;
 // Edits without opening the editor (composer s/old/new/).
-bool queue_message_edit_content(u64 message_id, Utf8View content) noexcept;
+bool queue_message_edit_content(u64 message_id, const Utf8View& content) noexcept;
 bool accept_message_edit_response(const RestClientResponse& response) noexcept;
 
 } // namespace app_detail

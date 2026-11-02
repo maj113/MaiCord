@@ -1146,6 +1146,12 @@ PopupItem popup_placeholder_row(u32 action, u32 seed, u16 flags) noexcept {
     return item;
 }
 
+// One out-of-line fill for the many menu rows built from a label, an action and flags: every other field is zero.
+__declspec(noinline) void popup_item_set(PopupItem* item, Utf8View label, u32 action, u16 flags,
+                                         u16 shortcut) noexcept {
+    *item = PopupItem{label, action, flags, shortcut};
+}
+
 UiMenuRowPresentation popup_item_menu_presentation(const PopupItem& item) noexcept {
     UiMenuRowPresentation presentation = item.presentation;
     if (item.flags & popup_item_command_row) {

@@ -8,7 +8,7 @@ struct RestClientResponse;
 
 bool message_history_observe_page(UserStore* users, GuildMemberStore* members,
                                   ChatStateStore* state,
-                                  ConstSlice<GatewayMessageEvent> messages) noexcept;
+                                  const ConstSlice<GatewayMessageEvent>& messages) noexcept;
 bool message_history_apply_mention_flags(MessageTimeline* timeline, const ChatStateStore* state,
                                          ConstSlice<GatewayMessageEvent> messages) noexcept;
 
@@ -318,7 +318,7 @@ MessageHistoryRestResult message_history_attachment_accept_rest(
 // successful bodies are decoded and applied before the response slot is reused.
 MessageHistoryRestResult message_history_catchup_accept_rest(
     MessageHistoryCatchup* catchup, MessageEventPump* pump, const RestClientResponse& response,
-    Utf8View body, const MessageHistoryDecodeScratch& scratch,
+    const Utf8View& body, const MessageHistoryDecodeScratch& scratch,
     MessageContentAvailability empty_content_availability, u64 now_ms) noexcept;
 
 MessageHistoryRestResult message_history_older_accept_rest(

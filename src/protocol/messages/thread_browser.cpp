@@ -9,7 +9,7 @@
 
 namespace maicord {
 namespace {
-bool valid_name(Utf8View name, bool nonblank) noexcept {
+bool valid_name(const Utf8View& name, bool nonblank) noexcept {
     return protocol_detail::name_text_valid(name, kThreadBrowserNameMaximumBytes, kThreadBrowserNameMaximumScalars,
                                             nonblank);
 }
@@ -321,7 +321,7 @@ bool avatar_hash_valid(Utf8View hash) noexcept {
     }
     return true;
 }
-void append_text(PageParse& page, Utf8View value) noexcept {
+void append_text(PageParse& page, const Utf8View& value) noexcept {
     copy_bytes(page.text.data + page.text_bytes, value.data, value.bytes);
     page.text_bytes += value.bytes;
 }

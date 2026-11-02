@@ -621,7 +621,8 @@ GuildAdminResult guild_admin_decode_widget(Utf8View body, Slice<u32> scratch, Gu
     return result;
 }
 
-GuildAdminResult guild_admin_decode_profile(Utf8View body, Slice<u32> scratch, GuildAdminProfile* output) noexcept {
+GuildAdminResult guild_admin_decode_profile(const Utf8View& body, const Slice<u32>& scratch,
+                                            GuildAdminProfile* output) noexcept {
     if (!output)
         return {0, 0, GuildAdminError::input};
     GuildAdminProfile value{};
@@ -633,7 +634,8 @@ GuildAdminResult guild_admin_decode_profile(Utf8View body, Slice<u32> scratch, G
     return result;
 }
 
-GuildAdminResult guild_admin_decode_vanity(Utf8View body, Slice<u32> scratch, GuildAdminVanity* output) noexcept {
+GuildAdminResult guild_admin_decode_vanity(const Utf8View& body, const Slice<u32>& scratch,
+                                           GuildAdminVanity* output) noexcept {
     if (!output)
         return {0, 0, GuildAdminError::input};
     VanityParse p{};
@@ -685,7 +687,8 @@ GuildAdminResult guild_admin_decode_invites(Utf8View body, Slice<u32> scratch,
     return decode_array(body, scratch, output, visit_invite_item);
 }
 
-GuildAdminResult guild_admin_decode_invite(Utf8View body, Slice<u32> scratch, GuildAdminInvite* output) noexcept {
+GuildAdminResult guild_admin_decode_invite(const Utf8View& body, const Slice<u32>& scratch,
+                                           GuildAdminInvite* output) noexcept {
     if (!output)
         return {0, 0, GuildAdminError::input};
     InviteParse p{};

@@ -29,7 +29,7 @@ struct Writer {
     Slice<char> output;
     u32 at;
     bool ok;
-    void add(Utf8View text) noexcept {
+    void add(const Utf8View& text) noexcept {
         if (!ok || at > output.count || text.bytes > output.count - at) {
             ok = false;
             return;
@@ -135,7 +135,7 @@ bool application_message_expression_at(UiPoint point, MessageExpression* output)
     return emoji_at(point, output) || sticker_at(point, output);
 }
 
-u32 application_message_expression_name(const MessageExpression& e, Slice<char> output) noexcept {
+u32 application_message_expression_name(const MessageExpression& e, const Slice<char>& output) noexcept {
     if (!g_app.account_ui || !output.data)
         return 0;
     const auto& ui = *g_app.account_ui;

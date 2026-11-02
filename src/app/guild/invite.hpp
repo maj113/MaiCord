@@ -8,7 +8,7 @@ struct RestClientResponse;
 namespace maicord::app_detail {
 // Opens the native join dialog for an invite URL; false when url is not an invite.
 bool application_guild_invite_open_url(Utf8View url) noexcept;
-bool application_guild_invite_open(Utf8View code) noexcept;
+bool application_guild_invite_open(const Utf8View& code) noexcept;
 // DETAILS lane: resolve then accept, one request at a time.
 bool application_guild_invite_pending(u64 now_ms) noexcept;
 bool application_guild_invite_submit(u64 request_id, u64 now_ms) noexcept;

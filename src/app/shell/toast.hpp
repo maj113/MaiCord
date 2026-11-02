@@ -26,17 +26,19 @@ inline constexpr Utf8View kToastAttachmentSaved = utf8_literal("Attachment Saved
 inline constexpr Utf8View kToastAttachmentSaveFailed = utf8_literal("Unable to save attachment");
 
 // Queues a toast; the next frame shows it (application_toast_synchronize).
-inline void application_toast_show(UiToastKind kind, Utf8View text) noexcept {
+inline void application_toast_show(UiToastKind kind, const Utf8View& text) noexcept {
     if (ui_toast_push(&g_app.toasts, kind, text))
         application_request_frame();
 }
-inline void application_toast_result(bool succeeded, Utf8View success, Utf8View failure) noexcept {
+inline void application_toast_result(bool succeeded, const Utf8View& success,
+                                     const Utf8View& failure) noexcept {
     application_toast_show(succeeded ? UiToastKind::success : UiToastKind::failure,
                            succeeded ? success : failure);
 }
 // Writes text to the clipboard for a user action and confirms the result.
 // Empty text is a failure. Returns whether the clipboard took it.
-inline bool application_copy_text(Utf8View text, Utf8View copied, Utf8View failed) noexcept {
+inline bool application_copy_text(const Utf8View& text, const Utf8View& copied,
+                                  const Utf8View& failed) noexcept {
     const bool ok = text.bytes && clipboard_write_utf8(g_app.window, text);
     application_toast_result(ok, copied, failed);
     return ok;

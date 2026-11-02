@@ -101,7 +101,7 @@ namespace downloads_detail {
 
 bool account_current(const ApplicationDownloads& q) noexcept;
 bool foreground_form() noexcept;
-bool url_current(Utf8View url, u64 origin, u64 attachment) noexcept;
+bool url_current(const Utf8View& url, u64 origin, u64 attachment) noexcept;
 bool source_current(const DownloadSource& s) noexcept;
 bool source_media_allowed(const DownloadSource& source, bool activation = false) noexcept;
 void changed(ApplicationDownloads& q) noexcept;
@@ -120,12 +120,12 @@ void picker_complete(ApplicationDownloads& q) noexcept;
 void activate(ApplicationDownloads& q, UiDownloadTarget target) noexcept;
 bool attachment_at(float x, float y, bool save_only, DownloadSource* out, UiWidgetHandle focused = {},
                    UiRect* bounds = nullptr, UiWidgetHandle* handle = nullptr) noexcept;
-bool open_context(const DownloadSource& source, UiRect anchor) noexcept;
+bool open_context(const DownloadSource& source, const UiRect& anchor) noexcept;
 bool sticker_at(float x, float y, UiWidgetHandle focused, DownloadSource* out) noexcept;
-bool open_sticker_context(const DownloadSource& source, UiRect anchor) noexcept;
+bool open_sticker_context(const DownloadSource& source, const UiRect& anchor) noexcept;
 bool embed_context(float x, float y, UiRect anchor) noexcept;
 bool copy_image(const DownloadSource& source, MediaAttachmentFormat format) noexcept;
-void copy_link(Utf8View link) noexcept;
+void copy_link(const Utf8View& link) noexcept;
 
 } // namespace downloads_detail
 } // namespace maicord::app_detail

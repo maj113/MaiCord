@@ -35,7 +35,8 @@ bool application_message_expression_at(UiPoint point, MessageExpression* output)
 // The tooltip name: ":joy:" (a Unicode emoji's primary
 // shortcode), ":custom:", a known custom emoji's bare name when its server
 // does not require colons, or a sticker's name. Zero bytes when unnamed.
-u32 application_message_expression_name(const MessageExpression& expression, Slice<char> output) noexcept;
+u32 application_message_expression_name(const MessageExpression& expression,
+                                        const Slice<char>& output) noexcept;
 bool application_message_expression_same(const MessageExpression& a, const MessageExpression& b) noexcept;
 
 // Hovering an expression shows the tooltip above it after 300 ms:

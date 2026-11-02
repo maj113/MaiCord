@@ -353,7 +353,8 @@ bool gateway_client_event_visit_message_snapshot_mention_users(
 // Recipient add/remove system rows retain their subject (mentions[0]). The
 // decoded event leaves mention_users empty; this borrows the first mention
 // into storage for those types (a no-op otherwise).
-inline bool gateway_client_event_message_system_target(const GatewayClientEvent& event, ConstSlice<u8> payload,
+inline bool gateway_client_event_message_system_target(const GatewayClientEvent& event,
+                                                       const ConstSlice<u8>& payload,
                                                        GatewayMessageEvent* message,
                                                        GatewayMessageNamedUser* storage) noexcept {
     if (!message || !storage || (message->type != 1 && message->type != 2) || !event.message.mention_user_count ||

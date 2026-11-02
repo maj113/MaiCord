@@ -59,9 +59,9 @@ struct UpdateManifest {
 // accepting an artifact. Retrying that version requires the identical signed
 // document digest in policy; a changed same-version offer is refused.
 // the caller supplies trusted wall-clock/freshness policy and pinned origin.
-UpdateManifestResult update_manifest_verify(Utf8View document, ConstSlice<u8> signature,
+UpdateManifestResult update_manifest_verify(const Utf8View& document, const ConstSlice<u8>& signature,
     const P256Key& trusted_key, KdfSha256Workspace& workspace,
-    const UpdateManifestPolicy& policy, Slice<u32> structural_scratch,
+    const UpdateManifestPolicy& policy, const Slice<u32>& structural_scratch,
     UpdateManifest* output) noexcept;
 
 // Authenticates a fetched offer before any durable state: the same signed

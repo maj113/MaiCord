@@ -184,7 +184,7 @@ E extract(const Wire& w, Slice<u8> output, u32* bytes, bool* present) noexcept {
     *present = found;
     return E::none;
 }
-bool output_valid(Slice<u8> output) noexcept {
+bool output_valid(const Slice<u8>& output) noexcept {
     return byte_range_valid({output.data, output.count});
 }
 
@@ -300,7 +300,7 @@ GuildFoldersError guild_folders_extract_base64(Utf8View settings, Slice<u8> grou
     return extract({{}, settings, valid.bytes}, group, bytes, present);
 }
 
-GuildFoldersError guild_folders_decode(ConstSlice<u8> input, GuildFolderSettings* output) noexcept {
+GuildFoldersError guild_folders_decode(const ConstSlice<u8>& input, GuildFolderSettings* output) noexcept {
     if (!output || input.count > kGuildFoldersMaximumGroupBytes || !byte_range_valid(input))
         return E::input;
     const Wire w{input, {}, input.count};

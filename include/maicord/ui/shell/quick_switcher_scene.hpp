@@ -41,10 +41,10 @@ struct UiQuickSwitcherContent {
     ConstSlice<u64> checked{};
 };
 struct UiQuickSwitcherTarget {
-    UiQuickSwitcherAction action{};
-    u64 key{}, guild_id{}, channel_id{}, user_id{};
-    u32 index{}, source_revision{};
-    UiQuickSwitcherKind kind{};
+    UiQuickSwitcherAction action;
+    u64 key, guild_id, channel_id, user_id;
+    u32 index, source_revision;
+    UiQuickSwitcherKind kind;
 };
 enum class UiQuickSwitcherMove : u8 { next, previous, first, last, page_next, page_previous };
 struct UiQuickSwitcherScene {

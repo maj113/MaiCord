@@ -703,8 +703,9 @@ DaveSealResult dave_session_encrypt(DaveSession* session, ConstSlice<u8> opus, S
         copy_bytes(output.data, opus.data, opus.count);
     return {opus.count, 0, 0, DaveSealError::none};
 }
-DaveMediaResult dave_session_decrypt(DaveSession* session, u64 user_id, ConstSlice<u8> frame, u64 now_ms,
-                                     Slice<u8> scratch, Slice<u8> output) noexcept {
+DaveMediaResult dave_session_decrypt(DaveSession* session, u64 user_id, const ConstSlice<u8>& frame,
+                                     u64 now_ms, const Slice<u8>& scratch,
+                                     const Slice<u8>& output) noexcept {
     DaveMediaResult result{};
     if (!session || !session->initialized || !user_id || !frame.data || !frame.count) {
         result.error = DaveMediaError::invalid_input;

@@ -359,7 +359,7 @@ void test_video_visibility(void (*check)(bool, const char*) noexcept,
     playback.error = true;
     project();
     ui_video_scene_tick(&scene, 360, true);
-    check(scene.projection.controls[5].visible && scene.controls_transition.value == 1 &&
+    check(!scene.projection.controls[5].hidden && scene.controls_transition.value == 1 &&
               !ui_video_scene_next_wake(scene, 360, false),
           "video visibility: terminal error remains readable without an animation wake");
     playback.error = false;
@@ -566,7 +566,7 @@ void test_video_scene(void (*check)(bool, const char*) noexcept) noexcept {
           "video scene: same text projection restores its stable native text fingerprint");
     state.buffering = true;
     check(project(bounds) && s.text_revision == initial_text && ui_rect_has_area(s.buffering_indicator) &&
-              !s.projection.controls[5].visible,
+              s.projection.controls[5].hidden,
           "video scene: buffering uses native geometry while retaining existing timestamp glyphs");
     UiVideoScene tall{};
     check(ui_video_scene_project(&tall, state, {0, 0, 320, 500}, {0, 0, 320, 300}, controls, style,
@@ -585,7 +585,7 @@ void test_video_scene(void (*check)(bool, const char*) noexcept) noexcept {
           "video scene: clipped-out buffering geometry schedules no idle frames");
     state.error = true;
     check(project(bounds) && !ui_rect_has_area(s.buffering_indicator) &&
-              !ui_video_scene_next_wake(s, 64, false) && s.projection.controls[5].visible,
+              !ui_video_scene_next_wake(s, 64, false) && !s.projection.controls[5].hidden,
           "video scene: terminal error replaces loading geometry with readable error feedback");
     state = original_state;
     controls.text_style |= text_style_bold;
@@ -630,7 +630,7 @@ void test_video_scene(void (*check)(bool, const char*) noexcept) noexcept {
     check(r.release_capture && r.action_requested && r.action.position_ms == 120000,
           "video scene: captured seek reaches bounded duration on rightward release");
     check(ui_video_scene_focus(&s, UiVideoControl::volume, true) && project(bounds) &&
-              s.projection.controls[4].visible,
+              !s.projection.controls[4].hidden,
           "video scene: keyboard volume focus expands its visible slider before pointer capture");
     const auto volume = s.projection.controls[4].bounds;
     ui_video_scene_pointer(&s, UiVideoPointerEvent::down, center(volume));
@@ -673,7 +673,7 @@ void test_video_scene(void (*check)(bool, const char*) noexcept) noexcept {
     ui_video_scene_pointer(&s, UiVideoPointerEvent::down, expanded_volume);
     r = ui_video_scene_pointer(&s, UiVideoPointerEvent::move, {10000, -100});
     check(r.action_requested && r.action.volume == 100 && project(bounds) &&
-              s.capture == UiVideoControl::volume && s.projection.controls[4].visible,
+              s.capture == UiVideoControl::volume && !s.projection.controls[4].hidden,
           "video scene: captured volume stays expanded outside the preview and clamps requests without "
           "losing capture");
     ui_video_scene_pointer(&s, UiVideoPointerEvent::cancel, {});
@@ -842,14 +842,14 @@ void test_video_scene(void (*check)(bool, const char*) noexcept) noexcept {
     state.buffering = false;
     ui_video_scene_blur(&s);
     check(ui_video_scene_project(&s, state, compact, compact, controls, style, kDefaultTheme) &&
-              !s.projection.controls[4].visible,
+              s.projection.controls[4].hidden,
           "video scene: compact preview begins with time and a collapsed volume slider");
     bool navigated = true;
     for (u32 i = 0; i < 4; ++i)
         navigated = navigated && ui_video_scene_key(&s, UiVideoKey::next).handled;
     check(navigated && s.focus == UiVideoControl::volume &&
               ui_video_scene_project(&s, state, compact, compact, controls, style, kDefaultTheme) &&
-              s.projection.controls[4].visible && !s.projection.controls[2].visible &&
+              !s.projection.controls[4].hidden && s.projection.controls[2].hidden &&
               ui_video_scene_key(&s, UiVideoKey::increase).action.volume == 45,
           "video scene: Tab reaches hidden volume in a 240 DIP preview and expands it for bounded keyboard "
           "adjustment");

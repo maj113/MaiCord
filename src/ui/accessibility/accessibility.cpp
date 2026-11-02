@@ -872,7 +872,7 @@ bool ui_access_plan_events(UiAccessEventState* state, const UiAccessTree& tree, 
         state->current[observed++] = entry;
     }
     state->current_count = observed;
-    heap_sort(state->current.data, observed,
+    heap_sort_shared(state->current.data, observed,
               [](const UiAccessObservation& a, const UiAccessObservation& b) noexcept { return a.key < b.key; });
     const u64 focus_key = tree.focus != kUiAccessNone ? tree.nodes[tree.focus].key : 0;
     if (focus_key && focus_key != state->focus_key) {

@@ -147,7 +147,7 @@ void application_updates_visible(bool visible) noexcept;
 bool application_updates_activate_row(u64 control_id) noexcept;
 // The release notes address (application_updates_release_notes_url) for the
 // running view and repository; 0 when updates aren't configured.
-u32 application_updates_release_notes(Slice<char> output) noexcept;
+u32 application_updates_release_notes(const Slice<char>& output) noexcept;
 // Row storage for the Updates page (null before initialization).
 inline constexpr u32 kApplicationUpdatesSettingsRows = 48;
 struct ApplicationUpdatesSettingsBank {

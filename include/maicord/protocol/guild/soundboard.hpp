@@ -130,14 +130,14 @@ struct SoundboardDecodeResult {
     }
 };
 // One sound object. guild_id falls back to `guild_id` when absent.
-SoundboardDecodeResult soundboard_decode_sound(Utf8View object, u64 guild_id, Slice<u32> scratch,
-                                               SoundboardSound* output) noexcept;
+SoundboardDecodeResult soundboard_decode_sound(const Utf8View& object, u64 guild_id,
+                                               const Slice<u32>& scratch, SoundboardSound* output) noexcept;
 // A root array (default sounds), {"items":[...]} (guild list) or the Gateway's
 // {"guild_id","soundboard_sounds":[...]} (SOUNDBOARD_SOUNDS,
 // GUILD_SOUNDBOARD_SOUNDS_UPDATE). Rows inherit guild_id (or the document's)
 // when absent; *document_guild receives the document's guild when given.
-SoundboardDecodeResult soundboard_decode_sound_list(Utf8View body, u64 guild_id, Slice<u32> scratch,
-                                                    Slice<SoundboardSound> output,
+SoundboardDecodeResult soundboard_decode_sound_list(Utf8View body, u64 guild_id, const Slice<u32>& scratch,
+                                                    const Slice<SoundboardSound>& output,
                                                     u64* document_guild = nullptr) noexcept;
 // GUILD_SOUNDBOARD_SOUND_DELETE {"sound_id","guild_id"}.
 SoundboardDecodeResult soundboard_decode_delete(Utf8View object, Slice<u32> scratch, u64* sound_id,

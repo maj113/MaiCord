@@ -62,7 +62,7 @@ bool application_known(u64 id) noexcept {
             return true;
     return false;
 }
-void remember_application(u64 id, Utf8View icon) noexcept {
+void remember_application(u64 id, const Utf8View& icon) noexcept {
     auto& p = *g_panel;
     ProfileApplication* slot = nullptr;
     for (u32 i = 0; i < p.application_count && !slot; ++i)
@@ -281,7 +281,7 @@ bool show(u64 user, UiRect slot) noexcept {
     g_app.renderer.dm_profile_panel = &s;
     return true;
 }
-bool open_full(u64 user, UiRect anchor, u8 tab = 0) noexcept {
+bool open_full(u64 user, const UiRect& anchor, u8 tab = 0) noexcept {
     if (!application_profile_open(user, anchor))
         return false;
     application_profile_expand(user, tab);

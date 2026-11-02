@@ -173,9 +173,9 @@ struct MessageRichEmbedMediaSelection {
     MediaEmbedResource resource;
     MediaAttachmentFormat format;
     bool animated;
-    bool provider = false;
-    u32 start_seconds = 0;
-    const MessageRichEmbedMedia* playback_extent = nullptr;
+    bool provider;
+    u32 start_seconds;
+    const MessageRichEmbedMedia* playback_extent;
 };
 
 // "Chat" display settings (the text_and_images settings proto). Process

@@ -45,7 +45,7 @@ bool read_scope_target_current(const ChatStateStore&, const ReadScopeSource&,
 
 // Host-owned availability/progress; default keeps existing menus unchanged.
 struct UiScopedReadMenuState {
-    u32 mark_action = 0, retry_action = 0;
-    bool available = false, pending = false, retry_available = false;
+    u32 mark_action, retry_action;
+    bool available, pending, retry_available;
 };
 } // namespace maicord

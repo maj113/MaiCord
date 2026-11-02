@@ -154,7 +154,7 @@ void mark_queued(u64 nonce) noexcept {
 }
 
 // Builds and queues a component interaction (one in flight at a time).
-bool queue_component(const Resolved& message, u16 index, ConstSlice<Utf8View> values) noexcept {
+bool queue_component(const Resolved& message, u16 index, const ConstSlice<Utf8View>& values) noexcept {
     if (!ensure_owner())
         return false;
     if (owner->phase != Phase::idle || owner->modal_active)
@@ -306,10 +306,10 @@ bool open_select_menu(UiRect anchor, float width) noexcept {
         }
     }
     if (!count)
-        items[count++] = {utf8_literal("No options available"), 0, popup_item_none};
+        popup_item_set(&items[count++], utf8_literal("No options available"), 0);
     else if (multiple)
-        items[count++] = {utf8_literal("Done"), kSelectDoneAction,
-                          static_cast<u16>(popup_item_enabled | popup_item_separator_before)};
+        popup_item_set(&items[count++], utf8_literal("Done"), kSelectDoneAction,
+                       static_cast<u16>(popup_item_enabled | popup_item_separator_before));
     if (!popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, owner->select_message_id, {items, count},
                           anchor, application_viewport_dips(), width)
              .ok())
@@ -390,7 +390,7 @@ void modal_closed(TextFormOwnerKey key) noexcept {
     }
 }
 
-u32 append_context(u32 at, Utf8View text) noexcept {
+u32 append_context(u32 at, const Utf8View& text) noexcept {
     const u32 bytes = minimum<u32>(text.bytes, sizeof(owner->context) - at);
     copy_bytes(owner->context + at, text.data, bytes);
     return at + bytes;

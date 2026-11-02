@@ -24,7 +24,7 @@ struct OAuthCallback {
     bool complete;
 };
 bool oauth_client_valid(OAuthProvider provider, Utf8View) noexcept;
-bool oauth_token_valid(Utf8View) noexcept;
+bool oauth_token_valid(const Utf8View&) noexcept;
 // Caller owns transient credential storage. Writers are transactional and
 // erase staging bytes before return. Spotify uses public-client PKCE,
 // without a client secret, cookies or user password.

@@ -696,7 +696,7 @@ bool theme_is_applied(const char* slug) noexcept {
 }
 } // namespace
 
-void application_packages_deactivate(PackageLinkKind kind, Utf8View slug) noexcept {
+void application_packages_deactivate(PackageLinkKind kind, const Utf8View& slug) noexcept {
     if (!package_slug_valid(slug))
         return;
     char text[kPackageSlugMaximumBytes + 1]{};

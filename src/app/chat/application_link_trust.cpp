@@ -40,7 +40,7 @@ LinkTrustStore* current_store() noexcept {
     return &trust;
 }
 
-void launch(Utf8View url) noexcept {
+void launch(const Utf8View& url) noexcept {
     wchar_t wide[2048]{};
     const int units = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, url.data, static_cast<int>(url.bytes),
                                           wide, static_cast<int>(sizeof(wide) / sizeof(wide[0]) - 1));

@@ -53,7 +53,7 @@ UpdateAcceptanceResult update_acceptance_load(ConstSlice<wchar_t> trusted_absolu
 // and empty state (the updater does: it keeps no other install record).
 // All corrupt/unreadable records fail closed. No automatic reset or repair.
 // Output must own no handle. Siblings .lock and .new are reserved to this API.
-UpdateAcceptanceResult update_acceptance_begin(ConstSlice<wchar_t> trusted_absolute_path,
+UpdateAcceptanceResult update_acceptance_begin(const ConstSlice<wchar_t>& trusted_absolute_path,
     UpdateAcceptanceTransaction* transaction, bool allow_first_use = false) noexcept;
 UpdateAcceptanceResult update_acceptance_capture_policy(const UpdateAcceptanceTransaction& transaction,
     const UpdateManifestPolicy& trusted_policy, UpdateManifestPolicy* captured_policy) noexcept;
@@ -70,9 +70,9 @@ UpdateAcceptanceResult update_acceptance_capture_policy(const UpdateAcceptanceTr
 // All arguments and transaction must be disjoint; failures preserve manifest,
 // policy and transaction. Caller must keep the key/freshness inputs trusted.
 UpdateAcceptanceResult update_acceptance_verify_commit(UpdateAcceptanceTransaction* transaction,
-    Utf8View document, ConstSlice<u8> signature, const P256Key& trusted_key,
+    const Utf8View& document, const ConstSlice<u8>& signature, const P256Key& trusted_key,
     KdfSha256Workspace& workspace, UpdateManifestPolicy* policy,
-    Slice<u32> structural_scratch, UpdateManifest* approved_manifest) noexcept;
+    const Slice<u32>& structural_scratch, UpdateManifest* approved_manifest) noexcept;
 UpdateAcceptanceResult update_acceptance_release(UpdateAcceptanceTransaction* transaction) noexcept;
 
 } // namespace maicord

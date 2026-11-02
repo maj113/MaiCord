@@ -39,7 +39,7 @@ template <u32 N> void assign(ProfileString<N>* to, Utf8View from) noexcept {
     to->bytes = static_cast<u16>(minimum(N, from.bytes));
     copy_bytes(to->data, from.data, to->bytes);
 }
-bool snapshot_message(MessageComposer* destination, Utf8View text) noexcept {
+bool snapshot_message(MessageComposer* destination, const Utf8View& text) noexcept {
     if (!destination->text && !message_composer_initialize_owned(destination))
         return false;
     return message_composer_restore(destination, 0, text, text.bytes, text.bytes);
@@ -69,7 +69,7 @@ bool missing_icons(const ApplicationProfile& p) noexcept {
             return true;
     return false;
 }
-void remember_application(ApplicationProfile& p, u64 id, Utf8View icon) noexcept {
+void remember_application(ApplicationProfile& p, u64 id, const Utf8View& icon) noexcept {
     if (!id)
         return;
     ProfileApplication* slot = nullptr;
