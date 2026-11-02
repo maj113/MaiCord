@@ -28,6 +28,9 @@ HERE = Path(__file__).resolve().parent
 REPOSITORY = HERE.parent.parent
 sys.path.insert(0, str(HERE))
 sys.dont_write_bytecode = True
+# A plugin built without .api_level declares the SDK header's MC_API_LEVEL.
+API_LEVEL = int(re.search(r"#define MC_API_LEVEL (\d+)u",
+                          (REPOSITORY / "include/maicord/sdk/maicord_plugin.h").read_text(encoding="utf-8")).group(1))
 
 import maicord_plugin as cli  # noqa: E402
 import mcfx_tool  # noqa: E402
@@ -211,7 +214,7 @@ class BuildTests(Case):
         report = core.inspect_dll(dll)
         self.assertTrue(report.ok, report.errors)
         info = report.info
-        self.assertEqual((info["name"], info["version"], info["api_level"]), ("Hello", "0.1.0", 1))
+        self.assertEqual((info["name"], info["version"], info["api_level"]), ("Hello", "0.1.0", API_LEVEL))
         source = (directory / "plugin.cpp").read_text(encoding="utf-8")
         owner = int(re.search(r"\.owner = (0x[0-9A-F']+)", source).group(1).replace("'", ""), 16)
         self.assertEqual(info["owner_id"], owner)
