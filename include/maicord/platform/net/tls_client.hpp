@@ -43,6 +43,9 @@ struct TlsStreamSizes {
 
 // credentials is a copy of the process-wide Schannel credential every client shares (see
 // tls_client.cpp); a later connection to the same server_name can resume an earlier session.
+// offer_http11, set between tls_client_initialize and the first handshake step, offers ALPN
+// "http/1.1" in the ClientHello: some hosts (translate.googleapis.com) answer a TLS 1.2 hello
+// without ALPN with 429 Too Many Requests.
 struct TlsClient {
     TlsSecurityHandle credentials;
     TlsSecurityHandle context;
@@ -52,6 +55,7 @@ struct TlsClient {
     bool credentials_valid;
     bool context_valid;
     bool handshake_complete;
+    bool offer_http11;
 };
 
 enum class TlsHandshakeState : u8 {

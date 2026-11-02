@@ -23,6 +23,7 @@
 #define SECBUFFER_EXTRA 5
 #define SECBUFFER_STREAM_TRAILER 6
 #define SECBUFFER_STREAM_HEADER 7
+#define SECBUFFER_APPLICATION_PROTOCOLS 18
 #define SECURITY_NATIVE_DREP 0x00000010
 #define SECPKG_CRED_OUTBOUND 0x00000002
 #define ISC_REQ_REPLAY_DETECT 0x00000004
@@ -94,6 +95,21 @@ struct _SecPkgContext_StreamSizes {
     unsigned long cbBlockSize;
 };
 typedef _SecPkgContext_StreamSizes SecPkgContext_StreamSizes;
+enum _SEC_APPLICATION_PROTOCOL_NEGOTIATION_EXT {
+    SecApplicationProtocolNegotiationExt_ALPN = 2
+};
+typedef _SEC_APPLICATION_PROTOCOL_NEGOTIATION_EXT SEC_APPLICATION_PROTOCOL_NEGOTIATION_EXT;
+struct _SEC_APPLICATION_PROTOCOL_LIST {
+    SEC_APPLICATION_PROTOCOL_NEGOTIATION_EXT ProtoNegoExt;
+    unsigned short ProtocolListSize;
+    unsigned char ProtocolList[1];
+};
+typedef _SEC_APPLICATION_PROTOCOL_LIST SEC_APPLICATION_PROTOCOL_LIST;
+struct _SEC_APPLICATION_PROTOCOLS {
+    unsigned long ProtocolListsSize;
+    SEC_APPLICATION_PROTOCOL_LIST ProtocolLists[1];
+};
+typedef _SEC_APPLICATION_PROTOCOLS SEC_APPLICATION_PROTOCOLS;
 // <Schannel.h>
 struct _SecPkgContext_ConnectionInfo {
     DWORD dwProtocol;

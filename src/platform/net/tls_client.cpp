@@ -3,6 +3,7 @@
 #include "maicord/core/win32_kernel.hpp"
 
 #include "maicord/sys/sspi.hpp"
+#include <stddef.h>
 
 namespace maicord {
 namespace {
@@ -42,6 +43,21 @@ u32 extra_input_bytes(const SecBuffer (&buffers)[2]) noexcept {
     }
     return 0;
 }
+
+// ALPN "http/1.1" laid out as SEC_APPLICATION_PROTOCOLS with one list.
+struct Http11Protocols {
+    unsigned long lists_bytes;
+    SEC_APPLICATION_PROTOCOL_NEGOTIATION_EXT extension;
+    unsigned short list_bytes;
+    unsigned char list[9];
+};
+constexpr usize kProtocolList = offsetof(SEC_APPLICATION_PROTOCOLS, ProtocolLists);
+static_assert(offsetof(Http11Protocols, extension) == kProtocolList + offsetof(SEC_APPLICATION_PROTOCOL_LIST, ProtoNegoExt) &&
+              offsetof(Http11Protocols, list_bytes) == kProtocolList + offsetof(SEC_APPLICATION_PROTOCOL_LIST, ProtocolListSize) &&
+              offsetof(Http11Protocols, list) == kProtocolList + offsetof(SEC_APPLICATION_PROTOCOL_LIST, ProtocolList));
+constexpr u32 kHttp11ProtocolsBytes = offsetof(Http11Protocols, list) + sizeof(Http11Protocols::list);
+constexpr Http11Protocols kHttp11Protocols{kHttp11ProtocolsBytes - kProtocolList, SecApplicationProtocolNegotiationExt_ALPN,
+                                           sizeof(Http11Protocols::list), {8, 'h', 't', 't', 'p', '/', '1', '.', '1'}};
 
 // The one credential of the process, acquired by the first connection (a failed acquisition is not
 // remembered: the next connection tries again). Schannel keeps its client session cache per
@@ -132,6 +148,7 @@ TlsHandshakeStep tls_client_handshake(TlsClient* client, ConstSlice<u8> incoming
     SecBuffer input_buffers[2]{};
     SecBufferDesc input_descriptor{};
     SecBufferDesc* input_pointer = nullptr;
+    Http11Protocols protocols = kHttp11Protocols;
     if (client->context_valid) {
         input_buffers[0].BufferType = SECBUFFER_TOKEN;
         input_buffers[0].pvBuffer = const_cast<u8*>(incoming.data);
@@ -139,6 +156,15 @@ TlsHandshakeStep tls_client_handshake(TlsClient* client, ConstSlice<u8> incoming
         input_buffers[1].BufferType = SECBUFFER_EMPTY;
         input_descriptor.ulVersion = SECBUFFER_VERSION;
         input_descriptor.cBuffers = 2;
+        input_descriptor.pBuffers = input_buffers;
+        input_pointer = &input_descriptor;
+    } else if (client->offer_http11) {
+        // The first step makes the ClientHello: it carries the ALPN list.
+        input_buffers[0].BufferType = SECBUFFER_APPLICATION_PROTOCOLS;
+        input_buffers[0].pvBuffer = &protocols;
+        input_buffers[0].cbBuffer = kHttp11ProtocolsBytes;
+        input_descriptor.ulVersion = SECBUFFER_VERSION;
+        input_descriptor.cBuffers = 1;
         input_descriptor.pBuffers = input_buffers;
         input_pointer = &input_descriptor;
     }

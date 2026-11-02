@@ -1957,4 +1957,56 @@ void test_tls_client_shared_credential() noexcept {
     expect(same, "tls_credential_is_not_reacquired_after_every_client_released");
 }
 
+namespace {
+
+// The data of extension `type` in the ClientHello record `hello`, or an empty slice.
+ConstSlice<u8> hello_extension(ConstSlice<u8> hello, u16 type) noexcept {
+    const auto u16_at = [&](u32 at) noexcept { return static_cast<u32>(hello.data[at] << 8 | hello.data[at + 1]); };
+    // Record header (5), handshake header (4), version (2), random (32).
+    u32 at = 5 + 4 + 2 + 32;
+    if (hello.count < at + 1 || hello.data[0] != 22 || hello.data[5] != 1) return {};
+    at += 1 + hello.data[at];  // session id
+    if (hello.count < at + 2) return {};
+    at += 2 + u16_at(at);  // cipher suites
+    if (hello.count < at + 1) return {};
+    at += 1 + hello.data[at];  // compression methods
+    if (hello.count < at + 2) return {};
+    const u32 end = at + 2 + u16_at(at);
+    for (at += 2; end <= hello.count && at + 4 <= end;) {
+        const u32 bytes = u16_at(at + 2);
+        if (at + 4 + bytes > end) return {};
+        if (u16_at(at) == type) return {hello.data + at + 4, bytes};
+        at += 4 + bytes;
+    }
+    return {};
+}
+
+} // namespace
+
+// A client that asks for it offers ALPN "http/1.1"; the others send no ALPN extension.
+void test_tls_client_alpn() noexcept {
+    constexpr u16 kAlpn = 16;
+    static const u8 http11[]{0, 9, 8, 'h', 't', 't', 'p', '/', '1', '.', '1'};
+    for (u32 pass = 0; pass < 2; ++pass) {
+        const bool offer = pass == 1;
+        TlsClient client{};
+        if (!tls_client_initialize(&client, L"translate.googleapis.com").ok() ||
+            client.maximum_token_bytes > kTlsTokenCapacity) {
+            expect(false, "tls_alpn_client");
+            return;
+        }
+        client.offer_http11 = offer;
+        const TlsHandshakeStep hello = tls_client_handshake(&client, ConstSlice<u8>{nullptr, 0},
+                                                            Slice<u8>{g_tls_token, client.maximum_token_bytes});
+        const ConstSlice<u8> alpn = hello.ok() && hello.state == TlsHandshakeState::need_send
+                                        ? hello_extension({g_tls_token, hello.produced}, kAlpn)
+                                        : ConstSlice<u8>{};
+        const bool sni = hello.ok() && hello_extension({g_tls_token, hello.produced}, 0).count != 0;
+        expect(sni && (offer ? alpn.count == sizeof(http11) && bytes_equal(alpn.data, http11, sizeof(http11))
+                             : !alpn.data),
+               offer ? "tls_hello_offers_alpn_http11" : "tls_hello_without_alpn_by_default");
+        tls_client_release(&client);
+    }
+}
+
 } // namespace maicord
