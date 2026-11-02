@@ -1,6 +1,7 @@
 #include "internal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/app/media/account_media.hpp"
+#include "../../plugins/pipeline_host.hpp"
 
 namespace maicord::app_detail::server_settings {
 namespace {
@@ -337,6 +338,7 @@ bool expression_save(TextFormOwnerKey key, Utf8View text) noexcept {
         if (!guild || !guild_delete_confirmed(text, chat_state_store_guild_name(state(), *guild)))
             return reject(utf8_literal("Type the server name exactly as it appears."));
         queue(Op::guild_delete);
+        application_plugins_own_removal(PluginOwnRemoval::guild, p.guild_id);
         break;
     }
     default: return false;

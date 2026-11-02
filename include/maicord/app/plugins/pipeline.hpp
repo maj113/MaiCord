@@ -93,6 +93,10 @@ struct PluginPipelineSink {
     mc_status (*composer_edit)(u64 channel_id, u64 message_id) noexcept;
     // The kept messages changed outside a hook (keep_restore): repaint.
     void (*keep_changed)() noexcept;
+    // read_open_channel: fills out (zeroed); MC_E_NOT_FOUND without an open channel.
+    mc_status (*open_channel)(mc_open_channel* out) noexcept;
+    // read_messages: up to capacity loaded messages of channel below before (0: the newest), newest first.
+    mc_status (*messages)(u64 channel_id, u64 before, mc_message_ref* out, u32 capacity, u32* count) noexcept;
 };
 // The sink is global (one application); null removes it. Tests install their own.
 void plugin_pipeline_set_sink(const PluginPipelineSink*) noexcept;

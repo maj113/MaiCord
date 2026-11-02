@@ -44,7 +44,7 @@ struct PluginMessageInput {
 struct PluginUserInput {
     u64 user_id, guild_id, channel_id;
     // MESSAGE_AUTHOR: the message the name is on, so that message's decoration carries the user's name prefix
-    // and suffix; 0 otherwise.
+    // and suffix. PROFILE: when the profile opened, so each opening asks again. 0 otherwise.
     u64 message_id;
     u32 where;      // MC_USER_MEMBER_ROW, MC_USER_MESSAGE_AUTHOR or MC_USER_PROFILE
     u32 flags;      // MC_USER_*
@@ -60,6 +60,8 @@ struct PluginGuildInput {
     u64 guild_id, owner_id, self_permissions;
     u32 flags, mention_count, member_count, online_count; // flags: MC_GUILD_*
     Utf8View name;
+    // PluginReader::guild only (read_guild); 0 when unknown.
+    u32 boost_count, boost_tier, verification_level, channel_count, role_count, emoji_count;
 };
 struct PluginHeaderInput {
     u64 channel_id, guild_id;
@@ -123,7 +125,7 @@ struct PluginSurfaceHost {
 };
 inline constinit const PluginSurfaceHost* g_plugin_surfaces = nullptr;
 
-// What mc_api.read_user, read_channel, read_guild and read_permissions read: MaiCord's cache, never the network.
+// What mc_api's read_* calls read: MaiCord's cache, never the network.
 // The application installs it (the tests install a fake); each function fills one of the inputs above and
 // returns false when the entity isn't cached. Views stay valid until the application's stores next change,
 // which is after the plugin call that read them returns.
@@ -134,6 +136,10 @@ struct PluginReader {
     bool (*guild)(u64 guild_id, PluginGuildInput* out) noexcept;
     // The permission bits user_id holds in guild_id (channel_id 0: server-wide, else in that channel).
     bool (*permissions)(u64 guild_id, u64 channel_id, u64 user_id, u64* bits) noexcept;
+    // The voice channel user_id is in: in guild_id, or (0) a private call first, then any server.
+    bool (*voice_channel)(u64 user_id, u64 guild_id, u64* channel_id) noexcept;
+    // The group DMs shared with user_id, most recently active first, up to output.count; returns how many exist.
+    u32 (*shared_group_dms)(u64 user_id, Slice<u64> output) noexcept;
 };
 inline constinit const PluginReader* g_plugin_reader = nullptr;
 

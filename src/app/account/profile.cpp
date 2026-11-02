@@ -733,9 +733,13 @@ void application_profile_layout(UiRect viewport) noexcept {
         anchor.left += dx;
         anchor.right += dx;
     }
-    // Friend changes (add, accept, remove) show in the header buttons.
+    // Friend changes (add, accept, remove) show in the header buttons; plugin rows change with the plugins.
+    static u64 plugin_revision;
+    const bool plugins = ui_plugin_slot_surface_active(kUiPluginSlotProfileSection) &&
+                         plugin_revision != g_plugin_surface_revision;
+    plugin_revision = g_plugin_surface_revision;
     const u8 relation = relation_of(p->data.user_id);
-    const bool moved = !ui_rect_equal(s.anchor, anchor) || relation != s.relation;
+    const bool moved = !ui_rect_equal(s.anchor, anchor) || relation != s.relation || plugins;
     s.anchor = anchor;
     s.relation = relation;
     profile_scene_layout(&s, viewport, moved);

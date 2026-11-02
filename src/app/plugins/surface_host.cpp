@@ -5,12 +5,16 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/model/guild/detail_store.hpp"
 #include "maicord/model/guild/permission_compute.hpp"
+#include "maicord/model/user/private_channel_store.hpp"
 #include "maicord/model/user/relationship_store.hpp"
 #include "maicord/protocol/gateway/client_status.hpp"
 #include "maicord/ui/plugins/render.hpp"
 #include "maicord/ui/plugins/slot_surfaces.hpp"
+#include "maicord/ui/chat/private_channel_title.hpp"
 #include "../account/account_presentation.hpp"
+#include "../account/profile.hpp"
 #include "../account/account_ui_runtime.hpp"
 #include "../account/friends.hpp"
 #include "plugins.hpp"
@@ -137,7 +141,9 @@ bool user_input(const AccountUiRuntime& ui, u64 user_id, u64 guild_id, u32 where
     return true;
 }
 
-bool channel_input(const AccountUiRuntime& ui, const ChannelRecord& channel, PluginChannelInput* out) noexcept {
+// A DM is named after its other member, an unnamed group DM after its members (written into storage).
+bool channel_input(const AccountUiRuntime& ui, const ChannelRecord& channel, PluginChannelInput* out,
+                   Slice<char> storage) noexcept {
     PluginChannelInput in{};
     in.channel_id = channel.id;
     in.guild_id = channel.guild_id;
@@ -146,9 +152,13 @@ bool channel_input(const AccountUiRuntime& ui, const ChannelRecord& channel, Plu
     in.type = channel.type;
     in.mention_count = channel.mention_count;
     if (chat_state_store_channel_age_restricted(ui.chat_state, channel)) in.flags |= kPluginChannelNsfw;
-    if (channel_is_private(channel.type)) in.flags |= kPluginChannelPrivate;
     if (channel.actions & channel_action_send_messages) in.flags |= kPluginChannelCanSend;
-    in.name = chat_state_store_channel_name(ui.chat_state, channel);
+    if (channel_is_private(channel.type)) {
+        in.flags |= kPluginChannelPrivate;
+        in.name = private_channel_title(ui.chat_state, &ui.user_store, channel, storage);
+    } else {
+        in.name = chat_state_store_channel_name(ui.chat_state, channel);
+    }
     *out = in;
     return true;
 }
@@ -191,6 +201,8 @@ u64 signature(const AccountUiRuntime& ui, const MessageStore& store) noexcept {
     hash = hash64_mix(hash, ui.navigation_view.revision);
     hash = hash64_mix(hash, ui.active_channel_id);
     hash = hash64_mix(hash, g_app.message_scene.count);
+    if (const ApplicationProfile* profile = g_app.profile; profile && profile->scene.active)
+        hash = hash64_mix(hash64_mix(hash, profile->data.user_id), profile->scene.opened_ms);
     return hash;
 }
 
@@ -244,13 +256,22 @@ bool prepare_rows(const PluginSurfaceHost& host, const AccountUiRuntime& ui, Plu
             in.channel_id = ui.active_channel_id;
             complete = host.user(pass, in);
         }
+        // The open profile; its opening time is part of the user's revision, so every opening asks again.
+        const ApplicationProfile* profile = g_app.profile;
+        PluginUserInput in;
+        if (complete && profile && profile->scene.active &&
+            user_input(ui, profile->data.user_id, profile->data.guild_id, kPluginUserProfile, &in)) {
+            in.message_id = profile->scene.opened_ms;
+            complete = host.user(pass, in);
+        }
     }
     if (complete && (host.wants & (1u << 2))) {
         const auto& scene = g_app.shell_navigation_scene;
+        char name[256];
         for (u32 i = 0; complete && scene.active && i < scene.count; ++i) {
             const auto* channel = chat_state_store_find_channel(ui.chat_state, scene.rows[i].view.id);
             PluginChannelInput in;
-            if (!channel || !channel_input(ui, *channel, &in)) continue;
+            if (!channel || !channel_input(ui, *channel, &in, {name, sizeof(name)})) continue;
             const ChannelViewRow& view = scene.rows[i].view;
             if (view.unread) in.flags |= kPluginChannelUnread;
             if (view.muted) in.flags |= kPluginChannelMuted;
@@ -312,11 +333,13 @@ bool message_for(u64 message_id, u32 needs, PluginMessageInput* out) noexcept {
 bool reader_user(u64 user_id, u64 guild_id, PluginUserInput* out) noexcept {
     return g_app.account_ui && user_input(*g_app.account_ui, user_id, guild_id, 0, out);
 }
+// A generated DM name lives here until the next read.
+char g_reader_name[256];
 bool reader_channel(u64 channel_id, PluginChannelInput* out) noexcept {
     const auto* ui = g_app.account_ui;
     const auto* channel = ui ? chat_state_store_find_channel(ui->chat_state, channel_id) : nullptr;
     if (!channel) return false;
-    channel_input(*ui, *channel, out);
+    channel_input(*ui, *channel, out, {g_reader_name, sizeof(g_reader_name)});
     // The scene row, when it is laid out, knows what the cache alone doesn't.
     const auto& scene = g_app.shell_navigation_scene;
     for (u32 i = 0; scene.active && i < scene.count; ++i) {
@@ -330,7 +353,22 @@ bool reader_channel(u64 channel_id, PluginChannelInput* out) noexcept {
 bool reader_guild(u64 guild_id, PluginGuildInput* out) noexcept {
     const auto* ui = g_app.account_ui;
     const auto* guild = ui ? chat_state_store_find_guild(ui->chat_state, guild_id) : nullptr;
-    return guild && guild_input(*ui, *guild, out);
+    if (!guild || !guild_input(*ui, *guild, out)) return false;
+    // What a server overview shows; counted on request, never in a decorate pass.
+    const ChatStateStore& state = ui->chat_state;
+    out->verification_level = guild->settings.verification_level;
+    if (const auto* details = guild_detail_store_find(ui->guild_details, guild_id)) {
+        out->boost_count = details->premium_subscription_count;
+        out->boost_tier = details->premium_tier;
+    }
+    for (u32 i = 0; i < state.channel_count; ++i) {
+        const ChannelRecord& channel = state.channels[state.channel_order[i]];
+        out->channel_count += channel.guild_id == guild_id && !channel_is_thread(channel.type) &&
+                              chat_state_store_channel_visible(state, channel);
+    }
+    for (u32 i = 0; i < state.role_count; ++i) out->role_count += state.roles[i].guild_id == guild_id;
+    for (u32 i = 0; i < state.emoji_count; ++i) out->emoji_count += state.emojis[i].guild_id == guild_id;
+    return true;
 }
 // What a user can do in a server (or one of its channels): computed from the cached roles and overwrites.
 bool reader_permissions(u64 guild_id, u64 channel_id, u64 user_id, u64* bits) noexcept {
@@ -359,8 +397,49 @@ bool reader_permissions(u64 guild_id, u64 channel_id, u64 user_id, u64* bits) no
                                                 {clock_unix_milliseconds() / 1000u, false});
     return true;
 }
+bool reader_voice_channel(u64 user_id, u64 guild_id, u64* channel_id) noexcept {
+    const auto* ui = g_app.account_ui;
+    if (!ui) return false;
+    const VoiceStateStore& voice = ui->voice_states;
+    // Guild 0 holds private calls; with no guild asked for, any server comes next.
+    const VoiceState* state = voice_state_store_find(voice, guild_id, user_id);
+    for (u32 i = 0; !state && !guild_id && i < voice.count; ++i)
+        if (voice.records[i].user_id == user_id && voice.records[i].channel_id) state = &voice.records[i];
+    *channel_id = state ? state->channel_id : 0;
+    return state != nullptr;
+}
+u64 group_dm_recency(const ChatStateStore& state, u64 channel_id) noexcept {
+    const auto* channel = chat_state_store_find_channel(state, channel_id);
+    return private_channel_recency(channel_id, channel ? channel->last_message_id : 0);
+}
+// Group DMs whose members include user_id, most recently active first (an insertion sort into output).
+u32 reader_shared_group_dms(u64 user_id, Slice<u64> output) noexcept {
+    const auto* ui = g_app.account_ui;
+    const PrivateChannelStore* store = ui ? ui->chat_state.private_channels : nullptr;
+    if (!store || user_id == ui->chat_state.self_user_id) return 0;
+    u32 total = 0, written = 0;
+    for (u32 i = 0; i < store->count; ++i) {
+        const PrivateChannelRecord& record = store->records[i];
+        const auto* channel = chat_state_store_find_channel(ui->chat_state, record.id);
+        if (!channel || channel->type != 3) continue; // group DMs only
+        const ConstSlice<u64> recipients = private_channel_store_recipients(*store, record);
+        bool member = false;
+        for (u32 j = 0; j < recipients.count && !member; ++j) member = recipients.data[j] == user_id;
+        if (!member) continue;
+        ++total;
+        const u64 recency = private_channel_recency(record.id, channel->last_message_id);
+        u32 at = written;
+        while (at > 0 && group_dm_recency(ui->chat_state, output[at - 1]) < recency) --at;
+        if (at == output.count) continue;
+        for (u32 j = minimum(written, output.count - 1); j > at; --j) output[j] = output[j - 1];
+        output[at] = record.id;
+        written = minimum(written + 1, output.count);
+    }
+    return total;
+}
 
-constexpr PluginReader kReader{reader_user, reader_channel, reader_guild, reader_permissions};
+constexpr PluginReader kReader{reader_user,          reader_channel,         reader_guild, reader_permissions,
+                               reader_voice_channel, reader_shared_group_dms};
 
 } // namespace
 

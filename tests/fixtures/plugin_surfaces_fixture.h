@@ -32,6 +32,7 @@ typedef struct surfaces_state {
     uint32_t last_action_flags; /* ctx->flags during the last node action */
     uint32_t last_click_content_bytes;
     uint32_t reserved2;
+    uint32_t last_user_presence, last_user_platforms; /* what DECORATE_USER last saw (no READ_ACTIVITY: 0) */
 } surfaces_state;
 
 #endif

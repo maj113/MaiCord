@@ -312,7 +312,7 @@ void test_full_plugin(PluginRuntime* runtime, const Root& root, Toasts* toasts) 
     const auto* state = static_cast<const FixtureState*>(binding->ctx.state);
     const auto* settings = static_cast<const FixtureSettings*>(binding->ctx.settings);
     check(state->starts == 1 && state->start_flags == MC_CTX_FIRST_START && binding->started &&
-              binding->ctx.call == 0 && binding->ctx.api->level == 1 && binding->ctx.api->size == sizeof(mc_api),
+              binding->ctx.call == 0 && binding->ctx.api->level == MC_API_LEVEL && binding->ctx.api->size == sizeof(mc_api),
           "start ran once with a zeroed state and the first-start flag");
     check(settings->enabled == 1 && settings->limit == 10 && same(settings->label, "hello") &&
               settings->words.count == 2 && same(settings->words.items[0], "a") && same(settings->words.items[1], "b") &&

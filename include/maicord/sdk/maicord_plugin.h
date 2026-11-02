@@ -53,7 +53,7 @@ extern "C" {
 #endif
 
 #define MC_ABI 6u
-#define MC_API_LEVEL 1u /* highest mc_api level this header describes */
+#define MC_API_LEVEL 2u /* highest mc_api level this header describes */
 #define MC_CALL __stdcall
 #define MC_EXPORT __declspec(dllexport)
 #define MC_DESCRIPTOR_SYMBOL maicord_plugin_v6
@@ -270,8 +270,8 @@ typedef struct mc_user {
     uint32_t where;      /* MC_USER_* */
     uint32_t flags;      /* MC_USER_BOT, MC_USER_SELF */
     uint32_t relationship;
-    uint32_t presence;  /* MC_PRESENCE_* */
-    uint32_t platforms; /* MC_PLATFORM_* */
+    uint32_t presence;  /* MC_PRESENCE_*; UNKNOWN without MC_PERM_READ_ACTIVITY */
+    uint32_t platforms; /* MC_PLATFORM_*; 0 without MC_PERM_READ_ACTIVITY */
     uint32_t reserved;
     mc_str name;     /* display name: nickname, global name or username */
     mc_str username; /* the unique username */
@@ -307,6 +307,13 @@ typedef struct mc_guild {
     uint32_t member_count; /* 0 when unknown */
     uint32_t online_count; /* 0 when unknown */
     mc_str name;
+    /* Level 2. read_guild only: 0 in DECORATE_GUILD and when unknown. */
+    uint32_t boost_count;        /* server boosts */
+    uint32_t boost_tier;         /* 0..3 */
+    uint32_t verification_level; /* Discord's 0 (none) .. 4 (highest) */
+    uint32_t channel_count;      /* channels and categories you can see */
+    uint32_t role_count;         /* @everyone included */
+    uint32_t emoji_count;
 } mc_guild;
 
 /* mc_header.where (DECORATE_HEADER) */
@@ -321,6 +328,24 @@ typedef struct mc_header {
     uint32_t reserved;
     mc_str name; /* the channel's name */
 } mc_header;
+
+/* read_open_channel() (level 2): what the chat view shows now. */
+typedef struct mc_open_channel {
+    uint64_t channel_id; /* the open channel */
+    uint64_t guild_id;   /* 0 in DMs */
+    uint64_t reply_to;   /* the composer's reply target, or 0 */
+    uint64_t edit_id;    /* the message being edited, or 0 */
+} mc_open_channel;
+
+/* read_messages() (level 2): one message MaiCord holds, without its text. */
+#define MC_READ_MESSAGES_MAX 64u
+typedef struct mc_message_ref {
+    uint64_t message_id;
+    uint64_t author_id;
+    uint64_t timestamp_ms;
+    uint32_t flags; /* MC_MESSAGE_* */
+    uint32_t type;  /* Discord message type */
+} mc_message_ref;
 
 /* ---- Message pipeline ----------------------------------------------------- */
 
@@ -354,6 +379,7 @@ typedef struct mc_draft {
     uint32_t replaced_bytes;  /* out, with MC_DRAFT_REPLACE or CONFIRM: valid UTF-8, not empty */
     uint32_t flags;           /* in/out: MC_DRAFT_* (PRE_SEND); PRE_EDIT ignores changes */
     uint32_t verdict;         /* out: MC_DRAFT_* */
+    uint64_t reply_author_id; /* level 2. PRE_SEND: the author of reply_to, or 0 when unknown */
 } mc_draft;
 
 /* MESSAGE_CLICK. hook.filter: the clicks the hook wants, 0 = all. */
@@ -422,15 +448,16 @@ enum {
     MC_EVENT_VOICE_STATE = 7,      /* channel_id: the voice channel, 0 after leaving */
     MC_EVENT_CHANNEL_CREATE = 8,   /* value: channel type */
     MC_EVENT_CHANNEL_UPDATE = 9,
-    MC_EVENT_CHANNEL_DELETE = 10,  /* also when you are removed from a group DM */
+    MC_EVENT_CHANNEL_DELETE = 10,  /* also when you are removed from a group DM; MC_EVENT_OWN: you left it here */
     MC_EVENT_GUILD_CREATE = 11,
     MC_EVENT_GUILD_UPDATE = 12,
-    MC_EVENT_GUILD_DELETE = 13,    /* you left or were removed, or it was deleted */
+    MC_EVENT_GUILD_DELETE = 13,    /* you left or were removed, or it was deleted (not outages);
+                                      MC_EVENT_OWN: you left or deleted it here */
     MC_EVENT_MEMBER_ADD = 14,
     MC_EVENT_MEMBER_UPDATE = 15,
     MC_EVENT_MEMBER_REMOVE = 16,
     MC_EVENT_RELATIONSHIP_ADD = 17,    /* user_id: the other user; value: MC_RELATIONSHIP_* */
-    MC_EVENT_RELATIONSHIP_REMOVE = 18, /* value: the relationship that ended */
+    MC_EVENT_RELATIONSHIP_REMOVE = 18, /* value: the relationship that ended; MC_EVENT_OWN: you ended it here */
     MC_EVENT_KIND_COUNT = 19,
     MC_EVENT_OVERFLOW = 63 /* value: events lost */
 };
@@ -440,7 +467,8 @@ enum {
 #define MC_EVENT_KINDS ((1ull << MC_EVENT_KIND_COUNT) - 1u)
 #define MC_EVENT_BATCH_MAX 64u
 /* mc_event.flags */
-#define MC_EVENT_OWN 1u    /* your own message, reaction, presence or voice state */
+#define MC_EVENT_OWN 1u    /* your own message, reaction, presence or voice state; for removals, your
+                              own action in this MaiCord (unfriend, leave, delete) */
 #define MC_EVENT_BOT 2u
 #define MC_EVENT_BULK 4u   /* part of a bulk delete */
 #define MC_EVENT_CACHED 8u /* text and name come from MaiCord's cache */
@@ -463,7 +491,9 @@ typedef struct mc_event {
 /* ---- Decorations ---------------------------------------------------------- */
 /* Decorate hooks run in the host's prepare pass, never while painting; the
    result is cached by entity revision until invalidate() or decorate_push().
-   The host zeroes the mc_decoration and copies its strings after the call. A
+   The host zeroes the mc_decoration and copies its strings after the call, so
+   they must not point at the hook's stack (plugin.hpp's Decoration copies
+   them into storage that lasts until the next entry point). A
    hook that takes over 1 ms, fails, or writes an invalid decoration decorates
    nothing for that revision. Badges show on message author lines, member
    rows and both headers; channel rows and server icons show the first one.
@@ -1009,7 +1039,7 @@ typedef struct mc_descriptor {
 #define MC_STORE_KEYS_MAX 256u
 #define MC_STORE_TOTAL_MAX (1u << 20) /* bytes of keys and values */
 
-/* Immutable; append-only within ABI 6. level 1 is everything below. */
+/* Immutable; append-only within ABI 6. Level 1 is everything up to keep_restore; level 2 follows. */
 struct mc_api {
     uint32_t size; /* bytes of this table the host provides */
     uint32_t level;
@@ -1084,7 +1114,7 @@ struct mc_api {
     mc_status(MC_CALL* http)(mc_ctx* ctx, const mc_http_request* request, uint64_t tag);
 
     /* -- Local messages and the composer ------------------------------------------- */
-    /* A message only you see, in the open channel (else MC_E_NOT_FOUND); cards
+    /* A message only you see, in the open channel (channel 0, or its id; else MC_E_NOT_FOUND); cards
        attach with decorate_push(MC_HOOK_DECORATE_MESSAGE, *message_id, channel). */
     mc_status(MC_CALL* local_message)(mc_ctx* ctx, uint64_t channel, mc_str text, uint64_t* message_id);
     mc_status(MC_CALL* local_message_remove)(mc_ctx* ctx, uint64_t channel, uint64_t message);
@@ -1094,6 +1124,7 @@ struct mc_api {
     mc_status(MC_CALL* composer_insert)(mc_ctx* ctx, mc_str text); /* at the caret */
     mc_status(MC_CALL* composer_replace)(mc_ctx* ctx, mc_str text);
     mc_status(MC_CALL* composer_focus)(mc_ctx* ctx);
+    /* message 0 (with ping 0) clears the reply. */
     mc_status(MC_CALL* composer_reply)(mc_ctx* ctx, uint64_t channel, uint64_t message, uint32_t ping);
     mc_status(MC_CALL* composer_edit)(mc_ctx* ctx, uint64_t channel, uint64_t message);
 
@@ -1120,6 +1151,26 @@ struct mc_api {
                                   uint32_t capacity, uint32_t* bytes);
     /* MC_PERM_PERSISTENT_LOG; at most MC_KEEP_RESTORE_MAX items per call. */
     mc_status(MC_CALL* keep_restore)(mc_ctx* ctx, const mc_kept* items, uint32_t count);
+
+    /* -- Level 2 ---------------------------------------------------------------------- */
+    /* The wall clock, Unix milliseconds (UTC). */
+    mc_status(MC_CALL* clock)(mc_ctx* ctx, uint64_t* unix_ms);
+    /* The user's time zone at unix_seconds: seconds east of UTC, daylight saving included. */
+    mc_status(MC_CALL* local_offset)(mc_ctx* ctx, int64_t unix_seconds, int32_t* seconds_east);
+    /* MC_PERM_READ_ACTIVITY. The voice channel user is in: in guild, or (guild 0) a private call first, then any server.
+       MC_E_NOT_FOUND, with *channel 0, when in none MaiCord knows of. */
+    mc_status(MC_CALL* read_voice_channel)(mc_ctx* ctx, uint64_t user, uint64_t guild, uint64_t* channel);
+    /* MC_PERM_READ_MESSAGES. The group DMs you share with user, most recently active first: up to
+       capacity ids into out; *count receives how many there are. MC_E_NOT_FOUND when none. */
+    mc_status(MC_CALL* read_shared_group_dms)(mc_ctx* ctx, uint64_t user, uint64_t* out, uint32_t capacity,
+                                              uint32_t* count);
+    /* The open channel and the composer's reply and edit targets; MC_E_NOT_FOUND when no channel is open. */
+    mc_status(MC_CALL* read_open_channel)(mc_ctx* ctx, mc_open_channel* out);
+    /* MC_PERM_READ_MESSAGES. Messages of channel that MaiCord holds (the open channel's loaded history),
+       newest first, starting below before (0: the newest); at most capacity (1..MC_READ_MESSAGES_MAX).
+       *count receives how many were written; MC_E_NOT_FOUND when the channel isn't loaded. */
+    mc_status(MC_CALL* read_messages)(mc_ctx* ctx, uint64_t channel, uint64_t before, mc_message_ref* out,
+                                      uint32_t capacity, uint32_t* count);
 };
 
 /* True when the host's table contains `field` (for entries above the plugin's api_level). */

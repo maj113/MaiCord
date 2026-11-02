@@ -148,10 +148,37 @@ PluginMessage to_plugin(const MessageRecord& record, Utf8View content) noexcept 
 
 // ---- Gateway: hooks and the event feed ------------------------------------------------------------
 
+// Removals asked for here (application_plugins_own_removal), each matched once by the event confirming it.
+struct OwnRemoval {
+    u64 id, until;
+    u32 kind;
+};
+OwnRemoval g_own_removals[4];
+static_assert(static_cast<u32>(PluginOwnRemoval::channel) == MC_EVENT_CHANNEL_DELETE &&
+              static_cast<u32>(PluginOwnRemoval::guild) == MC_EVENT_GUILD_DELETE &&
+              static_cast<u32>(PluginOwnRemoval::relationship) == MC_EVENT_RELATIONSHIP_REMOVE);
+
+bool own_removal(const PluginEvent& event) noexcept {
+    const u64 id = event.kind == MC_EVENT_GUILD_DELETE     ? event.guild_id
+                   : event.kind == MC_EVENT_CHANNEL_DELETE ? event.channel_id
+                                                           : event.user_id;
+    const u64 now = clock_monotonic_milliseconds();
+    for (OwnRemoval& removal : g_own_removals)
+        if (removal.kind == event.kind && removal.id == id && now < removal.until) {
+            removal = {};
+            return true;
+        }
+    return false;
+}
+
 // Queues an event for the feed; the common fields are filled here.
 void push(PluginEvent event, const AccountUiRuntime* ui) noexcept {
     if (!(plugin_events_interest() & MC_EVENT_BIT(event.kind))) return;
     if (event.user_id && event.user_id == self_id()) event.flags |= MC_EVENT_OWN;
+    if ((event.kind == MC_EVENT_GUILD_DELETE || event.kind == MC_EVENT_CHANNEL_DELETE ||
+         event.kind == MC_EVENT_RELATIONSHIP_REMOVE) &&
+        own_removal(event))
+        event.flags |= MC_EVENT_OWN;
     if (!event.guild_id && ui) event.guild_id = guild_of_channel(*ui, event.channel_id);
     event.time_ms = clock_unix_milliseconds();
     plugin_events_push(event);
@@ -257,6 +284,8 @@ void state_changed(const GatewayClientEvent& event, ConstSlice<u8> payload, cons
     const auto kind = event.dispatch_kind;
     const auto& state = event.state;
     if (!state.id) return;
+    // A server going unavailable in an outage is not a removal.
+    if (kind == K::guild_delete && (state.fields & gateway_client_state_field_unavailable) && state.unavailable) return;
     PluginEvent out{};
     Utf8View name{};
     if (gateway_client_event_state_name(event, payload, &name)) out.name = name;
@@ -594,7 +623,9 @@ mc_status sink_composer_focus() noexcept {
 
 mc_status sink_composer_reply(u64 channel, u64 message, bool ping) noexcept {
     if (!composer_ready()) return MC_E_BUSY;
-    if (channel != g_app.message_composer.channel_id || !cached_message(channel, message)) return MC_E_NOT_FOUND;
+    if (channel != g_app.message_composer.channel_id) return MC_E_NOT_FOUND;
+    if (!message) return application_reply_draft_cancel() ? MC_OK : MC_E_DENIED;
+    if (!cached_message(channel, message)) return MC_E_NOT_FOUND;
     return application_reply_draft_set(message, ping) ? MC_OK : MC_E_DENIED;
 }
 
@@ -608,10 +639,44 @@ void sink_keep_changed() noexcept {
     application_request_frame();
 }
 
+// ---- Reads ------------------------------------------------------------------------------------
+
+mc_status sink_open_channel(mc_open_channel* out) noexcept {
+    const AccountUiRuntime* ui = account_ready() ? ui_state() : nullptr;
+    if (!ui || !ui->active_channel_id) return MC_E_NOT_FOUND;
+    out->channel_id = ui->active_channel_id;
+    out->guild_id = guild_of_channel(*ui, out->channel_id);
+    if (g_app.message_composer.channel_id == out->channel_id) {
+        const MessageComposerReplySnapshot reply = application_reply_draft();
+        out->reply_to = reply.channel_id == out->channel_id ? reply.message_id : 0;
+    }
+    out->edit_id = g_app.message_edit.editor_active ? g_app.message_edit.message_id : 0;
+    return MC_OK;
+}
+
+// The open channel's loaded window, newest first, from the row after `before`.
+mc_status sink_messages(u64 channel_id, u64 before, mc_message_ref* out, u32 capacity, u32* count) noexcept {
+    const AccountUiRuntime* ui = account_ready() ? ui_state() : nullptr;
+    if (!ui || channel_id != ui->active_channel_id) return MC_E_NOT_FOUND;
+    const MessageStore& store = g_app.message_view.store;
+    bool below = !before;
+    for (u32 i = store.count; i-- > 0 && *count < capacity;) {
+        const MessageRecord* record = message_store_resolve(store, message_store_ordered_handle(store, i));
+        if (!record || !record->id || record->channel_id != channel_id) continue;
+        if (!below) {
+            below = record->id == before;
+            continue;
+        }
+        out[(*count)++] = {record->id, record->author_id, record->timestamp_ms, to_plugin(*record, {}).flags, record->type};
+    }
+    return below ? MC_OK : MC_E_NOT_FOUND;
+}
+
 const PluginPipelineSink kSink{sink_send,         sink_edit,          sink_react,          sink_delete,
                                sink_mark_read,    sink_activity,      sink_local,          sink_local_remove,
                                sink_composer_text, sink_composer_insert, sink_composer_replace, sink_composer_focus,
-                               sink_composer_reply, sink_composer_edit, sink_keep_changed};
+                               sink_composer_reply, sink_composer_edit, sink_keep_changed, sink_open_channel,
+                               sink_messages};
 
 // ---- Confirming a send ---------------------------------------------------------------------------
 
@@ -838,5 +903,15 @@ void application_plugins_pipeline_account_invalidated() noexcept {
     if (!keep_stats().messages) return;
     drop_tombstone_rows();
     keep_clear();
+}
+
+void application_plugins_own_removal(PluginOwnRemoval kind, u64 id) noexcept {
+    const u32 event = static_cast<u32>(kind);
+    if (!id || !(plugin_events_interest() & MC_EVENT_BIT(event))) return;
+    // The oldest (or an expired) entry makes room.
+    OwnRemoval* slot = &g_own_removals[0];
+    for (OwnRemoval& removal : g_own_removals)
+        if (removal.until < slot->until) slot = &removal;
+    *slot = {id, clock_monotonic_milliseconds() + 60'000, event};
 }
 } // namespace maicord::app_detail

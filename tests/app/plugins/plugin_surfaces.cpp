@@ -376,8 +376,12 @@ void test_entities(PluginBinding* binding) noexcept {
     check(state->user_calls == user_calls, "a current user is not asked again");
     PluginUserInput present = odd;
     present.presence = MC_PRESENCE_ONLINE;
+    present.platforms = MC_PLATFORM_MOBILE;
     g_plugin_surfaces->user(&pass, present);
     check(state->user_calls == user_calls + 1, "a presence change asks again");
+    check(!(binding->permissions & MC_PERM_READ_ACTIVITY) && state->last_user_presence == MC_PRESENCE_UNKNOWN &&
+              state->last_user_platforms == 0,
+          "a plugin without the activity permission sees no presence or devices");
     PluginUserInput author = odd;
     author.where = MC_USER_MESSAGE_AUTHOR;
     g_plugin_surfaces->user(&pass, author);
@@ -655,7 +659,7 @@ bool fake_channel(u64 channel, PluginChannelInput* out) noexcept {
 }
 bool fake_guild(u64 guild, PluginGuildInput* out) noexcept {
     if (guild != 7) return false;
-    *out = {7, 9, 0x8, kPluginGuildMuted, 3, 120, 17, {"Home", 4}};
+    *out = {7, 9, 0x8, kPluginGuildMuted, 3, 120, 17, {"Home", 4}, 14, 2, 3, 21, 6, 40};
     return true;
 }
 bool fake_permissions(u64 guild, u64 channel, u64 user, u64* bits) noexcept {
@@ -663,8 +667,18 @@ bool fake_permissions(u64 guild, u64 channel, u64 user, u64* bits) noexcept {
     *bits = channel ? 0x400 + user : 0x8;
     return true;
 }
+bool fake_voice(u64 user, u64 guild, u64* channel) noexcept {
+    *channel = user == 5 && (!guild || guild == 7) ? 66 : 0;
+    return *channel != 0;
+}
+// User 5 shares three group DMs, the most recent first.
+u32 fake_group_dms(u64 user, Slice<u64> out) noexcept {
+    if (user != 5) return 0;
+    for (u32 i = 0; i < 3 && i < out.count; ++i) out[i] = 300 - i;
+    return 3;
+}
 void test_reads() noexcept {
-    const PluginReader reader{fake_user, fake_channel, fake_guild, fake_permissions};
+    const PluginReader reader{fake_user, fake_channel, fake_guild, fake_permissions, fake_voice, fake_group_dms};
     mc_user user{};
     mc_channel channel{};
     mc_guild guild{};
@@ -689,12 +703,25 @@ void test_reads() noexcept {
     check(read_channel(9, &channel) == MC_E_NOT_FOUND, "an unknown channel is not found");
     check(read_guild(7, &guild) == MC_OK && guild.owner_id == 9 && guild.self_permissions == 8 &&
               guild.flags == MC_GUILD_MUTED && guild.member_count == 120 && guild.online_count == 17 &&
-              same(Utf8View{guild.name.data, guild.name.bytes}, "Home"),
-          "read_guild copies the cached guild");
+              same(Utf8View{guild.name.data, guild.name.bytes}, "Home") && guild.boost_count == 14 &&
+              guild.boost_tier == 2 && guild.verification_level == 3 && guild.channel_count == 21 &&
+              guild.role_count == 6 && guild.emoji_count == 40,
+          "read_guild copies the cached guild and its overview counts");
     check(read_permissions(7, 0, 1, &bits) == MC_OK && bits == 8 && read_permissions(7, 6, 2, &bits) == MC_OK &&
               bits == 0x402 && read_permissions(8, 0, 1, &bits) == MC_E_NOT_FOUND &&
               read_permissions(7, 0, 0, &bits) == MC_E_INVALID,
           "read_permissions asks the cache for any user");
+    u64 voice = 1;
+    check(read_voice_channel(5, 0, &voice) == MC_OK && voice == 66 && read_voice_channel(5, 8, &voice) == MC_E_NOT_FOUND &&
+              voice == 0 && read_voice_channel(0, 0, &voice) == MC_E_INVALID,
+          "read_voice_channel finds the user's voice channel");
+    u64 groups[2] = {};
+    u32 total = 0;
+    check(read_shared_group_dms(5, groups, 2, &total) == MC_OK && total == 3 && groups[0] == 300 && groups[1] == 299 &&
+              read_shared_group_dms(5, nullptr, 0, &total) == MC_OK && total == 3 &&
+              read_shared_group_dms(6, groups, 2, &total) == MC_E_NOT_FOUND && total == 0 &&
+              read_shared_group_dms(5, nullptr, 2, &total) == MC_E_INVALID,
+          "read_shared_group_dms writes what fits and counts them all");
     g_plugin_reader = nullptr;
 }
 

@@ -6,6 +6,7 @@
 #include "settings/settings.hpp"
 #include "plugins/plugins.hpp"
 #include "plugins/surface_host.hpp"
+#include "plugins/surfaces_internal.hpp"
 #include "chat/messages/interaction.hpp"
 #include "plugins/popup_plugin_owner.hpp"
 #include "maicord/model/user/private_channel_store.hpp"
@@ -253,5 +254,51 @@ void test_application_plugin_surfaces_revision(void (*check)(bool,const char*) n
     application_plugin_surfaces_rendered();
     check(!application_plugin_surfaces_stale(), "plugin surfaces: the rebuild after it left catches up");
     decorating.release();
+}
+// The cache reader plugins read through (surface_host.cpp) over a small account: the group DMs shared with a
+// user, most recently active first; a voice channel found in any server; a server's overview counts.
+void test_application_plugin_reads(void (*check)(bool,const char*) noexcept) noexcept {
+    using namespace app_detail;
+    struct Reads {
+        GuildRecord guilds[1]; ChannelRecord channels[4]; u16 guild_order[1], channel_order[4]; u8 names[512];
+        PrivateChannelStore private_channels; PrivateChannelRecord private_records[3]; u64 recipients[6];
+    };
+    static Reads r{};
+    if (g_app.account_ui) { check(false, "plugin reads: no account is open"); return; }
+    g_app.account_ui=static_cast<AccountUiRuntime*>(VirtualAlloc(nullptr,sizeof(AccountUiRuntime),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
+    if (!g_app.account_ui) { check(false, "plugin reads: account allocates"); return; }
+    auto& ui=*g_app.account_ui;auto& chat=ui.chat_state;
+    bool ready=chat_state_store_initialize(&chat,{r.guilds,1},{r.guild_order,1},{r.channels,4},{r.channel_order,4},{r.names,sizeof(r.names)}) &&
+        chat_state_store_upsert_guild(&chat,{7,utf8_literal("Server"),GuildMutationKind::create,1}).ok() &&
+        private_channel_store_initialize(&r.private_channels,{r.private_records,3},{r.recipients,6}) &&
+        voice_state_store_initialize_owned(&ui.voice_states,16);
+    // Group DMs 200 and 201 include user 501 (201 is the more recent), 202 doesn't; 89 is a voice channel of server 7.
+    const u64 both[2]={501,502}, other[1]={502};
+    for (u32 i=0;ready && i<4;++i) {
+        ChannelInput input{};input.id=i<3?200+i:89;input.guild_id=i<3?0:7;input.type=i<3?3:2;
+        input.last_message_id=i==1?(5000ull<<22):(1000ull<<22);input.last_message_known=true;
+        ready=chat_state_store_upsert_channel(&chat,input).ok() &&
+            (i==3 || private_channel_store_replace(&r.private_channels,{200+i,0,i<2?ConstSlice<u64>{both,2}:ConstSlice<u64>{other,1},{},true}));
+    }
+    chat.private_channels=&r.private_channels;chat.self_user_id=plugin_navigation_runtime::kSelf;
+    ready=ready && voice_state_store_apply(&ui.voice_states,7,89,501,0)==VoiceStateResult::changed;
+    application_plugin_surfaces_prepare(); // installs the reader
+    check(ready && g_plugin_reader,"plugin reads: the account and the reader are set up");
+    u64 groups[1]={};
+    u32 total=0;
+    check(plugin_surfaces_detail::read_shared_group_dms(501,groups,1,&total)==MC_OK && total==2 && groups[0]==201,
+        "plugin reads: shared group DMs count them all and list the most recent first");
+    check(plugin_surfaces_detail::read_shared_group_dms(503,groups,1,&total)==MC_E_NOT_FOUND && !total,
+        "plugin reads: a user in no group DM shares none");
+    u64 voice=0;
+    check(plugin_surfaces_detail::read_voice_channel(501,0,&voice)==MC_OK && voice==89 &&
+        plugin_surfaces_detail::read_voice_channel(501,8,&voice)==MC_E_NOT_FOUND && !voice,
+        "plugin reads: a voice channel is found in any server, not in another");
+    mc_guild guild{};
+    check(plugin_surfaces_detail::read_guild(7,&guild)==MC_OK && guild.emoji_count==0 && guild.boost_count==0,
+        "plugin reads: a server's overview counts what the cache holds");
+    g_plugin_reader=nullptr;
+    voice_state_store_release(&ui.voice_states);
+    VirtualFree(g_app.account_ui,0,MEM_RELEASE);g_app.account_ui=nullptr;
 }
 } // namespace maicord

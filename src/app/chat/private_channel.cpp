@@ -20,6 +20,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
 #include "../account/account_ui_runtime.hpp"
+#include "../plugins/pipeline_host.hpp"
 
 #include "maicord/core/win32_user.hpp"
 
@@ -73,8 +74,11 @@ bool rename_save(TextFormOwnerKey key, Utf8View name) noexcept {
     return form_valid(key) && started(private_channel_begin_rename(&g_private.controller, state(), key.item, name));
 }
 bool leave_save(TextFormOwnerKey key, Utf8View) noexcept {
-    return form_valid(key) &&
-           started(private_channel_begin_leave(&g_private.controller, state(), key.item, g_private.form_silent));
+    if (!form_valid(key) ||
+        !started(private_channel_begin_leave(&g_private.controller, state(), key.item, g_private.form_silent)))
+        return false;
+    application_plugins_own_removal(PluginOwnRemoval::channel, key.item);
+    return true;
 }
 TextFormOwnerKey next_form_key(u64 channel_id) noexcept {
     if (!++g_private.form_serial) ++g_private.form_serial;

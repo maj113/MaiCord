@@ -258,6 +258,13 @@ struct Draft : mc_draft {
     u64 guild() const {
         return guild_id;
     }
+    // PRE_SEND: the replied-to message and its author, or 0.
+    u64 reply() const {
+        return reply_to;
+    }
+    u64 reply_author() const {
+        return reply_author_id;
+    }
     // Replaces the text; false (nothing changes) when it's empty or longer than the host's buffer.
     bool replace(Str replacement) {
         if (replacement.bytes == 0 || replacement.bytes > buffer_capacity)
@@ -498,7 +505,30 @@ using Overflow = Of<MC_EVENT_OVERFLOW>; // value: events lost
 } // namespace ev
 
 // ---- Decorations ----------------------------------------------------------------
-// Strings must stay valid until the hook returns; the host copies them then.
+// The host reads a decoration after the hook returns, when the hook's locals are gone, so Decoration copies the
+// text it is given (Text<N> locals are fine) into a buffer every entry point starts over.
+
+namespace detail {
+// A valid decoration's text totals about 12.3 KiB.
+inline char g_kept[16384];
+inline u32 g_kept_used;
+inline mc_str kept(mc_str text) {
+    if (!text.bytes || text.bytes > sizeof(g_kept) - g_kept_used)
+        return text;
+    char* at = g_kept + g_kept_used;
+    for (u32 i = 0; i < text.bytes; ++i)
+        at[i] = text.data[i];
+    g_kept_used += text.bytes;
+    return {at, text.bytes, 0};
+}
+inline mc_node kept(mc_node node) {
+    node.text = kept(node.text);
+    node.icon = kept(node.icon);
+    node.tooltip = kept(node.tooltip);
+    node.value = kept(node.value);
+    return node;
+}
+} // namespace detail
 
 struct Node : mc_node {};
 inline Node label(Str text, Tone tone = Tone::neutral) {
@@ -577,7 +607,7 @@ struct Decoration : mc_decoration {
     }
     void collapse(Str label = {}) {
         visibility = MC_VIS_COLLAPSED;
-        collapsed_label = label;
+        collapsed_label = detail::kept(label);
     }
     void blur_media() {
         media = MC_MEDIA_BLUR;
@@ -586,32 +616,40 @@ struct Decoration : mc_decoration {
         media = MC_MEDIA_HIDE;
     }
     void prefix(Str text, Tone tone = Tone::neutral) {
-        name_prefix = text;
+        name_prefix = detail::kept(text);
         name_tone = static_cast<u32>(tone);
     }
     void suffix(Str text, Tone tone = Tone::neutral) {
-        name_suffix = text;
+        name_suffix = detail::kept(text);
         name_tone = static_cast<u32>(tone);
     }
     // Shows markdown instead of the message text (display only).
     void replace_content(Str markdown) {
-        content = markdown;
+        content = detail::kept(markdown);
         flags |= MC_DECO_REPLACE_CONTENT;
     }
     bool badge(const mc_node& node) {
         if (badge_count >= MC_DECORATION_BADGES)
             return false;
-        badges[badge_count++] = node;
+        badges[badge_count++] = detail::kept(node);
         return true;
     }
     bool accessory(const mc_node& node) {
         if (accessory_count >= MC_DECORATION_ACCESSORIES)
             return false;
-        accessories[accessory_count++] = node;
+        accessories[accessory_count++] = detail::kept(node);
         return true;
     }
     void card(const mc_card& block) {
-        mc_decoration::card = block;
+        mc_card& c = mc_decoration::card;
+        c = block;
+        c.title = detail::kept(block.title);
+        c.text = detail::kept(block.text);
+        c.caption = detail::kept(block.caption);
+        c.link = detail::kept(block.link);
+        c.thumbnail = detail::kept(block.thumbnail);
+        for (u32 i = 0; i < c.button_count && i < MC_CARD_BUTTONS; ++i)
+            c.buttons[i].label = detail::kept(block.buttons[i].label);
         has_card = 1;
     }
 };
@@ -894,6 +932,10 @@ struct Composer {
         static_assert(detail::declared<D>(MC_PERM_COMPOSER), "ctx.composer needs .permissions = MC_PERM_COMPOSER");
         return raw->api->composer_reply(raw, channel, message, ping ? 1u : 0u);
     }
+    template <int D = 0> mc_status clear_reply(u64 channel) const {
+        static_assert(detail::declared<D>(MC_PERM_COMPOSER), "ctx.composer needs .permissions = MC_PERM_COMPOSER");
+        return raw->api->composer_reply(raw, channel, 0, 0);
+    }
     template <int D = 0> mc_status edit(u64 channel, u64 message) const {
         static_assert(detail::declared<D>(MC_PERM_COMPOSER), "ctx.composer needs .permissions = MC_PERM_COMPOSER");
         return raw->api->composer_edit(raw, channel, message);
@@ -940,6 +982,37 @@ struct Reader {
         u64 bits = 0;
         return raw->api->read_permissions(raw, guild, channel, user, &bits) == MC_OK ? bits : 0;
     }
+    // The voice channel user is in (guild 0: a private call first, then any server); 0 when none.
+    u64 voice_channel(u64 user, u64 guild = 0) const {
+        u64 channel = 0;
+        return raw->api->read_voice_channel(raw, user, guild, &channel) == MC_OK ? channel : 0;
+    }
+    // The group DMs you share with user, most recently active first; returns how many were written,
+    // total (optional) how many there are.
+    template <u32 N, int D = 0> u32 shared_group_dms(u64 user, u64 (&out)[N], u32* total = nullptr) const {
+        static_assert(detail::declared<D>(MC_PERM_READ_MESSAGES),
+                      "ctx.read.shared_group_dms needs .permissions = MC_PERM_READ_MESSAGES");
+        u32 count = 0;
+        if (raw->api->read_shared_group_dms(raw, user, out, N, &count) != MC_OK)
+            count = 0;
+        if (total)
+            *total = count;
+        return count < N ? count : N;
+    }
+    // The open channel with the composer's reply and edit targets.
+    Found<mc_open_channel> open_channel() const {
+        Found<mc_open_channel> out{};
+        out.ok = raw->api->read_open_channel(raw, &out.value) == MC_OK;
+        return out;
+    }
+    // Loaded messages of channel, newest first, starting below before (0: the newest); how many were written.
+    template <u32 N, int D = 0> u32 messages(u64 channel, u64 before, mc_message_ref (&out)[N]) const {
+        static_assert(N <= MC_READ_MESSAGES_MAX, "ctx.read.messages: at most MC_READ_MESSAGES_MAX at a time");
+        static_assert(detail::declared<D>(MC_PERM_READ_MESSAGES),
+                      "ctx.read.messages needs .permissions = MC_PERM_READ_MESSAGES");
+        u32 count = 0;
+        return raw->api->read_messages(raw, channel, before, out, N, &count) == MC_OK ? count : 0;
+    }
 };
 
 // Messages the host kept after MESSAGE_DELETED or MESSAGE_EDITED said keep.
@@ -968,8 +1041,10 @@ struct Kept {
 // Passed to every handler; valid until the handler returns.
 class Ctx {
   public:
+    // Every entry point makes one: the decoration text buffer starts over.
     explicit Ctx(mc_ctx* raw)
         : store{raw}, http{raw}, composer{raw}, read{raw}, kept{raw}, raw_(raw) {
+        detail::g_kept_used = 0;
     }
 
     Store store;
@@ -1160,6 +1235,18 @@ class Ctx {
     }
     mc_status cancel_timer(u64 id) const {
         return raw_->api->cancel_timer(raw_, id);
+    }
+
+    // -- Time --
+    // Unix milliseconds (UTC); 0 on failure.
+    u64 now_ms() const {
+        u64 ms = 0;
+        return raw_->api->clock(raw_, &ms) == MC_OK ? ms : 0;
+    }
+    // The user's offset from UTC in seconds (east positive, daylight saving included) at unix_seconds.
+    i32 local_offset(i64 unix_seconds) const {
+        i32 seconds = 0;
+        return raw_->api->local_offset(raw_, unix_seconds, &seconds) == MC_OK ? seconds : 0;
     }
 
   private:

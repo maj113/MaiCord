@@ -22,6 +22,7 @@
 #include "friends_storage.hpp"
 #include "../chat/composer/text_edit_keys.hpp"
 #include "../plugins/plugins.hpp"
+#include "../plugins/pipeline_host.hpp"
 #include "user_actions.hpp"
 #include "maicord/model/user/active_now.hpp"
 #include "maicord/model/user/friend_search.hpp"
@@ -564,6 +565,7 @@ bool queue(RelationshipOperation operation, u64 id = 0, Utf8View username = {}, 
     pending.username_bytes = username.bytes;
     if (username.bytes) copy_bytes(pending.username, username.data, username.bytes);
     friends->request = pending;
+    if (operation == RelationshipOperation::remove) application_plugins_own_removal(PluginOwnRemoval::relationship, id);
     friends->stranger_confirmation = false;
     friends->status = operation == RelationshipOperation::list ? utf8_literal("Loading friends…") : utf8_literal("Sending request…");
     project(*friends, true);repaint();

@@ -52,6 +52,7 @@ struct PluginDraft {
     u64 reply_to;   // pre_send: the replied-to message, or 0
     Utf8View text;
     u32 flags = 0;  // pre_send: MC_DRAFT_SILENT, MC_DRAFT_SUPPRESS_EMBEDS, MC_DRAFT_REPLY_PING
+    u64 reply_author_id = 0; // pre_send: the author of reply_to, or 0 when unknown
 };
 
 enum class PluginDraftVerdict : u8 { keep, replace, cancel, confirm };

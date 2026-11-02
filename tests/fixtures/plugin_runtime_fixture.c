@@ -310,7 +310,7 @@ static const mc_hook hooks[] = {{MC_HOOK_PRE_SEND, 0, 0, {pre_send}},
 /* The message pipeline plugin. Hooks record what they are given and answer by the message text:
    a message starting "keep" is kept (deleted and edited), "handle" handles a click, channel 0x5555 has its typing
    suppressed. pre_send drives the actions by its text ("send", "edit", "react", "delete", "read", "activity",
-   "local", "composer", "timer", "restore", "keep"); the statuses land in state.status. A timer sends. */
+   "local", "composer", "timer", "restore", "keep", "level2"); the statuses land in state.status. A timer sends. */
 typedef struct state_block {
     uint32_t clicks, deleted, edited, typing, timers, batches, events, overflows;
     uint32_t click_flags, click_button, click_count, click_mods;
@@ -319,6 +319,11 @@ typedef struct state_block {
     uint64_t overflow_value, last_timer, local_id;
     int32_t status[16];
     int32_t click_react_status, timer_send_status, truncated_status;
+    /* "level2": the level-2 reads, statuses in level2[]. */
+    int32_t level2[9];
+    uint64_t reply_author, clock_ms, open_reply, first_message, voice;
+    uint32_t message_count, group_count;
+    int32_t offset;
 } state_block;
 
 static int begins(mc_str text, const char* word) {
@@ -431,6 +436,24 @@ static mc_status MC_CALL pre_send(mc_ctx* ctx, mc_draft* draft) {
         }
         state->truncated_status = api->keep_text(ctx, 9, 77, 1, out, 2, &bytes);
         state->kept_text_bytes = bytes;
+    } else if (begins(draft->text, "level2")) {
+        mc_open_channel open;
+        mc_message_ref refs[4];
+        uint64_t groups[2];
+        uint32_t count = 0;
+        state->reply_author = draft->reply_author_id;
+        state->level2[0] = api->clock(ctx, &state->clock_ms);
+        state->level2[1] = api->local_offset(ctx, 1700000000, &state->offset);
+        state->level2[2] = api->read_open_channel(ctx, &open);
+        state->open_reply = open.reply_to;
+        state->level2[3] = api->read_messages(ctx, 9, 0, refs, 4, &state->message_count);
+        state->first_message = state->message_count ? refs[0].message_id : 0;
+        state->level2[4] = api->composer_reply(ctx, 9, 0, 0);
+        state->level2[5] = api->composer_reply(ctx, 9, 0, 1);
+        state->level2[6] = api->read_shared_group_dms(ctx, 5, groups, 2, &count);
+        state->group_count = count;
+        state->level2[7] = api->read_voice_channel(ctx, 5, 0, &state->voice);
+        state->level2[8] = api->local_message(ctx, 0, note, &state->local_id);
     }
     return MC_OK;
 }
@@ -508,7 +531,7 @@ MC_EXPORT int maicord_fixture_extra(void) { return 7; }
 #endif
 
 #if defined(FIXTURE_LEVEL)
-#define LEVEL 2
+#define LEVEL (MC_API_LEVEL + 1)
 #else
 #define LEVEL 1
 #endif

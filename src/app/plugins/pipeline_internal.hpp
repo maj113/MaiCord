@@ -64,5 +64,8 @@ mc_status MC_CALL api_keep_info(mc_ctx*, uint64_t channel, uint64_t message, mc_
 mc_status MC_CALL api_keep_text(mc_ctx*, uint64_t channel, uint64_t message, uint32_t version, void* out,
                                 uint32_t capacity, uint32_t* bytes) noexcept;
 mc_status MC_CALL api_keep_restore(mc_ctx*, const mc_kept* items, uint32_t count) noexcept;
+mc_status MC_CALL api_read_open_channel(mc_ctx*, mc_open_channel* out) noexcept;
+mc_status MC_CALL api_read_messages(mc_ctx*, uint64_t channel, uint64_t before, mc_message_ref* out,
+                                    uint32_t capacity, uint32_t* count) noexcept;
 
 } // namespace maicord::plugin_runtime_detail

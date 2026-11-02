@@ -916,6 +916,7 @@ u32 application_plugins_menu_items(ApplicationPluginMenuSurface, u64, Slice<Popu
                                    const ApplicationPluginMenuExtra*) noexcept { return 0; }
 bool application_plugins_menu_bind() noexcept { return true; }
 void application_plugins_menu_dismissed() noexcept {}
+void application_plugins_own_removal(PluginOwnRemoval, u64) noexcept {}
 bool application_settings_active() noexcept { return friends_runtime_test::seen.settings; }
 bool synchronize_navigation_view() noexcept { return true; }
 bool synchronize_selected_channel() noexcept { return true; }

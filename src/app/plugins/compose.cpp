@@ -52,8 +52,10 @@ bool compose_hooks(bool* handled) noexcept {
         if (message_silent_prefix(text, &body)) flags |= kPluginDraftSilent;
         if (reply.message_id && reply.mention_reply_author) flags |= kPluginDraftReplyPing;
     }
-    const PluginDraft draft{composer.channel_id, channel_guild(composer.channel_id),
-                            editing ? g_app.message_edit.message_id : 0, reply.message_id, text, flags};
+    PluginDraft draft{composer.channel_id, channel_guild(composer.channel_id),
+                      editing ? g_app.message_edit.message_id : 0, reply.message_id, text, flags};
+    if (const MessageRecord* replied = reply.message_id ? application_message_record(reply.message_id) : nullptr)
+        draft.reply_author_id = replied->author_id;
     const PluginDraftResult result = plugin_dispatch_draft(hook, draft);
     if (result.verdict == PluginDraftVerdict::cancel) {
         *handled = true;

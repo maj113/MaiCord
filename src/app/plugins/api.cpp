@@ -4,6 +4,7 @@
 #include "surfaces_internal.hpp"
 #include "maicord/app/plugins/http.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/core/win32_system_time.hpp"
 #include "maicord/core/utf.hpp"
 
 // mc_api level 1. Every function recovers its binding from the context, which is the
@@ -126,7 +127,12 @@ mc_status MC_CALL api_button_state(mc_ctx* ctx, uint32_t button, const mc_button
     return state ? plugin_surfaces_detail::buttons_set_state(binding, button, *state) : MC_E_INVALID;
 }
 mc_status MC_CALL api_read_user(mc_ctx* ctx, uint64_t user, uint64_t guild, mc_user* out) noexcept {
-    return active(ctx) ? plugin_surfaces_detail::read_user(user, guild, out) : MC_E_INACTIVE;
+    PluginBinding* binding = active(ctx);
+    if (!binding) return MC_E_INACTIVE;
+    const mc_status status = plugin_surfaces_detail::read_user(user, guild, out);
+    // Presence and devices are activity, seen only with MC_PERM_READ_ACTIVITY.
+    if (status == MC_OK && !(binding->permissions & MC_PERM_READ_ACTIVITY)) out->presence = out->platforms = 0;
+    return status;
 }
 mc_status MC_CALL api_read_channel(mc_ctx* ctx, uint64_t channel, mc_channel* out) noexcept {
     return active(ctx) ? plugin_surfaces_detail::read_channel(channel, out) : MC_E_INACTIVE;
@@ -137,6 +143,42 @@ mc_status MC_CALL api_read_guild(mc_ctx* ctx, uint64_t guild, mc_guild* out) noe
 mc_status MC_CALL api_read_permissions(mc_ctx* ctx, uint64_t guild, uint64_t channel, uint64_t user,
                                        uint64_t* bits) noexcept {
     return active(ctx) ? plugin_surfaces_detail::read_permissions(guild, channel, user, bits) : MC_E_INACTIVE;
+}
+mc_status MC_CALL api_read_voice_channel(mc_ctx* ctx, uint64_t user, uint64_t guild, uint64_t* channel) noexcept {
+    PluginBinding* binding = active(ctx);
+    if (!binding) return MC_E_INACTIVE;
+    if (!(binding->permissions & MC_PERM_READ_ACTIVITY)) return MC_E_DENIED;
+    return plugin_surfaces_detail::read_voice_channel(user, guild, channel);
+}
+mc_status MC_CALL api_read_shared_group_dms(mc_ctx* ctx, uint64_t user, uint64_t* out, uint32_t capacity,
+                                            uint32_t* count) noexcept {
+    PluginBinding* binding = active(ctx);
+    if (!binding) return MC_E_INACTIVE;
+    if (!(binding->permissions & MC_PERM_READ_MESSAGES)) return MC_E_DENIED;
+    return plugin_surfaces_detail::read_shared_group_dms(user, out, capacity, count);
+}
+
+mc_status MC_CALL api_clock(mc_ctx* ctx, uint64_t* unix_ms) noexcept {
+    if (!active(ctx)) return MC_E_INACTIVE;
+    if (!unix_ms) return MC_E_INVALID;
+    *unix_ms = clock_unix_milliseconds();
+    return MC_OK;
+}
+// The local time at the instant, as a FILETIME, minus the instant (FILETIME: 100 ns since 1601).
+mc_status MC_CALL api_local_offset(mc_ctx* ctx, int64_t unix_seconds, int32_t* seconds_east) noexcept {
+    if (!active(ctx)) return MC_E_INACTIVE;
+    constexpr i64 kFrom1601 = 11'644'473'600, kYear9999 = 253'402'300'799;
+    if (!seconds_east || unix_seconds < -kFrom1601 || unix_seconds > kYear9999) return MC_E_INVALID;
+    const u64 ticks = static_cast<u64>(unix_seconds + kFrom1601) * 10'000'000u;
+    const FILETIME utc_file{static_cast<DWORD>(ticks), static_cast<DWORD>(ticks >> 32)};
+    SYSTEMTIME utc, local;
+    FILETIME local_file;
+    if (!FileTimeToSystemTime(&utc_file, &utc) || !SystemTimeToTzSpecificLocalTime(nullptr, &utc, &local) ||
+        !SystemTimeToFileTime(&local, &local_file))
+        return MC_E_INVALID;
+    const u64 local_ticks = (static_cast<u64>(local_file.dwHighDateTime) << 32) | local_file.dwLowDateTime;
+    *seconds_east = static_cast<i32>((static_cast<i64>(local_ticks) - static_cast<i64>(ticks)) / 10'000'000);
+    return MC_OK;
 }
 
 } // namespace
@@ -184,6 +226,12 @@ const mc_api kApi{
     .keep_info = api_keep_info,
     .keep_text = api_keep_text,
     .keep_restore = api_keep_restore,
+    .clock = api_clock,
+    .local_offset = api_local_offset,
+    .read_voice_channel = api_read_voice_channel,
+    .read_shared_group_dms = api_read_shared_group_dms,
+    .read_open_channel = api_read_open_channel,
+    .read_messages = api_read_messages,
 };
 
 } // namespace maicord::plugin_runtime_detail

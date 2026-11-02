@@ -32,14 +32,17 @@ _Static_assert(sizeof(mc_user) == 80 && OFFSET(mc_user, where, 24) && OFFSET(mc_
 _Static_assert(sizeof(mc_channel) == 64 && OFFSET(mc_channel, self_permissions, 24) &&
                    OFFSET(mc_channel, type, 32) && OFFSET(mc_channel, name, 48),
                "mc_channel");
-_Static_assert(sizeof(mc_guild) == 56 && OFFSET(mc_guild, flags, 24) && OFFSET(mc_guild, online_count, 36) &&
-                   OFFSET(mc_guild, name, 40),
+_Static_assert(sizeof(mc_guild) == 80 && OFFSET(mc_guild, flags, 24) && OFFSET(mc_guild, online_count, 36) &&
+                   OFFSET(mc_guild, name, 40) && OFFSET(mc_guild, boost_count, 56) && OFFSET(mc_guild, emoji_count, 76),
                "mc_guild");
 _Static_assert(sizeof(mc_header) == 48 && OFFSET(mc_header, where, 16) && OFFSET(mc_header, name, 32), "mc_header");
+_Static_assert(sizeof(mc_open_channel) == 32 && OFFSET(mc_open_channel, edit_id, 24), "mc_open_channel");
+_Static_assert(sizeof(mc_message_ref) == 32 && OFFSET(mc_message_ref, flags, 24) && OFFSET(mc_message_ref, type, 28),
+               "mc_message_ref");
 /* Message pipeline */
-_Static_assert(sizeof(mc_draft) == 72 && OFFSET(mc_draft, text, 32) && OFFSET(mc_draft, buffer, 48) &&
+_Static_assert(sizeof(mc_draft) == 80 && OFFSET(mc_draft, text, 32) && OFFSET(mc_draft, buffer, 48) &&
                    OFFSET(mc_draft, buffer_capacity, 56) && OFFSET(mc_draft, replaced_bytes, 60) &&
-                   OFFSET(mc_draft, flags, 64) && OFFSET(mc_draft, verdict, 68),
+                   OFFSET(mc_draft, flags, 64) && OFFSET(mc_draft, verdict, 68) && OFFSET(mc_draft, reply_author_id, 72),
                "mc_draft");
 _Static_assert(sizeof(mc_click) == 16 && OFFSET(mc_click, modifiers, 8), "mc_click");
 _Static_assert(sizeof(mc_kept_info) == 32 && OFFSET(mc_kept_info, author_id, 8), "mc_kept_info");
@@ -113,8 +116,12 @@ _Static_assert(OFFSET(mc_api, log, 8) && OFFSET(mc_api, set_setting, 16) && OFFS
                    OFFSET(mc_api, banner, 112) && OFFSET(mc_api, open, 152) && OFFSET(mc_api, http, 160) &&
                    OFFSET(mc_api, local_message, 168) && OFFSET(mc_api, composer_edit, 224) &&
                    OFFSET(mc_api, send_message, 232) && OFFSET(mc_api, set_activity, 272) &&
-                   OFFSET(mc_api, timer, 280) && OFFSET(mc_api, keep_restore, 312) && sizeof(mc_api) == 320,
+                   OFFSET(mc_api, timer, 280) && OFFSET(mc_api, keep_restore, 312),
                "mc_api level 1");
+_Static_assert(OFFSET(mc_api, clock, 320) && OFFSET(mc_api, local_offset, 328) &&
+                   OFFSET(mc_api, read_voice_channel, 336) && OFFSET(mc_api, read_shared_group_dms, 344) &&
+                   OFFSET(mc_api, read_open_channel, 352) && OFFSET(mc_api, read_messages, 360) && sizeof(mc_api) == 368,
+               "mc_api level 2");
 
 typedef struct state_block {
     uint32_t starts;
@@ -232,7 +239,7 @@ static const mc_button_def buttons[] = {
 /* One row per field group, in declaration order. */
 /* clang-format off */
 MC_EXPORT const mc_descriptor MC_DESCRIPTOR_SYMBOL = {
-    sizeof(mc_descriptor), MC_ABI, 1, 0, 0x6D63635F61626943ull,
+    sizeof(mc_descriptor), MC_ABI, MC_API_LEVEL, 0, 0x6D63635F61626943ull,
     MC_S("C fixture"), MC_S("1.0.0"), MC_S("ABI 6 from plain C."), MC_S("MaiCord"), {0},
     0, 0, 0, sizeof(state_block), 4, 24, 1,
     settings, 3, 2, hooks,

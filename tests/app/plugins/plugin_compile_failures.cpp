@@ -238,6 +238,12 @@ MC_BUTTON(notice, surface::server_list_top, "Notice", "lucide/bell") {
         ctx.open_channel(channel->id());
     if (ctx.read.permissions(button.guild(), 0, 1) && ctx.read.guild(button.guild()))
         ctx.kept.restore(nullptr, 0);
+    mc_message_ref recent[4];
+    u64 groups[2];
+    if (auto open = ctx.read.open_channel(); open && ctx.read.messages(open->channel_id, 0, recent))
+        ctx.composer.clear_reply(open->channel_id);
+    if (ctx.read.shared_group_dms(1, groups) && ctx.read.voice_channel(1) && ctx.now_ms() > 0 && ctx.local_offset(0))
+        ctx.log("offset");
 }
 
 static void start(Ctx& ctx) {
@@ -286,16 +292,17 @@ MC_HOOKS(pre_send, pre_edit, mc::filter<on_click, MC_CLICK_FILTER_DOUBLE>, keep_
 MC_PLUGIN(.name = "Contract", .version = "1.0.0");
 #elif defined(MC_CASE_MISSING_PERMISSION)
 MC_PLUGIN(.owner = 0x6D63'636F'6E74'7261, .name = "Contract", .version = "1.0.0",
-          .permissions = MC_PERM_COMPOSER | MC_PERM_ACT_MESSAGES | MC_PERM_ACT_PRESENCE | MC_PERM_PERSISTENT_LOG,
+          .permissions = MC_PERM_COMPOSER | MC_PERM_ACT_MESSAGES | MC_PERM_ACT_PRESENCE | MC_PERM_PERSISTENT_LOG |
+                         MC_PERM_READ_MESSAGES,
           .network = {"api.example.com"});
 #elif defined(MC_CASE_NO_NETWORK)
 MC_PLUGIN(.owner = 0x6D63'636F'6E74'7261, .name = "Contract", .version = "1.0.0",
           .permissions = MC_PERM_COMPOSER | MC_PERM_ACT_MESSAGES | MC_PERM_ACT_PRESENCE | MC_PERM_PERSISTENT_LOG |
-                         MC_PERM_CLIPBOARD);
+                         MC_PERM_CLIPBOARD | MC_PERM_READ_MESSAGES);
 #else
 MC_PLUGIN(.owner = 0x6D63'636F'6E74'7261, .name = "Contract", .version = "1.0.0",
           .summary = "Every feature.", .author = "MaiCord", .homepage = "https://example.com",
           .permissions = MC_PERM_COMPOSER | MC_PERM_ACT_MESSAGES | MC_PERM_ACT_PRESENCE | MC_PERM_PERSISTENT_LOG |
-                         MC_PERM_CLIPBOARD,
+                         MC_PERM_CLIPBOARD | MC_PERM_READ_MESSAGES,
           .network = {"api.example.com", "*.example.org"}, .start = start, .stop = stop);
 #endif

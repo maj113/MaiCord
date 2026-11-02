@@ -368,6 +368,10 @@ void plugin_pipeline_add(PluginBinding* binding) noexcept {
 void plugin_pipeline_remove(PluginBinding* binding) noexcept {
     if (PluginSide* side = plugin_side(binding, false)) reset_value(side);
     recompute_events();
+    // An activity the plugin set goes with it, however it stopped (disabled, struck out, crashed, reloaded).
+    const PluginPipelineSink* sink = plugin_sink();
+    if ((binding->permissions & MC_PERM_ACT_PRESENCE) && sink && sink->set_activity)
+        sink->set_activity(binding->owner_id, nullptr);
 }
 
 } // namespace maicord

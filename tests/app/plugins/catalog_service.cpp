@@ -130,7 +130,8 @@ void common(Text& t, const char* kind, const char* slug, const char* name) noexc
         .digest(g->details.sha256).add("\",\"bytes\":").number(g->details.bytes).add("},\"previews\":[");
 }
 void plugin_version(Text& t, const char* version, u64 released, const Blob& b) noexcept {
-    t.add("{\"version\":\"").add(version).add("\",\"released\":").number(released).add(",\"api_level\":1,\"permissions\":[");
+    t.add("{\"version\":\"").add(version).add("\",\"released\":").number(released).add(",\"api_level\":").number(MC_API_LEVEL)
+        .add(",\"permissions\":[");
     bool first = true;
     for (u32 bit = 0; bit < 11; ++bit)
         if (g->permissions & (1ull << bit)) t.add(first ? "\"" : ",\"").add(catalog_permission_name(bit)).add("\""), first = false;

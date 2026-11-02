@@ -630,8 +630,17 @@ bool evaluate(PluginDecoratePass* pass, u32 kind, u64 key, u64 scope, u32 revisi
             continue;
         }
         mc_decoration output{};
+        // Presence and devices are activity: a plugin without MC_PERM_READ_ACTIVITY sees neither.
+        mc_user hidden;
+        const void* in = input;
+        if (kind == kKindUser && !(plugin.binding->permissions & MC_PERM_READ_ACTIVITY)) {
+            hidden = *static_cast<const mc_user*>(input);
+            hidden.presence = MC_PRESENCE_UNKNOWN;
+            hidden.platforms = 0;
+            in = &hidden;
+        }
         const i64 begin = clock_now();
-        const PluginCallResult ran = call_kind(plugin, kind, input, &output);
+        const PluginCallResult ran = call_kind(plugin, kind, in, &output);
         pass->spent_us += elapsed_us(begin);
         ++pass->calls;
         // A failed, overrunning or invalid answer is "decorates nothing": cached, so it isn't asked every pass.
@@ -650,12 +659,14 @@ bool prepare_message(PluginDecoratePass* pass, const PluginMessageInput& m) noex
     return evaluate(pass, kKindMessage, m.message_id, 0, m.revision, facts, &in);
 }
 
-// A user's revision is derived from what the hooks see, so a presence or name change asks again.
+// A user's revision is derived from what the hooks see, so a presence or name change asks again; a profile's
+// opening time too, so every opening asks again.
 u32 user_revision(const PluginUserInput& u) noexcept {
     u64 h = hash64_mix(kHash64Seed, u.guild_id);
     h = hash64_mix(h, u.channel_id);
     h = hash64_mix(h, (static_cast<u64>(u.flags) << 32) | u.relationship);
     h = hash64_mix(h, (static_cast<u64>(u.presence) << 32) | u.platforms);
+    if (u.where == kPluginUserProfile) h = hash64_mix(h, u.message_id);
     for (u32 i = 0; i < u.name.bytes; ++i) h = hash64_mix(h, static_cast<u8>(u.name.data[i]));
     return static_cast<u32>(h >> 32);
 }

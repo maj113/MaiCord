@@ -92,7 +92,8 @@ PluginDraftResult plugin_dispatch_draft(PluginHook hook, const PluginDraft& draf
         if (subscriber.binding->struck_out) continue;
         char* buffer = reinterpret_cast<char*>(g_buffers) + next * kBufferBytes;
         mc_draft call{draft.channel_id, draft.guild_id, draft.message_id, draft.reply_to,
-                      {current.data, current.bytes, 0}, buffer, kBufferBytes, 0, flags, MC_DRAFT_KEEP};
+                      {current.data, current.bytes, 0}, buffer, kBufferBytes, 0, flags, MC_DRAFT_KEEP,
+                      draft.reply_author_id};
         const PluginCallResult ran = plugin_binding_run_draft(subscriber.binding, static_cast<u32>(hook),
                                                               subscriber.function.draft, &call);
         ++g_stats.calls;

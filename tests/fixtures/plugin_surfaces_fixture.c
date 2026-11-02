@@ -151,6 +151,8 @@ static mc_status MC_CALL decorate_header(mc_ctx* ctx, const mc_header* header, m
 static mc_status MC_CALL decorate_user(mc_ctx* ctx, const mc_user* user, mc_decoration* d) {
     surfaces_state* state = (surfaces_state*)ctx->state;
     ++state->user_calls;
+    state->last_user_presence = user->presence;
+    state->last_user_platforms = user->platforms;
     if (user->where == MC_USER_MEMBER_ROW) {
         if (user->user_id & 1) {
             d->badge_count = 1;

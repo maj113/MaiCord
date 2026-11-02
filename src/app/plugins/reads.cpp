@@ -1,6 +1,6 @@
-// mc_api.read_user, read_channel, read_guild and read_permissions: copies from MaiCord's cache through the
-// application's reader (surfaces.hpp). Nothing here fetches, and no permission is needed to read what the
-// client itself shows.
+// mc_api's cache reads (read_user, read_channel, read_guild, read_permissions, read_voice_channel and
+// read_shared_group_dms): copies from MaiCord's cache through the application's reader (surfaces.hpp).
+// Nothing here fetches.
 #include "surfaces_internal.hpp"
 #include "maicord/core/memory.hpp"
 
@@ -83,6 +83,12 @@ mc_status read_guild(u64 guild_id, mc_guild* out) noexcept {
     out->member_count = in.member_count;
     out->online_count = in.online_count;
     out->name = view(in.name);
+    out->boost_count = in.boost_count;
+    out->boost_tier = in.boost_tier;
+    out->verification_level = in.verification_level;
+    out->channel_count = in.channel_count;
+    out->role_count = in.role_count;
+    out->emoji_count = in.emoji_count;
     return MC_OK;
 }
 
@@ -92,6 +98,23 @@ mc_status read_permissions(u64 guild_id, u64 channel_id, u64 user_id, u64* bits)
     *bits = 0;
     if (!reader || !reader->permissions) return MC_E_UNSUPPORTED;
     return reader->permissions(guild_id, channel_id, user_id, bits) ? MC_OK : MC_E_NOT_FOUND;
+}
+
+mc_status read_voice_channel(u64 user_id, u64 guild_id, u64* channel) noexcept {
+    const PluginReader* reader = g_plugin_reader;
+    if (!channel || !user_id) return MC_E_INVALID;
+    *channel = 0;
+    if (!reader || !reader->voice_channel) return MC_E_UNSUPPORTED;
+    return reader->voice_channel(user_id, guild_id, channel) && *channel ? MC_OK : MC_E_NOT_FOUND;
+}
+
+mc_status read_shared_group_dms(u64 user_id, u64* out, u32 capacity, u32* count) noexcept {
+    const PluginReader* reader = g_plugin_reader;
+    if (!count || !user_id || (capacity && !out)) return MC_E_INVALID;
+    *count = 0;
+    if (!reader || !reader->shared_group_dms) return MC_E_UNSUPPORTED;
+    *count = reader->shared_group_dms(user_id, {out, capacity});
+    return *count ? MC_OK : MC_E_NOT_FOUND;
 }
 
 } // namespace maicord::plugin_surfaces_detail

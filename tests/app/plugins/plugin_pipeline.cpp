@@ -36,6 +36,10 @@ struct PipelineState {
     u64 overflow_value, last_timer, local_id;
     i32 status[16];
     i32 click_react_status, timer_send_status, truncated_status;
+    i32 level2[9];
+    u64 reply_author, clock_ms, open_reply, first_message, voice;
+    u32 message_count, group_count;
+    i32 offset;
 };
 struct FullState {
     u32 starts, stops, sends, start_flags;
@@ -224,8 +228,9 @@ mc_status sink_composer_focus() noexcept {
     ++g_sink.composer;
     return g_sink.result;
 }
-mc_status sink_composer_reply(u64, u64, bool) noexcept {
+mc_status sink_composer_reply(u64, u64 message_id, bool) noexcept {
     ++g_sink.composer;
+    g_sink.message = message_id;
     return g_sink.result;
 }
 mc_status sink_composer_edit(u64, u64) noexcept {
@@ -235,10 +240,21 @@ mc_status sink_composer_edit(u64, u64) noexcept {
 void sink_keep_changed() noexcept {
     ++g_sink.keep_changed;
 }
+mc_status sink_open_channel(mc_open_channel* out) noexcept {
+    *out = {kChannel, 4, 31, 0};
+    return MC_OK;
+}
+// Three loaded messages, newest 13; capacity and `before` are the runtime's to pass through.
+mc_status sink_messages(u64 channel, u64 before, mc_message_ref* out, u32 capacity, u32* count) noexcept {
+    if (channel != 9 || before) return MC_E_NOT_FOUND;
+    for (u64 id = 13; id > 10 && *count < capacity; --id) out[(*count)++] = {id, 5, 1000 + id, MC_MESSAGE_OWN, 0};
+    return MC_OK;
+}
 const PluginPipelineSink kSink{sink_send,           sink_edit,           sink_react,         sink_delete,
                                sink_read,           sink_activity,       sink_local,         sink_local_remove,
                                sink_composer_text,  sink_composer_insert, sink_composer_replace, sink_composer_focus,
-                               sink_composer_reply, sink_composer_edit,  sink_keep_changed};
+                               sink_composer_reply, sink_composer_edit,  sink_keep_changed,  sink_open_channel,
+                               sink_messages};
 
 PipelineState& state_of(PluginBinding* binding) noexcept {
     return *static_cast<PipelineState*>(binding->ctx.state);
@@ -466,6 +482,11 @@ void test_actions(PluginRuntime* runtime, const Root& root) noexcept {
     draft("activity");
     check(state.status[5] == MC_OK && state.status[6] == MC_OK && g_sink.activities == 1 && g_sink.cleared == 1,
           "an activity is set and cleared");
+    draft("activity");
+    draft("activity");
+    check(state.status[5] == MC_E_RATE_LIMITED && state.status[6] == MC_OK && g_sink.activities == 2 &&
+              g_sink.cleared == 3,
+          "clearing an activity is never rate-limited");
     draft("local");
     check(state.status[7] == MC_OK && g_sink.locals == 1 && state.local_id == 4242,
           "a local message returns its id");
@@ -473,6 +494,23 @@ void test_actions(PluginRuntime* runtime, const Root& root) noexcept {
     check(state.status[8] == MC_OK && state.status[9] == MC_OK && state.status[10] == MC_OK &&
               state.status[11] == MC_E_TRUNCATED && g_sink.composer == 4,
           "the composer is inserted into, replaced, focused and read");
+    // Level 2: the replied-to author, the clock, the open channel, loaded messages, clearing a reply; the cache
+    // reads answer unsupported without the application's reader.
+    g_sink.composer = 0;
+    plugin_dispatch_draft(PluginHook::pre_send, {77, 88, 0, 31, {"level2", 6}, 0, 12345});
+    check(state.reply_author == 12345, "pre_send sees the replied-to message's author");
+    check(state.level2[0] == MC_OK && state.clock_ms > 1'600'000'000'000ull && state.level2[1] == MC_OK &&
+              state.offset >= -14 * 3600 && state.offset <= 14 * 3600,
+          "the clock and the local offset answer");
+    check(state.level2[2] == MC_OK && state.open_reply == 31, "the open channel carries the reply target");
+    check(state.level2[3] == MC_OK && state.message_count == 3 && state.first_message == 13,
+          "loaded messages come newest first");
+    check(state.level2[4] == MC_OK && g_sink.composer == 1 && g_sink.message == 0 && state.level2[5] == MC_E_INVALID,
+          "message 0 clears the reply, and only without a ping");
+    check(state.level2[6] == MC_E_UNSUPPORTED && state.level2[7] == MC_E_UNSUPPORTED,
+          "the cache reads need the application's reader");
+    check(state.level2[8] == MC_OK && g_sink.locals == 2 && g_sink.channel == 0,
+          "a local message in channel 0 goes to the open channel");
     // A click is a gesture: its reaction goes through.
     plugin_dispatch_click(message(10, "react please"), {MC_CLICK_LEFT, 1, 0});
     check(state.click_react_status == MC_OK && g_sink.reacts == 2, "a reaction from a click reaches the application");
@@ -515,7 +553,9 @@ void test_actions(PluginRuntime* runtime, const Root& root) noexcept {
     draft("send");
     check(state.status[0] == MC_E_UNSUPPORTED, "an application without a sink reports the action unsupported");
     plugin_pipeline_set_sink(&kSink);
+    const u32 cleared = g_sink.cleared;
     plugin_runtime_disable(runtime, enabled.binding);
+    check(g_sink.cleared == cleared + 1, "disabling a plugin that may set an activity clears it");
 
 
     // A plugin with no permissions: every account action is denied; local messages and kept reads are not.

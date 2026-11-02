@@ -103,6 +103,8 @@ mc_status read_user(u64 user_id, u64 guild_id, mc_user* out) noexcept;
 mc_status read_channel(u64 channel_id, mc_channel* out) noexcept;
 mc_status read_guild(u64 guild_id, mc_guild* out) noexcept;
 mc_status read_permissions(u64 guild_id, u64 channel_id, u64 user_id, u64* bits) noexcept;
+mc_status read_voice_channel(u64 user_id, u64 guild_id, u64* channel) noexcept;
+mc_status read_shared_group_dms(u64 user_id, u64* out, u32 capacity, u32* count) noexcept;
 // The id a descriptor button's slot node carries as action_id: bit 63 set, the button index below.
 inline constexpr u64 kButtonAction = 1ull << 63;
 

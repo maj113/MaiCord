@@ -31,6 +31,7 @@
 #include "maicord/ui/guild/context_policy.hpp"
 #include "maicord/ui/chat/messages/markdown.hpp"
 #include "../account/account_access.hpp"
+#include "../plugins/pipeline_host.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -1153,6 +1154,7 @@ bool application_guild_lifecycle_submit(u64 now) noexcept {
             b.leave_status = utf8_literal("Couldn't leave this server. Try again.");
             ++b.leave_revision;
         }
+        if (sent.ok()) application_plugins_own_removal(PluginOwnRemoval::guild, b.leave_guild);
         return sent.ok();
     }
     if (b.reorder_queued && !b.reorder_request && (!b.reorder_retry || b.reorder_retry <= now)) {

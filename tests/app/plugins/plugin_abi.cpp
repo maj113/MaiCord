@@ -10,10 +10,11 @@
 
 // Frozen layouts (the C fixture asserts every field; these guard the C++ view).
 static_assert(sizeof(mc_ctx) == 32 && sizeof(mc_setting_def) == 128 && sizeof(mc_hook) == 24);
-static_assert(sizeof(mc_draft) == 72 && offsetof(mc_draft, verdict) == 68);
+static_assert(sizeof(mc_draft) == 80 && offsetof(mc_draft, verdict) == 68 && offsetof(mc_draft, reply_author_id) == 72);
 static_assert(sizeof(mc_descriptor) == 232 && offsetof(mc_descriptor, hooks) == 160 &&
               offsetof(mc_descriptor, start) == 216);
-static_assert(sizeof(mc_api) == 320 && offsetof(mc_api, toast) == 48 && offsetof(mc_api, http) == 160);
+static_assert(sizeof(mc_api) == 368 && offsetof(mc_api, toast) == 48 && offsetof(mc_api, http) == 160 &&
+              offsetof(mc_api, clock) == 320);
 static_assert(sizeof(mc_message) == 112 && sizeof(mc_decoration) == 1208 && sizeof(mc_completion) == 64);
 
 namespace maicord::plugin_abi_tests {
@@ -213,6 +214,22 @@ mc_status MC_CALL host_composer_insert(mc_ctx*, mc_str text) {
     keep(g_host.text, text);
     return MC_OK;
 }
+mc_status MC_CALL host_clock(mc_ctx*, uint64_t* unix_ms) {
+    *unix_ms = 1'700'000'000'123ull;
+    return MC_OK;
+}
+mc_status MC_CALL host_local_offset(mc_ctx*, int64_t unix_seconds, int32_t* seconds_east) {
+    *seconds_east = unix_seconds > 0 ? 3600 : 0;
+    return unix_seconds >= 0 ? MC_OK : MC_E_INVALID;
+}
+mc_status MC_CALL host_read_voice_channel(mc_ctx*, uint64_t user, uint64_t, uint64_t* channel) {
+    *channel = user == 5 ? 66 : 0;
+    return *channel ? MC_OK : MC_E_NOT_FOUND;
+}
+mc_status MC_CALL host_read_open_channel(mc_ctx*, mc_open_channel* out) {
+    *out = {9, 4, 31, 0};
+    return MC_OK;
+}
 constexpr mc_api kApi{
     .size = sizeof(mc_api),
     .level = MC_API_LEVEL,
@@ -228,8 +245,26 @@ constexpr mc_api kApi{
     .copy_text = host_copy_text,
     .http = host_http,
     .composer_insert = host_composer_insert,
+    .clock = host_clock,
+    .local_offset = host_local_offset,
+    .read_voice_channel = host_read_voice_channel,
+    .read_open_channel = host_read_open_channel,
 };
 
+// Fills d from text that dies with this frame, as a decorate hook's locals do.
+void decorate_from_local(mc::Decoration& d) noexcept {
+    mc::Text<16> text, tip;
+    text.append("local");
+    tip.append("tip");
+    d.badge(mc::badge(text, mc::Tone::accent, {}, tip));
+    d.prefix(text);
+    d.card(mc::card().title(text));
+    // What the host would read if the decoration still pointed here.
+    for (u32 i = 0; i < text.size(); ++i)
+        text.data()[i] = '#';
+    for (u32 i = 0; i < tip.size(); ++i)
+        tip.data()[i] = '#';
+}
 void ctx_wrappers() noexcept {
     g_host = {};
     u64 state = 0;
@@ -272,6 +307,11 @@ void ctx_wrappers() noexcept {
               g_host.invalidate_what == MC_INVALIDATE_BUTTONS,
           "Ctx: invalidate");
     check(ctx.open_url("https://a.com") == MC_OK && same(g_host.text, "https://a.com"), "Ctx: open_url");
+    check(ctx.now_ms() == 1'700'000'000'123ull && ctx.local_offset(10) == 3600 && ctx.local_offset(-1) == 0,
+          "Ctx: the clock and the local offset, 0 on failure");
+    const auto open = ctx.read.open_channel();
+    check(ctx.read.voice_channel(5) == 66 && ctx.read.voice_channel(6) == 0 && open && open->reply_to == 31,
+          "Reader: voice channel and open channel");
 
     mc::Decoration d{};
     d.collapse("Hidden");
@@ -287,6 +327,19 @@ void ctx_wrappers() noexcept {
     const mc::Card c = mc::card().title("T").button("A", 1).button("B", 2).button("C", 3);
     check(same(c.mc_card::title, "T") && c.button_count == MC_CARD_BUTTONS && c.buttons[1].tag == 2,
           "Card: at most two buttons");
+
+    // A hook's locals are gone when the host reads its decoration: the text is copied.
+    mc::Decoration local{};
+    decorate_from_local(local);
+    const char* const kept_begin = mc::detail::g_kept;
+    const char* const kept_end = kept_begin + sizeof(mc::detail::g_kept);
+    const char* const badge_text = local.badges[0].text.data;
+    check(same(local.badges[0].text, "local") && same(local.badges[0].tooltip, "tip") &&
+              same(local.name_prefix, "local") && same(local.mc_decoration::card.title, "local") &&
+              badge_text >= kept_begin && badge_text < kept_end,
+          "Decoration: text from a hook's locals is copied");
+    const mc::Ctx next(&raw);
+    check(mc::detail::g_kept_used == 0, "Ctx: every entry point starts the decoration text over");
 }
 
 // ---- Plugin DLLs ---------------------------------------------------------------

@@ -154,7 +154,7 @@ per permission, grouped by risk, and the hosts:
 | `MC_PERM_MESSAGE_SEND` | `PRE_SEND`, `PRE_EDIT`, `PRE_TYPING` hooks | Change the messages you send or edit before they go out |
 | `MC_PERM_READ_MESSAGES` | `MESSAGE_CLICK`, `DECORATE_MESSAGE`, message events, popover buttons | Read your messages and who you talk to |
 | `MC_PERM_MESSAGE_HISTORY` | `MESSAGE_DELETED`, `MESSAGE_EDITED` | Keep deleted and edited messages visible while MaiCord is open |
-| `MC_PERM_READ_ACTIVITY` | Presence, voice, server, member and friend events | See typing, presence, voice, server and friend activity |
+| `MC_PERM_READ_ACTIVITY` | Presence, voice, server, member and friend events; a user's `presence` and `platforms` (else unknown and 0); `read.voice_channel` | See typing, presence, voice, server and friend activity |
 | `MC_PERM_NETWORK` | A non-empty `.network`; `ctx.http` | Connect to the servers listed below |
 | `MC_PERM_COMPOSER` | `ctx.composer.*` | Read and change what you are typing |
 | `MC_PERM_ACT_MESSAGES` | `ctx.send`, `edit_message`, `react`, `delete_message`, `mark_read` | Send, edit and delete your messages, add reactions and mark channels read |
@@ -254,7 +254,7 @@ merge: one handler per event type).
 
 | Signature | Hook | Notes |
 |---|---|---|
-| `void (Ctx&, Draft&)` | `PRE_SEND` | `replace`, `cancel`, `confirm(question)`, `set_flag(MC_DRAFT_SILENT...)` |
+| `void (Ctx&, Draft&)` | `PRE_SEND` | `replace`, `cancel`, `confirm(question)`, `set_flag(MC_DRAFT_SILENT...)`; `reply()` and `reply_author()` name what it replies to |
 | `void (Ctx&, EditDraft&)` | `PRE_EDIT` | |
 | `bool (Ctx&, const Message&, const Click&)` | `MESSAGE_CLICK` | true = handled; filter `MC_CLICK_FILTER_*` |
 | `bool (Ctx&, const DeletedMessage&)` | `MESSAGE_DELETED` | true = keep a tombstone |
@@ -356,7 +356,9 @@ static void decorate(Ctx& ctx, const Message& m, Decoration& d) {
 `Tone` (theme roles; `Tone::role` is the author's role colour for name
 affixes). Button and card-button tags are 1..2^63-1 and reach `NODE_ACTION`.
 `ctx.push_message/user/channel/guild/header()` set a decoration without a
-pull hook.
+pull hook. The host reads a decoration after the hook returns, so
+`Decoration` copies the text you give it: building it from a local `Text<N>`
+is fine (a C plugin must keep such text in static or state memory).
 
 ```cpp
 static void on_node(Ctx& ctx, const NodeAction& action) {
@@ -434,13 +436,17 @@ buttons, `button` (`ButtonEvent`).
 | `settings()`, `set_setting(id, value)`, `state<T>()` | |
 | `http.get<F>(url, tag, headers)`, `http.post<F>(url, body, tag, headers)` | F: `void (Ctx&, const HttpResult&, u64 tag)`; 30 per minute, 4 in flight, 1 MiB answers |
 | `banner<F>(Banner)`, `banner(Banner)`, `clear_banner()` | F: `void (Ctx&, const BannerResult&, u64)` |
-| `modal<F>(Modal, tag)` | a confirmation or a small form; F: `void (Ctx&, const ModalResult&, u64)` |
+| `modal<F>(Modal, tag)` | a confirmation or a small form; F: `void (Ctx&, const ModalResult&, u64)`. For long read-only text use a form with `MC_MODAL_MULTILINE` and `input_initial` (up to 2,000 bytes): the box scrolls and can be selected |
 | `open_url(url)`, `copy(text)`, `open_channel(id)`, `open_profile(user, guild)` | gestures |
 | `local_message(text, channel)`, `remove_local_message(channel, id)` | only you see it |
-| `composer.text/insert/replace/focus/reply/edit` | `composer` permission |
-| `send`, `edit_message`, `react`, `delete_message`, `mark_read`, `set_activity` | gestures, or `automated_actions` |
+| `composer.text/insert/replace/focus/reply/clear_reply/edit` | `composer` permission |
+| `send`, `edit_message`, `react`, `delete_message`, `mark_read`, `set_activity` | gestures, or `automated_actions`; `set_activity(nullptr)` is never limited, and the host clears your activity when the plugin stops |
 | `timer(id, ms, repeat)`, `cancel_timer(id)` | 16 timers, at least 100 ms |
-| `read.user/channel/guild/permissions` | cache only; never fetches |
+| `now_ms()`, `local_offset(unix_seconds)` | the wall clock (Unix ms) and the user's UTC offset in seconds at that instant |
+| `read.user/channel/guild/permissions` | cache only; never fetches. `read.guild` also counts boosts, channels, roles and emoji |
+| `read.voice_channel(user, guild)` | the voice channel the user is in, or 0; needs `read_activity` |
+| `read.open_channel()` | the open channel, the composer's reply target and the message being edited |
+| `read.messages(channel, before, out)`, `read.shared_group_dms(user, out)` | the open channel's loaded messages (ids, authors, flags; no text), newest first; group DMs you share with a user. Both need `read_messages` declared |
 | `kept.info/text/restore` | messages kept by `MESSAGE_DELETED`/`EDITED` |
 | `invalidate_message/user/channel/guild`, `invalidate_headers`, `invalidate_buttons` | |
 
