@@ -28,17 +28,18 @@ inline UiSearchTarget application_search_rich_target(const UiSearchScene& search
     return target;
 }
 static_assert(sizeof(ApplicationSearchSourceTicket) == 16);
+// No default member initializers: `ApplicationSearchSourceView view{}` is one zero fill.
 struct ApplicationSearchSourceView {
-    ApplicationSearchSourceTicket ticket{};
-    const MessageStore* store{};
-    const MessageRecord* message{};
-    MessageHandle handle{};
-    MessageRichStore* rich_store{};
-    const MessageRichRecord* rich{};
-    Utf8View author{}, avatar_hash{};
-    u64 source_channel_id{};
-    u64 guild_id{};
-    bool snapshot{};
+    ApplicationSearchSourceTicket ticket;
+    const MessageStore* store;
+    const MessageRecord* message;
+    MessageHandle handle;
+    MessageRichStore* rich_store;
+    const MessageRichRecord* rich;
+    Utf8View author, avatar_hash;
+    u64 source_channel_id;
+    u64 guild_id;
+    bool snapshot;
 };
 struct ApplicationSearchNavigationSource {
     ApplicationSearchSourceTicket ticket{};

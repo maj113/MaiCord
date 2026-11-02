@@ -37,7 +37,7 @@ struct Writer {
     }
 };
 // CDN asset hashes: 32 hexadecimal digits, a_ for animated assets.
-bool hash_valid(Utf8View hash) noexcept {
+bool hash_valid(const Utf8View& hash) noexcept {
     const u32 begin = ui_guild_banner_animated_hash(hash) ? 2u : 0u;
     if (!hash.data || hash.bytes != begin + 32)
         return false;
@@ -77,11 +77,11 @@ u32 ui_media_proxy_size(u32 pixels) noexcept {
     return 4096;
 }
 
-bool ui_guild_banner_animated_hash(Utf8View hash) noexcept {
+bool ui_guild_banner_animated_hash(const Utf8View& hash) noexcept {
     return hash.data && hash.bytes > 2 && hash.data[0] == 'a' && hash.data[1] == '_';
 }
 
-bool ui_guild_banner_media(u64 guild_id, Utf8View hash, u32 dpi, bool animate, bool gif,
+bool ui_guild_banner_media(u64 guild_id, const Utf8View& hash, u32 dpi, bool animate, bool gif,
                            UiGuildImageMedia* output) noexcept {
     if (!output || !guild_id || !hash_valid(hash))
         return false;

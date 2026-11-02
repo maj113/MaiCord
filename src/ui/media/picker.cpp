@@ -500,7 +500,7 @@ bool ui_media_picker_scene_rail_media(const UiMediaPickerScene& scene, u32 index
     return ui_rect_has_area(output->clip);
 }
 namespace {
-bool media_slot(const UiMediaPickerScene& scene, const UiMediaPickerCell& cell, UiRect rectangle, UiRect clip,
+bool media_slot(const UiMediaPickerScene& scene, const UiMediaPickerCell& cell, const UiRect& rectangle, const UiRect& clip,
                 UiMediaPickerMediaSlot* output) noexcept {
     if (!cell.item.enabled || (!cell.item.asset_id && !cell.item.regional_flag))
         return false;

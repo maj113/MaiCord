@@ -113,21 +113,23 @@ constexpr bool guild_self_quarantined(const GuildSettings& settings) noexcept {
            (settings.self_member & guild_self_member_quarantined);
 }
 
+// The input structs have no default member initializers: with them `T x{}` stores field by field, without them it is
+// one fill. Omitted trailing members of a braced list and `T x{}` are still zero; never declare one as `T x;`.
 struct GuildInput {
     u64 id;
     Utf8View name;
     GuildMutationKind kind;
     u64 owner_id;
-    Utf8View icon_hash{};
-    bool icon_known = false;
-    u8 upload_features = 0;
-    bool upload_features_known = false;
-    u8 nsfw_level = 0;
-    bool nsfw_level_known = false;
-    const GuildSettings* settings = nullptr;
+    Utf8View icon_hash;
+    bool icon_known;
+    u8 upload_features;
+    bool upload_features_known;
+    u8 nsfw_level;
+    bool nsfw_level_known;
+    const GuildSettings* settings;
     // "banner" key seen: the hash (empty for null) replaces the stored one.
-    Utf8View banner_hash{};
-    bool banner_known = false;
+    Utf8View banner_hash;
+    bool banner_known;
 };
 
 struct ChannelInput {
@@ -138,27 +140,27 @@ struct ChannelInput {
     u32 position;
     u32 flags;
     u8 type;
-    u64 last_message_id = 0;
-    bool last_message_known = false;
-    u64 member_list_id = 0;
-    bool member_list_id_known = false;
-    bool name_known = false;
-    bool thread_archived = false;
-    bool thread_archived_known = false;
-    u8 content_policy = 0;
-    bool content_policy_known = false;
-    bool thread_locked = false;
-    bool thread_locked_known = false;
-    bool thread_self_joined = false;
-    bool thread_self_joined_known = false;
-    bool thread_listed_active = false;
-    bool thread_active_known = false;
-    u16 rate_limit_per_user = 0;
-    bool rate_limit_known = false;
+    u64 last_message_id;
+    bool last_message_known;
+    u64 member_list_id;
+    bool member_list_id_known;
+    bool name_known;
+    bool thread_archived;
+    bool thread_archived_known;
+    u8 content_policy;
+    bool content_policy_known;
+    bool thread_locked;
+    bool thread_locked_known;
+    bool thread_self_joined;
+    bool thread_self_joined_known;
+    bool thread_listed_active;
+    bool thread_active_known;
+    u16 rate_limit_per_user;
+    bool rate_limit_known;
     // Thread only: join time in Unix seconds; zero keeps the stored one.
-    u32 thread_join_seconds = 0;
+    u32 thread_join_seconds;
     // Text/announcement/forum default thread archive (channel_archive_code); zero keeps the stored one.
-    u8 default_archive_code = 0;
+    u8 default_archive_code;
 };
 // default_auto_archive_duration minutes as a code: 1 hour, 1 day, 3 days, 1 week
 // are 1..4; any other value is 0 (unknown).
@@ -380,17 +382,17 @@ struct RoleInput {
     u64 guild_id;
     u64 permissions;
     Utf8View name;
-    u32 position = 0;
-    u32 color = 0;
-    bool hoist = false;
-    bool managed = false;
-    bool mentionable = false;
-    bool has_icon = false;
-    bool in_prompt = false;
+    u32 position;
+    u32 color;
+    bool hoist;
+    bool managed;
+    bool mentionable;
+    bool has_icon;
+    bool in_prompt;
     // Enhanced role colours: RGB | kRoleColorPresent, or zero when absent.
-    u32 secondary_color = 0;
-    u32 tertiary_color = 0;
-    bool linked = false;
+    u32 secondary_color;
+    u32 tertiary_color;
+    bool linked;
 };
 
 struct PermissionOverwriteInput {

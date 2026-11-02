@@ -130,8 +130,8 @@ Utf8View reaction_picker_result_guild_name(const ReactionPickerModel&, u32 logic
 // emoji_shortcode_key() (keys for entries this client adds). Returns 0 when
 // the emoji has no settings key. Parsing accepts any alias, catalog name or
 // the raw emoji sequence.
-u32 reaction_emoji_settings_key(ReactionEmojiRef, Slice<char> output) noexcept;
-ReactionEmojiRef reaction_emoji_from_settings_key(Utf8View key) noexcept;
+u32 reaction_emoji_settings_key(ReactionEmojiRef, const Slice<char>& output) noexcept;
+ReactionEmojiRef reaction_emoji_from_settings_key(const Utf8View& key) noexcept;
 // Unique custom (<:name:id>) and Unicode emoji in message content, in order.
 u32 reaction_emoji_scan_message(Utf8View content, Slice<ReactionEmojiRef> output) noexcept;
 

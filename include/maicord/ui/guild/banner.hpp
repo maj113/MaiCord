@@ -29,7 +29,7 @@ struct UiGuildImageMedia {
 // An a_ hash adds &animated=true while animating; gif selects the GIF
 // representation (a fallback for a failed animated WebP). A static banner shows
 // the hash's first frame.
-bool ui_guild_banner_media(u64 guild_id, Utf8View hash, u32 dpi, bool animate, bool gif,
+bool ui_guild_banner_media(u64 guild_id, const Utf8View& hash, u32 dpi, bool animate, bool gif,
                            UiGuildImageMedia* output) noexcept;
 // Invite and discovery splash URLs: JPEG at ui_media_proxy_size(min(size_dips*dpr, 512)):
 //   https://cdn.discordapp.com/splashes|discovery-splashes/{guild}/{hash}.jpg?size=N
@@ -87,7 +87,7 @@ struct UiGuildBannerAnimation {
     bool was_visible;
     bool hovered;
 };
-bool ui_guild_banner_animated_hash(Utf8View hash) noexcept;
+bool ui_guild_banner_animated_hash(const Utf8View& hash) noexcept;
 // Updates the state for this frame and returns whether the banner animates.
 bool ui_guild_banner_animate(UiGuildBannerAnimation* state, u64 guild_id, bool eligible, bool visible, bool hovered,
                              bool gif_autoplay, u64 now_ms) noexcept;

@@ -295,7 +295,7 @@ struct StoreList {
 
 // ---- Projection (store_projection.cpp) --------------------------------------------------------------------
 // Whether a listed item matches the words of `query` (word-prefix over name, summary, authors, categories).
-bool store_item_matches(const StoreItem&, Utf8View query) noexcept;
+bool store_item_matches(const StoreItem&, const Utf8View& query) noexcept;
 // The filter chips of a kind over the listed items, with counts. Base/cost chips first, categories sorted by
 // name, "Low access only" last for plugins.
 void store_chips_build(const StoreModel&, CatalogKind, StoreChips*) noexcept;
@@ -312,7 +312,7 @@ void store_installed_list(const StoreModel&, const StorePageState&, StoreList*) 
 void store_updates_list(const StoreModel&, StoreList*) noexcept;
 u32 store_update_count(const StoreModel&, CatalogKind) noexcept;
 u32 store_installed_count(const StoreModel&, CatalogKind) noexcept;
-u32 store_find_item(const StoreModel&, CatalogKind, Utf8View slug) noexcept;
+u32 store_find_item(const StoreModel&, CatalogKind, const Utf8View& slug) noexcept;
 // The page opens on Installed when something is installed, else Browse.
 StoreTab store_initial_tab(const StoreModel&, CatalogKind) noexcept;
 

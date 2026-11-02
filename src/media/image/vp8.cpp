@@ -97,10 +97,12 @@ void from_window(const WindowReader& window, Vp8BoolReader* reader) noexcept {
     u64 value = window.value;
     i32 bits = window.bits;
     u32 offset = window.offset;
+#pragma clang loop unroll(disable)
     while (bits < 1 && offset < window.count) {
         value = value << 8 | window.data[offset++];
         bits += 8;
     }
+#pragma clang loop unroll(disable)
     while (bits > 8) {
         value >>= 8;
         bits -= 8;

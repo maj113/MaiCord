@@ -23,8 +23,8 @@ struct ProfileMedia {
 };
 // On success, initializes every output field; callers may reuse uncleared storage.
 bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* output) noexcept;
-bool user_guild_badge_media(const UserAppearance&, UiRect rectangle, UiRect clip, ProfileMedia*) noexcept;
-bool user_guild_badge_media(const UserAppearanceRecord&, UiRect rectangle, UiRect clip,
+bool user_guild_badge_media(const UserAppearance&, const UiRect& rectangle, const UiRect& clip, ProfileMedia*) noexcept;
+bool user_guild_badge_media(const UserAppearanceRecord&, const UiRect& rectangle, const UiRect& clip,
                             ProfileMedia*) noexcept;
 // One-way switch of an animated banner to its GIF representation after a WebP
 // failure; false when already switched. Only the media URL changes, so retained

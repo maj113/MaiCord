@@ -10,14 +10,14 @@
 
 namespace maicord {
 namespace {
-bool rounded(PaintStream* paint, UiRect rectangle, Color fill, float radius) noexcept {
+bool rounded(PaintStream* paint, const UiRect& rectangle, const Color& fill, float radius) noexcept {
     return !ui_rect_has_area(rectangle) ||
            paint_stream_push_rounded(paint, rectangle, fill, radius);
 }
 bool owner_current(UiWidgetReference owner) noexcept {
     return owner.manager && ui_widget_manager_resolve(*owner.manager, owner.handle);
 }
-bool range_paint(PaintStream* paint, UiRect bounds, float fraction, Color track, Color played) noexcept {
+bool range_paint(PaintStream* paint, const UiRect& bounds, float fraction, const Color& track, const Color& played) noexcept {
     const float center = (bounds.top + bounds.bottom) * .5f;
     const UiRect rail{bounds.left, center - 2, bounds.right, center + 2};
     const UiRect progress{rail.left, rail.top, rail.left + ui_rect_width(rail) * fraction, rail.bottom};
@@ -62,8 +62,8 @@ bool waveform_paint(const UiAudioControlsProjection& projection, const UiAudioCo
 } // namespace
 
 bool ui_audio_attachment_project(const MessageRichStore& store, const MessageRichAttachment& attachment,
-                                 u64 generation, u64 revision, bool voice, UiRect bounds,
-                                 const Theme& theme, Slice<u8> waveform_scratch,
+                                 u64 generation, u64 revision, bool voice, const UiRect& bounds,
+                                 const Theme& theme, const Slice<u8>& waveform_scratch,
                                  UiAudioControlsProjection* out) noexcept {
     if (!message_rich_attachment_audio_supported(store, attachment))
         return false;
@@ -102,7 +102,7 @@ bool ui_audio_attachment_project(const MessageRichStore& store, const MessageRic
 }
 
 bool ui_audio_controls_paint(const UiAudioControlsProjection& projection, const UiAudioControlsStyle& style,
-                             UiRect clip, const Theme& theme, UiWidgetReference owner, PaintStream* paint,
+                             const UiRect& clip, const Theme& theme, UiWidgetReference owner, PaintStream* paint,
                              UiAudioControl focus, UiAudioControl hover, bool keyboard_focus) noexcept {
     if (!paint || !owner_current(owner) || !ui_rect_has_area(projection.geometry.bounds) ||
         !ui_rect_valid_or_empty(clip))
@@ -169,7 +169,7 @@ bool ui_audio_controls_paint(const UiAudioControlsProjection& projection, const 
     return painted && popped;
 }
 
-bool ui_audio_controls_text_output(const UiAudioControlsProjection& projection, UiRect clip,
+bool ui_audio_controls_text_output(const UiAudioControlsProjection& projection, const UiRect& clip,
                                    UiWidgetReference owner, UiTextOutput* output) noexcept {
     if (!output || !owner_current(owner) || !ui_rect_valid_or_empty(clip))
         return false;

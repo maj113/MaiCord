@@ -63,7 +63,7 @@ bool utf8_continuation(char byte) noexcept {
 // Appends normalized text: whitespace runs collapse to one space, U+FFFC and
 // other C0 controls are dropped, and the total stays within limit on a scalar
 // boundary. Returns bytes appended.
-u32 append_normalized(UiAccessTree* tree, Utf8View text, u32 used, u32 limit, bool leading_space) noexcept {
+u32 append_normalized(UiAccessTree* tree, const Utf8View& text, u32 used, u32 limit, bool leading_space) noexcept {
     u32 written = 0;
     bool pending_space = leading_space && used != 0;
     const u32 capacity = tree->text.count;
@@ -114,7 +114,7 @@ u32 append_normalized(UiAccessTree* tree, Utf8View text, u32 used, u32 limit, bo
     return written;
 }
 
-bool write_field(UiAccessTree* tree, Utf8View text, u32 limit, u32* offset, u32* bytes) noexcept {
+bool write_field(UiAccessTree* tree, const Utf8View& text, u32 limit, u32* offset, u32* bytes) noexcept {
     *offset = tree->text_used;
     const u32 written = append_normalized(tree, text, 0, limit, false);
     tree->text_used += written;
@@ -136,7 +136,7 @@ bool write_raw(UiAccessTree* tree, Utf8View text, u32 limit, u32* offset, u32* b
     return length == text.bytes;
 }
 
-bool append_name(UiAccessTree* tree, u32 node_index, Utf8View text) noexcept {
+bool append_name(UiAccessTree* tree, u32 node_index, const Utf8View& text) noexcept {
     auto& node = tree->nodes[node_index];
     if (node.name_offset + node.name_bytes != tree->text_used || node.name_bytes == 0) {
         // Move the current name to the tail so it can grow in place.
@@ -442,7 +442,7 @@ u32 ui_access_add(UiAccessTree* tree, u32 parent, const UiAccessNodeDesc& descri
     return index;
 }
 
-bool ui_access_set_name(UiAccessTree* tree, u32 node, Utf8View name) noexcept {
+bool ui_access_set_name(UiAccessTree* tree, u32 node, const Utf8View& name) noexcept {
     if (!tree || node >= tree->count)
         return false;
     u32 offset = 0, bytes = 0;
@@ -508,8 +508,8 @@ u32 ui_access_widget_node(const UiAccessTree& tree, UiWidgetReference widget) no
     return tree.slot_map[owner->slot_base + widget.handle.slot];
 }
 
-bool ui_access_attribute_text(UiAccessTree* tree, UiWidgetReference owner, Utf8View text,
-                              UiRect rectangle) noexcept {
+bool ui_access_attribute_text(UiAccessTree* tree, UiWidgetReference owner, const Utf8View& text,
+                              const UiRect& rectangle) noexcept {
     if (!tree || !text.bytes)
         return false;
     const u32 node = ui_access_widget_node(*tree, owner);
@@ -964,7 +964,7 @@ enum TextClass : u8 {
     text_punctuation,
 };
 
-u32 decode_scalar(Utf8View text, u32 index, u32* width) noexcept {
+u32 decode_scalar(const Utf8View& text, u32 index, u32* width) noexcept {
     const Utf8DecodeResult decoded = utf8_decode_one(text.data + index, text.bytes - index);
     *width = decoded.valid ? decoded.width : 1u;
     return decoded.valid ? decoded.codepoint : static_cast<u8>(text.data[index]);
@@ -983,7 +983,7 @@ bool regional_indicator(u32 scalar) noexcept {
 }
 
 // End of the cluster starting at index; type receives its class.
-u32 next_cluster(Utf8View text, u32 index, TextClass* type) noexcept {
+u32 next_cluster(const Utf8View& text, u32 index, TextClass* type) noexcept {
     u32 width = 0;
     const u32 scalar = decode_scalar(text, index, &width);
     u32 next = index + width;
@@ -1086,7 +1086,7 @@ BoundaryScan boundary_scan(Utf8View text, UiAccessTextUnit unit) noexcept {
 
 } // namespace
 
-u32 ui_access_text_align(Utf8View text, u32 offset) noexcept {
+u32 ui_access_text_align(const Utf8View& text, u32 offset) noexcept {
     if (offset >= text.bytes)
         return text.bytes;
     auto boundaries = boundary_scan(text, UiAccessTextUnit::character);
@@ -1097,7 +1097,7 @@ u32 ui_access_text_align(Utf8View text, u32 offset) noexcept {
     return aligned;
 }
 
-void ui_access_text_expand(Utf8View text, UiAccessTextUnit unit, u32* start, u32* end) noexcept {
+void ui_access_text_expand(const Utf8View& text, UiAccessTextUnit unit, u32* start, u32* end) noexcept {
     if (!start || !end)
         return;
     u32 position = ui_access_text_align(text, *start);
@@ -1115,7 +1115,7 @@ void ui_access_text_expand(Utf8View text, UiAccessTextUnit unit, u32* start, u32
     *end = last < first ? first : last;
 }
 
-i32 ui_access_text_move_endpoint(Utf8View text, UiAccessTextUnit unit, i32 count, u32* offset) noexcept {
+i32 ui_access_text_move_endpoint(const Utf8View& text, UiAccessTextUnit unit, i32 count, u32* offset) noexcept {
     if (!offset)
         return 0;
     const u32 position = ui_access_text_align(text, *offset);

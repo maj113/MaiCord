@@ -739,10 +739,6 @@ void describe_settings(void*, const UiWidgetManager&, UiWidgetHandle handle, con
             if (control->action_label.bytes)
                 info->value = control->action_label;
             break;
-        case UiSettingsControlKind::empty:
-            info->role = UiAccessRole::group;
-            info->actions = ui_access_action_invoke;
-            break;
         default:
             info->role = UiAccessRole::text;
             info->actions = ui_access_action_invoke;

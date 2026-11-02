@@ -43,7 +43,7 @@ constexpr bool ui_composer_voice_bar_visible(UiComposerVoiceMode mode) noexcept 
 struct UiComposerVoiceBarGeometry {
     UiRect dot, time, waveform, status;
 };
-UiComposerVoiceBarGeometry ui_composer_voice_bar_geometry(UiRect bar, const UiComposerVoiceView&) noexcept;
+UiComposerVoiceBarGeometry ui_composer_voice_bar_geometry(const UiRect& bar, const UiComposerVoiceView&) noexcept;
 // Bars drawn for a waveform span; the newest live levels fill from the right.
 u32 ui_composer_voice_bar_count(float waveform_width) noexcept;
 bool ui_composer_voice_bar_paint(const UiComposerVoiceView&, UiRect bar, const Theme&, PaintStream*) noexcept;

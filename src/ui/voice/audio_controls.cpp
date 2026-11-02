@@ -84,7 +84,7 @@ float ui_audio_card_height(const UiAudioControlsStyle& style, float width, bool 
         return 0;
     return 2 * style.padding + 2 * style.target + style.gap + (voice ? 0 : style.title_height + style.gap);
 }
-bool ui_audio_card_geometry(UiRect bounds, const UiAudioControlsStyle& style, UiAudioCardGeometry* out,
+bool ui_audio_card_geometry(const UiRect& bounds, const UiAudioControlsStyle& style, UiAudioCardGeometry* out,
                             bool voice, bool volume_expanded) noexcept {
     if (!out || !paint_coordinate_valid(bounds.left) || !paint_coordinate_valid(bounds.top) ||
         !paint_coordinate_valid(bounds.right) || !paint_coordinate_valid(bounds.bottom))
@@ -125,7 +125,7 @@ bool ui_audio_card_geometry(UiRect bounds, const UiAudioControlsStyle& style, Ui
     *out = geometry;
     return true;
 }
-bool ui_audio_controls_project(const UiAudioPlaybackState& state, UiRect bounds,
+bool ui_audio_controls_project(const UiAudioPlaybackState& state, const UiRect& bounds,
                                const UiAudioControlsStyle& style, const Theme& theme,
                                UiAudioControlsProjection* out, bool volume_expanded) noexcept {
     if (!out || !state.owner || !state.generation || !state.revision || state.volume > 100 ||
@@ -343,12 +343,12 @@ bool ui_audio_action_current(const UiAudioPlaybackState& state, const UiAudioAct
 }
 
 namespace {
-bool rectangle(UiRect bounds) noexcept {
+bool rectangle(const UiRect& bounds) noexcept {
     return paint_coordinate_valid(bounds.left) && paint_coordinate_valid(bounds.top) &&
            paint_coordinate_valid(bounds.right) && paint_coordinate_valid(bounds.bottom) &&
            bounds.right > bounds.left && bounds.bottom > bounds.top;
 }
-bool contains(UiRect bounds, UiPoint point) noexcept {
+bool contains(const UiRect& bounds, UiPoint point) noexcept {
     return paint_coordinate_valid(point.x) && paint_coordinate_valid(point.y) && point.x >= bounds.left &&
            point.x < bounds.right && point.y >= bounds.top && point.y < bounds.bottom;
 }

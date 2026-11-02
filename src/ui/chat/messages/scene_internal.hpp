@@ -22,14 +22,14 @@ bool plugin_folded(const MessageScene& scene, const MessageRecord& record) noexc
 const MessageRichRecord* row_rich(const MessageScene& scene, const MessageRecord& record) noexcept;
 const MessagePollRecord* row_poll(const MessageScene& scene, const MessageRecord& record) noexcept;
 bool poll_state(const MessageScene& scene, const MessageRecord& record, MessageHandle handle,
-                Slice<UiPollAnswer> answers, UiPollState* out) noexcept;
+                const Slice<UiPollAnswer>& answers, UiPollState* out) noexcept;
 float content_trailing(bool accessories) noexcept;
 float intro_row_height(const MessageScene& scene, const MessageSceneRowWidget& row) noexcept;
 bool set_resident_height(MessageScene* scene, u32 index, u32 units) noexcept;
 float row_required_height(const MessageScene& scene, const MessageSceneRowWidget& row,
                           const MessageRichRecord* rich) noexcept;
 const MessageRichRecord* snapshot_rich(const MessageScene& scene, u64 message_id) noexcept;
-bool prepare_resident_measurements(MessageScene* scene, UiRect viewport) noexcept;
+bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) noexcept;
 bool apply_row_specs(MessageScene* scene, MessageSceneRowWidget* row) noexcept;
 void clear_materialization(MessageScene* scene) noexcept;
 u64 focused_message(const MessageScene& scene) noexcept;

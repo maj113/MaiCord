@@ -1,5 +1,6 @@
 #include "maicord/app/plugins/http.hpp"
 #include "maicord/app/plugins/loader.hpp"
+#include "maicord/app/plugins/text.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
@@ -87,19 +88,14 @@ struct Image {
         return false;
     }
     // A string that lives in the image: UTF-8 without control characters.
-    bool text(mc_str string, u32 minimum, u32 maximum, bool newlines = false) const noexcept {
+    bool text(const mc_str& string, u32 minimum, u32 maximum, bool newlines = false) const noexcept {
         if (string.reserved || string.bytes < minimum || string.bytes > maximum) return false;
         if (!string.bytes) return true;
-        if (!contains(string.data, string.bytes) || !utf8_validate({string.data, string.bytes}).valid) return false;
-        for (u32 i = 0; i < string.bytes; ++i) {
-            const u8 c = static_cast<u8>(string.data[i]);
-            if ((c < 0x20 && !(newlines && c == '\n')) || c == 0x7f) return false;
-        }
-        return true;
+        return contains(string.data, string.bytes) && plugin_text_clean(string.data, string.bytes, newlines ? kPluginTextLines : 0);
     }
 };
 
-bool key_ok(mc_str key, const Image& image) noexcept {
+bool key_ok(const mc_str& key, const Image& image) noexcept {
     if (!image.text(key, 1, MC_SETTING_KEY_MAX)) return false;
     for (u32 i = 0; i < key.bytes; ++i) {
         const char c = key.data[i];
@@ -227,7 +223,7 @@ bool hook_ok(const mc_hook& hook, const Image& image) noexcept {
 }
 
 // Command and argument names: 1..MC_COMMAND_NAME_MAX bytes of [a-z0-9_-].
-bool command_name_ok(mc_str name, const Image& image) noexcept {
+bool command_name_ok(const mc_str& name, const Image& image) noexcept {
     if (!image.text(name, 1, MC_COMMAND_NAME_MAX)) return false;
     for (u32 i = 0; i < name.bytes; ++i) {
         const char c = name.data[i];
@@ -235,7 +231,7 @@ bool command_name_ok(mc_str name, const Image& image) noexcept {
     }
     return true;
 }
-bool same_text(mc_str a, mc_str b) noexcept {
+bool same_text(const mc_str& a, const mc_str& b) noexcept {
     return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes);
 }
 

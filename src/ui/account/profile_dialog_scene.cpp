@@ -43,7 +43,7 @@ enum Role : u8 {
 bool crop(const UiProfileDialogScene& s) noexcept {
     return s.content.kind == UiProfileDialogKind::crop;
 }
-UiRect panel_rect(UiProfileDialogKind kind, UiRect viewport, float height) noexcept {
+UiRect panel_rect(UiProfileDialogKind kind, const UiRect& viewport, float height) noexcept {
     const float width = minimum(kind == UiProfileDialogKind::crop ? kCropWidth : kPickerWidth,
                                 maximum(240.f, ui_rect_width(viewport) - 32));
     const float left = viewport.left + (ui_rect_width(viewport) - width) * .5f;
@@ -254,13 +254,13 @@ UiRect decoration_rect(UiRect avatar) noexcept {
 }
 } // namespace
 
-UiRect ui_profile_dialog_crop_editor(UiRect viewport) noexcept {
+UiRect ui_profile_dialog_crop_editor(const UiRect& viewport) noexcept {
     const auto panel = panel_rect(UiProfileDialogKind::crop, viewport, crop_height(viewport));
     const float top = panel.top + kTop + kTitleLine + kBodyGap * 2;
     return {panel.left + kSide + 1, top, panel.right - kSide - 1, top + image_crop_editor_height(ui_rect_height(viewport))};
 }
 
-bool ui_profile_dialog_update(UiProfileDialogScene* s, const UiProfileDialogContent& content, UiRect viewport) noexcept {
+bool ui_profile_dialog_update(UiProfileDialogScene* s, const UiProfileDialogContent& content, const UiRect& viewport) noexcept {
     if (!s || content.kind == UiProfileDialogKind::none || !ui_rect_has_area(viewport))
         return false;
     // The host rebuilds every frame; a press, hover or focus carries over to the

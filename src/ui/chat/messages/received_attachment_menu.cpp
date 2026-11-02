@@ -46,7 +46,7 @@ inline Utf8View link_label(ReceivedAttachmentLinkKind link, bool open) noexcept 
 }
 } // namespace
 
-ReceivedAttachmentLinkKind received_attachment_link_kind(Utf8View url) noexcept {
+ReceivedAttachmentLinkKind received_attachment_link_kind(const Utf8View& url) noexcept {
     constexpr Utf8View scheme = utf8_literal("https://");
     if (!url.data || url.bytes <= scheme.bytes || !equal_ascii_case(url.data, scheme.bytes, "https://"))
         return ReceivedAttachmentLinkKind::link;
@@ -67,7 +67,7 @@ ReceivedAttachmentLinkKind received_attachment_link_kind(Utf8View url) noexcept 
                : ReceivedAttachmentLinkKind::media;
 }
 
-u32 received_attachment_menu(const ReceivedAttachmentMenuFacts& facts, Slice<PopupItem> output) noexcept {
+u32 received_attachment_menu(const ReceivedAttachmentMenuFacts& facts, const Slice<PopupItem>& output) noexcept {
     if (!output.data || output.count < kReceivedAttachmentMenuItems || !facts.url.data ||
         facts.url.bytes <= 8 || !equal_ascii_case(facts.url.data, 8, "https://"))
         return 0;
@@ -96,7 +96,7 @@ u32 received_attachment_menu(const ReceivedAttachmentMenuFacts& facts, Slice<Pop
 
 namespace {
 u32 link_pair(const Utf8View (&labels)[kMessageLinkMenuItems], const u32 (&actions)[kMessageLinkMenuItems],
-              const UiIcon (&icons)[kMessageLinkMenuItems], Slice<PopupItem> output) noexcept {
+              const UiIcon (&icons)[kMessageLinkMenuItems], const Slice<PopupItem>& output) noexcept {
     if (!output.data || output.count < kMessageLinkMenuItems)
         return 0;
     for (u32 i = 0; i < kMessageLinkMenuItems; ++i) {

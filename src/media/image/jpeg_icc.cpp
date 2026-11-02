@@ -1,5 +1,8 @@
 #include "jpeg_internal.hpp"
 
+// The profile is parsed once per image: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+
 namespace maicord {
 namespace jpeg_detail {
 
@@ -728,3 +731,4 @@ void finalize_icc_profile(ConstSlice<u8> encoded, const JpegIccChunk* chunks, u3
 
 } // namespace jpeg_detail
 } // namespace maicord
+#pragma clang attribute pop

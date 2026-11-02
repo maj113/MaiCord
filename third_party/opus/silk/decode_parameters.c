@@ -60,6 +60,7 @@ void silk_decode_parameters(
     if( psDec->indices.NLSFInterpCoef_Q2 < 4 ) {
         /* Calculation of the interpolated NLSF0 vector from the interpolation factor, */
         /* the previous NLSF1, and the current NLSF1                                   */
+        SHORT_LOOP
         for( i = 0; i < psDec->LPC_order; i++ ) {
             pNLSF0_Q15[ i ] = psDec->prevNLSF_Q15[ i ] + silk_RSHIFT( silk_MUL( psDec->indices.NLSFInterpCoef_Q2,
                 pNLSF_Q15[ i ] - psDec->prevNLSF_Q15[ i ] ), 2 );

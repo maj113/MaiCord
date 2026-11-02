@@ -15,7 +15,7 @@ inline u8 format_count(u32 value, char* output, u32 capacity) noexcept {
     return digits > capacity ? u8{0} : static_cast<u8>(decimal_write(output, value));
 }
 
-inline bool range_in_page(const ReactionViewer& viewer, Utf8View value, u32 page_begin, u32 page_bytes,
+inline bool range_in_page(const ReactionViewer& viewer, const Utf8View& value, u32 page_begin, u32 page_bytes,
                           u32* offset) noexcept {
     if ((!value.data && value.bytes != 0) || !viewer.text || page_begin > viewer.text_capacity ||
         page_bytes > viewer.text_capacity - page_begin) {
@@ -68,7 +68,7 @@ bool reaction_viewer_initialize(ReactionViewer* viewer, Slice<ReactionViewerUser
     return true;
 }
 
-bool reaction_viewer_layout(ReactionViewer* viewer, UiRect viewport, bool* changed) noexcept {
+bool reaction_viewer_layout(ReactionViewer* viewer, const UiRect& viewport, bool* changed) noexcept {
     if (changed) {
         *changed = false;
     }

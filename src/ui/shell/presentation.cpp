@@ -316,7 +316,7 @@ bool paint_folder_header(PaintStream* stream, const NavigationView* navigation,
 // The server header: the dropdown's fill while hovered or open, the chevron
 // after the measured name (an X while open), then Invite People.
 bool paint_guild_header(PaintStream* stream, const UiScene& scene, const NavigationView* navigation,
-                        ShellTextMeasure measure, Color hover, Color pressed, Color ink, Color quiet) noexcept {
+                        ShellTextMeasure measure, const Color& hover, const Color& pressed, const Color& ink, const Color& quiet) noexcept {
     const auto* menu = ui_scene_node(scene, UiSemantic::guild_menu);
     if (!menu || !navigation || !navigation->selected_guild_id)
         return true;
@@ -348,7 +348,7 @@ bool paint_guild_header(PaintStream* stream, const UiScene& scene, const Navigat
 
 } // namespace
 
-float shell_text_width(UiTextMeasureCache* cache, u64 source_id, u16 item, Utf8View text, u32 style_flags,
+float shell_text_width(UiTextMeasureCache* cache, u64 source_id, u16 item, const Utf8View& text, u32 style_flags,
                        float maximum_width) noexcept {
     const float limit = maximum(0.f, maximum_width);
     if (!text.bytes)
@@ -370,7 +370,7 @@ float shell_guild_header_name_space(UiRect menu) noexcept {
     return maximum(0.f, ui_rect_width(menu) - 16.f - kUiShellGuildMenuChevron - 4.f);
 }
 
-ShellGuildHeaderGeometry shell_guild_header_geometry(UiRect menu, float name_width) noexcept {
+ShellGuildHeaderGeometry shell_guild_header_geometry(const UiRect& menu, float name_width) noexcept {
     const float left = menu.left + 8.f;
     const float width = minimum(maximum(0.f, name_width), shell_guild_header_name_space(menu));
     const float chevron = left + width + 4.f;
@@ -380,14 +380,14 @@ ShellGuildHeaderGeometry shell_guild_header_geometry(UiRect menu, float name_wid
             {menu.left, menu.top, minimum(menu.right, chevron + kUiShellGuildMenuChevron + 8.f), menu.bottom}};
 }
 
-float shell_category_name_space(UiRect row, const ChannelViewRow& view) noexcept {
+float shell_category_name_space(const UiRect& row, const ChannelViewRow& view) noexcept {
     const float left = row.left + kShellCategoryNameLeft + static_cast<float>(view.depth) * kShellChannelIndent;
     const float right = shell_navigation_controls_left(row, view, view.controls & channel_row_create,
                                                        row.right - kShellChannelHighlightLeft);
     return maximum(0.f, right - left - kShellCategoryGap - kShellCategoryChevron);
 }
 
-ShellCategoryGeometry shell_category_geometry(UiRect row, const ChannelViewRow& view, float name_width) noexcept {
+ShellCategoryGeometry shell_category_geometry(const UiRect& row, const ChannelViewRow& view, float name_width) noexcept {
     const float left = row.left + kShellCategoryNameLeft + static_cast<float>(view.depth) * kShellChannelIndent;
     const float width = minimum(maximum(0.f, name_width), shell_category_name_space(row, view));
     const float top = row.top + kShellCategoryLineTop, bottom = row.top + kShellCategoryHeight;
@@ -1093,7 +1093,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
     return true;
 }
 
-UiRect caret_pixel_rectangle(UiRect caret, UiRect clip, u32 dpi) noexcept {
+UiRect caret_pixel_rectangle(const UiRect& caret, const UiRect& clip, u32 dpi) noexcept {
     if (!ui_rect_valid_or_empty(caret) || !ui_rect_has_area(clip))
         return {};
     const auto floor_pixel = [](float value) noexcept {

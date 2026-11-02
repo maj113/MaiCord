@@ -32,7 +32,7 @@ inline UiRect ui_mention_badge_guild_rectangle(UiRect tile, u32 count) noexcept 
             tile.bottom};
 }
 inline bool ui_mention_badge_text_output(u32 count, const UiWidgetManager& manager,
-    UiWidgetHandle owner, UiRect rectangle, UiRect clip, UiTextOutput* stream) noexcept {
+    UiWidgetHandle owner, const UiRect& rectangle, const UiRect& clip, UiTextOutput* stream) noexcept {
     if (!count) return true;
     char bytes[kUiMentionBadgeMaximumTextBytes];
     const auto label = ui_mention_badge_label(count, {bytes, sizeof(bytes)});

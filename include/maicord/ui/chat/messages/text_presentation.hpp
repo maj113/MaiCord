@@ -291,12 +291,12 @@ struct MessageTextPresentation {
 };
 
 bool message_text_presentation_initialize(MessageTextPresentation* presentation,
-                                          Slice<MessageTextCommand> commands, Slice<char> utf8,
-                                          Slice<TextStyleSpan> styles,
-                                          Slice<MessageMarkdownSemantic> semantics,
-                                          Slice<MessageTextMeasurement> measurements,
-                                          Slice<MessageTextSpoilerReveal> spoiler_reveals,
-                                          Slice<u32> byte_style_scratch) noexcept;
+                                          const Slice<MessageTextCommand>& commands, const Slice<char>& utf8,
+                                          const Slice<TextStyleSpan>& styles,
+                                          const Slice<MessageMarkdownSemantic>& semantics,
+                                          const Slice<MessageTextMeasurement>& measurements,
+                                          const Slice<MessageTextSpoilerReveal>& spoiler_reveals,
+                                          const Slice<u32>& byte_style_scratch) noexcept;
 bool message_text_presentation_bind_guild_members(
     MessageTextPresentation* presentation,
     const GuildMemberStore* members) noexcept;

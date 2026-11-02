@@ -20,7 +20,7 @@ constexpr float kRailSeparator = 25;
 constexpr u32 kMasonryColumns = 8;
 constexpr float kGifMinimumAspect = .25f, kGifMaximumAspect = 4, kGifDefaultAspect = .5625f;
 } // namespace
-bool finite_rectangle(UiRect r) noexcept {
+bool finite_rectangle(const UiRect& r) noexcept {
     return bounded(r.left, -kMaximumUiCoordinate, kMaximumUiCoordinate) &&
            bounded(r.top, -kMaximumUiCoordinate, kMaximumUiCoordinate) &&
            bounded(r.right, -kMaximumUiCoordinate, kMaximumUiCoordinate) &&
@@ -35,7 +35,7 @@ inline bool server_section(UiMediaPickerSectionVisual visual) noexcept {
 }
 // Rail items: 32 DIP art plus 8 DIP spacing, or Discord's 34 DIP for Unicode
 // categories; the last server entry carries the separator.
-float rail_item_pitch(const UiMediaPickerMetrics& m, ConstSlice<UiMediaPickerSection> sections,
+float rail_item_pitch(const UiMediaPickerMetrics& m, const ConstSlice<UiMediaPickerSection>& sections,
                       u32 index) noexcept {
     const auto visual = sections[index].visual;
     float pitch = unicode_category(visual) ? m.rail_pitch - kUiMenuPadding : m.rail_pitch;
@@ -224,7 +224,7 @@ bool inline_layout(const UiMediaPickerStyle& style, const UiMediaPickerSource* s
     *output = layout;
     return true;
 }
-bool label_valid(Utf8View text) noexcept {
+bool label_valid(const Utf8View& text) noexcept {
     return text.bytes <= 256 && (!text.bytes || text.data) && utf8_validate(text).valid;
 }
 bool source_valid(const UiMediaPickerSource* source, const UiMediaPickerContent& content) noexcept {
@@ -420,8 +420,8 @@ UiMediaPickerTarget target(const UiMediaPickerScene& scene, UiWidgetHandle widge
     return result;
 }
 namespace {
-UiWidgetHandle add(UiMediaPickerScene& scene, UiRect rectangle,
-                   UiMediaPickerProjection::WidgetTarget mapping, Utf8View label, bool enabled = true,
+UiWidgetHandle add(UiMediaPickerScene& scene, const UiRect& rectangle,
+                   UiMediaPickerProjection::WidgetTarget mapping, const Utf8View& label, bool enabled = true,
                    UiWidgetHandle parent = ui_widget_invalid_handle()) noexcept {
     const auto origin =
         parent.generation ? ui_widget_manager_layout_node(scene.widgets, parent)->rectangle : scene.panel;
@@ -442,7 +442,7 @@ inline UiRect grid_cell(const UiMediaPickerScene& scene, u32 column, float top) 
 }
 // hit: the cell's widget area when it is larger than its art (inline rows
 // and tiles keep their padding clickable); the art's clip stays the cell's.
-bool cell(UiMediaPickerScene& scene, u32 index, UiRect rectangle, const UiMediaPickerCell* prior,
+bool cell(UiMediaPickerScene& scene, u32 index, const UiRect& rectangle, const UiMediaPickerCell* prior,
           u32 prior_count, const UiRect* hit = nullptr) noexcept {
     auto visible = scene.body;
     visible.top = maximum(visible.top, scene.pinned_bottom);
@@ -540,7 +540,7 @@ void synchronize_focus(UiMediaPickerScene& scene) noexcept {
         }
 }
 namespace {
-inline u32 append(char* output, u32 used, u32 capacity, Utf8View text) noexcept {
+inline u32 append(char* output, u32 used, u32 capacity, const Utf8View& text) noexcept {
     return used + utf8_copy_truncated(output + used, capacity - used, text);
 }
 } // namespace

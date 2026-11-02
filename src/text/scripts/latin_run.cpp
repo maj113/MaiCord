@@ -200,7 +200,9 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
     const bool extended=profile&&profile->script_tag!=sfnt_tag('l','a','t','n');
     ConstSlice<u32> input_order{};
     if(tones){if(s.shaping.character_glyphs.count<written)return SfntStatus::output_too_small;auto* order=s.shaping.character_glyphs.data;u64 work=limits.stage_work;
-        if(written>work)return SfntStatus::resource_limit;work-=written;for(u32 i=0;i<written;++i)order[i]=i;
+        if(written>work)return SfntStatus::resource_limit;work-=written;
+#pragma clang loop vectorize(disable) interleave(disable)
+        for(u32 i=0;i<written;++i)order[i]=i;
         for(u32 i=0;i<written;++i)if(control_sources[s.mapped[i].source]==2){double advance=0;const auto status=plan->advance(plan->metric_context,s.mapped[i].glyph.glyph,&advance);if(status!=SfntStatus::ok)return status;
             if(!(advance>0))continue;u32 lo=0,hi=boundary_count;while(lo<hi){if(!work)return SfntStatus::resource_limit;--work;const u32 mid=lo+(hi-lo)/2;if(s.shaping.targets[mid]<=s.mapped[i].source)lo=mid+1;else hi=mid;}
             const u32 first=lo?s.shaping.targets[lo-1]:0;u32 position=i;
@@ -210,7 +212,9 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
     // follows lower vowels in the shaping order; original source indices stay
     // intact. Reuse the existing input-permutation scratch for both operations.
     if(sara_am||thai_below){if(s.shaping.character_glyphs.count<written)return SfntStatus::output_too_small;auto* order=s.shaping.character_glyphs.data;u64 work=limits.stage_work;
-        if(written>work)return SfntStatus::resource_limit;work-=written;for(u32 i=0;i<written;++i)order[i]=i;
+        if(written>work)return SfntStatus::resource_limit;work-=written;
+#pragma clang loop vectorize(disable) interleave(disable)
+        for(u32 i=0;i<written;++i)order[i]=i;
         for(u32 i=0;i<written;++i)if(s.mapped[i].glyph.reserved&(2|16)){u32 position=i;const u8 previous=(s.mapped[i].glyph.reserved&2)?4:8;
             while(position&&(s.mapped[order[position-1]].glyph.reserved&previous)){if(!work)return SfntStatus::resource_limit;--work;order[position]=order[position-1];--position;}order[position]=i;}
         input_order={order,written};}

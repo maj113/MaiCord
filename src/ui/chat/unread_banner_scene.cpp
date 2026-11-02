@@ -13,7 +13,7 @@ constexpr Utf8View kJumpPresent = utf8_literal("Jump to present");
 constexpr Utf8View kOlderMessages = utf8_literal("You're viewing older messages");
 constexpr UiMotionStyle kMotion{kUiUnreadBannerMotionMs, UiMotionCurve::ease_out};
 
-bool append(Slice<char> output, u32* used, Utf8View text) noexcept {
+bool append(const Slice<char>& output, u32* used, const Utf8View& text) noexcept {
     if (text.bytes > output.count - *used)
         return false;
     copy_bytes(output.data + *used, text.data, text.bytes);
@@ -74,7 +74,7 @@ UiRect notice_rectangle(const UiUnreadBannerScene& s) noexcept {
     const float top = s.viewport.top + st.notice_gap - (height + st.notice_gap) * (1.f - level);
     return {s.viewport.left + inset, top, s.viewport.right - inset, top + height};
 }
-u8 copy_text(char* output, u32 capacity, Utf8View text) noexcept {
+u8 copy_text(char* output, u32 capacity, const Utf8View& text) noexcept {
     if (!text.data || !utf8_validate(text).valid)
         return 0;
     return static_cast<u8>(utf8_copy_truncated(output, capacity, text));

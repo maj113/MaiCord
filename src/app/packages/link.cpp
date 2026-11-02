@@ -50,10 +50,6 @@ bool location_of(const char* url, u32 bytes, UpdateLocation* location) noexcept 
     return update_provider_location({s.host, s.host_bytes}, {target, n}, location);
 }
 
-int hex(char c) noexcept {
-    return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
-}
-
 // The URL of a link. `param` is a maicord://install?url= value: its raw '&' would start another parameter, so
 // it must be written %26. A '#' never belongs to a package URL.
 bool set_url(const char* text, u32 bytes, bool param, PackageLink* link) noexcept {
@@ -64,7 +60,7 @@ bool set_url(const char* text, u32 bytes, bool param, PackageLink* link) noexcep
         if (c == '&' && param)
             return false;
         if (c == '%' && !plain) {
-            const int hi = i + 2 < bytes ? hex(text[i + 1]) : -1, lo = i + 2 < bytes ? hex(text[i + 2]) : -1;
+            const int hi = i + 2 < bytes ? ascii_hex_value(text[i + 1]) : -1, lo = i + 2 < bytes ? ascii_hex_value(text[i + 2]) : -1;
             if (hi < 0 || lo < 0)
                 return false;
             c = static_cast<char>(hi << 4 | lo);

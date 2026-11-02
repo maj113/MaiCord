@@ -14,6 +14,6 @@ enum class TextEmojiNext:u8 {end,range,invalid_input};
 // any VS15 in that sequence suppresses its override. ASCII digits/#/* need a
 // keycap; adjacent regional indicators coalesce without pairing. These are font
 // ranges, not graphemes or shaping clusters.
-TextEmojiNext text_emoji_next(Utf8View,TextEmojiCursor*,TextEmojiRange*) noexcept;
+TextEmojiNext text_emoji_next(const Utf8View&,TextEmojiCursor*,TextEmojiRange*) noexcept;
 static_assert(sizeof(TextEmojiCursor)==8&&sizeof(TextEmojiRange)==16);
 }

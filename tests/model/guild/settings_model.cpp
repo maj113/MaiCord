@@ -685,6 +685,29 @@ void test_engagement() noexcept {
           "engagement: visible to anyone who opens Server Settings, editable only with Manage Server");
 }
 
+// The shipped grid is a deflate stream; src/model/guild/permission_grid_data.inc is the text it is packed from.
+namespace permission_reference {
+#include "../../../src/model/guild/permission_grid_data.inc"
+}
+void test_permission_pack() noexcept {
+    using permission_reference::kEntries;
+    using permission_reference::kGroupLabels;
+    const auto entries = permission_grid_entries();
+    bool same = entries.count == sizeof(kEntries) / sizeof(kEntries[0]);
+    for (u32 i = 0; same && i < entries.count; ++i) {
+        const auto& a = entries[i];
+        const auto& b = kEntries[i];
+        same = a.bit == b.bit && utf8_equal(a.label, b.label) && utf8_equal(a.description, b.description) &&
+               a.group == b.group && a.scopes == b.scopes && (a.channel == nullptr) == (b.channel == nullptr) &&
+               (!a.channel || (utf8_equal(a.channel->label, b.channel->label) &&
+                               utf8_equal(a.channel->description, b.channel->description)));
+    }
+    for (u32 group = 0; same && group < static_cast<u32>(PermissionGroup::count); ++group)
+        same = utf8_equal(permission_group_label(static_cast<PermissionGroup>(group)), kGroupLabels[group]);
+    check(same && !permission_group_label(PermissionGroup::count).bytes,
+          "permission grid: the packed table matches its data file, channel texts and group labels included");
+}
+
 } // namespace guild_settings_test
 } // namespace maicord
 
@@ -703,5 +726,6 @@ extern "C" __declspec(noreturn) void WINAPI maicord_guild_settings_entry() noexc
     test_overrides();
     test_channel_and_bans();
     test_expressions_and_safety();
+    test_permission_pack();
     maicord::test_exit(failures, "guild settings model");
 }

@@ -33,7 +33,7 @@ UiRect ui_typing_dots_row(UiRect row) noexcept;
 // The dots' paint quads, as ui_typing_dots_paint pushes them.
 void ui_typing_dots_quads(const UiRect& row, const Color&, u16 phase, PaintQuad output[kUiTypingDotCount]) noexcept;
 // Always kUiTypingDotCount quads, whatever the phase.
-bool ui_typing_dots_paint(PaintStream*, UiRect row, Color, u16 phase) noexcept;
+bool ui_typing_dots_paint(PaintStream*, const UiRect& row, const Color&, u16 phase) noexcept;
 // Where a frame painted animated dots, so a step can patch their quads in
 // place: first_quad of `quads` under `clip`, painted at `phase`.
 struct UiTypingDotsPaint {

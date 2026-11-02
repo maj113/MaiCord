@@ -126,6 +126,7 @@ opus_int32 silk_LPC_inverse_pred_gain_c(            /* O   Returns inverse predi
     opus_int32 DC_resp = 0;
 
     /* Increase Q domain of the AR coefficients */
+    SHORT_LOOP
     for( k = 0; k < order; k++ ) {
         DC_resp += (opus_int32)A_Q12[ k ];
         Atmp_QA[ k ] = silk_LSHIFT32( (opus_int32)A_Q12[ k ], QA - 12 );

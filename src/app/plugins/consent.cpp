@@ -4,41 +4,32 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 
 namespace maicord {
 namespace {
 
-struct PermissionText {
-    u64 bit;
-    Utf8View label;
-};
-constexpr PermissionText kPermissions[]{
-    {MC_PERM_MESSAGE_SEND, utf8_literal("Change the messages you send or edit before they go out")},
-    {MC_PERM_READ_MESSAGES, utf8_literal("Read your messages and who you talk to")},
-    {MC_PERM_MESSAGE_HISTORY, utf8_literal("Keep deleted and edited messages visible while MaiCord is open")},
-    {MC_PERM_READ_ACTIVITY, utf8_literal("See typing, presence, voice, server and friend activity")},
-    {MC_PERM_NETWORK, utf8_literal("Connect to the servers listed below")},
-    {MC_PERM_COMPOSER, utf8_literal("Read and change what you are typing")},
-    {MC_PERM_ACT_MESSAGES, utf8_literal("Send, edit and delete your messages, add reactions and mark channels read")},
-    {MC_PERM_ACT_PRESENCE, utf8_literal("Set your activity and custom status")},
-    {MC_PERM_CLIPBOARD, utf8_literal("Copy text to your clipboard")},
-    {MC_PERM_AUTOMATED_ACTIONS, utf8_literal("Act for you on its own, without you asking")},
-    {MC_PERM_PERSISTENT_LOG, utf8_literal("Save deleted and edited messages on this computer")},
-};
-constexpr u64 covered_permissions() noexcept {
-    u64 all = 0;
-    for (const PermissionText& entry : kPermissions) all |= entry.bit;
-    return all;
-}
-static_assert(covered_permissions() == MC_PERM_KNOWN, "every permission has a label");
+// The label of each permission, in bit order (MC_PERM_* are 1 << index).
+constexpr char kPermissionLabels[] =
+    "Change the messages you send or edit before they go out\0Read your messages and who you talk to\0"
+    "Keep deleted and edited messages visible while MaiCord is open\0See typing, presence, voice, server and friend activity\0"
+    "Connect to the servers listed below\0Read and change what you are typing\0"
+    "Send, edit and delete your messages, add reactions and mark channels read\0Set your activity and custom status\0"
+    "Copy text to your clipboard\0Act for you on its own, without you asking\0Save deleted and edited messages on this computer\0";
+constexpr u32 kPermissionCount = name_list_count(kPermissionLabels);
+static_assert((u64{1} << kPermissionCount) - 1 == MC_PERM_KNOWN && MC_PERM_MESSAGE_SEND == 1 && MC_PERM_NETWORK == u64{1} << 4 &&
+                  MC_PERM_PERSISTENT_LOG == u64{1} << 10,
+              "every permission has a label");
 
 constexpr Utf8View kBullet = utf8_literal("\n\xE2\x80\xA2 ");
 
 void bullets(UpdateTextWriter& w, u64 permissions, bool risky) noexcept {
-    for (const PermissionText& entry : kPermissions) {
-        if (!(permissions & entry.bit) || !!(kPluginHighRiskPermissions & entry.bit) != risky) continue;
+    u32 bit = 0;
+    for (NameList list{kPermissionLabels}; list; list.next(), ++bit) {
+        const u64 mask = u64{1} << bit;
+        if (!(permissions & mask) || !!(kPluginHighRiskPermissions & mask) != risky) continue;
         w.add(kBullet);
-        w.add(entry.label);
+        w.add(list.name());
     }
 }
 
@@ -63,9 +54,7 @@ mc_str key_of(Utf8View text) noexcept {
 } // namespace
 
 Utf8View plugin_permission_label(u32 bit) noexcept {
-    for (const PermissionText& entry : kPermissions)
-        if (entry.bit == (u64{1} << bit)) return entry.label;
-    return {};
+    return bit < kPermissionCount ? name_list_at(kPermissionLabels, bit) : Utf8View{};
 }
 
 u32 plugin_consent_text(const PluginConsentRequest& request, Slice<char> output) noexcept {

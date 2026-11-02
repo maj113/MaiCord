@@ -17,7 +17,7 @@ inline constexpr u32 kMaximumShellChromeTextCommands = 384;
 // A server's acronym as its rail item shows it without an icon: the first
 // character of each word ("MaiCord Lab" -> "ML"), at most six; characters
 // receives their count (longer acronyms take a smaller face).
-Utf8View ui_guild_acronym(Utf8View name, Slice<char> storage, u32* characters) noexcept;
+Utf8View ui_guild_acronym(const Utf8View& name, const Slice<char>& storage, u32* characters) noexcept;
 
 // A nonzero visual selection projects its channel name and sidebar emphasis;
 // the navigation model and selected chat remain unchanged.

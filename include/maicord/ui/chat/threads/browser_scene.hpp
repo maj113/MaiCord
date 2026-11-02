@@ -99,7 +99,7 @@ struct UiThreadBrowserScene {
 };
 static_assert(__is_trivial(UiThreadBrowserScene) && __is_standard_layout(UiThreadBrowserScene));
 // A first-class content panel fills the supplied main-content viewport.
-bool ui_thread_browser_scene_update(UiThreadBrowserScene*, const UiThreadBrowserView*, UiRect viewport,
+bool ui_thread_browser_scene_update(UiThreadBrowserScene*, const UiThreadBrowserView*, const UiRect& viewport,
     const UiThreadBrowserStyle* style = nullptr) noexcept;
 void ui_thread_browser_scene_release(UiThreadBrowserScene*) noexcept;
 bool ui_thread_browser_scene_current(const UiThreadBrowserScene&) noexcept;

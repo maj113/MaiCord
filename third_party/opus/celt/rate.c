@@ -220,8 +220,10 @@ static OPUS_INLINE int interp_bits2pulses(const CELTMode *m, int start, int end,
    left = total-psum;
    percoeff = celt_udiv(left, m->eBands[codedBands]-m->eBands[start]);
    left -= (m->eBands[codedBands]-m->eBands[start])*percoeff;
+   SHORT_LOOP
    for (j=start;j<codedBands;j++)
       bits[j] += ((int)percoeff*(m->eBands[j+1]-m->eBands[j]));
+   SHORT_LOOP
    for (j=start;j<codedBands;j++)
    {
       int tmp = (int)IMIN(left, m->eBands[j+1]-m->eBands[j]);
@@ -368,6 +370,7 @@ int clt_compute_allocation(const CELTMode *m, int start, int end, const int *off
    ALLOC(thresh, len, int);
    ALLOC(trim_offset, len, int);
 
+   SHORT_LOOP
    for (j=start;j<end;j++)
    {
       /* Below this threshold, we're sure not to allocate any PVQ bits */

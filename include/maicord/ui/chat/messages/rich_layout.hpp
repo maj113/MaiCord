@@ -92,7 +92,7 @@ enum class MessageRichItemKind : u8 {
 struct MessageInviteCardGeometry {
     UiRect card, header, icon, name, detail, button;
 };
-MessageInviteCardGeometry message_invite_card_geometry(UiRect item) noexcept;
+MessageInviteCardGeometry message_invite_card_geometry(const UiRect& item) noexcept;
 
 struct MessageRichItemLayout {
     float heights[kMessageRichItemMaximum];
@@ -275,7 +275,7 @@ bool message_rich_embed_gallery_select(const MessageRichStore&, const MessageRic
 // that is at least 300 DIPs, else 520 wide.
 float message_rich_embed_gallery_width(const MessageRichEmbed& host, float available_width) noexcept;
 // Tile `ordinal` (< kMessageEmbedGalleryDrawn) of a gallery of `count` images.
-UiRect message_rich_embed_gallery_tile(UiRect gallery, u32 count, u32 ordinal) noexcept;
+UiRect message_rich_embed_gallery_tile(const UiRect& gallery, u32 count, u32 ordinal) noexcept;
 // Where embed `index` draws as a gallery tile: its host and ordinal; false when
 // it is not a drawn gallery image.
 struct MessageRichEmbedGalleryPlace {
@@ -286,7 +286,7 @@ struct MessageRichEmbedGalleryPlace {
 bool message_rich_embed_gallery_place(const MessageRichStore&, const MessageRichRecord&, u32 index,
                                       MessageRichEmbedGalleryPlace*) noexcept;
 // The media block of a laid-out embed (its own media, or the whole gallery).
-UiRect message_rich_embed_media_rect(const MessageRichItemLayout&, u32 index, UiRect content,
+UiRect message_rich_embed_media_rect(const MessageRichItemLayout&, u32 index, const UiRect& content,
                                      bool media_only) noexcept;
 MessageRichEmbedPlan message_rich_embed_plan(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept;
 // Proxied author/footer icon URLs (empty when the embed shows none).
@@ -296,14 +296,14 @@ Utf8View message_rich_embed_footer_icon(const MessageRichStore& store, const Mes
 // when that icon is absent. `item` is the item node's rectangle and `content`
 // its content rectangle.
 bool message_rich_embed_author_icon_rect(const MessageRichStore& store, const MessageRichEmbed& embed,
-                                         const MessageRichItemLayout& layout, u32 index, UiRect content,
+                                         const MessageRichItemLayout& layout, u32 index, const UiRect& content,
                                          UiRect* output) noexcept;
 bool message_rich_embed_footer_icon_rect(const MessageRichStore& store, const MessageRichEmbed& embed,
-                                         const MessageRichItemLayout& layout, u32 index, UiRect content,
+                                         const MessageRichItemLayout& layout, u32 index, const UiRect& content,
                                          UiRect* output) noexcept;
 // Decoder for an author/footer icon URL (proxy URLs without an extension
 // still serve PNG); part of the icon's URL-keyed media identity.
-MediaAttachmentFormat message_rich_embed_icon_format(Utf8View url) noexcept;
+MediaAttachmentFormat message_rich_embed_icon_format(const Utf8View& url) noexcept;
 // Corner thumbnail rectangle inside a card of the given bounds.
 UiRect message_rich_embed_thumbnail_rect(UiRect card, float width, float height, bool components) noexcept;
 bool message_rich_embed_suppresses_content(const MessageRichStore& store, const MessageRichRecord& rich,
@@ -314,7 +314,7 @@ float message_rich_embed_visual_height(const MessageRichStore& store, const Mess
                                        const MessageRichEmbed& embed) noexcept;
 float message_rich_reaction_button_width(const MessageRichReaction& reaction) noexcept;
 float message_rich_reaction_layout_height(const MessageRichRecord& rich, float available_width,
-                                          ConstSlice<float> intrinsic_widths = {}) noexcept;
+                                          const ConstSlice<float>& intrinsic_widths = {}) noexcept;
 MessageRichItemLayout message_rich_estimate_item_layout(const MessageRichStore* store,
                                                         const MessageRichRecord* rich,
                                                         float available_width,
@@ -325,7 +325,7 @@ void message_rich_fill_item_layout(const MessageRichStore* store, const MessageR
                                    MessageRichItemLayout& result) noexcept;
 MessageRichLayout message_rich_aggregate_layout(const MessageRichRecord& rich,
                                                 const MessageRichItemLayout& items, float available_width,
-                                                ConstSlice<float> reaction_widths = {}) noexcept;
+                                                const ConstSlice<float>& reaction_widths = {}) noexcept;
 MessageRichLayout message_rich_measure_layout(const MessageRichStore* store, const MessageRichRecord* rich,
                                               float available_width,
                                               const UiResolvedThemeStyles* = nullptr) noexcept;

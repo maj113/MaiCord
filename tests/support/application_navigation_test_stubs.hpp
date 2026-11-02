@@ -20,10 +20,10 @@ void renderer_bind_focus_owner(D3D11Renderer* r, const UiWidgetManager* owner) n
     if (r)
         r->focus_owner = owner;
 }
-bool clipboard_write_utf8(HWND, Utf8View) noexcept {
+bool clipboard_write_utf8(HWND, const Utf8View&) noexcept {
     return true;
 }
-ClipboardTextResult clipboard_read_utf8(HWND, Slice<char>) noexcept {
+ClipboardTextResult clipboard_read_utf8(HWND, const Slice<char>&) noexcept {
     return {0, ClipboardTextError::unavailable};
 }
 namespace app_detail {

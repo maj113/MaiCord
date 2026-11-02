@@ -62,6 +62,7 @@ void silk_NLSF_stabilize(
         min_diff_Q15 = NLSF_Q15[0] - NDeltaMin_Q15[0];
         I = 0;
         /* Middle elements */
+        SHORT_LOOP
         for( i = 1; i <= L-1; i++ ) {
             diff_Q15 = NLSF_Q15[i] - ( NLSF_Q15[i-1] + NDeltaMin_Q15[i] );
             if( diff_Q15 < min_diff_Q15 ) {
@@ -94,6 +95,7 @@ void silk_NLSF_stabilize(
         } else {
             /* Find the lower extreme for the location of the current center frequency */
             min_center_Q15 = 0;
+            SHORT_LOOP
             for( k = 0; k < I; k++ ) {
                 min_center_Q15 += NDeltaMin_Q15[k];
             }
@@ -101,6 +103,7 @@ void silk_NLSF_stabilize(
 
             /* Find the upper extreme for the location of the current center frequency */
             max_center_Q15 = 1 << 15;
+            SHORT_LOOP
             for( k = L; k > I; k-- ) {
                 max_center_Q15 -= NDeltaMin_Q15[k];
             }
@@ -133,6 +136,7 @@ void silk_NLSF_stabilize(
         NLSF_Q15[L-1] = silk_min_int( NLSF_Q15[L-1], (1<<15) - NDeltaMin_Q15[L] );
 
         /* Keep NDeltaMin distance between the NLSFs */
+        SHORT_LOOP
         for( i = L-2; i >= 0; i-- )
             NLSF_Q15[i] = silk_min_int( NLSF_Q15[i], NLSF_Q15[i+1] - NDeltaMin_Q15[i+1] );
     }

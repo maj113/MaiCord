@@ -4,10 +4,10 @@
 #include "maicord/ui/core/paint.hpp"
 
 namespace maicord {
-bool ui_poll_controls_paint(const UiPollProjection&, const UiPollStyle&, UiRect clip, const Theme&,
+bool ui_poll_controls_paint(const UiPollProjection&, const UiPollStyle&, const UiRect& clip, const Theme&,
                             UiWidgetReference, PaintStream*, UiPollTarget focus = {},
                             UiPollTarget hover = {}, bool keyboard_focus = false) noexcept;
-bool ui_poll_controls_text_output(const UiPollProjection&, const UiPollStyle&, UiRect clip,
+bool ui_poll_controls_text_output(const UiPollProjection&, const UiPollStyle&, const UiRect& clip,
                                   UiWidgetReference, UiTextOutput*, UiPollTarget hover = {}) noexcept;
 bool ui_poll_scene_paint(const UiPollScene&, const Theme&, PaintStream*) noexcept;
 bool ui_poll_scene_text_output(const UiPollScene&, UiTextOutput*) noexcept;

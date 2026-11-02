@@ -13,11 +13,11 @@
 namespace maicord {
 namespace {
 
-bool ascii_equal_case(Utf8View value, const char* literal) noexcept {
+bool ascii_equal_case(const Utf8View& value, const char* literal) noexcept {
     return ascii_equal_ignore_case(value, {literal, c_string_length(literal)});
 }
 
-bool ascii_ends_with_case(Utf8View value, const char* suffix) noexcept {
+bool ascii_ends_with_case(const Utf8View& value, const char* suffix) noexcept {
     const u32 bytes = c_string_length(suffix);
     return bytes <= value.bytes &&
            ascii_equal_ignore_case({value.data + value.bytes - bytes, bytes}, {suffix, bytes});
@@ -559,7 +559,7 @@ Utf8View message_rich_embed_footer_icon(const MessageRichStore& store, const Mes
 }
 
 // The small icon beside an embed's author or footer line.
-static bool embed_icon_rect(bool present, const float* tops, u32 index, float extent, UiRect content,
+static bool embed_icon_rect(bool present, const float* tops, u32 index, float extent, const UiRect& content,
                             UiRect* output) noexcept {
     if (!output)
         return false;
@@ -573,20 +573,20 @@ static bool embed_icon_rect(bool present, const float* tops, u32 index, float ex
 }
 
 bool message_rich_embed_author_icon_rect(const MessageRichStore& store, const MessageRichEmbed& embed,
-                                         const MessageRichItemLayout& layout, u32 index, UiRect content,
+                                         const MessageRichItemLayout& layout, u32 index, const UiRect& content,
                                          UiRect* output) noexcept {
     return embed_icon_rect(message_rich_embed_author_icon(store, embed).bytes != 0,
                            layout.embed_author_tops, index, kMessageEmbedAuthorIcon, content, output);
 }
 
 bool message_rich_embed_footer_icon_rect(const MessageRichStore& store, const MessageRichEmbed& embed,
-                                         const MessageRichItemLayout& layout, u32 index, UiRect content,
+                                         const MessageRichItemLayout& layout, u32 index, const UiRect& content,
                                          UiRect* output) noexcept {
     return embed_icon_rect(message_rich_embed_footer_icon(store, embed).bytes != 0,
                            layout.embed_footer_tops, index, kMessageEmbedFooterIcon, content, output);
 }
 
-MediaAttachmentFormat message_rich_embed_icon_format(Utf8View url) noexcept {
+MediaAttachmentFormat message_rich_embed_icon_format(const Utf8View& url) noexcept {
     const MediaAttachmentFormat format = media_format_from_url(url);
     return format == MediaAttachmentFormat::jpeg || format == MediaAttachmentFormat::webp ||
                    format == MediaAttachmentFormat::gif
@@ -723,7 +723,7 @@ float message_rich_embed_gallery_width(const MessageRichEmbed& host, float avail
     return maximum(0.0f, minimum(target, available_width));
 }
 
-UiRect message_rich_embed_gallery_tile(UiRect gallery, u32 count, u32 ordinal) noexcept {
+UiRect message_rich_embed_gallery_tile(const UiRect& gallery, u32 count, u32 ordinal) noexcept {
     if (!count || ordinal >= minimum(count, kMessageEmbedGalleryDrawn))
         return {};
     const float column = maximum(0.0f, (ui_rect_width(gallery) - kMessageEmbedGalleryGap) * 0.5f);
@@ -756,7 +756,7 @@ bool message_rich_embed_gallery_place(const MessageRichStore& store, const Messa
     return false;
 }
 
-UiRect message_rich_embed_media_rect(const MessageRichItemLayout& layout, u32 index, UiRect content,
+UiRect message_rich_embed_media_rect(const MessageRichItemLayout& layout, u32 index, const UiRect& content,
                                      bool media_only) noexcept {
     if (index >= kGatewayMessageEmbedMaximum || !(layout.embed_media_widths[index] > 0.0f) ||
         !(layout.embed_media_heights[index] > 0.0f))
@@ -849,7 +849,7 @@ float message_rich_reaction_button_width(const MessageRichReaction& reaction) no
 }
 
 float message_rich_reaction_layout_height(const MessageRichRecord& rich, float available_width,
-                                          ConstSlice<float> intrinsic_widths) noexcept {
+                                          const ConstSlice<float>& intrinsic_widths) noexcept {
     if (rich.reaction_count == 0 || available_width <= 0.0f || !g_display.reactions) {
         return 0.0f;
     }
@@ -955,7 +955,7 @@ MessageRichItemLayout message_rich_estimate_item_layout(const MessageRichStore* 
 
 MessageRichLayout message_rich_aggregate_layout(const MessageRichRecord& rich,
                                                 const MessageRichItemLayout& items, float available_width,
-                                                ConstSlice<float> reaction_widths) noexcept {
+                                                const ConstSlice<float>& reaction_widths) noexcept {
     MessageRichLayout result{};
     for (u32 index = 0; index < rich.attachment_count; ++index) {
         result.attachments += items.heights[kMessageRichAttachmentItemOffset + index];
@@ -1010,7 +1010,7 @@ MessageRichLayout message_rich_measure_layout(const MessageRichStore* store, con
         *rich, message_rich_estimate_item_layout(store, rich, available_width, styles), available_width);
 }
 
-MessageInviteCardGeometry message_invite_card_geometry(UiRect item) noexcept {
+MessageInviteCardGeometry message_invite_card_geometry(const UiRect& item) noexcept {
     MessageInviteCardGeometry g{};
     const float right = item.left + kMessageInviteCardMaximumWidth < item.right
                             ? item.left + kMessageInviteCardMaximumWidth

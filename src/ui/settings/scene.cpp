@@ -16,7 +16,7 @@ namespace {
 bool option_kind(UiSettingsControlKind kind) noexcept {
     return kind == UiSettingsControlKind::segments || kind == UiSettingsControlKind::swatches ||
            kind == UiSettingsControlKind::tabs || kind == UiSettingsControlKind::buttons ||
-           kind == UiSettingsControlKind::colors || kind == UiSettingsControlKind::empty;
+           kind == UiSettingsControlKind::colors;
 }
 // The part of a list row under a point (UiSettingsListPart), or ~0u.
 u32 list_part(const UiSettingsLayoutTokens& t, const UiSettingsPageContent& content, u32 index, const UiRect& row, float x,
@@ -639,8 +639,7 @@ bool ui_settings_scene_activation(const UiSettingsScene& scene, const UiSettings
     activation->selected_choice = c.selected_choice;
     const u32 count = c.choices.count;
     // Button groups and colour swatches press their first option.
-    if (c.kind == UiSettingsControlKind::buttons || c.kind == UiSettingsControlKind::colors ||
-        c.kind == UiSettingsControlKind::empty) {
+    if (c.kind == UiSettingsControlKind::buttons || c.kind == UiSettingsControlKind::colors) {
         activation->selected_choice = c.selected_choice < count ? c.selected_choice : 0;
         return count != 0;
     }
@@ -914,7 +913,7 @@ bool ui_settings_scene_choice_rectangle(const UiSettingsScene& scene, const UiSe
     if (!output || !c || choice >= c->choices.count ||
         (c->kind != UiSettingsControlKind::radio && c->kind != UiSettingsControlKind::segments &&
          c->kind != UiSettingsControlKind::tabs && c->kind != UiSettingsControlKind::buttons &&
-         c->kind != UiSettingsControlKind::colors && c->kind != UiSettingsControlKind::empty) ||
+         c->kind != UiSettingsControlKind::colors) ||
         !ui_settings_scene_control_geometry(scene, target, &geometry))
         return false;
     const SceneTokens t(scene);

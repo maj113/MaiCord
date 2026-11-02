@@ -4,7 +4,7 @@
 
 namespace maicord {
 PopupSceneResult ui_account_menu_open_popup(PopupScene* scene, const UiAccountMenuModel& model,
-                                            UiRect anchor, UiRect viewport) noexcept {
+                                            const UiRect& anchor, const UiRect& viewport) noexcept {
     const auto opened =
         popup_scene_open(scene, PopupKind::popover, model.user_id, ui_account_menu_items(model), anchor,
                          viewport, kUiAccountMenuWidth, true);
@@ -13,7 +13,7 @@ PopupSceneResult ui_account_menu_open_popup(PopupScene* scene, const UiAccountMe
     return opened;
 }
 namespace {
-bool valid_identity_label(Utf8View value) noexcept {
+bool valid_identity_label(const Utf8View& value) noexcept {
     if (!value.bytes)
         return true;
     if (!value.data || value.bytes > kUiAccountMenuIdentityBytes || !utf8_validate(value).valid)
@@ -23,7 +23,7 @@ bool valid_identity_label(Utf8View value) noexcept {
             return false;
     return true;
 }
-PopupItem action(Utf8View label, UiAccountMenuAction value, UiIcon icon, u16 flags = 0) noexcept {
+PopupItem action(const Utf8View& label, UiAccountMenuAction value, UiIcon icon, u16 flags = 0) noexcept {
     PopupItem result{label, static_cast<u32>(value), static_cast<u16>(popup_item_enabled | flags), 0};
     result.presentation = ui_menu_row_presentation(icon);
     return result;

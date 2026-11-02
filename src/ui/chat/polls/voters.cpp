@@ -61,11 +61,11 @@ bool style_valid(const UiPollVotersStyle& style) noexcept {
             return false;
     return true;
 }
-bool contains(UiRect bounds, UiPoint point) noexcept {
+bool contains(const UiRect& bounds, UiPoint point) noexcept {
     return ui_rect_has_area(bounds) && point.x >= bounds.left && point.x < bounds.right &&
            point.y >= bounds.top && point.y < bounds.bottom;
 }
-bool measured(const UiPollVotersState& state, Utf8View text, u16 item, u32 flags, float width,
+bool measured(const UiPollVotersState& state, const Utf8View& text, u16 item, u32 flags, float width,
               UiTextMeasureCache* cache, u16 backend, UiTextMeasureValue* value,
               bool no_wrap = false) noexcept {
     const TextStyleSpan style{0, text.bytes, flags};
@@ -112,7 +112,7 @@ u32 targets(const UiPollVotersScene& scene, UiPollVotersTarget* output) noexcept
 }
 } // namespace
 
-bool ui_poll_voters_scene_project(UiPollVotersScene* scene, const UiPollVotersState& state, UiRect viewport,
+bool ui_poll_voters_scene_project(UiPollVotersScene* scene, const UiPollVotersState& state, const UiRect& viewport,
                                   UiWidgetReference owner, const UiPollVotersStyle& style,
                                   const Theme& theme, UiTextMeasureCache* cache, u16 backend,
                                   float requested_scroll) noexcept {

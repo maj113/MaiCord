@@ -82,7 +82,7 @@ UiPrivateRowStatus ui_private_row_status(const UiPrivateRowSource& source, u64 c
     default: return UiPrivateRowStatus::offline;
     }
 }
-Utf8View ui_private_peer_activity(const UiPrivateRowSource& source, u64 channel_id, Slice<char> storage,
+Utf8View ui_private_peer_activity(const UiPrivateRowSource& source, u64 channel_id, const Slice<char>& storage,
                                   UiActivityGlyph* glyph) noexcept {
     if (glyph) *glyph = UiActivityGlyph::none;
     const ChannelRecord* channel = nullptr;
@@ -110,7 +110,7 @@ Utf8View ui_private_peer_activity(const UiPrivateRowSource& source, u64 channel_
     copy_bytes(storage.data + used, status.text.data, text);
     return {storage.data, used + text};
 }
-Utf8View ui_private_row_subtitle(const UiPrivateRowSource& source, u64 channel_id, Slice<char> storage,
+Utf8View ui_private_row_subtitle(const UiPrivateRowSource& source, u64 channel_id, const Slice<char>& storage,
                                  UiActivityGlyph* glyph) noexcept {
     if (glyph) *glyph = UiActivityGlyph::none;
     const ChannelRecord* channel = nullptr;
@@ -143,19 +143,19 @@ u32 ui_private_row_group_members(const ChatStateStore& state, u64 channel_id, u6
         if (recipients[i] != state.self_user_id) output[count++] = recipients[i];
     return count;
 }
-UiRect ui_private_row_subtitle_rectangle(UiRect label) noexcept {
+UiRect ui_private_row_subtitle_rectangle(const UiRect& label) noexcept {
     const float middle = (label.top + label.bottom) * .5f;
     return {label.left, middle + 1.f, label.right, middle + 17.f};
 }
-UiRect ui_private_row_status_rectangle(UiRect avatar) noexcept {
+UiRect ui_private_row_status_rectangle(const UiRect& avatar) noexcept {
     const float size = ui_rect_width(avatar) * .3125f;
     return {avatar.right - size, avatar.bottom - size, avatar.right, avatar.bottom};
 }
-UiRect ui_private_row_close_rectangle(UiRect row) noexcept {
+UiRect ui_private_row_close_rectangle(const UiRect& row) noexcept {
     const float middle = (row.top + row.bottom) * .5f;
     return {row.right - 34.f, middle - 8.f, row.right - 18.f, middle + 8.f};
 }
-UiRect ui_private_row_group_avatar(UiRect avatar, u32 index) noexcept {
+UiRect ui_private_row_group_avatar(const UiRect& avatar, u32 index) noexcept {
     const float size = ui_rect_width(avatar) * .625f;
     return index ? UiRect{avatar.right - size, avatar.bottom - size, avatar.right, avatar.bottom}
                  : UiRect{avatar.left, avatar.top, avatar.left + size, avatar.top + size};
@@ -179,14 +179,14 @@ UiPresence presence(UiPrivateRowStatus status) noexcept {
            : status == UiPrivateRowStatus::dnd  ? UiPresence::busy
                                                 : UiPresence::offline;
 }
-bool ring(PaintStream* stream, UiRect r, Color color) noexcept {
+bool ring(PaintStream* stream, const UiRect& r, const Color& color) noexcept {
     return paint_stream_push_rounded_border(stream, r.left - 2, r.top - 2, r.right + 2, r.bottom + 2, Color{0, 0, 0, 0},
                                             color, ui_rect_width(r) * .5f + 2.f, 2);
 }
 // Cutouts repeat the row highlight so the ring matches the composited surface.
 // Only a conversation row shows a group's online dot (not the header).
-bool decorations(PaintStream* stream, const UiPrivateRowSource& source, u64 channel_id, u8 type, UiRect avatar,
-                 Color surface, const Color* highlight, const Theme& theme, bool row) noexcept {
+bool decorations(PaintStream* stream, const UiPrivateRowSource& source, u64 channel_id, u8 type, const UiRect& avatar,
+                 const Color& surface, const Color* highlight, const Theme& theme, bool row) noexcept {
     if (type == 3) {
         // The generated icon: the front avatar's cut, then an online group's
         // dot at the usual corner.
@@ -212,7 +212,7 @@ bool decorations(PaintStream* stream, const UiPrivateRowSource& source, u64 chan
            (!highlight || ring(stream, dot, *highlight));
 }
 } // namespace
-bool ui_private_avatar_placeholder_paint(PaintStream* stream, u8 type, UiRect avatar, const Theme& theme) noexcept {
+bool ui_private_avatar_placeholder_paint(PaintStream* stream, u8 type, const UiRect& avatar, const Theme& theme) noexcept {
     if (type != 3)
         return paint_stream_push_rounded(stream, avatar, theme.avatar_placeholder, ui_rect_width(avatar) * .5f);
     for (u32 i = 0; i < 2; ++i) {
@@ -222,7 +222,7 @@ bool ui_private_avatar_placeholder_paint(PaintStream* stream, u8 type, UiRect av
     }
     return true;
 }
-bool ui_private_rows_overlay_paint(const ShellNavigationScene& scene, UiRect clip, const UiPrivateRowSource& source,
+bool ui_private_rows_overlay_paint(const ShellNavigationScene& scene, const UiRect& clip, const UiPrivateRowSource& source,
                                    u64 selected_channel_id, const Theme& theme, PaintStream* stream) noexcept {
     if (!scene.active || !source.state || !ui_rect_has_area(clip)) return true;
     if (!paint_stream_push_clip(stream, clip)) return false;
@@ -284,7 +284,7 @@ namespace {
 // streaming, playing, then the rest; rich presence, then the newer first),
 // and "+N" for the other distinct activities while no custom status text
 // takes the line. Custom status is never counted.
-Utf8View header_line(const UiPrivateRowSource& source, u64 channel_id, Slice<char> storage,
+Utf8View header_line(const UiPrivateRowSource& source, u64 channel_id, const Slice<char>& storage,
                      UiActivityGlyph* glyph) noexcept {
     const Utf8View plain = ui_private_peer_activity(source, channel_id, storage, glyph);
     u64 peer[2]{};
@@ -324,7 +324,7 @@ Utf8View header_line(const UiPrivateRowSource& source, u64 channel_id, Slice<cha
 }
 } // namespace
 bool ui_private_header_activity(const UiScene& scene, const UiPrivateRowSource& source, u64 channel_id,
-                                Slice<char> storage, UiPrivateHeaderActivity* output) noexcept {
+                                const Slice<char>& storage, UiPrivateHeaderActivity* output) noexcept {
     reset_value(output);
     const auto* title = ui_scene_node(scene, UiSemantic::title_bar);
     const auto* label = ui_scene_node(scene, UiSemantic::title_label);
@@ -357,7 +357,7 @@ bool ui_private_header_activity(const UiScene& scene, const UiPrivateRowSource& 
     output->text = ui_activity_glyph_text(line, output->glyph);
     return ui_rect_width(output->text) > 0;
 }
-UiRect ui_private_member_crown_rectangle(UiRect label, float name_width) noexcept {
+UiRect ui_private_member_crown_rectangle(const UiRect& label, float name_width) noexcept {
     const float middle = (label.top + label.bottom) * .5f, half = kUiPrivateMemberCrownExtent * .5f;
     const float room = ui_rect_width(label) - kUiPrivateMemberCrownExtent - kUiPrivateMemberCrownGap;
     const float left = label.left + maximum(0.f, minimum(name_width, room)) + kUiPrivateMemberCrownGap;

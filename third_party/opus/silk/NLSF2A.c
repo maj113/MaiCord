@@ -52,6 +52,7 @@ static OPUS_INLINE void silk_NLSF2A_find_poly(
     for( k = 1; k < dd; k++ ) {
         ftmp = cLSF[2*k];            /* QA*/
         out[k+1] = silk_LSHIFT( out[k-1], 1 ) - (opus_int32)silk_RSHIFT_ROUND64( silk_SMULL( ftmp, out[k] ), QA );
+        SHORT_LOOP
         for( n = k; n > 1; n-- ) {
             out[n] += out[n-2] - (opus_int32)silk_RSHIFT_ROUND64( silk_SMULL( ftmp, out[n-1] ), QA );
         }
@@ -130,6 +131,7 @@ void silk_NLSF2A(
         /* Prediction coefficients are (too close to) unstable; apply bandwidth expansion   */
         /* on the unscaled coefficients, convert to Q12 and measure again                   */
         silk_bwexpander_32( a32_QA1, d, 65536 - silk_LSHIFT( 2, i ) );
+        SHORT_LOOP
         for( k = 0; k < d; k++ ) {
             a_Q12[ k ] = (opus_int16)silk_RSHIFT_ROUND( a32_QA1[ k ], QA + 1 - 12 );            /* QA+1 -> Q12 */
         }

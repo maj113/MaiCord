@@ -118,7 +118,7 @@ struct TextFormEditGeometry {
 
 bool text_form_bind_measure_revision(TextFormScene*, u16) noexcept;
 bool text_form_bind_theme_styles(TextFormScene*, const UiResolvedThemeStyles*) noexcept;
-bool text_form_update(TextFormScene* scene, const TextFormContent& content, UiRect viewport,
+bool text_form_update(TextFormScene* scene, const TextFormContent& content, const UiRect& viewport,
                       UiTextMeasureCache* measure) noexcept;
 void text_form_release(TextFormScene* scene) noexcept;
 const UiLayoutNode* text_form_node(const TextFormScene& scene, TextFormElement element) noexcept;

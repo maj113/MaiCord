@@ -337,7 +337,7 @@ maicord_test(MaiCordCatalogServiceTests ENTRY maicord_catalog_service_tests_entr
     SOURCES tests/app/plugins/catalog_service.cpp src/app/plugins/catalog_service.cpp src/app/plugins/catalog_worker.cpp
         src/app/plugins/dev_console.cpp src/core/log.cpp
     LIBS maicord_core maicord_platform maicord_app_core maicord_plugin_catalog maicord_plugin_runtime
-        maicord_protocol kernel32 bcrypt ws2_32 maicord_sspicli crypt32
+        maicord_packages maicord_protocol kernel32 bcrypt ws2_32 maicord_sspicli crypt32
     INCLUDES src/app
     DEPENDS MaiCordClearUrlsPlugin
     TIMEOUT 15 TEST maicord_catalog_service)
@@ -394,7 +394,7 @@ maicord_test(MaiCordWindowCaptionTests ENTRY maicord_window_caption_tests_entry 
     BUNDLE MaiCordUiUnitTests TIMEOUT 10 TEST maicord_window_caption)
 maicord_test(MaiCordSettingsRuntimeTests ENTRY maicord_settings_runtime_entry
     SOURCES tests/app/settings/settings_runtime.cpp tests/app/settings/settings_runtime_stubs.cpp
-        tests/app/settings/custom_theme.cpp
+        tests/app/settings/custom_theme.cpp tests/app/settings/catalog_pack.cpp
         tests/app/plugins/navigation_runtime.cpp
         tests/app/settings/settings_choice_runtime.cpp tests/app/settings/user_settings_runtime.cpp
         tests/app/settings/account_settings_runtime.cpp tests/app/settings/keybinds_settings_runtime.cpp

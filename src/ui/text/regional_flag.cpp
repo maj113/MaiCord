@@ -1,6 +1,8 @@
 #include "maicord/ui/text/regional_flag.hpp"
 #include "maicord/core/memory.hpp"
 
+// Runs once per message that holds a flag emoji (the parsed message is cached): compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 namespace maicord {
 namespace {
 // Licensed Twemoji v17.0.3. All 262 canonical filenames exist in the upstream SVG tree.
@@ -132,3 +134,4 @@ u32 regional_flag_svg_target(u16 sequence, Slice<char> output) noexcept {
 }
 
 } // namespace maicord
+#pragma clang attribute pop

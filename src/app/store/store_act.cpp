@@ -1,5 +1,6 @@
 #include "store_build.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 #include "maicord/sdk/maicord_plugin.h"
 
 namespace maicord::app_detail {
@@ -8,32 +9,33 @@ using namespace store_build;
 // ---- Permissions (the site's table: network, read_messages and act_messages are high; the rest that read or
 // change Discord data are medium; the rest low) ---------------------------------------------------------------
 namespace {
-struct PermissionRow {
-    Utf8View sentence, name, note;
+// The sentence and name (MC_PERM_* order) of each permission.
+constexpr char kSentences[] =
+    "Changes your messages before they're sent\0Reads the messages you receive\0Keeps deleted and edited messages visible\0"
+    "Sees typing, presence, voice and server activity\0Connects to the hosts listed below\0Reads and changes what you're typing\0"
+    "Sends, edits, reacts to and marks messages read for you\0Sets your custom status and activity\0Copies text to the clipboard\0"
+    "Acts for you on its own, without you asking\0Saves deleted and edited messages on this computer\0";
+constexpr char kNames[] = "message_send\0read_messages\0message_history\0read_activity\0network\0composer\0act_messages\0act_presence\0"
+                          "clipboard\0automated_actions\0persistent_log\0";
+struct PermissionLook {
     UiIcon glyph;
     u8 risk;
     bool critical;
 };
-constexpr PermissionRow kPermissions[]{
-    {utf8_literal("Changes your messages before they're sent"), utf8_literal("message_send"), {}, UiIcon::message_text, 1, false},
-    {utf8_literal("Reads the messages you receive"), utf8_literal("read_messages"), {}, UiIcon::eye, 2, false},
-    {utf8_literal("Keeps deleted and edited messages visible"), utf8_literal("message_history"), {}, UiIcon::history, 1, false},
-    {utf8_literal("Sees typing, presence, voice and server activity"), utf8_literal("read_activity"), {}, UiIcon::activity, 1, false},
-    {utf8_literal("Connects to the hosts listed below"), utf8_literal("network"), {}, UiIcon::link, 2, false},
-    {utf8_literal("Reads and changes what you're typing"), utf8_literal("composer"), {}, UiIcon::edit, 1, false},
-    {utf8_literal("Sends, edits, reacts to and marks messages read for you"), utf8_literal("act_messages"), {}, UiIcon::send, 2, false},
-    {utf8_literal("Sets your custom status and activity"), utf8_literal("act_presence"), {}, UiIcon::user, 1, false},
-    {utf8_literal("Copies text to the clipboard"), utf8_literal("clipboard"), {}, UiIcon::copy, 0, false},
-    {utf8_literal("Acts for you on its own, without you asking"), utf8_literal("automated_actions"), {}, UiIcon::warning, 2, true},
-    {utf8_literal("Saves deleted and edited messages on this computer"), utf8_literal("persistent_log"), {}, UiIcon::file_text, 2, true},
+constexpr PermissionLook kPermissions[]{
+    {UiIcon::message_text, 1, false}, {UiIcon::eye, 2, false},     {UiIcon::history, 1, false},   {UiIcon::activity, 1, false},
+    {UiIcon::link, 2, false},         {UiIcon::edit, 1, false},    {UiIcon::send, 2, false},      {UiIcon::user, 1, false},
+    {UiIcon::copy, 0, false},         {UiIcon::warning, 2, true},  {UiIcon::file_text, 2, true},
 };
+constexpr u32 kPermissionCount = sizeof(kPermissions) / sizeof(kPermissions[0]);
+static_assert(name_list_count(kSentences) == kPermissionCount && name_list_count(kNames) == kPermissionCount);
 } // namespace
 
 bool store_permission_text(u32 bit, StorePermission* out) noexcept {
-    if (bit >= sizeof(kPermissions) / sizeof(kPermissions[0]))
+    if (bit >= kPermissionCount)
         return false;
     const auto& row = kPermissions[bit];
-    *out = {row.sentence, row.name, row.note, row.glyph, row.risk, false, row.critical};
+    *out = {name_at(kSentences, bit), name_at(kNames, bit), {}, row.glyph, row.risk, false, row.critical};
     return true;
 }
 
@@ -404,7 +406,7 @@ namespace {
 
 enum class Row : u8 { settings, catalog, rollback, auto_update, uninstall, apply, try_it, remove, use, knobs };
 
-PopupItem row_item(Utf8View label, u32 action, UiIcon icon, u16 flags = 0) noexcept {
+PopupItem row_item(const Utf8View& label, u32 action, UiIcon icon, u16 flags = 0) noexcept {
     PopupItem p{};
     p.label = label;
     p.action = action + 1; // an item's action is never 0: that is no selection
@@ -487,49 +489,28 @@ u32 store_menu_items(const StoreModel& m, const StorePageState& st, StoreMenu wh
     Row rows[8];
     const u32 count = overflow_rows(m, item, rows);
     const StoreItem& it = m.items[item < m.count ? item : 0];
+    // Row order is the enum's: the label, glyph and flags of each row.
+    static constexpr char kRowLabels[] = "Settings\0View in catalog\0Roll back to \0Update automatically\0Uninstall...\0Apply\0Try it\0"
+                                         "Remove...\0Use as background\0Knobs\0";
+    static constexpr UiIcon kRowIcons[]{UiIcon::settings, UiIcon::external_link, UiIcon::retry, UiIcon::refresh, UiIcon::trash,
+                                        UiIcon::check,    UiIcon::eye,           UiIcon::trash, UiIcon::check,   UiIcon::filters};
+    static_assert(sizeof(kRowIcons) / sizeof(kRowIcons[0]) == static_cast<u32>(Row::knobs) + 1 &&
+                  name_list_count(kRowLabels) == static_cast<u32>(Row::knobs) + 1);
     for (u32 i = 0; i < count; ++i) {
-        switch (rows[i]) {
-        case Row::settings:
-            add(row_item(utf8_literal("Settings"), i, UiIcon::settings));
-            break;
-        case Row::catalog:
-            add(row_item(utf8_literal("View in catalog"), i, UiIcon::external_link));
-            break;
-        case Row::rollback:
-        {
-            constexpr Utf8View kPrefix = utf8_literal("Roll back to ");
-            const u32 bytes = kPrefix.bytes + it.previous_version.bytes;
-            Utf8View label = kPrefix;
+        const Row row = rows[i];
+        Utf8View label = name_at(kRowLabels, static_cast<u32>(row));
+        if (row == Row::rollback) {
+            const u32 bytes = label.bytes + it.previous_version.bytes;
             if (labels.count >= bytes) {
-                copy_bytes(labels.data, kPrefix.data, kPrefix.bytes);
-                copy_bytes(labels.data + kPrefix.bytes, it.previous_version.data, it.previous_version.bytes);
+                copy_bytes(labels.data, label.data, label.bytes);
+                copy_bytes(labels.data + label.bytes, it.previous_version.data, it.previous_version.bytes);
                 label = {labels.data, bytes};
             }
-            add(row_item(label, i, UiIcon::retry));
-            break;
         }
-        case Row::auto_update:
-            add(row_item(utf8_literal("Update automatically"), i, UiIcon::refresh, it.auto_update ? popup_item_checked : 0));
-            break;
-        case Row::uninstall:
-            add(row_item(utf8_literal("Uninstall..."), i, UiIcon::trash, popup_item_danger | popup_item_separator_before));
-            break;
-        case Row::apply:
-            add(row_item(utf8_literal("Apply"), i, UiIcon::check));
-            break;
-        case Row::try_it:
-            add(row_item(utf8_literal("Try it"), i, UiIcon::eye));
-            break;
-        case Row::remove:
-            add(row_item(utf8_literal("Remove..."), i, UiIcon::trash, popup_item_danger | popup_item_separator_before));
-            break;
-        case Row::use:
-            add(row_item(utf8_literal("Use as background"), i, UiIcon::check));
-            break;
-        case Row::knobs:
-            add(row_item(utf8_literal("Knobs"), i, UiIcon::filters));
-            break;
-        }
+        const u16 flags = row == Row::auto_update ? (it.auto_update ? popup_item_checked : 0)
+                          : row == Row::uninstall || row == Row::remove ? popup_item_danger | popup_item_separator_before
+                                                                        : 0;
+        add(row_item(label, i, kRowIcons[static_cast<u32>(row)], static_cast<u16>(flags)));
     }
     return n;
 }

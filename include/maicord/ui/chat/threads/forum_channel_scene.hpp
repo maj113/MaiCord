@@ -63,7 +63,7 @@ bool ui_forum_view_valid(const UiForumChannelView&) noexcept;
 
 // No selection matches every post. Otherwise an untagged post never matches;
 // "some" needs any selected tag, "all" needs every selected tag.
-bool ui_forum_post_matches(ConstSlice<u64> applied, ConstSlice<u64> selected, UiForumTagMatch) noexcept;
+bool ui_forum_post_matches(const ConstSlice<u64>& applied, const ConstSlice<u64>& selected, UiForumTagMatch) noexcept;
 struct UiForumSortKey {
     u64 thread_id, last_message_id;
     u32 index;
@@ -72,7 +72,7 @@ struct UiForumSortKey {
 };
 // Pinned posts first, then newest first by last activity (last message, else
 // the post's own ID) or by creation (the post ID); ties by ID, descending.
-void ui_forum_sort(Slice<UiForumSortKey>, UiForumSort) noexcept;
+void ui_forum_sort(const Slice<UiForumSortKey>&, UiForumSort) noexcept;
 
 struct UiForumToolbar {
     UiRect sort, list, gallery;
@@ -81,18 +81,18 @@ struct UiForumToolbar {
     float height;
 };
 // Lays the toolbar out from band's left/top/right; height is the band it needs.
-void ui_forum_toolbar_layout(UiRect band, const UiForumChannelView&, const UiForumStyle&, UiForumToolbar*) noexcept;
+void ui_forum_toolbar_layout(const UiRect& band, const UiForumChannelView&, const UiForumStyle&, UiForumToolbar*) noexcept;
 struct UiForumGrid {
     u32 columns;
     float card_width, card_height, gap;
 };
 UiForumGrid ui_forum_grid(float width, UiForumLayout, const UiForumStyle&) noexcept;
-UiRect ui_forum_card_rectangle(UiRect body, UiForumGrid, u32 index, float scroll) noexcept;
+UiRect ui_forum_card_rectangle(const UiRect& body, UiForumGrid, u32 index, float scroll) noexcept;
 float ui_forum_content_height(UiForumGrid, u32 count) noexcept;
 struct UiForumCardParts {
     UiRect tags, title, preview, avatar, author, meta, media;
 };
-UiForumCardParts ui_forum_card_parts(UiRect card, UiForumLayout, const UiForumPost&, const UiForumStyle&) noexcept;
+UiForumCardParts ui_forum_card_parts(const UiRect& card, UiForumLayout, const UiForumPost&, const UiForumStyle&) noexcept;
 
 // Scene integration, called by the thread browser panel.
 // Avatar and thumbnail placements for media requests; false when culled.

@@ -96,11 +96,11 @@ struct UiProfileDialogScene {
 
 // The crop editor area for a viewport: the host lays its ImageCropState out
 // in this size (image_crop_begin / image_crop_resize) before updating.
-UiRect ui_profile_dialog_crop_editor(UiRect viewport) noexcept;
+UiRect ui_profile_dialog_crop_editor(const UiRect& viewport) noexcept;
 // Opens (or refreshes) the dialog for `content`; strings and items are
 // borrowed until the next update.
 bool ui_profile_dialog_update(UiProfileDialogScene* scene, const UiProfileDialogContent& content,
-                              UiRect viewport) noexcept;
+                              const UiRect& viewport) noexcept;
 void ui_profile_dialog_close(UiProfileDialogScene* scene) noexcept;
 UiWidgetHandle ui_profile_dialog_hit_test(const UiProfileDialogScene& scene, float x, float y) noexcept;
 UiProfileDialogAction ui_profile_dialog_action(const UiProfileDialogScene& scene, UiWidgetHandle widget,

@@ -52,8 +52,8 @@ struct UiImageViewer {
     char counter[16], caption[160];
     u32 counter_bytes, caption_bytes;
 };
-bool ui_image_viewer_open(UiImageViewer* viewer, UiRect viewport, UiSize pixels) noexcept;
-bool ui_image_viewer_layout(UiImageViewer* viewer, UiRect viewport) noexcept;
+bool ui_image_viewer_open(UiImageViewer* viewer, const UiRect& viewport, UiSize pixels) noexcept;
+bool ui_image_viewer_layout(UiImageViewer* viewer, const UiRect& viewport) noexcept;
 // Device pixels per DIP; actual size and 1:1 pixel snapping follow it.
 bool ui_image_viewer_set_dpi(UiImageViewer* viewer, u32 dpi) noexcept;
 bool ui_image_viewer_set_save_available(UiImageViewer* viewer, bool available) noexcept;
@@ -67,7 +67,7 @@ bool ui_image_viewer_set_media(UiImageViewer* viewer, UiImageViewerMedia media) 
 bool ui_image_viewer_set_chrome(UiImageViewer* viewer, float opacity) noexcept;
 bool ui_image_viewer_set_fullscreen(UiImageViewer* viewer, bool fullscreen) noexcept;
 // Open/close progress in [0, 1]; scales the scrim and interpolates `display`.
-void ui_image_viewer_set_reveal(UiImageViewer* viewer, float reveal, UiRect origin) noexcept;
+void ui_image_viewer_set_reveal(UiImageViewer* viewer, float reveal, const UiRect& origin) noexcept;
 void ui_image_viewer_zoom(UiImageViewer* viewer, float factor, UiPoint anchor) noexcept;
 // Wheel delta in WHEEL_DELTA units: one notch zooms by kUiImageViewerWheelStep,
 // smaller (precision touchpad) deltas by the matching fraction of it.

@@ -104,6 +104,6 @@ bool message_rich_component_spoiler(const MessageRichComponent& component) noexc
 Utf8View message_media_obscure_label(MessageMediaObscure obscure) noexcept;
 
 // Centred label pill over an obscured preview (empty when it cannot fit).
-UiRect message_media_obscure_pill(UiRect media, MessageMediaObscure obscure = MessageMediaObscure::spoiler) noexcept;
+UiRect message_media_obscure_pill(const UiRect& media, MessageMediaObscure obscure = MessageMediaObscure::spoiler) noexcept;
 
 } // namespace maicord

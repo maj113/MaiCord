@@ -872,14 +872,14 @@ void run() noexcept {
 
 namespace maicord {
 bool text_edit_layout_hit_test(const TextEditLayoutOwner&,float,float,u32*) noexcept {return false;}
-ClipboardTextResult clipboard_read_utf8(HWND,Slice<char> output) noexcept {
+ClipboardTextResult clipboard_read_utf8(HWND,const Slice<char>& output) noexcept {
     const auto& state=friends_runtime_test::seen;
     if(!output.data&&output.count)return {0,ClipboardTextError::invalid_input};
     if(state.clipboard_bytes>output.count)return {0,ClipboardTextError::capacity};
     for(u32 i=0;i<state.clipboard_bytes;++i)output[i]=state.clipboard[i];
     return {state.clipboard_bytes,ClipboardTextError::none};
 }
-bool clipboard_write_utf8(HWND,Utf8View text) noexcept {
+bool clipboard_write_utf8(HWND,const Utf8View& text) noexcept {
     auto& state=friends_runtime_test::seen;
     if(text.bytes>sizeof(state.clipboard)||!utf8_validate(text).valid)return false;
     for(u32 i=0;i<text.bytes;++i)state.clipboard[i]=text.data[i];state.clipboard_bytes=text.bytes;return true;

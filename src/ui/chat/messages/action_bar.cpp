@@ -15,7 +15,7 @@ MessageActionBarResult reject(MessageActionBar* bar, MessageActionBarError error
 
 // Overlays above the bar's centre cover its top edge, those below its bottom
 // edge. A horizontal toolbar against horizontal banners stays rectangular.
-UiRect occluded_clip(const MessageActionBar& bar, UiRect rectangle, UiRect viewport) noexcept {
+UiRect occluded_clip(const MessageActionBar& bar, const UiRect& rectangle, const UiRect& viewport) noexcept {
     UiRect clip = viewport;
     const float middle = (rectangle.top + rectangle.bottom) * .5f;
     for (const UiRect& occluder : bar.occluders) {
@@ -30,7 +30,7 @@ UiRect occluded_clip(const MessageActionBar& bar, UiRect rectangle, UiRect viewp
     return clip;
 }
 
-bool layout_items(MessageActionBar* bar, UiRect row, UiRect viewport, bool divider = false) noexcept {
+bool layout_items(MessageActionBar* bar, const UiRect& row, const UiRect& viewport, bool divider = false) noexcept {
     if (!ui_rect_has_area(row) || !ui_rect_has_area(viewport) || !bar->item_count ||
         bar->item_count > kMessageActionBarCapacity) {
         return false;

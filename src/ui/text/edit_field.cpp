@@ -3,8 +3,8 @@
 #include "maicord/ui/theme/background_surface.hpp"
 #include "maicord/ui/text/presentation.hpp"
 namespace maicord {
-bool ui_edit_field_paint(PaintStream* paint, UiRect field, UiRect content, const UiEditView& view,
-                         const UiEditGeometry* geometry, Color background, const Theme& theme, u32 dpi,
+bool ui_edit_field_paint(PaintStream* paint, const UiRect& field, const UiRect& content, const UiEditView& view,
+                         const UiEditGeometry* geometry, const Color& background, const Theme& theme, u32 dpi,
                          float radius) noexcept {
     if (!view.active)
         return true;
@@ -19,7 +19,7 @@ Color ui_edit_selection_color(const Theme& theme) noexcept {
     selection.alpha = .38f;
     return selection;
 }
-bool ui_edit_field_paint_content(PaintStream* paint, UiRect content, const UiEditView& view,
+bool ui_edit_field_paint_content(PaintStream* paint, const UiRect& content, const UiEditView& view,
                                  const UiEditGeometry* geometry, const Theme& theme, u32 dpi) noexcept {
     if (!view.active || !view.focused || !geometry)
         return true;
@@ -37,8 +37,8 @@ bool ui_edit_field_paint_content(PaintStream* paint, UiRect content, const UiEdi
         ok = paint_stream_push(paint, caret, theme.text_primary);
     return paint_stream_pop_clip(paint) && ok;
 }
-bool ui_edit_field_text_output(UiTextOutput* text, UiWidgetReference owner, UiRect content,
-                               const UiEditView& view, const UiEditGeometry* geometry, Utf8View placeholder,
+bool ui_edit_field_text_output(UiTextOutput* text, UiWidgetReference owner, const UiRect& content,
+                               const UiEditView& view, const UiEditGeometry* geometry, const Utf8View& placeholder,
                                const Theme& theme) noexcept {
     if (!view.active)
         return true;

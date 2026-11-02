@@ -46,7 +46,7 @@ struct UiCallFocusLayout {
 UiCallFocusLayout ui_call_focus_measure(UiRect area, u32 others, float gap) noexcept;
 // Picture rectangle of a width x height video in a tile: contain letterboxes,
 // cover fills the tile (the host clips to it). Empty for an empty picture.
-UiRect ui_call_video_fit(UiRect tile, u32 width, u32 height, bool cover) noexcept;
+UiRect ui_call_video_fit(const UiRect& tile, u32 width, u32 height, bool cover) noexcept;
 
 enum class UiCallControl : u8 {
     none,
@@ -232,11 +232,11 @@ inline constexpr float kUiCallHeaderControl = 32, kUiCallHeaderGap = 8, kUiCallH
 struct UiCallHeaderLayout {
     UiRect close, chat, search;
 };
-UiCallHeaderLayout ui_call_header_layout(UiRect header, bool chat, float search_width) noexcept;
+UiCallHeaderLayout ui_call_header_layout(const UiRect& header, bool chat, float search_width) noexcept;
 
 // Projects content into viewport. now_ms/reduced_motion drive the tile morph
 // started by a layout change (focus, fullscreen, membership, viewport).
-bool ui_call_scene_update(UiCallScene*, const UiCallContent&, UiRect viewport, u64 now_ms,
+bool ui_call_scene_update(UiCallScene*, const UiCallContent&, const UiRect& viewport, u64 now_ms,
                           bool reduced_motion) noexcept;
 void ui_call_scene_release(UiCallScene*) noexcept;
 u64 ui_call_scene_next_wake(const UiCallScene&, u64 now_ms, bool reduced_motion) noexcept;

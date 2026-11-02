@@ -14,7 +14,7 @@ bool rectangle(const UiRect& bounds) noexcept {
            paint_coordinate_valid(bounds.right) && paint_coordinate_valid(bounds.bottom) &&
            bounds.right > bounds.left && bounds.bottom > bounds.top;
 }
-bool contains(UiRect bounds, UiPoint point) noexcept {
+bool contains(const UiRect& bounds, UiPoint point) noexcept {
     return paint_coordinate_valid(point.x) && paint_coordinate_valid(point.y) && point.x >= bounds.left &&
            point.x < bounds.right && point.y >= bounds.top && point.y < bounds.bottom;
 }
@@ -96,7 +96,7 @@ struct VolumeTokens : UiSettingsThemeTokens {
     }
 };
 // Centred in the volume control; its grabber sets the pill behind it.
-UiSliderGeometry volume_slider(const UiSettingsTokens& tokens, UiRect bounds, u32 value) noexcept {
+UiSliderGeometry volume_slider(const UiSettingsTokens& tokens, const UiRect& bounds, u32 value) noexcept {
     const float middle = (bounds.top + bounds.bottom) * .5f, half = ui_slider_height(tokens, false) * .5f;
     return ui_slider_geometry(tokens, {bounds.left, middle - half, bounds.right, middle + half}, kVolumeSteps,
                               value, false);
@@ -317,7 +317,7 @@ bool ui_video_scene_project(UiVideoScene* scene, const UiVideoPlaybackState& pla
     scene->text_revision = text_revision(*scene, theme);
     return true;
 }
-UiRect ui_video_play_affordance_rectangle(UiRect preview,
+UiRect ui_video_play_affordance_rectangle(const UiRect& preview,
                                           const UiVideoPlayAffordanceStyle& style) noexcept {
     if (!rectangle(preview))
         return {};
@@ -329,7 +329,7 @@ UiRect ui_video_play_affordance_rectangle(UiRect preview,
                 y = (preview.top + preview.bottom - size) * .5f;
     return {x, y, x + size, y + size};
 }
-bool ui_video_play_affordance_paint(UiRect preview, UiRect clip, const UiVideoPlayAffordanceStyle& style,
+bool ui_video_play_affordance_paint(const UiRect& preview, const UiRect& clip, const UiVideoPlayAffordanceStyle& style,
                                     const Theme& theme, PaintStream* paint) noexcept {
     if (!rectangle(preview) || !ui_rect_valid_or_empty(clip))
         return false;
@@ -348,7 +348,7 @@ bool ui_video_play_affordance_paint(UiRect preview, UiRect clip, const UiVideoPl
                      kDefaultTheme.text_primary, false, 0.f)
         .end();
 }
-UiVideoEmbedActions ui_video_embed_actions(UiRect preview, bool open_link, const UiVideoEmbedActionsStyle& style) noexcept {
+UiVideoEmbedActions ui_video_embed_actions(const UiRect& preview, bool open_link, const UiVideoEmbedActionsStyle& style) noexcept {
     if (!rectangle(preview))
         return {};
     const float width = open_link ? 2 * style.padding + 2 * style.icon + style.gap : style.height;
@@ -387,7 +387,7 @@ bool ui_video_embed_actions_paint(UiRect preview, UiRect clip, bool open_link, c
         p.icon(UiIcon::external_link, actions.open, icon);
     return p.end();
 }
-bool ui_video_scene_covers_preview(const UiVideoScene& scene, UiRect preview) noexcept {
+bool ui_video_scene_covers_preview(const UiVideoScene& scene, const UiRect& preview) noexcept {
     const auto bounds = scene.projection.bounds;
     return scene.active && rectangle(preview) && rectangle(bounds) && bounds.left >= preview.left &&
            bounds.top >= preview.top && bounds.right <= preview.right && bounds.bottom <= preview.bottom &&

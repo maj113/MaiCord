@@ -15,7 +15,7 @@ bool guild_context_target_current(const ChatStateStore& state, u64 guild_id, u16
            !guild->unavailable;
 }
 u32 guild_context_policy_build(const ChatStateStore& state, u64 guild_id, u32 copy_id_action,
-                               Slice<PopupItem> output, UiScopedReadMenuState scoped,
+                               const Slice<PopupItem>& output, UiScopedReadMenuState scoped,
                                u32 settings_action, bool developer_mode) noexcept {
     const auto* guild = chat_state_store_find_guild(state, guild_id);
     if (!copy_id_action || !output.data || !output.count || !guild || guild->unavailable ||
@@ -97,7 +97,7 @@ u64 guild_context_invite_channel(const ChatStateStore& state, u64 guild_id, u64 
 }
 
 u32 guild_context_invite_item(const ChatStateStore& state, u64 guild_id, u64 preferred_channel, u32 action,
-                              Slice<PopupItem> output) noexcept {
+                              const Slice<PopupItem>& output) noexcept {
     if (!action || !output.data || !output.count || !guild_context_invite_channel(state, guild_id, preferred_channel))
         return 0;
     output[0] = {utf8_literal("Invite people"), action,
@@ -107,7 +107,7 @@ u32 guild_context_invite_item(const ChatStateStore& state, u64 guild_id, u64 pre
 }
 
 u32 guild_context_settings_item(const ChatStateStore& state, u64 guild_id, u32 action,
-                                Slice<PopupItem> output) noexcept {
+                                const Slice<PopupItem>& output) noexcept {
     if (!action || !output.data || !output.count || !guild_context_target_valid(state, guild_id) ||
         !guild_settings_access(state, guild_id).sections)
         return 0;
@@ -118,7 +118,7 @@ u32 guild_context_settings_item(const ChatStateStore& state, u64 guild_id, u32 a
 }
 
 u32 guild_context_copy_id_item(const ChatStateStore& state, u64 guild_id, u32 action,
-                               Slice<PopupItem> output) noexcept {
+                               const Slice<PopupItem>& output) noexcept {
     if (!action || !output.data || !output.count || !guild_context_target_valid(state, guild_id))
         return 0;
     output[0] = {utf8_literal("Copy server ID"), action,
@@ -132,7 +132,7 @@ bool guild_context_owner(const ChatStateStore& state, u64 guild_id) noexcept {
 }
 
 u32 guild_context_leave_item(const ChatStateStore& state, u64 guild_id, u32 action,
-                             Slice<PopupItem> output) noexcept {
+                             const Slice<PopupItem>& output) noexcept {
     if (!action || !output.data || !output.count || !guild_context_target_valid(state, guild_id) ||
         guild_context_owner(state, guild_id))
         return 0;
@@ -143,7 +143,7 @@ u32 guild_context_leave_item(const ChatStateStore& state, u64 guild_id, u32 acti
 }
 
 u32 guild_context_create_channel_items(const ChatStateStore& state, u64 guild_id, u64 category_id,
-                                       u32 text_action, u32 voice_action, Slice<PopupItem> output) noexcept {
+                                       u32 text_action, u32 voice_action, const Slice<PopupItem>& output) noexcept {
     if (!text_action || !output.data || !output.count || (!guild_id == !category_id) ||
         !guild_context_can_create_channel(state, guild_id, category_id))
         return 0;
@@ -158,7 +158,7 @@ u32 guild_context_create_channel_items(const ChatStateStore& state, u64 guild_id
     return voice ? 2 : 1;
 }
 u32 guild_context_create_category_item(const ChatStateStore& state, u64 guild_id, u32 action,
-                                       Slice<PopupItem> output) noexcept {
+                                       const Slice<PopupItem>& output) noexcept {
     if (!action || !output.data || !output.count || !guild_context_can_create_channel(state, guild_id, 0))
         return 0;
     output[0] = {utf8_literal("Create category"), action, popup_item_enabled};
@@ -166,7 +166,7 @@ u32 guild_context_create_category_item(const ChatStateStore& state, u64 guild_id
 }
 
 u32 guild_context_hide_muted_item(const ChatStateStore& state, u64 guild_id, u32 action,
-                                  Slice<PopupItem> output) noexcept {
+                                  const Slice<PopupItem>& output) noexcept {
     const auto* guild = chat_state_store_find_guild(state, guild_id);
     if (!action || !output.data || !output.count || !guild || guild->unavailable)
         return 0;

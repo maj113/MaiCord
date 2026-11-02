@@ -49,7 +49,7 @@ bool ui_activity_status(const UserActivity* primary, const UserAppearanceRecord*
     return shown(*output);
 }
 bool ui_user_activity_status(const UserStore& users, u64 user_id, const UserAppearanceRecord* appearance,
-                             Slice<char> storage, UiActivityStatus* output) noexcept {
+                             const Slice<char>& storage, UiActivityStatus* output) noexcept {
     if (!output)
         return false;
     reset_value(output);

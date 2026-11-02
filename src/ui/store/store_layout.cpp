@@ -539,7 +539,7 @@ UiStoreNode& UiStoreBuilder::leaf(UiStoreKind kind) noexcept {
     return add(kind);
 }
 
-UiStoreNode& UiStoreBuilder::text(Utf8View value, UiStoreType type, UiStoreInk ink, u16 flags) noexcept {
+UiStoreNode& UiStoreBuilder::text(const Utf8View& value, UiStoreType type, UiStoreInk ink, u16 flags) noexcept {
     auto& n = add(UiStoreKind::text);
     n.text = value;
     n.type = static_cast<u8>(type);
@@ -548,7 +548,7 @@ UiStoreNode& UiStoreBuilder::text(Utf8View value, UiStoreType type, UiStoreInk i
     return n;
 }
 
-UiStoreNode& UiStoreBuilder::chip(Utf8View value, UiStoreTone tone, UiIcon icon) noexcept {
+UiStoreNode& UiStoreBuilder::chip(const Utf8View& value, UiStoreTone tone, UiIcon icon) noexcept {
     auto& n = add(UiStoreKind::chip);
     n.text = value;
     n.variant = static_cast<u8>(tone);
@@ -556,7 +556,7 @@ UiStoreNode& UiStoreBuilder::chip(Utf8View value, UiStoreTone tone, UiIcon icon)
     return n;
 }
 
-UiStoreNode& UiStoreBuilder::button(Utf8View value, UiStoreButton variant, u32 action, UiIcon icon, bool large) noexcept {
+UiStoreNode& UiStoreBuilder::button(const Utf8View& value, UiStoreButton variant, u32 action, UiIcon icon, bool large) noexcept {
     auto& n = add(UiStoreKind::button);
     n.text = value;
     n.variant = static_cast<u8>(variant);
@@ -566,13 +566,54 @@ UiStoreNode& UiStoreBuilder::button(Utf8View value, UiStoreButton variant, u32 a
     return n;
 }
 
-UiStoreNode& UiStoreBuilder::icon_button(UiIcon icon, Utf8View name, u32 action, float size) noexcept {
+UiStoreNode& UiStoreBuilder::icon_button(UiIcon icon, const Utf8View& name, u32 action, float size) noexcept {
     auto& n = add(UiStoreKind::icon_button);
     n.icon = icon_byte(icon);
     n.text = name;
     n.action = action;
     n.rw = size;
     return n;
+}
+
+__declspec(noinline) UiStoreNode& UiStoreBuilder::text(const Utf8View& value, UiStoreType type, UiStoreInk ink) noexcept {
+    return text(value, type, ink, u16{0});
+}
+
+__declspec(noinline) UiStoreNode& UiStoreBuilder::button(const Utf8View& value, UiStoreButton variant, u32 action) noexcept {
+    return button(value, variant, action, UiIcon::count, false);
+}
+
+__declspec(noinline) UiStoreNode& UiStoreBuilder::icon_button(UiIcon icon, const Utf8View& name, u32 action) noexcept {
+    return icon_button(icon, name, action, 32.f);
+}
+
+__declspec(noinline) UiStoreNode& UiStoreBuilder::text(const char* value, UiStoreType type, UiStoreInk ink) noexcept {
+    return text(Utf8View{value, c_string_length(value)}, type, ink, u16{0});
+}
+
+__declspec(noinline) UiStoreNode& UiStoreBuilder::button(const char* value, UiStoreButton variant, u32 action) noexcept {
+    return button(Utf8View{value, c_string_length(value)}, variant, action, UiIcon::count, false);
+}
+
+__declspec(noinline) UiStoreNode& UiStoreBuilder::icon_button(UiIcon icon, const char* name, u32 action) noexcept {
+    return icon_button(icon, Utf8View{name, c_string_length(name)}, action, 32.f);
+}
+
+__declspec(noinline) UiStoreNode& UiStoreBuilder::text(const char* value, UiStoreType type, UiStoreInk ink, u16 flags) noexcept {
+    return text(Utf8View{value, c_string_length(value)}, type, ink, flags);
+}
+
+__declspec(noinline) UiStoreNode& UiStoreBuilder::chip(const char* value, UiStoreTone tone, UiIcon icon) noexcept {
+    return chip(Utf8View{value, c_string_length(value)}, tone, icon);
+}
+
+__declspec(noinline) UiStoreNode& UiStoreBuilder::button(const char* value, UiStoreButton variant, u32 action, UiIcon icon,
+                                                          bool large) noexcept {
+    return button(Utf8View{value, c_string_length(value)}, variant, action, icon, large);
+}
+
+__declspec(noinline) UiStoreNode& UiStoreBuilder::icon_button(UiIcon icon, const char* name, u32 action, float size) noexcept {
+    return icon_button(icon, Utf8View{name, c_string_length(name)}, action, size);
 }
 
 UiStoreNode& UiStoreBuilder::tile(UiIcon icon, float size, UiStoreTone tone) noexcept {
@@ -591,26 +632,46 @@ UiStoreNode& UiStoreBuilder::spacer(float width, float height, bool flex) noexce
     return n;
 }
 
-Utf8View UiStoreBuilder::copy(Utf8View a, Utf8View b, Utf8View c, Utf8View d) noexcept {
+Utf8View UiStoreBuilder::gather(const Utf8View* const* parts, u32 count) noexcept {
     if (!ok_ || !scene_->text)
         return {};
-    const Utf8View parts[4]{a, b, c, d};
     u32 bytes = 0;
-    for (const auto& part : parts)
-        bytes += part.bytes;
+    for (u32 i = 0; i < count; ++i)
+        bytes += parts[i]->bytes;
     if (scene_->text_used + bytes > kUiStoreTextBytes) {
         ok_ = false;
         return {};
     }
     char* out = scene_->text + scene_->text_used;
     u32 at_byte = 0;
-    for (const auto& part : parts) {
+    for (u32 i = 0; i < count; ++i) {
+        const Utf8View& part = *parts[i];
         if (part.bytes)
             copy_bytes(out + at_byte, part.data, part.bytes);
         at_byte += part.bytes;
     }
     scene_->text_used += bytes;
     return {out, bytes};
+}
+
+Utf8View UiStoreBuilder::copy(const Utf8View& a) noexcept {
+    const Utf8View* const parts[]{&a};
+    return gather(parts, 1);
+}
+
+Utf8View UiStoreBuilder::copy(const Utf8View& a, const Utf8View& b) noexcept {
+    const Utf8View* const parts[]{&a, &b};
+    return gather(parts, 2);
+}
+
+Utf8View UiStoreBuilder::copy(const Utf8View& a, const Utf8View& b, const Utf8View& c) noexcept {
+    const Utf8View* const parts[]{&a, &b, &c};
+    return gather(parts, 3);
+}
+
+Utf8View UiStoreBuilder::copy(const Utf8View& a, const Utf8View& b, const Utf8View& c, const Utf8View& d) noexcept {
+    const Utf8View* const parts[]{&a, &b, &c, &d};
+    return gather(parts, 4);
 }
 
 Utf8View UiStoreBuilder::number(u64 value) noexcept {

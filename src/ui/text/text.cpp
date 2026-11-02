@@ -256,6 +256,8 @@ TextShapingView::~TextShapingView() noexcept {
         HeapFree(process_heap(), 0, heap_);
 }
 
+// The fallback stages run only after a text failed to shape whole: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 namespace {
 // With browser invisibles on there is no shaper besides the native one, so a
 // scalar or sequence the native items cannot express must not fail its whole
@@ -403,6 +405,7 @@ bool TextNativeFallback::narrow(const TextSystem& system,char* out,u32 begin,u32
     if(unresolved&&!left&&!right)return native_substitute_clusters(out,begin,end);
     return left||right;
 }
+#pragma clang attribute pop
 
 namespace {
 // Spans must be ordered, disjoint and in bounds, starting and ending on scalar
@@ -454,6 +457,7 @@ void clear_clusters(ShapedText* output, u32 utf16_units) noexcept {
         output->clusters[index] = 0xFFFF;
 }
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 // The fallback stages (and their 1.5 KB of substitute state) live in their own
 // frame, so the first attempt, which nearly always succeeds, does not carry it.
 __declspec(noinline) TextShapeResult layout_fallback(const LayoutRequest& r, Utf8View input) noexcept {
@@ -478,6 +482,7 @@ __declspec(noinline) TextShapeResult layout_fallback(const LayoutRequest& r, Utf
     return shape_result(exhausted ? TextShapeError::output_too_small : TextShapeError::unsupported,
                         exhausted ? HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) : E_NOTIMPL, r.utf16_units);
 }
+#pragma clang attribute pop
 
 // Sized spans fold into this many inline records; longer sized lists (rare,
 // and shaped at a cost far above an allocation) fold into the process heap.

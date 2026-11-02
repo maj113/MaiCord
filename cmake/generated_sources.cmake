@@ -75,6 +75,54 @@ add_custom_command(
     VERBATIM)
 add_custom_target(maicord_regional_flag_data DEPENDS "${MAICORD_REGIONAL_FLAG_BUNDLE}")
 
+# The settings catalog (src/app/settings/catalog_data.inc) ships as a zlib stream that catalog.cpp inflates on first
+# use; tests/app/settings/catalog_pack.cpp checks the decoded catalog against the data file. The source property
+# applies to every target that compiles catalog.cpp (the client and its tests).
+set(MAICORD_SETTINGS_CATALOG_PACK "${MAICORD_GENERATED_DIRECTORY}/settings_catalog_pack.inc")
+add_custom_command(
+    OUTPUT "${MAICORD_SETTINGS_CATALOG_PACK}"
+    COMMAND "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/pack_settings_catalog.py" "${MAICORD_SETTINGS_CATALOG_PACK}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/app/settings/catalog_data.inc"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/app/settings/catalog.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/ui/settings/scene.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/ui/settings/schema.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/ui/widgets/icon_ids.inc"
+    DEPENDS tools/pack_settings_catalog.py tools/optimal_deflate.py tools/font_reference/embed_fixture.py
+        src/app/settings/catalog_data.inc
+        src/app/settings/catalog.hpp include/maicord/ui/settings/scene.hpp include/maicord/ui/settings/schema.hpp
+        include/maicord/ui/widgets/icon_ids.inc
+    VERBATIM)
+set_source_files_properties(src/app/settings/catalog.cpp PROPERTIES
+    OBJECT_DEPENDS "${MAICORD_SETTINGS_CATALOG_PACK}"
+    COMPILE_OPTIONS "/I${MAICORD_GENERATED_DIRECTORY}")
+
+# The permission grid (src/model/guild/permission_grid_data.inc) and the built-in games (src/app/account/game_data.inc)
+# ship as zlib streams their owners inflate on first use; tests/model/guild/permission_grid_pack.cpp and
+# tests/app/account/game_pack.cpp check the decoded tables against the data files.
+set(MAICORD_PERMISSION_GRID_PACK "${MAICORD_GENERATED_DIRECTORY}/permission_grid_pack.inc")
+set(MAICORD_GAME_PACK "${MAICORD_GENERATED_DIRECTORY}/game_pack.inc")
+add_custom_command(
+    OUTPUT "${MAICORD_PERMISSION_GRID_PACK}" "${MAICORD_GAME_PACK}"
+    BYPRODUCTS "${MAICORD_GENERATED_DIRECTORY}/permission_grid_packed.bin" "${MAICORD_GENERATED_DIRECTORY}/game_packed.bin"
+    COMMAND "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/pack_tables.py" "${MAICORD_GENERATED_DIRECTORY}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/model/guild/permission_grid_data.inc"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/model/guild/permission_grid.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/model/guild/permission_bits.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/app/account/game_data.inc"
+    DEPENDS tools/pack_tables.py tools/pack_settings_catalog.py tools/optimal_deflate.py
+        tools/font_reference/embed_fixture.py
+        src/model/guild/permission_grid_data.inc include/maicord/model/guild/permission_grid.hpp
+        include/maicord/model/guild/permission_bits.hpp src/app/account/game_data.inc
+    VERBATIM)
+set_source_files_properties(src/model/guild/permission_grid.cpp PROPERTIES
+    OBJECT_DEPENDS "${MAICORD_PERMISSION_GRID_PACK}"
+    COMPILE_OPTIONS "/I${MAICORD_GENERATED_DIRECTORY}")
+set_source_files_properties(src/app/account/game_detection.cpp PROPERTIES
+    OBJECT_DEPENDS "${MAICORD_GAME_PACK}"
+    COMPILE_OPTIONS "/I${MAICORD_GENERATED_DIRECTORY}")
+
 set(MAICORD_NOTIFICATION_SOUND_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/assets/sounds")
 set(MAICORD_NOTIFICATION_SOUND_RESOURCE "${CMAKE_CURRENT_BINARY_DIR}/notification_sounds.rc")
 configure_file(config/notification_sounds.rc.in "${MAICORD_NOTIFICATION_SOUND_RESOURCE}" @ONLY)

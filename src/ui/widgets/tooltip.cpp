@@ -47,7 +47,7 @@ bool source_current(const UiTooltipKey& key) noexcept {
     }
     return false;
 }
-bool valid_label(Utf8View label) noexcept {
+bool valid_label(const Utf8View& label) noexcept {
     if (!label.data || !label.bytes || label.bytes > kUiTooltipMaximumTextBytes ||
         !utf8_validate(label).valid)
         return false;
@@ -95,7 +95,7 @@ float leading(const UiTooltipScene& scene) noexcept {
     return has_emoji(scene) && !inline_icon(scene) ? scene.style.emoji_size + scene.style.emoji_gap : 0;
 }
 // Plain and bold runs covering the whole label.
-u8 label_runs(u32 bytes, ConstSlice<TextStyleSpan> bold, TextStyleSpan* runs) noexcept {
+u8 label_runs(u32 bytes, const ConstSlice<TextStyleSpan>& bold, TextStyleSpan* runs) noexcept {
     u8 count = 0;
     u32 at = 0;
     for (u32 i = 0; i < bold.count; ++i) {

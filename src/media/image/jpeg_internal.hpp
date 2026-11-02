@@ -52,13 +52,13 @@ JpegEntropyReader entropy_reader(ConstSlice<u8> bytes) noexcept;
 __forceinline void entropy_refill(JpegEntropyReader* reader) noexcept {
     const u8* const data = reader->bytes.data;
     const u32 count = reader->bytes.count;
-    if (reader->stop == JpegError::none && reader->offset + 8u <= count) {
+    if (reader->stop == JpegError::none && reader->offset + 8u <= count) [[likely]] {
         // Eight bytes without 0xFF are plain entropy data: append as many as
         // fit at once. Bits of the next byte may land below `bits`; they are
         // that byte's own bits, ORed in again when it is appended.
         const u64 raw = static_cast<u64>(
             _mm_cvtsi128_si64(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(data + reader->offset))));
-        if (((~raw - 0x0101010101010101ull) & raw & 0x8080808080808080ull) == 0) {
+        if (((~raw - 0x0101010101010101ull) & raw & 0x8080808080808080ull) == 0) [[likely]] {
             const u32 take = (64u - reader->bits) >> 3;
             reader->buffer |= _byteswap_uint64(raw) >> reader->bits;
             reader->offset += take;
@@ -66,7 +66,14 @@ __forceinline void entropy_refill(JpegEntropyReader* reader) noexcept {
             return;
         }
     }
-    while (reader->bits <= 56 && reader->stop == JpegError::none) {
+    // The end of the segment and the bytes around an 0xFF: byte at a time.
+    // Counted and not unrolled: the unrolled copy at every bit read cost 20 KB
+    // (the `bits <= 56` loop form ignored the unroll pragma). An out-of-line
+    // call was slower than this loop. Each byte adds eight bits, so
+    // (64 - bits) / 8 bytes fit.
+    const u32 room = (64u - reader->bits) >> 3;
+#pragma clang loop unroll(disable)
+    for (u32 taken = 0; taken < room && reader->stop == JpegError::none; ++taken) {
         if (reader->offset >= count) {
             reader->stop = JpegError::truncated;
             break;
@@ -96,12 +103,12 @@ __forceinline void entropy_consume(JpegEntropyReader* reader, u32 count) noexcep
 }
 
 __forceinline u32 entropy_read_bit(JpegEntropyReader* reader) noexcept {
-    if (reader->error != JpegError::none) {
+    if (reader->error != JpegError::none) [[unlikely]] {
         return 0;
     }
-    if (reader->bits == 0) {
+    if (reader->bits == 0) [[unlikely]] {
         entropy_refill(reader);
-        if (reader->bits == 0) {
+        if (reader->bits == 0) [[unlikely]] {
             reader->error = reader->stop;
             return 0;
         }
@@ -116,9 +123,9 @@ __forceinline u32 entropy_read_bits(JpegEntropyReader* reader, u32 count) noexce
     if (count == 0 || reader->error != JpegError::none) {
         return 0;
     }
-    if (reader->bits < count) {
+    if (reader->bits < count) [[unlikely]] {
         entropy_refill(reader);
-        if (reader->bits < count) {
+        if (reader->bits < count) [[unlikely]] {
             reader->error = reader->stop;
             return 0;
         }

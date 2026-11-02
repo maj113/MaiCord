@@ -102,7 +102,7 @@ float ui_pinned_messages_scene_scroll_maximum(const UiPinnedMessagesScene& s) no
     return maximum(0.f, s.offsets[s.measured_count] - ui_rect_height(s.body));
 }
 bool ui_pinned_messages_scene_update(UiPinnedMessagesScene* s, const UiPinnedMessagesSource* source,
-                                    const UiPinnedMessagesContent* content, UiRect viewport) noexcept {
+                                    const UiPinnedMessagesContent* content, const UiRect& viewport) noexcept {
     if (!s || !content || !content->channel_id || content->phase > UiPinnedMessagesPhase::failed ||
         !utf8_validate(content->channel).valid || !utf8_validate(content->status).valid ||
         !ui_rect_valid(viewport) || ui_rect_width(viewport) < 180 || ui_rect_height(viewport) < 128 ||

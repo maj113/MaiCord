@@ -56,7 +56,7 @@ inline ProfileLab profile_lab(u32 rgb) noexcept {
                  z = f((.0193339 * r + .1191920 * g + .9503041 * b) / 1.08883);
     return {116 * y - 16, 500 * (x - y), 200 * (y - z)};
 }
-inline u32 profile_rgb(Color c) noexcept {
+inline u32 profile_rgb(const Color& c) noexcept {
     const auto channel = [](float v) noexcept {
         return static_cast<u32>(background_color_unit(v) * 255.f + .5f);
     };

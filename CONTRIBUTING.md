@@ -76,7 +76,7 @@ to the tag and the `.sha256` value.
 | Module | Contents |
 | --- | --- |
 | `build_contract.cmake` | Compiler/linker contract, `maicord_library()`, `maicord_program()` |
-| `generated_sources.cmake` | Packed UI data, shaders (`maicord_shader()`), icon, sounds |
+| `generated_sources.cmake` | Packed UI data (including the settings catalog, `tools/pack_settings_catalog.py`, and the permission grid and built-in games, `tools/pack_tables.py`), shaders (`maicord_shader()`), icon, sounds |
 | `libraries.cmake` | Shipping static libraries |
 | `client.cmake` | `MaiCord.exe` with the account module, updater identity, cold-code `-Oz` (the only code the machine outliner touches) |
 | `tests.cmake`, `test_support.cmake` | The temporary test configuration and its helpers |

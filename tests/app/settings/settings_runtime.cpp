@@ -21,6 +21,7 @@ void test_application_plugin_surfaces_revision(void (*check)(bool, const char*) 
 void test_application_plugin_reads(void (*check)(bool, const char*) noexcept) noexcept;
 void test_application_settings_choice_runtime(void (*check)(bool, const char*) noexcept) noexcept;
 void test_application_custom_theme(void (*check)(bool, const char*) noexcept) noexcept;
+void test_settings_catalog_pack(void (*check)(bool, const char*) noexcept) noexcept;
 namespace app_detail {
 // The captured plugin menu bank, observed by the navigation test that includes its owner.
 const ApplicationPluginMenu& application_plugins_menu_state() noexcept;
@@ -1989,6 +1990,7 @@ void test_settings_catalog() noexcept {
 extern "C" __declspec(noreturn) void WINAPI maicord_settings_runtime_entry() noexcept {
     using namespace maicord::settings_runtime_test;
     test_settings_catalog();
+    maicord::test_settings_catalog_pack(check);
     test_controller();
     maicord::test_application_plugin_navigation_runtime(check);
     maicord::test_application_plugin_surfaces_revision(check);

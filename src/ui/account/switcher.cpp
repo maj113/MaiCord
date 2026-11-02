@@ -5,18 +5,18 @@
 namespace maicord {
 namespace {
 
-PopupItem action(Utf8View label, UiAccountSwitcherAction value, UiIcon icon, u16 flags = 0) noexcept {
+PopupItem action(const Utf8View& label, UiAccountSwitcherAction value, UiIcon icon, u16 flags = 0) noexcept {
     PopupItem result{label, static_cast<u32>(value), static_cast<u16>(popup_item_enabled | flags), 0};
     result.presentation = ui_menu_row_presentation(icon);
     return result;
 }
 
 // Whole code points only; the caller's view may be longer than the slot.
-u32 copy_prefix(char* output, u32 capacity, Utf8View value) noexcept {
+u32 copy_prefix(char* output, u32 capacity, const Utf8View& value) noexcept {
     return value.data ? utf8_copy_truncated(output, capacity, value) : 0;
 }
 
-bool label_valid(Utf8View value) noexcept {
+bool label_valid(const Utf8View& value) noexcept {
     if (!value.bytes)
         return true;
     if (!value.data)

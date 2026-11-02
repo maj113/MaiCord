@@ -75,13 +75,13 @@ AcceptanceRecordResult catalog_state_decode(ConstSlice<u8> record, CatalogState*
 AcceptanceRecordResult catalog_state_load(const wchar_t* path, CatalogState*) noexcept;
 AcceptanceRecordResult catalog_state_save(const wchar_t* path, u32 path_characters, const CatalogState&) noexcept;
 
-CatalogStateEntry* catalog_state_find(CatalogState&, CatalogKind, Utf8View slug) noexcept;
+CatalogStateEntry* catalog_state_find(CatalogState&, CatalogKind, const Utf8View& slug) noexcept;
 CatalogStateEntry* catalog_state_find_owner(CatalogState&, u64 owner_id) noexcept;
 // A new zeroed entry for (kind, slug), or null when the state is full or the slug is invalid.
-CatalogStateEntry* catalog_state_add(CatalogState&, CatalogKind, Utf8View slug) noexcept;
+CatalogStateEntry* catalog_state_add(CatalogState&, CatalogKind, const Utf8View& slug) noexcept;
 void catalog_state_remove(CatalogState&, CatalogStateEntry*) noexcept;
 // Records version and sha256 as installed now, keeping the replaced ones for rollback when keep_previous.
-void catalog_state_install(CatalogStateEntry*, Utf8View version, const u8* sha256, u64 now_unix, bool keep_previous) noexcept;
+void catalog_state_install(CatalogStateEntry*, const Utf8View& version, const u8* sha256, u64 now_unix, bool keep_previous) noexcept;
 // Swaps the installed and previous versions (rollback).
 void catalog_state_swap_previous(CatalogStateEntry*) noexcept;
 

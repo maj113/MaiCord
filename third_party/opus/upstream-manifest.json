@@ -24,9 +24,10 @@
       "status": "modified",
       "upstream_sha256": "6cd5b41be6d13e9300bb5eae18bf1ab739882f4db31e3a3a3d54c415c5b9c797",
       "changes": [
-        "celt_packet_check() tests inline and ends the process with __fastfail(7) (declared by <intrin.h>); MUST_SUCCEED only makes its call; CELT_FATAL is removed."
+        "celt_packet_check() tests inline and ends the process with __fastfail(7) (declared by <intrin.h>); MUST_SUCCEED only makes its call; CELT_FATAL is removed.",
+        "SHORT_LOOP is a loop pragma (vectorize, interleave and unroll disabled) for loops over at most 21 bands or 16 filter taps, whose vector bodies and unrolled copies never pay for their code."
       ],
-      "sha256": "0a642b63d5ba622e13d0fdc22f5019b34da2a705c3fc11c2bde7bd64a7a85437"
+      "sha256": "f64282e79232143fa1469866194957abfca72827b8abd15fae08a78bffb5e0a7"
     },
     {
       "path": "celt/bands.c",
@@ -75,9 +76,10 @@
         "No custom signalling, decoder complexity (deep PLC only) or error flag; the ctl keeps start/end band, channels, mode, final range and reset.",
         "celt_decode_with_ec_dred() is celt_decode_with_ec(); the QEXT payload remnant and the neural PLC frame types are removed.",
         "Scratch comes from the caller's arena (stack_alloc.h): celt_decode_with_ec(), celt_decode_lost(), celt_plc_pitch_search(), prefilter_and_fold(), celt_synthesis() and deemphasis() take it as their last argument; deemphasis()'s local buffer is renamed buf.",
-        "celt_plc_pitch_search() and celt_decode_lost() sit in a clang minsize attribute region (loss concealment runs only after a lost packet)."
+        "celt_plc_pitch_search() and celt_decode_lost() sit in a clang minsize attribute region (loss concealment runs only after a lost packet).",
+        "Loops over the bands, filter taps or small state arrays (at most 21 or 16 trips) carry SHORT_LOOP."
       ],
-      "sha256": "e77b74cf9e71dc0bde217a869352cba9007006894fee7b5825662494fc7871a7"
+      "sha256": "a5bd735136ee4b4d5115738a190ee2c414090e59db4d1178ae83c0c6ec7c3d38"
     },
     {
       "path": "celt/celt_encoder.c",
@@ -88,9 +90,10 @@
         "Pre-emphasis keeps only the fixed-point path; dynalloc, trim, VBR and prefilter analysis lose their analysis and surround arguments; the unused pitch change estimate is removed.",
         "The ctl drops the LSB depth, phase inversion, signalling, analysis, LFE and energy mask requests; coarse energy quantization is called without the LFE flag.",
         "Scratch comes from the caller's arena (stack_alloc.h): celt_encode_with_ec(), transient_analysis(), compute_mdcts(), tf_analysis(), dynalloc_analysis(), tone_detect() and run_prefilter() take it as their last argument.",
-        "patch_transient_decision(), alloc_trim_analysis() and compute_vbr() sit in clang minsize attribute regions (per-frame band analysis, no sample loop)."
+        "patch_transient_decision(), alloc_trim_analysis() and compute_vbr() sit in clang minsize attribute regions (per-frame band analysis, no sample loop).",
+        "Loops over the bands, filter taps or small state arrays (at most 21 or 16 trips) carry SHORT_LOOP."
       ],
-      "sha256": "f06cd80e572fdaa39884c66f2fa84e8a16ae9e4f44fd74a2d5ee1ff0cbe1aeaf"
+      "sha256": "6d22fab279aea13692d86779bff5b5b3c76c62abdfcd1ec3d105cdd2d0e6d437"
     },
     {
       "path": "celt/celt_lpc.c",
@@ -309,11 +312,12 @@
       "path": "celt/quant_bands.c",
       "status": "modified",
       "upstream_sha256": "bec6e7ac19ff02b83480c6ca6a01c084566781856a1e3442b7468bf25a4b937b",
-      "sha256": "25c6cddbec37a30b9c03957b2c6a5e4c7c78d628fb0e74b646b7672066892f04",
       "changes": [
         "quant_coarse_energy() loses the LFE argument (LFE coding is not supported).",
-        "quant_coarse_energy() takes the scratch arena (stack_alloc.h) as its last argument."
-      ]
+        "quant_coarse_energy() takes the scratch arena (stack_alloc.h) as its last argument.",
+        "Loops over the bands, filter taps or small state arrays (at most 21 or 16 trips) carry SHORT_LOOP."
+      ],
+      "sha256": "07147c5026ae46e00b2f2d2d463b748f55a3fe9f50bbd240c13c069cda8dd4c9"
     },
     {
       "path": "celt/quant_bands.h",
@@ -331,9 +335,10 @@
       "upstream_sha256": "f288c8b88882e6500ee5fbb9036eef1ee572e0301d28cd686061c815747a7b9e",
       "changes": [
         "interp_bits2pulses()'s coded band and bit count checks use celt_packet_check().",
-        "clt_compute_allocation() takes the scratch arena (stack_alloc.h) as its last argument."
+        "clt_compute_allocation() takes the scratch arena (stack_alloc.h) as its last argument.",
+        "Loops over the bands, filter taps or small state arrays (at most 21 or 16 trips) carry SHORT_LOOP."
       ],
-      "sha256": "f5326384dccf80c8762151209eee2306ccadd5cfa74624cd9cb2e80fdb4efde2"
+      "sha256": "176a337874b57981363f2ec7c82a6bf0a878ed430ef02cdbeea97dde2716f331"
     },
     {
       "path": "celt/rate.h",
@@ -497,15 +502,21 @@
     },
     {
       "path": "silk/LPC_fit.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "27e0d8a40024c0d6532705792c7278a3ca280e408da71993efeb485fd8f03ea6",
-      "sha256": "3ae874b4e500b20c6a74bc654e4b233dcd37b3b1ecce4001f25b552031966fbe"
+      "changes": [
+        "Loops over the bands, filter taps or small state arrays (at most 21 or 16 trips) carry SHORT_LOOP."
+      ],
+      "sha256": "8c0c371aede6d81693403418b49c1c51a4ad9dd01589a6b23dba4c9e4eb0f33d"
     },
     {
       "path": "silk/LPC_inv_pred_gain.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "c2cc22922cd31554eaa8920ac31238a901139b9cb7964621f6f5f49bedd2b720",
-      "sha256": "c1d52c6e0f7910500ed757836fe07d838e3638b3e0c503989a1968876fb04d90"
+      "changes": [
+        "Loops over the bands, filter taps or small state arrays (at most 21 or 16 trips) carry SHORT_LOOP."
+      ],
+      "sha256": "9e51bd0aa2dbed31e2be1d717f76fafb8fba38f00c6983ff7755afb8c7c23844"
     },
     {
       "path": "silk/LP_variable_cutoff.c",
@@ -527,9 +538,12 @@
     },
     {
       "path": "silk/NLSF2A.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "ce17793880db88d7247596f30415f86ceda690e2ea289a6eff27f2665bc8633c",
-      "sha256": "abea4c616ed72b23d17b62fd0687b23dea18628a20c2d35dfeaf2b9fc307c865"
+      "changes": [
+        "Loops over the bands, filter taps or small state arrays (at most 21 or 16 trips) carry SHORT_LOOP."
+      ],
+      "sha256": "e84530264697d023627d1351bb80dc3bb72c9dcc6bbde4a8ed99375ce359a993"
     },
     {
       "path": "silk/NLSF_VQ.c",
@@ -566,9 +580,12 @@
     },
     {
       "path": "silk/NLSF_stabilize.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "14c69720cd90614d8fdf1a0bb05a051598b00783370633323bafec8ff310e2ac",
-      "sha256": "321c449858f5f1386715e198ce1ded082b31629e5764295e9cc86f576784f9f2"
+      "changes": [
+        "Loops over the bands, filter taps or small state arrays (at most 21 or 16 trips) carry SHORT_LOOP."
+      ],
+      "sha256": "b024bf4199a1d9c6ad1de79c22a0e63b273247d59cb57237d5c8c8287cb994b9"
     },
     {
       "path": "silk/NLSF_unpack.c",
@@ -644,15 +661,21 @@
     },
     {
       "path": "silk/bwexpander.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "f01c2e6752d806974054c5b0ac5b9fbe1fef88b59873dcaae87974521f2d0256",
-      "sha256": "7c72cd486122882250c42a43e00b84c3cdc1b985f2c91c84de77bf140d873a95"
+      "changes": [
+        "Loops over the bands, filter taps or small state arrays (at most 21 or 16 trips) carry SHORT_LOOP."
+      ],
+      "sha256": "f93aba1d4658a9765e7de316714097318b2c93f2fda3c90e4538734572151bf1"
     },
     {
       "path": "silk/bwexpander_32.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "695726d8e425b68ecd9e2af47fef31246066c01303f6d37dffba709462584474",
-      "sha256": "e1a71eec9cea4bbf230ff7cd5ab1b3da2e9b31b38ae73ca95c632be8de8f6f90"
+      "changes": [
+        "Loops over the bands, filter taps or small state arrays (at most 21 or 16 trips) carry SHORT_LOOP."
+      ],
+      "sha256": "73e9babdb2835a1c5269968d7600364764e116f4697feb79168b3d0a88a4af04"
     },
     {
       "path": "silk/check_control_input.c",
@@ -740,9 +763,12 @@
     },
     {
       "path": "silk/decode_parameters.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "d86e43fd07b72472baa5036bacb277600312afc0153d243324b89d8699c8df1b",
-      "sha256": "0d42264fe76c17af730882814b4c666ce2fde28fb1d5b00083898c279cd0fd72"
+      "changes": [
+        "Loops over the bands, filter taps or small state arrays (at most 21 or 16 trips) carry SHORT_LOOP."
+      ],
+      "sha256": "0d308d6a50cccaa6ba25d53787503834c5c5a7c59ae2ca2221d54eb0d673986d"
     },
     {
       "path": "silk/decode_pitch.c",
@@ -1173,9 +1199,12 @@
     },
     {
       "path": "silk/sort.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "adf6ce2c63bd04e092e43bece82fb52cd6dc281d2b6bbfdd24f95fd54c27fef1",
-      "sha256": "d045b36164f451610b2022fe2949afba633b5c3f493e3aea4bfb84380dd3350e"
+      "changes": [
+        "Loops over the bands, filter taps or small state arrays (at most 21 or 16 trips) carry SHORT_LOOP."
+      ],
+      "sha256": "4e42aa06d0497665ba5a18f6166d343a77f6cc2a47a7cfd732ef85362e9fc2aa"
     },
     {
       "path": "silk/stereo_LR_to_MS.c",

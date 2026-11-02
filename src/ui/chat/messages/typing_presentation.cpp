@@ -10,7 +10,7 @@ struct Writer {
     u32 used;
 };
 
-bool append(Writer* writer, Utf8View value) noexcept {
+bool append(Writer* writer, const Utf8View& value) noexcept {
     if ((!value.data && value.bytes != 0) || value.bytes > writer->output.count - writer->used) {
         return false;
     }

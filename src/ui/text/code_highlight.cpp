@@ -2,6 +2,8 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/ui/text/style.hpp"
 
+// Runs once per fenced code block (the parsed message is cached): compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 namespace maicord {
 namespace {
 
@@ -560,3 +562,4 @@ CodeHighlightResult code_highlight_ranges(Utf8View code, CodeLanguage language,
 }
 
 } // namespace maicord
+#pragma clang attribute pop

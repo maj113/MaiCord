@@ -59,7 +59,7 @@ MessageRichString rich_source_string(const MessageRichRecord& rich, u16 source_i
 }
 
 namespace {
-u16 identify_rich_source(const BuildContext& context, Utf8View source) noexcept {
+u16 identify_rich_source(const BuildContext& context, const Utf8View& source) noexcept {
     if (!context.rich || !context.rich_store || source.bytes == 0)
         return 0;
     const u16 scope = kRichTextSource | (context.forwarded ? kForwardedTextSource : 0u);
@@ -211,7 +211,7 @@ bool append_compact_timestamp(MessageTextPresentation* presentation, const Messa
                           kInvalidMessageTextMeasurement, kLookStampEnd);
 }
 
-bool parse_content(MessageTextPresentation* presentation, BuildContext* context, Utf8View source,
+bool parse_content(MessageTextPresentation* presentation, BuildContext* context, const Utf8View& source,
                    Utf8View* text, ConstSlice<TextStyleSpan>* styles,
                    ConstSlice<MessageMarkdownSemantic>* semantics, u32 base_style, u8 base_size) noexcept {
     if (!presentation || !context || !text || !styles || !semantics) {
@@ -300,8 +300,8 @@ float quote_text_width(float width) noexcept {
 // newlines and their spans are marked framed. Returns 0 (nothing changed) when
 // the text has no quote or code block, too many runs, or a span/semantic that
 // crosses a boundary.
-u32 split_quote_segments(Utf8View text, ConstSlice<TextStyleSpan> styles,
-                         ConstSlice<MessageMarkdownSemantic> semantics, QuoteSegment* output) noexcept {
+u32 split_quote_segments(const Utf8View& text, const ConstSlice<TextStyleSpan>& styles,
+                         const ConstSlice<MessageMarkdownSemantic>& semantics, QuoteSegment* output) noexcept {
     // Ordinary styled text has no block boundaries to split.
     u32 block = 0;
     while (block < styles.count && !(styles[block].flags & (text_style_quote | text_style_code_block)))
@@ -693,7 +693,7 @@ bool append_embed_fields(BuildContext* context, const MessageRichStore& store, c
     return true;
 }
 
-Utf8View poll_result_field(const MessageRichStore& store, const MessageRichRecord& rich, Utf8View name) noexcept {
+Utf8View poll_result_field(const MessageRichStore& store, const MessageRichRecord& rich, const Utf8View& name) noexcept {
     for (u32 e = 0; e < rich.embed_count; ++e) {
         const auto& embed = rich.embeds[e];
         if (embed.type != GatewayMessageEmbedType::poll_result)
@@ -709,7 +709,7 @@ Utf8View poll_result_field(const MessageRichStore& store, const MessageRichRecor
 }
 
 namespace {
-u32 parse_u32(Utf8View text) noexcept {
+u32 parse_u32(const Utf8View& text) noexcept {
     u32 value = 0;
     for (u32 i = 0; i < text.bytes && i < 9; ++i) {
         if (text.data[i] < '0' || text.data[i] > '9')

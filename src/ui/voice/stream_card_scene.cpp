@@ -14,7 +14,7 @@ constexpr float kNameHeight = 20, kChannelHeight = 18, kButtonHeight = 36, kLive
 constexpr float kCardHeight = kUiStreamCardPadding + kThumbnailHeight + 10 + kNameHeight + 2 + kChannelHeight + 12 +
                               kButtonHeight + kUiStreamCardPadding;
 constexpr UiHoverCardMotion kEntrance{{kUiStreamCardEntranceMs, UiMotionCurve::spring}, 0x5743'a8d0'0000'0001ull};
-u32 copy_text(char* destination, u32 capacity, Utf8View text) noexcept {
+u32 copy_text(char* destination, u32 capacity, const Utf8View& text) noexcept {
     return text.data ? utf8_copy_truncated(destination, capacity, text) : 0;
 }
 UiRect offset(UiRect r, float dx) noexcept {

@@ -586,6 +586,7 @@ static int tf_analysis(const CELTMode *m, int len, int isTransient,
    }
    tf_res[len-1] = cost0 < cost1 ? 0 : 1;
    /* Viterbi backward pass to check the decisions */
+   SHORT_LOOP
    for (i=len-2;i>=0;i--)
    {
       if (tf_res[i+1] == 1)
@@ -613,6 +614,7 @@ static void tf_encode(int start, int end, int isTransient, int *tf_res, int LM, 
    tf_select_rsv = LM>0 && tell+logp+1 <= budget;
    budget -= tf_select_rsv;
    curr = tf_changed = 0;
+   SHORT_LOOP
    for (i=start;i<end;i++)
    {
       if (tell+logp<=budget)
@@ -633,6 +635,7 @@ static void tf_encode(int start, int end, int isTransient, int *tf_res, int LM, 
       ec_enc_bit_logp(enc, tf_select, 1);
    else
       tf_select = 0;
+   SHORT_LOOP
    for (i=start;i<end;i++)
       tf_res[i] = tf_select_table[LM][4*isTransient+2*tf_select+tf_res[i]];
    /*for(i=0;i<end;i++)printf("%d ", isTransient ? tf_res[i] : LM+tf_res[i]);printf("\n");*/
@@ -825,6 +828,7 @@ static celt_glog dynalloc_analysis(const celt_glog *bandLogE, const celt_glog *b
    OPUS_CLEAR(offsets, nbEBands);
    /* Dynamic allocation code */
    maxDepth=-GCONST(31.9f);
+   SHORT_LOOP
    for (i=0;i<end;i++)
    {
       /* Noise floor must take into account eMeans, the depth, the width of the bands
@@ -835,6 +839,7 @@ static celt_glog dynalloc_analysis(const celt_glog *bandLogE, const celt_glog *b
    }
    c=0;do
    {
+      SHORT_LOOP
       for (i=0;i<end;i++)
          maxDepth = MAXG(maxDepth, bandLogE[c*nbEBands+i]-noise_floor[i]);
    } while (++c<C);
@@ -845,18 +850,23 @@ static celt_glog dynalloc_analysis(const celt_glog *bandLogE, const celt_glog *b
       VARDECL(celt_glog, sig);
       ALLOC(mask, nbEBands, celt_glog);
       ALLOC(sig, nbEBands, celt_glog);
+      SHORT_LOOP
       for (i=0;i<end;i++)
          mask[i] = bandLogE[i]-noise_floor[i];
       if (C==2)
       {
+         SHORT_LOOP
          for (i=0;i<end;i++)
             mask[i] = MAXG(mask[i], bandLogE[nbEBands+i]-noise_floor[i]);
       }
       OPUS_COPY(sig, mask, end);
+      SHORT_LOOP
       for (i=1;i<end;i++)
          mask[i] = MAXG(mask[i], mask[i-1] - GCONST(2.f));
+      SHORT_LOOP
       for (i=end-2;i>=0;i--)
          mask[i] = MAXG(mask[i], mask[i+1] - GCONST(3.f));
+      SHORT_LOOP
       for (i=0;i<end;i++)
       {
          /* Compute SMR: Mask is never more than 72 dB below the peak and never below the noise floor.*/
@@ -891,6 +901,7 @@ static celt_glog dynalloc_analysis(const celt_glog *bandLogE, const celt_glog *b
          }
          f = &follower[c*nbEBands];
          f[0] = bandLogE3[0];
+         SHORT_LOOP
          for (i=1;i<end;i++)
          {
             /* The last band to be at least 3 dB higher than the previous one
@@ -900,6 +911,7 @@ static celt_glog dynalloc_analysis(const celt_glog *bandLogE, const celt_glog *b
                last=i;
             f[i] = MING(f[i-1]+GCONST(1.5f), bandLogE3[i]);
          }
+         SHORT_LOOP
          for (i=last-1;i>=0;i--)
             f[i] = MING(f[i], MING(f[i+1]+GCONST(2.f), bandLogE3[i]));
 
@@ -916,11 +928,13 @@ static celt_glog dynalloc_analysis(const celt_glog *bandLogE, const celt_glog *b
          f[end-2] = MAXG(f[end-2], tmp);
          f[end-1] = MAXG(f[end-1], tmp);
 
+         SHORT_LOOP
          for (i=0;i<end;i++)
             f[i] = MAXG(f[i], noise_floor[i]);
       } while (++c<C);
       if (C==2)
       {
+         SHORT_LOOP
          for (i=start;i<end;i++)
          {
             /* Consider 24 dB "cross-talk" */
@@ -929,11 +943,13 @@ static celt_glog dynalloc_analysis(const celt_glog *bandLogE, const celt_glog *b
             follower[i] = HALF32(MAXG(0, bandLogE[i]-follower[i]) + MAXG(0, bandLogE[nbEBands+i]-follower[nbEBands+i]));
          }
       } else {
+         SHORT_LOOP
          for (i=start;i<end;i++)
          {
             follower[i] = MAXG(0, bandLogE[i]-follower[i]);
          }
       }
+      SHORT_LOOP
       for (i=start;i<end;i++)
       {
          importance[i] = PSHR32(13*celt_exp2_db(MING(follower[i], GCONST(4.f))), 16);
@@ -941,6 +957,7 @@ static celt_glog dynalloc_analysis(const celt_glog *bandLogE, const celt_glog *b
       /* For non-transient CBR/CVBR frames, halve the dynalloc contribution */
       if ((!vbr || constrained_vbr)&&!isTransient)
       {
+         SHORT_LOOP
          for (i=start;i<end;i++)
             follower[i] = HALF32(follower[i]);
       }
@@ -1000,6 +1017,7 @@ static celt_glog dynalloc_analysis(const celt_glog *bandLogE, const celt_glog *b
          }
       }
    } else {
+      SHORT_LOOP
       for (i=start;i<end;i++)
          importance[i] = 13;
    }
@@ -1049,12 +1067,15 @@ static int tone_lpc(const opus_val16 *x, int len, int delay, opus_val32 *lpc) {
       r02 += MULT16_16(x[i],x[i+2*delay]);
    }
    edges = 0;
+   SHORT_LOOP
    for (i=0;i<delay;i++) edges += MULT16_16(x[len+i-2*delay],x[len+i-2*delay]) - MULT16_16(x[i],x[i]);
    r11 = r00+edges;
    edges = 0;
+   SHORT_LOOP
    for (i=0;i<delay;i++) edges += MULT16_16(x[len+i-delay],x[len+i-delay]) - MULT16_16(x[i+delay],x[i+delay]);
    r22 = r11+edges;
    edges = 0;
+   SHORT_LOOP
    for (i=0;i<delay;i++) edges += MULT16_16(x[len+i-2*delay],x[len+i-delay]) - MULT16_16(x[i],x[i+delay]);
    r12 = r01+edges;
    /* Reverse and sum to get the backward contribution. */
@@ -1476,6 +1497,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, in
       return OPUS_BAD_ARG;
    }
 
+   SHORT_LOOP
    for (LM=0;LM<=mode->maxLM;LM++)
       if (mode->shortMdctSize<<LM==frame_size)
          break;
@@ -1662,6 +1684,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, in
       amp2Log2(mode, effEnd, end, bandE, bandLogE2, C);
       for (c=0;c<C;c++)
       {
+         SHORT_LOOP
          for (i=0;i<end;i++)
             bandLogE2[nbEBands*c+i] += HALF32(SHL32(LM, DB_SHIFT));
       }
@@ -1717,6 +1740,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, in
          /* Compensate for the scaling of short vs long mdcts */
          for (c=0;c<C;c++)
          {
+            SHORT_LOOP
             for (i=0;i<end;i++)
                bandLogE2[nbEBands*c+i] += HALF32(SHL32(LM, DB_SHIFT));
          }
@@ -1749,6 +1773,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, in
       int lambda;
       lambda = IMAX(80, 20480/effectiveBytes + 2);
       tf_select = tf_analysis(mode, effEnd, isTransient, tf_res, lambda, X, N, LM, tf_estimate, tf_chan, importance, scratch);
+      SHORT_LOOP
       for (i=effEnd;i<end;i++)
          tf_res[i] = tf_res[effEnd-1];
    } else if (hybrid && weak_transient)
@@ -1756,16 +1781,19 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, in
       /* For weak transients, we rely on the fact that improving time resolution using
          TF on a long window is imperfect and will not result in an energy collapse at
          low bitrate. */
+      SHORT_LOOP
       for (i=0;i<end;i++)
          tf_res[i] = 1;
       tf_select=0;
    } else if (hybrid && effectiveBytes<15 && st->silk_info.signalType != 2)
    {
       /* For low bitrate hybrid, we force temporal resolution to 5 ms rather than 2.5 ms. */
+      SHORT_LOOP
       for (i=0;i<end;i++)
          tf_res[i] = 0;
       tf_select=isTransient;
    } else {
+      SHORT_LOOP
       for (i=0;i<end;i++)
          tf_res[i] = isTransient;
       tf_select=0;
@@ -1774,6 +1802,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, in
    ALLOC(error, C*nbEBands, celt_glog);
    c=0;
    do {
+      SHORT_LOOP
       for (i=start;i<end;i++)
       {
          /* When the energy is stable, slightly bias energy quantization towards
@@ -2042,6 +2071,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, in
    quant_energy_finalise(mode, start, end, oldBandE, error, fine_quant, fine_priority, nbCompressedBytes*8-ec_tell(enc), enc, C);
    c=0;
    do {
+      SHORT_LOOP
       for (i=start;i<end;i++)
       {
          energyError[i+c*nbEBands] = MAXG(-GCONST(0.5f), MING(GCONST(0.5f), error[i+c*nbEBands]));
@@ -2049,6 +2079,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, in
    } while (++c < C);
    if (silence)
    {
+      SHORT_LOOP
       for (i=0;i<C*nbEBands;i++)
          oldBandE[i] = -GCONST(28.f);
    }
@@ -2067,17 +2098,20 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, in
       OPUS_COPY(oldLogE2, oldLogE, CC*nbEBands);
       OPUS_COPY(oldLogE, oldBandE, CC*nbEBands);
    } else {
+      SHORT_LOOP
       for (i=0;i<CC*nbEBands;i++)
          oldLogE[i] = MING(oldLogE[i], oldBandE[i]);
    }
    /* In case start or end were to change */
    c=0; do
    {
+      SHORT_LOOP
       for (i=0;i<start;i++)
       {
          oldBandE[c*nbEBands+i]=0;
          oldLogE[c*nbEBands+i]=oldLogE2[c*nbEBands+i]=-GCONST(28.f);
       }
+      SHORT_LOOP
       for (i=end;i<nbEBands;i++)
       {
          oldBandE[c*nbEBands+i]=0;

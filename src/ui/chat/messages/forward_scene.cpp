@@ -19,7 +19,7 @@ constexpr float kDestinationTileRadius = 8.f;
 // The close button's hover plate: dialog material, no focus outline.
 constexpr UiLook kClose{.fill = UI_TOKEN(surface_high), .focus = UI_TOKEN(surface_high), .radius = 6,
                         .flags = ui_look_hot_only | ui_look_dialog};
-UiRect destination_tile(UiRect row) noexcept {
+UiRect destination_tile(const UiRect& row) noexcept {
     return ui_rect_edges(row, ui_start(10), ui_start(10), ui_start(42), ui_start(42));
 }
 bool view_valid(UiEditView view, u32 maximum_bytes) noexcept {
@@ -98,7 +98,7 @@ bool initialize(UiMessageForwardScene& s) noexcept {
             return false;
     return true;
 }
-bool rectangle(UiMessageForwardScene& s, UiWidgetHandle handle, UiRect r, UiRect parent,
+bool rectangle(UiMessageForwardScene& s, UiWidgetHandle handle, const UiRect& r, const UiRect& parent,
     bool visible, bool enabled, bool focusable = true) noexcept {
     return ui_widget_manager_place_part(&s.widgets, handle, r, parent, visible, enabled, focusable);
 }

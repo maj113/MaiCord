@@ -28,56 +28,57 @@ using TextFormProgress = ApplicationTextFormProgress (*)(TextFormOwnerKey key) n
 // colour it names (0xRRGGBBAA) for forms with a swatch.
 using TextFormCheck = bool (*)(TextFormOwnerKey key, Utf8View text, u32* swatch_rgba) noexcept;
 using TextFormClosed = void (*)(TextFormOwnerKey key) noexcept;
+// An aggregate whose default is all zero bytes: `ApplicationTextFormRequest request{}` is one fill, not a
+// store per field at every one of its dozens of call sites.
 struct ApplicationTextFormRequest {
     Utf8View title, context, label, accept, initial;
     TextFormOwnerKey owner;
     TextFormOwnerValid valid;
     TextFormSave save;
     u32 maximum_codepoints;
-    bool confirmation_only = false;
+    bool confirmation_only;
     // Optional asynchronous controller. Polls are borrowed views only; closing
     // cancels this form's controller while accepted transport responses finish.
-    u32 maximum_bytes = 0;
-    bool single_line = false;
-    TextFormProgress progress = nullptr;
-    TextFormClosed closed = nullptr;
+    u32 maximum_bytes;
+    bool single_line;
+    TextFormProgress progress;
+    TextFormClosed closed;
     // A child may cover only this live post intent. All other forms keep
     // the ordinary modal rule.
-    ApplicationForumPostTicket forum_parent{};
+    ApplicationForumPostTicket forum_parent;
     // Startup recovery may cover login without allocating or loading an
     // account. This exception is limited to a current confirmation dialog.
-    bool login_owner = false;
+    bool login_owner;
     // The accept action is destructive and uses the danger fill.
-    bool danger = false;
+    bool danger;
     // Confirmations only: Enter accepts (initial focus on accept, not Cancel).
-    bool accept_focused = false;
+    bool accept_focused;
     // The dismiss button's label; empty keeps "Cancel".
-    Utf8View cancel{};
+    Utf8View cancel;
     // A checkbox row above the buttons (confirmations only), and the accept
     // handler that receives its state; it replaces `save`.
-    Utf8View option{};
-    bool option_checked = false;
-    TextFormSaveOption save_option = nullptr;
+    Utf8View option;
+    bool option_checked;
+    TextFormSaveOption save_option;
     // Editors only: a radio group above the field and a dropdown below it;
     // save_choices replaces `save`. Choosing an option clears the text, and
-    // the field shows only while choice_editor (when set) is chosen.
-    Utf8View choices_label{};
-    ConstSlice<Utf8View> choices{};
-    u32 choice_selected = ~0u;
-    u32 choice_editor = ~0u;
-    Utf8View select_label{};
-    ConstSlice<Utf8View> select_options{};
-    u32 select_selected = 0;
-    TextFormSaveChoices save_choices = nullptr;
+    // the field shows only while the choice numbered choice_editor - 1 is chosen (0: always).
+    Utf8View choices_label;
+    ConstSlice<Utf8View> choices;
+    u32 choice_editor;
+    Utf8View select_label;
+    ConstSlice<Utf8View> select_options;
+    u32 select_selected;
+    TextFormSaveChoices save_choices;
     // Editors only: a hint while the field is empty.
-    Utf8View placeholder{};
+    Utf8View placeholder;
     // Editors only: a live check of the text. Accept with text the check
     // rejects restores the last accepted text and shows `rejected` as an
     // error instead of saving; with `swatch` the field previews the colour of
     // the last accepted text.
-    TextFormCheck check = nullptr;
-    Utf8View rejected{};
-    bool swatch = false;
+    TextFormCheck check;
+    Utf8View rejected;
+    bool swatch;
 };
 // Check for colour editors: #RGB or #RRGGBB, with or without the '#'.
 inline bool application_text_form_color_check(TextFormOwnerKey, Utf8View text, u32* swatch_rgba) noexcept {

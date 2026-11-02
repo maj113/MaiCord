@@ -128,7 +128,7 @@ u8 shell_navigation_row_controls(const ChannelViewRow& row, bool hovered, bool s
     return hovered || selected ? row.controls & (channel_row_invite | channel_row_settings) : 0;
 }
 
-UiRect shell_navigation_control_rectangle(UiRect row, const ChannelViewRow& view, ChannelRowControl control) noexcept {
+UiRect shell_navigation_control_rectangle(const UiRect& row, const ChannelViewRow& view, ChannelRowControl control) noexcept {
     if (!(view.controls & control) || (control == channel_row_create) != (view.type == 4))
         return {};
     if (view.type == 4) {
@@ -149,7 +149,7 @@ UiRect shell_navigation_control_rectangle(UiRect row, const ChannelViewRow& view
     return {right - kShellChannelControl, top, right, top + kShellChannelControl};
 }
 
-float shell_navigation_controls_left(UiRect row, const ChannelViewRow& view, u8 shown, float right) noexcept {
+float shell_navigation_controls_left(const UiRect& row, const ChannelViewRow& view, u8 shown, float right) noexcept {
     constexpr ChannelRowControl order[]{channel_row_invite, channel_row_settings, channel_row_create};
     for (const auto control : order)
         if (shown & control)
@@ -184,7 +184,7 @@ bool shell_navigation_scene_initialize(ShellNavigationScene* scene,
 }
 
 ShellNavigationSceneResult shell_navigation_scene_update(ShellNavigationScene* scene,
-                                                         const NavigationView* view, UiRect viewport,
+                                                         const NavigationView* view, const UiRect& viewport,
                                                          float requested_scroll_dips) noexcept {
     if (!scene || !scene->rows.data || !scene->widgets.storage.data || !ui_rect_valid_or_empty(viewport) ||
         !ui_coordinate_valid(requested_scroll_dips) ||

@@ -188,9 +188,9 @@ struct NavigationViewResult {
 // caller-owned arrays, and leaves array bytes unchanged: readers use
 // published row counts, and rebuild writes each new row and all required
 // scratch before use.
-bool navigation_view_initialize(NavigationView* view, Slice<GuildViewRow> guild_rows,
-                                Slice<ChannelViewRow> channel_rows, Slice<u16> channel_scratch,
-                                Slice<u8> channel_visibility_scratch, Slice<ChannelSortKey> channel_sort_keys,
+bool navigation_view_initialize(NavigationView* view, const Slice<GuildViewRow>& guild_rows,
+                                const Slice<ChannelViewRow>& channel_rows, const Slice<u16>& channel_scratch,
+                                const Slice<u8>& channel_visibility_scratch, const Slice<ChannelSortKey>& channel_sort_keys,
                                 bool sparse = false) noexcept;
 NavigationViewResult navigation_view_rebuild(NavigationView* view,
                                                             const ChatStateStore& state) noexcept;

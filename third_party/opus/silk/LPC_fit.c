@@ -45,6 +45,7 @@ void silk_LPC_fit(
     for( i = 0; i < 10; i++ ) {
         /* Find maximum absolute value and its index */
         maxabs = 0;
+        SHORT_LOOP
         for( k = 0; k < d; k++ ) {
             absval = silk_abs( a_QIN[k] );
             if( absval > maxabs ) {
@@ -67,11 +68,13 @@ void silk_LPC_fit(
 
     if( i == 10 ) {
         /* Reached the last iteration, clip the coefficients */
+        SHORT_LOOP
         for( k = 0; k < d; k++ ) {
             a_QOUT[ k ] = (opus_int16)silk_SAT16( silk_RSHIFT_ROUND( a_QIN[ k ], QIN - QOUT ) );
             a_QIN[ k ] = silk_LSHIFT( (opus_int32)a_QOUT[ k ], QIN - QOUT );
         }
     } else {
+        SHORT_LOOP
         for( k = 0; k < d; k++ ) {
             a_QOUT[ k ] = (opus_int16)silk_RSHIFT_ROUND( a_QIN[ k ], QIN - QOUT );
         }

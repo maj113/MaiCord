@@ -9,55 +9,10 @@ UiRect centered(const UiRect& r, float width, float height) noexcept {
 UiRect rect_at(float left, float top, float width, float height) noexcept {
     return {left, top, left + width, top + height};
 }
-constexpr float kDisc = 64, kEmptyGlyph = 40, kEmptyWidth = 420, kTile = 28, kRowMinimum = 48, kRowPad = 10,
+constexpr float kTile = 28, kRowMinimum = 48, kRowPad = 10,
                 kHostGap = 8, kDotSize = 6, kReset = 24, kKnobPad = 12, kKnobBesideWidth = 640, kSliderHeight = 24,
                 kTick = 12, kTickWidth = 2;
 } // namespace
-
-// ---------------------------------------------------------------------------
-UiEmptyGeometry ui_empty_geometry(const UiSettingsLayoutTokens&, const UiRect& area, const Utf8View& title,
-                                  const Utf8View& body, float actions_height, bool detail,
-                                  const UiKitMeasure* measure) noexcept {
-    UiEmptyGeometry g{};
-    const float cx = (area.left + area.right) * .5f, width = minimum(kEmptyWidth, ui_rect_width(area));
-    const float left = cx - width * .5f, right = cx + width * .5f;
-    g.disc = rect_at(cx - kDisc * .5f, area.top, kDisc, kDisc);
-    g.glyph = centered(g.disc, kEmptyGlyph, kEmptyGlyph);
-    float y = g.disc.bottom + 16;
-    g.title = {left, y, right, y + (title.bytes ? ui_kit_line_height(kUiKitTextBodyBold) : 0)};
-    y = g.title.bottom + 6;
-    const float body_height = ui_kit_text_height(measure, body, kUiKitTextSmall, width);
-    g.body = {left, y, right, y + body_height};
-    y = (body_height > 0 ? g.body.bottom : g.title.bottom) + 20;
-    if (actions_height > 0) {
-        g.actions = {left, y, right, y + actions_height};
-        y = g.actions.bottom;
-    } else
-        y -= 20;
-    if (detail) {
-        g.detail = {left, y + 16, right, y + 16 + ui_kit_line_height(kUiKitTextSmall)};
-        y = g.detail.bottom;
-    }
-    g.height = y - area.top;
-    return g;
-}
-bool ui_empty_paint(PaintStream* paint, const UiSettingsTokens& t, const UiEmptyGeometry& g, UiIcon icon,
-                    bool error) noexcept {
-    const auto& c = t.color;
-    return paint_stream_push_rounded(paint, g.disc, error ? c.critical_tint : c.mod_subtle, ui_rect_width(g.disc) * .5f) &&
-           ui_icon_paint(paint, icon, g.glyph, error ? c.critical_text : c.text_subtle);
-}
-void ui_empty_place_actions(const UiSettingsLayoutTokens& t, const UiRect& row, const float* widths, u32 count,
-                            UiRect* out) noexcept {
-    float total = 0;
-    for (u32 i = 0; i < count; ++i)
-        total += widths[i] + (i ? t.metric.field_gap : 0);
-    float x = (row.left + row.right - total) * .5f;
-    for (u32 i = 0; i < count; ++i) {
-        out[i] = {x, row.top, x + widths[i], row.bottom};
-        x += widths[i] + t.metric.field_gap;
-    }
-}
 
 // ---------------------------------------------------------------------------
 Color ui_risk_color(const UiSettingsTokens& t, UiRisk risk) noexcept {

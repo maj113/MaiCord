@@ -61,7 +61,7 @@ inline bool ui_attachment_save_paint(PaintStream* paint, UiWidgetReference owner
 }
 // A GIF preview's favourite star, top right: left of the Save action on an
 // attachment, in its place on an embed. Shared by paint and input.
-inline UiRect ui_gif_favorite_rectangle(UiRect media, bool beside_save) noexcept {
+inline UiRect ui_gif_favorite_rectangle(const UiRect& media, bool beside_save) noexcept {
     const UiRect save = ui_attachment_save_rectangle(media, false);
     if (!ui_rect_has_area(save) || !beside_save)
         return save;

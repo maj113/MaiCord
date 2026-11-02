@@ -1,4 +1,5 @@
 #include "ui_internal.hpp"
+#include "maicord/app/plugins/text.hpp"
 #include "maicord/core/utf.hpp"
 
 // What a plugin shows the user (a banner, a modal) and the navigation actions its menus and buttons use
@@ -31,21 +32,12 @@ Utf8View view(mc_str text) noexcept {
 
 // Short human text: UTF-8 without control characters, minimum..maximum bytes.
 bool text_ok(mc_str text, u32 minimum, u32 maximum) noexcept {
-    if (text.bytes < minimum || text.bytes > maximum || (text.bytes && !text.data)) return false;
-    if (!utf8_validate(view(text)).valid) return false;
-    for (u32 i = 0; i < text.bytes; ++i)
-        if (static_cast<u8>(text.data[i]) < 0x20 || static_cast<u8>(text.data[i]) == 0x7f) return false;
-    return true;
+    return text.bytes >= minimum && text.bytes <= maximum && plugin_text_clean(text.data, text.bytes);
 }
 
 // Multi-line text: like text_ok, with line breaks and tabs allowed.
 bool body_ok(mc_str text, u32 maximum) noexcept {
-    if (text.bytes > maximum || (text.bytes && !text.data) || !utf8_validate(view(text)).valid) return false;
-    for (u32 i = 0; i < text.bytes; ++i) {
-        const u8 byte = static_cast<u8>(text.data[i]);
-        if ((byte < 0x20 && byte != '\n' && byte != '\t' && byte != '\r') || byte == 0x7f) return false;
-    }
-    return true;
+    return text.bytes <= maximum && plugin_text_clean(text.data, text.bytes, kPluginTextBody);
 }
 
 Utf8View keep(char* storage, mc_str text) noexcept {

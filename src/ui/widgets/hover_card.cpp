@@ -8,7 +8,7 @@ UiMotionScope scope(const UiHoverCard& card, const UiHoverCardMotion& motion) no
 }
 } // namespace
 
-bool ui_hover_card_initialize(UiHoverCard& card, Utf8View name) noexcept {
+bool ui_hover_card_initialize(UiHoverCard& card, const Utf8View& name) noexcept {
     return card.owner.manager == &card.widgets ||
            ui_widget_manager_initialize_fill_root(&card.widgets, {card.widget_storage, 1}, {card.layout_storage, 1},
                                                   name, ui_layout_node_visible | ui_layout_node_allow_overlap,

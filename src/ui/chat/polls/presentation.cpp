@@ -19,7 +19,7 @@ bool border(PaintStream* stream, const UiRect& bounds, const Color& fill, const 
     return !ui_rect_has_area(bounds) ||
            paint_stream_push_rounded_border(stream, bounds, fill, line, radius, width);
 }
-UiRect centered(UiRect bounds, float extent) noexcept {
+UiRect centered(const UiRect& bounds, float extent) noexcept {
     const float x = (bounds.left + bounds.right) * .5f, y = (bounds.top + bounds.bottom) * .5f;
     return {x - extent * .5f, y - extent * .5f, x + extent * .5f, y + extent * .5f};
 }
@@ -95,7 +95,7 @@ u64 geometry_hash(u64 hash, const UiPollGeometry& geometry) noexcept {
 }
 } // namespace
 
-bool ui_poll_controls_paint(const UiPollProjection& projection, const UiPollStyle& style, UiRect clip,
+bool ui_poll_controls_paint(const UiPollProjection& projection, const UiPollStyle& style, const UiRect& clip,
                             const Theme& theme, UiWidgetReference owner, PaintStream* paint,
                             UiPollTarget focus, UiPollTarget hover, bool keyboard) noexcept {
     if (!paint || !owner_current(owner) || !ui_rect_valid_or_empty(clip))
@@ -198,7 +198,7 @@ bool ui_poll_controls_paint(const UiPollProjection& projection, const UiPollStyl
     return drawn && popped;
 }
 
-bool ui_poll_controls_text_output(const UiPollProjection& projection, const UiPollStyle& style, UiRect clip,
+bool ui_poll_controls_text_output(const UiPollProjection& projection, const UiPollStyle& style, const UiRect& clip,
                                   UiWidgetReference owner, UiTextOutput* output, UiPollTarget hover) noexcept {
     if (!output || !owner_current(owner) || !ui_rect_valid_or_empty(clip))
         return false;

@@ -24,7 +24,7 @@ UiStoreNode& dialog_body(Ctx& c) noexcept {
     return col;
 }
 
-void title_row(Ctx& c, Utf8View title, Utf8View sub, UiIcon icon, bool tile, bool chips, bool reviewed) noexcept {
+void title_row(Ctx& c, const Utf8View& title, const Utf8View& sub, UiIcon icon, bool tile, bool chips, bool reviewed) noexcept {
     auto& row = c.b.open(UiStoreKind::row);
     row.gap = 16;
     if (tile)
@@ -39,11 +39,11 @@ void title_row(Ctx& c, Utf8View title, Utf8View sub, UiIcon icon, bool tile, boo
         if (sub.bytes)
             c.b.text(sub, UiStoreType::small, UiStoreInk::subtle);
         if (reviewed)
-            c.b.chip(utf8_literal("Reviewed"), UiStoreTone::positive, UiIcon::circle_check);
+            c.b.chip("Reviewed", UiStoreTone::positive, UiIcon::circle_check);
         c.b.close();
     }
     c.b.close();
-    c.b.icon_button(UiIcon::close, utf8_literal("Close"), store_action(StoreAct::dialog_close), 32);
+    c.b.icon_button(UiIcon::close, "Close", store_action(StoreAct::dialog_close));
     c.b.close();
 }
 
@@ -59,7 +59,7 @@ void consent_row(Ctx& c, const StorePermission& p, ConstSlice<Utf8View> hosts) n
     head.flags = ui_store_center;
     c.b.text(p.sentence, UiStoreType::body, p.critical ? UiStoreInk::critical : UiStoreInk::strong, ui_store_wrap | ui_store_flex);
     if (p.added)
-        c.b.chip(utf8_literal("New"), UiStoreTone::brand);
+        c.b.chip("New", UiStoreTone::brand);
     c.b.close();
     if (p.name.bytes == 7 && p.name.data[0] == 'n' && hosts.count) {
         auto& flow = c.b.open(UiStoreKind::flow);
@@ -71,18 +71,6 @@ void consent_row(Ctx& c, const StorePermission& p, ConstSlice<Utf8View> hosts) n
     if (p.note.bytes)
         c.b.text(p.note, UiStoreType::small, UiStoreInk::subtle, ui_store_wrap);
     c.b.close();
-    c.b.close();
-}
-
-void consent_eyebrow(Ctx& c, u8 risk) noexcept {
-    auto& row = c.b.open(UiStoreKind::row);
-    row.gap = 8;
-    row.flags = ui_store_center;
-    auto& dot = c.b.leaf(UiStoreKind::swatch);
-    dot.variant = static_cast<u8>(risk >= 2 ? 3 : risk == 1 ? 4 : 5);
-    dot.rw = dot.rh = 8;
-    static constexpr Utf8View kNames[]{utf8_literal("LOW ACCESS"), utf8_literal("MEDIUM ACCESS"), utf8_literal("HIGH ACCESS")};
-    c.b.text(kNames[risk > 2 ? 2 : risk], UiStoreType::eyebrow, UiStoreInk::header);
     c.b.close();
 }
 
@@ -110,7 +98,7 @@ void build_consent(Ctx& c) noexcept {
         for (u32 i = 0; i < k.permission_count; ++i)
             if (k.permissions[i].risk == risk) {
                 if (!any)
-                    consent_eyebrow(c, static_cast<u8>(risk));
+                    access_eyebrow(c, static_cast<u8>(risk), 0);
                 any = true;
                 consent_row(c, k.permissions[i], hosts);
             }
@@ -118,7 +106,7 @@ void build_consent(Ctx& c) noexcept {
     if (lows) {
         const bool open = (c.st.low_expanded & 1) != 0;
         if (open) {
-            consent_eyebrow(c, 0);
+            access_eyebrow(c, 0, 0);
             for (u32 i = 0; i < k.permission_count; ++i)
                 if (k.permissions[i].risk == 0)
                     consent_row(c, k.permissions[i], hosts);
@@ -137,7 +125,7 @@ void build_consent(Ctx& c) noexcept {
         }
     }
     if (!k.permission_count)
-        c.b.text(utf8_literal("Nothing beyond running its own code."), UiStoreType::body, UiStoreInk::subtle);
+        c.b.text("Nothing beyond running its own code.", UiStoreType::body, UiStoreInk::subtle);
     notice_card(c, critical ? UiIcon::warning : UiIcon::info, {},
                 critical ? utf8_literal("MaiCord hasn't reviewed this plugin. It runs with full access to your PC.")
                          : k.reviewed ? utf8_literal("Plugins run as native code with the same access to your PC as MaiCord. MaiCord reviewed this one and "
@@ -161,7 +149,7 @@ void build_consent(Ctx& c) noexcept {
         box.flags = ui_store_flex;
         box.group = 20;
     } else if (k.update) {
-        c.b.button(utf8_literal("Skip this version"), UiStoreButton::link, store_action(StoreAct::dialog_skip));
+        c.b.button("Skip this version", UiStoreButton::link, store_action(StoreAct::dialog_skip));
         c.b.spacer(0, 0, true);
     } else
         c.b.spacer(0, 0, true);
@@ -178,10 +166,6 @@ void build_consent(Ctx& c) noexcept {
     c.b.close();
 }
 
-void facts_pair(Ctx& c, Utf8View label, Utf8View value, bool link = false, u32 action = 0) noexcept {
-    fact(c, label, value, false, link, action);
-}
-
 void build_link(Ctx& c) noexcept {
     const StoreLink& l = c.m.link;
     if (l.phase == 0) {
@@ -195,10 +179,10 @@ void build_link(Ctx& c) noexcept {
         field.flags = ui_store_stretch;
         c.b.close();
         dialog_footer(c);
-        c.b.button(utf8_literal("Open file..."), UiStoreButton::secondary, store_action(StoreAct::dialog_open_file), UiIcon::count, true).group = 21;
+        c.b.button("Open file...", UiStoreButton::secondary, store_action(StoreAct::dialog_open_file), UiIcon::count, true).group = 21;
         c.b.spacer(0, 0, true);
-        c.b.button(utf8_literal("Cancel"), UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), UiIcon::count, true).group = 21;
-        c.b.button(utf8_literal("Continue"), UiStoreButton::primary, store_action(StoreAct::dialog_confirm), UiIcon::count, true).group = 21;
+        c.b.button("Cancel", UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), UiIcon::count, true).group = 21;
+        c.b.button("Continue", UiStoreButton::primary, store_action(StoreAct::dialog_confirm), UiIcon::count, true).group = 21;
         c.b.close();
         return;
     }
@@ -209,12 +193,12 @@ void build_link(Ctx& c) noexcept {
         row.gap = 12;
         row.flags = ui_store_center;
         c.b.leaf(UiStoreKind::spinner);
-        c.b.text(utf8_literal("Fetching and checking the file..."), UiStoreType::small, UiStoreInk::subtle);
+        c.b.text("Fetching and checking the file...", UiStoreType::small, UiStoreInk::subtle);
         c.b.close();
         c.b.close();
         dialog_footer(c);
         c.b.spacer(0, 0, true);
-        c.b.button(utf8_literal("Cancel"), UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), UiIcon::count, true).group = 21;
+        c.b.button("Cancel", UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), UiIcon::count, true).group = 21;
         c.b.close();
         return;
     }
@@ -225,8 +209,8 @@ void build_link(Ctx& c) noexcept {
         c.b.close();
         dialog_footer(c);
         c.b.spacer(0, 0, true);
-        c.b.button(utf8_literal("Close"), UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), UiIcon::count, true).group = 21;
-        c.b.button(utf8_literal("Try another link"), UiStoreButton::primary, store_action(StoreAct::dialog_open_file, 1), UiIcon::count, true).group = 21;
+        c.b.button("Close", UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), UiIcon::count, true).group = 21;
+        c.b.button("Try another link", UiStoreButton::primary, store_action(StoreAct::dialog_open_file, 1), UiIcon::count, true).group = 21;
         c.b.close();
         return;
     }
@@ -264,31 +248,31 @@ void build_link(Ctx& c) noexcept {
     auto& facts = c.b.open(UiStoreKind::column);
     facts.gap = 8;
     facts.flags = ui_store_flex;
-    facts_pair(c, utf8_literal("Name"), l.name);
-    facts_pair(c, utf8_literal("Author"), l.authors);
-    facts_pair(c, utf8_literal("License"), l.license);
-    facts_pair(c, utf8_literal("Based on"), l.based_on);
-    facts_pair(c, utf8_literal("Size"), l.size_text.bytes || !l.bytes ? l.size_text : size_text(c.b, l.bytes));
+    fact(c, "Name", l.name);
+    fact(c, "Author", l.authors);
+    fact(c, "License", l.license);
+    fact(c, "Based on", l.based_on);
+    fact(c, "Size", l.size_text.bytes || !l.bytes ? l.size_text : size_text(c.b, l.bytes));
     if (l.kind == CatalogKind::effect) {
         // The dot is the measured class: green light, amber medium, red heavy or refused.
         const u8 dot = l.cost_refused || l.cost_level >= 2 ? 3 : l.cost_level == 1 ? 4 : 5;
         if (l.cost_known)
-            fact(c, utf8_literal("Cost here"), l.cost_text, false, false, 0, dot);
+            fact(c, "Cost here", l.cost_text, false, 0, dot);
         else
-            facts_pair(c, utf8_literal("Cost here"), utf8_literal("Measuring..."));
+            fact(c, "Cost here", utf8_literal("Measuring..."));
     }
     if (l.has_effect)
-        facts_pair(c, utf8_literal("Effect"), l.effect_installed ? join(c.b, l.effect_slug, utf8_literal(" (installed)")) : l.effect_slug);
+        fact(c, "Effect", l.effect_installed ? join(c.b, l.effect_slug, utf8_literal(" (installed)")) : l.effect_slug);
     if (l.kind == CatalogKind::effect)
-        facts_pair(c, utf8_literal("Source"), utf8_literal("View .hlsl"), true, store_action(StoreAct::dialog_source));
+        fact(c, "Source", utf8_literal("View .hlsl"), false, store_action(StoreAct::dialog_source));
     if (l.replaces)
-        facts_pair(c, utf8_literal("Replaces"), utf8_literal("the one you installed before"));
+        fact(c, "Replaces", utf8_literal("the one you installed before"));
     c.b.close();
     c.b.close();
     c.b.close();
     dialog_footer(c);
     c.b.spacer(0, 0, true);
-    c.b.button(utf8_literal("Cancel"), UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), UiIcon::count, true).group = 21;
+    c.b.button("Cancel", UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), UiIcon::count, true).group = 21;
     auto& ok = c.b.button(l.kind == CatalogKind::effect ? utf8_literal("Install effect") : utf8_literal("Install theme"), UiStoreButton::primary,
                           store_action(StoreAct::dialog_confirm), UiIcon::count, true);
     ok.group = 21;
@@ -314,7 +298,7 @@ void build_remove(Ctx& c) noexcept {
     c.b.close();
     dialog_footer(c);
     c.b.spacer(0, 0, true);
-    c.b.button(utf8_literal("Cancel"), UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), UiIcon::count, true).group = 22;
+    c.b.button("Cancel", UiStoreButton::secondary, store_action(StoreAct::dialog_cancel), UiIcon::count, true).group = 22;
     c.b.button(item.kind == CatalogKind::plugin ? utf8_literal("Uninstall") : utf8_literal("Remove"), UiStoreButton::critical, store_action(StoreAct::dialog_confirm), UiIcon::count, true).group = 22;
     c.b.close();
 }
@@ -337,8 +321,8 @@ void build_trial_bar(Ctx& c) noexcept {
     row.gap = 12;
     row.flags = ui_store_center;
     c.b.text(join(c.b, utf8_literal("Previewing "), c.m.trying_name), UiStoreType::body_bold, UiStoreInk::strong);
-    c.b.button(utf8_literal("Revert"), UiStoreButton::secondary, store_action(StoreAct::revert_theme)).group = 23;
-    c.b.button(utf8_literal("Keep"), UiStoreButton::primary, store_action(StoreAct::keep_theme)).group = 23;
+    c.b.button("Revert", UiStoreButton::secondary, store_action(StoreAct::revert_theme)).group = 23;
+    c.b.button("Keep", UiStoreButton::primary, store_action(StoreAct::keep_theme)).group = 23;
     c.b.close();
 }
 

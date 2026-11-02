@@ -40,6 +40,13 @@ void decorate_context_actions(MessageContextMenuModel* model) noexcept {
     }
 }
 
+// The 64-byte row is mostly zero and padded: one out-of-line copy of its stores, so
+// each call site passes only the label, the action and the flags.
+__declspec(noinline) void push(MessageContextMenuModel* model, const Utf8View& label, MessageContextAction value,
+                               u32 flags) noexcept {
+    model->items[model->count++] = PopupItem{label, action(value), static_cast<u16>(flags), 0};
+}
+
 bool already_selected(const u16* selected, u32 count, u16 value) noexcept {
     for (u32 index = 0; index < count; ++index) {
         if (selected[index] == value) {
@@ -84,16 +91,14 @@ bool append_quick_reactions(MessageContextMenuModel* model,
     }
     for (u32 index = 0; index < kMessageContextQuickReactionCount; ++index) {
         const u16 catalog_index = model->quick_catalog_indices[index];
-        model->items[model->count++] = PopupItem{
-            catalog[catalog_index].glyph(),
-            action(
-                static_cast<MessageContextAction>(action(MessageContextAction::quick_reaction_0) + index)),
-            static_cast<u16>(popup_item_enabled | popup_item_emoji | popup_item_quick_reaction), 0};
+        push(model, catalog[catalog_index].glyph(),
+             static_cast<MessageContextAction>(action(MessageContextAction::quick_reaction_0) + index),
+             popup_item_enabled | popup_item_emoji | popup_item_quick_reaction);
     }
     return true;
 }
 
-bool append_bytes(Utf8View value, Slice<char> output, u32* used) noexcept {
+bool append_bytes(const Utf8View& value, const Slice<char>& output, u32* used) noexcept {
     if (value.bytes > output.count - *used) {
         return false;
     }
@@ -139,22 +144,18 @@ MessageContextMenuResult message_context_menu_build(MessageContextMenuModel* mod
     }
 
     if (failed) {
-        candidate.items[candidate.count++] = PopupItem{
-            reply_target_deleted ? utf8_literal("Original message was deleted") : utf8_literal("Retry send"),
-            action(MessageContextAction::retry_send),
-            static_cast<u16>(reply_target_deleted ? 0 : popup_item_enabled), 0};
-        candidate.items[candidate.count++] = PopupItem{
-            utf8_literal("Copy text"), action(MessageContextAction::copy_text), popup_item_enabled, 0};
-        candidate.items[candidate.count++] = PopupItem{
-            utf8_literal("Delete message"), action(MessageContextAction::discard_failed),
-            static_cast<u16>(popup_item_enabled | popup_item_danger | popup_item_separator_before), 0};
+        push(&candidate,
+             reply_target_deleted ? utf8_literal("Original message was deleted") : utf8_literal("Retry send"),
+             MessageContextAction::retry_send, reply_target_deleted ? 0 : popup_item_enabled);
+        push(&candidate, utf8_literal("Copy text"), MessageContextAction::copy_text, popup_item_enabled);
+        push(&candidate, utf8_literal("Delete message"), MessageContextAction::discard_failed,
+             popup_item_enabled | popup_item_danger | popup_item_separator_before);
         decorate_context_actions(&candidate);
         *model = candidate;
         return MessageContextMenuResult{model->count, MessageContextMenuError::none};
     }
     if (pending) {
-        candidate.items[candidate.count++] = PopupItem{
-            utf8_literal("Copy text"), action(MessageContextAction::copy_text), popup_item_enabled, 0};
+        push(&candidate, utf8_literal("Copy text"), MessageContextAction::copy_text, popup_item_enabled);
         decorate_context_actions(&candidate);
         *model = candidate;
         return MessageContextMenuResult{model->count, MessageContextMenuError::none};
@@ -163,74 +164,48 @@ MessageContextMenuResult message_context_menu_build(MessageContextMenuModel* mod
     if (!append_quick_reactions(&candidate, preferences)) {
         return MessageContextMenuResult{0, MessageContextMenuError::invalid_input};
     }
-    candidate.items[candidate.count++] = PopupItem{
-        utf8_literal("Add reaction"), action(MessageContextAction::add_reaction), popup_item_enabled, 0};
-    if (has_reactions) {
-        candidate.items[candidate.count++] =
-            PopupItem{utf8_literal("View reactions"), action(MessageContextAction::view_reactions),
-                      popup_item_enabled, 0};
-    }
+    push(&candidate, utf8_literal("Add reaction"), MessageContextAction::add_reaction, popup_item_enabled);
+    if (has_reactions)
+        push(&candidate, utf8_literal("View reactions"), MessageContextAction::view_reactions, popup_item_enabled);
 
-    if (can_edit_authoritative) {
-        candidate.items[candidate.count++] =
-            PopupItem{utf8_literal("Edit message"), action(MessageContextAction::edit_message),
-                      static_cast<u16>(popup_item_enabled | popup_item_separator_before), 0};
-    }
+    if (can_edit_authoritative)
+        push(&candidate, utf8_literal("Edit message"), MessageContextAction::edit_message,
+             popup_item_enabled | popup_item_separator_before);
     if (can_message_author)
-        candidate.items[candidate.count++] =
-            PopupItem{utf8_literal("Message author"), action(MessageContextAction::message_author),
-                      popup_item_enabled, 0};
+        push(&candidate, utf8_literal("Message author"), MessageContextAction::message_author, popup_item_enabled);
     if (can_reply)
-        candidate.items[candidate.count++] = PopupItem{
-            utf8_literal("Reply"), action(MessageContextAction::reply),
-            static_cast<u16>(popup_item_enabled | (!can_edit_authoritative ? popup_item_separator_before : 0)),
-            0};
+        push(&candidate, utf8_literal("Reply"), MessageContextAction::reply,
+             popup_item_enabled | (!can_edit_authoritative ? popup_item_separator_before : 0));
     if (can_forward_authoritative)
-        candidate.items[candidate.count++] = PopupItem{
-            utf8_literal("Forward"), action(MessageContextAction::forward_message), popup_item_enabled, 0};
+        push(&candidate, utf8_literal("Forward"), MessageContextAction::forward_message, popup_item_enabled);
     if (can_create_thread_authoritative)
-        candidate.items[candidate.count++] = PopupItem{
-            utf8_literal("Create thread"), action(MessageContextAction::create_thread), popup_item_enabled, 0};
+        push(&candidate, utf8_literal("Create thread"), MessageContextAction::create_thread, popup_item_enabled);
     if (can_pin_authoritative) {
         const bool pinned = (message.presentation_flags & message_presentation_pinned) != 0;
-        candidate.items[candidate.count++] = PopupItem{
-            pinned ? utf8_literal("Unpin message") : utf8_literal("Pin message"),
-            action(pinned ? MessageContextAction::unpin_message : MessageContextAction::pin_message),
-            popup_item_enabled, 0};
+        push(&candidate, pinned ? utf8_literal("Unpin message") : utf8_literal("Pin message"),
+             pinned ? MessageContextAction::unpin_message : MessageContextAction::pin_message, popup_item_enabled);
     }
     if (can_mark_unread_authoritative)
-        candidate.items[candidate.count++] = PopupItem{
-            utf8_literal("Mark unread"), action(MessageContextAction::mark_unread), popup_item_enabled, 0};
+        push(&candidate, utf8_literal("Mark unread"), MessageContextAction::mark_unread, popup_item_enabled);
     if (extras.remove_embeds)
-        candidate.items[candidate.count++] = PopupItem{
-            utf8_literal("Remove embeds"), action(MessageContextAction::remove_embeds), popup_item_enabled, 0};
+        push(&candidate, utf8_literal("Remove embeds"), MessageContextAction::remove_embeds, popup_item_enabled);
     if (extras.apps)
-        candidate.items[candidate.count++] = PopupItem{
-            utf8_literal("Apps"), action(MessageContextAction::apps_menu), popup_item_enabled, 0};
-    candidate.items[candidate.count++] =
-        PopupItem{utf8_literal("Copy text"), action(MessageContextAction::copy_text),
-                  static_cast<u16>(popup_item_enabled | popup_item_separator_before), 0};
-    candidate.items[candidate.count++] =
-        PopupItem{utf8_literal("Copy message link"), action(MessageContextAction::copy_message_link),
-                  popup_item_enabled, 0};
+        push(&candidate, utf8_literal("Apps"), MessageContextAction::apps_menu, popup_item_enabled);
+    push(&candidate, utf8_literal("Copy text"), MessageContextAction::copy_text,
+         popup_item_enabled | popup_item_separator_before);
+    push(&candidate, utf8_literal("Copy message link"), MessageContextAction::copy_message_link,
+         popup_item_enabled);
     if (extras.speak)
-        candidate.items[candidate.count++] = PopupItem{
-            utf8_literal("Speak message"), action(MessageContextAction::speak_message), popup_item_enabled, 0};
-    if (can_delete_authoritative) {
-        candidate.items[candidate.count++] = PopupItem{
-            utf8_literal("Delete message"), action(MessageContextAction::delete_message),
-            static_cast<u16>(popup_item_enabled | popup_item_danger | popup_item_separator_before), 0};
-    }
+        push(&candidate, utf8_literal("Speak message"), MessageContextAction::speak_message, popup_item_enabled);
+    if (can_delete_authoritative)
+        push(&candidate, utf8_literal("Delete message"), MessageContextAction::delete_message,
+             popup_item_enabled | popup_item_danger | popup_item_separator_before);
     if (extras.report)
-        candidate.items[candidate.count++] = PopupItem{
-            utf8_literal("Report message"), action(MessageContextAction::report_message),
-            static_cast<u16>(popup_item_enabled | popup_item_danger |
-                             (can_delete_authoritative ? 0 : popup_item_separator_before)),
-            0};
+        push(&candidate, utf8_literal("Report message"), MessageContextAction::report_message,
+             popup_item_enabled | popup_item_danger | (can_delete_authoritative ? 0 : popup_item_separator_before));
     if (developer_mode)
-        candidate.items[candidate.count++] =
-            PopupItem{utf8_literal("Copy message ID"), action(MessageContextAction::copy_id),
-                      static_cast<u16>(popup_item_enabled | popup_item_separator_before), 0};
+        push(&candidate, utf8_literal("Copy message ID"), MessageContextAction::copy_id,
+             popup_item_enabled | popup_item_separator_before);
     decorate_context_actions(&candidate);
     *model = candidate;
     return MessageContextMenuResult{model->count, MessageContextMenuError::none};
@@ -253,7 +228,7 @@ bool message_context_menu_resolve_quick_reaction(const MessageContextMenuModel& 
     return true;
 }
 
-u32 message_context_format_snowflake(u64 value, Slice<char> output) noexcept {
+u32 message_context_format_snowflake(u64 value, const Slice<char>& output) noexcept {
     if (value == 0 || !output.data || output.count == 0) {
         return 0;
     }
@@ -263,7 +238,7 @@ u32 message_context_format_snowflake(u64 value, Slice<char> output) noexcept {
     return decimal_write(output.data, value);
 }
 
-u32 message_context_format_link(u64 guild_id, u64 channel_id, u64 message_id, Slice<char> output) noexcept {
+u32 message_context_format_link(u64 guild_id, u64 channel_id, u64 message_id, const Slice<char>& output) noexcept {
     if (!output.data || channel_id == 0 || message_id == 0) {
         return 0;
     }

@@ -87,8 +87,8 @@ MessageContextMenuResult message_context_menu_build(
 bool message_context_menu_resolve_quick_reaction(
     const MessageContextMenuModel& model, u32 action,
     MessageContextQuickReaction* reaction) noexcept;
-u32 message_context_format_snowflake(u64 value, Slice<char> output) noexcept;
+u32 message_context_format_snowflake(u64 value, const Slice<char>& output) noexcept;
 u32 message_context_format_link(u64 guild_id, u64 channel_id, u64 message_id,
-                                Slice<char> output) noexcept;
+                                const Slice<char>& output) noexcept;
 
 } // namespace maicord

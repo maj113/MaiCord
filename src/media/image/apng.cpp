@@ -3,6 +3,9 @@
 
 #include "png_common.hpp"
 
+// The chunk walk runs once per image: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+
 namespace maicord {
 namespace {
 
@@ -375,3 +378,4 @@ PngDecodeResult apng_decode_parsed_default(
 
 } // namespace maicord
 
+#pragma clang attribute pop

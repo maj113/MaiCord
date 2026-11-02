@@ -69,6 +69,10 @@
 #define celt_assert2(cond, message) ((void)(cond))
 #define MUST_SUCCEED(call) ((void)(call))
 
+/* A loop over the bands (21 at most) or a few taps, run once per frame: a
+   vector body or unrolled copies would never run or never pay for their code. */
+#define SHORT_LOOP _Pragma("clang loop vectorize(disable) interleave(disable) unroll(disable)")
+
 #define celt_sig_assert(cond) ((void)(cond))
 
 #define IMUL32(a,b) ((a)*(b))

@@ -89,7 +89,7 @@ struct UiVideoAction {
 // valid until the next projection. Time text is read from its owning projection,
 // so copying projections never keeps a pointer to the old buffer.
 float ui_video_controls_height(const UiVideoControlsStyle&, float width, bool collection = false) noexcept;
-bool ui_video_controls_project(const UiVideoPlaybackState&, UiRect,
+bool ui_video_controls_project(const UiVideoPlaybackState&, const UiRect&,
     const UiVideoControlsStyle&, const Theme&, UiVideoControlsProjection*, bool volume_expanded = false) noexcept;
 // Appends m:ss (h:mm:ss when `hours_field` or the time needs hours) at `cursor`.
 void ui_video_append_clock(char* text, u32& cursor, u64 milliseconds, bool hours_field) noexcept;

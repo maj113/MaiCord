@@ -71,7 +71,7 @@ inline UiRect ui_plugin_slot_count_rectangle(UiRect cell, u32 count) noexcept {
     const float width = ui_mention_badge_width(count);
     return {cell.right - width + 4.0f, cell.top - 4.0f, cell.right + 4.0f, cell.top - 4.0f + kUiMentionBadgeHeight};
 }
-inline bool ui_plugin_slot_count_paint(PaintStream* paint, UiRect cell, u32 count, const Theme& theme) noexcept {
+inline bool ui_plugin_slot_count_paint(PaintStream* paint, const UiRect& cell, u32 count, const Theme& theme) noexcept {
     const UiRect badge = ui_plugin_slot_count_rectangle(cell, count);
     return paint_stream_push_rounded(paint, badge, theme.notification, ui_rect_height(badge) * 0.5f);
 }

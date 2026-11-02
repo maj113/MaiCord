@@ -37,8 +37,8 @@ u32 ui_extent_units(float dips) noexcept;
 float ui_extent_dips(u64 units) noexcept;
 float ui_signed_extent_dips(i64 units) noexcept;
 
-bool ui_variable_list_initialize(UiVariableList* list, Slice<u32> item_units,
-                                 Slice<u64> fenwick, u32 item_count,
+bool ui_variable_list_initialize(UiVariableList* list, const Slice<u32>& item_units,
+                                 const Slice<u64>& fenwick, u32 item_count,
                                  u32 default_item_units) noexcept;
 u32 ui_variable_list_item_units(const UiVariableList& list, u32 index) noexcept;
 u64 ui_variable_list_prefix_units(const UiVariableList& list,

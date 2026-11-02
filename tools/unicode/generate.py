@@ -8,7 +8,11 @@ from array import array
 import hashlib
 import json
 from pathlib import Path
+import sys
 import zipfile
+import zlib
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import optimal_deflate  # noqa: E402
 LIMIT = 0x110000
 EXPECTED_UCD_SHA256 = '2066d1909b2ea93916ce092da1c0ee4808ea3ef8407c94b4f14f5b7eb263d28e'
 # Runtime text properties: UCD alias, C++ name, getter, source, default.
@@ -53,7 +57,7 @@ def cpp_array(kind, name, values, width=16):
     return f'static constexpr {kind} {name}[] = {{\n{body}\n}};\n'
 
 
-def mirror_arrays(mirrors, brackets):
+def mirror_tables(mirrors, brackets):
     """Sorted BMP mirror pairs; each value packs the signed mirror delta above
     the paired-bracket type (0 none, 1 open, 2 close). Every paired bracket is
     its own mirror, so one table answers both lookups."""
@@ -67,7 +71,60 @@ def mirror_arrays(mirrors, brackets):
         if pairs[cp] > 0xffff or cp > 0xffff or not -0x2000 <= delta < 0x2000:
             raise ValueError(f'Mirror {cp:x} does not fit the packed BMP table')
         values.append((delta & 0x3fff) << 2 | kinds.get(cp, 0))
-    return cpp_array('u16', 'unicode_mirror_points', points) + cpp_array('u16', 'unicode_mirror_values', values)
+    return points, values
+
+
+def pack_tables(top, middle, leaves, records, words, points, values):
+    """The runtime tables as one little-endian byte string and each table's offset: the 32-bit record words
+    first, then the 16-bit tables, so every table is naturally aligned at the start of a page."""
+    blob, at = bytearray(), {}
+
+    def add(name, items, size):
+        at[name] = len(blob)
+        for item in items:
+            blob.extend(item.to_bytes(size, 'little'))
+
+    add('records', [(record >> (32 * i)) & 0xffffffff for record in records for i in range(words)], 4)
+    for name, items in (('top', top), ('middle', middle), ('leaves', leaves),
+                        ('mirror_points', points), ('mirror_values', values)):
+        add(name, items, 2)
+    return bytes(blob), at
+
+
+def deflate_smallest(data):
+    """The smallest zlib stream of data from zlib level 9 (both memory levels and strategies) and the optimal search."""
+    streams = [optimal_deflate.zlib_stream(data)]
+    for memory in (8, 9):
+        for strategy in (zlib.Z_DEFAULT_STRATEGY, zlib.Z_FILTERED):
+            packer = zlib.compressobj(9, zlib.DEFLATED, 15, memory, strategy)
+            streams.append(packer.compress(data) + packer.flush())
+    best = min(streams, key=len)
+    if zlib.decompress(best) != data:
+        raise ValueError('Packed Unicode tables do not round-trip')
+    return best
+
+
+PACKED_FILE = 'unicode_data_packed.bin'  # the zlib stream beside unicode_data.inc, read by #embed
+
+
+def emit_data(notice, shifts, fold, ids, top, middle, leaves, records, words, mirrors, brackets):
+    """unicode_data.inc and the packed tables. The ASCII records stay constants, so the most common lookups
+    never wait for the tables; the client inflates the rest on the first other lookup."""
+    points, values = mirror_tables(mirrors, brackets)
+    blob, at = pack_tables(top, middle, leaves, records, words, points, values)
+    ascii_ids = sorted(set(ids[:128]))
+    ascii_index = [ascii_ids.index(i) for i in ids[:128]]
+    data = notice + f'static constexpr u32 unicode_leaf_shift={shifts[0]},unicode_middle_shift={shifts[1]};\n'
+    data += f'static constexpr u32 unicode_fold_first={fold[0]},unicode_fold_end={fold[1]},unicode_fold_source={fold[2]};\n'
+    data += cpp_array('u8', 'unicode_ascii_index', ascii_index).replace('static constexpr u8 unicode_ascii_index[]', 'extern const u8 unicode_ascii_index[128]')
+    data += 'extern const UnicodeProperties unicode_ascii_records[] = {\n'
+    data += '\n'.join('    {{' + ','.join(f'0x{(records[i] >> (32 * j)) & 0xffffffff:08x}u' for j in range(words)) + '}},'
+                      for i in ascii_ids) + '\n};\n'
+    data += f'static constexpr u32 unicode_table_bytes={len(blob)},unicode_mirror_count={len(points)};\n'
+    data += ''.join(f'static constexpr u32 unicode_{name}_at={offset};\n' for name, offset in at.items())
+    data += ('#pragma clang diagnostic push\n#pragma clang diagnostic ignored "-Wc++26-extensions"\n'
+             f'static constexpr u8 unicode_packed[] = {{\n#embed "{PACKED_FILE}"\n}};\n#pragma clang diagnostic pop\n')
+    return data, deflate_smallest(blob)
 
 
 def fold_planes(top, top_shift):
@@ -302,17 +359,14 @@ def main():
     header += f'    constexpr u32 flags() const noexcept {{return value<{offsets[-1]},{widths[-1]}>();}}\n'
     header += '    constexpr bool has(UnicodeFlag flag) const noexcept {return (flags()&static_cast<u32>(flag))!=0;}\n};\n'
     header += f'static_assert(sizeof(UnicodeProperties)=={words*4});\n}} // namespace maicord\n'
-    data = notice + f'static constexpr u32 unicode_leaf_shift={a},unicode_middle_shift={b};\n'
-    data += f'static constexpr u32 unicode_fold_first={fold_first},unicode_fold_end={fold_end},unicode_fold_source={fold_source};\n'
-    data += cpp_array('u8', 'unicode_ascii', ids[:128])
-    data += cpp_array('u16', 'unicode_top', top) + cpp_array('u16', 'unicode_middle', middle) + cpp_array('u16', 'unicode_leaves', leaves)
-    data += 'static constexpr UnicodeProperties unicode_records[] = {\n'
-    data += '\n'.join('    {{' + ','.join(f'0x{(v>>(32*i))&0xffffffff:08x}u' for i in range(words)) + '}},' for v in records) + '\n};\n'
-    data += mirror_arrays(mirrors, brackets)
+    data, packed = emit_data(notice, (a, b), (fold_first, fold_end, fold_source), ids, top, middle, leaves, records, words,
+                             mirrors, brackets)
     hpath = args.repo / 'include/maicord/text/unicode/generated/unicode_data.hpp'
     dpath = args.repo / 'src/text/unicode/generated/unicode_data.inc'
+    ppath = dpath.with_name(PACKED_FILE)
     hpath.parent.mkdir(parents=True, exist_ok=True); dpath.parent.mkdir(parents=True, exist_ok=True)
     hpath.write_text(header, encoding='utf-8', newline='\n'); dpath.write_text(data, encoding='utf-8', newline='\n')
+    ppath.write_bytes(packed)
     gpath = args.repo / 'tests/generated/grapheme_break_test.inc'
     gpath.parent.mkdir(parents=True, exist_ok=True)
     gpath.write_text(notice + f'static constexpr u32 grapheme_vector_count={grapheme_count};\n' + cpp_array('u32','grapheme_vectors',graphemes), encoding='utf-8', newline='\n')
@@ -323,9 +377,9 @@ def main():
               'flags': [{'name': name, 'xml': alias, 'bit': i} for i, (name, alias) in enumerate(zip(FLAGS, FLAG_XML))],
               'record_count': len(records),
               'grapheme_vectors': grapheme_count, 'grapheme_scalars': len(graphemes)-grapheme_count, 'record_bits': bits, 'record_bytes': words*4, 'layout': layout, 'layout_candidates': candidates,
-              'table_bytes': layout['index_bytes'] + len(records)*words*4 + auxiliary_bytes,
+              'table_bytes': layout['index_bytes'] + len(records)*words*4 + auxiliary_bytes, 'packed_table_bytes': len(packed),
               'mirror_count': len(mirrors), 'bracket_count': len(brackets),
-              'generated': {str(p.relative_to(args.repo)): digest(p.read_bytes()) for p in [hpath,dpath,gpath]}}
+              'generated': {str(p.relative_to(args.repo)): digest(p.read_bytes()) for p in [hpath,dpath,ppath,gpath]}}
     args.report.parent.mkdir(parents=True, exist_ok=True); args.report.write_text(json.dumps(report, indent=2)+'\n')
     print(json.dumps({k:report[k] for k in ['record_count','record_bits','record_bytes','layout','table_bytes','mirror_count','bracket_count']}))
 

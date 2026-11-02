@@ -70,8 +70,8 @@ bool command_visible(const UiTextCommand& command) noexcept {
 
 } // namespace
 
-bool ui_text_command_stream_initialize(UiTextCommandStream* stream, Slice<UiTextCommand> storage,
-                                       Slice<char> owned_text, Arena* owned_arena) noexcept {
+bool ui_text_command_stream_initialize(UiTextCommandStream* stream, const Slice<UiTextCommand>& storage,
+                                       const Slice<char>& owned_text, Arena* owned_arena) noexcept {
     if (!stream || !storage.data || storage.count == 0 || (!owned_text.data && owned_text.count) ||
         (owned_arena && (!owned_arena->base || owned_text.data))) {
         return false;

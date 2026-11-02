@@ -106,7 +106,7 @@ Color button_fill(const UiThreadHeader& h, UiWidgetHandle w, const Theme& theme,
     return ui_button_background(*h.manager, w, theme, accent ? theme.tokens.emphasis.fill : theme.surface,
         UiButtonSurface::opaque);
 }
-bool paint_button(const UiThreadHeader& h, UiWidgetHandle w, UiRect r, const Theme& theme,
+bool paint_button(const UiThreadHeader& h, UiWidgetHandle w, const UiRect& r, const Theme& theme,
     PaintStream* out, bool accent) noexcept {
     if (!ui_rect_has_area(r)) return true;
     const bool focus = ui_widget_handle_equal(h.manager->focused, w) && ui_widget_manager_input_enabled(*h.manager, w);
@@ -324,7 +324,7 @@ bool ui_thread_header_text(const UiThreadHeader& h, const Theme& theme, UiTextOu
              ui_foreground_color(theme, theme.text_primary), out, true);
 }
 u32 ui_thread_menu_build(const UiThreadHeaderView& v, UiThreadMenuActions actions,
-    Slice<PopupItem> out) noexcept {
+    const Slice<PopupItem>& out) noexcept {
     if (!view_valid(v) || !v.visible || !out.data) return 0;
     const u32 ids[]{actions.check_status, actions.join, actions.leave, actions.unarchive, actions.retry, actions.cancel};
     for (u32 i = 0; i < 6; ++i) for (u32 j = 0; ids[i] && j < i; ++j) if (ids[i] == ids[j]) return 0;

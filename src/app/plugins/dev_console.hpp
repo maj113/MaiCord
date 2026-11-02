@@ -28,7 +28,7 @@ struct DevLine {
 void application_dev_console_enable(bool on) noexcept;
 bool application_dev_console_enabled() noexcept;
 // Adds a line (control characters become spaces, long text is cut); name is the plugin's or the file's.
-void application_dev_console_add(DevLineKind, Utf8View name, Utf8View text) noexcept;
+void application_dev_console_add(DevLineKind, const Utf8View& name, const Utf8View& text) noexcept;
 // index 0 is the oldest of application_dev_console_count() lines; null past the end. Valid until the next add.
 u32 application_dev_console_count() noexcept;
 const DevLine* application_dev_console_line(u32 index) noexcept;
@@ -45,6 +45,7 @@ struct DevText {
     char data[kDevLineTextBytes];
     u32 used;
     void add(Utf8View text) noexcept;
+    void add(const char* literal) noexcept; // counted here, so a call site passes one pointer
     void number(u64 value) noexcept;
     Utf8View view() const noexcept { return {data, used}; }
 };

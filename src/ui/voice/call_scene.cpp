@@ -234,7 +234,7 @@ UiRect avatar_rect(const UiCallTile& tile) noexcept {
 inline UiRect visible_part(const UiCallTile& tile) noexcept {
     return ui_rect_intersection(tile.display, tile.clip);
 }
-inline u64 hash_rect(u64 hash, UiRect r) noexcept {
+inline u64 hash_rect(u64 hash, const UiRect& r) noexcept {
     return hash64_bytes(hash, &r, sizeof(r));
 }
 void place_controls(UiCallScene& s) noexcept {
@@ -284,7 +284,7 @@ void place_controls(UiCallScene& s) noexcept {
 }
 } // namespace
 
-UiCallHeaderLayout ui_call_header_layout(UiRect header, bool chat, float search_width) noexcept {
+UiCallHeaderLayout ui_call_header_layout(const UiRect& header, bool chat, float search_width) noexcept {
     UiCallHeaderLayout layout{};
     if (!ui_rect_has_area(header))
         return layout;
@@ -315,7 +315,7 @@ inline UiRect tile_area(const UiCallScene& s) noexcept {
     return s.stage_active ? s.stage_speakers : s.stage;
 }
 // Settled tile rectangles for the current participants, focus and scroll.
-void place_tiles(UiCallScene& s, UiRect area) noexcept {
+void place_tiles(UiCallScene& s, const UiRect& area) noexcept {
     const u32 count = s.participant_count;
     s.tile_count = 0;
     s.content_height = s.strip_content_width = 0;
@@ -462,7 +462,7 @@ UiCallFocusLayout ui_call_focus_measure(UiRect area, u32 others, float gap) noex
     return layout;
 }
 
-UiRect ui_call_video_fit(UiRect tile, u32 width, u32 height, bool cover) noexcept {
+UiRect ui_call_video_fit(const UiRect& tile, u32 width, u32 height, bool cover) noexcept {
     if (!width || !height || !ui_rect_has_area(tile))
         return {};
     const float w = ui_rect_width(tile), h = ui_rect_height(tile);
@@ -472,7 +472,7 @@ UiRect ui_call_video_fit(UiRect tile, u32 width, u32 height, bool cover) noexcep
                     static_cast<float>(width) * scale, static_cast<float>(height) * scale);
 }
 
-bool ui_call_scene_update(UiCallScene* s, const UiCallContent& content, UiRect viewport, u64 now_ms,
+bool ui_call_scene_update(UiCallScene* s, const UiCallContent& content, const UiRect& viewport, u64 now_ms,
                           bool reduced_motion) noexcept {
     if (!s || !ui_rect_valid(viewport) || ui_rect_width(viewport) < 320 || ui_rect_height(viewport) < 240 ||
         !initialize(*s)) {

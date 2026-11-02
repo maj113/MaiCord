@@ -51,14 +51,14 @@ inline u32 section_items(const UiMediaPickerScene& scene, u32 section) noexcept 
     return s.expanded ? s.count : 0;
 }
 
-bool finite_rectangle(UiRect r) noexcept;
+bool finite_rectangle(const UiRect& r) noexcept;
 bool picker_layout(const UiMediaPickerStyle& style, const UiMediaPickerSource* source,
                    UiMediaPickerKind kind, UiMediaPickerVariant variant, bool back, UiRect viewport,
                    UiRect anchor, float preferred_width, PickerLayout* output) noexcept;
 bool inline_layout(const UiMediaPickerStyle& style, const UiMediaPickerSource* source,
                    const UiMediaPickerContent& content, UiRect viewport, UiRect anchor,
                    PickerLayout* output) noexcept;
-bool label_valid(Utf8View text) noexcept;
+bool label_valid(const Utf8View& text) noexcept;
 bool source_valid(const UiMediaPickerSource* source, const UiMediaPickerContent& content) noexcept;
 float section_extent(const UiMediaPickerScene& scene, u32 index) noexcept;
 bool item_valid(const UiMediaPickerItem& item) noexcept;

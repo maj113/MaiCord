@@ -23,7 +23,7 @@ inline float ui_unread_divider_snap(float dip, float pixel_scale) noexcept {
 }
 // A positive pixel_scale snaps the hairline to whole device pixels at least
 // one pixel thick, so it stays crisp at fractional DPI and while scrolling.
-inline UiUnreadDividerGeometry ui_unread_divider_geometry(UiRect rectangle,
+inline UiUnreadDividerGeometry ui_unread_divider_geometry(const UiRect& rectangle,
     const UiUnreadDividerStyle& style = kDefaultUiUnreadDividerStyle, float pixel_scale = 0) noexcept {
     if (!ui_rect_has_area(rectangle) || !ui_unread_divider_style_valid(style)) return {};
     const float inset = minimum(style.horizontal_inset, ui_rect_width(rectangle) / 4);

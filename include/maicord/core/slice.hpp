@@ -7,6 +7,7 @@ namespace maicord {
 template <typename T> struct Slice {
     T* data;
     u32 count;
+    static constexpr bool kZeroDefault = true; // a view is zero by default: reset_value clears its 16 bytes at once
 
     constexpr bool empty() const noexcept {
         return count == 0;
@@ -20,6 +21,7 @@ template <typename T> struct Slice {
 template <typename T> struct ConstSlice {
     const T* data;
     u32 count;
+    static constexpr bool kZeroDefault = true; // see Slice
 
     constexpr bool empty() const noexcept {
         return count == 0;
@@ -33,6 +35,7 @@ template <typename T> struct ConstSlice {
 struct Utf8View {
     const char* data;
     u32 bytes;
+    static constexpr bool kZeroDefault = true; // see Slice
 
     constexpr bool empty() const noexcept {
         return bytes == 0;

@@ -9,7 +9,7 @@
 #include "maicord/model/voice/stage_policy.hpp"
 
 namespace maicord::call_stage {
-u32 copy_text(char* destination, u32 capacity, Utf8View text) noexcept {
+u32 copy_text(char* destination, u32 capacity, const Utf8View& text) noexcept {
     return text.data ? utf8_copy_truncated(destination, capacity, text) : 0;
 }
 UiRect centered(float x, float y, float width, float height) noexcept {

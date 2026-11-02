@@ -1,6 +1,7 @@
 // Plugin decorations: the per-plugin verdict caches filled by decorate hooks (pull, in the application's prepare
 // pass) and by mc_api.decorate_push, their merge for the UI and the queries the scenes read. No query runs plugin code.
 #include "surfaces_internal.hpp"
+#include "maicord/app/plugins/text.hpp"
 #include "maicord/app/plugins/call_ledger.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
@@ -126,13 +127,7 @@ void decode(const u8* record, u64 owner, Decoded* out) noexcept {
 
 // UTF-8 without control characters (a line feed stays in multi-line text), at most maximum bytes.
 bool text_ok(mc_str text, u32 maximum, bool multiline = false) noexcept {
-    if (!text.bytes) return true;
-    if (!text.data || text.bytes > maximum || !utf8_validate({text.data, text.bytes}).valid) return false;
-    for (u32 i = 0; i < text.bytes; ++i) {
-        const u8 c = static_cast<u8>(text.data[i]);
-        if (c == 0x7f || (c < 0x20 && !(multiline && c == '\n'))) return false;
-    }
-    return true;
+    return text.bytes <= maximum && plugin_text_clean(text.data, text.bytes, multiline ? kPluginTextLines : 0);
 }
 bool url_ok(mc_str url, u32 maximum) noexcept {
     constexpr char kScheme[] = "https://";

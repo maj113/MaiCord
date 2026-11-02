@@ -102,7 +102,7 @@ RetainedAuthorHeader retain_author_header(MessageTextPresentation* presentation,
                                   presentation->style_count - style_begin}};
 }
 
-RetainedAuthorHeader retain_styled_text(MessageTextPresentation* presentation, Utf8View text, u32 flags) noexcept {
+RetainedAuthorHeader retain_styled_text(MessageTextPresentation* presentation, const Utf8View& text, u32 flags) noexcept {
     if (!presentation || text.bytes == 0 || !text.data ||
         text.bytes > presentation->utf8.count - presentation->utf8_count ||
         presentation->style_count >= presentation->styles.count)
@@ -114,7 +114,7 @@ RetainedAuthorHeader retain_styled_text(MessageTextPresentation* presentation, U
     return RetainedAuthorHeader{Utf8View{presentation->utf8.data + text_begin, text.bytes},
                                 ConstSlice<TextStyleSpan>{presentation->styles.data + presentation->style_count++, 1}};
 }
-float result_card_text_width(const MessageScene& scene, const MessageRecord& record, Utf8View text, u32 flags,
+float result_card_text_width(const MessageScene& scene, const MessageRecord& record, const Utf8View& text, u32 flags,
                              u16 item, float constraint) noexcept {
     UiTextMeasureCache* cache = scene.polls ? scene.polls->measure : nullptr;
     const TextStyleSpan span{0, text.bytes, flags};

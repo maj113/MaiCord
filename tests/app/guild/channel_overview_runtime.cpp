@@ -436,10 +436,10 @@ bool text_edit_layout_hit_test(const TextEditLayoutOwner&, float, float, u32* po
     *position = 0;
     return true;
 }
-bool clipboard_write_utf8(HWND, Utf8View) noexcept {
+bool clipboard_write_utf8(HWND, const Utf8View&) noexcept {
     return true;
 }
-ClipboardTextResult clipboard_read_utf8(HWND, Slice<char>) noexcept {
+ClipboardTextResult clipboard_read_utf8(HWND, const Slice<char>&) noexcept {
     return {0, ClipboardTextError::unavailable};
 }
 // The host's other modal owners are never open in this fixture. Each family

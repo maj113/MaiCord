@@ -57,7 +57,9 @@ options), `MAIOPUS_LTCG`, `MAIOPUS_SSE4_1` and `MAIOPUS_ARCH`. Encoder-only
 units build at `/O1` except the CELT encoder and the warped autocorrelation; the
 decoder builds at `/O2` with type-based alias analysis (`-fstrict-aliasing`), as
 upstream's GCC and Clang builds do. Loss concealment, comfort noise, initialization and
-per-frame control that has no sample loop build for size.
+per-frame control that has no sample loop build for size. Loops over the bands (21)
+or a few filter taps carry `SHORT_LOOP` (`celt/arch.h`), which keeps them scalar
+and rolled: their vector bodies never ran.
 
 ## Verification
 

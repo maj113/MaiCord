@@ -14,7 +14,7 @@ float reveal_offset(float first, float last, float start, float end, float offse
     return minimum(maximum(offset + delta, 0.0f), limit);
 }
 
-bool contains(UiRect outer, UiRect inner) noexcept {
+bool contains(const UiRect& outer, const UiRect& inner) noexcept {
     return ui_rect_has_area(inner) && inner.left >= outer.left && inner.top >= outer.top &&
         inner.right <= outer.right && inner.bottom <= outer.bottom;
 }

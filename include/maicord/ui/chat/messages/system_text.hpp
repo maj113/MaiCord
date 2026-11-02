@@ -106,7 +106,7 @@ struct MessageSystemText {
 
 // Builds the system line into output (at most kMessageSystemTextMaximumBytes
 // are needed). Strings are copied; the result borrows output only.
-bool message_system_text_build(const MessageSystemTextInput& input, Slice<char> output,
+bool message_system_text_build(const MessageSystemTextInput& input, const Slice<char>& output,
                                MessageSystemText* result) noexcept;
 // "a few seconds", "a minute", "5 minutes", "an hour", "3 hours", "2 days".
 u32 message_system_duration(u64 milliseconds, Slice<char> output) noexcept;

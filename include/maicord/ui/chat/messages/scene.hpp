@@ -352,7 +352,7 @@ bool message_scene_set_intro(MessageScene* scene, const MessageSceneIntro* intro
 // conversation display name; username is a DM recipient's username). Text that
 // does not fit is truncated at a UTF-8 boundary. False on bad input.
 bool message_scene_intro_compose(MessageSceneIntro* intro, MessageSceneIntroKind kind, u64 channel_id,
-                                 Utf8View name, Utf8View username, u64 user_id, bool locked) noexcept;
+                                 const Utf8View& name, const Utf8View& username, u64 user_id, bool locked) noexcept;
 // Text layout of the intro block, valid after message_scene_update.
 bool message_scene_intro_geometry(const MessageScene& scene, MessageSceneIntroGeometry* geometry) noexcept;
 inline Utf8View message_scene_intro_header(const MessageSceneIntro& intro) noexcept {
@@ -369,7 +369,7 @@ bool message_scene_set_content_gated(MessageScene* scene, bool gated) noexcept;
 // Invite links found in a message's content, in order (at most
 // kMessageInviteCardMaximum). Zero without a bound invite cache.
 u32 message_scene_invite_codes(const MessageScene& scene, const MessageRecord& record,
-                               Slice<InviteLink> output) noexcept;
+                               const Slice<InviteLink>& output) noexcept;
 bool message_scene_bind_invite_cards(MessageScene* scene, const InviteCardCache* cache) noexcept;
 // Event cards read this store; callers repaint text when it changes.
 bool message_scene_bind_scheduled_events(MessageScene* scene, const ScheduledEventStore* events) noexcept;
@@ -420,14 +420,14 @@ bool message_scene_bind_theme_styles(MessageScene*, const UiResolvedThemeStyles*
 // The returned state borrows the caller's answer scratch and model strings only
 // until the next model mutation. Paint/text consumers use it synchronously.
 bool message_scene_poll_projection(const MessageScene&, const MessageSceneRowWidget&, const Theme&,
-                                   Slice<UiPollAnswer>, UiPollProjection*) noexcept;
+                                   const Slice<UiPollAnswer>&, UiPollProjection*) noexcept;
 
 // defer_measurements commits retained measurements on demand (as snapshot
 // slots always do) instead of one per store slot up front; see
 // message_scene_reserve_measurements.
 bool message_scene_initialize_owned(MessageScene* scene, MessageTimeline* timeline, u32 maximum_rows,
-                                    u32 initial_rows, Slice<UiWidget> widget_storage,
-                                    Slice<UiLayoutNode> layout_storage, bool defer_measurements = false) noexcept;
+                                    u32 initial_rows, const Slice<UiWidget>& widget_storage,
+                                    const Slice<UiLayoutNode>& layout_storage, bool defer_measurements = false) noexcept;
 // Commits one retained measurement per store slot (the non-deferred layout).
 bool message_scene_reserve_measurements(MessageScene* scene) noexcept;
 void message_scene_release(MessageScene* scene) noexcept;
@@ -436,7 +436,7 @@ void message_scene_release(MessageScene* scene) noexcept;
 bool message_scene_set_result_card_style(MessageScene*, const MessageResultCardStyle*) noexcept;
 // Immutable result order may differ from canonical MessageStore lookup order.
 // The host owns handles under revision; empty restores canonical timeline order.
-bool message_scene_set_source_order(MessageScene*, ConstSlice<MessageHandle>, u32 revision) noexcept;
+bool message_scene_set_source_order(MessageScene*, const ConstSlice<MessageHandle>&, u32 revision) noexcept;
 MessageHandle message_scene_source_handle(const MessageScene&, u32 source_index) noexcept;
 u32 message_scene_source_count(const MessageScene&) noexcept;
 MessageSceneResult message_scene_update(MessageScene* scene, const UiRect& viewport) noexcept;
@@ -463,7 +463,7 @@ bool message_scene_set_text_metrics(MessageScene* scene, u32 source_index, float
                                     float content_height, bool content_present,
                                     const MessageSceneRichLayout* rich_layout,
                                     const MessageSceneRichItemLayout* rich_item_layout,
-                                    ConstSlice<float> reaction_widths, bool* changed) noexcept;
+                                    const ConstSlice<float>& reaction_widths, bool* changed) noexcept;
 const MessageSceneRowWidget* message_scene_snapshot_row(const MessageScene& scene,
                                                         const MessageSceneRowWidget& outer) noexcept;
 bool message_scene_set_snapshot_text_metrics(MessageScene* scene, u32 source_index, float content_height,

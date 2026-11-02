@@ -285,7 +285,7 @@ bool open_ban_form() noexcept {
     request.danger = true;
     request.choices_label = utf8_literal("Reason for Ban");
     request.choices = {kModerationBanReasons, kModerationBanReasonCount};
-    request.choice_editor = kModerationBanReasonOther;
+    request.choice_editor = kModerationBanReasonOther + 1;
     request.select_label = utf8_literal("Delete Message History");
     request.select_options = {kModerationBanDeleteLabels, kChoiceCount};
     request.select_selected = kModerationBanDeleteDefault;

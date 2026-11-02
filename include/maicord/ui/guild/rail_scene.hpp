@@ -136,7 +136,7 @@ bool guild_rail_scene_initialize(GuildRailScene* scene, Slice<GuildRailRowWidget
                                  Slice<UiWidget> widget_storage,
                                  Slice<UiLayoutNode> layout_storage) noexcept;
 GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const NavigationView* view,
-                                             UiRect viewport, float requested_scroll_dips) noexcept;
+                                             const UiRect& viewport, float requested_scroll_dips) noexcept;
 GuildRailSceneResult guild_rail_scene_scroll(GuildRailScene* scene, const NavigationView* view,
                                              float delta_dips) noexcept;
 const GuildRailRowWidget* guild_rail_scene_resolve(const GuildRailScene& scene,
@@ -157,14 +157,14 @@ bool guild_rail_scene_tick(GuildRailScene* scene, u64 now_ms, bool animate) noex
 u64 guild_rail_scene_next_wake(const GuildRailScene& scene, u64 now_ms) noexcept;
 // Collapsed folder preview: 2x2 member icons with 3 DIP padding and 2 DIP gap
 // (16-DIP icons in a 40-DIP tile).
-inline UiRect guild_rail_folder_preview_rectangle(UiRect tile, u32 index) noexcept {
+inline UiRect guild_rail_folder_preview_rectangle(const UiRect& tile, u32 index) noexcept {
     const float extent = (ui_rect_width(tile) - 8.0f) * .5f;
     const float left = tile.left + 3.0f + static_cast<float>(index % 2) * (extent + 2.0f);
     const float top = tile.top + 3.0f + static_cast<float>(index / 2) * (extent + 2.0f);
     return {left, top, left + extent, top + extent};
 }
 // Icons stay square and centered while a row's extent animates.
-inline UiRect guild_rail_icon_rectangle(UiRect row) noexcept {
+inline UiRect guild_rail_icon_rectangle(const UiRect& row) noexcept {
     const float extent = minimum(ui_rect_width(row), ui_rect_height(row));
     const float x = (row.left + row.right - extent) * .5f, y = (row.top + row.bottom - extent) * .5f;
     return {x, y, x + extent, y + extent};

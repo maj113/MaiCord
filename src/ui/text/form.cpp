@@ -270,7 +270,7 @@ Color button_fill(const TextFormScene& scene, TextFormElement element, const The
         return pressed || hovered ? theme.interactive_hover : fill;
     return pressed ? shade(fill, .82f) : hovered ? shade(fill, .9f) : fill;
 }
-bool fill(PaintStream* stream, UiRect rectangle, Color color) noexcept {
+bool fill(PaintStream* stream, const UiRect& rectangle, const Color& color) noexcept {
     return !ui_rect_has_area(rectangle) || paint_stream_push(stream, rectangle, color);
 }
 // The check/radio marker centred on the first label line (20 DIP for one line of body text).
@@ -331,7 +331,7 @@ bool text_form_bind_theme_styles(TextFormScene* scene, const UiResolvedThemeStyl
     return true;
 }
 
-bool text_form_update(TextFormScene* scene, const TextFormContent& content, UiRect viewport,
+bool text_form_update(TextFormScene* scene, const TextFormContent& content, const UiRect& viewport,
                       UiTextMeasureCache* measure) noexcept {
     if (!measure || !measure->backend || !ui_rect_valid(viewport) ||
         ui_rect_width(viewport) < 96 || ui_rect_height(viewport) < 64 || !content.title.bytes ||

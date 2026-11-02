@@ -70,7 +70,7 @@ float content_height(const UiThreadBrowserScene& s) noexcept {
     return s.forum && s.view && s.view->forum ? ui_forum_content_height(forum_grid(s), s.count)
         : s.count * s.style.row_height;
 }
-UiRect control(const UiThreadBrowserScene& s, UiRect band, float left, float right) noexcept {
+UiRect control(const UiThreadBrowserScene& s, const UiRect& band, float left, float right) noexcept {
     const float top = band.top + (ui_rect_height(band) - s.style.button_height) * .5f;
     return {left, top, right, top + s.style.button_height};
 }
@@ -178,7 +178,7 @@ bool ui_thread_browser_scene_spinner_visible(const UiThreadBrowserScene& s) noex
     return current(s) && !s.count && s.view->loading;
 }
 bool ui_thread_browser_scene_update(UiThreadBrowserScene* s, const UiThreadBrowserView* view,
-    UiRect viewport, const UiThreadBrowserStyle* style) noexcept {
+    const UiRect& viewport, const UiThreadBrowserStyle* style) noexcept {
     const auto appearance = style ? *style : kDefaultUiThreadBrowserStyle;
     if (!s || !view || !view->source_publication || view->rows.count > kUiThreadBrowserPageCapacity ||
         (view->rows.count && !view->rows.data) || view->tab > UiThreadBrowserTab::search ||

@@ -84,7 +84,7 @@ __declspec(noinline) inline bool ui_background_paint_surface(
 // message composer sits in the message pane. On background themes the card
 // samples the gradient at the tier's opacity like the panel itself; flat
 // themes paint fill.
-inline bool ui_background_paint_card(PaintStream* stream, UiRect card, const Theme& theme, const Color& fill,
+inline bool ui_background_paint_card(PaintStream* stream, const UiRect& card, const Theme& theme, const Color& fill,
                                      float radius, UiBackgroundTier tier) noexcept {
     return !ui_rect_has_area(card) ||
            ui_background_paint_surface(stream, card, theme, fill, fill, radius, 0, .9f,

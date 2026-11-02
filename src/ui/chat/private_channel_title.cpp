@@ -14,7 +14,7 @@ u64 private_channel_peer(const ChatStateStore& state, u64 channel_id) noexcept {
     return 0;
 }
 Utf8View private_channel_title(const ChatStateStore& state, const UserStore* users,
-    const ChannelRecord& channel, Slice<char> storage) noexcept {
+    const ChannelRecord& channel, const Slice<char>& storage) noexcept {
     const Utf8View explicit_name = chat_state_store_channel_name(state, channel);
     if (explicit_name.bytes) return explicit_name;
     const auto* record = state.private_channels ? private_channel_store_find(*state.private_channels, channel.id) : nullptr;

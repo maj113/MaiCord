@@ -126,9 +126,9 @@ u8 shell_navigation_row_controls(const ChannelViewRow& row, bool hovered, bool s
 // A control's button in the row laid out at `row` (right to left: Edit
 // Channel, Create Invite, both before a mention badge); empty when the row
 // lacks the control.
-UiRect shell_navigation_control_rectangle(UiRect row, const ChannelViewRow& view, ChannelRowControl control) noexcept;
+UiRect shell_navigation_control_rectangle(const UiRect& row, const ChannelViewRow& view, ChannelRowControl control) noexcept;
 // Where a row's name must end: before its leftmost shown control, else `right`.
-float shell_navigation_controls_left(UiRect row, const ChannelViewRow& view, u8 shown, float right) noexcept;
+float shell_navigation_controls_left(const UiRect& row, const ChannelViewRow& view, u8 shown, float right) noexcept;
 // Rows plus the 8 DIP insets above and below them (banner inset excluded).
 float shell_navigation_content_height(const NavigationView* view) noexcept;
 // The banner state for the selected server: inset 0 (no banner) or
@@ -143,7 +143,7 @@ bool shell_navigation_scene_initialize(ShellNavigationScene* scene,
                                        Slice<UiWidget> widget_storage,
                                        Slice<UiLayoutNode> layout_storage) noexcept;
 ShellNavigationSceneResult shell_navigation_scene_update(ShellNavigationScene* scene,
-                                                         const NavigationView* view, UiRect viewport,
+                                                         const NavigationView* view, const UiRect& viewport,
                                                          float requested_scroll_dips) noexcept;
 ShellNavigationSceneResult shell_navigation_scene_scroll(ShellNavigationScene* scene,
                                                          const NavigationView* view,

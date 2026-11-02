@@ -50,8 +50,8 @@ struct UiTextCommandStream {
     ArenaMark owned_mark;
 };
 
-bool ui_text_command_stream_initialize(UiTextCommandStream* stream, Slice<UiTextCommand> storage,
-                                       Slice<char> owned_text = {}, Arena* owned_arena = nullptr) noexcept;
+bool ui_text_command_stream_initialize(UiTextCommandStream* stream, const Slice<UiTextCommand>& storage,
+                                       const Slice<char>& owned_text = {}, Arena* owned_arena = nullptr) noexcept;
 void ui_text_command_stream_reset(UiTextCommandStream* stream) noexcept;
 // Normal push borrows text. Owned push copies into the optional caller byte bank
 // or arena; reset invalidates those copies and rewinds an arena to its entry mark.

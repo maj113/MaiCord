@@ -78,7 +78,7 @@ bool initialize(UiDownloadScene& s) noexcept {
     }
     return true;
 }
-bool rectangle(UiDownloadScene& s, UiWidgetHandle handle, UiRect r, bool visible, bool enabled) noexcept {
+bool rectangle(UiDownloadScene& s, UiWidgetHandle handle, const UiRect& r, bool visible, bool enabled) noexcept {
     return ui_widget_manager_place_part(&s.widgets, handle, r, s.panel, visible, enabled);
 }
 void progress_label(UiDownloadScene& s, u32 slot, const UiDownloadRow& r) noexcept {

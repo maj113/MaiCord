@@ -78,7 +78,7 @@ __forceinline void fast_refill(GifFastReader* reader) noexcept {
     // Inside a sub-block, take the whole bytes that fit from one 8-byte load.
     // The bits loaded past them are the next byte's own bits at their own
     // positions, so the next refill ORs in the same values.
-    if (reader->block_remaining >= 8 && reader->bit_count < 56) {
+    if (reader->block_remaining >= 8 && reader->bit_count < 56) [[likely]] {
         u64 word;
         copy_bytes(&word, reader->bytes + reader->cursor, sizeof(word));
         reader->bits |= word << reader->bit_count;
@@ -88,7 +88,11 @@ __forceinline void fast_refill(GifFastReader* reader) noexcept {
         reader->bit_count += taken * 8u;
         return;
     }
-    while (reader->bit_count <= 56 && !reader->exhausted) {
+    // A counted loop, not unrolled: the tail is rare, and the unroll pragma is
+    // ignored on the `bit_count <= 56` loop form. Each byte adds eight bits.
+    const u32 room = reader->bit_count <= 56 ? (64u - reader->bit_count) >> 3 : 0u;
+#pragma clang loop unroll(disable)
+    for (u32 taken = 0; taken < room && !reader->exhausted; ++taken) {
         if (reader->block_remaining == 0) {
             // A zero-size sub-block terminates the data.
             if (reader->cursor >= reader->end) {

@@ -1,9 +1,7 @@
 #include "maicord/ui/text/emoji_catalog.hpp"
 
 #include "maicord/core/memory.hpp"
-#include "maicord/media/compression/deflate.hpp"
-
-#include "maicord/core/win32_kernel.hpp"
+#include "maicord/media/compression/inflated_block.hpp"
 
 namespace maicord {
 
@@ -51,39 +49,20 @@ static_assert(shortcode_layout_valid(shortcode_count * 3 / 4, shortcode_count));
 
 const char* shortcode_names;
 const char* shortcode_glyphs;
-// 0 packed, 1 inflating, 2 ready, 3 unavailable. /volatile:ms orders the
-// pointer stores before the published state.
-volatile LONG pool_state;
+InflatedBlock pool_block;
+
+void publish_pool(const u8* bytes) noexcept {
+    const auto* pool = reinterpret_cast<const char*>(bytes);
+    emoji_pool_detail::catalog_names = pool + kEmojiPoolCatalogNamesOffset;
+    emoji_pool_detail::catalog_glyphs = pool + kEmojiPoolCatalogGlyphsOffset;
+    shortcode_names = pool + kEmojiPoolShortcodeNamesOffset;
+    shortcode_glyphs = pool + kEmojiPoolShortcodeGlyphsOffset;
+}
 
 bool pool_ready() noexcept {
-    for (;;) {
-        const LONG state = pool_state;
-        if (state == 2)
-            return true;
-        if (state == 3)
-            return false;
-        if (state == 0 && InterlockedCompareExchange(&pool_state, 1, 0) == 0) {
-            auto* pool = static_cast<char*>(
-                VirtualAlloc(nullptr, kEmojiPoolBytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
-            DeflateWorkspace* workspace = deflate_workspace_allocate();
-            const DeflateInputSpan input{kEmojiPoolPacked, sizeof(kEmojiPoolPacked)};
-            const bool ok = pool && workspace &&
-                            zlib_inflate({&input, 1}, {reinterpret_cast<u8*>(pool), kEmojiPoolBytes},
-                                         kEmojiPoolBytes, workspace).ok();
-            deflate_workspace_free(workspace);
-            if (ok) {
-                emoji_pool_detail::catalog_names = pool + kEmojiPoolCatalogNamesOffset;
-                emoji_pool_detail::catalog_glyphs = pool + kEmojiPoolCatalogGlyphsOffset;
-                shortcode_names = pool + kEmojiPoolShortcodeNamesOffset;
-                shortcode_glyphs = pool + kEmojiPoolShortcodeGlyphsOffset;
-            } else if (pool) {
-                VirtualFree(pool, 0, MEM_RELEASE);
-            }
-            pool_state = ok ? 2 : 3;
-            return ok;
-        }
-        YieldProcessor();
-    }
+    return pool_block.state == 2 ||
+           inflated_block_load(pool_block, kEmojiPoolPacked, sizeof(kEmojiPoolPacked), kEmojiPoolBytes,
+                               publish_pool);
 }
 
 // Callers validate both pointers and the complete query range.

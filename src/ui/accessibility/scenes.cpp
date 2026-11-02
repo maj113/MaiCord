@@ -48,7 +48,7 @@ void set_position(UiAccessWidgetInfo* info, u64 position, u64 size) noexcept {
 }
 
 // Single-line or multiline text field over a host editor (UTF-8 byte offsets).
-void edit_field(UiAccessWidgetInfo* info, Utf8View name, Utf8View placeholder, Utf8View text, u32 anchor, u32 caret,
+void edit_field(UiAccessWidgetInfo* info, const Utf8View& name, const Utf8View& placeholder, const Utf8View& text, u32 anchor, u32 caret,
                 bool focused) noexcept {
     info->role = UiAccessRole::edit;
     info->leaf = true;
@@ -63,7 +63,7 @@ void edit_field(UiAccessWidgetInfo* info, Utf8View name, Utf8View placeholder, U
         info->state |= ui_access_focused;
 }
 
-u32 byte_offset(Utf8View text, u32 utf16) noexcept {
+u32 byte_offset(const Utf8View& text, u32 utf16) noexcept {
     u32 byte = 0;
     return utf8_byte_offset_for_utf16_position(text, utf16, &byte) ? byte : text.bytes;
 }
@@ -1125,8 +1125,8 @@ void measure_picker_grid(PickerContext* context) noexcept {
 
 constexpr u64 kCallKey = 0x43414C4C00000000ull;
 
-u32 add_synthetic(UiAccessTree* tree, u32 parent, u8 surface, u64 identity, UiAccessRole role, UiRect rectangle,
-                  UiRect clip, Utf8View name, u16 state = 0, u16 actions = 0) noexcept {
+u32 add_synthetic(UiAccessTree* tree, u32 parent, u8 surface, u64 identity, UiAccessRole role, const UiRect& rectangle,
+                  const UiRect& clip, const Utf8View& name, u16 state = 0, u16 actions = 0) noexcept {
     UiAccessNodeDesc description{};
     description.key = ui_access_key(surface, kCallKey ^ identity);
     description.rectangle = rectangle;

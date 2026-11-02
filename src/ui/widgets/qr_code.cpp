@@ -402,7 +402,7 @@ bool qr_code_module(const QrCode& code, u32 x, u32 y) noexcept {
 
 namespace {
 
-u32 compact_rect_pass(const QrCode& code, Slice<QrCodeRect> output,
+u32 compact_rect_pass(const QrCode& code, const Slice<QrCodeRect>& output,
                       bool write) noexcept {
     constexpr u32 kMaximumRunsPerRow = (kQrCodeSize + 1) / 2;
     QrCodeRect active[kMaximumRunsPerRow]{};

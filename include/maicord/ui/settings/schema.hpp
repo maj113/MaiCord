@@ -40,6 +40,9 @@ struct UiSettingsSchemaNode {
     UiSettingsControlKind kind;
     u8 variant;
 
+    // Zeroed storage the catalog fills in place (src/app/settings/catalog.cpp).
+    UiSettingsSchemaNode() noexcept = default;
+
     // default_option ~0u means no default.
     constexpr UiSettingsSchemaNode(Utf8View key, Utf8View label, Utf8View description,
                                    Utf8View keywords, UiSettingsControlKind control_kind,

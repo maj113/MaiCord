@@ -105,7 +105,7 @@ u32 ui_video_format_time(const UiVideoPlaybackState& state, char* text, u32 capa
         append_unknown(text, cursor);
     return cursor;
 }
-bool ui_video_controls_project(const UiVideoPlaybackState& state, UiRect bounds,
+bool ui_video_controls_project(const UiVideoPlaybackState& state, const UiRect& bounds,
                                const UiVideoControlsStyle& style, const Theme& theme,
                                UiVideoControlsProjection* out, bool volume_expanded) noexcept {
     if (!out || !state.owner || !state.generation || !state.revision || state.volume > 100 ||

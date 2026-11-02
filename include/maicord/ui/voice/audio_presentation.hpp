@@ -9,16 +9,16 @@ struct PaintStream;
 // Optional caller waveform scratch is borrowed only through the synchronous
 // paint. Empty scratch projects labels/geometry without decoding waveform data.
 bool ui_audio_attachment_project(const MessageRichStore&, const MessageRichAttachment&, u64 generation,
-                                 u64 revision, bool voice, UiRect bounds, const Theme&,
-                                 Slice<u8> waveform_scratch, UiAudioControlsProjection*) noexcept;
-bool ui_audio_controls_paint(const UiAudioControlsProjection&, const UiAudioControlsStyle&, UiRect clip,
+                                 u64 revision, bool voice, const UiRect& bounds, const Theme&,
+                                 const Slice<u8>& waveform_scratch, UiAudioControlsProjection*) noexcept;
+bool ui_audio_controls_paint(const UiAudioControlsProjection&, const UiAudioControlsStyle&, const UiRect& clip,
                              const Theme&, UiWidgetReference owner, PaintStream*,
                              UiAudioControl focus = UiAudioControl::none,
                              UiAudioControl hover = UiAudioControl::none,
                              bool keyboard_focus = false) noexcept;
 // Copies generated labels into the caller's text stream. A temporary projection
 // never leaves pointers into its own time buffer in a retained command.
-bool ui_audio_controls_text_output(const UiAudioControlsProjection&, UiRect clip, UiWidgetReference owner,
+bool ui_audio_controls_text_output(const UiAudioControlsProjection&, const UiRect& clip, UiWidgetReference owner,
                                    UiTextOutput*) noexcept;
 
 struct UiAudioScene;

@@ -17,11 +17,11 @@ constexpr u32 kDescriptionLines = 5;
 constexpr UiHoverCardMotion kEntrance{{kUiGuildCardEntranceMs, UiMotionCurve::spring}, 0x4743'4152'4400'0001ull};
 constexpr u64 kMeasureSource = 0x4743415244ull; // "GCARD"
 
-u32 copy_text(char* destination, u32 capacity, Utf8View text) noexcept {
+u32 copy_text(char* destination, u32 capacity, const Utf8View& text) noexcept {
     return text.data ? utf8_copy_truncated(destination, capacity, text) : 0;
 }
 // Measured size of text in a box width wide (wrapping unless single).
-UiSize measure(UiTextMeasureCache* cache, Utf8View text, u32 style, float width, bool single, u16 item) noexcept {
+UiSize measure(UiTextMeasureCache* cache, const Utf8View& text, u32 style, float width, bool single, u16 item) noexcept {
     const float estimate = static_cast<float>(text.bytes) * (style & text_style_subtext ? 6.5f : 7.5f);
     UiSize size{single ? minimum(width, estimate) : width,
                 single ? kLine : kLine * static_cast<float>(static_cast<u32>(estimate / maximum(width, 1.f)) + 1)};

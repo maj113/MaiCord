@@ -150,7 +150,7 @@ bool message_scene_set_interaction(MessageScene* scene, const MessageSceneIntera
 }
 
 u32 message_scene_invite_codes(const MessageScene& scene, const MessageRecord& record,
-                               Slice<InviteLink> output) noexcept {
+                               const Slice<InviteLink>& output) noexcept {
     if (!scene.invite_cards || !scene.timeline || !scene.timeline->store || !output.data ||
         record.content_availability != MessageContentAvailability::available || record.content_bytes < 12 ||
         message_type_is_system(record.type) || plugin_folded(scene, record))
@@ -213,7 +213,7 @@ bool message_scene_bind_poll_source(MessageScene* scene, const MessageScenePollB
 }
 
 bool message_scene_poll_projection(const MessageScene& scene, const MessageSceneRowWidget& row,
-                                   const Theme& theme, Slice<UiPollAnswer> answers,
+                                   const Theme& theme, const Slice<UiPollAnswer>& answers,
                                    UiPollProjection* out) noexcept {
     if (!out || !scene.active || row.forwarded_snapshot || row.redacted || !scene.polls ||
         !scene.timeline || !scene.timeline->store || !ui_widget_manager_resolve(scene.widgets, row.poll))
@@ -234,8 +234,8 @@ bool message_scene_poll_projection(const MessageScene& scene, const MessageScene
 }
 
 bool message_scene_initialize_owned(MessageScene* scene, MessageTimeline* timeline, u32 maximum_rows,
-                                    u32 initial_rows, Slice<UiWidget> widget_storage,
-                                    Slice<UiLayoutNode> layout_storage, bool defer_measurements) noexcept {
+                                    u32 initial_rows, const Slice<UiWidget>& widget_storage,
+                                    const Slice<UiLayoutNode>& layout_storage, bool defer_measurements) noexcept {
     if (!scene || scene->owned_rows.arena.base || !timeline || !timeline->store || !timeline->list ||
         !widget_storage.data || !layout_storage.data || widget_storage.count == 0 ||
         layout_storage.count == 0 || maximum_rows == 0 || initial_rows == 0 || initial_rows > maximum_rows) {
@@ -383,7 +383,7 @@ u32 message_scene_source_count(const MessageScene& scene) noexcept {
            : scene.timeline && scene.timeline->store ? scene.timeline->store->count
                                                      : 0;
 }
-bool message_scene_set_source_order(MessageScene* scene, ConstSlice<MessageHandle> order,
+bool message_scene_set_source_order(MessageScene* scene, const ConstSlice<MessageHandle>& order,
                                     u32 revision) noexcept {
     if (!scene || !scene->timeline || !scene->timeline->store || (!order.data && order.count) ||
         (order.count && (!scene->result_cards || order.count != scene->timeline->list->count)))
@@ -421,7 +421,7 @@ float intro_icon_extent(MessageSceneIntroKind kind) noexcept {
 float intro_icon_margin(MessageSceneIntroKind kind) noexcept {
     return kind == MessageSceneIntroKind::channel || kind == MessageSceneIntroKind::thread ? 16.0f : 0.0f;
 }
-float intro_measure_text(MessageScene* scene, u16 item, Utf8View text, ConstSlice<TextStyleSpan> styles,
+float intro_measure_text(MessageScene* scene, u16 item, const Utf8View& text, const ConstSlice<TextStyleSpan>& styles,
                          float width, float line, float em) noexcept {
     if (!text.bytes)
         return 0.0f;
@@ -519,7 +519,7 @@ struct IntroWriter {
     template <usize Count> __forceinline void add(const char (&text)[Count]) noexcept {
         append(text, Count - 1);
     }
-    void bold(u32 description_begin, Utf8View text) noexcept {
+    void bold(u32 description_begin, const Utf8View& text) noexcept {
         const u32 begin = used;
         add(text);
         if (used > begin && intro->description_span_count < kMessageSceneIntroSpanMaximum)
@@ -530,7 +530,7 @@ struct IntroWriter {
 } // namespace
 
 bool message_scene_intro_compose(MessageSceneIntro* intro, MessageSceneIntroKind kind, u64 channel_id,
-                                 Utf8View name, Utf8View username, u64 user_id, bool locked) noexcept {
+                                 const Utf8View& name, const Utf8View& username, u64 user_id, bool locked) noexcept {
     if (!intro || kind == MessageSceneIntroKind::none || (!name.data && name.bytes) ||
         (!username.data && username.bytes))
         return false;
@@ -915,7 +915,7 @@ bool message_scene_set_text_metrics(MessageScene* scene, u32 source_index, float
                                     float content_height, bool content_present,
                                     const MessageSceneRichLayout* rich_layout,
                                     const MessageSceneRichItemLayout* rich_item_layout,
-                                    ConstSlice<float> reaction_widths, bool* changed) noexcept {
+                                    const ConstSlice<float>& reaction_widths, bool* changed) noexcept {
     if (changed) {
         *changed = false;
     }

@@ -24,5 +24,5 @@ struct UiSpinnerClock {
 // Returns true when the painted phase changed (the host repaints).
 bool ui_spinner_clock_tick(UiSpinnerClock*, u64 now_ms, bool visible, bool reduced_motion) noexcept;
 bool ui_spinner_clock_due(const UiSpinnerClock&, u64 now_ms) noexcept;
-bool ui_spinner_paint(PaintStream*, UiRect bounds, Color, u8 phase, const UiSpinnerStyle& = {}) noexcept;
+bool ui_spinner_paint(PaintStream*, const UiRect& bounds, const Color&, u8 phase, const UiSpinnerStyle& = {}) noexcept;
 } // namespace maicord

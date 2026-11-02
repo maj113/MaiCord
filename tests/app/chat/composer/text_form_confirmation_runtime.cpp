@@ -582,10 +582,10 @@ SecureEditResult secure_edit_utf16_selection(const SecureEdit& edit,
         ++confirmation_runtime_test::seen.editor_calls;                                                    \
         return SecureEditResult::invalid_input;                                                            \
     }
-EDIT_RESULT(secure_edit_assign, (SecureEdit*, Utf8View))
+EDIT_RESULT(secure_edit_assign, (SecureEdit*, const Utf8View&))
 EDIT_RESULT(secure_edit_set_utf16_selection, (SecureEdit*, SecureEditUtf16Selection))
 EDIT_RESULT(secure_edit_insert_utf16, (SecureEdit*, u16, u64))
-EDIT_RESULT(secure_edit_insert_utf8, (SecureEdit*, Utf8View))
+EDIT_RESULT(secure_edit_insert_utf8, (SecureEdit*, const Utf8View&))
 EDIT_RESULT(secure_edit_backspace, (SecureEdit*, u64))
 EDIT_RESULT(secure_edit_delete_forward, (SecureEdit*, u64))
 EDIT_RESULT(secure_edit_move, (SecureEdit*, SecureEditMove, bool))
@@ -678,11 +678,11 @@ void text_edit_layout_invalidate(TextEditLayoutOwner* owner) noexcept {
 void text_edit_layout_release(TextEditLayoutOwner* owner) noexcept {
     *owner = {};
 }
-ClipboardTextResult clipboard_read_utf8(HWND, Slice<char>) noexcept {
+ClipboardTextResult clipboard_read_utf8(HWND, const Slice<char>&) noexcept {
     ++confirmation_runtime_test::seen.editor_calls;
     return {0, ClipboardTextError::unavailable};
 }
-bool clipboard_write_utf8(HWND, Utf8View) noexcept {
+bool clipboard_write_utf8(HWND, const Utf8View&) noexcept {
     ++confirmation_runtime_test::seen.editor_calls;
     return false;
 }

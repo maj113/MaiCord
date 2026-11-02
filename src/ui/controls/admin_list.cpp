@@ -88,7 +88,7 @@ bool ui_admin_avatar_paint(PaintStream* paint, const UiSettingsTokens& tokens, c
     return paint_stream_push_rounded_border(paint, avatar, ui_settings_color_alpha(fill, alpha), ui_settings_color_alpha(tokens.color.border_subtle, alpha), radius, 1);
 }
 
-Utf8View ui_admin_initials(const Utf8View& label, Slice<char> storage) noexcept {
+Utf8View ui_admin_initials(const Utf8View& label, const Slice<char>& storage) noexcept {
     u32 used = 0, words = 0;
     bool boundary = true;
     for (u32 offset = 0; offset < label.bytes && words < 2;) {

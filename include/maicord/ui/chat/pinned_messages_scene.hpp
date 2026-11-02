@@ -71,7 +71,7 @@ struct UiPinnedMessagesScene {
 // Viewport is the available message/content area below the shell header.
 // Source and content descriptors remain borrowed under revision/current fences.
 bool ui_pinned_messages_scene_update(UiPinnedMessagesScene*, const UiPinnedMessagesSource*,
-                                    const UiPinnedMessagesContent*, UiRect viewport) noexcept;
+                                    const UiPinnedMessagesContent*, const UiRect& viewport) noexcept;
 void ui_pinned_messages_scene_release(UiPinnedMessagesScene*) noexcept;
 bool ui_pinned_messages_scene_current(const UiPinnedMessagesScene&) noexcept;
 bool ui_pinned_messages_scene_contains(const UiPinnedMessagesScene&, float x, float y) noexcept;

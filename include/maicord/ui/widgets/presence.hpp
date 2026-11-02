@@ -27,7 +27,7 @@ struct UiMobilePresenceGeometry {
     UiRect screen;
     UiRect button;
 };
-inline UiMobilePresenceGeometry ui_presence_mobile_geometry(UiRect dot, float ring) noexcept {
+inline UiMobilePresenceGeometry ui_presence_mobile_geometry(const UiRect& dot, float ring) noexcept {
     const float s = minimum(ui_rect_width(dot), ui_rect_height(dot));
     UiMobilePresenceGeometry g{};
     g.body = {dot.right - s, dot.bottom - 1.5f * s, dot.right, dot.bottom};
@@ -40,7 +40,7 @@ inline UiMobilePresenceGeometry ui_presence_mobile_geometry(UiRect dot, float ri
     return g;
 }
 
-inline bool ui_presence_paint(PaintStream* paint, UiRect r, UiPresence status, Color background,
+inline bool ui_presence_paint(PaintStream* paint, const UiRect& r, UiPresence status, const Color& background,
                               const Theme& theme, bool mobile = false) noexcept {
     const float extent = minimum(ui_rect_width(r), ui_rect_height(r)), radius = extent * .5f;
     const auto& tokens = theme.tokens.status;

@@ -205,7 +205,7 @@ bool catalog_version_code(Utf8View text, u64* code) noexcept;
 // "files/<sha256>.dll|json|mcfx" (a path below the catalog base); returns the bytes written.
 u32 catalog_file_name(CatalogKind kind, const u8 (&sha256)[32], Slice<char> output) noexcept;
 // The index of slug among items of kind, or ~0u.
-u32 catalog_index_find(const CatalogIndex& index, CatalogKind kind, Utf8View slug) noexcept;
+u32 catalog_index_find(const CatalogIndex& index, CatalogKind kind, const Utf8View& slug) noexcept;
 // What the index says about a file: none, or the strongest severity listed for sha256 (the blocklist is malicious).
 CatalogRevocationSeverity catalog_index_revocation(const CatalogIndex& index, const u8* sha256,
                                                    const CatalogRevocation** entry = nullptr) noexcept;

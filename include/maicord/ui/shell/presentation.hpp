@@ -23,29 +23,29 @@ struct ShellTextMeasure {
 inline constexpr u16 kShellMeasureCategoryName = 1, kShellMeasureGuildName = 2;
 // Width of `text` in `style_flags` on one line, at most `maximum_width`;
 // `maximum_width` without a cache or when measuring fails.
-float shell_text_width(UiTextMeasureCache* cache, u64 source_id, u16 item, Utf8View text, u32 style_flags,
+float shell_text_width(UiTextMeasureCache* cache, u64 source_id, u16 item, const Utf8View& text, u32 style_flags,
                        float maximum_width) noexcept;
 // The server header: the name (`name` DIPs wide at most) then the chevron
 // 4 DIPs after it, inside the dropdown's 8-DIP padding.
 struct ShellGuildHeaderGeometry {
     UiRect name, chevron, hover;
 };
-ShellGuildHeaderGeometry shell_guild_header_geometry(UiRect menu, float name_width) noexcept;
+ShellGuildHeaderGeometry shell_guild_header_geometry(const UiRect& menu, float name_width) noexcept;
 // The available name width in the dropdown.
 float shell_guild_header_name_space(UiRect menu) noexcept;
 // A category's name line, ending before its create control, and its chevron.
 struct ShellCategoryGeometry {
     UiRect name, chevron;
 };
-ShellCategoryGeometry shell_category_geometry(UiRect row, const ChannelViewRow& view, float name_width) noexcept;
-float shell_category_name_space(UiRect row, const ChannelViewRow& view) noexcept;
+ShellCategoryGeometry shell_category_geometry(const UiRect& row, const ChannelViewRow& view, float name_width) noexcept;
+float shell_category_name_space(const UiRect& row, const ChannelViewRow& view) noexcept;
 
 struct ShellPresentationRegions {
     UiRect message_view;
     UiRect member_sidebar;
     bool member_sidebar_visible;
 };
-UiRect caret_pixel_rectangle(UiRect caret, UiRect clip, u32 dpi) noexcept;
+UiRect caret_pixel_rectangle(const UiRect& caret, const UiRect& clip, u32 dpi) noexcept;
 // The reply bar's mention switch (no button box): tinted @ icon and divider.
 bool shell_presentation_paint_reply_mention(const MessageComposerScene& scene, const Theme& theme,
                                             PaintStream* stream) noexcept;

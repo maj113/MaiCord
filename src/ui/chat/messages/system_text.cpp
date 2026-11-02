@@ -237,7 +237,7 @@ u32 message_system_duration(u64 milliseconds, Slice<char> output) noexcept {
     return bytes;
 }
 
-bool message_system_text_build(const MessageSystemTextInput& input, Slice<char> output,
+bool message_system_text_build(const MessageSystemTextInput& input, const Slice<char>& output,
                                MessageSystemText* result) noexcept {
     if (!result || !output.data || output.count == 0)
         return false;

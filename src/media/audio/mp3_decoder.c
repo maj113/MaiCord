@@ -413,6 +413,8 @@ static inline float quarter_power(int32_t q) { // 2^(q / 4)
     return v * kQuarter[q & 3];
 }
 
+// Band layout and scalefactor parsing run once per granule channel: their
+// short loops stay rolled (unrolled they were 3 KB of code).
 // Lays out g's bands for a granule channel at stride.
 static void layout(const Mp3Frame* f, const Mp3Granule* g, uint32_t stride, Bands* b) {
     const uint32_t lsf = f->version != 3, shorts = g->block_type == 2;
@@ -420,12 +422,14 @@ static void layout(const Mp3Frame* f, const Mp3Granule* g, uint32_t stride, Band
     b->longs = (uint8_t)(!shorts ? 22 : g->mixed ? (lsf ? 6 : 8) : 0);
     b->first_short = (uint8_t)(b->longs ? 3 : 0);
     uint32_t n = 0, sum = 0;
+#pragma clang loop unroll(disable) vectorize(disable) interleave(disable)
     for (; n < b->longs; sum += long_widths[n++]) {
         b->width[n] = long_widths[n];
         b->run[n] = (uint8_t)(18 - sum % 18);
         b->at[n] = (uint16_t)(sum % 18 * stride + sum / 18);
     }
     // A mixed block's long bands span its first three short bands' lines.
+#pragma clang loop unroll(disable) vectorize(disable) interleave(disable)
     for (uint32_t sfb = b->first_short, start = sum / 3; shorts && sfb < 13; start += short_widths[sfb++])
         for (uint32_t w = 0; w < 3; ++w, ++n) {
             b->width[n] = short_widths[sfb];
@@ -433,6 +437,7 @@ static void layout(const Mp3Frame* f, const Mp3Granule* g, uint32_t stride, Band
             b->at[n] = (uint16_t)((6 * w + start % 6) * stride + start / 6);
         }
     b->count = (uint8_t)n;
+#pragma clang loop unroll(disable) vectorize(disable) interleave(disable)
     for (uint32_t e = 0, end = 0; e < n; ++e)
         b->end[e] = (uint16_t)(end += b->width[e]);
     if (shorts) {
@@ -469,19 +474,23 @@ static void scalefactors(Reader* r, const Mp3Frame* f, const Mp3Granule* g, uint
         while (table % 3 < 2 && c >= kStart[table + 1])
             ++table;
         c -= kStart[table];
+#pragma clang loop unroll(disable) vectorize(disable) interleave(disable)
         for (uint32_t p = 3; p; --p)
             slen[p] = c % kRadix[table][p - 1], c /= kRadix[table][p - 1];
         slen[0] = c;
         preflag = table == 2;
+#pragma clang loop unroll(disable) vectorize(disable) interleave(disable)
         for (uint32_t p = 0; p < 4; ++p)
             counts[p] = kLsfCounts[table][shorts ? (b->longs ? 2 : 1) : 0][p];
     }
     uint32_t k = 0;
+#pragma clang loop unroll(disable) vectorize(disable) interleave(disable)
     for (uint32_t p = 0; p < 4; ++p) {
         if (g->scfsi & (8 >> p)) {
             k += counts[p];
             continue;
         }
+#pragma clang loop unroll(disable) vectorize(disable) interleave(disable)
         for (uint32_t i = 0; i < counts[p]; ++i, ++k) {
             sf[k] = (uint8_t)take(r, slen[p]);
             limit[k] = (uint8_t)(lsf ? (1u << slen[p]) - 1 : 7);
@@ -489,6 +498,7 @@ static void scalefactors(Reader* r, const Mp3Frame* f, const Mp3Granule* g, uint
     }
     memset(sf + k, 0, n - k); // The last bands carry no scalefactor.
     const int32_t gain = g->global_gain - 210, shift = g->scalefac_scale ? 4 : 2;
+#pragma clang loop unroll(disable) vectorize(disable) interleave(disable)
     for (uint32_t e = 0; e < n; ++e) {
         int32_t q = gain;
         if (e < b->longs)

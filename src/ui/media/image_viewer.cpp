@@ -169,7 +169,7 @@ inline UiRect state_box(const UiImageViewer& v) noexcept {
             c.y + kSpinnerExtent * .5f};
 }
 } // namespace
-bool ui_image_viewer_layout(UiImageViewer* v, UiRect viewport) noexcept {
+bool ui_image_viewer_layout(UiImageViewer* v, const UiRect& viewport) noexcept {
     if (!v || !ui_rect_valid(viewport) || ui_rect_width(viewport) < 240 || ui_rect_height(viewport) < 160)
         return false;
     if (ui_rect_equal(v->viewport, viewport))
@@ -182,7 +182,7 @@ bool ui_image_viewer_layout(UiImageViewer* v, UiRect viewport) noexcept {
     ++v->revision;
     return true;
 }
-bool ui_image_viewer_open(UiImageViewer* v, UiRect viewport, UiSize pixels) noexcept {
+bool ui_image_viewer_open(UiImageViewer* v, const UiRect& viewport, UiSize pixels) noexcept {
     if (!v || !ui_size_valid(pixels))
         return false;
     const u32 revision = v->revision + 1;
@@ -326,7 +326,7 @@ bool ui_image_viewer_set_fullscreen(UiImageViewer* v, bool fullscreen) noexcept 
     }
     return true;
 }
-void ui_image_viewer_set_reveal(UiImageViewer* v, float reveal, UiRect origin) noexcept {
+void ui_image_viewer_set_reveal(UiImageViewer* v, float reveal, const UiRect& origin) noexcept {
     if (!v || !v->active || !ui_coordinate_valid(reveal))
         return;
     reveal = maximum(0.0f, minimum(1.0f, reveal));

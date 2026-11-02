@@ -272,7 +272,7 @@ bool ui_access_tree_initialize(UiAccessTree* tree, Slice<UiAccessNode> nodes, Sl
 // Starts a snapshot with node 0 as the root window.
 bool ui_access_tree_reset(UiAccessTree* tree, Utf8View window_name, UiRect bounds) noexcept;
 u32 ui_access_add(UiAccessTree* tree, u32 parent, const UiAccessNodeDesc& description) noexcept;
-bool ui_access_set_name(UiAccessTree* tree, u32 node, Utf8View name) noexcept;
+bool ui_access_set_name(UiAccessTree* tree, u32 node, const Utf8View& name) noexcept;
 bool ui_access_set_value(UiAccessTree* tree, u32 node, Utf8View value) noexcept;
 bool ui_access_set_help(UiAccessTree* tree, u32 node, Utf8View help) noexcept;
 // Adds the visible widget tree of one manager under parent, in tree order.
@@ -285,8 +285,8 @@ u32 ui_access_widget_node(const UiAccessTree& tree, UiWidgetReference widget) no
 // Attributes drawn text to the node of its owner widget. Interactive owners
 // (buttons, list items, menu items...) take it as their name; containers get
 // a static text child. Text whose owner was never added is ignored.
-bool ui_access_attribute_text(UiAccessTree* tree, UiWidgetReference owner, Utf8View text,
-                              UiRect rectangle) noexcept;
+bool ui_access_attribute_text(UiAccessTree* tree, UiWidgetReference owner, const Utf8View& text,
+                              const UiRect& rectangle) noexcept;
 // UiTextConsumeFunction adapter; context is the UiAccessTree.
 bool ui_access_text_consumer(void* context, const UiTextCommand& command, u32 ordinal) noexcept;
 // Labels, presentational children, flattening, compaction, links, focus, keys.
@@ -395,11 +395,11 @@ enum class UiAccessTextUnit : u8 {
 };
 
 // Clamps offset onto the nearest boundary at or before it.
-u32 ui_access_text_align(Utf8View text, u32 offset) noexcept;
+u32 ui_access_text_align(const Utf8View& text, u32 offset) noexcept;
 // ExpandToEnclosingUnit: the unit containing start (the last unit at the end).
-void ui_access_text_expand(Utf8View text, UiAccessTextUnit unit, u32* start, u32* end) noexcept;
+void ui_access_text_expand(const Utf8View& text, UiAccessTextUnit unit, u32* start, u32* end) noexcept;
 // MoveEndpointByUnit for one endpoint; returns the signed count actually moved.
-i32 ui_access_text_move_endpoint(Utf8View text, UiAccessTextUnit unit, i32 count, u32* offset) noexcept;
+i32 ui_access_text_move_endpoint(const Utf8View& text, UiAccessTextUnit unit, i32 count, u32* offset) noexcept;
 // Move: a degenerate range moves its insertion point (it may reach the end);
 // a non-degenerate range becomes the unit count units away. Returns moved.
 i32 ui_access_text_move(Utf8View text, UiAccessTextUnit unit, i32 count, u32* start, u32* end) noexcept;

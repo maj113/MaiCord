@@ -34,7 +34,7 @@ inline bool atom(Utf8View text,TextEmojiCursor& cursor,bool* selected) noexcept 
     *selected=emoji&&!text_selector&&(first.codepoint>0x7f||keycap);return true;
 }
 }
-TextEmojiNext text_emoji_next(Utf8View text,TextEmojiCursor* cursor,TextEmojiRange* output) noexcept {
+TextEmojiNext text_emoji_next(const Utf8View& text,TextEmojiCursor* cursor,TextEmojiRange* output) noexcept {
     if(output)reset_value(output);
     if(!cursor||!output||(text.bytes&&!text.data)||cursor->byte>text.bytes||cursor->unit>cursor->byte)return TextEmojiNext::invalid_input;
     auto position=*cursor;TextEmojiRange range{};bool have_range=false;

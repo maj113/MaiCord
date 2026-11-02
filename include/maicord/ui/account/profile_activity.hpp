@@ -11,12 +11,12 @@ namespace maicord {
 // presence before plain activities, then the newer first. At most one playing
 // activity survives, and one card per application ID or name. Writes item
 // indices into order; returns the card count.
-u32 profile_activity_order(const UserActivitySet& set, Slice<u8> order) noexcept;
+u32 profile_activity_order(const UserActivitySet& set, const Slice<u8>& order) noexcept;
 
 // Timer chips: "m:ss", or "h:mm:ss" from an hour.
-u32 profile_activity_clock_text(u64 seconds, Slice<char> output) noexcept;
+u32 profile_activity_clock_text(u64 seconds, const Slice<char>& output) noexcept;
 // Progress bar ends: "mm:ss", or "hh:mm:ss" from an hour.
-u32 profile_activity_track_text(u64 seconds, Slice<char> output) noexcept;
+u32 profile_activity_track_text(u64 seconds, const Slice<char>& output) noexcept;
 
 enum class ProfileActivityTimer : u8 {
     none,
@@ -85,7 +85,7 @@ bool profile_activity_content(const UserActivity&, bool bot, bool self, ProfileA
 
 // The party chip: "state (count of max)", "state (count)", the count alone or
 // the state alone; 0 when neither is shown.
-u32 profile_activity_party_text(Utf8View state, u32 size, u32 max, Slice<char> output) noexcept;
+u32 profile_activity_party_text(const Utf8View& state, u32 size, u32 max, const Slice<char>& output) noexcept;
 // "S<season>E<episode>" from large text like "Season 2, Episode 5"; 0 otherwise.
-u32 profile_activity_episode_text(Utf8View large_text, Slice<char> output) noexcept;
+u32 profile_activity_episode_text(const Utf8View& large_text, const Slice<char>& output) noexcept;
 } // namespace maicord

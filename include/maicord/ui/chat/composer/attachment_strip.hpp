@@ -32,7 +32,7 @@ enum class UiAttachmentFileKind : u8 {
 UiAttachmentFileKind ui_attachment_file_kind(Utf8View filename) noexcept;
 UiIcon ui_attachment_file_icon(UiAttachmentFileKind kind) noexcept;
 // Lower-case ASCII extension (at most 8 bytes) without the dot; zero when absent.
-u32 ui_attachment_file_extension(Utf8View filename, Slice<char> output) noexcept;
+u32 ui_attachment_file_extension(const Utf8View& filename, const Slice<char>& output) noexcept;
 // "12 B", "3.4 KB", "56 MB", "1.2 GB" (binary units).
 u32 ui_attachment_format_size(u64 bytes, Slice<char> output) noexcept;
 // "0:07", "12:34", "1:02:03".
@@ -115,10 +115,10 @@ struct UiComposerAttachmentTileGeometry {
 };
 
 float ui_composer_attachment_strip_content_width(u32 count) noexcept;
-float ui_composer_attachment_strip_clamp_scroll(UiRect strip, u32 count, float scroll) noexcept;
+float ui_composer_attachment_strip_clamp_scroll(const UiRect& strip, u32 count, float scroll) noexcept;
 // Smallest scroll change that shows the whole tile (and its action bar).
 float ui_composer_attachment_strip_reveal(UiRect strip, u32 count, u32 index, float scroll) noexcept;
-UiComposerAttachmentTileGeometry ui_composer_attachment_tile_geometry(UiRect strip,
+UiComposerAttachmentTileGeometry ui_composer_attachment_tile_geometry(const UiRect& strip,
                                                                       const UiComposerAttachmentTile& tile,
                                                                       u32 index, float scroll) noexcept;
 // Media rule: object-fit contain, centred, never upscaled past 2x.
@@ -132,8 +132,8 @@ inline constexpr float kUiComposerAttachmentSpoilerBlur = 44.f;
 float ui_composer_attachment_thumbnail_blur(const UiComposerAttachmentTile& tile, UiRect fitted) noexcept;
 // Bottom-left pills: duration or GIF, ALT, SPOILER. Text views point at
 // literals or duration_storage, which must outlive their use.
-u32 ui_composer_attachment_tile_tags(const UiComposerAttachmentTile& tile, UiRect media,
-                                     Slice<UiComposerAttachmentTag> output, Slice<char> duration_storage) noexcept;
+u32 ui_composer_attachment_tile_tags(const UiComposerAttachmentTile& tile, const UiRect& media,
+                                     const Slice<UiComposerAttachmentTag>& output, const Slice<char>& duration_storage) noexcept;
 
 struct UiComposerAttachmentHit {
     u32 index;

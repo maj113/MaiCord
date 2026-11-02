@@ -17,7 +17,7 @@ constexpr UiHoverCardMotion kEntrance{{kUiExpressionCardEntranceMs, UiMotionCurv
                                       0x4558'5052'4341'5244ull};
 constexpr u64 kMeasureSource = 0x4558505243415244ull; // "EXPRCARD"
 
-u32 copy_text(char* destination, u32 capacity, Utf8View text) noexcept {
+u32 copy_text(char* destination, u32 capacity, const Utf8View& text) noexcept {
     return text.data ? utf8_copy_truncated(destination, capacity, text) : 0;
 }
 // The description's plain and bold runs (the pack's name).
@@ -37,7 +37,7 @@ u32 description_runs(const UiExpressionCardScene& s, TextStyleSpan* runs) noexce
 }
 // Measured height of text width wide (one line when single); an estimate
 // without a measurement cache.
-float measure(UiTextMeasureCache* cache, Utf8View text, ConstSlice<TextStyleSpan> styles, float width, bool single,
+float measure(UiTextMeasureCache* cache, const Utf8View& text, const ConstSlice<TextStyleSpan>& styles, float width, bool single,
               u16 item, float line) noexcept {
     if (!text.bytes)
         return 0;

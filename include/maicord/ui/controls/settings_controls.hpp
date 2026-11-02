@@ -167,7 +167,7 @@ bool ui_admin_grip_paint(PaintStream*, const UiSettingsTokens&, const UiRect& le
 bool ui_admin_dot_paint(PaintStream*, const UiSettingsTokens&, const UiRect& lead, const Color& color, float alpha) noexcept;
 bool ui_admin_avatar_paint(PaintStream*, const UiSettingsTokens&, const UiRect& avatar, const Color& fill, float alpha) noexcept;
 // Initials of up to two words, uppercase ASCII where possible; output is borrowed from storage.
-Utf8View ui_admin_initials(const Utf8View& label, Slice<char> storage) noexcept;
+Utf8View ui_admin_initials(const Utf8View& label, const Slice<char>& storage) noexcept;
 
 // Layered soft shadow approximated with translucent rounded rectangles.
 bool ui_settings_shadow_paint(PaintStream*, const UiRect&, float radius, float spread, float alpha) noexcept;

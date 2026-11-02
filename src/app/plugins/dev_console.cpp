@@ -39,6 +39,10 @@ void DevText::add(Utf8View text) noexcept {
     used += bytes;
 }
 
+__declspec(noinline) void DevText::add(const char* text) noexcept {
+    add(Utf8View{text, c_string_length(text)});
+}
+
 void DevText::number(u64 value) noexcept {
     char digits[20];
     u32 count = 0;
@@ -59,7 +63,7 @@ void application_dev_console_enable(bool on) noexcept {
 
 bool application_dev_console_enabled() noexcept { return g.enabled; }
 
-void application_dev_console_add(DevLineKind kind, Utf8View name, Utf8View text) noexcept {
+void application_dev_console_add(DevLineKind kind, const Utf8View& name, const Utf8View& text) noexcept {
     if (!g.enabled) return;
     if (!g.lines) {
         g.lines = static_cast<DevLine*>(VirtualAlloc(nullptr, sizeof(DevLine) * kDevConsoleLines, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -105,11 +109,11 @@ void application_dev_console_strike(void* runtime, u64 owner_id, PluginCallKind 
     if (!g.enabled) return;
     DevText w{};
     w.add(kCallNames[static_cast<u32>(kind) <= static_cast<u32>(PluginCallKind::last) ? static_cast<u32>(kind) : 0]);
-    w.add(utf8_literal(" ran past its time budget: "));
+    w.add(" ran past its time budget: ");
     w.number(elapsed_us / 1000);
-    w.add(utf8_literal(" ms. Strike "));
+    w.add(" ms. Strike ");
     w.number(strike < kPluginCallOverrunLimit ? strike : kPluginCallOverrunLimit);
-    w.add(utf8_literal(" of "));
+    w.add(" of ");
     w.number(kPluginCallOverrunLimit);
     w.add(strike >= kPluginCallOverrunLimit ? utf8_literal("; it is turned off.") : utf8_literal("."));
     application_dev_console_add(DevLineKind::strike, owner_name(static_cast<const PluginRuntime*>(runtime), owner_id), w.view());
@@ -124,32 +128,32 @@ void application_dev_load_error_text(const PluginLoadResult& load, DevText* text
         utf8_literal("buttons"), utf8_literal("network hosts")};
     DevText& w = *text;
     switch (load.error) {
-    case PluginLoadError::directory: w.add(utf8_literal("The plugins folder couldn't be opened.")); break;
+    case PluginLoadError::directory: w.add("The plugins folder couldn't be opened."); break;
     case PluginLoadError::open:
-    case PluginLoadError::read: w.add(utf8_literal("The DLL couldn't be read (is the build still writing it?).")); break;
+    case PluginLoadError::read: w.add("The DLL couldn't be read (is the build still writing it?)."); break;
     case PluginLoadError::not_pe:
-    case PluginLoadError::machine: w.add(utf8_literal("It isn't an x64 DLL.")); break;
-    case PluginLoadError::entry_point: w.add(utf8_literal("The DLL has an entry point; link with /NOENTRY.")); break;
-    case PluginLoadError::tls: w.add(utf8_literal("The DLL uses thread-local storage.")); break;
-    case PluginLoadError::sections: w.add(utf8_literal("The DLL's sections are malformed, or writable and executable.")); break;
-    case PluginLoadError::exports: w.add(utf8_literal("The DLL must export only maicord_plugin_v6, as data.")); break;
-    case PluginLoadError::load: w.add(utf8_literal("Windows couldn't load the DLL (does it import anything?).")); break;
+    case PluginLoadError::machine: w.add("It isn't an x64 DLL."); break;
+    case PluginLoadError::entry_point: w.add("The DLL has an entry point; link with /NOENTRY."); break;
+    case PluginLoadError::tls: w.add("The DLL uses thread-local storage."); break;
+    case PluginLoadError::sections: w.add("The DLL's sections are malformed, or writable and executable."); break;
+    case PluginLoadError::exports: w.add("The DLL must export only maicord_plugin_v6, as data."); break;
+    case PluginLoadError::load: w.add("Windows couldn't load the DLL (does it import anything?)."); break;
     case PluginLoadError::descriptor: {
-        w.add(utf8_literal("The descriptor is invalid: "));
+        w.add("The descriptor is invalid: ");
         const u32 problem = static_cast<u32>(load.problem);
         w.add(problem >= 1 && problem <= sizeof(kProblems) / sizeof(kProblems[0]) ? kProblems[problem - 1] : utf8_literal("it fails a rule"));
         if (load.index) {
-            w.add(utf8_literal(" #"));
+            w.add(" #");
             w.number(load.index);
         }
-        w.add(utf8_literal("."));
+        w.add(".");
         break;
     }
-    case PluginLoadError::api_level: w.add(utf8_literal("It needs a newer MaiCord.")); break;
-    case PluginLoadError::permissions: w.add(utf8_literal("It needs permissions that weren't approved.")); break;
-    case PluginLoadError::release: w.add(utf8_literal("The old build couldn't be unloaded.")); break;
-    case PluginLoadError::digest: w.add(utf8_literal("The file changed while it was being read.")); break;
-    default: w.add(utf8_literal("It couldn't be loaded.")); break;
+    case PluginLoadError::api_level: w.add("It needs a newer MaiCord."); break;
+    case PluginLoadError::permissions: w.add("It needs permissions that weren't approved."); break;
+    case PluginLoadError::release: w.add("The old build couldn't be unloaded."); break;
+    case PluginLoadError::digest: w.add("The file changed while it was being read."); break;
+    default: w.add("It couldn't be loaded."); break;
     }
 }
 
@@ -157,11 +161,11 @@ void application_dev_enable_error_text(const PluginEnableResult& result, DevText
     if (result.error == PluginEnableError::load) return application_dev_load_error_text(result.load, text);
     DevText& w = *text;
     switch (result.error) {
-    case PluginEnableError::start_failed: w.add(utf8_literal("start failed or ran past its budget.")); break;
-    case PluginEnableError::duplicate_owner: w.add(utf8_literal("another plugin has the same owner id.")); break;
-    case PluginEnableError::capacity: w.add(utf8_literal("too many plugins are on.")); break;
-    case PluginEnableError::release: w.add(utf8_literal("the old build couldn't be unloaded.")); break;
-    default: w.add(utf8_literal("it didn't start.")); break;
+    case PluginEnableError::start_failed: w.add("start failed or ran past its budget."); break;
+    case PluginEnableError::duplicate_owner: w.add("another plugin has the same owner id."); break;
+    case PluginEnableError::capacity: w.add("too many plugins are on."); break;
+    case PluginEnableError::release: w.add("the old build couldn't be unloaded."); break;
+    default: w.add("it didn't start."); break;
     }
 }
 

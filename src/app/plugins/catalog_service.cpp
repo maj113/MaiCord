@@ -357,9 +357,9 @@ void dev_line(DevLineKind kind, Utf8View text) noexcept {
 // Why a reload didn't happen: the details the step recorded, else the error's own sentence.
 void dev_problem(CatalogError error) noexcept {
     DevText t{};
-    t.add(utf8_literal("Not reloaded: "));
+    t.add("Not reloaded: ");
     if (g->dev_detail_bytes) t.add({g->dev_detail, g->dev_detail_bytes});
-    else if (error == CatalogError::declined) t.add(utf8_literal("you declined it."));
+    else if (error == CatalogError::declined) t.add("you declined it.");
     else t.add(application_catalog_error_text(error));
     dev_line(DevLineKind::problem, t.view());
 }
@@ -372,16 +372,16 @@ void dev_reloaded(bool was_running) noexcept {
     DevText t{};
     t.add(was_running ? utf8_literal("Reloaded in ") : utf8_literal("Loaded in "));
     t.number(clock_monotonic_milliseconds() - g->op.dev_started_ms);
-    t.add(utf8_literal(" ms."));
-    if (g->last_enable.carried == PluginStateCarry::kept) t.add(utf8_literal(" State kept."));
-    else if (g->last_enable.carried == PluginStateCarry::reset) t.add(utf8_literal(" State reset: its layout changed."));
+    t.add(" ms.");
+    if (g->last_enable.carried == PluginStateCarry::kept) t.add(" State kept.");
+    else if (g->last_enable.carried == PluginStateCarry::reset) t.add(" State reset: its layout changed.");
     dev_line(DevLineKind::reload, t.view());
 }
 // The new build was refused or didn't start; the old one is already gone, so the plugin stays off.
 void dev_enable_failed() noexcept {
     DevText t{};
     application_dev_enable_error_text(g->last_enable, &t);
-    t.add(utf8_literal(" The plugin stays off until the next build."));
+    t.add(" The plugin stays off until the next build.");
     dev_detail_set(t);
 }
 
@@ -872,7 +872,7 @@ u32 application_catalog_installable_version(u32 item) noexcept {
     return kCatalogNone;
 }
 
-CatalogItemState application_catalog_item_state(CatalogKind kind, Utf8View slug) noexcept {
+CatalogItemState application_catalog_item_state(CatalogKind kind, const Utf8View& slug) noexcept {
     CatalogItemState s{nullptr, kCatalogNone, kCatalogNone};
     if (!g) return s;
     CatalogStateEntry* e = catalog_state_find(g->state, kind, slug);
@@ -922,7 +922,7 @@ bool application_catalog_check_now() noexcept {
     return check();
 }
 
-bool application_catalog_install(CatalogKind kind, Utf8View slug) noexcept {
+bool application_catalog_install(CatalogKind kind, const Utf8View& slug) noexcept {
     if (!g || busy()) return false;
     if (!g->view.installable) {
         begin(CatalogAction::install, kind, slug);
@@ -939,7 +939,7 @@ bool application_catalog_install(CatalogKind kind, Utf8View slug) noexcept {
     return download(e && catalog_item(*e) ? CatalogAction::update : CatalogAction::install, kind, slug, item, version);
 }
 
-bool application_catalog_update(CatalogKind kind, Utf8View slug) noexcept {
+bool application_catalog_update(CatalogKind kind, const Utf8View& slug) noexcept {
     if (!g || busy() || !g->view.installable) return false;
     const auto st = application_catalog_item_state(kind, slug);
     if (!st.installed || st.update == kCatalogNone) return false;
@@ -963,7 +963,7 @@ u32 application_catalog_update_all() noexcept {
     return count;
 }
 
-bool application_catalog_rollback(CatalogKind kind, Utf8View slug) noexcept {
+bool application_catalog_rollback(CatalogKind kind, const Utf8View& slug) noexcept {
     if (!g || busy()) return false;
     CatalogStateEntry* e = catalog_state_find(g->state, kind, slug);
     if (!e || kind != CatalogKind::plugin || !catalog_entry_has_previous(*e)) return false;
@@ -987,7 +987,7 @@ bool application_catalog_rollback(CatalogKind kind, Utf8View slug) noexcept {
     return finish(enabled);
 }
 
-bool application_catalog_remove(CatalogKind kind, Utf8View slug, bool delete_data) noexcept {
+bool application_catalog_remove(CatalogKind kind, const Utf8View& slug, bool delete_data) noexcept {
     if (!g || busy()) return false;
     CatalogStateEntry* e = catalog_state_find(g->state, kind, slug);
     if (!e) return false;
@@ -1015,7 +1015,7 @@ bool application_catalog_remove(CatalogKind kind, Utf8View slug, bool delete_dat
     return finish(save_state() ? CatalogError::none : CatalogError::storage);
 }
 
-bool application_catalog_set_enabled(CatalogKind kind, Utf8View slug, bool on) noexcept {
+bool application_catalog_set_enabled(CatalogKind kind, const Utf8View& slug, bool on) noexcept {
     if (!g || kind != CatalogKind::plugin || busy()) return false;
     CatalogStateEntry* e = catalog_state_find(g->state, kind, slug);
     if (!e) return false;
@@ -1036,7 +1036,7 @@ bool application_catalog_set_enabled(CatalogKind kind, Utf8View slug, bool on) n
     return finish(enable(*e));
 }
 
-bool application_catalog_set_auto_update(CatalogKind kind, Utf8View slug, bool on) noexcept {
+bool application_catalog_set_auto_update(CatalogKind kind, const Utf8View& slug, bool on) noexcept {
     CatalogStateEntry* e = g && g->restored ? catalog_state_find(g->state, kind, slug) : nullptr;
     if (!e) return false;
     if (on) e->flags &= static_cast<u16>(~kCatalogEntryAutoUpdateOff);
@@ -1051,7 +1051,7 @@ bool application_catalog_set_auto_update_all(bool on) noexcept {
     return save_state();
 }
 
-bool application_catalog_skip_update(CatalogKind kind, Utf8View slug) noexcept {
+bool application_catalog_skip_update(CatalogKind kind, const Utf8View& slug) noexcept {
     if (!g || !g->restored) return false;
     const auto st = application_catalog_item_state(kind, slug);
     CatalogStateEntry* e = catalog_state_find(g->state, kind, slug);
@@ -1141,7 +1141,7 @@ void application_catalog_asset_release(CatalogAsset* asset) noexcept {
     reset_value(asset);
 }
 
-bool application_catalog_record_unreviewed(CatalogKind kind, Utf8View slug, const u8 (&sha256)[32], Utf8View version) noexcept {
+bool application_catalog_record_unreviewed(CatalogKind kind, const Utf8View& slug, const u8 (&sha256)[32], const Utf8View& version) noexcept {
     if (!g || !g->restored || kind == CatalogKind::plugin) return false;
     CatalogStateEntry* e = catalog_state_find(g->state, kind, slug);
     if (e && catalog_item(*e)) return false;
@@ -1154,7 +1154,7 @@ bool application_catalog_record_unreviewed(CatalogKind kind, Utf8View slug, cons
     return save_state();
 }
 
-bool application_catalog_forget(CatalogKind kind, Utf8View slug) noexcept {
+bool application_catalog_forget(CatalogKind kind, const Utf8View& slug) noexcept {
     CatalogStateEntry* e = g && g->restored ? catalog_state_find(g->state, kind, slug) : nullptr;
     if (!e || !(e->flags & kCatalogEntryUnreviewed)) return false;
     catalog_state_remove(g->state, e);

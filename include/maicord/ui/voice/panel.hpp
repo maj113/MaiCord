@@ -39,19 +39,19 @@ inline constexpr float kUiVoicePanelHeight = 52, kUiVoicePanelGap = 8;
 constexpr float ui_voice_panel_reserve(const UiVoicePanelView* view) noexcept {
     return view && view->state != UiVoicePanelState::hidden ? kUiVoicePanelHeight + kUiVoicePanelGap : 0;
 }
-UiRect ui_voice_panel_rectangle(UiRect footer) noexcept;
-UiRect ui_voice_panel_disconnect(UiRect panel) noexcept;
-UiRect ui_voice_panel_status_text(UiRect panel) noexcept;
-UiRect ui_voice_panel_channel_text(UiRect panel) noexcept;
+UiRect ui_voice_panel_rectangle(const UiRect& footer) noexcept;
+UiRect ui_voice_panel_disconnect(const UiRect& panel) noexcept;
+UiRect ui_voice_panel_status_text(const UiRect& panel) noexcept;
+UiRect ui_voice_panel_channel_text(const UiRect& panel) noexcept;
 // Microphone and deafen buttons left of the settings button in the account panel.
-UiRect ui_voice_account_button(UiRect footer, UiVoiceControl control) noexcept;
+UiRect ui_voice_account_button(const UiRect& footer, UiVoiceControl control) noexcept;
 // Right edge reserved by the account panel buttons (settings included).
 inline constexpr float kUiVoiceAccountButtonsWidth = 108;
-UiVoiceControl ui_voice_hit(UiRect footer, const UiVoicePanelView& view, float x, float y) noexcept;
+UiVoiceControl ui_voice_hit(const UiRect& footer, const UiVoicePanelView& view, float x, float y) noexcept;
 Color ui_voice_panel_status_color(const UiVoicePanelView& view, const Theme& theme) noexcept;
-bool ui_voice_panel_paint(PaintStream* stream, const UiVoicePanelView& view, UiRect footer,
+bool ui_voice_panel_paint(PaintStream* stream, const UiVoicePanelView& view, const UiRect& footer,
                           const Theme& theme) noexcept;
-bool ui_voice_account_controls_paint(PaintStream* stream, const UiVoicePanelView& view, UiRect footer,
+bool ui_voice_account_controls_paint(PaintStream* stream, const UiVoicePanelView& view, const UiRect& footer,
                                      const Theme& theme) noexcept;
 // The user's avatar at the left of the account panel.
 constexpr UiRect ui_account_avatar_rectangle(UiRect footer) noexcept {
@@ -60,6 +60,6 @@ constexpr UiRect ui_account_avatar_rectangle(UiRect footer) noexcept {
 }
 // While the user speaks in a connected call: a success-coloured disc 2 DIP
 // larger than the avatar, painted beneath it as voice channel rows do.
-bool ui_account_speaking_ring_paint(PaintStream* stream, const UiVoicePanelView* view, UiRect avatar,
+bool ui_account_speaking_ring_paint(PaintStream* stream, const UiVoicePanelView* view, const UiRect& avatar,
                                     const Theme& theme) noexcept;
 } // namespace maicord

@@ -69,7 +69,7 @@ bool digit(char c) noexcept {
     return c >= '0' && c <= '9';
 }
 // Matches \w+ (\d+) at s[at..]: returns the digits' end, or 0.
-u32 word_number(Utf8View s, u32 at, u32* digits_begin) noexcept {
+u32 word_number(const Utf8View& s, u32 at, u32* digits_begin) noexcept {
     u32 i = at;
     while (i < s.bytes && word(s.data[i]))
         ++i;
@@ -82,7 +82,7 @@ u32 word_number(Utf8View s, u32 at, u32* digits_begin) noexcept {
 }
 } // namespace
 
-u32 profile_activity_order(const UserActivitySet& set, Slice<u8> order) noexcept {
+u32 profile_activity_order(const UserActivitySet& set, const Slice<u8>& order) noexcept {
     if (!order.data)
         return 0;
     u8 sorted[kUserActivityMaximum];
@@ -113,7 +113,7 @@ u32 profile_activity_order(const UserActivitySet& set, Slice<u8> order) noexcept
     }
     return used;
 }
-u32 profile_activity_clock_text(u64 seconds, Slice<char> output) noexcept {
+u32 profile_activity_clock_text(u64 seconds, const Slice<char>& output) noexcept {
     Writer w{output};
     const u64 hours = seconds / 3600, minutes = seconds / 60 % 60;
     if (hours) {
@@ -126,7 +126,7 @@ u32 profile_activity_clock_text(u64 seconds, Slice<char> output) noexcept {
     w.number(seconds % 60, 2);
     return w.finish();
 }
-u32 profile_activity_track_text(u64 seconds, Slice<char> output) noexcept {
+u32 profile_activity_track_text(u64 seconds, const Slice<char>& output) noexcept {
     Writer w{output};
     if (seconds >= 3600) {
         w.number(seconds / 3600, 2);
@@ -178,7 +178,7 @@ bool profile_activity_progress(const UserActivity& a, u64 now, ProfileActivityPr
     output->fraction = duration ? static_cast<float>(static_cast<double>(elapsed) / static_cast<double>(duration)) : 0.f;
     return true;
 }
-u32 profile_activity_party_text(Utf8View state, u32 size, u32 max, Slice<char> output) noexcept {
+u32 profile_activity_party_text(const Utf8View& state, u32 size, u32 max, const Slice<char>& output) noexcept {
     char count[48];
     Writer n{{count, sizeof(count)}};
     if (size && max) {
@@ -199,7 +199,7 @@ u32 profile_activity_party_text(Utf8View state, u32 size, u32 max, Slice<char> o
         w.text({count, n.used});
     return w.finish();
 }
-u32 profile_activity_episode_text(Utf8View s, Slice<char> output) noexcept {
+u32 profile_activity_episode_text(const Utf8View& s, const Slice<char>& output) noexcept {
     // The first match of /\w+ (\d+), \w+ (\d+)/.
     for (u32 at = 0; at < s.bytes; ++at) {
         if (!word(s.data[at]) || (at && word(s.data[at - 1])))

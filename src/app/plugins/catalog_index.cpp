@@ -895,7 +895,7 @@ u32 catalog_file_name(CatalogKind kind, const u8 (&sha256)[32], Slice<char> outp
     return bytes;
 }
 
-u32 catalog_index_find(const CatalogIndex& index, CatalogKind kind, Utf8View slug) noexcept {
+u32 catalog_index_find(const CatalogIndex& index, CatalogKind kind, const Utf8View& slug) noexcept {
     for (u32 i = 0; i < index.item_count; ++i)
         if (index.items[i].kind == kind && utf8_equal(catalog_text(index, index.items[i].slug), slug)) return i;
     return ~0u;

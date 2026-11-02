@@ -16,7 +16,7 @@ Utf8View member_context_block_text(ModerationBlock block) noexcept {
 }
 
 u32 member_context_moderation_build(const ModerationCapabilities& capabilities,
-                                    const MemberModerationMenuActions& actions, Slice<PopupItem> output) noexcept {
+                                    const MemberModerationMenuActions& actions, const Slice<PopupItem>& output) noexcept {
     struct Entry {
         u8 bit;
         Utf8View label;
@@ -54,7 +54,7 @@ u32 member_context_moderation_build(const ModerationCapabilities& capabilities,
     return used;
 }
 
-u32 member_context_timeout_choices(const MemberModerationMenuActions& actions, Slice<PopupItem> output) noexcept {
+u32 member_context_timeout_choices(const MemberModerationMenuActions& actions, const Slice<PopupItem>& output) noexcept {
     static constexpr Utf8View labels[] = {utf8_literal("60 seconds"), utf8_literal("5 minutes"), utf8_literal("10 minutes"),
                                    utf8_literal("1 hour"),     utf8_literal("1 day"),     utf8_literal("1 week")};
     static_assert(sizeof(labels) / sizeof(labels[0]) == sizeof(kModerationTimeoutChoices) / sizeof(u32));

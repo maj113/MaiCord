@@ -6,10 +6,13 @@
 namespace maicord {
 namespace {
 
-// Out of line: its resume capture would otherwise join process_session's stack frame.
+// Out of line: its resume capture would otherwise join process_session's stack frame. Once per session:
+// compiled for size.
 // receive means the READY was handled and the session loop continues.
-__declspec(noinline) PlaintextDrive process_ready(GatewayClient* client, GatewayClientRuntime* runtime,
-                                                  const GatewaySessionEvent& event, u64 now_ms) noexcept {
+__declspec(noinline) __attribute__((minsize)) PlaintextDrive process_ready(GatewayClient* client,
+                                                                          GatewayClientRuntime* runtime,
+                                                                          const GatewaySessionEvent& event,
+                                                                          u64 now_ms) noexcept {
     // One deadline spans the whole READY projection. No lock is
     // held while producer backpressure waits for the UI consumer.
     runtime->mailbox_deadline_ms = GetTickCount64() + kPhaseTimeoutMs;

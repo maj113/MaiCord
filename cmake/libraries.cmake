@@ -53,7 +53,8 @@ set_target_properties(maicord_sys_conformance PROPERTIES MAICORD_SDK_INCLUDES ON
 # client's link waits for it through maicord_core; the test twins don't.
 add_dependencies(maicord_core maicord_sys_conformance)
 
-maicord_library(maicord_compression src/media/compression/deflate.cpp src/media/compression/zstd.cpp LIBS maicord_core)
+maicord_library(maicord_compression src/media/compression/deflate.cpp src/media/compression/zstd.cpp
+    src/media/compression/inflated_block.cpp LIBS maicord_core)
 
 maicord_library(maicord_media_core
     src/media/core/animation_timeline.cpp src/media/core/encoded_cache.cpp src/media/core/presentation_policy.cpp
@@ -317,7 +318,8 @@ maicord_library(maicord_unicode
     src/text/scripts/arabic_joining.cpp src/text/unicode/line_break_tailored.cpp
     src/text/unicode/thai_word_break.cpp src/text/unicode/thai_lexical.cpp src/text/unicode/thai_syllable.cpp
     src/text/unicode/bidi_tailored.cpp src/text/unicode/unicode.cpp src/text/unicode/grapheme.cpp src/text/unicode/bidi.cpp
-    LIBS maicord_core)
+    # unicode.cpp and thai_lexical.cpp inflate their tables; deflate.cpp checks gzip members with png_crc32.
+    LIBS maicord_core maicord_compression maicord_media_codec)
 
 maicord_library(maicord_font
     src/text/scripts/arabic_shape_run.cpp src/text/scripts/arabic_marks.cpp src/text/scripts/arabic_plan.cpp
@@ -357,6 +359,16 @@ maicord_library(maicord_font
     LIBS maicord_core maicord_unicode ntdll)
 # Compact the shared Indic ordering routine; keep /O2, /Ob1 and LTO.
 set_property(SOURCE src/text/scripts/devanagari_order.cpp APPEND PROPERTY COMPILE_OPTIONS ${MAICORD_SIZE_OPTION})
+# Font table opening, outlines and variations (once per font or glyph), the
+# non-Latin script shapers and the Unicode line geometry keep their short loops
+# rolled: unrolled they only bloat (text benchmark: cycles_ascii -9%, Latin,
+# Arabic and Devanagari within 1%). The lookup executors, the Latin, ASCII,
+# Arabic and Devanagari shapers and the paragraph layout keep unrolling: without
+# it message_hit_rebuild was 3-9% slower and cycles_arabic 2.4%.
+get_target_property(maicord_rolled_sources maicord_font SOURCES)
+list(FILTER maicord_rolled_sources INCLUDE REGEX
+    "/(opentype/(sfnt|cff_|tt_|truetype_outline|colr_|cpal|gvar|variation_store|metric_variations|layout_directory|layout_tables|gdef|layout_variations|lookup_selection|nominal_)|scripts/(hebrew|sinhala|tibetan|khmer|myanmar|tamil)|layout/unicode_line_geometry)")
+set_property(SOURCE ${maicord_rolled_sources} APPEND PROPERTY COMPILE_OPTIONS /clang:-fno-unroll-loops)
 
 maicord_library(maicord_text
     src/ui/text/text.cpp src/ui/text/native_text_candidate.cpp src/ui/text/native_text_catalog.cpp src/core/log.cpp

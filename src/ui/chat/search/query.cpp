@@ -16,7 +16,7 @@ u32 author_type(Utf8View value) noexcept {
     return 0;
 }
 // A negated value ("-link") moves the flag to the excluded set.
-bool negatable(Utf8View value, u32 (*parse)(Utf8View) noexcept, u32* included, u32* excluded) noexcept {
+bool negatable(const Utf8View& value, u32 (*parse)(Utf8View) noexcept, u32* included, u32* excluded) noexcept {
     const bool negated = value.bytes > 1 && value.data[0] == '-';
     const u32 flag = parse(negated ? Utf8View{value.data + 1, value.bytes - 1} : value);
     if (!flag || ((negated ? *included : *excluded) & flag))
@@ -129,7 +129,7 @@ u32 has(Utf8View value) noexcept {
 } // namespace
 } // namespace maicord
 namespace maicord {
-UiSearchQueryResult ui_search_query_parse(Utf8View text, MessageSearchScope scope, u64 scope_id,
+UiSearchQueryResult ui_search_query_parse(const Utf8View& text, MessageSearchScope scope, u64 scope_id,
                                           MessageSearchSort sort,
                                           const UiSearchQueryContext* context) noexcept {
     UiSearchQueryResult result{};

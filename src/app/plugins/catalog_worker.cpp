@@ -1,5 +1,6 @@
 #include "catalog_worker.hpp"
 #include "maicord/app/plugins/loader.hpp"
+#include "maicord/app/packages/install.hpp"
 #include "maicord/app/update/https.hpp"
 #include "maicord/app/update/log.hpp"
 #include "maicord/core/data_path.hpp"
@@ -298,59 +299,18 @@ void check(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
 }
 
 // ---- files the index lists -------------------------------------------------------------------------
+static_assert(static_cast<u8>(CatalogKind::theme) == static_cast<u8>(PackageLinkKind::theme) &&
+              static_cast<u8>(CatalogKind::effect) == static_cast<u8>(PackageLinkKind::effect));
 u32 file_path(const Worker& w, CatalogKind kind, Utf8View slug, const u8 (&sha256)[32], wchar_t (&path)[600]) noexcept {
-    wchar_t leaf[128];
-    u32 n = 0;
     if (kind == CatalogKind::plugin) {
         wchar_t dll[69];
         catalog_plugin_leaf(sha256, dll);
         return catalog_path(base(w), L"plugins\\", path) ? append(path, wide_length(path, 600), dll) : 0;
     }
-    for (u32 i = 0; i < slug.bytes; ++i) leaf[n++] = static_cast<wchar_t>(slug.data[i]);
-    leaf[n] = 0;
-    if (kind == CatalogKind::theme) {
-        if (!wide_append(leaf, 128, &n, L".maicord-theme.json") || !catalog_path(base(w), L"themes\\", path)) return 0;
-    } else {
-        leaf[n++] = L'-';
-        hex_wide(sha256, 8, leaf + n);
-        n += 16;
-        leaf[n] = 0;
-        if (!wide_append(leaf, 128, &n, L".mcfx") || !catalog_path(base(w), L"effects\\", path)) return 0;
-    }
-    return append(path, wide_length(path, 600), leaf);
-}
-// An effect's other versions: effects\<slug>-<16 hex>.mcfx except keep.
-void delete_other_effects(const Worker& w, Utf8View slug, const wchar_t* keep) noexcept {
-    wchar_t pattern[600];
-    u32 length = catalog_path(base(w), L"effects\\", pattern);
-    if (!length) return;
-    const u32 directory = length;
-    for (u32 i = 0; i < slug.bytes; ++i) pattern[length++] = static_cast<wchar_t>(slug.data[i]);
-    pattern[length] = 0;
-    if (!wide_append(pattern, 600, &length, L"-*.mcfx")) return;
-    WIN32_FIND_DATAW found{};
-    const HANDLE scan = FindFirstFileW(pattern, &found);
-    if (scan == INVALID_HANDLE_VALUE) return;
-    do {
-        // Exactly <slug>-<16 hex>.mcfx, so a slug never matches another slug that extends it.
-        const u32 name = wide_length(found.cFileName, 260);
-        if ((found.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) ||
-            name != slug.bytes + 1 + 16 + 5)
-            continue;
-        bool hex16 = true;
-        for (u32 i = 0; i < 16; ++i) {
-            const wchar_t c = found.cFileName[slug.bytes + 1 + i];
-            hex16 = hex16 && ((c >= L'0' && c <= L'9') || (c >= L'a' && c <= L'f'));
-        }
-        wchar_t path[600];
-        copy_bytes(path, pattern, directory * 2);
-        path[directory] = 0;
-        if (!hex16 || !append(path, directory, found.cFileName) || !wide_length(keep, 600)) continue;
-        bool same = wide_length(path, 600) == wide_length(keep, 600);
-        for (u32 i = 0; same && path[i]; ++i) same = path[i] == keep[i];
-        if (!same) DeleteFileW(path);
-    } while (FindNextFileW(scan, &found));
-    FindClose(scan);
+    // The same files the package library installs and prunes: themes\<slug>.maicord-theme.json and
+    // effects\<slug>-<sha16>.mcfx (PackageLinkKind has the catalog's order).
+    u32 units = 0;
+    return package_file_path(w.base, static_cast<PackageLinkKind>(kind), slug, sha256, {path, 600}, &units) ? units : 0;
 }
 void download(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
     char relative[96];
@@ -384,7 +344,7 @@ void download(Worker& w, const CatalogJob& job, CatalogJobResult& r) noexcept {
     UpdateLog(kLog, "download").field("kind", static_cast<u8>(job.item_kind)).field("bytes", count)
         .field("error", static_cast<u8>(r.error)).write(r.error == CatalogError::none ? LogLevel::info : LogLevel::warning);
     if (r.error != CatalogError::none || job.item_kind == CatalogKind::plugin) return;
-    if (job.item_kind == CatalogKind::effect) delete_other_effects(w, slug, path);
+    if (job.item_kind == CatalogKind::effect) package_prune(w.base, slug, job.blob.sha256);
     if (w.library_changed) w.library_changed();
 }
 

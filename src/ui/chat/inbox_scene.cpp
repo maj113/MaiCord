@@ -54,7 +54,7 @@ bool current(const UiInboxScene& s) noexcept {
 // check icon button that only shows while the row is hovered or focused
 // (it stays in the focus order, so the keyboard reveals it too).
 constexpr float group_action_width = 104.f, channel_action_extent = 28.f, badge_width = 22.f;
-UiRect action_rectangle(const UiInboxRow& row, UiRect r) noexcept {
+UiRect action_rectangle(const UiInboxRow& row, const UiRect& r) noexcept {
     const float middle = (r.top + r.bottom) * .5f;
     if (row.kind == UiInboxRowKind::group)
         return {r.right - group_action_width - 4, middle - 12, r.right - 4, middle + 12};

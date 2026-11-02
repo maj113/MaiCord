@@ -43,7 +43,7 @@ UiButtonPointerResult ui_button_pointer_target(UiWidgetManager* owner, UiButtonP
     return result;
 }
 Color ui_button_background(const UiWidgetManager& owner, UiWidgetHandle handle, const Theme& theme,
-                           Color idle, UiButtonSurface surface) noexcept {
+                           const Color& idle, UiButtonSurface surface) noexcept {
     if (!button(owner, handle) || !ui_widget_handle_equal(owner.hovered, handle))
         return idle;
     if (ui_background_active(theme)) {

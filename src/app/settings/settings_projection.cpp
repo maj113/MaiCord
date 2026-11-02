@@ -124,7 +124,7 @@ bool theme_panel(UiPageKey page) noexcept {
 bool option_row(UiSettingsControlKind kind) noexcept {
     return kind == UiSettingsControlKind::segments || kind == UiSettingsControlKind::swatches ||
            kind == UiSettingsControlKind::tabs || kind == UiSettingsControlKind::buttons ||
-           kind == UiSettingsControlKind::colors || kind == UiSettingsControlKind::empty;
+           kind == UiSettingsControlKind::colors;
 }
 bool theme_binding(SettingBinding binding) noexcept {
     return binding == SettingBinding::theme_base || binding == SettingBinding::theme_color ||
@@ -741,7 +741,7 @@ UiTextMeasureRecord g_measure_records[128];
 UiTextMeasureCache g_measure_cache;
 u32 g_measure_typography;
 // The catalog's sidebar with the attention dot on Updates while an update waits for Restart to update.
-UiSettingsNavEntry g_navigation[kUiSettingsNavigationMaximum];
+UiSettingsNavEntry g_navigation[kUiSettingsNavigationMaximum]{};
 
 UiTextMeasureCache* measure_cache() noexcept {
     if (g_app.account_ui)

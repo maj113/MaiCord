@@ -14,7 +14,7 @@ namespace {
 
 struct Writer {
     StoreModel* m;
-    Utf8View add(Utf8View a, Utf8View b = {}, Utf8View c = {}, Utf8View d = {}) noexcept {
+    Utf8View add(const Utf8View& a, const Utf8View& b = {}, const Utf8View& c = {}, const Utf8View& d = {}) noexcept {
         const u32 bytes = a.bytes + b.bytes + c.bytes + d.bytes;
         if (m->text_used + bytes > sizeof(m->text))
             return {};
@@ -32,7 +32,7 @@ struct Writer {
     Utf8View c_text(const char* text) noexcept { return add({text, c_string_length(text)}); }
 };
 
-bool same(Utf8View a, Utf8View b) noexcept {
+bool same(const Utf8View& a, const Utf8View& b) noexcept {
     return a.bytes == b.bytes && (!a.bytes || bytes_equal(a.data, b.data, a.bytes));
 }
 
@@ -334,7 +334,7 @@ void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
     }
 }
 
-void store_model_fill_detail(StoreModel* m, CatalogKind kind, Utf8View slug, const StoreDetailHooks& hooks) noexcept {
+void store_model_fill_detail(StoreModel* m, CatalogKind kind, const Utf8View& slug, const StoreDetailHooks& hooks) noexcept {
     const u32 at = store_find_item(*m, kind, slug);
     if (at == ~0u)
         return;

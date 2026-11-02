@@ -121,7 +121,7 @@ bool ui_poll_controls_project_layout(const UiPollState&, UiPoint origin, const U
 // Width is full card width. The returned bounds may be taller than the supplied
 // bounds: callers use its measured height in their normal scroll layout.
 // Failure is atomic. Generated labels never keep pointers into this object.
-bool ui_poll_controls_project(const UiPollState&, UiRect bounds, const UiPollStyle&, const Theme&,
+bool ui_poll_controls_project(const UiPollState&, const UiRect& bounds, const UiPollStyle&, const Theme&,
                               UiTextMeasureCache*, u16 backend_revision, UiPollProjection*) noexcept;
 Utf8View ui_poll_count_label(const UiPollProjection&, u32 answer_index) noexcept;
 Utf8View ui_poll_summary_label(const UiPollProjection&) noexcept;
@@ -260,7 +260,7 @@ struct UiPollVotersSceneResult {
     UiPollVotersAction action{};
     bool handled{}, request_capture{}, release_capture{}, action_requested{};
 };
-bool ui_poll_voters_scene_project(UiPollVotersScene*, const UiPollVotersState&, UiRect viewport,
+bool ui_poll_voters_scene_project(UiPollVotersScene*, const UiPollVotersState&, const UiRect& viewport,
                                   UiWidgetReference, const UiPollVotersStyle&, const Theme&,
                                   UiTextMeasureCache*, u16 backend_revision,
                                   float requested_scroll = 0) noexcept;

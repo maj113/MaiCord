@@ -103,6 +103,7 @@ bool count_code(const u8* lengths, u32 alphabet_size, u16* counts, u16* symbol_c
     }
     if (*symbol_count != 1) {
         i32 open = 1;
+#pragma clang loop unroll(disable)
         for (u32 length = 1; length <= 15; ++length) {
             open = open * 2 - counts[length];
             if (open < 0) {
@@ -151,6 +152,7 @@ bool decode_canonical(BitReader* reader, const u16* counts, u32 symbol_count, u1
     u32 canonical = 0;
     u32 first = 0;
     u32 base = 0;
+#pragma clang loop unroll(disable)
     for (u32 length = 1; length <= 15; ++length) {
         if (length > available) {
             return fail_at_end(reader);
@@ -198,6 +200,7 @@ void build_lookup(Vp8lWorkspace* workspace, Vp8lHuffmanCode* code) noexcept {
     const u16* symbols = workspace->symbols + code->symbol_offset;
     u32 canonical = 0;
     u32 sorted = 0;
+#pragma clang loop unroll(disable)
     for (u32 length = 1; length <= bits; ++length, canonical <<= 1) {
         for (u32 left = code->counts[length]; left != 0; --left, ++canonical, ++sorted) {
             u32 reversed = 0;

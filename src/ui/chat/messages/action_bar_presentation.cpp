@@ -7,7 +7,7 @@
 namespace maicord {
 namespace {
 
-bool paint_shared_icon(PaintStream* paint, UiRect cell, const Color& color, UiIcon icon) noexcept {
+bool paint_shared_icon(PaintStream* paint, const UiRect& cell, const Color& color, UiIcon icon) noexcept {
     const float x = (cell.left + cell.right) * .5f, y = (cell.top + cell.bottom) * .5f;
     return ui_icon_paint(paint, icon, {x - 10, y - 10, x + 10, y + 10}, color);
 }

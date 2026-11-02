@@ -26,9 +26,9 @@ bool message_component_media_resolve(const MessageRichStore& store, const Messag
 // CDN URL of an invite's server icon ("https://cdn.discordapp.com/icons/{guild}/{hash}.png?size=128");
 // returns its length, 0 without an icon. Its media key is
 // message_component_media_key(hash of the URL, png).
-u32 message_invite_icon_url(const GuildInvite& invite, Slice<char> output) noexcept;
+u32 message_invite_icon_url(const GuildInvite& invite, const Slice<char>& output) noexcept;
 // A scheduled event's cover ("https://cdn.discordapp.com/guild-events/{id}/{hash}.png?size=256");
 // 0 without a cover. Keyed like invite icons.
-u32 message_event_cover_url(const ScheduledEvent& event, Slice<char> output) noexcept;
+u32 message_event_cover_url(const ScheduledEvent& event, const Slice<char>& output) noexcept;
 
 } // namespace maicord

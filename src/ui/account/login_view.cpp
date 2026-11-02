@@ -157,13 +157,13 @@ bool login_phone_editable(LoginStatus status) noexcept {
         status == LoginStatus::recovery_phone_resend_failed;
 }
 
-bool login_phone_code_valid(Utf8View code, bool complete) noexcept {
+bool login_phone_code_valid(const Utf8View& code, bool complete) noexcept {
     if ((!code.data && code.bytes) || code.bytes > kLoginPhoneCodeDigits || (complete && code.bytes != kLoginPhoneCodeDigits)) return false;
     for (u32 i = 0; i < code.bytes; ++i) if (code.data[i] < '0' || code.data[i] > '9') return false;
     return true;
 }
 
-bool login_phone_cells_valid(Utf8View cells) noexcept {
+bool login_phone_cells_valid(const Utf8View& cells) noexcept {
     if ((!cells.data && cells.bytes) || cells.bytes > kLoginPhoneCodeDigits) return false;
     for (u32 i = 0; i < cells.bytes; ++i)
         if (cells.data[i] != ' ' && (cells.data[i] < '0' || cells.data[i] > '9')) return false;

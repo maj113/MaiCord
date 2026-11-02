@@ -41,12 +41,12 @@ float background_color_srgb(double channel) noexcept {
     return static_cast<float>(1.055 * background_color_root(squared * squared * channel, 12) - .055);
 }
 
-double background_color_luminance(Color color) noexcept {
+double background_color_luminance(const Color& color) noexcept {
     return .2126 * background_color_linear(color.red) + .7152 * background_color_linear(color.green) +
            .0722 * background_color_linear(color.blue);
 }
 
-BackgroundHsl background_color_hsl(Color color) noexcept {
+BackgroundHsl background_color_hsl(const Color& color) noexcept {
     const float red = background_color_unit(color.red), green = background_color_unit(color.green),
                 blue = background_color_unit(color.blue);
     const float high = maximum(red, maximum(green, blue)), low = minimum(red, minimum(green, blue));
@@ -103,7 +103,7 @@ Color background_color_from_hsl(BackgroundHsl hsl) noexcept {
     return result;
 }
 
-BackgroundOklab background_color_oklab(Color color) noexcept {
+BackgroundOklab background_color_oklab(const Color& color) noexcept {
     const double red = background_color_linear(color.red), green = background_color_linear(color.green),
                  blue = background_color_linear(color.blue);
     const double l = background_color_root(.4122214708 * red + .5363325363 * green + .0514459929 * blue, 3);
@@ -124,7 +124,7 @@ Color background_color_from_oklab(BackgroundOklab lab, float alpha) noexcept {
             background_color_srgb(-.0041960863 * lc - .7034186147 * mc + 1.7076147010 * sc), alpha};
 }
 
-Color background_color_mix(Color original, BackgroundOklab anchor, float tint_percent) noexcept {
+Color background_color_mix(const Color& original, BackgroundOklab anchor, float tint_percent) noexcept {
     if (!(tint_percent > 0))
         return original;
     const double share = minimum(tint_percent, 100.f) / (100.0 + minimum(tint_percent, 100.f));
@@ -166,7 +166,7 @@ bool background_color_anchors(const BackgroundTheme& draft, bool light,
     return true;
 }
 
-u32 background_color_pack(Color color) noexcept {
+u32 background_color_pack(const Color& color) noexcept {
     const u32 red = static_cast<u32>(background_color_unit(color.red) * 255 + .5f),
               green = static_cast<u32>(background_color_unit(color.green) * 255 + .5f),
               blue = static_cast<u32>(background_color_unit(color.blue) * 255 + .5f);

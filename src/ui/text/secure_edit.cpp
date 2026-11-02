@@ -104,7 +104,7 @@ bool scalar_allowed(const SecureEdit& edit, u32 codepoint) noexcept {
             !(codepoint >= 0xD800u && codepoint <= 0xDFFFu));
 }
 
-bool text_allowed(const SecureEdit& edit, Utf8View text) noexcept {
+bool text_allowed(const SecureEdit& edit, const Utf8View& text) noexcept {
     // The caller has already validated UTF-8. C0 controls and DEL are single
     // ASCII bytes and cannot occur inside a valid multibyte scalar; avoid a
     // second Unicode decode just to check the field's control policy.
@@ -167,7 +167,7 @@ u32 byte_for_units(const SecureEdit& edit, u32 target, bool utf16) noexcept {
     return units == target ? offset : ~0u;
 }
 
-bool decode_utf16_one(ConstSlice<u16> input, u32 offset, u32* codepoint, u32* width) noexcept {
+bool decode_utf16_one(const ConstSlice<u16>& input, u32 offset, u32* codepoint, u32* width) noexcept {
     if (offset >= input.count) {
         return false;
     }
@@ -229,7 +229,7 @@ void secure_edit_release(SecureEdit* edit) noexcept {
     reset_value<SecureEdit>(edit);
 }
 
-SecureEditResult secure_edit_assign(SecureEdit* edit, Utf8View text) noexcept {
+SecureEditResult secure_edit_assign(SecureEdit* edit, const Utf8View& text) noexcept {
     if (!ready(edit) || (!text.data && text.bytes != 0)) {
         return SecureEditResult::invalid_input;
     }
@@ -295,7 +295,7 @@ SecureEditResult secure_edit_insert_scalar(SecureEdit* edit, u32 codepoint, u64 
         time_ms) : SecureEditResult::invalid_input;
 }
 
-SecureEditResult secure_edit_insert_utf8(SecureEdit* edit, Utf8View text) noexcept {
+SecureEditResult secure_edit_insert_utf8(SecureEdit* edit, const Utf8View& text) noexcept {
     if (!ready(edit) || (!text.data && text.bytes != 0)) {
         return SecureEditResult::invalid_input;
     }
@@ -508,14 +508,14 @@ SecureEditResult secure_edit_set_utf16_selection(SecureEdit* edit,
     return changed ? SecureEditResult::changed : SecureEditResult::unchanged;
 }
 
-SecureEditResult secure_edit_copy_utf16(const SecureEdit& edit, u32 start, u32 end, Slice<u16> output,
+SecureEditResult secure_edit_copy_utf16(const SecureEdit& edit, u32 start, u32 end, const Slice<u16>& output,
                                         u32* written, u32* next) noexcept {
     if (!written || !next || (!output.data && output.count != 0) || !ready(&edit) || start > end)
         return SecureEditResult::invalid_input;
     return utf8_copy_utf16_range({reinterpret_cast<const char*>(edit.storage.data), edit.storage.bytes},
         start, end, output, written, next) ? SecureEditResult::unchanged : SecureEditResult::invalid_utf16;
 }
-SecureEditResult secure_edit_replace_utf16(SecureEdit* edit, u32 start, u32 end, ConstSlice<u16> input,
+SecureEditResult secure_edit_replace_utf16(SecureEdit* edit, u32 start, u32 end, const ConstSlice<u16>& input,
                                            SecureEditUtf16Change* change) noexcept {
     if (!change || (!input.data && input.count != 0) || !ready(edit) || start > end) {
         return SecureEditResult::invalid_input;
@@ -590,7 +590,7 @@ SecureEditResult secure_edit_replace_utf16(SecureEdit* edit, u32 start, u32 end,
 }
 
 SecureEditResult secure_edit_render_window(const SecureEdit& edit, u32 maximum_codepoints,
-                                           Slice<char> output, u32* output_bytes,
+                                           const Slice<char>& output, u32* output_bytes,
                                            SecureEditRenderWindow* window) noexcept {
     if (!output_bytes || !window || maximum_codepoints == 0 || (!output.data && output.count != 0) ||
         !ready(&edit)) {

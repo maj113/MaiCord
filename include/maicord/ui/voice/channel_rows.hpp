@@ -15,7 +15,7 @@ struct UiVoiceParticipantRow {
 inline constexpr float kUiVoiceLiveBadgeWidth = 34, kUiVoiceLiveBadgeHeight = 16;
 // The index-th connected user drawn inside a voice channel row; row_rectangle is
 // the channel row's layout rectangle. False past the last drawn user.
-bool ui_voice_participant_row(const ChannelViewRow& row, UiRect row_rectangle,
+bool ui_voice_participant_row(const ChannelViewRow& row, const UiRect& row_rectangle,
                               const VoiceStateStore& store, u32 index,
                               UiVoiceParticipantRow* output) noexcept;
 // Disconnect control of the voice connection card above the account panel.
@@ -83,7 +83,7 @@ UiRect ui_voice_status_rectangle(const ChannelViewRow& row, UiRect row_rectangle
 struct UiVoiceInviteRow {
     UiRect row, icon, label, close;
 };
-bool ui_voice_invite_row(const ChannelViewRow& row, UiRect row_rectangle, UiVoiceInviteRow* output) noexcept;
+bool ui_voice_invite_row(const ChannelViewRow& row, const UiRect& row_rectangle, UiVoiceInviteRow* output) noexcept;
 // Timer text box at the right end of a voice row head, from the row's label
 // content box; *name_right receives where the channel name must end.
 // Subtext digits are tabular, so the box only grows with the digit count.

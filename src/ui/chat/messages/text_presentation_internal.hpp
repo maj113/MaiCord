@@ -127,10 +127,10 @@ bool resolve_channel(void* opaque, u64 guild_id, u64 channel_id, MessageMarkdown
 TimestampFormatResult format_timestamp(void* opaque, u64 unix_seconds, char style,
                                               Slice<char> output) noexcept;
 MessageMarkdownResult cached_markdown_parse(MessageTextPresentation* presentation, BuildContext* context,
-                                            MarkdownCacheMode mode, Utf8View source, Slice<char> text_output,
-                                            Slice<u32> scratch, Slice<TextStyleSpan> span_output,
+                                            MarkdownCacheMode mode, const Utf8View& source, const Slice<char>& text_output,
+                                            const Slice<u32>& scratch, const Slice<TextStyleSpan>& span_output,
                                             const MessageMarkdownOptions& options,
-                                            Slice<MessageMarkdownSemantic> semantic_output) noexcept;
+                                            const Slice<MessageMarkdownSemantic>& semantic_output) noexcept;
 bool append_command(MessageTextPresentation* presentation, const Utf8View& text,
                     const ConstSlice<TextStyleSpan>& styles, const ConstSlice<MessageMarkdownSemantic>& semantics,
                     const UiWidgetReference& owner,
@@ -171,13 +171,13 @@ bool compact_content(MessageTextPresentation* presentation, BuildContext* contex
 bool append_compact_timestamp(MessageTextPresentation* presentation, const MessageScene& scene,
                               const MessageSceneRowWidget& row, const UiRect& clip, const Theme& theme,
                               const MessageRecord& record, u64 now_unix_seconds) noexcept;
-bool parse_content(MessageTextPresentation* presentation, BuildContext* context, Utf8View source,
+bool parse_content(MessageTextPresentation* presentation, BuildContext* context, const Utf8View& source,
                    Utf8View* text, ConstSlice<TextStyleSpan>* styles,
                    ConstSlice<MessageMarkdownSemantic>* semantics, u32 base_style = 0,
                    u8 base_size = text_size_inherit) noexcept;
 float quote_text_width(float width) noexcept;
-u32 split_quote_segments(Utf8View text, ConstSlice<TextStyleSpan> styles,
-                         ConstSlice<MessageMarkdownSemantic> semantics, QuoteSegment* output) noexcept;
+u32 split_quote_segments(const Utf8View& text, const ConstSlice<TextStyleSpan>& styles,
+                         const ConstSlice<MessageMarkdownSemantic>& semantics, QuoteSegment* output) noexcept;
 float quote_gap_after(const QuoteSegment* segments, u32 count, u32 index, float last) noexcept;
 bool append_rich_markdown_line(BuildContext* context, const Utf8View& source, UiTextFlowLayout* flow,
                                float left_inset, float right_inset, const Color& color,
@@ -198,7 +198,7 @@ bool append_embed_fields(BuildContext* context, const MessageRichStore& store, c
                          const MessageRichEmbed& embed, UiTextFlowLayout* flow, const Color& name_color,
                          const Color& value_color, const UiWidgetReference& owner, u16 measurement_index,
                          float* natural_width, bool markdown) noexcept;
-Utf8View poll_result_field(const MessageRichStore& store, const MessageRichRecord& rich, Utf8View name) noexcept;
+Utf8View poll_result_field(const MessageRichStore& store, const MessageRichRecord& rich, const Utf8View& name) noexcept;
 bool append_poll_result(BuildContext* context, const MessageRichStore& store, const MessageRichRecord& rich,
                         UiTextFlowLayout* flow, const Color& text, const Color& muted,
                         const UiWidgetReference& owner, u16 measurement_index) noexcept;
@@ -227,14 +227,14 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                             const UiRect& row_clip, u16 measurement_index, float text_width,
                             MessageMediaPolicyResult media_policy) noexcept;
 __declspec(noinline) RetainedReplySummary retain_quoted_system(MessageTextPresentation* presentation, u64 message_id,
-                                                              Utf8View author, Utf8View poll_question,
+                                                              const Utf8View& author, const Utf8View& poll_question,
                                                               decltype(MessageSystemTextInput{}.type) type) noexcept;
 __declspec(noinline) bool append_poll_text(MessageTextPresentation* presentation, const MessageScene& scene,
                                            const MessageSceneRowWidget& row, const Theme& theme,
                                            const UiRect& row_clip, const MessageRecord* record) noexcept;
 __declspec(noinline) bool append_content_segments(
     MessageTextPresentation* presentation, const MessageScene& scene, const MessageSceneRowWidget& row,
-    Utf8View display_content, ConstSlice<TextStyleSpan> styles, ConstSlice<MessageMarkdownSemantic> semantics,
+    const Utf8View& display_content, const ConstSlice<TextStyleSpan>& styles, const ConstSlice<MessageMarkdownSemantic>& semantics,
     bool split, float content_top, float text_left, float text_width, const UiRect& row_clip,
     const Color& content_color, const MessageRecord* record, u16 measurement_index, u16 source_id,
     const Color& role_color) noexcept;

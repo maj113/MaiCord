@@ -117,7 +117,7 @@ float caps_width(const UiShortcutsRow& row) noexcept {
 }
 } // namespace
 
-float ui_shortcuts_key_width(Utf8View key) noexcept {
+float ui_shortcuts_key_width(const Utf8View& key) noexcept {
     return maximum(kCapHeight, ui_settings_text_width(key, kKeyEm) * 1.1f + 14);
 }
 bool ui_shortcuts_scene_current(const UiShortcutsScene& s) noexcept {

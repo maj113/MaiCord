@@ -14,7 +14,8 @@ constexpr Color neutral(float alpha) noexcept {
 Color scaled(const Color& color, float factor) noexcept {
     return {color.red * factor, color.green * factor, color.blue * factor, color.alpha};
 }
-Color pick(u32 packed, const Color& fallback) noexcept {
+// One copy of the packed-colour conversion: inlined at the ~30 token sites it costs more than the calls.
+__declspec(noinline) Color pick(u32 packed, const Color& fallback) noexcept {
     return packed ? color_from_rgba(packed) : fallback;
 }
 const UiThemeSettings& settings_style(const UiResolvedThemeStyles* styles) noexcept {

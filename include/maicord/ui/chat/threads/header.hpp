@@ -85,7 +85,7 @@ bool ui_thread_header_paint(const UiThreadHeader&, const Theme&, PaintStream*) n
 bool ui_thread_header_text(const UiThreadHeader&, const Theme&, UiTextOutput*) noexcept;
 // Copies at most six standard native menu rows. Zero IDs omit actions, and
 // insufficient capacity / colliding supplied IDs leave output unchanged.
-u32 ui_thread_menu_build(const UiThreadHeaderView&, UiThreadMenuActions, Slice<PopupItem>) noexcept;
+u32 ui_thread_menu_build(const UiThreadHeaderView&, UiThreadMenuActions, const Slice<PopupItem>&) noexcept;
 
 static_assert(__is_trivial(UiThreadHeader) && __is_standard_layout(UiThreadHeader));
 static_assert(sizeof(UiThreadHeader) < 512);

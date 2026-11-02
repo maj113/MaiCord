@@ -8,7 +8,7 @@
 
 namespace maicord {
 namespace {
-float chip_width(Utf8View name, const UiForumStyle& s) noexcept {
+float chip_width(const Utf8View& name, const UiForumStyle& s) noexcept {
     const auto valid = utf8_validate(name);
     const float width = static_cast<float>(valid.valid ? valid.codepoints : 0) * s.chip_scalar_width + s.chip_padding;
     return minimum(s.chip_max_width, maximum(s.chip_min_width, width));
@@ -65,7 +65,7 @@ bool ui_forum_view_valid(const UiForumChannelView& v) noexcept {
     }
     return true;
 }
-bool ui_forum_post_matches(ConstSlice<u64> applied, ConstSlice<u64> selected, UiForumTagMatch match) noexcept {
+bool ui_forum_post_matches(const ConstSlice<u64>& applied, const ConstSlice<u64>& selected, UiForumTagMatch match) noexcept {
     if (!selected.count) return true;
     if (!applied.count) return false;
     for (u32 i = 0; i < selected.count; ++i) {
@@ -76,13 +76,13 @@ bool ui_forum_post_matches(ConstSlice<u64> applied, ConstSlice<u64> selected, Ui
     }
     return match == UiForumTagMatch::all;
 }
-void ui_forum_sort(Slice<UiForumSortKey> keys, UiForumSort sort) noexcept {
+void ui_forum_sort(const Slice<UiForumSortKey>& keys, UiForumSort sort) noexcept {
     if (!keys.data) return;
     // Ties resolve by unique ID, so the unstable heap sort is deterministic.
     heap_sort(keys.data, keys.count,
               [sort](const UiForumSortKey& a, const UiForumSortKey& b) noexcept { return before(a, b, sort); });
 }
-void ui_forum_toolbar_layout(UiRect band, const UiForumChannelView& view, const UiForumStyle& s,
+void ui_forum_toolbar_layout(const UiRect& band, const UiForumChannelView& view, const UiForumStyle& s,
     UiForumToolbar* out) noexcept {
     if (!out) return;
     reset_value(out);
@@ -114,7 +114,7 @@ UiForumGrid ui_forum_grid(float width, UiForumLayout layout, const UiForumStyle&
     return {columns, (width - s.card_gap * static_cast<float>(columns - 1)) / static_cast<float>(columns),
         s.gallery_card_height, s.card_gap};
 }
-UiRect ui_forum_card_rectangle(UiRect body, UiForumGrid grid, u32 index, float scroll) noexcept {
+UiRect ui_forum_card_rectangle(const UiRect& body, UiForumGrid grid, u32 index, float scroll) noexcept {
     if (!grid.columns) return {};
     const u32 row = index / grid.columns, column = index % grid.columns;
     const float left = body.left + static_cast<float>(column) * (grid.card_width + grid.gap);
@@ -126,7 +126,7 @@ float ui_forum_content_height(UiForumGrid grid, u32 count) noexcept {
     const u32 rows = (count + grid.columns - 1) / grid.columns;
     return static_cast<float>(rows) * grid.card_height + static_cast<float>(rows - 1) * grid.gap;
 }
-UiForumCardParts ui_forum_card_parts(UiRect card, UiForumLayout layout, const UiForumPost& post,
+UiForumCardParts ui_forum_card_parts(const UiRect& card, UiForumLayout layout, const UiForumPost& post,
     const UiForumStyle& s) noexcept {
     UiForumCardParts parts{};
     const float inset = s.card_inset;

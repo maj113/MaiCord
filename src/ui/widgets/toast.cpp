@@ -133,7 +133,7 @@ void place(UiToastScene* s, const UiToastEnvironment& env) noexcept {
 }
 } // namespace
 
-bool ui_toast_push(UiToastScene* s, UiToastKind kind, Utf8View text) noexcept {
+bool ui_toast_push(UiToastScene* s, UiToastKind kind, const Utf8View& text) noexcept {
     if (!s || !text.data || !text.bytes || !utf8_validate(text).valid ||
         static_cast<u8>(kind) > static_cast<u8>(UiToastKind::failure))
         return false;

@@ -96,6 +96,8 @@ Utf8Validation utf8_validate(const Utf8View& input) noexcept {
     return Utf8Validation{codepoints, input.bytes, true};
 }
 
+// Word, line and Ctrl+Arrow navigation run once per click or key press: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 namespace {
 // Word-selection classes. Combining marks, joiners, variation selectors,
 // emoji modifiers and tags extend whatever precedes them.
@@ -241,6 +243,7 @@ bool word_range(Utf8View text, u32 position, bool selection, u32* first, u32* la
     if (selected == WordClass::emoji) emoji_cluster(t, position, first, last);
     return true;
 }
+#pragma clang attribute pop
 
 // Walks scalars until `utf16_position` UTF-16 units are covered; fails when the position splits a
 // surrogate pair or runs past the text, and writes the outputs only on success.
@@ -273,6 +276,7 @@ bool walk_to_utf16_position(const Utf8View& text, u32 utf16_position, u32* byte_
 }
 } // namespace
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 bool utf8_word_range(const Utf8View& text, u32 position, u32* first, u32* last) noexcept {
     return word_range(text, position, true, first, last);
 }
@@ -326,6 +330,7 @@ bool utf8_word_boundary(const Utf8View& text, u32 position, bool forward, u32* b
     }
     return true;
 }
+#pragma clang attribute pop
 
 u8 utf8_encode(u32 codepoint, char output[4]) noexcept {
     if (!output || codepoint > 0x10FFFFu || (codepoint >= 0xD800u && codepoint <= 0xDFFFu)) {
@@ -414,6 +419,8 @@ bool utf8_codepoint_for_utf16_position(const Utf8View& text, u32 utf16_position,
 
 u32 utf8_utf16_units(const Utf8View& text) noexcept {
     u32 units = 0;
+    // Counts short names, chip labels and request fields: a vector body only adds size.
+#pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
     for (u32 i = 0; i < text.bytes; ++i) {
         const u8 byte = static_cast<u8>(text.data[i]);
         if ((byte & 0xC0) != 0x80)

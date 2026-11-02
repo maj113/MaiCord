@@ -28,13 +28,13 @@ void system_close(void*) noexcept {
 ClipboardSink g_sink{};
 
 constexpr u32 kAppendFailed = ~0u;
-u32 append(Slice<char> output, u32 used, const char* text, u32 bytes) noexcept {
+u32 append(const Slice<char>& output, u32 used, const char* text, u32 bytes) noexcept {
     if (used == kAppendFailed || bytes > output.count || used > output.count - bytes)
         return kAppendFailed;
     copy_bytes(output.data + used, text, bytes);
     return used + bytes;
 }
-template <u32 N> u32 append(Slice<char> output, u32 used, const char (&text)[N]) noexcept {
+template <u32 N> u32 append(const Slice<char>& output, u32 used, const char (&text)[N]) noexcept {
     return append(output, used, text, N - 1);
 }
 void put_offset(char* at, u32 value) noexcept {
@@ -52,7 +52,7 @@ ClipboardSink clipboard_sink_install(ClipboardSink sink) noexcept {
     return previous;
 }
 
-bool clipboard_commit(HWND owner, Slice<ClipboardPayload> payloads) noexcept {
+bool clipboard_commit(HWND owner, const Slice<ClipboardPayload>& payloads) noexcept {
     const ClipboardSink sink =
         g_sink.open ? g_sink : ClipboardSink{nullptr, system_open, system_publish, system_close};
     bool ok = owner && payloads.data && payloads.count;
@@ -76,7 +76,7 @@ bool clipboard_commit(HWND owner, Slice<ClipboardPayload> payloads) noexcept {
     return ok;
 }
 
-ClipboardTextResult clipboard_read_utf8(HWND owner, Slice<char> output) noexcept {
+ClipboardTextResult clipboard_read_utf8(HWND owner, const Slice<char>& output) noexcept {
     if (!owner || (!output.data && output.count != 0) || output.count > kWin32ConversionMaximum) {
         return ClipboardTextResult{0, ClipboardTextError::invalid_input};
     }
@@ -130,7 +130,7 @@ ClipboardTextResult clipboard_read_utf8(HWND owner, Slice<char> output) noexcept
     return result;
 }
 
-bool clipboard_write_utf8(HWND owner, Utf8View text) noexcept {
+bool clipboard_write_utf8(HWND owner, const Utf8View& text) noexcept {
     if (!owner || (!text.data && text.bytes != 0) || text.bytes > kWin32ConversionMaximum) {
         return false;
     }
@@ -164,7 +164,7 @@ bool clipboard_write_utf8(HWND owner, Utf8View text) noexcept {
     return clipboard_commit(owner, {&payload, 1});
 }
 
-u32 clipboard_html_image_fragment(Utf8View url, Slice<char> output) noexcept {
+u32 clipboard_html_image_fragment(const Utf8View& url, const Slice<char>& output) noexcept {
     if (!url.data || !url.bytes || url.bytes > kClipboardHtmlMaximumUrlBytes || !output.data ||
         !utf8_validate(url).valid)
         return 0;
@@ -200,7 +200,7 @@ u32 clipboard_html_image_fragment(Utf8View url, Slice<char> output) noexcept {
 }
 
 bool clipboard_write_image(HWND owner, const u8* rgba, u32 width, u32 height, u32 stride,
-                           Utf8View source_url) noexcept {
+                           const Utf8View& source_url) noexcept {
     const u64 dib_bytes = clipboard_image_dib_bytes(width, height);
     const u64 png_bytes = clipboard_image_png_bytes(width, height);
     const UINT png_format = RegisterClipboardFormatW(L"PNG");

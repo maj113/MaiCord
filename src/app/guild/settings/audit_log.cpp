@@ -24,8 +24,8 @@ void project_audit(Bank& bank) noexcept {
     p.audit_user_choice[0] = p.audit_filter_user ? bank.add(user_label(p.audit_filter_user)) : utf8_literal("All members");
     if (!p.audit_user_choice[0].bytes)
         p.audit_user_choice[0] = utf8_literal("Selected member");
-    const auto* filter = p.audit_filter_action_set ? audit_action(p.audit_filter_action) : nullptr;
-    p.audit_action_choice[0] = filter ? filter->verb : utf8_literal("All actions");
+    const auto filter = p.audit_filter_action_set ? audit_action(p.audit_filter_action) : AuditAction{};
+    p.audit_action_choice[0] = filter.verb.bytes ? filter.verb : utf8_literal("All actions");
     push_choices(control_filter_user, utf8_literal("Filter by member"), {}, UiSettingsControlKind::choice, editable(),
                  {p.audit_user_choice, 1});
     push_choices(control_filter_action, utf8_literal("Filter by action"), {}, UiSettingsControlKind::choice,
@@ -42,20 +42,20 @@ void project_audit(Bank& bank) noexcept {
     const u64 now = clock_unix_milliseconds();
     for (u32 i = 0; i < p.audit_count; ++i) {
         const auto& entry = p.audit[i];
-        const auto* action = audit_action(entry.action_type);
+        const auto action = audit_action(entry.action_type);
         const u32 start = bank.used;
         const auto actor = user_label(entry.user_id);
         bank.add(actor.bytes ? actor : utf8_literal("Someone"));
         bank.add(" ");
-        if (action) {
-            bank.add(action->verb);
+        if (action.verb.bytes) {
+            bank.add(action.verb);
             Utf8View target{};
-            if (action->target == 1)
+            if (action.target == 1)
                 target = user_label(entry.target_id);
-            else if (action->target == 2) {
+            else if (action.target == 2) {
                 if (const auto* channel = chat_state_store_find_channel(state(), entry.target_id))
                     target = chat_state_store_channel_name(state(), *channel);
-            } else if (action->target == 3) {
+            } else if (action.target == 3) {
                 if (const auto* r = role(entry.target_id))
                     target = chat_state_store_role_name(state(), *r);
             }
@@ -118,8 +118,8 @@ void open_audit_menu(Menu menu, const UiRect& anchor) noexcept {
     } else {
         item(utf8_literal("All actions"), !p.audit_filter_action_set);
         for (const u16 type : kAuditFilters) {
-            const auto* action = audit_action(type);
-            item(action ? action->verb : utf8_literal("Other"),
+            const auto action = audit_action(type);
+            item(action.verb.bytes ? action.verb : utf8_literal("Other"),
                  p.audit_filter_action_set && p.audit_filter_action == type);
         }
     }

@@ -25,13 +25,13 @@ inline bool leading_icon_row(const PopupItem& item) noexcept {
 }
 // Any ordinary row with a leading icon gives icon-less rows the same label
 // column and full row height, so mixed menus keep one rhythm.
-inline bool menu_icon_column(ConstSlice<PopupItem> items) noexcept {
+inline bool menu_icon_column(const ConstSlice<PopupItem>& items) noexcept {
     for (u32 index = 0; index < items.count; ++index)
         if (leading_icon_row(items[index]))
             return true;
     return false;
 }
-inline bool menu_avatar_column(ConstSlice<PopupItem> items) noexcept {
+inline bool menu_avatar_column(const ConstSlice<PopupItem>& items) noexcept {
     for (u32 index = 0; index < items.count; ++index)
         if (popup_item_menu_row(items[index]) && (items[index].flags & popup_item_avatar))
             return true;
@@ -99,7 +99,7 @@ inline UiLayoutStyle panel_style(float left, float top, float width, float heigh
     return style;
 }
 
-inline bool quick_reaction_strip(ConstSlice<PopupItem> items) noexcept {
+inline bool quick_reaction_strip(const ConstSlice<PopupItem>& items) noexcept {
     if (items.count <= kPopupQuickReactionCount) {
         return false;
     }
@@ -147,7 +147,7 @@ inline float picker_item_height(const PopupItem& item, bool discovery) noexcept 
 }
 // Content top of a body item in the scrolled flow: the list's top inset,
 // then each item, with the section gap before every header but the first.
-float picker_flow_top(ConstSlice<PopupItem> items, u32 target, bool discovery) noexcept {
+float picker_flow_top(const ConstSlice<PopupItem>& items, u32 target, bool discovery) noexcept {
     float y = discovery ? kCommandListInset : 0.f;
     bool any = false;
     for (u32 n = 0; n < items.count; ++n) {
@@ -224,7 +224,7 @@ UiLayoutStyle picker_row_style(ConstSlice<PopupItem> items, u32 index, float bod
     return style;
 }
 
-UiLayoutStyle row_style(const PopupItem& item, u32 index, bool quick_strip, ConstSlice<PopupItem> items,
+UiLayoutStyle row_style(const PopupItem& item, u32 index, bool quick_strip, const ConstSlice<PopupItem>& items,
                         float content_width, const UiResolvedThemeStyles* styles = nullptr) noexcept {
     UiLayoutStyle style = ui_layout_style();
     if (quick_strip) {
@@ -301,7 +301,7 @@ inline PopupSceneResult failure(PopupSceneError error) noexcept {
     return PopupSceneResult{error, false};
 }
 
-float popup_height(ConstSlice<PopupItem> items, const UiResolvedThemeStyles* styles = nullptr) noexcept {
+float popup_height(const ConstSlice<PopupItem>& items, const UiResolvedThemeStyles* styles = nullptr) noexcept {
     if (popup_items_command_picker(items))
         return picker_height(items);
     if (quick_reaction_strip(items)) {
@@ -372,8 +372,8 @@ float menu_height(float content, UiRect anchor, UiRect viewport, float minimum_h
 
 // Panel rectangle of a menu; false when an autocomplete has no room above its anchor.
 // *below is read and updated for non-autocomplete menus only.
-bool popup_rectangle(PopupKind kind, ConstSlice<PopupItem> items, const UiResolvedThemeStyles* styles, UiRect anchor,
-                     UiRect viewport, float preferred_width, bool prefer_above, float feedback_height, bool* below,
+bool popup_rectangle(PopupKind kind, const ConstSlice<PopupItem>& items, const UiResolvedThemeStyles* styles, const UiRect& anchor,
+                     const UiRect& viewport, float preferred_width, bool prefer_above, float feedback_height, bool* below,
                      UiRect* rectangle) noexcept {
     const float padding = menu_metrics(styles).menu_padding;
     if (kind == PopupKind::autocomplete) {
@@ -530,8 +530,8 @@ bool popup_scene_bind_theme_styles(PopupScene* scene, const UiResolvedThemeStyle
 }
 
 namespace {
-PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, ConstSlice<PopupItem> items,
-                            UiRect anchor, UiRect viewport, float preferred_width, bool prefer_above,
+PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, const ConstSlice<PopupItem>& items,
+                            const UiRect& anchor, const UiRect& viewport, float preferred_width, bool prefer_above,
                             float grid_scroll_fraction, float category_scroll_fraction, u32 source_revision,
                             const UiPopupFeedback* feedback, bool below_request) noexcept {
     const u32 available_items =
@@ -772,7 +772,7 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
 } // namespace
 
 PopupSceneResult popup_scene_open(PopupScene* scene, PopupKind kind, u64 owner_id,
-                                  ConstSlice<PopupItem> items, const UiRect& anchor, const UiRect& viewport,
+                                  const ConstSlice<PopupItem>& items, const UiRect& anchor, const UiRect& viewport,
                                   float preferred_width, bool prefer_above, float grid_scroll_fraction,
                                   float category_scroll_fraction, u32 source_revision,
                                   const UiPopupFeedback* feedback) noexcept {
@@ -1031,7 +1031,7 @@ bool popup_scene_set_feedback_slider(PopupScene* scene, u16 value) noexcept {
     return true;
 }
 
-bool popup_scene_set_feedback(PopupScene* scene, Utf8View text, bool error) noexcept {
+bool popup_scene_set_feedback(PopupScene* scene, const Utf8View& text, bool error) noexcept {
     if (!scene || !scene->active || !scene->feedback_reserved || text.bytes > 256 ||
         (!text.data && text.bytes) || !utf8_validate(text).valid)
         return false;

@@ -96,13 +96,13 @@ bool ui_video_scene_project(UiVideoScene*, const UiVideoPlaybackState&, UiRect p
 bool ui_video_scene_project_play_only(UiVideoScene*, const UiVideoPlaybackState&, UiRect preview,
                                       UiRect clip, const UiVideoControlsStyle&, const UiVideoSceneStyle&,
                                       const UiVideoPlayAffordanceStyle&, const Theme&) noexcept;
-UiRect ui_video_play_affordance_rectangle(UiRect preview, const UiVideoPlayAffordanceStyle&) noexcept;
-bool ui_video_play_affordance_paint(UiRect preview, UiRect clip, const UiVideoPlayAffordanceStyle&,
+UiRect ui_video_play_affordance_rectangle(const UiRect& preview, const UiVideoPlayAffordanceStyle&) noexcept;
+bool ui_video_play_affordance_paint(const UiRect& preview, const UiRect& clip, const UiVideoPlayAffordanceStyle&,
                                     const Theme&, PaintStream*) noexcept;
-UiVideoEmbedActions ui_video_embed_actions(UiRect preview, bool open_link, const UiVideoEmbedActionsStyle&) noexcept;
+UiVideoEmbedActions ui_video_embed_actions(const UiRect& preview, bool open_link, const UiVideoEmbedActionsStyle&) noexcept;
 bool ui_video_embed_actions_paint(UiRect preview, UiRect clip, bool open_link, const UiVideoEmbedActionsStyle&,
                                   const Theme&, PaintStream*) noexcept;
-bool ui_video_scene_covers_preview(const UiVideoScene&, UiRect preview) noexcept;
+bool ui_video_scene_covers_preview(const UiVideoScene&, const UiRect& preview) noexcept;
 // No internal pointers: labels and time remain valid on a copied scene.
 Utf8View ui_video_scene_label(const UiVideoScene&, UiVideoControl) noexcept;
 UiVideoControl ui_video_scene_hit(const UiVideoScene&, UiPoint) noexcept;

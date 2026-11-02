@@ -24,7 +24,7 @@ enum class UiButtonSurface : u8 {
     palette
 };
 Color ui_button_background(const UiWidgetManager& owner, UiWidgetHandle button, const Theme& theme,
-                           Color idle = {}, UiButtonSurface surface = UiButtonSurface::opaque) noexcept;
+                           const Color& idle = {}, UiButtonSurface surface = UiButtonSurface::opaque) noexcept;
 bool ui_button_icon_paint(PaintStream* paint, const UiWidgetManager& owner, UiWidgetHandle button,
                           UiIcon icon, const Theme& theme, bool selected = false,
                           bool keyboard_focus = false,

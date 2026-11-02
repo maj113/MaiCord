@@ -67,13 +67,13 @@ void secure_edit_end_history_group(SecureEdit* edit) noexcept;
 void secure_edit_break_history_run(SecureEdit* edit) noexcept;
 SecureEditResult secure_edit_undo(SecureEdit* edit) noexcept;
 SecureEditResult secure_edit_redo(SecureEdit* edit) noexcept;
-SecureEditResult secure_edit_assign(SecureEdit* edit, Utf8View text) noexcept;
+SecureEditResult secure_edit_assign(SecureEdit* edit, const Utf8View& text) noexcept;
 SecureEditResult secure_edit_clear(SecureEdit* edit) noexcept;
 // Nonzero monotonic milliseconds opts into contiguous typing/deletion runs.
 // A 1000ms gap, backwards clock, navigation or another edit kind ends the run.
 // Zero keeps one undo step per splice. Newlines always form separate steps.
 SecureEditResult secure_edit_insert_scalar(SecureEdit* edit, u32 codepoint, u64 input_time_ms = 0) noexcept;
-SecureEditResult secure_edit_insert_utf8(SecureEdit* edit, Utf8View text) noexcept;
+SecureEditResult secure_edit_insert_utf8(SecureEdit* edit, const Utf8View& text) noexcept;
 SecureEditResult secure_edit_insert_utf16(SecureEdit* edit, u16 code_unit, u64 input_time_ms = 0) noexcept;
 SecureEditResult secure_edit_backspace(SecureEdit* edit, u64 input_time_ms = 0) noexcept;
 SecureEditResult secure_edit_delete_forward(SecureEdit* edit, u64 input_time_ms = 0) noexcept;
@@ -93,9 +93,9 @@ SecureEditResult secure_edit_codepoint_from_utf16(const SecureEdit& edit, u32 po
                                                   u32* codepoint) noexcept;
 SecureEditResult secure_edit_set_utf16_selection(SecureEdit* edit,
                                                  SecureEditUtf16Selection selection) noexcept;
-SecureEditResult secure_edit_copy_utf16(const SecureEdit& edit, u32 start, u32 end, Slice<u16> output,
+SecureEditResult secure_edit_copy_utf16(const SecureEdit& edit, u32 start, u32 end, const Slice<u16>& output,
                                         u32* written, u32* next) noexcept;
-SecureEditResult secure_edit_replace_utf16(SecureEdit* edit, u32 start, u32 end, ConstSlice<u16> input,
+SecureEditResult secure_edit_replace_utf16(SecureEdit* edit, u32 start, u32 end, const ConstSlice<u16>& input,
                                            SecureEditUtf16Change* change) noexcept;
 
 // Produces the only text view that should be handed to rendering: at most
@@ -104,7 +104,7 @@ SecureEditResult secure_edit_replace_utf16(SecureEdit* edit, u32 start, u32 end,
 // NUL terminated and is caller-owned. Anchor and caret are returned as
 // codepoint boundaries relative to the window.
 SecureEditResult secure_edit_render_window(const SecureEdit& edit, u32 maximum_codepoints,
-                                           Slice<char> output, u32* output_bytes,
+                                           const Slice<char>& output, u32* output_bytes,
                                            SecureEditRenderWindow* window) noexcept;
 
 } // namespace maicord

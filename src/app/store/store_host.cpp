@@ -157,8 +157,8 @@ void leave_editor() noexcept {
     request();
 }
 
-void toast(bool ok, Utf8View good, Utf8View bad) noexcept {
-    application_toast_result(ok, good, bad);
+__declspec(noinline) void toast(bool ok, const char* good, const char* bad) noexcept {
+    application_toast_result(ok, {good, c_string_length(good)}, {bad, c_string_length(bad)});
 }
 
 // ---- Menus -----------------------------------------------------------------------------------------------------
@@ -262,31 +262,30 @@ void execute(const StoreCommand& c, float scroll) noexcept {
         break;
     case StoreCommandKind::install:
         if (item)
-            toast(application_catalog_install(item->kind, item->slug), {}, utf8_literal("Couldn't start the install. Try again."));
+            toast(application_catalog_install(item->kind, item->slug), {}, "Couldn't start the install. Try again.");
         break;
     case StoreCommandKind::update:
     case StoreCommandKind::review:
         if (item)
-            toast(application_catalog_update(item->kind, item->slug), {}, utf8_literal("Couldn't start the update. Try again."));
+            toast(application_catalog_update(item->kind, item->slug), {}, "Couldn't start the update. Try again.");
         break;
     case StoreCommandKind::remove:
         if (item) {
             if (item->kind == CatalogKind::theme)
                 application_custom_theme_rescan();
-            toast(application_catalog_remove(item->kind, item->slug, c.flag), {}, utf8_literal("Couldn't remove it. Try again."));
+            toast(application_catalog_remove(item->kind, item->slug, c.flag), {}, "Couldn't remove it. Try again.");
             if (page().detail && item->kind != CatalogKind::plugin)
                 page().detail = page().knobs = false;
         }
         break;
     case StoreCommandKind::rollback:
         if (item)
-            toast(application_catalog_rollback(item->kind, item->slug), {}, utf8_literal("Couldn't roll back. Try again."));
+            toast(application_catalog_rollback(item->kind, item->slug), {}, "Couldn't roll back. Try again.");
         break;
     case StoreCommandKind::enable:
     case StoreCommandKind::disable:
         if (item)
-            toast(application_catalog_set_enabled(item->kind, item->slug, c.kind == StoreCommandKind::enable), {},
-                  utf8_literal("Couldn't change that plugin. Try again."));
+            toast(application_catalog_set_enabled(item->kind, item->slug, c.kind == StoreCommandKind::enable), {}, "Couldn't change that plugin. Try again.");
         break;
     case StoreCommandKind::set_auto_update:
         if (item)
@@ -356,7 +355,7 @@ void execute(const StoreCommand& c, float scroll) noexcept {
         if (item) {
             u32 index = 0;
             if (!theme_index(*item, &index) || !application_custom_theme_select_installed(index)) {
-                toast(false, {}, utf8_literal("Couldn't open that theme. Try again."));
+                toast(false, {}, "Couldn't open that theme. Try again.");
                 break;
             }
             if (c.kind == StoreCommandKind::try_theme) {
@@ -485,7 +484,7 @@ void execute(const StoreCommand& c, float scroll) noexcept {
         start_pick(0);
         break;
     case StoreCommandKind::link_commit:
-        toast(application_packages_commit() == PackageError::none, utf8_literal("Installed"), utf8_literal("Couldn't install it. Try again."));
+        toast(application_packages_commit() == PackageError::none, "Installed", "Couldn't install it. Try again.");
         application_packages_drop_enable(false);
         break;
     case StoreCommandKind::link_cancel:

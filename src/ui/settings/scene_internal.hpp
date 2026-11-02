@@ -37,7 +37,7 @@ struct SceneTokens : UiSettingsLayoutTokens {
         ui_settings_fill_layout_tokens(scene.theme_styles, this);
     }
 };
-// How a row meets its neighbours: grouped rows share one card, solo rows (a status card, an empty state)
+// How a row meets its neighbours: grouped rows share one card, solo rows (a status card)
 // are a card of their own, and the rest (headings, notices, footnotes, list rows) draw their own plate or none.
 enum CardEdge : u8 {
     card_none = 0,
@@ -55,7 +55,7 @@ struct RowContext {
 // One row's geometry, shared by measurement, paint, text and hit-testing. Rectangles a kind does not use
 // stay empty: control is the one pointer target (a button, switch, field, the markdown link), value the
 // slider's value column or a status caption, tag the chip of a disclosure or the note after a category title,
-// icon a status tile's or empty state's glyph, meter a status card's bar and body a markdown block.
+// icon a status tile's glyph, meter a status card's bar and body a markdown block.
 struct RowLayout {
     UiRect row, label, description, control, lead, chips, value, tag, icon, meter, body;
     float height;

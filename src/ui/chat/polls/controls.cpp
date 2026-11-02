@@ -18,7 +18,7 @@ namespace {
 bool positive(float value) noexcept {
     return ui_coordinate_valid(value) && value > 0;
 }
-bool text_valid(Utf8View text, u32 bytes, u32 scalars = ~0u) noexcept {
+bool text_valid(const Utf8View& text, u32 bytes, u32 scalars = ~0u) noexcept {
     if (text.bytes > bytes || (!text.data && text.bytes))
         return false;
     u32 offset{}, count{};
@@ -146,7 +146,7 @@ u64 content_signature(const UiPollState& state, const UiPollStyle& style) noexce
                   __builtin_offsetof(UiPollStyle, question_style) + 5 * sizeof(u32));
     return hash64_bytes(hash, &style.question_style, 6 * sizeof(u32));
 }
-bool measure(const UiPollState& state, Utf8View text, u16 item, u32 flags, float width, bool no_wrap,
+bool measure(const UiPollState& state, const Utf8View& text, u16 item, u32 flags, float width, bool no_wrap,
              UiTextMeasureCache* cache, u16 backend, UiTextMeasureValue* value) noexcept {
     if (!positive(width))
         return false;
@@ -255,7 +255,7 @@ bool owner_current(UiWidgetReference owner) noexcept {
     const auto* widget = owner.manager ? ui_widget_manager_resolve(*owner.manager, owner.handle) : nullptr;
     return widget && (widget->flags & ui_widget_enabled) && !(widget->flags & ui_widget_block_input);
 }
-bool contains(UiRect rectangle, UiPoint point) noexcept {
+bool contains(const UiRect& rectangle, UiPoint point) noexcept {
     return ui_rect_has_area(rectangle) && point.x >= rectangle.left && point.x < rectangle.right &&
            point.y >= rectangle.top && point.y < rectangle.bottom;
 }
@@ -522,7 +522,7 @@ bool ui_poll_controls_project_layout(const UiPollState& state, UiPoint origin, c
     *out = projection;
     return true;
 }
-bool ui_poll_controls_project(const UiPollState& state, UiRect bounds, const UiPollStyle& style,
+bool ui_poll_controls_project(const UiPollState& state, const UiRect& bounds, const UiPollStyle& style,
                               const Theme& theme, UiTextMeasureCache* cache, u16 backend,
                               UiPollProjection* out) noexcept {
     UiPollLayout layout{};

@@ -5,7 +5,7 @@
 #include "maicord/model/voice/channel_info_store.hpp"
 
 namespace maicord {
-bool ui_voice_participant_row(const ChannelViewRow& row, UiRect row_rectangle,
+bool ui_voice_participant_row(const ChannelViewRow& row, const UiRect& row_rectangle,
                               const VoiceStateStore& store, u32 index,
                               UiVoiceParticipantRow* output) noexcept {
     if (!output || index >= row.voice_count)
@@ -144,7 +144,7 @@ UiRect ui_voice_status_rectangle(const ChannelViewRow& row, UiRect row_rectangle
     return {left, top, maximum(left, row_rectangle.right - 10.0f), top + kShellNavigationStageTopicHeight};
 }
 
-bool ui_voice_invite_row(const ChannelViewRow& row, UiRect row_rectangle, UiVoiceInviteRow* output) noexcept {
+bool ui_voice_invite_row(const ChannelViewRow& row, const UiRect& row_rectangle, UiVoiceInviteRow* output) noexcept {
     if (!output || !row.voice_invite)
         return false;
     const float top = row_rectangle.top + shell_navigation_voice_top(row) +

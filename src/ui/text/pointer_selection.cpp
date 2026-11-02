@@ -17,7 +17,7 @@ u8 ui_click_tracker_press(UiClickTracker* tracker, const void* owner, float x, f
     return tracker->count;
 }
 
-bool ui_text_unit_range(Utf8View text, u32 position, UiTextSelectionUnit unit, bool single_line,
+bool ui_text_unit_range(const Utf8View& text, u32 position, UiTextSelectionUnit unit, bool single_line,
                         u32* first, u32* last) noexcept {
     if (position > text.bytes)
         return false;
@@ -34,7 +34,7 @@ bool ui_text_unit_range(Utf8View text, u32 position, UiTextSelectionUnit unit, b
     return true;
 }
 
-bool ui_text_pointer_press(Utf8View text, u32 position, u8 clicks, bool single_line, bool shift,
+bool ui_text_pointer_press(const Utf8View& text, u32 position, u8 clicks, bool single_line, bool shift,
                            u32 current_anchor, bool composing, UiTextPointerSelection* state,
                            u32* anchor, u32* caret) noexcept {
     if (composing || position > text.bytes || current_anchor > text.bytes)
@@ -56,7 +56,7 @@ bool ui_text_pointer_press(Utf8View text, u32 position, u8 clicks, bool single_l
     return true;
 }
 
-bool ui_text_pointer_drag(Utf8View text, const UiTextPointerSelection& state, u32 position,
+bool ui_text_pointer_drag(const Utf8View& text, const UiTextPointerSelection& state, u32 position,
                           bool single_line, bool composing, u32* anchor, u32* caret) noexcept {
     if (composing || position > text.bytes || state.origin_first > state.origin_last ||
         state.origin_last > text.bytes)

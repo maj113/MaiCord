@@ -72,7 +72,7 @@ struct UiToastEnvironment {
 // Copies the text (truncated at a code point). A repeat of the newest toast
 // while it shows restarts its time instead of queueing again. Returns whether
 // the queue changed; the host then requests a frame.
-bool ui_toast_push(UiToastScene*, UiToastKind, Utf8View text) noexcept;
+bool ui_toast_push(UiToastScene*, UiToastKind, const Utf8View& text) noexcept;
 bool ui_toast_bind_text_owner(UiToastScene*, UiWidgetReference) noexcept;
 // Advances the phase, measures a new current toast and places it. Returns
 // whether paint output changed (geometry, content or progress).

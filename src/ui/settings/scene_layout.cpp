@@ -15,7 +15,7 @@ constexpr float kTitleLine = 30, kTitleLineCompact = 26, kRevealPadding = 16, kS
 // Subtitle: 8 below the title, at most 560 wide. Status cards pad 20 and carry a 4 DIP meter; markdown clips
 // at 180 DIP; footnotes sit 20 DIP under the card.
 constexpr float kSubtitleGap = 8, kSubtitleWidth = 560, kStatusPadding = 20, kMeterHeight = 4, kMarkdownClip = 180,
-                kFootnoteGap = 20, kEmptyPadding = 24, kDisclosureChevron = 16, kDisclosureMinimum = 48,
+                kFootnoteGap = 20, kDisclosureChevron = 16, kDisclosureMinimum = 48,
                 kPlainLine = 20, kNavGroupBelow = 4, kNavGroupAbove = 14, kNavFootRule = 9;
 } // namespace
 Entry* entries(UiSettingsScene& scene) noexcept {
@@ -44,11 +44,10 @@ bool side_control(UiSettingsControlKind kind) noexcept {
 bool grouped_kind(UiSettingsControlKind kind) noexcept {
     return kind != UiSettingsControlKind::category && kind != UiSettingsControlKind::notice &&
            kind != UiSettingsControlKind::tabs && kind != UiSettingsControlKind::error &&
-           kind != UiSettingsControlKind::status && kind != UiSettingsControlKind::footnote &&
-           kind != UiSettingsControlKind::empty;
+           kind != UiSettingsControlKind::status && kind != UiSettingsControlKind::footnote;
 }
 bool solo_kind(UiSettingsControlKind kind) noexcept {
-    return kind == UiSettingsControlKind::status || kind == UiSettingsControlKind::empty;
+    return kind == UiSettingsControlKind::status;
 }
 } // namespace
 // Sectioned pages: the space after a row that ends its section (the divider
@@ -493,15 +492,6 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
         r.row = {left, top, left + width, top + r.height};
         return r;
     }
-    if (c.kind == UiSettingsControlKind::empty) {
-        const float pad = kEmptyPadding;
-        const auto g = ui_empty_geometry(t, {left + pad, top + pad, left + width - pad, top + pad + 1}, c.label,
-                                         c.description, c.choices.count ? m.button_medium : 0.f, c.detail.bytes != 0, measure);
-        r.lead = g.disc, r.icon = g.glyph, r.label = g.title, r.description = g.body, r.control = g.actions, r.value = g.detail;
-        r.height = g.height + pad * 2;
-        r.row = {left, top, left + width, top + r.height};
-        return r;
-    }
     if (const auto* item = list_item(content, index)) {
         if (item->style == UiSettingsListStyle::card) {
             const float pad = m.notice_padding, inset = m.row_padding * .5f;
@@ -938,7 +928,7 @@ bool valid_content(const UiSettingsPageContent& content) noexcept {
         return false;
     for (u32 i = 0; i < content.controls.count; ++i) {
         const auto& c = content.controls[i];
-        if (!c.id || c.kind > UiSettingsControlKind::empty || !valid_text(c.label) || !valid_text(c.description) ||
+        if (!c.id || c.kind > UiSettingsControlKind::footnote || !valid_text(c.label) || !valid_text(c.description) ||
             !valid_text(c.action_label) || !valid_text(c.detail))
             return false;
         // Notices may be text only; a radio group's options can stand alone
@@ -951,16 +941,15 @@ bool valid_content(const UiSettingsPageContent& content) noexcept {
         // Markdown rows carry their source in the description, parsed from at most this much.
         if (c.kind == UiSettingsControlKind::markdown && c.description.bytes > kUiMarkdownSourceMaximum)
             return false;
-        // Status chips and an empty state's buttons are plain, non-empty labels.
-        if ((c.kind == UiSettingsControlKind::status || c.kind == UiSettingsControlKind::empty) &&
-            (c.choices.count > (c.kind == UiSettingsControlKind::status ? 8u : 3u) || (c.choices.count && !c.choices.data)))
+        // Status chips are plain, non-empty labels.
+        if (c.kind == UiSettingsControlKind::status && (c.choices.count > 8u || (c.choices.count && !c.choices.data)))
             return false;
         const auto* rule = choice_rule(c.kind);
         if (rule && (!c.choices.data || c.choices.count < rule->minimum || c.choices.count > rule->maximum ||
                      (c.selected_choice >= c.choices.count &&
                       !(rule->optional && c.selected_choice == kUiSettingsNoChoice))))
             return false;
-        if (rule || chips(content, i) || c.kind == UiSettingsControlKind::status || c.kind == UiSettingsControlKind::empty)
+        if (rule || chips(content, i) || c.kind == UiSettingsControlKind::status)
             for (u32 j = 0; j < c.choices.count; ++j)
                 if (!c.choices[j].bytes || !valid_text(c.choices[j]))
                     return false;
@@ -1031,15 +1020,13 @@ bool focusable_control(const UiSettingsScene& scene, u32 index) noexcept {
         return link(scene.content, index);
     if (c.kind == UiSettingsControlKind::notice)
         return c.action_label.bytes != 0;
-    // Info lines, status meters and chips have nothing to focus; status and empty cards focus their button,
+    // Info lines, status meters and chips have nothing to focus; status cards focus their button,
     // footnotes their link, markdown its "show all" link, a plain disclosure line nothing.
     switch (c.kind) {
     case UiSettingsControlKind::error:
         return false;
     case UiSettingsControlKind::status:
         return c.action_label.bytes != 0;
-    case UiSettingsControlKind::empty:
-        return c.choices.count != 0;
     case UiSettingsControlKind::footnote:
         return c.action_label.bytes != 0;
     case UiSettingsControlKind::markdown:
@@ -1392,7 +1379,6 @@ bool row_pointer_region(const void* context, const UiWidgetManager&, UiWidgetHan
     case UiSettingsControlKind::tabs:
     case UiSettingsControlKind::buttons:
     case UiSettingsControlKind::colors:
-    case UiSettingsControlKind::empty:
         return ui_settings_scene_option_pointer(scene, entry.target, x, y, &activation);
     case UiSettingsControlKind::error:
         return false;
@@ -1451,7 +1437,7 @@ u64 layout_signature(const UiSettingsScene& scene, const UiSettingsPageContent& 
         // The clipped state of a markdown row, and the texts of a status card's chips, change its height.
         if (c.kind == UiSettingsControlKind::markdown)
             hash = hash64_mix(hash, c.checked);
-        if (c.kind == UiSettingsControlKind::status || c.kind == UiSettingsControlKind::empty)
+        if (c.kind == UiSettingsControlKind::status)
             for (u32 j = 0; j < c.choices.count; ++j)
                 hash = hash64_bytes(hash, c.choices[j].data, c.choices[j].bytes);
         if (content.meters)

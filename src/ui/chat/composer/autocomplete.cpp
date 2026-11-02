@@ -33,7 +33,7 @@ bool ensure_suggestion_storage(ComposerAutocomplete* autocomplete) noexcept {
     return true;
 }
 
-bool contains_folded_ascii(Utf8View candidate, Utf8View query) noexcept {
+bool contains_folded_ascii(const Utf8View& candidate, const Utf8View& query) noexcept {
     if (query.bytes == 0) {
         return true;
     }
@@ -77,13 +77,13 @@ bool active_token(const MessageComposer& composer, Utf8View* token, u32* begin) 
     return true;
 }
 
-u32 decimal_u64(u64 value, Slice<char> output) noexcept {
+u32 decimal_u64(u64 value, const Slice<char>& output) noexcept {
     const u32 digits = decimal_digits(value);
     return digits > output.count ? 0 : decimal_write(output.data, value);
 }
 
 // "<marker id> " with the marker "@", "@&" or "#".
-bool set_snowflake_insertion(ComposerAutocompleteSuggestion* suggestion, Utf8View marker, u64 id) noexcept {
+bool set_snowflake_insertion(ComposerAutocompleteSuggestion* suggestion, const Utf8View& marker, u64 id) noexcept {
     if (id == 0) {
         return false;
     }
@@ -138,7 +138,7 @@ bool set_emoji_label(ComposerAutocompleteSuggestion* suggestion, Utf8View name, 
 }
 
 // Mention candidates are filtered with an ordered subsequence match.
-bool subsequence_folded_ascii(Utf8View candidate, Utf8View query) noexcept {
+bool subsequence_folded_ascii(const Utf8View& candidate, const Utf8View& query) noexcept {
     u32 matched = 0;
     for (u32 index = 0; index < candidate.bytes && matched < query.bytes; ++index)
         if (ascii_lower(static_cast<u8>(candidate.data[index])) ==
@@ -147,7 +147,7 @@ bool subsequence_folded_ascii(Utf8View candidate, Utf8View query) noexcept {
     return matched == query.bytes;
 }
 
-bool starts_with_folded_ascii(Utf8View candidate, Utf8View query) noexcept {
+bool starts_with_folded_ascii(const Utf8View& candidate, const Utf8View& query) noexcept {
     if (query.bytes > candidate.bytes)
         return false;
     for (u32 index = 0; index < query.bytes; ++index)
@@ -233,7 +233,7 @@ bool role_before(const RoleCandidate& left, const RoleCandidate& right) noexcept
     return left.role->id < right.role->id;
 }
 
-ComposerAutocompleteSuggestion* append(ComposerAutocomplete* autocomplete, Utf8View label) noexcept {
+ComposerAutocompleteSuggestion* append(ComposerAutocomplete* autocomplete, const Utf8View& label) noexcept {
     if (autocomplete->count >= kComposerAutocompleteCapacity || !label.data || label.bytes == 0 ||
         label.bytes > kComposerAutocompleteLabelBytes) {
         return nullptr;
@@ -246,7 +246,7 @@ ComposerAutocompleteSuggestion* append(ComposerAutocomplete* autocomplete, Utf8V
     return suggestion;
 }
 
-bool append_global(ComposerAutocomplete* autocomplete, Utf8View text, Utf8View description) noexcept {
+bool append_global(ComposerAutocomplete* autocomplete, const Utf8View& text, const Utf8View& description) noexcept {
     ComposerAutocompleteSuggestion* suggestion = append(autocomplete, text);
     if (!suggestion)
         return false;
@@ -377,7 +377,7 @@ struct UserRanking {
         *count = minimum(*count + 1, capacity);
     }
     // 2: a name starts with the query, 1: in-order letters, 0: no match.
-    u32 tier(const UserStore& users, const UserCandidate& candidate, Utf8View query) const noexcept {
+    u32 tier(const UserStore& users, const UserCandidate& candidate, const Utf8View& query) const noexcept {
         const UserRecord* user = user_store_find(users, candidate.user_id);
         if (!user || seen(candidate.user_id))
             return 0;
@@ -396,7 +396,7 @@ struct UserRanking {
         else if (rank == 1)
             insert(fuzzy, &fuzzy_count, kMentionFuzzyMaximum, candidate);
     }
-    void offer(const UserStore& users, const UserCandidate& candidate, Utf8View query) noexcept {
+    void offer(const UserStore& users, const UserCandidate& candidate, const Utf8View& query) noexcept {
         add(tier(users, candidate, query), candidate);
     }
 };
@@ -545,7 +545,7 @@ void append_mention_users(ComposerAutocomplete* autocomplete, const MessageCompo
         append_user(autocomplete, users, members, ranking.fuzzy[index]);
 }
 
-bool append_emoji(ComposerAutocomplete* autocomplete, Utf8View name, Utf8View glyph) noexcept {
+bool append_emoji(ComposerAutocomplete* autocomplete, const Utf8View& name, const Utf8View& glyph) noexcept {
     for (u32 i = 0; i < autocomplete->count; ++i) {
         const auto& existing = autocomplete->suggestions[i];
         if (!existing.emoji_id && existing.insertion_bytes == glyph.bytes + 1 &&

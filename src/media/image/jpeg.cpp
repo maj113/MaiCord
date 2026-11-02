@@ -1,6 +1,10 @@
 #include "jpeg_internal.hpp"
 #include "maicord/core/byte_order.hpp"
 
+// Markers, tables and scan setup run once per image, around the entropy and
+// sample loops of jpeg_entropy.cpp and jpeg_reconstruct.cpp: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+
 namespace maicord {
 namespace jpeg_detail {
 
@@ -796,3 +800,4 @@ JpegDecodeResult jpeg_decode_coefficients(ConstSlice<u8> encoded, JpegImage* ima
 }
 
 } // namespace maicord
+#pragma clang attribute pop

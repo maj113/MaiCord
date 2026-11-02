@@ -829,6 +829,7 @@ int celt_decode_with_ec(CELTDecoder * OPUS_RESTRICT st, const unsigned char *dat
    backgroundLogE = oldLogE2 + 2*nbEBands;
 
    {
+      SHORT_LOOP
       for (LM=0;LM<=mode->maxLM;LM++)
          if (mode->shortMdctSize<<LM==frame_size)
             break;
@@ -870,6 +871,7 @@ int celt_decode_with_ec(CELTDecoder * OPUS_RESTRICT st, const unsigned char *dat
 
    if (C==1)
    {
+      SHORT_LOOP
       for (i=0;i<nbEBands;i++)
          oldBandE[i]=MAXG(oldBandE[i],oldBandE[nbEBands+i]);
    }
@@ -932,6 +934,7 @@ int celt_decode_with_ec(CELTDecoder * OPUS_RESTRICT st, const unsigned char *dat
          int missing = IMIN(10, st->loss_duration>>LM);
          if (LM==0) safety = GCONST(1.5f);
          else if (LM==1) safety = GCONST(.5f);
+         SHORT_LOOP
          for (i=start;i<end;i++)
          {
             if (oldBandE[c*nbEBands+i] < MAXG(oldLogE[c*nbEBands+i], oldLogE2[c*nbEBands+i])) {
@@ -1048,6 +1051,7 @@ int celt_decode_with_ec(CELTDecoder * OPUS_RESTRICT st, const unsigned char *dat
 
    if (silence)
    {
+      SHORT_LOOP
       for (i=0;i<C*nbEBands;i++)
          oldBandE[i] = -GCONST(28.f);
    }
@@ -1090,6 +1094,7 @@ int celt_decode_with_ec(CELTDecoder * OPUS_RESTRICT st, const unsigned char *dat
       OPUS_COPY(oldLogE2, oldLogE, 2*nbEBands);
       OPUS_COPY(oldLogE, oldBandE, 2*nbEBands);
    } else {
+      SHORT_LOOP
       for (i=0;i<2*nbEBands;i++)
          oldLogE[i] = MING(oldLogE[i], oldBandE[i]);
    }
@@ -1097,16 +1102,19 @@ int celt_decode_with_ec(CELTDecoder * OPUS_RESTRICT st, const unsigned char *dat
       up to 2.4 dB/second, but when we're in DTX we give the weight of
       all missing packets to the update packet. */
    max_background_increase = IMIN(160, st->loss_duration+M)*GCONST(0.001f);
+   SHORT_LOOP
    for (i=0;i<2*nbEBands;i++)
       backgroundLogE[i] = MING(backgroundLogE[i] + max_background_increase, oldBandE[i]);
    /* In case start or end were to change */
    c=0; do
    {
+      SHORT_LOOP
       for (i=0;i<start;i++)
       {
          oldBandE[c*nbEBands+i]=0;
          oldLogE[c*nbEBands+i]=oldLogE2[c*nbEBands+i]=-GCONST(28.f);
       }
+      SHORT_LOOP
       for (i=end;i<nbEBands;i++)
       {
          oldBandE[c*nbEBands+i]=0;
@@ -1170,6 +1178,7 @@ int opus_custom_decoder_ctl(CELTDecoder * OPUS_RESTRICT st, int request, ...)
          OPUS_CLEAR((char*)&st->DECODER_RESET_START,
                opus_custom_decoder_get_size(st->mode, st->channels)-
                ((char*)&st->DECODER_RESET_START - (char*)st));
+         SHORT_LOOP
          for (i=0;i<2*st->mode->nbEBands;i++)
             oldLogE[i]=oldLogE2[i]=-GCONST(28.f);
          st->skip_plc = 1;

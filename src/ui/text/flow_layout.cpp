@@ -28,8 +28,8 @@ bool advance_cursor(UiTextFlowLayout* flow, float extent) noexcept {
 
 } // namespace
 
-bool ui_text_flow_initialize(UiTextFlowLayout* flow, UiRect content_rectangle,
-                             UiRect clip_rectangle) noexcept {
+bool ui_text_flow_initialize(UiTextFlowLayout* flow, const UiRect& content_rectangle,
+                             const UiRect& clip_rectangle) noexcept {
     if (!flow || !ui_rect_valid(content_rectangle) || !ui_rect_valid(clip_rectangle)) {
         if (flow) {
             reset_value<UiTextFlowLayout>(flow);

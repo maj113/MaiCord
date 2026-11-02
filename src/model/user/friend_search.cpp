@@ -361,12 +361,14 @@ constexpr u8 case_ignorable_span[]{
     13,0,3,4,1,0,0,1,
     0,0,6,7,4,0,95,239,
 };
-// Spans keep the inclusive endpoint without struct alignment padding per entry.
-// Bounds and ordering are validated at compile time; nothing is retained in the
-// binary and there is no startup work.
+// The tables above are the source; consteval splits each by plane into 16-bit starts (a range never crosses a
+// plane), so a lookup searches only its plane. Spans keep the inclusive endpoint without struct alignment padding
+// per entry. Bounds and ordering are validated at compile time; no source table is retained in the binary and
+// there is no startup work.
 template <usize N, class Span> constexpr bool valid_property_ranges(const u32 (&starts)[N], const Span (&spans)[N]) noexcept {
     for (usize i = 0; i < N; ++i) {
         if (spans[i] > 339 || starts[i] > 0x10FFFF || spans[i] > 0x10FFFF - starts[i] ||
+            ((starts[i] & 0xFFFF) + spans[i] > 0xFFFF) ||
             (i && starts[i - 1] + spans[i - 1] >= starts[i])) return false;
     }
     return true;
@@ -374,50 +376,80 @@ template <usize N, class Span> constexpr bool valid_property_ranges(const u32 (&
 constexpr bool valid_lowercase_ranges() noexcept {
     for (usize i = 0; i < sizeof(lowercase_ranges) / sizeof(lowercase_ranges[0]); ++i) {
         const auto range = lowercase_ranges[i];
+        const u32 plane = range.first >> 16;
         if (range.span > 148 || (range.stride != 1 && range.stride != 2) || range.span % range.stride ||
             range.first > 0x10FFFF || range.span > 0x10FFFF - range.first ||
+            ((range.first & 0xFFFF) + range.span > 0xFFFF) ||
+            // The 16-bit delta wraps within the plane: both ends of the range must map into it.
+            ((static_cast<i32>(range.first) + range.delta) >> 16) != static_cast<i32>(plane) ||
+            ((static_cast<i32>(range.first + range.span) + range.delta) >> 16) != static_cast<i32>(plane) ||
             (i && lowercase_ranges[i - 1].first + lowercase_ranges[i - 1].span >= range.first)) return false;
     }
     return true;
 }
 static_assert(valid_lowercase_ranges());
+// plane[p]..plane[p + 1] are the entries starting in plane p.
 struct LowerTables {
-    u32 first[186];i32 delta[186];u8 span[186],stride[186];
+    u16 first[186], delta[186];u8 span[186],stride[186];u16 plane[18];
 };
 consteval LowerTables lower_tables() noexcept {
     LowerTables result{};
-    for(u32 i=0;i<186;++i){const auto range=lowercase_ranges[i];
-        result.first[i]=range.first;result.delta[i]=range.delta;
-        result.span[i]=static_cast<u8>(range.span);result.stride[i]=range.stride;}
+    u32 at = 0;
+    for (u32 plane = 0; plane < 18; ++plane) {
+        result.plane[plane] = static_cast<u16>(at);
+        for (; at < 186 && (lowercase_ranges[at].first >> 16) == plane; ++at) {
+            const auto range=lowercase_ranges[at];
+            result.first[at]=static_cast<u16>(range.first);result.delta[at]=static_cast<u16>(range.delta);
+            result.span[at]=static_cast<u8>(range.span);result.stride[at]=range.stride;
+        }
+    }
     return result;
 }
 static_assert(sizeof(lowercase_ranges)/sizeof(lowercase_ranges[0])==186);
 constexpr auto lowercase_tables=lower_tables();
+template <usize N, class Span> struct PlaneRanges {
+    u16 first[N];Span span[N];u16 plane[18];
+};
+template <usize N, class Span> consteval PlaneRanges<N, Span> split_planes(const u32 (&starts)[N], const Span (&spans)[N]) noexcept {
+    PlaneRanges<N, Span> result{};
+    u32 at = 0;
+    for (u32 plane = 0; plane < 18; ++plane) {
+        result.plane[plane] = static_cast<u16>(at);
+        for (; at < N && (starts[at] >> 16) == plane; ++at) {
+            result.first[at] = static_cast<u16>(starts[at]);result.span[at] = spans[at];
+        }
+    }
+    return result;
+}
 static_assert(valid_property_ranges(cased_first, cased_span));
 static_assert(valid_property_ranges(case_ignorable_first, case_ignorable_span));
-static_assert(sizeof(lowercase_tables) + sizeof(cased_first) + sizeof(cased_span) +
-    sizeof(case_ignorable_first) + sizeof(case_ignorable_span) == 5128);
-template <usize N, class Span> bool contains(const u32 (&starts)[N], const Span (&spans)[N], u32 value) noexcept {
-    usize first = 0, last = N;
+constexpr auto cased = split_planes(cased_first, cased_span);
+constexpr auto case_ignorable = split_planes(case_ignorable_first, case_ignorable_span);
+static_assert(sizeof(lowercase_tables) + sizeof(cased) + sizeof(case_ignorable) == 3248);
+// A scalar is at most U+10FFFF: its plane is below 17.
+template <usize N, class Span> bool contains(const PlaneRanges<N, Span>& table, u32 value) noexcept {
+    const u32 low = value & 0xFFFF;
+    usize first = table.plane[value >> 16], last = table.plane[(value >> 16) + 1];
     while (first < last) {
         const usize middle = first + (last - first) / 2;
-        const u32 start = starts[middle];
-        if (value < start) last = middle;
-        else if (value > start + spans[middle]) first = middle + 1;
+        const u32 start = table.first[middle];
+        if (low < start) last = middle;
+        else if (low > start + table.span[middle]) first = middle + 1;
         else return true;
     }
     return false;
 }
 u32 lowercase(u32 value) noexcept {
     if (value <= 0x7F) return value >= 'A' && value <= 'Z' ? value + ('a' - 'A') : value;
-    usize first = 0, last = sizeof(lowercase_ranges) / sizeof(lowercase_ranges[0]);
+    const u32 low = value & 0xFFFF;
+    usize first = lowercase_tables.plane[value >> 16], last = lowercase_tables.plane[(value >> 16) + 1];
     while (first < last) {
         const usize middle = first + (last - first) / 2;
         const u32 start=lowercase_tables.first[middle];
-        if (value < start) last = middle;
-        else if (value > start + lowercase_tables.span[middle]) first = middle + 1;
-        else return ((value - start) & (lowercase_tables.stride[middle]-1)) == 0 ?
-            static_cast<u32>(static_cast<i32>(value) + lowercase_tables.delta[middle]) : value;
+        if (low < start) last = middle;
+        else if (low > start + lowercase_tables.span[middle]) first = middle + 1;
+        else return ((low - start) & (lowercase_tables.stride[middle]-1)) == 0 ?
+            (value & ~0xFFFFu) | ((low + lowercase_tables.delta[middle]) & 0xFFFFu) : value;
     }
     return value;
 }
@@ -426,14 +458,14 @@ bool final_sigma(ConstSlice<u32> original, u32 index) noexcept {
     bool preceding = false;
     for (u32 i = index; i; ) {
         const u32 value = original[--i];
-        if (contains(case_ignorable_first, case_ignorable_span, value)) continue;
-        preceding = contains(cased_first, cased_span, value);break;
+        if (contains(case_ignorable, value)) continue;
+        preceding = contains(cased, value);break;
     }
     if (!preceding) return false;
     for (u32 i = index + 1; i < original.count; ++i) {
         const u32 value = original[i];
-        if (contains(case_ignorable_first, case_ignorable_span, value)) continue;
-        return !contains(cased_first, cased_span, value);
+        if (contains(case_ignorable, value)) continue;
+        return !contains(cased, value);
     }
     return true;
 }

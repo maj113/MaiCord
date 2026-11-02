@@ -65,7 +65,7 @@ struct UiQuickSwitcherScene {
 // Borrowed descriptors/strings remain valid under revision + current fences.
 // Native editor handles stay stable while query results are republished.
 bool ui_quick_switcher_scene_update(UiQuickSwitcherScene*, const UiQuickSwitcherSource*,
-                                    const UiQuickSwitcherContent*, UiRect viewport) noexcept;
+                                    const UiQuickSwitcherContent*, const UiRect& viewport) noexcept;
 void ui_quick_switcher_scene_release(UiQuickSwitcherScene*) noexcept;
 bool ui_quick_switcher_scene_current(const UiQuickSwitcherScene&) noexcept;
 bool ui_quick_switcher_scene_contains(const UiQuickSwitcherScene&, float x, float y) noexcept;

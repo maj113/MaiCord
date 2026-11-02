@@ -30,7 +30,7 @@ struct UiHoverCardMotion {
 };
 
 // Creates the root widget once; a card already initialized keeps it.
-bool ui_hover_card_initialize(UiHoverCard& card, Utf8View name) noexcept;
+bool ui_hover_card_initialize(UiHoverCard& card, const Utf8View& name) noexcept;
 void ui_hover_card_close(UiHoverCard* card) noexcept;
 // A new identity: clears hover and press and restarts the entrance.
 void ui_hover_card_restart(UiHoverCard* card, const UiHoverCardMotion& motion, u64 now_ms,

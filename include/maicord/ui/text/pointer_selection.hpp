@@ -51,19 +51,19 @@ struct UiTextPointerSelection {
 
 // Range of `unit` at a pointer position. Single-line fields select all text
 // on a triple click; multi-line text selects the line/paragraph.
-bool ui_text_unit_range(Utf8View text, u32 position, UiTextSelectionUnit unit, bool single_line,
+bool ui_text_unit_range(const Utf8View& text, u32 position, UiTextSelectionUnit unit, bool single_line,
                         u32* first, u32* last) noexcept;
 
 // A press. Returns false when the selection must not change: invalid input, or
 // an active IME composition (the composition string, its attributes and the
 // candidate window stay anchored; TSF owns the selection until it ends).
-bool ui_text_pointer_press(Utf8View text, u32 position, u8 clicks, bool single_line, bool shift,
+bool ui_text_pointer_press(const Utf8View& text, u32 position, u8 clicks, bool single_line, bool shift,
                            u32 current_anchor, bool composing, UiTextPointerSelection* state,
                            u32* anchor, u32* caret) noexcept;
 
 // A drag after a press. Word/line selections grow by whole units and always
 // keep the originally selected unit; they never shrink inside it.
-bool ui_text_pointer_drag(Utf8View text, const UiTextPointerSelection& state, u32 position,
+bool ui_text_pointer_drag(const Utf8View& text, const UiTextPointerSelection& state, u32 position,
                           bool single_line, bool composing, u32* anchor, u32* caret) noexcept;
 
 } // namespace maicord

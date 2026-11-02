@@ -259,7 +259,7 @@ bool unavailable_poll(const MessageScene& scene, const MessageRecord& record) no
 
 } // namespace
 bool poll_state(const MessageScene& scene, const MessageRecord& record, MessageHandle handle,
-                Slice<UiPollAnswer> answers, UiPollState* out) noexcept {
+                const Slice<UiPollAnswer>& answers, UiPollState* out) noexcept {
     const auto* poll = row_poll(scene, record);
     if (!poll || !answers.data || answers.count < poll->answer_count ||
         poll->answer_count > kUiPollMaximumAnswers)
@@ -588,7 +588,7 @@ float snapshot_estimated_height(MessageScene* scene, MessageHandle handle,
 }
 
 } // namespace
-bool prepare_resident_measurements(MessageScene* scene, UiRect viewport) noexcept {
+bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) noexcept {
     MessageTimeline& timeline = *scene->timeline;
     const MessageStore& store = *timeline.store;
     const u32 source_count = message_scene_source_count(*scene);

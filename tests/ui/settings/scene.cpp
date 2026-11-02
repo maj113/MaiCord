@@ -825,7 +825,7 @@ void test_focus_recovery(Check check) noexcept {
     ui_settings_scene_release(&scene);
 }
 
-// A page of every new row: grouped into cards, trailing controls, status, disclosure, markdown, footnote and empty state.
+// A page of every new row: grouped into cards, trailing controls, status, disclosure, markdown and footnote.
 struct CardFixture {
     UiPage pages[2]{};
     UiPageRegistry registry{};
@@ -836,11 +836,10 @@ struct CardFixture {
                         utf8_literal("5"), utf8_literal("6"), utf8_literal("7"), utf8_literal("8"), utf8_literal("9"),
                         utf8_literal("10")};
     Utf8View chips[2]{utf8_literal("Stable release"), utf8_literal("Signature verified")};
-    Utf8View buttons[1]{utf8_literal("Browse plugins")};
     char notes[1200]{};
-    UiSettingsControl controls[11]{};
-    UiSettingsControlPresentation presentation[11]{};
-    u16 meters[11]{};
+    UiSettingsControl controls[10]{};
+    UiSettingsControlPresentation presentation[10]{};
+    u16 meters[10]{};
     UiSettingsPageContent content{};
     UiSettingsNavEntry navigation[5]{};
 };
@@ -873,9 +872,6 @@ void build_card_fixture(CardFixture* f) noexcept {
     f->controls[8].detail = utf8_literal("Show all notes");
     f->controls[9] = {10, utf8_literal("Updates replace the app."), {}, UiSettingsControlKind::footnote, true, false, {}, 0,
                       utf8_literal("Releases")};
-    f->controls[10] = {11, utf8_literal("No plugins yet"), utf8_literal("Plugins add features to MaiCord."),
-                       UiSettingsControlKind::empty, true, false, {f->buttons, 1}, 0};
-    f->controls[10].detail = utf8_literal("Developer Mode adds more.");
     for (auto& p : f->presentation)
         p = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault};
     for (auto& m : f->meters)
@@ -886,7 +882,7 @@ void build_card_fixture(CardFixture* f) noexcept {
     f->presentation[5].more = ui_settings_more_bold_lead;
     f->presentation[6].variant = UiSettingsVariant::primary;
     f->presentation[7].more = ui_settings_more_plain;
-    f->content = {utf8_literal("Updates"), utf8_literal("MaiCord updates itself from signed releases."), {f->controls, 11}, 1};
+    f->content = {utf8_literal("Updates"), utf8_literal("MaiCord updates itself from signed releases."), {f->controls, 10}, 1};
     f->content.presentation = f->presentation;
     f->content.meters = f->meters;
     f->navigation[0] = {UiSettingsNavKind::header, false, UiIcon::count, utf8_literal("MAICORD"), {}, 0};
@@ -921,7 +917,7 @@ void test_card_pages(Check check) noexcept {
     const UiSettingsThemeTokens tokens(kDefaultTheme);
     const auto& m = tokens.metric;
     const auto target = [&](u64 id) noexcept { return UiSettingsTarget{UiSettingsTargetKind::control, page, id}; };
-    UiSettingsControlGeometry toggle{}, dropdown{}, segmented{}, status{}, markdown{}, empty{};
+    UiSettingsControlGeometry toggle{}, dropdown{}, segmented{}, status{}, markdown{};
     check(ui_settings_scene_control_geometry(scene, target(2), &toggle) &&
               ui_settings_scene_control_geometry(scene, target(3), &dropdown) &&
               close_to(toggle.field.right, scene.layout.column.right - m.card_inset) &&
@@ -967,13 +963,6 @@ void test_card_pages(Check check) noexcept {
           "settings markdown: long notes clip at 180 DIP under a Show all link");
     check(ui_settings_scene_focus(&scene, target(10)) && !ui_settings_scene_focus(&scene, target(1)),
           "settings footnote: the link is a focus stop, the category is not");
-    check(ui_settings_scene_control_geometry(scene, target(11), &empty) &&
-              ui_settings_scene_choice_rectangle(scene, target(11), 0, &option),
-          "settings empty state: the button has geometry");
-    check(ui_settings_scene_option_pointer(scene, target(11), center(option).x, center(option).y, &activation) &&
-              activation.selected_choice == 0 && activation.kind == UiSettingsControlKind::empty &&
-              (option.left + option.right) * .5f > scene.layout.column.left + 100,
-          "settings empty state: the button answers a click and sits centred");
 
     // Painting and text.
     PaintStream paint{};

@@ -97,9 +97,9 @@ struct UiAudioAction {
 // One selected borrowed projection; no clocks, allocations or retained child widgets.
 // Static cards and the selected player share these exact responsive dimensions.
 float ui_audio_card_height(const UiAudioControlsStyle&, float width, bool voice = false) noexcept;
-bool ui_audio_card_geometry(UiRect, const UiAudioControlsStyle&, UiAudioCardGeometry*, bool voice = false,
+bool ui_audio_card_geometry(const UiRect&, const UiAudioControlsStyle&, UiAudioCardGeometry*, bool voice = false,
                             bool volume_expanded = false) noexcept;
-bool ui_audio_controls_project(const UiAudioPlaybackState&, UiRect, const UiAudioControlsStyle&,
+bool ui_audio_controls_project(const UiAudioPlaybackState&, const UiRect&, const UiAudioControlsStyle&,
                                const Theme&, UiAudioControlsProjection*,
                                bool volume_expanded = false) noexcept;
 const UiAudioControlDescriptor* ui_audio_controls_find(const UiAudioControlsProjection&,

@@ -197,6 +197,8 @@ AeadResult crypt(const AesGcm64Key& key, ConstSlice<u8> nonce, ConstSlice<u8> aa
 }
 } // namespace
 
+// The key schedule and power table are built once per voice key: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 AeadResult aes_gcm64_initialize(AesGcm64Key* key, ConstSlice<u8> secret) noexcept {
     if (!key || key->storage.data || key->storage.locked || secret.count != 16 || !byte_range_valid(secret) ||
         byte_ranges_overlap(secret, {reinterpret_cast<const u8*>(key), sizeof(*key)}))
@@ -240,6 +242,7 @@ void aes_gcm64_release(AesGcm64Key* key) noexcept {
     secure_buffer_release(&key->storage);
     reset_value(key);
 }
+#pragma clang attribute pop
 AeadResult aes_gcm64_encrypt(const AesGcm64Key& key, ConstSlice<u8> nonce, ConstSlice<u8> aad,
                              ConstSlice<u8> plaintext, Slice<u8> ciphertext, Slice<u8> tag) noexcept {
     return crypt(key, nonce, aad, plaintext, ciphertext, {tag.data, tag.count}, true);

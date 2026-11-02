@@ -11,7 +11,7 @@ bool is_word(char c) noexcept {
     return c != ' ' && c != '\t' && c != '-' && c != '_' && c != '.' && c != ',' && c != '/' && c != '(' && c != ')';
 }
 // True when `word` is a prefix (ASCII case-insensitive) of a word of `text`.
-bool word_prefix(Utf8View word, Utf8View text) noexcept {
+bool word_prefix(const Utf8View& word, const Utf8View& text) noexcept {
     for (u32 i = 0; i < text.bytes; ++i) {
         if (!is_word(text.data[i]) || (i && is_word(text.data[i - 1])))
             continue;
@@ -25,7 +25,7 @@ bool word_prefix(Utf8View word, Utf8View text) noexcept {
     }
     return false;
 }
-int compare_names(Utf8View a, Utf8View b) noexcept {
+int compare_names(const Utf8View& a, const Utf8View& b) noexcept {
     const u32 n = minimum(a.bytes, b.bytes);
     for (u32 i = 0; i < n; ++i) {
         const char x = lower(a.data[i]), y = lower(b.data[i]);
@@ -34,7 +34,7 @@ int compare_names(Utf8View a, Utf8View b) noexcept {
     }
     return a.bytes == b.bytes ? 0 : a.bytes < b.bytes ? -1 : 1;
 }
-bool same(Utf8View a, Utf8View b) noexcept {
+bool same(const Utf8View& a, const Utf8View& b) noexcept {
     return a.bytes == b.bytes && (!a.bytes || bytes_equal(a.data, b.data, a.bytes));
 }
 
@@ -65,7 +65,7 @@ constexpr Utf8View kBaseNames[]{utf8_literal("Dark"), utf8_literal("Light"), utf
 
 } // namespace
 
-bool store_item_matches(const StoreItem& item, Utf8View query) noexcept {
+bool store_item_matches(const StoreItem& item, const Utf8View& query) noexcept {
     u32 pos = 0;
     while (pos < query.bytes) {
         while (pos < query.bytes && !is_word(query.data[pos]))
@@ -251,7 +251,7 @@ u32 store_installed_count(const StoreModel& model, CatalogKind kind) noexcept {
     return count;
 }
 
-u32 store_find_item(const StoreModel& model, CatalogKind kind, Utf8View slug) noexcept {
+u32 store_find_item(const StoreModel& model, CatalogKind kind, const Utf8View& slug) noexcept {
     for (u32 i = 0; i < model.count; ++i)
         if (model.items[i].kind == kind && same(model.items[i].slug, slug))
             return i;

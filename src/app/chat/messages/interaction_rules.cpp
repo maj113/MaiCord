@@ -156,29 +156,14 @@ ComposerTextCommand composer_text_command_parse(Utf8View raw, Slice<char> output
 }
 
 namespace {
-struct Emoticon {
-    Utf8View text, emoji;
-};
-// The official client's common emoticon shortcuts. ":/" is excluded so URLs never match.
-constexpr Emoticon kEmoticons[]{
-    {utf8_literal(">:("), utf8_literal("😠")},  {utf8_literal(">:-("), utf8_literal("😠")},
-    {utf8_literal(":')"), utf8_literal("🥲")},  {utf8_literal(":'("), utf8_literal("😢")},
-    {utf8_literal(":)"), utf8_literal("🙂")},   {utf8_literal(":-)"), utf8_literal("🙂")},
-    {utf8_literal("=)"), utf8_literal("🙂")},   {utf8_literal(":("), utf8_literal("🙁")},
-    {utf8_literal(":-("), utf8_literal("🙁")},  {utf8_literal("=("), utf8_literal("🙁")},
-    {utf8_literal(":D"), utf8_literal("😄")},   {utf8_literal(":-D"), utf8_literal("😄")},
-    {utf8_literal("=D"), utf8_literal("😄")},   {utf8_literal(";)"), utf8_literal("😉")},
-    {utf8_literal(";-)"), utf8_literal("😉")},  {utf8_literal(":P"), utf8_literal("😛")},
-    {utf8_literal(":-P"), utf8_literal("😛")},  {utf8_literal("=P"), utf8_literal("😛")},
-    {utf8_literal(":o"), utf8_literal("😮")},   {utf8_literal(":-o"), utf8_literal("😮")},
-    {utf8_literal(":O"), utf8_literal("😮")},   {utf8_literal(":-O"), utf8_literal("😮")},
-    {utf8_literal(":|"), utf8_literal("😐")},   {utf8_literal(":-|"), utf8_literal("😐")},
-    {utf8_literal(":*"), utf8_literal("😗")},   {utf8_literal(":-*"), utf8_literal("😗")},
-    {utf8_literal(":-/"), utf8_literal("😕")},  {utf8_literal(":@"), utf8_literal("😡")},
-    {utf8_literal(";("), utf8_literal("😭")},   {utf8_literal("8-)"), utf8_literal("😎")},
-    {utf8_literal("B-)"), utf8_literal("😎")},  {utf8_literal("</3"), utf8_literal("💔")},
-    {utf8_literal("<3"), utf8_literal("❤️")},
-};
+// The official client's common emoticon shortcuts, each followed by its emoji, all NUL-terminated and
+// ending with the literal's own terminator. ":/" is excluded so URLs never match.
+constexpr char kEmoticons[] =
+    ">:(\0" "😠\0" ">:-(\0" "😠\0" ":')\0" "🥲\0" ":'(\0" "😢\0" ":)\0" "🙂\0" ":-)\0" "🙂\0" "=)\0" "🙂\0"
+    ":(\0" "🙁\0" ":-(\0" "🙁\0" "=(\0" "🙁\0" ":D\0" "😄\0" ":-D\0" "😄\0" "=D\0" "😄\0" ";)\0" "😉\0"
+    ";-)\0" "😉\0" ":P\0" "😛\0" ":-P\0" "😛\0" "=P\0" "😛\0" ":o\0" "😮\0" ":-o\0" "😮\0" ":O\0" "😮\0"
+    ":-O\0" "😮\0" ":|\0" "😐\0" ":-|\0" "😐\0" ":*\0" "😗\0" ":-*\0" "😗\0" ":-/\0" "😕\0" ":@\0" "😡\0"
+    ";(\0" "😭\0" "8-)\0" "😎\0" "B-)\0" "😎\0" "</3\0" "💔\0" "<3\0" "❤️\0";
 } // namespace
 
 bool composer_emoticons_convert(Utf8View text, Slice<char> output, u32* bytes) noexcept {
@@ -199,18 +184,27 @@ bool composer_emoticons_convert(Utf8View text, Slice<char> output, u32* bytes) n
             continue;
         }
         // Whole words only: start of text or after whitespace, then end or whitespace.
-        const Emoticon* match = nullptr;
+        u32 match_bytes = 0;
+        Utf8View match_emoji{};
         if (!code_block && !code_span && (at == 0 || ascii_is_space(text.data[at - 1])))
-            for (const auto& emoticon : kEmoticons) {
-                const u32 end = at + emoticon.text.bytes;
+            for (const char* entry = kEmoticons; *entry;) {
+                u32 shortcut_bytes = 0, emoji_bytes = 0;
+                while (entry[shortcut_bytes])
+                    ++shortcut_bytes;
+                const char* emoji = entry + shortcut_bytes + 1;
+                while (emoji[emoji_bytes])
+                    ++emoji_bytes;
+                const u32 end = at + shortcut_bytes;
                 if (end <= text.bytes && (end == text.bytes || ascii_is_space(text.data[end])) &&
-                    bytes_equal(text.data + at, emoticon.text.data, emoticon.text.bytes) &&
-                    (!match || emoticon.text.bytes > match->text.bytes))
-                    match = &emoticon;
+                    bytes_equal(text.data + at, entry, shortcut_bytes) && shortcut_bytes > match_bytes) {
+                    match_bytes = shortcut_bytes;
+                    match_emoji = {emoji, emoji_bytes};
+                }
+                entry = emoji + emoji_bytes + 1;
             }
-        if (match) {
-            writer.append(match->emoji);
-            at += match->text.bytes;
+        if (match_bytes) {
+            writer.append(match_emoji);
+            at += match_bytes;
             converted = true;
         } else {
             writer.append({text.data + at, 1});

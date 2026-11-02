@@ -23,9 +23,9 @@ struct FlagText {
     }
     // Hundredths in their shortest form; a sign or a second point already ends
     // the previous number. Returns whether this one has a point.
-    bool number(bool separate,bool previous_point) noexcept {
+    bool number(bool separate,bool previous_point,u32 unit) noexcept {
         const u32 zigzag=unsigned_value();
-        const u32 magnitude=(zigzag>>1)+(zigzag&1),whole=magnitude/100,fraction=magnitude%100;
+        const u32 magnitude=((zigzag>>1)+(zigzag&1))*unit,whole=magnitude/100,fraction=magnitude%100;
         const bool negative=zigzag&1,digits=magnitude>=100||!fraction;
         if(separate&&!negative&&(digits||!previous_point))put(' ');
         if(negative)put('-');
@@ -54,12 +54,12 @@ ConstSlice<u8> flag_text(ConstSlice<u8> record,Slice<u8> output) noexcept {
             t.put(" d=\"");
             for(u8 letter=t.next();t.ok&&letter;letter=t.next()){
                 t.put(static_cast<char>(letter));bool point=false;
-                for(u32 i=0,count=t.unsigned_value();t.ok&&i<count;++i)point=t.number(i!=0,point);
+                for(u32 i=0,count=t.unsigned_value();t.ok&&i<count;++i)point=t.number(i!=0,point,kFlagPathUnit);
             }
             t.put("\"/>");
         } else if(tag==3)t.put('>');
         else {
-            for(u32 i=tag==1?0:3,end=tag==1?3:7;i<end;++i){t.put(shapes[i]);t.number(false,false);t.put('"');}
+            for(u32 i=tag==1?0:3,end=tag==1?3:7;i<end;++i){t.put(shapes[i]);t.number(false,false,1);t.put('"');}
             t.put("/>");
         }
     }

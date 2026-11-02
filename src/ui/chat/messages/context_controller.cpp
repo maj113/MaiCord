@@ -10,7 +10,7 @@ MessageContextControllerResult reject(MessageContextControllerError error) noexc
     return MessageContextControllerResult{error, false};
 }
 
-bool valid_extras(ConstSlice<PopupItem> items, u32 maximum = kMessageContextMaximumExtraItems) noexcept {
+bool valid_extras(const ConstSlice<PopupItem>& items, u32 maximum = kMessageContextMaximumExtraItems) noexcept {
     if (items.count > maximum || (!items.data && items.count))
         return false;
     constexpr u16 allowed_flags = popup_item_enabled | popup_item_danger |

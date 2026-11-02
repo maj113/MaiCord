@@ -163,10 +163,10 @@ struct LoginScene {
 };
 
 inline constexpr u32 kLoginPhoneCodeDigits = 6;
-UiRect login_phone_cell_rectangle(UiRect bounds, u32 cell) noexcept;
-UiRect login_phone_caret_rectangle(UiRect bounds, u32 position) noexcept;
+UiRect login_phone_cell_rectangle(const UiRect& bounds, u32 cell) noexcept;
+UiRect login_phone_caret_rectangle(const UiRect& bounds, u32 position) noexcept;
 UiRect login_phone_range_rectangle(UiRect bounds, u32 first, u32 last) noexcept;
-bool login_phone_point_position(UiRect bounds, u32 digits, float x, float y,
+bool login_phone_point_position(const UiRect& bounds, u32 digits, float x, float y,
     bool round_nearest, u32* position, bool* inside) noexcept;
 
 bool login_scene_layout(LoginScene* scene, float width, float height) noexcept;

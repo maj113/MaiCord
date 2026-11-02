@@ -128,7 +128,7 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
                                                const MemberListView* source,
                                                const GuildMemberStore* members,
                                                const UserStore* users,
-                                               const ChatStateStore* state, UiRect viewport,
+                                               const ChatStateStore* state, const UiRect& viewport,
                                                float requested_scroll_dips) noexcept {
     if (!scene || !scene->rows.data || !ui_rect_valid_or_empty(viewport) ||
         requested_scroll_dips != requested_scroll_dips || requested_scroll_dips < -1'000'000'000.0f ||
@@ -347,7 +347,7 @@ bool member_list_scene_focus_user(MemberListScene* scene, u64 user_id) noexcept 
     return true;
 }
 
-bool member_list_row_status(const MemberListScene& s, u32 index, Slice<char> storage,
+bool member_list_row_status(const MemberListScene& s, u32 index, const Slice<char>& storage,
                             UiActivityStatus* output) noexcept {
     if (!output)
         return false;

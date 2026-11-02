@@ -49,6 +49,9 @@ foreach(output IN ITEMS "${MAICORD_APP_ICON}" "${MAICORD_EMOJI_CATALOG_INCLUDE}"
         "${MAICORD_ICON_PACK_INCLUDE}" "${MAICORD_ICON_PACK_DATA}" "${MAICORD_ICON_PACK_PACKED}"
         "${MAICORD_REGIONAL_FLAG_BUNDLE}" "${MAICORD_REGIONAL_FLAG_PACKED}"
         "${MAICORD_SHADER_PACK_INCLUDE}" "${MAICORD_SHADER_PACK_PACKED}"
+        "${MAICORD_SETTINGS_CATALOG_PACK}" "${MAICORD_GENERATED_DIRECTORY}/settings_catalog_packed.bin"
+        "${MAICORD_PERMISSION_GRID_PACK}" "${MAICORD_GENERATED_DIRECTORY}/permission_grid_packed.bin"
+        "${MAICORD_GAME_PACK}" "${MAICORD_GENERATED_DIRECTORY}/game_packed.bin"
         "${maicord_combase_import_library}" "${maicord_sspicli_import_library}" ${MAICORD_PACKED_SHADER_HEADERS})
     cmake_path(IS_PREFIX CMAKE_BINARY_DIR "${output}" NORMALIZE contained)
     if(NOT contained)

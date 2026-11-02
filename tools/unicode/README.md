@@ -32,7 +32,8 @@ code-point range is kept and Script_Extensions takes the singleton-Script defaul
 notice in `assets/licenses/Unicode-3.0.txt`.
 
 Output is `include/maicord/text/unicode/generated/unicode_data.hpp`,
-`src/text/unicode/generated/unicode_data.inc` and the official grapheme vectors in
+`src/text/unicode/generated/unicode_data.inc` (with the deflated tables in
+`unicode_data_packed.bin`, inflated on the first non-ASCII lookup) and the official grapheme vectors in
 `tests/generated/grapheme_break_test.inc`. `--repo <scratch-root>` regenerates
 into another root. The report records input hashes, enum labels and bit
 positions, layout candidates, generated-file hashes and counts.
@@ -227,8 +228,9 @@ PyThaiNLP 5.3.8 `words_th.txt` (CC0-1.0, `assets/licenses/PyThaiNLP-corpus.txt`)
 by URL and SHA-256 (the `SOURCES` table in the script), and rejects other input.
 It keeps every lexical ICU word and the PyThaiNLP words that are not compounds of
 shorter listed words, 2 to 20 scalars long, and writes
-`src/text/unicode/generated/thai_lexical_data.inc` as a suffix-shared word graph (the raw
-bytes in `thai_word_graph.bin` beside it, read by `#embed`) that it
+`src/text/unicode/generated/thai_lexical_data.inc` as a suffix-shared word graph (its
+bytes, deflated, in `thai_word_graph_packed.bin` beside it, read by `#embed` and
+inflated on the first Thai lookup) that it
 decodes again and compares with the word list. `thai_syllable_data.py` holds an
 authored grammar of Thai vowel spellings and writes the minimized machine to
 `src/text/unicode/generated/thai_syllable_data.inc`; it reads no input. Both take

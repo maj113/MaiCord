@@ -125,7 +125,7 @@ __declspec(noinline) u64 message_media_reveal_key(u64 message_id, MessageMediaSo
     return value ? value : 1u;
 }
 
-UiRect message_media_obscure_pill(UiRect media, MessageMediaObscure obscure) noexcept {
+UiRect message_media_obscure_pill(const UiRect& media, MessageMediaObscure obscure) noexcept {
     const float wanted = obscure == MessageMediaObscure::spoiler ? 84.0f : 148.0f;
     const float available = media.right - media.left - 16.0f;
     const float width = wanted < available ? wanted : available;

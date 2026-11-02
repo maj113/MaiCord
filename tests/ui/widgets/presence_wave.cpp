@@ -594,10 +594,22 @@ void opcode3() noexcept {
           "share: turning sharing on replaces the old value");
 }
 
+namespace game_reference {
+#include "../../../src/app/account/game_data.inc"
+}
+
 void detection() noexcept {
     const Utf8View running[] = {utf8_literal("explorer.exe"), utf8_literal("terraria.exe"),
                                 utf8_literal("league of legends.exe")};
     RegisteredGames games{};
+    // The shipped table is a deflate stream; src/app/account/game_data.inc is the text it is packed from.
+    const auto builtin = game_detection_builtin();
+    bool packed_same = builtin.count == sizeof(game_reference::kBuiltin) / sizeof(game_reference::kBuiltin[0]);
+    for (u32 i = 0; packed_same && i < builtin.count; ++i)
+        packed_same = same(builtin[i].name, game_reference::kBuiltin[i].name) &&
+                      same(builtin[i].executables, game_reference::kBuiltin[i].executables) &&
+                      builtin[i].application_id == game_reference::kBuiltin[i].application_id;
+    check(packed_same, "detection: the packed built-in table matches its data file");
     auto match = game_detection_match(games, game_detection_builtin(), {running, 3});
     check(match.found && !match.custom && same(match.name, utf8_literal("League of Legends")),
           "detection: the first built-in game in table order matches a running process");

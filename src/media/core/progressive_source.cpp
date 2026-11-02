@@ -4,6 +4,9 @@
 
 #include "maicord/core/win32_kernel.hpp"
 
+// Block bookkeeping around network chunks: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+
 namespace maicord {
 namespace {
 constexpr u32 kBlock = kProgressiveBlockBytes;
@@ -383,3 +386,4 @@ u32 progressive_buffered_ranges(const ProgressiveSource& s, const Mp4Demuxer& vi
 }
 
 } // namespace maicord
+#pragma clang attribute pop

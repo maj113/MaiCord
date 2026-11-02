@@ -269,7 +269,7 @@ bool seed_preferences(ReactionPreferenceStore* preferences, ReactionPreferenceKi
 // Picker result values of preference identities, ~0u where this snapshot
 // cannot show one (unknown Unicode or an unavailable custom emoji). Custom
 // identities resolve in one pass over the snapshot.
-void preference_results(const ReactionPickerModel& picker, ConstSlice<ReactionEmojiRef> emojis, u32 catalog_count,
+void preference_results(const ReactionPickerModel& picker, const ConstSlice<ReactionEmojiRef>& emojis, u32 catalog_count,
                         u32* output) noexcept {
     struct Wanted {
         u64 id;
@@ -538,7 +538,7 @@ bool settings_key_digits(Utf8View key) noexcept {
 
 } // namespace
 
-u32 reaction_emoji_settings_key(ReactionEmojiRef emoji, Slice<char> output) noexcept {
+u32 reaction_emoji_settings_key(ReactionEmojiRef emoji, const Slice<char>& output) noexcept {
     if (!emoji.valid() || !output.data)
         return 0;
     if (emoji.custom()) {
@@ -558,7 +558,7 @@ u32 reaction_emoji_settings_key(ReactionEmojiRef emoji, Slice<char> output) noex
     return emoji_shortcode_key(catalog[emoji.catalog_index].glyph(), output);
 }
 
-ReactionEmojiRef reaction_emoji_from_settings_key(Utf8View key) noexcept {
+ReactionEmojiRef reaction_emoji_from_settings_key(const Utf8View& key) noexcept {
     constexpr ReactionEmojiRef none = reaction_emoji_unicode(kReactionPreferenceInvalidCatalogIndex);
     if (settings_key_digits(key)) {
         u64 id = 0;

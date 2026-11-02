@@ -50,7 +50,7 @@ bool ui_shortcuts_scene_set_hover(UiShortcutsScene*, float x, float y, bool* cha
 // Visible rectangle of a row; false when the row is scrolled out of the list.
 bool ui_shortcuts_scene_row(const UiShortcutsScene&, u32 index, UiRect* rectangle) noexcept;
 // Estimated key cap width for a key label.
-float ui_shortcuts_key_width(Utf8View key) noexcept;
+float ui_shortcuts_key_width(const Utf8View& key) noexcept;
 bool ui_shortcuts_scene_paint(const UiShortcutsScene&, const Theme&, PaintStream*) noexcept;
 bool ui_shortcuts_scene_text_output(const UiShortcutsScene&, const Theme&, UiTextOutput*) noexcept;
 } // namespace maicord

@@ -19,7 +19,7 @@ PopupItem submenu(Utf8View label, UserContextAction value, u16 flags = 0) noexce
 }
 } // namespace
 
-u32 user_context_menu_build(const UserContextFacts& f, Slice<PopupItem> output) noexcept {
+u32 user_context_menu_build(const UserContextFacts& f, const Slice<PopupItem>& output) noexcept {
     PopupItem items[kUserContextMaximumItems]{};
     u32 count = 0;
     bool group_open = false;

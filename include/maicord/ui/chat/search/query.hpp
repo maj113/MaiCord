@@ -25,7 +25,7 @@ struct UiSearchQueryContext {
     // Local calendar boundaries, expressed as milliseconds since the snowflake epoch.
     bool (*date)(void*, Utf8View, u64* start, u64* end) noexcept;
 };
-UiSearchQueryResult ui_search_query_parse(Utf8View text, MessageSearchScope scope, u64 scope_id,
+UiSearchQueryResult ui_search_query_parse(const Utf8View& text, MessageSearchScope scope, u64 scope_id,
                                           MessageSearchSort sort,
                                           const UiSearchQueryContext* context = nullptr) noexcept;
 } // namespace maicord

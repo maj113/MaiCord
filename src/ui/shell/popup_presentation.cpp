@@ -24,7 +24,7 @@ const UiThemeMetrics& popup_paint_metrics(const PopupScene& scene, const Theme& 
                                                                     : kUiThemeMetricsDefault;
 }
 Color menu_row_foreground(const PopupItem& item, const Theme& theme) noexcept;
-bool paint_popup_presence(PaintStream* paint, UiRect rectangle, UiPresence status, Color background,
+bool paint_popup_presence(PaintStream* paint, const UiRect& rectangle, UiPresence status, const Color& background,
                           bool highlighted, const Theme& theme) noexcept {
     if (highlighted && status == UiPresence::offline) {
         const float extent = minimum(ui_rect_width(rectangle), ui_rect_height(rectangle));
@@ -141,7 +141,7 @@ UiRect picker_media_rectangle(const PopupItem& item, const UiLayoutNode& row) no
 }
 // A rail app icon is a circle that becomes a rounded square (30%) while
 // hovered or selected, as a server icon does.
-float picker_media_radius(const PopupScene& scene, u32 index, UiRect media) noexcept {
+float picker_media_radius(const PopupScene& scene, u32 index, const UiRect& media) noexcept {
     const PopupItem& item = scene.items[index];
     const float extent = minimum(ui_rect_width(media), ui_rect_height(media));
     const bool morph = (item.flags & popup_item_command_category) &&
@@ -162,7 +162,7 @@ bool picker_keyboard_focus(const PopupScene& scene, u32 index) noexcept {
     return scene.selected_index == index && !scene.pointer_selection &&
            !ui_widget_handle_equal(scene.widgets.hovered, scene.rows[index].widget);
 }
-float picker_measure(UiTextMeasureCache* measure, const PopupScene& scene, Utf8View value, u32 flags,
+float picker_measure(UiTextMeasureCache* measure, const PopupScene& scene, const Utf8View& value, u32 flags,
                      float limit, u16 tag) noexcept {
     if (!measure || !value.bytes)
         return limit;
@@ -187,7 +187,7 @@ float placeholder_width(u32 seed, u32 bar, float lo, float hi) noexcept {
 // (usage 60-120 on the strong fill, description 200-600, source
 // 45-90), elsewhere the generic Loading row (one 60-120 bar). Base-low bars
 // take that tier's gradient material on background themes.
-bool paint_placeholder(PaintStream* paint, const PopupItem& item, UiRect content, bool command,
+bool paint_placeholder(PaintStream* paint, const PopupItem& item, const UiRect& content, bool command,
                        const Theme& theme) noexcept {
     const u32 seed = item.media_variant;
     const float radius = kPickerBar * .5f;
@@ -361,7 +361,7 @@ bool paint_picker_item(const PopupScene& scene, u32 index, const PopupItemLayout
 }
 // One picker text run clipped to its item.
 void push_picker_text(UiTextPen<>& text, const PopupScene& scene, u32 index, const PopupItemLayout& layout,
-                      Utf8View value, UiRect rectangle, Color color, u32 flags,
+                      const Utf8View& value, const UiRect& rectangle, const Color& color, u32 flags,
                       UiTextAlignment horizontal = UiTextAlignment::start) noexcept {
     if (value.bytes && !(rectangle.right <= rectangle.left))
         text.emit({value,

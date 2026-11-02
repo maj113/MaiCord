@@ -235,7 +235,7 @@ bool guild_rail_scene_initialize(GuildRailScene* scene, Slice<GuildRailRowWidget
 
 // The full rebuild keeps its indicator snapshot (about 10 KB) off the frame of the no-change paths.
 __declspec(noinline) GuildRailSceneResult materialize(GuildRailScene* scene, const NavigationView* view,
-                                                     UiRect viewport, float scroll, float height,
+                                                     const UiRect& viewport, float scroll, float height,
                                                      VisibleRange range) noexcept {
     u64 restore_focus = focused_guild(*scene);
     if (restore_focus == 0) {
@@ -353,7 +353,7 @@ __declspec(noinline) GuildRailSceneResult materialize(GuildRailScene* scene, con
 }
 
 GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const NavigationView* view,
-                                             UiRect viewport, float requested_scroll_dips) noexcept {
+                                             const UiRect& viewport, float requested_scroll_dips) noexcept {
     if (!scene || !scene->rows.data || !scene->widgets.storage.data || !ui_rect_valid_or_empty(viewport) ||
         !ui_coordinate_valid(requested_scroll_dips) ||
         (view &&

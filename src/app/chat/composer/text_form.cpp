@@ -168,7 +168,7 @@ bool project(ApplicationTextForm* form) noexcept {
     content.choices_label = request.choices_label;
     content.choices = {form->choices, request.choices.count};
     content.choice_selected = form->choice_selected;
-    content.choice_editor = request.choice_editor;
+    content.choice_editor = request.choice_editor - 1;
     content.select_label = request.select_label;
     content.select_options = {form->options, request.select_options.count};
     content.select_selected = form->select_selected;
@@ -310,7 +310,7 @@ bool activate(ApplicationTextForm* form, TextFormElement element) noexcept {
             secure_edit_assign(&form->edit, {});
             reset_value(&form->status);
             refresh(form);
-            if (at == form->request.choice_editor)
+            if (at + 1 == form->request.choice_editor)
                 focus_field(form, TextFormElement::edit);
         }
         return true;
@@ -435,8 +435,7 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
         request.choices.count > kTextFormChoices || request.select_options.count > kTextFormSelectOptions ||
         (!request.choices.data && request.choices.count) ||
         (!request.select_options.data && request.select_options.count) ||
-        (request.choice_selected != ~0u && request.choice_selected >= request.choices.count) ||
-        (request.choice_editor != ~0u && request.choice_editor >= request.choices.count) ||
+        request.choice_editor > request.choices.count ||
         (request.select_options.count && request.select_selected >= request.select_options.count) ||
         ((request.check || request.swatch) && request.confirmation_only) || (request.swatch && !request.check))
         return false;
@@ -510,7 +509,7 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
         form->options[i] = copy_label(request.select_options[i]);
     form->request.choices = {form->choices, request.choices.count};
     form->request.select_options = {form->options, request.select_options.count};
-    form->choice_selected = request.choice_selected;
+    form->choice_selected = ~0u;
     form->select_selected = request.select_selected;
     bool initialized = true;
     if (!request.confirmation_only) {

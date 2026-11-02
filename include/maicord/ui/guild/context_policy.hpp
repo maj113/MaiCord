@@ -10,13 +10,13 @@ bool guild_context_target_current(const ChatStateStore&, u64 guild_id, u16 gener
 // A settings action adds Server settings when any of its pages is permitted.
 // Copy server ID is a Developer Mode row; without it the result may be 0 for a
 // valid guild (check guild_context_target_valid to tell the cases apart).
-u32 guild_context_policy_build(const ChatStateStore&, u64 guild_id, u32 copy_id_action, Slice<PopupItem>,
+u32 guild_context_policy_build(const ChatStateStore&, u64 guild_id, u32 copy_id_action, const Slice<PopupItem>&,
                                UiScopedReadMenuState scoped = {}, u32 settings_action = 0,
                                bool developer_mode = true) noexcept;
 // Create-channel rows for the server menu (guild_id, text only) or a category
 // menu (category_id, text and voice) when the account has Manage Channels there.
 u32 guild_context_create_channel_items(const ChatStateStore&, u64 guild_id, u64 category_id, u32 text_action,
-                                       u32 voice_action, Slice<PopupItem> output) noexcept;
+                                       u32 voice_action, const Slice<PopupItem>& output) noexcept;
 bool guild_context_can_create_channel(const ChatStateStore&, u64 guild_id, u64 category_id) noexcept;
 // Channel an invite from this server points to: the preferred (selected)
 // channel when it belongs to the server and allows invites, then the system
@@ -25,16 +25,16 @@ bool guild_context_can_create_channel(const ChatStateStore&, u64 guild_id, u64 c
 u64 guild_context_invite_channel(const ChatStateStore&, u64 guild_id, u64 preferred_channel) noexcept;
 // "Invite people" (separated) when guild_context_invite_channel finds a channel.
 u32 guild_context_invite_item(const ChatStateStore&, u64 guild_id, u64 preferred_channel, u32 action,
-                              Slice<PopupItem> output) noexcept;
+                              const Slice<PopupItem>& output) noexcept;
 // "Server settings" (separated) when any Server Settings page is permitted.
-u32 guild_context_settings_item(const ChatStateStore&, u64 guild_id, u32 action, Slice<PopupItem> output) noexcept;
+u32 guild_context_settings_item(const ChatStateStore&, u64 guild_id, u32 action, const Slice<PopupItem>& output) noexcept;
 // Developer Mode "Copy server ID" (separated) for a live guild.
-u32 guild_context_copy_id_item(const ChatStateStore&, u64 guild_id, u32 action, Slice<PopupItem> output) noexcept;
+u32 guild_context_copy_id_item(const ChatStateStore&, u64 guild_id, u32 action, const Slice<PopupItem>& output) noexcept;
 // The account owns the server: the server refuses to let an owner leave.
 bool guild_context_owner(const ChatStateStore&, u64 guild_id) noexcept;
 // Separated danger "Leave server" row for a live guild the account does not
 // own; owners get no row.
-u32 guild_context_leave_item(const ChatStateStore&, u64 guild_id, u32 action, Slice<PopupItem> output) noexcept;
+u32 guild_context_leave_item(const ChatStateStore&, u64 guild_id, u32 action, const Slice<PopupItem>& output) noexcept;
 
 // Server menus (the header popout under the server name and the server
 // icon's context menu) share these actions. Zero leaves a row out.
@@ -65,7 +65,7 @@ u32 guild_header_menu_build(const ChatStateStore&, u64 guild_id, u64 preferred_c
                             u16 capabilities, Slice<PopupItem> output) noexcept;
 // "Create category" (Manage Channels on the server).
 u32 guild_context_create_category_item(const ChatStateStore&, u64 guild_id, u32 action,
-                                       Slice<PopupItem> output) noexcept;
+                                       const Slice<PopupItem>& output) noexcept;
 // "Hide muted channels", checked while the guild hides them.
-u32 guild_context_hide_muted_item(const ChatStateStore&, u64 guild_id, u32 action, Slice<PopupItem> output) noexcept;
+u32 guild_context_hide_muted_item(const ChatStateStore&, u64 guild_id, u32 action, const Slice<PopupItem>& output) noexcept;
 } // namespace maicord

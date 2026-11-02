@@ -1,115 +1,48 @@
 #include "maicord/model/guild/permission_grid.hpp"
+#include "maicord/core/packed_reader.hpp"
+#include "maicord/media/compression/inflated_block.hpp"
 
 namespace maicord {
 namespace {
-constexpr u8 G = permission_scope_guild, T = permission_scope_text, V = permission_scope_voice,
-             S = permission_scope_stage, C = permission_scope_channels;
-using PG = PermissionGroup;
-#define L(text) utf8_literal(text)
-constexpr PermissionGridText channel_text[]{
-    {L("View channel"), L("See this channel and read its messages.")},
-    {L("Manage channel"), L("Rename this channel and change its settings.")},
-    {L("Manage permissions"), L("Change the overrides on this channel.")},
-};
-static_assert(sizeof(PermissionGridEntry)==56);
-constexpr PermissionGridEntry kEntries[]{
-    {kPermissionViewChannel, L("View channels"), L("See channels and read the messages in them."),
-     channel_text + 0, PG::general, G | C},
-    {kPermissionManageChannels, L("Manage channels"), L("Create, edit and delete channels."), channel_text + 1, PG::general, G | C},
-    {kPermissionManageRoles, L("Manage roles"), L("Create and edit roles below their highest role."),
-     channel_text + 2, PG::general, G | C},
-    {kPermissionCreateExpressions, L("Create expressions"), L("Add emoji, stickers and soundboard sounds."), nullptr,
-     PG::general, G},
-    {kPermissionManageExpressions, L("Manage expressions"), L("Edit and remove emoji, stickers and sounds."), nullptr,
-     PG::general, G},
-    {kPermissionViewAuditLog, L("View audit log"), L("See the record of changes made in this server."), nullptr,
-     PG::general, G},
-    {kPermissionViewGuildInsights, L("View server insights"), L("See server activity statistics."), nullptr,
-     PG::general, G},
-    {kPermissionManageWebhooks, L("Manage webhooks"), L("Create, edit and delete webhooks."), nullptr, PG::general,
-     G | T | V | S},
-    {kPermissionManageGuild, L("Manage server"), L("Change the server name, system channel and other settings."),
-     nullptr, PG::general, G},
-    {kPermissionCreateInvite, L("Create invite"), L("Invite new people to the server."), nullptr, PG::membership,
-     G | C},
-    {kPermissionChangeNickname, L("Change nickname"), L("Change their own nickname in this server."), nullptr,
-     PG::membership, G},
-    {kPermissionManageNicknames, L("Manage nicknames"), L("Change other members' nicknames."), nullptr,
-     PG::membership, G},
-    {kPermissionKickMembers, L("Kick members"), L("Remove members from the server."), nullptr, PG::membership, G},
-    {kPermissionBanMembers, L("Ban members"), L("Ban members and delete their recent messages."), nullptr,
-     PG::membership, G},
-    {kPermissionModerateMembers, L("Time out members"), L("Stop members from chatting, reacting or speaking for a while."),
-     nullptr, PG::membership, G},
-    {kPermissionSendMessages, L("Send messages and create posts"), L("Send messages and start forum posts."), nullptr,
-     PG::text, G | C},
-    {kPermissionSendMessagesInThreads, L("Send messages in threads"), L("Reply in threads and forum posts."), nullptr,
-     PG::text, G | T},
-    {kPermissionCreatePublicThreads, L("Create public threads"), L("Start threads everyone in the channel can see."),
-     nullptr, PG::text, G | T},
-    {kPermissionCreatePrivateThreads, L("Create private threads"), L("Start threads open to invited members only."),
-     nullptr, PG::text, G | T},
-    {kPermissionEmbedLinks, L("Embed links"), L("Show previews for links they post."), nullptr, PG::text, G | C},
-    {kPermissionAttachFiles, L("Attach files"), L("Upload files and media."), nullptr, PG::text, G | C},
-    {kPermissionAddReactions, L("Add reactions"), L("Add new reactions to messages."), nullptr, PG::text, G | C},
-    {kPermissionUseExternalEmojis, L("Use external emoji"), L("Use emoji from other servers."), nullptr, PG::text,
-     G | C},
-    {kPermissionUseExternalStickers, L("Use external stickers"), L("Use stickers from other servers."), nullptr,
-     PG::text, G | C},
-    {kPermissionMentionEveryone, L("Mention everyone and all roles"),
-     L("Notify everyone, online members and any role, including unmentionable ones."), nullptr, PG::text, G | C},
-    {kPermissionManageMessages, L("Manage messages"), L("Delete messages from others and remove their embeds."), nullptr, PG::text, G | C},
-    {kPermissionPinMessages, L("Pin messages"), L("Pin and unpin messages."), nullptr, PG::text, G | C},
-    {kPermissionBypassSlowmode, L("Bypass slowmode"), L("Send messages without waiting for slowmode."), nullptr,
-     PG::text, G | C},
-    {kPermissionManageThreads, L("Manage threads and posts"), L("Rename, lock, archive and delete threads and posts."),
-     nullptr, PG::text, G | T},
-    {kPermissionReadMessageHistory, L("Read message history"), L("Read messages sent before they joined the channel."),
-     nullptr, PG::text, G | C},
-    {kPermissionSendSpeechMessages, L("Send text-to-speech messages"), L("Send messages that are read aloud."), nullptr, PG::text, G | C},
-    {kPermissionSendVoiceMessages, L("Send voice messages"), L("Record and send voice clips."), nullptr, PG::text,
-     G | C},
-    {kPermissionSendPolls, L("Create polls"), L("Start polls in chat."), nullptr, PG::text, G | C},
-    {kPermissionConnect, L("Connect"), L("Join voice channels and hear others."), nullptr, PG::voice, G | V | S},
-    {kPermissionSpeak, L("Speak"), L("Talk in voice channels."), nullptr, PG::voice, G | V},
-    {kPermissionStream, L("Video"), L("Share their camera or screen."), nullptr, PG::voice, G | V},
-    {kPermissionUseSoundboard, L("Use soundboard"), L("Play sounds from the soundboard."), nullptr, PG::voice, G | V},
-    {kPermissionUseExternalSounds, L("Use external sounds"), L("Play soundboard sounds from other servers."), nullptr,
-     PG::voice, G | V},
-    {kPermissionUseVoiceActivity, L("Use voice activity"), L("Talk without holding push-to-talk."), nullptr,
-     PG::voice, G | V},
-    {kPermissionPrioritySpeaker, L("Priority speaker"), L("Lower everyone else's volume while they talk."), nullptr,
-     PG::voice, G | V},
-    {kPermissionMuteMembers, L("Mute members"), L("Mute others in voice channels."), nullptr, PG::voice, G | V | S},
-    {kPermissionDeafenMembers, L("Deafen members"), L("Deafen others in voice channels."), nullptr, PG::voice, G | V},
-    {kPermissionMoveMembers, L("Move members"), L("Move or disconnect members in voice channels."), nullptr,
-     PG::voice, G | V | S},
-    {kPermissionSetVoiceChannelStatus, L("Set voice channel status"), L("Change the status shown on a voice channel."),
-     nullptr, PG::voice, G | V},
-    {kPermissionUseApplicationCommands, L("Use application commands"), L("Use slash commands and app menus."), nullptr,
-     PG::apps, G | C},
-    {kPermissionUseActivities, L("Use activities"), L("Start and join activities."), nullptr, PG::apps, G | T | V},
-    {kPermissionUseExternalApps, L("Use external apps"), L("Let apps they added post public replies."), nullptr,
-     PG::apps, G | C},
-    {kPermissionRequestToSpeak, L("Request to speak"), L("Ask to speak in stage channels."), nullptr, PG::stage, G | S},
-    {kPermissionCreateEvents, L("Create events"), L("Schedule events."), nullptr, PG::events, G | V | S},
-    {kPermissionManageEvents, L("Manage events"), L("Edit and cancel any event."), nullptr, PG::events, G | V | S},
-    {kPermissionAdministrator, L("Administrator"),
-     L("Grants every permission and ignores channel overrides. Give it only to people you trust."), nullptr,
-     PG::advanced, G},
-};
-constexpr Utf8View kGroupLabels[]{L("General server"), L("Membership"), L("Text"),      L("Voice"),
-                                  L("Apps"),           L("Stage"),      L("Events"),    L("Advanced")};
-#undef L
-static_assert(sizeof(kGroupLabels) / sizeof(kGroupLabels[0]) == static_cast<u32>(PermissionGroup::count));
+#include <permission_grid_pack.inc>
+// The grid's data is src/model/guild/permission_grid_data.inc, shipped as one zlib stream (the format is in
+// tools/pack_tables.py) that the first reader inflates into these tables.
+PermissionGridText g_channel_text[kPermissionGridChannelTexts];
+PermissionGridEntry g_entries[kPermissionGridEntries];
+Utf8View g_group_labels[kPermissionGridGroups];
+InflatedBlock g_block;
+
+// Runs once on the inflated bytes, before any thread sees them.
+void publish(const u8* data) noexcept {
+    PackedReader in{data};
+    for (auto& text : g_channel_text) {
+        text.label = in.text();
+        text.description = in.text();
+    }
+    for (auto& entry : g_entries) {
+        entry.bit = PermissionSet{1} << in.byte();
+        entry.label = in.text();
+        entry.description = in.text();
+        const u32 channel = in.byte();
+        entry.channel = channel ? g_channel_text + channel - 1 : nullptr;
+        entry.group = static_cast<PermissionGroup>(in.byte());
+        entry.scopes = static_cast<u8>(in.byte());
+    }
+    for (auto& label : g_group_labels)
+        label = in.text();
+}
+bool ready() noexcept {
+    return g_block.state == 2 || inflated_block_load(g_block, kPermissionGridPacked, sizeof(kPermissionGridPacked),
+                                                     kPermissionGridBytes, publish) != nullptr;
+}
 } // namespace
 
 ConstSlice<PermissionGridEntry> permission_grid_entries() noexcept {
-    return {kEntries, sizeof(kEntries) / sizeof(kEntries[0])};
+    return ready() ? ConstSlice<PermissionGridEntry>{g_entries, kPermissionGridEntries} : ConstSlice<PermissionGridEntry>{};
 }
 
 Utf8View permission_group_label(PermissionGroup group) noexcept {
-    return group < PermissionGroup::count ? kGroupLabels[static_cast<u32>(group)] : Utf8View{};
+    return group < PermissionGroup::count && ready() ? g_group_labels[static_cast<u32>(group)] : Utf8View{};
 }
 
 u8 permission_grid_channel_scope(u8 type) noexcept {

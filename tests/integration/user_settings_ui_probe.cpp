@@ -287,7 +287,6 @@ constexpr Utf8View kIntervals[]{utf8_literal("Every hour"), utf8_literal("Every 
                                 utf8_literal("Once a day")};
 constexpr Utf8View kChannels[]{utf8_literal("Stable"), utf8_literal("Preview")};
 constexpr Utf8View kChips[]{utf8_literal("Stable release"), utf8_literal("Signature verified")};
-constexpr Utf8View kEmptyButtons[]{utf8_literal("Browse plugins")};
 constexpr Utf8View kNotes = utf8_literal(
     "### What's new\n- Rebuilt the settings window with cards and a pinned footer\n- Added a **Browse themes** link to Appearance\n"
     "- Fixed `Ctrl F` focusing the wrong field\n  - nested notes keep their level\n- Search results group by page\n"
@@ -334,10 +333,6 @@ u32 build_showcase(Fixture& f) noexcept {
     older.detail = utf8_literal("dev.38");
     add(older);
     add({0, utf8_literal("Updates replace the app; your settings stay."), {}, K::footnote, true, false, {}, 0, utf8_literal("Releases")});
-    UiSettingsControl empty{0, utf8_literal("No plugins installed"), utf8_literal("Plugins add features to MaiCord."), K::empty, true,
-                            false, {kEmptyButtons, 1}, 0};
-    empty.detail = utf8_literal("Developer Mode adds more.");
-    add(empty);
     return n;
 }
 

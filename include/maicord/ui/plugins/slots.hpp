@@ -64,12 +64,12 @@ inline bool ui_plugin_slot_surface_active(u32 surface) noexcept {
     return g_ui_plugin_slot_query && (g_ui_plugin_slot_surfaces & (1u << surface));
 }
 inline u32 ui_plugin_slots(u32 surface, u64 channel_id, u64 message_id, u64 user_id, u64 guild_id,
-                           Slice<UiPluginSlotNode> output) noexcept {
+                           const Slice<UiPluginSlotNode>& output) noexcept {
     return ui_plugin_slot_surface_active(surface)
                ? g_ui_plugin_slot_query(surface, channel_id, message_id, user_id, guild_id, output) : 0;
 }
 inline u32 ui_plugin_slots(u32 surface, u64 channel_id, u64 message_id, u64 user_id,
-                           Slice<UiPluginSlotNode> output) noexcept {
+                           const Slice<UiPluginSlotNode>& output) noexcept {
     return ui_plugin_slots(surface, channel_id, message_id, user_id, 0, output);
 }
 // Tooltip first, else the node text (icon-only nodes name themselves there).
@@ -127,7 +127,7 @@ inline bool ui_plugin_slot_badge(u32 surface, u64 channel_id, u64 message_id, u6
 // Toolbar surfaces (composer, account panel, message hover bar) draw buttons and icons as square controls;
 // labels and badges have no room there. Plugin order, at most output.count. message_id selects the
 // message of the hover bar (the application evaluated each button's visibility for it); 0 elsewhere.
-inline u32 ui_plugin_slot_toolbar(u32 surface, u64 message_id, Slice<UiPluginSlotNode> output) noexcept {
+inline u32 ui_plugin_slot_toolbar(u32 surface, u64 message_id, const Slice<UiPluginSlotNode>& output) noexcept {
     UiPluginSlotNode nodes[16];
     const u32 count = ui_plugin_slots(surface, 0, message_id, 0, {nodes, 16});
     u32 used = 0;
@@ -136,7 +136,7 @@ inline u32 ui_plugin_slot_toolbar(u32 surface, u64 message_id, Slice<UiPluginSlo
             output[used++] = nodes[i];
     return used;
 }
-inline u32 ui_plugin_slot_toolbar(u32 surface, Slice<UiPluginSlotNode> output) noexcept {
+inline u32 ui_plugin_slot_toolbar(u32 surface, const Slice<UiPluginSlotNode>& output) noexcept {
     return ui_plugin_slot_toolbar(surface, 0, output);
 }
 // Unknown or missing icon names fall back to the plugin glyph.
@@ -145,7 +145,7 @@ inline UiIcon ui_plugin_slot_icon(const UiPluginSlotNode& node) noexcept {
 }
 // Right-aligns the target's badge inside line (header title, member row).
 inline bool ui_plugin_slot_line_badge(u32 surface, u64 channel_id, u64 message_id, u64 user_id, UiWidgetHandle owner,
-                                      UiRect line, UiTextMeasureCache* cache, UiPluginSlotBadge* out) noexcept {
+                                      const UiRect& line, UiTextMeasureCache* cache, UiPluginSlotBadge* out) noexcept {
     if (!ui_plugin_slot_badge(surface, channel_id, message_id, user_id, owner, out)) return false;
     out->badge.rectangle = ui_badge_layout(cache, out->badge.label, line, true, out->badge.style).outer;
     if (ui_rect_width(out->badge.rectangle) >= 40) return true;
@@ -171,7 +171,7 @@ inline bool ui_plugin_slot_badge_paint(const UiPluginSlotBadge& slot, const UiWi
 }
 
 // Toolbar ink: neutral nodes keep the surrounding icon colour, tones their role.
-inline Color ui_plugin_slot_ink(const Theme& theme, u8 tone, Color neutral) noexcept {
+inline Color ui_plugin_slot_ink(const Theme& theme, u8 tone, const Color& neutral) noexcept {
     return tone ? ui_icon_role_color(theme, ui_plugin_slot_role(tone)) : neutral;
 }
 // Channel and DM rows: the target's badge right-aligned at the end of the
@@ -240,7 +240,7 @@ inline UiRect ui_plugin_slot_account_button(UiRect footer, u32 index) noexcept {
     const float middle = (footer.top + footer.bottom) * .5f;
     return {right - 32, middle - 16, right, middle + 16};
 }
-inline u32 ui_plugin_slot_account_buttons(Slice<UiPluginSlotNode> output) noexcept {
+inline u32 ui_plugin_slot_account_buttons(const Slice<UiPluginSlotNode>& output) noexcept {
     return ui_plugin_slot_toolbar(kUiPluginSlotAccountPanel,
                                   {output.data, minimum(output.count, kUiPluginSlotAccountButtons)});
 }

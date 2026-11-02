@@ -19,8 +19,7 @@ bool field_row(UiSettingsControlKind kind) noexcept {
     return kind != UiSettingsControlKind::category && kind != UiSettingsControlKind::notice &&
            kind != UiSettingsControlKind::tabs && kind != UiSettingsControlKind::error &&
            kind != UiSettingsControlKind::status && kind != UiSettingsControlKind::disclosure &&
-           kind != UiSettingsControlKind::markdown && kind != UiSettingsControlKind::footnote &&
-           kind != UiSettingsControlKind::empty;
+           kind != UiSettingsControlKind::markdown && kind != UiSettingsControlKind::footnote;
 }
 u32 default_choice(const UiSettingsPageContent& content, u32 index) noexcept {
     const auto* p = presentation(content, index);
@@ -40,7 +39,7 @@ UiSettingsButtonVariant button_variant(const UiSettingsPageContent& content, u32
            : tone == UiSettingsVariant::primary ? UiSettingsButtonVariant::primary
                                                 : UiSettingsButtonVariant::secondary;
 }
-// The icon a status tile or empty state shows (its presentation's icon, else `fallback`).
+// The icon a status tile shows (its presentation's icon, else `fallback`).
 UiIcon row_icon(const UiSettingsPageContent& content, u32 index, UiIcon fallback) noexcept {
     const auto* p = presentation(content, index);
     return p && p->icon_plus_one && p->icon_plus_one - 1 < static_cast<u32>(UiIcon::count)
@@ -124,16 +123,6 @@ UiRect option_rect(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, 
             x += w + kButtonGroupGap;
         }
         return {};
-    }
-    if (c.kind == UiSettingsControlKind::empty) {
-        // The buttons are centred in the field (the empty state's action row), gap 8.
-        float widths[3]{};
-        UiRect rects[3]{};
-        const u32 count = minimum<u32>(c.choices.count, 3);
-        for (u32 i = 0; i < count; ++i)
-            widths[i] = ui_settings_button_width(t, UiSettingsButtonSize::regular, button_label_width(measure, c.choices[i]));
-        ui_empty_place_actions(t, field, widths, count, rects);
-        return index < count ? rects[index] : UiRect{};
     }
     if (c.kind == UiSettingsControlKind::colors) {
         x += index * (kColorSwatchWidth + kColorSwatchGap);
@@ -606,18 +595,6 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         if (state.focused && ui_rect_has_area(r.control))
             p.use<ui_settings_focus_paint>(t, ui_rect_shrink(r.control, -theme.scale.space_2), theme.scale.radius_sm);
         break;
-    case UiSettingsControlKind::empty: {
-        const UiEmptyGeometry g{r.lead, r.icon, r.label, r.description, r.control, r.value, r.height};
-        p.use<ui_empty_paint>(t, g, row_icon(scene.content, index, UiIcon::info),
-                              variant(scene.content, index) == UiSettingsVariant::critical);
-        for (u32 i = 0; p && i < c.choices.count && i < 3; ++i) {
-            UiControlState option = hover_option(scene, state, i);
-            option.focused = state.focused && i == focus_choice(c);
-            p.use<ui_settings_button_paint>(t, option_rect(t, c, r.control, i, scene.measure),
-                                            i ? UiSettingsButtonVariant::secondary : UiSettingsButtonVariant::primary, option);
-        }
-        break;
-    }
     case UiSettingsControlKind::error:
         break;
     }
@@ -953,17 +930,6 @@ void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTo
         text(handle, c.label, r.label, tc.text_subtle, text_description, ui_text_wrap);
         if (ui_rect_has_area(r.control))
             text(handle, c.action_label, r.control, state.hovered ? tc.text_strong : tc.link, text_description);
-        return;
-    }
-    if (c.kind == UiSettingsControlKind::empty) {
-        text(handle, c.label, r.label, tc.text_strong, text_heading, ui_text_center);
-        text(handle, c.description, r.description, tc.text_subtle, text_description, ui_text_wrap | ui_text_center);
-        text(handle, c.detail, r.value, tc.text_subtle, text_description, ui_text_center);
-        for (u32 i = 0; i < c.choices.count && i < 3; ++i)
-            text(handle, c.choices[i], option_rect(t, c, r.control, i, scene.measure),
-                 ui_settings_button_text(t, i ? UiSettingsButtonVariant::secondary : UiSettingsButtonVariant::primary,
-                                         hover_option(scene, state, i)),
-                 text_button, ui_text_center);
         return;
     }
     if (c.kind == UiSettingsControlKind::tabs) {

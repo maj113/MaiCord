@@ -688,6 +688,10 @@ bool channel_segment(Utf8View input, u32* cursor, u64* value, bool* numeric) noe
     return true;
 }
 
+// The channel and attachment URL rules and the invite scan only run at a
+// candidate URL (or once per message): compiled for size. Mention, timestamp
+// and chip emission stay compiled for speed.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 // The channel/message URL rule: https:// discord.com or
 // discordapp.com (optionally canary./ptb.), /channels/<guild|@me>/<channel>,
 // an optional /<message> and ?query. A prefix match: text after the last
@@ -748,6 +752,7 @@ bool channel_link_at(Utf8View input, u32 begin, MessageLink* link) noexcept {
     *link = MessageLink{guild_id, channel_id, message_id, cursor - begin};
     return true;
 }
+#pragma clang attribute pop
 
 bool emit_decimal(Parser* parser, u64 value, u32 style) noexcept {
     char digits[20];
@@ -983,6 +988,7 @@ bool ascii_host_label(char value) noexcept {
     return ascii_is_alnum(value) || value == '-';
 }
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 // The attachment-link rule (prefix match):
 // ^https://(?:[A-Za-z0-9-]+\.)*(?:(?:media|images)(?:-[A-Za-z0-9]+)?\.discordapp\.net|
 //   cdn(?:-[A-Za-z0-9]+)?\.discordapp\.com)/(?:attachments|ephemeral-attachments)/\d+/\d+/
@@ -1060,6 +1066,7 @@ u32 attachment_link_at(Utf8View input, u32 begin, u32* name_begin, u32* name_end
     }
     return cursor - begin;
 }
+#pragma clang attribute pop
 
 } // namespace
 // A CDN attachment URL becomes a mention-style chip: a paperclip and the file
@@ -1408,6 +1415,7 @@ bool starts_with_at(const Parser& parser, u32 at, const char* value, u32 bytes) 
             return false;
     return true;
 }
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 namespace {
 bool invite_starts(Utf8View input, u32 at, const char* text) noexcept {
     for (u32 i = 0; text[i]; ++i)
@@ -1578,3 +1586,4 @@ bool message_markdown_attachment_link(Utf8View value, Utf8View* name) noexcept {
     return true;
 }
 } // namespace maicord
+#pragma clang attribute pop

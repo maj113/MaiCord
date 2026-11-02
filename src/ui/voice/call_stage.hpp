@@ -6,7 +6,7 @@
 namespace maicord::call_stage {
 // Helpers shared with call_scene.cpp.
 // Copies at most capacity bytes without splitting a UTF-8 sequence.
-u32 copy_text(char* destination, u32 capacity, Utf8View text) noexcept;
+u32 copy_text(char* destination, u32 capacity, const Utf8View& text) noexcept;
 UiRect centered(float x, float y, float width, float height) noexcept;
 // A fill darkened by hover and press.
 inline Color shaded(Color fill, bool hovered, bool pressed) noexcept {

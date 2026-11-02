@@ -489,7 +489,7 @@ Color composite(Color top, Color bottom) noexcept {
     return {top.red * a + bottom.red * (1 - a), top.green * a + bottom.green * (1 - a),
             top.blue * a + bottom.blue * (1 - a), 1};
 }
-bool readable_over(Color foreground, Color first, Color second, float minimum_ratio) noexcept {
+bool readable_over(const Color& foreground, const Color& first, const Color& second, float minimum_ratio) noexcept {
     return ui_theme_contrast_ratio(foreground, first) >= minimum_ratio &&
            ui_theme_contrast_ratio(foreground, second) >= minimum_ratio;
 }

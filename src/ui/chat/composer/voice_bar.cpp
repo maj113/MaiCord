@@ -18,12 +18,12 @@ u32 time_text(u32 milliseconds, char* out) noexcept {
     out[used++] = static_cast<char>('0' + seconds % 10);
     return used;
 }
-inline bool rounded(PaintStream* paint, UiRect r, Color color, float radius) noexcept {
+inline bool rounded(PaintStream* paint, const UiRect& r, const Color& color, float radius) noexcept {
     return paint_stream_push_rounded(paint, r, color, radius);
 }
 } // namespace
 
-UiComposerVoiceBarGeometry ui_composer_voice_bar_geometry(UiRect bar, const UiComposerVoiceView& view) noexcept {
+UiComposerVoiceBarGeometry ui_composer_voice_bar_geometry(const UiRect& bar, const UiComposerVoiceView& view) noexcept {
     UiComposerVoiceBarGeometry g{};
     if (!ui_rect_has_area(bar))
         return g;

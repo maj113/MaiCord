@@ -160,7 +160,7 @@ inline UiRect ui_surface_shadow_bounds(UiRect rectangle, const Theme& theme) noe
 // For surfaces whose content is clipped to the panel (menus, popouts,
 // editors): the shadow paints first in its own clip, which also keeps it in a
 // batch of its own above the base layer; then ui_surface_paint_plate.
-inline bool ui_surface_shadow_paint_isolated(PaintStream* stream, UiRect rectangle, const Theme& theme,
+inline bool ui_surface_shadow_paint_isolated(PaintStream* stream, const UiRect& rectangle, const Theme& theme,
                                              UiElevation elevation, float radius, float alpha = 1) noexcept {
     if (!ui_surface_casts_shadow(elevation) || !(alpha > 0))
         return true;
@@ -170,7 +170,7 @@ inline bool ui_surface_shadow_paint_isolated(PaintStream* stream, UiRect rectang
            paint_stream_pop_clip(stream);
 }
 // The elevation's plate without its shadow (see ui_surface_paint).
-inline bool ui_surface_paint_plate(PaintStream* stream, UiRect rectangle, const Theme& theme, UiElevation elevation,
+inline bool ui_surface_paint_plate(PaintStream* stream, const UiRect& rectangle, const Theme& theme, UiElevation elevation,
                                    float radius, const Color* plain_fill = nullptr,
                                    const Color* plain_border = nullptr) noexcept {
     const auto style = ui_surface_style(theme, elevation);
@@ -183,7 +183,7 @@ inline bool ui_surface_paint_plate(PaintStream* stream, UiRect rectangle, const 
 // only the flat-theme colours (and alpha, for fades) of a caller with an
 // established look; gradient themes always use the elevation material.
 // Popovers and dialogs cast ui_surface_shadow_paint on every theme.
-inline bool ui_surface_paint(PaintStream* stream, UiRect rectangle, const Theme& theme, UiElevation elevation,
+inline bool ui_surface_paint(PaintStream* stream, const UiRect& rectangle, const Theme& theme, UiElevation elevation,
                              float radius, const Color* plain_fill = nullptr,
                              const Color* plain_border = nullptr) noexcept {
     return ui_surface_shadow_paint(stream, rectangle, theme, elevation, radius, plain_fill ? plain_fill->alpha : 1.f) &&

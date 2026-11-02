@@ -50,10 +50,7 @@ enum class UiSettingsControlKind : u8 {
     // checked = shown in full, else clipped with the detail text as the link that shows it.
     markdown,
     // An info line under a card; action_label is an optional link at its end.
-    footnote,
-    // An empty or error state: label title, description body, choices the buttons (the first primary),
-    // detail a line under them; the presentation icon shows in the disc.
-    empty
+    footnote
 };
 // Selection sentinel for palette and radio controls showing no current value.
 inline constexpr u32 kUiSettingsNoChoice = ~0u;
@@ -108,8 +105,8 @@ struct UiSettingsControl {
     u32 selected_choice;
     Utf8View action_label;
     const UiSettingsEditor* editor;
-    // A second small text of the kinds that have one (status caption, disclosure tag, markdown link, empty
-    // detail, footnote link); a category row's detail is the inline note after its title.
+    // A second small text of the kinds that have one (status caption, disclosure tag, markdown link,
+    // footnote link); a category row's detail is the inline note after its title.
     Utf8View detail{};
 };
 
@@ -169,7 +166,7 @@ struct UiSettingsControlPresentation {
     u8 flags;
     u16 default_choice;
     u16 chip_tones = 0;
-    // UiIcon + 1 (zero: none) of a status tile or an empty state.
+    // UiIcon + 1 (zero: none) of a status tile.
     u8 icon_plus_one = 0;
     u8 more = 0;
 };

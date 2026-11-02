@@ -15,10 +15,11 @@
 // Apple Inc., and others. All Rights Reserved.
 // PyThaiNLP words_th.txt: created by the PyThaiNLP project, CC0-1.0.
 constexpr u32 thai_word_longest=20;
+constexpr u32 thai_word_graph_bytes=123234;
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wc++26-extensions"
-constexpr u8 thai_word_graph[]{
-#embed "thai_word_graph.bin"
+constexpr u8 thai_word_graph_packed[]{
+#embed "thai_word_graph_packed.bin"
 };
 #pragma clang diagnostic pop
 constexpr u32 thai_word_initial[]{

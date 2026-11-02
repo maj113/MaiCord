@@ -117,8 +117,8 @@ float ui_signed_extent_dips(i64 units) noexcept {
     return static_cast<float>(units) / static_cast<float>(kUiExtentUnitsPerDip);
 }
 
-bool ui_variable_list_initialize(UiVariableList* list, Slice<u32> item_units,
-                                 Slice<u64> fenwick, u32 item_count,
+bool ui_variable_list_initialize(UiVariableList* list, const Slice<u32>& item_units,
+                                 const Slice<u64>& fenwick, u32 item_count,
                                  u32 default_item_units) noexcept {
     if (!list || !item_units.data || item_units.count == 0 || !fenwick.data ||
         fenwick.count != item_units.count || item_count > item_units.count ||

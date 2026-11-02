@@ -124,6 +124,7 @@ static opus_val32 loss_distortion(const celt_glog *eBands, celt_glog *oldEBands,
    int c, i;
    opus_val32 dist = 0;
    c=0; do {
+      SHORT_LOOP
       for (i=start;i<end;i++)
       {
          celt_glog d = PSHR32(SUB32(eBands[i+c*len], oldEBands[i+c*len]), DB_SHIFT-7);
@@ -503,6 +504,7 @@ void amp2Log2(const CELTMode *m, int effEnd, int end,
          /* Compensate for bandE[] being Q12 but celt_log2() taking a Q14 input. */
          bandLogE[i+c*m->nbEBands] += GCONST(2.f);
       }
+      SHORT_LOOP
       for (i=effEnd;i<end;i++)
          bandLogE[c*m->nbEBands+i] = -GCONST(14.f);
    } while (++c < C);

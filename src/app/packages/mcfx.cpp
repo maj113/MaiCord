@@ -1,8 +1,10 @@
 #include "maicord/app/packages/mcfx.hpp"
 #include "maicord/app/packages/link.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/name_list.hpp"
 
 namespace maicord {
 namespace {
@@ -74,6 +76,15 @@ bool charset(const char* s, u32 n, bool lower, bool digit, bool upper, const cha
             return false;
     }
     return true;
+}
+
+// The position of a JSON name among packed names (name_list.hpp), or their count when it is none.
+u32 name_index(const JsonString& name, const char* names) noexcept {
+    u32 index = 0;
+    for (NameList list{names}; list; list.next(), ++index)
+        if (json_string_equals_ascii(name, list.name()))
+            break;
+    return index;
 }
 
 struct Parse {
@@ -156,11 +167,10 @@ bool hex_color(Parse& p, JsonValue value, u32* rgb) noexcept {
         return p.fail(value.source_offset);
     u32 v = 0;
     for (u32 i = 1; i < 7; ++i) {
-        const char c = t[i];
-        const u32 d = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : 16;
-        if (d == 16)
+        const i32 d = ascii_hex_value(t[i]);
+        if (d < 0)
             return p.fail(value.source_offset);
-        v = v << 4 | d;
+        v = v << 4 | static_cast<u32>(d);
     }
     *rgb = v;
     return true;
@@ -181,11 +191,7 @@ bool choice_entry(void* context, u32 index, JsonValue value) noexcept {
 
 bool knob_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<Parse*>(context);
-    static constexpr const char* names[]{"id", "type", "label", "min", "max", "default", "choices", "hint", "percent"};
-    u32 id = 9;
-    for (u32 i = 0; i < 9; ++i)
-        if (json_string_equals_ascii_bytes(name.encoded.data, name.encoded.bytes, names[i], c_string_length(names[i])))
-            id = i;
+    const u32 id = name_index(name, "id\0type\0label\0min\0max\0default\0choices\0hint\0percent\0");
     if (id == 9 || (p.knob_seen & 1u << id))
         return p.fail(name.source_offset);
     p.knob_seen |= 1u << id;
@@ -212,11 +218,7 @@ bool finish_knob(Parse& p, u32 at) noexcept {
     JsonString type{};
     if (!(p.knob_seen & 1u << k_type) || !json_value_as_string(p.type_value, &type))
         return p.fail(at);
-    static constexpr const char* names[]{"float", "int", "toggle", "color", "choice"};
-    u32 t = 5;
-    for (u32 i = 0; i < 5; ++i)
-        if (json_string_equals_ascii_bytes(type.encoded.data, type.encoded.bytes, names[i], c_string_length(names[i])))
-            t = i;
+    const u32 t = name_index(type, "float\0int\0toggle\0color\0choice\0");
     if (t == 5)
         return p.fail(at);
     k.type = static_cast<McfxKnobType>(t);
@@ -342,17 +344,13 @@ bool credit_member(void* context, JsonString name, JsonValue value) noexcept {
 bool use_entry(void* context, u32 index, JsonValue value) noexcept {
     auto& p = *static_cast<Parse*>(context);
     JsonString s{};
-    static constexpr const char* names[]{"noise", "glyphs", "blue_noise", "pointer", "texture0", "texture1"};
     if (index >= 6 || !json_value_as_string(value, &s))
         return p.fail(value.source_offset);
-    for (u32 i = 0; i < 6; ++i)
-        if (json_string_equals_ascii_bytes(s.encoded.data, s.encoded.bytes, names[i], c_string_length(names[i]))) {
-            if (p.out->uses & 1u << i)
-                return p.fail(value.source_offset);
-            p.out->uses |= 1u << i; // EffectUse's bits are 1 << index in this order
-            return true;
-        }
-    return p.fail(value.source_offset);
+    const u32 i = name_index(s, "noise\0glyphs\0blue_noise\0pointer\0texture0\0texture1\0");
+    if (i == 6 || (p.out->uses & 1u << i))
+        return p.fail(value.source_offset);
+    p.out->uses |= 1u << i; // EffectUse's bits are 1 << index in this order
+    return true;
 }
 static_assert(effect_use_noise == 1 && effect_use_glyphs == 2 && effect_use_blue_noise == 4 && effect_use_pointer == 8 &&
               effect_use_texture0 == 16 && effect_use_texture1 == 32);
@@ -364,12 +362,7 @@ constexpr u32 kRootRequired = 1u << r_interface | 1u << r_slug | 1u << r_name | 
 bool root_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<Parse*>(context);
     auto& out = *p.out;
-    static constexpr const char* names[]{"interface", "slug", "name", "version", "authors", "license",
-                                          "derived_from", "blend", "uses", "resolution", "fps", "knobs"};
-    u32 id = 12;
-    for (u32 i = 0; i < 12; ++i)
-        if (json_string_equals_ascii_bytes(name.encoded.data, name.encoded.bytes, names[i], c_string_length(names[i])))
-            id = i;
+    const u32 id = name_index(name, "interface\0slug\0name\0version\0authors\0license\0derived_from\0blend\0uses\0resolution\0fps\0knobs\0");
     if (id == 12 || (p.seen & 1u << id))
         return p.fail(name.source_offset);
     p.seen |= 1u << id;
@@ -407,15 +400,13 @@ bool root_member(void* context, JsonString name, JsonValue value) noexcept {
                    : p.failed ? false : p.fail(value.source_offset);
     case r_blend: {
         JsonString s{};
-        static constexpr const char* b[]{"normal", "screen", "add"};
         if (!json_value_as_string(value, &s))
             return p.fail(value.source_offset);
-        for (u32 i = 0; i < 3; ++i)
-            if (json_string_equals_ascii_bytes(s.encoded.data, s.encoded.bytes, b[i], c_string_length(b[i]))) {
-                out.blend = static_cast<EffectBlend>(i);
-                return true;
-            }
-        return p.fail(value.source_offset);
+        const u32 i = name_index(s, "normal\0screen\0add\0");
+        if (i == 3)
+            return p.fail(value.source_offset);
+        out.blend = static_cast<EffectBlend>(i);
+        return true;
     }
     case r_uses:
         return value.kind == JsonValueKind::array && p.read(json_visit_indexed_array(p.document, value, kDepth, use_entry, &p));

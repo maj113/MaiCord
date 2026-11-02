@@ -187,7 +187,7 @@ void measure_node(UiLayoutEngine* engine, u32 index) noexcept {
         minimum(node.measured_size.height, style.padding.top + node.spec.intrinsic_baseline);
 }
 
-void set_geometry(UiLayoutNode* node, UiRect rectangle, UiRect inherited_clip) noexcept {
+void set_geometry(UiLayoutNode* node, const UiRect& rectangle, const UiRect& inherited_clip) noexcept {
     node->rectangle = rectangle;
     node->content_rectangle = ui_rect_inset(rectangle, node->spec.style.padding);
     node->clip_rectangle = inherited_clip;

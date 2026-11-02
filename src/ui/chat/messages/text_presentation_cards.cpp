@@ -458,7 +458,7 @@ bool append_annotations(MessageTextPresentation* presentation, const MessageScen
 }
 
 namespace {
-bool retain_text(MessageTextPresentation* presentation, Utf8View text, Utf8View* output) noexcept {
+bool retain_text(MessageTextPresentation* presentation, const Utf8View& text, Utf8View* output) noexcept {
     if (text.bytes > presentation->utf8.count - presentation->utf8_count)
         return fail(presentation, MessageTextPresentationError::capacity);
     char* at = presentation->utf8.data + presentation->utf8_count;
@@ -468,7 +468,7 @@ bool retain_text(MessageTextPresentation* presentation, Utf8View text, Utf8View*
     return true;
 }
 
-bool append_card_line(MessageTextPresentation* presentation, Utf8View text, u32 style, const UiWidgetReference& owner,
+bool append_card_line(MessageTextPresentation* presentation, const Utf8View& text, u32 style, const UiWidgetReference& owner,
                       const UiRect& rectangle, const UiRect& clip, const Color& color, const MessageRecord& record, u8 slot,
                       u16 measurement, UiTextAlignment alignment = UiTextAlignment::start) noexcept {
     const UiRect visible = ui_rect_intersection(clip, rectangle);
@@ -1118,7 +1118,7 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
 // A quoted system notice builds its line through a buffer of its own, kept out
 // of append_row's frame (as is the poll below).
 __declspec(noinline) RetainedReplySummary retain_quoted_system(MessageTextPresentation* presentation, u64 message_id,
-                                                              Utf8View author, Utf8View poll_question,
+                                                              const Utf8View& author, const Utf8View& poll_question,
                                                               decltype(MessageSystemTextInput{}.type) type) noexcept {
     MessageSystemTextInput system_input{};
     system_input.message_id = message_id;
@@ -1202,7 +1202,7 @@ __declspec(noinline) bool append_poll_text(MessageTextPresentation* presentation
 // array is large, so it has a frame of its own.
 __declspec(noinline) bool append_content_segments(
     MessageTextPresentation* presentation, const MessageScene& scene, const MessageSceneRowWidget& row,
-    Utf8View display_content, ConstSlice<TextStyleSpan> styles, ConstSlice<MessageMarkdownSemantic> semantics,
+    const Utf8View& display_content, const ConstSlice<TextStyleSpan>& styles, const ConstSlice<MessageMarkdownSemantic>& semantics,
     bool split, float content_top, float text_left, float text_width, const UiRect& row_clip,
     const Color& content_color, const MessageRecord* record, u16 measurement_index, u16 source_id,
     const Color& role_color) noexcept {

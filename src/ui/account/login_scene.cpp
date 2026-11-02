@@ -497,7 +497,7 @@ void sync_login_input(LoginScene* scene) noexcept {
 
 } // namespace
 
-UiRect login_phone_cell_rectangle(UiRect bounds, u32 cell) noexcept {
+UiRect login_phone_cell_rectangle(const UiRect& bounds, u32 cell) noexcept {
     if (!ui_rect_valid(bounds) || cell >= kLoginPhoneCodeDigits)
         return {};
     const float gap = minimum(8.0f, ui_rect_width(bounds) / 36.0f);
@@ -508,7 +508,7 @@ UiRect login_phone_cell_rectangle(UiRect bounds, u32 cell) noexcept {
     const float top = bounds.top + (ui_rect_height(bounds) - height) * 0.5f;
     return {left, top, left + width, top + height};
 }
-UiRect login_phone_caret_rectangle(UiRect bounds, u32 position) noexcept {
+UiRect login_phone_caret_rectangle(const UiRect& bounds, u32 position) noexcept {
     if (position > kLoginPhoneCodeDigits)
         return {};
     const auto cell = login_phone_cell_rectangle(bounds, minimum(position, 5u));
@@ -527,7 +527,7 @@ UiRect login_phone_range_rectangle(UiRect bounds, u32 first, u32 last) noexcept 
     const auto end = login_phone_cell_rectangle(bounds, last - 1);
     return {begin.left, begin.top, end.right, end.bottom};
 }
-bool login_phone_point_position(UiRect bounds, u32 digits, float x, float y, bool round_nearest,
+bool login_phone_point_position(const UiRect& bounds, u32 digits, float x, float y, bool round_nearest,
                                 u32* position, bool* inside) noexcept {
     if (!position || !inside || digits > kLoginPhoneCodeDigits || !ui_rect_valid(bounds) ||
         !ui_coordinate_valid(x) || !ui_coordinate_valid(y))

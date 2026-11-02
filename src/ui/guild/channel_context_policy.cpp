@@ -19,7 +19,7 @@ bool channel_context_target_current(const ChatStateStore& state, u64 channel_id,
            context_eligible(state, channel);
 }
 u32 channel_context_policy_build(const ChatStateStore& state, u64 channel_id, u32 mark_read_action,
-                                 u32 close_dm_action, Slice<PopupItem> output, u32 edit_action,
+                                 u32 close_dm_action, const Slice<PopupItem>& output, u32 edit_action,
                                  u32 mark_unread_action, u32 retry_unread_action,
                                  UiScopedReadMenuState scoped) noexcept {
     const auto* channel = chat_state_store_find_channel(state, channel_id);

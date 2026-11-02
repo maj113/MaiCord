@@ -45,6 +45,8 @@ UiVideoPlaybackState project_video_playback(const ApplicationVideo& video) noexc
     }
     return out;
 }
+// Once per audio attachment opened.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 bool capture_audio_metadata(ApplicationVideo& video) noexcept {
     if (!video.source.audio)
         return true;
@@ -97,6 +99,7 @@ bool capture_audio_metadata(ApplicationVideo& video) noexcept {
     video.audio_voice = message_rich_record_voice(*rich);
     return true;
 }
+#pragma clang attribute pop
 UiAudioPlaybackState project_audio_playback(const ApplicationVideo& video) noexcept {
     const auto& playback = video.status.playback;
     UiAudioPlaybackState out{};
@@ -136,6 +139,9 @@ UiAudioPlaybackState project_audio_playback(const ApplicationVideo& video) noexc
 }
 
 } // namespace
+// Session start and stop, viewer opening, activation and control events: user-rate, not per frame. The
+// per-frame projection and positioning below and above stay at full speed.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 namespace video_detail {
 
 bool send_video_command(ApplicationVideo& video, AccountVideoCommand kind, i64 seek, float volume,
@@ -739,6 +745,7 @@ bool application_video_open_viewer_item(u64 message_id, u32 revision, bool embed
     return true;
 }
 
+#pragma clang attribute pop
 namespace video_detail {
 
 bool position_video_scene(ApplicationVideo* video, InlineMediaSource& positioned) noexcept {

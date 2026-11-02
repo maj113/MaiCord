@@ -1,41 +1,76 @@
 #include "maicord/text/unicode/unicode.hpp"
+#include "maicord/media/compression/inflated_block.hpp"
 
 namespace maicord {
-namespace {
 #include "generated/unicode_data.inc"
-constexpr u32 mirror_count=sizeof(unicode_mirror_points)/sizeof(unicode_mirror_points[0]);
-// Index of a BMP mirror pair, else mirror_count. Branchless lower bound.
-u32 mirror_slot(u32 code_point) noexcept {
-    if(code_point>0xffff)return mirror_count;
+namespace {
+static_assert(sizeof(unicode_ascii_index)==128);
+
+// Everything but the ASCII records ships as one deflate stream, inflated into this zero-initialised array on
+// the first lookup that needs it (well under a millisecond). The array's address is a link-time constant, so a
+// lookup costs one readiness check on top of the loads; its pages are untouched until the inflate.
+alignas(8) u8 tables[unicode_table_bytes];
+InflatedBlock table_block;
+constexpr UnicodeProperties unknown{};
+constexpr u32 mirror_count=unicode_mirror_count;
+
+__forceinline const u16* top() noexcept {return reinterpret_cast<const u16*>(tables+unicode_top_at);}
+__forceinline const u16* middle() noexcept {return reinterpret_cast<const u16*>(tables+unicode_middle_at);}
+__forceinline const u16* leaves() noexcept {return reinterpret_cast<const u16*>(tables+unicode_leaves_at);}
+__forceinline const u16* mirror_points() noexcept {return reinterpret_cast<const u16*>(tables+unicode_mirror_points_at);}
+__forceinline const u16* mirror_values() noexcept {return reinterpret_cast<const u16*>(tables+unicode_mirror_values_at);}
+__forceinline const UnicodeProperties* records() noexcept {return reinterpret_cast<const UnicodeProperties*>(tables+unicode_records_at);}
+
+__declspec(noinline) bool load_tables() noexcept {
+    return inflated_block_into(table_block,unicode_packed,sizeof(unicode_packed),tables,unicode_table_bytes);
+}
+// Index of a BMP mirror pair (the tables are ready), else mirror_count. Branchless lower bound.
+__forceinline u32 mirror_slot(u32 code_point) noexcept {
+    const u16* points=mirror_points();
     u32 base=0;
-    for(u32 n=mirror_count;n>1;){const u32 half=n/2;base=unicode_mirror_points[base+half]<=code_point?base+half:base;n-=half;}
-    return unicode_mirror_points[base]==code_point?base:mirror_count;
+    for(u32 n=mirror_count;n>1;){const u32 half=n/2;base=points[base+half]<=code_point?base+half:base;n-=half;}
+    return points[base]==code_point?base:mirror_count;
 }
-u32 mirror_paired(u32 code_point,u32 slot) noexcept {return code_point+static_cast<u32>(static_cast<i16>(unicode_mirror_values[slot])>>2);}
+__forceinline u32 mirror_paired(u32 code_point,u32 slot) noexcept {return code_point+static_cast<u32>(static_cast<i16>(mirror_values()[slot])>>2);}
 }
-const UnicodeProperties* unicode_properties(u32 code_point) noexcept {
+// The first lookup past ASCII loads the tables and repeats itself; the lookups proper have no call of their
+// own, so they stay frameless leaves and the unavailable case is a tail call.
+__declspec(noinline) static const UnicodeProperties* unicode_properties_loading(u32 code_point) noexcept {
+    return load_tables()?unicode_properties_beyond_ascii(code_point):&unknown;
+}
+__declspec(noinline) static u32 unicode_bidi_mirror_loading(u32 code_point) noexcept {
+    return load_tables()?unicode_bidi_mirror(code_point):code_point;
+}
+__declspec(noinline) static UnicodeBracket unicode_bidi_bracket_loading(u32 code_point) noexcept {
+    return load_tables()?unicode_bidi_bracket(code_point):UnicodeBracket{code_point,UnicodeBracketType::none};
+}
+const UnicodeProperties* unicode_properties_beyond_ascii(u32 code_point) noexcept {
     if(code_point>0x10ffff)return nullptr;
-    if(code_point<128)return &unicode_records[unicode_ascii[code_point]];
+    if(table_block.state!=2)return unicode_properties_loading(code_point);
     u32 block=code_point>>(unicode_leaf_shift+unicode_middle_shift);
     // Identical unassigned planes share one plane's index blocks.
     if(block>=unicode_fold_first) {
         constexpr u32 plane_mask=(0x10000u>>(unicode_leaf_shift+unicode_middle_shift))-1;
         block=block<unicode_fold_end?unicode_fold_source+(block&plane_mask):block-(unicode_fold_end-unicode_fold_first);
     }
-    u32 value=unicode_top[block];
+    u32 value=top()[block];
     if(!(value&0x8000)) {
-        value=unicode_middle[value+((code_point>>unicode_leaf_shift)&((1u<<unicode_middle_shift)-1))];
-        if(!(value&0x8000))value=unicode_leaves[value+(code_point&((1u<<unicode_leaf_shift)-1))];
+        value=middle()[value+((code_point>>unicode_leaf_shift)&((1u<<unicode_middle_shift)-1))];
+        if(!(value&0x8000))value=leaves()[value+(code_point&((1u<<unicode_leaf_shift)-1))];
     }
-    return &unicode_records[value&0x7fff];
+    return &records()[value&0x7fff];
 }
 u32 unicode_bidi_mirror(u32 code_point) noexcept {
+    if(code_point>0xffff)return code_point;
+    if(table_block.state!=2)return unicode_bidi_mirror_loading(code_point);
     const u32 slot=mirror_slot(code_point);
     return slot<mirror_count?mirror_paired(code_point,slot):code_point;
 }
 UnicodeBracket unicode_bidi_bracket(u32 code_point) noexcept {
+    if(code_point>0xffff)return {code_point,UnicodeBracketType::none};
+    if(table_block.state!=2)return unicode_bidi_bracket_loading(code_point);
     const u32 slot=mirror_slot(code_point);
-    if(slot==mirror_count||!(unicode_mirror_values[slot]&3))return {code_point,UnicodeBracketType::none};
-    return {mirror_paired(code_point,slot),static_cast<UnicodeBracketType>(unicode_mirror_values[slot]&3)};
+    if(slot==mirror_count||!(mirror_values()[slot]&3))return {code_point,UnicodeBracketType::none};
+    return {mirror_paired(code_point,slot),static_cast<UnicodeBracketType>(mirror_values()[slot]&3)};
 }
 } // namespace maicord

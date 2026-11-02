@@ -2,6 +2,7 @@
 #include "ui_internal.hpp"
 #include "pipeline_internal.hpp"
 #include "surfaces_internal.hpp"
+#include "maicord/app/plugins/text.hpp"
 #include "maicord/app/plugins/http.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_system_time.hpp"
@@ -20,10 +21,7 @@ PluginBinding* active(mc_ctx* ctx) noexcept {
 
 // Short human text: UTF-8 with no control characters, 1..maximum bytes.
 bool notice_text(mc_str text, u32 maximum) noexcept {
-    if (!text.data || !text.bytes || text.bytes > maximum || !utf8_validate({text.data, text.bytes}).valid) return false;
-    for (u32 i = 0; i < text.bytes; ++i)
-        if (static_cast<u8>(text.data[i]) < 0x20 || static_cast<u8>(text.data[i]) == 0x7f) return false;
-    return true;
+    return text.data && text.bytes && text.bytes <= maximum && plugin_text_clean(text.data, text.bytes);
 }
 
 void MC_CALL api_log(mc_ctx* ctx, uint32_t level, mc_str text) noexcept {

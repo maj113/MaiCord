@@ -244,20 +244,6 @@ float ui_skeleton_card_height(const UiSettingsLayoutTokens&, UiSkeletonCard, flo
 bool ui_skeleton_card_paint(PaintStream*, const UiSettingsTokens&, const UiRect& card, UiSkeletonCard, float pulse) noexcept;
 
 // ---------------------------------------------------------------------------
-// Empty and error states: disc, glyph, title, body, actions and an optional detail line.
-struct UiEmptyGeometry {
-    UiRect disc, glyph, title, body, actions, detail;
-    float height;
-};
-UiEmptyGeometry ui_empty_geometry(const UiSettingsLayoutTokens&, const UiRect& area, const Utf8View& title,
-                                  const Utf8View& body, float actions_height, bool detail,
-                                  const UiKitMeasure*) noexcept;
-bool ui_empty_paint(PaintStream*, const UiSettingsTokens&, const UiEmptyGeometry&, UiIcon, bool error) noexcept;
-// Centres a row of buttons in `row`, gap 8.
-void ui_empty_place_actions(const UiSettingsLayoutTokens&, const UiRect& row, const float* widths, u32 count,
-                            UiRect* out) noexcept;
-
-// ---------------------------------------------------------------------------
 // Permission rows (grouped by risk; the sentence table belongs to the consent flow).
 enum class UiRisk : u8 { low, medium, high };
 Color ui_risk_color(const UiSettingsTokens&, UiRisk) noexcept;

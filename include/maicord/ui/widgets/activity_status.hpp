@@ -28,7 +28,7 @@ bool ui_activity_status(const UserActivity* primary, const UserAppearanceRecord*
 // (a server's, else the global one). Without storage only the glyph and the
 // custom status resolve, and no activity record is decoded.
 bool ui_user_activity_status(const UserStore& users, u64 user_id, const UserAppearanceRecord* appearance,
-                             Slice<char> storage, UiActivityStatus* output) noexcept;
+                             const Slice<char>& storage, UiActivityStatus* output) noexcept;
 UiIcon ui_activity_glyph_icon(UiActivityGlyph) noexcept;
 // The glyph's box at the start of a status line, and the text after it.
 inline constexpr float kUiActivityGlyphExtent = 12.f, kUiActivityGlyphGap = 4.f;

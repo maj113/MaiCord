@@ -128,7 +128,7 @@ UiTextEffect member_role_effect(const MemberListScene& scene, const MemberListRo
 
 // The server acronym: the first character of each word ("MaiCord Lab"
 // -> "ML"). The length selects a smaller face for longer acronyms.
-Utf8View ui_guild_acronym(Utf8View name, Slice<char> storage, u32* characters) noexcept {
+Utf8View ui_guild_acronym(const Utf8View& name, const Slice<char>& storage, u32* characters) noexcept {
     u32 used = 0;
     *characters = 0;
     bool boundary = true;

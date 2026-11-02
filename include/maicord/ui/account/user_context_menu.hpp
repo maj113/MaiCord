@@ -59,7 +59,7 @@ struct UserContextFacts {
 };
 
 // Returns the row count, or zero (output untouched) without room.
-u32 user_context_menu_build(const UserContextFacts&, Slice<PopupItem> output) noexcept;
+u32 user_context_menu_build(const UserContextFacts&, const Slice<PopupItem>& output) noexcept;
 
 // Roles follow-up: checkbox rows tinted with the role colour.
 struct UserContextRole {

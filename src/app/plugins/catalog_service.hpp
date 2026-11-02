@@ -67,7 +67,7 @@ struct CatalogItemState {
     CatalogRevocationSeverity revoked;  // of the installed file
     Utf8View reason;
 };
-CatalogItemState application_catalog_item_state(CatalogKind, Utf8View slug) noexcept;
+CatalogItemState application_catalog_item_state(CatalogKind, const Utf8View& slug) noexcept;
 // The newest version of a listed item this client can install (api_level and revocations), or kCatalogNone.
 u32 application_catalog_installable_version(u32 item) noexcept;
 
@@ -76,18 +76,18 @@ u32 application_catalog_installable_version(u32 item) noexcept;
 // nothing installed). Fetches once an hour while browsing.
 void application_catalog_browse() noexcept;
 bool application_catalog_check_now() noexcept;
-bool application_catalog_install(CatalogKind, Utf8View slug) noexcept;
-bool application_catalog_update(CatalogKind, Utf8View slug) noexcept;
+bool application_catalog_install(CatalogKind, const Utf8View& slug) noexcept;
+bool application_catalog_update(CatalogKind, const Utf8View& slug) noexcept;
 u32 application_catalog_update_all() noexcept;
-bool application_catalog_rollback(CatalogKind, Utf8View slug) noexcept;
+bool application_catalog_rollback(CatalogKind, const Utf8View& slug) noexcept;
 // Plugins: disable, delete the DLLs and, with delete_data, the plugin's settings and store. Themes and
 // effects: the package library deletes the file and falls back.
-bool application_catalog_remove(CatalogKind, Utf8View slug, bool delete_data) noexcept;
-bool application_catalog_set_enabled(CatalogKind, Utf8View slug, bool enabled) noexcept;
-bool application_catalog_set_auto_update(CatalogKind, Utf8View slug, bool on) noexcept;
+bool application_catalog_remove(CatalogKind, const Utf8View& slug, bool delete_data) noexcept;
+bool application_catalog_set_enabled(CatalogKind, const Utf8View& slug, bool enabled) noexcept;
+bool application_catalog_set_auto_update(CatalogKind, const Utf8View& slug, bool on) noexcept;
 bool application_catalog_set_auto_update_all(bool on) noexcept;
 // "Skip this version" on an update that needs review.
-bool application_catalog_skip_update(CatalogKind, Utf8View slug) noexcept;
+bool application_catalog_skip_update(CatalogKind, const Utf8View& slug) noexcept;
 // Developer Mode: copies a DLL into the plugins directory and asks the sideload consent.
 bool application_catalog_sideload(ConstSlice<wchar_t> dll_path) noexcept;
 // Developer Mode: the dev folder (%LOCALAPPDATA%\MaiCord\plugins\dev, or %MAICORD_PLUGIN_DEV%) is watched. A DLL
@@ -128,8 +128,8 @@ bool application_catalog_asset_take(const u8 (&sha256)[32], CatalogAsset*) noexc
 void application_catalog_asset_release(CatalogAsset*) noexcept;
 
 // ---- the package installer (link and file installs) -------------------------------------------------
-bool application_catalog_record_unreviewed(CatalogKind, Utf8View slug, const u8 (&sha256)[32], Utf8View version) noexcept;
-bool application_catalog_forget(CatalogKind, Utf8View slug) noexcept;
+bool application_catalog_record_unreviewed(CatalogKind, const Utf8View& slug, const u8 (&sha256)[32], const Utf8View& version) noexcept;
+bool application_catalog_forget(CatalogKind, const Utf8View& slug) noexcept;
 
 // ---- lifecycle ------------------------------------------------------------------------------------------
 // What the service needs from the rest of the client. Tests supply their own.

@@ -136,23 +136,37 @@ class UiStoreBuilder {
     UiStoreNode& open(UiStoreKind kind) noexcept;
     void close() noexcept;
     UiStoreNode& leaf(UiStoreKind kind) noexcept;
-    // Common leaves.
-    UiStoreNode& text(Utf8View value, UiStoreType type = UiStoreType::body, UiStoreInk ink = UiStoreInk::normal,
-                      u16 flags = 0) noexcept;
-    UiStoreNode& chip(Utf8View value, UiStoreTone tone, UiIcon icon = UiIcon::count) noexcept;
-    UiStoreNode& button(Utf8View value, UiStoreButton variant, u32 action, UiIcon icon = UiIcon::count,
-                        bool large = false) noexcept;
-    UiStoreNode& icon_button(UiIcon icon, Utf8View name, u32 action, float size = 32) noexcept;
+    // Common leaves. The short forms exist so a call site passes no stack arguments for defaults.
+    UiStoreNode& text(const Utf8View& value, UiStoreType type = UiStoreType::body, UiStoreInk ink = UiStoreInk::normal) noexcept;
+    UiStoreNode& text(const Utf8View& value, UiStoreType type, UiStoreInk ink, u16 flags) noexcept;
+    UiStoreNode& chip(const Utf8View& value, UiStoreTone tone, UiIcon icon = UiIcon::count) noexcept;
+    UiStoreNode& button(const Utf8View& value, UiStoreButton variant, u32 action) noexcept;
+    UiStoreNode& button(const Utf8View& value, UiStoreButton variant, u32 action, UiIcon icon, bool large = false) noexcept;
+    UiStoreNode& icon_button(UiIcon icon, const Utf8View& name, u32 action) noexcept; // 32 DIPs
+    UiStoreNode& icon_button(UiIcon icon, const Utf8View& name, u32 action, float size) noexcept;
     UiStoreNode& tile(UiIcon icon, float size, UiStoreTone tone = UiStoreTone::neutral) noexcept;
+    // Literal overloads: the caller passes the C string alone and the builder counts it, so a call site is
+    // smaller than one that builds a Utf8View.
+    UiStoreNode& text(const char* value, UiStoreType type = UiStoreType::body, UiStoreInk ink = UiStoreInk::normal) noexcept;
+    UiStoreNode& text(const char* value, UiStoreType type, UiStoreInk ink, u16 flags) noexcept;
+    UiStoreNode& chip(const char* value, UiStoreTone tone, UiIcon icon = UiIcon::count) noexcept;
+    UiStoreNode& button(const char* value, UiStoreButton variant, u32 action) noexcept;
+    UiStoreNode& button(const char* value, UiStoreButton variant, u32 action, UiIcon icon, bool large = false) noexcept;
+    UiStoreNode& icon_button(UiIcon icon, const char* name, u32 action) noexcept;
+    UiStoreNode& icon_button(UiIcon icon, const char* name, u32 action, float size) noexcept;
     UiStoreNode& spacer(float width, float height, bool flex = false) noexcept;
     // Copies text into the scene's arena (bytes beyond capacity drop the piece). pieces are concatenated.
-    Utf8View copy(Utf8View a, Utf8View b = {}, Utf8View c = {}, Utf8View d = {}) noexcept;
+    Utf8View copy(const Utf8View& a) noexcept;
+    Utf8View copy(const Utf8View& a, const Utf8View& b) noexcept;
+    Utf8View copy(const Utf8View& a, const Utf8View& b, const Utf8View& c) noexcept;
+    Utf8View copy(const Utf8View& a, const Utf8View& b, const Utf8View& c, const Utf8View& d) noexcept;
     Utf8View number(u64 value) noexcept;
     // Restores the failure state; the tree stays empty on failure.
     void fail() noexcept { ok_ = false; }
 
   private:
     UiStoreNode& add(UiStoreKind kind) noexcept;
+    Utf8View gather(const Utf8View* const* parts, u32 count) noexcept;
     UiStoreScene* scene_;
     UiStoreNode* current_;
     u16 stack_[24];

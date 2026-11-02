@@ -133,8 +133,8 @@ __forceinline UiWidgetResult ui_widget_manager_add_keyed(UiWidgetManager* manage
     return ui_widget_manager_add_keyed(manager, parent, id, kind, flags, name, Count - 1, style);
 }
 // Initializes the manager with one container that fills the viewport and points `owner` at it.
-bool ui_widget_manager_initialize_fill_root(UiWidgetManager* manager, Slice<UiWidget> widget_storage,
-                                            Slice<UiLayoutNode> layout_storage, Utf8View name, u16 flags,
+bool ui_widget_manager_initialize_fill_root(UiWidgetManager* manager, const Slice<UiWidget>& widget_storage,
+                                            const Slice<UiLayoutNode>& layout_storage, const Utf8View& name, u16 flags,
                                             UiWidgetReference* owner) noexcept;
 // A part of a modal scene: clipped, free to overlap and allowed to collapse to zero size. Its ID is the
 // next free one, so the scene's builder owns the ID space.
@@ -143,12 +143,12 @@ UiWidgetResult ui_widget_manager_add_part(UiWidgetManager* manager, UiWidgetHand
 // A part sized to `rectangle` and offset from `origin` by margins, clipped and free to overlap; its ID is the
 // next free one. For scenes that register their controls while building a retained tree.
 UiWidgetResult ui_widget_manager_add_placed(UiWidgetManager* manager, UiWidgetHandle parent, UiWidgetKind kind,
-                                            u16 flags, Utf8View name, const UiRect& rectangle,
+                                            u16 flags, const Utf8View& name, const UiRect& rectangle,
                                             const UiRect& origin) noexcept;
 // Pins a part to `rectangle`, offset from `origin`. A part that is not visible collapses; one that is not
 // visible and enabled takes no input. True when its layout changed.
-bool ui_widget_manager_place_part(UiWidgetManager* manager, UiWidgetHandle handle, UiRect rectangle,
-                                  UiRect origin, bool visible, bool enabled,
+bool ui_widget_manager_place_part(UiWidgetManager* manager, UiWidgetHandle handle, const UiRect& rectangle,
+                                  const UiRect& origin, bool visible, bool enabled,
                                   bool focusable = true) noexcept;
 UiLayoutResult ui_widget_manager_layout_rectangle(UiWidgetManager* manager, const UiRect& viewport) noexcept;
 const UiWidget* ui_widget_manager_resolve(const UiWidgetManager& manager, UiWidgetHandle handle) noexcept;

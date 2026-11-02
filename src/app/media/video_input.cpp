@@ -208,6 +208,8 @@ u64 application_video_next_wake() noexcept {
     const u64 call_wake = application_call_next_wake();
     return !inline_wake ? call_wake : !call_wake ? inline_wake : minimum(inline_wake, call_wake);
 }
+// Pointer, cursor, key and tooltip events: input-rate, not per frame. The pump above stays at full speed.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 bool application_video_pointer(UINT message, LPARAM lparam) noexcept {
     if (message == WM_MOUSELEAVE) {
         if (g_app.video) {
@@ -588,5 +590,7 @@ bool application_video_tooltip_target(UiPoint point, bool keyboard, u64 scope,
     }
     return false;
 }
+
+#pragma clang attribute pop
 
 } // namespace maicord::app_detail

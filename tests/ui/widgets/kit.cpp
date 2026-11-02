@@ -301,27 +301,7 @@ void test_previews(Check check, const UiSettingsThemeTokens& t) noexcept {
 }
 
 void test_panels(Check check, const UiSettingsThemeTokens& t) noexcept {
-    const UiRect area{0, 100, 800, 600};
-    const auto g = ui_empty_geometry(t, area, utf8_literal("Title"), utf8_literal("A short body."), 40, true, nullptr);
-    check(near((g.disc.left + g.disc.right) * .5f, 400) && near(g.disc.top, 100) && near(ui_rect_width(g.disc), 64) &&
-              g.title.top > g.disc.bottom && g.body.top > g.title.bottom && g.actions.top > g.body.bottom &&
-              near(ui_rect_height(g.actions), 40) && g.detail.top > g.actions.bottom && near(g.height, g.detail.bottom - 100) &&
-              inside(g.glyph, g.disc) && near(ui_rect_width(g.glyph), 40),
-          "empty state: disc, title, body, actions and detail stack, centred");
-    const auto bare = ui_empty_geometry(t, area, utf8_literal("Title"), {}, 0, false, nullptr);
-    check(!ui_rect_has_area(bare.actions) && !ui_rect_has_area(bare.detail) && bare.height < g.height,
-          "empty state: parts that are absent take no room");
-    const float widths[]{100, 80};
-    UiRect actions[2]{};
-    ui_empty_place_actions(t, {0, 0, 800, 40}, widths, 2, actions);
-    check(near(actions[0].left, 400 - 94) && near(actions[1].right, 400 + 94) && near(actions[1].left - actions[0].right, 8),
-          "empty state: buttons centre with an 8 DIP gap");
     PaintStream paint{};
-    check(paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1000, 1000) &&
-              ui_empty_paint(&paint, t, g, UiIcon::cloud_off, true) && paint.count == 2,
-          "empty state: the disc and glyph paint");
-    paint_stream_release(&paint);
-
     UiPermissionRow row{utf8_literal("Reads the messages you receive"), utf8_literal("read_messages"), false};
     const auto plain = ui_permission_geometry(t, row, 0, 0, 600, 0, nullptr);
     const auto hosts = ui_permission_geometry(t, row, 0, 0, 600, 2, nullptr);

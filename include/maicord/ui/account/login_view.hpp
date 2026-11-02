@@ -64,11 +64,11 @@ bool login_browser_mode(LoginStatus status) noexcept;
 
 bool login_phone_mode(LoginStatus status) noexcept;
 bool login_phone_editable(LoginStatus status) noexcept;
-bool login_phone_code_valid(Utf8View code, bool complete = true) noexcept;
+bool login_phone_code_valid(const Utf8View& code, bool complete = true) noexcept;
 
 // Empty cells occupy their original positions in the sole locked MFA field.
 // Spaces are presentation/ACP placeholders and never accepted as wire digits.
-bool login_phone_cells_valid(Utf8View cells) noexcept;
+bool login_phone_cells_valid(const Utf8View& cells) noexcept;
 
 bool login_reset_editable(LoginStatus status) noexcept;
 

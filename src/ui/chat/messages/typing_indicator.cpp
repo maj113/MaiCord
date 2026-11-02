@@ -51,7 +51,7 @@ void ui_typing_dots_quads(const UiRect& row_view, const Color& color_view, u16 p
         output[i] = {r.left, r.top, r.right, r.bottom, ink, ink, radius, 0, 0, 0};
     }
 }
-bool ui_typing_dots_paint(PaintStream* paint, UiRect row, Color color, u16 phase) noexcept {
+bool ui_typing_dots_paint(PaintStream* paint, const UiRect& row, const Color& color, u16 phase) noexcept {
     if (!paint)
         return false;
     PaintQuad quads[kUiTypingDotCount];

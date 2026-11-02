@@ -54,7 +54,7 @@ bool initialize(UiQuickSwitcherScene& s) noexcept {
             return false;
     return true;
 }
-bool rectangle(UiQuickSwitcherScene& s, UiWidgetHandle handle, UiRect r, UiRect parent,
+bool rectangle(UiQuickSwitcherScene& s, UiWidgetHandle handle, const UiRect& r, const UiRect& parent,
                bool visible, bool enabled, bool focusable = true) noexcept {
     return ui_widget_manager_place_part(&s.widgets, handle, r, parent, visible, enabled, focusable);
 }
@@ -125,7 +125,7 @@ float ui_quick_switcher_scene_scroll_maximum(const UiQuickSwitcherScene& s) noex
     return maximum(0.f, s.accepted_count * kUiQuickSwitcherRowHeight - ui_rect_height(s.body));
 }
 bool ui_quick_switcher_scene_update(UiQuickSwitcherScene* s, const UiQuickSwitcherSource* source,
-    const UiQuickSwitcherContent* content, UiRect viewport) noexcept {
+    const UiQuickSwitcherContent* content, const UiRect& viewport) noexcept {
     if (!s || !content || !ui_rect_valid(viewport) || ui_rect_width(viewport) < 240 ||
         ui_rect_height(viewport) < 224 || content->phase > UiQuickSwitcherPhase::unavailable ||
         !utf8_validate(content->edit.text).valid || content->edit.anchor > content->edit.text.bytes ||

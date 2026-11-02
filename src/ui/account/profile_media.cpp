@@ -28,7 +28,7 @@ __forceinline u32 widget_bits(UiWidgetHandle handle) noexcept {
     CopyMemory(&bits, &handle, sizeof(bits));
     return bits;
 }
-bool append(ProfileString<384>* s, Utf8View text) noexcept {
+bool append(ProfileString<384>* s, const Utf8View& text) noexcept {
     if (text.bytes > 384u - s->bytes)
         return false;
     copy_bytes(s->data + s->bytes, text.data, text.bytes);
@@ -42,7 +42,7 @@ bool id(ProfileString<384>* s, u64 value) noexcept {
     s->bytes += static_cast<u16>(decimal_write(s->data + s->bytes, value));
     return true;
 }
-bool asset(Utf8View value) noexcept {
+bool asset(const Utf8View& value) noexcept {
     if (!value.bytes)
         return false;
     for (u32 i = 0; i < value.bytes; ++i) {
@@ -65,7 +65,7 @@ MediaAssetKey profile_key(const ProfileString<384>& url, MediaAttachmentFormat f
 }
 // A picked image placed so its crop mask covers target (profile editor
 // preview): the whole turned image at the target's scale.
-bool pending_media(const ProfilePendingImage& image, UiRect target, UiRect mask, float radius, UiRect clip,
+bool pending_media(const ProfilePendingImage& image, const UiRect& target, const UiRect& mask, float radius, const UiRect& clip,
                    ProfileMedia* out) noexcept {
     const auto crop = image_crop_mask_rect(image.crop);
     const float mask_width = crop.right - crop.left;
@@ -87,7 +87,7 @@ bool pending_media(const ProfilePendingImage& image, UiRect target, UiRect mask,
 }
 } // namespace
 namespace {
-bool guild_badge_media(bool enabled, u64 guild_id, Utf8View badge, UiRect rectangle, UiRect clip,
+bool guild_badge_media(bool enabled, u64 guild_id, const Utf8View& badge, const UiRect& rectangle, const UiRect& clip,
                        ProfileMedia* out) noexcept {
     if (!out || !enabled || !guild_id || !asset(badge))
         return false;
@@ -104,12 +104,12 @@ bool guild_badge_media(bool enabled, u64 guild_id, Utf8View badge, UiRect rectan
     return true;
 }
 } // namespace
-bool user_guild_badge_media(const UserAppearance& appearance, UiRect rectangle, UiRect clip,
+bool user_guild_badge_media(const UserAppearance& appearance, const UiRect& rectangle, const UiRect& clip,
                             ProfileMedia* out) noexcept {
     return guild_badge_media(appearance.primary_enabled, appearance.primary_guild_id,
                              appearance.primary_badge.view(), rectangle, clip, out);
 }
-bool user_guild_badge_media(const UserAppearanceRecord& appearance, UiRect rectangle, UiRect clip,
+bool user_guild_badge_media(const UserAppearanceRecord& appearance, const UiRect& rectangle, const UiRect& clip,
                             ProfileMedia* out) noexcept {
     return guild_badge_media(appearance.primary_enabled, appearance.primary_guild_id,
                              appearance.primary_badge.view(), rectangle, clip, out);

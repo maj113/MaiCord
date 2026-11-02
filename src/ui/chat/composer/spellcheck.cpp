@@ -11,7 +11,7 @@ constexpr u64 kVerdictMask = 3;
 constexpr u64 kCorrect = 1, kMisspelled = 2;
 
 // Entry: word hash with the low two bits replaced by the verdict; 0 is empty.
-u64 key(Utf8View word) noexcept {
+u64 key(const Utf8View& word) noexcept {
     return hash64_counted_bytes(0x9E3779B97F4A7C15ull, word.data, word.bytes) & ~kVerdictMask;
 }
 u64 lookup(const ComposerSpellcheck& s, u64 hash) noexcept {

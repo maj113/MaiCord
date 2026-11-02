@@ -2,6 +2,9 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
 
+// The chunk walk runs once per image and frame: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
+
 namespace maicord {
 namespace {
 
@@ -417,3 +420,4 @@ AnimatedWebpDecodeResult animated_webp_decode_parsed_frame(
 }
 
 } // namespace maicord
+#pragma clang attribute pop

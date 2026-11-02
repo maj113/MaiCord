@@ -326,9 +326,9 @@ Utf8View message_composer_scene_command_bar_name(const MessageComposerScene& sce
 Utf8View message_composer_scene_command_bar_detail(const MessageComposerScene& scene) noexcept;
 UiRect message_composer_scene_command_bar_text_rectangle(const MessageComposerScene& scene) noexcept;
 MessageComposerSceneResult message_composer_scene_update(
-    MessageComposerScene* scene, MessageComposer* model, UiRect viewport, bool channel_allows_send,
-    u64 reply_message_id = 0, Utf8View reply_label = {},
-    const MessageComposerProjectionContext* projection = nullptr, Utf8View typing_label = {},
+    MessageComposerScene* scene, MessageComposer* model, const UiRect& viewport, bool channel_allows_send,
+    u64 reply_message_id = 0, const Utf8View& reply_label = {},
+    const MessageComposerProjectionContext* projection = nullptr, const Utf8View& typing_label = {},
     MessageComposerAttachmentInput attachments = {}, bool sending_restricted = false,
     // Edit banners share the reply row; their host hides the author-mention toggle.
     bool mention_reply_author = true, bool reply_mention_visible = true, bool status_is_error = false,
@@ -396,7 +396,7 @@ struct MessageComposerChipRange {
     bool open_end;
 };
 u32 message_composer_scene_chip_ranges(const MessageComposerScene& scene,
-                                       Slice<MessageComposerChipRange> output) noexcept;
+                                       const Slice<MessageComposerChipRange>& output) noexcept;
 
 // Size budget: 512 bytes plus the plugin slot handles and count, the spelling
 // slice and its revision, the voice view, the status tone (one aligned word)

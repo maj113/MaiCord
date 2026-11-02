@@ -29,8 +29,8 @@ struct UiTextFlowLayout {
     bool active;
 };
 
-bool ui_text_flow_initialize(UiTextFlowLayout* flow, UiRect content_rectangle,
-                             UiRect clip_rectangle) noexcept;
+bool ui_text_flow_initialize(UiTextFlowLayout* flow, const UiRect& content_rectangle,
+                             const UiRect& clip_rectangle) noexcept;
 bool ui_text_flow_begin_item(UiTextFlowLayout* flow, float left_inset, float right_inset,
                              UiRect* rectangle) noexcept;
 bool ui_text_flow_commit_item(UiTextFlowLayout* flow, float measured_height, float minimum_height,

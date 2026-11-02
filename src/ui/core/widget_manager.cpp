@@ -142,8 +142,8 @@ UiWidgetResult ui_widget_manager_add_keyed(UiWidgetManager* manager, UiWidgetHan
     return add_widget(manager, parent, {id, kind, flags, {{name, name_bytes}, style, {}, 0, id}}, true);
 }
 
-bool ui_widget_manager_initialize_fill_root(UiWidgetManager* manager, Slice<UiWidget> widget_storage,
-                                            Slice<UiLayoutNode> layout_storage, Utf8View name, u16 flags,
+bool ui_widget_manager_initialize_fill_root(UiWidgetManager* manager, const Slice<UiWidget>& widget_storage,
+                                            const Slice<UiLayoutNode>& layout_storage, const Utf8View& name, u16 flags,
                                             UiWidgetReference* owner) noexcept {
     if (!ui_widget_manager_initialize(manager, widget_storage, layout_storage))
         return false;
@@ -166,7 +166,7 @@ UiWidgetResult ui_widget_manager_add_part(UiWidgetManager* manager, UiWidgetHand
 }
 
 UiWidgetResult ui_widget_manager_add_placed(UiWidgetManager* manager, UiWidgetHandle parent, UiWidgetKind kind,
-                                            u16 flags, Utf8View name, const UiRect& rectangle,
+                                            u16 flags, const Utf8View& name, const UiRect& rectangle,
                                             const UiRect& origin) noexcept {
     auto style = ui_layout_style();
     style.width = ui_layout_fixed(ui_rect_width(rectangle));
@@ -178,8 +178,8 @@ UiWidgetResult ui_widget_manager_add_placed(UiWidgetManager* manager, UiWidgetHa
     return ui_widget_manager_add_prevalidated(manager, parent, {id, kind, flags, {name, style, {}, 0, id}});
 }
 
-bool ui_widget_manager_place_part(UiWidgetManager* manager, UiWidgetHandle handle, UiRect rectangle,
-                                  UiRect origin, bool visible, bool enabled,
+bool ui_widget_manager_place_part(UiWidgetManager* manager, UiWidgetHandle handle, const UiRect& rectangle,
+                                  const UiRect& origin, bool visible, bool enabled,
                                   bool focusable) noexcept {
     auto* widget = ui_widget_manager_resolve(manager, handle);
     if (!widget)

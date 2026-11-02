@@ -171,7 +171,7 @@ __forceinline bool decode_huffman_symbol(JpegEntropyReader* reader, const JpegDe
     if (reader->error != JpegError::none) {
         return false;
     }
-    if (reader->bits < 16) {
+    if (reader->bits < 16) [[unlikely]] {
         entropy_refill(reader);
     }
     u32 entry = decode.lookahead[reader->buffer >> (64u - kJpegLookaheadBits)];
@@ -224,7 +224,7 @@ __forceinline bool decode_block_local(JpegEntropyReader* reader, const JpegDecod
 
     u32 coefficient = 1;
     while (coefficient < 64) {
-        if (reader->bits < 16) {
+        if (reader->bits < 16) [[unlikely]] {
             entropy_refill(reader);
         }
         // Codeword and magnitude bits in one lookup: the same consumption,
@@ -346,7 +346,7 @@ __declspec(noinline) bool decode_progressive_ac_initial(JpegEntropyReader* reade
     }
     u32 coefficient = spectral_start;
     while (coefficient <= spectral_end) {
-        if (reader->bits < 16) {
+        if (reader->bits < 16) [[unlikely]] {
             entropy_refill(reader);
         }
         // One lookup for codeword and magnitude bits when every check below passes.

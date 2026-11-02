@@ -391,7 +391,7 @@ maicord_compact_sources(
         "/app/shell/(main|app_icon)\\.cpp$"
         "/app/(shell/frame_presentation|shell/scheduler|media/video(_sources|_input)?)\\.cpp$"
         "/model/(chat/message_(rich_)?store(_pack)?|user/store|guild/member_store|guild/member_list)\\.cpp$"
-        "/protocol/(auth/p256_signature|encoding/json_ids|encoding/json_write|encoding/writer|gateway/etf|gateway/events|gateway/message_events|gateway/message_rich(_reference|_attachments|_embeds)?|gateway/payload|gateway/reaction_events|gateway/typing_events|http/http1|http/http_response_stream|http/websocket_frame|http/websocket_message|messages/history|voice/dave_frame|voice/dave_replay|voice/media_events|voice/media_packet)\\.cpp$")
+        "/protocol/(encoding/json_ids|gateway/etf|gateway/message_events|gateway/message_rich(_reference|_attachments|_embeds)?|gateway/payload|gateway/reaction_events|gateway/typing_events|http/http1|http/http_response_stream|http/websocket_frame|http/websocket_message|messages/history|voice/dave_frame|voice/dave_replay|voice/media_packet)\\.cpp$")
 # UI scenes, presentation, renderer and the message runtime: the offline perf
 # probe measured equal or lower main-thread CPU in every phase at /Os (smaller
 # code and no chained unwind records). The parsers and tokenizers they run per
@@ -502,6 +502,41 @@ maicord_compact_sources(
         src/app/media/attachment_media_probe.cpp src/app/gateway/guild_folders.cpp src/app/gateway/user_settings.cpp
         src/app/gateway/scheduled_event_dispatch.cpp
         src/render/effects/lottie_program.cpp src/render/effects/colr_source.cpp src/media/core/encoded_cache.cpp)
+# Gateway outbound requests and drivers, connection setup, the session loop, chat-state
+# application and the notification sidecar, voice message recording and Opus send (the encoder
+# dominates), call setup glue, media session control, CDN admission around the decoders and the
+# entry loop: all one-shot, per request, per guild event or low-rate. Interleaved A/B (best of 20
+# runs, one pinned core): the Gateway pipeline benchmark's READY, supplemental and event-burst
+# phases are within 1% of /O2, the guild-create apply benchmark within 1.6% of 2.5-16 us, the
+# voice send and recorder paths within 0.7%. The READY decoders (state_dispatch*, user/state
+# payload, read state, relationships, thread members), the message and member-list paths and
+# the voice audio path (mixer, transmit, playback, jitter buffer, receive, UDP media: +5% to
+# +75% at -Oz, with per-sample loops) stay /O2.
+maicord_compact_sources(
+    SOURCES
+        src/app/gateway/voice_dispatch.cpp src/app/gateway/guild_admin_dispatch.cpp
+        src/app/gateway/client.cpp src/app/gateway/client_outputs.cpp src/app/gateway/client_storage.cpp
+        src/app/gateway/client_transport.cpp src/app/gateway/dispatch_notifications.cpp
+        src/app/gateway/chat_state_dispatch.cpp src/app/gateway/client_session.cpp
+        src/app/voice/message_recorder.cpp src/app/voice/send.cpp
+        src/app/voice/call_video_presenter.cpp src/app/voice/message_flow.cpp src/app/voice/log.cpp
+        src/app/media/account_media_video.cpp src/app/media/video_sources.cpp
+        src/app/media/account_video_session.cpp src/app/media/cdn_media_pipeline.cpp
+        src/app/shell/main.cpp)
+# Core and platform code with no byte loop: path building, per-frame DXVA submission and MP4
+# decoder plumbing, speech, datagram and TLS stream control around the OS calls, the random
+# source and the window frame; Gateway connection events, voice session descriptions, request
+# bodies (JSON strings, the writer) and the P-256 signature framing, all once per session or
+# per user action (the decoders that run per event stay /O2).
+maicord_compact_sources(
+    SOURCES
+        src/core/data_path.cpp src/platform/crypto/random.cpp src/platform/desktop/window_frame.cpp
+        src/platform/audio/speech.cpp src/platform/net/datagram.cpp src/platform/net/tls_stream.cpp
+        src/platform/decode/aac_decoder.cpp src/platform/decode/av1_dxva_parameters.cpp
+        src/platform/decode/av1_gpu_stream.cpp src/platform/decode/gpu_stream_decoder.cpp
+        src/platform/decode/h264_gpu_decoder.cpp src/platform/decode/h264_gpu_stream_decoder.cpp
+        src/platform/decode/hevc_gpu_decoder.cpp src/platform/decode/hevc_gpu_stream_decoder.cpp
+        src/platform/decode/mp4_decoder.cpp)
 # The contract's /Ob1 emits every function not declared inline as noinline, so
 # the helpers of a -Oz source stay calls even where inlining them is smaller.
 # /Ob2 lets the size-driven inliner (-Oz keeps its minimum threshold) fold

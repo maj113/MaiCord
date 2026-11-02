@@ -172,7 +172,7 @@ bool own_removal(const PluginEvent& event) noexcept {
 }
 
 // Queues an event for the feed; the common fields are filled here.
-void push(PluginEvent event, const AccountUiRuntime* ui) noexcept {
+void push(PluginEvent& event, const AccountUiRuntime* ui) noexcept { // fills the caller's event; none reuses it
     if (!(plugin_events_interest() & MC_EVENT_BIT(event.kind))) return;
     if (event.user_id && event.user_id == self_id()) event.flags |= MC_EVENT_OWN;
     if ((event.kind == MC_EVENT_GUILD_DELETE || event.kind == MC_EVENT_CHANNEL_DELETE ||

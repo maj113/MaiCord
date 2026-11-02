@@ -1,9 +1,8 @@
 #include "maicord/ui/widgets/icon_pack.hpp"
 #include "maicord/core/memory.hpp"
 
-#include "maicord/media/compression/deflate.hpp"
+#include "maicord/media/compression/inflated_block.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/text/opentype/outline.hpp"
 
 namespace maicord {
@@ -30,7 +29,10 @@ static_assert(sizeof(kUiIconPackData) > kHeaderBytes && kUiIconPackData[0] == 'M
               kUiIconPackData[1] == 'I' && kUiIconPackData[2] == 'P' && kUiIconPackData[3] == 'K');
 constexpr u32 kBuiltinIconCount = read_u16(kUiIconPackData + 6);
 IconPack g_builtin;
-volatile LONG builtin_state; // 0 packed, 1 inflating, 2 published
+InflatedBlock builtin_block;
+void publish_builtin(const u8* data) noexcept {
+    g_builtin = {data, sizeof(kUiIconPackData), kBuiltinIconCount};
+}
 
 struct Header {
     u32 commands, stems;
@@ -54,26 +56,10 @@ Record record(const IconPack& pack, u32 index) noexcept {
 // into private pages kept for the process lifetime. Allocation or inflation
 // failure leaves an empty pack.
 const IconPack& icon_pack_builtin() noexcept {
-    for (;;) {
-        const LONG state = builtin_state;
-        if (state == 2)
-            return g_builtin;
-        if (state == 0 && InterlockedCompareExchange(&builtin_state, 1, 0) == 0) {
-            constexpr u32 bytes = sizeof(kUiIconPackData);
-            auto* data = static_cast<u8*>(VirtualAlloc(nullptr, bytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
-            DeflateWorkspace* workspace = deflate_workspace_allocate();
-            const DeflateInputSpan input{kUiIconPackPacked, sizeof(kUiIconPackPacked)};
-            if (data && workspace && zlib_inflate({&input, 1}, {data, bytes}, bytes, workspace).ok()) {
-                g_builtin = {data, bytes, kBuiltinIconCount};
-            } else if (data) {
-                VirtualFree(data, 0, MEM_RELEASE);
-            }
-            deflate_workspace_free(workspace);
-            builtin_state = 2;
-            return g_builtin;
-        }
-        YieldProcessor();
-    }
+    if (builtin_block.state != 2)
+        inflated_block_load(builtin_block, kUiIconPackPacked, sizeof(kUiIconPackPacked), sizeof(kUiIconPackData),
+                            publish_builtin);
+    return g_builtin;
 }
 
 u32 icon_pack_stems(const IconPack& pack, u32 index, IconStem* stems, u32 capacity) noexcept {

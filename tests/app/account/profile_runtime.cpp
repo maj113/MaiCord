@@ -351,11 +351,11 @@ void run() noexcept {
 } // namespace maicord::profile_runtime_test
 
 namespace maicord {
-ClipboardTextResult clipboard_read_utf8(HWND, Slice<char>) noexcept {
+ClipboardTextResult clipboard_read_utf8(HWND, const Slice<char>&) noexcept {
     profile_runtime_test::check(false, "profile runtime: role actions do not read the clipboard");
     return {0, ClipboardTextError::unavailable};
 }
-bool clipboard_write_utf8(HWND, Utf8View) noexcept {
+bool clipboard_write_utf8(HWND, const Utf8View&) noexcept {
     profile_runtime_test::check(false, "profile runtime: role actions do not write the clipboard");
     return false;
 }

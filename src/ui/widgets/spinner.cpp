@@ -46,7 +46,7 @@ bool ui_spinner_clock_tick(UiSpinnerClock* clock, u64 now_ms, bool visible, bool
 bool ui_spinner_clock_due(const UiSpinnerClock& clock, u64 now_ms) noexcept {
     return clock.visible && clock.wake_ms && now_ms >= clock.wake_ms;
 }
-bool ui_spinner_paint(PaintStream* paint, UiRect bounds, Color color, u8 phase,
+bool ui_spinner_paint(PaintStream* paint, const UiRect& bounds, const Color& color, u8 phase,
                       const UiSpinnerStyle& style) noexcept {
     if (!paint || !paint_coordinate_valid(bounds.left) || !paint_coordinate_valid(bounds.top) ||
         !paint_coordinate_valid(bounds.right) || !paint_coordinate_valid(bounds.bottom) ||

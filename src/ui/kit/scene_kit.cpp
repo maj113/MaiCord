@@ -110,7 +110,7 @@ bool ui_scene_open(UiFixedWidgetStorageOwner* storage, UiWidgetManager* widgets,
     ui_fixed_widget_storage_release(storage);
     return false;
 }
-UiWidgetHandle ui_scene_root(UiWidgetManager* widgets, Utf8View name) noexcept {
+UiWidgetHandle ui_scene_root(UiWidgetManager* widgets, const Utf8View& name) noexcept {
     ui_widget_manager_reset(widgets);
     const auto style =
         ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_allow_overlap | ui_layout_node_clip_children);
@@ -119,11 +119,11 @@ UiWidgetHandle ui_scene_root(UiWidgetManager* widgets, Utf8View name) noexcept {
     return root.ok() ? root.handle : UiWidgetHandle{};
 }
 UiWidgetHandle ui_scene_part(UiWidgetManager* widgets, UiWidgetHandle parent, UiWidgetKind kind,
-                             Utf8View name) noexcept {
+                             const Utf8View& name) noexcept {
     const auto part = ui_widget_manager_add_part(widgets, parent, kind, name);
     return part.ok() ? part.handle : UiWidgetHandle{};
 }
-UiWidgetHandle ui_scene_part_root(UiWidgetManager* widgets, Utf8View name) noexcept {
+UiWidgetHandle ui_scene_part_root(UiWidgetManager* widgets, const Utf8View& name) noexcept {
     const auto root = ui_scene_part(widgets, ui_widget_invalid_handle(), UiWidgetKind::container, name);
     if (auto* node = ui_widget_manager_layout_node(widgets, root))
         node->spec.style.width = node->spec.style.height = ui_layout_fill();

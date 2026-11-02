@@ -276,7 +276,7 @@ namespace maicord {
 void renderer_bind_focus_owner(D3D11Renderer* renderer, const UiWidgetManager* owner) noexcept {
     renderer->focus_owner = owner;
 }
-bool clipboard_write_utf8(HWND, Utf8View text) noexcept {
+bool clipboard_write_utf8(HWND, const Utf8View& text) noexcept {
     if (text.bytes > sizeof(account_menu_runtime_test::copied))
         return false;
     copy_bytes(account_menu_runtime_test::copied, text.data, text.bytes);

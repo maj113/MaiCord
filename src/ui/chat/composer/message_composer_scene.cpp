@@ -98,7 +98,7 @@ u32 plugin_slot_count() noexcept {
 inline constexpr float kComposerReplyHeight = 28.0f;
 inline constexpr float kComposerTypingHeight = 20.0f;
 
-bool reply_label_equal(const MessageComposerScene& scene, Utf8View label) noexcept {
+bool reply_label_equal(const MessageComposerScene& scene, const Utf8View& label) noexcept {
     return utf8_equal(Utf8View{scene.reply_label, scene.reply_label_bytes}, label);
 }
 
@@ -242,7 +242,7 @@ inline float editor_padding_height(const UiResolvedThemeStyles* styles = nullptr
     return metrics.composer_padding + metrics.composer_padding + metrics.menu_padding + metrics.menu_padding;
 }
 
-bool configure_controls(MessageComposerScene* scene, UiRect viewport, float chrome) noexcept {
+bool configure_controls(MessageComposerScene* scene, const UiRect& viewport, float chrome) noexcept {
     auto* controls = ui_widget_manager_layout_node(&scene->widgets, scene->controls);
     auto* edit = ui_widget_manager_layout_node(&scene->widgets, scene->edit);
     if (!controls || !edit)
@@ -424,7 +424,7 @@ struct ProjectedToken {
     bool animated;
 };
 
-bool decimal_id(Utf8View source, u32 first, u32 last, u64* value) noexcept {
+bool decimal_id(const Utf8View& source, u32 first, u32 last, u64* value) noexcept {
     if (first >= last || last > source.bytes) {
         return false;
     }
@@ -444,7 +444,7 @@ bool decimal_id(Utf8View source, u32 first, u32 last, u64* value) noexcept {
     return parsed != 0;
 }
 
-bool projected_token_at(Utf8View source, u32 first, const MessageComposerProjectionContext* context,
+bool projected_token_at(const Utf8View& source, u32 first, const MessageComposerProjectionContext* context,
                         ProjectedToken* token) noexcept {
     if (first >= source.bytes || source.data[first] != '<' || source.bytes - first < 4) {
         return false;
@@ -770,7 +770,7 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
 }
 
 // Copies tile strings into scene storage; true when presentation differs.
-bool store_attachment_tiles(MessageComposerScene* scene, ConstSlice<UiComposerAttachmentTile> tiles) noexcept {
+bool store_attachment_tiles(MessageComposerScene* scene, const ConstSlice<UiComposerAttachmentTile>& tiles) noexcept {
     auto& strip = *scene->attachment_strip;
     u64 signature = hash64_mix(kHash64Seed, tiles.count);
     for (u32 i = 0; i < tiles.count; ++i) {
@@ -1012,9 +1012,9 @@ float message_composer_scene_cached_height(const MessageComposerScene& scene, bo
 }
 
 MessageComposerSceneResult message_composer_scene_update(
-    MessageComposerScene* scene, MessageComposer* model, UiRect viewport, bool channel_allows_send,
-    u64 reply_message_id, Utf8View reply_label, const MessageComposerProjectionContext* projection,
-    Utf8View typing_label, MessageComposerAttachmentInput attachments, bool sending_restricted,
+    MessageComposerScene* scene, MessageComposer* model, const UiRect& viewport, bool channel_allows_send,
+    u64 reply_message_id, const Utf8View& reply_label, const MessageComposerProjectionContext* projection,
+    const Utf8View& typing_label, MessageComposerAttachmentInput attachments, bool sending_restricted,
     bool mention_reply_author, bool reply_mention_visible, bool status_is_error,
     bool reply_sendable, u8 status_tone) noexcept {
     if (!scene || !scene->widgets.storage.data || !scene->display || !scene->reply_label ||
@@ -1600,7 +1600,7 @@ bool message_composer_scene_composition_range(const MessageComposerScene& scene,
 }
 
 u32 message_composer_scene_chip_ranges(const MessageComposerScene& scene,
-                                       Slice<MessageComposerChipRange> output) noexcept {
+                                       const Slice<MessageComposerChipRange>& output) noexcept {
     if (!scene.model || !output.data)
         return 0;
     const auto display = message_composer_scene_display_text(scene);

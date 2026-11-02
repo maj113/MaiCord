@@ -168,7 +168,7 @@ AcceptanceRecordResult catalog_state_save(const wchar_t* path, u32 path_characte
     return result;
 }
 
-CatalogStateEntry* catalog_state_find(CatalogState& state, CatalogKind kind, Utf8View slug) noexcept {
+CatalogStateEntry* catalog_state_find(CatalogState& state, CatalogKind kind, const Utf8View& slug) noexcept {
     for (u32 i = 0; i < state.count; ++i)
         if (state.entries[i].kind == kind && utf8_equal(catalog_entry_slug(state.entries[i]), slug)) return &state.entries[i];
     return nullptr;
@@ -180,7 +180,7 @@ CatalogStateEntry* catalog_state_find_owner(CatalogState& state, u64 owner_id) n
     return nullptr;
 }
 
-CatalogStateEntry* catalog_state_add(CatalogState& state, CatalogKind kind, Utf8View slug) noexcept {
+CatalogStateEntry* catalog_state_add(CatalogState& state, CatalogKind kind, const Utf8View& slug) noexcept {
     if (state.count == kCatalogStateMaximumEntries || !slug_valid(slug) || catalog_state_find(state, kind, slug)) return nullptr;
     CatalogStateEntry& e = state.entries[state.count++];
     clear_bytes(&e, sizeof(e));
@@ -196,7 +196,7 @@ void catalog_state_remove(CatalogState& state, CatalogStateEntry* entry) noexcep
     clear_bytes(&state.entries[--state.count], sizeof(CatalogStateEntry));
 }
 
-void catalog_state_install(CatalogStateEntry* e, Utf8View version, const u8* sha256, u64 now, bool keep_previous) noexcept {
+void catalog_state_install(CatalogStateEntry* e, const Utf8View& version, const u8* sha256, u64 now, bool keep_previous) noexcept {
     if (keep_previous && !zero(e->sha256, 32) && !bytes_equal(e->sha256, sha256, 32) && e->version_bytes) {
         copy_bytes(e->previous_sha256, e->sha256, 32);
         copy_text(e->previous_version, &e->previous_version_bytes, sizeof(e->previous_version), catalog_entry_version(*e));

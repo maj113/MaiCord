@@ -23,7 +23,7 @@ struct Extension {
 };
 static_assert(sizeof(Extension) == 8);
 
-bool extension_in(Utf8View extension, const Extension* list, u32 count) noexcept {
+bool extension_in(const Utf8View& extension, const Extension* list, u32 count) noexcept {
     for (u32 i = 0; i < count; ++i) {
         if (utf8_equal(extension, Utf8View{list[i].name, list[i].bytes}))
             return true;
@@ -31,17 +31,17 @@ bool extension_in(Utf8View extension, const Extension* list, u32 count) noexcept
     return false;
 }
 
-template<u32 N> bool extension_in(Utf8View extension, const Extension (&list)[N]) noexcept {
+template<u32 N> bool extension_in(const Utf8View& extension, const Extension (&list)[N]) noexcept {
     return extension_in(extension, list, N);
 }
 
-u32 append(Slice<char> output, u32 used, const char* text) noexcept {
+u32 append(const Slice<char>& output, u32 used, const char* text) noexcept {
     for (u32 i = 0; text[i] && used < output.count; ++i)
         output[used++] = text[i];
     return used;
 }
 
-u32 append_unsigned(Slice<char> output, u32 used, u64 value, u32 minimum_digits = 1) noexcept {
+u32 append_unsigned(const Slice<char>& output, u32 used, u64 value, u32 minimum_digits = 1) noexcept {
     char digits[20];
     u32 count = 0;
     do {
@@ -55,7 +55,7 @@ u32 append_unsigned(Slice<char> output, u32 used, u64 value, u32 minimum_digits 
     return used;
 }
 
-UiRect centered(UiRect area, float extent) noexcept {
+UiRect centered(const UiRect& area, float extent) noexcept {
     extent = minimum(extent, minimum(ui_rect_width(area), ui_rect_height(area)));
     const float x = (area.left + area.right - extent) * .5f;
     const float y = (area.top + area.bottom - extent) * .5f;
@@ -90,7 +90,7 @@ UiIcon button_icon(const UiComposerAttachmentTile& tile, UiComposerAttachmentPar
 }
 
 // Status replaces the size while transfer state matters.
-u32 status_text(const UiComposerAttachmentTile& tile, Slice<char> output) noexcept {
+u32 status_text(const UiComposerAttachmentTile& tile, const Slice<char>& output) noexcept {
     switch (tile.phase) {
     case UiComposerAttachmentPhase::preparing:
         return 0;
@@ -119,7 +119,7 @@ float status_width(u32 bytes) noexcept {
 
 } // namespace
 
-u32 ui_attachment_file_extension(Utf8View filename, Slice<char> output) noexcept {
+u32 ui_attachment_file_extension(const Utf8View& filename, const Slice<char>& output) noexcept {
     if (!filename.data || !filename.bytes || !output.data)
         return 0;
     u32 dot = filename.bytes;
@@ -255,7 +255,7 @@ float ui_composer_attachment_strip_content_width(u32 count) noexcept {
            style.trailing;
 }
 
-float ui_composer_attachment_strip_clamp_scroll(UiRect strip, u32 count, float scroll) noexcept {
+float ui_composer_attachment_strip_clamp_scroll(const UiRect& strip, u32 count, float scroll) noexcept {
     const float overflow =
         maximum(0.f, ui_composer_attachment_strip_content_width(count) - ui_rect_width(strip));
     return scroll != scroll ? 0.f : minimum(overflow, maximum(0.f, scroll));
@@ -275,7 +275,7 @@ float ui_composer_attachment_strip_reveal(UiRect strip, u32 count, u32 index, fl
     return ui_composer_attachment_strip_clamp_scroll(strip, count, scroll);
 }
 
-UiComposerAttachmentTileGeometry ui_composer_attachment_tile_geometry(UiRect strip, const UiComposerAttachmentTile& tile,
+UiComposerAttachmentTileGeometry ui_composer_attachment_tile_geometry(const UiRect& strip, const UiComposerAttachmentTile& tile,
                                                                       u32 index, float scroll) noexcept {
     UiComposerAttachmentTileGeometry geometry{};
     const float left = strip.left + style.leading - scroll + static_cast<float>(index) * (style.tile + style.gap);
@@ -330,8 +330,8 @@ float ui_composer_attachment_thumbnail_blur(const UiComposerAttachmentTile& tile
     return minimum(kUiComposerAttachmentSpoilerBlur, minimum(ui_rect_width(fitted), ui_rect_height(fitted)) * .25f);
 }
 
-u32 ui_composer_attachment_tile_tags(const UiComposerAttachmentTile& tile, UiRect media,
-                                     Slice<UiComposerAttachmentTag> output, Slice<char> duration_storage) noexcept {
+u32 ui_composer_attachment_tile_tags(const UiComposerAttachmentTile& tile, const UiRect& media,
+                                     const Slice<UiComposerAttachmentTag>& output, const Slice<char>& duration_storage) noexcept {
     if (!output.data || tile.phase == UiComposerAttachmentPhase::preparing)
         return 0;
     Utf8View labels[kUiComposerAttachmentTags]{};

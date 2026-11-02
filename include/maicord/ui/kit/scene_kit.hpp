@@ -339,12 +339,12 @@ template <class Scene> void ui_scene_release(Scene* s) noexcept {
 }
 // Starts a rebuild: resets the tree and adds the root container that fills the
 // viewport (clips, allows overlap); zero-generation handle on failure.
-UiWidgetHandle ui_scene_root(UiWidgetManager* widgets, Utf8View name) noexcept;
+UiWidgetHandle ui_scene_root(UiWidgetManager* widgets, const Utf8View& name) noexcept;
 // The root of a part-based scene (ui_widget_manager_add_part), filling the viewport.
-UiWidgetHandle ui_scene_part_root(UiWidgetManager* widgets, Utf8View name) noexcept;
+UiWidgetHandle ui_scene_part_root(UiWidgetManager* widgets, const Utf8View& name) noexcept;
 // Adds a part under `parent`; zero-generation handle on failure.
 UiWidgetHandle ui_scene_part(UiWidgetManager* widgets, UiWidgetHandle parent, UiWidgetKind kind,
-                             Utf8View name) noexcept;
+                             const Utf8View& name) noexcept;
 
 // Places a control (button, or container for a target without action) under
 // `parent` and records its target. Children of `s.body_owner` are placed

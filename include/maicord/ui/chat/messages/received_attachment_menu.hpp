@@ -33,7 +33,7 @@ enum class ReceivedAttachmentLinkKind : u8 {
     image,
     media
 };
-ReceivedAttachmentLinkKind received_attachment_link_kind(Utf8View url) noexcept;
+ReceivedAttachmentLinkKind received_attachment_link_kind(const Utf8View& url) noexcept;
 
 struct ReceivedAttachmentMenuFacts {
     ReceivedAttachmentKind kind;
@@ -44,7 +44,7 @@ struct ReceivedAttachmentMenuFacts {
 inline constexpr u32 kReceivedAttachmentMenuItems = 4;
 // Returns the item count (zero when the URL is not an https URL or the output
 // is too small). Group starts carry popup_item_separator_before.
-u32 received_attachment_menu(const ReceivedAttachmentMenuFacts& facts, Slice<PopupItem> output) noexcept;
+u32 received_attachment_menu(const ReceivedAttachmentMenuFacts& facts, const Slice<PopupItem>& output) noexcept;
 
 // A right-clicked link in message text, an embed or a forward gets the link
 // group (Copy Link, Open Link, named after the URL as above), merged into the

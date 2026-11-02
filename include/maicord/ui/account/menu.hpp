@@ -55,8 +55,8 @@ struct UiAccountMenuModel {
 };
 static_assert(sizeof(UiAccountMenuModel) <= 1280);
 bool ui_account_menu_build(UiAccountMenuModel*, const UiAccountMenuIdentity&) noexcept;
-PopupSceneResult ui_account_menu_open_popup(PopupScene*, const UiAccountMenuModel&, UiRect anchor,
-                                            UiRect viewport) noexcept;
+PopupSceneResult ui_account_menu_open_popup(PopupScene*, const UiAccountMenuModel&, const UiRect& anchor,
+                                            const UiRect& viewport) noexcept;
 ConstSlice<PopupItem> ui_account_menu_items(const UiAccountMenuModel&) noexcept;
 bool ui_account_menu_action_enabled(const UiAccountMenuModel&, u32 action) noexcept;
 } // namespace maicord

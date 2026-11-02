@@ -3,10 +3,12 @@
 
 Input: assets/regional_flags/<codepoints>.svg (CC BY 4.0, see
 assets/licenses/Twemoji-graphics.txt). The flag sequence is derived from the
-file name exactly as src/ui/text/regional_flag.cpp numbers it. Coordinates are
-rounded to two decimals (1/3600 of the 36-unit view box). Each flag becomes a
+file name exactly as src/ui/text/regional_flag.cpp numbers it. Source numbers are
+rounded to two decimals (1/3600 of the 36-unit view box); path positions are then
+rounded to a tenth of a unit (PATH_UNIT), each once, so no error accumulates and
+none exceeds 0.05 unit. Each flag becomes a
 binary record (elements, fills, path letters with number counts, zigzag
-varint hundredths) that src/app/media/regional_flag_assets.cpp turns back into the
+varint tenths) that src/app/media/regional_flag_assets.cpp turns back into the
 SVG text `decode` writes here. Output is a deterministic C++ include with one
 zlib stream per group of similar records.
 """
@@ -118,6 +120,81 @@ def varint(value, out, signed=True):
     out.append(value)
 
 
+# Path numbers are stored in tenths of a view-box unit (PATH_UNIT hundredths). Every absolute position is
+# rounded once, and a relative number is the difference of two rounded positions, so the error never exceeds
+# PATH_UNIT / 2 hundredths (0.05 unit, under a tenth of a pixel at 64 px) and never accumulates along a path.
+PATH_UNIT = 10
+ARGUMENTS = {b"M": 2, b"L": 2, b"T": 2, b"C": 6, b"S": 4, b"Q": 4, b"A": 7, b"H": 1, b"V": 1, b"Z": 0}
+
+
+def commands(items):
+    """[(letter, numbers)] of path_items."""
+    rows, at = [], 0
+    while at < len(items):
+        letter, at = items[at], at + 1
+        end = at
+        while end < len(items) and not isinstance(items[end], bytes):
+            end += 1
+        rows.append((letter, items[at:end]))
+        at = end
+    return rows
+
+
+def divide_round(value, unit):
+    """value / unit rounded half away from zero."""
+    return (abs(value) * 2 + unit) // (2 * unit) * (-1 if value < 0 else 1)
+
+
+def convert(items, unit):
+    """Re-express a path in `unit` hundredths: ([(letter, numbers)], source points, rounded points).
+
+    The points are every absolute position the path visits, in hundredths, before and after rounding; the
+    numbers in unit 1 are the source numbers. H, V and arc and curve control points count as positions."""
+    rows, exact, rounded = [], [], []
+    x = y = start_x = start_y = 0  # source position and sub-path start
+    qx = qy = start_qx = start_qy = 0  # rounded position and sub-path start, in units
+    for letter, numbers in commands(items):
+        kind, relative = letter.upper(), letter.islower()
+        if kind == b"Z":
+            x, y, qx, qy = start_x, start_y, start_qx, start_qy
+            rows.append((letter, []))
+            continue
+        step = ARGUMENTS[kind]
+        assert numbers and len(numbers) % step == 0, (letter, len(numbers))
+        converted = []
+        for first in range(0, len(numbers), step):
+            segment, bx, by, bqx, bqy = numbers[first:first + step], x, y, qx, qy
+            offset_x, offset_y = (bx, by) if relative else (0, 0)
+            offset_qx, offset_qy = (bqx, bqy) if relative else (0, 0)
+            if kind == b"H":
+                targets = [(0, None)]
+            elif kind == b"V":
+                targets = [(None, 0)]
+            elif kind == b"A":
+                targets = [(5, 6)]
+            else:
+                targets = [(k, k + 1) for k in range(0, step, 2)]
+            values = [divide_round(v, unit) for v in segment]
+            if kind == b"A":
+                values[3], values[4] = segment[3] // unit, segment[4] // unit  # arc flags stay 0 and 1
+            for index_x, index_y in targets:
+                if index_x is not None:
+                    x = segment[index_x] + offset_x
+                    qx = divide_round(x, unit)
+                    values[index_x] = qx - offset_qx
+                if index_y is not None:
+                    y = segment[index_y] + offset_y
+                    qy = divide_round(y, unit)
+                    values[index_y] = qy - offset_qy
+                exact.append((x, y))
+                rounded.append((qx * unit, qy * unit))
+            converted += values
+            if kind == b"M" and first == 0:
+                start_x, start_y, start_qx, start_qy = x, y, qx, qy
+        rows.append((letter, converted))
+    return rows, exact, rounded
+
+
 def elements(svg):
     """(closing, tag, attributes) for every element after the root."""
     rows = []
@@ -142,16 +219,10 @@ def encode(svg):
         out += bytes((TAGS.index(tag), len(fill))) + fill
         out.append((b"fill-rule" in attributes) | (b"transform" in attributes) << 1)
         if tag == b"path":
-            items, at = path_items(attributes[b"d"]), 0
-            while at < len(items):
-                letter, at = items[at], at + 1
-                end = at
-                while end < len(items) and not isinstance(items[end], bytes):
-                    end += 1
-                out += letter; varint(end - at, out, False)
-                for value in items[at:end]:
+            for letter, numbers in convert(path_items(attributes[b"d"]), PATH_UNIT)[0]:
+                out += letter; varint(len(numbers), out, False)
+                for value in numbers:
                     varint(value, out)
-                at = end
             out.append(0)
         else:
             for name in SHAPE_ATTRIBUTES.get(tag, ()):
@@ -173,9 +244,9 @@ def decode(record):
             if byte < 0x80:
                 return value
 
-    def number():
+    def number(unit=1):
         value = unsigned()
-        value = (value >> 1) ^ -(value & 1)
+        value = ((value >> 1) ^ -(value & 1)) * unit
         text = f"{abs(value) // 100}" if abs(value) >= 100 or not abs(value) % 100 else ""
         if abs(value) % 100:
             text += f".{abs(value) % 100:02d}".rstrip("0")
@@ -211,7 +282,7 @@ def decode(record):
             out += b' d="'
             while record[at]:
                 out.append(record[at]); at += 1
-                out += separated([number() for _ in range(unsigned())])
+                out += separated([number(PATH_UNIT) for _ in range(unsigned())])
             at += 1
             out += b'"/>'
         elif name == b"g":
@@ -223,18 +294,30 @@ def decode(record):
 
 
 def verify(svg, text):
-    """The rebuilt text keeps every element, fill, fill rule and number of the rounded source."""
+    """The rebuilt text keeps every element, fill, fill rule and command of the rounded source; its paths
+    visit the same points to within half a PATH_UNIT, and its arc radii and rotations likewise."""
     def meaning(source):
-        rows = []
+        rows, paths = [], []
         for closing, tag, attributes in elements(source):
             attributes = {k: v for k, v in attributes.items() if k != b"clip-rule"}
             if b"d" in attributes:
-                attributes[b"d"] = path_items(attributes[b"d"])
+                items = path_items(attributes.pop(b"d"))
+                paths.append(items)
+                attributes[b"d"] = [(letter, len(numbers)) for letter, numbers in commands(items)]
             for name in SHAPE_ATTRIBUTES.get(tag, ()):
                 attributes[name] = hundredths(attributes[name])
             rows.append((closing, tag, attributes))
-        return rows
-    assert meaning(svg) == meaning(text), "record changed a flag"
+        return rows, paths
+    (rows, paths), (rebuilt_rows, rebuilt_paths) = meaning(svg), meaning(text)
+    assert rows == rebuilt_rows, "record changed a flag"
+    for items, rebuilt in zip(paths, rebuilt_paths):
+        for (a, b) in zip(convert(items, 1)[1], convert(rebuilt, 1)[1]):
+            assert max(abs(a[0] - b[0]), abs(a[1] - b[1])) <= PATH_UNIT // 2, "record moved a point"
+        for (letter, numbers), (_, moved) in zip(commands(items), commands(rebuilt)):
+            if letter in (b"A", b"a"):
+                for first in range(0, len(numbers), 7):
+                    assert all(abs(numbers[first + k] - moved[first + k]) <= PATH_UNIT // 2 for k in range(3)), "arc moved"
+                    assert numbers[first + 3:first + 5] == moved[first + 3:first + 5], "arc flags changed"
 
 
 def best_deflate(data):
@@ -341,6 +424,7 @@ def main():
              "// Twemoji artwork, CC BY 4.0, coordinates rounded. See assets/licenses/Twemoji-graphics.txt.",
              f"constexpr u64 kFlagTextChecksum=0x{checksum:016X}ull;",
              f"constexpr u32 kFlagCount={len(entries)};",
+             f"constexpr u32 kFlagPathUnit={PATH_UNIT};",
              f"constexpr u32 kFlagGroupCount={len(groups)};",
              f"constexpr u32 kFlagScratchBytes={maximum_raw};",
              "constexpr FlagGroup kFlagGroups[]={"]

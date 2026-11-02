@@ -27,22 +27,23 @@ namespace maicord::app_detail {
 namespace video_detail {}
 using namespace video_detail;
 
+// No default member initializers: `InlineMediaSource source{}` is one zero fill.
 struct InlineMediaSource {
-    MediaAssetKey key{};
-    UiRect preview{};
-    UiRect clip{};
-    u64 message_id{};
-    u64 channel_id{};
-    u32 revision{};
-    u8 index{};
-    bool embed{};
-    bool snapshot{};
-    ApplicationSearchSourceTicket search_source{};
-    UiWidgetReference owner{};
-    bool audio{};
-    bool provider{};
-    u32 start_seconds{};
-    bool audio_preview{};
+    MediaAssetKey key;
+    UiRect preview;
+    UiRect clip;
+    u64 message_id;
+    u64 channel_id;
+    u32 revision;
+    u8 index;
+    bool embed;
+    bool snapshot;
+    ApplicationSearchSourceTicket search_source;
+    UiWidgetReference owner;
+    bool audio;
+    bool provider;
+    u32 start_seconds;
+    bool audio_preview;
 };
 struct InlineAudioSceneSelection {};
 struct InlineVideoSceneSelection {};

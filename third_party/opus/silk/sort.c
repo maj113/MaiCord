@@ -50,6 +50,7 @@ void silk_insertion_sort_increasing(
     celt_assert( L >= K );
 
     /* Write start indices in index vector */
+    SHORT_LOOP
     for( i = 0; i < K; i++ ) {
         idx[ i ] = i;
     }
@@ -67,6 +68,7 @@ void silk_insertion_sort_increasing(
 
     /* If less than L values are asked for, check the remaining values, */
     /* but only spend CPU to ensure that the K first values are correct */
+    SHORT_LOOP
     for( i = K; i < L; i++ ) {
         value = a[ i ];
         if( value < a[ K - 1 ] ) {
@@ -97,6 +99,7 @@ void silk_insertion_sort_decreasing_int16(
     celt_assert( L >= K );
 
     /* Write start indices in index vector */
+    SHORT_LOOP
     for( i = 0; i < K; i++ ) {
         idx[ i ] = i;
     }
@@ -114,6 +117,7 @@ void silk_insertion_sort_decreasing_int16(
 
     /* If less than L values are asked for, check the remaining values, */
     /* but only spend CPU to ensure that the K first values are correct */
+    SHORT_LOOP
     for( i = K; i < L; i++ ) {
         value = a[ i ];
         if( value > a[ K - 1 ] ) {

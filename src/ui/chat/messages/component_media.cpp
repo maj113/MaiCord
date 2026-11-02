@@ -10,7 +10,7 @@
 namespace maicord {
 namespace {
 
-bool has_extension(Utf8View path, const char* extension) noexcept {
+bool has_extension(const Utf8View& path, const char* extension) noexcept {
     const u32 bytes = c_string_length(extension);
     if (path.bytes < bytes)
         return false;
@@ -65,7 +65,7 @@ bool message_component_media_resolve(const MessageRichStore& store, const Messag
 }
 
 namespace {
-u32 cdn_url(Utf8View prefix, u64 id, Utf8View hash, Utf8View suffix, Slice<char> output) noexcept {
+u32 cdn_url(const Utf8View& prefix, u64 id, const Utf8View& hash, const Utf8View& suffix, const Slice<char>& output) noexcept {
     char digits[24];
     u32 id_bytes = 0;
     for (u64 value = id; value; value /= 10u)
@@ -89,7 +89,7 @@ u32 cdn_url(Utf8View prefix, u64 id, Utf8View hash, Utf8View suffix, Slice<char>
 }
 } // namespace
 
-u32 message_event_cover_url(const ScheduledEvent& event, Slice<char> output) noexcept {
+u32 message_event_cover_url(const ScheduledEvent& event, const Slice<char>& output) noexcept {
     if (!event.id || !event.image_bytes || !output.data)
         return 0;
     for (u32 i = 0; i < event.image_bytes; ++i) {
@@ -101,7 +101,7 @@ u32 message_event_cover_url(const ScheduledEvent& event, Slice<char> output) noe
                    utf8_literal(".png?size=256"), output);
 }
 
-u32 message_invite_icon_url(const GuildInvite& invite, Slice<char> output) noexcept {
+u32 message_invite_icon_url(const GuildInvite& invite, const Slice<char>& output) noexcept {
     if (!invite.guild_id || !invite.icon_bytes || !output.data)
         return 0;
     return cdn_url(utf8_literal("https://cdn.discordapp.com/icons/"), invite.guild_id,

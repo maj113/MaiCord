@@ -118,12 +118,12 @@ u64 message_text_presentation_projection_signature(const MessageTextPresentation
 }
 
 bool message_text_presentation_initialize(MessageTextPresentation* presentation,
-                                          Slice<MessageTextCommand> commands, Slice<char> utf8,
-                                          Slice<TextStyleSpan> styles,
-                                          Slice<MessageMarkdownSemantic> semantics,
-                                          Slice<MessageTextMeasurement> measurements,
-                                          Slice<MessageTextSpoilerReveal> spoiler_reveals,
-                                          Slice<u32> byte_style_scratch) noexcept {
+                                          const Slice<MessageTextCommand>& commands, const Slice<char>& utf8,
+                                          const Slice<TextStyleSpan>& styles,
+                                          const Slice<MessageMarkdownSemantic>& semantics,
+                                          const Slice<MessageTextMeasurement>& measurements,
+                                          const Slice<MessageTextSpoilerReveal>& spoiler_reveals,
+                                          const Slice<u32>& byte_style_scratch) noexcept {
     if (!presentation || !commands.data || commands.count == 0 || !utf8.data || utf8.count == 0 ||
         !styles.data || styles.count == 0 || !semantics.data || semantics.count == 0 ||
         !measurements.data || measurements.count == 0 || measurements.count > 0xFFFFu ||

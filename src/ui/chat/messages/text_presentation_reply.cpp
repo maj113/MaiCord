@@ -11,7 +11,7 @@ using namespace text_presentation_detail;
 
 namespace text_presentation_detail {
 namespace {
-u64 source_fingerprint(Utf8View source) noexcept {
+u64 source_fingerprint(const Utf8View& source) noexcept {
     u64 hash = 0x9E3779B97F4A7C15ull ^ (static_cast<u64>(source.bytes) * 0xBF58476D1CE4E5B9ull);
     u32 index = 0;
     for (; index + 8u <= source.bytes; index += 8u) {
@@ -322,8 +322,8 @@ constexpr u32 markdown_payload_bytes(u32 semantics, u32 spans, u32 text) noexcep
 // Writes semantics, spans and text at the ring head; older payloads in the
 // way are overwritten and their entries go stale.
 bool markdown_cache_write(MessageMarkdownCache* cache, MessageMarkdownCacheEntry* entry,
-                          ConstSlice<MessageMarkdownSemantic> semantics, ConstSlice<TextStyleSpan> spans,
-                          Utf8View text) noexcept {
+                          const ConstSlice<MessageMarkdownSemantic>& semantics, const ConstSlice<TextStyleSpan>& spans,
+                          const Utf8View& text) noexcept {
     const u32 bytes = (markdown_payload_bytes(semantics.count, spans.count, text.bytes) + 7u) & ~7u;
     if (bytes == 0 || bytes > cache->arena_bytes / 4u) {
         entry->position = 0;
@@ -359,10 +359,10 @@ bool markdown_cache_entry_current(const MessageMarkdownCacheEntry& entry, const 
 // and only when the parse itself would have produced that output there: the
 // recorded capacity bound guarantees no label degraded and nothing failed.
 MessageMarkdownResult cached_markdown_parse(MessageTextPresentation* presentation, BuildContext* context,
-                                            MarkdownCacheMode mode, Utf8View source, Slice<char> text_output,
-                                            Slice<u32> scratch, Slice<TextStyleSpan> span_output,
+                                            MarkdownCacheMode mode, const Utf8View& source, const Slice<char>& text_output,
+                                            const Slice<u32>& scratch, const Slice<TextStyleSpan>& span_output,
                                             const MessageMarkdownOptions& options,
-                                            Slice<MessageMarkdownSemantic> semantic_output) noexcept {
+                                            const Slice<MessageMarkdownSemantic>& semantic_output) noexcept {
     MessageMarkdownCache* cache = presentation->markdown_cache;
     const u32 text_capacity = minimum(text_output.count, scratch.count);
     const bool full_semantics =

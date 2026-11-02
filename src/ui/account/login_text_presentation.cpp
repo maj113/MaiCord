@@ -7,7 +7,7 @@
 namespace maicord {
 namespace {
 
-Utf8View visible_text_tail(Utf8View text, u32 maximum_codepoints) noexcept {
+Utf8View visible_text_tail(const Utf8View& text, u32 maximum_codepoints) noexcept {
     const Utf8Validation validation = utf8_validate(text);
     if (!validation.valid || validation.codepoints <= maximum_codepoints) {
         return validation.valid ? text : Utf8View{};
