@@ -1,5 +1,4 @@
 #pragma once
-#include "maicord/core/hash.hpp"
 #include "maicord/ui/widgets/badge.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
 #include "maicord/model/user/store.hpp"
@@ -40,11 +39,6 @@ struct MessageInteractionHit {
     // The target's rectangle: popouts anchor to it.
     UiRect anchor;
 };
-
-// The row whose header line owns the command, when that line is an
-// interaction header ("used" spans on a reply-region command).
-const MessageSceneRowWidget* message_interaction_command_row(const MessageScene& scene,
-                                                             const MessageTextCommand& c) noexcept;
 
 bool message_interaction_layout(const MessageScene& scene, const MessageTextCommand& command,
                                 const UserStore& users, UiTextMeasureCache* cache, const Theme& theme,

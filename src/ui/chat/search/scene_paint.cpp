@@ -8,12 +8,12 @@ namespace maicord {
 using namespace search_scene_detail;
 
 namespace search_scene_detail {
-bool chooser_action(UiSearchAction action) noexcept {
+static bool chooser_action(UiSearchAction action) noexcept {
     return action == UiSearchAction::filter_value || ui_search_action_filter(action) ||
            action == UiSearchAction::more_filters || action == UiSearchAction::clear_recent ||
            action == UiSearchAction::recent;
 }
-bool sort_action(UiSearchAction action) noexcept {
+static bool sort_action(UiSearchAction action) noexcept {
     return action >= UiSearchAction::newest && action <= UiSearchAction::relevance;
 }
 // A label of the search surface. `mode` holds ui_text_* bits; chooser_text marks a label of the filter chooser

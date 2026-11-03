@@ -50,8 +50,6 @@ bool rich_enabled(const UiSearchScene& s) noexcept;
 const MessageRichRecord* rich_scoped(const MessageRichStore& store, u64 message_id, bool snapshot) noexcept;
 UiSearchTarget rich_target(const UiSearchScene& s, u64 channel_id, u64 message_id, u32 source_index,
                            MessageSceneRichItemKind kind, u32 index, bool snapshot) noexcept;
-bool chooser_action(UiSearchAction action) noexcept;
-bool sort_action(UiSearchAction action) noexcept;
 UiRect rich_viewport(const UiSearchScene& s) noexcept;
 void configure_rich_input(MessageScene& scene, const UiSearchSource& source) noexcept;
 bool bind_rich(UiSearchScene& s) noexcept;
@@ -72,7 +70,6 @@ bool choice_person(const UiSearchFilterChoiceSource& source, const UiSearchFilte
 UiRect choice_avatar_rectangle(const UiMenuRowGeometry& geometry, const UiRect& row) noexcept;
 Utf8View tab_label(u32 tab) noexcept;
 Utf8View url_hostname(Utf8View url) noexcept;
-bool content_link(Utf8View text, u32* offset, u32* bytes) noexcept;
 MessageMediaObscure item_obscure(const UiSearchScene& s, const UiSearchItem& item) noexcept;
 UiSearchLayout layout_for(const UiSearchSource* source, const UiSearchContent& content) noexcept;
 MessageResultCardHeaderLayout plain_header(const UiRect& card, const UiSearchRow& row) noexcept;

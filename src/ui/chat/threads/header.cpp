@@ -149,7 +149,7 @@ UiThreadAction ui_thread_header_primary_action(const UiThreadHeaderView& v) noex
         return UiThreadAction::join;
     return UiThreadAction::none;
 }
-Utf8View ui_thread_action_label(UiThreadAction action) noexcept {
+static Utf8View action_label(UiThreadAction action) noexcept {
     switch (action) {
     case UiThreadAction::check_status: return utf8_literal("Refresh");
     case UiThreadAction::join: return utf8_literal("Join thread");
@@ -161,9 +161,9 @@ Utf8View ui_thread_action_label(UiThreadAction action) noexcept {
     default: return {};
     }
 }
-bool ui_thread_header_project(const UiThreadHeaderView& v, const UiThreadHeaderStyle& s, UiRect r,
-    UiRect clip, UiThreadHeaderGeometry* out) noexcept {
-    if (!out || !view_valid(v) || !style_valid(s) || !ui_rect_valid_or_empty(r) ||
+static bool project_geometry(const UiThreadHeaderView& v, const UiThreadHeaderStyle& s, UiRect r, UiRect clip,
+    UiThreadHeaderGeometry* out) noexcept {
+    if (!view_valid(v) || !style_valid(s) || !ui_rect_valid_or_empty(r) ||
         !ui_rect_valid_or_empty(clip)) return false;
     UiThreadHeaderGeometry g{};
     if (!v.visible) { *out = g; return true; }
@@ -193,37 +193,33 @@ bool ui_thread_header_project(const UiThreadHeaderView& v, const UiThreadHeaderS
     *out = g;
     return true;
 }
-bool ui_thread_header_bind(UiThreadHeader* h, UiWidgetManager* manager, UiThreadHeaderWidgets widgets) noexcept {
-    if (!h || !manager) return false;
-    for (u32 i = 0; i < 6; ++i) {
-        const auto* w = ui_widget_manager_resolve(*manager, handle(widgets, i));
-        if (!w || !ui_widget_manager_layout_node(*manager, handle(widgets, i))) return false;
-        if ((i == 2 || i == 3 || i == 5) && w->kind != UiWidgetKind::button) return false;
-        for (u32 j = 0; j < i; ++j) if (ui_widget_handle_equal(handle(widgets, i), handle(widgets, j))) return false;
-    }
-    h->manager = manager;
-    h->widgets = widgets;
-    h->active = false;
-    h->published = false;
-    h->captured_publication = 0;
-    return true;
-}
 bool ui_thread_header_bind_shell(UiThreadHeader* h, UiScene* shell) noexcept {
-    if (!shell) return false;
-    UiThreadHeaderWidgets w{
+    if (!h || !shell) return false;
+    const UiThreadHeaderWidgets widgets{
         shell->semantics[static_cast<u32>(UiSemantic::thread_header)],
         shell->semantics[static_cast<u32>(UiSemantic::thread_status)],
         shell->semantics[static_cast<u32>(UiSemantic::thread_primary)],
         shell->semantics[static_cast<u32>(UiSemantic::thread_overflow)],
         shell->semantics[static_cast<u32>(UiSemantic::thread_feedback)],
         shell->semantics[static_cast<u32>(UiSemantic::thread_cancel)]};
-    return ui_thread_header_bind(h, &shell->widgets, w);
+    for (u32 i = 0; i < 6; ++i) {
+        const auto* w = ui_widget_manager_resolve(shell->widgets, handle(widgets, i));
+        if (!w || !ui_widget_manager_layout_node(shell->widgets, handle(widgets, i))) return false;
+        if ((i == 2 || i == 3 || i == 5) && w->kind != UiWidgetKind::button) return false;
+        for (u32 j = 0; j < i; ++j) if (ui_widget_handle_equal(handle(widgets, i), handle(widgets, j))) return false;
+    }
+    h->manager = &shell->widgets;
+    h->widgets = widgets;
+    h->active = false;
+    h->published = false;
+    h->captured_publication = 0;
+    return true;
 }
 bool ui_thread_header_update(UiThreadHeader* h, const UiThreadHeaderView& v, UiRect r, UiRect clip,
     const UiThreadHeaderStyle& style) noexcept {
     if (!h || !h->manager) return false;
     UiThreadHeaderGeometry g{};
-    if (!ui_thread_header_project(v, style, r, clip, &g)) return false;
+    if (!project_geometry(v, style, r, clip, &g)) return false;
     const bool changed = !h->published || !same_view(h->view, v) || !bytes_equal(&h->style, &style, sizeof(style)) ||
         !ui_rect_equal(h->geometry.rectangle, g.rectangle) || !ui_rect_equal(h->geometry.clip, g.clip);
     const bool project = changed || !geometry_current(*h, g);
@@ -310,7 +306,7 @@ bool ui_thread_header_text(const UiThreadHeader& h, const Theme& theme, UiTextOu
     if (!ui_text_output_valid(out) || !h.manager) return false;
     if (!h.active || !ui_rect_has_area(h.geometry.clip)) return true;
     const auto primary = ui_thread_header_primary_action(h.view);
-    const auto primary_text = h.view.busy ? pending_label(h.view.operation) : ui_thread_action_label(primary);
+    const auto primary_text = h.view.busy ? pending_label(h.view.operation) : action_label(primary);
     const auto color = ui_surface_foreground(theme, button_fill(h, h.widgets.primary, theme, accent_action(primary)));
     UiRect primary_rect = h.geometry.primary;
     if (ui_rect_has_area(primary_rect)) { primary_rect.left += 6.f; primary_rect.right -= 6.f; }
@@ -320,7 +316,7 @@ bool ui_thread_header_text(const UiThreadHeader& h, const Theme& theme, UiTextOu
         text(h, h.widgets.feedback, h.view.status, h.geometry.feedback,
              ui_foreground_color(theme, h.view.status_error ? theme.notification : theme.text_secondary), out,
              false, text_style_subtext) &&
-        text(h, h.widgets.cancel, ui_thread_action_label(UiThreadAction::cancel), h.geometry.cancel,
+        text(h, h.widgets.cancel, action_label(UiThreadAction::cancel), h.geometry.cancel,
              ui_foreground_color(theme, theme.text_primary), out, true);
 }
 u32 ui_thread_menu_build(const UiThreadHeaderView& v, UiThreadMenuActions actions,
@@ -344,7 +340,7 @@ u32 ui_thread_menu_build(const UiThreadHeaderView& v, UiThreadMenuActions action
         const u32 index = static_cast<u32>(action) - 1;
         const bool available = enabled(v, action) && (!v.busy || action == UiThreadAction::cancel);
         auto& item = out[i];
-        item = {ui_thread_action_label(action), ids[index], static_cast<u16>(available ? popup_item_enabled : 0), 0};
+        item = {action_label(action), ids[index], static_cast<u16>(available ? popup_item_enabled : 0), 0};
         UiIcon icon = UiIcon::members;
         if (action == UiThreadAction::check_status) icon = UiIcon::recent;
         else if (action == UiThreadAction::unarchive) icon = UiIcon::undo;

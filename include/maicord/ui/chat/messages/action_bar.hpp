@@ -196,6 +196,4 @@ struct MessageHoverScrollGate {
 bool message_hover_scroll_gate_observe(MessageHoverScrollGate* gate, u32 generation, double scroll) noexcept;
 // Records a pointer sample; true when hover may be evaluated for it.
 bool message_hover_scroll_gate_pointer(MessageHoverScrollGate* gate, float x, float y) noexcept;
-bool message_action_bar_set_hover(MessageActionBar* bar, float x, float y,
-                                  bool* changed) noexcept;
 } // namespace maicord

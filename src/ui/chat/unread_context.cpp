@@ -4,7 +4,6 @@
 #include "maicord/model/chat/message_store.hpp"
 #include "maicord/model/guild/permission_bits.hpp"
 #include "maicord/ui/chat/messages/scene.hpp"
-#include "maicord/ui/shell/navigation_view.hpp"
 #include "maicord/ui/shell/navigation_scene.hpp"
 #include "maicord/ui/shell/navigation_context.hpp"
 

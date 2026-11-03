@@ -1,4 +1,5 @@
 #include "embed_parity_internal.hpp"
+#include "maicord/core/hash.hpp"
 #include "maicord/text/unicode/unicode.hpp"
 #include "maicord/ui/chat/messages/component_media.hpp"
 #include "maicord/ui/chat/messages/interaction.hpp"

@@ -1,7 +1,6 @@
 #pragma once
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/widgets/badge.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/ui/theme/background_presentation.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
 #include "maicord/ui/plugins/slots.hpp"
@@ -44,10 +43,6 @@ bool message_author_layout(const MessageScene& scene, const MessageTextCommand& 
 // of the content flow's first line.
 MessageProfileHit message_author_compact_hit(const MessageScene& scene, const MessageTextCommand& command,
                                              UiTextMeasureCache* cache, float x, float y) noexcept;
-
-// The row whose author line owns the command; null for grouped rows and foreign commands.
-const MessageSceneRowWidget* message_author_command_row(const MessageScene& scene,
-                                                        const MessageTextCommand& c) noexcept;
 
 MessageProfileHit message_author_hit_test(const MessageScene& scene,
                                           const MessageTextPresentation& text,

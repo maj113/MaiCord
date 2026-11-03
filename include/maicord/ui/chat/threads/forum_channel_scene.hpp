@@ -89,10 +89,6 @@ struct UiForumGrid {
 UiForumGrid ui_forum_grid(float width, UiForumLayout, const UiForumStyle&) noexcept;
 UiRect ui_forum_card_rectangle(const UiRect& body, UiForumGrid, u32 index, float scroll) noexcept;
 float ui_forum_content_height(UiForumGrid, u32 count) noexcept;
-struct UiForumCardParts {
-    UiRect tags, title, preview, avatar, author, meta, media;
-};
-UiForumCardParts ui_forum_card_parts(const UiRect& card, UiForumLayout, const UiForumPost&, const UiForumStyle&) noexcept;
 
 // Scene integration, called by the thread browser panel.
 // Avatar and thumbnail placements for media requests; false when culled.

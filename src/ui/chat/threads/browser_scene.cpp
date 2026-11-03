@@ -161,7 +161,7 @@ Utf8View state_text(const UiThreadBrowserScene& s) noexcept {
 }
 } // namespace
 
-bool ui_thread_browser_style_valid(const UiThreadBrowserStyle& s) noexcept {
+static bool style_valid(const UiThreadBrowserStyle& s) noexcept {
     const float dimensions[]{s.header_height, s.tabs_height, s.status_height,
         s.footer_height, s.row_height, s.inset, s.gap, s.button_height, s.radius, s.create_button_width};
     for (float value : dimensions) if (!ui_extent_valid(value)) return false;
@@ -183,7 +183,7 @@ bool ui_thread_browser_scene_update(UiThreadBrowserScene* s, const UiThreadBrows
     if (!s || !view || !view->source_publication || view->rows.count > kUiThreadBrowserPageCapacity ||
         (view->rows.count && !view->rows.data) || view->tab > UiThreadBrowserTab::search ||
         !utf8_validate(view->title).valid || !utf8_validate(view->status).valid ||
-        !ui_thread_browser_style_valid(appearance) || !ui_rect_valid(viewport) ||
+        !style_valid(appearance) || !ui_rect_valid(viewport) ||
         ui_rect_width(viewport) < 180 || ui_rect_height(viewport) < appearance.header_height +
             appearance.tabs_height + appearance.status_height + appearance.footer_height + 24) return false;
     if (current(*s) && s->view == view && ui_rect_equal(s->viewport, viewport) &&

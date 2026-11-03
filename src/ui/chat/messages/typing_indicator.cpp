@@ -7,15 +7,16 @@ namespace {
 float ramp(float wave, float low) noexcept {
     return wave <= .4f ? low : wave >= .8f ? 1.f : low + (1 - low) * (wave - .4f) / .4f;
 }
-} // namespace
-u16 ui_typing_dots_phase(u64 now_ms, bool animate) noexcept {
-    return animate ? static_cast<u16>((now_ms / kUiTypingDotsStepMs) % kUiTypingDotsPhases) : kUiTypingDotsRest;
-}
-u64 ui_typing_dots_next_wake(u64 now_ms, bool animate) noexcept {
+// The next step while the dots animate; zero otherwise.
+u64 next_wake(u64 now_ms, bool animate) noexcept {
     if (!animate)
         return 0;
     const u64 delay = kUiTypingDotsStepMs - now_ms % kUiTypingDotsStepMs;
     return now_ms > ~u64{0} - delay ? 0 : now_ms + delay;
+}
+} // namespace
+u16 ui_typing_dots_phase(u64 now_ms, bool animate) noexcept {
+    return animate ? static_cast<u16>((now_ms / kUiTypingDotsStepMs) % kUiTypingDotsPhases) : kUiTypingDotsRest;
 }
 void ui_typing_dot_pose(u32 index, u16 phase, float* scale, float* opacity) noexcept {
     if (phase >= kUiTypingDotsPhases) {
@@ -69,7 +70,7 @@ bool ui_typing_dots_clock_tick(UiTypingDotsClock* clock, u64 now_ms, bool visibl
     const bool changed = visible && (!clock->visible || clock->phase != phase);
     clock->phase = phase;
     clock->visible = visible;
-    clock->wake_ms = ui_typing_dots_next_wake(now_ms, animate);
+    clock->wake_ms = next_wake(now_ms, animate);
     return changed;
 }
 bool ui_typing_dots_clock_due(const UiTypingDotsClock& clock, u64 now_ms) noexcept {

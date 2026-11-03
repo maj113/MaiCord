@@ -432,17 +432,14 @@ bool message_hover_scroll_gate_pointer(MessageHoverScrollGate* gate, float x, fl
     return !gate->suppressed;
 }
 
-bool message_action_bar_set_hover(MessageActionBar* bar, float x, float y, bool* changed) noexcept {
-    if (!bar || !changed) {
-        return false;
-    }
+// True when the hovered item changed.
+static bool set_hover(MessageActionBar* bar, float x, float y) noexcept {
     const MessageActionBarHit hit = message_action_bar_hit_test(*bar, x, y);
     const u32 next = hit.action != MessageActionBarAction::none ? hit.item_index : kMessageActionBarNoItem;
-    *changed = bar->hovered_index != next;
-    if (*changed) {
-        bar->hovered_index = next;
-        saturating_increment(bar->revision);
-    }
+    if (bar->hovered_index == next)
+        return false;
+    bar->hovered_index = next;
+    saturating_increment(bar->revision);
     return true;
 }
 
@@ -470,10 +467,7 @@ MessageActionBarPointerResult message_action_bar_track_pointer(
     bool hover_changed = false;
     if (retained.inside) {
         next = bar->owner.handle;
-        if (!message_action_bar_set_hover(bar, x, y, &hover_changed)) {
-            return MessageActionBarPointerResult{retained, retained.message_id,
-                                                 MessageActionBarError::scene, false};
-        }
+        hover_changed = set_hover(bar, x, y);
     } else {
         message = message_scene_hit_test(*scene, x, y);
         next = message.message_id != 0 ? message.widget : ui_widget_invalid_handle();
@@ -488,9 +482,8 @@ MessageActionBarPointerResult message_action_bar_track_pointer(
                 MessageActionBarOptions{policy ? policy(policy_context, record->id) : u16{0}});
             if (!opened.ok()) {
                 message_action_bar_close(bar);
-            } else if (!message_action_bar_set_hover(bar, x, y, &hover_changed)) {
-                return MessageActionBarPointerResult{
-                    {}, message.message_id, MessageActionBarError::scene, false};
+            } else {
+                hover_changed = set_hover(bar, x, y);
             }
         } else {
             message_action_bar_close(bar);

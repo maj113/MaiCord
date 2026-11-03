@@ -343,7 +343,7 @@ u32 reaction_viewer_visible_user_count(const ReactionViewer& viewer) noexcept {
     return height > 0.0f ? maximum(1u, static_cast<u32>(height / kReactionViewerUserRowHeight)) : 0;
 }
 
-u32 reaction_viewer_visible_aggregate_count(const ReactionViewer& viewer) noexcept {
+static u32 visible_aggregate_count(const ReactionViewer& viewer) noexcept {
     const float height = ui_rect_height(viewer.body);
     return height > 0.0f ? maximum(1u, static_cast<u32>(height / kReactionViewerAggregateRowHeight)) : 0;
 }
@@ -370,7 +370,7 @@ UiRect reaction_viewer_aggregate_rectangle(const ReactionViewer& viewer, u32 agg
         return UiRect{};
     }
     const u32 visible_index = aggregate_index - viewer.first_aggregate;
-    if (visible_index > reaction_viewer_visible_aggregate_count(viewer) + 1) {
+    if (visible_index > visible_aggregate_count(viewer) + 1) {
         return UiRect{};
     }
     const float width = ui_rect_width(viewer.panel) < 400.0f ? 72.0f : 80.0f;

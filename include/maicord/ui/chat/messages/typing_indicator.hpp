@@ -24,8 +24,6 @@ inline constexpr float kUiTypingDotsWidth = kUiTypingDotSize + (kUiTypingDotCoun
 inline constexpr float kUiTypingLabelInset = kUiTypingDotsInset + kUiTypingDotsWidth + kUiTypingDotsGap;
 // Phase at now, or kUiTypingDotsRest when not animating.
 u16 ui_typing_dots_phase(u64 now_ms, bool animate) noexcept;
-// The next step while the dots animate; zero otherwise.
-u64 ui_typing_dots_next_wake(u64 now_ms, bool animate) noexcept;
 // Dot `index` at `phase`: scale (of kUiTypingDotSize) and opacity.
 void ui_typing_dot_pose(u32 index, u16 phase, float* scale, float* opacity) noexcept;
 // The dots' box in a typing row.

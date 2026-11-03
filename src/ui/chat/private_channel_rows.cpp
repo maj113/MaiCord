@@ -82,8 +82,10 @@ UiPrivateRowStatus ui_private_row_status(const UiPrivateRowSource& source, u64 c
     default: return UiPrivateRowStatus::offline;
     }
 }
-Utf8View ui_private_peer_activity(const UiPrivateRowSource& source, u64 channel_id, const Slice<char>& storage,
-                                  UiActivityGlyph* glyph) noexcept {
+// A one-to-one peer's activity line while online (activity_status.hpp), its
+// glyph leading it: the DM rows' subtitle and the DM header.
+static Utf8View ui_private_peer_activity(const UiPrivateRowSource& source, u64 channel_id, const Slice<char>& storage,
+                                         UiActivityGlyph* glyph) noexcept {
     if (glyph) *glyph = UiActivityGlyph::none;
     const ChannelRecord* channel = nullptr;
     if (!source.state || !source.users || !storage.data || !record(*source.state, channel_id, &channel) ||

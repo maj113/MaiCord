@@ -8,6 +8,9 @@
 
 namespace maicord {
 namespace {
+struct CardParts {
+    UiRect tags, title, preview, avatar, author, meta, media;
+};
 float chip_width(const Utf8View& name, const UiForumStyle& s) noexcept {
     const auto valid = utf8_validate(name);
     const float width = static_cast<float>(valid.valid ? valid.codepoints : 0) * s.chip_scalar_width + s.chip_padding;
@@ -126,9 +129,9 @@ float ui_forum_content_height(UiForumGrid grid, u32 count) noexcept {
     const u32 rows = (count + grid.columns - 1) / grid.columns;
     return static_cast<float>(rows) * grid.card_height + static_cast<float>(rows - 1) * grid.gap;
 }
-UiForumCardParts ui_forum_card_parts(const UiRect& card, UiForumLayout layout, const UiForumPost& post,
+static CardParts card_parts(const UiRect& card, UiForumLayout layout, const UiForumPost& post,
     const UiForumStyle& s) noexcept {
-    UiForumCardParts parts{};
+    CardParts parts{};
     const float inset = s.card_inset;
     float right = card.right - inset, y = card.top + inset;
     if (layout == UiForumLayout::list) {
@@ -168,7 +171,7 @@ bool ui_forum_channel_avatar(const UiThreadBrowserScene& s, u32 index, UiRect* r
     const auto& post = s.view->forum->posts[index];
     if (!post.author_id) return false;
     const auto card = s.backing->cards[index];
-    *rectangle = ui_forum_card_parts(card, s.view->forum->layout, post, s.forum_style).avatar;
+    *rectangle = card_parts(card, s.view->forum->layout, post, s.forum_style).avatar;
     *clip = ui_rect_intersection(ui_rect_intersection(card, s.body), *rectangle);
     return ui_rect_has_area(*clip);
 }
@@ -177,7 +180,7 @@ bool ui_forum_channel_media(const UiThreadBrowserScene& s, u32 index, UiRect* re
     const auto& post = s.view->forum->posts[index];
     if (!post.has_media) return false;
     const auto card = s.backing->cards[index];
-    *rectangle = ui_forum_card_parts(card, s.view->forum->layout, post, s.forum_style).media;
+    *rectangle = card_parts(card, s.view->forum->layout, post, s.forum_style).media;
     *clip = ui_rect_intersection(ui_rect_intersection(card, s.body), *rectangle);
     return ui_rect_has_area(*clip);
 }
@@ -208,7 +211,7 @@ bool ui_forum_channel_paint(const UiThreadBrowserScene& s, const Theme& t, Paint
         if (!handle.generation) continue;
         const auto card = s.backing->cards[i];
         const auto& post = view.posts[i];
-        const auto parts = ui_forum_card_parts(card, view.layout, post, style);
+        const auto parts = card_parts(card, view.layout, post, style);
         p.look(card, {.fill = UI_TOKEN(surface), .hover = UI_TOKEN(surface_high), .border = UI_TOKEN(surface_high),
                       .radius = style.radius}, ui_widget_state(s.widgets, handle));
         if (ui_rect_has_area(parts.media)) {
@@ -261,7 +264,7 @@ bool ui_forum_channel_text_output(const UiThreadBrowserScene& s, const Theme& t,
         auto in_card = text.in(ui_rect_intersection(card, s.body));
         const auto& post = view.posts[i];
         const auto& row = s.view->rows[i];
-        const auto parts = ui_forum_card_parts(card, view.layout, post, style);
+        const auto parts = card_parts(card, view.layout, post, style);
         UiRect title = parts.title;
         if (post.pinned) title.right -= 22;
         card_tags(view, post, parts.tags, style, [&](const UiForumTag& tag, UiRect chip) noexcept {

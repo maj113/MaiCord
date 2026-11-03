@@ -57,7 +57,6 @@ bool ui_message_forward_scene_current(const UiMessageForwardScene&) noexcept;
 UiMessageForwardTarget ui_message_forward_scene_target(const UiMessageForwardScene&, UiWidgetHandle) noexcept;
 UiMessageForwardTarget ui_message_forward_scene_hit_test(const UiMessageForwardScene&, float x, float y) noexcept;
 UiMessageForwardTarget ui_message_forward_scene_selected(const UiMessageForwardScene&) noexcept;
-bool ui_message_forward_scene_select(UiMessageForwardScene*, u32 index, bool reveal = true) noexcept;
 bool ui_message_forward_scene_move(UiMessageForwardScene*, UiQuickSwitcherMove) noexcept;
 bool ui_message_forward_scene_set_hover(UiMessageForwardScene*, float x, float y, bool* changed) noexcept;
 float ui_message_forward_scene_scroll_maximum(const UiMessageForwardScene&) noexcept;

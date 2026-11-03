@@ -284,8 +284,8 @@ bool message_rich_attachment_preview_extent(const MessageRichStore& store,
                                 height);
 }
 
-MediaAttachmentFormat embed_media_format(const MessageRichStore& store,
-                                         const MessageRichEmbedMedia& media) noexcept {
+static MediaAttachmentFormat embed_media_format(const MessageRichStore& store,
+                                                const MessageRichEmbedMedia& media) noexcept {
     const Utf8View content_type = message_rich_store_string(store, media.content_type);
     const Utf8View original = message_rich_store_string(store, media.url);
     if (ascii_equal_case(content_type, "image/png")) {
@@ -311,9 +311,9 @@ MediaAttachmentFormat embed_media_format(const MessageRichStore& store,
     return proxy_format != MediaAttachmentFormat::unknown ? proxy_format : media_format_from_url(original);
 }
 
-bool select_embed_media_candidate(const MessageRichStore& store, const MessageRichEmbedMedia& media,
-                                  MediaEmbedResource resource, bool animated,
-                                  MessageRichEmbedMediaSelection* selection) noexcept {
+static bool select_embed_media_candidate(const MessageRichStore& store, const MessageRichEmbedMedia& media,
+                                         MediaEmbedResource resource, bool animated,
+                                         MessageRichEmbedMediaSelection* selection) noexcept {
     if (!selection) {
         return false;
     }
@@ -799,8 +799,8 @@ bool message_rich_embed_media_extent(const MessageRichEmbedMediaSelection& selec
                                 400.0f, 300.0f, width, height);
 }
 
-float message_rich_embed_visual_height(const MessageRichStore& store, const MessageRichRecord& rich,
-                                       const MessageRichEmbed& embed) noexcept {
+static float message_rich_embed_visual_height(const MessageRichStore& store, const MessageRichRecord& rich,
+                                              const MessageRichEmbed& embed) noexcept {
     // Text blocks only (the media block is added by the caller); the text
     // pass replaces this estimate with measured lines.
     const MessageRichEmbedPlan plan = message_rich_embed_plan(store, embed);

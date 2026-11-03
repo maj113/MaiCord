@@ -2,7 +2,6 @@
 #include "maicord/ui/theme/foreground_color.hpp"
 #include "maicord/ui/core/paint.hpp"
 #include "maicord/ui/chat/messages/unread_divider_style.hpp"
-#include "maicord/ui/core/widget_manager.hpp"
 
 namespace maicord {
 inline constexpr Utf8View kUiUnreadDividerLabel = utf8_literal("New messages");

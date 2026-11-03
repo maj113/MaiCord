@@ -190,7 +190,7 @@ bool append_compact_timestamp(MessageTextPresentation* presentation, const Messa
     if (!record.timestamp_ms || !gutter || !row_layout || !ui_rect_has_area(gutter->rectangle) ||
         !compact_timestamp_shown(scene, row))
         return true;
-    char storage[kMessageMarkdownTimestampMaximumBytes]{};
+    char storage[kMessageMarkdownTimestampMaximumBytes];
     const auto formatted = format_timestamp_local(record.timestamp_ms / 1'000u, 't', now_unix_seconds,
                                                           Slice<char>{storage, sizeof(storage)});
     if (!formatted.ok || !formatted.bytes || formatted.bytes > presentation->utf8.count - presentation->utf8_count ||

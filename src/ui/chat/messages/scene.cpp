@@ -284,13 +284,8 @@ void message_scene_release(MessageScene* scene) noexcept {
     reset_value<MessageScene>(scene);
 }
 
-bool message_scene_reserve_rows(MessageScene* scene, u32 required_rows) noexcept {
-    if (!scene || required_rows == 0) {
-        return false;
-    }
-    if (required_rows <= scene->rows.count) {
-        return true;
-    }
+// Callers ask for more rows than the scene holds.
+static bool reserve_rows(MessageScene* scene, u32 required_rows) noexcept {
     if (!scene->owns_rows || required_rows > scene->snapshot_storage_offset ||
         !stable_storage_grow(&scene->owned_rows, required_rows)) {
         return false;
@@ -743,7 +738,7 @@ MessageSceneResult message_scene_update(MessageScene* scene, const UiRect& viewp
         const u32 union_end = maximum(retained_end, desired_end);
         const u32 union_count = union_end - union_first;
         if (union_count > scene->rows.count) {
-            message_scene_reserve_rows(scene, union_count);
+            reserve_rows(scene, union_count);
         }
         if (union_count <= scene->rows.count) {
             const u64 first_prefix = ui_variable_list_prefix_units(*scene->timeline->list, union_first);
@@ -752,7 +747,7 @@ MessageSceneResult message_scene_update(MessageScene* scene, const UiRect& viewp
                                         static_cast<i64>(scene->timeline->scroll_units)};
         }
     }
-    if (range.count > scene->rows.count && !message_scene_reserve_rows(scene, range.count)) {
+    if (range.count > scene->rows.count && !reserve_rows(scene, range.count)) {
         clear_materialization(scene);
         scene->viewport = viewport;
         return scene_error(scene, MessageSceneError::capacity);
@@ -954,13 +949,13 @@ bool message_scene_set_text_metrics(MessageScene* scene, u32 source_index, float
                      : kDefaultMessageReactionLayoutMetrics.unicode_text_inset);
         }
         measured_rich.reactions = message_rich_reaction_layout_height(
-            *rich, available_text_width(scene, scene->viewport),
+            *rich, available_text_width(*scene, scene->viewport),
             ConstSlice<float>{intrinsic_reaction_widths, rich->reaction_count});
     }
     if (rich && rich_layout && rich_item_layout &&
         !message_rich_layout_equal(
             measured_rich, message_rich_aggregate_layout(
-                               *rich, measured_items, available_text_width(scene, scene->viewport),
+                               *rich, measured_items, available_text_width(*scene, scene->viewport),
                                ConstSlice<float>{intrinsic_reaction_widths, rich->reaction_count}))) {
         return false;
     }
@@ -986,7 +981,7 @@ bool message_scene_set_text_metrics(MessageScene* scene, u32 source_index, float
     if (&measured_items != &row->rich_item_layout)
         copy_value(&row->rich_item_layout, measured_items);
     row->rich_layout_measured = row->rich_layout_measured || rich_layout != nullptr;
-    row->measured_width = available_text_width(scene, scene->viewport);
+    row->measured_width = available_text_width(*scene, scene->viewport);
     row->text_measured = true;
     message_scene_detail::retain_measurement(scene, *row);
     const u32 desired_units = ui_extent_units(row_required_height(*scene, *row, rich));
@@ -1074,7 +1069,7 @@ bool message_scene_set_snapshot_text_metrics(MessageScene* scene, u32 source_ind
     if (!record)
         return false;
     outer->snapshot_height = row_required_height(*scene, *child, rich) +
-                             snapshot_following_gap(scene, row_rich(*scene, *record));
+                             snapshot_following_gap(*scene, row_rich(*scene, *record));
     const u32 units = ui_extent_units(row_required_height(*scene, *outer, row_rich(*scene, *record)));
     if (units != ui_variable_list_item_units(*scene->timeline->list, source_index)) {
         if (!set_resident_height(scene, source_index, units))

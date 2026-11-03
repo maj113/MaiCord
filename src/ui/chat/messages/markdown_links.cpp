@@ -109,12 +109,12 @@ bool append_semantic(Parser* parser, MessageMarkdownSemanticKind kind, u64 targe
     return true;
 }
 
-bool semantic_hovered(const Parser& parser, MessageMarkdownSemanticKind kind, u32 source_offset) noexcept {
+static bool semantic_hovered(const Parser& parser, MessageMarkdownSemanticKind kind, u32 source_offset) noexcept {
     return parser.options && parser.options->has_hover && parser.options->hovered_kind == kind &&
            parser.options->hovered_source_offset == source_offset;
 }
 
-void apply_style(Parser* parser, u32 begin, u32 end, u32 style) noexcept {
+static void apply_style(Parser* parser, u32 begin, u32 end, u32 style) noexcept {
     if (begin > end || end > parser->output_bytes) {
         return;
     }

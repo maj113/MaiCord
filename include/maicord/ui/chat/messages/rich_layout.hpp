@@ -310,8 +310,6 @@ bool message_rich_embed_suppresses_content(const MessageRichStore& store, const 
                                            Utf8View content) noexcept;
 bool message_rich_embed_media_extent(const MessageRichEmbedMediaSelection& selection, float available_width,
                                      float* width, float* height) noexcept;
-float message_rich_embed_visual_height(const MessageRichStore& store, const MessageRichRecord& rich,
-                                       const MessageRichEmbed& embed) noexcept;
 float message_rich_reaction_button_width(const MessageRichReaction& reaction) noexcept;
 float message_rich_reaction_layout_height(const MessageRichRecord& rich, float available_width,
                                           const ConstSlice<float>& intrinsic_widths = {}) noexcept;

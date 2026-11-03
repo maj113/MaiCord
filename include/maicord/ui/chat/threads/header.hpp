@@ -67,11 +67,7 @@ float ui_thread_header_height(const UiThreadHeaderView&, const UiThreadHeaderSty
 UiThreadAction ui_thread_header_primary_action(const UiThreadHeaderView&) noexcept;
 // The single status line beside the actions, e.g. "Joined · Active thread".
 Utf8View ui_thread_header_status(const UiThreadHeaderView&) noexcept;
-Utf8View ui_thread_action_label(UiThreadAction) noexcept;
-bool ui_thread_header_project(const UiThreadHeaderView&, const UiThreadHeaderStyle&, UiRect rectangle,
-    UiRect clip, UiThreadHeaderGeometry*) noexcept;
 // Bind six caller-created shell widgets. No allocation or independent manager.
-bool ui_thread_header_bind(UiThreadHeader*, UiWidgetManager*, UiThreadHeaderWidgets) noexcept;
 bool ui_thread_header_bind_shell(UiThreadHeader*, UiScene*) noexcept;
 // Call after shell layout. Updates only these six native nodes; ordinary
 // message/composer nodes are untouched. Equal revisions skip the update.

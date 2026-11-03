@@ -113,8 +113,6 @@ bool emit_byte(Parser* parser, char value, u32 added_style = 0, u32 source_offse
 bool emit_range(Parser* parser, u32 begin, u32 end, u32 added_style = 0) noexcept;
 bool append_semantic(Parser* parser, MessageMarkdownSemanticKind kind, u64 target, u32 byte_offset,
                      u32 byte_count, u32 source_offset, u32 source_bytes, u8 reserved = 0) noexcept;
-bool semantic_hovered(const Parser& parser, MessageMarkdownSemanticKind kind, u32 source_offset) noexcept;
-void apply_style(Parser* parser, u32 begin, u32 end, u32 style) noexcept;
 void close_delimiter(Parser* parser, const Delimiter& delimiter) noexcept;
 bool valid_url(Utf8View input, u32 begin, u32 end) noexcept;
 bool masked_link_closes(const Parser& parser) noexcept;

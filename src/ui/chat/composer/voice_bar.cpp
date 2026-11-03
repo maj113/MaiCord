@@ -18,8 +18,9 @@ u32 time_text(u32 milliseconds, char* out) noexcept {
     out[used++] = static_cast<char>('0' + seconds % 10);
     return used;
 }
-inline bool rounded(PaintStream* paint, const UiRect& r, const Color& color, float radius) noexcept {
-    return paint_stream_push_rounded(paint, r, color, radius);
+// Bars drawn for a waveform span; the newest live levels fill from the right.
+u32 bar_count(float width) noexcept {
+    return width > kBar ? static_cast<u32>((width + kBarGap) / (kBar + kBarGap)) : 0;
 }
 } // namespace
 
@@ -47,10 +48,6 @@ UiComposerVoiceBarGeometry ui_composer_voice_bar_geometry(const UiRect& bar, con
     return g;
 }
 
-u32 ui_composer_voice_bar_count(float width) noexcept {
-    return width > kBar ? static_cast<u32>((width + kBarGap) / (kBar + kBarGap)) : 0;
-}
-
 bool ui_composer_voice_bar_paint(const UiComposerVoiceView& view, UiRect bar, const Theme& theme,
                                  PaintStream* paint) noexcept {
     if (!paint)
@@ -59,9 +56,10 @@ bool ui_composer_voice_bar_paint(const UiComposerVoiceView& view, UiRect bar, co
         return true;
     const auto g = ui_composer_voice_bar_geometry(bar, view);
     if (view.mode == UiComposerVoiceMode::recording &&
-        !rounded(paint, g.dot, ui_theme_color_alpha(theme.tokens.accent.danger, view.pulse ? 1.f : .45f), kDot * .5f))
+        !paint_stream_push_rounded(paint, g.dot, ui_theme_color_alpha(theme.tokens.accent.danger, view.pulse ? 1.f : .45f),
+                                   kDot * .5f))
         return false;
-    const u32 count = minimum(ui_composer_voice_bar_count(ui_rect_width(g.waveform)), 512u);
+    const u32 count = minimum(bar_count(ui_rect_width(g.waveform)), 512u);
     if (!count)
         return true;
     const float center = (g.waveform.top + g.waveform.bottom) * .5f;
@@ -89,7 +87,7 @@ bool ui_composer_voice_bar_paint(const UiComposerVoiceView& view, UiRect bar, co
         } else {
             const u32 first = i * kUiComposerVoiceWaveform / count;
             const u32 end = maximum(first + 1, (i + 1) * kUiComposerVoiceWaveform / count);
-            for (u32 s = first; s < end && s < kUiComposerVoiceWaveform; ++s)
+            for (u32 s = first; s < end; ++s)
                 value = view.waveform[s] > value ? view.waveform[s] : value;
             if ((static_cast<float>(i) + .5f) / static_cast<float>(count) > played &&
                 view.mode != UiComposerVoiceMode::failed)
@@ -97,7 +95,8 @@ bool ui_composer_voice_bar_paint(const UiComposerVoiceView& view, UiRect bar, co
         }
         const float height = maximum(kMinimumPeak, peak_height * static_cast<float>(value) / 255.f);
         const float left = g.waveform.left + static_cast<float>(i) * (kBar + kBarGap);
-        if (!rounded(paint, {left, center - height * .5f, left + kBar, center + height * .5f}, color, kBar * .5f))
+        if (!paint_stream_push_rounded(paint, {left, center - height * .5f, left + kBar, center + height * .5f}, color,
+                                       kBar * .5f))
             return false;
     }
     return true;

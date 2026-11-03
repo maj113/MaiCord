@@ -35,10 +35,6 @@ UiPrivateRowStatus ui_private_row_status(const UiPrivateRowSource& source, u64 c
 // peer's activity line, whose glyph (none otherwise) leads it.
 Utf8View ui_private_row_subtitle(const UiPrivateRowSource& source, u64 channel_id, const Slice<char>& storage,
                                  UiActivityGlyph* glyph = nullptr) noexcept;
-// A one-to-one peer's activity line while online (activity_status.hpp), its
-// glyph leading it: the DM rows' subtitle and the DM header.
-Utf8View ui_private_peer_activity(const UiPrivateRowSource& source, u64 channel_id, const Slice<char>& storage,
-                                  UiActivityGlyph* glyph) noexcept;
 // The subtitle line of a conversation row's label (its content rectangle).
 UiRect ui_private_row_subtitle_rectangle(const UiRect& label) noexcept;
 // The first two other members, for the generated group icon.

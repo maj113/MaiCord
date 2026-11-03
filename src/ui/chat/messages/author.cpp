@@ -250,8 +250,8 @@ MessageProfileHit message_author_compact_hit(const MessageScene& scene, const Me
     return {record->author_id, bounds};
 }
 
-const MessageSceneRowWidget* message_author_command_row(const MessageScene& scene,
-                                                        const MessageTextCommand& c) noexcept {
+// The row whose author line owns the command; null for grouped rows and foreign commands.
+static const MessageSceneRowWidget* command_row(const MessageScene& scene, const MessageTextCommand& c) noexcept {
     const auto* row = message_scene_resolve(scene, c.owner.handle);
     return row && !row->grouped && c.owner.manager == &scene.widgets && c.owner.handle.slot == row->author.slot &&
                    c.owner.handle.generation == row->author.generation && c.message_id == row->message_id
@@ -278,7 +278,7 @@ MessageProfileHit message_author_hit_test(const MessageScene& scene,
     }
     for (u32 i = 0; i < text.command_count; ++i) {
         const auto& command = text.commands[i];
-        const auto* row = message_author_command_row(scene, command);
+        const auto* row = command_row(scene, command);
         if (!row || command.message_revision != row->message_revision)
             continue;
         MessageAuthorLayout header{};
@@ -303,7 +303,7 @@ MessageGuildTagHit message_author_guild_tag_hit_test(const MessageScene& scene, 
         return {};
     for (u32 i = 0; i < text.command_count; ++i) {
         const auto& command = text.commands[i];
-        if (!message_author_command_row(scene, command))
+        if (!command_row(scene, command))
             continue;
         MessageAuthorLayout header{};
         if (!message_author_layout(scene, command, state, users, cache, theme, &header) || !header.badge.leading ||
@@ -324,7 +324,7 @@ MessageAppCheckHit message_author_app_check_hit_test(const MessageScene& scene, 
         return {};
     for (u32 i = 0; i < text.command_count; ++i) {
         const auto& command = text.commands[i];
-        const auto* row = message_author_command_row(scene, command);
+        const auto* row = command_row(scene, command);
         if (!row || command.message_revision != row->message_revision)
             continue;
         MessageAuthorLayout header{};
@@ -345,7 +345,7 @@ MessagePluginSlotHit message_author_plugin_hit_test(const MessageScene& scene, c
         !ui_rect_contains(scene.viewport, x, y)) return {};
     for (u32 i = 0; i < text.command_count; ++i) {
         const auto& command = text.commands[i];
-        const auto* row = message_author_command_row(scene, command);
+        const auto* row = command_row(scene, command);
         if (!row)
             continue;
         MessageAuthorLayout header{};

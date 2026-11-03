@@ -71,7 +71,7 @@ RetainedAuthorHeader retain_author_header(MessageTextPresentation* presentation,
     if (!presentation || name.bytes == 0 || !name.data) {
         return RetainedAuthorHeader{};
     }
-    char timestamp_storage[kMessageMarkdownTimestampMaximumBytes]{};
+    char timestamp_storage[kMessageMarkdownTimestampMaximumBytes];
     const TimestampFormatResult timestamp =
         timestamp_ms != 0
             ? format_timestamp_local(timestamp_ms / 1'000u, 't', now_unix_seconds,
@@ -142,7 +142,7 @@ float result_card_text_width(const MessageScene& scene, const MessageRecord& rec
 bool append_result_card_header(MessageTextPresentation* presentation, const MessageScene& scene,
                                const MessageSceneRowWidget& row, const UiRect& author, const UiRect& clip, const Color& color,
                                const MessageRecord& record, Utf8View name, u64 now_unix_seconds) noexcept {
-    char storage[kMessageMarkdownTimestampMaximumBytes]{};
+    char storage[kMessageMarkdownTimestampMaximumBytes];
     const TimestampFormatResult stamp =
         record.timestamp_ms != 0
             ? format_timestamp_calendar(record.timestamp_ms / 1'000u, now_unix_seconds,

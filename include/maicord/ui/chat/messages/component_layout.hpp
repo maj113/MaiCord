@@ -92,10 +92,6 @@ float message_component_gallery_height(u32 count, float width, float aspect = 0)
 // zero when the size is unknown. Media items keep width << 16 | height in
 // accent_color.
 float message_component_media_aspect(const MessageRichComponent& component) noexcept;
-// The aspect of a gallery's only item, else zero.
-float message_component_gallery_aspect(const MessageRichRecord& rich, u32 gallery) noexcept;
-u32 message_component_child_count(const MessageRichRecord& rich, u32 parent, MessageComponentKind kind) noexcept;
-u32 message_component_child_ordinal(const MessageRichRecord& rich, u32 index) noexcept;
 
 // A failed interaction shows its error under the action row or section that
 // holds the control: 4 above and below a 20-DIP line led by a 16-DIP icon 8

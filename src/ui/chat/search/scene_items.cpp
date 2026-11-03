@@ -345,7 +345,7 @@ Utf8View url_hostname(Utf8View url) noexcept {
     return {url.data + at, end - at};
 }
 // First http(s) link in plain message text; the text is borrowed from the result bank.
-bool content_link(Utf8View text, u32* offset, u32* bytes) noexcept {
+static bool content_link(Utf8View text, u32* offset, u32* bytes) noexcept {
     for (u32 at = 0; at + 8 <= text.bytes; ++at) {
         const bool secure = bytes_equal(text.data + at, "https://", 8);
         if (!secure && !bytes_equal(text.data + at, "http://", 7))

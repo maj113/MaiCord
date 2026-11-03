@@ -60,7 +60,6 @@ inline constexpr UiThreadBrowserStyle kDefaultUiThreadBrowserStyle{
     44, 44, 32, 44, 56, 12, 8, 32, 6,
     text_style_bold, text_style_bold, text_style_subtext, 104
 };
-bool ui_thread_browser_style_valid(const UiThreadBrowserStyle&) noexcept;
 struct UiThreadBrowserBacking {
     UiThreadBrowserTarget targets[kUiThreadBrowserWidgetCapacity];
     UiWidgetHandle rows[kUiThreadBrowserPageCapacity];

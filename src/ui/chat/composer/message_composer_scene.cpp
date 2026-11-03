@@ -2,6 +2,7 @@
 #include "maicord/ui/theme/styles.hpp"
 #include "maicord/ui/chat/composer/voice_bar.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/ui/text/regional_flag.hpp"
 #include "maicord/ui/plugins/slots.hpp"
 #include "maicord/ui/layout/surface_geometry.hpp"
@@ -424,26 +425,6 @@ struct ProjectedToken {
     bool animated;
 };
 
-bool decimal_id(const Utf8View& source, u32 first, u32 last, u64* value) noexcept {
-    if (first >= last || last > source.bytes) {
-        return false;
-    }
-    u64 parsed = 0;
-    for (u32 index = first; index < last; ++index) {
-        const char character = source.data[index];
-        if (character < '0' || character > '9') {
-            return false;
-        }
-        const u64 digit = static_cast<u64>(character - '0');
-        if (parsed > (~0ull - digit) / 10ull) {
-            return false;
-        }
-        parsed = parsed * 10ull + digit;
-    }
-    *value = parsed;
-    return parsed != 0;
-}
-
 bool projected_token_at(const Utf8View& source, u32 first, const MessageComposerProjectionContext* context,
                         ProjectedToken* token) noexcept {
     if (first >= source.bytes || source.data[first] != '<' || source.bytes - first < 4) {
@@ -494,7 +475,7 @@ bool projected_token_at(const Utf8View& source, u32 first, const MessageComposer
         return false;
     }
     u64 id = 0;
-    if (!decimal_id(source, digits_first, cursor, &id)) {
+    if (!decimal_parse_padded({source.data + digits_first, cursor - digits_first}, &id) || id == 0) {
         return false;
     }
     if (kind != MessageComposerProjectionKind::emoji && (!context || !context->state))

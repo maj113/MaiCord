@@ -111,7 +111,7 @@ bool retain_system_text(MessageTextPresentation* presentation, const ChatStateSt
     if (!message_system_text_build(input, {begin, available}, &system))
         return fail(presentation, MessageTextPresentationError::capacity);
     u32 bytes = system.text.bytes;
-    char timestamp[kMessageMarkdownTimestampMaximumBytes]{};
+    char timestamp[kMessageMarkdownTimestampMaximumBytes];
     const TimestampFormatResult time =
         record.timestamp_ms ? format_timestamp_calendar(record.timestamp_ms / 1'000u, now_unix_seconds,
                                                         Slice<char>{timestamp, sizeof(timestamp)})
@@ -1040,7 +1040,7 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
             } else {
                 // Footer: optional 20-DIP round icon, "text \u2022 Yesterday at 10:08 PM".
                 const Utf8View footer = message_rich_store_string(*rich_store, embed.footer_text);
-                char stamp[kMessageMarkdownTimestampMaximumBytes]{};
+                char stamp[kMessageMarkdownTimestampMaximumBytes];
                 const TimestampFormatResult formatted =
                     embed.timestamp_ms ? format_timestamp_calendar(embed.timestamp_ms / 1'000u,
                                                                    context.now_unix_seconds, {stamp, sizeof(stamp)})

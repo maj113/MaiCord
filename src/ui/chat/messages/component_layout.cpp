@@ -163,7 +163,8 @@ float message_component_media_aspect(const MessageRichComponent& component) noex
     return width && height ? static_cast<float>(height) / static_cast<float>(width) : 0.0f;
 }
 
-float message_component_gallery_aspect(const MessageRichRecord& rich, u32 gallery) noexcept {
+// The aspect of a gallery's only item, else zero.
+static float gallery_aspect(const MessageRichRecord& rich, u32 gallery) noexcept {
     u32 count = 0;
     float aspect = 0.0f;
     for (u32 i = gallery + 1; i < rich.component_count && count < 2; ++i)
@@ -234,7 +235,7 @@ UiRect message_component_gallery_cell(u32 count, u32 index, float width, float a
     return {left, top, left + triple, top + triple};
 }
 
-u32 message_component_child_count(const MessageRichRecord& rich, u32 parent, MessageComponentKind kind) noexcept {
+static u32 child_count(const MessageRichRecord& rich, u32 parent, MessageComponentKind kind) noexcept {
     u32 count = 0;
     for (u32 i = parent + 1; i < rich.component_count; ++i)
         if (rich.components[i].parent == parent && message_component_kind(rich.components[i]) == kind)
@@ -242,7 +243,7 @@ u32 message_component_child_count(const MessageRichRecord& rich, u32 parent, Mes
     return count;
 }
 
-u32 message_component_child_ordinal(const MessageRichRecord& rich, u32 index) noexcept {
+static u32 child_ordinal(const MessageRichRecord& rich, u32 index) noexcept {
     const u16 parent = rich.components[index].parent;
     u32 ordinal = 0;
     for (u32 i = 0; i < index; ++i)
@@ -338,8 +339,8 @@ float message_component_measure_tree(const MessageRichRecord& rich, MessageRichI
         case MessageComponentKind::gallery:
             // The text pass seeds the gallery's own width; cells never fold.
             height = message_component_gallery_height(
-                message_component_child_count(rich, i, MessageComponentKind::gallery_item), width,
-                message_component_gallery_aspect(rich, i));
+                child_count(rich, i, MessageComponentKind::gallery_item), width,
+                gallery_aspect(rich, i));
             break;
         case MessageComponentKind::hidden:
         case MessageComponentKind::gallery_item:
@@ -477,10 +478,10 @@ UiLayoutStyle message_component_style(const MessageRichRecord& rich, u32 index,
             style.horizontal_alignment = UiLayoutAlignment::stretch;
         }
     } else if (parent_kind == MessageComponentKind::gallery) {
-        const u32 count = message_component_child_count(rich, parent, MessageComponentKind::gallery_item);
-        const UiRect cell = message_component_gallery_cell(count, message_component_child_ordinal(rich, index),
+        const u32 count = child_count(rich, parent, MessageComponentKind::gallery_item);
+        const UiRect cell = message_component_gallery_cell(count, child_ordinal(rich, index),
                                                            items.component_widths[parent],
-                                                           message_component_gallery_aspect(rich, parent));
+                                                           gallery_aspect(rich, parent));
         style.width = ui_layout_fixed(maximum(1.0f, ui_rect_width(cell)));
         style.height = ui_layout_fixed(maximum(1.0f, ui_rect_height(cell)));
         style.margin.left = cell.left;

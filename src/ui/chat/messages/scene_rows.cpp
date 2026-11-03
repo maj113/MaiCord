@@ -9,64 +9,49 @@ namespace maicord {
 using namespace message_scene_detail;
 
 namespace message_scene_detail {
-const UiResolvedThemeStyles* theme_bank(const MessageScene* scene) noexcept {
-    return scene->theme_styles;
-}
-const UiResolvedThemeStyles* theme_bank(const MessageScene& scene) noexcept {
-    return scene.theme_styles;
-}
 namespace {
-template <typename Scene> float author_height(const Scene& scene) noexcept {
+float author_height(const MessageScene& scene) noexcept {
     return message_em(scene) * 1.3125f;
 }
-} // namespace
-const MessageSceneDisplay& display(const MessageScene* scene) noexcept {
-    return scene->display;
-}
-const MessageSceneDisplay& display(const MessageScene& scene) noexcept {
-    return scene.display;
-}
-namespace {
-template <typename Scene> float avatar_height(const Scene& scene, bool grouped) noexcept {
+float avatar_height(const MessageScene& scene, bool grouped) noexcept {
     return compact(scene) ? content_height(scene) : grouped ? 0.0f : metrics(scene).message_avatar;
 }
-template <typename Scene> float group_top(const Scene& scene) noexcept {
+float group_top(const MessageScene& scene) noexcept {
     static constexpr float spacing[]{0.0f, 0.0f, 4.0f, 8.0f, 16.0f, 24.0f};
     const u8 code = display(scene).group_spacing;
     if (code && code < 6)
         return spacing[code] + 1.0f;
     return compact(scene) ? 1.0f : metrics(scene).message_top;
 }
-template <typename Scene> float snapshot_header(const Scene& scene) noexcept {
+float snapshot_header(const MessageScene& scene) noexcept {
     return message_em(scene) * 1.5f;
 }
-template <typename Scene> float snapshot_padding(const Scene& scene) noexcept {
+float snapshot_padding(const MessageScene& scene) noexcept {
     return metrics(scene).message_rich_gap + 2.f;
 }
-template <typename Scene> float grouped_minimum(const Scene& scene) noexcept {
+float grouped_minimum(const MessageScene& scene) noexcept {
     return message_em(scene) * 1.375f;
 }
-template <typename Scene> float ungrouped_minimum(const Scene& scene) noexcept {
+float ungrouped_minimum(const MessageScene& scene) noexcept {
     if (compact(scene))
         return group_top(scene) + content_height(scene) + metrics(scene).message_bottom;
     return group_top(scene) +
            maximum(author_height(scene) + content_height(scene), metrics(scene).message_avatar) +
            metrics(scene).message_bottom;
 }
-template <typename Scene> float row_top_padding(const Scene& scene, bool grouped) noexcept {
+float row_top_padding(const MessageScene& scene, bool grouped) noexcept {
     return grouped ? metrics(scene).message_grouped_top : group_top(scene);
 }
 
-template <typename Scene> float row_bottom_padding(const Scene& scene, bool grouped) noexcept {
+float row_bottom_padding(const MessageScene& scene, bool grouped) noexcept {
     return grouped ? metrics(scene).message_grouped_bottom : metrics(scene).message_bottom;
 }
 
-template <typename Scene> float row_author_height(const Scene& scene, bool grouped) noexcept {
+float row_author_height(const MessageScene& scene, bool grouped) noexcept {
     return grouped || compact(scene) ? 0.0f : author_height(scene);
 }
 
-template <typename Scene>
-UiLayoutStyle row_style(const Scene& scene, float height, bool grouped, float leading = 0) noexcept {
+UiLayoutStyle row_style(const MessageScene& scene, float height, bool grouped, float leading = 0) noexcept {
     UiLayoutStyle style = ui_layout_style();
     style.flow = UiLayoutFlow::horizontal;
     style.width = ui_layout_fill();
@@ -78,8 +63,7 @@ UiLayoutStyle row_style(const Scene& scene, float height, bool grouped, float le
     return style;
 }
 
-template <typename Scene>
-UiLayoutStyle avatar_style(const Scene& scene, bool grouped, float reply_height) noexcept {
+UiLayoutStyle avatar_style(const MessageScene& scene, bool grouped, float reply_height) noexcept {
     UiLayoutStyle style = ui_layout_style();
     style.width = ui_layout_fixed(avatar_width(scene));
     style.height = ui_layout_fixed(avatar_height(scene, grouped));
@@ -466,8 +450,7 @@ bool row_is_grouped(const MessageScene& scene, const MessageRecord& record, cons
     return group_first != source_index;
 }
 
-template <typename Scene>
-float row_reply_height(const Scene& scene, const MessageSceneRowWidget& row,
+float row_reply_height(const MessageScene& scene, const MessageSceneRowWidget& row,
                        const MessageRichRecord* rich) noexcept {
     if (!rich || !message_rich_has_header(*rich)) {
         return 0.0f;
@@ -475,8 +458,7 @@ float row_reply_height(const Scene& scene, const MessageSceneRowWidget& row,
     return row.text_measured ? row.measured_reply_height : reply_height(scene);
 }
 
-template <typename Scene>
-float desired_content_height(const Scene& scene, const MessageSceneRowWidget& row) noexcept {
+float desired_content_height(const MessageScene& scene, const MessageSceneRowWidget& row) noexcept {
     return row.text_measured ? row.measured_content_height : content_height(scene);
 }
 
@@ -578,12 +560,12 @@ float snapshot_estimated_height(MessageScene* scene, MessageHandle handle,
     const u64 key = hash_mix(hash_mix(rich_layout_signature(snapshot), ui_extent_units(width)),
                              scene->theme_geometry_revision);
     if (cached && cached->signature == key)
-        return snapshot_header(scene) + 2 * snapshot_padding(scene) + cached->content_height +
-               cached->rich.total() + snapshot_following_gap(scene, outer);
-    return snapshot_header(scene) + 2 * snapshot_padding(scene) + content_height(scene) +
+        return snapshot_header(*scene) + 2 * snapshot_padding(*scene) + cached->content_height +
+               cached->rich.total() + snapshot_following_gap(*scene, outer);
+    return snapshot_header(*scene) + 2 * snapshot_padding(*scene) + content_height(*scene) +
            message_rich_measure_layout(scene->timeline->rich_store, snapshot, width, scene->theme_styles)
                .total() +
-           snapshot_following_gap(scene, outer);
+           snapshot_following_gap(*scene, outer);
 }
 
 } // namespace
@@ -592,7 +574,7 @@ bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) 
     const MessageStore& store = *timeline.store;
     const u32 source_count = message_scene_source_count(*scene);
     const MessageRichStore* rich_store = timeline.rich_store;
-    const float width = available_text_width(scene, viewport);
+    const float width = available_text_width(*scene, viewport);
     u64 epoch = hash_mix(kHash64Seed, ui_extent_units(width));
     epoch = hash_mix(epoch, timeline.reset_generation);
     epoch = hash_mix(epoch, scene->theme_geometry_revision);
@@ -685,15 +667,15 @@ bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) 
             // Borrowed scenes keep their measured row heights in the timeline even
             // after the widgets leave the viewport. A read-state change must not
             // replace them with body estimates, which can clamp a valid scroll anchor.
-            const float before = row_top_padding(scene, previous_grouped) +
-                                 row_bottom_padding(scene, previous_grouped) +
-                                 row_author_height(scene, previous_grouped) +
+            const float before = row_top_padding(*scene, previous_grouped) +
+                                 row_bottom_padding(*scene, previous_grouped) +
+                                 row_author_height(*scene, previous_grouped) +
                                  (previous_divider ? scene->unread_prepared_height : 0);
-            const float after = row_top_padding(scene, grouped) + row_bottom_padding(scene, grouped) +
-                                row_author_height(scene, grouped) +
+            const float after = row_top_padding(*scene, grouped) + row_bottom_padding(*scene, grouped) +
+                                row_author_height(*scene, grouped) +
                                 (divider ? scene->unread_divider_style.height : 0);
             const float height = maximum(
-                (grouped ? grouped_minimum(scene) : ungrouped_minimum(scene)) +
+                (grouped ? grouped_minimum(*scene) : ungrouped_minimum(*scene)) +
                     (divider ? scene->unread_divider_style.height : 0),
                 ui_extent_dips(ui_variable_list_item_units(*timeline.list, index)) + after - before);
             if (!ui_variable_list_set_height(timeline.list, index, ui_extent_units(height)))
@@ -718,7 +700,7 @@ bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) 
         if (cached->signature != key) {
             reset_value(cached);
             cached->signature = key;
-            cached->content_height = content_height(scene);
+            cached->content_height = content_height(*scene);
             if (rich) {
                 MessageSceneRichItemLayout items;
                 message_rich_fill_item_layout(rich_store, rich, width, scene->theme_styles, items);
@@ -731,19 +713,19 @@ bool prepare_resident_measurements(MessageScene* scene, const UiRect& viewport) 
         cached->grouped = grouped;
         const float reply = !rich || !message_rich_has_header(*rich) ? 0.0f
                             : cached->measured                       ? cached->reply_height
-                                                                     : reply_height(scene);
+                                                                     : reply_height(*scene);
         float poll_extent{};
         if (!poll_height(*scene, *record, handle, width, &poll_extent))
             return false;
         const float height =
             result_card_leading(*scene) + result_card_trailing(*scene) + intro_index_height(*scene, index) +
             (divider ? scene->unread_divider_style.height : 0) +
-            maximum(grouped ? grouped_minimum(scene) : ungrouped_minimum(scene),
-                    row_top_padding(scene, grouped) + row_bottom_padding(scene, grouped) +
-                        row_author_height(scene, grouped) + reply + cached->content_height +
+            maximum(grouped ? grouped_minimum(*scene) : ungrouped_minimum(*scene),
+                    row_top_padding(*scene, grouped) + row_bottom_padding(*scene, grouped) +
+                        row_author_height(*scene, grouped) + reply + cached->content_height +
                         cached->rich.total() + poll_extent +
                         snapshot_estimated_height(scene, handle, snapshot_rich(*scene, record->id),
-                                                  maximum(1.f, width - 2 * snapshot_padding(scene)), rich));
+                                                  maximum(1.f, width - 2 * snapshot_padding(*scene)), rich));
         if (!ui_variable_list_set_height(timeline.list, index, ui_extent_units(height)))
             return false;
     }
@@ -779,11 +761,11 @@ bool apply_row_specs(MessageScene* scene, MessageSceneRowWidget* row) noexcept {
         return false;
     }
     const MessageRichRecord* rich = row_rich(*scene, *record);
-    const float reply = row_reply_height(scene, *row, rich);
+    const float reply = row_reply_height(*scene, *row, rich);
     const float resident_height =
         ui_extent_dips(ui_variable_list_item_units(*scene->timeline->list, row->source_index));
-    const float author_height = row_author_height(scene, row->grouped);
-    const float fixed = row_top_padding(scene, row->grouped) + row_bottom_padding(scene, row->grouped) +
+    const float author_height = row_author_height(*scene, row->grouped);
+    const float fixed = row_top_padding(*scene, row->grouped) + row_bottom_padding(*scene, row->grouped) +
                         reply + author_height + row->rich_layout.total() + row->poll_height +
                         row->snapshot_height + row_leading(*scene, *row) +
                         result_card_leading(*scene) + result_card_trailing(*scene);
@@ -793,32 +775,32 @@ bool apply_row_specs(MessageScene* scene, MessageSceneRowWidget* row) noexcept {
         return false;
     }
     row_node->spec.style.height = ui_layout_fixed(resident_height);
-    row_node->spec.style.gap = avatar_gap(scene);
+    row_node->spec.style.gap = avatar_gap(*scene);
     if (scene->plugin_decorations)
         if (auto* widget = ui_widget_manager_resolve(&scene->widgets, row->widget))
             widget->flags = row->redacted ? static_cast<u16>(widget->flags | ui_widget_block_input)
                                           : static_cast<u16>(widget->flags & ~ui_widget_block_input);
     row_node->spec.style.padding =
-        UiInsets{metrics(scene).message_left,
-                 row_top_padding(scene, row->grouped) + row_leading(*scene, *row) +
+        UiInsets{metrics(*scene).message_left,
+                 row_top_padding(*scene, row->grouped) + row_leading(*scene, *row) +
                      result_card_leading(*scene),
-                 metrics(scene).message_right,
-                 row_bottom_padding(scene, row->grouped) + result_card_trailing(*scene)};
+                 metrics(*scene).message_right,
+                 row_bottom_padding(*scene, row->grouped) + result_card_trailing(*scene)};
     UiLayoutNode* avatar_node = mutable_layout_node(scene, row->avatar);
     if (!avatar_node) {
         return false;
     }
-    avatar_node->spec.style.width = ui_layout_fixed(avatar_width(scene));
-    avatar_node->spec.style.height = ui_layout_fixed(avatar_height(scene, row->grouped));
-    avatar_node->spec.style.margin.top = row->grouped && !compact(scene) ? 0.0f : reply + 0.f;
+    avatar_node->spec.style.width = ui_layout_fixed(avatar_width(*scene));
+    avatar_node->spec.style.height = ui_layout_fixed(avatar_height(*scene, row->grouped));
+    avatar_node->spec.style.margin.top = row->grouped && !compact(*scene) ? 0.0f : reply + 0.f;
     if (row->has_snapshot) {
         auto* child = const_cast<MessageSceneRowWidget*>(message_scene_snapshot_row(*scene, *row));
         const auto* snapshot = snapshot_rich(*scene, row->message_id);
         if (!child || !snapshot || !message_rich_widgets_apply(&scene->widgets, snapshot, child) ||
             !set_fixed_height(scene, child->widget,
-                              row->snapshot_height - snapshot_following_gap(scene, rich)) ||
-            !set_fixed_height(scene, child->reply, snapshot_header(scene)) ||
-            !set_fixed_height(scene, child->content, desired_content_height(scene, *child)))
+                              row->snapshot_height - snapshot_following_gap(*scene, rich)) ||
+            !set_fixed_height(scene, child->reply, snapshot_header(*scene)) ||
+            !set_fixed_height(scene, child->content, desired_content_height(*scene, *child)))
             return false;
     }
     return message_rich_widgets_apply(&scene->widgets, rich, row) &&
@@ -895,7 +877,7 @@ bool refresh_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_ind
         row->invite_scan_negative = false;
     const MessageRichRecord* rich = row_rich(*scene, *record);
     const u64 signature = rich_layout_signature(rich);
-    const float width = available_text_width(scene, scene->viewport);
+    const float width = available_text_width(*scene, scene->viewport);
     const auto* poll = row_poll(*scene, *record);
     const bool missing_poll = unavailable_poll(*scene, *record);
     const u32 poll_content = poll ? poll->content_revision : missing_poll ? ~u32{0} : 0;
@@ -946,9 +928,9 @@ bool refresh_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_ind
     }
     const auto* snapshot = snapshot_rich(*scene, record->id);
     row->snapshot_height = snapshot_estimated_height(scene, handle, snapshot,
-                                                     maximum(1.f, width - 2 * snapshot_padding(scene)), rich);
+                                                     maximum(1.f, width - 2 * snapshot_padding(*scene)), rich);
     if (const auto* child = message_scene_snapshot_row(*scene, *row))
-        row->snapshot_height = row_required_height(*scene, *child, snapshot) + snapshot_following_gap(scene, rich);
+        row->snapshot_height = row_required_height(*scene, *child, snapshot) + snapshot_following_gap(*scene, rich);
     if (text_identity_changed || !row->rich_layout_measured) {
         // A cached measurement overwrites both layouts below (restore_measurement).
         if (!cached) {
@@ -960,7 +942,7 @@ bool refresh_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_ind
         if (text_identity_changed) {
             row->measured_width = width;
             row->measured_reply_height = 0.0f;
-            row->measured_content_height = content_height(scene);
+            row->measured_content_height = content_height(*scene);
             row->rich_layout_measured = false;
             row->text_measured = false;
             for (u32 index = 0; index < kGatewayMessageReactionMaximum; ++index) {
@@ -1052,10 +1034,10 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
     const UiWidgetResult root = ui_widget_manager_add_keyed(
         &scene->widgets, scene->root, id, UiWidgetKind::container,
         static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable), "MessageRow",
-        row_style(scene, height, row.grouped, row_leading(*scene, row) + result_card_leading(*scene)));
+        row_style(*scene, height, row.grouped, row_leading(*scene, row) + result_card_leading(*scene)));
     const UiWidgetResult avatar = ui_widget_manager_add_keyed(
         &scene->widgets, root.handle, id + 1u, UiWidgetKind::image, ui_widget_enabled, "Avatar",
-        avatar_style(scene, row.grouped, row_reply_height(scene, row, rich)));
+        avatar_style(*scene, row.grouped, row_reply_height(*scene, row, rich)));
     const UiWidgetResult body = ui_widget_manager_add_keyed(&scene->widgets, root.handle, id + 2u,
                                                             UiWidgetKind::container, ui_widget_enabled, "Body",
                                                             body_style());
@@ -1064,8 +1046,8 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
     }
     const UiWidgetResult reply = add_region(scene, body.handle, id + 3u, "Reply", 0.0f);
     const UiWidgetResult author =
-        add_region(scene, body.handle, id + 4u, "Author", row_author_height(scene, row.grouped));
-    const UiWidgetResult content = add_region(scene, body.handle, id + 5u, "Content", content_height(scene));
+        add_region(scene, body.handle, id + 4u, "Author", row_author_height(*scene, row.grouped));
+    const UiWidgetResult content = add_region(scene, body.handle, id + 5u, "Content", content_height(*scene));
     if (!reply.ok() || !author.ok() || !content.ok()) {
         return false;
     }
@@ -1099,8 +1081,8 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
         child.forwarded_snapshot = true;
         child.rich_signature = rich_layout_signature(snapshot);
         child.measured_width =
-            maximum(1.f, available_text_width(scene, scene->viewport) - 2 * snapshot_padding(scene));
-        child.measured_content_height = content_height(scene);
+            maximum(1.f, available_text_width(*scene, scene->viewport) - 2 * snapshot_padding(*scene));
+        child.measured_content_height = content_height(*scene);
         message_rich_fill_item_layout(scene->timeline->rich_store, snapshot, child.measured_width,
                                       scene->theme_styles, child.rich_item_layout);
         child.rich_layout =
@@ -1117,13 +1099,13 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
             cached->signature = key;
             message_scene_detail::retain_measurement(scene, child);
         }
-        const float following_gap = snapshot_following_gap(scene, rich);
+        const float following_gap = snapshot_following_gap(*scene, rich);
         row.snapshot_height = row_required_height(*scene, child, snapshot) + following_gap;
         UiLayoutStyle snapshot_style = body_style();
         snapshot_style.height = ui_layout_fixed(row.snapshot_height - following_gap);
         snapshot_style.margin.bottom = following_gap;
-        snapshot_style.padding = {snapshot_padding(scene), snapshot_padding(scene), snapshot_padding(scene),
-                                  snapshot_padding(scene)};
+        snapshot_style.padding = {snapshot_padding(*scene), snapshot_padding(*scene), snapshot_padding(*scene),
+                                  snapshot_padding(*scene)};
         const u32 child_id = id + kMessageSceneWidgetsPerContent;
         const auto frame = ui_widget_manager_add_keyed(&scene->widgets, body.handle, child_id,
                                                        UiWidgetKind::container, ui_widget_enabled,
@@ -1132,9 +1114,9 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
             return false;
         child.widget = child.body = frame.handle;
         child.avatar = child.author = ui_widget_invalid_handle();
-        const auto header = add_region(scene, frame.handle, child_id + 3u, "Forwarded", snapshot_header(scene));
+        const auto header = add_region(scene, frame.handle, child_id + 3u, "Forwarded", snapshot_header(*scene));
         const auto child_content = add_region(scene, frame.handle, child_id + 5u, "ForwardedContent",
-                                              desired_content_height(scene, child));
+                                              desired_content_height(*scene, child));
         if (!header.ok() || !child_content.ok())
             return false;
         child.reply = header.handle;

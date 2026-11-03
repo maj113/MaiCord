@@ -315,8 +315,9 @@ bool ui_message_forward_scene_scroll(UiMessageForwardScene* s, float offset) noe
     if (!layout(*s)) return false;
     ++s->revision; return true;
 }
-bool ui_message_forward_scene_select(UiMessageForwardScene* s, u32 index, bool reveal) noexcept {
-    if (!s || !current(*s) || index >= s->accepted_count || !s->accepted[index].enabled) return false;
+// Callers have checked the scene is current.
+static bool select_row(UiMessageForwardScene* s, u32 index, bool reveal = true) noexcept {
+    if (index >= s->accepted_count || !s->accepted[index].enabled) return false;
     const auto previous = s->selected; s->selected = index;
     if (reveal) {
         const float top = index * kUiMessageForwardRowHeight, bottom = top + kUiMessageForwardRowHeight;
@@ -338,7 +339,7 @@ bool ui_message_forward_scene_move(UiMessageForwardScene* s, UiQuickSwitcherMove
     else if (reverse) index = step > index ? 0 : index - step;
     else index = minimum(s->accepted_count - 1, index + step);
     for (u32 i = 0; i < s->accepted_count; ++i) {
-        if (s->accepted[index].enabled) return ui_message_forward_scene_select(s, index);
+        if (s->accepted[index].enabled) return select_row(s, index);
         if (reverse) { if (!index) break; --index; }
         else { if (index + 1 == s->accepted_count) break; ++index; }
     }
@@ -350,7 +351,7 @@ bool ui_message_forward_scene_set_hover(UiMessageForwardScene* s, float x, float
     const auto selected = s->selected;
     bool delta = false;
     if (!ui_widget_manager_hover_at(&s->widgets, x, y, &delta)) return false;
-    for (u32 i = 0; i < s->count; ++i) if (ui_widget_handle_matches(s->widgets.hovered, s->rows[i])) ui_message_forward_scene_select(s, s->first + i, false);
+    for (u32 i = 0; i < s->count; ++i) if (ui_widget_handle_matches(s->widgets.hovered, s->rows[i])) select_row(s, s->first + i, false);
     if (delta) ++s->revision;
     if (changed) *changed = delta || selected != s->selected;
     return true;

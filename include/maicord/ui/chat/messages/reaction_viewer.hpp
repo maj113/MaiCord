@@ -150,8 +150,6 @@ ReactionViewerHit reaction_viewer_hit_test(const ReactionViewer& viewer,
 bool reaction_viewer_set_hover(ReactionViewer* viewer, float x, float y,
                                bool* changed) noexcept;
 u32 reaction_viewer_visible_user_count(const ReactionViewer& viewer) noexcept;
-u32 reaction_viewer_visible_aggregate_count(
-    const ReactionViewer& viewer) noexcept;
 UiRect reaction_viewer_user_rectangle(const ReactionViewer& viewer,
                                       u32 user_index) noexcept;
 UiRect reaction_viewer_aggregate_rectangle(const ReactionViewer& viewer,
