@@ -1,4 +1,4 @@
-// maicord/sdk/background.hlsli -- MaiCord background effect interface 1 (ps_5_0).
+// maicord/sdk/background.hlsli -- MaiCord background effect interface 2 (ps_5_0).
 //
 // An effect is one function:
 //
@@ -18,6 +18,10 @@
 // a hand-written effect can read mc_knobs directly.
 //
 // Everything below is host-supplied; nothing here may be changed by an effect.
+//
+// Interface 2 adds mc_ambient (the local clock and the light or dark appearance) after mc_knobs, where an
+// interface-1 effect never reads. The build tool writes "interface": 2 into the manifest of an effect that uses
+// clock or appearance, and 1 otherwise, so an effect without them still runs on every MaiCord.
 
 struct McFrame {
     float  time;        // seconds x the user's Speed; stops while the effect is paused
@@ -31,9 +35,19 @@ struct McFrame {
     float  intensity;   // theme strength 0..1, lower in light themes
     float2 reserved;
 };
+// Interface 2. Each value is 0 unless the effect declares its input. The host eases them: a change of the
+// appearance, or a jump of the clock (a resume, a new time zone), glides over 1.5 s, so blend with them directly.
+struct McAmbient {
+    float day;          // @uses clock: local time of day, 0..1 from midnight (0.5 is noon), in whole minutes
+    float year;         // @uses clock: local time of year, 0..1 from 1 January 00:00
+    float month;        // @uses clock: the local month, 1..12 (a whole number; it does not glide)
+    float dark;         // @uses appearance: 1 dark, 0 light. Dark when MaiCord's theme is (Dark, AMOLED, a dark
+                        // custom theme) or when Windows' app mode is; unlike mc.dark it follows Windows and glides.
+};
 cbuffer McBackground : register(b0) {
-    McFrame mc;
-    float4  mc_knobs[8];
+    McFrame   mc;
+    float4    mc_knobs[8];
+    McAmbient mc_ambient;
 };
 
 Texture2D<float4> mc_noise_tex : register(t0); // 256x256 RGBA8 white noise (PCG), point/wrap
@@ -99,6 +113,13 @@ float4 mc_hash4(float2 p) {
     v.z += v.x * v.y;
     v.w += v.y * v.z;
     return (v >> 8u) * (1.0 / 16777216.0);
+}
+
+// Daylight from mc_ambient.day (@uses clock): 0 at night, 1 by day, crossing over an hour centred on the local
+// sunrise and sunset hours (e.g. 6.5 and 19.0).
+float mc_daylight(float sunrise, float sunset) {
+    const float hour = mc_ambient.day * 24.0;
+    return smoothstep(sunrise - 0.5, sunrise + 0.5, hour) * (1.0 - smoothstep(sunset - 0.5, sunset + 0.5, hour));
 }
 
 float4 background(float2 pixel); // the author's function

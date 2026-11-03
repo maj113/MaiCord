@@ -182,6 +182,16 @@ void renderer_clear_effect(D3D11Renderer* renderer) noexcept {
     }
 }
 
+void renderer_set_effect_ambient(D3D11Renderer* renderer, const float (&values)[4]) noexcept {
+    if (!renderer || bytes_equal(renderer->effect.ambient, values, sizeof(values)))
+        return;
+    copy_bytes(renderer->effect.ambient, values, sizeof(values));
+    if (renderer->effect.selected) {
+        presentation_damage_invalidate_full(&renderer->presentation_damage);
+        reset_value(&renderer->settings_backdrop_stamp);
+    }
+}
+
 void renderer_bind_theme_editor_scene(D3D11Renderer* renderer, const UiThemeEditorScene* scene) noexcept {
     if (!renderer || renderer->theme_editor_scene == scene)
         return;

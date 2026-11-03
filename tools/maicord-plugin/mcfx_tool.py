@@ -15,12 +15,18 @@ Compiling uses fxc.exe when the Windows SDK has it (MAICORD_FXC_EXECUTABLE, the 
 uses it, so its bytes are the catalog's), else the in-box d3dcompiler_47.dll through ctypes, so no SDK is needed.
 The cost class (light, medium, heavy) is measured on WARP by the catalog's CI; here the static counts show whether
 an effect is likely to be refused.
+
+The manifest's "interface" is 1, or 2 when the effect uses clock or appearance (mc_ambient, after mc_knobs): a
+MaiCord before interface 2 refuses such a package instead of running it without the inputs. `effect preview`
+can stand in for both inputs (--time, --date, --day-seconds, --appearance) through simulate-inputs.txt in the dev
+folder, which MaiCord reads in Developer Mode.
 """
 
 from __future__ import annotations
 
 import argparse
 import ctypes
+import datetime
 import json
 import os
 import re
@@ -32,7 +38,9 @@ from pathlib import Path
 import plugin_tool as core
 from plugin_tool import ToolError, say, write_text
 
+# Interface 1, and the names of interface 2 (mc_ambient): an effect that uses one is packed as interface 2.
 INTERFACE = 1
+AMBIENT_USES = ("clock", "appearance")
 MANIFEST_MAX = 16 * 1024
 DXBC_MAX = 64 * 1024
 SOURCE_MAX = 64 * 1024
@@ -41,7 +49,8 @@ INSTRUCTIONS_MAX = 4096
 SAMPLES_MAX = 64
 KNOB_ROWS = 8
 NAME_MAX = 48
-USES = ("noise", "glyphs", "blue_noise", "pointer", "texture0", "texture1")
+USES = ("noise", "glyphs", "blue_noise", "pointer", "texture0", "texture1", *AMBIENT_USES)
+SIMULATION_FILE = "simulate-inputs.txt"
 BLENDS = ("normal", "screen", "add")
 RESOLUTIONS = (25, 35, 50, 75, 100)
 FRAME_RATES = (10, 15, 24, 30, 60)
@@ -378,10 +387,15 @@ def cost_hint(counts: dict) -> str:
 
 
 # ---- the package --------------------------------------------------------------------------------------------------
+def interface_of(uses: list) -> int:
+    """2 when the effect reads mc_ambient (clock, appearance), else 1, so it still runs on every MaiCord."""
+    return 2 if any(u in AMBIENT_USES for u in uses) else INTERFACE
+
+
 def manifest(slug: str, header: dict, sidecar: dict, version: str) -> dict:
     """The MANIFEST section, members in the order the client documents."""
     effect = header["effect"]
-    result = {"interface": INTERFACE, "slug": slug, "name": effect["name"], "version": version,
+    result = {"interface": interface_of(header["uses"]), "slug": slug, "name": effect["name"], "version": version,
               "authors": [{"name": a.strip()} for a in effect.get("authors", "").split(";") if a.strip()] or [{"name": "Unknown"}],
               "license": effect["license"]}
     if effect.get("derived_from"):
@@ -418,8 +432,9 @@ def sidecar_text(header: dict, sidecar: dict) -> str:
     lines.append(f"blend={header['blend']}")
     lines.append(f"resolution={sidecar.get('resolution', 50)}")
     lines.append(f"fps={sidecar.get('fps', 24)}")
+    # Every mc_knobs value, as far as the format goes (the catalog checks all of them).
     values = knob_values(header["knobs"])
-    lines.append("knobs=" + " ".join(str(round(v * 1000)) for v in values[:12]))
+    lines.append("knobs=" + " ".join(str(round(v * 1000)) for v in values))
     return "\n".join(lines) + "\n"
 
 
@@ -547,6 +562,82 @@ def command_effect_build(arguments) -> int:
     return 0
 
 
+# ---- simulated inputs --------------------------------------------------------------------------------------------
+_TIME = re.compile(r"([01]\d|2[0-3]):([0-5]\d)")
+_DATE = re.compile(r"(0[1-9]|1[0-2])-(\d\d)")
+_MONTH_DAYS = (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+SIMULATION_KEYS = ("time", "date", "day_seconds", "appearance")
+
+
+def simulation(arguments, existing: dict) -> dict | None:
+    """simulate-inputs.txt after this run's --time, --date, --day-seconds and --appearance, merged over the file's
+    keys (None: no option given, the file stays as it is). The same grammar MaiCord reads."""
+    given = {}
+    if arguments.time is not None:
+        if not _TIME.fullmatch(arguments.time):
+            raise ToolError("--time is HH:MM, 00:00 to 23:59")
+        given["time"] = arguments.time
+    if arguments.date is not None:
+        match = _DATE.fullmatch(arguments.date)
+        if not match or not 1 <= int(match.group(2)) <= _MONTH_DAYS[int(match.group(1)) - 1]:
+            raise ToolError("--date is MM-DD, a day of the year")
+        given["date"] = arguments.date
+    if arguments.day_seconds is not None:
+        if not 10 <= arguments.day_seconds <= 86400:
+            raise ToolError("--day-seconds is 10 to 86400 (seconds for a whole simulated day)")
+        given["day_seconds"] = str(arguments.day_seconds)
+    if arguments.appearance is not None:
+        given["appearance"] = arguments.appearance
+    if not given:
+        return None
+    values = {k: v for k, v in existing.items() if k in SIMULATION_KEYS}
+    values.update(given)
+    if "day_seconds" in values and "time" not in values:
+        values["time"] = datetime.datetime.now().strftime("%H:%M")  # a running day starts from now
+    return values
+
+
+def simulation_text(values: dict) -> str:
+    lines = ["# Simulated effect inputs (maicord-plugin effect preview); MaiCord reads them in Developer Mode."]
+    lines += [f"{key}={values[key]}" for key in SIMULATION_KEYS if key in values]
+    return "\n".join(lines) + "\n"
+
+
+def simulation_summary(values: dict) -> str:
+    parts = []
+    if "time" in values:
+        parts.append(f"time {values['time']}" + (f", a day every {values['day_seconds']} s" if "day_seconds" in values else ""))
+    if "date" in values:
+        parts.append(f"date {values['date']}")
+    if "appearance" in values:
+        parts.append(f"{values['appearance']} appearance")
+    return ", ".join(parts)
+
+
+def apply_simulation(arguments, folder: Path, header: dict) -> None:
+    """Writes, keeps or removes the dev folder's simulate-inputs.txt and says what every effect now sees."""
+    path = folder / SIMULATION_FILE
+    if arguments.real_inputs:
+        if path.exists():
+            path.unlink()
+            say("Removed the simulated inputs: effects see the real clock and appearance again.")
+        return
+    existing = parse_sidecar(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    values = simulation(arguments, existing)
+    if values is None:
+        if existing:
+            say(f"MaiCord simulates {simulation_summary(existing)} for every effect (--real-inputs stops it).")
+        return
+    folder.mkdir(parents=True, exist_ok=True)
+    write_text(path, simulation_text(values))
+    say(f"MaiCord simulates {simulation_summary(values)} for every effect, in Developer Mode; a change glides "
+        "like a real one (--real-inputs stops it).")
+    unused = [use for keys, use in ((("time", "date", "day_seconds"), "clock"), (("appearance",), "appearance"))
+              if any(k in values for k in keys) and use not in header["uses"]]
+    if unused:
+        say(f"Note: the effect does not declare @uses {' '.join(unused)}, so it reads 0 there.")
+
+
 def command_effect_preview(arguments) -> int:
     effect = Effect(arguments.dir, arguments.source)
     include = core.sdk_include(arguments.sdk)
@@ -557,6 +648,7 @@ def command_effect_preview(arguments) -> int:
         core.deploy(effect.output, folder)
 
     step()
+    apply_simulation(arguments, folder, parse_header(effect.hlsl.read_text(encoding="utf-8")))
     if not arguments.watch:
         say("In MaiCord (Developer Mode): Settings > Appearance > Background effect, or Settings > Effects > Developer.")
         return 0
@@ -591,4 +683,11 @@ def add_commands(effect_parser, common) -> None:
     p.add_argument("--dev-folder", help="default: MAICORD_EFFECT_DEV or %%LOCALAPPDATA%%\\MaiCord\\effects\\dev")
     p.add_argument("--watch", action="store_true", help="rebuild and copy whenever the HLSL changes")
     p.add_argument("--rounds", type=int, help=argparse.SUPPRESS)
+    simulated = p.add_argument_group("simulated inputs", "what every effect reads for @uses clock and appearance, "
+                                     "kept in the dev folder until --real-inputs; a change glides as a real one does")
+    simulated.add_argument("--time", metavar="HH:MM", help="the local time of day")
+    simulated.add_argument("--date", metavar="MM-DD", help="the local date (month and day)")
+    simulated.add_argument("--day-seconds", type=int, metavar="N", help="a whole day passes in N seconds, from --time")
+    simulated.add_argument("--appearance", choices=("dark", "light"), help="the light or dark appearance")
+    simulated.add_argument("--real-inputs", action="store_true", help="back to the real clock and appearance")
     p.set_defaults(run=command_effect_preview)

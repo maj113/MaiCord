@@ -1550,7 +1550,7 @@ foreach(maicord_effect IN ITEMS reference|tests/shaders/background_effect_refere
         ascii_rain|samples/effects/ascii-rain/ascii-rain.hlsl aurora|samples/effects/aurora/aurora.hlsl
         starfield|samples/effects/starfield/starfield.hlsl plasma|samples/effects/plasma/plasma.hlsl
         bokeh|samples/effects/bokeh/bokeh.hlsl wave_lines|samples/effects/wave-lines/wave-lines.hlsl
-        film_grain|samples/effects/film-grain/film-grain.hlsl)
+        film_grain|samples/effects/film-grain/film-grain.hlsl day_night|samples/effects/day-night/day-night.hlsl)
     string(REPLACE "|" ";" maicord_effect "${maicord_effect}")
     list(GET maicord_effect 0 maicord_effect_name)
     list(GET maicord_effect 1 maicord_effect_source)

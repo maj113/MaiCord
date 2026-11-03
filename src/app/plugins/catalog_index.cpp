@@ -23,6 +23,8 @@ constexpr char kSeverities[] = "malicious\0broken\0withdrawn\0";
 constexpr char kBases[] = "dark\0light\0amoled\0";
 constexpr char kCosts[] = "light\0medium\0heavy\0";
 constexpr char kBlends[] = "normal\0screen\0add\0";
+// An effect's inputs as the index lists them: interface 1's names only. Interface 2's clock and appearance live in
+// the package's manifest alone; an index naming them would be refused whole by every earlier client.
 constexpr char kUses[] = "noise\0glyphs\0blue_noise\0pointer\0texture0\0texture1\0";
 constexpr char kKnobTypes[] = "float\0int\0toggle\0color\0choice\0";
 constexpr u64 kTimeMaximum = 1ull << 40;

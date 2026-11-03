@@ -8,18 +8,23 @@
 #include "maicord/ui/theme/background_animation.hpp"
 
 namespace maicord::app_detail {
-inline bool application_background_animate() noexcept {
+// The background shows and could move: every pausing rule but a package effect's own (its not-focused row and its
+// idle clock). `package_effect`: a package effect is selected (else the theme's built-in effect decides).
+inline bool application_background_motion_possible(bool package_effect) noexcept {
     const auto& r = g_app.renderer;
     return g_app.renderer_ready && g_app.window &&
            background_animation_allowed(
-               application_theme().background, application_effects_selected(),
+               application_theme().background, package_effect,
                application_window_visible(),
                application_window_minimized(), r.live_resize,
                g_app.preferences.reduced_motion || r.reduced_motion,
                g_app.surface_motion.system_preference_cached && g_app.surface_motion.client_area_animation,
                g_app.login.visible ||
                    (application_settings_active() && !application_theme_editor_active() &&
-                    !application_effects_preview_running())) &&
+                    !application_effects_preview_running()));
+}
+inline bool application_background_animate() noexcept {
+    return application_background_motion_possible(application_effects_selected()) &&
            application_effects_motion_allowed();
 }
 inline u64 application_background_next_wake(u64 now_ms) noexcept {
@@ -29,7 +34,8 @@ inline u64 application_background_next_wake(u64 now_ms) noexcept {
         // deadline, while keeping the exact paused shader phase.
         g_app.renderer.background_motion_running = false;
         g_app.renderer.background_next_frame_ms = 0;
-        return 0;
+        // An effect input still easing (a theme switch while the effect is paused or idle) draws on its own cadence.
+        return application_effects_transition_wake();
     }
     // Initial enable/resume needs one coalesced frame to arm its stable deadline.
     return g_app.renderer.background_motion_running && g_app.renderer.background_next_frame_ms

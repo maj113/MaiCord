@@ -2,6 +2,7 @@
 #include "maicord_effect_ascii_rain.hpp"
 #include "maicord_effect_aurora.hpp"
 #include "maicord_effect_bokeh.hpp"
+#include "maicord_effect_day_night.hpp"
 #include "maicord_effect_film_grain.hpp"
 #include "maicord_effect_plasma.hpp"
 #include "maicord_effect_reference.hpp"
@@ -43,7 +44,10 @@ const Package kSamples[]{
     {"wave-lines", MC_PACKAGE(g_maicord_effect_wave_lines), 0, EffectBlend::screen, 3, 3, {11, .45f, .55f, 1.1f}},
     {"film-grain", MC_PACKAGE(g_maicord_effect_film_grain), effect_use_noise, EffectBlend::normal, 5, 2,
      {.1f, 1, 12}},
+    {"day-night", MC_PACKAGE(g_maicord_effect_day_night), effect_use_blue_noise | effect_use_clock | effect_use_appearance,
+     EffectBlend::normal, 3, 2, {2, 6.5f, 19, .6f, .5f}},
 };
+constexpr u32 kDayNight = sizeof(kSamples) / sizeof(kSamples[0]) - 1;
 #undef MC_PACKAGE
 
 u64 identity_of(const u8* code, u32 bytes) noexcept {
@@ -76,6 +80,15 @@ BackgroundEffectSpec reference_spec(float coverage, float burn = 0) noexcept {
 EffectSettings settings_of(u32 resolution_step, EffectBlend blend = EffectBlend::normal, float opacity = 1,
                            EffectBudget budget = EffectBudget::high) noexcept {
     return {1.f, opacity, blend, static_cast<u8>(resolution_step), 2, budget, false};
+}
+
+// The moment a sample with ambient inputs is shown at: 19:15 on 21 June, at dusk, in the default theme's dark
+// appearance. The pass resets the inputs when it selects another package, so this follows each selection.
+void sample_moment(D3D11Renderer& r, u32 uses) noexcept {
+    if (!(uses & kEffectAmbientUses))
+        return;
+    const float moment[4]{19.25f / 24, (171 + 19.25f / 24) / 365, 6, 1};
+    renderer_set_effect_ambient(&r, moment);
 }
 
 bool frame(D3D11Renderer& r, const Theme& theme, float phase) noexcept {
@@ -345,6 +358,7 @@ bool render_step(D3D11Renderer& r, const Theme& theme, const BackgroundEffectSpe
     const auto selected = renderer_select_effect(&r, spec, settings_of(step, spec.blend, 1, EffectBudget::high));
     if (selected.state == EffectSelect::rejected || !r.effect.selected)
         return false;
+    sample_moment(r, spec.uses);
     // The controller is held: this renders a step, not the controller.
     r.effect.step = step;
     r.effect.budget.step = static_cast<u8>(step);
@@ -401,6 +415,7 @@ bool samples_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
         // The probe renders at the preview's own resolution; the package's knobs stay as shipped.
         if (renderer_select_effect(&r, spec, settings_of(4, spec.blend)).state == EffectSelect::rejected)
             return failure(175);
+        sample_moment(r, spec.uses);
         r.effect.step = 4;
         r.effect.budget.step = r.effect.budget.ceiling = 4;
         r.effect.budget.warmup = 0x7fffffff;
@@ -433,6 +448,116 @@ bool samples_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
         renderer_clear_effect(&r);
     }
     log_write(LogLevel::info, "probe", "effect_samples_render_and_move_passed");
+    return true;
+}
+
+// ---- Ambient inputs ---------------------------------------------------------------------------------
+// Mean of r + g + b over the frame, in levels (0..765).
+u32 mean_level(const PixelReadback& pixels) noexcept {
+    if (!pixels.readable || !pixels.width || !pixels.height)
+        return 0;
+    u64 sum = 0;
+    for (u32 y = 0; y < pixels.height; ++y) {
+        const auto* row = static_cast<const u8*>(pixels.mapped.pData) + y * pixels.mapped.RowPitch;
+        for (u32 x = 0; x < pixels.width; ++x)
+            sum += u32{row[x * 4]} + row[x * 4 + 1] + row[x * 4 + 2];
+    }
+    return static_cast<u32>(sum / (u64{pixels.width} * pixels.height));
+}
+
+// The day-night sample under eased inputs, as the host feeds them, with the effect's clock standing still: a sweep
+// of the hours (light appearance) brightens at noon and darkens at night, and Windows turning dark glides the sky from
+// day to night, every eased step redrawing the target once and nothing redrawing once it settles. Captured as
+// effect-day-night-hour-NN.bmp and effect-day-night-transition-NN.bmp.
+bool ambient_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
+    const u32 width = r.width, height = r.height;
+    struct Restore {
+        D3D11Renderer& r;
+        u32 width, height;
+        ~Restore() noexcept { renderer_resize(&r, width, height); }
+    } restore_size{r, width, height};
+    if (!renderer_resize(&r, 640, 360) || r.width != 640)
+        return failure(200);
+    const float w = r.width * 96.f / r.dpi, h = r.height * 96.f / r.dpi;
+    const UiRect canvas{0, 0, w, h};
+    Scene scene(r, theme, &canvas, 1, nullptr);
+    if (!scene.built)
+        return failure(201);
+    StreamSwap restore{r, scene.stream, kDefaultTheme, true};
+    install(r, scene);
+    const Package& package = kSamples[kDayNight];
+    const BackgroundEffectSpec spec = spec_of(package);
+    if (renderer_select_effect(&r, spec, settings_of(4, spec.blend)).state == EffectSelect::rejected)
+        return failure(202);
+    r.effect.step = 4;
+    r.effect.budget.step = r.effect.budget.ceiling = 4;
+    r.effect.budget.warmup = 0x7fffffff;
+    r.effect.dirty = true;
+    const bool capture = capture_wanted();
+    constexpr float kPhase = 2.f;
+    EffectAmbientSources sources{{2026, 6, 21, 0, 0}, false, false};
+    float values[4]{};
+    // The hours of 21 June, light: each settles at once (a new selection), so the sky follows the clock.
+    u32 levels[24]{};
+    for (u16 hour = 0; hour < 24; ++hour) {
+        EffectAmbient fresh{};
+        sources.local.hour = hour;
+        effect_ambient_sample(&fresh, spec.uses, sources, 1000, true, values);
+        renderer_set_effect_ambient(&r, values);
+        if (!frame(r, theme, kPhase))
+            return failure(203);
+        {
+            PixelReadback pixels{r};
+            levels[hour] = mean_level(pixels);
+        }
+        if (capture && !write_frame(r, package.name, L"hour", hour))
+            return failure(204);
+    }
+    log_u64(LogLevel::info, "probe", "effect_ambient_midnight_level", levels[0]);
+    log_u64(LogLevel::info, "probe", "effect_ambient_noon_level", levels[12]);
+    if (!(levels[12] > levels[0] * 3 && levels[12] > levels[22] * 3 && levels[9] > levels[3]))
+        return failure(205);
+    // Noon, light; then Windows turns dark. Frames every 50 ms with the effect clock held.
+    EffectAmbient ambient{};
+    sources.local.hour = 12;
+    u64 now = 100000;
+    effect_ambient_sample(&ambient, spec.uses, sources, now, true, values);
+    renderer_set_effect_ambient(&r, values);
+    if (!frame(r, theme, kPhase))
+        return failure(206);
+    sources.system_dark = true;
+    constexpr u32 kStep = 50, kSteps = kEffectAmbientEaseMs / kStep;
+    u32 redraws = 0, easing = 0, previous = 765, first = 0, last = 0; // 765: the brightest mean level
+    bool darkening = true;
+    for (u32 i = 0; i <= kSteps + 10; ++i, now += kStep) {
+        effect_ambient_sample(&ambient, spec.uses, sources, now, true, values);
+        easing += effect_ambient_easing(ambient, now) ? 1u : 0u;
+        renderer_set_effect_ambient(&r, values);
+        const u32 renders = r.effect.renders;
+        if (!frame(r, theme, kPhase))
+            return failure(207);
+        redraws += r.effect.renders - renders;
+        {
+            PixelReadback pixels{r};
+            const u32 level = mean_level(pixels);
+            darkening = darkening && level <= previous + 1;
+            previous = level;
+            first = i == 0 ? level : first;
+            last = level;
+        }
+        if (capture && !write_frame(r, package.name, L"transition", static_cast<i32>(i)))
+            return failure(208);
+    }
+    log_u64(LogLevel::info, "probe", "effect_ambient_transition_redraws", redraws);
+    log_u64(LogLevel::info, "probe", "effect_ambient_transition_easing_frames", easing);
+    log_u64(LogLevel::info, "probe", "effect_ambient_transition_monotonic", darkening);
+    log_u64(LogLevel::info, "probe", "effect_ambient_transition_day_level", first);
+    log_u64(LogLevel::info, "probe", "effect_ambient_transition_night_level", last);
+    // The first sample is still the old value: kSteps steps move it, and each redraws once; the rest redraw nothing.
+    if (redraws != kSteps || easing != kSteps || !darkening || !(first > last * 3) || values[effect_ambient_dark] != 1)
+        return failure(209);
+    renderer_clear_effect(&r);
+    log_write(LogLevel::info, "probe", "effect_ambient_inputs_follow_the_clock_and_glide_with_the_appearance_passed");
     return true;
 }
 
@@ -501,7 +626,7 @@ bool effect_package_pixels(D3D11Renderer& r) noexcept {
     if (r.effect.selected || r.effect.target || r.effect.shader || r.effect.draws_last_frame)
         return failure(139);
     const Theme theme = kDefaultTheme;
-    return pass_pixels(r, theme) && budget_pixels(r, theme) && samples_pixels(r, theme) &&
+    return pass_pixels(r, theme) && budget_pixels(r, theme) && samples_pixels(r, theme) && ambient_pixels(r, theme) &&
            device_loss_pixels(r, theme);
 }
 

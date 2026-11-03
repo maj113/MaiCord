@@ -65,7 +65,7 @@ The commands:
 | `check [dll]` | Runs those checks again, offline: no entry point, no TLS, one export, sections, descriptor strings, limits, hooks and commands in code |
 | `dev [--watch]` | Builds if the DLL is stale, then copies it atomically into the dev folder. `--watch` rebuilds when a source changes |
 | `pack` | Checks, then writes `dist\<slug>\` (`plugin.cpp`, `catalog.json`, `details.md`) for a pull request to the catalog; see "Publishing" |
-| `effect new / build / preview` | The same for background effects |
+| `effect new / build / preview` | The same for background effects; `effect preview --time HH:MM --date MM-DD --day-seconds N --appearance dark\|light` stands in for the clock and appearance inputs (`--real-inputs` stops it) |
 
 Useful options: `--dir` (project folder), `--sdk` (a folder with
 `include\maicord\sdk`), `--llvm-bin` (a folder with `clang-cl.exe` and

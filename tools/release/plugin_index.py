@@ -87,6 +87,8 @@ SEVERITIES = ("malicious", "broken", "withdrawn")
 BASES = ("dark", "light", "amoled")
 COSTS = ("light", "medium", "heavy")
 BLENDS = ("normal", "screen", "add")
+# Interface 1's effect inputs only: clock and appearance (interface 2) stay in the package's manifest, as every earlier
+# client refuses an index that names them.
 USES = ("noise", "glyphs", "blue_noise", "pointer", "texture0", "texture1")
 KNOB_TYPES = ("float", "int", "toggle", "color", "choice")
 

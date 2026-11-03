@@ -14,6 +14,7 @@ consent a plugin needs.
 | `bokeh` | screen | 35 %, 24 fps | none |
 | `wave-lines` | screen | 50 %, 24 fps | none |
 | `film-grain` | normal | 100 %, 15 fps | noise |
+| `day-night` | normal | 50 %, 15 fps | blue noise, clock, appearance |
 
 ## Quick start
 
@@ -51,7 +52,7 @@ An effect is one function; `background.hlsli` supplies `main`, which premultipli
 float4 background(float2 pixel);   // pixel: effect-target pixels, top-left origin, centres at .5
 ```
 
-What the header gives you (read it: it is the whole interface, 100 lines):
+What the header gives you (read it: it is the whole interface, about 125 lines):
 
 | Name | What |
 |---|---|
@@ -65,8 +66,10 @@ What the header gives you (read it: it is the whole interface, 100 lines):
 | `mc_glyph(uv)`, `mc_glyph_cell(code, inside)` | The 16x16 glyph grid of Latin-1 |
 | `mc_dither(pixel)` | Blue noise in -0.5/255..0.5/255: add it to a gradient to hide banding |
 | `mc_tex0`, `mc_tex1` | Your own PNG textures (at most 512x512, 512 KiB each) |
+| `mc_ambient.day`, `.year`, `.month`, `mc_daylight(sunrise, sunset)` | `@uses clock`: the local time of day and of the year (0..1) and the month (1..12); daylight 0..1 between two hours |
+| `mc_ambient.dark` | `@uses appearance`: 1 dark, 0 light; glides when it changes |
 
-Only the inputs the effect declares with `@uses` are bound.
+Only the inputs the effect declares with `@uses` are bound; an undeclared `mc_ambient` value reads 0.
 
 ### Annotations
 
@@ -80,7 +83,7 @@ Knobs and metadata are comments at the top of the `.hlsl`; the tool reads them, 
 // @knob <id> toggle = on|off "<Label>"
 // @knob <id> color  = #RRGGBB "<Label>"                        sRGB in the UI and in the shader
 // @knob <id> choice "A|B|C" = <index> "<Label>"
-// @uses noise | glyphs | blue_noise | pointer | texture0 | texture1     (space separated)
+// @uses noise | glyphs | blue_noise | pointer | texture0 | texture1 | clock | appearance     (space separated)
 // @blend normal | screen | add                                 the default of the user's Blend choice
 ```
 
@@ -104,13 +107,72 @@ the two keys you edit by hand; the catalog's CI checks that the sidecar and the 
 | Key | Value |
 |---|---|
 | `name` | The title shown in the picker. |
-| `uses` | Space separated: `noise`, `glyphs`, `blue_noise`, `pointer`. Only declared inputs are bound. |
+| `uses` | Space separated, in this order: `noise`, `glyphs`, `blue_noise`, `pointer`, `texture0`, `texture1`, `clock`, `appearance`. Only declared inputs are bound. |
 | `blend` | `normal`, `screen` or `add`. |
 | `resolution` | 25, 35, 50, 75 or 100 (percent): the effect's request. A user setting wins. Yours to edit. |
 | `fps` | 10, 15, 24, 30 or 60. A request too. Yours to edit. |
 | `knobs` | The 32 default values in thousandths (`350` is 0.35), in `mc_knobs` order. |
 
 The user's per-effect setting wins over the global one, which wins over the request, which wins over 50 % at 24 fps.
+
+### Time of day and appearance
+
+An effect can follow the local clock and the light or dark appearance, opting in with `@uses clock` and
+`@uses appearance`. The values arrive in `mc_ambient`, a row of the constant buffer after `mc_knobs` (bytes 304 to
+319), where an effect that does not use them never reads, so every older effect keeps its layout:
+
+| Value | Range | Source |
+|---|---|---|
+| `mc_ambient.day` | 0..1 from local midnight (0.5 is noon) | the local clock, read at each whole minute |
+| `mc_ambient.year` | 0..1 from 1 January 00:00 | the local date and time (leap years count 366 days) |
+| `mc_ambient.month` | 1..12, a whole number | the local month |
+| `mc_ambient.dark` | 1 dark, 0 light | MaiCord's theme base and Windows' app mode: **dark wins** |
+
+**Dark wins.** The appearance is dark when MaiCord's theme is (Dark, AMOLED, or a custom theme on a dark base) or
+when Windows' app mode is (`AppsUseLightTheme` is 0; MaiCord reads it again when Windows announces
+`ImmersiveColorSet`), and light only when both are light. The effect sits under the theme's text: a light picture
+under a dark theme would break its contrast, while a light theme's plates keep text readable over a night picture.
+So switching Windows to dark turns a light-themed MaiCord's effect to night, and switching MaiCord to Light turns it
+to day while Windows is light. `mc.dark` stays what it was: the theme alone, 0 or 1, no gliding.
+
+**Gliding.** MaiCord eases each value toward its source over 1.5 s on a smoothstep, so a shader blends with the
+value directly. A change of appearance glides, and so does a jump of the clock (waking from sleep, a new time zone,
+a simulated time); the clock moving on its own minute by minute is followed as it is, and the time of day wraps at
+midnight the short way round. While a value glides MaiCord draws frames at the effect's frame rate even if the
+effect is otherwise paused or idle; once it settles it asks for none. Where the change cannot be watched moving (the
+window hidden, minimized, covered by Settings or not focused, unless the effects keep moving unfocused, or reduced
+motion on) it takes effect at once. The month does not glide.
+
+```hlsl
+// @uses clock appearance
+float4 background(float2 pixel) {
+    const float night = max(1.0 - mc_daylight(6.5, 19.0), mc_ambient.dark); // the clock's night or a dark appearance
+    const float3 day_sky = float3(0.45, 0.66, 0.92), night_sky = float3(0.02, 0.03, 0.08);
+    return float4(lerp(day_sky, night_sky, night) + mc_dither(pixel), 1.0);
+}
+```
+
+The `day-night` sample does this with a horizon glow at dawn and dusk, a seasonal tint from `mc_ambient.year`, stars and
+clouds, and a knob to follow the clock, the appearance, or either.
+
+**Older MaiCord.** An effect that uses either input is packed as manifest `"interface": 2`; every other effect stays
+`1` and runs everywhere. A MaiCord from before interface 2 refuses such a package when it reads it (its manifest names
+an input that MaiCord doesn't have) instead of drawing it with the inputs missing, so the effect doesn't appear in its
+library. The catalog's index lists only the interface-1 inputs of an effect, as an older index reader refuses any
+other name; `clock` and `appearance` live in the package's manifest.
+
+**Previewing.** `maicord-plugin effect preview` can stand in for both inputs while you work, for every effect, in
+Developer Mode:
+
+```powershell
+maicord-plugin effect preview --time 18:30 --appearance light   # dusk, light
+maicord-plugin effect preview --appearance dark                 # glides to dark; the time stays 18:30
+maicord-plugin effect preview --day-seconds 60 --date 12-21     # a whole winter day every minute, from 18:30
+maicord-plugin effect preview --real-inputs                     # back to the real clock and appearance
+```
+
+The options merge into `simulate-inputs.txt` in the dev folder (`time=HH:MM`, `date=MM-DD`, `appearance=dark|light`,
+`day_seconds=N`), which MaiCord reads when the folder changes; a change glides as a real one does.
 
 ## Building
 
@@ -122,7 +184,8 @@ The user's per-effect setting wins over the global one, which wins over the requ
    the bytes of the two can differ, and the catalog rebuilds yours from source, with `fxc`, so that doesn't matter);
 3. lints the disassembly: only constant buffer `b0`, textures `t0` to `t4` and samplers `s0` to `s2`, no unordered-access
    or 3D resources, at most 4,096 instructions and 64 texture reads;
-4. packs the container and writes `build\<slug>.mcfx`.
+4. packs the container (manifest `"interface": 2` when the effect uses `clock` or `appearance`, else 1) and writes
+   `build\<slug>.mcfx`.
 
 It prints the instruction and texture-read counts and a guess ("likely light"). The real **cost class** (light,
 medium, heavy) is measured in the catalog's CI by rendering 300 frames on WARP, the in-box software rasterizer; an effect
@@ -168,7 +231,8 @@ effects/<slug>/
 ```
 
 CI compiles with the pinned `fxc`, lints, measures the cost class, renders a still and a short loop on WARP for the
-preview, and a maintainer reviews. The licence must allow redistribution and modification (CC BY-NC-SA is fine), and
+preview (an effect with `clock` or `appearance` is rendered at noon on 21 June in the dark appearance), and a
+maintainer reviews. The licence must allow redistribution and modification (CC BY-NC-SA is fine), and
 credit (`authors`, `derived_from`) is shown to users. Bump `version` in `catalog.json` when you change an effect, so
 clients notice; installed catalog effects update on their own and keep the values of the knobs whose ids still exist.
 
@@ -183,6 +247,10 @@ or copy a sample's folder somewhere, run `maicord-plugin effect build` in it (it
 The tests compile every sample, draw it at 1440p to time it on the GPU, and draw it at 640x360 for a preview:
 `tools/build.ps1 -Test -TestNames maicord_background_theme_probe [-ProbeCaptureDirectory <empty folder>]`.
 Each sample's `preview.webp` (still) and `preview-loop.webp` (2.4 s loop, default theme) were encoded from those
-captures: `effect-<name>-still.bmp` and 48 `effect-<name>-loop-NN.bmp` frames at 20 fps.
+captures: `effect-<name>-still.bmp` and 48 `effect-<name>-loop-NN.bmp` frames at 20 fps (`day-night` at 19:15 on
+21 June in the dark appearance). The probe also drives `day-night`'s inputs as MaiCord eases them, with the effect's
+clock held: `effect-day-night-hour-NN.bmp` is each hour of 21 June in the light appearance, and
+`effect-day-night-transition-NN.bmp` is Windows turning dark at noon, one frame every 50 ms (30 frames move, then the
+picture holds).
 
 `ascii-rain` is an original rewrite of the matrix-rain idea and is MPL-2.0 like the rest of the samples.

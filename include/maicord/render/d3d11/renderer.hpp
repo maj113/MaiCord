@@ -679,7 +679,7 @@ struct D3D11Renderer {
     u64 adapter_key;
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
-static_assert(sizeof(D3D11Renderer) == 121512);
+static_assert(sizeof(D3D11Renderer) == 121544);
 
 // Starts hardware device and draw-pipeline creation on a worker at process
 // entry; the next renderer_initialize adopts them. Main thread only.
@@ -720,6 +720,9 @@ EffectSelectResult renderer_select_effect(D3D11Renderer*, const BackgroundEffect
                                           const EffectSettings&) noexcept;
 // Back to the theme's built-in effect.
 void renderer_clear_effect(D3D11Renderer*) noexcept;
+// The selected package's mc_ambient values (EffectAmbientValue order), as the host eased them this frame. A change
+// repaints the window even while the background clock stands still; the pass passes on only declared inputs.
+void renderer_set_effect_ambient(D3D11Renderer*, const float (&values)[4]) noexcept;
 // Device loss. renderer_device_lost is true once the device reports a removal or reset (a failed present or
 // draw is checked for one; the flag stays until recovery). renderer_recover_device then rebuilds everything
 // that lived on the lost device on a new one, on the window's swap chain: the draw pipeline, the glyph, icon and

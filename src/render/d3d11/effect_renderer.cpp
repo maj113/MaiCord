@@ -423,6 +423,8 @@ EffectSelectResult d3d11_effect_select(D3D11EffectOwner* owner, ID3D11Device* de
     if (!same) {
         owner->last_phase = owner->time = owner->frames = 0;
         owner->pointer[0] = owner->pointer[1] = -1;
+        for (float& value : owner->ambient)
+            value = 0;
         owner->verdict = EffectVerdict::none;
     }
     owner->probed = run_probe(owner, device, context);
@@ -495,12 +497,19 @@ bool d3d11_effect_begin_frame(D3D11EffectOwner* owner, ID3D11Device* device, ID3
                          owner->pointer[0] >= 0 && owner->pointer[1] >= 0;
     constants.pointer[0] = pointer ? owner->pointer[0] * static_cast<float>(used_width) / content_width : -1.f;
     constants.pointer[1] = pointer ? owner->pointer[1] * static_cast<float>(used_height) / window_height : -1.f;
-    // What the picture depends on besides the clock: palette, flags, knobs, size and DPI.
+    // mc_ambient: the clock and the appearance only when the package declares them.
+    const bool clock = (owner->uses & effect_use_clock) != 0;
+    for (u32 i = effect_ambient_day; i <= effect_ambient_month; ++i)
+        constants.ambient[i] = clock ? owner->ambient[i] : 0.f;
+    constants.ambient[effect_ambient_dark] =
+        (owner->uses & effect_use_appearance) != 0 ? owner->ambient[effect_ambient_dark] : 0.f;
+    // What the picture depends on besides the clock: palette, flags, knobs, ambient inputs, size and DPI.
     const bool repaint = !owner->content_valid || owner->dirty || used_width != owner->used_width ||
                          used_height != owner->used_height || dpi != owner->dpi ||
                          !bytes_same(constants.palette, owner->constants.palette, sizeof(constants.palette)) ||
                          constants.dark != owner->constants.dark || constants.intensity != owner->constants.intensity ||
                          !bytes_same(constants.knobs, owner->constants.knobs, sizeof(constants.knobs)) ||
+                         !bytes_same(constants.ambient, owner->constants.ambient, sizeof(constants.ambient)) ||
                          !bytes_same(constants.pointer, owner->constants.pointer, sizeof(constants.pointer));
     // A window being dragged keeps the last picture, stretched.
     if ((repaint || phase != owner->last_phase) && !(live_resize && owner->content_valid)) {

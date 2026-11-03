@@ -197,19 +197,25 @@ void test_bytecode(Check check) noexcept {
     check(error_of(build(bad_magic, 2)) == McfxError::bytecode, "mcfx: bytecode without the DXBC magic is refused");
 }
 
-// Replaces `from` with `to` in the good manifest.
-char edited[2048];
-const char* edit(const char* from, const char* to) noexcept {
-    const u32 n = c_string_length(kManifest), f = c_string_length(from), t = c_string_length(to);
+// Replaces `from` with `to` in `base`, into `out` (which must not be `base`).
+const char* replace(const char* base, const char* from, const char* to, char* out) noexcept {
+    if (!base)
+        return nullptr;
+    const u32 n = c_string_length(base), f = c_string_length(from), t = c_string_length(to);
     u32 at = 0;
-    while (at + f <= n && !bytes_equal(kManifest + at, from, f))
+    while (at + f <= n && !bytes_equal(base + at, from, f))
         ++at;
     if (at + f > n)
         return nullptr;
-    copy_bytes(edited, kManifest, at);
-    copy_bytes(edited + at, to, t);
-    copy_bytes(edited + at + t, kManifest + at + f, n - at - f + 1);
-    return edited;
+    copy_bytes(out, base, at);
+    copy_bytes(out + at, to, t);
+    copy_bytes(out + at + t, base + at + f, n - at - f + 1);
+    return out;
+}
+// Replaces `from` with `to` in the good manifest.
+char edited[2048];
+const char* edit(const char* from, const char* to) noexcept {
+    return replace(kManifest, from, to, edited);
 }
 
 bool refuses(const char* from, const char* to) noexcept {
@@ -217,11 +223,38 @@ bool refuses(const char* from, const char* to) noexcept {
     return manifest && !parses(good_package(manifest)) && error_of(good_package(manifest)) == McfxError::manifest;
 }
 
+// The good manifest at `interface` with `uses` in place of its inputs.
+char ambient_manifest[2048];
+const char* with_inputs(const char* interface, const char* uses) noexcept {
+    return replace(edit("\"interface\":1", interface), "\"uses\":[\"noise\",\"glyphs\"]", uses, ambient_manifest);
+}
+McfxError ambient_error(const char* interface, const char* uses) noexcept {
+    const char* manifest = with_inputs(interface, uses);
+    return manifest ? error_of(good_package(manifest)) : McfxError::invalid_input;
+}
+
 void test_manifest(Check check) noexcept {
-    check(refuses("\"interface\":1", "\"interface\":2") && refuses("\"interface\":1,", "") &&
+    check(refuses("\"interface\":1", "\"interface\":3") && refuses("\"interface\":1", "\"interface\":0") &&
+              refuses("\"interface\":1,", "") &&
               refuses("\"slug\":\"rain-drops\"", "\"slug\":\"Rain\"") && refuses("\"slug\":\"rain-drops\"", "\"slug\":\"-x\"") &&
               refuses("\"version\":\"1.2.0\"", "\"version\":\"1 2\"") && refuses("\"license\":\"MPL-2.0\"", "\"license\":\"\""),
           "mcfx manifest: interface, slug, version and license are checked");
+    // Interface 2: clock and appearance (mc_ambient) are opt-in names that need it; everything else is unchanged.
+    const char* ambient = with_inputs("\"interface\":2", "\"uses\":[\"noise\",\"clock\",\"appearance\"]");
+    const bool opted = ambient && parses(good_package(ambient)) &&
+                       workspace.package.uses == (effect_use_noise | effect_use_clock | effect_use_appearance);
+    const char* plain_two = with_inputs("\"interface\":2", "\"uses\":[\"noise\",\"glyphs\"]");
+    const bool two_without = plain_two && parses(good_package(plain_two)) &&
+                             workspace.package.uses == (effect_use_noise | effect_use_glyphs);
+    check(opted && two_without &&
+              ambient_error("\"interface\":1", "\"uses\":[\"clock\"]") == McfxError::manifest &&
+              ambient_error("\"interface\":1", "\"uses\":[\"appearance\"]") == McfxError::manifest &&
+              ambient_error("\"interface\":2", "\"uses\":[\"clock\",\"clock\"]") == McfxError::manifest &&
+              ambient_error("\"interface\":2", "\"uses\":[\"sunlight\"]") == McfxError::manifest,
+          "mcfx manifest: clock and appearance parse under interface 2 only; interface 2 alone changes nothing");
+    check(parses(good_package()) && workspace.package.uses == (effect_use_noise | effect_use_glyphs) &&
+              !(workspace.package.uses & kEffectAmbientUses),
+          "mcfx manifest: an interface-1 package parses as before, with no ambient input");
     check(refuses("\"blend\":\"screen\"", "\"blend\":\"multiply\"") && refuses("\"uses\":[\"noise\",\"glyphs\"]", "\"uses\":[\"noise\",\"noise\"]") &&
               refuses("\"uses\":[\"noise\",\"glyphs\"]", "\"uses\":[\"texture0\"]") && refuses("\"resolution\":75", "\"resolution\":80") &&
               refuses("\"fps\":30", "\"fps\":0"),

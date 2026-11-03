@@ -38,6 +38,14 @@ bool application_effects_selected() noexcept;
 bool application_effects_motion_allowed() noexcept;
 // Milliseconds between the selected effect's frames.
 u32 application_effects_interval_ms() noexcept;
+// mc_ambient (interface 2: @uses clock, appearance). The selected package's inputs are sampled and eased in
+// application_effects_synchronize. While one still eases toward a new value, the frame it is due next (else 0): the
+// background clock asks this while the effect itself is paused or idle, so a theme switch still glides into place.
+u64 application_effects_transition_wake() noexcept;
+// Windows' app mode (AppsUseLightTheme under HKCU\...\Themes\Personalize; 0 is dark). The window procedure reads it
+// again on WM_SETTINGCHANGE "ImmersiveColorSet" and hands it here; the appearance input then eases to it.
+bool application_effects_read_system_dark() noexcept;
+void application_effects_set_system_dark(bool dark) noexcept;
 
 // The user's settings (Settings > Appearance, and the effect's own page). Setters validate, persist
 // and repaint; they return false for a value out of range or a failed save.

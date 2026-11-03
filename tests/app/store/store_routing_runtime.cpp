@@ -20,6 +20,7 @@
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_system_time.hpp"
 #include "maicord/core/win32_user.hpp"
 
 namespace maicord {
@@ -313,7 +314,7 @@ void put32(u8* p, u32 v) noexcept {
     for (u32 i = 0; i < 4; ++i)
         p[i] = static_cast<u8>(v >> (8 * i));
 }
-bool install_effect(const char* slug) noexcept {
+bool install_effect(const char* slug, const char* uses = "[]", const char* interface = "1") noexcept {
     char manifest[320];
     u32 m = 0;
     const auto add = [&](const char* text) noexcept {
@@ -321,12 +322,15 @@ bool install_effect(const char* slug) noexcept {
         copy_bytes(manifest + m, text, n);
         m += n;
     };
-    add("{\"interface\":1,\"slug\":\"");
+    add("{\"interface\":");
+    add(interface);
+    add(",\"slug\":\"");
     add(slug);
     add("\",\"name\":\"");
     add(slug);
-    add("\",\"version\":\"1.0.0\",\"authors\":[{\"name\":\"Maj\"}],\"license\":\"MPL-2.0\",\"blend\":\"normal\",\"uses\":[],"
-        "\"knobs\":[{\"id\":\"speed\",\"type\":\"float\",\"label\":\"Speed\",\"min\":0,\"max\":3,\"default\":1}]}");
+    add("\",\"version\":\"1.0.0\",\"authors\":[{\"name\":\"Maj\"}],\"license\":\"MPL-2.0\",\"blend\":\"normal\",\"uses\":");
+    add(uses);
+    add(",\"knobs\":[{\"id\":\"speed\",\"type\":\"float\",\"label\":\"Speed\",\"min\":0,\"max\":3,\"default\":1}]}");
     u8 dxbc[48]{};
     copy_bytes(dxbc, "DXBC", 4);
     put32(dxbc + 20, 1);
@@ -437,6 +441,74 @@ bool knob_pages_preview_live() noexcept {
     return left && application_effects_count() == before && !g_app.renderer.effect.selected;
 }
 
+// A selected package's ambient inputs (interface 2's clock and appearance): they reach the renderer as the host eased
+// them; Windows turning dark under a light theme starts a transition the background clock wakes for; reduced
+// motion settles it at once; and an interface-1 package, without them, never asks for a transition frame.
+bool ambient_inputs_follow_the_system() noexcept {
+    const ApplicationWindowState window = g_window_state;
+    const ClientTheme theme = g_app.preferences.theme;
+    const bool cached = g_app.surface_motion.system_preference_cached, animation = g_app.surface_motion.client_area_animation;
+    const bool reduced = g_app.preferences.reduced_motion, renderer_reduced = g_app.renderer.reduced_motion;
+    g_window_state.visible = g_window_state.foreground = true;
+    g_window_state.minimized = false;
+    g_app.surface_motion.system_preference_cached = g_app.surface_motion.client_area_animation = true;
+    g_app.preferences.reduced_motion = g_app.renderer.reduced_motion = false;
+    g_app.preferences.theme = ClientTheme::light;
+    application_settings_close(false);
+    application_effects_reload();
+    const u32 before = application_effects_count();
+    const bool installed = install_effect("gamma", "[\"clock\",\"appearance\"]", "2") && install_effect("delta");
+    // The same inputs under interface 1 are refused, so an older client never meets them half-supported.
+    const bool refused = install_effect("epsilon", "[\"clock\"]", "1");
+    application_effects_reload();
+    const u32 gamma = effect_index("gamma"), delta = effect_index("delta");
+    const bool listed = installed && refused && application_effects_count() == before + 2 && effect_index("epsilon") == ~0u &&
+                        application_theme().appearance == ThemeAppearance::light;
+    const auto& ambient = g_app.renderer.effect.ambient;
+    // Light theme, light Windows: the inputs settle on the local clock and on light, and nothing eases.
+    application_effects_set_system_dark(false);
+    SYSTEMTIME first{}, second{};
+    GetLocalTime(&first);
+    const bool selected = listed && application_effects_select(gamma) && frame() &&
+                          g_app.renderer.effect.identity == application_effects_identity(gamma);
+    GetLocalTime(&second);
+    const auto at = [&](const SYSTEMTIME& t) noexcept {
+        const float day = (t.wHour * 60.f + t.wMinute) / 1440.f, delta = ambient[effect_ambient_day] - day;
+        return delta < 1e-5f && delta > -1e-5f && ambient[effect_ambient_month] == t.wMonth;
+    };
+    const bool clock = selected && (at(first) || at(second)) && ambient[effect_ambient_year] >= 0 &&
+                       ambient[effect_ambient_year] < 1 && ambient[effect_ambient_dark] == 0 &&
+                       !application_effects_transition_wake();
+    // Windows turns dark (WM_SETTINGCHANGE "ImmersiveColorSet"): dark wins, and the appearance starts gliding.
+    g_app.frame_pending = false;
+    application_effects_set_system_dark(true);
+    const bool requested = g_app.frame_pending;
+    const bool transition = clock && requested && frame() && ambient[effect_ambient_dark] < 1 &&
+                            application_effects_transition_wake() != 0;
+    // Reduced motion: the change is instant and no frame is asked for.
+    g_app.renderer.reduced_motion = true;
+    const bool instant = transition && frame() && ambient[effect_ambient_dark] == 1 && !application_effects_transition_wake();
+    g_app.renderer.reduced_motion = false;
+    // An interface-1 package: no ambient input, no transition, whatever Windows does.
+    application_effects_set_system_dark(false);
+    const bool old = instant && application_effects_select(delta) && frame() && !application_effects_transition_wake();
+    application_effects_set_system_dark(application_effects_read_system_dark());
+    application_effects_select_none();
+    application_effects_remove("gamma", 5);
+    application_effects_remove("delta", 5);
+    wchar_t relative[] = L"effects\\epsilon-0123456789abcdef.mcfx", path[512];
+    if (data_path(path, 504, relative, false).ok())
+        DeleteFileW(path);
+    application_effects_synchronize();
+    g_app.preferences.theme = theme;
+    g_app.preferences.reduced_motion = reduced;
+    g_app.renderer.reduced_motion = renderer_reduced;
+    g_app.surface_motion.system_preference_cached = cached;
+    g_app.surface_motion.client_area_animation = animation;
+    g_window_state = window;
+    return old && application_effects_count() == before && !g_app.renderer.effect.selected;
+}
+
 } // namespace store_routing_runtime
 
 void test_application_store_routing_runtime(void (*check)(bool, const char*) noexcept) noexcept {
@@ -511,6 +583,9 @@ void test_application_store_routing_runtime(void (*check)(bool, const char*) noe
     check(knob_pages_preview_live(),
           "store routing: every installed effect's knob page draws that effect live in its preview, the clock running only "
           "while the tile is on screen, and leaving the page restores the background");
+    check(ambient_inputs_follow_the_system(),
+          "effect inputs: an interface-2 package gets the local clock and the appearance; Windows turning dark glides "
+          "it with transition frames, reduced motion makes it instant, and an interface-1 package gets none");
     // The wheel scrolls the category list over its rows and over its scrollbar, which sits in the sidebar's padding.
     auto& observed = settings_runtime_test::observed;
     const UiRect viewport = observed.viewport;

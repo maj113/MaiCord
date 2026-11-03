@@ -408,7 +408,8 @@ void knobs() noexcept {
     m.global_universal = u;
 }
 
-// The shipped samples, as their .effect sidecars describe them (background_effect_pixels.cpp has the same table).
+// The shipped samples the store fixture lists, as their .effect sidecars describe them (background_effect_pixels.cpp
+// has the same table, plus day-night, whose ambient inputs that probe drives).
 struct Sample {
     Utf8View slug;
     const wchar_t* applied; // captures of its knob page as the saved background and as another effect

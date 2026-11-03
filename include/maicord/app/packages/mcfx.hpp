@@ -6,8 +6,10 @@
 //   header (16): "MCFX", u16 format = 1, u16 section count (1..6), u32 file bytes, u32 0
 //   table (count x 16): u32 type, u32 offset, u32 bytes, u32 0
 //   sections packed back to back after the table, ascending by type, each at most once; the last ends at file bytes.
-// MANIFEST (compact JSON, unknown members refused) and DXBC (ps_5_0) are required. Nothing in a package runs on the
-// CPU: parsing checks bounds, grammar and the bytecode header; CreatePixelShader checks the rest when it is selected.
+// MANIFEST (compact JSON, unknown members refused) and DXBC (ps_5_0) are required. The manifest's "interface" is 1,
+// or 2 when "uses" names clock or appearance (mc_ambient; a client before interface 2 refuses such a package).
+// Nothing in a package runs on the CPU: parsing checks bounds, grammar and the bytecode header; CreatePixelShader
+// checks the rest when it is selected.
 namespace maicord {
 
 inline constexpr u32 kMcfxMaximumBytes = 1536u * 1024u;

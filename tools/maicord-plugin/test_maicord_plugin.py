@@ -562,7 +562,7 @@ class EffectTests(Case):
         self.assertEqual([k["id"] for k in header["knobs"]], ["speed", "mix"])
         self.assertEqual(mcfx_tool.parse_sidecar((directory / "soft-rain.effect").read_text()),
                          {"name": "Soft Rain", "uses": "blue_noise", "blend": "normal", "resolution": "50", "fps": "24",
-                          "knobs": "400 350 0 0 0 0 0 0 0 0 0 0"})
+                          "knobs": " ".join(["400", "350"] + ["0"] * 30)})
         self.assertEqual(run("effect", "new", "x", "--dir", directory)[0], 1, "an effect folder is not overwritten")
 
     def test_build_with_both_compilers(self):
@@ -606,9 +606,59 @@ class EffectTests(Case):
         sidecar.write_text(sidecar.read_text().replace("resolution=50", "resolution=75").replace("fps=24", "fps=30"))
         self.assertEqual(run("effect", "build", "--dir", directory)[0], 0)
         values = mcfx_tool.parse_sidecar(sidecar.read_text())
-        self.assertEqual((values["resolution"], values["fps"], values["knobs"]), ("75", "30", "400 600 0 0 0 0 0 0 0 0 0 0"))
+        self.assertEqual((values["resolution"], values["fps"], values["knobs"]), ("75", "30", " ".join(["400", "600"] + ["0"] * 30)))
         manifest = json.loads(self.sections((directory / "build" / "soft-rain.mcfx").read_bytes())[1])
         self.assertEqual((manifest["resolution"], manifest["fps"]), (75, 30))
+
+    def test_the_sidecar_holds_every_knob_value(self):
+        """Knobs past the first twelve values (here a colour on row 4) reach the sidecar, as the catalog checks 32."""
+        directory = self.effect()
+        source = directory / "soft-rain.hlsl"
+        knobs = "".join(f'// @knob k{i} float 0..20 = {i + 1} "K{i}"\n' for i in range(14))
+        defines = "".join(f"#define knob_k{i} (mc_knobs[{(i + 2) // 4}].{'xyzw'[(i + 2) % 4]})\n" for i in range(14))
+        text = source.read_text(encoding="utf-8").replace("// @uses", knobs + '// @knob tint color = #FF8000 "Tint"\n// @uses')
+        text = text.replace("#define knob_mix   (mc_knobs[0].y)\n", "#define knob_mix   (mc_knobs[0].y)\n" + defines +
+                            "#define knob_tint (mc_knobs[4].rgb)\n")
+        source.write_text(text, encoding="utf-8")
+        code, out, err = run("effect", "build", "--dir", directory, "--compiler", "d3dcompiler")
+        self.assertEqual(code, 0, out + err)
+        values = [int(v) for v in mcfx_tool.parse_sidecar((directory / "soft-rain.effect").read_text())["knobs"].split()]
+        self.assertEqual(len(values), mcfx_tool.KNOB_ROWS * 4)
+        self.assertEqual(values[2:16], [(i + 1) * 1000 for i in range(14)])
+        self.assertEqual(values[16:20], [1000, 502, 0, 0], "the colour's rgb on row 4, beyond the old twelve values")
+
+    def test_ambient_inputs_make_an_interface_2_package(self):
+        directory = self.effect()
+        source = directory / "soft-rain.hlsl"
+        source.write_text(source.read_text(encoding="utf-8").replace("// @uses blue_noise", "// @uses appearance blue_noise clock")
+                          .replace("wave * knob_mix", "wave * knob_mix * (1.0 - 0.5 * mc_ambient.dark) * mc_daylight(6.0, 19.0)"),
+                          encoding="utf-8")
+        code, out, err = run("effect", "build", "--dir", directory, "--compiler", "d3dcompiler")
+        self.assertEqual(code, 0, out + err)
+        manifest = json.loads(self.sections((directory / "build" / "soft-rain.mcfx").read_bytes())[1])
+        self.assertEqual((manifest["interface"], manifest["uses"]), (2, ["blue_noise", "clock", "appearance"]))
+        self.assertEqual(mcfx_tool.parse_sidecar((directory / "soft-rain.effect").read_text())["uses"], "blue_noise clock appearance")
+        self.assertEqual(mcfx_tool.interface_of(["blue_noise", "pointer"]), 1, "an effect without them stays interface 1")
+
+    def test_preview_simulates_the_clock_and_appearance(self):
+        directory = self.effect()
+        path = self.effect_dev / mcfx_tool.SIMULATION_FILE
+        code, out, err = run("effect", "preview", "--dir", directory, "--time", "18:30", "--appearance", "light")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("time 18:30", out)
+        self.assertIn("does not declare @uses clock appearance", out)
+        self.assertEqual(mcfx_tool.parse_sidecar(path.read_text()), {"time": "18:30", "appearance": "light"})
+        # A later run changes one key and keeps the others; a running day starts from the simulated time.
+        self.assertEqual(run("effect", "preview", "--dir", directory, "--appearance", "dark", "--day-seconds", "120",
+                             "--date", "12-24")[0], 0)
+        self.assertEqual(mcfx_tool.parse_sidecar(path.read_text()),
+                         {"time": "18:30", "date": "12-24", "day_seconds": "120", "appearance": "dark"})
+        self.assertIn("simulates", run("effect", "preview", "--dir", directory)[1], "a plain preview says what is simulated")
+        for bad in (("--time", "24:00"), ("--date", "02-30"), ("--day-seconds", "5")):
+            code, out, err = run("effect", "preview", "--dir", directory, *bad)
+            self.assertEqual(code, 1, bad)
+        self.assertEqual(run("effect", "preview", "--dir", directory, "--real-inputs")[0], 0)
+        self.assertFalse(path.exists())
 
     def test_a_missing_define_is_reported_with_the_line_to_add(self):
         directory = self.effect()

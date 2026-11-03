@@ -94,6 +94,7 @@ struct Parse {
     u32 offset;
     u32 seen;
     u32 row, lane, scalars, colours, choice_knobs;
+    u32 interface_version;
     // The knob being read.
     u32 knob_seen;
     JsonValue minimum, maximum, fallback, choices, type_value;
@@ -330,16 +331,17 @@ bool credit_member(void* context, JsonString name, JsonValue value) noexcept {
 bool use_entry(void* context, u32 index, JsonValue value) noexcept {
     auto& p = *static_cast<Parse*>(context);
     JsonString s{};
-    if (index >= 6 || !json_value_as_string(value, &s))
+    if (index >= 8 || !json_value_as_string(value, &s))
         return p.fail(value.source_offset);
-    const u32 i = name_index(s, "noise\0glyphs\0blue_noise\0pointer\0texture0\0texture1\0");
-    if (i == 6 || (p.out->uses & 1u << i))
+    const u32 i = name_index(s, "noise\0glyphs\0blue_noise\0pointer\0texture0\0texture1\0clock\0appearance\0");
+    if (i == 8 || (p.out->uses & 1u << i))
         return p.fail(value.source_offset);
     p.out->uses |= 1u << i; // EffectUse's bits are 1 << index in this order
     return true;
 }
 static_assert(effect_use_noise == 1 && effect_use_glyphs == 2 && effect_use_blue_noise == 4 && effect_use_pointer == 8 &&
-              effect_use_texture0 == 16 && effect_use_texture1 == 32);
+              effect_use_texture0 == 16 && effect_use_texture1 == 32 && effect_use_clock == 64 &&
+              effect_use_appearance == 128);
 
 enum RootMember : u32 { r_interface, r_slug, r_name, r_version, r_authors, r_license, r_derived, r_blend, r_uses, r_resolution, r_fps, r_knobs };
 constexpr u32 kRootRequired = 1u << r_interface | 1u << r_slug | 1u << r_name | 1u << r_version | 1u << r_authors |
@@ -354,8 +356,12 @@ bool root_member(void* context, JsonString name, JsonValue value) noexcept {
     p.seen |= 1u << id;
     switch (id) {
     case r_interface: {
+        // 1, or 2 for mc_ambient (clock, appearance); an older client refuses a 2 here.
         u64 v{};
-        return json_value_to_u64(value, &v) && v == 1 ? true : p.fail(value.source_offset);
+        if (!json_value_to_u64(value, &v) || v < 1 || v > 2)
+            return p.fail(value.source_offset);
+        p.interface_version = static_cast<u32>(v);
+        return true;
     }
     case r_slug:
         return text_value(p, value, out.slug, kMcfxSlugBytes) && package_slug_valid({out.slug, c_string_length(out.slug)})
@@ -427,6 +433,9 @@ McfxResult manifest_parse(ConstSlice<u8> text, McfxWorkspace* w) noexcept {
     if (!read.ok())
         return {McfxError::manifest, p.failed ? p.offset : read.error_offset};
     if ((p.seen & kRootRequired) != kRootRequired)
+        return {McfxError::manifest, 0};
+    // The ambient inputs are interface 2 names: a package that declares them says so, so older clients refuse it.
+    if ((w->package.uses & kEffectAmbientUses) && p.interface_version < 2)
         return {McfxError::manifest, 0};
     w->package.rows = static_cast<u8>(p.row + (p.lane != 0));
     return {};

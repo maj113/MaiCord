@@ -1,6 +1,7 @@
 #include "effects.hpp"
 #include "../settings/custom_theme.hpp"
 #include "../settings/settings.hpp"
+#include "../shell/background.hpp"
 #include "../shell/state.hpp"
 #include "../shell/toast.hpp"
 #include "../shell/window_state.hpp"
@@ -11,10 +12,13 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/media/image/png.hpp"
 #include "maicord/ui/settings/scene.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_system_time.hpp"
+#include "maicord/sys/registry.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -77,6 +81,26 @@ struct Preview {
     EffectTrialState state;
 };
 
+// A simulated clock or appearance from the development folder (see read_simulation); used in Developer Mode only.
+struct Simulation {
+    bool time, date, appearance, dark;
+    u16 minutes;     // the simulated time of day, in minutes from midnight
+    u16 month, day;
+    u32 day_seconds; // 0: the simulated time stands; else a whole day passes in this many seconds
+    u64 anchor_ms;   // when the file was read
+};
+
+// mc_ambient's sources and easing (effect_ambient_sample).
+struct Inputs {
+    EffectAmbient ambient;
+    u64 identity;      // the package the easing belongs to
+    u64 next_frame_ms; // the next eased frame while a value eases, else 0
+    EffectLocalTime local;
+    u64 clock_next_ms; // the local clock is read again at the next whole minute
+    bool system_read, system_dark;
+    Simulation simulation;
+};
+
 struct State {
     StateFile file;
     bool state_loaded, library_loaded, marker_opened;
@@ -90,6 +114,7 @@ struct State {
     bool opened_is_resident, opened_valid;
     Trial trial;
     Preview preview;
+    Inputs inputs;
     char off[4][kMcfxSlugBytes + 1]; // a theme's effect the user's store turned off this session
     u32 off_next;
     volatile LONG dirty;
@@ -392,6 +417,78 @@ Entry* find_slug(const char* slug) noexcept {
     return nullptr;
 }
 
+// ---- Simulated inputs ---------------------------------------------------------------------------------------
+bool word_is(const char* text, u32 bytes, const char* word) noexcept {
+    return bytes == c_string_length(word) && bytes_equal(text, word, bytes);
+}
+// 1..6 decimal digits.
+bool digits(const char* text, u32 bytes, u32* value) noexcept {
+    if (!bytes || bytes > 6)
+        return false;
+    u32 v = 0;
+    for (u32 i = 0; i < bytes; ++i) {
+        if (text[i] < '0' || text[i] > '9')
+            return false;
+        v = v * 10 + static_cast<u32>(text[i] - '0');
+    }
+    *value = v;
+    return true;
+}
+void simulation_line(Simulation& s, const char* line, u32 bytes) noexcept {
+    u32 equals = 0;
+    while (equals < bytes && line[equals] != '=')
+        ++equals;
+    if (equals == bytes)
+        return;
+    const char* value = line + equals + 1;
+    const u32 value_bytes = bytes - equals - 1;
+    u32 a = 0, b = 0;
+    const bool pair = value_bytes == 5 && digits(value, 2, &a) && digits(value + 3, 2, &b);
+    if (word_is(line, equals, "time") && pair && value[2] == ':' && a < 24 && b < 60) {
+        s.time = true;
+        s.minutes = static_cast<u16>(a * 60 + b);
+    } else if (word_is(line, equals, "date") && pair && value[2] == '-' && b >= 1 && b <= effect_month_days(2000, a)) {
+        s.date = true;
+        s.month = static_cast<u16>(a);
+        s.day = static_cast<u16>(b);
+    } else if (word_is(line, equals, "appearance") &&
+               (word_is(value, value_bytes, "dark") || word_is(value, value_bytes, "light"))) {
+        s.appearance = true;
+        s.dark = value_bytes == 4;
+    } else if (word_is(line, equals, "day_seconds") && digits(value, value_bytes, &a) && a >= 10 && a <= 86400) {
+        s.day_seconds = a;
+    }
+}
+// The development folder's simulate-inputs.txt, written by `maicord-plugin effect preview --time/--date/
+// --appearance`, read with every library scan (the folder's watcher rescans when it changes). One key=value per
+// line: time=HH:MM, date=MM-DD, appearance=dark|light, day_seconds=N (a whole simulated day passes in N seconds,
+// from `time`). A key left out, or no file, keeps the real source.
+void read_simulation() noexcept {
+    Simulation& s = g.inputs.simulation;
+    s = {};
+    wchar_t path[512];
+    if (!folder_path(path, true))
+        return;
+    u32 length = wide_length(path, 480);
+    if (!wide_append(path, 512, &length, L"\\simulate-inputs.txt"))
+        return;
+    char text[512];
+    const u32 bytes = read_file(path, {reinterpret_cast<u8*>(text), sizeof(text)});
+    for (u32 at = 0; at < bytes;) {
+        u32 end = at;
+        while (end < bytes && text[end] != '\n')
+            ++end;
+        u32 stop = end;
+        while (stop > at && (text[stop - 1] == '\r' || text[stop - 1] == ' '))
+            --stop;
+        simulation_line(s, text + at, stop - at);
+        at = end + 1;
+    }
+    s.anchor_ms = clock_monotonic_milliseconds();
+    if (s.time || s.date || s.appearance)
+        log_write(LogLevel::info, "effects", "simulated_inputs");
+}
+
 void load_library() noexcept {
     if (g.library_loaded)
         return;
@@ -414,6 +511,7 @@ void load_library() noexcept {
             g.entries[j] = g.entries[j - 1];
             g.entries[j - 1] = swap;
         }
+    read_simulation();
 }
 
 // ---- Settings records ----------------------------------------------------------------------------------
@@ -468,6 +566,7 @@ void notify(u64 identity, Utf8View reason) noexcept {
 void clear_effect() noexcept {
     renderer_clear_effect(&g_app.renderer);
     g.selected = false;
+    g.inputs.identity = g.inputs.next_frame_ms = 0;
 }
 
 // The effect leaves the window and the pages that show it follow.
@@ -550,6 +649,74 @@ bool turned_off(const char* slug) noexcept {
         if (off[0] && text_is(off, slug))
             return true;
     return false;
+}
+
+// ---- Ambient inputs (mc_ambient) ----------------------------------------------------------------------------
+// The local date and time: the clock is read at each whole minute (the input's granularity), then a simulation
+// from the development folder may stand in for the time of day or the date.
+EffectLocalTime local_time(u64 now_ms) noexcept {
+    Inputs& in = g.inputs;
+    if (!in.clock_next_ms || now_ms >= in.clock_next_ms) {
+        SYSTEMTIME time{};
+        GetLocalTime(&time);
+        in.local = {time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute};
+        in.clock_next_ms = now_ms + (60u - minimum<u32>(time.wSecond, 59u)) * 1000u - minimum<u32>(time.wMilliseconds, 999u);
+    }
+    EffectLocalTime local = in.local;
+    const Simulation& s = in.simulation;
+    if (!g_app.preferences.developer_mode)
+        return local;
+    if (s.time) {
+        u64 minutes = s.minutes;
+        if (s.day_seconds && now_ms > s.anchor_ms)
+            minutes += (now_ms - s.anchor_ms) * 1440u / (u64{s.day_seconds} * 1000u);
+        minutes %= 1440u;
+        local.hour = static_cast<u16>(minutes / 60u);
+        local.minute = static_cast<u16>(minutes % 60u);
+    }
+    if (s.date) {
+        local.month = s.month;
+        local.day = static_cast<u16>(minimum<u32>(s.day, effect_month_days(local.year, s.month)));
+    }
+    return local;
+}
+
+// An input may glide: the background shows and could move, and the window has focus or the effect keeps moving
+// unfocused. Being idle does not stop it; otherwise (hidden, covered, reduced motion, unfocused) it settles at once.
+bool transition_allowed() noexcept {
+    return application_background_motion_possible(true) &&
+           (application_window_focused() || g.file.user.unfocused == EffectUnfocused::keep);
+}
+
+// Samples and eases the selected package's ambient inputs and hands them to the renderer.
+void sample_inputs(u64 identity, u32 uses) noexcept {
+    Inputs& in = g.inputs;
+    if (in.identity != identity) {
+        in.ambient = {};
+        in.identity = identity;
+    }
+    in.next_frame_ms = 0;
+    if (!(uses & kEffectAmbientUses))
+        return;
+    const u64 now = clock_monotonic_milliseconds();
+    EffectAmbientSources sources{};
+    if (uses & effect_use_clock)
+        sources.local = local_time(now);
+    if (uses & effect_use_appearance) {
+        if (!in.system_read) {
+            in.system_dark = application_effects_read_system_dark();
+            in.system_read = true;
+        }
+        sources.theme_dark = application_theme().appearance != ThemeAppearance::light;
+        sources.system_dark = in.system_dark;
+        if (g_app.preferences.developer_mode && in.simulation.appearance)
+            sources.theme_dark = sources.system_dark = in.simulation.dark;
+    }
+    float values[4];
+    effect_ambient_sample(&in.ambient, uses, sources, now, transition_allowed(), values);
+    renderer_set_effect_ambient(&g_app.renderer, values);
+    if (effect_ambient_easing(in.ambient, now))
+        in.next_frame_ms = now + application_effects_interval_ms();
 }
 
 // Texture pixels for one build of the shader; the renderer copies them inside the select call.
@@ -635,6 +802,7 @@ bool select_package(u64 identity, const McfxPackage& package, const McfxKnobValu
         }
         return false;
     }
+    sample_inputs(identity, package.uses);
     // A refusal by the cost probe arrives as a verdict.
     apply_verdict();
     return true;
@@ -705,8 +873,7 @@ void application_effects_synchronize() noexcept {
     if (g.trial.active) {
         if (g.trial.state != EffectTrialState::drawing) {
             if (g.selected)
-                renderer_clear_effect(&g_app.renderer);
-            g.selected = false;
+                clear_effect();
             return;
         }
         McfxKnobValue values[kMcfxKnobMaximum];
@@ -742,8 +909,7 @@ void application_effects_synchronize() noexcept {
     if (!entry) {
         // Not installed (any more), or off on this GPU: the built-in effect applies and the choice stays saved.
         if (g.selected)
-            renderer_clear_effect(&g_app.renderer);
-        g.selected = false;
+            clear_effect();
         return;
     }
     if (g.resident.identity != entry->info.identity || g.resident.theme_hash != theme_hash(theme)) {
@@ -855,6 +1021,26 @@ bool application_effects_motion_allowed() noexcept {
 u32 application_effects_interval_ms() noexcept {
     const bool slow = g.file.user.unfocused == EffectUnfocused::slow && !application_window_focused();
     return effect_interval_ms(g.selected ? g.settings.frame_rate_step : kEffectDefaultFrameRateStep, slow);
+}
+
+u64 application_effects_transition_wake() noexcept {
+    return g.selected && g.inputs.next_frame_ms && transition_allowed() ? g.inputs.next_frame_ms : 0;
+}
+
+bool application_effects_read_system_dark() noexcept {
+    DWORD light = 1, bytes = sizeof(light);
+    const LSTATUS status = RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                                        L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &light, &bytes);
+    // Without the value Windows draws apps light.
+    return status == ERROR_SUCCESS && light == 0;
+}
+
+void application_effects_set_system_dark(bool dark) noexcept {
+    const bool changed = !g.inputs.system_read || g.inputs.system_dark != dark;
+    g.inputs.system_read = true;
+    g.inputs.system_dark = dark;
+    if (changed)
+        application_request_frame();
 }
 
 EffectUserSettings application_effects_user_settings() noexcept {

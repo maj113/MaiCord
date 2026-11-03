@@ -16,6 +16,9 @@ namespace maicord::surface_motion_host_test {
 using namespace app_detail;
 u32 failures{};
 bool settings_active{};
+// The effects module's answers (src/app/effects/effects.hpp) the background clock asks.
+bool effect_motion_allowed = true;
+u64 effect_transition_wake{};
 void check(bool passed, const char* label) noexcept {
     test_check(&failures, passed, label);
 }
@@ -135,6 +138,18 @@ void background_host(HWND window) noexcept {
     }
     check(gates, "background host: actual production preference resize system coverage and disabled-effect "
                  "gates retire every wake");
+    // A package effect's ambient input still easing (a theme switch while the effect is idle) wakes on its own
+    // cadence while the clock stays paused, and the paused clock neither runs nor catches up; settled, nothing wakes.
+    effect_motion_allowed = false;
+    effect_transition_wake = 650042;
+    const float idle_phase = r.background_phase_seconds;
+    const bool easing_wake = application_background_next_wake(650000) == 650042 &&
+                             application_background_synchronize(650042) && !r.background_motion_running &&
+                             r.background_phase_seconds == idle_phase;
+    effect_transition_wake = 0;
+    check(easing_wake && !application_background_next_wake(650043),
+          "background host: an easing effect input wakes frames while the paused clock keeps its phase");
+    effect_motion_allowed = true;
     g_app.preferences.gradient.density = 35;
     g_app.preferences.gradient.intensity = 0;
     const float zero_intensity_phase = r.background_phase_seconds;
@@ -413,7 +428,10 @@ bool application_effects_selected() noexcept {
     return false;
 }
 bool application_effects_motion_allowed() noexcept {
-    return true;
+    return surface_motion_host_test::effect_motion_allowed;
+}
+u64 application_effects_transition_wake() noexcept {
+    return surface_motion_host_test::effect_transition_wake;
 }
 bool application_effects_preview_running() noexcept {
     return false;

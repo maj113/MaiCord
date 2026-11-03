@@ -26,7 +26,8 @@ enum class EffectBlend : u8 { normal, screen, add };
 enum class EffectBudget : u8 { low, balanced, high };
 enum class EffectUnfocused : u8 { keep, slow, pause };
 inline constexpr float kEffectBudgetMs[3]{0.5f, 1.5f, 4.f};
-// Built-in inputs a package declares (@uses); an undeclared input is not bound and costs no memory.
+// Built-in inputs a package declares (@uses); an undeclared input is not bound and costs no memory. Clock and
+// appearance are interface 2: they fill mc_ambient, which interface-1 shaders never declare.
 enum EffectUse : u32 {
     effect_use_noise = 1,
     effect_use_glyphs = 2,
@@ -34,8 +35,12 @@ enum EffectUse : u32 {
     effect_use_pointer = 8,
     effect_use_texture0 = 16,
     effect_use_texture1 = 32,
-    effect_use_all = 63,
+    effect_use_clock = 64,
+    effect_use_appearance = 128,
+    effect_use_all = 255,
 };
+// The inputs a package can only declare under manifest interface 2.
+inline constexpr u32 kEffectAmbientUses = effect_use_clock | effect_use_appearance;
 
 // A step value from the first of: the per-shader override, the global setting, the spec's request,
 // then the default index. All are index + 1 (0 = unset); the result is an index.
@@ -47,19 +52,23 @@ constexpr u32 effect_resolve_step(u8 shader, u8 global, u8 requested, u32 fallba
 // ---- Constants -----------------------------------------------------------------------------
 inline constexpr u32 kEffectKnobRows = 8;
 
-// McBackground (b0): McFrame (176 bytes) then mc_knobs[8]. The roles are the theme's, in the
-// sRGB values the UI draws with.
+// McBackground (b0): McFrame (176 bytes), mc_knobs[8], then mc_ambient (interface 2). Interface-1 shaders end
+// their cbuffer at mc_knobs, so their layout is unchanged. The roles are the theme's, in the sRGB values the UI
+// draws with.
+enum EffectAmbientValue : u32 { effect_ambient_day, effect_ambient_year, effect_ambient_month, effect_ambient_dark };
 struct EffectFrameConstants {
     float time, delta, frame, dip;
     float resolution[2], pointer[2];
     float palette[kBackgroundFxPaletteRoles][4];
     float dark, intensity, reserved[2];
     float knobs[kEffectKnobRows][4];
+    float ambient[4]; // EffectAmbientValue order; zero for an input the package does not declare
 };
-static_assert(sizeof(EffectFrameConstants) == 304);
+static_assert(sizeof(EffectFrameConstants) == 320);
 static_assert(__builtin_offsetof(EffectFrameConstants, palette) == 32 &&
               __builtin_offsetof(EffectFrameConstants, dark) == 160 &&
-              __builtin_offsetof(EffectFrameConstants, knobs) == 176);
+              __builtin_offsetof(EffectFrameConstants, knobs) == 176 &&
+              __builtin_offsetof(EffectFrameConstants, ambient) == 304);
 
 // The composite pass's constants: a canvas rectangle in DIPs, the map from a DIP to a position in the effect
 // target (uv = dip * scale + offset), the used part of the target (inset half a texel, for the bilinear
@@ -84,6 +93,141 @@ constexpr void effect_palette(const Theme& theme, float (&palette)[kBackgroundFx
         palette[i][2] = roles[i].blue;
         palette[i][3] = 1;
     }
+}
+
+// ---- Ambient inputs (mc_ambient, interface 2) ---------------------------------------------------------
+// The local clock (@uses clock) and the appearance (@uses appearance). The host samples its sources every frame
+// and eases each value toward them, so a shader reads plain floats and blends. An appearance change, or a jump of
+// the clock (a resume, a changed time zone, a simulated time), runs kEffectAmbientEaseMs on a smoothstep; the clock
+// moving on its own is followed as it is. Where the window cannot show a change moving (hidden, covered, reduced
+// motion, or not focused unless the effect keeps moving then) every value settles at once.
+inline constexpr u32 kEffectAmbientEaseMs = 1500;
+// The time of day moves in whole minutes; more than two of them between samples is a jump.
+inline constexpr float kEffectClockMinute = 1.f / 1440.f;
+inline constexpr float kEffectClockJump = 2 * kEffectClockMinute;
+
+// A local date and time (SYSTEMTIME's fields).
+struct EffectLocalTime {
+    u16 year, month, day, hour, minute;
+};
+constexpr bool effect_leap_year(u32 year) noexcept {
+    return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+}
+constexpr u32 effect_month_days(u32 year, u32 month) noexcept {
+    constexpr u8 days[12]{31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    return month >= 1 && month <= 12 ? days[month - 1] + (month == 2 && effect_leap_year(year)) : 0;
+}
+constexpr bool effect_local_time_valid(const EffectLocalTime& time) noexcept {
+    return time.day >= 1 && time.day <= effect_month_days(time.year, time.month) && time.hour < 24 && time.minute < 60;
+}
+
+// mc_ambient's clock values: the time of day and of the year in 0..1 (from midnight, from 1 January 00:00) and the
+// month 1..12. A time that is not valid reads as midnight on 1 January.
+struct EffectClock {
+    float day, year, month;
+};
+constexpr EffectClock effect_clock(const EffectLocalTime& time) noexcept {
+    if (!effect_local_time_valid(time))
+        return {0, 0, 1};
+    u32 before = 0;
+    for (u32 month = 1; month < time.month; ++month)
+        before += effect_month_days(time.year, month);
+    const float day = static_cast<float>(time.hour * 60u + time.minute) * kEffectClockMinute;
+    const float days = effect_leap_year(time.year) ? 366.f : 365.f;
+    return {day, (static_cast<float>(before + time.day - 1u) + day) / days, static_cast<float>(time.month)};
+}
+
+// Dark wins: the effect turns dark when MaiCord's theme base is dark (Dark, AMOLED or a dark custom theme) or when
+// Windows' app mode is. The effect sits under the theme's text: a light picture would break a dark theme's
+// contrast, while a light theme's plates are opaque enough to keep its text readable over a night picture.
+constexpr float effect_appearance_dark(bool theme_dark, bool system_dark) noexcept {
+    return theme_dark || system_dark ? 1.f : 0.f;
+}
+
+// One eased value; a cyclic one (0..1 that wraps, as the clock does) moves the short way round.
+struct EffectEase {
+    float from, to;
+    u64 start_ms;
+    bool running;
+};
+constexpr float effect_cyclic_delta(float delta) noexcept {
+    return delta >= .5f ? delta - 1 : delta < -.5f ? delta + 1 : delta;
+}
+constexpr bool effect_ease_running(const EffectEase& ease, u64 now_ms) noexcept {
+    return ease.running && (now_ms < ease.start_ms || now_ms - ease.start_ms < kEffectAmbientEaseMs);
+}
+constexpr float effect_ease_value(const EffectEase& ease, u64 now_ms, bool cyclic) noexcept {
+    if (!effect_ease_running(ease, now_ms))
+        return ease.to;
+    const float t = static_cast<float>(now_ms > ease.start_ms ? now_ms - ease.start_ms : 0) /
+                    static_cast<float>(kEffectAmbientEaseMs);
+    const float s = t * t * (3 - 2 * t);
+    if (!cyclic)
+        return ease.from + (ease.to - ease.from) * s;
+    const float value = ease.from + effect_cyclic_delta(ease.to - ease.from) * s;
+    return value < 0 ? value + 1 : value >= 1 ? value - 1 : value;
+}
+// Points `ease` at `target`. A change of at most `drift` is followed at once (a transition under way keeps its
+// course to the new end); a larger one eases from where the value is now, or settles when `animate` is false.
+constexpr void effect_ease_toward(EffectEase* ease, float target, u64 now_ms, bool animate, bool cyclic,
+                                  float drift) noexcept {
+    if (ease->running && !effect_ease_running(*ease, now_ms)) {
+        ease->from = ease->to;
+        ease->running = false;
+    }
+    if (target == ease->to && (animate || !ease->running))
+        return;
+    if (!animate) {
+        *ease = {target, target, now_ms, false};
+        return;
+    }
+    const float change = cyclic ? effect_cyclic_delta(target - ease->to) : target - ease->to;
+    if (change <= drift && change >= -drift) {
+        ease->to = target;
+        if (!ease->running)
+            ease->from = target;
+        return;
+    }
+    *ease = {effect_ease_value(*ease, now_ms, cyclic), target, now_ms, true};
+}
+
+// What the host reads each frame: the local time, MaiCord's theme base and Windows' app mode.
+struct EffectAmbientSources {
+    EffectLocalTime local;
+    bool theme_dark, system_dark;
+};
+struct EffectAmbient {
+    EffectEase day, year, dark;
+    float month;
+    bool started; // the first sample settles at once
+};
+// One frame's sample for a package that declares `uses`: retargets from the sources, then writes mc_ambient
+// (zero for an input the package does not declare). `animate` false settles every change at once.
+constexpr void effect_ambient_sample(EffectAmbient* ambient, u32 uses, const EffectAmbientSources& sources,
+                                     u64 now_ms, bool animate, float (&values)[4]) noexcept {
+    const bool ease = animate && ambient->started;
+    ambient->started = true;
+    for (float& value : values)
+        value = 0;
+    if (uses & effect_use_clock) {
+        const EffectClock clock = effect_clock(sources.local);
+        effect_ease_toward(&ambient->day, clock.day, now_ms, ease, true, kEffectClockJump);
+        effect_ease_toward(&ambient->year, clock.year, now_ms, ease, true, kEffectClockJump / 365.f);
+        ambient->month = clock.month;
+        values[effect_ambient_day] = effect_ease_value(ambient->day, now_ms, true);
+        values[effect_ambient_year] = effect_ease_value(ambient->year, now_ms, true);
+        values[effect_ambient_month] = ambient->month;
+    }
+    if (uses & effect_use_appearance) {
+        effect_ease_toward(&ambient->dark, effect_appearance_dark(sources.theme_dark, sources.system_dark), now_ms,
+                           ease, false, 0);
+        values[effect_ambient_dark] = effect_ease_value(ambient->dark, now_ms, false);
+    }
+}
+// A value of the last sample is still easing: the host keeps drawing frames until every one settles.
+constexpr bool effect_ambient_easing(const EffectAmbient& ambient, u64 now_ms) noexcept {
+    return effect_ease_running(ambient.day, now_ms) || effect_ease_running(ambient.year, now_ms) ||
+           effect_ease_running(ambient.dark, now_ms);
 }
 
 // ---- What the renderer is given ---------------------------------------------------------------

@@ -29,6 +29,9 @@ bool application_effects_preview_running() noexcept {
 u32 application_effects_interval_ms() noexcept {
     return 42;
 }
+u64 application_effects_transition_wake() noexcept {
+    return 0;
+}
 
 bool application_account_logout_blocked() noexcept {
     return fixture_logout_blocked;

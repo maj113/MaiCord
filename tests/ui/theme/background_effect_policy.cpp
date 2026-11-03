@@ -414,9 +414,91 @@ void test_background_effect_policy(void (*check)(bool, const char*) noexcept) no
     float palette[kBackgroundFxPaletteRoles][4]{};
     effect_palette(starry, palette);
     EffectFrameConstants frame{};
-    check(sizeof(frame) == 304 && sizeof(EffectCompositeConstants) == 64 && sizeof(EffectShaderSettings) == 16 &&
+    // Interface 1's fields keep their offsets; mc_ambient follows mc_knobs, where an interface-1 shader never reads.
+    check(sizeof(frame) == 320 && __builtin_offsetof(EffectFrameConstants, time) == 0 &&
+              __builtin_offsetof(EffectFrameConstants, dip) == 12 && __builtin_offsetof(EffectFrameConstants, resolution) == 16 &&
+              __builtin_offsetof(EffectFrameConstants, pointer) == 24 && __builtin_offsetof(EffectFrameConstants, palette) == 32 &&
+              __builtin_offsetof(EffectFrameConstants, dark) == 160 && __builtin_offsetof(EffectFrameConstants, intensity) == 164 &&
+              __builtin_offsetof(EffectFrameConstants, knobs) == 176 && __builtin_offsetof(EffectFrameConstants, ambient) == 304 &&
+              sizeof(EffectCompositeConstants) == 64 && sizeof(EffectShaderSettings) == 16 &&
               palette[0][0] == starry.base_low.red && palette[4][2] == starry.accent.blue &&
               palette[7][1] == starry.tokens.accent.danger.green && palette[3][3] == 1,
           "effect pass: frame and composite constants keep the shader layout; the palette carries the theme's own sRGB");
+
+    // ---- Ambient inputs (mc_ambient) ----
+    const EffectClock noon = effect_clock({2026, 7, 2, 12, 0});
+    const EffectClock leap = effect_clock({2024, 3, 1, 0, 0});
+    const EffectClock last = effect_clock({2026, 12, 31, 23, 59});
+    const EffectClock no_such_day = effect_clock({2026, 2, 29, 8, 0});
+    check(close_to(noon.day, .5f) && noon.month == 7 && close_to(noon.year, 182.5f / 365) && leap.day == 0 &&
+              close_to(leap.year, 60.f / 366) && leap.month == 3 && last.year > .9999f && last.year < 1 &&
+              close_to(last.day, 1439.f / 1440) && no_such_day.day == 0 && no_such_day.year == 0 && no_such_day.month == 1 &&
+              effect_appearance_dark(false, false) == 0 && effect_appearance_dark(true, false) == 1 &&
+              effect_appearance_dark(false, true) == 1 && effect_appearance_dark(true, true) == 1,
+          "effect inputs: the clock reads the local day, year and month in minutes; dark wins between the theme and "
+          "Windows");
+    constexpr u32 kBoth = effect_use_clock | effect_use_appearance;
+    EffectAmbientSources sources{{2026, 1, 15, 18, 30}, false, true};
+    EffectAmbient ambient{};
+    float values[4]{};
+    // The first sample settles at once, whatever `animate` says: a selected effect starts at its inputs.
+    effect_ambient_sample(&ambient, kBoth, sources, 10000, true, values);
+    const bool simulated = close_to(values[effect_ambient_day], (18 * 60 + 30) / 1440.f) &&
+                           close_to(values[effect_ambient_year], (14 + 1110.f / 1440) / 365) &&
+                           values[effect_ambient_month] == 1 && values[effect_ambient_dark] == 1 &&
+                           !effect_ambient_easing(ambient, 10000);
+    EffectAmbient clock_only{}, dark_only{};
+    float clock_values[4]{}, appearance_values[4]{};
+    effect_ambient_sample(&clock_only, effect_use_clock, sources, 10000, true, clock_values);
+    effect_ambient_sample(&dark_only, effect_use_appearance, sources, 10000, true, appearance_values);
+    check(simulated && clock_values[effect_ambient_dark] == 0 && clock_values[effect_ambient_day] > 0 &&
+              appearance_values[effect_ambient_dark] == 1 && appearance_values[effect_ambient_day] == 0 &&
+              appearance_values[effect_ambient_year] == 0 && appearance_values[effect_ambient_month] == 0,
+          "effect inputs: mc_ambient reflects a simulated clock and appearance, and only the declared inputs");
+    // Windows turns light under a light theme: the appearance eases from dark to light over 1.5 s on a smoothstep,
+    // asks for frames while it moves, and stops asking once it is there.
+    sources.system_dark = false;
+    effect_ambient_sample(&ambient, kBoth, sources, 20000, true, values);
+    bool easing = values[effect_ambient_dark] == 1 && effect_ambient_easing(ambient, 20000);
+    effect_ambient_sample(&ambient, kBoth, sources, 20000 + kEffectAmbientEaseMs / 2, true, values);
+    easing = easing && close_to(values[effect_ambient_dark], .5f) &&
+             effect_ambient_easing(ambient, 20000 + kEffectAmbientEaseMs / 2);
+    effect_ambient_sample(&ambient, kBoth, sources, 20000 + kEffectAmbientEaseMs, true, values);
+    easing = easing && values[effect_ambient_dark] == 0 && !effect_ambient_easing(ambient, 20000 + kEffectAmbientEaseMs);
+    u32 settled_frames = 0;
+    for (u64 at = 21600; at < 30000; at += 42) {
+        effect_ambient_sample(&ambient, kBoth, sources, at, true, values);
+        settled_frames += effect_ambient_easing(ambient, at) ? 1u : 0u;
+    }
+    check(easing && settled_frames == 0 && values[effect_ambient_dark] == 0,
+          "effect inputs: an OS theme change eases the appearance to its target and asks for frames only meanwhile");
+    // Reversed halfway, it turns back from where it is; where it cannot move (unfocused, reduced motion) it settles.
+    sources.system_dark = true;
+    effect_ambient_sample(&ambient, kBoth, sources, 40000, true, values);
+    effect_ambient_sample(&ambient, kBoth, sources, 40750, true, values);
+    sources.system_dark = false;
+    effect_ambient_sample(&ambient, kBoth, sources, 40750, true, values);
+    const bool reversed = close_to(values[effect_ambient_dark], .5f) && effect_ambient_easing(ambient, 40750);
+    sources.theme_dark = true;
+    effect_ambient_sample(&ambient, kBoth, sources, 40800, false, values);
+    check(reversed && values[effect_ambient_dark] == 1 && !effect_ambient_easing(ambient, 40800),
+          "effect inputs: a reversal eases back from the current value; without motion a change is instant");
+    // The clock: a minute follows at once; a jump across midnight eases the short way round, through 00:00.
+    sources = {{2026, 3, 10, 23, 0}, false, false};
+    EffectAmbient clock_ambient{};
+    effect_ambient_sample(&clock_ambient, effect_use_clock, sources, 50000, true, values);
+    sources.local.minute = 1;
+    effect_ambient_sample(&clock_ambient, effect_use_clock, sources, 50100, true, values);
+    const bool minute = close_to(values[effect_ambient_day], 1381.f / 1440) && !effect_ambient_easing(clock_ambient, 50100);
+    sources.local = {2026, 3, 11, 1, 1};
+    effect_ambient_sample(&clock_ambient, effect_use_clock, sources, 60000, true, values);
+    const bool jump_starts =
+        close_to(values[effect_ambient_day], 1381.f / 1440) && effect_ambient_easing(clock_ambient, 60000);
+    effect_ambient_sample(&clock_ambient, effect_use_clock, sources, 60000 + kEffectAmbientEaseMs / 2, true, values);
+    const float midway = values[effect_ambient_day];
+    effect_ambient_sample(&clock_ambient, effect_use_clock, sources, 60000 + kEffectAmbientEaseMs, true, values);
+    check(minute && jump_starts && (midway < .002f || midway > .998f) && close_to(values[effect_ambient_day], 61.f / 1440) &&
+              values[effect_ambient_month] == 3 && !effect_ambient_easing(clock_ambient, 60000 + kEffectAmbientEaseMs),
+          "effect inputs: the clock follows its minutes and eases a jump the short way round midnight");
 }
 } // namespace maicord

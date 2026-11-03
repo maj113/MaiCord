@@ -1,0 +1,6 @@
+name=Day and night
+uses=blue_noise clock appearance
+blend=normal
+resolution=50
+fps=15
+knobs=2000 6500 19000 600 500 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0

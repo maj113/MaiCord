@@ -83,6 +83,17 @@ void update_keyboard_focus_visible(UINT message, WPARAM wparam) noexcept {
         application_request_frame();
     }
 }
+// WM_SETTINGCHANGE names the changed area in lparam (may be null).
+bool setting_area_is(LPARAM lparam, const wchar_t* area) noexcept {
+    const auto* text = reinterpret_cast<const wchar_t*>(lparam);
+    if (!text)
+        return false;
+    u32 i = 0;
+    for (; area[i]; ++i)
+        if (text[i] != area[i])
+            return false;
+    return text[i] == 0;
+}
 // The wndproc is the only place window state changes are observed. Position
 // changes carry every show/hide/minimize/restore/resize; activation, focus,
 // DPI and pointer departure have their own messages. Runs first, before any
@@ -398,6 +409,9 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
     switch (message) {
     case WM_SETTINGCHANGE:
         application_surface_motion_refresh_system_preference();
+        // Windows' app mode switched between light and dark: an effect's appearance input glides to it.
+        if (setting_area_is(lparam, L"ImmersiveColorSet"))
+            application_effects_set_system_dark(application_effects_read_system_dark());
         application_request_frame();
         break;
     case kBeginWebAuthnMessage:

@@ -69,6 +69,7 @@ struct D3D11EffectOwner {
     EffectFrameConstants constants;
     float last_phase, time, frames;
     float pointer[2]; // window pixels; negative when none
+    float ambient[4]; // mc_ambient as the host eased it (EffectAmbientValue order)
     u32 dpi, window_width, window_height;
     bool selected, probed, content_valid, dirty, composite_bound;
     // Written before an effect frame is submitted and cleared once its timing resolves, in a mapping that
