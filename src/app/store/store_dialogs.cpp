@@ -1,11 +1,9 @@
 #include "store_build.hpp"
-#include "maicord/core/memory.hpp"
 
 namespace maicord::app_detail::store_build {
 namespace {
 
-constexpr u32 kLinkField = store_action(StoreAct::search, 1);
-
+// A footer rule sits above the band: the hairline flag draws below, so the body's last element carries it.
 UiStoreNode& dialog_footer(Ctx& c) noexcept {
     auto& row = c.b.open(UiStoreKind::row);
     row.pad_x = 24;
@@ -15,7 +13,6 @@ UiStoreNode& dialog_footer(Ctx& c) noexcept {
     row.flags = ui_store_center | ui_store_hairline;
     return row;
 }
-// A footer rule sits above the band: the hairline flag draws below, so the body's last element carries it.
 
 UiStoreNode& dialog_body(Ctx& c) noexcept {
     auto& col = c.b.open(UiStoreKind::column);
@@ -61,13 +58,7 @@ void consent_row(Ctx& c, const StorePermission& p, ConstSlice<Utf8View> hosts) n
     if (p.added)
         c.b.chip("New", UiStoreTone::brand);
     c.b.close();
-    if (p.name.bytes == 7 && p.name.data[0] == 'n' && hosts.count) {
-        auto& flow = c.b.open(UiStoreKind::flow);
-        flow.gap = 8;
-        for (u32 i = 0; i < hosts.count; ++i)
-            c.b.chip(hosts[i], UiStoreTone::mono);
-        c.b.close();
-    }
+    host_chips(c, p, hosts);
     if (p.note.bytes)
         c.b.text(p.note, UiStoreType::small, UiStoreInk::subtle, ui_store_wrap);
     c.b.close();
@@ -172,7 +163,7 @@ void build_link(Ctx& c) noexcept {
         dialog_body(c);
         title_row(c, utf8_literal("Install from link"), utf8_literal("A theme or effect from a link or a file, not reviewed by MaiCord."), UiIcon::link, false, false, false);
         auto& field = c.b.leaf(UiStoreKind::search);
-        field.action = kLinkField;
+        field.action = kStoreLinkField;
         field.group = 21;
         field.text = utf8_literal("Paste an https:// link to a .maicord-theme.json or .mcfx");
         field.value = c.st.link_text_focus ? 1 : 0;
@@ -257,14 +248,14 @@ void build_link(Ctx& c) noexcept {
         // The dot is the measured class: green light, amber medium, red heavy or refused.
         const u8 dot = l.cost_refused || l.cost_level >= 2 ? 3 : l.cost_level == 1 ? 4 : 5;
         if (l.cost_known)
-            fact(c, "Cost here", l.cost_text, false, 0, dot);
+            fact(c, "Cost here", l.cost_text, 0, dot);
         else
             fact(c, "Cost here", utf8_literal("Measuring..."));
     }
     if (l.has_effect)
         fact(c, "Effect", l.effect_installed ? join(c.b, l.effect_slug, utf8_literal(" (installed)")) : l.effect_slug);
     if (l.kind == CatalogKind::effect)
-        fact(c, "Source", utf8_literal("View .hlsl"), false, store_action(StoreAct::dialog_source));
+        fact(c, "Source", utf8_literal("View .hlsl"), store_action(StoreAct::dialog_source));
     if (l.replaces)
         fact(c, "Replaces", utf8_literal("the one you installed before"));
     c.b.close();

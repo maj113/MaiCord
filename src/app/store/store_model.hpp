@@ -56,9 +56,6 @@ struct StoreItem {
     bool local;
 };
 
-struct StoreKnobChoice {
-    Utf8View label;
-};
 // An effect's knob, current value included (an installed effect), or the catalog's declaration.
 struct StoreKnob {
     Utf8View label, hint;
@@ -75,7 +72,6 @@ struct StoreUniversal {
     u8 speed, opacity, blend;  // twentieths, percent, blend + 1
     u8 pointer, unfocused, budget;
     bool pointer_available;
-    bool battery_cap;
     // The global defaults a per-effect row shows beside its override, and what the package asks for.
     u8 global_resolution, global_frame_rate, requested_frame_rate;
 };
@@ -103,7 +99,7 @@ struct StoreLink {
     bool open;     // the install-from-link entry or the card
     u8 phase;      // 0 entry, 1 working, 2 card, 3 failed
     u8 error;      // PackageError
-    Utf8View host, name, authors, license, based_on, size_text, source_note, cost_text;
+    Utf8View host, name, authors, license, based_on, size_text, cost_text;
     CatalogKind kind;
     bool replaces, has_effect, effect_installed, cost_known, cost_refused, previewing;
     u8 cost_level; // EffectCostClass of the measured cost: the dot's colour
@@ -123,11 +119,9 @@ struct StoreModel {
     StoreItem items[kStoreItemMaximum];
     u32 count;
     StoreCatalogState catalog;
-    bool developer_mode, installable, fetching, expired;
-    u64 checked_unix, fetched_unix, now_unix, revision;
+    bool developer_mode, installable;
+    u64 checked_unix, fetched_unix;
     Utf8View error_text;
-    u32 operation_kind_item; // the item an operation runs on, or ~0u
-    bool operation_failed;
     u32 protocol_state;  // 0 asked, 1 ask now
     bool auto_update_all;
     bool trying;         // a theme is being tried
@@ -159,7 +153,6 @@ enum class StoreAct : u8 {
     header_link,  // Install from link...
     import_theme, // Import theme... (Themes); arg 1 retries a failed read, 2 a failed save
     search,       // the field
-    search_clear,
     sort,         // opens the sort menu
     chip,         // arg: chip index (0 = All)
     clear_filters,
@@ -170,7 +163,6 @@ enum class StoreAct : u8 {
     card_switch,  // arg: item
     card_settings,
     card_overflow,
-    row_open,
     row_primary,
     row_switch,
     row_settings,
@@ -194,11 +186,9 @@ enum class StoreAct : u8 {
     knob,         // arg: knob index; slider/stepped value, toggle, choice
     knob_menu,
     knob_color,
-    knob_reset,   // one knob
     knobs_reset,
     universal,    // arg: UniversalRow; shader override
     universal_reset,
-    universal_global,
     keep_theme,
     revert_theme,
     dialog_confirm,
@@ -211,12 +201,10 @@ enum class StoreAct : u8 {
     dialog_source,
     dev_load,
     dev_reload,
-    perf_battery,
     updates_expand,
-    console_clear,
-    count
+    console_clear
 };
-enum class StoreUniversalRow : u8 { resolution, frame_rate, speed, opacity, blend, unfocused, budget, pointer, count };
+enum class StoreUniversalRow : u8 { resolution, frame_rate, speed, opacity, blend, unfocused, budget, pointer };
 
 constexpr u32 store_action(StoreAct act, u32 arg = 0) noexcept {
     return (static_cast<u32>(act) << 16) | (arg & 0xffffu);
@@ -228,6 +216,9 @@ constexpr u32 store_arg(u32 action) noexcept {
     return action & 0xffffu;
 }
 
+// The action of the install dialog's link field (a search field of its own).
+inline constexpr u32 kStoreLinkField = store_action(StoreAct::search, 1);
+
 // What the user did, for the host to carry out.
 enum class StoreCommandKind : u8 {
     none,
@@ -235,19 +226,16 @@ enum class StoreCommandKind : u8 {
     install, update, review, remove, rollback, enable, disable, set_auto_update, skip_update,
     update_all, check_now, set_auto_update_all,
     open_plugin_settings, open_folder, open_source, open_homepage, copy_text,
-    apply_theme, try_theme, keep_theme, revert_theme, import_theme, use_builtin_theme, use_effect, unuse_effect,
-    knob_set, knob_reset, knobs_reset, universal_set, universal_reset, global_set, knob_color,
+    apply_theme, try_theme, keep_theme, revert_theme, import_theme, use_builtin_theme, use_effect,
+    knob_set, knobs_reset, universal_set, universal_reset, knob_color,
     consent_answer,  // arg 0 cancel, 1 accept; flag: enable now
     link_begin, link_commit, link_cancel, link_open_file, link_preview,
     protocol_answer,
     dev_load, dev_reload,
-    open_page,       // arg: CatalogKind
     request_details, // the open detail needs its details text
-    request_preview,
     console_clear,
-    saved_catalog,
 };
-enum class StoreMenu : u8 { sort, overflow, knob_choice, universal_choice, installed_overflow_theme, installed_overflow_effect };
+enum class StoreMenu : u8 { sort, overflow, knob_choice };
 struct StoreCommand {
     StoreCommandKind kind;
     StoreMenu menu;
@@ -348,7 +336,6 @@ u32 store_menu_items(const StoreModel&, const StorePageState&, StoreMenu, u32 it
 StoreCommand store_menu_choose(const StoreModel&, StorePageState*, StoreMenu, u32 item, u32 row) noexcept;
 // Escape: closes a dialog, reverts a trial, leaves a detail view. handled false: the page has nothing to undo.
 StoreCommand store_page_escape(const StoreModel&, StorePageState*, bool* handled) noexcept;
-u32 store_page_tab_count(const StoreModel&, const StorePageState&) noexcept;
 // The sentences and risk of a permission bit (the site's table); false past the known bits.
 bool store_permission_text(u32 bit, StorePermission*) noexcept;
 u8 store_permission_risk(u64 permissions, bool has_hosts) noexcept;

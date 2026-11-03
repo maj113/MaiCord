@@ -48,8 +48,7 @@ enum class UiStoreKind : u8 {
     rule,
     spacer,
     disc,
-    spinner,
-    count
+    spinner
 };
 
 enum class UiStoreType : u8 {
@@ -68,11 +67,11 @@ enum class UiStoreType : u8 {
 };
 
 enum class UiStoreInk : u8 {
-    strong, normal, subtle, header, link, warning, critical, positive, brand, on_brand, on_accent, count
+    strong, normal, subtle, header, link, warning, critical, positive, brand, on_brand, on_accent
 };
 enum class UiStoreFill : u8 {
     none, subtle, normal, strong, input, selected, translucent, scrim, positive_tint, warning_tint, critical_tint,
-    brand, critical, success, caution, danger, count
+    brand, critical, success, caution, danger
 };
 enum class UiStoreTone : u8 { neutral, subtle, risk_low, risk_medium, risk_high, positive, warning, dev, brand, mono, scrim };
 enum class UiStoreButton : u8 { secondary, primary, ghost, critical, ghost_critical, link };
@@ -90,10 +89,8 @@ enum UiStoreFlag : u16 {
     ui_store_busy = 1u << 6,
     ui_store_stretch = 1u << 7,   // a button or field fills its parent's width
     ui_store_foreground = 1u << 8,// drawn after the media layer (pills over previews)
-    ui_store_ring = 1u << 9,      // a disc/swatch drawn with the card ring
     ui_store_critical = 1u << 10, // a critical emphasis (text, plate)
     ui_store_hairline = 1u << 11, // a card row is closed by a hairline
-    ui_store_hover = 1u << 12,    // a plate that lights on hover
     ui_store_clip = 1u << 13,     // children are clipped to the rounded plate
     ui_store_hidden = 1u << 14,
     ui_store_justify = 1u << 15   // a row centres its children (no flex children)
@@ -242,8 +239,6 @@ void ui_store_scene_release(UiStoreScene*) noexcept;
 void ui_store_scene_begin(UiStoreScene*) noexcept;
 // Ends a rebuild and lays the tree out in `column` (page) and `modal` (dialog); keeps scroll and focus.
 bool ui_store_scene_commit(UiStoreScene*, const UiRect& panel, const UiRect& column, const UiRect& modal) noexcept;
-// Moves the viewport (resize) without a rebuild.
-bool ui_store_scene_resize(UiStoreScene*, const UiRect& panel, const UiRect& column, const UiRect& modal) noexcept;
 
 // Input. Coordinates are viewport DIPs.
 bool ui_store_scene_hover(UiStoreScene*, float x, float y) noexcept;
@@ -251,7 +246,7 @@ bool ui_store_scene_press(UiStoreScene*, float x, float y, UiStoreEvent*) noexce
 bool ui_store_scene_release_pointer(UiStoreScene*, float x, float y, UiStoreEvent*) noexcept;
 bool ui_store_scene_scroll(UiStoreScene*, float delta) noexcept;
 bool ui_store_scene_scroll_to(UiStoreScene*, float offset) noexcept;
-enum class UiStoreKey : u8 { left, right, up, down, home, end, page_up, page_down, first, last, enter, space, escape, menu, tab, back_tab };
+enum class UiStoreKey : u8 { left, right, up, down, home, end, page_up, page_down, first, last, enter, space, menu, tab, back_tab };
 // Keyboard: returns whether the key was used; *event reports an activation.
 bool ui_store_scene_key(UiStoreScene*, UiStoreKey, UiStoreEvent*) noexcept;
 bool ui_store_scene_focus(UiStoreScene*, u32 action, bool visible) noexcept;
@@ -267,11 +262,10 @@ bool ui_store_scene_tick(UiStoreScene*, u64 now_ms, bool reduced_motion) noexcep
 bool ui_store_scene_animating(const UiStoreScene&) noexcept;
 
 // Painting: layer 0 = page plates, 1 = foreground (pills over previews), 2 = dialog plates and its foreground.
-bool ui_store_scene_paint(const UiStoreScene&, const Theme&, PaintStream*, u32 layer, u32 dpi) noexcept;
+bool ui_store_scene_paint(const UiStoreScene&, const Theme&, PaintStream*, u32 layer) noexcept;
 bool ui_store_scene_text_output(const UiStoreScene&, const Theme&, UiTextOutput*, bool dialog) noexcept;
 // Visible preview tiles, in order; cursor starts at 0.
 bool ui_store_scene_next_media(const UiStoreScene&, u32* cursor, UiStoreMedia*) noexcept;
-UiRect ui_store_scene_scrollbar_track(const UiStoreScene&) noexcept;
 // Where the live search editor's text goes (the node of search->action), in viewport coordinates.
 bool ui_store_scene_search_geometry(const UiStoreScene&, UiRect* text) noexcept;
 

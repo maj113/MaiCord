@@ -23,7 +23,6 @@ namespace maicord::app_detail {
 enum class PackageError : u8 {
     none,
     busy,           // another install session is open
-    bad_link,       // not a link this client accepts
     unsupported,    // a plugin or an unknown file type
     bad_file,       // unreadable
     unreachable,    // the host could not be reached, or answered with an error
@@ -42,9 +41,7 @@ struct PackageInfo {
     PackageLinkKind kind; // theme or effect
     char slug[kPackageSlugMaximumBytes + 1]; // effect: the manifest's; theme: derived from the name
     char name[kClientThemeNameMaximumBytes + 1];
-    char version[kMcfxVersionBytes + 1]; // effects; "" for a theme
     u32 bytes;
-    u64 identity; // nonzero: a hash of the whole file
 };
 // Checks a downloaded file: .mcfx container and manifest, or a theme document (64 KiB). Allocates its scratch.
 PackageError package_validate(PackageLinkKind kind, ConstSlice<u8> bytes, PackageInfo* info) noexcept;
@@ -53,15 +50,12 @@ PackageError package_validate(PackageLinkKind kind, ConstSlice<u8> bytes, Packag
 void application_packages_library_changed() noexcept;
 
 // ---- Link, file and drop installs (unreviewed) ------------------------------------------------------------
-enum class PackageOrigin : u8 { link, file };
 enum class PackagePhase : u8 { idle, working, ready, failed };
 
 // What the "not reviewed" card shows. Valid while the phase is `ready`.
 struct PackageCard {
     PackageLinkKind kind;
-    PackageOrigin origin;
     char host[65];      // the source host of a link; "" for a file
-    char file_name[64]; // the leaf of a file or the URL path
     char slug[kPackageSlugMaximumBytes + 1];
     char name[kClientThemeNameMaximumBytes + 1];
     u32 bytes;
@@ -69,17 +63,14 @@ struct PackageCard {
     // Effects: the package (credit, knobs, uses, SOURCE for "View .hlsl", PREVIEW png). Borrowed from the session.
     const McfxPackage* effect;
     // Themes.
-    ClientThemeBase base;
     u32 swatches[4];       // 0xRRGGBB: background, surface, text, accent
-    u16 contrast_x100;     // text on background, as a ratio times 100 (WCAG 2)
     char effect_slug[kPackageSlugMaximumBytes + 1]; // the theme's background effect; "" for none
     bool effect_installed; // that effect is in the library
 };
 struct PackageStatus {
     PackagePhase phase;
     PackageError error; // when failed
-    u64 revision;       // changes on every change below
-    u64 received, total; // while working over the network (total 0: unknown)
+    u64 revision;       // changes on every change
 };
 // One session at a time. A link is https or maicord://install?url=; a file is any path (a drop passes its first
 // file). Fetching is capped at 1.5 MiB (64 KiB for a theme), https only, never off the host.
@@ -104,7 +95,6 @@ void application_packages_cancel() noexcept;
 struct PackageDeepLink {
     PackageLinkKind kind;
     char slug[kPackageSlugMaximumBytes + 1];
-    u64 revision;
 };
 bool application_packages_take_deep_link(PackageDeepLink* link) noexcept;
 // Routes a maicord:// URL from the command line, WM_COPYDATA or the paste box. False: refused (logged without
@@ -121,8 +111,6 @@ void application_packages_release() noexcept;
 bool application_store_open(PackageLinkKind kind) noexcept;
 
 // Opt-in registration (HKCU\Software\Classes\maicord only). `asked` is false until the user answered once.
-bool application_packages_protocol_registered() noexcept;
-bool application_packages_protocol_set(bool enable) noexcept;
 bool application_packages_protocol_asked() noexcept;
 // "Turn on" registers; "Not now" only records that the question was answered.
 bool application_packages_protocol_answer(bool enable) noexcept;
@@ -130,7 +118,6 @@ bool application_packages_protocol_answer(bool enable) noexcept;
 // Drag and drop of a file onto the window while the install dialog is open (the store pages enable it for
 // that time). The first dropped file starts a session; every other drop goes to attachments.
 void application_packages_drop_enable(bool wanted) noexcept;
-bool application_packages_drop_wanted() noexcept;
 bool application_packages_drop(HANDLE drop) noexcept;
 
 // ---- Installed themes and effects --------------------------------------------------------------------------

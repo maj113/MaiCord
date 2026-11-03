@@ -1,5 +1,6 @@
 #include "maicord/app/packages/install.hpp"
 #include "maicord/app/net/file_persistence.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/platform/crypto/hkdf_sha256.hpp"
@@ -44,16 +45,15 @@ bool package_file_path(const wchar_t* root, PackageLinkKind kind, const Utf8View
     if (!package_slug_valid(slug) || !path.data || !units || !folder_path(root, kind, folder, &length) ||
         (kind == PackageLinkKind::effect && !digest) || length + 1 + slug.bytes + 40 >= path.count)
         return false;
-    u32 at = 0;
+    u32 at = length;
     copy_bytes(path.data, folder, length * sizeof(wchar_t));
-    at = length;
     path[at++] = L'\\';
     append_ascii(path.data, path.count, &at, slug.data, slug.bytes);
     if (kind == PackageLinkKind::effect) {
         path[at++] = L'-';
         for (u32 i = 0; i < 8; ++i) {
-            path[at++] = L"0123456789abcdef"[digest[i] >> 4];
-            path[at++] = L"0123456789abcdef"[digest[i] & 15];
+            path[at++] = ascii_hex_digit(digest[i] >> 4);
+            path[at++] = ascii_hex_digit(digest[i]);
         }
         for (const wchar_t c : L".mcfx")
             path[at++] = c;
@@ -115,11 +115,9 @@ bool package_install(const wchar_t* root, PackageLinkKind kind, Utf8View slug, C
                      u8 (&digest)[32]) noexcept {
     wchar_t folder[512], path[512];
     u32 length = 0, units = 0;
-    if (!folder_path(root, kind, folder, &length) || !package_sha256(bytes, digest) ||
-        !package_file_path(root, kind, slug, digest, {path, 512}, &units) || !directory_ensure(root) ||
-        !directory_ensure(folder) || !file_persistence_write_atomic(path, units, bytes).ok())
-        return false;
-    return true;
+    return folder_path(root, kind, folder, &length) && package_sha256(bytes, digest) &&
+           package_file_path(root, kind, slug, digest, {path, 512}, &units) && directory_ensure(root) &&
+           directory_ensure(folder) && file_persistence_write_atomic(path, units, bytes).ok();
 }
 
 bool package_prune(const wchar_t* root, const Utf8View& slug, const u8 (&keep)[32]) noexcept {

@@ -12,7 +12,6 @@ struct Ctx {
     const StoreLayoutInput& in;
 };
 
-inline constexpr Utf8View kNoView{};
 Utf8View kind_plural(CatalogKind) noexcept;   // "plugins"
 Utf8View kind_title(CatalogKind) noexcept;    // "Plugins"
 Utf8View kind_noun(CatalogKind) noexcept;     // "plugin"
@@ -29,22 +28,25 @@ Utf8View date_text(UiStoreBuilder&, u64 unix) noexcept;
 Utf8View size_text(UiStoreBuilder&, u32 bytes) noexcept;
 Utf8View byline(UiStoreBuilder&, const StoreItem&, bool listed = false) noexcept;
 // "Updated 1.1 / Update 1.2.0" style label pieces.
-Utf8View join(UiStoreBuilder&, const Utf8View& a, const Utf8View& b) noexcept;
-Utf8View join(UiStoreBuilder&, const Utf8View& a, const Utf8View& b, const Utf8View& c) noexcept;
-Utf8View join(UiStoreBuilder&, const Utf8View& a, const Utf8View& b, const Utf8View& c, const Utf8View& d) noexcept;
+inline Utf8View join(UiStoreBuilder& b, const Utf8View& x, const Utf8View& y) noexcept {
+    return b.copy(x, y);
+}
+inline Utf8View join(UiStoreBuilder& b, const Utf8View& x, const Utf8View& y, const Utf8View& z) noexcept {
+    return b.copy(x, y, z);
+}
+inline Utf8View join(UiStoreBuilder& b, const Utf8View& x, const Utf8View& y, const Utf8View& z, const Utf8View& w) noexcept {
+    return b.copy(x, y, z, w);
+}
 
 // Leaves.
-UiStoreNode& text(Ctx&, const Utf8View& value, UiStoreType type = UiStoreType::body, UiStoreInk ink = UiStoreInk::normal,
-                  u16 flags = 0) noexcept;
 UiStoreNode& subtle(Ctx&, const Utf8View& value, u16 flags = 0) noexcept;
-UiStoreNode& chip_for(Ctx&, const StoreItem&) noexcept;
 void card_open(Ctx&, UiStoreFill fill = UiStoreFill::subtle, u32 action = 0) noexcept;
 UiStoreNode& hairline_row(Ctx&, bool last, float pad_x = 16, float pad_y = 12) noexcept;
 
 // Screens.
 void build_header(Ctx&) noexcept;
 void build_tabs(Ctx&) noexcept;
-void build_empty(Ctx&, UiIcon icon, const Utf8View& title, const Utf8View& body, bool error) noexcept;
+void build_empty(Ctx&, UiIcon icon, const Utf8View& title, const Utf8View& body) noexcept;
 void build_skeleton(Ctx&) noexcept;
 void build_browse(Ctx&) noexcept;
 void build_installed(Ctx&) noexcept;
@@ -53,13 +55,13 @@ void build_developer(Ctx&) noexcept;
 void build_detail(Ctx&, const StoreItem&, u32 index) noexcept;
 void build_knobs(Ctx&, const StoreItem&, u32 index) noexcept;
 void build_perf_defaults(Ctx&) noexcept;
-void build_universal(Ctx&, const StoreItem*) noexcept;
 void build_dialog(Ctx&) noexcept;
 void build_trial_bar(Ctx&) noexcept;
 
 // Facts and permissions (detail rail and consent).
 void access_eyebrow(Ctx&, u8 risk, float pad_y) noexcept; // the dot and "LOW ACCESS" heading of a permission group
-void fact(Ctx&, const char* label, const Utf8View& value, bool mono = false, u32 action = 0, u8 dot = 0) noexcept;
+void host_chips(Ctx&, const StorePermission&, ConstSlice<Utf8View> hosts) noexcept; // a `network` permission's hosts
+void fact(Ctx&, const char* label, const Utf8View& value, u32 action = 0, u8 dot = 0) noexcept;
 void notice_card(Ctx&, UiIcon icon, const Utf8View& title, const Utf8View& body, UiStoreFill fill, UiStoreInk ink) noexcept;
 void permission_group(Ctx&, u8 risk, const StorePermission* rows, u32 count, ConstSlice<Utf8View> hosts) noexcept;
 

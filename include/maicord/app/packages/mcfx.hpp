@@ -23,8 +23,6 @@ inline constexpr u32 kMcfxIdBytes = 24, kMcfxLabelBytes = 48, kMcfxHintBytes = 9
 inline constexpr u32 kMcfxSlugBytes = 40, kMcfxNameBytes = 48, kMcfxVersionBytes = 23, kMcfxLicenseBytes = 32;
 inline constexpr u32 kMcfxAuthorsBytes = 200, kMcfxCreditUrlBytes = 256, kMcfxCreditNameBytes = 64;
 
-enum class McfxSection : u32 { manifest = 1, bytecode = 2, texture0 = 3, texture1 = 4, source = 5, preview = 6 };
-
 enum class McfxError : u8 {
     none,
     invalid_input,

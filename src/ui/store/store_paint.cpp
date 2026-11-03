@@ -441,7 +441,7 @@ void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r
         p.separator(r);
         break;
     case UiStoreKind::disc:
-        p.rounded(r, (n.flags & ui_store_critical) ? c.critical_tint : c.mod_subtle, 32);
+        p.rounded(r, c.mod_subtle, 32);
         paint_icon(p, n.icon, centred(r, 40), c.text_subtle);
         break;
     case UiStoreKind::spinner:
@@ -452,16 +452,12 @@ void paint_node(UiPaint& p, const Pass& k, const UiStoreNode& n, const UiRect& r
     }
 }
 
-} // namespace
-
-namespace {
 u32 page_end(const UiStoreScene& s) noexcept {
     return s.dialog_root != kUiStoreNone ? s.dialog_root : s.count;
 }
 } // namespace
 
-bool ui_store_scene_paint(const UiStoreScene& s, const Theme& theme, PaintStream* out, u32 layer, u32 dpi) noexcept {
-    static_cast<void>(dpi);
+bool ui_store_scene_paint(const UiStoreScene& s, const Theme& theme, PaintStream* out, u32 layer) noexcept {
     if (!s.active || s.page_root == kUiStoreNone)
         return true;
     g_measure = s.measure;
@@ -503,11 +499,6 @@ bool ui_store_scene_paint(const UiStoreScene& s, const Theme& theme, PaintStream
     }
     paint_ring(p, k);
     return p.unclip().end();
-}
-
-UiRect ui_store_scene_scrollbar_track(const UiStoreScene& s) noexcept {
-    return ui_scrollbar_geometry({s.panel.left, s.column.top, s.panel.right, s.panel.bottom}, s.scroll, s.content_height)
-        .track;
 }
 
 bool ui_store_scene_search_geometry(const UiStoreScene& s, UiRect* text) noexcept {

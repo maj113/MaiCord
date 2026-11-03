@@ -7,6 +7,8 @@
 #include "../shell/state.hpp"
 #include "maicord/app/plugins/binding.hpp"
 #include "maicord/app/plugins/consent.hpp"
+#include "maicord/core/ascii.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 
@@ -33,25 +35,19 @@ struct Writer {
     Utf8View c_text(const char* text) noexcept { return add({text, c_string_length(text)}); }
 };
 
-bool same(const Utf8View& a, const Utf8View& b) noexcept {
-    return a.bytes == b.bytes && (!a.bytes || bytes_equal(a.data, b.data, a.bytes));
+void hex_bytes(char* out, const u8* bytes, u32 count) noexcept {
+    for (u32 i = 0; i < count; ++i) {
+        out[i * 2] = ascii_hex_digit(bytes[i] >> 4);
+        out[i * 2 + 1] = ascii_hex_digit(bytes[i]);
+    }
 }
 
+// The first four and the last three bytes of a SHA-256 as hex around an ellipsis.
 Utf8View hex_sha(Writer& w, const u8 (&sha)[32]) noexcept {
-    static constexpr char kHex[] = "0123456789abcdef";
-    char text[16];
-    u32 n = 0;
-    for (u32 i = 0; i < 4; ++i) {
-        text[n++] = kHex[sha[i] >> 4];
-        text[n++] = kHex[sha[i] & 15];
-    }
-    Utf8View head = w.add({text, n});
-    n = 0;
-    for (u32 i = 29; i < 32; ++i) {
-        text[n++] = kHex[sha[i] >> 4];
-        text[n++] = kHex[sha[i] & 15];
-    }
-    return w.add(head, utf8_literal("\xE2\x80\xA6"), {text, n});
+    char head[8], tail[6];
+    hex_bytes(head, sha, 4);
+    hex_bytes(tail, sha + 29, 3);
+    return w.add({head, 8}, utf8_literal("\xE2\x80\xA6"), {tail, 6});
 }
 
 PluginBinding* find_binding(u64 owner) noexcept {
@@ -130,15 +126,7 @@ Utf8View store_cost_text(StoreModel* m, const EffectCost& cost, bool here) noexc
     Utf8View head = cost.refused ? utf8_literal("Too heavy") : cost.level == EffectCostClass::light ? utf8_literal("Light")
                     : cost.level == EffectCostClass::medium ? utf8_literal("Medium") : utf8_literal("Heavy");
     char digits[16];
-    u32 n = 0, r = 0;
-    char rev[8];
-    u32 v = tenths / 10;
-    do {
-        rev[r++] = static_cast<char>('0' + v % 10);
-        v /= 10;
-    } while (v && r < sizeof(rev));
-    while (r)
-        digits[n++] = rev[--r];
+    u32 n = decimal_write(digits, tenths / 10);
     digits[n++] = '.';
     digits[n++] = static_cast<char>('0' + tenths % 10);
     return w.add(head, here ? utf8_literal(" here \xC2\xB7 ") : utf8_literal(" \xC2\xB7 "), Utf8View{digits, n}, utf8_literal(" ms"));
@@ -173,8 +161,6 @@ void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
         }
     }
     m->installable = view.installable;
-    m->fetching = view.fetching;
-    m->expired = view.status == CatalogStatus::stale;
     m->checked_unix = view.checked_unix;
     m->fetched_unix = view.fetched_unix;
     m->catalog = view.status == CatalogStatus::not_configured                                                   ? StoreCatalogState::not_configured
@@ -185,7 +171,6 @@ void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
     m->error_text = view.error != CatalogError::none ? application_catalog_error_text(view.error) : Utf8View{};
     m->auto_update_all = view.state && !(view.state->flags & kCatalogStateAutoUpdateOff);
     m->protocol_state = !application_packages_protocol_asked() ? 1 : 0;
-    m->revision = view.revision;
     // Catalog listings.
     for (u32 i = 0; index && i < index->item_count; ++i) {
         const CatalogItem& item = index->items[i];
@@ -216,12 +201,8 @@ void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
             if (item.kind == CatalogKind::plugin)
                 out->risk = store_permission_risk(v.permissions, v.host_count != 0);
             if (v.has_commit) {
-                static constexpr char kHex[] = "0123456789abcdef";
                 char text[8];
-                for (u32 k = 0; k < 4; ++k) {
-                    text[k * 2] = kHex[v.commit[k] >> 4];
-                    text[k * 2 + 1] = kHex[v.commit[k] & 15];
-                }
+                hex_bytes(text, v.commit, 4);
                 out->commit = w.add({text, 7});
             }
             if (!out->sha.bytes)
@@ -240,10 +221,7 @@ void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
         for (u32 i = 0; i < view.state->count; ++i) {
             const CatalogStateEntry& e = view.state->entries[i];
             const Utf8View slug = catalog_entry_slug(e);
-            bool listed = false;
-            for (u32 k = 0; k < m->count && !listed; ++k)
-                listed = m->items[k].kind == e.kind && same(m->items[k].slug, slug);
-            if (listed)
+            if (store_find_item(*m, e.kind, slug) != ~0u)
                 continue;
             StoreItem* out = add_item(m);
             if (!out)
@@ -269,10 +247,7 @@ void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
         if (!info)
             continue;
         const Utf8View slug = w.c_text(info->slug);
-        u32 at = ~0u;
-        for (u32 k = 0; k < m->count && at == ~0u; ++k)
-            if (m->items[k].kind == CatalogKind::effect && same(m->items[k].slug, slug))
-                at = k;
+        const u32 at = store_find_item(*m, CatalogKind::effect, slug);
         StoreItem* out = at != ~0u ? &m->items[at] : add_item(m);
         if (!out)
             break;
@@ -323,7 +298,7 @@ void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
             u64 h = hash64_bytes(kHash64Seed, entry.file, entry.file_units * sizeof(wchar_t));
             slug[0] = '~';
             for (u32 i = 0; i < 16; ++i, h >>= 4)
-                slug[1 + i] = "0123456789abcdef"[h & 15];
+                slug[1 + i] = ascii_hex_digit(h);
             owner->kind = CatalogKind::theme;
             owner->slug = w.add({slug, 17});
             owner->name = {entry.name, entry.name_bytes};
@@ -349,7 +324,7 @@ void store_model_fill(StoreModel* m, const StoreSourceHooks& hooks) noexcept {
     const u32 active_file = application_custom_theme_installed_active();
     for (u32 i = 0; i < m->count; ++i)
         if (m->items[i].kind == CatalogKind::theme && theme.custom_active &&
-            (active_file != ~0u ? m->items[i].file == active_file : same(m->items[i].name, theme.current)))
+            (active_file != ~0u ? m->items[i].file == active_file : utf8_equal(m->items[i].name, theme.current)))
             m->items[i].active = true;
     m->trying = hooks.trying;
     m->trying_name = hooks.trying_name;
@@ -416,9 +391,9 @@ void store_model_fill_detail(StoreModel* m, CatalogKind kind, const Utf8View& sl
     }
     // An effect's knobs: the installed package's, with values, or the catalog's declaration.
     m->knob_count = 0;
-    if (kind == CatalogKind::effect && item.library != ~0u && application_effects_open(item.library)) {
-        const McfxPackage* package = application_effects_open(item.library);
-        for (u32 i = 0; package && i < package->knob_count && i < kStoreKnobMaximum; ++i) {
+    const McfxPackage* package = kind == CatalogKind::effect && item.library != ~0u ? application_effects_open(item.library) : nullptr;
+    if (package) {
+        for (u32 i = 0; i < package->knob_count && i < kStoreKnobMaximum; ++i) {
             const McfxKnob& k = package->knobs[i];
             StoreKnob& out = m->knobs[m->knob_count++];
             reset_value(&out);

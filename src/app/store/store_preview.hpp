@@ -49,24 +49,20 @@ struct StorePreviews {
     u32 failed_loop_slot; // a loop that could not play is not asked for again until another slot is wanted
 };
 
-struct StorePreviewSource {
-    const void* context;
-    // The catalog blob behind a preview slot: its still, or (loop) the effect's APNG loop. False: none.
-    bool (*blob)(const void* context, u32 slot, bool loop, CatalogBlob* out) noexcept;
-};
 struct StorePreviewPump {
     const UiStoreScene* scene;
-    const StorePreviewSource* source;
     u32 loop_slot; // the slot whose loop plays, 0 none (the host decides: hover, focus, an uninstalled effect)
     u32 dpi;
     u64 now_ms;
 };
+// The catalog blob behind a preview slot: its still, or (loop) the effect's APNG loop. False: none. The host's.
+bool store_preview_blob(u32 slot, bool loop, CatalogBlob* out) noexcept;
 // One host frame while a store page is shown: asks the catalog for the pictures of the visible tiles, decodes at
 // most one that arrived, uploads it, and advances the playing loop. Returns the time the next frame is due (0:
 // nothing animates), so the host schedules one frame, never a timer while nothing plays.
 u64 store_previews_pump(StorePreviews*, const StorePreviewPump&) noexcept;
 // The media identity to draw for `slot` at `pixels` wide: the loop's canvas while it plays, else the still.
-bool store_previews_key(const StorePreviews&, const StorePreviewSource&, u32 slot, u32 pixels, MediaAssetKey* key) noexcept;
+bool store_previews_key(const StorePreviews&, u32 slot, u32 pixels, MediaAssetKey* key) noexcept;
 // The page closed: every picture leaves the atlas and the loop's memory is freed.
 void store_previews_release(StorePreviews*) noexcept;
 

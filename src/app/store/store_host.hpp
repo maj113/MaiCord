@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/app/packages/link.hpp"
 #include "maicord/app/plugins/catalog_index.hpp"
 #include "maicord/core/win32_types.hpp"
 #include "maicord/ui/core/input_router.hpp"
@@ -24,8 +23,6 @@ bool application_store_active() noexcept;
 bool application_store_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept;
 bool application_store_input(UiInputKind kind, u32 code, bool repeated) noexcept;
 bool application_store_character(u32 code) noexcept;
-// The next frame time the store needs (a skeleton pulse, a trial deadline), or 0.
-u64 application_store_next_wake(u64 now_ms) noexcept;
 // Settings > Effects on an installed effect's knobs (the theme editor's Knobs button).
 bool application_store_open_effect_knobs(const Utf8View& slug) noexcept;
 // Settings closed.

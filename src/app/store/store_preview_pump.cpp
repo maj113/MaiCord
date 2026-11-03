@@ -105,7 +105,7 @@ void pump_stills(StorePreviews* p, const StorePreviewPump& in, bool* more) noexc
     u32 cursor = 0;
     while (ui_store_scene_next_media(*in.scene, &cursor, &media)) {
         CatalogBlob blob{};
-        if (!in.source->blob(in.source->context, media.slot, false, &blob))
+        if (!store_preview_blob(media.slot, false, &blob))
             continue;
         const MediaAssetKey key = store_preview_key(blob.sha256, store_preview_pixels(ui_rect_width(media.rect), in.dpi), false);
         StorePreviewEntry* e = find(p, key);
@@ -171,7 +171,7 @@ u64 pump_loop(StorePreviews* p, const StorePreviewPump& in) noexcept {
         return 0;
     if (!p->loop) {
         CatalogBlob blob{};
-        if (!in.source->blob(in.source->context, wanted, true, &blob) ||
+        if (!store_preview_blob(wanted, true, &blob) ||
             !application_catalog_asset_request(CatalogAssetKind::preview, blob)) {
             p->failed_loop_slot = wanted;
             return 0;
@@ -244,13 +244,13 @@ u64 store_previews_pump(StorePreviews* p, const StorePreviewPump& in) noexcept {
     return due;
 }
 
-bool store_previews_key(const StorePreviews& p, const StorePreviewSource& source, u32 slot, u32 pixels, MediaAssetKey* key) noexcept {
+bool store_previews_key(const StorePreviews& p, u32 slot, u32 pixels, MediaAssetKey* key) noexcept {
     if (p.loop && p.loop->slot == slot && p.loop->begun) {
         *key = p.loop->key;
         return true;
     }
     CatalogBlob blob{};
-    if (!source.blob(source.context, slot, false, &blob))
+    if (!store_preview_blob(slot, false, &blob))
         return false;
     *key = store_preview_key(blob.sha256, pixels, false);
     return true;

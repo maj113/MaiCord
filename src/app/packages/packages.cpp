@@ -8,6 +8,7 @@
 #include "maicord/app/net/file_persistence.hpp"
 #include "maicord/app/packages/install.hpp"
 #include "maicord/app/update/https.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/log.hpp"
@@ -15,6 +16,7 @@
 #include "maicord/core/scratch_pages.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/sys/shell.hpp"
+#include "maicord/ui/theme/background_color_math.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -40,12 +42,11 @@ struct ThemeScratch {
 struct Session {
     PackagePhase phase;
     PackageError error;
-    u64 revision, received, total;
+    u64 revision;
     PackageCard card;
     PackageLink link;
     Candidate* candidate;
     u32 size;
-    u64 identity;
     bool effect_trial, theme_offered, theme_previewing, open_when_done;
     // The fetch worker.
     HANDLE thread;
@@ -95,11 +96,6 @@ bool text_is(const char* a, const char* b) noexcept {
     return n == c_string_length(b) && bytes_equal(a, b, n);
 }
 
-u32 pack_rgb(const Color& color) noexcept {
-    const auto channel = [](float v) noexcept { return static_cast<u32>((v < 0 ? 0 : v > 1 ? 1 : v) * 255.f + .5f); };
-    return channel(color.red) << 16 | channel(color.green) << 8 | channel(color.blue);
-}
-
 // ---- Files -----------------------------------------------------------------------------------------------
 // %LOCALAPPDATA%\MaiCord, created.
 bool data_root(wchar_t (&root)[kPackageRootUnits]) noexcept {
@@ -136,7 +132,7 @@ void theme_slug(const ClientThemeDocument& document, const u8* bytes, u32 size, 
     slug[n++] = '-';
     const u32 hash = static_cast<u32>(hash64_bytes(kHash64Seed, bytes, size));
     for (u32 i = 0; i < 8; ++i)
-        slug[n++] = "0123456789abcdef"[(hash >> (28 - i * 4)) & 15];
+        slug[n++] = ascii_hex_digit(hash >> (28 - i * 4));
     slug[n] = 0;
 }
 
@@ -155,7 +151,6 @@ Sniff sniff(const u8* bytes, u32 size) noexcept {
 PackageError analyze_kind(Sniff kind, const u8* bytes, u32 size, Candidate* candidate, PackageInfo* info) noexcept {
     clear_bytes(info, sizeof(*info));
     info->bytes = size;
-    info->identity = hash64_bytes(kHash64Seed, bytes, size) | 1;
     if (kind == Sniff::effect) {
         if (size > kMcfxMaximumBytes)
             return PackageError::too_large;
@@ -167,7 +162,6 @@ PackageError analyze_kind(Sniff kind, const u8* bytes, u32 size, Candidate* cand
         info->kind = PackageLinkKind::effect;
         copy_bytes(info->slug, candidate->workspace.package.slug, sizeof(info->slug));
         copy_bytes(info->name, candidate->workspace.package.name, kMcfxNameBytes + 1);
-        copy_bytes(info->version, candidate->workspace.package.version, sizeof(info->version));
         return PackageError::none;
     }
     if (kind == Sniff::theme) {
@@ -192,25 +186,18 @@ bool effect_installed(const char* slug) noexcept {
     return false;
 }
 
-void fill_card(const PackageInfo& info, PackageOrigin origin, const char* leaf, u32 leaf_bytes) noexcept {
+void fill_card(const PackageInfo& info) noexcept {
     auto& s = g.session;
     auto& card = s.card;
     clear_bytes(&card, sizeof(card));
     card.kind = info.kind;
-    card.origin = origin;
     card.bytes = info.bytes;
     copy_bytes(card.slug, info.slug, sizeof(card.slug));
     copy_bytes(card.name, info.name, sizeof(card.name));
-    for (u32 i = 0; i < leaf_bytes && i < sizeof(card.file_name) - 1; ++i)
-        card.file_name[i] = leaf[i];
-    if (origin == PackageOrigin::link) {
-        const char* url = s.link.url + 8;
-        u32 n = 0;
-        while (url[n] && url[n] != '/' && url[n] != '?' && n < sizeof(card.host) - 1) {
-            card.host[n] = url[n];
-            ++n;
-        }
-    }
+    // The host of a link (a file's session has no link: empty).
+    const char* url = s.link.url + 8;
+    for (u32 n = 0; url[n] && url[n] != '/' && url[n] != '?' && n < sizeof(card.host) - 1; ++n)
+        card.host[n] = url[n];
     const auto state = application_catalog_item_state(static_cast<CatalogKind>(info.kind),
                                                       {info.slug, c_string_length(info.slug)});
     card.replaces = state.installed && state.unreviewed;
@@ -220,29 +207,16 @@ void fill_card(const PackageInfo& info, PackageOrigin origin, const char* leaf, 
         return;
     }
     const auto& theme = candidate->theme;
-    card.base = theme.base;
-    card.swatches[0] = pack_rgb(theme.theme.base_low);
-    card.swatches[1] = pack_rgb(theme.theme.surface);
-    card.swatches[2] = pack_rgb(theme.theme.text_primary);
-    card.swatches[3] = pack_rgb(theme.theme.accent);
-    card.contrast_x100 = static_cast<u16>(ui_theme_contrast_ratio(theme.theme.text_primary, theme.theme.base_low) * 100.f + .5f);
+    card.swatches[0] = background_color_pack(theme.theme.base_low);
+    card.swatches[1] = background_color_pack(theme.theme.surface);
+    card.swatches[2] = background_color_pack(theme.theme.text_primary);
+    card.swatches[3] = background_color_pack(theme.theme.accent);
     copy_bytes(card.effect_slug, theme.effect.slug, sizeof(card.effect_slug));
     card.effect_installed = theme.effect.slug[0] && effect_installed(theme.effect.slug);
 }
 
-void leaf_of(const char* text, u32 bytes, const char** leaf, u32* leaf_bytes) noexcept {
-    u32 end = 0;
-    while (end < bytes && text[end] != '?' && text[end] != '#')
-        ++end;
-    u32 start = end;
-    while (start && text[start - 1] != '/' && text[start - 1] != '\\')
-        --start;
-    *leaf = text + start;
-    *leaf_bytes = end - start;
-}
-
 // A loaded candidate becomes a card, an effect starts its trial.
-void finish_load(PackageOrigin origin, const char* leaf, u32 leaf_bytes, Sniff kind) noexcept {
+void finish_load(Sniff kind) noexcept {
     auto& s = g.session;
     PackageInfo info{};
     const PackageError error = analyze_kind(kind, s.candidate->file, s.size, s.candidate, &info);
@@ -250,8 +224,7 @@ void finish_load(PackageOrigin origin, const char* leaf, u32 leaf_bytes, Sniff k
         set_failed(error);
         return;
     }
-    s.identity = info.identity;
-    fill_card(info, origin, leaf, leaf_bytes);
+    fill_card(info);
     if (info.kind == PackageLinkKind::effect) {
         if (!application_effects_trial_begin({s.candidate->file, s.size}, s.candidate->workspace.package)) {
             set_failed(PackageError::busy);
@@ -358,10 +331,7 @@ void finish_fetch() noexcept {
         return;
     }
     s.size = s.sink.used;
-    const char* leaf = nullptr;
-    u32 leaf_bytes = 0;
-    leaf_of(s.link.url, s.link.url_bytes, &leaf, &leaf_bytes);
-    finish_load(PackageOrigin::link, leaf, leaf_bytes, sniff(s.candidate->file, s.size));
+    finish_load(sniff(s.candidate->file, s.size));
 }
 
 bool begin_url(const PackageLink& link, bool open_when_done) noexcept {
@@ -383,7 +353,6 @@ bool begin_url(const PackageLink& link, bool open_when_done) noexcept {
     s.open_when_done = open_when_done;
     s.phase = PackagePhase::working;
     s.card = {};
-    s.card.origin = PackageOrigin::link;
     s.thread = g.notify ? CreateThread(nullptr, 256 * 1024, fetch_main, nullptr, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr)
                         : nullptr;
     if (!s.thread) {
@@ -394,9 +363,12 @@ bool begin_url(const PackageLink& link, bool open_when_done) noexcept {
     return true;
 }
 
-bool executable_path(wchar_t (&buffer)[1024], ConstSlice<wchar_t>* path) noexcept {
-    *path = application_desktop_registration_executable(buffer, 1024);
-    return path->count != 0;
+// A catalog link: the store page opens on that item (taken once through application_packages_take_deep_link).
+void open_catalog_item(const PackageLink& link) noexcept {
+    g.deep = {link.kind, {}};
+    copy_bytes(g.deep.slug, link.slug, link.slug_bytes + 1);
+    g.deep_ready = true;
+    application_store_open(link.kind);
 }
 
 } // namespace
@@ -430,10 +402,7 @@ bool application_packages_begin_link(Utf8View text) noexcept {
         return false;
     }
     if (link.type == PackageLinkType::catalog) {
-        g.deep = {link.kind, {}, g.deep.revision + 1};
-        copy_bytes(g.deep.slug, link.slug, link.slug_bytes + 1);
-        g.deep_ready = true;
-        application_store_open(link.kind);
+        open_catalog_item(link);
         return true;
     }
     return begin_url(link, false);
@@ -450,25 +419,19 @@ bool application_packages_begin_file(ConstSlice<wchar_t> path) noexcept {
     auto& s = g.session;
     s.link = {};
     const auto read = file_persistence_read_file(text, {s.candidate->file, kMcfxMaximumBytes});
-    char leaf[64]{};
-    u32 leaf_bytes = 0, start = path.count;
-    while (start && path[start - 1] != L'\\' && path[start - 1] != L'/')
-        --start;
-    for (u32 i = start; i < path.count && leaf_bytes < sizeof(leaf) - 1; ++i)
-        leaf[leaf_bytes++] = path[i] < 0x80 ? static_cast<char>(path[i]) : '?';
     if (!read.ok()) {
         set_failed(read.error == FileReadError::size ? PackageError::too_large : PackageError::bad_file);
         return false;
     }
     s.size = read.bytes;
     s.phase = PackagePhase::working;
-    finish_load(PackageOrigin::file, leaf, leaf_bytes, sniff(s.candidate->file, s.size));
+    finish_load(sniff(s.candidate->file, s.size));
     return s.phase == PackagePhase::ready;
 }
 
 PackageStatus application_packages_status() noexcept {
     const auto& s = g.session;
-    return {s.phase, s.error, s.revision, s.received, s.total};
+    return {s.phase, s.error, s.revision};
 }
 
 const PackageCard* application_packages_card() noexcept {
@@ -579,10 +542,7 @@ void application_packages_tick(u64 now_ms) noexcept {
     const PackageLink link = g.pending.link;
     g.pending.active = false;
     if (link.type == PackageLinkType::catalog) {
-        g.deep = {link.kind, {}, g.deep.revision + 1};
-        copy_bytes(g.deep.slug, link.slug, link.slug_bytes + 1);
-        g.deep_ready = true;
-        application_store_open(link.kind);
+        open_catalog_item(link);
         return;
     }
     if (!begin_url(link, true))
@@ -602,7 +562,6 @@ void application_packages_poll() noexcept {
     }
     auto& s = g.session;
     if (s.phase == PackagePhase::working && s.thread) {
-        s.received = s.sink.used;
         if (InterlockedCompareExchange(&s.finished, 0, 0))
             finish_fetch();
     } else if (s.phase == PackagePhase::ready && s.effect_trial) {
@@ -624,36 +583,23 @@ void application_packages_release() noexcept {
     }
 }
 
-bool application_packages_protocol_registered() noexcept {
-    wchar_t buffer[1024];
-    ConstSlice<wchar_t> path{};
-    return executable_path(buffer, &path) &&
-           desktop_protocol_query(desktop_registry_maicord_scope(), path) == DesktopRegistration::ours;
-}
-
-bool application_packages_protocol_set(bool enable) noexcept {
-    wchar_t buffer[1024];
-    ConstSlice<wchar_t> path{};
-    const bool saved = executable_path(buffer, &path) && desktop_protocol_set(desktop_registry_maicord_scope(), path, enable);
-    if (!saved)
-        log_write(LogLevel::warning, "packages", "protocol_registration_failed");
-    return saved;
-}
-
 bool application_packages_protocol_asked() noexcept {
     return application_effects_state_flag(kProtocolAsked);
 }
 
 bool application_packages_protocol_answer(bool enable) noexcept {
-    const bool saved = !enable || application_packages_protocol_set(true);
+    bool saved = true;
+    if (enable) {
+        wchar_t buffer[1024];
+        const ConstSlice<wchar_t> path = application_desktop_registration_executable(buffer, 1024);
+        saved = path.count != 0 && desktop_protocol_set(desktop_registry_maicord_scope(), path, true);
+        if (!saved)
+            log_write(LogLevel::warning, "packages", "protocol_registration_failed");
+    }
     return application_effects_set_state_flag(kProtocolAsked, true) && saved;
 }
 
 // ---- Drops ---------------------------------------------------------------------------------------------
-bool application_packages_drop_wanted() noexcept {
-    return g_install_drop_wanted;
-}
-
 void application_packages_drop_enable(bool wanted) noexcept {
     if (g_install_drop_wanted == wanted)
         return;

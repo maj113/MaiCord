@@ -5,9 +5,8 @@
 namespace maicord::store_detail {
 
 // Metrics of the store pages (store-ui.md section 3 and 4), in DIPs.
-inline constexpr float kCardMinWidth = 232, kCardGap = 16, kChipHeight = 24, kFilterHeight = 32, kTabHeight = 40,
-                       kFieldHeight = 40, kButtonSmall = 32, kButtonLarge = 40, kSwitchWidth = 48, kSwitchHeight = 24,
-                       kRadius = 12, kControlRadius = 8, kTailPadding = 60, kColumnMaximum = 1040;
+inline constexpr float kCardMinWidth = 232, kChipHeight = 24, kFilterHeight = 32, kTabHeight = 40, kFieldHeight = 40, kButtonSmall = 32,
+                       kButtonLarge = 40, kSwitchWidth = 48, kSwitchHeight = 24, kRadius = 12, kTailPadding = 60;
 inline constexpr float kBadgeHeight = 18;
 inline constexpr u32 kNoIcon = 255;
 
@@ -22,7 +21,6 @@ float text_width(u8 type, const Utf8View& text) noexcept;
 extern const UiStoreMeasure* g_measure;
 u32 text_lines(u8 type, const Utf8View& text, float width) noexcept;
 
-inline UiStoreNode* nodes_of(const UiStoreScene& s) noexcept { return s.nodes; }
 inline bool hidden(const UiStoreNode& n) noexcept { return (n.flags & ui_store_hidden) != 0; }
 bool interactive(const UiStoreNode& n) noexcept;
 // The node's screen rectangle: the dialog tree is fixed, the page tree scrolls.
@@ -36,10 +34,6 @@ u16 find_action(const UiStoreScene& s, u32 action) noexcept;
 // The clip a node paints inside (page: the panel body; dialog: its panel).
 UiRect clip_of(const UiStoreScene& s, u16 index) noexcept;
 
-} // namespace maicord::store_detail
-
-namespace maicord::store_detail {
-
 // A button's content: leading glyph, label, trailing glyph (what a stretched button centres).
 inline float leaf_text_content(const UiStoreNode& n) noexcept {
     float width = text_width(static_cast<u8>(UiStoreType::label_bold), n.text);
@@ -50,8 +44,11 @@ inline float leaf_text_content(const UiStoreNode& n) noexcept {
     return width;
 }
 // The count badge after a tab's label.
+inline float tab_badge_width(const UiStoreNode& n) noexcept {
+    return maximum(kBadgeHeight, text_width(static_cast<u8>(UiStoreType::small_bold), n.text2) + 10);
+}
 inline UiRect tab_badge(const UiStoreNode& n, const UiRect& r, float label_width) noexcept {
-    const float width = maximum(kBadgeHeight, text_width(static_cast<u8>(UiStoreType::small_bold), n.text2) + 10);
+    const float width = tab_badge_width(n);
     const float cy = (r.top + r.bottom) * .5f;
     const float left = r.left + label_width + 4;
     return {left, cy - kBadgeHeight * .5f, left + width, cy + kBadgeHeight * .5f};

@@ -28,7 +28,6 @@ namespace maicord::app_detail {
 namespace {
 
 constexpr u64 kMenuOwner = 0x57A0'0001u;
-constexpr u32 kLinkField = store_action(StoreAct::search, 1);
 constexpr u64 kTrialIdleMs = 30'000;
 
 struct StoreHost {
@@ -78,14 +77,13 @@ struct StoreHost {
     NativeFilePicker picker;
     bool picking;
     u8 pick_for; // 0 link dialog, 1 dev load
-    u32 revisions[4];
+    u32 revisions[2];
     bool swallow_char;
     bool trial_asked; // the open card's effect trial was started
     u32 preview_changes;
     UiRect host_page, host_clip;
     // The pictures of the visible tiles and the loop of the card under the pointer or focus.
     StorePreviews previews;
-    StorePreviewSource preview_source;
     u32 hover_slot;
     u64 hover_since_ms;
 };
@@ -117,19 +115,20 @@ void request() noexcept {
 }
 
 MessageComposer& editor() noexcept {
-    return g->editing_action == kLinkField ? g->link_edit : g->query_edit;
+    return g->editing_action == kStoreLinkField ? g->link_edit : g->query_edit;
+}
+
+// The page's copy of the query.
+void copy_query(const Utf8View& text) noexcept {
+    auto& st = page();
+    st.query_bytes = minimum<u32>(text.bytes, kStoreQueryBytes);
+    copy_bytes(st.query, text.data, st.query_bytes);
 }
 
 // The page's copy of the query follows the editor.
 void query_changed() noexcept {
-    if (g->editing_action == kLinkField) {
-        request();
-        return;
-    }
-    auto& st = page();
-    const Utf8View text = message_composer_text(g->query_edit);
-    st.query_bytes = minimum<u32>(text.bytes, kStoreQueryBytes);
-    copy_bytes(st.query, text.data, st.query_bytes);
+    if (g->editing_action != kStoreLinkField)
+        copy_query(message_composer_text(g->query_edit));
     request();
 }
 
@@ -137,9 +136,13 @@ void set_query(const Utf8View& text) noexcept {
     message_composer_clear(&g->query_edit);
     if (text.bytes)
         message_composer_insert_utf8(&g->query_edit, text);
-    auto& st = page();
-    st.query_bytes = minimum<u32>(text.bytes, kStoreQueryBytes);
-    copy_bytes(st.query, text.data, st.query_bytes);
+    copy_query(text);
+}
+
+// The open detail's item, or ~0u.
+u32 open_item() noexcept {
+    const StorePageState& st = page();
+    return store_find_item(g->model, st.kind, {st.slug, c_string_length(st.slug)});
 }
 
 void focus_editor(u32 action) noexcept {
@@ -232,10 +235,6 @@ void start_pick(u8 purpose) noexcept {
     }
 }
 
-void open_url_text(const char* url, u32 bytes) noexcept {
-    application_link_open({url, bytes}, true);
-}
-
 // The page's dev folder in Explorer.
 void open_folder_command() noexcept {
     const Utf8View folder = application_catalog_dev_folder(page().kind == CatalogKind::plugin ? 0 : 1);
@@ -247,7 +246,7 @@ void open_folder_command() noexcept {
     }
 }
 
-void execute(const StoreCommand& c, float scroll) noexcept {
+void execute(const StoreCommand& c) noexcept {
     StoreModel& m = g->model;
     const StoreItem* item = c.item < m.count ? &m.items[c.item] : nullptr;
     const CatalogKind kind = page().kind;
@@ -316,19 +315,15 @@ void execute(const StoreCommand& c, float scroll) noexcept {
     case StoreCommandKind::open_folder:
         open_folder_command();
         break;
-    case StoreCommandKind::open_source:
-        if (c.arg == 3) {
-            // "View .hlsl" of a candidate: the package card's source is shown by the installer.
-        } else {
-            const StoreItem* open = store_find_item(m, kind, Utf8View{page().slug, c_string_length(page().slug)}) != ~0u
-                                        ? &m.items[store_find_item(m, kind, Utf8View{page().slug, c_string_length(page().slug)})]
-                                        : nullptr;
-            if (open && open->source.bytes)
-                application_link_open(open->source, true);
-        }
+    case StoreCommandKind::open_source: {
+        // Arg 3 ("View .hlsl" of a candidate): the package card's source is shown by the installer.
+        const u32 at = open_item();
+        if (c.arg != 3 && at < m.count && m.items[at].source.bytes)
+            application_link_open(m.items[at].source, true);
         break;
+    }
     case StoreCommandKind::open_homepage: {
-        u32 at = c.arg == 2 ? c.item : store_find_item(m, kind, Utf8View{page().slug, c_string_length(page().slug)});
+        u32 at = c.arg == 2 ? c.item : open_item();
         if (at < m.count) {
             const StoreItem& open = m.items[at];
             if (c.arg == 1 && open.license.bytes) {
@@ -337,14 +332,14 @@ void execute(const StoreCommand& c, float scroll) noexcept {
                 copy_bytes(url, kBase, sizeof(kBase) - 1);
                 const u32 n = minimum<u32>(open.license.bytes, 40);
                 copy_bytes(url + sizeof(kBase) - 1, open.license.data, n);
-                open_url_text(url, static_cast<u32>(sizeof(kBase) - 1 + n));
+                application_link_open({url, static_cast<u32>(sizeof(kBase) - 1 + n)}, true);
             } else if (open.homepage.bytes)
                 application_link_open(open.homepage, true);
         }
         break;
     }
     case StoreCommandKind::copy_text: {
-        const u32 at = store_find_item(m, kind, Utf8View{page().slug, c_string_length(page().slug)});
+        const u32 at = open_item();
         Utf8View text = c.arg == 1 && at < m.count ? m.items[at].sha : m.error_text;
         application_copy_text(text, utf8_literal("Copied"), kToastCopyFailed);
         break;
@@ -385,9 +380,6 @@ void execute(const StoreCommand& c, float scroll) noexcept {
         if (item && item->library != ~0u)
             application_effects_select(item->library);
         break;
-    case StoreCommandKind::unuse_effect:
-        application_effects_select_none();
-        break;
     case StoreCommandKind::knob_set:
         if (c.item < m.knob_count) {
             McfxKnobValue value{};
@@ -409,7 +401,7 @@ void execute(const StoreCommand& c, float scroll) noexcept {
     case StoreCommandKind::universal_reset: {
         const bool reset = c.kind == StoreCommandKind::universal_reset;
         const u32 row = c.arg;
-        const u32 at = store_find_item(m, kind, Utf8View{page().slug, c_string_length(page().slug)});
+        const u32 at = open_item();
         const bool shader = c.flag || reset;
         const u64 identity = at < m.count && m.items[at].library != ~0u ? application_effects_identity(m.items[at].library) : 0;
         EffectUserSettings user = application_effects_user_settings();
@@ -499,7 +491,7 @@ void execute(const StoreCommand& c, float scroll) noexcept {
     case StoreCommandKind::link_preview:
         application_packages_drop_enable(true);
         message_composer_clear(&g->link_edit);
-        focus_editor(kLinkField);
+        focus_editor(kStoreLinkField);
         break;
     case StoreCommandKind::protocol_answer:
         application_packages_protocol_answer(c.flag);
@@ -524,34 +516,33 @@ void execute(const StoreCommand& c, float scroll) noexcept {
     default:
         break;
     }
-    static_cast<void>(scroll);
     request();
 }
 
-void dispatch(const StoreCommand& c, float scroll) noexcept {
-    if (c.kind == StoreCommandKind::none && !c.flag) {
-        request();
-        return;
-    }
-    if (c.kind == StoreCommandKind::none && c.flag)
+void dispatch(const StoreCommand& c) noexcept {
+    if (c.kind == StoreCommandKind::none) {
+        if (!c.flag) {
+            request();
+            return;
+        }
         set_query({});
-    execute(c, scroll);
+    }
+    execute(c);
 }
 
-void act(u32 action, u32, const UiRect& anchor) noexcept {
+void act(u32 action, const UiRect& anchor) noexcept {
     StorePageState& st = page();
     const bool was_detail = st.detail;
-    const float scroll = g->scene.scroll;
     if (store_act(action) == StoreAct::search) {
         focus_editor(action);
         return;
     }
     if (g->editing && store_act(action) != StoreAct::dialog_confirm)
         leave_editor();
-    StoreCommand c = store_page_act(g->model, &st, action, static_cast<u32>(scroll), anchor);
+    StoreCommand c = store_page_act(g->model, &st, action, static_cast<u32>(g->scene.scroll), anchor);
     if (c.kind == StoreCommandKind::knob_set)
         c.flag = true;
-    dispatch(c, scroll);
+    dispatch(c);
     if (was_detail && !st.detail)
         g->scene.scroll = st.saved_scroll;
     if (st.detail && !was_detail)
@@ -585,7 +576,7 @@ void parse_markdown(UiMarkdown** out, u64 owner, const Utf8View& source) noexcep
     if (!source.bytes)
         return;
     UiMarkdown* block = ui_markdown_bank_block(&g->bank, owner);
-    if (block && ui_markdown_parse(block, source, UiMarkdownOptions{true, text_size_md}, ui_markdown_bank_scratch(g->bank)))
+    if (block && ui_markdown_parse(block, source, text_size_md, ui_markdown_bank_scratch(g->bank)))
         *out = block;
 }
 
@@ -601,7 +592,7 @@ void poll_details() noexcept {
         return;
     const StoreItem& item = g->model.items[at];
     const CatalogView& view = application_catalog_view();
-    const bool same_slug = c_string_length(g->details_slug) == slug.bytes && bytes_equal(g->details_slug, slug.data, slug.bytes);
+    const bool same_slug = utf8_equal({g->details_slug, c_string_length(g->details_slug)}, slug);
     if (!same_slug) {
         g->details_bytes = g->changelog_bytes = 0;
         g->details_loading = false;
@@ -655,26 +646,11 @@ void poll_picker() noexcept {
     request();
 }
 
-// The catalog picture behind a preview tile: its still, or the loop of an effect.
-bool preview_blob(const void*, u32 slot, bool loop, CatalogBlob* out) noexcept {
-    const CatalogIndex* index = application_catalog_view().index;
-    if (!g || !index || !slot || slot > g->model.count)
-        return false;
-    const u32 at = g->model.items[slot - 1].item;
-    if (at >= index->item_count)
-        return false;
-    const CatalogItem& item = index->items[at];
-    if (loop ? !item.has_loop : !item.preview_count)
-        return false;
-    *out = loop ? item.loop.blob : item.previews[0].blob;
-    return true;
-}
-
 bool media_key(const void*, u32 slot, const UiRect& rect, MediaAssetKey* key, u8* domain) noexcept {
     if (!g_app.renderer.preview_media_atlas)
         return false;
     *domain = 1;
-    return store_previews_key(g->previews, g->preview_source, slot, store_preview_pixels(ui_rect_width(rect), g_app.renderer.dpi), key);
+    return store_previews_key(g->previews, slot, store_preview_pixels(ui_rect_width(rect), g_app.renderer.dpi), key);
 }
 
 // The slot whose loop plays: an uninstalled effect's open detail, else the effect card under the pointer (after
@@ -685,7 +661,7 @@ u32 loop_slot(u64 now, bool* pending) noexcept {
         return 0;
     const StorePageState& st = page();
     if (st.detail) {
-        const u32 at = store_find_item(g->model, st.kind, {st.slug, c_string_length(st.slug)});
+        const u32 at = open_item();
         return !st.knobs && at < g->model.count && !g->model.items[at].installed ? at + 1 : 0;
     }
     const auto card = [](u32 action) noexcept -> u32 {
@@ -713,7 +689,6 @@ u32 loop_slot(u64 now, bool* pending) noexcept {
 
 void build_and_commit(UiSettingsScene* settings) noexcept {
     StoreModel& m = g->model;
-    m.now_unix = 0;
     store_model_fill(&m, {g->trying, {g->trying_name, g->trying_bytes}});
     StorePageState& st = page();
     if (st.detail)
@@ -771,7 +746,7 @@ void build_and_commit(UiSettingsScene* settings) noexcept {
     g->view = {message_composer_text(editor()), minimum(editor().anchor, editor().bytes), minimum(editor().caret, editor().bytes), g->editing,
                g->editing && application_window_keyboard_focus(), g->editing && application_window_keyboard_focus()};
     g->search = {&g->view, g->editing && application_window_keyboard_focus() ? &g_app.renderer.media_picker_edit_geometry : nullptr,
-                 g->editing_action == kLinkField ? utf8_literal("Paste an https:// link to a .maicord-theme.json or .mcfx")
+                 g->editing_action == kStoreLinkField ? utf8_literal("Paste an https:// link to a .maicord-theme.json or .mcfx")
                                                  : utf8_literal("Search"),
                  g->editing_action};
     g->scene.search = g->editing ? &g->search : nullptr;
@@ -783,6 +758,22 @@ void build_and_commit(UiSettingsScene* settings) noexcept {
 }
 
 } // namespace
+
+// The catalog picture behind a preview tile: its still, or the loop of an effect. Called by the preview pump and
+// the scene's media_key, both of which only run while the store page (and so `g`) exists.
+bool store_preview_blob(u32 slot, bool loop, CatalogBlob* out) noexcept {
+    const CatalogIndex* index = application_catalog_view().index;
+    if (!index || !slot || slot > g->model.count)
+        return false;
+    const u32 at = g->model.items[slot - 1].item;
+    if (at >= index->item_count)
+        return false;
+    const CatalogItem& item = index->items[at];
+    if (loop ? !item.has_loop : !item.preview_count)
+        return false;
+    *out = loop ? item.loop.blob : item.previews[0].blob;
+    return true;
+}
 
 bool application_store_kind(u64 page_id, CatalogKind* kind) noexcept {
     if (page_id == static_cast<u64>(SettingsPanel::plugins) + 1)
@@ -822,7 +813,6 @@ void application_store_visible(bool visible, CatalogKind kind) noexcept {
     }
     if (!ensure())
         return;
-    g->preview_source = {nullptr, preview_blob};
     if (g->shown && g->kind != kind) {
         close_menu();
         leave_editor();
@@ -841,16 +831,6 @@ void application_store_visible(bool visible, CatalogKind kind) noexcept {
     set_query({page().query, page().query_bytes});
     application_catalog_browse();
     g->dirty = true;
-}
-
-
-u64 application_store_next_wake(u64 now_ms) noexcept {
-    if (!g || !g->shown)
-        return 0;
-    if (g->trying)
-        return g->last_input_ms + kTrialIdleMs;
-    static_cast<void>(now_ms);
-    return 0;
 }
 
 bool application_store_synchronize(UiSettingsScene* settings) noexcept {
@@ -913,7 +893,7 @@ bool application_store_synchronize(UiSettingsScene* settings) noexcept {
     // Pictures of the visible tiles; the loop frame, and the beat before a hovered card starts it, keep frames coming.
     bool beat = false;
     const u32 playing = loop_slot(now, &beat);
-    const u64 due = store_previews_pump(&g->previews, {&g->scene, &g->preview_source, playing, g_app.renderer.dpi, now});
+    const u64 due = store_previews_pump(&g->previews, {&g->scene, playing, g_app.renderer.dpi, now});
     if (g->previews.changes != g->preview_changes) {
         // The renderer queues the pictures that are resident when it lays the scene out: do that again.
         g->preview_changes = g->previews.changes;
@@ -933,25 +913,30 @@ UiSettingsTarget host_target(const UiSettingsScene& scene) noexcept {
     return {UiSettingsTargetKind::host, scene.selected_page, 1};
 }
 
+UiScrollbarGeometry scrollbar() noexcept {
+    return ui_scrollbar_geometry({g->scene.panel.left, g->scene.column.top, g->scene.panel.right, g->scene.panel.bottom}, g->scene.scroll,
+                                 g->scene.content_height);
+}
+
 void handle_event(const UiStoreEvent& event, bool commit) noexcept {
     if (event.kind == UiStoreEventKind::value) {
         StoreCommand c = store_page_act(g->model, &page(), event.action, event.value, event.anchor);
         if (c.kind == StoreCommandKind::knob_set)
             c.flag = commit;
-        execute(c, g->scene.scroll);
+        execute(c);
         return;
     }
     if (event.kind == UiStoreEventKind::activate)
-        act(event.action, 0, event.anchor);
+        act(event.action, event.anchor);
 }
 
 bool menu_pointer(UINT message, float x, float y) noexcept {
-    if (!popup_scene_hit_test(g_app.popup_scene, x, y).inside && message == WM_LBUTTONDOWN) {
+    const auto hit = popup_scene_hit_test(g_app.popup_scene, x, y);
+    if (!hit.inside && message == WM_LBUTTONDOWN) {
         close_menu();
         application_request_frame();
         return true;
     }
-    const auto hit = popup_scene_hit_test(g_app.popup_scene, x, y);
     if (message == WM_MOUSEMOVE) {
         bool changed = false;
         popup_scene_set_hover(&g_app.popup_scene, x, y, &changed);
@@ -968,10 +953,8 @@ bool menu_pointer(UINT message, float x, float y) noexcept {
         g->menu_pressed = 0;
         application_release_capture();
         close_menu();
-        if (hit.enabled && hit.action && pressed == hit.action) {
-            const StoreCommand c = store_menu_choose(g->model, &page(), menu, item, hit.action - 1);
-            dispatch(c, g->scene.scroll);
-        }
+        if (hit.enabled && hit.action && pressed == hit.action)
+            dispatch(store_menu_choose(g->model, &page(), menu, item, hit.action - 1));
         application_request_frame();
     }
     return true;
@@ -1039,8 +1022,7 @@ bool application_store_window_message(UINT message, WPARAM wparam, LPARAM lparam
     }
     if (message == WM_MOUSEMOVE) {
         if (g->dragging_scrollbar) {
-            const auto geometry = ui_scrollbar_geometry({g->scene.panel.left, g->scene.column.top, g->scene.panel.right, g->scene.panel.bottom},
-                                                        g->scene.scroll, g->scene.content_height);
+            const auto geometry = scrollbar();
             ui_store_scene_scroll_to(&g->scene, ui_scrollbar_scroll_from_pointer(geometry, y, g->scrollbar_grab));
             application_request_frame();
             return true;
@@ -1065,8 +1047,7 @@ bool application_store_window_message(UINT message, WPARAM wparam, LPARAM lparam
         ui_settings_scene_focus(&settings, host_target(settings));
         application_focus_window();
         if (!dialog) {
-            const auto geometry = ui_scrollbar_geometry({g->scene.panel.left, g->scene.column.top, g->scene.panel.right, g->scene.panel.bottom},
-                                                        g->scene.scroll, g->scene.content_height);
+            const auto geometry = scrollbar();
             if (ui_scrollbar_thumb_hit(geometry, x, y)) {
                 g->dragging_scrollbar = true;
                 g->scrollbar_grab = y - geometry.thumb.top;
@@ -1110,7 +1091,7 @@ bool application_store_window_message(UINT message, WPARAM wparam, LPARAM lparam
         return true;
     }
     if (event.kind == UiStoreEventKind::activate) {
-        if (store_act(event.action) == StoreAct::search && g->query_edit.bytes && event.action != kLinkField &&
+        if (store_act(event.action) == StoreAct::search && g->query_edit.bytes && event.action != kStoreLinkField &&
             ui_rect_contains({event.anchor.right - 32, event.anchor.top, event.anchor.right, event.anchor.bottom}, x, y)) {
             set_query({});
             request();
@@ -1161,7 +1142,7 @@ bool application_store_input(UiInputKind kind, u32 code, bool repeated) noexcept
             const u32 item = g->menu_item;
             close_menu();
             if (action)
-                dispatch(store_menu_choose(g->model, &page(), menu, item, action - 1), g->scene.scroll);
+                dispatch(store_menu_choose(g->model, &page(), menu, item, action - 1));
         }
         return true;
     }
@@ -1184,8 +1165,8 @@ bool application_store_input(UiInputKind kind, u32 code, bool repeated) noexcept
             return true;
         }
         if (code == VK_RETURN || code == VK_TAB || code == VK_DOWN) {
-            if (g->editing_action == kLinkField && code == VK_RETURN) {
-                act(store_action(StoreAct::dialog_confirm), 0, {});
+            if (g->editing_action == kStoreLinkField && code == VK_RETURN) {
+                act(store_action(StoreAct::dialog_confirm), {});
                 return true;
             }
             leave_editor();
@@ -1229,13 +1210,13 @@ bool application_store_input(UiInputKind kind, u32 code, bool repeated) noexcept
         bool handled = false;
         const StoreCommand c = store_page_escape(g->model, &page(), &handled);
         if (handled) {
-            dispatch(c, g->scene.scroll);
+            dispatch(c);
             return true;
         }
         return false;
     }
     if (alt && code == VK_LEFT && page().detail) {
-        act(store_action(StoreAct::back), 0, {});
+        act(store_action(StoreAct::back), {});
         return true;
     }
     if (code == VK_OEM_2 && !control && !alt && mine && !dialog) {

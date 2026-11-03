@@ -1,7 +1,6 @@
 #include "store_preview.hpp"
 
 #include "maicord/app/media/local_preview_thumbnail.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/media/core/asset.hpp"
 #include "maicord/media/image/png_stream.hpp"
@@ -65,8 +64,8 @@ bool store_preview_decode(ConstSlice<u8> png, u32 pixels, StorePreviewImage* out
     const u32 scale = image.width / pixels ? image.width / pixels : 1;
     const u32 longest = image.width > image.height ? image.width : image.height;
     const u32 extent = (longest + scale - 1) / scale;
-    const u32 width = local_thumbnail_extent(image.width, local_thumbnail_scale(image.width, image.height, extent));
-    const u32 height = local_thumbnail_extent(image.height, local_thumbnail_scale(image.width, image.height, extent));
+    const u32 reduction = local_thumbnail_scale(image.width, image.height, extent);
+    const u32 width = local_thumbnail_extent(image.width, reduction), height = local_thumbnail_extent(image.height, reduction);
     Pages output;
     if (!output.allocate(static_cast<u64>(width) * height * 4u))
         return false;

@@ -1,6 +1,6 @@
 #include "maicord/app/packages/mcfx.hpp"
 #include "maicord/app/packages/link.hpp"
-#include "maicord/core/ascii.hpp"
+#include "maicord/core/color_hex.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
@@ -93,7 +93,6 @@ struct Parse {
     bool failed;
     u32 offset;
     u32 seen;
-    u32 uses_texture_mask;
     u32 row, lane, scalars, colours, choice_knobs;
     // The knob being read.
     u32 knob_seen;
@@ -163,16 +162,8 @@ bool whole(float v) noexcept { return v == static_cast<float>(static_cast<i32>(v
 
 bool hex_color(Parse& p, JsonValue value, u32* rgb) noexcept {
     char t[8];
-    if (!text_value(p, value, t, 7) || c_string_length(t) != 7 || t[0] != '#')
+    if (!text_value(p, value, t, 7) || c_string_length(t) != 7 || t[0] != '#' || !color_hex_parse_rgb24({t, 7}, rgb))
         return p.fail(value.source_offset);
-    u32 v = 0;
-    for (u32 i = 1; i < 7; ++i) {
-        const i32 d = ascii_hex_value(t[i]);
-        if (d < 0)
-            return p.fail(value.source_offset);
-        v = v << 4 | static_cast<u32>(d);
-    }
-    *rgb = v;
     return true;
 }
 
@@ -283,8 +274,6 @@ bool knob_entry(void* context, u32 index, JsonValue value) noexcept {
         return p.fail(value.source_offset);
     p.knob = {};
     p.knob_seen = 0;
-    const u32 choices_before = p.choice_knobs;
-    static_cast<void>(choices_before);
     return p.read(json_visit_indexed_object(p.document, value, kDepth, knob_member, &p)) &&
            finish_knob(p, value.source_offset);
 }
@@ -335,10 +324,7 @@ bool credit_member(void* context, JsonString name, JsonValue value) noexcept {
         return p.fail(name.source_offset);
     p.seen |= bit << 20;
     if (bit == 1)
-        return text_value(p, value, c.url, kMcfxCreditUrlBytes) && c.url[0] == 'h' && c.url[1] == 't' && c.url[2] == 't' &&
-                       c.url[3] == 'p' && c.url[4] == 's' && c.url[5] == ':' && c.url[6] == '/' && c.url[7] == '/'
-                   ? true
-                   : p.fail(value.source_offset);
+        return text_value(p, value, c.url, kMcfxCreditUrlBytes) && bytes_equal(c.url, "https://", 8) ? true : p.fail(value.source_offset);
     return bit == 2 ? text_value(p, value, c.author, kMcfxCreditNameBytes) : text_value(p, value, c.license, kMcfxLicenseBytes);
 }
 bool use_entry(void* context, u32 index, JsonValue value) noexcept {
@@ -535,12 +521,10 @@ McfxResult mcfx_parse(ConstSlice<u8> file, McfxWorkspace* w) noexcept {
 }
 
 bool mcfx_knob_value_valid(const McfxKnob& knob, const McfxKnobValue& value) noexcept {
-    switch (knob.type) {
-    case McfxKnobType::color: return value.rgb <= 0xffffffu;
-    case McfxKnobType::number: return is_finite(value.number) && value.number >= knob.minimum && value.number <= knob.maximum;
-    default:
-        return is_finite(value.number) && value.number >= knob.minimum && value.number <= knob.maximum && whole(value.number);
-    }
+    if (knob.type == McfxKnobType::color)
+        return value.rgb <= 0xffffffu;
+    return is_finite(value.number) && value.number >= knob.minimum && value.number <= knob.maximum &&
+           (knob.type == McfxKnobType::number || whole(value.number));
 }
 
 void mcfx_knob_defaults(const McfxPackage& package, McfxKnobValue (&values)[kMcfxKnobMaximum]) noexcept {

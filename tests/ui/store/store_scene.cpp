@@ -205,7 +205,7 @@ void test_store_scene(void (*check)(bool, const char*) noexcept) noexcept {
               "store scene: a still tile asks for its picture by slot and width; a live tile never does");
         PaintStream paint{};
         check(paint_stream_initialize(&paint) && paint_stream_reset(&paint, 900, 700) &&
-                  ui_store_scene_paint(g_scene, kDefaultTheme, &paint, 0, 96),
+                  ui_store_scene_paint(g_scene, kDefaultTheme, &paint, 0),
               "store scene: the tiles paint");
         u32 tiles = 0, canvases = 0;
         for (u32 i = 0; i < paint.count; ++i) {

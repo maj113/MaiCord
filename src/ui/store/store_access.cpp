@@ -85,7 +85,7 @@ bool describe(const UiStoreScene& s, u16 index, u8 surface, const Utf8View& cont
     }
     if (n.flags & ui_store_disabled)
         state = ui_access_disabled;
-    UiAccessNodeDesc d{};
+    UiAccessNodeDesc& d = *out = {};
     d.key = ui_access_key(surface, (static_cast<u64>(n.action) << 8) ^ static_cast<u64>(n.kind));
     d.item = n.action;
     d.surface = surface;
@@ -97,7 +97,6 @@ bool describe(const UiStoreScene& s, u16 index, u8 surface, const Utf8View& cont
     d.role = role;
     d.state = state;
     d.actions = actions;
-    *out = d;
     return ui_rect_has_area(d.visible);
 }
 

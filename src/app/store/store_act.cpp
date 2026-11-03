@@ -1,7 +1,6 @@
 #include "store_build.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/name_list.hpp"
-#include "maicord/sdk/maicord_plugin.h"
 
 namespace maicord::app_detail {
 using namespace store_build;
@@ -41,7 +40,7 @@ bool store_permission_text(u32 bit, StorePermission* out) noexcept {
 
 u8 store_permission_risk(u64 permissions, bool has_hosts) noexcept {
     u8 risk = 0;
-    for (u32 bit = 0; bit < sizeof(kPermissions) / sizeof(kPermissions[0]); ++bit)
+    for (u32 bit = 0; bit < kPermissionCount; ++bit)
         if (permissions & (u64{1} << bit))
             risk = risk > kPermissions[bit].risk ? risk : kPermissions[bit].risk;
     if (has_hosts && risk < 2)
@@ -61,10 +60,9 @@ void store_page_build(UiStoreScene* scene, const StoreLayoutInput& in) noexcept 
     UiStoreBuilder page(scene);
     Ctx c{page, m, st, in};
     const u32 found = st.detail ? store_find_item(m, st.kind, Utf8View{st.slug, c_string_length(st.slug)}) : ~0u;
-    if (st.detail && found == ~0u) {
+    if (st.detail && found == ~0u)
         st.detail = st.knobs = false; // the item is gone
-    }
-    if (st.detail && found != ~0u) {
+    if (found != ~0u) {
         if (st.knobs && st.kind == CatalogKind::effect && m.items[found].installed)
             build_knobs(c, m.items[found], found);
         else
@@ -129,15 +127,19 @@ u32 bits_of(float value) noexcept {
     return bits;
 }
 
+void set_slug(StorePageState* st, const Utf8View& slug) noexcept {
+    const u32 n = minimum<u32>(slug.bytes, kCatalogSlugMaximumBytes);
+    copy_bytes(st->slug, slug.data, n);
+    st->slug[n] = 0;
+}
+
 void open_detail(StorePageState* st, const StoreItem& item, u32 scroll_value, bool knobs) noexcept {
     if (!st->detail)
         st->saved_scroll = static_cast<float>(scroll_value);
     st->detail_from = st->tab;
     st->detail = true;
     st->knobs = knobs;
-    const u32 n = minimum<u32>(item.slug.bytes, kCatalogSlugMaximumBytes);
-    copy_bytes(st->slug, item.slug.data, n);
-    st->slug[n] = 0;
+    set_slug(st, item.slug);
 }
 
 StoreCommand primary(const StoreModel& m, StorePageState* st, u32 index, u32 scroll) noexcept {
@@ -193,7 +195,6 @@ StoreCommand store_page_act(const StoreModel& m, StorePageState* st, u32 action,
         st->query_bytes = 0;
         return cmd(StoreCommandKind::none, 0, 0, 0, true);
     case StoreAct::clear_search:
-    case StoreAct::search_clear:
         st->query_bytes = 0;
         return cmd(StoreCommandKind::none, 0, 0, 0, true);
     case StoreAct::segment:
@@ -231,12 +232,10 @@ StoreCommand store_page_act(const StoreModel& m, StorePageState* st, u32 action,
         }
         st->detail = st->knobs = false;
         return cmd(StoreCommandKind::none, 0, 0, 0, true);
-    case StoreAct::detail_primary: {
+    case StoreAct::detail_primary:
         if (item_index == ~0u)
             break;
-        const StoreCommand result = primary(m, st, arg, value);
-        return result;
-    }
+        return primary(m, st, arg, value);
     case StoreAct::detail_secondary: {
         if (item_index == ~0u)
             break;
@@ -267,7 +266,7 @@ StoreCommand store_page_act(const StoreModel& m, StorePageState* st, u32 action,
         return cmd(StoreCommandKind::check_now);
     case StoreAct::show_saved:
         st->show_saved = true;
-        return cmd(StoreCommandKind::saved_catalog);
+        return cmd(StoreCommandKind::none);
     case StoreAct::copy_details:
         return cmd(StoreCommandKind::copy_text, 0, 2);
     case StoreAct::banner_update: {
@@ -350,7 +349,7 @@ StoreCommand store_page_act(const StoreModel& m, StorePageState* st, u32 action,
         return cmd(StoreCommandKind::open_source, 0, 3);
     case StoreAct::dialog_confirm:
         if (m.consent.open) {
-            const bool enable = m.consent.update ? true : st->dialog_check;
+            const bool enable = m.consent.update || st->dialog_check;
             st->dialog_acknowledged = false;
             return cmd(StoreCommandKind::consent_answer, 0, 1, 0, enable);
         }
@@ -433,12 +432,12 @@ u32 overflow_rows(const StoreModel& m, u32 item, Row (&rows)[8]) noexcept {
             rows[n++] = Row::auto_update;
         rows[n++] = Row::uninstall;
     } else if (it.kind == CatalogKind::theme) {
-        if (!it.active)
-            rows[n++] = Row::apply;
-        if (!it.active)
-            rows[n++] = Row::try_it;
         if (it.active)
             rows[n++] = Row::builtin; // back to the last built-in theme
+        else {
+            rows[n++] = Row::apply;
+            rows[n++] = Row::try_it;
+        }
         if (it.item != ~0u)
             rows[n++] = Row::catalog;
         rows[n++] = Row::remove;
@@ -567,8 +566,7 @@ StoreCommand store_menu_choose(const StoreModel& m, StorePageState* st, StoreMen
         st->detail_from = StoreTab::installed;
         st->detail = true;
         st->knobs = true;
-        copy_bytes(st->slug, it.slug.data, minimum<u32>(it.slug.bytes, kCatalogSlugMaximumBytes));
-        st->slug[minimum<u32>(it.slug.bytes, kCatalogSlugMaximumBytes)] = 0;
+        set_slug(st, it.slug);
         return cmd(StoreCommandKind::request_details, item);
     }
     return cmd(StoreCommandKind::none);

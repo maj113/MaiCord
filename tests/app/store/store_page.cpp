@@ -263,8 +263,8 @@ static void store_tree(void (*check)(bool, const char*) noexcept) noexcept {
         const bool ready = paint_stream_initialize(&paint) && paint_stream_reset(&paint, 900, 700) &&
                            ui_text_command_stream_initialize(&stream, {commands, 1024});
         check(ready, "store: paint and text streams");
-        check(ui_store_scene_paint(g_scene, kDefaultTheme, &paint, 0, 96), "store: the page paints plates");
-        check(ui_store_scene_paint(g_scene, kDefaultTheme, &paint, 1, 96), "store: the page paints its foreground");
+        check(ui_store_scene_paint(g_scene, kDefaultTheme, &paint, 0), "store: the page paints plates");
+        check(ui_store_scene_paint(g_scene, kDefaultTheme, &paint, 1), "store: the page paints its foreground");
         check(ui_store_scene_text_output(g_scene, kDefaultTheme, &output, false) && stream.count > 20, "store: the page emits its text");
         paint_stream_release(&paint);
     }
@@ -405,8 +405,8 @@ static void store_focus_rings(void (*check)(bool, const char*) noexcept) noexcep
                 continue;
             const bool card = n.kind == UiStoreKind::card && store_act(n.action) == StoreAct::card;
             const bool edge = card && n.y == row_y && (n.x == first_x || n.x == last_x);
-            if (!paint_stream_reset(&paint, 1440, 900) || !ui_store_scene_paint(g_scene, kDefaultTheme, &paint, 0, 96) ||
-                !ui_store_scene_paint(g_scene, kDefaultTheme, &paint, 1, 96)) {
+            if (!paint_stream_reset(&paint, 1440, 900) || !ui_store_scene_paint(g_scene, kDefaultTheme, &paint, 0) ||
+                !ui_store_scene_paint(g_scene, kDefaultTheme, &paint, 1)) {
                 ++failures;
                 continue;
             }

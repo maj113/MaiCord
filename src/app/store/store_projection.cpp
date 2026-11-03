@@ -1,5 +1,4 @@
 #include "store_model.hpp"
-#include "maicord/core/memory.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -33,9 +32,6 @@ int compare_names(const Utf8View& a, const Utf8View& b) noexcept {
             return x < y ? -1 : 1;
     }
     return a.bytes == b.bytes ? 0 : a.bytes < b.bytes ? -1 : 1;
-}
-bool same(const Utf8View& a, const Utf8View& b) noexcept {
-    return a.bytes == b.bytes && (!a.bytes || bytes_equal(a.data, b.data, a.bytes));
 }
 
 // Strict weak order of two items under a sort, then the name.
@@ -121,7 +117,7 @@ void store_chips_build(const StoreModel& model, CatalogKind kind, StoreChips* ou
             continue;
         for (u32 c = 0; c < item.category_count; ++c) {
             u32 at = first;
-            while (at < out->count && !same(out->chips[at].label, item.categories[c]))
+            while (at < out->count && !utf8_equal(out->chips[at].label, item.categories[c]))
                 ++at;
             if (at < out->count)
                 ++out->chips[at].count;
@@ -156,7 +152,7 @@ u64 store_item_chips(const StoreItem& item, const StoreChips& chips) noexcept {
             break;
         case 3:
             for (u32 c = 0; !on && c < item.category_count; ++c)
-                on = same(item.categories[c], chip.label);
+                on = utf8_equal(item.categories[c], chip.label);
             break;
         case 4:
             on = item.risk == 0;
@@ -253,7 +249,7 @@ u32 store_installed_count(const StoreModel& model, CatalogKind kind) noexcept {
 
 u32 store_find_item(const StoreModel& model, CatalogKind kind, const Utf8View& slug) noexcept {
     for (u32 i = 0; i < model.count; ++i)
-        if (model.items[i].kind == kind && same(model.items[i].slug, slug))
+        if (model.items[i].kind == kind && utf8_equal(model.items[i].slug, slug))
             return i;
     return ~0u;
 }

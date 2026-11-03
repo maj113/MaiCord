@@ -90,13 +90,8 @@ float leaf_width(const UiStoreNode& n) noexcept {
         return width;
     }
     case UiStoreKind::button: {
-        const bool link = n.variant == static_cast<u8>(UiStoreButton::link);
-        float width = text_width(static_cast<u8>(UiStoreType::label_bold), n.text);
-        if (n.icon != kNoIcon)
-            width += 24;
-        if (n.icon2 != kNoIcon)
-            width += 22;
-        return link ? width : width + (n.type ? 32 : 24);
+        const float width = leaf_text_content(n);
+        return n.variant == static_cast<u8>(UiStoreButton::link) ? width : width + (n.type ? 32 : 24);
     }
     case UiStoreKind::icon_button:
         return n.rw ? n.rw : 32;
@@ -115,7 +110,7 @@ float leaf_width(const UiStoreNode& n) noexcept {
     case UiStoreKind::tab: {
         float width = text_width(static_cast<u8>(UiStoreType::body), n.text);
         if (n.text2.bytes)
-            width += 4 + maximum(kBadgeHeight, text_width(static_cast<u8>(UiStoreType::small_bold), n.text2) + 10);
+            width += 4 + tab_badge_width(n);
         return width;
     }
     case UiStoreKind::search:
@@ -676,15 +671,7 @@ Utf8View UiStoreBuilder::copy(const Utf8View& a, const Utf8View& b, const Utf8Vi
 
 Utf8View UiStoreBuilder::number(u64 value) noexcept {
     char digits[20];
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
-    char reversed[20];
-    for (u32 i = 0; i < count; ++i)
-        reversed[i] = digits[count - 1 - i];
-    return copy({reversed, count});
+    return copy({digits, decimal_write(digits, value)});
 }
 
 // ---- Scene -----------------------------------------------------------------------------------------------------
@@ -793,14 +780,6 @@ bool ui_store_scene_commit(UiStoreScene* s, const UiRect& panel, const UiRect& c
     clamp_scroll(s);
     ++s->revision;
     return true;
-}
-
-bool ui_store_scene_resize(UiStoreScene* s, const UiRect& panel, const UiRect& column, const UiRect& modal) noexcept {
-    if (!s || s->page_root == kUiStoreNone)
-        return false;
-    if (ui_rect_equal(panel, s->panel) && ui_rect_equal(column, s->column) && ui_rect_equal(modal, s->modal))
-        return true;
-    return ui_store_scene_commit(s, panel, column, modal);
 }
 
 bool ui_store_scene_scroll_to(UiStoreScene* s, float offset) noexcept {

@@ -1,5 +1,4 @@
 #include "store_internal.hpp"
-#include "maicord/ui/controls/settings_controls.hpp"
 
 namespace maicord {
 using namespace store_detail;
@@ -128,15 +127,15 @@ u16 group_edge(const UiStoreScene& s, u16 from, bool last, bool row_only) noexce
     return found;
 }
 
-u16 tab_next(const UiStoreScene& s, u16 from, bool reverse) noexcept {
-    const Range range = active_range(s);
+// The first interactive node of [first, end) going forward, or the last going back; kUiStoreNone: none.
+u16 scan(const UiStoreScene& s, u32 first, u32 end, bool reverse) noexcept {
     if (!reverse) {
-        for (u32 i = from + 1; i < range.end; ++i)
+        for (u32 i = first; i < end; ++i)
             if (interactive(s.nodes[i]))
                 return static_cast<u16>(i);
         return kUiStoreNone;
     }
-    for (u32 i = from; i > range.first; --i)
+    for (u32 i = end; i > first; --i)
         if (interactive(s.nodes[i - 1]))
             return static_cast<u16>(i - 1);
     return kUiStoreNone;
@@ -265,43 +264,23 @@ bool ui_store_scene_key(UiStoreScene* s, UiStoreKey key, UiStoreEvent* event) no
     const Range range = active_range(*s);
     if (key == UiStoreKey::tab || key == UiStoreKey::back_tab) {
         const bool reverse = key == UiStoreKey::back_tab;
-        u16 next = kUiStoreNone;
-        if (current == kUiStoreNone) {
-            for (u32 i = reverse ? range.end : range.first; reverse ? i > range.first : i < range.end;) {
-                const u32 at = reverse ? i - 1 : i;
-                if (interactive(s->nodes[at])) {
-                    next = static_cast<u16>(at);
-                    break;
-                }
-                reverse ? --i : ++i;
-            }
-        } else
-            next = tab_next(*s, current, reverse);
-        if (next == kUiStoreNone) {
-            if (s->dialog_open && s->focus_action) {
-                // A dialog traps focus: wrap around.
-                for (u32 i = reverse ? range.end : range.first; reverse ? i > range.first : i < range.end;) {
-                    const u32 at = reverse ? i - 1 : i;
-                    if (interactive(s->nodes[at])) {
-                        next = static_cast<u16>(at);
-                        break;
-                    }
-                    reverse ? --i : ++i;
-                }
-            }
-            if (next == kUiStoreNone)
-                return false;
-        }
+        u16 next = current == kUiStoreNone ? scan(*s, range.first, range.end, reverse)
+                   : reverse               ? scan(*s, range.first, current, true)
+                                           : scan(*s, current + 1u, range.end, false);
+        if (next == kUiStoreNone && s->dialog_open && s->focus_action)
+            next = scan(*s, range.first, range.end, reverse); // A dialog traps focus: wrap around.
+        if (next == kUiStoreNone)
+            return false;
         set_focus(s, next, true);
         return true;
     }
     if (current == kUiStoreNone) {
         if (key == UiStoreKey::down || key == UiStoreKey::right) {
-            for (u32 i = range.first; i < range.end; ++i)
-                if (interactive(s->nodes[i])) {
-                    set_focus(s, static_cast<u16>(i), true);
-                    return true;
-                }
+            const u16 first = scan(*s, range.first, range.end, false);
+            if (first != kUiStoreNone) {
+                set_focus(s, first, true);
+                return true;
+            }
         }
         return false;
     }
@@ -409,8 +388,7 @@ bool ui_store_scene_tick(UiStoreScene* s, u64 now_ms, bool reduced_motion) noexc
 bool ui_store_scene_animating(const UiStoreScene& s) noexcept {
     if (!s.active)
         return false;
-    const Range range{0, s.count};
-    for (u32 i = range.first; i < range.end; ++i) {
+    for (u32 i = 0; i < s.count; ++i) {
         const auto& n = s.nodes[i];
         if ((n.kind == UiStoreKind::bar && !s.reduced_motion) || n.kind == UiStoreKind::spinner ||
             ((n.flags & ui_store_busy) && n.kind == UiStoreKind::button)) {

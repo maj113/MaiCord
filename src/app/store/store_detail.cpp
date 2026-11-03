@@ -1,6 +1,5 @@
 #include "store_build.hpp"
-#include "maicord/core/memory.hpp"
-#include "maicord/core/name_list.hpp"
+#include "maicord/core/ascii.hpp"
 
 namespace maicord::app_detail::store_build {
 namespace {
@@ -112,7 +111,7 @@ void rail(Ctx& c, const StoreItem& item, u32 index) noexcept {
     fact(c, "Version", item.installed ? item.installed_version : item.version);
     fact(c, "Released", date_text(c.b, item.released));
     fact(c, "Size", item.bytes ? size_text(c.b, item.bytes) : Utf8View{});
-    fact(c, "License", item.license, false, item.license.bytes ? store_action(StoreAct::detail_source, 1) : 0);
+    fact(c, "License", item.license, item.license.bytes ? store_action(StoreAct::detail_source, 1) : 0);
     if (kind == CatalogKind::plugin && item.api_level)
         fact(c, "Plugin API", join(c.b, utf8_literal("Level "), c.b.number(item.api_level)));
     if (kind == CatalogKind::theme) {
@@ -175,7 +174,18 @@ void access_eyebrow(Ctx& c, u8 risk, float pad_y) noexcept {
     auto& dot = c.b.leaf(UiStoreKind::swatch);
     dot.variant = static_cast<u8>(risk >= 2 ? 3 : risk == 1 ? 4 : 5);
     dot.rw = dot.rh = 8;
-    c.b.text(name_at("LOW ACCESS\0MEDIUM ACCESS\0HIGH ACCESS\0", risk > 2 ? 2 : risk), UiStoreType::eyebrow, UiStoreInk::header);
+    c.b.text(name_at("LOW ACCESS\0MEDIUM ACCESS\0HIGH ACCESS\0", risk), UiStoreType::eyebrow, UiStoreInk::header);
+    c.b.close();
+}
+
+// The hosts a permission named `network` lists, as chips under its sentence.
+void host_chips(Ctx& c, const StorePermission& p, ConstSlice<Utf8View> hosts) noexcept {
+    if (p.name.bytes != 7 || p.name.data[0] != 'n' || !hosts.count)
+        return;
+    auto& flow = c.b.open(UiStoreKind::flow);
+    flow.gap = 8;
+    for (u32 h = 0; h < hosts.count; ++h)
+        c.b.chip(hosts[h], UiStoreTone::mono);
     c.b.close();
 }
 
@@ -187,7 +197,6 @@ void permission_group(Ctx& c, u8 risk, const StorePermission* rows, u32 count, C
         return;
     access_eyebrow(c, risk, 4);
     card_open(c);
-    c.b.node().pad_x = 0;
     u32 seen = 0;
     for (u32 i = 0; i < count; ++i) {
         const auto& p = rows[i];
@@ -195,20 +204,12 @@ void permission_group(Ctx& c, u8 risk, const StorePermission* rows, u32 count, C
             continue;
         auto& row = hairline_row(c, ++seen == shown, 16, 10);
         row.rh = 48;
-        row.flags |= 0;
-        auto& tile = c.b.tile(p.glyph, 28, UiStoreTone::neutral);
-        static_cast<void>(tile);
+        c.b.tile(p.glyph, 28, UiStoreTone::neutral);
         auto& col = c.b.open(UiStoreKind::column);
         col.gap = 6;
         col.flags = ui_store_flex;
         c.b.text(p.sentence, UiStoreType::body, p.critical ? UiStoreInk::critical : UiStoreInk::strong, ui_store_wrap);
-        if (p.name.bytes == 7 && p.name.data[0] == 'n' && hosts.count) {
-            auto& flow = c.b.open(UiStoreKind::flow);
-            flow.gap = 8;
-            for (u32 h = 0; h < hosts.count; ++h)
-                c.b.chip(hosts[h], UiStoreTone::mono);
-            c.b.close();
-        }
+        host_chips(c, p, hosts);
         if (p.note.bytes)
             c.b.text(p.note, UiStoreType::small, UiStoreInk::subtle, ui_store_wrap);
         c.b.close();
@@ -246,8 +247,7 @@ void build_detail(Ctx& c, const StoreItem& item, u32 index) noexcept {
     auto& split = c.b.open(UiStoreKind::split);
     split.rw = 264;
     split.gap = 24;
-    auto& main = c.b.open(UiStoreKind::column);
-    main.gap = 0;
+    c.b.open(UiStoreKind::column);
     if (item.revoked)
         notice_card(c, UiIcon::warning, join(c.b, utf8_literal("Turned off: "), item.reason), {}, UiStoreFill::critical_tint, UiStoreInk::critical);
     else if (item.incompatible)
@@ -277,13 +277,11 @@ void build_detail(Ctx& c, const StoreItem& item, u32 index) noexcept {
             sw.variant = 1;
             sw.value = item.swatches[i];
             sw.rw = sw.rh = 40;
-            auto& col = c.b.open(UiStoreKind::column);
-            col.gap = 0;
+            c.b.open(UiStoreKind::column);
             c.b.text(kRoles[i], UiStoreType::small_bold, UiStoreInk::strong);
-            static constexpr char kHex[] = "0123456789abcdef";
             char hex[8]{'#'};
             for (u32 k = 0; k < 6; ++k)
-                hex[1 + k] = kHex[(item.swatches[i] >> (20 - 4 * k)) & 15];
+                hex[1 + k] = ascii_hex_digit(item.swatches[i] >> (20 - 4 * k));
             c.b.text(c.b.copy({hex, 7}), UiStoreType::mono, UiStoreInk::subtle);
             c.b.close();
             c.b.close();
@@ -296,31 +294,21 @@ void build_detail(Ctx& c, const StoreItem& item, u32 index) noexcept {
     }
     heading(c, "About");
     markdown(c, c.in.about, c.m.details_loading ? utf8_literal("Loading...") : c.m.details_markdown.bytes ? c.m.details_markdown : item.summary);
-    if (kind == CatalogKind::plugin) {
-        StorePermission rows[16];
-        u32 count = 0;
-        if (c.m.consent.permission_count && false)
-            count = 0;
+    if (kind == CatalogKind::plugin && c.m.consent.permission_count) {
         // The facts of the shown version: permissions arrive through the consent model of the open item.
-        for (u32 i = 0; i < c.m.consent.permission_count && count < 16; ++i)
-            rows[count++] = c.m.consent.permissions[i];
-        if (count) {
-            heading(c, "Permissions");
-            ConstSlice<Utf8View> hosts{c.m.consent.hosts, c.m.consent.host_count};
-            for (int risk = 2; risk >= 0; --risk)
-                permission_group(c, static_cast<u8>(risk), rows, count, hosts);
-        }
+        heading(c, "Permissions");
+        const ConstSlice<Utf8View> hosts{c.m.consent.hosts, c.m.consent.host_count};
+        for (int risk = 2; risk >= 0; --risk)
+            permission_group(c, static_cast<u8>(risk), c.m.consent.permissions, c.m.consent.permission_count, hosts);
     }
     if (kind == CatalogKind::effect && c.m.knob_count) {
         heading(c, "Knobs");
         card_open(c);
-        c.b.node().pad_x = 0;
         for (u32 i = 0; i < c.m.knob_count; ++i) {
-            auto& row = hairline_row(c, i + 1 == c.m.knob_count, 16, 10);
+            hairline_row(c, i + 1 == c.m.knob_count, 16, 10);
             c.b.text(c.m.knobs[i].label, UiStoreType::body, UiStoreInk::strong, ui_store_flex);
             static constexpr Utf8View kTypes[]{utf8_literal("Slider"), utf8_literal("Whole number"), utf8_literal("Switch"), utf8_literal("Colour"), utf8_literal("Choice")};
             c.b.text(kTypes[c.m.knobs[i].type < 5 ? c.m.knobs[i].type : 0], UiStoreType::small, UiStoreInk::subtle);
-            static_cast<void>(row);
             c.b.close();
         }
         c.b.close();
@@ -451,9 +439,7 @@ void knob_row(Ctx& c, u32 i, bool last) noexcept {
             c.b.close();
         } else {
             auto& dd = c.b.leaf(UiStoreKind::dropdown);
-            dd.text = {};
             dd.text2 = k.choice_count ? k.choices[static_cast<u32>(k.value) < k.choice_count ? static_cast<u32>(k.value) : 0] : Utf8View{};
-            dd.rw = 0;
             dd.flags = ui_store_stretch;
             dd.action = store_action(StoreAct::knob_menu, i);
             dd.group = 6;
@@ -498,14 +484,14 @@ void segments(Ctx& c, StoreUniversalRow row, const Utf8View* labels, u32 count, 
 }
 
 // A universal block row: a label with its value, the control, an optional hint.
-void universal_row(Ctx& c, StoreUniversalRow row, bool last, bool overridable, bool global_panel, const StoreItem* item) noexcept {
+void universal_row(Ctx& c, StoreUniversalRow row, bool last, bool overridable, bool global_panel) noexcept {
     const StoreUniversal& u = global_panel ? c.m.global_universal : c.m.universal;
     static constexpr Utf8View kResolution[]{utf8_literal("25"), utf8_literal("35"), utf8_literal("50"), utf8_literal("75"), utf8_literal("100")};
     static constexpr Utf8View kFrames[]{utf8_literal("10"), utf8_literal("15"), utf8_literal("24"), utf8_literal("30"), utf8_literal("60")};
     static constexpr Utf8View kBlend[]{utf8_literal("Normal"), utf8_literal("Screen"), utf8_literal("Add")};
     static constexpr Utf8View kFocus[]{utf8_literal("Keep"), utf8_literal("10 fps"), utf8_literal("Pause")};
     static constexpr Utf8View kBudget[]{utf8_literal("Low"), utf8_literal("Balanced"), utf8_literal("High")};
-    auto& cell = hairline_row(c, last, 16, 12);
+    hairline_row(c, last, 16, 12);
     auto& col = c.b.open(UiStoreKind::column);
     col.gap = 8;
     col.flags = ui_store_flex;
@@ -557,9 +543,9 @@ void universal_row(Ctx& c, StoreUniversalRow row, bool last, bool overridable, b
         break;
     }
     case StoreUniversalRow::blend: {
-        const u32 sel = u.blend ? u.blend - 1 : item ? 0 : 0;
+        const u32 sel = u.blend ? u.blend - 1 : 0;
         value_row(c, utf8_literal("Blend"), kBlend[sel < 3 ? sel : 0], false, 0);
-        segments(c, row, kBlend, 3, u.blend ? u.blend - 1 : 0);
+        segments(c, row, kBlend, 3, sel);
         break;
     }
     case StoreUniversalRow::unfocused:
@@ -584,16 +570,12 @@ void universal_row(Ctx& c, StoreUniversalRow row, bool last, bool overridable, b
     }
     }
     c.b.close();
-    static_cast<void>(cell);
     c.b.close();
 }
 
-} // namespace
-
-void build_universal(Ctx& c, const StoreItem* item) noexcept {
+void build_universal(Ctx& c) noexcept {
     // Performance card of an effect: the shader's own rows, then the global ones.
     card_open(c);
-    c.b.node().pad_x = 0;
     {
         auto& head = c.b.open(UiStoreKind::row);
         head.pad_x = 16;
@@ -609,14 +591,15 @@ void build_universal(Ctx& c, const StoreItem* item) noexcept {
                                    StoreUniversalRow::budget,     StoreUniversalRow::pointer};
     const u32 count = c.m.universal.pointer_available ? 8 : 7;
     for (u32 i = 0; i < count; ++i)
-        universal_row(c, rows[i], i + 1 == count, i < 5, false, item);
+        universal_row(c, rows[i], i + 1 == count, i < 5, false);
     c.b.close();
 }
+
+} // namespace
 
 void build_perf_defaults(Ctx& c) noexcept {
     c.b.spacer(0, 0);
     card_open(c);
-    c.b.node().pad_x = 0;
     auto& head = c.b.open(UiStoreKind::row);
     head.pad_x = 16;
     head.pad_y = 12;
@@ -626,7 +609,7 @@ void build_perf_defaults(Ctx& c) noexcept {
     c.b.close();
     const StoreUniversalRow rows[]{StoreUniversalRow::resolution, StoreUniversalRow::frame_rate, StoreUniversalRow::unfocused, StoreUniversalRow::budget};
     for (u32 i = 0; i < 4; ++i)
-        universal_row(c, rows[i], i == 3, false, true, nullptr);
+        universal_row(c, rows[i], i == 3, false, true);
     c.b.close();
     c.b.spacer(0, 16);
 }
@@ -676,7 +659,6 @@ void build_knobs(Ctx& c, const StoreItem& item, u32 index) noexcept {
     auto& panels = c.b.open(UiStoreKind::row);
     panels.gap = 8;
     panels.anchor = static_cast<u8>(UiStoreAnchor::top_right);
-    panels.pad_x = 0;
     const float widths[]{44, 90, 150};
     for (u32 i = 0; i < 3; ++i) {
         auto& plate = c.b.open(UiStoreKind::card);
@@ -692,7 +674,6 @@ void build_knobs(Ctx& c, const StoreItem& item, u32 index) noexcept {
     grid.gap = 16;
     grid.rw = 320;
     card_open(c);
-    c.b.node().pad_x = 0;
     {
         auto& row = c.b.open(UiStoreKind::row);
         row.pad_x = 16;
@@ -712,7 +693,7 @@ void build_knobs(Ctx& c, const StoreItem& item, u32 index) noexcept {
         c.b.close();
     }
     c.b.close();
-    build_universal(c, &item);
+    build_universal(c);
     c.b.close();
 }
 
