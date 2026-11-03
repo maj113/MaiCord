@@ -1040,8 +1040,6 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
          renderer->paint_stream.count > renderer->pipeline.ui_instance_capacity))
         return false;
 
-    D3D11GpuTimerFrame* gpu_timestamp =
-        d3d11_gpu_timer_begin(&renderer->gpu_timer, renderer->graphics.context);
     // Uploads and compute work before this point bound over the context.
     DrawSubmissionState submission{};
     draw_submission_begin(&submission);
@@ -1347,7 +1345,6 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         if (drawn)
             saturating_accumulate(renderer->media_draws_total, renderer->media_draws_last_frame);
         d3d11_effect_end_frame(&renderer->effect, renderer->graphics.context);
-        d3d11_gpu_timer_end(&renderer->gpu_timer, renderer->graphics.context, gpu_timestamp);
         return drawn;
     };
     // Counts what each draw submits under the modal's transform or another one (see the renderer fields).

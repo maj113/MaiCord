@@ -230,34 +230,6 @@ u32 install_context_hooks(void* context, bool context1) noexcept {
 
 GpuReplay g_replay{};
 
-void gpu_replay_collect(ID3D11DeviceContext* context) noexcept {
-    if (!context)
-        return;
-    for (GpuReplayFrame& frame : g_replay.frames) {
-        if (!frame.pending)
-            continue;
-        D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint{};
-        u64 begin = 0, end = 0;
-        if (context->GetData(frame.disjoint, &disjoint, sizeof(disjoint), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK ||
-            context->GetData(frame.begin, &begin, sizeof(begin), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK ||
-            context->GetData(frame.end, &end, sizeof(end), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK)
-            continue;
-        frame.pending = false;
-        if (disjoint.Disjoint || !disjoint.Frequency || end < begin) {
-            ++g_replay.failures;
-            continue;
-        }
-        const u64 us = (end - begin) * 1'000'000ull / disjoint.Frequency;
-        if (frame.full) {
-            g_replay.full_us += us;
-            ++g_replay.full_samples;
-        } else {
-            g_replay.partial_us += us;
-            ++g_replay.partial_samples;
-        }
-    }
-}
-
 } // namespace perf_probe_detail
 
 namespace {
@@ -309,55 +281,39 @@ void gpu_replay(bool full) noexcept {
     QueryThreadCycleTime(GetCurrentThread(), &start);
     D3D11Renderer& renderer = g_app.renderer;
     ID3D11DeviceContext* context = renderer.graphics.context;
-    gpu_replay_collect(context);
-    GpuReplayFrame& frame = g_replay.frames[g_replay.cursor];
-    if (frame.pending || !renderer.graphics.target || !gpu_replay_target(renderer)) {
+    if (!renderer.graphics.target || !gpu_replay_target(renderer)) {
         ++g_replay.skipped;
     } else {
-        const D3D11_QUERY_DESC disjoint{D3D11_QUERY_TIMESTAMP_DISJOINT, 0}, stamp{D3D11_QUERY_TIMESTAMP, 0};
-        if (!frame.disjoint && (FAILED(renderer.graphics.device->CreateQuery(&disjoint, &frame.disjoint)) ||
-                                FAILED(renderer.graphics.device->CreateQuery(&stamp, &frame.begin)) ||
-                                FAILED(renderer.graphics.device->CreateQuery(&stamp, &frame.end)))) {
-            ++g_replay.failures;
-        } else {
-            const RECT damage = *renderer.present_dirty_rect.native();
-            ID3D11RenderTargetView* presented = renderer.graphics.target;
-            const u32 draws = renderer.draw_calls_last_frame, media = renderer.media_draws_last_frame;
-            const u32 media_total = renderer.media_draws_total;
-            const u64 effect_next = renderer.text_effect_next_ms;
-            // The replay's own context calls stay out of the per-frame counts.
-            const GpuApiCounters api = g_gpu_api;
-            const bool timer = renderer.gpu_timer.enabled;
-            renderer.gpu_timer.enabled = false;
-            renderer.graphics.target = g_replay.target;
-            const u32 origin = renderer.target_origin_y;
-            renderer_bind_target_origin(&renderer, 0);
-            context->Begin(frame.disjoint);
-            context->End(frame.begin);
-            const bool drawn =
-                d3d11_renderer_draw_stream(&renderer, app_detail::application_theme(), false, false,
-                                           full ? nullptr : &damage);
-            context->End(frame.end);
-            context->End(frame.disjoint);
-            renderer.graphics.target = presented;
-            renderer_bind_target_origin(&renderer, origin);
-            context->OMSetRenderTargets(1, &renderer.graphics.target, nullptr);
-            renderer.gpu_timer.enabled = timer;
-            renderer.text_effect_next_ms = effect_next;
-            g_gpu_api = api;
-            ++g_replay.replays;
-            renderer.draw_calls_last_frame = draws;
-            renderer.media_draws_last_frame = media;
-            renderer.media_draws_total = media_total;
-            if (drawn) {
-                frame.pending = true;
-                frame.full = full;
-                if (!full)
-                    g_replay.partial_pixels += static_cast<u64>(damage.right - damage.left) * (damage.bottom - damage.top);
-                g_replay.cursor = (g_replay.cursor + 1) % kGpuReplayFrames;
+        const RECT damage = *renderer.present_dirty_rect.native();
+        ID3D11RenderTargetView* presented = renderer.graphics.target;
+        const u32 draws = renderer.draw_calls_last_frame, media = renderer.media_draws_last_frame;
+        const u32 media_total = renderer.media_draws_total;
+        const u64 effect_next = renderer.text_effect_next_ms;
+        // The replay's own context calls stay out of the per-frame counts.
+        const GpuApiCounters api = g_gpu_api;
+        renderer.graphics.target = g_replay.target;
+        const u32 origin = renderer.target_origin_y;
+        renderer_bind_target_origin(&renderer, 0);
+        const bool drawn = d3d11_renderer_draw_stream(&renderer, app_detail::application_theme(), false, false,
+                                                      full ? nullptr : &damage);
+        renderer.graphics.target = presented;
+        renderer_bind_target_origin(&renderer, origin);
+        context->OMSetRenderTargets(1, &renderer.graphics.target, nullptr);
+        renderer.text_effect_next_ms = effect_next;
+        g_gpu_api = api;
+        ++g_replay.replays;
+        renderer.draw_calls_last_frame = draws;
+        renderer.media_draws_last_frame = media;
+        renderer.media_draws_total = media_total;
+        if (drawn) {
+            if (full) {
+                ++g_replay.full_replays;
             } else {
-                ++g_replay.failures;
+                ++g_replay.partial_replays;
+                g_replay.partial_pixels += static_cast<u64>(damage.right - damage.left) * (damage.bottom - damage.top);
             }
+        } else {
+            ++g_replay.failures;
         }
     }
     ULONG64 stop = 0;

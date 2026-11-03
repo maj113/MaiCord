@@ -241,9 +241,6 @@ void collect(D3D11EffectOwner* owner, ID3D11DeviceContext* context) noexcept {
             continue;
         const float gpu_ms = static_cast<float>(static_cast<double>(end - begin) * 1000.0 /
                                                 static_cast<double>(disjoint.Frequency));
-        owner->last_gpu_microseconds = static_cast<u32>(gpu_ms * 1000.f);
-        owner->total_gpu_microseconds += owner->last_gpu_microseconds;
-        ++owner->gpu_samples;
         switch (effect_budget_sample(&owner->budget, gpu_ms, budget_ms(owner->settings), timing.frame_ms)) {
         case EffectBudgetAction::step_down:
         case EffectBudgetAction::step_up:

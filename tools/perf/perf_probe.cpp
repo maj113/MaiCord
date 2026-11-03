@@ -153,11 +153,8 @@ GpuWork sample_gpu_work() noexcept {
     GpuWork work{};
     work.api = g_gpu_api;
     const auto& r = g_app.renderer;
-    gpu_replay_collect(r.graphics.context);
-    work.full_us = g_replay.full_us;
-    work.full_samples = g_replay.full_samples;
-    work.partial_us = g_replay.partial_us;
-    work.partial_samples = g_replay.partial_samples;
+    work.full_replays = g_replay.full_replays;
+    work.partial_replays = g_replay.partial_replays;
     work.replay_pixels = g_replay.partial_pixels;
     work.replay_failures = g_replay.failures + g_replay.skipped;
     work.replays = g_replay.replays;
@@ -681,7 +678,7 @@ void dump_spin_state() noexcept {
     line.kv("spinner", relative(app_detail::application_loading_spinner_wake()));
     line.kv("video", relative(app_detail::application_video_next_wake()));
     line.kv("tooltip", relative(app_detail::application_tooltip_next_wake()));
-    line.kv("surface", relative(app_detail::application_surface_motion_next_wake(now_ms)));
+    line.kv("surface", relative(app_detail::application_surface_motion_next_wake()));
     line.kv("background", relative(app_detail::application_background_next_wake(now_ms)));
     line.kv("presence", relative(app_detail::application_presence_next_wake()));
     line.kv("smooth", app_detail::application_smooth_scroll_active());
@@ -818,7 +815,7 @@ bool probe_step_phases(int* exit_code) noexcept {
         stats.next_spinner += app_detail::application_loading_spinner_wake() != 0;
         stats.next_video += app_detail::application_video_next_wake() != 0;
         stats.next_tooltip += app_detail::application_tooltip_next_wake() != 0;
-        stats.next_surface += app_detail::application_surface_motion_next_wake(now_ms) != 0;
+        stats.next_surface += app_detail::application_surface_motion_next_wake() != 0;
         stats.next_background += app_detail::application_background_next_wake(now_ms) != 0;
         stats.next_smooth += app_detail::application_smooth_scroll_active();
         stats.next_caret += g_app.message_composer_caret_blink_at_ms != 0;
@@ -835,7 +832,7 @@ bool probe_step_phases(int* exit_code) noexcept {
         }
     }
     if (!g_probe.context_hooks && g_app.renderer.graphics.context) {
-        // Count context calls; frames are timed by gpu_replay.
+        // Count context calls; draw streams are replayed by gpu_replay.
         g_probe.context_hooks = install_context_hooks(g_app.renderer.graphics.context, false);
         if (static_cast<void*>(g_app.renderer.graphics.context1) == static_cast<void*>(g_app.renderer.graphics.context))
             g_probe.context_hooks += install_context_hooks(g_app.renderer.graphics.context1, true);

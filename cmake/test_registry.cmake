@@ -339,7 +339,7 @@ maicord_test(MaiCordCatalogServiceTests ENTRY maicord_catalog_service_tests_entr
     LIBS maicord_core maicord_platform maicord_app_core maicord_plugin_catalog maicord_plugin_runtime
         maicord_packages maicord_protocol kernel32 bcrypt ws2_32 maicord_sspicli crypt32
     INCLUDES src/app
-    DEPENDS MaiCordClearUrlsPlugin
+    DEPENDS MaiCordClearUrlsPlugin MaiCordTranslatePlugin
     TIMEOUT 15 TEST maicord_catalog_service)
 # Developer Mode and the maicord-plugin tool (plugin design 9.2 and 13). Four builds of one plugin stand for a
 # developer's rebuilds (tests/fixtures/plugin_reload_fixture.cpp: same layout, changed layout, one more
@@ -1633,7 +1633,7 @@ set_source_files_properties(tests/integration/ui_probe.cpp tests/integration/ui_
     tests/integration/ui_probe_scenes.cpp tests/integration/ui_probe_renderer.cpp
     tests/app/settings/settings_runtime.cpp tests/app/settings/settings_runtime_stubs.cpp
     PROPERTIES MAICORD_NO_APPLICATION_PCH ON)
-# The single-scene WIN32 probes link the renderer stack and run with GPU metrics.
+# The single-scene WIN32 probes link the renderer stack.
 set(maicord_scene_probe_libs maicord_core maicord_text maicord_ui maicord_ui_input maicord_model
     maicord_message_runtime maicord_render_core maicord_media_codec maicord_atlas_gpu maicord_renderer
     maicord_platform maicord_protocol maicord_app_core maicord_message_media maicord_account_media)
@@ -1644,7 +1644,7 @@ maicord_test(MaiCordMessageLinkUiProbe WIN32 ENTRY maicord_message_link_ui_probe
         src/app/chat/threads/actions.cpp src/core/log.cpp src/app/chat/application_channel_memory.cpp
     LIBS ${maicord_scene_probe_libs} ${maicord_scene_probe_system_libs}
     INCLUDES src/app
-    RESOURCE_LOCK native_gpu ENV MAICORD_GPU_METRICS=1
+    RESOURCE_LOCK native_gpu
     TEST maicord_message_link_ui_probe)
 maicord_test(MaiCordComposerUiProbe WIN32 ENTRY maicord_composer_ui_probe_entry
     SOURCES config/maicord.manifest tests/integration/composer_ui_probe.cpp src/app/chat/composer/composer.cpp
@@ -1653,7 +1653,7 @@ maicord_test(MaiCordComposerUiProbe WIN32 ENTRY maicord_composer_ui_probe_entry
         tests/support/pipeline_host_stubs.cpp
     LIBS ${maicord_scene_probe_libs} ${maicord_scene_probe_system_libs}
     INCLUDES src/app
-    RESOURCE_LOCK native_gpu ENV MAICORD_GPU_METRICS=1
+    RESOURCE_LOCK native_gpu
     TEST maicord_composer_ui_probe)
 maicord_test(MaiCordAccountLogoutUiProbe WIN32 ENTRY maicord_account_logout_ui_probe_entry
     SOURCES config/maicord.manifest tests/integration/account_logout_ui_probe.cpp src/app/chat/composer/text_form.cpp
@@ -1661,7 +1661,7 @@ maicord_test(MaiCordAccountLogoutUiProbe WIN32 ENTRY maicord_account_logout_ui_p
         src/app/shell/input.cpp src/core/log.cpp
     LIBS ${maicord_scene_probe_libs} maicord_account_host maicord_account_paths ${maicord_scene_probe_system_libs}
     INCLUDES src/app
-    RESOURCE_LOCK native_gpu ENV MAICORD_UI_ACCOUNT_LOGOUT_PROBE=1 MAICORD_GPU_METRICS=1
+    RESOURCE_LOCK native_gpu ENV MAICORD_UI_ACCOUNT_LOGOUT_PROBE=1
     TEST maicord_account_logout_ui_probe)
 maicord_test(MaiCordScopedReadUiProbe WIN32 ENTRY maicord_scoped_read_ui_probe_entry
     SOURCES config/maicord.manifest tests/integration/scoped_read_ui_probe.cpp src/app/chat/scoped_read.cpp
@@ -1671,11 +1671,11 @@ maicord_test(MaiCordScopedReadUiProbe WIN32 ENTRY maicord_scoped_read_ui_probe_e
     LIBS ${maicord_scene_probe_libs} maicord_account_host maicord_account_paths ${maicord_scene_probe_system_libs}
     INCLUDES src/app
     OPTIONS "/FI${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/scoped_read_clock_fixture.hpp"
-    RESOURCE_LOCK native_gpu ENV MAICORD_UI_SCOPED_READ_PROBE=1 MAICORD_GPU_METRICS=1
+    RESOURCE_LOCK native_gpu ENV MAICORD_UI_SCOPED_READ_PROBE=1
     TEST maicord_scoped_read_ui_probe)
 maicord_ui_probe_test(maicord_ui_probe UI_PROBE_ONCE LABELS gpu RESOURCE_LOCK native_gpu)
 # Hosted CI renders in software; this probe needs a hardware GPU to finish in time.
-# Background canvases, Stars/Comets and package effects against CPU references; the samples' GPU time at 1440p.
+# Background canvases, Stars/Comets and package effects against CPU references; the samples rendered at 1440p.
 maicord_ui_probe_test(maicord_background_theme_probe UI_BACKGROUND_THEME_PROBE BOOTSTRAP TIMEOUT 20 LABELS gpu display
     RESOURCE_LOCK native_gpu)
 # Every present (scroll, hover, animated media, background effect ticks, theme
@@ -1776,11 +1776,11 @@ maicord_ui_probe_test(maicord_resize_stress_probe UI_PROBE_RESIZE_STRESS TIMEOUT
 # only when MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY names it.
 if(MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY)
     maicord_add_tests(MaiCordUiProbe TIMEOUT 20 LABELS native-ui display
-        ENV MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY=${MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY} MAICORD_GPU_METRICS=1
+        ENV MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY=${MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY}
         TEST maicord_regional_flag_reference_probe)
     maicord_add_tests(MaiCordUiProbe TIMEOUT 20 LABELS native-ui display
         ENV MAICORD_REGIONAL_FLAG_SURFACES_PROBE=1
-            MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY=${MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY} MAICORD_GPU_METRICS=1
+            MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY=${MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY}
         TEST maicord_regional_flag_surfaces_probe)
 endif()
 # Fast CPU decode paths (PNG filters, GIF LZW, JPEG entropy) against bit-serial references.

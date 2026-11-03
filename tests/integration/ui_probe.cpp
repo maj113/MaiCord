@@ -1984,14 +1984,11 @@ int run_probe() noexcept {
     const bool device_ready = device_owner_ready(g_probe.renderer);
     const bool pipeline_ready = draw_pipeline_ready(g_probe.renderer);
     const bool glyph_ready = glyph_text_owner_ready(g_probe.renderer);
-    const bool timer_ready = gpu_timer_ready(g_probe.renderer);
-    if (!device_ready || !pipeline_ready || !glyph_ready || !timer_ready) {
+    if (!device_ready || !pipeline_ready || !glyph_ready) {
         log_write(LogLevel::error, "probe", "post_bootstrap_readiness_failed");
         log_u64(LogLevel::error, "probe", "bootstrap_device_ready", device_ready);
         log_u64(LogLevel::error, "probe", "bootstrap_pipeline_ready", pipeline_ready);
         log_u64(LogLevel::error, "probe", "bootstrap_glyph_ready", glyph_ready);
-        log_u64(LogLevel::error, "probe", "bootstrap_timer_ready", timer_ready);
-        log_u64(LogLevel::error, "probe", "bootstrap_timer_enabled", g_probe.renderer.gpu_timer.enabled);
         return finish_probe(9);
     }
     if (native_bootstrap) {
@@ -2664,19 +2661,10 @@ int run_probe() noexcept {
     if (!glyph_text_owner_empty(invalid_glyph_text)) {
         return 9;
     }
-    D3D11GpuTimerOwner invalid_timer{};
     TextEditLayoutOwner invalid_composer{};
     MessageHitTestCacheOwner invalid_message_hit{};
     ContentTextRetentionOwner invalid_content_text{};
     ContentTextRetentionKey invalid_content_key{};
-    if (d3d11_gpu_timer_initialize(nullptr, nullptr, true).error != D3D11GpuTimerError::invalid_input ||
-        d3d11_gpu_timer_initialize(&invalid_timer, nullptr, true).error !=
-            D3D11GpuTimerError::invalid_input ||
-        !d3d11_gpu_timer_initialize(&invalid_timer, nullptr, false).ok()) {
-        return 9;
-    }
-    d3d11_gpu_timer_release(&invalid_timer, nullptr);
-    d3d11_gpu_timer_release(&invalid_timer, nullptr);
     text_edit_layout_release(&invalid_composer);
     text_edit_layout_release(&invalid_composer);
     message_hit_test_cache_release(&invalid_message_hit);
@@ -2693,7 +2681,7 @@ int run_probe() noexcept {
     content_text_retention_invalidate(&invalid_content_text);
     content_text_retention_reset(&invalid_content_text);
     content_text_retention_reset(&invalid_content_text);
-    if (!gpu_timer_empty(invalid_timer) || !composer_layout_empty(invalid_composer) ||
+    if (!composer_layout_empty(invalid_composer) ||
         !message_hit_cache_empty(invalid_message_hit) ||
         !content_text_retention_empty(invalid_content_text)) {
         return 9;
@@ -3992,7 +3980,6 @@ int run_probe() noexcept {
                               device_owner_empty(g_probe.renderer.graphics) &&
                               draw_pipeline_empty(g_probe.renderer.pipeline) &&
                               glyph_text_owner_empty(g_probe.renderer.glyph_text) &&
-                              gpu_timer_empty(g_probe.renderer.gpu_timer) &&
                               composer_layout_empty(g_probe.renderer.composer_layout) &&
                               message_hit_cache_empty(g_probe.renderer.message_hit_test) &&
                               content_text_retention_empty(g_probe.renderer.content_text_retention);
@@ -4015,7 +4002,6 @@ int run_probe() noexcept {
     return device_owner_empty(g_probe.renderer.graphics) &&
                    draw_pipeline_empty(g_probe.renderer.pipeline) &&
                    glyph_text_owner_empty(g_probe.renderer.glyph_text) &&
-                   gpu_timer_empty(g_probe.renderer.gpu_timer) &&
                    composer_layout_empty(g_probe.renderer.composer_layout) &&
                    message_hit_cache_empty(g_probe.renderer.message_hit_test) &&
                    content_text_retention_empty(g_probe.renderer.content_text_retention)

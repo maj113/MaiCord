@@ -1,6 +1,5 @@
 #include "maicord/render/effects/colr_paint.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/log.hpp"
 #include "maicord/render/d3d11/shader_bytecode.hpp"
 
 #include "maicord/sys/d3d11.hpp"
@@ -282,11 +281,6 @@ bool colr_paint_rasterize_target(ColrPaintGpu* g, ID3D11DeviceContext* context,
 void colr_paint_gpu_release(ColrPaintGpu* g) noexcept {
     if (!g)
         return;
-    wchar_t metrics[2]{};
-    if(g->dispatches&&GetEnvironmentVariableW(L"MAICORD_GPU_METRICS",metrics,2)) {
-        log_u64(LogLevel::info,"render","colr_spatial_jobs",g->spatial_jobs);
-        log_u64(LogLevel::info,"render","colr_total_jobs",g->dispatches);
-    }
     com_release(g->wide_shader);
     com_release(g->layers_shader);
     com_release(g->shader);

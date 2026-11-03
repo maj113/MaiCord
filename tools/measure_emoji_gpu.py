@@ -1,7 +1,7 @@
-"""Bounded real-picker GPU timeline and memory observations; one build side at a time.
+"""Bounded real-picker CPU and memory observations; one build side at a time.
 
-The phase inherits earlier UI-probe atlas contents. It is neither an empty-atlas
-benchmark nor hardware busy time. DXGI samples describe the whole probe process;
+The phase inherits earlier UI-probe atlas contents. It is not an empty-atlas
+benchmark. DXGI samples describe the whole probe process;
 resource payload sizes are not driver allocation sizes or physical residency.
 --page-control adds an explicit flush or GPU wait after every page. Submission
 CPU samples exclude this diagnostic overhead, which is reported separately.
@@ -20,38 +20,37 @@ import threading
 from benchmark_native_text_performance import identity
 from verify_native_text import run_check, CheckFailure
 
-FIELDS = ('cpu_ticks thread_cycles gpu_ticks local_usage nonlocal_usage local_budget '
+FIELDS = ('cpu_ticks thread_cycles local_usage nonlocal_usage local_budget '
           'working_set private_bytes textures buffers builds mono_dispatches '
           'color_dispatches mono_pixels mono_commands row').split()
 BATCH_FIELDS = ('color_submissions','color_mask_submissions','color_canceled_jobs')
+FIELDS += BATCH_FIELDS
+HEADER_BYTES = 88
 
 def decode(path, side, require_color=True):
     data = path.read_bytes()
-    if len(data) < 224 or data[:8] not in (b'MCETGPU1',b'MCETGPU2'):
+    if len(data) < HEADER_BYTES or data[:8] != b'MCETGPU3':
         raise ValueError('Missing measurement header')
-    version=2 if data[:8]==b'MCETGPU2' else 1
-    fields=FIELDS+list(BATCH_FIELDS) if version==2 else FIELDS
-    h = struct.unpack_from('<12Q', data)
-    _, cpu_frequency, gpu_frequency, count, stride, vendor, device, luid, width, height, dpi, flags = h
-    if not cpu_frequency or not gpu_frequency or not 0 < count <= 512 or stride != len(fields)*8 or len(data) != 96+(count+1)*stride:
+    h = struct.unpack_from('<11Q', data)
+    _, cpu_frequency, count, stride, vendor, device, luid, width, height, dpi, flags = h
+    if not cpu_frequency or not 0 < count <= 512 or stride != len(FIELDS)*8 or len(data) != HEADER_BYTES+(count+1)*stride:
         raise ValueError('Invalid measurement dimensions')
     if flags & ~56 != (3 if side == 'native' else 0) or flags >> 4 > 3:
         raise ValueError('Unexpected renderer or native ownership')
-    rows = [dict(zip(fields, struct.unpack_from('<'+str(len(fields))+'Q', data, 96+i*stride))) for i in range(count+1)]
-    if version==2 and not flags&8 and any(r[k] for r in rows for k in BATCH_FIELDS):raise ValueError('Batch counters in an immediate build')
+    rows = [dict(zip(FIELDS, struct.unpack_from('<'+str(len(FIELDS))+'Q', data, HEADER_BYTES+i*stride))) for i in range(count+1)]
+    if not flags&8 and any(r[k] for r in rows for k in BATCH_FIELDS):raise ValueError('Batch counters in an immediate build')
     baseline, pages = rows[0], rows[1:]
     if any(a['row'] >= b['row'] for a,b in zip(pages,pages[1:])) or not any(p['color_dispatches'] or (not require_color and p['mono_dispatches']) for p in pages):
         raise ValueError('Incomplete or empty color-glyph sweep')
     for row in pages:
         row['cpu_us'] = row['cpu_ticks']*1e6/cpu_frequency
-        row['gpu_interval_us'] = row['gpu_ticks']*1e6/gpu_frequency
     def summary(key):
         values = [p[key] for p in pages]
         return dict(total=sum(values), median=statistics.median(values),
                     p95=sorted(values)[math.ceil(.95*len(values))-1], maximum=max(values))
     return dict(adapter=dict(vendor=vendor,device=device,luid=luid),viewport=[width,height,dpi],
-                cpu_frequency=cpu_frequency,gpu_frequency=gpu_frequency,flags=flags,schema=version,batch_enabled=bool(flags&8),page_control=('queued','flush','wait','present')[flags>>4],baseline=baseline,pages=pages,
-                cpu_us=summary('cpu_us'),gpu_interval_us=summary('gpu_interval_us'),
+                cpu_frequency=cpu_frequency,flags=flags,schema=3,batch_enabled=bool(flags&8),page_control=('queued','flush','wait','present')[flags>>4],baseline=baseline,pages=pages,
+                cpu_us=summary('cpu_us'),
                 totals={k:sum(p[k] for p in pages) for k in ('thread_cycles','builds','mono_dispatches','color_dispatches','mono_pixels','mono_commands')},
                 maxima={k:max(p[k] for p in rows) for k in ('local_usage','nonlocal_usage','working_set','private_bytes','textures','buffers')})
 
@@ -77,7 +76,7 @@ def main():
         for i in range(args.runs):
             data=out/f'data-{i}';data.mkdir();metrics=out/f'pages-{i}.bin'
             env={k:v for k,v in os.environ.items() if not k.startswith('MAICORD_')}
-            env.update(LOCALAPPDATA=str(data),MAICORD_UI_PROBE_ONCE='1',MAICORD_GPU_METRICS='1',MAICORD_EMOJI_GPU_METRICS=str(metrics))
+            env.update(LOCALAPPDATA=str(data),MAICORD_UI_PROBE_ONCE='1',MAICORD_EMOJI_GPU_METRICS=str(metrics))
             if args.side=='native':env['MAICORD_NATIVE_BOOTSTRAP_PROBE']='1'
             if args.page_control!='queued':env['MAICORD_EMOJI_PAGE_CONTROL']=str(('queued','flush','wait','present').index(args.page_control))
             entry=dict(run=i);runs.append(entry)
@@ -97,9 +96,8 @@ def main():
             if any(found):
                 if any(len(values)!=1 for values in found):raise ValueError('Incomplete batch counters')
                 entry['batch']={name:int(values[0]) for name,values in zip(names,found)}
-                if entry['measurement']['schema']==2:
-                    for name,key in zip(names,BATCH_FIELDS):
-                        if entry['batch'][name]!=sum(p[key] for p in entry['measurement']['pages']):raise ValueError('Batch totals disagree with page records')
+                for name,key in zip(names,BATCH_FIELDS):
+                    if entry['batch'][name]!=sum(p[key] for p in entry['measurement']['pages']):raise ValueError('Batch totals disagree with page records')
             if entry['measurement']['batch_enabled'] and 'batch' not in entry:raise ValueError('Missing batch counters')
             if identity(exe)!=binary:raise ValueError('Executable changed during measurement')
             save()

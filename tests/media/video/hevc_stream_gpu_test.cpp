@@ -116,14 +116,8 @@ u64 now_ticks() noexcept {
     return static_cast<u64>(value.QuadPart);
 }
 
-// Decode CPU time and submit-to-completion GPU time of one picture.
+// Decode CPU time of one picture.
 void measure(Capture* capture, Stream* s, u32 rtp, const char* label) noexcept {
-    ID3D11Device* device = capture->device;
-    ID3D11DeviceContext* context = capture->context;
-    ID3D11Query* query = nullptr;
-    D3D11_QUERY_DESC desc{D3D11_QUERY_EVENT, 0};
-    if (FAILED(device->CreateQuery(&desc, &query)))
-        return;
     LARGE_INTEGER frequency{};
     QueryPerformanceFrequency(&frequency);
     u64 cycles_before = 0, cycles_after = 0;
@@ -134,19 +128,11 @@ void measure(Capture* capture, Stream* s, u32 rtp, const char* label) noexcept {
     capture->skip_readback = false;
     QueryThreadCycleTime(GetCurrentThread(), &cycles_after);
     const u64 submitted = now_ticks();
-    context->End(query);
-    BOOL done = FALSE;
-    while (context->GetData(query, &done, sizeof(done), 0) != S_OK)
-        SwitchToThread();
-    const u64 complete = now_ticks();
-    query->Release();
     const u64 hz = static_cast<u64>(frequency.QuadPart ? frequency.QuadPart : 1);
     test_write_text(label);
     test_write_metric(" cpu_us ", (submitted - start) * 1'000'000ull / hz);
     test_write_text(label);
     test_write_metric(" cpu_cycles ", cycles_after - cycles_before);
-    test_write_text(label);
-    test_write_metric(" gpu_wait_us ", (complete - submitted) * 1'000'000ull / hz);
 }
 
 int small_stream(ID3D11Device* device, ID3D11DeviceContext* context, Bits* bits, Output* out) noexcept {

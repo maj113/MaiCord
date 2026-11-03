@@ -68,15 +68,12 @@ struct Gate {
     bool draw_reference(const Theme& theme) noexcept {
         const u32 draws = r.draw_calls_last_frame, media = r.media_draws_last_frame, total = r.media_draws_total;
         const u64 effect_next = r.text_effect_next_ms;
-        const bool timer = r.gpu_timer.enabled;
         ID3D11RenderTargetView* presented = r.graphics.target;
-        r.gpu_timer.enabled = false;
         r.graphics.target = target;
         // At the frame's own effect clock: draw_stream set the next deadline 42 ms past it.
         const bool drawn = d3d11_renderer_draw_stream(&r, theme, false, false, nullptr, effect_next - 42);
         r.graphics.target = presented;
         r.graphics.context->OMSetRenderTargets(1, &r.graphics.target, nullptr);
-        r.gpu_timer.enabled = timer;
         r.text_effect_next_ms = effect_next;
         r.draw_calls_last_frame = draws;
         r.media_draws_last_frame = media;

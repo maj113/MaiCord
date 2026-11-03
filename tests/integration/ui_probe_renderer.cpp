@@ -386,15 +386,6 @@ bool glyph_text_owner_ready(const D3D11Renderer& renderer) noexcept {
            owner.gpu.command_view && owner.gpu.raster_shader && owner.ready;
 }
 
-bool gpu_timer_empty(const D3D11GpuTimerOwner& owner) noexcept {
-    bool empty = !owner.enabled && owner.total_microseconds == 0 && owner.cursor == 0 && owner.samples == 0;
-    for (u32 index = 0; index < kD3D11GpuTimerFrameCount; ++index) {
-        const D3D11GpuTimerFrame& frame = owner.frames[index];
-        empty = empty && !frame.disjoint && !frame.begin && !frame.end && !frame.pending;
-    }
-    return empty;
-}
-
 bool message_hit_cache_empty(const MessageHitTestCacheOwner& owner) noexcept {
     return !owner.geometry && !owner.native_format && !owner.storage.base && owner.message_id == 0 &&
            owner.measurement_identity == 0 && owner.message_revision == 0 && owner.command_index == 0 &&
@@ -419,20 +410,6 @@ bool content_text_retention_empty(const ContentTextRetentionOwner& owner) noexce
            key.selection_command_index == 0 && key.selection_anchor == 0 && key.selection_caret == 0 &&
            key.dpi == 0 && key.atlas_evicted_entries == 0 && key.atlas_full_resets == 0 &&
            !key.include_messages;
-}
-
-bool gpu_timer_ready(const D3D11Renderer& renderer) noexcept {
-    const D3D11GpuTimerOwner& owner = renderer.gpu_timer;
-    if (!owner.enabled) {
-        return false;
-    }
-    for (u32 index = 0; index < kD3D11GpuTimerFrameCount; ++index) {
-        const D3D11GpuTimerFrame& frame = owner.frames[index];
-        if (!frame.disjoint || !frame.begin || !frame.end) {
-            return false;
-        }
-    }
-    return true;
 }
 
 bool resize_stress_requested() noexcept {

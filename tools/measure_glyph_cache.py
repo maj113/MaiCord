@@ -2,8 +2,8 @@
 
 Initialization includes the renderer/device. First draw includes text discovery,
 shaping, atlas generation and drawing. Reset preserves font/GPU owners. Warm
-shape/draw and retained-draw phases each issue 64 calls without Present. Device
-intervals include CPU feed gaps; no OS-cold, GPU busy-time or display-latency claim.
+shape/draw and retained-draw phases each issue 64 calls without Present. Phase
+intervals include CPU feed gaps; no OS-cold or display-latency claim.
 Optional prewarm completes 4096 retained draws before each warm/reset phase,
 outside its timing interval; first draw remains unchanged.
 """
@@ -38,7 +38,7 @@ def main():
         for i in range(args.runs):
             data=out/f'data-{i}';data.mkdir();metrics=out/f'phases-{i}.bin'
             env={k:v for k,v in os.environ.items() if not k.startswith('MAICORD_')}
-            env.update(LOCALAPPDATA=str(data),MAICORD_UI_PROBE_ONCE='1',MAICORD_GPU_METRICS='1',MAICORD_GLYPH_CACHE_METRICS=str(metrics))
+            env.update(LOCALAPPDATA=str(data),MAICORD_UI_PROBE_ONCE='1',MAICORD_GLYPH_CACHE_METRICS=str(metrics))
             env['MAICORD_GLYPH_CACHE_KIND']=str(('mixed','mono','color').index(args.fixture))
             if args.prewarm:env['MAICORD_GLYPH_CACHE_PREWARM']='1'
             if args.side=='native':env['MAICORD_NATIVE_BOOTSTRAP_PROBE']='1'
@@ -61,7 +61,7 @@ def main():
                     if not row['builds'] or (args.fixture!='color' and not row['mono_dispatches']) or (args.fixture!='mono' and not row['color_dispatches']):raise ValueError('Missing glyph generation')
                     if (args.fixture=='color' and row['mono_dispatches']) or (args.fixture=='mono' and row['color_dispatches']):raise ValueError('Mixed glyph generation in isolated fixture')
                 elif any(row[k] for k in ['builds','mono_dispatches','color_dispatches','color_canceled_jobs']):raise ValueError('Warm atlas regenerated glyphs')
-                phases[name]=dict(repeats=repeats,cpu_us_per_call=row['cpu_us']/repeats,device_us_per_call=row['gpu_interval_us']/repeats,cycles_per_call=row['thread_cycles']/repeats,raw=row)
+                phases[name]=dict(repeats=repeats,cpu_us_per_call=row['cpu_us']/repeats,cycles_per_call=row['thread_cycles']/repeats,raw=row)
             values={}
             keys=['renderer_init_us','renderer_init_cycles','geometry_hash','glyphs','clusters','quads']
             for key in keys:

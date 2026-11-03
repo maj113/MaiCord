@@ -416,12 +416,11 @@ Write-Host ''
 # Immediate-context work per painted frame: draws (renderer count), state
 # binds without scissors, scissor rects and those repeating the previous one,
 # buffer maps, copies and their kilopixels, compute dispatches and binds; then
-# draw-stream GPU time per frame, replayed offscreen after each present (full
-# frames and damage-clipped frames separately), the replayed damage area and
-# the main-thread CPU of one replayed draw stream (submission alone).
+# the damage area of the draw stream replayed offscreen after each present
+# and the main-thread CPU of one replayed draw stream (submission alone).
 $gpuColumns = @(@('draws', 'draws', 1), @('binds', 'binds', 1), @('g_scissor', 'scissor', 1),
     @('g_scissor_same', 'same sc', 1), @('g_maps', 'maps', 2), @('g_copies', 'copies', 2), @('copy_kpx', 'copy Kpx', 1),
-    @('g_dispatch', 'dispatch', 2), @('g_cs', 'cs binds', 1), @('gpu_full', 'full us', 1), @('gpu_partial', 'part us', 1),
+    @('g_dispatch', 'dispatch', 2), @('g_cs', 'cs binds', 1),
     @('partial_kpx', 'part Kpx', 1), @('submit_us', 'submit us', 1))
 $header = '{0,-12}' -f 'gpu / frame'
 foreach ($column in $gpuColumns) { $header += '{0,10}' -f $column[1] }
@@ -438,9 +437,7 @@ foreach ($phase in @('history', 'idle_static', 'scroll', 'switch', 'member_list'
                 'binds' { ([double]$row.g_shader + [double]$row.g_srv + [double]$row.g_sampler + [double]$row.g_cb +
                     [double]$row.g_ia + [double]$row.g_om + [double]$row.g_rs) / $frames }
                 'copy_kpx' { [double]$row.g_copy_px / 1000 / $frames }
-                'gpu_full' { [double]$row.gpu_full_us / [Math]::Max(1, [double]$row.gpu_full_n) }
-                'gpu_partial' { [double]$row.gpu_partial_us / [Math]::Max(1, [double]$row.gpu_partial_n) }
-                'partial_kpx' { [double]$row.gpu_partial_px / 1000 / [Math]::Max(1, [double]$row.gpu_partial_n) }
+                'partial_kpx' { [double]$row.replay_partial_px / 1000 / [Math]::Max(1, [double]$row.replay_partial_n) }
                 'submit_us' { [double]$row.replay_cpu_us / [Math]::Max(1, [double]$row.replays) }
                 default { [double]$row[$column[0]] / $frames }
             }
@@ -448,8 +445,8 @@ foreach ($phase in @('history', 'idle_static', 'scroll', 'switch', 'member_list'
         $line += '{0,10}' -f (Format-Number (Get-Median $values) $column[2])
     }
     $line += '{0,10}{1,10}{2,10}' -f (Format-Number (Get-Median @($rows | ForEach-Object { [double]$_.painted }))),
-        (Format-Number (Get-Median @($rows | ForEach-Object { [double]$_.gpu_full_n }))),
-        (Format-Number (Get-Median @($rows | ForEach-Object { [double]$_.gpu_partial_n })))
+        (Format-Number (Get-Median @($rows | ForEach-Object { [double]$_.replay_full_n }))),
+        (Format-Number (Get-Median @($rows | ForEach-Object { [double]$_.replay_partial_n })))
     Write-Host $line
 }
 Write-Host ''

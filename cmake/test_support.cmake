@@ -243,14 +243,14 @@ endfunction()
 
 # maicord_ui_probe_test(<test> <variable> [BOOTSTRAP] [<maicord_add_tests property>...])
 # MaiCordUiProbe with MAICORD_<variable>=1, the native bootstrap when
-# BOOTSTRAP is given, and GPU metrics.
+# BOOTSTRAP is given.
 function(maicord_ui_probe_test test variable)
     cmake_parse_arguments(PARSE_ARGV 2 ARG "BOOTSTRAP" "" "")
     set(environment MAICORD_${variable}=1)
     if(ARG_BOOTSTRAP)
         list(APPEND environment MAICORD_NATIVE_BOOTSTRAP_PROBE=1)
     endif()
-    maicord_add_tests(MaiCordUiProbe ${ARG_UNPARSED_ARGUMENTS} ENV ${environment} MAICORD_GPU_METRICS=1
+    maicord_add_tests(MaiCordUiProbe ${ARG_UNPARSED_ARGUMENTS} ENV ${environment}
         TEST ${test})
 endfunction()
 

@@ -12,7 +12,6 @@
 #include "maicord/app/chat/messages/view_runtime.hpp"
 #include "maicord/render/d3d11/device.hpp"
 #include "maicord/render/d3d11/draw_pipeline.hpp"
-#include "maicord/render/d3d11/gpu_timer.hpp"
 #include "maicord/render/d3d11/renderer.hpp"
 #include "maicord/model/chat/message_store.hpp"
 #include "maicord/model/chat/message_composer.hpp"
@@ -1842,7 +1841,6 @@ int run() noexcept {
                  sizeof(g_message_media_visible_rows) + sizeof(g_message_media_asset_marks), "bytes");
     write_metric("ui_d3d11_device_owner_size", sizeof(D3D11DeviceOwner), "bytes");
     write_metric("ui_d3d11_draw_pipeline_owner_size", sizeof(D3D11DrawPipelineOwner), "bytes");
-    write_metric("ui_d3d11_gpu_timer_owner_size", sizeof(D3D11GpuTimerOwner), "bytes");
     write_metric("ui_text_composer_layout_owner_size", sizeof(TextEditLayoutOwner), "bytes");
     write_metric("ui_message_hit_owner_size", sizeof(MessageHitTestCacheOwner), "bytes");
     write_metric("ui_d3d11_glyph_text_owner_size", sizeof(D3D11GlyphTextOwner), "bytes");

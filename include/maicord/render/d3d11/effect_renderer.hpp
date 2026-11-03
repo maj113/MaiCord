@@ -85,9 +85,6 @@ struct D3D11EffectOwner {
     u32 caption_pixels;   // window rows above the content
     u32 drawn[kD3D11EffectCanvases];
     u32 drawn_count, draws_last_frame, renders;
-    // GPU time of the finished redraws, as measured (diagnostics and the cost report).
-    u32 last_gpu_microseconds, gpu_samples;
-    u64 total_gpu_microseconds;
 };
 
 enum class EffectSelect : u8 { unchanged, changed, rejected, refused };

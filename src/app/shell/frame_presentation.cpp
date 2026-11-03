@@ -79,12 +79,12 @@
 namespace maicord::app_detail {
 namespace {
 
-// The FPS counter in the window title is a diagnostic; it shows only when MAICORD_GPU_METRICS=1.
+// The FPS counter in the window title is a diagnostic; it shows only when MAICORD_FPS_TITLE=1.
 bool frame_rate_title_enabled() noexcept {
     static u32 cached = 0; // 0 unknown, 1 off, 2 on
     if (cached == 0) {
         wchar_t value[2]{};
-        const DWORD length = GetEnvironmentVariableW(L"MAICORD_GPU_METRICS", value, 2);
+        const DWORD length = GetEnvironmentVariableW(L"MAICORD_FPS_TITLE", value, 2);
         cached = (length == 1 && value[0] == L'1') ? 2u : 1u;
     }
     return cached == 2;

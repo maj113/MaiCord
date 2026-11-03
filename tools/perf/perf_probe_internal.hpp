@@ -118,33 +118,22 @@ extern GpuApiCounters g_gpu_api;
 
 u32 install_context_hooks(void* context, bool context1) noexcept;
 
-// GPU frame replay. Timestamps around a presented frame include the wait for its
-// back buffer, which DWM releases only periodically while the display sleeps. So
-// after each present the probe draws the same retained stream again, with the
-// presented damage, into an offscreen target of the back buffer's size and format
-// and times only that. Nothing is uploaded; the replay's main-thread cycles are
-// excluded from the CPU columns.
-struct GpuReplayFrame {
-    ID3D11Query* disjoint;
-    ID3D11Query* begin;
-    ID3D11Query* end;
-    bool pending, full;
-};
-constexpr u32 kGpuReplayFrames = 8;
+// Draw-stream replay. After each present the probe draws the same retained
+// stream again, with the presented damage, into an offscreen target of the back
+// buffer's size and format, so the main-thread cost of submitting one draw
+// stream is measured apart from `Present` and its wait for the back buffer.
+// Nothing is uploaded; the replay's main-thread cycles are excluded from the
+// CPU columns.
 struct GpuReplay {
     ID3D11Texture2D* texture;
     ID3D11RenderTargetView* target;
     u32 width, height;
-    GpuReplayFrame frames[kGpuReplayFrames];
-    u32 cursor;
     u64 full_presents;
     volatile LONG64 cycles; // main-thread cycles spent replaying
-    u64 full_us, full_samples, partial_us, partial_samples, partial_pixels, skipped, failures, replays;
+    u64 full_replays, partial_replays, partial_pixels, skipped, failures, replays;
 };
 
 extern GpuReplay g_replay;
-
-void gpu_replay_collect(ID3D11DeviceContext* context) noexcept;
 
 void gpu_replay(bool full) noexcept;
 
@@ -304,12 +293,10 @@ struct TextWork {
     u64 markdown_parses, markdown_hits, text_builds, shell_reuses, paint_builds;
     u64 paint_upload_bytes, text_upload_bytes, media_upload_bytes, member_media_resolves, shell_replays;
 };
-// GPU work: immediate-context calls, draw-stream GPU time (timestamp
-// queries), renderer paint CPU time and texture traffic.
+// GPU work: immediate-context calls, replayed draw streams, renderer paint CPU time and texture traffic.
 struct GpuWork {
     GpuApiCounters api;
-    u64 full_us, full_samples, partial_us, partial_samples, replay_pixels, replay_failures, replays, replay_cycles,
-        painted,
+    u64 full_replays, partial_replays, replay_pixels, replay_failures, replays, replay_cycles, painted,
         partial_pixels, media_upload_bytes, animation_copy_pixels, glyph_pixels, instance_uploads;
     // Media atlas: decoder input bytes uploaded and frames written (every
     // codec path), animation cache restores, video conversions.

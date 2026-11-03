@@ -311,12 +311,10 @@ void report_phase(Phase phase) noexcept {
         o.kv("g_flushes", d(a.flushes, b.flushes));
         const GpuWork& e = stats.gpu_end;
         const GpuWork& w = stats.gpu_begin;
-        o.kv("gpu_full_us", e.full_us - w.full_us);
-        o.kv("gpu_full_n", e.full_samples - w.full_samples);
-        o.kv("gpu_partial_us", e.partial_us - w.partial_us);
-        o.kv("gpu_partial_n", e.partial_samples - w.partial_samples);
-        o.kv("gpu_partial_px", e.replay_pixels - w.replay_pixels);
-        o.kv("gpu_replay_fail", e.replay_failures - w.replay_failures);
+        o.kv("replay_full_n", e.full_replays - w.full_replays);
+        o.kv("replay_partial_n", e.partial_replays - w.partial_replays);
+        o.kv("replay_partial_px", e.replay_pixels - w.replay_pixels);
+        o.kv("replay_fail", e.replay_failures - w.replay_failures);
         // Main-thread CPU of the replayed draw streams: submission cost alone.
         o.kv("replays", e.replays - w.replays);
         o.kvf("replay_cpu_us", cycles_to_us(e.replay_cycles - w.replay_cycles));

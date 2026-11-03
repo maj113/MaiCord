@@ -247,7 +247,7 @@ bool effect_canvas_pixels(D3D11Renderer& r) noexcept;
 
 // Package background effects against the renderer: the pass draws once per target frame under the frame cap,
 // canvases sample one window-space target (continuity, widgets above), the resolution, pause, blend, opacity and
-// budget behave, a lost device is rebuilt, and the shipped samples render and are timed (captured when
+// budget behave, a lost device is rebuilt, and the shipped samples render and move (captured when
 // MAICORD_UI_PROBE_CAPTURE_DIR is set).
 bool effect_package_pixels(D3D11Renderer& r) noexcept;
 

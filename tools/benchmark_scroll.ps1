@@ -17,7 +17,7 @@ $mutex = [Threading.Mutex]::new($false, 'Local\MaiCordReleaseBuild')
 $locked = $false
 $profile = Join-Path $cacheRoot ('test-profile-' + [guid]::NewGuid().ToString('N'))
 $previous = @{}
-foreach ($name in @('LOCALAPPDATA', 'MAICORD_UI_PROBE_ONCE', 'MAICORD_SCROLL_BENCHMARK', 'MAICORD_GPU_METRICS')) {
+foreach ($name in @('LOCALAPPDATA', 'MAICORD_UI_PROBE_ONCE', 'MAICORD_SCROLL_BENCHMARK')) {
     $previous[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
 }
 Push-Location $repository
@@ -39,7 +39,6 @@ try {
         $env:LOCALAPPDATA = $run
         $env:MAICORD_UI_PROBE_ONCE = '1'
         $env:MAICORD_SCROLL_BENCHMARK = '1'
-        $env:MAICORD_GPU_METRICS = '1'
         $process = Start-Process -FilePath $binary -PassThru -Wait
         $log = Get-Content -LiteralPath (Join-Path $run 'MaiCord\logs\maicord.log') -Raw
         if ($process.ExitCode -ne 0) {

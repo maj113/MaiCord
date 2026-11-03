@@ -218,11 +218,6 @@ bool renderer_initialize(D3D11Renderer* renderer, HWND window, bool content_text
     renderer->present_logical_damage_valid = false;
     renderer->present_logical_damage_full = false;
     renderer->begin_frame_permit = false;
-    wchar_t gpu_metrics[2]{};
-    const bool gpu_timestamps_enabled =
-        GetEnvironmentVariableW(L"MAICORD_GPU_METRICS", gpu_metrics,
-                                static_cast<DWORD>(sizeof(gpu_metrics) / sizeof(gpu_metrics[0]))) == 1 &&
-        gpu_metrics[0] == L'1';
 
     const D3D11DeviceOwnerResult graphics = d3d11_device_owner_initialize(&renderer->graphics, window);
     if (!graphics.ok()) {
@@ -273,16 +268,6 @@ bool renderer_initialize(D3D11Renderer* renderer, HWND window, bool content_text
     }
     if (prestarted_atlas && !prestarted_atlas->texture)
         renderer->startup_prestart |= 4;
-    const D3D11GpuTimerResult gpu_timer =
-        d3d11_gpu_timer_initialize(&renderer->gpu_timer, renderer->graphics.device, gpu_timestamps_enabled);
-    if (!gpu_timer.ok()) {
-        log_write(LogLevel::error, "render", "gpu_timestamp_query_creation_failed");
-        log_u64(LogLevel::error, "render", "gpu_timestamp_query_stage", static_cast<u32>(gpu_timer.error));
-        log_u64(LogLevel::error, "render", "gpu_timestamp_native_error",
-                static_cast<u32>(gpu_timer.native_error));
-        renderer_shutdown(renderer);
-        return false;
-    }
     // The prestart worker's pipeline, or one built here when it did not run.
     const D3D11DrawPipelineResult pipeline = initialize_pipeline(renderer);
     if (!pipeline.ok()) {
@@ -453,7 +438,6 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
     // synchronously waiting one second for a signal that requires a Present
     // to be produced.
     renderer->begin_frame_permit = false;
-    d3d11_gpu_timer_collect(&renderer->gpu_timer, renderer->graphics.context);
     if (renderer->present_full) {
         ++renderer->full_present_draws;
     } else {
@@ -765,7 +749,6 @@ void renderer_shutdown(D3D11Renderer* renderer) noexcept {
         renderer->graphics.context->ClearState();
         renderer->graphics.context->Flush();
     }
-    d3d11_gpu_timer_release(&renderer->gpu_timer, renderer->graphics.context);
     d3d11_background_fx_release(&renderer->background_fx);
     d3d11_effect_release(&renderer->effect);
     paint_stream_release(&renderer->paint_stream);
@@ -879,8 +862,6 @@ bool renderer_recover_device(D3D11Renderer* renderer) noexcept {
     com_release(renderer->settings_backdrop_quad);
     com_release(renderer->text_effect_buffer);
     renderer->text_effect_uploaded_count = 0;
-    const bool timestamps = renderer->gpu_timer.enabled;
-    d3d11_gpu_timer_release(&renderer->gpu_timer, renderer->graphics.context);
     renderer_release_media_surfaces(renderer);
     icon_atlas_release(&renderer->icon_atlas);
     d3d11_draw_pipeline_release(&renderer->pipeline);
@@ -905,7 +886,6 @@ bool renderer_recover_device(D3D11Renderer* renderer) noexcept {
     if (!icon_atlas_initialize(&renderer->icon_atlas, renderer->graphics.device))
         log_write(LogLevel::error, "render", "icon_atlas_creation_failed");
     bool ok = d3d11_glyph_text_recreate_gpu(&renderer->glyph_text, renderer->graphics.device);
-    ok = ok && d3d11_gpu_timer_initialize(&renderer->gpu_timer, renderer->graphics.device, timestamps).ok();
     ok = ok && initialize_pipeline(renderer).ok();
     // The glyph ring is as large as the bound text needs.
     const u32 glyph_capacity = renderer->content_text ? renderer->content_text->quad_capacity : 0;

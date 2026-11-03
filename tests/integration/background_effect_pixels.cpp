@@ -297,14 +297,12 @@ bool budget_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
             r.effect.verdict = EffectVerdict::none;
     }
     log_u64(LogLevel::info, "probe", "effect_budget_heavy_package_reacted", reacted);
-    log_u64(LogLevel::info, "probe", "effect_budget_gpu_samples", r.effect.gpu_samples);
-    log_u64(LogLevel::info, "probe", "effect_budget_last_gpu_us", r.effect.last_gpu_microseconds);
     log_u64(LogLevel::info, "probe", "effect_budget_step", r.effect.step);
     log_u64(LogLevel::info, "probe", "effect_budget_renders", r.effect.renders);
     return reacted ? true : failure(164);
 }
 
-// ---- The samples: cost and captures -------------------------------------------------------------
+// ---- The samples: renders and captures ----------------------------------------------------------
 bool capture_wanted() noexcept {
     return GetEnvironmentVariableW(L"MAICORD_UI_PROBE_CAPTURE_DIR", nullptr, 0) != 0;
 }
@@ -340,14 +338,14 @@ bool write_frame(D3D11Renderer& r, const char* name, const wchar_t* kind, i32 in
     return probe_write_capture(readback, file);
 }
 
-// Draws the package for `frames` UI frames at one resolution step with the controller held, and averages the
-// pass's own GPU time. False when the pass never timed a frame.
-bool measure(D3D11Renderer& r, const Theme& theme, const BackgroundEffectSpec& spec, u32 step, u32 frames,
-             u32* microseconds) noexcept {
+// Draws the package for `frames` UI frames at one resolution step with the controller held. False when the
+// package is not selected, a frame fails, or the pass redraws nothing.
+bool render_step(D3D11Renderer& r, const Theme& theme, const BackgroundEffectSpec& spec, u32 step,
+                 u32 frames) noexcept {
     const auto selected = renderer_select_effect(&r, spec, settings_of(step, spec.blend, 1, EffectBudget::high));
     if (selected.state == EffectSelect::rejected || !r.effect.selected)
         return false;
-    // The controller is held: this measures a step, not the controller.
+    // The controller is held: this renders a step, not the controller.
     r.effect.step = step;
     r.effect.budget.step = static_cast<u8>(step);
     r.effect.budget.ceiling = static_cast<u8>(step);
@@ -356,23 +354,11 @@ bool measure(D3D11Renderer& r, const Theme& theme, const BackgroundEffectSpec& s
     for (u32 i = 0; i < 6; ++i)
         if (!frame(r, theme, i * .05f))
             return false;
-    r.graphics.context->Flush();
-    Sleep(20);
-    r.effect.total_gpu_microseconds = 0;
-    r.effect.gpu_samples = 0;
-    for (u32 i = 0; i < frames; ++i) {
+    const u32 renders = r.effect.renders;
+    for (u32 i = 0; i < frames; ++i)
         if (!frame(r, theme, .3f + i * .05f))
             return false;
-        r.graphics.context->Flush();
-        // Timings resolve a frame or two later; give the GPU room to finish between frames.
-        Sleep(3);
-    }
-    Sleep(20);
-    frame(r, theme, .3f + frames * .05f);
-    if (!r.effect.gpu_samples)
-        return false;
-    *microseconds = static_cast<u32>(r.effect.total_gpu_microseconds / r.effect.gpu_samples);
-    return true;
+    return r.effect.selected && r.effect.renders > renders;
 }
 
 bool samples_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
@@ -385,7 +371,7 @@ bool samples_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
     const bool capture = capture_wanted();
     for (const auto& package : kSamples) {
         const BackgroundEffectSpec spec = spec_of(package);
-        // Cost at 1440p: the full target and the package's own resolution.
+        // 1440p: the full target and the package's own resolution each redraw.
         if (!renderer_resize(&r, 2560, 1440) || r.width != 2560)
             return failure(170);
         {
@@ -396,13 +382,10 @@ bool samples_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
                 return failure(171);
             StreamSwap restore{r, scene.stream, kDefaultTheme, true};
             install(r, scene);
-            u32 full = 0, own = 0;
             const u32 own_step = package.resolution ? package.resolution - 1u : kEffectDefaultResolutionStep;
-            if (!measure(r, theme, spec, 4, 24, &full) || !measure(r, theme, spec, own_step, 24, &own))
+            if (!render_step(r, theme, spec, 4, 24) || !render_step(r, theme, spec, own_step, 24))
                 return failure(172);
             log_write(LogLevel::info, "probe", package.name);
-            log_u64(LogLevel::info, "probe", "effect_gpu_us_1440p_full_resolution", full);
-            log_u64(LogLevel::info, "probe", "effect_gpu_us_1440p_package_resolution", own);
             renderer_clear_effect(&r);
         }
         // The picture: a still and a short loop at the catalog's preview size, and proof it is drawn and moves.
@@ -449,7 +432,7 @@ bool samples_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
                     return failure(180);
         renderer_clear_effect(&r);
     }
-    log_write(LogLevel::info, "probe", "effect_samples_render_move_and_were_timed_passed");
+    log_write(LogLevel::info, "probe", "effect_samples_render_and_move_passed");
     return true;
 }
 

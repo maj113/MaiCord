@@ -2,7 +2,6 @@
 #include "benchmark_output.hpp"
 #include "maicord/render/text/glyph_atlas.hpp"
 #include "maicord/render/text/glyph_atlas_gpu.hpp"
-#include "maicord/render/d3d11/gpu_timing.hpp"
 #include "maicord/ui/text/text.hpp"
 #include "maicord/render/text/native_glyph_outlines.hpp"
 
@@ -27,20 +26,6 @@ inline constexpr u32 kChurnIterations = 100'000;
 GlyphAtlasEntry g_full_entries[kFullEntries];
 GlyphAtlasRow g_full_rows[128];
 u16 g_full_index[kFullEntries * 2];
-
-bool wait_query(ID3D11DeviceContext* context, ID3D11Query* query, void* output, u32 output_bytes) noexcept {
-    for (u32 attempt = 0; attempt < 1'000'000; ++attempt) {
-        const HRESULT result = context->GetData(query, output, output_bytes, 0);
-        if (result == S_OK) {
-            return true;
-        }
-        if (FAILED(result)) {
-            return false;
-        }
-        Sleep(0);
-    }
-    return false;
-}
 
 constexpr u64 full_key(u32 index) noexcept {
     return (1ull << 48) | (96ull << 32) | (1024ull << 16) | (index & 0xFFFFu) | (static_cast<u64>(index >> 16) << 40);
@@ -123,53 +108,20 @@ bool decode_outline(TextSystem* text_system, ShapedText* shaped, GlyphOutline* o
     return decoded;
 }
 
-// Times kDispatchIterations single-glyph batches on the CPU and the GPU. Returns 0 or a run() exit code.
-int time_batches(ID3D11Device* device, ID3D11DeviceContext* context, GlyphAtlasGpu* gpu, const GlyphOutline& outline,
+// Times kDispatchIterations single-glyph batches' CPU submission. Returns 0 or a run() exit code.
+int time_batches(ID3D11DeviceContext* context, GlyphAtlasGpu* gpu, const GlyphOutline& outline,
                  const GlyphRasterBounds& bounds, const GlyphAtlasAllocation& allocation, float pixels_per_em,
-                 u16 padding, u64* cpu_us, u64* gpu_us) noexcept {
-    D3D11_QUERY_DESC disjoint_description{D3D11_QUERY_TIMESTAMP_DISJOINT, 0};
-    D3D11_QUERY_DESC timestamp_description{D3D11_QUERY_TIMESTAMP, 0};
-    ID3D11Query* disjoint_query = nullptr;
-    ID3D11Query* begin_query = nullptr;
-    ID3D11Query* end_query = nullptr;
-    HRESULT result = device->CreateQuery(&disjoint_description, &disjoint_query);
-    if (SUCCEEDED(result)) {
-        result = device->CreateQuery(&timestamp_description, &begin_query);
+                 u16 padding, u64* cpu_us) noexcept {
+    const Clock clock = clock_initialize();
+    const i64 cpu_begin = clock_now();
+    bool dispatch_ok = true;
+    for (u32 iteration = 0; iteration < kDispatchIterations; ++iteration) {
+        GlyphRasterBatch batch(gpu, context);
+        dispatch_ok = dispatch_ok && batch.add(outline, bounds, allocation, pixels_per_em, padding).ok() &&
+                      batch.finish();
     }
-    if (SUCCEEDED(result)) {
-        result = device->CreateQuery(&timestamp_description, &end_query);
-    }
-    bool timed = SUCCEEDED(result);
-    if (timed) {
-        const Clock clock = clock_initialize();
-        const i64 cpu_begin = clock_now();
-        context->Begin(disjoint_query);
-        context->End(begin_query);
-        bool dispatch_ok = true;
-        for (u32 iteration = 0; iteration < kDispatchIterations; ++iteration) {
-            GlyphRasterBatch batch(gpu, context);
-            dispatch_ok = dispatch_ok && batch.add(outline, bounds, allocation, pixels_per_em, padding).ok() &&
-                          batch.finish();
-        }
-        context->End(end_query);
-        context->End(disjoint_query);
-        *cpu_us = clock_microseconds(clock, cpu_begin, clock_now());
-        context->Flush();
-        D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint{};
-        u64 gpu_begin = 0;
-        u64 gpu_end = 0;
-        timed = dispatch_ok && wait_query(context, disjoint_query, &disjoint, sizeof(disjoint)) &&
-                wait_query(context, begin_query, &gpu_begin, sizeof(gpu_begin)) &&
-                wait_query(context, end_query, &gpu_end, sizeof(gpu_end)) && !disjoint.Disjoint &&
-                disjoint.Frequency != 0 && gpu_end >= gpu_begin;
-        if (timed) {
-            *gpu_us = gpu_timestamp_microseconds(gpu_end - gpu_begin, disjoint.Frequency);
-        }
-    }
-    com_release(end_query);
-    com_release(begin_query);
-    com_release(disjoint_query);
-    return timed ? 0 : 7;
+    *cpu_us = clock_microseconds(clock, cpu_begin, clock_now());
+    return dispatch_ok ? 0 : 7;
 }
 
 int run() noexcept {
@@ -229,9 +181,9 @@ int run() noexcept {
         return 5;
     }
 
-    u64 cpu_us = 0, gpu_us = 0;
-    if (const int status = time_batches(device, context, &gpu, outline, bounds, allocation, 32.0f,
-                                        allocator.padding, &cpu_us, &gpu_us)) {
+    u64 cpu_us = 0;
+    if (const int status = time_batches(context, &gpu, outline, bounds, allocation, 32.0f, allocator.padding,
+                                        &cpu_us)) {
         return status;
     }
     const u32 glyph_commands = outline.count;
@@ -246,12 +198,12 @@ int run() noexcept {
     }
     const GlyphAtlasAllocation large_allocation =
         glyph_atlas_allocate(&allocator, 2, large_bounds.width, large_bounds.height);
-    u64 large_cpu_us = 0, large_gpu_us = 0;
+    u64 large_cpu_us = 0;
     if (!large_allocation.ok()) {
         return 5;
     }
-    if (const int status = time_batches(device, context, &gpu, outline, large_bounds, large_allocation, 160.0f,
-                                        allocator.padding, &large_cpu_us, &large_gpu_us)) {
+    if (const int status = time_batches(context, &gpu, outline, large_bounds, large_allocation, 160.0f,
+                                        allocator.padding, &large_cpu_us)) {
         return status;
     }
 
@@ -297,11 +249,9 @@ int run() noexcept {
     write_value("glyph_coverage_sum", coverage_sum);
     write_value("glyph_dispatch_count", gpu.dispatch_count);
     write_value("glyph_dispatch_cpu_batch_us", cpu_us);
-    write_value("glyph_dispatch_gpu_batch_us", gpu_us);
     write_value("glyph_large_width", large_bounds.width);
     write_value("glyph_large_height", large_bounds.height);
     write_value("glyph_large_dispatch_cpu_batch_us", large_cpu_us);
-    write_value("glyph_large_dispatch_gpu_batch_us", large_gpu_us);
 
     const bool valid_output = coverage_sum != 0 && covered_pixels != 0 && partial_pixels != 0 &&
                               gpu.dispatch_count == 2 * kDispatchIterations;

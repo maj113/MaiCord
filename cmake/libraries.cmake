@@ -550,7 +550,7 @@ maicord_library(maicord_renderer
     src/render/media/animation_frame_cache_gpu.cpp src/render/text/content_text_retention.cpp
     src/render/text/shaped_text_cache.cpp src/render/d3d11/device.cpp src/render/d3d11/draw_pipeline.cpp
     src/render/effects/colr_paint.cpp src/render/d3d11/glyph_text.cpp src/render/media/icon_atlas.cpp
-    src/render/text/native_glyph_outlines.cpp src/render/d3d11/background_fx.cpp src/render/d3d11/gpu_timer.cpp
+    src/render/text/native_glyph_outlines.cpp src/render/d3d11/background_fx.cpp
     src/render/d3d11/effect_renderer.cpp src/render/d3d11/effect_inputs.cpp src/render/d3d11/effect_glyphs.cpp
     src/render/d3d11/renderer.cpp src/render/d3d11/renderer_draw.cpp src/render/d3d11/renderer_edit.cpp
     src/render/d3d11/renderer_layout.cpp src/render/d3d11/renderer_layout_media.cpp src/render/d3d11/renderer_text.cpp

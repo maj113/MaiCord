@@ -8,7 +8,6 @@
 #include "maicord/media/core/presentation_policy.hpp"
 #include "maicord/protocol/media/cdn_url.hpp"
 #include "maicord/protocol/media/cdn_http.hpp"
-#include "maicord/render/d3d11/gpu_timing.hpp"
 #include "maicord/render/media/atlas_gpu.hpp"
 #include "maicord/render/d3d11/presentation_damage.hpp"
 #include "../tests/fixtures/jpeg_progressive_fixture.hpp"
@@ -290,60 +289,14 @@ bool timeline_only_requested() noexcept {
                                    sizeof(value) / sizeof(value[0])) != 0;
 }
 
-bool wait_query(ID3D11DeviceContext* context, ID3D11Query* query, void* output, u32 output_bytes) noexcept {
-    const u64 deadline_ms = GetTickCount64() + 2'000u;
-    for (;;) {
-        const HRESULT result = context->GetData(query, output, output_bytes, 0);
-        if (result == S_OK) {
-            return true;
-        }
-        if (FAILED(result)) {
-            return false;
-        }
-        if (GetTickCount64() >= deadline_ms) {
-            return false;
-        }
-        Sleep(0);
-    }
-}
-
-// The D3D11 timestamp queries that bracket one timed GPU batch.
-struct GpuTimers {
-    ID3D11DeviceContext* context;
-    ID3D11Query* disjoint;
-    ID3D11Query* begin;
-    ID3D11Query* end;
-};
-
-struct GpuBatchTime {
+// CPU time to submit one GPU batch, measured before the flush; the GPU is not waited on.
+struct BatchTime {
     u64 cpu_us;
-    u64 gpu_us; // Zero when the timestamps were unusable.
-    bool timed;
 };
 
-i64 gpu_batch_begin(const GpuTimers& timers) noexcept {
-    const i64 cpu_begin = clock_now();
-    timers.context->Begin(timers.disjoint);
-    timers.context->End(timers.begin);
-    return cpu_begin;
-}
-
-GpuBatchTime gpu_batch_end(const Clock& clock, const GpuTimers& timers, i64 cpu_begin) noexcept {
-    ID3D11DeviceContext* context = timers.context;
-    context->End(timers.end);
-    context->End(timers.disjoint);
-    GpuBatchTime batch{clock_microseconds(clock, cpu_begin, clock_now()), 0, false};
+BatchTime batch_end(const Clock& clock, ID3D11DeviceContext* context, i64 cpu_begin) noexcept {
+    const BatchTime batch{clock_microseconds(clock, cpu_begin, clock_now())};
     context->Flush();
-    D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint{};
-    u64 gpu_begin = 0;
-    u64 gpu_end = 0;
-    batch.timed = wait_query(context, timers.disjoint, &disjoint, sizeof(disjoint)) &&
-                  wait_query(context, timers.begin, &gpu_begin, sizeof(gpu_begin)) &&
-                  wait_query(context, timers.end, &gpu_end, sizeof(gpu_end)) && !disjoint.Disjoint &&
-                  disjoint.Frequency != 0 && gpu_end >= gpu_begin;
-    if (batch.timed) {
-        batch.gpu_us = gpu_timestamp_microseconds(gpu_end - gpu_begin, disjoint.Frequency);
-    }
     return batch;
 }
 
@@ -1091,25 +1044,8 @@ int run() noexcept {
     const u64 icc_lut_jpeg_decode_us =
         maximum<u64>(1, clock_microseconds(clock, icc_lut_jpeg_decode_begin, clock_now()));
 
-    D3D11_QUERY_DESC disjoint_description{D3D11_QUERY_TIMESTAMP_DISJOINT, 0};
-    D3D11_QUERY_DESC timestamp_description{D3D11_QUERY_TIMESTAMP, 0};
-    ID3D11Query* disjoint_query = nullptr;
-    ID3D11Query* begin_query = nullptr;
-    ID3D11Query* end_query = nullptr;
-    result = device->CreateQuery(&disjoint_description, &disjoint_query);
-    if (SUCCEEDED(result)) {
-        result = device->CreateQuery(&timestamp_description, &begin_query);
-    }
-    if (SUCCEEDED(result)) {
-        result = device->CreateQuery(&timestamp_description, &end_query);
-    }
-    if (FAILED(result)) {
-        return 15;
-    }
-    const GpuTimers timers{context, disjoint_query, begin_query, end_query};
-
     const MediaAssetKey upload_key = media_asset_sticker(88, 2);
-    const i64 upload_begin = gpu_batch_begin(timers);
+    const i64 upload_begin = clock_now();
     for (u32 iteration = 0; iteration < kUploadIterations; ++iteration) {
         if (!media_atlas_gpu_upload_straight_rgba8(&gpu, &atlas, device, context1, upload_key, kAssetExtent,
                                                    kAssetExtent, kAssetExtent * 4,
@@ -1118,12 +1054,12 @@ int run() noexcept {
             return 16;
         }
     }
-    const GpuBatchTime upload_batch = gpu_batch_end(clock, timers, upload_begin);
+    const BatchTime upload_batch = batch_end(clock, context, upload_begin);
     const u32 rgba8_upload_count = gpu.straight_rgba8_uploads;
     const u64 rgba8_uploaded_bytes = gpu.straight_rgba8_uploaded_bytes;
 
     const MediaAssetKey png_upload_key = media_asset_sticker(89, 1);
-    const i64 png_upload_begin = gpu_batch_begin(timers);
+    const i64 png_upload_begin = clock_now();
     for (u32 iteration = 0; iteration < kPngUploadIterations; ++iteration) {
         if (!media_atlas_gpu_upload_png(&gpu, &atlas, device, context1, png_upload_key, png_image,
                                         ConstSlice<u8>{g_png_scanlines, png_image.inflated_bytes})
@@ -1131,10 +1067,10 @@ int run() noexcept {
             return 18;
         }
     }
-    const GpuBatchTime png_batch = gpu_batch_end(clock, timers, png_upload_begin);
+    const BatchTime png_batch = batch_end(clock, context, png_upload_begin);
 
     const MediaAssetKey webp_upload_key = media_asset_custom_emoji(90, false);
-    const i64 webp_upload_begin = gpu_batch_begin(timers);
+    const i64 webp_upload_begin = clock_now();
     for (u32 iteration = 0; iteration < kWebpUploadIterations; ++iteration) {
         if (!media_atlas_gpu_upload_straight_rgba8(
                  &gpu, &atlas, device, context1, webp_upload_key, static_cast<u16>(webp_image.width),
@@ -1144,10 +1080,10 @@ int run() noexcept {
             return 26;
         }
     }
-    const GpuBatchTime webp_batch = gpu_batch_end(clock, timers, webp_upload_begin);
+    const BatchTime webp_batch = batch_end(clock, context, webp_upload_begin);
 
     const MediaAssetKey vp8_upload_key = media_asset_custom_emoji(94, false);
-    const i64 vp8_upload_begin = gpu_batch_begin(timers);
+    const i64 vp8_upload_begin = clock_now();
     for (u32 iteration = 0; iteration < kVp8UploadIterations; ++iteration) {
         if (!media_atlas_gpu_reconstruct_vp8_keyframe(&gpu, device, context1, vp8_frame,
                                                       g_lossy_webp_workspace.modes,
@@ -1163,7 +1099,7 @@ int run() noexcept {
             return 54;
         }
     }
-    const GpuBatchTime vp8_batch = gpu_batch_end(clock, timers, vp8_upload_begin);
+    const BatchTime vp8_batch = batch_end(clock, context, vp8_upload_begin);
     const u32 vp8_static_reconstructions = gpu.vp8_reconstructions;
     const u32 vp8_static_reconstruction_dispatches =
         gpu.vp8_reconstruction_dispatches;
@@ -1178,7 +1114,7 @@ int run() noexcept {
         return 82;
     }
     const MediaAssetKey jpeg_upload_key = media_asset_attachment(96);
-    const i64 jpeg_upload_begin = gpu_batch_begin(timers);
+    const i64 jpeg_upload_begin = clock_now();
     for (u32 iteration = 0; iteration < kJpegUploadIterations; ++iteration) {
         if (!media_atlas_gpu_upload_jpeg(&gpu, &atlas, device, context1, jpeg_upload_key, jpeg_image,
                                          g_jpeg_workspace.coefficients)
@@ -1186,7 +1122,7 @@ int run() noexcept {
             return 64;
         }
     }
-    const GpuBatchTime jpeg_batch = gpu_batch_end(clock, timers, jpeg_upload_begin);
+    const BatchTime jpeg_batch = batch_end(clock, context, jpeg_upload_begin);
     const u64 jpeg_uploaded_bytes = gpu.jpeg_uploaded_bytes;
     const u64 jpeg_reconstructed_pixels = gpu.jpeg_reconstructed_pixels;
     const u32 jpeg_uploads = gpu.jpeg_uploads;
@@ -1201,7 +1137,7 @@ int run() noexcept {
         return 68;
     }
     const MediaAssetKey progressive_jpeg_upload_key = media_asset_attachment(97);
-    const i64 progressive_jpeg_upload_begin = gpu_batch_begin(timers);
+    const i64 progressive_jpeg_upload_begin = clock_now();
     for (u32 iteration = 0; iteration < kProgressiveJpegUploadIterations; ++iteration) {
         if (!media_atlas_gpu_upload_jpeg(&gpu, &atlas, device, context1, progressive_jpeg_upload_key,
                                          progressive_jpeg_image, g_jpeg_workspace.coefficients)
@@ -1209,7 +1145,7 @@ int run() noexcept {
             return 69;
         }
     }
-    const GpuBatchTime progressive_jpeg_batch = gpu_batch_end(clock, timers, progressive_jpeg_upload_begin);
+    const BatchTime progressive_jpeg_batch = batch_end(clock, context, progressive_jpeg_upload_begin);
     const u64 progressive_jpeg_uploaded_bytes = gpu.jpeg_uploaded_bytes - jpeg_uploaded_bytes;
     const u64 progressive_jpeg_reconstructed_pixels =
         gpu.jpeg_reconstructed_pixels - jpeg_reconstructed_pixels;
@@ -1229,7 +1165,7 @@ int run() noexcept {
     const u32 before_cmyk_jpeg_idct_dispatches = gpu.jpeg_idct_dispatches;
     const u32 before_cmyk_jpeg_atlas_dispatches = gpu.jpeg_atlas_dispatches;
     const MediaAssetKey cmyk_jpeg_upload_key = media_asset_attachment(98);
-    const i64 cmyk_jpeg_upload_begin = gpu_batch_begin(timers);
+    const i64 cmyk_jpeg_upload_begin = clock_now();
     for (u32 iteration = 0; iteration < kCmykJpegUploadIterations; ++iteration) {
         if (!media_atlas_gpu_upload_jpeg(&gpu, &atlas, device, context1, cmyk_jpeg_upload_key,
                                          cmyk_jpeg_image, g_jpeg_workspace.coefficients)
@@ -1237,7 +1173,7 @@ int run() noexcept {
             return 73;
         }
     }
-    const GpuBatchTime cmyk_jpeg_batch = gpu_batch_end(clock, timers, cmyk_jpeg_upload_begin);
+    const BatchTime cmyk_jpeg_batch = batch_end(clock, context, cmyk_jpeg_upload_begin);
     const u64 cmyk_jpeg_uploaded_bytes = gpu.jpeg_uploaded_bytes - before_cmyk_jpeg_uploaded_bytes;
     const u64 cmyk_jpeg_reconstructed_pixels =
         gpu.jpeg_reconstructed_pixels - before_cmyk_jpeg_reconstructed_pixels;
@@ -1257,7 +1193,7 @@ int run() noexcept {
     const u32 before_ycck_jpeg_idct_dispatches = gpu.jpeg_idct_dispatches;
     const u32 before_ycck_jpeg_atlas_dispatches = gpu.jpeg_atlas_dispatches;
     const MediaAssetKey ycck_jpeg_upload_key = media_asset_attachment(99);
-    const i64 ycck_jpeg_upload_begin = gpu_batch_begin(timers);
+    const i64 ycck_jpeg_upload_begin = clock_now();
     for (u32 iteration = 0; iteration < kYcckJpegUploadIterations; ++iteration) {
         if (!media_atlas_gpu_upload_jpeg(&gpu, &atlas, device, context1, ycck_jpeg_upload_key,
                                          ycck_jpeg_image, g_jpeg_workspace.coefficients)
@@ -1265,7 +1201,7 @@ int run() noexcept {
             return 75;
         }
     }
-    const GpuBatchTime ycck_jpeg_batch = gpu_batch_end(clock, timers, ycck_jpeg_upload_begin);
+    const BatchTime ycck_jpeg_batch = batch_end(clock, context, ycck_jpeg_upload_begin);
     const u64 ycck_jpeg_uploaded_bytes = gpu.jpeg_uploaded_bytes - before_ycck_jpeg_uploaded_bytes;
     const u64 ycck_jpeg_reconstructed_pixels =
         gpu.jpeg_reconstructed_pixels - before_ycck_jpeg_reconstructed_pixels;
@@ -1285,7 +1221,7 @@ int run() noexcept {
     const u32 before_oriented_jpeg_idct_dispatches = gpu.jpeg_idct_dispatches;
     const u32 before_oriented_jpeg_atlas_dispatches = gpu.jpeg_atlas_dispatches;
     const MediaAssetKey oriented_jpeg_upload_key = media_asset_attachment(100);
-    const i64 oriented_jpeg_upload_begin = gpu_batch_begin(timers);
+    const i64 oriented_jpeg_upload_begin = clock_now();
     for (u32 iteration = 0; iteration < kOrientedJpegUploadIterations; ++iteration) {
         if (!media_atlas_gpu_upload_jpeg(&gpu, &atlas, device, context1, oriented_jpeg_upload_key,
                                          oriented_jpeg_image, g_jpeg_workspace.coefficients)
@@ -1293,7 +1229,7 @@ int run() noexcept {
             return 79;
         }
     }
-    const GpuBatchTime oriented_jpeg_batch = gpu_batch_end(clock, timers, oriented_jpeg_upload_begin);
+    const BatchTime oriented_jpeg_batch = batch_end(clock, context, oriented_jpeg_upload_begin);
     const u64 oriented_jpeg_uploaded_bytes = gpu.jpeg_uploaded_bytes - before_oriented_jpeg_uploaded_bytes;
     const u64 oriented_jpeg_reconstructed_pixels =
         gpu.jpeg_reconstructed_pixels - before_oriented_jpeg_reconstructed_pixels;
@@ -1316,7 +1252,7 @@ int run() noexcept {
     const u32 before_icc_jpeg_idct_dispatches = gpu.jpeg_idct_dispatches;
     const u32 before_icc_jpeg_atlas_dispatches = gpu.jpeg_atlas_dispatches;
     const MediaAssetKey icc_jpeg_upload_key = media_asset_attachment(101);
-    const i64 icc_jpeg_upload_begin = gpu_batch_begin(timers);
+    const i64 icc_jpeg_upload_begin = clock_now();
     for (u32 iteration = 0; iteration < kIccJpegUploadIterations; ++iteration) {
         if (!media_atlas_gpu_upload_jpeg(&gpu, &atlas, device, context1, icc_jpeg_upload_key,
                                          icc_jpeg_image, g_jpeg_workspace.coefficients)
@@ -1324,7 +1260,7 @@ int run() noexcept {
             return 84;
         }
     }
-    const GpuBatchTime icc_jpeg_batch = gpu_batch_end(clock, timers, icc_jpeg_upload_begin);
+    const BatchTime icc_jpeg_batch = batch_end(clock, context, icc_jpeg_upload_begin);
     const u64 icc_jpeg_uploaded_bytes = gpu.jpeg_uploaded_bytes - before_icc_jpeg_uploaded_bytes;
     const u64 icc_jpeg_reconstructed_pixels =
         gpu.jpeg_reconstructed_pixels - before_icc_jpeg_reconstructed_pixels;
@@ -1346,7 +1282,7 @@ int run() noexcept {
     const u32 before_icc_lut_jpeg_idct_dispatches = gpu.jpeg_idct_dispatches;
     const u32 before_icc_lut_jpeg_atlas_dispatches = gpu.jpeg_atlas_dispatches;
     const MediaAssetKey icc_lut_jpeg_upload_key = media_asset_attachment(102);
-    const i64 icc_lut_jpeg_upload_begin = gpu_batch_begin(timers);
+    const i64 icc_lut_jpeg_upload_begin = clock_now();
     for (u32 iteration = 0; iteration < kIccLutJpegUploadIterations; ++iteration) {
         if (!media_atlas_gpu_upload_jpeg(&gpu, &atlas, device, context1, icc_lut_jpeg_upload_key,
                                          icc_lut_jpeg_image, g_jpeg_workspace.coefficients)
@@ -1354,7 +1290,7 @@ int run() noexcept {
             return 88;
         }
     }
-    const GpuBatchTime icc_lut_jpeg_batch = gpu_batch_end(clock, timers, icc_lut_jpeg_upload_begin);
+    const BatchTime icc_lut_jpeg_batch = batch_end(clock, context, icc_lut_jpeg_upload_begin);
     const u64 icc_lut_jpeg_uploaded_bytes = gpu.jpeg_uploaded_bytes - before_icc_lut_jpeg_uploaded_bytes;
     const u64 icc_lut_jpeg_reconstructed_pixels =
         gpu.jpeg_reconstructed_pixels - before_icc_lut_jpeg_reconstructed_pixels;
@@ -1434,7 +1370,7 @@ int run() noexcept {
         g_apng_frames[frame_index] = decoded.frame;
     }
     const MediaAssetKey apng_upload_key = media_asset_sticker(91, 2);
-    const i64 apng_upload_begin = gpu_batch_begin(timers);
+    const i64 apng_upload_begin = clock_now();
     for (u32 iteration = 0; iteration < kApngSequenceIterations; ++iteration) {
         if (!media_atlas_gpu_begin_apng(
                  &gpu, &atlas, device, context1, apng_upload_key, 4, 4, g_apng_frames[0],
@@ -1454,7 +1390,7 @@ int run() noexcept {
             }
         }
     }
-    const GpuBatchTime apng_batch = gpu_batch_end(clock, timers, apng_upload_begin);
+    const BatchTime apng_batch = batch_end(clock, context, apng_upload_begin);
 
     GifFixtureResult gif_fixture{};
     if (!build_indexed_gif_fixture(Slice<u8>{g_png_encoded, sizeof(g_png_encoded)},
@@ -1491,7 +1427,7 @@ int run() noexcept {
         g_gif_palettes[frame_index] = decoded.palette;
     }
     const MediaAssetKey gif_upload_key = media_asset_sticker(92, 4);
-    const i64 gif_upload_begin = gpu_batch_begin(timers);
+    const i64 gif_upload_begin = clock_now();
     for (u32 iteration = 0; iteration < kGifSequenceIterations; ++iteration) {
         if (!media_atlas_gpu_begin_gif(&gpu, &atlas, device, context1, gif_upload_key, 4, 4,
                                        g_gif_frames[0], g_gif_palettes[0],
@@ -1510,7 +1446,7 @@ int run() noexcept {
             }
         }
     }
-    const GpuBatchTime gif_batch = gpu_batch_end(clock, timers, gif_upload_begin);
+    const BatchTime gif_batch = batch_end(clock, context, gif_upload_begin);
 
     AnimatedWebpFixtureResult animated_webp_fixture{};
     if (!build_lossless_animated_webp_fixture(Slice<u8>{g_png_encoded, sizeof(g_png_encoded)},
@@ -1550,7 +1486,7 @@ int run() noexcept {
         g_animated_webp_frame_bytes[frame_index] = decoded.frame_decode.rgba_bytes;
     }
     const MediaAssetKey animated_webp_upload_key = media_asset_custom_emoji(93, true);
-    const i64 animated_webp_upload_begin = gpu_batch_begin(timers);
+    const i64 animated_webp_upload_begin = clock_now();
     for (u32 iteration = 0; iteration < kAnimatedWebpSequenceIterations; ++iteration) {
         if (!media_atlas_gpu_begin_animated_webp(
                  &gpu, &atlas, device, context1, animated_webp_upload_key, animated_webp_image.width,
@@ -1571,7 +1507,7 @@ int run() noexcept {
             }
         }
     }
-    const GpuBatchTime animated_webp_batch = gpu_batch_end(clock, timers, animated_webp_upload_begin);
+    const BatchTime animated_webp_batch = batch_end(clock, context, animated_webp_upload_begin);
     const u32 animated_lossless_frames = gpu.animated_webp_frames;
     const u32 animated_lossless_source_blends = gpu.animated_webp_source_blends;
     const u32 animated_lossless_over_blends = gpu.animated_webp_over_blends;
@@ -1642,7 +1578,7 @@ int run() noexcept {
     }
 
     const MediaAssetKey mixed_webp_upload_key = media_asset_custom_emoji(95, true);
-    const i64 mixed_webp_upload_begin = gpu_batch_begin(timers);
+    const i64 mixed_webp_upload_begin = clock_now();
     for (u32 iteration = 0; iteration < kMixedAnimatedWebpSequenceIterations; ++iteration) {
         if (!media_atlas_gpu_begin_animated_webp(
                  &gpu, &atlas, device, context1, mixed_webp_upload_key, mixed_webp_image.width,
@@ -1677,7 +1613,7 @@ int run() noexcept {
             return 61;
         }
     }
-    const GpuBatchTime mixed_webp_batch = gpu_batch_end(clock, timers, mixed_webp_upload_begin);
+    const BatchTime mixed_webp_batch = batch_end(clock, context, mixed_webp_upload_begin);
     const u32 mixed_webp_gpu_frames = gpu.animated_webp_frames - animated_lossless_frames;
     const u32 mixed_webp_gpu_source_blends =
         gpu.animated_webp_source_blends - animated_lossless_source_blends;
@@ -1985,8 +1921,6 @@ int run() noexcept {
     write_metric("media_missing_find_checksum", missing_find_checksum);
     write_metric("media_upload_count", rgba8_upload_count);
     write_metric("media_upload_cpu_batch_us", upload_batch.cpu_us);
-    write_metric("media_upload_gpu_batch_us", upload_batch.gpu_us);
-    write_metric("media_upload_gpu_timing_valid", upload_batch.timed ? 1 : 0);
     write_metric("media_uploaded_bytes", rgba8_uploaded_bytes);
     write_metric("media_pixel_checksum", pixel_checksum);
     write_metric("png_decode_count", kPngDecodeIterations);
@@ -2085,23 +2019,17 @@ int run() noexcept {
     write_metric("icc_lut_jpeg_decode_checksum", icc_lut_jpeg_decode_checksum);
     write_metric("png_gpu_upload_count", gpu.png_uploads);
     write_metric("png_gpu_cpu_batch_us", png_batch.cpu_us);
-    write_metric("png_gpu_batch_us", png_batch.gpu_us);
-    write_metric("png_gpu_timing_valid", png_batch.timed ? 1 : 0);
     write_metric("png_gpu_uploaded_bytes", gpu.png_uploaded_bytes);
     write_metric("png_gpu_dispatched_pixels", gpu.png_dispatched_pixels);
     write_metric("png_gpu_pixel_checksum", png_pixel_checksum);
     write_metric("png_gpu_pixels_exact", png_pixels_exact ? 1 : 0);
     write_metric("webp_gpu_upload_count", gpu.straight_rgba8_uploads - rgba8_upload_count);
     write_metric("webp_gpu_cpu_batch_us", webp_batch.cpu_us);
-    write_metric("webp_gpu_batch_us", webp_batch.gpu_us);
-    write_metric("webp_gpu_timing_valid", webp_batch.timed ? 1 : 0);
     write_metric("webp_gpu_uploaded_bytes", gpu.straight_rgba8_uploaded_bytes - rgba8_uploaded_bytes);
     write_metric("webp_gpu_pixel_checksum", webp_pixel_checksum);
     write_metric("webp_gpu_pixels_exact", webp_pixels_exact ? 1 : 0);
     write_metric("webp_vp8_gpu_upload_count", vp8_static_atlas_uploads);
     write_metric("webp_vp8_gpu_cpu_batch_us", vp8_batch.cpu_us);
-    write_metric("webp_vp8_gpu_batch_us", vp8_batch.gpu_us);
-    write_metric("webp_vp8_gpu_timing_valid", vp8_batch.timed ? 1 : 0);
     write_metric("webp_vp8_gpu_reconstructions", vp8_static_reconstructions);
     write_metric("webp_vp8_gpu_reconstruction_dispatches",
                  vp8_static_reconstruction_dispatches);
@@ -2112,8 +2040,6 @@ int run() noexcept {
     write_metric("webp_vp8_gpu_pixels_exact", vp8_pixels_exact ? 1 : 0);
     write_metric("jpeg_gpu_upload_count", jpeg_uploads);
     write_metric("jpeg_gpu_cpu_batch_us", jpeg_batch.cpu_us);
-    write_metric("jpeg_gpu_batch_us", jpeg_batch.gpu_us);
-    write_metric("jpeg_gpu_timing_valid", jpeg_batch.timed ? 1 : 0);
     write_metric("jpeg_gpu_uploaded_bytes", jpeg_uploaded_bytes);
     write_metric("jpeg_gpu_reconstructed_pixels", jpeg_reconstructed_pixels);
     write_metric("jpeg_gpu_idct_dispatches", jpeg_idct_dispatches);
@@ -2123,8 +2049,6 @@ int run() noexcept {
     write_metric("jpeg_gpu_pixels_within_tolerance", jpeg_pixels_within_tolerance ? 1 : 0);
     write_metric("progressive_jpeg_gpu_upload_count", progressive_jpeg_uploads);
     write_metric("progressive_jpeg_gpu_cpu_batch_us", progressive_jpeg_batch.cpu_us);
-    write_metric("progressive_jpeg_gpu_batch_us", progressive_jpeg_batch.gpu_us);
-    write_metric("progressive_jpeg_gpu_timing_valid", progressive_jpeg_batch.timed ? 1 : 0);
     write_metric("progressive_jpeg_gpu_uploaded_bytes", progressive_jpeg_uploaded_bytes);
     write_metric("progressive_jpeg_gpu_reconstructed_pixels", progressive_jpeg_reconstructed_pixels);
     write_metric("progressive_jpeg_gpu_idct_dispatches", progressive_jpeg_idct_dispatches);
@@ -2135,8 +2059,6 @@ int run() noexcept {
                  progressive_jpeg_pixels_within_tolerance ? 1 : 0);
     write_metric("cmyk_jpeg_gpu_upload_count", cmyk_jpeg_uploads);
     write_metric("cmyk_jpeg_gpu_cpu_batch_us", cmyk_jpeg_batch.cpu_us);
-    write_metric("cmyk_jpeg_gpu_batch_us", cmyk_jpeg_batch.gpu_us);
-    write_metric("cmyk_jpeg_gpu_timing_valid", cmyk_jpeg_batch.timed ? 1 : 0);
     write_metric("cmyk_jpeg_gpu_uploaded_bytes", cmyk_jpeg_uploaded_bytes);
     write_metric("cmyk_jpeg_gpu_reconstructed_pixels", cmyk_jpeg_reconstructed_pixels);
     write_metric("cmyk_jpeg_gpu_idct_dispatches", cmyk_jpeg_idct_dispatches);
@@ -2146,8 +2068,6 @@ int run() noexcept {
     write_metric("cmyk_jpeg_gpu_pixels_within_tolerance", cmyk_jpeg_reference.within_tolerance ? 1 : 0);
     write_metric("ycck_jpeg_gpu_upload_count", ycck_jpeg_uploads);
     write_metric("ycck_jpeg_gpu_cpu_batch_us", ycck_jpeg_batch.cpu_us);
-    write_metric("ycck_jpeg_gpu_batch_us", ycck_jpeg_batch.gpu_us);
-    write_metric("ycck_jpeg_gpu_timing_valid", ycck_jpeg_batch.timed ? 1 : 0);
     write_metric("ycck_jpeg_gpu_uploaded_bytes", ycck_jpeg_uploaded_bytes);
     write_metric("ycck_jpeg_gpu_reconstructed_pixels", ycck_jpeg_reconstructed_pixels);
     write_metric("ycck_jpeg_gpu_idct_dispatches", ycck_jpeg_idct_dispatches);
@@ -2157,8 +2077,6 @@ int run() noexcept {
     write_metric("ycck_jpeg_gpu_pixels_within_tolerance", ycck_jpeg_reference.within_tolerance ? 1 : 0);
     write_metric("oriented_jpeg_gpu_upload_count", oriented_jpeg_uploads);
     write_metric("oriented_jpeg_gpu_cpu_batch_us", oriented_jpeg_batch.cpu_us);
-    write_metric("oriented_jpeg_gpu_batch_us", oriented_jpeg_batch.gpu_us);
-    write_metric("oriented_jpeg_gpu_timing_valid", oriented_jpeg_batch.timed ? 1 : 0);
     write_metric("oriented_jpeg_gpu_uploaded_bytes", oriented_jpeg_uploaded_bytes);
     write_metric("oriented_jpeg_gpu_reconstructed_pixels", oriented_jpeg_reconstructed_pixels);
     write_metric("oriented_jpeg_gpu_idct_dispatches", oriented_jpeg_idct_dispatches);
@@ -2169,8 +2087,6 @@ int run() noexcept {
                  oriented_jpeg_reference.within_tolerance ? 1 : 0);
     write_metric("icc_jpeg_gpu_upload_count", icc_jpeg_uploads);
     write_metric("icc_jpeg_gpu_cpu_batch_us", icc_jpeg_batch.cpu_us);
-    write_metric("icc_jpeg_gpu_batch_us", icc_jpeg_batch.gpu_us);
-    write_metric("icc_jpeg_gpu_timing_valid", icc_jpeg_batch.timed ? 1 : 0);
     write_metric("icc_jpeg_gpu_uploaded_bytes", icc_jpeg_uploaded_bytes);
     write_metric("icc_jpeg_gpu_reconstructed_pixels", icc_jpeg_reconstructed_pixels);
     write_metric("icc_jpeg_gpu_idct_dispatches", icc_jpeg_idct_dispatches);
@@ -2180,8 +2096,6 @@ int run() noexcept {
     write_metric("icc_jpeg_gpu_pixels_within_tolerance", icc_jpeg_reference.within_tolerance ? 1 : 0);
     write_metric("icc_lut_jpeg_gpu_upload_count", icc_lut_jpeg_uploads);
     write_metric("icc_lut_jpeg_gpu_cpu_batch_us", icc_lut_jpeg_batch.cpu_us);
-    write_metric("icc_lut_jpeg_gpu_batch_us", icc_lut_jpeg_batch.gpu_us);
-    write_metric("icc_lut_jpeg_gpu_timing_valid", icc_lut_jpeg_batch.timed ? 1 : 0);
     write_metric("icc_lut_jpeg_gpu_uploaded_bytes", icc_lut_jpeg_uploaded_bytes);
     write_metric("icc_lut_jpeg_gpu_reconstructed_pixels", icc_lut_jpeg_reconstructed_pixels);
     write_metric("icc_lut_jpeg_gpu_idct_dispatches", icc_lut_jpeg_idct_dispatches);
@@ -2193,8 +2107,6 @@ int run() noexcept {
     write_metric("png_format_gpu_pixels_exact", format_pixels_exact ? 1 : 0);
     write_metric("apng_gpu_sequence_count", kApngSequenceIterations);
     write_metric("apng_gpu_cpu_batch_us", apng_batch.cpu_us);
-    write_metric("apng_gpu_batch_us", apng_batch.gpu_us);
-    write_metric("apng_gpu_timing_valid", apng_batch.timed ? 1 : 0);
     write_metric("apng_gpu_frame_count", gpu.apng_frames);
     write_metric("apng_gpu_dispatched_pixels", gpu.apng_dispatched_pixels);
     write_metric("apng_gpu_source_blends", gpu.apng_source_blends);
@@ -2205,8 +2117,6 @@ int run() noexcept {
     write_metric("apng_gpu_pixels_exact", apng_pixels_exact ? 1 : 0);
     write_metric("gif_gpu_sequence_count", kGifSequenceIterations);
     write_metric("gif_gpu_cpu_batch_us", gif_batch.cpu_us);
-    write_metric("gif_gpu_batch_us", gif_batch.gpu_us);
-    write_metric("gif_gpu_timing_valid", gif_batch.timed ? 1 : 0);
     write_metric("gif_gpu_frame_count", gpu.gif_frames);
     write_metric("gif_gpu_uploaded_bytes", gpu.gif_uploaded_bytes);
     write_metric("gif_gpu_dispatched_pixels", gpu.gif_dispatched_pixels);
@@ -2216,8 +2126,6 @@ int run() noexcept {
     write_metric("gif_gpu_pixels_exact", gif_pixels_exact ? 1 : 0);
     write_metric("animated_webp_gpu_sequence_count", kAnimatedWebpSequenceIterations);
     write_metric("animated_webp_gpu_cpu_batch_us", animated_webp_batch.cpu_us);
-    write_metric("animated_webp_gpu_batch_us", animated_webp_batch.gpu_us);
-    write_metric("animated_webp_gpu_timing_valid", animated_webp_batch.timed ? 1 : 0);
     write_metric("animated_webp_gpu_frame_count", animated_lossless_frames);
     write_metric("animated_webp_gpu_uploaded_bytes", animated_lossless_uploaded_bytes);
     write_metric("animated_webp_gpu_dispatched_pixels", animated_lossless_dispatched_pixels);
@@ -2235,8 +2143,6 @@ int run() noexcept {
     write_metric("mixed_animated_webp_decode_checksum", mixed_webp_decode_checksum);
     write_metric("mixed_animated_webp_gpu_sequence_count", kMixedAnimatedWebpSequenceIterations);
     write_metric("mixed_animated_webp_gpu_cpu_batch_us", mixed_webp_batch.cpu_us);
-    write_metric("mixed_animated_webp_gpu_batch_us", mixed_webp_batch.gpu_us);
-    write_metric("mixed_animated_webp_gpu_timing_valid", mixed_webp_batch.timed ? 1 : 0);
     write_metric("mixed_animated_webp_gpu_frame_count", mixed_webp_gpu_frames);
     write_metric("mixed_animated_webp_gpu_uploaded_bytes", mixed_webp_gpu_uploaded_bytes);
     write_metric("mixed_animated_webp_gpu_dispatched_pixels", mixed_webp_gpu_dispatched_pixels);
@@ -2349,9 +2255,6 @@ int run() noexcept {
         animation_timeline.counters.due_advances ==
             static_cast<u64>(kAnimationAdvanceBatchIterations) * kAnimationEntryCapacity;
     com_release(staging);
-    com_release(end_query);
-    com_release(begin_query);
-    com_release(disjoint_query);
     media_atlas_gpu_release(&gpu);
     com_release(context1);
     com_release(context);

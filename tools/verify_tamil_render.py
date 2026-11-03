@@ -30,7 +30,7 @@ def main():
             log=data/'MaiCord/logs/maicord.log';log_offset=log.stat().st_size if log.exists() else 0
             env={k:v for k,v in os.environ.items() if not(k.startswith('MAICORD_') and k.endswith('_RENDER_PROBE'))}
             env['MAICORD_'+args.script.upper()+'_WRAP_RENDER_PROBE']='1'
-            env.update(MAICORD_GPU_METRICS='1',MAICORD_UI_PROBE_CAPTURE_DIR=str(captures),LOCALAPPDATA=str(data))
+            env.update(MAICORD_UI_PROBE_CAPTURE_DIR=str(captures),LOCALAPPDATA=str(data))
             if args.native_bootstrap:env['MAICORD_NATIVE_BOOTSTRAP_PROBE']='1'
             else:env.pop('MAICORD_NATIVE_BOOTSTRAP_PROBE',None)
             process=run_check(args.side,[str(executable)],root,out,5,threading.Event(),env=env)

@@ -71,8 +71,7 @@ def main():
         env.pop('MAICORD_DEVANAGARI_DIRECTION_RENDER_PROBE', None)
         env.pop('MAICORD_DIRECTION_TRACKING_RENDER_PROBE', None)
         env['MAICORD_' + args.script_set.upper().replace('-', '_') + '_RENDER_PROBE'] = '1'
-        env.update(MAICORD_GPU_METRICS='1',
-                   MAICORD_UI_PROBE_CAPTURE_DIR=str(captures), LOCALAPPDATA=str(data))
+        env.update(MAICORD_UI_PROBE_CAPTURE_DIR=str(captures), LOCALAPPDATA=str(data))
         row = run_check(side, [str(executable)], repo, output, 15, threading.Event(), env=env)
         if identity(executable) != before:
             raise RuntimeError('Executable changed during verification')

@@ -129,11 +129,11 @@ focused window (it pauses media animations only after a real deactivation).
 - **GPU:** immediate-context calls per painted frame, counted through the context's
   vtable (state binds, scissor rectangles and repeats of the bound one, buffer maps,
   copies, compute dispatches and binds; draws come from the renderer's own count).
-  GPU time is measured on a replay: timestamps around `Present` would include the
-  swap chain's wait for its back buffer, so after each present the probe draws the
-  same retained stream again, with the presented damage, into an offscreen target of
-  the back buffer's format. The replay's main-thread CPU is excluded from the CPU
-  columns.
+  After each present the probe draws the same retained stream again, with the
+  presented damage, into an offscreen target of the back buffer's format, so the
+  main-thread cost of submitting one draw stream is measured apart from `Present` and
+  its wait for the back buffer. The report lists the replayed damage area and that
+  submission CPU; the replay's main-thread CPU is excluded from the CPU columns.
 - **Memory snapshots** (shell, after scroll, end): committed, resident and
   private-resident bytes attributed to client `VirtualAlloc` regions (by allocation
   call stack, resolved through `MaiCordPerfProbe.map`), heaps, stacks,
@@ -188,7 +188,7 @@ instead of `ShowWindow`, so they never take focus and open behind every other
 window. Frames use the same extended styles, so client sizes are unchanged.
 
 The window stays shown (not minimized, cloaked or moved off the desktop): DWM keeps
-composing a covered window, so `Present`, the frame-latency waitable, GPU timestamps
+composing a covered window, so `Present`, the frame-latency waitable
 and the `idle_*` phases behave normally. A sleeping display is the exception: DWM
 then composes only about every 250 ms, so frame times, wakeups and idle figures are
 not comparable, and the resize-pacing probe reports a skip. Input is synthetic

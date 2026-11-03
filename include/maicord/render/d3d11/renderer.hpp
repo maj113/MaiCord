@@ -9,7 +9,6 @@
 #include "maicord/render/d3d11/device.hpp"
 #include "maicord/render/d3d11/draw_pipeline.hpp"
 #include "maicord/render/d3d11/glyph_text.hpp"
-#include "maicord/render/d3d11/gpu_timer.hpp"
 #include "maicord/render/media/icon_atlas.hpp"
 #include "maicord/render/text/edit_layout.hpp"
 #include "maicord/render/text/message_hit_test.hpp"
@@ -266,6 +265,8 @@ struct RendererPaintDiff {
 struct RendererShellSegment {
     RendererFrameCopy frame;
     UiRect message_view, member_sidebar;
+    // The tracks of the bars the segment painted (the channel and member lists).
+    UiScrollbarTracks scrollbar_tracks;
     u64 key;
     u32 builds, replays;
     bool member_sidebar_visible;
@@ -351,6 +352,8 @@ struct D3D11Renderer {
     const MemberListScene* member_list_scene;
     const PopupScene* popup_scene;
     UiRect scrollbar_viewport;
+    // The bar the pointer lights (UiScrollbarHot); part of the presentation stamp.
+    UiScrollbarHot scrollbar_hot;
     TextEditLayoutOwner profile_edit_layout;
     TextEditMetric profile_edit_selections[kTextEditSelectionCapacity];
     TextEditLayoutOwner popup_edit_layout;
@@ -457,7 +460,6 @@ struct D3D11Renderer {
     ContentTextRetentionOwner content_text_retention;
     RendererTextPrefix content_text_prefix;
     Arena shell_text_storage;
-    D3D11GpuTimerOwner gpu_timer;
     // Background effect passes: the theme's built-in Stars/Comets, and the selected package effect.
     D3D11BackgroundFxOwner background_fx;
     D3D11EffectOwner effect;
@@ -669,7 +671,7 @@ struct D3D11Renderer {
     u64 adapter_key;
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
-static_assert(sizeof(D3D11Renderer) == 121040);
+static_assert(sizeof(D3D11Renderer) == 121504);
 
 // Starts hardware device and draw-pipeline creation on a worker at process
 // entry; the next renderer_initialize adopts them. Main thread only.

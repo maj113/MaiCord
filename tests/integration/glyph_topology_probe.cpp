@@ -38,11 +38,11 @@ struct State {
     ID3D11Texture2D* target=nullptr;ID3D11Texture2D* staging=nullptr;
     ID3D11Texture2D* atlas[2]{};ID3D11ShaderResourceView* views[2]{};
     ID3D11RenderTargetView* rtv=nullptr;ID3D11Buffer* effects=nullptr;
-    ID3D11Query* stats[2]{};ID3D11Query* starts[2]{};ID3D11Query* ends[2]{};ID3D11Query* disjoint=nullptr;
+    ID3D11Query* stats[2]{};
     bool easing=false;
     ~State() noexcept {if(context)context->ClearState();
-        for(u32 i=0;i<2;++i){com_release(stats[i]);com_release(starts[i]);com_release(ends[i]);com_release(views[i]);com_release(atlas[i]);}
-        com_release(disjoint);com_release(effects);com_release(rtv);com_release(staging);com_release(target);com_release(reference);com_release(reference_pixel);
+        for(u32 i=0;i<2;++i){com_release(stats[i]);com_release(views[i]);com_release(atlas[i]);}
+        com_release(effects);com_release(rtv);com_release(staging);com_release(target);com_release(reference);com_release(reference_pixel);
         d3d11_draw_pipeline_release(&pipeline);com_release(context);com_release(device);}
 };
 #define CHECK(x) do{if(!(x)){test_write_text("FAIL line ");test_write_u64(__LINE__);test_write_text("\n");return false;}}while(0)
@@ -85,9 +85,8 @@ bool run() noexcept {
         CHECK(SUCCEEDED(s.device->CreateTexture2D(&td,&initial,&s.atlas[i]))&&SUCCEEDED(s.device->CreateShaderResourceView(s.atlas[i],nullptr,&s.views[i])));}
     D3D11_BUFFER_DESC bd{};bd.ByteWidth=sizeof(TextEffectConstants);bd.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
     CHECK(SUCCEEDED(s.device->CreateBuffer(&bd,nullptr,&s.effects)));
-    D3D11_QUERY_DESC qd{D3D11_QUERY_TIMESTAMP_DISJOINT,0};CHECK(SUCCEEDED(s.device->CreateQuery(&qd,&s.disjoint)));
-    for(u32 i=0;i<2;++i){qd.Query=D3D11_QUERY_PIPELINE_STATISTICS;CHECK(SUCCEEDED(s.device->CreateQuery(&qd,&s.stats[i])));
-        qd.Query=D3D11_QUERY_TIMESTAMP;CHECK(SUCCEEDED(s.device->CreateQuery(&qd,&s.starts[i]))&&SUCCEEDED(s.device->CreateQuery(&qd,&s.ends[i])));}
+    D3D11_QUERY_DESC qd{D3D11_QUERY_PIPELINE_STATISTICS,0};
+    for(u32 i=0;i<2;++i)CHECK(SUCCEEDED(s.device->CreateQuery(&qd,&s.stats[i])));
     Quad quads[instances]{};for(u32 i=0;i<instances;++i){const float x=static_cast<float>(i%16)*15+.375f,y=static_cast<float>(i/16)*20+.125f;
         auto& v=quads[i];v={x,y,x+12.25f,y+16.5f,.0625f,.0625f,.9375f,.9375f,{.2f,.5f,.8f,.65f}};
         if(i%16<8)v.color={-static_cast<float>(i%8+1),static_cast<float>(i%7),x+6.125f,.75f};
@@ -156,14 +155,13 @@ bool run() noexcept {
             for(auto& e:effects.materials)e.animate=1;
             s.context->UpdateSubresource(s.effects,0,nullptr,&effects,0,0);
         }
-        draw(s,0,16);draw(s,1,16);s.context->Begin(s.disjoint);
-        for(u32 order=0;order<2;++order){const u32 side=order^(batch&1);s.context->Begin(s.stats[side]);s.context->End(s.starts[side]);draw(s,side,repeats);s.context->End(s.ends[side]);s.context->End(s.stats[side]);}
-        s.context->End(s.disjoint);s.context->Flush();const u64 deadline=GetTickCount64()+250;D3D11_QUERY_DATA_TIMESTAMP_DISJOINT frequency{};
-        CHECK(query(s,s.disjoint,&frequency,sizeof(frequency),deadline)&&!frequency.Disjoint&&frequency.Frequency);
-        if(batch)test_write_text(",");test_write_text("[");test_write_u64(frequency.Frequency);
+        draw(s,0,16);draw(s,1,16);
+        for(u32 order=0;order<2;++order){const u32 side=order^(batch&1);s.context->Begin(s.stats[side]);draw(s,side,repeats);s.context->End(s.stats[side]);}
+        s.context->Flush();const u64 deadline=GetTickCount64()+250;
+        if(batch)test_write_text(",");test_write_text("[");
         u64 reference_vertices=0,reference_pixels=0;
-        for(u32 side=0;side<2;++side){u64 begin=0,end=0;D3D11_QUERY_DATA_PIPELINE_STATISTICS stats{};
-            CHECK(query(s,s.starts[side],&begin,sizeof(begin),deadline)&&query(s,s.ends[side],&end,sizeof(end),deadline)&&query(s,s.stats[side],&stats,sizeof(stats),deadline)&&end>=begin);
+        for(u32 side=0;side<2;++side){D3D11_QUERY_DATA_PIPELINE_STATISTICS stats{};
+            CHECK(query(s,s.stats[side],&stats,sizeof(stats),deadline));
             if(s.easing){
                 CHECK(stats.IAVertices==4u*instances*repeats&&stats.IAPrimitives==2u*instances*repeats);
                 if(side)CHECK(stats.VSInvocations==reference_vertices&&stats.PSInvocations==reference_pixels);
@@ -172,7 +170,7 @@ bool run() noexcept {
                 if(side)CHECK(stats.VSInvocations<reference_vertices&&stats.PSInvocations==reference_pixels);
             }
             if(!side){reference_vertices=stats.VSInvocations;reference_pixels=stats.PSInvocations;}
-            test_write_text(",");test_write_u64(end-begin);test_write_text(",");test_write_u64(stats.IAVertices);test_write_text(",");test_write_u64(stats.VSInvocations);test_write_text(",");test_write_u64(stats.IAPrimitives);test_write_text(",");test_write_u64(stats.PSInvocations);}
+            if(side)test_write_text(",");test_write_u64(stats.IAVertices);test_write_text(",");test_write_u64(stats.VSInvocations);test_write_text(",");test_write_u64(stats.IAPrimitives);test_write_text(",");test_write_u64(stats.PSInvocations);}
         test_write_text("]");}
     test_write_text("]}\nPASS glyph topology\n");return true;
 }
