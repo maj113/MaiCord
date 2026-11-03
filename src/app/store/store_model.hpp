@@ -137,6 +137,9 @@ struct StoreModel {
     StoreUniversal universal, global_universal;
     u32 effect_cost_state; // 0 unknown, 1 known light/medium/heavy, 2 refused
     Utf8View effect_cost_text;
+    // The knob page's live preview: 0 not drawing (yet), 1 its effect is the one drawing (the tile shows it), 2 it
+    // could not be drawn.
+    u8 effect_preview;
     StoreConsent consent;
     StoreLink link;
     Utf8View dev_folder;

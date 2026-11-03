@@ -406,6 +406,7 @@ void store_model_fill_detail(StoreModel* m, CatalogKind kind, const Utf8View& sl
     }
     // An effect's knobs: the installed package's, with values, or the catalog's declaration.
     m->knob_count = 0;
+    m->effect_preview = 0;
     const McfxPackage* package = kind == CatalogKind::effect && item.library != ~0u ? application_effects_open(item.library) : nullptr;
     if (package) {
         for (u32 i = 0; i < package->knob_count && i < kStoreKnobMaximum; ++i) {
@@ -451,6 +452,9 @@ void store_model_fill_detail(StoreModel* m, CatalogKind kind, const Utf8View& sl
         m->effect_cost_state = cost.known ? (cost.refused ? 2 : 1) : 0;
         if (cost.known)
             m->effect_cost_text = store_cost_text(m, cost, true);
+        // The page previews this entry (store host): its tile is live once the entry is the effect drawing.
+        const EffectTrialState preview = application_effects_preview_state(application_effects_identity(item.library));
+        m->effect_preview = preview == EffectTrialState::drawing ? 1 : preview == EffectTrialState::rejected ? 2 : 0;
     } else if (kind == CatalogKind::effect && index && item.item != ~0u) {
         const CatalogItem& ci = index->items[item.item];
         for (u32 i = 0; i < ci.knob_count && i < kStoreKnobMaximum; ++i) {

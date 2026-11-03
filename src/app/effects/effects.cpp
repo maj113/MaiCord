@@ -69,6 +69,14 @@ struct Trial {
     const McfxPackage* package;
 };
 
+// The library entry a knob page previews (see application_effects_preview).
+struct Preview {
+    u64 identity; // 0: none
+    bool running;
+    bool swapped; // it draws in place of the window's own effect
+    EffectTrialState state;
+};
+
 struct State {
     StateFile file;
     bool state_loaded, library_loaded, marker_opened;
@@ -81,6 +89,7 @@ struct State {
     Loaded resident, opened;
     bool opened_is_resident, opened_valid;
     Trial trial;
+    Preview preview;
     char off[4][kMcfxSlugBytes + 1]; // a theme's effect the user's store turned off this session
     u32 off_next;
     volatile LONG dirty;
@@ -484,9 +493,11 @@ void apply_verdict() noexcept {
     const EffectVerdict verdict = effect.verdict;
     const u64 identity = effect.verdict_identity;
     effect.verdict = EffectVerdict::none;
-    if (g.trial.active && identity == g.trial.identity) {
-        // A candidate that cannot be drawn is not remembered: the install card reports it.
-        g.trial.state = EffectTrialState::refused;
+    const bool trial = g.trial.active && identity == g.trial.identity;
+    if (trial || (g.preview.swapped && identity == g.preview.identity)) {
+        // A candidate, or another entry previewed in the window's place, is not remembered: its card or page
+        // reports it.
+        (trial ? g.trial.state : g.preview.state) = EffectTrialState::refused;
         clear_effect();
         application_request_frame();
         return;
@@ -629,6 +640,43 @@ bool select_package(u64 identity, const McfxPackage& package, const McfxKnobValu
     return true;
 }
 
+// A knob page's preview of an entry other than `drawn` (the window's own effect, or none): it draws in its place
+// with the values and settings the page edits, at the Low budget. True when it took the frame.
+bool select_preview(const Entry* drawn, u64 adapter) noexcept {
+    g.preview.swapped = false;
+    const u64 identity = g.preview.identity;
+    if (!identity || g.preview.state != EffectTrialState::drawing || (drawn && drawn->info.identity == identity))
+        return false;
+    const Entry* entry = find(identity);
+    if (!entry) {
+        g.preview = {}; // removed, or changed by an update: the page asks again
+        return false;
+    }
+    if (refusal_index(identity, adapter) >= 0) {
+        g.preview.state = EffectTrialState::refused;
+        return false;
+    }
+    const Loaded& open = g.opened_is_resident ? g.resident : g.opened;
+    const u32 index = static_cast<u32>(entry - g.entries);
+    if ((!g.opened_valid || open.identity != identity) && !application_effects_open(index)) {
+        g.preview.state = EffectTrialState::rejected;
+        return false;
+    }
+    const Loaded& l = g.opened_is_resident ? g.resident : g.opened;
+    EffectSettings settings = effect_resolve_settings(g.file.user, application_effects_shader_settings(identity),
+                                                      entry->requested_resolution, entry->requested_frame_rate,
+                                                      entry->blend);
+    settings.budget = EffectBudget::low;
+    settings.pointer_allowed = false;
+    g.preview.swapped = true;
+    if (!select_package(identity, l.package, l.values, entry->blend, settings, true)) {
+        g.preview.state = EffectTrialState::rejected;
+        g.preview.swapped = false;
+        clear_effect();
+    }
+    return true;
+}
+
 } // namespace
 
 void application_effects_synchronize() noexcept {
@@ -687,7 +735,11 @@ void application_effects_synchronize() noexcept {
         entry = turned_off(theme->slug) ? nullptr : find_slug(theme->slug);
     }
     const u64 adapter = g_app.renderer.adapter_key;
-    if (!entry || refusal_index(entry->info.identity, adapter) >= 0) {
+    if (entry && refusal_index(entry->info.identity, adapter) >= 0)
+        entry = nullptr;
+    if (select_preview(entry, adapter))
+        return;
+    if (!entry) {
         // Not installed (any more), or off on this GPU: the built-in effect applies and the choice stays saved.
         if (g.selected)
             renderer_clear_effect(&g_app.renderer);
@@ -934,6 +986,7 @@ EffectCost application_effects_cost(u64 identity) noexcept {
                                                                                             : EffectCostClass::heavy;
     };
     if ((g.trial.active && g.trial.identity == identity && g.trial.state == EffectTrialState::refused) ||
+        (g.preview.identity == identity && g.preview.state == EffectTrialState::refused) ||
         refusal_index(identity, g_app.renderer.adapter_key) >= 0)
         return {true, true, kEffectRefuseMs, EffectCostClass::heavy};
     const auto& owner = g_app.renderer.effect;
@@ -1011,6 +1064,36 @@ EffectTrialState application_effects_trial_state() noexcept {
 
 u64 application_effects_trial_identity() noexcept {
     return g.trial.active ? g.trial.identity : 0;
+}
+
+void application_effects_preview(u32 index, bool running) noexcept {
+    u64 identity = 0;
+    if (index != ~0u) {
+        load_library();
+        identity = index < g.count ? g.entries[index].info.identity : 0;
+    }
+    running = running && identity;
+    if (identity == g.preview.identity && running == g.preview.running)
+        return;
+    if (identity != g.preview.identity)
+        g.preview = {identity, false, false, identity ? EffectTrialState::drawing : EffectTrialState::none};
+    g.preview.running = running;
+    application_request_frame();
+}
+
+EffectTrialState application_effects_preview_state(u64 identity) noexcept {
+    if (!identity || identity != g.preview.identity)
+        return EffectTrialState::none;
+    if (g.preview.state != EffectTrialState::drawing)
+        return g.preview.state;
+    const auto& owner = g_app.renderer.effect;
+    return !g.trial.active && g.selected && owner.selected && owner.identity == identity ? EffectTrialState::drawing
+                                                                                         : EffectTrialState::none;
+}
+
+bool application_effects_preview_running() noexcept {
+    return g.preview.running && application_effects_preview_state(g.preview.identity) == EffectTrialState::drawing &&
+           application_window_focused();
 }
 
 bool application_effects_state_flag(u32 bit) noexcept {

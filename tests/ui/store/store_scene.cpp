@@ -214,6 +214,14 @@ void test_store_scene(void (*check)(bool, const char*) noexcept) noexcept {
         }
         check(tiles == 1 && canvases == 1, "store scene: a live tile is one rounded canvas quad for the effect pass");
         paint_stream_release(&paint);
+        // The live tile on screen lets its effect animate; under a dialog, or below the panel's edge, it does not.
+        const bool shown = ui_store_scene_live_visible(g_scene);
+        g_scene.dialog_open = true;
+        const bool under_dialog = ui_store_scene_live_visible(g_scene);
+        g_scene.dialog_open = false;
+        const bool below = ui_store_scene_commit(&g_scene, {0, 0, 900, 300}, {40, 30, 832, 300}, {0, 0, 900, 300}) &&
+                           !ui_store_scene_live_visible(g_scene);
+        check(shown && !under_dialog && below, "store scene: a live tile animates only while it is on screen");
         g_scene.media_key = nullptr;
     }
     {

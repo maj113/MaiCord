@@ -18,7 +18,8 @@ inline bool application_background_animate() noexcept {
                g_app.preferences.reduced_motion || r.reduced_motion,
                g_app.surface_motion.system_preference_cached && g_app.surface_motion.client_area_animation,
                g_app.login.visible ||
-                   (application_settings_active() && !application_theme_editor_active())) &&
+                   (application_settings_active() && !application_theme_editor_active() &&
+                    !application_effects_preview_running())) &&
            application_effects_motion_allowed();
 }
 inline u64 application_background_next_wake(u64 now_ms) noexcept {

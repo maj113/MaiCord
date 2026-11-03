@@ -101,6 +101,16 @@ void application_effects_trial_end() noexcept;
 enum class EffectTrialState : u8 { none, drawing, rejected, refused };
 EffectTrialState application_effects_trial_state() noexcept;
 u64 application_effects_trial_identity() noexcept;
+// The live preview of a knob page: while library entry `index` is set (~0u: none), it is the effect that draws.
+// The window's own effect draws as it is; another entry draws in its place with the knob values and settings its
+// page edits, at the Low budget, and a verdict on it is not remembered (like a trial's). `running`: the page's tile
+// is on screen, so the preview's clock runs under Settings while the window has focus.
+void application_effects_preview(u32 index, bool running) noexcept;
+// The preview of the entry `identity`: drawing once it is the effect drawing now (its tile shows it), none until
+// then or when another entry is previewed, rejected and refused as for a trial.
+EffectTrialState application_effects_preview_state(u64 identity) noexcept;
+// The background clock may run under Settings: the preview draws and its tile is on screen in a focused window.
+bool application_effects_preview_running() noexcept;
 // Small persisted answers that live in the effects state file (the maicord:// question was answered).
 bool application_effects_state_flag(u32 bit) noexcept;
 bool application_effects_set_state_flag(u32 bit, bool on) noexcept;

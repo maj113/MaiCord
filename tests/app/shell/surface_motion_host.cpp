@@ -415,6 +415,9 @@ bool application_effects_selected() noexcept {
 bool application_effects_motion_allowed() noexcept {
     return true;
 }
+bool application_effects_preview_running() noexcept {
+    return false;
+}
 u32 application_effects_interval_ms() noexcept {
     return 42;
 }

@@ -271,6 +271,8 @@ bool ui_store_scene_paint(const UiStoreScene&, const Theme&, PaintStream*, u32 l
 bool ui_store_scene_text_output(const UiStoreScene&, const Theme&, UiTextOutput*, bool dialog) noexcept;
 // Visible preview tiles, in order; cursor starts at 0.
 bool ui_store_scene_next_media(const UiStoreScene&, u32* cursor, UiStoreMedia*) noexcept;
+// A live tile of the page is on screen (not scrolled out, no dialog over it): the effect it shows may animate.
+bool ui_store_scene_live_visible(const UiStoreScene&) noexcept;
 // Where the live search editor's text goes (the node of search->action), in viewport coordinates.
 bool ui_store_scene_search_geometry(const UiStoreScene&, UiRect* text) noexcept;
 

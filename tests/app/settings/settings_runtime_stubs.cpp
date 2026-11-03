@@ -19,11 +19,16 @@ void renderer_bind_theme_editor_scene(D3D11Renderer* renderer, const UiThemeEdit
     renderer->theme_editor_scene = current;
     renderer->retained_presentation.valid = false;
 }
-// Package background effects need a device; settings only list and save them.
-EffectSelectResult renderer_select_effect(D3D11Renderer*, const BackgroundEffectSpec&, const EffectSettings&) noexcept {
-    return {E_NOTIMPL, EffectSelect::rejected};
+// Package background effects need a device: the owner keeps only what the host reads back (the effect selected).
+EffectSelectResult renderer_select_effect(D3D11Renderer* renderer, const BackgroundEffectSpec& spec, const EffectSettings&) noexcept {
+    const bool changed = !renderer->effect.selected || renderer->effect.identity != spec.identity;
+    renderer->effect.selected = true;
+    renderer->effect.identity = spec.identity;
+    return {S_OK, changed ? EffectSelect::changed : EffectSelect::unchanged};
 }
-void renderer_clear_effect(D3D11Renderer*) noexcept {
+void renderer_clear_effect(D3D11Renderer* renderer) noexcept {
+    renderer->effect.selected = false;
+    renderer->effect.identity = 0;
 }
 void d3d11_effect_set_marker(D3D11EffectOwner*, volatile u64*) noexcept {
 }

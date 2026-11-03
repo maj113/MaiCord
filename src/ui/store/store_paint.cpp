@@ -660,4 +660,16 @@ bool ui_store_scene_next_media(const UiStoreScene& s, u32* cursor, UiStoreMedia*
     return false;
 }
 
+bool ui_store_scene_live_visible(const UiStoreScene& s) noexcept {
+    if (!s.active || s.page_root == kUiStoreNone || (s.dialog_open && !s.dialog_bar))
+        return false;
+    for (u32 i = 0; i < page_end(s); ++i) {
+        const auto& n = s.nodes[i];
+        if (n.kind == UiStoreKind::preview && n.variant == static_cast<u8>(UiStoreAspect::live) && !hidden(n) &&
+            !(n.flags & ui_store_critical) && ui_rect_intersects(screen_rect(s, static_cast<u16>(i)), s.panel))
+            return true;
+    }
+    return false;
+}
+
 } // namespace maicord

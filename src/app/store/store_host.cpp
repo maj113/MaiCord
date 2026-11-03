@@ -81,6 +81,7 @@ struct StoreHost {
     u32 revisions[2];
     bool swallow_char;
     bool trial_asked; // the open card's effect trial was started
+    u32 preview_slot; // the library entry + 1 the knob page previews live, 0 none
     u32 preview_changes;
     UiRect host_page, host_clip;
     // The pictures of the visible tiles and the loop of the card under the pointer or focus.
@@ -568,6 +569,13 @@ u64 sources_stamp() noexcept {
         const EffectCost cost = application_effects_cost(application_effects_identity(static_cast<u32>(chosen)));
         h = h * 31 + (cost.known ? 1 : 0) + (cost.refused ? 2 : 0) + static_cast<u64>(cost.level) * 4 + static_cast<u64>(cost.milliseconds * 10.f);
     }
+    if (g->preview_slot) {
+        // The knob page's tile turns live once its effect draws; its cost arrives a few frames later.
+        const u64 previewed = application_effects_identity(g->preview_slot - 1);
+        const EffectCost cost = application_effects_cost(previewed);
+        h = h * 31 + static_cast<u64>(application_effects_preview_state(previewed));
+        h = h * 31 + (cost.known ? 1 : 0) + (cost.refused ? 2 : 0) + static_cast<u64>(cost.milliseconds * 10.f) * 4;
+    }
     return h;
 }
 
@@ -757,6 +765,20 @@ void build_and_commit(UiSettingsScene* settings) noexcept {
     ui_store_scene_commit(&g->scene, g->host_clip, g->host_page, modal);
 }
 
+// The knob page of an installed effect previews it live: the effect draws (application_effects_preview) while the
+// page shows, and its clock runs while the tile is on screen. Any other page, or none, previews nothing.
+void request_preview(bool shown) noexcept {
+    u32 slot = 0;
+    const StorePageState& st = page();
+    if (shown && g->kind == CatalogKind::effect && st.detail && st.knobs) {
+        const u32 at = open_item();
+        if (at < g->model.count && g->model.items[at].installed && g->model.items[at].library != ~0u)
+            slot = g->model.items[at].library + 1;
+    }
+    g->preview_slot = slot;
+    application_effects_preview(slot - 1, slot && ui_store_scene_live_visible(g->scene));
+}
+
 } // namespace
 
 // The catalog picture behind a preview tile: its still, or the loop of an effect. Called by the preview pump and
@@ -806,8 +828,10 @@ void application_store_visible(bool visible, CatalogKind kind) noexcept {
             g->scene.active = false;
             g_app.renderer.settings_store = nullptr;
             application_packages_drop_enable(false);
-            // Nothing draws for a closed store: the pictures leave the atlas and a candidate effect's trial ends.
+            // Nothing draws for a closed store: the pictures leave the atlas, a candidate effect's trial and the
+            // knob page's preview end.
             store_previews_release(&g->previews);
+            request_preview(false);
             if (application_packages_previewing())
                 application_packages_cancel();
             if (g->trying) {
@@ -856,6 +880,7 @@ bool application_store_synchronize(UiSettingsScene* settings) noexcept {
     if (!ui_settings_scene_host_rect(*settings, &page_rect, &clip) || !ui_rect_has_area(page_rect)) {
         g->scene.active = false;
         g_app.renderer.settings_store = nullptr;
+        request_preview(false);
         return false;
     }
     const u64 now = clock_monotonic_milliseconds();
@@ -896,6 +921,7 @@ bool application_store_synchronize(UiSettingsScene* settings) noexcept {
     g->scene.media_context = g;
     g->scene.media_key = media_key;
     g_app.renderer.settings_store = &g->scene;
+    request_preview(true);
     // Pictures of the visible tiles; the loop frame, and the beat before a hovered card starts it, keep frames coming.
     bool beat = false;
     const u32 playing = loop_slot(now, &beat);
@@ -1348,6 +1374,7 @@ void application_store_release() noexcept {
     if (g->trying)
         application_custom_theme_action(ApplicationCustomThemeAction::cancel);
     store_previews_release(&g->previews);
+    request_preview(false);
     ui_markdown_bank_release(&g->bank);
     g_app.renderer.settings_store = nullptr;
     ui_store_scene_release(&g->scene);

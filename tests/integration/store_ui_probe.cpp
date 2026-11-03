@@ -1,6 +1,14 @@
 #include "maicord/core/win32_types.hpp"
+#include "maicord_effect_ascii_rain.hpp"
 #include "maicord_effect_aurora.hpp"
+#include "maicord_effect_bokeh.hpp"
+#include "maicord_effect_film_grain.hpp"
+#include "maicord_effect_plasma.hpp"
+#include "maicord_effect_starfield.hpp"
+#include "maicord_effect_wave_lines.hpp"
+#include "probe_capture.hpp"
 #include "probe_present.hpp"
+#include "../../src/render/d3d11/renderer_draw.hpp"
 #include "../support/ui_scene_fixtures.hpp"
 #include "settings/catalog.hpp"
 #include "store/store_model.hpp"
@@ -15,13 +23,15 @@
 #include "maicord/render/d3d11/renderer_presentation.hpp"
 #include "maicord/ui/settings/scene.hpp"
 #include "maicord/ui/shell/popup_scene.hpp"
+#include "maicord/ui/theme/background_surface.hpp"
 #include "maicord/ui/widgets/kit_markdown.hpp"
 
 // The Plugins, Themes and Effects pages through the real settings modal, layout, paint and text paths: one
 // capture per screen of store-ui.md (mockups 01-11) at 1440x900 DIP, with the content of the mockups, on the
 // Sunset theme like the mockups (11 is the flat dark one). MAICORD_STORE_PREVIEW_DIR names a folder of the
 // catalog fixture's `previews/<sha>.png`: the tiles then show the real pictures, decoded and uploaded the way the
-// host does, and 04 and 08 run the Aurora sample as the window background so their live tiles have an effect.
+// host does. 04 and 08 run the Aurora sample as the window background so their live tiles have an effect; 16 and 17
+// run every sample on its own knob page and check the tile's pixels.
 namespace maicord {
 namespace {
 using namespace app_detail;
@@ -394,27 +404,114 @@ void knobs() noexcept {
     u.requested_frame_rate = 0;
     m.effect_cost_state = 1;
     m.effect_cost_text = utf8_literal("Light here \xC2\xB7 0.4 ms");
+    m.effect_preview = 1; // the host draws the page's effect; the tile shows it
     m.global_universal = u;
 }
 
-// The Aurora sample as the window background: what a live tile shows.
-bool run_aurora(D3D11Renderer& renderer) noexcept {
+// The shipped samples, as their .effect sidecars describe them (background_effect_pixels.cpp has the same table).
+struct Sample {
+    Utf8View slug;
+    const wchar_t* applied; // captures of its knob page as the saved background and as another effect
+    const wchar_t* other;
+    const u8* code;
+    u32 bytes;
+    u32 uses;
+    EffectBlend blend;
+    float knobs[12];
+};
+#define MC_PACKAGE(array) array, static_cast<u32>(sizeof(array))
+const Sample kSamples[]{
+    {utf8_literal("aurora"), L"store-16-knobs-aurora.bmp", L"store-17-knobs-aurora.bmp", MC_PACKAGE(g_maicord_effect_aurora),
+     effect_use_blue_noise, EffectBlend::normal, {.35f, .7f, .75f, 3}},
+    {utf8_literal("ascii-rain"), L"store-16-knobs-ascii-rain.bmp", L"store-17-knobs-ascii-rain.bmp",
+     MC_PACKAGE(g_maicord_effect_ascii_rain), effect_use_glyphs, EffectBlend::screen, {14, 1, 18, 1, .15f, 1, .4f, 0}},
+    {utf8_literal("bokeh"), L"store-16-knobs-bokeh.bmp", L"store-17-knobs-bokeh.bmp", MC_PACKAGE(g_maicord_effect_bokeh), 0,
+     EffectBlend::screen, {.42f, .5f, 1, .8f}},
+    {utf8_literal("film-grain"), L"store-16-knobs-film-grain.bmp", L"store-17-knobs-film-grain.bmp",
+     MC_PACKAGE(g_maicord_effect_film_grain), effect_use_noise, EffectBlend::normal, {.1f, 1, 12}},
+    {utf8_literal("plasma"), L"store-16-knobs-plasma.bmp", L"store-17-knobs-plasma.bmp", MC_PACKAGE(g_maicord_effect_plasma),
+     effect_use_blue_noise, EffectBlend::normal, {.8f, 1.6f, .5f, .6f}},
+    {utf8_literal("starfield"), L"store-16-knobs-starfield.bmp", L"store-17-knobs-starfield.bmp",
+     MC_PACKAGE(g_maicord_effect_starfield), 0, EffectBlend::add, {.14f, .5f, 1.2f, .6f}},
+    {utf8_literal("wave-lines"), L"store-16-knobs-wave-lines.bmp", L"store-17-knobs-wave-lines.bmp",
+     MC_PACKAGE(g_maicord_effect_wave_lines), 0, EffectBlend::screen, {11, .45f, .55f, 1.1f}},
+};
+#undef MC_PACKAGE
+
+// A sample as the window background, as the host selects the effect a knob page previews.
+bool run_effect(D3D11Renderer& renderer, const Sample& sample) noexcept {
     BackgroundEffectSpec spec{};
-    spec.bytecode = {g_maicord_effect_aurora, sizeof(g_maicord_effect_aurora)};
-    spec.identity = hash64_bytes(kHash64Seed, g_maicord_effect_aurora, sizeof(g_maicord_effect_aurora)) | 1;
-    spec.uses = effect_use_blue_noise;
-    spec.blend = EffectBlend::normal;
+    spec.bytecode = {sample.code, sample.bytes};
+    spec.identity = hash64_bytes(kHash64Seed, sample.code, sample.bytes) | 1;
+    spec.uses = sample.uses;
+    spec.blend = sample.blend;
     spec.requested_resolution = spec.requested_frame_rate = 3;
-    const float values[]{.35f, .7f, .75f, 3};
-    for (u32 i = 0; i < 4; ++i)
-        spec.knobs[0][i] = values[i];
-    const EffectSettings settings{1.f, 1.f, EffectBlend::normal, 2, 2, EffectBudget::high, false};
+    for (u32 i = 0; i < 12; ++i)
+        spec.knobs[i / 4][i % 4] = sample.knobs[i];
+    const EffectSettings settings{1.f, 1.f, sample.blend, 2, 2, EffectBudget::high, false};
     const auto selected = renderer_select_effect(&renderer, spec, settings);
     if (selected.state == EffectSelect::rejected || FAILED(selected.native_error))
         return false;
     // The first redraw is the clock's zero: start the picture a few seconds in, where the curtains have formed.
     renderer.effect.time = 6.f;
     return renderer_set_background_phase(&renderer, 6.f);
+}
+bool run_aurora(D3D11Renderer& renderer) noexcept {
+    return run_effect(renderer, kSamples[0]);
+}
+
+// What the knob page's live tile shows, read back from the drawn frame: in the plate, left of the silhouette
+// panels and above the pill, how many sampled pixels leave the plate's colour, how many shades (5 bits a channel)
+// they take, and a hash of them (a later clock phase draws another picture).
+struct TilePixels {
+    bool found;
+    u32 sampled, off, shades;
+    u64 hash;
+};
+TilePixels live_tile_pixels(D3D11Renderer& renderer, const Theme& theme) noexcept {
+    TilePixels out{};
+    const PaintQuad* tile = nullptr;
+    for (u32 i = 0; i < renderer.paint_stream.count && !tile; ++i)
+        if (ui_background_canvas_quad(renderer.paint_stream.quads[i]) && renderer.paint_stream.quads[i].radius > 0)
+            tile = &renderer.paint_stream.quads[i];
+    D3D11_TEXTURE2D_DESC description{};
+    ProbeTargetReadback readback;
+    if (!tile || !d3d11_renderer_draw_stream(&renderer, theme, true, true, nullptr, 10000) ||
+        readback.read_target(renderer, description))
+        return out;
+    const bool bgra = description.Format == DXGI_FORMAT_B8G8R8A8_UNORM;
+    if (!bgra && description.Format != DXGI_FORMAT_R8G8B8A8_UNORM)
+        return out;
+    out.found = true;
+    out.hash = kHash64Seed;
+    const float scale = static_cast<float>(renderer.dpi) / 96.f;
+    const u32 plate[3]{static_cast<u32>(tile->fill.red * 255.f + .5f), static_cast<u32>(tile->fill.green * 255.f + .5f),
+                       static_cast<u32>(tile->fill.blue * 255.f + .5f)};
+    const u32 left = static_cast<u32>((tile->left + 8) * scale),
+              right = static_cast<u32>((tile->left + (tile->right - tile->left) * .55f) * scale);
+    const u32 top = static_cast<u32>((tile->top + 8) * scale) + renderer.target_origin_y,
+              bottom = static_cast<u32>((tile->bottom - 48) * scale) + renderer.target_origin_y;
+    static u64 seen[512];
+    clear_bytes(seen, sizeof(seen));
+    for (u32 y = top; y < bottom && y < description.Height; y += 2)
+        for (u32 x = left; x < right && x < description.Width; x += 2) {
+            const u8* pixel = static_cast<const u8*>(readback.mapped.pData) + y * readback.mapped.RowPitch + x * 4;
+            const u32 rgb[3]{pixel[bgra ? 2 : 0], pixel[1], pixel[bgra ? 0 : 2]};
+            ++out.sampled;
+            out.hash = hash64_mix(out.hash, rgb[0] << 16 | rgb[1] << 8 | rgb[2]);
+            u32 distance = 0;
+            for (u32 c = 0; c < 3; ++c)
+                distance = maximum(distance, maximum(rgb[c], plate[c]) - minimum(rgb[c], plate[c]));
+            if (distance <= 8)
+                continue;
+            ++out.off;
+            const u32 shade = (rgb[0] >> 3) << 10 | (rgb[1] >> 3) << 5 | rgb[2] >> 3;
+            if (!(seen[shade >> 6] & (u64{1} << (shade & 63)))) {
+                seen[shade >> 6] |= u64{1} << (shade & 63);
+                ++out.shades;
+            }
+        }
+    return out;
 }
 
 bool show(Fixture& f, D3D11Renderer& renderer, UiPageKey page, const UiRect& viewport, const wchar_t* name,
@@ -628,6 +725,47 @@ bool store_ui_probe(D3D11Renderer& renderer, PopupScene&, UiTextMeasureCache& ca
         copy_bytes(st.slug, "aurora", 7);
     }
     next(L"store-04-effect-knobs.bmp", kEffects, nullptr, sunset);
+    // 16, 17 every sample's knob page shows its effect live in the preview, whether it is the saved background
+    // (16) or another effect (17): the host draws the page's effect as the window background
+    // (application_effects_preview) and the tile turns live once it is the effect drawing. The plate holds effect
+    // pixels in many shades, and a later clock phase draws another picture.
+    for (u32 pass = 0; valid && pass < 2; ++pass)
+        for (const Sample& sample : kSamples) {
+            stage = __LINE__;
+            effects();
+            knobs();
+            const u32 at = store_find_item(f.model, CatalogKind::effect, sample.slug);
+            valid = at < f.model.count && run_effect(renderer, sample);
+            if (!valid)
+                break;
+            f.model.items[1].active = false;
+            f.model.items[at].installed = true;
+            f.model.items[at].active = pass == 0;
+            StorePageState& st = f.state[2];
+            st.detail = st.knobs = true;
+            st.detail_from = StoreTab::installed;
+            copy_bytes(st.slug, sample.slug.data, sample.slug.bytes);
+            st.slug[sample.slug.bytes] = 0;
+            next(pass == 0 ? sample.applied : sample.other, kEffects, nullptr, sunset);
+            const TilePixels still = live_tile_pixels(renderer, sunset);
+            const TilePixels later =
+                valid && renderer_set_background_phase(&renderer, 6.5f) ? live_tile_pixels(renderer, sunset) : TilePixels{};
+            const bool shows = still.found && still.off * 100 >= still.sampled && still.shades >= 4;
+            if (valid && !(shows && later.found && later.hash != still.hash)) {
+                log_u64(LogLevel::error, "probe", "store_live_tile_effect", at);
+                log_u64(LogLevel::error, "probe", "store_live_tile_sampled", still.sampled);
+                log_u64(LogLevel::error, "probe", "store_live_tile_off", still.off);
+                log_u64(LogLevel::error, "probe", "store_live_tile_shades", still.shades);
+                valid = false;
+            }
+        }
+    // Until the page's own effect is the one drawing, the plate stays a plate: it never shows another effect.
+    if (valid) {
+        stage = __LINE__;
+        f.model.effect_preview = 0;
+        next(L"store-18-knobs-starting.bmp", kEffects, nullptr, sunset);
+        valid = valid && !live_tile_pixels(renderer, sunset).found;
+    }
     f.state[2].detail = f.state[2].knobs = false;
     // 05 Plugins > Installed with the overflow menu open
     renderer_clear_effect(&renderer);

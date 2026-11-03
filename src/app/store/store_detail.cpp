@@ -635,22 +635,23 @@ void build_knobs(Ctx& c, const StoreItem& item, u32 index) noexcept {
     c.b.button("Remove", UiStoreButton::ghost_critical, store_action(StoreAct::detail_remove, index), UiIcon::trash, true);
     c.b.close();
     c.b.spacer(0, 16);
-    // The live preview: the effect draws behind the settings and the renderer fills this plate with it. An effect
-    // that is not the background has no picture to show: the plate says how to see it.
+    // The live preview: the host draws the page's effect as the window background (in place of the window's own
+    // when it is another one) and the renderer fills this plate with it once it is the effect drawing.
     static constexpr u32 kResolutions[]{25, 35, 50, 75, 100}, kFrames[]{10, 15, 24, 30, 60};
     const StoreUniversal& u = c.m.universal;
     const u32 resolution = u.resolution ? u.resolution : u.global_resolution ? u.global_resolution : 3;
     const u32 frames = u.frame_rate ? u.frame_rate : u.global_frame_rate ? u.global_frame_rate : u.requested_frame_rate ? u.requested_frame_rate : 3;
+    const bool refused = c.m.effect_cost_state == 2, failed = c.m.effect_preview == 2;
     auto& view = c.b.open(UiStoreKind::preview);
-    view.variant = static_cast<u8>(item.active ? UiStoreAspect::live : UiStoreAspect::fixed);
+    view.variant = static_cast<u8>(c.m.effect_preview == 1 && !refused ? UiStoreAspect::live : UiStoreAspect::fixed);
     view.rh = 220;
-    if (c.m.effect_cost_state == 2)
+    if (refused || failed)
         view.flags = ui_store_critical;
     const Utf8View live_text = join(c.b, utf8_literal("Live preview \xC2\xB7 "), join(c.b, c.b.number(kFrames[(frames - 1) % 5]), utf8_literal(" fps \xC2\xB7 ")),
                                     join(c.b, c.b.number(kResolutions[(resolution - 1) % 5]), utf8_literal(" %")));
-    auto& pill = c.b.chip(c.m.effect_cost_state == 2 ? utf8_literal("Too heavy for this GPU")
-                          : item.active              ? live_text
-                                                     : utf8_literal("Use it as the background to see it live"),
+    auto& pill = c.b.chip(refused  ? utf8_literal("Too heavy for this GPU")
+                          : failed ? utf8_literal("This effect could not be drawn")
+                                   : live_text,
                           UiStoreTone::scrim, UiIcon::play);
     pill.anchor = static_cast<u8>(UiStoreAnchor::bottom_left);
     pill.flags = ui_store_foreground;

@@ -17,6 +17,7 @@
 #include "maicord/ui/widgets/spinner.hpp"
 #include "plugins/catalog_service.hpp"
 
+#include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
@@ -305,6 +306,137 @@ bool busy_spinner_wakes(UiPageKey plugins, UiPageKey other) noexcept {
     return spins && hidden && idle;
 }
 
+// ---- Knob page previews --------------------------------------------------------------------------------------
+// A minimal installed package: a manifest, a ps_5_0 DXBC header and its source, as the packager lays them out.
+u8 package_bytes[640];
+void put32(u8* p, u32 v) noexcept {
+    for (u32 i = 0; i < 4; ++i)
+        p[i] = static_cast<u8>(v >> (8 * i));
+}
+bool install_effect(const char* slug) noexcept {
+    char manifest[320];
+    u32 m = 0;
+    const auto add = [&](const char* text) noexcept {
+        const u32 n = c_string_length(text);
+        copy_bytes(manifest + m, text, n);
+        m += n;
+    };
+    add("{\"interface\":1,\"slug\":\"");
+    add(slug);
+    add("\",\"name\":\"");
+    add(slug);
+    add("\",\"version\":\"1.0.0\",\"authors\":[{\"name\":\"Maj\"}],\"license\":\"MPL-2.0\",\"blend\":\"normal\",\"uses\":[],"
+        "\"knobs\":[{\"id\":\"speed\",\"type\":\"float\",\"label\":\"Speed\",\"min\":0,\"max\":3,\"default\":1}]}");
+    u8 dxbc[48]{};
+    copy_bytes(dxbc, "DXBC", 4);
+    put32(dxbc + 20, 1);
+    put32(dxbc + 24, sizeof(dxbc));
+    put32(dxbc + 28, 1);
+    put32(dxbc + 32, 36);
+    copy_bytes(dxbc + 36, "SHEX", 4);
+    put32(dxbc + 40, 4);
+    put32(dxbc + 44, 0x50);
+    static constexpr char kSource[] = "float4 background(float2 p){return 0;}";
+    const struct {
+        u32 type;
+        const void* data;
+        u32 bytes;
+    } sections[]{{1, manifest, m}, {2, dxbc, sizeof(dxbc)}, {5, kSource, sizeof(kSource) - 1}};
+    clear_bytes(package_bytes, sizeof(package_bytes));
+    copy_bytes(package_bytes, "MCFX", 4);
+    package_bytes[4] = 1;
+    package_bytes[6] = 3;
+    u32 at = 16 + 3 * 16;
+    for (u32 i = 0; i < 3; ++i) {
+        put32(package_bytes + 16 + i * 16, sections[i].type);
+        put32(package_bytes + 16 + i * 16 + 4, at);
+        put32(package_bytes + 16 + i * 16 + 8, sections[i].bytes);
+        copy_bytes(package_bytes + at, sections[i].data, sections[i].bytes);
+        at += sections[i].bytes;
+    }
+    put32(package_bytes + 8, at);
+    wchar_t relative[64] = L"effects\\", path[512];
+    u32 n = 8;
+    for (u32 i = 0; slug[i]; ++i)
+        relative[n++] = static_cast<wchar_t>(slug[i]);
+    for (const wchar_t c : L"-0123456789abcdef.mcfx")
+        relative[n++] = c;
+    if (!data_path(path, 504, relative, true).ok())
+        return false;
+    const HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    DWORD written = 0;
+    const bool ok = file != INVALID_HANDLE_VALUE && WriteFile(file, package_bytes, at, &written, nullptr) && written == at;
+    if (file != INVALID_HANDLE_VALUE)
+        CloseHandle(file);
+    return ok;
+}
+u32 effect_index(const char* slug) noexcept {
+    for (u32 i = 0; i < application_effects_count(); ++i)
+        if (const EffectInfo* info = application_effects_info(i);
+            info && c_string_length(info->slug) == c_string_length(slug) && bytes_equal(info->slug, slug, c_string_length(slug)))
+            return i;
+    return ~0u;
+}
+// One frame of the client's order: the effect selection, then Settings (and through it the store).
+bool frame() noexcept {
+    application_effects_synchronize();
+    return application_settings_synchronize();
+}
+bool live_tile() noexcept {
+    for (u32 i = 0; store() && i < store()->count; ++i)
+        if (store()->nodes[i].kind == UiStoreKind::preview && store()->nodes[i].variant == static_cast<u8>(UiStoreAspect::live))
+            return true;
+    return false;
+}
+bool open_knobs(const char* slug) noexcept {
+    // From another page, as the theme editor's Knobs button arrives.
+    return application_settings_open_page(kAppearancePage) && frame() &&
+           application_store_open_effect_knobs({slug, c_string_length(slug)}) && frame() && frame() && store();
+}
+
+// Every installed effect's knob page shows that effect live: the saved background draws as it is, another effect
+// draws in its place while the page shows, and the plate turns live once its effect is the one drawing. The
+// preview's clock runs under Settings only while the tile is on screen; leaving the page brings the background back.
+bool knob_pages_preview_live() noexcept {
+    const ApplicationWindowState window = g_window_state;
+    g_window_state.visible = g_window_state.foreground = true;
+    g_window_state.minimized = false;
+    auto& observed = settings_runtime_test::observed;
+    const UiRect viewport = observed.viewport;
+    observed.viewport = {0, 0, 1000, 480};
+    application_effects_reload();
+    const u32 before = application_effects_count();
+    const bool installed = install_effect("alpha") && install_effect("beta");
+    application_effects_reload();
+    const u32 alpha = effect_index("alpha"), beta = effect_index("beta");
+    const u64 alpha_id = application_effects_identity(alpha), beta_id = application_effects_identity(beta);
+    const bool listed = installed && application_effects_count() == before + 2 && alpha_id && beta_id && alpha_id != beta_id;
+    const bool background = listed && application_effects_select(alpha) && application_settings_open() && frame() &&
+                            g_app.renderer.effect.identity == alpha_id;
+    // Another effect's page: it draws in the background's place and its plate is live, its clock running.
+    const bool other = background && open_knobs("beta") && g_app.renderer.effect.identity == beta_id && live_tile() &&
+                       application_effects_preview_state(beta_id) == EffectTrialState::drawing &&
+                       application_effects_preview_running();
+    // Scrolled out of view the preview keeps its picture and its clock stops.
+    const bool scrolled = other && ui_store_scene_scroll_to(const_cast<UiStoreScene*>(store()), store()->content_height) && frame() &&
+                          !application_effects_preview_running() && g_app.renderer.effect.identity == beta_id;
+    // The background's own page: it draws as it is.
+    const bool own = scrolled && open_knobs("alpha") && g_app.renderer.effect.identity == alpha_id && live_tile() &&
+                     application_effects_preview_running();
+    // Leaving the page gives the window its background back; nothing runs the clock under Settings.
+    const bool left = own && open_knobs("beta") && g_app.renderer.effect.identity == beta_id &&
+                      application_settings_open_page(kAppearancePage) && frame() && frame() &&
+                      g_app.renderer.effect.identity == alpha_id && !application_effects_preview_running();
+    application_settings_close(false);
+    application_effects_select_none();
+    application_effects_remove("alpha", 5);
+    application_effects_remove("beta", 4);
+    application_effects_synchronize();
+    observed.viewport = viewport;
+    g_window_state = window;
+    return left && application_effects_count() == before && !g_app.renderer.effect.selected;
+}
+
 } // namespace store_routing_runtime
 
 void test_application_store_routing_runtime(void (*check)(bool, const char*) noexcept) noexcept {
@@ -376,6 +508,9 @@ void test_application_store_routing_runtime(void (*check)(bool, const char*) noe
     }
     check(busy_spinner_wakes(stores[0], kAppearancePage),
           "store routing: a busy item on the shown store page arms the next spinner step; none or a hidden page does not");
+    check(knob_pages_preview_live(),
+          "store routing: every installed effect's knob page draws that effect live in its preview, the clock running only "
+          "while the tile is on screen, and leaving the page restores the background");
     // The wheel scrolls the category list over its rows and over its scrollbar, which sits in the sidebar's padding.
     auto& observed = settings_runtime_test::observed;
     const UiRect viewport = observed.viewport;
