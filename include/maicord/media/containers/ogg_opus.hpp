@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/core/slice.hpp"
-#include "maicord/media/video/encoded_video_limits.hpp"
 
 namespace maicord {
 inline constexpr u32 kOggOpusMaximumPacketBytes = 61'440;

@@ -207,7 +207,7 @@ JpegError validate_progression(const JpegScan& scan, u8 progression[kJpegCompone
 JpegError find_entropy_end(ConstSlice<u8> encoded, u32 start, JpegScan* scan, u32* next_marker) noexcept;
 void build_component_tables(const JpegImage& image, JpegDecodeTable* dc, JpegAcDecodeTable* ac) noexcept;
 bool decode_block(JpegEntropyReader* reader, const JpegDecodeTable& dc_table, const JpegAcDecodeTable& ac_table,
-                  i32* predictor, JpegCoefficientBlock* block, u32* huffman_symbols) noexcept;
+                  i32* predictor, JpegCoefficientBlock* block) noexcept;
 bool decode_progressive_scan(ConstSlice<u8> encoded, const JpegImage& image, const JpegTables& tables,
                              const JpegScan& scan, JpegCoefficientBlock* blocks,
                              JpegDecodeResult* result) noexcept;

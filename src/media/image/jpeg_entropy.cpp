@@ -204,8 +204,7 @@ __forceinline i32 receive_extend(JpegEntropyReader* reader, u32 bits) noexcept {
 }
 
 __forceinline bool decode_block_local(JpegEntropyReader* reader, const JpegDecodeTable& dc_table,
-                                      const JpegAcDecodeTable& ac_table, i32* predictor, JpegCoefficientBlock* block,
-                                      u32* huffman_symbols) noexcept {
+                                      const JpegAcDecodeTable& ac_table, i32* predictor, JpegCoefficientBlock* block) noexcept {
     for (u32 index = 0; index < 64; ++index) {
         block->values[index] = 0;
     }
@@ -214,7 +213,6 @@ __forceinline bool decode_block_local(JpegEntropyReader* reader, const JpegDecod
         reader->error = JpegError::coefficient;
         return false;
     }
-    ++*huffman_symbols;
     *predictor += receive_extend(reader, symbol);
     if (reader->error != JpegError::none || *predictor < -32'768 || *predictor > 32'767) {
         reader->error = JpegError::coefficient;
@@ -236,12 +234,10 @@ __forceinline bool decode_block_local(JpegEntropyReader* reader, const JpegDecod
             if ((fast & kJpegEndOfBlock) != 0) {
                 if (total <= reader->bits) {
                     entropy_consume(reader, total);
-                    ++*huffman_symbols;
                     break;
                 }
             } else if (total <= reader->bits && coefficient + skip < 64) {
                 entropy_consume(reader, total);
-                ++*huffman_symbols;
                 coefficient += skip;
                 block->values[kZigzagToRaster[coefficient]] = static_cast<i16>(static_cast<i32>(fast) >> 16);
                 ++coefficient;
@@ -251,7 +247,6 @@ __forceinline bool decode_block_local(JpegEntropyReader* reader, const JpegDecod
         if (!decode_huffman_symbol(reader, ac_table, &symbol)) {
             return false;
         }
-        ++*huffman_symbols;
         const u32 run = symbol >> 4;
         const u32 bits = symbol & 0x0F;
         if (bits == 0) {
@@ -283,12 +278,10 @@ __forceinline bool decode_block_local(JpegEntropyReader* reader, const JpegDecod
 
 // The reader state lives in a local copy (registers) for the whole block.
 bool decode_block(JpegEntropyReader* reader, const JpegDecodeTable& dc_table, const JpegAcDecodeTable& ac_table,
-                  i32* predictor, JpegCoefficientBlock* block, u32* huffman_symbols) noexcept {
+                  i32* predictor, JpegCoefficientBlock* block) noexcept {
     JpegEntropyReader local = *reader;
-    u32 symbols = *huffman_symbols;
-    const bool ok = decode_block_local(&local, dc_table, ac_table, predictor, block, &symbols);
+    const bool ok = decode_block_local(&local, dc_table, ac_table, predictor, block);
     *reader = local;
-    *huffman_symbols = symbols;
     return ok;
 }
 
@@ -302,8 +295,7 @@ __forceinline bool store_coefficient(JpegEntropyReader* reader, i32 value, i16* 
 }
 
 __declspec(noinline) bool decode_progressive_dc_initial(JpegEntropyReader* reader, const JpegDecodeTable& table, i32* predictor,
-                                   u8 approximation_low, JpegCoefficientBlock* block,
-                                   u32* huffman_symbols) noexcept {
+                                   u8 approximation_low, JpegCoefficientBlock* block) noexcept {
     u8 symbol = 0;
     if (!decode_huffman_symbol(reader, table, &symbol) || symbol > 11) {
         if (reader->error == JpegError::none) {
@@ -311,7 +303,6 @@ __declspec(noinline) bool decode_progressive_dc_initial(JpegEntropyReader* reade
         }
         return false;
     }
-    ++*huffman_symbols;
     *predictor += receive_extend(reader, symbol);
     const i64 scaled = static_cast<i64>(*predictor) * (1ull << approximation_low);
     return reader->error == JpegError::none && scaled >= -32'768 && scaled <= 32'767 &&
@@ -338,8 +329,7 @@ __declspec(noinline) bool decode_progressive_dc_refinement(JpegEntropyReader* re
 
 __declspec(noinline) bool decode_progressive_ac_initial(JpegEntropyReader* reader, const JpegAcDecodeTable& table,
                                    u8 spectral_start, u8 spectral_end, u8 approximation_low,
-                                   JpegCoefficientBlock* block, u32* eob_run,
-                                   u32* huffman_symbols) noexcept {
+                                   JpegCoefficientBlock* block, u32* eob_run) noexcept {
     if (*eob_run != 0) {
         --*eob_run;
         return true;
@@ -358,7 +348,6 @@ __declspec(noinline) bool decode_progressive_ac_initial(JpegEntropyReader* reade
             if (total <= reader->bits && coefficient + skip <= spectral_end && scaled >= -32'768 &&
                 scaled <= 32'767 && block->values[kZigzagToRaster[coefficient + skip]] == 0) {
                 entropy_consume(reader, total);
-                ++*huffman_symbols;
                 coefficient += skip;
                 block->values[kZigzagToRaster[coefficient]] = static_cast<i16>(scaled);
                 ++coefficient;
@@ -369,7 +358,6 @@ __declspec(noinline) bool decode_progressive_ac_initial(JpegEntropyReader* reade
         if (!decode_huffman_symbol(reader, table, &symbol)) {
             return false;
         }
-        ++*huffman_symbols;
         const u32 run = symbol >> 4;
         const u32 bits = symbol & 0x0F;
         if (bits == 0) {
@@ -453,8 +441,7 @@ __forceinline bool refine_nonzeroes(JpegEntropyReader* reader, JpegCoefficientBl
 
 __declspec(noinline) bool decode_progressive_ac_refinement(JpegEntropyReader* reader, const JpegDecodeTable& table,
                                       u8 spectral_start, u8 spectral_end, u8 approximation_low,
-                                      JpegCoefficientBlock* block, u32* eob_run,
-                                      u32* huffman_symbols) noexcept {
+                                      JpegCoefficientBlock* block, u32* eob_run) noexcept {
     const i32 delta = 1u << approximation_low;
     u32 coefficient = spectral_start;
     if (*eob_run == 0) {
@@ -463,7 +450,6 @@ __declspec(noinline) bool decode_progressive_ac_refinement(JpegEntropyReader* re
             if (!decode_huffman_symbol(reader, table, &symbol)) {
                 return false;
             }
-            ++*huffman_symbols;
             const u32 zeroes = symbol >> 4;
             const u32 magnitude = symbol & 0x0F;
             i32 new_value = 0;
@@ -515,21 +501,20 @@ __declspec(noinline) bool decode_progressive_ac_refinement(JpegEntropyReader* re
 __forceinline bool decode_progressive_block(JpegEntropyReader* reader, const JpegDecodeTable* dc,
                               const JpegAcDecodeTable* ac,
                               const JpegScan& scan, u32 scan_component, i32* predictor, JpegCoefficientBlock* block,
-                              u32* eob_run, u32* huffman_symbols) noexcept {
+                              u32* eob_run) noexcept {
     if (scan.spectral_start == 0) {
         return scan.approximation_high == 0
                    ? decode_progressive_dc_initial(reader, dc[scan.dc_tables[scan_component]],
-                                                   predictor, scan.approximation_low, block,
-                                                   huffman_symbols)
+                                                   predictor, scan.approximation_low, block)
                    : decode_progressive_dc_refinement(reader, scan.approximation_low, block);
     }
     return scan.approximation_high == 0
                ? decode_progressive_ac_initial(reader, ac[scan.ac_tables[scan_component]],
                                                scan.spectral_start, scan.spectral_end,
-                                               scan.approximation_low, block, eob_run, huffman_symbols)
+                                               scan.approximation_low, block, eob_run)
                : decode_progressive_ac_refinement(reader, ac[scan.ac_tables[scan_component]],
                                                   scan.spectral_start, scan.spectral_end,
-                                                  scan.approximation_low, block, eob_run, huffman_symbols);
+                                                  scan.approximation_low, block, eob_run);
 }
 
 bool decode_progressive_scan(ConstSlice<u8> encoded, const JpegImage& image, const JpegTables& tables,
@@ -595,7 +580,7 @@ bool decode_progressive_scan(ConstSlice<u8> encoded, const JpegImage& image, con
                     const u32 block_index = component.block_offset + block_y * component.block_columns + block_x;
                     if (block_index >= image.coefficient_blocks ||
                         !decode_progressive_block(&reader, dc, ac, scan, scan_component, &predictor[component_index],
-                                                  &blocks[block_index], &eob_run, &result->huffman_symbols)) {
+                                                  &blocks[block_index], &eob_run)) {
                         result->error = reader.error == JpegError::none ? JpegError::coefficient : reader.error;
                         return false;
                     }

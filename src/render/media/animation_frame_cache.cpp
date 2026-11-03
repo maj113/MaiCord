@@ -1,6 +1,7 @@
 #include "maicord/render/media/animation_frame_cache.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/media/core/asset.hpp"
+#include "maicord/media/core/slot_index.hpp"
 
 namespace maicord {
 namespace {
@@ -145,19 +146,8 @@ void clear_stale(AnimationFrameCache* cache) noexcept {
 }
 
 u32 find_free_slot(AnimationFrameCache* cache) noexcept {
-    if (cache->entry_count >= cache->entry_capacity) {
-        return 0xFFFFFFFFu;
-    }
-    u32 slot = cache->free_cursor;
-    for (u32 offset = 0; offset < cache->entry_capacity; ++offset) {
-        if (!cache->entries[slot].occupied) {
-            cache->free_cursor = slot + 1 == cache->entry_capacity ? 0 : slot + 1;
-            return slot;
-        }
-        if (++slot == cache->entry_capacity)
-            slot = 0;
-    }
-    return 0xFFFFFFFFu;
+    return slot_table_take_free(cache->entry_count, cache->entry_capacity, &cache->free_cursor,
+                                [&](u32 slot) noexcept { return cache->entries[slot].occupied != 0; });
 }
 
 AnimationFrameCacheResult result_from(

@@ -279,6 +279,7 @@ JpegDecodeResult jpeg_thumbnail_decode_rows(ConstSlice<u8> encoded, const JpegIm
         const u32 total_mcus = static_cast<u32>(image.mcu_columns) * image.mcu_rows;
         u8 expected_restart = 0;
         JpegCoefficientBlock block{};
+        u32 mcu_x = 0, mcu_y = 0;
         for (u32 mcu = 0; mcu < total_mcus; ++mcu) {
             if (image.restart_interval != 0 && mcu != 0 && mcu % image.restart_interval == 0) {
                 if (!entropy_consume_restart(&reader, expected_restart)) {
@@ -289,15 +290,14 @@ JpegDecodeResult jpeg_thumbnail_decode_rows(ConstSlice<u8> encoded, const JpegIm
                 for (auto& value : predictor)
                     value = 0;
             }
-            const u32 mcu_x = mcu % image.mcu_columns, mcu_y = mcu / image.mcu_columns;
+            // mcu_x/mcu_y step with the MCU index instead of dividing it.
             for (u32 scan = 0; scan < image.component_count; ++scan) {
                 const u32 component_index = image.scan_order[scan];
                 const JpegComponent& component = image.components[component_index];
                 for (u32 vertical = 0; vertical < component.vertical_sampling; ++vertical)
                     for (u32 horizontal = 0; horizontal < component.horizontal_sampling; ++horizontal) {
                         if (!decode_block(&reader, dc_decode[component.dc_table],
-                                          ac_decode[component.ac_table], &predictor[component_index], &block,
-                                          &result.huffman_symbols)) {
+                                          ac_decode[component.ac_table], &predictor[component_index], &block)) {
                             result.error = reader.error == JpegError::none ? JpegError::coefficient : reader.error;
                             return result;
                         }
@@ -308,6 +308,10 @@ JpegDecodeResult jpeg_thumbnail_decode_rows(ConstSlice<u8> encoded, const JpegIm
                     }
             }
             ++result.decoded_mcus;
+            if (++mcu_x == image.mcu_columns) {
+                mcu_x = 0;
+                ++mcu_y;
+            }
         }
         if (!entropy_at_end(&reader)) {
             result.error = reader.error == JpegError::none ? JpegError::entropy : reader.error;

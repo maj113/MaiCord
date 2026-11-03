@@ -64,8 +64,6 @@ struct ZlibInflateResult {
     u32 input_bytes;
     u32 output_bytes;
     u32 blocks;
-    u32 literals;
-    u32 copies;
     ZlibInflateError error;
 
     constexpr bool ok() const noexcept {

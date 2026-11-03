@@ -4,6 +4,7 @@
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/media/core/asset.hpp"
+#include "maicord/media/core/slot_index.hpp"
 
 namespace maicord {
 namespace {
@@ -28,10 +29,6 @@ u64 presentation_time(const AnimationTimeline& timeline, u64 now_us) noexcept {
     return timeline.suspended ? timeline.suspended_at_us : now_us;
 }
 
-u32 key_bucket(const MediaAssetKey& key, u32 capacity) noexcept {
-    return static_cast<u32>(media_asset_hash(key) % capacity);
-}
-
 bool descriptor_valid(const AnimationTimelineDescriptor& descriptor) noexcept {
     return descriptor.generation != 0 && descriptor.frame_count != 0 &&
            descriptor.frame_count <= kAnimationTimelineFrameMaximum &&
@@ -39,76 +36,30 @@ bool descriptor_valid(const AnimationTimelineDescriptor& descriptor) noexcept {
            descriptor.first_frame_duration_us <= kAnimationFrameDurationMaximumUs;
 }
 
-inline constexpr u32 kEmptyBucket = 0;
-inline constexpr u32 kTombstoneBucket = 0xFFFFFFFFu;
-
 u32 find_bucket(const AnimationTimeline* timeline, const MediaAssetKey& key) noexcept {
     if (!timeline || !timeline->entries || !timeline->buckets || timeline->capacity == 0 ||
         timeline->bucket_capacity == 0 || !media_asset_key_valid(key)) {
-        return 0xFFFFFFFFu;
+        return kSlotIndexNone;
     }
-    const u32 start = key_bucket(key, timeline->bucket_capacity);
-    for (u32 probe = 0; probe < timeline->bucket_capacity; ++probe) {
-        const u32 bucket = (start + probe) % timeline->bucket_capacity;
-        const u32 value = timeline->buckets[bucket];
-        if (value == kEmptyBucket) {
-            break;
-        }
-        if (value == kTombstoneBucket) {
-            continue;
-        }
-        const u32 slot = value - 1;
-        if (slot < timeline->capacity && occupied(timeline->entries[slot]) &&
-            media_asset_key_equal(timeline->entries[slot].key, key)) {
-            return bucket;
-        }
-    }
-    return 0xFFFFFFFFu;
+    return slot_index_find(timeline->buckets, timeline->bucket_capacity, media_asset_hash(key),
+                           [&](u32 slot) noexcept {
+                               return slot < timeline->capacity && occupied(timeline->entries[slot]) &&
+                                      media_asset_key_equal(timeline->entries[slot].key, key);
+                           });
 }
 
 u32 find_slot(const AnimationTimeline* timeline, const MediaAssetKey& key) noexcept {
     const u32 bucket = find_bucket(timeline, key);
-    return bucket == 0xFFFFFFFFu ? 0xFFFFFFFFu : timeline->buckets[bucket] - 1;
+    return bucket == kSlotIndexNone ? kSlotIndexNone : timeline->buckets[bucket] - 1;
 }
 
 u32 find_free_slot(AnimationTimeline* timeline) noexcept {
-    if (timeline->entry_count >= timeline->capacity) {
-        return 0xFFFFFFFFu;
-    }
-    u32 slot = timeline->free_cursor;
-    for (u32 offset = 0; offset < timeline->capacity; ++offset) {
-        if (!occupied(timeline->entries[slot])) {
-            timeline->free_cursor = slot + 1 == timeline->capacity ? 0 : slot + 1;
-            return slot;
-        }
-        if (++slot == timeline->capacity)
-            slot = 0;
-    }
-    return 0xFFFFFFFFu;
+    return slot_table_take_free(timeline->entry_count, timeline->capacity, &timeline->free_cursor,
+                                [&](u32 slot) noexcept { return occupied(timeline->entries[slot]); });
 }
 
-bool insert_bucket(AnimationTimeline* timeline, MediaAssetKey key, u32 slot) noexcept {
-    const u32 start = key_bucket(key, timeline->bucket_capacity);
-    u32 tombstone_bucket = 0xFFFFFFFFu;
-    for (u32 probe = 0; probe < timeline->bucket_capacity; ++probe) {
-        const u32 bucket = (start + probe) % timeline->bucket_capacity;
-        const u32 value = timeline->buckets[bucket];
-        if (value == kTombstoneBucket) {
-            if (tombstone_bucket == 0xFFFFFFFFu) {
-                tombstone_bucket = bucket;
-            }
-            continue;
-        }
-        if (value == kEmptyBucket) {
-            timeline->buckets[tombstone_bucket == 0xFFFFFFFFu ? bucket : tombstone_bucket] = slot + 1;
-            return true;
-        }
-    }
-    if (tombstone_bucket != 0xFFFFFFFFu) {
-        timeline->buckets[tombstone_bucket] = slot + 1;
-        return true;
-    }
-    return false;
+bool insert_bucket(AnimationTimeline* timeline, const MediaAssetKey& key, u32 slot) noexcept {
+    return slot_index_insert(timeline->buckets, timeline->bucket_capacity, media_asset_hash(key), slot);
 }
 
 AnimationTimelineResult find_pending(AnimationTimeline* timeline, const AnimationFrameAdvance& advance,
@@ -207,7 +158,7 @@ bool animation_timeline_grow_storage(AnimationTimeline* timeline, Slice<Animatio
         reset_value<AnimationTimelineEntry>(&entries[index]);
     }
     for (u32 index = 0; index < buckets.count; ++index) {
-        buckets[index] = kEmptyBucket;
+        buckets[index] = kSlotIndexEmpty;
     }
     timeline->capacity = entries.count;
     timeline->bucket_capacity = buckets.count;
@@ -227,7 +178,7 @@ void animation_timeline_reset(AnimationTimeline* timeline) noexcept {
         reset_value<AnimationTimelineEntry>(&timeline->entries[index]);
     }
     for (u32 index = 0; index < timeline->bucket_capacity; ++index) {
-        timeline->buckets[index] = kEmptyBucket;
+        timeline->buckets[index] = kSlotIndexEmpty;
     }
     timeline->entry_count = 0;
     timeline->visibility_epoch = 1;
@@ -323,7 +274,7 @@ AnimationTimelineResult animation_timeline_release(AnimationTimeline* timeline, 
         return {AnimationTimelineError::stale_generation, slot};
     }
     reset_value<AnimationTimelineEntry>(&timeline->entries[slot]);
-    timeline->buckets[bucket] = kTombstoneBucket;
+    timeline->buckets[bucket] = kSlotIndexTombstone;
     timeline->free_cursor = slot;
     --timeline->entry_count;
     return {AnimationTimelineError::none, slot};

@@ -436,8 +436,7 @@ bool same(const ZlibInflateResult& left, const ZlibInflateResult& right, const u
     if (!left.ok())
         return true;
     return left.input_bytes == right.input_bytes && left.output_bytes == right.output_bytes &&
-           left.blocks == right.blocks && left.literals == right.literals && left.copies == right.copies &&
-           bytes_equal(left_bytes, right_bytes, left.output_bytes);
+           left.blocks == right.blocks && bytes_equal(left_bytes, right_bytes, left.output_bytes);
 }
 
 void mutate(Random& random, const u8* source, u32 bytes, u8* target, u32* target_bytes) noexcept {

@@ -1,24 +1,10 @@
 #include "maicord/render/media/atlas.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/media/core/asset.hpp"
+#include "maicord/media/core/slot_index.hpp"
 
 namespace maicord {
 namespace {
-
-inline constexpr u32 kEmptyBucket = 0;
-inline constexpr u32 kTombstoneBucket = 0xFFFFFFFFu;
-
-// Bucket tables are powers of two in practice: mask instead of dividing on
-// every probe of the per-frame visibility lookups.
-u32 wrap_bucket(u64 value, u32 capacity) noexcept {
-    return (capacity & (capacity - 1)) == 0 ? static_cast<u32>(value) & (capacity - 1)
-                                            : static_cast<u32>(value % capacity);
-}
-
-u32 key_bucket(MediaAssetKey key, u32 capacity) noexcept {
-    return wrap_bucket(media_asset_hash(key), capacity);
-}
-
 // Glyph allocator errors are the leading media atlas errors.
 static_assert(static_cast<u8>(GlyphAtlasError::invalid_input) == static_cast<u8>(MediaAtlasError::invalid_input) &&
               static_cast<u8>(GlyphAtlasError::not_found) == static_cast<u8>(MediaAtlasError::not_found) &&
@@ -60,69 +46,24 @@ MediaAtlasResult result_from(const MediaAtlasEntry& entry,
 }
 
 u32 find_bucket(const MediaAtlas* atlas, const MediaAssetKey& key) noexcept {
-    const u32 first = key_bucket(key, atlas->bucket_capacity);
-    for (u32 probe = 0; probe < atlas->bucket_capacity; ++probe) {
-        const u32 bucket = wrap_bucket(first + probe, atlas->bucket_capacity);
-        const u32 value = atlas->buckets[bucket];
-        if (value == kEmptyBucket) {
-            break;
-        }
-        if (value == kTombstoneBucket) {
-            continue;
-        }
-        const u32 slot = value - 1u;
-        if (slot < atlas->entry_capacity && atlas->entries[slot].occupied &&
-            media_asset_key_equal(atlas->entries[slot].key, key)) {
-            return bucket;
-        }
-    }
-    return 0xFFFFFFFFu;
+    return slot_index_find(atlas->buckets, atlas->bucket_capacity, media_asset_hash(key), [&](u32 slot) noexcept {
+        return slot < atlas->entry_capacity && atlas->entries[slot].occupied &&
+               media_asset_key_equal(atlas->entries[slot].key, key);
+    });
 }
 
-bool insert_bucket(MediaAtlas* atlas, MediaAssetKey key, u32 slot) noexcept {
-    const u32 first = key_bucket(key, atlas->bucket_capacity);
-    u32 tombstone = 0xFFFFFFFFu;
-    for (u32 probe = 0; probe < atlas->bucket_capacity; ++probe) {
-        const u32 bucket = wrap_bucket(first + probe, atlas->bucket_capacity);
-        const u32 value = atlas->buckets[bucket];
-        if (value == kTombstoneBucket) {
-            if (tombstone == 0xFFFFFFFFu) {
-                tombstone = bucket;
-            }
-            continue;
-        }
-        if (value == kEmptyBucket) {
-            atlas->buckets[tombstone == 0xFFFFFFFFu ? bucket : tombstone] =
-                slot + 1u;
-            return true;
-        }
-    }
-    if (tombstone != 0xFFFFFFFFu) {
-        atlas->buckets[tombstone] = slot + 1u;
-        return true;
-    }
-    return false;
+bool insert_bucket(MediaAtlas* atlas, const MediaAssetKey& key, u32 slot) noexcept {
+    return slot_index_insert(atlas->buckets, atlas->bucket_capacity, media_asset_hash(key), slot);
 }
 
 u32 find_free_slot(MediaAtlas* atlas) noexcept {
-    if (atlas->entry_count >= atlas->entry_capacity) {
-        return 0xFFFFFFFFu;
-    }
-    u32 slot = atlas->free_cursor;
-    for (u32 offset = 0; offset < atlas->entry_capacity; ++offset) {
-        if (!atlas->entries[slot].occupied) {
-            atlas->free_cursor = slot + 1 == atlas->entry_capacity ? 0 : slot + 1;
-            return slot;
-        }
-        if (++slot == atlas->entry_capacity)
-            slot = 0;
-    }
-    return 0xFFFFFFFFu;
+    return slot_table_take_free(atlas->entry_count, atlas->entry_capacity, &atlas->free_cursor,
+                                [&](u32 slot) noexcept { return atlas->entries[slot].occupied != 0; });
 }
 
 void erase_entry(MediaAtlas* atlas, u32 slot, u32 bucket) noexcept {
     clear_entry(&atlas->entries[slot]);
-    atlas->buckets[bucket] = kTombstoneBucket;
+    atlas->buckets[bucket] = kSlotIndexTombstone;
     atlas->free_cursor = slot;
     --atlas->entry_count;
     ++atlas->stale_entries;
@@ -144,7 +85,7 @@ bool rebuild_buckets_and_clear_stale(MediaAtlas* atlas) noexcept {
         }
     }
     for (u32 index = 0; index < atlas->bucket_capacity; ++index) {
-        atlas->buckets[index] = kEmptyBucket;
+        atlas->buckets[index] = kSlotIndexEmpty;
     }
     for (u32 slot = 0, live = atlas->entry_count; slot < atlas->entry_capacity && live; ++slot) {
         if (!atlas->entries[slot].occupied)
@@ -183,12 +124,12 @@ bool media_atlas_initialize(MediaAtlas* atlas, u16 width, u16 height,
     reset_value<GlyphAtlasGrowth>(&atlas->growth);
     atlas->disposal_backup_used_ms = 0;
     if (zeroed)
-        return true; // kEmptyBucket is zero
+        return true; // kSlotIndexEmpty is zero
     for (u32 index = 0; index < entries.count; ++index) {
         reset_value<MediaAtlasEntry>(&entries[index]);
     }
     for (u32 index = 0; index < buckets.count; ++index) {
-        buckets[index] = kEmptyBucket;
+        buckets[index] = kSlotIndexEmpty;
     }
     return true;
 }
@@ -204,7 +145,7 @@ void media_atlas_reset(MediaAtlas* atlas) noexcept {
         clear_entry(&atlas->entries[index]);
     }
     for (u32 index = 0; index < atlas->bucket_capacity; ++index) {
-        atlas->buckets[index] = kEmptyBucket;
+        atlas->buckets[index] = kSlotIndexEmpty;
     }
     atlas->entry_count = 0;
     atlas->free_cursor = 0;
@@ -333,7 +274,7 @@ MediaAtlasResult media_atlas_allocate(MediaAtlas* atlas, MediaAssetKey key,
     if (!glyph_atlas_pin(&atlas->allocations, entry.allocation)) {
         const u32 bucket = find_bucket(atlas, key);
         if (bucket != 0xFFFFFFFFu) {
-            atlas->buckets[bucket] = kTombstoneBucket;
+            atlas->buckets[bucket] = kSlotIndexTombstone;
         }
         entry.occupied = false;
         return rejected_allocation(allocation, width, height, MediaAtlasError::corrupt_state);

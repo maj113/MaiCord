@@ -88,7 +88,6 @@ struct Vp8lHuffmanGroup {
 struct Vp8lWorkspace {
     Vp8lHuffmanGroup groups[kVp8lHuffmanGroupCapacity];
     u16 symbols[kVp8lHuffmanSymbolCapacity];
-    u16 entropy_codes[kVp8lTransformPixelCapacity];
     u8 predictor_modes[kVp8lTransformPixelCapacity];
     u32 color_elements[kVp8lTransformPixelCapacity];
     u32 subimage_pixels[kVp8lTransformPixelCapacity];
@@ -102,7 +101,6 @@ struct Vp8lWorkspace {
 struct WebpDecodeResult {
     WebpParseResult parse;
     u32 rgba_bytes;
-    u32 huffman_symbols;
     WebpError error;
 
     constexpr bool ok() const noexcept {

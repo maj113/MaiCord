@@ -538,8 +538,7 @@ i32 receive_extend(ReferenceReader* reader, u32 bits) noexcept {
 }
 
 bool decode_block(ReferenceReader* reader, const JpegHuffmanTable& dc_table,
-                  const JpegHuffmanTable& ac_table, i32* predictor, JpegCoefficientBlock* block,
-                  u32* huffman_symbols) noexcept {
+                  const JpegHuffmanTable& ac_table, i32* predictor, JpegCoefficientBlock* block) noexcept {
     for (u32 index = 0; index < 64; ++index) {
         block->values[index] = 0;
     }
@@ -548,7 +547,6 @@ bool decode_block(ReferenceReader* reader, const JpegHuffmanTable& dc_table,
         reader->error = JpegError::coefficient;
         return false;
     }
-    ++*huffman_symbols;
     *predictor += receive_extend(reader, symbol);
     if (reader->error != JpegError::none || *predictor < -32'768 || *predictor > 32'767) {
         reader->error = JpegError::coefficient;
@@ -561,7 +559,6 @@ bool decode_block(ReferenceReader* reader, const JpegHuffmanTable& dc_table,
         if (!decode_huffman_symbol(reader, ac_table, &symbol)) {
             return false;
         }
-        ++*huffman_symbols;
         const u32 run = symbol >> 4;
         const u32 bits = symbol & 0x0F;
         if (bits == 0) {
@@ -627,7 +624,7 @@ JpegDecodeResult reference_baseline(ConstSlice<u8> encoded, const JpegImage& ima
                     const u32 block_index = component.block_offset + block_y * component.block_columns + block_x;
                     if (block_index >= image.coefficient_blocks ||
                         !decode_block(&reader, dc, ac, &predictor[component_index],
-                                      &coefficients->blocks[block_index], &result.huffman_symbols)) {
+                                      &coefficients->blocks[block_index])) {
                         result.error = reader.error == JpegError::none ? JpegError::coefficient : reader.error;
                         return result;
                     }
@@ -651,7 +648,7 @@ JpegDecodeResult reference_baseline(ConstSlice<u8> encoded, const JpegImage& ima
 bool same_decode(const JpegDecodeResult& fast, const JpegDecodeResult& reference, const JpegCoefficientWorkspace& a,
                  const JpegCoefficientWorkspace& b, u32 blocks) noexcept {
     return fast.error == reference.error && fast.decoded_blocks == reference.decoded_blocks &&
-           fast.decoded_mcus == reference.decoded_mcus && fast.huffman_symbols == reference.huffman_symbols &&
+           fast.decoded_mcus == reference.decoded_mcus &&
            fast.decoded_scans == reference.decoded_scans &&
            bytes_equal(a.blocks, b.blocks, blocks * static_cast<u32>(sizeof(JpegCoefficientBlock)));
 }

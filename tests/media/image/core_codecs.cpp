@@ -9,7 +9,7 @@
 #include "../../fixtures/jpeg_progressive_fixture.hpp"
 #include "../../fixtures/jpeg_cmyk_fixture.hpp"
 #include "../../fixtures/webp_fixture.hpp"
-#include "maicord/core/win32_exception.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 u8 g_png_encoded[17'000];
@@ -115,7 +115,7 @@ void test_jpeg_baseline() noexcept {
     const JpegDecodeResult decoded =
         jpeg_decode_coefficients(ConstSlice<u8>{encoded, fixture.encoded_bytes}, &image, &g_jpeg_workspace);
     expect(decoded.ok() && decoded.parse.segments == 5 && decoded.decoded_mcus == 1 &&
-               decoded.decoded_blocks == 3 && decoded.huffman_symbols == 6 && image.width == 8 &&
+               decoded.decoded_blocks == 3 && image.width == 8 &&
                image.height == 8 && image.component_count == 3 && image.coefficient_blocks == 3 &&
                image.has_jfif && image.color_transform == JpegColorTransform::ycbcr &&
                image.orientation == JpegOrientation::top_left && image.tables->icc &&
@@ -545,7 +545,7 @@ void test_jpeg_baseline() noexcept {
     expect(progressive.ok() && progressive_image.progressive && progressive.parse.scans == 10 &&
                progressive_image.scan_count == 10 && progressive.decoded_scans == 10 &&
                progressive.decoded_mcus == 22 && progressive.decoded_blocks == 32 &&
-               progressive.huffman_symbols > 50 && progressive_image.width == 16 &&
+               progressive_image.width == 16 &&
                progressive_image.height == 16 && progressive_image.coefficient_blocks == 6 &&
                progressive_has_ac,
            "jpeg_progressive_spectral_and_refinement_decode");
@@ -686,7 +686,7 @@ void test_jpeg_baseline() noexcept {
                reference_image.components[1].horizontal_sampling == 1 &&
                reference_image.components[1].vertical_sampling == 1 &&
                reference_image.coefficient_blocks == 6 && reference.decoded_blocks == 6 &&
-               reference.huffman_symbols > 50 && has_ac,
+               has_ac,
            "jpeg_real_420_custom_huffman_ac_coefficients");
 
     JpegImage cmyk_image{};

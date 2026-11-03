@@ -542,7 +542,6 @@ struct Transform {
 struct DecodeState {
     BitReader reader;
     Vp8lWorkspace* workspace;
-    u32 peak_symbols;
     WebpError error;
 };
 
@@ -631,7 +630,6 @@ bool decode_entropy_image(DecodeState* state, u32 width, u32 height, bool allow_
                 set_error(state, WebpError::resource_limit);
                 return false;
             }
-            workspace->entropy_codes[index] = static_cast<u16>(group);
             maximum_group = maximum(maximum_group, group);
         }
         group_count = maximum_group + 1;
@@ -657,7 +655,6 @@ bool decode_entropy_image(DecodeState* state, u32 width, u32 height, bool allow_
             }
         }
     }
-    state->peak_symbols = maximum(state->peak_symbols, workspace->symbol_count);
 
     const u32 pixel_count = width * height;
     // x/y track position; the group changes only at prefix-block columns,
@@ -673,7 +670,7 @@ bool decode_entropy_image(DecodeState* state, u32 width, u32 height, bool allow_
     window_fill(state->reader, &window);
     while (position < pixel_count) {
         if ((x & block_mask) == 0 && prefix_bits != 0) {
-            codes = &workspace->groups[workspace->entropy_codes[(y >> prefix_bits) * prefix_width + (x >> prefix_bits)]];
+            codes = &workspace->groups[workspace->subimage_pixels[(y >> prefix_bits) * prefix_width + (x >> prefix_bits)] >> 8 & 0xFFFFu];
         }
         u16 green = 0;
         if (!window_decode(&state->reader, &window, workspace, codes->codes[0], &green)) {
@@ -733,7 +730,7 @@ bool decode_entropy_image(DecodeState* state, u32 width, u32 height, bool allow_
                 ++y;
             }
             if (prefix_bits != 0 && position < pixel_count) {
-                codes = &workspace->groups[workspace->entropy_codes[(y >> prefix_bits) * prefix_width + (x >> prefix_bits)]];
+                codes = &workspace->groups[workspace->subimage_pixels[(y >> prefix_bits) * prefix_width + (x >> prefix_bits)] >> 8 & 0xFFFFu];
             }
         } else {
             const u32 cache_index = green - 280;
@@ -1084,7 +1081,7 @@ WebpDecodeResult decode_validated_lossless_pixels(WebpImage* image, WebpParseRes
         result.error = WebpError::output_capacity;
         return result;
     }
-    DecodeState state{BitReader{image->bitstream, 0, false}, workspace, 0, WebpError::none};
+    DecodeState state{BitReader{image->bitstream, 0, false}, workspace, WebpError::none};
     Transform transforms[4]{};
     u32 transform_count = 0;
     u32 decoded_width = image->width;
@@ -1140,7 +1137,6 @@ WebpDecodeResult decode_validated_lossless_pixels(WebpImage* image, WebpParseRes
         }
     }
     result.rgba_bytes = pixel_count * 4;
-    result.huffman_symbols = state.peak_symbols;
     result.error = WebpError::none;
     return result;
 }

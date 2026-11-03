@@ -1,5 +1,6 @@
 #include "maicord/media/compression/zstd.hpp"
 
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/intrin.hpp"
 #include "maicord/sys/simd.hpp"
@@ -39,12 +40,6 @@ __forceinline u32 highbit(u32 value) noexcept {
     _BitScanReverse(&index, value);
     return index;
 }
-__forceinline u64 load64(const u8* p) noexcept {
-    return *reinterpret_cast<const u64 __unaligned*>(p);
-}
-__forceinline u32 load32(const u8* p) noexcept {
-    return *reinterpret_cast<const u32 __unaligned*>(p);
-}
 __forceinline u32 load24(const u8* p) noexcept {
     return p[0] | static_cast<u32>(p[1]) << 8 | static_cast<u32>(p[2]) << 16;
 }
@@ -68,7 +63,7 @@ void hash_reset(ZstdStreamDecoder* d) noexcept {
 }
 void hash_stripe(ZstdStreamDecoder* d, const u8* p) noexcept {
     for (u32 i = 0; i < 4; ++i)
-        d->hash_state[i] = hash_round(d->hash_state[i], load64(p + 8 * i));
+        d->hash_state[i] = hash_round(d->hash_state[i], byte_load_le64(p + 8 * i));
 }
 void hash_update(ZstdStreamDecoder* d, const u8* p, u32 bytes) noexcept {
     d->hash_length += bytes;
@@ -102,9 +97,9 @@ u32 hash_digest(const ZstdStreamDecoder& d) noexcept {
     const u8* p = d.hash_buffer;
     u32 left = d.hash_buffered;
     for (; left >= 8; p += 8, left -= 8)
-        h = rotl(h ^ hash_round(0, load64(p)), 27) * kPrime1 + kPrime4;
+        h = rotl(h ^ hash_round(0, byte_load_le64(p)), 27) * kPrime1 + kPrime4;
     if (left >= 4) {
-        h = rotl(h ^ static_cast<u64>(load32(p)) * kPrime1, 23) * kPrime2 + kPrime3;
+        h = rotl(h ^ static_cast<u64>(byte_load_le32(p)) * kPrime1, 23) * kPrime2 + kPrime3;
         p += 4;
         left -= 4;
     }
@@ -149,7 +144,7 @@ __forceinline u64 back_peek(const BackBits& r, i64 start, u32 count) noexcept {
     const u32 byte = static_cast<u32>(start >> 3);
     u64 value;
     if (byte + 8 <= r.size) {
-        value = load64(r.data + byte);
+        value = byte_load_le64(r.data + byte);
     } else {
         value = 0;
 #pragma clang loop vectorize(disable) interleave(disable) unroll(disable)
@@ -478,14 +473,14 @@ bool decode_literals(ZstdStreamDecoder* d, const u8* source, u32 size, u8* scrat
     } else if (format == 2) {
         if (size < 4)
             return false;
-        const u32 v = load32(source);
+        const u32 v = byte_load_le32(source);
         header = 4;
         regenerated = (v >> 4) & 0x3FFF;
         compressed = v >> 18;
     } else {
         if (size < 5)
             return false;
-        const u64 v = load32(source) | static_cast<u64>(source[4]) << 32;
+        const u64 v = byte_load_le32(source) | static_cast<u64>(source[4]) << 32;
         header = 5;
         regenerated = static_cast<u32>(v >> 4) & 0x3FFFF;
         compressed = static_cast<u32>(v >> 22) & 0x3FFFF;
@@ -732,11 +727,11 @@ void start_frame_tables(ZstdStreamDecoder* d) noexcept {
 ZstdError read_frame_header(ZstdStreamDecoder* d, const u8* p, u32 left, u32* consumed) noexcept {
     if (left < 4)
         return ZstdError::truncated;
-    const u32 magic = load32(p);
+    const u32 magic = byte_load_le32(p);
     if ((magic & 0xFFFFFFF0u) == kSkippableMagic) {
-        if (left < 8 || load32(p + 4) > left - 8)
+        if (left < 8 || byte_load_le32(p + 4) > left - 8)
             return ZstdError::truncated;
-        *consumed = 8 + load32(p + 4);
+        *consumed = 8 + byte_load_le32(p + 4);
         return ZstdError::none;
     }
     if (magic != kFrameMagic)
@@ -917,7 +912,7 @@ ZstdDecodeResult zstd_stream_decompress(ZstdStreamDecoder* d, ConstSlice<u8> inp
             if (d->has_checksum) {
                 if (left < 4)
                     return fail(d, ZstdError::truncated, blocks);
-                if (load32(p) != hash_digest(*d))
+                if (byte_load_le32(p) != hash_digest(*d))
                     return fail(d, ZstdError::checksum, blocks);
                 p += 4;
                 left -= 4;

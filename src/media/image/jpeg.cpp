@@ -51,7 +51,6 @@ bool segment_bounds(ConstSlice<u8> encoded, u32* cursor, u32* payload, u32* payl
     return true;
 }
 
-
 bool parse_exif_orientation(const u8* payload, u32 bytes, JpegOrientation* orientation) noexcept {
     // The sixth identifier byte is a fill byte and is not checked, as in Chromium.
     if (bytes < 14 || !bytes_equal(payload, "Exif\0", 5)) {
@@ -739,6 +738,7 @@ JpegDecodeResult jpeg_decode_parsed_coefficients(ConstSlice<u8> encoded, const J
     i32 predictor[kJpegComponentMaximum]{};
     const u32 total_mcus = static_cast<u32>(image.mcu_columns) * image.mcu_rows;
     u8 expected_restart = 0;
+    u32 mcu_x = 0, mcu_y = 0;
     for (u32 mcu = 0; mcu < total_mcus; ++mcu) {
         if (image.restart_interval != 0 && mcu != 0 && mcu % image.restart_interval == 0) {
             if (!entropy_consume_restart(&reader, expected_restart)) {
@@ -750,8 +750,7 @@ JpegDecodeResult jpeg_decode_parsed_coefficients(ConstSlice<u8> encoded, const J
                 predictor[index] = 0;
             }
         }
-        const u32 mcu_x = mcu % image.mcu_columns;
-        const u32 mcu_y = mcu / image.mcu_columns;
+        // mcu_x/mcu_y step with the MCU index instead of dividing it.
         for (u32 scan = 0; scan < image.component_count; ++scan) {
             const u32 component_index = image.scan_order[scan];
             const JpegComponent& component = image.components[component_index];
@@ -765,7 +764,7 @@ JpegDecodeResult jpeg_decode_parsed_coefficients(ConstSlice<u8> encoded, const J
                         component.block_offset + block_y * component.block_columns + block_x;
                     if (block_index >= image.coefficient_blocks ||
                         !decode_block(&reader, dc, ac, &predictor[component_index],
-                                      &coefficients->blocks[block_index], &result.huffman_symbols)) {
+                                      &coefficients->blocks[block_index])) {
                         result.error =
                             reader.error == JpegError::none ? JpegError::coefficient : reader.error;
                         return result;
@@ -775,6 +774,10 @@ JpegDecodeResult jpeg_decode_parsed_coefficients(ConstSlice<u8> encoded, const J
             }
         }
         ++result.decoded_mcus;
+        if (++mcu_x == image.mcu_columns) {
+            mcu_x = 0;
+            ++mcu_y;
+        }
     }
     if (!entropy_at_end(&reader) || result.decoded_blocks != image.coefficient_blocks) {
         result.error = reader.error == JpegError::none ? JpegError::entropy : reader.error;

@@ -267,7 +267,6 @@ struct JpegDecodeResult {
     JpegParseResult parse;
     u32 decoded_mcus;
     u32 decoded_blocks;
-    u32 huffman_symbols;
     u32 decoded_scans;
     JpegError error;
 

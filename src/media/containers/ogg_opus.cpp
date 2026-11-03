@@ -1,4 +1,5 @@
 #include "maicord/media/containers/ogg_opus.hpp"
+#include "maicord/media/video/encoded_video_limits.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"

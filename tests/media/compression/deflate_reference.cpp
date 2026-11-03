@@ -45,8 +45,6 @@ struct InflateState {
     DeflateWorkspace* workspace;
     u32 output_bytes;
     u32 blocks;
-    u32 literals;
-    u32 copies;
     u32 window_size;
     ZlibInflateError error;
 };
@@ -132,8 +130,7 @@ consteval FixedDeflateTables make_fixed_tables() noexcept {
 inline constexpr FixedDeflateTables kFixedTables = make_fixed_tables();
 
 ZlibInflateResult failure(const InflateState& state, ZlibInflateError error) noexcept {
-    return ZlibInflateResult{state.reader.input_bytes, state.output_bytes, state.blocks,
-                             state.literals,           state.copies,       error};
+    return ZlibInflateResult{state.reader.input_bytes, state.output_bytes, state.blocks, error};
 }
 
 bool reader_initialize(BitReader* reader, ConstSlice<DeflateInputSpan> spans) noexcept {
@@ -385,7 +382,6 @@ bool decode_compressed_block(InflateState* state, const DeflatePrefixTable& lite
             if (!emit_byte(state, static_cast<u8>(symbol))) {
                 return false;
             }
-            ++state->literals;
             continue;
         }
         if (symbol == 256) {
@@ -443,7 +439,6 @@ bool decode_compressed_block(InflateState* state, const DeflatePrefixTable& lite
             }
         }
         state->output_bytes += length;
-        ++state->copies;
     }
 }
 
@@ -474,7 +469,6 @@ bool decode_stored_block(InflateState* state) noexcept {
         }
         state->output[state->output_bytes++] = value;
     }
-    state->literals += length;
     return true;
 }
 

@@ -15,7 +15,6 @@ struct PendingControl {
     bool transparent;
 };
 
-
 GifParseResult fail(GifParseResult result, GifError error) noexcept {
     result.error = error;
     return result;

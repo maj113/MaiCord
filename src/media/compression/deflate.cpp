@@ -52,8 +52,6 @@ struct InflateState {
     DeflateWorkspace* workspace;
     u32 output_bytes;
     u32 blocks;
-    u32 literals;
-    u32 copies;
     u32 window_size;
     ZlibInflateError error;
     // Windowed (sink) mode: output[0, emitted) was delivered already.
@@ -253,8 +251,7 @@ const DeflateTables* fixed_tables(DeflateTables* fallback) noexcept {
 }
 
 ZlibInflateResult failure(const InflateState& state, ZlibInflateError error) noexcept {
-    return ZlibInflateResult{state.reader.input_bytes, state.output_bytes, state.blocks,
-                             state.literals,           state.copies,       error};
+    return ZlibInflateResult{state.reader.input_bytes, state.output_bytes, state.blocks, error};
 }
 
 bool advance_span(BitReader* reader) noexcept {
@@ -483,9 +480,6 @@ bool decode_huffman_block(InflateState* state, const u32* litlen, const u32* dis
             const u32 out_limit = state->output.count - kFastOutputMargin;
             // Output bytes may alias *state, so the window size is read once.
             const u32 window_size = state->window_size;
-            // Copies in the high half, copied bytes in the low half; every other
-            // output byte is a literal. One register instead of two counters.
-            u64 copied = 0;
             ZlibInflateError error = ZlibInflateError::none;
             bool finished = false;
             do {
@@ -543,13 +537,10 @@ bool decode_huffman_block(InflateState* state, const u32* litlen, const u32* dis
                 }
                 copy_match_fast(out + position, distance, length);
                 position += length;
-                copied += (u64{1} << 32) | length;
             } while (in <= in_limit && position <= out_limit);
             reader.bit_buffer = low_bits(bits, count);
             reader.bit_count = count;
             reader.next = in;
-            state->literals += position - state->output_bytes - static_cast<u32>(copied);
-            state->copies += static_cast<u32>(copied >> 32);
             state->output_bytes = position;
             if (finished)
                 return true;
@@ -570,7 +561,6 @@ bool decode_huffman_block(InflateState* state, const u32* litlen, const u32* dis
             if (!ensure_output(state, 1))
                 return false;
             state->output.data[state->output_bytes++] = static_cast<u8>(entry_value(entry));
-            ++state->literals;
             continue;
         }
         if (entry_kind(entry) == kEntryEnd)
@@ -606,7 +596,6 @@ bool decode_huffman_block(InflateState* state, const u32* litlen, const u32* dis
             return false;
         copy_match_exact(state->output.data + state->output_bytes, distance, length);
         state->output_bytes += length;
-        ++state->copies;
     }
 }
 
@@ -712,7 +701,6 @@ bool decode_stored_block(InflateState* state) noexcept {
         return false;
     }
     state->output_bytes += length;
-    state->literals += length;
     return true;
 }
 
@@ -967,8 +955,6 @@ ZlibInflateResult gzip_inflate(ConstSlice<u8> input, Slice<u8> output,
         result.input_bytes = cursor;
         result.output_bytes += state.output_bytes;
         result.blocks += state.blocks;
-        result.literals += state.literals;
-        result.copies += state.copies;
     }
     return result;
 }

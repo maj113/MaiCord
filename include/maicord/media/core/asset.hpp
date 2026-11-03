@@ -52,8 +52,6 @@ inline constexpr u16 kMediaEmbedFlagsMask = media_asset_flag_animated | kMediaEm
 inline constexpr u16 kMediaCatalogFormatShift = 1;
 inline constexpr u16 kMediaCatalogFormatMask = 0xEu;
 
-
-
 constexpr MediaAttachmentFormat media_asset_attachment_format(MediaAssetKey key) noexcept {
     const u32 extension =
         key.kind == MediaAssetKind::attachment && (key.flags & kMediaAttachmentFormatExtensionFlag) ? 8u
