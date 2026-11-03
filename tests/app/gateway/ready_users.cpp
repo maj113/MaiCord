@@ -163,7 +163,6 @@ bool projection_packet(bool malformed) noexcept {
     runtime.session.grow_index_context = &runtime;
     runtime.session.opened = true;
     runtime.session.lifecycle.phase = GatewayLifecyclePhase::awaiting_session;
-    runtime.identity = GatewayClientIdentity::normal_user;
     runtime.user = &growth_user;
     runtime.authenticated = true;
     runtime.stopping = false;
@@ -513,7 +512,6 @@ bool growing_session(u32 reserve = kGatewaySessionMaximumDecodedMessageBytes) no
     release_message();
     runtime.stopping = false;
     runtime.mailbox_deadline_ms = 0;
-    runtime.identity = GatewayClientIdentity::normal_user;
     runtime.user = &growth_user;
     const u8 key[kWebSocketClientKeyBytes]{};
     const u32 stream_reserve = reserve < kZstdInitialStorageBytes ? kZstdInitialStorageBytes : kZstdStorageBytes;
@@ -822,7 +820,6 @@ void identify_sequence(void (*check)(bool, const char*) noexcept) noexcept {
     store_user_configuration(&user, configuration);
     GatewayUserRuntime* const saved = runtime.user;
     runtime.user = &user;
-    runtime.identity = GatewayClientIdentity::normal_user;
     fast_connect_taken = 0;
     constexpr auto head = utf8_literal(
         R"({"op":2,"d":{"token":"t","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":")");

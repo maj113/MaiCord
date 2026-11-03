@@ -16,7 +16,8 @@ __declspec(noinline) __attribute__((minsize)) PlaintextDrive process_ready(Gatew
     // One deadline spans the whole READY projection. No lock is
     // held while producer backpressure waits for the UI consumer.
     runtime->mailbox_deadline_ms = GetTickCount64() + kPhaseTimeoutMs;
-    if (!gateway_client_ready_matches_identity(runtime->identity, event.ready)) {
+    // The normal-user contract is v9 and unsharded.
+    if (event.ready.api_version != 9) {
         return fail_plaintext(runtime, GatewayClientFailureStage::ready_identity);
     }
     // A READY without one drops the stored data, as the client does.
@@ -266,7 +267,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             RelationshipStreamBinding binding{client, runtime};
             if (named == Named::rate_limited) {
                 GatewayRateLimited limited{};
-                u32 rate_structurals[64]{};
+                u32 rate_structurals[64];
                 const auto decoded =
                     gateway_decode_rate_limited(event.envelope.data, {rate_structurals, 64}, 16, &limited);
                 if (decoded.ok()) {
@@ -935,7 +936,6 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
     }
     auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
     runtime->allocation_bytes = allocation_bytes;
-    runtime->identity = GatewayClientIdentity::normal_user;
     runtime->owner = client;
     if (!stable_storage_initialize(&runtime->structural_scratch, kStructuralCount, kInitialStructuralCount,
                                    sizeof(u32), alignof(u32)) ||

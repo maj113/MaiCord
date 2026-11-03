@@ -166,7 +166,7 @@ GatewayClientDispatchRouteResult result(GatewayClientDispatchRouteError route,
 
 bool reject(GatewayEventDecodeError* error,
             GatewayEventDecodeError value = GatewayEventDecodeError::invalid_data) noexcept {
-    if (error && *error == GatewayEventDecodeError::none) {
+    if (*error == GatewayEventDecodeError::none) {
         *error = value;
     }
     return false;
@@ -180,7 +180,7 @@ bool reject_visited(GatewayEventDecodeError* error, GatewayEventDecodeError visi
 
 bool u32_value(JsonValue value, u32* output) noexcept {
     u64 decoded = 0;
-    if (!output || !json_value_to_u64(value, &decoded) || decoded > 0xFFFFFFFFull) {
+    if (!json_value_to_u64(value, &decoded) || decoded > 0xFFFFFFFFull) {
         return false;
     }
     *output = static_cast<u32>(decoded);
@@ -362,7 +362,7 @@ bool visit_object(JsonValue value, const JsonIndexedDocument& document, u32 maxi
 
 bool append_simple(PayloadWriter* writer, GatewayClientMemberListOperation operation, u32 first,
                    u32 last) noexcept {
-    if (!writer || writer->records == kMemberListMaximumRecords) {
+    if (writer->records == kMemberListMaximumRecords) {
         return false;
     }
     GatewayClientMemberListMutation mutation{};

@@ -443,18 +443,15 @@ OutboundDrive send_control_command(GatewayClientRuntime* runtime, GatewayCommand
         opcode, true, payload, masking_key, Slice<u8>{runtime->plain_output, kPlainOutputBytes});
     SecureZeroMemory(runtime->gateway_etf, kEtfCommandBytes);
     if (!framed.ok()) {
-        SecureZeroMemory(runtime->gateway_payload, command.bytes);
         return OutboundDrive::failed;
     }
     u32 encrypted_bytes = 0;
     if (!tls_client_encrypt(&runtime->tls, ConstSlice<u8>{runtime->plain_output, framed.bytes},
                             Slice<u8>{runtime->record_output, kRecordOutputBytes}, &encrypted_bytes)
              .ok()) {
-        SecureZeroMemory(runtime->gateway_payload, command.bytes);
         SecureZeroMemory(runtime->plain_output, framed.bytes);
         return OutboundDrive::failed;
     }
-    SecureZeroMemory(runtime->gateway_payload, command.bytes);
     SecureZeroMemory(runtime->plain_output, framed.bytes);
     if (!start_send(runtime, ConstSlice<u8>{runtime->record_output, encrypted_bytes}, purpose)) {
         SecureZeroMemory(runtime->record_output, encrypted_bytes);

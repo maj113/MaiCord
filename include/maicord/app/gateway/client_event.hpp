@@ -7,26 +7,13 @@
 
 namespace maicord {
 
-struct GatewayMessageReactionEvent;
-
 struct UserAppearance;
-
-struct RelationshipMutation;
 
 enum class GatewaySessionError : u8;
 enum class WebSocketError : u8;
 enum class WebSocketHandshakeError : u8;
 enum class ZstdError : u8;
 enum class EtfError : u8;
-
-enum class VoiceSocketPhase : u8;
-enum class VoiceConnectionError : u8;
-enum class VoiceUdpPhase : u8;
-enum class VoiceUdpError : u8;
-enum class VoiceSourceKind : u8;
-enum class VoiceVideoCodec : u8;
-struct GatewayStreamKey;
-struct GatewayClientStreamSnapshot;
 
 enum class GatewayClientPhase : u8 {
     empty,
@@ -43,11 +30,6 @@ enum class GatewayClientPhase : u8 {
     stopping,
     stopped,
     failed,
-};
-
-enum class GatewayClientIdentity : u8 {
-    empty,
-    normal_user,
 };
 
 enum class GatewayClientError : u8 {
@@ -165,7 +147,6 @@ enum class GatewayClientDispatchKind : u8 {
     notification_settings_entry,
     notification_snapshot_complete,
     notification_global,
-    notification_thread,
     notification_incomplete,
     guild_members_chunk,
     guild_member_profile_update,

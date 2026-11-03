@@ -17,8 +17,6 @@ bool append_message_rich_metadata(Slice<char> output, const GatewayMessageEvent&
 bool append_message_metadata(Slice<char> output, const GatewayMessageEvent& message,
                              ConstSlice<u64> role_ids, GatewayClientMessageMutation* mutation,
                              ConstSlice<u8>* payload) noexcept;
-bool byte_ranges_overlap(const void* first, u32 first_bytes, const void* second,
-                         u32 second_bytes) noexcept;
 
 struct NotificationFields {
     JsonValue entries, proto, settings, threads, member, added, removed, members, schedule, rules, channels;

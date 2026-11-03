@@ -155,7 +155,7 @@ void release_runtime_allocation(GatewayClient* client) noexcept {
 namespace {
 
 bool is_user(const GatewayClientRuntime* runtime) noexcept {
-    return runtime && runtime->identity == GatewayClientIdentity::normal_user && runtime->user;
+    return runtime && runtime->user;
 }
 
 } // namespace
@@ -172,9 +172,7 @@ GatewayClientRuntime* live_user_runtime(GatewayClient* client) noexcept {
     if (!client || !client->runtime || !client->worker.thread)
         return nullptr;
     auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
-    return runtime->identity == GatewayClientIdentity::normal_user && !runtime->stopping && !runtime->failed
-               ? runtime
-               : nullptr;
+    return !runtime->stopping && !runtime->failed ? runtime : nullptr;
 }
 
 ClientSessionMetadata* session_metadata(const GatewayClientRuntime* runtime) noexcept {
@@ -551,8 +549,6 @@ void publish_voice_snapshot(GatewayClient* client, GatewayClientRuntime* runtime
                                     {users, kGatewayVoiceVideoUsers});
     for (u32 i = 0; i != video.count; ++i)
         video.users[i] = {users[i].user_id, users[i].ssrc, users[i].frames, users[i].kind, users[i].quality, {}};
-    video.frames_delivered = runtime->voice_receive.video.stats.delivered;
-    video.frames_rejected = runtime->voice_receive.video.stats.dave_rejected;
     const auto stream = gateway_stream_session_snapshot(runtime->stream, runtime->self_user_id);
     AcquireSRWLockExclusive(&runtime->voice_lock);
     const bool changed = !(snapshot == runtime->voice_snapshot) || !(video == runtime->voice_video_snapshot) ||
@@ -699,8 +695,8 @@ u32 next_worker_wait(const GatewayClient* client, const GatewayClientRuntime* ru
         runtime->rate_deadline_ms == 0) {
         return 0;
     }
-    GatewayVoiceStateUpdate voice_command{};
-    GatewayStreamCommand stream_command{};
+    GatewayVoiceStateUpdate voice_command;
+    GatewayStreamCommand stream_command;
     if (runtime->send_purpose == SendPurpose::none && !runtime->rate_deadline_ms &&
         runtime->session.lifecycle.phase == GatewayLifecyclePhase::ready &&
         (gateway_voice_next(runtime->voice, &voice_command) ||
@@ -764,7 +760,7 @@ bool self_settings_json_member(void* opaque, JsonString key, JsonValue value) no
 namespace client_detail {
 
 bool self_settings_json(Utf8View source, SelfSettingsJson* parsed) noexcept {
-    u32 structural[64]{};
+    u32 structural[64];
     const auto scan = json_scan_structurals_avx1(source, {structural, 64});
     if (!scan.ok())
         return false;

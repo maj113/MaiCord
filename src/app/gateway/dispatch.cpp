@@ -1,4 +1,5 @@
 #include "dispatch_internal.hpp"
+#include "maicord/core/byte_range.hpp"
 #include "maicord/model/user/activity.hpp"
 #include "maicord/app/chat/messages/event_scratch.hpp"
 #include "dispatch_common.hpp"
@@ -633,7 +634,7 @@ __declspec(noinline) GatewayClientDispatchRouteResult route_message_create_updat
     const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
     Slice<char> content_scratch, Slice<u64> bulk_ids, u64 self_user_id, bool create, GatewayClientEvent* event,
     ConstSlice<u8>* payload, GatewayMessageDecodeScratch* scratch) noexcept {
-    GatewayMessageEvent message{};
+    GatewayMessageEvent message;
     const GatewayMessageRichScratch rich_scratch = scratch->rich.view(true);
     // The envelope's index is still intact here (every earlier route filters by name before it scans), so a
     // message is decoded from it instead of being scanned again.

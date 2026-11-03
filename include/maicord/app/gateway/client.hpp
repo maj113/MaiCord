@@ -14,6 +14,8 @@
 
 namespace maicord {
 
+struct GatewayStreamKey;
+struct GatewayClientStreamSnapshot;
 struct GatewayClient;
 struct RestClient;
 struct RestClientResponse;

@@ -17,13 +17,14 @@ OutboundDrive drive_guild_subscription(GatewayClientRuntime* runtime, u64 now_ms
         runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready) {
         return OutboundDrive::idle;
     }
-    GatewayGuildSubscription subscription{};
-    u32 revision = 0;
+    GatewayGuildSubscription subscription;
     AcquireSRWLockShared(&runtime->subscription_lock);
-    copy_value(&subscription, runtime->desired_subscription);
-    revision = runtime->subscription_revision;
+    const u32 revision = runtime->subscription_revision;
+    const bool changed = revision != 0 && revision != runtime->sent_subscription_revision;
+    if (changed)
+        copy_value(&subscription, runtime->desired_subscription);
     ReleaseSRWLockShared(&runtime->subscription_lock);
-    if (revision == 0 || revision == runtime->sent_subscription_revision) {
+    if (!changed) {
         return OutboundDrive::idle;
     }
     GatewayGuildSubscription prepared{};
@@ -48,12 +49,14 @@ OutboundDrive drive_member_subscription(GatewayClientRuntime* runtime, u64 now_m
         runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready) {
         return OutboundDrive::idle;
     }
-    GatewayGuildSubscription subscription{};
+    GatewayGuildSubscription subscription;
     AcquireSRWLockShared(&runtime->subscription_lock);
-    copy_value(&subscription, runtime->desired_members);
     const u32 revision = runtime->members_revision;
+    const bool changed = revision != 0 && revision != runtime->sent_members_revision;
+    if (changed)
+        copy_value(&subscription, runtime->desired_members);
     ReleaseSRWLockShared(&runtime->subscription_lock);
-    if (revision == 0 || revision == runtime->sent_members_revision)
+    if (!changed)
         return OutboundDrive::idle;
     if (!acquire_send(runtime, now_ms))
         return OutboundDrive::rate_limited;
@@ -89,7 +92,7 @@ OutboundDrive drive_voice_output(GatewayClient* client, GatewayClientRuntime* ru
         }
     }
     publish_voice_snapshot(client, runtime);
-    GatewayVoiceStateUpdate state{};
+    GatewayVoiceStateUpdate state;
     if (!gateway_voice_next(runtime->voice, &state))
         return OutboundDrive::idle;
     if (!acquire_send(runtime, now_ms))
@@ -132,7 +135,7 @@ OutboundDrive drive_stream_output(GatewayClient* client, GatewayClientRuntime* r
         }
         publish_voice_snapshot(client, runtime);
     }
-    GatewayStreamCommand command{};
+    GatewayStreamCommand command;
     if (!gateway_stream_next(control, &command))
         return OutboundDrive::idle;
     if (!acquire_send(runtime, now_ms))

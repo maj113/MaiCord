@@ -5,6 +5,9 @@
 
 namespace maicord {
 
+struct GatewayMessageReactionEvent;
+struct RelationshipMutation;
+
 struct GatewayClientNotificationThreadRecord {
     MessageNotificationThreadSetting thread;
     u32 flags, known_gates, gates, reserved;
@@ -127,11 +130,6 @@ GatewayClientDispatchRouteResult gateway_client_publish_friend_presences(
 GatewayClientDispatchRouteResult gateway_client_publish_guild_presences(
     JsonValue data, Slice<u32> array_scratch, Slice<u32> object_scratch, u64 sequence, u64 now_ms,
     GatewayRelationshipPublish publish, void* context) noexcept;
-
-// Pure identity gate shared by the worker and deterministic tests. The
-// normal-user contract is v9 and unsharded.
-bool gateway_client_ready_matches_identity(GatewayClientIdentity identity,
-                                           const GatewayReady& ready) noexcept;
 
 // Shared unread-channel normalization. Staging storage may be touched on error;
 // the descriptor and payload are committed only after the complete array validates.

@@ -204,7 +204,6 @@ struct GatewayClientRuntime {
     GatewayGuildSubscription desired_members;
     u32 members_revision;
     u32 sent_members_revision;
-    GatewayClientIdentity identity;
     u64 rate_deadline_ms;
     u64 member_deadline_ms;
     u64 channel_info_deadline_ms;

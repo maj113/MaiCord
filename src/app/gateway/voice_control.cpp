@@ -54,7 +54,7 @@ bool gateway_voice_next(const GatewayVoiceControl& voice, GatewayVoiceStateUpdat
 
 bool gateway_voice_submitted(GatewayVoiceControl* voice, const GatewayVoiceStateUpdate& command,
                              u64 now_ms) noexcept {
-    GatewayVoiceStateUpdate expected{};
+    GatewayVoiceStateUpdate expected;
     if (!gateway_voice_next(*voice, &expected) || !same(command, expected))
         return false;
     auto& setup = voice->setup;

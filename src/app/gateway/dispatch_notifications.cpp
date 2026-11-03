@@ -49,21 +49,6 @@ bool append_message_metadata(Slice<char> output, const GatewayMessageEvent& mess
     return true;
 }
 
-bool byte_ranges_overlap(const void* first, u32 first_bytes, const void* second,
-                         u32 second_bytes) noexcept {
-    if (!first || !second || first_bytes == 0 || second_bytes == 0) {
-        return false;
-    }
-    const usize first_begin = reinterpret_cast<usize>(first);
-    const usize second_begin = reinterpret_cast<usize>(second);
-    const usize first_end = first_begin + first_bytes;
-    const usize second_end = second_begin + second_bytes;
-    if (first_end < first_begin || second_end < second_begin) {
-        return true;
-    }
-    return first_begin < second_end && second_begin < first_end;
-}
-
 bool notification_fields(void* opaque, JsonString name, JsonValue v) noexcept {
     auto& f = *static_cast<NotificationFields*>(opaque);
     const u32 bit = protocol_detail::member_bit<"id", "guild_id", "user_id", "entries", "partial", "version", "proto",

@@ -5,7 +5,7 @@ namespace maicord {
 
 bool gateway_user_client_configuration_validate(
     const GatewayUserClientConfiguration& configuration) noexcept {
-    u8 output[kGatewayUserMaximumCommandBytes]{};
+    u8 output[kGatewayUserMaximumCommandBytes];
     const GatewayCommandWriteResult written = gateway_write_user_identify(
         GatewayUserIdentify{utf8_literal("x"), configuration.properties, configuration.since_ms,
                             configuration.status, configuration.has_since, configuration.afk},
@@ -42,11 +42,6 @@ GatewayClientResult gateway_client_start_user(GatewayClient* client, AccountProf
     return started;
 }
 
-bool gateway_client_ready_matches_identity(GatewayClientIdentity identity,
-                                           const GatewayReady& ready) noexcept {
-    return identity == GatewayClientIdentity::normal_user && ready.api_version == 9;
-}
-
 GatewayClientResult gateway_client_stop_return_user_profile(GatewayClient* client, u32 timeout_milliseconds,
                                                             AccountProfile* returned_profile) noexcept {
     const auto* initial_runtime =
@@ -54,8 +49,7 @@ GatewayClientResult gateway_client_stop_return_user_profile(GatewayClient* clien
     if (!client || !client->worker.thread || !initial_runtime || !returned_profile ||
         returned_profile->credential.data || returned_profile->credential.locked ||
         returned_profile->credential.bytes != 0 || returned_profile->credential.capacity != 0 ||
-        returned_profile->metadata.profile_id != 0 ||
-        initial_runtime->identity != GatewayClientIdentity::normal_user || !initial_runtime->user) {
+        returned_profile->metadata.profile_id != 0 || !initial_runtime->user) {
         return invalid_input_result();
     }
     if (WaitForSingleObject(client->worker.thread, 0) == WAIT_TIMEOUT) {
@@ -152,8 +146,7 @@ bool gateway_client_snapshot_user_session(const GatewayClient* client,
         return false;
     }
     const auto* runtime = static_cast<const GatewayClientRuntime*>(client->runtime);
-    if (runtime->identity != GatewayClientIdentity::normal_user || !runtime->user ||
-        runtime->user->metadata.profile_id == 0) {
+    if (!runtime->user || runtime->user->metadata.profile_id == 0) {
         return false;
     }
     AcquireSRWLockShared(const_cast<SRWLOCK*>(&runtime->resume_lock));
@@ -182,7 +175,7 @@ bool gateway_client_subscribe_guild_members(GatewayClient* client,
     if (!runtime || subscription.guild_id == 0 || subscription.clear_thread_guild_id != 0) {
         return false;
     }
-    u8 validation[kGatewayUserMaximumCommandBytes]{};
+    u8 validation[kGatewayUserMaximumCommandBytes];
     const GatewayCommandWriteResult valid = gateway_write_guild_subscriptions_bulk(
         subscription, Slice<u8>{validation, kGatewayUserMaximumCommandBytes});
     SecureZeroMemory(validation, sizeof(validation));
@@ -516,7 +509,6 @@ bool gateway_self_status_test_create(GatewayClient* client, u64 profile, u64 sel
     if (!runtime)
         return false;
     client->runtime = runtime;
-    runtime->identity = GatewayClientIdentity::normal_user;
     runtime->user =
         reinterpret_cast<GatewayUserRuntime*>(reinterpret_cast<u8*>(runtime) + kGatewayUserRuntimeOffset);
     runtime->user->metadata.profile_id = profile;
@@ -728,8 +720,6 @@ GatewayStateRecoveryResult gateway_client_request_fresh_state(GatewayClient* cli
     if (!client || !client->runtime || !client->worker.thread)
         return GatewayStateRecoveryResult::unavailable;
     auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
-    if (runtime->identity != GatewayClientIdentity::normal_user)
-        return GatewayStateRecoveryResult::unavailable;
     AcquireSRWLockExclusive(&runtime->subscription_lock);
     auto result = gateway_state_recovery_request(&runtime->state_recovery,
                                                  load_phase(client) == GatewayClientPhase::ready);

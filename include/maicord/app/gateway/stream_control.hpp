@@ -102,7 +102,6 @@ struct GatewayClientStreamSnapshot {
     GatewayStreamKey key; // Watched key; kept after the end until the next watch.
     u64 generation;       // Stream credential generation.
     u64 rtc_server_id;
-    u64 frames_delivered, frames_rejected; // Decoder hand-offs; DAVE rejections.
     u32 viewer_count;
     u32 video_ssrc;   // Tagged SSRC for voice_video_frame; zero until announced.
     u32 video_frames; // Frames assembled for it so far.
@@ -116,8 +115,7 @@ struct GatewayClientStreamSnapshot {
     VoiceConnectionError connection_error;
     VoiceUdpPhase udp_phase;
     bool audio; // The streamer announced an audio source (soundshare).
-    u64 video_user_id; // The streamer, once its video source is announced.
     constexpr bool operator==(const GatewayClientStreamSnapshot&) const noexcept = default;
 };
-static_assert(sizeof(GatewayClientStreamSnapshot) == 96);
+static_assert(sizeof(GatewayClientStreamSnapshot) == 72);
 } // namespace maicord

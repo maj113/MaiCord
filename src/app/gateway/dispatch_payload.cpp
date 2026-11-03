@@ -337,7 +337,7 @@ bool gateway_client_event_as_message(const GatewayClientEvent& event, const Cons
 
 bool gateway_client_event_message_interaction_user(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                                    u64* user_id) noexcept {
-    GatewayMessageEvent message{};
+    GatewayMessageEvent message;
     if (!user_id || !gateway_client_event_as_message(event, payload, &message))
         return false;
     const u32 rich_fields = event.message.fields & kGatewayMessageRichFieldMask;
@@ -698,7 +698,7 @@ bool gateway_client_event_as_message(const GatewayClientEvent& event, const Cons
 
 static bool snapshot_user_offsets(const GatewayClientEvent& event, ConstSlice<u8> payload, u32* users,
                                   u32* count, u32* text_limit) noexcept {
-    GatewayMessageEvent message{};
+    GatewayMessageEvent message;
     if (!users || !count || !text_limit || !gateway_client_event_as_message(event, payload, &message))
         return false;
     *count = 0;

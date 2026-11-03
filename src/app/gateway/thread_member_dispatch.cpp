@@ -10,7 +10,6 @@
 #include "payload_writer.hpp"
 namespace maicord {
 namespace {
-using PayloadWriter = GatewayPayloadWriter;
 bool reject(GatewayEventDecodeError* error, GatewayEventDecodeError value = GatewayEventDecodeError::invalid_data) noexcept {
     if (*error == GatewayEventDecodeError::none) *error = value;
     return false;

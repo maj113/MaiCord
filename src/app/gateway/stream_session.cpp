@@ -142,15 +142,12 @@ GatewayClientStreamSnapshot gateway_stream_session_snapshot(const GatewayStreamS
     snapshot.socket_phase = connection.socket.phase;
     snapshot.connection_error = connection.error;
     snapshot.udp_phase = connection.udp.phase;
-    snapshot.frames_delivered = session.receive.video.stats.delivered;
-    snapshot.frames_rejected = session.receive.video.stats.dave_rejected;
     VoiceVideoUser users[kVoiceVideoMaximumUsers];
     const u32 count = voice_video_users(connection, &session.receive.video, self_user_id, {users, kVoiceVideoMaximumUsers});
     for (u32 i = 0; i != count; ++i)
         if (users[i].user_id == control.key.owner_id && !(users[i].ssrc & kGatewayStreamVideoSsrcTag)) {
             snapshot.video_ssrc = users[i].ssrc | kGatewayStreamVideoSsrcTag;
             snapshot.video_frames = users[i].frames;
-            snapshot.video_user_id = users[i].user_id;
         }
     const auto& participants = connection.participants;
     for (u32 i = 0; i != participants.source_count && participants.sources; ++i) {

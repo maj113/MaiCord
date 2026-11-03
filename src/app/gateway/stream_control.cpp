@@ -103,7 +103,7 @@ bool gateway_stream_next(const GatewayStreamControl& stream, GatewayStreamComman
 }
 
 bool gateway_stream_submitted(GatewayStreamControl* stream, const GatewayStreamCommand& command) noexcept {
-    GatewayStreamCommand expected{};
+    GatewayStreamCommand expected;
     if (!gateway_stream_next(*stream, &expected) || expected.kind != command.kind ||
         !(expected.key == command.key))
         return false;

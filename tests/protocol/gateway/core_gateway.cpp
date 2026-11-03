@@ -553,9 +553,6 @@ void test_json_reader_and_gateway() noexcept {
     expect(user_ready_envelope.ok() && user_ready_result.ok() && ready.api_version == 9 &&
                ready.user_id == 2,
            "gateway_ready_normal_user_shape");
-    expect(gateway_client_ready_matches_identity(GatewayClientIdentity::normal_user, ready) &&
-               !gateway_client_ready_matches_identity(GatewayClientIdentity::empty, ready),
-           "gateway_ready_normal_user_identity_policy");
 
     expect(
         decode_gateway(

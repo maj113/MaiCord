@@ -3,26 +3,12 @@
 
 namespace maicord {
 
-struct GatewayMessageReactionEvent;
-
-struct UserAppearance;
-
-struct RelationshipMutation;
-
-enum class GatewaySessionError : u8;
-enum class WebSocketError : u8;
-enum class WebSocketHandshakeError : u8;
-enum class ZstdError : u8;
-enum class EtfError : u8;
-
 enum class VoiceSocketPhase : u8;
 enum class VoiceConnectionError : u8;
 enum class VoiceUdpPhase : u8;
 enum class VoiceUdpError : u8;
 enum class VoiceSourceKind : u8;
 enum class VoiceVideoCodec : u8;
-struct GatewayStreamKey;
-struct GatewayClientStreamSnapshot;
 inline constexpr u32 kGatewayVoiceSpeakingUsers = 16;
 struct GatewayClientVoiceSnapshot {
     u64 user_id, guild_id, channel_id, generation;
@@ -72,13 +58,12 @@ struct GatewayClientVoiceVideoSnapshot {
     VoiceVideoCodec codec;
     u8 reserved[3];
     GatewayVoiceVideoUser users[kGatewayVoiceVideoUsers];
-    u64 frames_delivered, frames_rejected; // Decoder hand-offs; DAVE rejections.
     // Integers without padding (asserted below): one byte compare instead of one per listed user.
     bool operator==(const GatewayClientVoiceVideoSnapshot& other) const noexcept {
         return bytes_equal(this, &other, sizeof(*this));
     }
 };
-static_assert(sizeof(GatewayVoiceVideoUser) == 24 && sizeof(GatewayClientVoiceVideoSnapshot) == 416); // ABI.
+static_assert(sizeof(GatewayVoiceVideoUser) == 24 && sizeof(GatewayClientVoiceVideoSnapshot) == 400); // ABI.
 static_assert(__has_unique_object_representations(GatewayClientVoiceVideoSnapshot));
 
 } // namespace maicord
