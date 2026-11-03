@@ -1,10 +1,8 @@
 #include "maicord/app/account/account_relationships.hpp"
 #include "maicord/app/chat/messages/account_message_ack.hpp"
 #include "maicord/app/account/account_host.hpp"
-#include "maicord/core/utf.hpp"
 #include "../../support/rest_submit_hook.hpp"
 #include "../../support/test_output.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace relationship_account_test {

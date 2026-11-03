@@ -85,13 +85,10 @@ bool captcha_headers_size(const UserAuthCaptchaHeaders& headers, bool allow_empt
     constexpr u32 key_prefix = sizeof("X-Captcha-Key: \r\n") - 1;
     constexpr u32 token_prefix = sizeof("X-Captcha-Rqtoken: \r\n") - 1;
     constexpr u32 session_prefix = sizeof("X-Captcha-Session-Id: \r\n") - 1;
-    const u64 required =
-        (headers.key.bytes != 0 ? static_cast<u64>(key_prefix) + headers.key.bytes : 0) +
-        (headers.rqtoken.bytes != 0 ? static_cast<u64>(token_prefix) + headers.rqtoken.bytes : 0) +
-        (headers.session_id.bytes != 0 ? static_cast<u64>(session_prefix) + headers.session_id.bytes : 0);
-    if (required > 0xFFFFFFFFull)
-        return false;
-    *bytes = static_cast<u32>(required);
+    // Each part is bounded above (4096, 4096 and 256 bytes), so the sum fits in 32 bits.
+    *bytes = (headers.key.bytes != 0 ? key_prefix + headers.key.bytes : 0) +
+             (headers.rqtoken.bytes != 0 ? token_prefix + headers.rqtoken.bytes : 0) +
+             (headers.session_id.bytes != 0 ? session_prefix + headers.session_id.bytes : 0);
     return true;
 }
 

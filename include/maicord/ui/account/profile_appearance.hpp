@@ -2,6 +2,7 @@
 #include "maicord/model/user/profile.hpp"
 #include "maicord/ui/text/presentation.hpp"
 #include "maicord/ui/text/style.hpp"
+#include "maicord/ui/theme/background_color_math.hpp"
 namespace maicord {
 inline UiTextFace profile_name_face(u16 id) noexcept {
     static constexpr UiTextFace faces[] = {
@@ -27,10 +28,7 @@ inline UiTextEffect profile_name_effect(const NameStyle& style, bool animate,
         result.colors[i] = style.colors[i];
     return result;
 }
-} // namespace maicord
 
-#include "maicord/ui/theme/background_color_math.hpp"
-namespace maicord {
 // Profile theme colours are 0xRRGGBB; the dark/light decision follows the
 // primary colour.
 constexpr float profile_darkness(u32 rgb) noexcept {
@@ -56,19 +54,13 @@ inline ProfileLab profile_lab(u32 rgb) noexcept {
                  z = f((.0193339 * r + .1191920 * g + .9503041 * b) / 1.08883);
     return {116 * y - 16, 500 * (x - y), 200 * (y - z)};
 }
-inline u32 profile_rgb(const Color& c) noexcept {
-    const auto channel = [](float v) noexcept {
-        return static_cast<u32>(background_color_unit(v) * 255.f + .5f);
-    };
-    return (channel(c.red) << 16) | (channel(c.green) << 8) | channel(c.blue);
-}
 inline u32 profile_from_lab(ProfileLab lab) noexcept {
     const auto f = [](double t) noexcept { return t > .206896552 ? t * t * t : .12841855 * (t - .137931034); };
     const double y0 = (lab.l + 16) / 116;
     const double x = .95047 * f(y0 + lab.a / 500), y = f(y0), z = 1.08883 * f(y0 - lab.b / 200);
-    return profile_rgb({background_color_srgb(3.2404542 * x - 1.5371385 * y - .4985314 * z),
-                        background_color_srgb(-.9692660 * x + 1.8760108 * y + .0415560 * z),
-                        background_color_srgb(.0556434 * x - .2040259 * y + 1.0572252 * z), 1});
+    return background_color_pack({background_color_srgb(3.2404542 * x - 1.5371385 * y - .4985314 * z),
+                                  background_color_srgb(-.9692660 * x + 1.8760108 * y + .0415560 * z),
+                                  background_color_srgb(.0556434 * x - .2040259 * y + 1.0572252 * z), 1});
 }
 // WCAG contrast (chroma.contrast).
 inline double profile_contrast(u32 first, u32 second) noexcept {
@@ -103,7 +95,7 @@ inline u32 profile_modal_background(u32 primary, u32 secondary, bool dark) noexc
     float l = static_cast<float>(static_cast<i32>(hsl.lightness * 100 + .5f)) / 100;
     l = dark ? minimum(l, .1f) : maximum(.8f, minimum(l, 1.f));
     hsl.lightness = l;
-    return profile_rgb(background_color_from_hsl(hsl));
+    return background_color_pack(background_color_from_hsl(hsl));
 }
 
 // The per-server profile: guild values win when set, the accent colour is the

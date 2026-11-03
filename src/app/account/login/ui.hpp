@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/protocol/auth/user_auth.hpp"
 #include "maicord/ui/text/secure_edit.hpp"
 
 namespace maicord::app_detail {

@@ -38,14 +38,10 @@ bool valid_credential(const SecureBuffer& credential) noexcept {
     return true;
 }
 
+// The caller's buffer is zeroed: only the magic, version and profile id are stored.
 void make_entropy(const AccountProfileMetadata& metadata, u8* entropy) noexcept {
-    for (u32 index = 0; index < 8; ++index) {
-        entropy[index] = kProfileMagic[index];
-    }
+    copy_bytes(entropy, kProfileMagic, sizeof(kProfileMagic));
     byte_store_le32(entropy + 8, kAccountProfileVersion);
-    byte_store_le32(entropy + 12, 0);
-    byte_store_le32(entropy + 16, 0);
-    byte_store_le32(entropy + 20, 0);
     byte_store_le64(entropy + 24, metadata.profile_id);
 }
 

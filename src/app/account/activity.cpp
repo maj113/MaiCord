@@ -416,14 +416,12 @@ u32 application_activity_settings_list(Slice<UiSettingsControl> controls,
     return count;
 }
 bool application_activity_settings_row(u64 control_id) noexcept {
-    if (control_id < kSettingsListFirst || control_id >= kSettingsListFirst + 0x10000)
-        return false;
-    return static_cast<SettingBinding>((control_id - kSettingsListFirst) >> 8) == SettingBinding::registered_games;
+    return settings_list_control(control_id) && settings_list_binding(control_id) == SettingBinding::registered_games;
 }
 bool application_activity_settings_activate_row(u64 control_id) noexcept {
     if (!application_activity_settings_row(control_id))
         return false;
-    const u32 index = static_cast<u32>((control_id - kSettingsListFirst) & 0xff);
+    const u32 index = settings_list_index(control_id);
     load_games();
     if (index >= g.games.count)
         return false;

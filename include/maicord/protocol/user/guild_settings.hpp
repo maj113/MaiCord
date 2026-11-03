@@ -1,6 +1,5 @@
 #pragma once
 #include "maicord/model/notifications/message_notifications.hpp"
-#include "maicord/protocol/http/rest.hpp"
 
 namespace maicord {
 

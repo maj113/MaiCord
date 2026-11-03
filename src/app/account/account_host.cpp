@@ -30,6 +30,14 @@ bool host_empty(const AccountHost& host) noexcept {
     return !host.module && !host.instance && !host.login_instance;
 }
 
+// A module with an open login owner that no failed stop has blocked.
+bool login_live(const AccountHost* host) noexcept {
+    return host && host->module && host->login_instance && !host->stop_failed;
+}
+bool login_startable(const AccountHost* host) noexcept {
+    return host && host->module && !host->login_instance && !host->stop_failed;
+}
+
 } // namespace
 
 bool account_host_api_valid(const AccountModuleApi& api) noexcept {
@@ -131,29 +139,23 @@ AccountModuleStartResult account_host_start(AccountHost* host, const wchar_t* pr
 }
 
 AccountLoginStatus account_host_login_start(AccountHost* host, const wchar_t* profile_path) noexcept {
-    if (!host || !host->module || host->login_instance || host->stop_failed || !profile_path ||
-        !host->api.login_start) {
+    if (!login_startable(host) || !profile_path || !host->api.login_start)
         return login_refused();
-    }
     host->login_status = host->api.login_start(&host->login_instance, profile_path);
     return host->login_status;
 }
 
 AccountLoginStatus account_host_login_start_reset(AccountHost* host, const wchar_t* profile_path) noexcept {
-    if (!host || !host->module || host->login_instance || host->stop_failed || !profile_path ||
-        !host->api.login_start_reset) {
+    if (!login_startable(host) || !profile_path || !host->api.login_start_reset)
         return login_refused();
-    }
     host->login_status = host->api.login_start_reset(&host->login_instance, profile_path);
     return host->login_status;
 }
 
 AccountLoginStatus account_host_login_submit_reset(AccountHost* host, const SecureBuffer* link_token,
                                                    const SecureBuffer* password) noexcept {
-    if (!host || !host->module || !host->login_instance || host->stop_failed ||
-        !host->api.login_submit_reset || !password) {
+    if (!login_live(host) || !host->api.login_submit_reset || !password)
         return login_refused();
-    }
     host->login_status = host->api.login_submit_reset(host->login_instance, link_token, password);
     return host->login_status;
 }
@@ -180,26 +182,22 @@ AccountModuleStatus account_host_pump(AccountHost* host, u64 monotonic_now_ms, u
 
 AccountLoginStatus account_host_login_submit_verification(AccountHost* host,
                                                           const SecureBuffer* link_token) noexcept {
-    if (!host || !host->module || !host->login_instance || host->stop_failed ||
-        !host->api.login_submit_verification || !link_token) {
+    if (!login_live(host) || !host->api.login_submit_verification || !link_token)
         return login_refused();
-    }
     host->login_status = host->api.login_submit_verification(host->login_instance, link_token);
     return host->login_status;
 }
 
 AccountLoginStatus account_host_login_submit_recovery(AccountHost* host,
                                                       const SecureBuffer* login) noexcept {
-    if (!host || !host->module || !host->login_instance || host->stop_failed ||
-        !host->api.login_submit_recovery || !login) {
+    if (!login_live(host) || !host->api.login_submit_recovery || !login)
         return login_invalid_input();
-    }
     host->login_status = host->api.login_submit_recovery(host->login_instance, login);
     return host->login_status;
 }
 
 AccountLoginStatus account_host_login_pump(AccountHost* host) noexcept {
-    if (!host || !host->module || !host->login_instance || host->stop_failed || !host->api.login_pump)
+    if (!login_live(host) || !host->api.login_pump)
         return login_refused();
     host->login_status = host->api.login_pump(host->login_instance);
     return host->login_status;
@@ -207,25 +205,20 @@ AccountLoginStatus account_host_login_pump(AccountHost* host) noexcept {
 
 AccountLoginStatus account_host_login_submit_phone_verify(AccountHost* host,
                                                           const SecureBuffer* code) noexcept {
-    if (!host || !host->module || !host->login_instance || host->stop_failed ||
-        !host->api.login_submit_phone_verify || !code) {
+    if (!login_live(host) || !host->api.login_submit_phone_verify || !code)
         return login_invalid_input();
-    }
     host->login_status = host->api.login_submit_phone_verify(host->login_instance, code);
     return host->login_status;
 }
 AccountLoginStatus account_host_login_submit_phone_resend(AccountHost* host) noexcept {
-    if (!host || !host->module || !host->login_instance || host->stop_failed ||
-        !host->api.login_submit_phone_resend) {
+    if (!login_live(host) || !host->api.login_submit_phone_resend)
         return login_invalid_input();
-    }
     host->login_status = host->api.login_submit_phone_resend(host->login_instance);
     return host->login_status;
 }
 SecureBufferResult account_host_login_take_phone_reset_token(AccountHost* host, u64 expected_generation,
                                                              SecureBuffer* output) noexcept {
-    if (!host || !host->module || !host->login_instance || host->stop_failed ||
-        !host->api.login_take_phone_reset_token)
+    if (!login_live(host) || !host->api.login_take_phone_reset_token)
         return {0, ERROR_INVALID_PARAMETER, SecureBufferError::invalid_input};
     const auto result =
         host->api.login_take_phone_reset_token(host->login_instance, expected_generation, output);

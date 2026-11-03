@@ -101,9 +101,7 @@ UserAuthWriteResult user_auth_measure_reset_password_tail(Utf8View password) noe
     const auto error = encode_reset(password, kUserAuthMaximumPasswordBytes, &encoded);
     if (error != UserAuthWriteError::none) return {0, error};
     constexpr u32 framing = sizeof(",\"password\":,\"source\":\"/reset\"}") - 1;
-    const u64 required = static_cast<u64>(framing) + encoded.bytes;
-    if (required > 0xFFFFFFFFull) return {0, UserAuthWriteError::value_too_large};
-    return {static_cast<u32>(required), UserAuthWriteError::none};
+    return {framing + encoded.bytes, UserAuthWriteError::none};
 }
 UserAuthWriteResult user_auth_write_reset_password_tail(Utf8View password, Slice<u8> output) noexcept {
     const auto measured = user_auth_measure_reset_password_tail(password);
@@ -125,10 +123,8 @@ UserAuthResetWriteResult user_auth_measure_reset_password_request(const UserAuth
     const auto tail = user_auth_measure_reset_password_tail(request.password);
     if (!tail.ok()) return {0, 0, tail.error};
     constexpr u32 prefix = sizeof("{\"token\":") - 1;
-    const u64 token_prefix = static_cast<u64>(prefix) + token.bytes;
-    const u64 required = token_prefix + tail.bytes;
-    if (required > 0xFFFFFFFFull) return {0, 0, UserAuthWriteError::value_too_large};
-    return {static_cast<u32>(required), static_cast<u32>(token_prefix), UserAuthWriteError::none};
+    const u32 token_prefix = prefix + token.bytes;
+    return {token_prefix + tail.bytes, token_prefix, UserAuthWriteError::none};
 }
 UserAuthResetWriteResult user_auth_write_reset_password_request(const UserAuthResetPasswordRequest& request,
     Slice<u8> output) noexcept {
@@ -155,9 +151,7 @@ UserAuthWriteResult user_auth_measure_reset_mfa_suffix(Utf8View code, Utf8View t
     if (type == UserAuthMfaType::webauthn && !native_assertion_valid(code)) return {0, UserAuthWriteError::invalid_input};
     encoded_string(method, true, &encoded_method);
     constexpr u32 framing = sizeof(",\"code\":,\"ticket\":,\"method\":}") - 1;
-    const u64 required = static_cast<u64>(framing) + encoded_code.bytes + encoded_ticket.bytes + encoded_method.bytes;
-    if (required > 0xFFFFFFFFull) return {0, UserAuthWriteError::value_too_large};
-    return {static_cast<u32>(required), UserAuthWriteError::none};
+    return {framing + encoded_code.bytes + encoded_ticket.bytes + encoded_method.bytes, UserAuthWriteError::none};
 }
 UserAuthWriteResult user_auth_write_reset_mfa_suffix(Utf8View code, Utf8View ticket, UserAuthMfaType type,
     Slice<u8> output) noexcept {

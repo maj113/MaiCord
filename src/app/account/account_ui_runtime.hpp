@@ -1,7 +1,6 @@
 #pragma once
 #include <stddef.h>
 
-#include "maicord/app/account/account_paths.hpp"
 #include "maicord/app/account/account_module_api.hpp"
 #include "maicord/app/gateway/client_limits.hpp"
 #include "maicord/app/gateway/client_voice.hpp"

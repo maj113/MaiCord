@@ -36,10 +36,9 @@ struct CachedProfile {
 struct DmProfilePanel {
     ProfileScene scene;
     CachedProfile cache[kCacheCapacity];
-    // Public applications whose icons stand in for missing activity art, as
-    // the popout keeps them (profile.cpp); the batch in flight.
-    ProfileApplication applications[kProfileApplicationCapacity];
-    u32 application_count, application_next, asked_count;
+    // The popout's applications cache (profile.hpp); the batch in flight.
+    ProfileApplicationCache applications;
+    u32 asked_count;
     u64 asked[kUserActivityMaximum];
     // The shown user, the profile request in flight (zero: none) and when
     // the profile or the icons may next be asked for.
@@ -57,29 +56,11 @@ u64 now_ms() noexcept {
     return clock_monotonic_milliseconds();
 }
 bool application_known(u64 id) noexcept {
-    for (u32 i = 0; i < g_panel->application_count; ++i)
-        if (g_panel->applications[i].id == id)
-            return true;
-    return false;
+    return profile_application_known(g_panel->applications, id);
 }
 void remember_application(u64 id, const Utf8View& icon) noexcept {
-    auto& p = *g_panel;
-    ProfileApplication* slot = nullptr;
-    for (u32 i = 0; i < p.application_count && !slot; ++i)
-        if (p.applications[i].id == id)
-            slot = &p.applications[i];
-    if (!slot) {
-        if (p.application_count < kProfileApplicationCapacity)
-            slot = &p.applications[p.application_count++];
-        else {
-            slot = &p.applications[p.application_next];
-            p.application_next = (p.application_next + 1) % kProfileApplicationCapacity;
-        }
-    }
-    slot->id = id;
-    slot->icon.bytes = static_cast<u16>(icon.bytes <= sizeof(slot->icon.data) ? icon.bytes : 0);
-    copy_bytes(slot->icon.data, icon.data, slot->icon.bytes);
-    p.scene.applications = {p.applications, p.application_count};
+    profile_application_remember(g_panel->applications, id, icon);
+    g_panel->scene.applications = g_panel->applications.view();
 }
 // Laid-out cards that would show an application icon not known yet.
 bool missing_icons() noexcept {
@@ -96,9 +77,9 @@ bool adopt_popout_icons() noexcept {
     bool adopted = false;
     for (u32 i = 0; p && i < s.missing_icon_count; ++i) {
         const u64 id = s.missing_icons[i];
-        for (u32 k = 0; id && k < p->application_count && !application_known(id); ++k)
-            if (p->applications[k].id == id) {
-                remember_application(id, p->applications[k].icon.view());
+        for (u32 k = 0; id && k < p->applications.count && !application_known(id); ++k)
+            if (p->applications.entries[k].id == id) {
+                remember_application(id, p->applications.entries[k].icon.view());
                 adopted = true;
             }
     }
@@ -236,7 +217,7 @@ bool show(u64 user, UiRect slot) noexcept {
     // including what it learns meanwhile.
     if (!entry->loaded_at && (changed || entry->seeded_revision != g_app.account_ui->user_store.revision))
         seed(entry);
-    s.applications = {g_panel->applications, g_panel->application_count};
+    s.applications = g_panel->applications.view();
     if (changed) {
         g_panel->shown = user;
         // Fetched on showing when stale, never on a timer while shown.

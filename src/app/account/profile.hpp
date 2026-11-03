@@ -1,4 +1,5 @@
 #pragma once
+#include "maicord/core/memory.hpp"
 #include "maicord/model/chat/message_composer.hpp"
 #include "maicord/protocol/user/social.hpp"
 #include "maicord/ui/account/profile_scene.hpp"
@@ -28,6 +29,42 @@ enum class ProfileRequest : u8 {
     metadata
 };
 inline constexpr u32 kProfileApplicationCapacity = 16;
+// Public applications whose icons stand in for missing activity art, fetched
+// once per session (oldest replaced first). Shared by the popout and the DM panel.
+struct ProfileApplicationCache {
+    ProfileApplication entries[kProfileApplicationCapacity];
+    u32 count, next;
+    ConstSlice<ProfileApplication> view() const noexcept {
+        return {entries, count};
+    }
+};
+inline bool profile_application_known(const ProfileApplicationCache& cache, u64 id) noexcept {
+    for (u32 i = 0; i < cache.count; ++i)
+        if (cache.entries[i].id == id)
+            return true;
+    return false;
+}
+// A zero id is ignored. One out-of-line body shared by the popout and the panel.
+__declspec(noinline) inline void profile_application_remember(ProfileApplicationCache& cache, u64 id,
+                                                              const Utf8View& icon) noexcept {
+    if (!id)
+        return;
+    ProfileApplication* slot = nullptr;
+    for (u32 i = 0; i < cache.count && !slot; ++i)
+        if (cache.entries[i].id == id)
+            slot = &cache.entries[i];
+    if (!slot) {
+        if (cache.count < kProfileApplicationCapacity)
+            slot = &cache.entries[cache.count++];
+        else {
+            slot = &cache.entries[cache.next];
+            cache.next = (cache.next + 1) % kProfileApplicationCapacity;
+        }
+    }
+    slot->id = id;
+    slot->icon.bytes = static_cast<u16>(icon.bytes <= sizeof(slot->icon.data) ? icon.bytes : 0);
+    copy_bytes(slot->icon.data, icon.data, slot->icon.bytes);
+}
 struct ApplicationProfile {
     ProfileAnchor anchor_kind;
     MessageComposer message, pending_message;
@@ -50,10 +87,8 @@ struct ApplicationProfile {
     ProfileRoleChange mutation;
     ProfileRequest submitted_request;
     bool pending;
-    // Public applications whose icons stand in for missing activity art,
-    // fetched once per session (oldest replaced first); the batch in flight.
-    ProfileApplication applications[kProfileApplicationCapacity];
-    u32 application_count, application_next;
+    // The applications the open card knows; the batch in flight.
+    ProfileApplicationCache applications;
     u64 requested_applications[kUserActivityMaximum];
     u32 requested_application_count;
     // A custom activity button waiting for its URL (activity metadata).

@@ -42,12 +42,12 @@ bool snapshot_valid(const GatewayUserSessionSnapshot& snapshot) noexcept {
                                         (!snapshot.has_resume && !snapshot.resume.valid));
 }
 
+// The caller's buffer is zeroed: bytes 24..32 stay zero.
 void make_entropy(u64 profile_id, u32 flags, u32 version, u8* output) noexcept {
     copy_bytes(output, kMagic, sizeof(kMagic));
     byte_store_le32(output + 8, version);
     byte_store_le32(output + 12, flags);
     byte_store_le64(output + 16, profile_id);
-    byte_store_le64(output + 24, 0);
 }
 
 u32 store_flags(const GatewayUserSessionSnapshot& snapshot, const ClientHeartbeatSession* heartbeat,

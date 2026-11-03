@@ -11,7 +11,6 @@
 #include "maicord/app/guild/account_guild_admin.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/ui/text/clipboard.hpp"
 #include "../../../src/app/chat/messages/history_decode.hpp"
 #include "../../support/test_output.hpp"
@@ -284,8 +283,8 @@ void run() noexcept {
               utf8_equal({read_value, read_value_bytes}, utf8_literal("55")),
           "profile runtime: a card without art fetches its public application");
     response(200, utf8_literal(R"([{"id":"55","name":"Mossrun","icon":"beef"}])"));
-    check(p.application_count == 1 && p.applications[0].id == 55 &&
-              utf8_equal(p.applications[0].icon.view(), utf8_literal("beef")) && !p.scene.missing_icon_count &&
+    check(p.applications.count == 1 && p.applications.entries[0].id == 55 &&
+              utf8_equal(p.applications.entries[0].icon.view(), utf8_literal("beef")) && !p.scene.missing_icon_count &&
               !application_profile_submit(215),
           "profile runtime: the icon is remembered and not asked for again");
     check(click(ProfileAction::activity_button) && p.metadata_pending && application_profile_submit(216) &&

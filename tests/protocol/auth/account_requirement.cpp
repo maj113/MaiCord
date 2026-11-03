@@ -2,7 +2,6 @@
 #include "maicord/app/account/user_account_coordinator.hpp"
 #include "maicord/app/account/account_host.hpp"
 #include "maicord/ui/chat/composer/message_composer_scene.hpp"
-#include "maicord/core/win32_types.hpp"
 #include "maicord/app/gateway/client_dispatch.hpp"
 
 namespace maicord {

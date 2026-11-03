@@ -13,7 +13,6 @@
 #include "maicord/ui/layout/scroll_host.hpp"
 #include "maicord/model/user/store.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_system_time.hpp"
 #include "maicord/media/core/asset.hpp"
 namespace maicord {

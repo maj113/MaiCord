@@ -1,5 +1,4 @@
 #include "../../../src/app/account/activity.cpp"
-#include "maicord/core/win32_types.hpp"
 
 // Response tests never enumerate processes or access the saved games file.
 namespace maicord {

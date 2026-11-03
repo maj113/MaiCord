@@ -59,10 +59,9 @@ bool WINAPI module_self_status_complete(void* instance, u64 profile_id, u64 self
                                                           self_user_id, request_id, response, body);
 }
 
-AccountModuleStatus module_failure(AccountModuleError error, u32 native_error) noexcept {
+AccountModuleStatus module_failure(AccountModuleError error) noexcept {
     AccountModuleStatus status{};
     status.error = error;
-    status.native_error = native_error;
     status.failed = true;
     return status;
 }

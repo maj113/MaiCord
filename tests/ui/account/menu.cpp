@@ -2,7 +2,6 @@
 #include "../../support/ui_scene_fixtures.hpp"
 #include "maicord/ui/account/menu.hpp"
 #include "maicord/ui/shell/popup_presentation.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/theme/background_surface.hpp"
 

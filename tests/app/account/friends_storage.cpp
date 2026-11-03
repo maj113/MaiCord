@@ -1,6 +1,5 @@
 #include "account/friends_storage.hpp"
 #include "maicord/protocol/user/relationships.hpp"
-#include "maicord/core/utf.hpp"
 #include "../../support/test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 

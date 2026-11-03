@@ -1,6 +1,5 @@
 #include "maicord/ui/account/login_view.hpp"
 #include "maicord/ui/account/login_text_presentation.hpp"
-#include "maicord/core/utf.hpp"
 
 namespace maicord {
 void test_browser_login_ui(void (*check)(bool, const char*) noexcept) noexcept {

@@ -1,9 +1,6 @@
 #pragma once
 #include "maicord/app/net/rest_client.hpp"
-#include "maicord/model/chat/message_composer.hpp"
 #include "maicord/protocol/user/self_status_settings.hpp"
-#include "maicord/ui/core/geometry.hpp"
-#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 // Effective custom status: a queued choice, else the saved settings. False

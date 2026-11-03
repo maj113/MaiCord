@@ -57,10 +57,7 @@ bool window_shown() noexcept {
     return !g_app.window || application_window_shown();
 }
 bool application_known(const ApplicationProfile& p, u64 id) noexcept {
-    for (u32 i = 0; i < p.application_count; ++i)
-        if (p.applications[i].id == id)
-            return true;
-    return false;
+    return profile_application_known(p.applications, id);
 }
 // Laid-out cards that would show an application icon not fetched yet.
 bool missing_icons(const ApplicationProfile& p) noexcept {
@@ -70,24 +67,8 @@ bool missing_icons(const ApplicationProfile& p) noexcept {
     return false;
 }
 void remember_application(ApplicationProfile& p, u64 id, const Utf8View& icon) noexcept {
-    if (!id)
-        return;
-    ProfileApplication* slot = nullptr;
-    for (u32 i = 0; i < p.application_count && !slot; ++i)
-        if (p.applications[i].id == id)
-            slot = &p.applications[i];
-    if (!slot) {
-        if (p.application_count < kProfileApplicationCapacity)
-            slot = &p.applications[p.application_count++];
-        else {
-            slot = &p.applications[p.application_next];
-            p.application_next = (p.application_next + 1) % kProfileApplicationCapacity;
-        }
-    }
-    slot->id = id;
-    slot->icon.bytes = static_cast<u16>(icon.bytes <= sizeof(slot->icon.data) ? icon.bytes : 0);
-    copy_bytes(slot->icon.data, icon.data, slot->icon.bytes);
-    p.scene.applications = {p.applications, p.application_count};
+    profile_application_remember(p.applications, id, icon);
+    p.scene.applications = p.applications.view();
 }
 // One GET for the public applications (their icons) or a button's metadata.
 bool submit_activity_request(ApplicationProfile& p, u64 now) noexcept {
@@ -639,7 +620,7 @@ bool application_profile_open(u64 user, const UiRect& anchor, ProfileAnchor kind
     SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0);
     p->scene.reduced_motion = !animations || g_app.preferences.reduced_motion;
     p->scene.measure = &g_app.account_ui->text_measure_cache;
-    p->scene.applications = {p->applications, p->application_count};
+    p->scene.applications = p->applications.view();
     profile_commands_resolve(&p->commands, p->data, p->loaded_at, state.selected_channel_id,
                              g_app.account_ui->active_channel_id);
     p->scene.commands = profile_commands_view(p->commands);

@@ -154,11 +154,8 @@ RemoteAuthWriteResult write_literal(Utf8View literal, Slice<char> output) noexce
 
 RemoteAuthWriteResult write_safe_field(const Utf8View& prefix, const Utf8View& value,
                                        const Utf8View& suffix, const Slice<char>& output) noexcept {
-    const u64 required64 = static_cast<u64>(prefix.bytes) + value.bytes + suffix.bytes;
-    if (required64 > 0xFFFFFFFFull) {
-        return RemoteAuthWriteResult{0, RemoteAuthWriteError::invalid_input};
-    }
-    const u32 required = static_cast<u32>(required64);
+    // Every caller validates its value to a few hundred bytes first.
+    const u32 required = prefix.bytes + value.bytes + suffix.bytes;
     if (required > output.count || (required != 0 && !output.data)) {
         return RemoteAuthWriteResult{required, RemoteAuthWriteError::output_too_small};
     }

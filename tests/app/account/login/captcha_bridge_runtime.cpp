@@ -2,9 +2,7 @@
 // browser is launched and nothing leaves 127.0.0.1.
 #include "maicord/sys/winsock.hpp"
 #include "maicord/app/account/login/captcha_bridge.hpp"
-#include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/win32_process.hpp"
 #include "maicord/platform/crypto/random.hpp"
 namespace maicord::captcha_bridge_clock {
 // Virtual time: it moves only when the test advances it, so a stalled machine

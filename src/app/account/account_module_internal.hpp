@@ -164,7 +164,7 @@ RestClientSubmitResult WINAPI module_self_status_submit(void* instance, u64 prof
                                                         u64 unix_now_ms) noexcept;
 bool WINAPI module_self_status_complete(void* instance, u64 profile_id, u64 self_user_id, u64 request_id,
                                         const RestClientResponse* response, Utf8View body) noexcept;
-AccountModuleStatus module_failure(AccountModuleError error, u32 native_error = 0) noexcept;
+AccountModuleStatus module_failure(AccountModuleError error) noexcept;
 __declspec(noinline) AccountMediaRequestResult rejected_media_request() noexcept;
 AccountLoginStatus WINAPI module_login_start(void** instance, const wchar_t* profile_path) noexcept;
 AccountLoginStatus WINAPI module_login_start_reset(void** instance, const wchar_t* profile_path) noexcept;

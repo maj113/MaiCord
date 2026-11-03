@@ -1,6 +1,5 @@
 #include "../../../../src/app/account/login/geometry.hpp"
 #include "maicord/ui/text/text.hpp"
-#include "maicord/core/win32_types.hpp"
 
 namespace maicord {
 void test_application_login_geometry(void (*check)(bool, const char*) noexcept) noexcept {

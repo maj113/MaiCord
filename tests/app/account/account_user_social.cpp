@@ -1,9 +1,6 @@
 #include "maicord/app/account/account_user_social.hpp"
-#include "maicord/core/memory.hpp"
-#include "maicord/core/utf.hpp"
 #include "../../support/rest_submit_hook.hpp"
 #include "../../support/test_output.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 // Capture-the-submission: notes, report menus and submissions, and message
 // flag edits reach the transport with the official client's target, method,

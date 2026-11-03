@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/app/account/account_profile.hpp"
 #include "maicord/app/account/login/captcha_challenge.hpp"
 #include "maicord/platform/crypto/secure_buffer.hpp"
 #include "maicord/protocol/auth/user_auth.hpp"

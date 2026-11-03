@@ -1,7 +1,5 @@
 #pragma once
 #include "maicord/app/net/rest_client.hpp"
-#include "maicord/media/core/asset_key.hpp"
-#include "maicord/ui/widgets/button.hpp"
 #include "maicord/ui/account/dm_profile_panel.hpp"
 #include "maicord/ui/account/profile_scene.hpp"
 
