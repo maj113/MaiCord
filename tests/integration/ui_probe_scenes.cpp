@@ -5086,6 +5086,9 @@ bool probe_profile_card() noexcept {
         for (u32 c = 0; c < style.color_count; ++c)
             style.colors[c] = palette[c];
         scene.name_started_ms = GetTickCount64() - 420;
+        BOOL motion = TRUE;
+        SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &motion, 0);
+        g_probe.renderer.system_animation_off = motion == FALSE;
         valid = user_appearance_upsert(&g_probe.users.appearance, data->user_appearance) &&
                 profile_scene_layout(&scene, viewport, true) && rebuild_probe_content_text() &&
                 probe_present(&g_probe.renderer, kDefaultTheme);
@@ -5094,8 +5097,6 @@ bool probe_profile_card() noexcept {
             if (g_probe.renderer.text_effects.materials[m].kind == id) {
                 const bool moving = id == 3 || id == 4 || id == 5 || id == 7 || id == 8;
                 found = true;
-                BOOL motion = TRUE;
-                SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &motion, 0);
                 valid = valid &&
                         (g_probe.renderer.text_effects.materials[m].animate != 0) == (moving && motion);
             }

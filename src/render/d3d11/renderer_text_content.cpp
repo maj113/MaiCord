@@ -9,6 +9,7 @@
 #include "maicord/ui/text/inline_flag_projection.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
+#include "maicord/core/scratch_pages.hpp"
 
 namespace maicord {
 namespace renderer_text_detail {
@@ -59,8 +60,7 @@ bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest&
         }
         if (flag_projection.count && !renderer->inline_media.flags) {
             renderer->inline_media.flags = static_cast<RendererInlineFlag*>(
-                VirtualAlloc(nullptr, sizeof(RendererInlineFlag) * kRendererInlineFlagCapacity,
-                             MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+                commit_pages(sizeof(RendererInlineFlag) * kRendererInlineFlagCapacity));
             if (!renderer->inline_media.flags) {
                 flag_projection.count = 0;
             }
@@ -95,7 +95,7 @@ bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest&
     auto& glyph_owner = renderer->glyph_text;
     if (cache_picker && !renderer->picker_glyph_cache)
         renderer->picker_glyph_cache = static_cast<PickerGlyphCache*>(
-            VirtualAlloc(nullptr, sizeof(PickerGlyphCache), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            commit_pages(sizeof(PickerGlyphCache)));
     auto* picker_cache = cache_picker ? renderer->picker_glyph_cache : nullptr;
     if (picker_cache) {
         if (const auto* cached = picker_glyph_cache_find(
@@ -568,13 +568,10 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
         material.kind = command.effect.kind;
         material.count = minimum<u8>(command.effect.count, 8);
         // Static effects keep the zero initialized above; only motion needs
-        // the live Windows animation preference.
-        if (!renderer->reduced_motion && command.effect.animate && command.effect.kind != 1 &&
-            command.effect.kind != 2 && command.effect.kind != 6) {
-            BOOL animation = TRUE;
-            SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animation, 0);
-            material.animate = animation ? 1.f : 0.f;
-        }
+        // the Windows animation preference the app caches.
+        if (!renderer->reduced_motion && !renderer->system_animation_off && command.effect.animate &&
+            command.effect.kind != 1 && command.effect.kind != 2 && command.effect.kind != 6)
+            material.animate = 1.f;
         material.reserved[0] = static_cast<float>(command.effect.started_ms % 60000) / 1000.f;
         material.reserved[1] = text_system_font_size(renderer->glyph_text.system, command.style_flags);
         material.reserved[2] = command.rectangle.top;

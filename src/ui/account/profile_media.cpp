@@ -352,12 +352,7 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
         const u32 hovered = widget_bits(s.widgets.hovered);
         animated = (widget_bits(row.widget) == hovered || widget_bits(row.avatar) == hovered ||
                     widget_bits(row.label) == hovered || widget_bits(row.status) == hovered) &&
-                   ui_widget_manager_resolve(s.widgets, s.widgets.hovered);
-        if (animated) {
-            BOOL motion = TRUE;
-            SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &motion, 0);
-            animated = motion != FALSE;
-        }
+                   ui_widget_manager_resolve(s.widgets, s.widgets.hovered) && !s.system_animation_off;
         append(&url, animated ? utf8_literal("/animated") : utf8_literal("/static"));
         format = MediaAttachmentFormat::png;
         result.rectangle = {r->rectangle.left + 4, r->rectangle.top + 2, r->rectangle.right - 4,

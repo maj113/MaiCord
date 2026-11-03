@@ -1896,7 +1896,12 @@ void test_member_list_scene() noexcept {
         if (index < scene.count) scene.widgets.hovered = scene.rows[index].widget;
         BOOL motion = TRUE;
         SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &motion, 0);
+        scene.system_animation_off = motion == FALSE;
         const bool hover_ok = inserted && member_media_resolve(scene, index, MemberMedia::nameplate, &hovered);
+        scene.system_animation_off = true;
+        ProfileMedia motion_off{};
+        const bool off_ok = inserted && member_media_resolve(scene, index, MemberMedia::nameplate, &motion_off);
+        scene.system_animation_off = motion == FALSE;
         if (index < scene.count) scene.widgets.hovered = scene.rows[index].avatar;
         const bool child_ok = inserted && member_media_resolve(scene, index, MemberMedia::nameplate, &child_hover);
         ++scene.widgets.hovered.generation;
@@ -1905,7 +1910,9 @@ void test_member_list_scene() noexcept {
                    utf8_equal(idle.url.view(), utf8_literal("https://cdn.discordapp.com/media/v1/collectibles-shop/123/static")),
                "member_nameplate_without_hover_uses_static_media");
         expect(hover_ok && ((hovered.key.flags & media_asset_flag_animated) != 0) == (motion != FALSE),
-               "member_nameplate_hover_preserves_live_windows_motion_preference");
+               "member_nameplate_hover_follows_published_windows_motion_preference");
+        expect(off_ok && !(motion_off.key.flags & media_asset_flag_animated),
+               "member_nameplate_hover_stays_static_when_windows_motion_is_off");
         expect(child_ok && media_asset_key_equal(hovered.key, child_hover.key),
                "member_nameplate_child_hover_matches_row_hover");
         expect(stale_ok && media_asset_key_equal(idle.key, stale.key),

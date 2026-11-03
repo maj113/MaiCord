@@ -87,6 +87,8 @@ struct MemberListScene {
     u32 layout_passes;
     u32 rejected;
     bool active;
+    // Windows' client-area animation setting reported off, published by the app with its cached copy.
+    bool system_animation_off;
     void (*viewport_changed)(void*) noexcept;
     void* viewport_context;
 };

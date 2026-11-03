@@ -309,6 +309,8 @@ struct D3D11Renderer {
     u32 text_effect_count;
     bool text_effect_animated;
     bool reduced_motion;
+    // Windows' client-area animation setting reported off, published by the app with its cached copy.
+    bool system_animation_off;
     u8 text_effect_uploaded_count;
     u64 text_effect_next_ms;
     // Per material slot: DIP area an animated effect can touch, including its

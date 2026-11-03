@@ -198,6 +198,8 @@ void application_surface_motion_synchronize(u64 now_ms) noexcept {
     auto& owner = g_app.surface_motion;
     if (!owner.system_preference_cached)
         application_surface_motion_refresh_system_preference();
+    g_app.renderer.system_animation_off = g_app.member_list_scene.system_animation_off =
+        !owner.client_area_animation;
     const bool allowed = host_motion_allowed();
     auto& rail = g_app.guild_rail_scene;
     bool pill_changed = false;
