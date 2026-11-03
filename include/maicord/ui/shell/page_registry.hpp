@@ -33,8 +33,8 @@ inline constexpr u32 kUiPageNoSelection = ~0u;
 
 // UI-thread only. Storage is caller-owned. Descriptors are copied, but labels
 // and contexts are borrowed and must stay valid (labels immutable) until
-// unregister/clear: unregister an owner before freeing its data or unloading its
-// module. The registry never invokes code, including on removal.
+// unregistered or cleared: unregister an owner before freeing its data or
+// unloading its module. The registry never invokes code, including on removal.
 // Pages enumerate in registration order, which removals preserve. The first
 // registration selects itself; removing the selected page selects the next
 // survivor, or the previous one if none follows.
@@ -47,7 +47,6 @@ struct UiPageRegistry {
 
 bool ui_page_registry_initialize(UiPageRegistry* registry, Slice<UiPage> storage) noexcept;
 UiPageResult ui_page_registry_register(UiPageRegistry* registry, const UiPage& page) noexcept;
-UiPageResult ui_page_registry_unregister(UiPageRegistry* registry, UiPageKey key) noexcept;
 // Drops every borrowed descriptor for an owner in one bounded compaction pass.
 // Returns the number removed; zero also covers invalid input.
 u32 ui_page_registry_unregister_owner(UiPageRegistry* registry, u64 owner_id) noexcept;

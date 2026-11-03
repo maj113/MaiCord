@@ -11,7 +11,6 @@ enum class UiCursor : u8 {
     hand,
     ibeam,
     resize_we,
-    resize_ns,
     move,
     hidden
 };

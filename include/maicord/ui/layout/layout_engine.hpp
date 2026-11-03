@@ -27,14 +27,11 @@ enum class UiLayoutAlignment : u8 {
     center,
     end,
     stretch,
-    baseline,
 };
 
 enum class UiLayoutJustification : u8 {
     start,
-    center,
     end,
-    space_between,
 };
 
 enum UiLayoutNodeFlag : u16 {
@@ -101,7 +98,6 @@ struct UiLayoutNode {
     UiSize measured_size;
     UiSize measure_constraint;
     UiPoint scroll_offset;
-    float measured_baseline;
     u16 parent;
     u16 first_child;
     u16 last_child;

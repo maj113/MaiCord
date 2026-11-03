@@ -216,7 +216,6 @@ enum class ScrollbarDragKind : u8 {
 enum PopupAction : u32 {
     popup_action_copy_member_name = 101,
     popup_action_copy_member_id,
-    popup_action_message_user,
     popup_action_close_dm,
     popup_action_private_notice_close,
     popup_action_private_notice_retry,

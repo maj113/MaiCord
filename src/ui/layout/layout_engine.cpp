@@ -183,8 +183,6 @@ void measure_node(UiLayoutEngine* engine, u32 index) noexcept {
         resolved_measure(style.width, content_width, style.minimum_size.width, style.maximum_size.width),
         resolved_measure(style.height, content_height, style.minimum_size.height,
                          style.maximum_size.height)};
-    node.measured_baseline =
-        minimum(node.measured_size.height, style.padding.top + node.spec.intrinsic_baseline);
 }
 
 void set_geometry(UiLayoutNode* node, const UiRect& rectangle, const UiRect& inherited_clip) noexcept {
@@ -222,28 +220,6 @@ float child_fill_weight(const UiLayoutNode& child, bool horizontal) noexcept {
     return length.mode == UiLayoutLengthMode::fill ? length.value : 0.0f;
 }
 
-float justify_offset(UiLayoutJustification justification, float free_space, u32 child_count,
-                     float* extra_gap) noexcept {
-    *extra_gap = 0.0f;
-    if (free_space <= 0.0f) {
-        return 0.0f;
-    }
-    switch (justification) {
-    case UiLayoutJustification::center:
-        return free_space * 0.5f;
-    case UiLayoutJustification::end:
-        return free_space;
-    case UiLayoutJustification::space_between:
-        if (child_count > 1) {
-            *extra_gap = free_space / static_cast<float>(child_count - 1);
-        }
-        return 0.0f;
-    case UiLayoutJustification::start:
-        return 0.0f;
-    }
-    return 0.0f;
-}
-
 float aligned_position(float start, float available, float extent, float margin_start, float margin_end,
                        UiLayoutAlignment alignment) noexcept {
     const float usable = maximum(0.0f, available - margin_start - margin_end);
@@ -254,7 +230,6 @@ float aligned_position(float start, float available, float extent, float margin_
         return start + available - margin_end - extent;
     case UiLayoutAlignment::start:
     case UiLayoutAlignment::stretch:
-    case UiLayoutAlignment::baseline:
         return start + margin_start;
     }
     return start + margin_start;
@@ -311,7 +286,6 @@ void arrange_stack_children(UiLayoutEngine* engine, UiLayoutNode& parent, bool h
     u32 child_count = 0;
     float occupied = 0.0f;
     float fill_weight = 0.0f;
-    float maximum_baseline = 0.0f;
     for (u16 child_slot = parent.first_child; child_slot != kInvalidUiLayoutSlot;
          child_slot = engine->storage[child_slot].next_sibling) {
         const UiLayoutNode& child = engine->storage[child_slot];
@@ -323,10 +297,6 @@ void arrange_stack_children(UiLayoutEngine* engine, UiLayoutNode& parent, bool h
                                    : child_main_measured(child, horizontal)) +
                     child_main_margin(child, horizontal);
         fill_weight += weight;
-        if (horizontal && child.spec.style.vertical_alignment == UiLayoutAlignment::baseline) {
-            maximum_baseline =
-                maximum(maximum_baseline, child.spec.style.margin.top + child.measured_baseline);
-        }
         ++child_count;
     }
     if (child_count == 0) {
@@ -335,11 +305,8 @@ void arrange_stack_children(UiLayoutEngine* engine, UiLayoutNode& parent, bool h
     const float configured_gaps = parent.spec.style.gap * static_cast<float>(child_count - 1);
     occupied += configured_gaps;
     const float free_space = maximum(0.0f, available_main - occupied);
-    float extra_gap = 0.0f;
-    float cursor = (horizontal ? available.left : available.top) +
-                   (fill_weight == 0.0f ? justify_offset(parent.spec.style.justification, free_space,
-                                                         child_count, &extra_gap)
-                                        : 0.0f);
+    const bool at_end = fill_weight == 0.0f && parent.spec.style.justification == UiLayoutJustification::end;
+    float cursor = (horizontal ? available.left : available.top) + (at_end ? free_space : 0.0f);
     const UiRect inherited_clip = children_clip(parent);
     const float scroll_main = horizontal ? parent.scroll_offset.x : parent.scroll_offset.y;
     const float scroll_cross = horizontal ? parent.scroll_offset.y : parent.scroll_offset.x;
@@ -363,17 +330,11 @@ void arrange_stack_children(UiLayoutEngine* engine, UiLayoutNode& parent, bool h
         const float main_margin_start = horizontal ? style.margin.left : style.margin.top;
         const float main_margin_end = horizontal ? style.margin.right : style.margin.bottom;
         cursor += main_margin_start;
-        float cross_position = 0.0f;
-        if (horizontal && style.vertical_alignment == UiLayoutAlignment::baseline) {
-            cross_position = available.top + maximum_baseline - child.measured_baseline;
-        } else {
-            const UiLayoutAlignment alignment =
-                horizontal ? style.vertical_alignment : style.horizontal_alignment;
-            const float margin_start = horizontal ? style.margin.top : style.margin.left;
-            const float margin_end = horizontal ? style.margin.bottom : style.margin.right;
-            cross_position = aligned_position(horizontal ? available.top : available.left, available_cross,
-                                              cross_extent, margin_start, margin_end, alignment);
-        }
+        const UiLayoutAlignment alignment = horizontal ? style.vertical_alignment : style.horizontal_alignment;
+        const float margin_start = horizontal ? style.margin.top : style.margin.left;
+        const float margin_end = horizontal ? style.margin.bottom : style.margin.right;
+        const float cross_position = aligned_position(horizontal ? available.top : available.left, available_cross,
+                                                      cross_extent, margin_start, margin_end, alignment);
         UiRect rectangle{};
         if (horizontal) {
             rectangle =
@@ -387,7 +348,7 @@ void arrange_stack_children(UiLayoutEngine* engine, UiLayoutNode& parent, bool h
         set_geometry(&child, rectangle, inherited_clip);
         cursor += main_extent + main_margin_end;
         if (++arranged_index < child_count) {
-            cursor += parent.spec.style.gap + extra_gap;
+            cursor += parent.spec.style.gap;
         }
     }
 }
@@ -397,12 +358,11 @@ struct WrapRowMetrics {
     u32 count;
     float width;
     float height;
-    float maximum_baseline;
 };
 
 WrapRowMetrics measure_wrap_row(const UiLayoutEngine& engine, u16 first, float available_width,
                                 float gap) noexcept {
-    WrapRowMetrics row{first, 0, 0.0f, 0.0f, 0.0f};
+    WrapRowMetrics row{first, 0, 0.0f, 0.0f};
     u16 slot = first;
     while (slot != kInvalidUiLayoutSlot) {
         const UiLayoutNode& child = engine.storage[slot];
@@ -420,10 +380,6 @@ WrapRowMetrics measure_wrap_row(const UiLayoutEngine& engine, u16 first, float a
         }
         row.width = candidate;
         row.height = maximum(row.height, outer_height(child));
-        if (child.spec.style.vertical_alignment == UiLayoutAlignment::baseline) {
-            row.maximum_baseline =
-                maximum(row.maximum_baseline, child.spec.style.margin.top + child.measured_baseline);
-        }
         ++row.count;
         slot = next;
         row.next = slot;
@@ -445,9 +401,8 @@ void place_wrap_children(const UiLayoutEngine& engine, const UiLayoutNode& paren
             break;
         }
         const float free_space = maximum(0.0f, available_width - row.width);
-        float extra_gap = 0.0f;
-        float cursor = available.left +
-                       justify_offset(parent.spec.style.justification, free_space, row.count, &extra_gap);
+        float cursor =
+            available.left + (parent.spec.style.justification == UiLayoutJustification::end ? free_space : 0.0f);
         u32 arranged_index = 0;
         for (u16 slot = row_first; slot != row.next; slot = engine.storage[slot].next_sibling) {
             const UiLayoutNode& child = engine.storage[slot];
@@ -459,13 +414,8 @@ void place_wrap_children(const UiLayoutEngine& engine, const UiLayoutNode& paren
                 clamp_extent(child.measured_size.width, style.minimum_size.width, style.maximum_size.width);
             const float height = arranged_cross_extent(child, true, row.height);
             cursor += style.margin.left;
-            float top = 0.0f;
-            if (style.vertical_alignment == UiLayoutAlignment::baseline) {
-                top = row_top + row.maximum_baseline - child.measured_baseline;
-            } else {
-                top = aligned_position(row_top, row.height, height, style.margin.top, style.margin.bottom,
-                                       style.vertical_alignment);
-            }
+            const float top = aligned_position(row_top, row.height, height, style.margin.top, style.margin.bottom,
+                                               style.vertical_alignment);
             if (place(slot, UiRect{cursor - parent.scroll_offset.x, top - parent.scroll_offset.y,
                                    cursor - parent.scroll_offset.x + width,
                                    top - parent.scroll_offset.y + height})) {
@@ -473,7 +423,7 @@ void place_wrap_children(const UiLayoutEngine& engine, const UiLayoutNode& paren
             }
             cursor += width + style.margin.right;
             if (++arranged_index < row.count) {
-                cursor += parent.spec.style.gap + extra_gap;
+                cursor += parent.spec.style.gap;
             }
         }
         row_top += row.height;

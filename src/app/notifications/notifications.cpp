@@ -276,11 +276,9 @@ bool retention_room(ApplicationNotifications& n,u64 channel) noexcept {
     if(old_capacity>=(u32{1}<<30)) return retention_unavailable(n);
     const u32 capacity=old_capacity?old_capacity*2:16;
     const u32 slots=capacity*2;
-    SYSTEM_INFO system{}; GetSystemInfo(&system);
-    const u64 page=system.dwPageSize;
-    if(!page) return retention_unavailable(n);
-    const u64 row_bytes=(u64{capacity}*sizeof(NotificationRetentionRow)+page-1)/page*page;
-    const u64 index_bytes=(u64{slots}*sizeof(u32)+page-1)/page*page;
+    // VirtualAlloc commits whole pages, so the byte counts need no rounding here.
+    const u64 row_bytes=u64{capacity}*sizeof(NotificationRetentionRow);
+    const u64 index_bytes=u64{slots}*sizeof(u32);
 #if defined(MAICORD_NOTIFICATION_FIXTURE)
     const bool allocate_rows=n.fixture_retention_failure_bank!=1;
     const bool allocate_index=n.fixture_retention_failure_bank!=2;
@@ -456,8 +454,6 @@ void mention_flags(MessageNotificationPolicyInput& input,const GatewayClientEven
     input.direct_mention=(event.message.mention_flags&gateway_client_message_mention_current_user)!=0;
     input.everyone_mention=(event.message.mention_flags&gateway_client_message_mention_everyone)!=0;
 }
-}
-namespace {
 ApplicationNotificationAvatarFunction g_notification_avatar{};
 } // namespace
 void application_notifications_set_avatar_source(ApplicationNotificationAvatarFunction source) noexcept {
@@ -886,7 +882,6 @@ static bool invalidates_previews(GatewayClientDispatchKind kind) noexcept {
     case GatewayClientDispatchKind::notification_settings_entry:
     case GatewayClientDispatchKind::notification_snapshot_complete:
     case GatewayClientDispatchKind::notification_global:
-    case GatewayClientDispatchKind::notification_thread:
     case GatewayClientDispatchKind::notification_incomplete:
     case GatewayClientDispatchKind::relationship_add:
     case GatewayClientDispatchKind::relationship_update:
@@ -1027,13 +1022,6 @@ void application_notifications_gateway(Application* a,const GatewayClientEvent& 
             }
             message_notifications_apply_global(&n->global,global,partial);
         } else reset_value(&n->global);
-    } else if(kind==GatewayClientDispatchKind::notification_thread) {
-        MessageNotificationThreadSetting thread{};
-        if(payload.count!=sizeof(thread)) { message_notifications_mark_incomplete(&n->settings,event.notification.guild_id); return; }
-        copy_bytes(&thread,payload.data,sizeof(thread));
-        if(thread.guild_id!=event.notification.guild_id || thread.thread_id!=event.notification.channel_id ||
-            message_notifications_upsert_thread(&n->settings,thread)!=MessageNotificationApplyError::none)
-            message_notifications_mark_incomplete(&n->settings,event.notification.guild_id);
     } else if(kind==GatewayClientDispatchKind::notification_incomplete) {
         message_notifications_mark_incomplete(&n->settings,event.notification.guild_id);
         n->snapshot_failed|=n->snapshot;

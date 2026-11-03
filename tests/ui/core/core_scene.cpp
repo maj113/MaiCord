@@ -1610,8 +1610,7 @@ void test_layout_engine_and_widget_manager() noexcept {
     const u32 narrow_measure_passes = manager.layout.measure_passes;
     expect(measured_layout && measured_layout->rectangle.right == 80.0f &&
                measured_layout->rectangle.bottom == 40.0f &&
-               measured_layout->spec.intrinsic_size.height == 40.0f &&
-               measured_layout->measured_baseline == 15.0f,
+               measured_layout->spec.intrinsic_size.height == 40.0f,
            "layout_engine_constrained_text_narrow_measurement");
     expect(ui_widget_manager_layout_rectangle(&manager, {0, 0, 160.0f, 100.0f}).ok() &&
                manager.layout.measure_passes == narrow_measure_passes + 2,

@@ -257,15 +257,6 @@ u64 offered_version(const ApplicationUpdatesView& v) noexcept {
     const u64 version = v.offer_version > v.ready_version ? v.offer_version : v.ready_version;
     return version > v.own_version ? version : 0;
 }
-} // namespace
-
-u32 application_updates_offer_label(const ApplicationUpdatesView& v, Slice<char> output) noexcept {
-    const u64 version = offered_version(v);
-    // The commit names the offer only when the changelog described this version.
-    return version ? update_build_version_text(version, version == v.offer_version ? commit_of(v.offer_commit) : Utf8View{}, output) : 0;
-}
-
-namespace {
 constexpr u8 icon_of(UiIcon icon) noexcept { return static_cast<u8>(static_cast<u8>(icon) + 1); }
 // "Today at 2:02 PM" reads "today at 2:02 PM" inside a sentence.
 void add_when(TextBank& t, u64 unix_seconds, u64 now) noexcept {

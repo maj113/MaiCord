@@ -5,12 +5,9 @@
 #include "../chat/composer/attachments_state.hpp"
 #include "../shell/state.hpp"
 #include "../../render/d3d11/renderer_interaction_state.hpp"
-#include "maicord/core/hash.hpp"
 #include "maicord/platform/uia/provider.hpp"
 #include "maicord/render/text/forum_post_surface.hpp"
-#include "maicord/render/text/form_surface.hpp"
 #include "maicord/ui/accessibility/scenes.hpp"
-#include "maicord/ui/text/secure_edit.hpp"
 #include "../account/account_ui_runtime.hpp"
 
 #include "maicord/core/win32_user.hpp"

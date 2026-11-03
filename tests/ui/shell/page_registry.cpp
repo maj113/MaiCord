@@ -38,7 +38,6 @@ void test_ui_page_registry(void (*check)(bool, const char*) noexcept) noexcept {
               ui_page_registry_register(&registry, {{3, 1}, {malformed, 2}, nullptr}).error ==
                   UiPageError::invalid_argument &&
               ui_page_registry_select(&registry, {9, 9}).error == UiPageError::not_found &&
-              ui_page_registry_unregister(&registry, {9, 9}).error == UiPageError::not_found &&
               registry.count == 2 && registry.revision == before_rejected,
           "duplicate invalid and missing page operations are atomic and preserve revision");
 
@@ -76,16 +75,13 @@ void test_ui_page_registry(void (*check)(bool, const char*) noexcept) noexcept {
           "owner reload can reuse stable keys and appends without changing existing order");
 
     check(ui_page_registry_select(&registry, {3, 1}).ok() &&
-              ui_page_registry_unregister(&registry, {1, 1}).ok() &&
-              registry.selected_index == 1 &&
+              ui_page_registry_unregister_owner(&registry, 1) == 2 && registry.selected_index == 0 &&
               ui_page_key_equal(ui_page_registry_selected(registry)->key, {3, 1}),
-          "removing an earlier page preserves selected logical identity after compaction");
+          "removing earlier pages preserves selected logical identity after compaction");
     check(ui_page_registry_select(&registry, plugin.key).ok() &&
-              ui_page_registry_unregister(&registry, plugin.key).ok() &&
+              ui_page_registry_unregister_owner(&registry, 2) == 1 &&
               ui_page_key_equal(ui_page_registry_selected(registry)->key, {3, 1}) &&
-              ui_page_registry_unregister_owner(&registry, 3) == 1 &&
-              ui_page_key_equal(ui_page_registry_selected(registry)->key, {1, 2}) &&
-              ui_page_registry_unregister_owner(&registry, 1) == 1 && !registry.count &&
+              ui_page_registry_unregister_owner(&registry, 3) == 1 && !registry.count &&
               !ui_page_registry_selected(registry) && registry.selected_index == kUiPageNoSelection,
           "last selected page falls back to previous and removing every page leaves no selection");
 

@@ -25,8 +25,6 @@ inline const wchar_t* application_cursor_resource(UiCursor cursor) noexcept {
         return IDC_IBEAM;
     case UiCursor::resize_we:
         return IDC_SIZEWE;
-    case UiCursor::resize_ns:
-        return IDC_SIZENS;
     case UiCursor::move:
         return IDC_SIZEALL;
     case UiCursor::hidden:

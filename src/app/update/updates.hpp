@@ -38,8 +38,6 @@ struct ApplicationUpdatesView {
     u64 checked_unix;
     char own_commit[kApplicationUpdatesCommitChars], offer_commit[kApplicationUpdatesCommitChars];
 };
-// "0.3.4-dev.16+581fd44" for the view's offered build.
-u32 application_updates_offer_label(const ApplicationUpdatesView&, Slice<char> output) noexcept;
 
 // Settings rows for one view. Text lives in the caller's scratch until the
 // next projection. Returns false when the row is hidden. meter receives the

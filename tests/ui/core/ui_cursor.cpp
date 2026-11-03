@@ -246,7 +246,7 @@ void test_settings(Check check) noexcept {
     const auto cursor_of = [&](u64 id) noexcept {
         UiSettingsControlGeometry geometry{};
         if (!ui_settings_scene_control_geometry(scene, {UiSettingsTargetKind::control, key, id}, &geometry))
-            return UiCursor::resize_ns;
+            return UiCursor::hidden;
         const auto point = center(geometry.clip);
         return ui_settings_scene_cursor(scene, point.x, point.y);
     };

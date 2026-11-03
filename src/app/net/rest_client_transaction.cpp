@@ -239,6 +239,17 @@ u32 allocation_bytes(u32 response_capacity, bool user_auth_mode, bool normal_use
     return page_rounded_bytes(raw);
 }
 
+// The four user-header buffers, laid out back to back from cursor.
+static void assign_user_metadata(RestClientRuntime* runtime, u8* cursor) noexcept {
+    runtime->user_super_properties = cursor;
+    cursor += kRestUserSuperPropertiesMaximumBytes;
+    runtime->user_locale = reinterpret_cast<char*>(cursor);
+    cursor += kRestUserLocaleMaximumBytes;
+    runtime->user_timezone = reinterpret_cast<char*>(cursor);
+    cursor += kRestUserTimezoneMaximumBytes;
+    runtime->user_accept_language = reinterpret_cast<char*>(cursor);
+}
+
 void assign_storage(RestClientRuntime* runtime, RestSharedState* shared) noexcept {
     u8* cursor = reinterpret_cast<u8*>(runtime) + sizeof(RestClientRuntime);
     if (shared) {
@@ -253,13 +264,7 @@ void assign_storage(RestClientRuntime* runtime, RestSharedState* shared) noexcep
                                        {local->bindings, kRateBindingCount});
     }
     if (runtime->user_auth_mode) {
-        runtime->user_super_properties = cursor;
-        cursor += kRestUserSuperPropertiesMaximumBytes;
-        runtime->user_locale = reinterpret_cast<char*>(cursor);
-        cursor += kRestUserLocaleMaximumBytes;
-        runtime->user_timezone = reinterpret_cast<char*>(cursor);
-        cursor += kRestUserTimezoneMaximumBytes;
-        runtime->user_accept_language = reinterpret_cast<char*>(cursor);
+        assign_user_metadata(runtime, cursor);
         // Metadata uses the ordinary allocation, before its final aligned TLS
         // output block. Passwords, CAPTCHA values, and request heads stay locked.
         runtime->handshake_output = reinterpret_cast<u8*>(runtime) + runtime->allocation_bytes -
@@ -302,15 +307,8 @@ void assign_storage(RestClientRuntime* runtime, RestSharedState* shared) noexcep
     runtime->request_body = cursor;
     runtime->response_body = cursor;
     cursor += maximum(kRestClientMaximumRequestBodyBytes, runtime->response_capacity);
-    if (runtime->authorization == RestAuthorization::normal_user) {
-        runtime->user_super_properties = cursor;
-        cursor += kRestUserSuperPropertiesMaximumBytes;
-        runtime->user_locale = reinterpret_cast<char*>(cursor);
-        cursor += kRestUserLocaleMaximumBytes;
-        runtime->user_timezone = reinterpret_cast<char*>(cursor);
-        cursor += kRestUserTimezoneMaximumBytes;
-        runtime->user_accept_language = reinterpret_cast<char*>(cursor);
-    }
+    if (runtime->authorization == RestAuthorization::normal_user)
+        assign_user_metadata(runtime, cursor);
 }
 
 } // namespace rest_client_detail

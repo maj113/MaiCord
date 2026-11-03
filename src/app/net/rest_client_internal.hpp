@@ -1,6 +1,5 @@
 #pragma once
 // Shared by rest_client.cpp and its parts (rest_client_*.cpp); private to them.
-#include "maicord/core/win32_process.hpp"
 #include "maicord/app/net/rest_client.hpp"
 #include "request_state.hpp"
 
@@ -10,7 +9,6 @@
 #include "maicord/platform/net/tls_stream.hpp"
 #include "maicord/media/compression/deflate.hpp"
 
-#include "maicord/core/interlocked.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {

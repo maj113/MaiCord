@@ -366,9 +366,8 @@ void test_zoom_lens(void (*check)(bool, const char*) noexcept) noexcept {
     check(lens.zoom == 2 && lens.size == 200 && !lens.square,
           "zoom lens: zero stored values select the defaults (2x, 200 DIPs, circle)");
     ui_zoom_lens_configure(&lens, 7, 33, true);
-    check(lens.zoom == 3.5f && lens.size == 330 && lens.square &&
-              ui_zoom_lens_zoom_halves(lens.zoom) == 7 && ui_zoom_lens_size_tens(lens.size) == 33,
-          "zoom lens: zoom keeps half steps and size tens of DIPs through storage");
+    check(lens.zoom == 3.5f && lens.size == 330 && lens.square,
+          "zoom lens: stored zoom half steps and size tens of DIPs load as zoom and size");
     const UiRect picture{100, 100, 500, 300};
     UiZoomLensView view{};
     check(!ui_zoom_lens_view(lens, picture, 8, &view), "zoom lens: an inactive lens has no view");

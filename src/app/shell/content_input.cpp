@@ -66,7 +66,7 @@ namespace {
 ReceivedAttachmentOpen received_attachment_open{};
 ReceivedAttachmentOpenResult received_attachment_status{};
 bool received_attachment_source(const ReceivedAttachmentOpenIdentity& id, Utf8View* source) noexcept {
-    if (!source || !g_app.account_ui || !g_app.account.instance || g_app.account.stop_failed ||
+    if (!g_app.account_ui || !g_app.account.instance || g_app.account.stop_failed ||
         g_app.login.visible || application_account_scope() != id.account_scope ||
         g_app.account_ui->active_channel_id != id.channel_id ||
         !application_channel_readable(g_app, id.channel_id))

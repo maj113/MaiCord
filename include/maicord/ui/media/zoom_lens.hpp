@@ -35,12 +35,6 @@ bool ui_zoom_lens_view(const UiZoomLens& lens, const UiRect& picture, float squa
 bool ui_zoom_lens_wheel(UiZoomLens* lens, i32 delta, bool resize) noexcept;
 // Loads stored values; zero selects the default.
 void ui_zoom_lens_configure(UiZoomLens* lens, u8 zoom_halves, u8 size_tens, bool square) noexcept;
-constexpr u8 ui_zoom_lens_zoom_halves(float zoom) noexcept {
-    return static_cast<u8>(zoom * 2 + .5f);
-}
-constexpr u8 ui_zoom_lens_size_tens(float size) noexcept {
-    return static_cast<u8>(size / 10 + .5f);
-}
 // The frame under the magnified picture: a border ring over the surface the
 // picture sits on. The magnified picture draws above it.
 bool ui_zoom_lens_paint(const UiZoomLensView& view, const Theme& theme, PaintStream* paint) noexcept;
