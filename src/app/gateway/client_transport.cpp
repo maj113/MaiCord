@@ -422,6 +422,8 @@ bool send_pending_pong(GatewayClientRuntime* runtime) noexcept {
 OutboundDrive send_control_command(GatewayClientRuntime* runtime, GatewayCommandWriteResult command,
                                    SendPurpose purpose) noexcept {
     if (!command.ok() || command.bytes == 0 || command.bytes > sizeof(runtime->gateway_payload)) {
+        // A failed write can leave a partial command, token included, in the buffer.
+        SecureZeroMemory(runtime->gateway_payload, sizeof(runtime->gateway_payload));
         return OutboundDrive::failed;
     }
     const EtfResult packed =

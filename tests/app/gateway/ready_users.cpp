@@ -852,6 +852,14 @@ void identify_sequence(void (*check)(bool, const char*) noexcept) noexcept {
               bytes_equal(text(head.bytes), "00112233-4455-6677-8899-aabbccddeeff", 36) &&
               bytes_equal(text(head.bytes + 36 + tail.bytes), main_end.data, main_end.bytes),
           "Gateway later identifies carry the app's connect reasons and QoS token");
+    // A command write that failed part-way leaves no plaintext (the token) behind in the payload buffer.
+    GatewayCommandWriteResult partial = second;
+    partial.error = GatewayCommandError::output_too_small;
+    const auto refused = send_control_command(&runtime, partial, SendPurpose::self_status);
+    bool wiped = true;
+    for (const u8 byte : runtime.gateway_payload)
+        wiped = wiped && byte == 0;
+    check(refused == OutboundDrive::failed && wiped, "Gateway wipes the payload buffer when a command write fails");
     SecureZeroMemory(runtime.gateway_payload, sizeof(runtime.gateway_payload));
     runtime.qos = {};
     runtime.user = saved;
