@@ -41,13 +41,10 @@ struct UiBadgeWidget {
 };
 // The APP tag of a bot with these public flags (VERIFIED_BOT, 1 << 16, leads
 // with the check); the caller sets its owner and rectangle.
-constexpr bool ui_app_badge_verified(u64 public_flags) noexcept {
-    return (public_flags & (1ull << 16)) != 0;
-}
 inline void ui_app_badge(UiBadgeWidget* badge, u64 public_flags) noexcept {
     badge->label = utf8_literal("APP");
     badge->style = text_style_subtext | text_style_bold;
-    badge->leading = ui_app_badge_verified(public_flags);
+    badge->leading = (public_flags & (1ull << 16)) != 0;
     badge->accent = badge->compact = true;
 }
 // The 16 DIP check of a verified APP tag at outer, 2 DIPs into its padding;

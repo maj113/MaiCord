@@ -1,18 +1,18 @@
 #include "maicord/ui/theme/style_projection.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
-#include "maicord/ui/theme/background_presentation.hpp"
 #include "maicord/ui/kit/scene_kit.hpp"
 #include "maicord/ui/core/transition.hpp"
-#include "maicord/ui/text/style.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/ui/theme/styles.hpp"
-#include "maicord/ui/core/visit_ref.hpp"
 #include "scene_internal.hpp"
 
 namespace maicord {
 using namespace settings_scene_detail;
 namespace {
+// Keyboard zones in Tab order.
+constexpr UiSettingsFocusZone kFocusZones[]{UiSettingsFocusZone::search, UiSettingsFocusZone::sidebar,
+                                            UiSettingsFocusZone::panel, UiSettingsFocusZone::close};
 bool option_kind(UiSettingsControlKind kind) noexcept {
     return kind == UiSettingsControlKind::segments || kind == UiSettingsControlKind::swatches ||
            kind == UiSettingsControlKind::tabs || kind == UiSettingsControlKind::buttons ||
@@ -199,8 +199,6 @@ bool ui_settings_scene_search_geometry(const UiSettingsScene& scene, UiSettingsC
                node->rectangle,
                ui_settings_search_text_rect(node->rectangle),
                node->clip_rectangle,
-               scene.revision,
-               scene.content_revision,
                true,
                false};
     return ui_rect_has_area(output->clip);
@@ -226,16 +224,7 @@ bool ui_settings_scene_animate_toggle(UiSettingsScene* scene, const UiSettingsTa
         return false;
     if (!ui_page_key_equal(target.page, scene->selected_page))
         return false;
-    u32 slot = 0;
-    for (u32 i = 0; i < kUiSettingsAnimationSlots; ++i) {
-        if (scene->animations[i].control_id == target.control_id) {
-            slot = i;
-            break;
-        }
-        if (scene->animations[i].started_ms < scene->animations[slot].started_ms)
-            slot = i;
-    }
-    scene->animations[slot] = {target.control_id, now_ms, checked};
+    scene->animation = {target.control_id, now_ms, checked};
     scene->clock_ms = now_ms;
     ++scene->motion_revision;
     return true;
@@ -248,11 +237,9 @@ bool ui_settings_scene_tick(UiSettingsScene* scene, u64 now_ms, bool reduced_mot
     bool animating = false;
     const SceneTokens t(*scene);
     const u32 duration = reduced_motion ? t.duration.switch_reduced_ms : t.duration.switch_ms;
-    for (auto& animation : scene->animations) {
-        if (!animation.started_ms)
-            continue;
-        if (now_ms >= animation.started_ms + duration + kUiTransitionFrameMs)
-            reset_value(&animation);
+    if (scene->animation.started_ms) {
+        if (now_ms >= scene->animation.started_ms + duration + kUiTransitionFrameMs)
+            reset_value(&scene->animation);
         else
             animating = true;
     }
@@ -264,10 +251,7 @@ bool ui_settings_scene_tick(UiSettingsScene* scene, u64 now_ms, bool reduced_mot
 }
 
 bool ui_settings_scene_animating(const UiSettingsScene& scene) noexcept {
-    for (const auto& animation : scene.animations)
-        if (animation.started_ms)
-            return true;
-    return false;
+    return scene.animation.started_ms != 0;
 }
 
 bool ui_settings_page_content_valid(const UiSettingsPageContent& content) noexcept {
@@ -352,8 +336,7 @@ bool ui_settings_scene_update(UiSettingsScene* scene, UiPageRegistry* registry, 
         scene->content_offset = 0;
         scene->flash_control = 0;
         scene->flash = 0;
-        for (auto& animation : scene->animations)
-            reset_value(&animation);
+        reset_value(&scene->animation);
     }
     // A page that opens, or changes by keyboard or a link, scrolls its sidebar entry into view.
     const UiSettingsTarget entry{UiSettingsTargetKind::page, selected, 0};
@@ -487,15 +470,13 @@ bool ui_settings_scene_focus(UiSettingsScene* scene, UiSettingsTarget target) no
 bool ui_settings_scene_move_focus(UiSettingsScene* scene, bool reverse) noexcept {
     if (!scene || !current(*scene))
         return false;
-    const UiSettingsFocusZone zones[]{UiSettingsFocusZone::search, UiSettingsFocusZone::sidebar,
-                                      UiSettingsFocusZone::panel, UiSettingsFocusZone::close};
     // Walks the (first 256) focusable targets in order; the second walk picks the one to move to.
     u32 count = 0, position = ~0u, ahead = ~0u;
     u32 parked_row = 0;
     const bool parked = focus_parked(*scene, &parked_row);
     const auto walk = [&](u32 pick, UiSettingsTarget* picked) noexcept {
         count = 0;
-        for (const auto zone : zones)
+        for (const auto zone : kFocusZones)
             visit_targets(*scene, zone, [&](UiSettingsTarget target) noexcept {
                 if (count < 256 && target_exists(*scene, target)) {
                     if (picked && count == pick)
@@ -525,15 +506,13 @@ bool ui_settings_scene_move_focus(UiSettingsScene* scene, bool reverse) noexcept
 bool ui_settings_scene_move_zone(UiSettingsScene* scene, bool reverse) noexcept {
     if (!scene || !current(*scene))
         return false;
-    const UiSettingsFocusZone zones[]{UiSettingsFocusZone::search, UiSettingsFocusZone::sidebar,
-                                      UiSettingsFocusZone::panel, UiSettingsFocusZone::close};
     const auto zone = zone_of(scene->focus);
     u32 position = 0;
     for (u32 i = 0; i < 4; ++i)
-        if (zones[i] == zone)
+        if (kFocusZones[i] == zone)
             position = i;
     for (u32 step = 1; step <= 4; ++step) {
-        const auto candidate = zones[reverse ? (position + 4 - step) % 4 : (position + step) % 4];
+        const auto candidate = kFocusZones[reverse ? (position + 4 - step) % 4 : (position + step) % 4];
         UiSettingsTarget chosen{};
         if (candidate == UiSettingsFocusZone::sidebar) {
             const UiSettingsTarget selected{UiSettingsTargetKind::page, scene->selected_page, 0};
@@ -711,8 +690,6 @@ bool ui_settings_scene_control_geometry(const UiSettingsScene& scene, const UiSe
                field,
                text_rectangle,
                visible,
-               scene.revision,
-               scene.content_revision,
                control->enabled,
                control->kind == UiSettingsControlKind::multiline};
     return true;
@@ -1098,11 +1075,7 @@ bool ui_settings_scene_next_avatar(const UiSettingsScene& scene, u32* cursor,
         if (!row_layout_for(scene, t, handle, index, &r, &clip) || !ui_rect_has_area(r.lead))
             continue;
         // Same circle as paint_row's loading placeholder.
-        UiRect lead = r.lead;
-        if (has_flag(scene.content, index, ui_settings_presentation_grip))
-            lead.left += t.metric.grip_width + 4;
-        const float size = t.metric.avatar_size, cy = (lead.top + lead.bottom) * .5f;
-        const UiRect avatar{lead.left, cy - size * .5f, lead.left + size, cy + size * .5f};
+        const UiRect avatar = avatar_rect(t.metric, scene.content, index, r.lead);
         const UiRect visible = ui_rect_overlap(avatar, clip);
         if (!ui_rect_has_area(visible))
             continue;

@@ -7,6 +7,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
+#include "maicord/ui/layout/surface_geometry.hpp"
 namespace maicord {
 namespace {
 u32 at(UiThemeEditorElement e) noexcept {

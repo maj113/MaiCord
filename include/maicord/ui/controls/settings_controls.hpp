@@ -2,7 +2,6 @@
 
 #include "maicord/ui/core/geometry.hpp"
 #include "maicord/ui/core/paint.hpp"
-#include "maicord/ui/layout/surface_geometry.hpp"
 
 namespace maicord {
 struct UiSettingsTokens;
@@ -17,18 +16,11 @@ struct UiControlState {
 // Concentric rings: a stroke of `width` whose inner edge sits `gap` outside a
 // rounded shape, every corner sharing the shape's centre of curvature (ring
 // radius = radius + gap + width). Focus rings use the focus gap and width.
-UiRect ui_settings_ring_rect(const UiRect& shape, float gap, float width) noexcept;
 bool ui_settings_ring_paint(PaintStream*, const UiRect& shape, float radius, float gap, float width, const Color&) noexcept;
 bool ui_settings_focus_paint(PaintStream*, const UiSettingsTokens&, const UiRect& shape, float radius) noexcept;
 
 // Switch: pill track with a white thumb. motion is the normalized time of a
 // running toggle animation (1 when settled); the thumb squashes while pressed.
-struct UiSwitchThumb {
-    UiRect box;
-    float radius;
-};
-UiSwitchThumb ui_switch_thumb(const UiSettingsLayoutTokens&, const UiRect& track, bool checked, float motion,
-                              bool reduced_motion, bool pressed) noexcept;
 bool ui_switch_paint(PaintStream*, const UiSettingsTokens&, const UiRect& track, bool checked, float motion,
                      bool reduced_motion, UiControlState) noexcept;
 
@@ -79,11 +71,7 @@ bool ui_select_paint(PaintStream*, const UiSettingsTokens&, const UiRect& field,
 enum class UiSettingsButtonVariant : u8 {
     secondary,
     primary,
-    critical,
-    critical_secondary,
-    // Transparent until hot; the plate then takes the hover fill (header links, icon-less actions).
-    ghost,
-    count
+    critical
 };
 // Button sizes: sm is 32 DIP, md 40 DIP.
 enum class UiSettingsButtonSize : u8 {
@@ -94,7 +82,7 @@ float ui_settings_button_width(const UiSettingsLayoutTokens&, UiSettingsButtonSi
 bool ui_settings_button_paint(PaintStream*, const UiSettingsTokens&, const UiRect&, UiSettingsButtonVariant,
                               UiControlState) noexcept;
 // A button whose plate shows progress: the secondary plate with a brand fill over `fraction` of its width
-// (the label draws over both: pair it with ui_settings_button_progress_text).
+// (the label draws over both in the secondary text colour).
 bool ui_settings_button_progress_paint(PaintStream*, const UiSettingsTokens&, const UiRect&, float fraction,
                                        UiControlState) noexcept;
 Color ui_settings_button_text(const UiSettingsTokens&, UiSettingsButtonVariant, UiControlState) noexcept;
@@ -129,7 +117,6 @@ UiRect ui_settings_close_rect(const UiSettingsLayoutTokens&, float center_x, flo
 bool ui_settings_close_paint(PaintStream*, const UiSettingsTokens&, const UiRect& square, UiControlState) noexcept;
 // Dialog close: a bare 24 DIP glyph centred in the target, with a hover fill.
 bool ui_settings_dialog_close_paint(PaintStream*, const UiSettingsTokens&, const UiRect& target, UiControlState) noexcept;
-Color ui_settings_close_color(const UiSettingsTokens&, UiControlState) noexcept;
 
 // Tri-state permission switch: deny / neutral / allow as three joined
 // segments in one bordered group (tristate_segment by segment_size each).
@@ -144,7 +131,6 @@ bool ui_tristate_paint(PaintStream*, const UiSettingsTokens&, const UiRect& grou
                        UiControlState) noexcept;
 
 // Compact colour grid: small rounded squares; the selected one shows a check.
-u32 ui_color_grid_columns(const UiSettingsLayoutTokens&, float width) noexcept;
 float ui_color_grid_height(const UiSettingsLayoutTokens&, u32 count, float width) noexcept;
 UiRect ui_color_grid_cell(const UiSettingsLayoutTokens&, const UiRect& field, u32 index) noexcept;
 u32 ui_color_grid_hit(const UiSettingsLayoutTokens&, const UiRect& field, u32 count, float x, float y) noexcept;

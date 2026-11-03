@@ -15,6 +15,16 @@ UiSliderGeometry active(const UiSettingsTokens& tokens, UiSliderGeometry g, UiCo
     g.fill.top = g.bar.top, g.fill.bottom = g.bar.bottom;
     return g;
 }
+// The grabber: its shadow, its plate and, when focused, the focus ring.
+bool paint_grabber(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& grabber, float alpha,
+                   bool focused) noexcept {
+    const auto& c = tokens.color;
+    const float radius = ui_rect_width(grabber) * .5f;
+    return ui_settings_shadow_paint(paint, grabber, radius, 2, .14f * alpha) &&
+           paint_stream_push_rounded_border(paint, grabber, ui_settings_color_alpha(c.thumb, alpha),
+                                            ui_settings_color_alpha(c.border_normal, alpha), radius, 1) &&
+           (!focused || ui_settings_focus_paint(paint, tokens, grabber, radius));
+}
 } // namespace
 
 float ui_slider_height(const UiSettingsLayoutTokens& tokens, bool marks) noexcept {
@@ -75,7 +85,6 @@ bool ui_slider_paint(PaintStream* paint, const UiSettingsTokens& tokens, const U
     const float alpha = state.enabled ? 1.f : tokens.disabled_alpha;
     const float bar_radius = ui_rect_height(g.bar) * .5f;
     const Color fill = c.brand;
-    const float grab_radius = ui_rect_width(g.grabber) * .5f;
     bool ok = paint_stream_push_rounded(paint, g.bar, ui_settings_color_alpha(c.slider_track, alpha), bar_radius) &&
               (ui_rect_width(g.fill) <= 0 ||
                paint_stream_push_rounded(paint, g.fill, ui_settings_color_alpha(fill, alpha), bar_radius));
@@ -91,11 +100,7 @@ bool ui_slider_paint(PaintStream* paint, const UiSettingsTokens& tokens, const U
                                            1);
         }
     }
-    ok = ok && ui_settings_shadow_paint(paint, g.grabber, grab_radius, 2, .14f * alpha) &&
-         paint_stream_push_rounded_border(paint, g.grabber, ui_settings_color_alpha(c.thumb, alpha), ui_settings_color_alpha(c.border_normal, alpha), grab_radius, 1);
-    if (ok && state.focused)
-        ok = ui_settings_focus_paint(paint, tokens, g.grabber, grab_radius);
-    return ok;
+    return ok && paint_grabber(paint, tokens, g.grabber, alpha, state.focused);
 }
 
 bool ui_slider_meter_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiSliderGeometry& resting,
@@ -109,17 +114,12 @@ bool ui_slider_meter_paint(PaintStream* paint, const UiSettingsTokens& tokens, c
     const float quiet = minimum(lit, thumb);
     Color faint = c.positive;
     faint.alpha *= .35f * alpha;
-    const float grab_radius = ui_rect_width(g.grabber) * .5f;
     bool ok = paint_stream_push_rounded(paint, g.bar, ui_settings_color_alpha(c.slider_track, alpha), radius) &&
               (quiet <= g.bar.left ||
                paint_stream_push_rounded(paint, g.bar.left, g.bar.top, quiet, g.bar.bottom, faint, radius)) &&
               (lit <= thumb || paint_stream_push_rounded(paint, thumb, g.bar.top, lit, g.bar.bottom,
-                                                         ui_settings_color_alpha(c.positive, alpha), radius)) &&
-              ui_settings_shadow_paint(paint, g.grabber, grab_radius, 2, .14f * alpha) &&
-              paint_stream_push_rounded_border(paint, g.grabber, ui_settings_color_alpha(c.thumb, alpha), ui_settings_color_alpha(c.border_normal, alpha), grab_radius, 1);
-    if (ok && state.focused)
-        ok = ui_settings_focus_paint(paint, tokens, g.grabber, grab_radius);
-    return ok;
+                                                         ui_settings_color_alpha(c.positive, alpha), radius));
+    return ok && paint_grabber(paint, tokens, g.grabber, alpha, state.focused);
 }
 
 } // namespace maicord

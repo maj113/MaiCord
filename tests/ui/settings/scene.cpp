@@ -573,10 +573,6 @@ void test_layer_scene(Check check) noexcept {
               !ui_settings_scene_editor_hit(scene, center(name_geometry.clip).x, name_geometry.field.top - 4, &hit),
           "settings layer: single-line editors are 40 DIP and multi-line ones start at three lines, with exact "
           "field hits");
-    check(ui_settings_scene_focus(&scene, name_target) && name_geometry.scene_revision != scene.revision &&
-              ui_settings_scene_control_geometry(scene, name_target, &name_geometry) &&
-              name_geometry.scene_revision == scene.revision,
-          "settings layer: geometry is fenced by scene revision");
     check(ui_settings_scene_focus(&scene, {UiSettingsTargetKind::control, key, 4}) &&
               ui_settings_scene_move_focus(&scene, false) && scene.focus.kind == UiSettingsTargetKind::reset &&
               ui_settings_scene_move_focus(&scene, false) && scene.focus.kind == UiSettingsTargetKind::save &&

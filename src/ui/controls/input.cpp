@@ -4,14 +4,16 @@
 
 namespace maicord {
 
-UiRect ui_settings_ring_rect(const UiRect& shape, float gap, float width) noexcept {
+namespace {
+UiRect ring_rect(const UiRect& shape, float gap, float width) noexcept {
     const float out = gap + width;
     return {shape.left - out, shape.top - out, shape.right + out, shape.bottom + out};
 }
+} // namespace
 
 bool ui_settings_ring_paint(PaintStream* paint, const UiRect& shape, float radius, float gap, float width,
                             const Color& color) noexcept {
-    const auto ring = ui_settings_ring_rect(shape, gap, width);
+    const auto ring = ring_rect(shape, gap, width);
     return paint_stream_push_rounded_border(paint, ring, {}, color, radius + gap + width, width);
 }
 
@@ -75,10 +77,6 @@ bool ui_settings_button_paint(PaintStream* paint, const UiSettingsTokens& tokens
                                : c.critical;
         border = c.button_border;
         break;
-    case UiSettingsButtonVariant::ghost:
-        fill = state.pressed ? c.mod_normal : state.hovered ? c.mod_subtle : Color{};
-        border = {};
-        break;
     default:
         fill = state.pressed ? c.mod_strong : state.hovered ? c.mod_normal : c.mod_subtle;
         border = ui_settings_color_alpha(c.border_subtle, .33f);
@@ -118,8 +116,7 @@ Color ui_settings_button_text(const UiSettingsTokens& tokens, UiSettingsButtonVa
     const auto& c = tokens.color;
     const Color color = variant == UiSettingsButtonVariant::primary || variant == UiSettingsButtonVariant::critical
                             ? c.on_brand
-                        : variant == UiSettingsButtonVariant::critical_secondary ? c.critical_text
-                                                                                 : c.text_strong;
+                            : c.text_strong;
     return ui_settings_color_alpha(color, state.enabled ? 1.f : tokens.disabled_alpha);
 }
 

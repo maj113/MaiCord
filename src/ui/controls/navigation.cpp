@@ -6,6 +6,13 @@ namespace maicord {
 namespace {
 constexpr float kSearchIcon = 16, kSearchInset = 12, kSearchEdge = 8, kClearSize = 24, kHintWidth = 44,
                 kHintHeight = 20, kCloseGlyph = 20;
+// The close buttons' glyph ink and hover plate.
+Color close_color(const UiSettingsTokens& tokens, UiControlState state) noexcept {
+    return state.hovered || state.pressed || state.focused ? tokens.color.text_strong : tokens.color.text_subtle;
+}
+Color close_fill(const UiSettingsTokens& tokens, UiControlState state) noexcept {
+    return state.pressed ? tokens.color.mod_normal : state.hovered ? tokens.color.mod_subtle : Color{};
+}
 } // namespace
 
 bool ui_settings_nav_item_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& item, bool selected,
@@ -113,35 +120,29 @@ UiRect ui_settings_close_rect(const UiSettingsLayoutTokens& tokens, float center
     return {center_x - half, top, center_x + half, top + tokens.metric.close_size};
 }
 
-Color ui_settings_close_color(const UiSettingsTokens& tokens, UiControlState state) noexcept {
-    return state.hovered || state.pressed || state.focused ? tokens.color.text_strong : tokens.color.text_subtle;
-}
-
 bool ui_settings_close_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& square,
                              UiControlState state) noexcept {
-    const auto& c = tokens.color;
-    const Color fill = state.pressed ? c.mod_normal : state.hovered ? c.mod_subtle : Color{};
+    const Color fill = close_fill(tokens, state);
     const float radius = tokens.metric.control_radius;
     const float cx = (square.left + square.right) * .5f, cy = (square.top + square.bottom) * .5f;
     bool ok = !fill.alpha || paint_stream_push_rounded(paint, square, fill, radius);
     ok = ok && ui_icon_paint(paint, UiIcon::close,
                              {cx - kCloseGlyph * .5f, cy - kCloseGlyph * .5f, cx + kCloseGlyph * .5f,
                               cy + kCloseGlyph * .5f},
-                             ui_settings_close_color(tokens, state));
+                             close_color(tokens, state));
     return ok && (!state.focused || ui_settings_focus_paint(paint, tokens, square, radius));
 }
 
 bool ui_settings_dialog_close_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& target,
                                     UiControlState state) noexcept {
     const auto& c = tokens.color;
-    const Color ink = state.hovered || state.pressed || state.focused ? c.text_strong : c.text_subtle;
-    const Color fill = state.pressed ? c.mod_normal : state.hovered ? c.mod_subtle : Color{};
+    const Color fill = close_fill(tokens, state);
     const float icon = 24, cx = (target.left + target.right) * .5f, cy = (target.top + target.bottom) * .5f;
     const float half = icon * .5f + 4;
     const UiRect plate{cx - half, cy - half, cx + half, cy + half};
     bool ok = !fill.alpha || paint_stream_push_rounded(paint, plate, fill, tokens.metric.nav_item_radius);
     ok = ok && ui_icon_paint(paint, UiIcon::close, {cx - icon * .5f, cy - icon * .5f, cx + icon * .5f, cy + icon * .5f},
-                             ink);
+                             close_color(tokens, state));
     if (ok && state.focused)
         ok = paint_stream_push_rounded_border(paint, plate.left - 2, plate.top - 2, plate.right + 2, plate.bottom + 2, {},
                                               c.focus_ring, tokens.metric.nav_item_radius + 2, 2);

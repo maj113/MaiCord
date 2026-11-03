@@ -33,6 +33,13 @@ UiSettingsVariant variant(const UiSettingsPageContent& content, u32 index) noexc
 u32 focus_choice(const UiSettingsControl& c) noexcept {
     return c.selected_choice < c.choices.count ? c.selected_choice : 0;
 }
+// The state of option `i` of a choice row: hovered under the pointer, ringed when it takes the focus.
+UiControlState choice_state(const UiSettingsScene& scene, const UiControlState& state, const UiSettingsControl& c,
+                            u32 i) noexcept {
+    UiControlState option = hover_option(scene, state, i);
+    option.focused = state.focused && i == focus_choice(c);
+    return option;
+}
 UiSettingsButtonVariant button_variant(const UiSettingsPageContent& content, u32 index) noexcept {
     const auto tone = variant(content, index);
     return tone == UiSettingsVariant::critical  ? UiSettingsButtonVariant::critical
@@ -238,19 +245,23 @@ void paint_row_plate(UiPaint& p, const UiSettingsTokens& t, const UiRect& row, u
                         color, radius)
         .unclip();
 }
-// The status card's meter: a determinate fill, or a bar sliding along the track while a check runs.
+// A bar: the track and, past zero, the brand fill from its start (at least as wide as it is high).
+void paint_bar(UiPaint& p, const UiSettingsTokens& t, const UiRect& bar, float fraction) noexcept {
+    const float radius = ui_rect_height(bar) * .5f;
+    p.rounded(bar, t.color.slider_track, radius);
+    if (fraction > 0)
+        p.rounded({bar.left, bar.top, maximum(bar.left + radius * 2, bar.left + ui_rect_width(bar) * fraction), bar.bottom},
+                  t.color.brand, radius);
+}
+// The status card's meter: a determinate bar, or a bar sliding along the track while a check runs.
 void paint_meter(UiPaint& p, const UiSettingsScene& scene, const UiSettingsTokens& t, const UiRect& meter,
                  u16 level) noexcept {
+    if (level != kUiSettingsIndeterminateMeter)
+        return paint_bar(p, t, meter, static_cast<float>(minimum<u16>(level, 1000)) / 1000.f);
     const float radius = ui_rect_height(meter) * .5f, width = ui_rect_width(meter);
+    const float bar = width * .35f, at = meter.left - bar + (width + bar) * (scene.spinner_phase / kSpinnerPhases);
     p.rounded(meter, t.color.slider_track, radius);
-    if (level == kUiSettingsIndeterminateMeter) {
-        const float bar = width * .35f, at = meter.left - bar + (width + bar) * (scene.spinner_phase / kSpinnerPhases);
-        p.clip(meter).rounded({at, meter.top, at + bar, meter.bottom}, t.color.brand, radius).unclip();
-    } else if (level) {
-        const float fraction = static_cast<float>(minimum<u16>(level, 1000)) / 1000.f;
-        p.rounded({meter.left, meter.top, maximum(meter.left + radius * 2, meter.left + width * fraction), meter.bottom},
-                  t.color.brand, radius);
-    }
+    p.clip(meter).rounded({at, meter.top, at + bar, meter.bottom}, t.color.brand, radius).unclip();
 }
 
 bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSettingsTokens& t, PaintStream* paint,
@@ -314,11 +325,10 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         if (accent(scene.content, index))
             resolve_color(scene, c.id, kUiSettingsAccentChoice, &fill);
         if (has_flag(scene.content, index, ui_settings_presentation_avatar)) {
-            const float size = t.metric.avatar_size, cy = (lead.top + lead.bottom) * .5f;
-            const UiRect avatar{lead.left, cy - size * .5f, lead.left + size, cy + size * .5f};
+            const UiRect avatar = avatar_rect(t.metric, scene.content, index, r.lead);
             // The renderer hides this placeholder under the loaded image.
             if (avatar_backed(scene.content, index))
-                p.rounded(avatar, theme.avatar_placeholder, size * .5f);
+                p.rounded(avatar, theme.avatar_placeholder, ui_rect_width(avatar) * .5f);
             else
                 p.use<ui_admin_avatar_paint>(t, avatar, fill, alpha);
         } else if (accent(scene.content, index)) {
@@ -341,15 +351,8 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
                 p.use<ui_admin_chip_paint>(t, chip, dot, has_dot, c.enabled ? 1.f : .5f);
         }
     }
-    if (progress(scene.content, index) && ui_rect_has_area(r.value)) {
-        const float level = static_cast<float>(minimum<u16>(scene.content.meters[index], 1000)) / 1000.f;
-        const float radius = ui_rect_height(r.value) * .5f;
-        p.rounded(r.value, tc.slider_track, radius);
-        if (level > 0)
-            p.rounded({r.value.left, r.value.top, maximum(r.value.left + radius * 2, r.value.left + ui_rect_width(r.value) * level),
-                       r.value.bottom},
-                      tc.brand, radius);
-    }
+    if (progress(scene.content, index) && ui_rect_has_area(r.value))
+        paint_bar(p, t, r.value, static_cast<float>(minimum<u16>(scene.content.meters[index], 1000)) / 1000.f);
     // Rows of a card are divided by neutral hairlines inset from its edges; elsewhere rows inside one category
     // are separated by full-width dividers; sections end with a divider halfway through their trailing space.
     const u32 next = index + 1;
@@ -378,11 +381,10 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         break;
     case UiSettingsControlKind::swatches:
         for (u32 i = 0; p && i < c.choices.count; ++i) {
-            UiControlState option = hover_option(scene, state, i);
-            option.focused = state.focused && i == focus_choice(c);
             Color fill = tc.mod_strong;
             resolve_color(scene, c.id, i, &fill);
-            p.use<ui_color_grid_paint>(t, ui_color_grid_cell(t, r.control, i), fill, c.selected_choice == i, option);
+            p.use<ui_color_grid_paint>(t, ui_color_grid_cell(t, r.control, i), fill, c.selected_choice == i,
+                                       choice_state(scene, state, c, i));
         }
         break;
     case UiSettingsControlKind::tabs: {
@@ -400,13 +402,10 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         break;
     }
     case UiSettingsControlKind::buttons:
-        for (u32 i = 0; p && i < c.choices.count; ++i) {
-            UiControlState option = hover_option(scene, state, i);
-            option.focused = state.focused && i == focus_choice(c);
+        for (u32 i = 0; p && i < c.choices.count; ++i)
             p.use<ui_settings_button_paint>(t, option_rect(t, c, r.control, i, scene.measure),
                                             i ? UiSettingsButtonVariant::secondary : UiSettingsButtonVariant::primary,
-                                            option);
-        }
+                                            choice_state(scene, state, c, i));
         break;
     case UiSettingsControlKind::colors:
         // Profile theme swatches: the colour with a matching
@@ -466,12 +465,9 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         break;
     }
     case UiSettingsControlKind::radio:
-        for (u32 i = 0; p && i < c.choices.count; ++i) {
-            UiControlState option_state = hover_option(scene, state, i);
-            option_state.focused = state.focused && i == focus_choice(c);
+        for (u32 i = 0; p && i < c.choices.count; ++i)
             p.use<ui_radio_paint>(t, ui_radio_indicator(t, ui_radio_option(t, r.control, i)), c.selected_choice == i,
-                                  option_state);
-        }
+                                  choice_state(scene, state, c, i));
         break;
     case UiSettingsControlKind::palette: {
         const u32 columns = ui_swatch_columns(t, ui_rect_width(r.control));
@@ -557,18 +553,16 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         if (ui_rect_has_area(r.chips)) {
             UiRect chips[8];
             float height = 0;
-            flow_chips(t, c, scene.measure, r.chips.left, r.chips.top, ui_rect_width(r.chips), chips, &height);
+            flow_chips(c, scene.measure, r.chips.left, r.chips.top, ui_rect_width(r.chips), chips, &height);
             for (u32 i = 0; p && i < c.choices.count && i < 8; ++i)
-                p.use<ui_chip_paint>(t, chips[i], chip_tone_of(chip_tone(scene.content, index, i)), UiIcon::count);
+                p.use<ui_chip_paint>(t, chips[i], chip_tone_of(chip_tone(scene.content, index, i)));
         }
         if (ui_rect_has_area(r.meter))
             paint_meter(p, scene, t, r.meter, scene.content.meters[index]);
         if (ui_rect_has_area(r.control)) {
-            const u16 level = scene.content.meters ? scene.content.meters[index] : kUiSettingsNoMeter;
-            if (more(scene.content, index, ui_settings_more_progress_button) && level != kUiSettingsNoMeter &&
-                level != kUiSettingsIndeterminateMeter)
-                p.use<ui_settings_button_progress_paint>(t, r.control, static_cast<float>(minimum<u16>(level, 1000)) / 1000.f,
-                                                         state);
+            if (progress_fill(scene.content, index))
+                p.use<ui_settings_button_progress_paint>(
+                    t, r.control, static_cast<float>(minimum<u16>(scene.content.meters[index], 1000)) / 1000.f, state);
             else
                 p.use<ui_settings_button_paint>(
                     t, r.control, tone == UiSettingsVariant::primary ? UiSettingsButtonVariant::primary : UiSettingsButtonVariant::secondary,
@@ -594,7 +588,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
             p.icon(c.checked ? UiIcon::chevron_down : UiIcon::chevron_right, r.lead,
                    state.hovered ? tc.text_strong : tc.text_subtle);
         if (ui_rect_has_area(r.tag))
-            p.use<ui_chip_paint>(t, r.tag, tag_tone(variant(scene.content, index)), UiIcon::count);
+            p.use<ui_chip_paint>(t, r.tag, tag_tone(variant(scene.content, index)));
         break;
     case UiSettingsControlKind::markdown:
     case UiSettingsControlKind::footnote:
@@ -624,18 +618,8 @@ const UiLayoutNode* visible_nav(const UiSettingsScene& scene, u32 i, UiWidgetHan
 }
 // The label of a nav badge count: a digit, then "9+".
 Utf8View nav_badge_label(u16 badge) noexcept {
-    switch (badge) {
-    case 1: return utf8_literal("1");
-    case 2: return utf8_literal("2");
-    case 3: return utf8_literal("3");
-    case 4: return utf8_literal("4");
-    case 5: return utf8_literal("5");
-    case 6: return utf8_literal("6");
-    case 7: return utf8_literal("7");
-    case 8: return utf8_literal("8");
-    case 9: return utf8_literal("9");
-    default: return utf8_literal("9+");
-    }
+    static constexpr char kLabels[] = "123456789+";
+    return badge < 10 ? Utf8View{kLabels + badge - 1, 1u} : Utf8View{kLabels + 8, 2u};
 }
 // The scrolling rows of the sidebar, or with `pinned` the rows of its foot.
 bool paint_nav(const UiSettingsScene& scene, const Theme& theme, const UiSettingsTokens& t, PaintStream* paint,
@@ -868,17 +852,15 @@ void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTo
         if (ui_rect_has_area(r.chips)) {
             UiRect chips[8];
             float height = 0;
-            flow_chips(t, c, scene.measure, r.chips.left, r.chips.top, ui_rect_width(r.chips), chips, &height);
+            flow_chips(c, scene.measure, r.chips.left, r.chips.top, ui_rect_width(r.chips), chips, &height);
             for (u32 i = 0; i < c.choices.count && i < 8; ++i) {
                 const auto tone = chip_tone_of(chip_tone(scene.content, index, i));
-                text(handle, c.choices[i], ui_chip_label_rect(t, chips[i], tone, false), ui_chip_ink(t, tone),
+                text(handle, c.choices[i], ui_chip_label_rect(chips[i]), ui_chip_ink(t, tone),
                      text_description);
             }
         }
         if (ui_rect_has_area(r.control)) {
-            const u16 level = scene.content.meters ? scene.content.meters[index] : kUiSettingsNoMeter;
-            const bool filled = more(scene.content, index, ui_settings_more_progress_button) && level != kUiSettingsNoMeter &&
-                                level != kUiSettingsIndeterminateMeter;
+            const bool filled = progress_fill(scene.content, index);
             UiRect label = r.control;
             u32 mode = ui_text_center;
             // A running action keeps its place: the spinner leads the label. Other actions lead with their glyph.
@@ -907,7 +889,7 @@ void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTo
         text(handle, c.description, r.description, tc.text_subtle, text_description, ui_text_end);
         if (ui_rect_has_area(r.tag)) {
             const auto tone = tag_tone(variant(scene.content, index));
-            text(handle, c.detail, ui_chip_label_rect(t, r.tag, tone, false), ui_chip_ink(t, tone), text_description);
+            text(handle, c.detail, ui_chip_label_rect(r.tag), ui_chip_ink(t, tone), text_description);
         }
         return;
     }
@@ -974,13 +956,8 @@ void row_text(UiTextPen<>& pen, const UiSettingsScene& scene, const UiSettingsTo
     if (c.kind == UiSettingsControlKind::action && has_flag(scene.content, index, ui_settings_presentation_avatar) &&
         !avatar_backed(scene.content, index)) {
         char storage[16];
-        UiRect lead = r.lead;
-        if (has_flag(scene.content, index, ui_settings_presentation_grip))
-            lead.left += t.metric.grip_width + 4;
-        const float size = t.metric.avatar_size, cy = (lead.top + lead.bottom) * .5f;
         text(handle, ui_admin_initials(c.label, {storage, sizeof(storage)}),
-             {lead.left, cy - size * .5f, lead.left + size, cy + size * .5f}, tc.on_brand, text_heading,
-             ui_text_center);
+             avatar_rect(t.metric, scene.content, index, r.lead), tc.on_brand, text_heading, ui_text_center);
     }
     if (ui_rect_has_area(r.chips)) {
         const bool dots = accent(scene.content, index);

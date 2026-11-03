@@ -117,7 +117,7 @@ bool icon_pack_decode(const IconPack& pack, u32 index, const IconOutlineTransfor
         GlyphPathCommand& command = outline->commands[count++];
         reset_value(&command);
         if (op == op_move_stroke || op == op_move_fill) {
-            const bool closed_follows = [&]() noexcept {
+            const auto closed_follows = [&]() noexcept {
                 // Scan ahead to this contour's terminator for the solid variant.
                 u32 scan = at + 4;
                 while (scan < r.command_bytes) {
@@ -129,8 +129,8 @@ bool icon_pack_decode(const IconPack& pack, u32 index, const IconOutlineTransfor
                     scan += next == op_line ? 5 : 13;
                 }
                 return false;
-            }();
-            begin_kind = op == op_move_fill || (transform.fill_closed && closed_follows)
+            };
+            begin_kind = op == op_move_fill || (transform.fill_closed && closed_follows())
                              ? GlyphPathCommandKind::begin_filled
                              : GlyphPathCommandKind::begin_hollow;
             command.kind = begin_kind;

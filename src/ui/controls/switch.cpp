@@ -23,16 +23,19 @@ float keyframe(const float (&values)[6], float t) noexcept {
 float clamp01(float value) noexcept {
     return value < 0 ? 0 : value > 1 ? 1 : value;
 }
-} // namespace
-
-UiSwitchThumb ui_switch_thumb(const UiSettingsLayoutTokens& tokens, const UiRect& track, bool checked, float motion,
-                              bool reduced_motion, bool pressed) noexcept {
+// How far a switch has turned on: its position moves between 40% and 60% of the morph; reduced motion slides.
+float on_fraction(float t, bool reduced_motion, bool checked) noexcept {
+    const float slide = reduced_motion ? t : clamp01((t - .4f) / .2f);
+    return checked ? slide : 1 - slide;
+}
+struct Thumb {
+    UiRect box;
+    float radius;
+};
+Thumb thumb_geometry(const UiSettingsLayoutTokens& tokens, const UiRect& track, bool checked, float t, float position,
+                     bool reduced_motion, bool pressed) noexcept {
     const float unit = ui_rect_height(track) / 24;
     const float travel = ui_rect_width(track) - ui_rect_height(track);
-    const float t = clamp01(motion);
-    // Position moves between 40% and 60% of the morph; reduced motion slides.
-    const float slide = reduced_motion ? t : clamp01((t - .4f) / .2f);
-    const float position = checked ? slide : 1 - slide;
     float x = 4, y = 4, w = 16, h = 16, r = 8;
     if (!reduced_motion && t < 1) {
         x = keyframe(kX, t), y = keyframe(kY, t), w = keyframe(kW, t), h = keyframe(kH, t),
@@ -47,13 +50,12 @@ UiSwitchThumb ui_switch_thumb(const UiSettingsLayoutTokens& tokens, const UiRect
     const float left = cx + (x - 12) * unit * scale, top = cy + (y - 12) * unit * scale;
     return {{left, top, left + w * unit * scale, top + h * unit * scale}, r * unit * scale};
 }
+} // namespace
 
 bool ui_switch_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& track, bool checked,
                      float motion, bool reduced_motion, UiControlState state) noexcept {
     const auto& c = tokens.color;
-    const float t = clamp01(motion);
-    const float slide = reduced_motion ? t : clamp01((t - .4f) / .2f);
-    const float on = checked ? slide : 1 - slide;
+    const float t = clamp01(motion), on = on_fraction(t, reduced_motion, checked);
     const Color on_fill = state.pressed ? c.brand_active : state.hovered ? c.brand_hover : c.brand;
     Color fill = ui_settings_color_mix(c.switch_track, on_fill, on);
     Color border = ui_settings_color_mix(state.hovered ? c.switch_border_hover : c.switch_border,
@@ -65,8 +67,7 @@ bool ui_switch_paint(PaintStream* paint, const UiSettingsTokens& tokens, const U
         thumb = ui_settings_color_alpha(thumb, tokens.disabled_alpha);
     }
     const float radius = ui_rect_height(track) * .5f;
-    const auto knob = ui_switch_thumb(tokens, track, checked, motion, reduced_motion,
-                                      state.pressed && state.enabled);
+    const auto knob = thumb_geometry(tokens, track, checked, t, on, reduced_motion, state.pressed && state.enabled);
     bool ok = paint_stream_push_rounded_border(paint, track, fill, border, radius, 1) &&
               paint_stream_push_rounded(paint, knob.box, thumb, knob.radius);
     if (ok && state.focused)

@@ -112,12 +112,21 @@ bool progress(const UiSettingsPageContent& content, u32 index) noexcept {
 float button_label_width(const UiKitMeasure* measure, const Utf8View& label) noexcept {
     return ui_kit_text_width(measure, label, kUiKitTextLabelBold);
 }
+// The circle of an avatar row's lead, after the drag handle's slot when the row has one.
+UiRect avatar_rect(const UiSettingsMetrics& m, const UiSettingsPageContent& content, u32 index, const UiRect& lead) noexcept {
+    const float left = lead.left + (has_flag(content, index, ui_settings_presentation_grip) ? m.grip_width + 4 : 0.f);
+    const float size = m.avatar_size, cy = (lead.top + lead.bottom) * .5f;
+    return {left, cy - size * .5f, left + size, cy + size * .5f};
+}
+// A status row whose button fills with the meter level (a download's progress) instead of the meter drawing a bar.
+bool progress_fill(const UiSettingsPageContent& content, u32 index) noexcept {
+    const u16 level = content.meters ? content.meters[index] : kUiSettingsNoMeter;
+    return more(content, index, ui_settings_more_progress_button) && level != kUiSettingsNoMeter &&
+           level != kUiSettingsIndeterminateMeter;
+}
 bool status_glyph(const UiSettingsPageContent& content, u32 index) noexcept {
     const auto& c = content.controls[index];
-    const u16 level = content.meters ? content.meters[index] : kUiSettingsNoMeter;
-    const bool filled = more(content, index, ui_settings_more_progress_button) && level != kUiSettingsNoMeter &&
-                        level != kUiSettingsIndeterminateMeter;
-    return c.kind == UiSettingsControlKind::status && c.action_label.bytes && !c.checked && !filled;
+    return c.kind == UiSettingsControlKind::status && c.action_label.bytes && !c.checked && !progress_fill(content, index);
 }
 UiRect status_button_label(const UiKitMeasure* measure, const Utf8View& label, const UiRect& button, UiRect* glyph) noexcept {
     const float group = kStatusGlyphSize + kStatusGlyphGap + ui_kit_text_width(measure, label, kUiKitTextLabelBold);
@@ -188,7 +197,7 @@ UiMarkdown* markdown_block(const UiSettingsPageContent& content, u32 index, cons
     if (c.kind != UiSettingsControlKind::markdown || !context.markdown || c.description.bytes > kUiMarkdownSourceMaximum)
         return nullptr;
     auto* block = ui_markdown_bank_block(context.markdown, c.id);
-    return block && ui_markdown_parse(block, c.description, {true, text_size_sm}, ui_markdown_bank_scratch(*context.markdown))
+    return block && ui_markdown_parse(block, c.description, text_size_sm, ui_markdown_bank_scratch(*context.markdown))
                ? block
                : nullptr;
 }
@@ -196,16 +205,14 @@ u8 chip_tone(const UiSettingsPageContent& content, u32 index, u32 chip) noexcept
     const auto* p = presentation(content, index);
     return p && chip < 8 ? static_cast<u8>((p->chip_tones >> (chip * 2)) & 3) : u8{0};
 }
-u32 flow_chips(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiKitMeasure* measure, float left,
-               float top, float width, UiRect* out, float* height) noexcept {
+void flow_chips(const UiSettingsControl& c, const UiKitMeasure* measure, float left, float top, float width, UiRect* out,
+                float* height) noexcept {
     float x = 0, y = 0;
-    u32 rows = c.choices.count ? 1 : 0;
     for (u32 i = 0; i < c.choices.count && i < 8; ++i) {
-        const float chip = ui_chip_width(t, ui_kit_text_width(measure, c.choices[i], kUiKitTextSmall), UiChipTone::neutral, false);
+        const float chip = ui_chip_width(ui_kit_text_width(measure, c.choices[i], kUiKitTextSmall));
         if (x > 0 && x + kUiKitChipGap + chip > width) {
             x = 0;
             y += kUiKitChipHeight + kUiKitChipGap;
-            ++rows;
         }
         if (x > 0)
             x += kUiKitChipGap;
@@ -213,7 +220,6 @@ u32 flow_chips(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, cons
         x += chip;
     }
     *height = c.choices.count ? y + kUiKitChipHeight : 0;
-    return rows;
 }
 namespace {
 // Slider labels are estimated generously so a value never ellipsizes.
@@ -442,7 +448,7 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
                                       : ui_kit_text_height(measure, c.description, kUiKitTextSmall, text_width);
         UiRect chip_rects[8];
         float chips_height = 0;
-        flow_chips(t, c, measure, text_left, 0, text_width, chip_rects, &chips_height);
+        flow_chips(c, measure, text_left, 0, text_width, chip_rects, &chips_height);
         const float text_height = title_height + (meta_height > 0 ? m.label_gap + meta_height : 0) +
                                   (chips_height > 0 ? m.field_gap + chips_height : 0);
         const float action_height = (button ? m.button_medium : 0) +
@@ -479,9 +485,7 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
         const bool plain = more(content, index, ui_settings_more_plain);
         const float inset = m.card_inset, gap = m.lead_gap;
         const float right = left + width - inset, inner_left = left + inset;
-        const float tag = c.detail.bytes
-                              ? ui_chip_width(t, ui_kit_text_width(measure, c.detail, kUiKitTextSmall), UiChipTone::neutral, false)
-                              : 0;
+        const float tag = c.detail.bytes ? ui_chip_width(ui_kit_text_width(measure, c.detail, kUiKitTextSmall)) : 0;
         const float meta = c.description.bytes ? ui_kit_text_width(measure, c.description, kUiKitTextSmall) : 0;
         const float lead = plain ? 0 : kDisclosureChevron + gap;
         const float text_right = right - (tag > 0 ? tag + gap : 0) - (meta > 0 ? meta + gap : 0);
@@ -828,9 +832,9 @@ Frame frame(const UiSettingsScene& scene, const UiSettingsMetrics& m) noexcept {
         f.nav_rule = {f.nav_foot.left, f.nav_foot.top, f.nav_foot.right, f.nav_foot.top + 1};
         f.nav.bottom = f.nav_foot.top;
     }
-    if (scene.presentation == UiSettingsPresentation::dialog)
-        f.nav = {l.modal.left, l.modal.top, l.modal.left, l.modal.top};
     const bool dialog = scene.presentation == UiSettingsPresentation::dialog;
+    if (dialog)
+        f.nav = {l.modal.left, l.modal.top, l.modal.left, l.modal.top};
     const bool host = scene.content.host;
     const float line = modal ? kTitleLine : kTitleLineCompact;
     // A host page draws its own header: the column starts at the top of the panel's padding.
@@ -1059,19 +1063,17 @@ bool focusable_control(const UiSettingsScene& scene, u32 index) noexcept {
     const auto& c = scene.content.controls[index];
     if (!c.enabled)
         return false;
-    if (c.kind == UiSettingsControlKind::category)
-        return link(scene.content, index);
-    if (c.kind == UiSettingsControlKind::notice)
-        return c.action_label.bytes != 0;
-    // Info lines, status meters and chips have nothing to focus; status cards focus their button,
-    // footnotes their link, markdown its "show all" link, a plain disclosure line nothing.
+    // Info lines and chips have nothing to focus; status cards focus their button, notices and footnotes their
+    // button or link, markdown its "show all" link, a plain disclosure line nothing.
     switch (c.kind) {
-    case UiSettingsControlKind::error:
-        return false;
+    case UiSettingsControlKind::category:
+        return link(scene.content, index);
+    case UiSettingsControlKind::notice:
     case UiSettingsControlKind::status:
-        return c.action_label.bytes != 0;
     case UiSettingsControlKind::footnote:
         return c.action_label.bytes != 0;
+    case UiSettingsControlKind::error:
+        return false;
     case UiSettingsControlKind::markdown:
         return !c.checked && c.detail.bytes != 0;
     case UiSettingsControlKind::disclosure:
@@ -1529,18 +1531,12 @@ UiControlState widget_state(const UiSettingsScene& scene, UiWidgetHandle handle,
 }
 float toggle_motion(const UiSettingsScene& scene, const UiSettingsTarget& target, const UiSettingsLayoutTokens& t,
                     bool checked) noexcept {
-    for (const auto& animation : scene.animations) {
-        if (!animation.started_ms || animation.control_id != target.control_id)
-            continue;
-        const u32 duration = scene.reduced_motion ? t.duration.switch_reduced_ms : t.duration.switch_ms;
-        if (animation.checked != checked)
-            return 1;
-        const float elapsed = scene.clock_ms > animation.started_ms
-                                  ? static_cast<float>(scene.clock_ms - animation.started_ms)
-                                  : 0.f;
-        return duration ? minimum(1.f, elapsed / static_cast<float>(duration)) : 1.f;
-    }
-    return 1;
+    const auto& animation = scene.animation;
+    if (!animation.started_ms || animation.control_id != target.control_id || animation.checked != checked)
+        return 1;
+    const u32 duration = scene.reduced_motion ? t.duration.switch_reduced_ms : t.duration.switch_ms;
+    const float elapsed = scene.clock_ms > animation.started_ms ? static_cast<float>(scene.clock_ms - animation.started_ms) : 0.f;
+    return duration ? minimum(1.f, elapsed / static_cast<float>(duration)) : 1.f;
 }
 void reveal_range(UiSettingsScene* scene, bool sidebar, float first, float last, const UiSettingsMetrics& m) noexcept {
     auto& offset = sidebar ? scene->sidebar_offset : scene->content_offset;

@@ -294,7 +294,6 @@ struct UiSettingsControlGeometry {
     UiSettingsTarget target;
     UiWidgetReference owner;
     UiRect control, field, text, clip;
-    u32 scene_revision, content_revision;
     bool enabled, multiline;
 };
 struct UiSettingsSliderGeometry {
@@ -375,7 +374,6 @@ struct UiSettingsAnimation {
     u64 control_id, started_ms;
     bool checked;
 };
-inline constexpr u32 kUiSettingsAnimationSlots = 1;
 
 struct UiResolvedThemeStyles;
 struct UiKitMeasure;
@@ -417,7 +415,7 @@ struct UiSettingsScene {
     UiSettingsModalLayout layout{};
     u64 flash_control{}, clock_ms{};
     float flash{};
-    UiSettingsAnimation animations[kUiSettingsAnimationSlots]{};
+    UiSettingsAnimation animation{};
     // Counts activations of an inactive scene; retained across release.
     u64 opens{};
     // Paint-only changes (toggle motion, flash) that need no text or layout.

@@ -27,7 +27,7 @@ void append_bits(BitBuffer* buffer, u32 value, u32 count) noexcept {
     }
 }
 
-u8 finite_field_multiply(u8 first, u8 second) noexcept {
+constexpr u8 finite_field_multiply(u8 first, u8 second) noexcept {
     u8 result = 0;
     for (u32 bit = 0; bit < 8; ++bit) {
         result ^= static_cast<u8>((second & 1u) != 0 ? 0xFFu : 0u) & first;
@@ -41,22 +41,28 @@ u8 finite_field_multiply(u8 first, u8 second) noexcept {
     return result;
 }
 
-void make_divisor(u8 divisor[kErrorCodewordsPerBlock]) noexcept {
-    for (u32 index = 0; index < kErrorCodewordsPerBlock; ++index) {
-        divisor[index] = 0;
-    }
-    divisor[kErrorCodewordsPerBlock - 1] = 1;
+struct Divisor {
+    u8 coefficients[kErrorCodewordsPerBlock];
+};
+
+// The generator polynomial of the 24 error codewords, from the roots 2^0 .. 2^23.
+constexpr Divisor make_divisor() noexcept {
+    Divisor divisor{};
+    divisor.coefficients[kErrorCodewordsPerBlock - 1] = 1;
     u8 root = 1;
     for (u32 degree = 0; degree < kErrorCodewordsPerBlock; ++degree) {
         for (u32 index = 0; index < kErrorCodewordsPerBlock; ++index) {
-            divisor[index] = finite_field_multiply(divisor[index], root);
+            divisor.coefficients[index] = finite_field_multiply(divisor.coefficients[index], root);
             if (index + 1 < kErrorCodewordsPerBlock) {
-                divisor[index] ^= divisor[index + 1];
+                divisor.coefficients[index] ^= divisor.coefficients[index + 1];
             }
         }
         root = finite_field_multiply(root, 2);
     }
+    return divisor;
 }
+
+constexpr Divisor kDivisor = make_divisor();
 
 void make_remainder(const u8 data[kBlockDataCodewords],
                     const u8 divisor[kErrorCodewordsPerBlock],
@@ -339,11 +345,9 @@ bool qr_code_encode_v5_m(ConstSlice<u8> payload, QrCode* output) noexcept {
         append_bits(&bits, alternate ? 0x11u : 0xECu, 8);
     }
 
-    u8 divisor[kErrorCodewordsPerBlock]{};
     u8 error[kBlockCount][kErrorCodewordsPerBlock]{};
-    make_divisor(divisor);
     for (u32 block = 0; block < kBlockCount; ++block) {
-        make_remainder(bits.data + block * kBlockDataCodewords, divisor,
+        make_remainder(bits.data + block * kBlockDataCodewords, kDivisor.coefficients,
                        error[block]);
     }
     u8 codewords[kTotalCodewords]{};

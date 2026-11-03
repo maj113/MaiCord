@@ -10,6 +10,10 @@ constexpr u32 kListFlags = text_style_list | text_style_list_bullet | kTextStyle
 // A list item's text sits kMarkerLeft in plus kLevelStep per level; its marker ends kMarkerRight before the text.
 // Items are kItemGap apart.
 constexpr float kItemGap = 2, kMarkerLeft = 22, kMarkerRight = 6, kLevelStep = 18;
+// Body line height of a size code.
+float line_height(u8 body_size) noexcept {
+    return body_size == text_size_sm ? 20.f : 22.f;
+}
 float body_em(u8 size) noexcept {
     return size == text_size_sm ? 14.f : 16.f;
 }
@@ -23,7 +27,7 @@ void ascii_upper(char* text, u32 bytes) noexcept {
 }
 // Wrapped height of a part without a measure: per paragraph, from the style of its first byte.
 float estimate_height(u8 body_size, const Utf8View& text, ConstSlice<TextStyleSpan> spans, float width) noexcept {
-    const float em = body_em(body_size), line = ui_markdown_line_height(body_size);
+    const float em = body_em(body_size), line = line_height(body_size);
     float height = 0;
     u32 start = 0, span = 0;
     for (u32 i = 0; i <= text.bytes; ++i) {
@@ -140,12 +144,7 @@ bool carve(UiMarkdown* block, const TextStyleSpan* source, u32 source_count) noe
 }
 } // namespace
 
-float ui_markdown_line_height(u8 body_size) noexcept {
-    return body_size == text_size_sm ? 20.f : 22.f;
-}
-
-bool ui_markdown_parse(UiMarkdown* block, const Utf8View& source, const UiMarkdownOptions& options,
-                       Slice<u32> scratch) noexcept {
+bool ui_markdown_parse(UiMarkdown* block, const Utf8View& source, u8 body_size, Slice<u32> scratch) noexcept {
     if (!block)
         return false;
     // The parser writes the upper half of the span storage; the parts' own spans fill the lower half.
@@ -155,15 +154,14 @@ bool ui_markdown_parse(UiMarkdown* block, const Utf8View& source, const UiMarkdo
         block->parsed = false;
         return false;
     }
-    const u8 body = options.body_size ? options.body_size : u8{text_size_sm};
     u64 signature = hash64_bytes(kHash64Seed, source.data, source.bytes);
-    signature = hash64_mix(signature, static_cast<u64>(body) | (options.eyebrow_h3 ? 0x100u : 0u));
+    signature = hash64_mix(signature, body_size);
     if (block->parsed && block->source_signature == signature)
         return true;
     block->parsed = false;
     MessageMarkdownOptions parser{};
     parser.text_sizes = true;
-    parser.base_size = body;
+    parser.base_size = body_size;
     Slice<TextStyleSpan> parsed{block->spans.data + half, half};
     const auto result = message_markdown_parse(source, block->text, scratch, parsed, parser, {});
     if (!result.ok())
@@ -174,8 +172,7 @@ bool ui_markdown_parse(UiMarkdown* block, const Utf8View& source, const UiMarkdo
         u32 flags = span.flags;
         u8 size = span.size;
         // A `###` run: a 12 pt bold uppercase eyebrow without the heading ratio.
-        if (options.eyebrow_h3 && (flags & kEyebrowFlags) == kEyebrowFlags &&
-            !(flags & (text_style_heading_1 | text_style_heading_2))) {
+        if ((flags & kEyebrowFlags) == kEyebrowFlags && !(flags & (text_style_heading_1 | text_style_heading_2))) {
             ascii_upper(block->text.data + span.byte_offset, span.byte_count);
             flags &= ~text_style_heading_3;
             size = text_size_xs;
@@ -183,7 +180,7 @@ bool ui_markdown_parse(UiMarkdown* block, const Utf8View& source, const UiMarkdo
         span.flags = text_style_fold_size(flags, size);
         span.size = 0;
     }
-    block->body_size = body;
+    block->body_size = body_size;
     block->source_signature = signature;
     block->measured_width = -1;
     block->height = 0;
@@ -201,7 +198,7 @@ float ui_markdown_height(UiMarkdown* block, float width, const UiKitMeasure* mea
     const float bucket = static_cast<float>(static_cast<u32>(width < 1 ? 1.f : width));
     if (block->measured_width == bucket)
         return block->height;
-    const float line = ui_markdown_line_height(block->body_size);
+    const float line = line_height(block->body_size);
     float top = 0;
     for (u32 i = 0; i < block->part_count; ++i) {
         auto& part = block->parts[i];
@@ -242,7 +239,7 @@ UiTextCommand ui_markdown_command(UiMarkdown* block, u32 index, bool marker, con
         return command;
     const float indent = item ? item_indent(part.level) : 0.f, top = rectangle.top + part.top;
     const UiRect box = marker ? UiRect{rectangle.left + indent - kMarkerLeft, top, rectangle.left + indent - kMarkerRight,
-                                       top + ui_markdown_line_height(block->body_size)}
+                                       top + line_height(block->body_size)}
                               : UiRect{rectangle.left + indent, top, rectangle.right, top + part.height};
     if (!ui_rect_intersects(box, clip))
         return command;
@@ -252,7 +249,7 @@ UiTextCommand ui_markdown_command(UiMarkdown* block, u32 index, bool marker, con
     command.color = item && part.level ? muted : color;
     if (fade > 0) {
         // The part's last line sits in the fade band: the lower it is, the fainter (never fully gone).
-        const float middle = minimum(top + part.height, rectangle.bottom) - ui_markdown_line_height(block->body_size) * .5f,
+        const float middle = minimum(top + part.height, rectangle.bottom) - line_height(block->body_size) * .5f,
                     start = rectangle.bottom - fade;
         if (middle > start)
             command.color.alpha *= maximum(.2f, 1.f - (middle - start) / fade * .8f);

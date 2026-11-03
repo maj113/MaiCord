@@ -67,7 +67,6 @@ void set_layout_tokens(UiSettingsLayoutTokens& t, const UiThemeSettings& s, floa
     }
     m.modal_viewport_ratio /= 100;
     m.segment_size = 28;
-    m.segment_gap = 4;
     m.color_cell = 24;
     m.color_gap = 8;
     m.chip_height = 22;
@@ -164,12 +163,6 @@ void ui_settings_fill_tokens(const Theme& theme, UiSettingsTokens* output) noexc
     c.positive_tint = pick(s.positive_tint, ui_settings_color_alpha(tokens.accent.success, .16f));
     c.warning_tint = pick(s.warning_tint, ui_settings_color_alpha(tokens.accent.warning, .1f));
     c.warning = tokens.text.warning;
-    c.risk_low = tokens.accent.success;
-    c.risk_medium = tokens.accent.warning;
-    c.risk_high = tokens.accent.danger;
-    c.pill = tokens.overlay.scrim;
-    c.placeholder = tokens.fill.translucent;
-    c.on_pill = tokens.text.on_accent;
     c.emphasis_selected = tokens.emphasis.selected;
     c.emphasis_outline = tokens.emphasis.outline;
     c.link = tokens.text.link;

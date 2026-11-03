@@ -22,11 +22,9 @@ struct UiSettingsColors {
     // Cards: the plate, its edge, the hover plate of a row inside one, and the neutral hairline between
     // rows (the theme's border.subtle: palette-independent, unlike separator).
     Color card_fill, card_border, row_hover, hairline;
-    // Chip and notice tints, the warning ink, and the three risk dots.
-    Color positive_tint, warning_tint, warning, risk_low, risk_medium, risk_high;
-    // Pills over images, the plate behind an image before it decodes, and ink on a pill.
-    Color pill, placeholder, on_pill;
-    // The accent treatment's selection tint and outline (selected chips and tiles), and links.
+    // Chip and notice tints, and the warning ink.
+    Color positive_tint, warning_tint, warning;
+    // The accent treatment's selection tint and outline (selected tiles), and links.
     Color emphasis_selected, emphasis_outline, link;
 };
 
@@ -44,7 +42,7 @@ struct UiSettingsMetrics {
     float card_radius, card_inset, row_min_height, segment_padding, select_width, slider_width, value_width,
         status_icon, card_gap;
     // Administration rows: segmented options, colour grid, chips and row leads.
-    float segment_size, segment_gap, color_cell, color_gap, chip_height, chip_gap, chip_padding, avatar_size,
+    float segment_size, color_cell, color_gap, chip_height, chip_gap, chip_padding, avatar_size,
         grip_width, accent_dot, lead_gap;
     // List rows: the lead glyph, the count column and a trailing icon button;
     // the tri-state switch's segment width.

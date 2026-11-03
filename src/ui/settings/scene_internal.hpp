@@ -94,9 +94,11 @@ bool link(const UiSettingsPageContent& content, u32 index) noexcept;
 bool has_flag(const UiSettingsPageContent& content, u32 index, u8 flag) noexcept;
 bool accent(const UiSettingsPageContent& content, u32 index) noexcept;
 bool avatar_backed(const UiSettingsPageContent& content, u32 index) noexcept;
+UiRect avatar_rect(const UiSettingsMetrics& m, const UiSettingsPageContent& content, u32 index, const UiRect& lead) noexcept;
 const UiSettingsListItem* list_item(const UiSettingsPageContent& content, u32 index) noexcept;
 bool list_style(const UiSettingsPageContent& content, u32 index, UiSettingsListStyle style) noexcept;
 bool progress(const UiSettingsPageContent& content, u32 index) noexcept;
+bool progress_fill(const UiSettingsPageContent& content, u32 index) noexcept;
 float button_label_width(const UiKitMeasure* measure, const Utf8View& label) noexcept;
 // A status card's action leads with a 16 DIP refresh glyph unless it is running (spinner) or fills as a progress
 // button. With the glyph the pair is centred in the button; the label then starts after the glyph.
@@ -129,9 +131,9 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
 UiMarkdown* markdown_block(const UiSettingsPageContent& content, u32 index, const RowContext& context) noexcept;
 // The status button of a row's presentation: kinds and tones of its chips.
 u8 chip_tone(const UiSettingsPageContent& content, u32 index, u32 chip) noexcept;
-// Chips of a status row flowed left to right inside `width`; rows used, each chip's rectangle in `out`.
-u32 flow_chips(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, const UiKitMeasure* measure, float left,
-               float top, float width, UiRect* out, float* height) noexcept;
+// Chips of a status row flowed left to right inside `width`: each chip's rectangle in `out`, the flow's height.
+void flow_chips(const UiSettingsControl& c, const UiKitMeasure* measure, float left, float top, float width, UiRect* out,
+                float* height) noexcept;
 bool nav_row(const UiSettingsScene& scene, u32 index, NavRow* row) noexcept;
 float nav_extent(const UiSettingsScene& scene, const UiSettingsMetrics& m) noexcept;
 float dialog_footer_height(const UiSettingsMetrics& m) noexcept;

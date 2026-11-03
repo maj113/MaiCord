@@ -13,10 +13,9 @@
 // parser's bullet decoration.
 namespace maicord {
 
-inline constexpr u32 kUiMarkdownSourceMaximum = 8 * 1024, kUiMarkdownSpanMaximum = kTextStyleSpanMaximum,
-                     kUiMarkdownPartMaximum = 64;
+inline constexpr u32 kUiMarkdownSourceMaximum = 8 * 1024, kUiMarkdownPartMaximum = 64;
 // Span storage holds the parse output in its upper half and the per-part spans in its lower half.
-inline constexpr u32 kUiMarkdownSpanStorage = 2 * kUiMarkdownSpanMaximum;
+inline constexpr u32 kUiMarkdownSpanStorage = 2 * kTextStyleSpanMaximum;
 enum class UiMarkdownMarker : u8 { none, bullet, dash, number };
 struct UiMarkdownPart {
     // The text of the part (an item's text starts after its marker) and its spans, relative to it.
@@ -43,15 +42,11 @@ struct UiMarkdown {
     u8 body_size;
     bool parsed;
 };
-struct UiMarkdownOptions {
-    // `###` headings become a small bold uppercase eyebrow instead of an inline heading.
-    bool eyebrow_h3;
-    u8 body_size;
-};
-// Parses `source` (at most kUiMarkdownSourceMaximum bytes) into the block's storage. `scratch` holds one u32
-// per source byte for the parser's work and may be reused by the next call. An unchanged source (same
-// signature and options) keeps the previous parse. False on a parse error: the block is left unparsed.
-bool ui_markdown_parse(UiMarkdown*, const Utf8View& source, const UiMarkdownOptions&, Slice<u32> scratch) noexcept;
+// Parses `source` (at most kUiMarkdownSourceMaximum bytes) into the block's storage; `body_size` is the text size
+// code of the body. `###` headings become a small bold uppercase eyebrow instead of an inline heading. `scratch`
+// holds one u32 per source byte for the parser's work and may be reused by the next call. An unchanged source
+// (same signature and body size) keeps the previous parse. False on a parse error: the block is left unparsed.
+bool ui_markdown_parse(UiMarkdown*, const Utf8View& source, u8 body_size, Slice<u32> scratch) noexcept;
 // Wrapped height at `width`, cached with the parts' placement for the bucket (width rounded to whole DIPs).
 float ui_markdown_height(UiMarkdown*, float width, const UiKitMeasure*) noexcept;
 u32 ui_markdown_part_count(const UiMarkdown&) noexcept;
@@ -62,8 +57,6 @@ u32 ui_markdown_part_count(const UiMarkdown&) noexcept;
 UiTextCommand ui_markdown_command(UiMarkdown*, u32 index, bool marker, const UiKitMeasure*, UiWidgetReference owner,
                                   const UiRect& rectangle, const UiRect& clip, const Color& color, const Color& muted,
                                   float fade = 0) noexcept;
-// Body line height of a size code.
-float ui_markdown_line_height(u8 body_size) noexcept;
 
 // Retained blocks for a scene: the bank allocates itself (one arena, committed as blocks fill) on first use and is
 // released when the page hides. A scene keeps a `UiMarkdownBank*` that starts null.
