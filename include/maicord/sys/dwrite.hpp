@@ -776,7 +776,6 @@ struct __declspec(uuid("53585141-D9F8-4095-8321-D73CF6BD116C")) __declspec(novta
 struct __declspec(uuid("DA20D8EF-812A-4C43-9802-62EC4ABD7ADF")) __declspec(novtable) IDWriteFontFamily1 : IDWriteFontFamily {
     MAICORD_COM_UNUSED(GetFontLocality);
     virtual __declspec(nothrow) HRESULT __stdcall GetFont(UINT32 listIndex, IDWriteFont3** font) = 0;
-    MAICORD_COM_UNUSED(GetFontFaceReference);
 };
 struct __declspec(uuid("5E7FA7CA-DDE3-424C-89F0-9FCD6FED58CD")) __declspec(novtable) IDWriteFontFaceReference : IUnknown {
     virtual __declspec(nothrow) HRESULT __stdcall CreateFontFace(IDWriteFontFace3** fontFace) = 0;
@@ -784,15 +783,6 @@ struct __declspec(uuid("5E7FA7CA-DDE3-424C-89F0-9FCD6FED58CD")) __declspec(novta
     virtual __declspec(nothrow) BOOL __stdcall Equals(IDWriteFontFaceReference* fontFaceReference) = 0;
     MAICORD_COM_UNUSED(GetFontFaceIndex);
     virtual __declspec(nothrow) DWRITE_FONT_SIMULATIONS __stdcall GetSimulations() = 0;
-    MAICORD_COM_UNUSED(GetFontFile);
-    MAICORD_COM_UNUSED(GetLocalFileSize);
-    MAICORD_COM_UNUSED(GetFileSize);
-    MAICORD_COM_UNUSED(GetFileTime);
-    MAICORD_COM_UNUSED(GetLocality);
-    MAICORD_COM_UNUSED(EnqueueFontDownloadRequest);
-    MAICORD_COM_UNUSED(EnqueueCharacterDownloadRequest);
-    MAICORD_COM_UNUSED(EnqueueGlyphDownloadRequest);
-    MAICORD_COM_UNUSED(EnqueueFileFragmentDownloadRequest);
 };
 struct __declspec(uuid("29748ED6-8C9C-4A6A-BE0B-D912E8538944")) __declspec(novtable) IDWriteFont3 : IDWriteFont2 {
     virtual __declspec(nothrow) HRESULT __stdcall CreateFontFace(IDWriteFontFace3** fontFace) = 0;

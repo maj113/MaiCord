@@ -45,7 +45,6 @@ void release_objects(D3D11EffectOwner* owner) noexcept {
     release_target(owner);
     for (auto& timing : owner->timing)
         release_timing(timing);
-    owner->timing_frame = nullptr;
     for (auto*& view : owner->inputs)
         com_release(view);
     for (auto*& state : owner->blends)
@@ -473,7 +472,6 @@ bool d3d11_effect_begin_frame(D3D11EffectOwner* owner, ID3D11Device* device, ID3
     owner->active = owner->rendered = false;
     owner->drawn_count = owner->draws_last_frame = 0;
     owner->layer_opacity = 1;
-    owner->timing_frame = nullptr;
     owner->composite_bound = false;
     collect(owner, context);
     if (!owner->selected || !owner->shader || !content_width || !content_height)

@@ -69,6 +69,17 @@ __declspec(noinline) constexpr bool ascii_equal_ignore_case(const Utf8View& left
     return true;
 }
 
+// Orders by ASCII-lowercased bytes, then by length: -1, 0 or 1.
+__declspec(noinline) constexpr int ascii_compare_ignore_case(const Utf8View& left, const Utf8View& right) noexcept {
+    const u32 shared = minimum(left.bytes, right.bytes);
+    for (u32 index = 0; index < shared; ++index) {
+        const u8 a = ascii_lower(static_cast<u8>(left.data[index])), b = ascii_lower(static_cast<u8>(right.data[index]));
+        if (a != b)
+            return a < b ? -1 : 1;
+    }
+    return left.bytes == right.bytes ? 0 : left.bytes < right.bytes ? -1 : 1;
+}
+
 // True for an empty needle.
 constexpr bool ascii_contains_ignore_case(const Utf8View& text, const Utf8View& needle) noexcept {
     for (u32 at = 0; at + needle.bytes <= text.bytes; ++at)

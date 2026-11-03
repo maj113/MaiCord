@@ -785,13 +785,13 @@ bool queue_settings_profile_overlays(D3D11Renderer* renderer, const Theme& theme
             if (!store->dialog_open)
                 return true;
             paint_first = paint_stream_seal(&paint);
-            if (!ui_store_scene_paint(*store, theme, &paint, 2, renderer->dpi))
+            if (!ui_store_scene_paint(*store, theme, &paint, 2))
                 return false;
             foreground = paint_end = paint_stream_seal(&paint);
             return true;
         }
         paint_first = paint_stream_seal(&paint);
-        if (!ui_store_scene_paint(*store, theme, &paint, 0, renderer->dpi))
+        if (!ui_store_scene_paint(*store, theme, &paint, 0))
             return false;
         foreground = paint_stream_seal(&paint);
         media_first = renderer->media_batch_count;
@@ -809,7 +809,7 @@ bool queue_settings_profile_overlays(D3D11Renderer* renderer, const Theme& theme
         }
         media_end = renderer->media_batch_count;
         renderer->settings_preview_effect_media_first_batch = media_end;
-        if (!ui_store_scene_paint(*store, theme, &paint, 1, renderer->dpi))
+        if (!ui_store_scene_paint(*store, theme, &paint, 1))
             return false;
         paint_end = paint_stream_seal(&paint);
         renderer->settings_preview_controls_first_batch = paint_end;

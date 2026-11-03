@@ -35,20 +35,16 @@ struct UiaHostCallbacks {
     u32 (*text_bounds)(void* context, u64 key, u32 start, u32 end, UiRect* rectangles, u32 capacity) noexcept;
 };
 
+// The values are UI Automation's NotificationKind and NotificationProcessing.
 enum class UiaNotificationKind : u8 {
-    item_added,
-    item_removed,
-    action_completed,
-    action_aborted,
-    other,
+    item_added = 0,
+    other = 4,
 };
 
 enum class UiaNotificationProcessing : u8 {
-    important_all,
-    important_most_recent,
-    all,
-    most_recent,
-    current_then_most_recent,
+    important_all = 0,
+    all = 2,
+    most_recent = 3,
 };
 
 struct UiaRuntime;

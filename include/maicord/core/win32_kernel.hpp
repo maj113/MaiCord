@@ -91,7 +91,6 @@
 #define FILE_ATTRIBUTE_NORMAL 0x00000080
 #define FILE_ATTRIBUTE_TEMPORARY 0x00000100
 #define FILE_ATTRIBUTE_REPARSE_POINT 0x00000400
-#define IO_REPARSE_TAG_MOUNT_POINT (0xA0000003L)
 #define DUPLICATE_SAME_ACCESS 0x00000002
 #define FAST_FAIL_FATAL_APP_EXIT 7
 #define FAST_FAIL_INVALID_ARG 5
@@ -101,7 +100,6 @@
 #define RtlZeroMemory(Destination,Length) memset((Destination),0,(Length))
 #define RTL_SRWLOCK_INIT {0}
 #define DLL_PROCESS_ATTACH 1
-#define DLL_PROCESS_DETACH 0
 #define KEY_QUERY_VALUE (0x0001)
 #define KEY_SET_VALUE (0x0002)
 #define KEY_CREATE_SUB_KEY (0x0004)
@@ -125,7 +123,6 @@
 #define OPEN_EXISTING 3
 #define OPEN_ALWAYS 4
 #define INVALID_FILE_ATTRIBUTES ((DWORD)-1)
-#define DeleteFile DeleteFileW
 
 // <handleapi.h>
 #define INVALID_HANDLE_VALUE ((HANDLE)(LONG_PTR)-1)
@@ -155,7 +152,6 @@
 #define FILE_FLAG_OVERLAPPED 0x40000000
 #define FILE_FLAG_RANDOM_ACCESS 0x10000000
 #define FILE_FLAG_SEQUENTIAL_SCAN 0x08000000
-#define FILE_FLAG_DELETE_ON_CLOSE 0x04000000
 #define FILE_FLAG_BACKUP_SEMANTICS 0x02000000
 #define FILE_FLAG_OPEN_REPARSE_POINT 0x00200000
 #define GMEM_MOVEABLE 0x0002
@@ -198,7 +194,6 @@ struct _EXCEPTION_RECORD;
 struct _EXCEPTION_REGISTRATION_RECORD;
 struct _FILE_ATTRIBUTE_TAG_INFO;
 struct _FILE_BASIC_INFO;
-struct _FILE_RENAME_INFO;
 struct _FILE_STANDARD_INFO;
 struct _IMAGE_DATA_DIRECTORY;
 struct _IMAGE_DELAYLOAD_DESCRIPTOR;
@@ -216,7 +211,6 @@ struct _NT_TIB;
 struct _PROCESS_INFORMATION;
 struct _STARTUPINFOW;
 struct _SYSTEMTIME;
-struct _WIN32_FILE_ATTRIBUTE_DATA;
 struct _XSAVE_FORMAT;
 
 // <excpt.h>
@@ -279,7 +273,6 @@ struct _SECURITY_ATTRIBUTES {
     LPVOID lpSecurityDescriptor;
     BOOL bInheritHandle;
 };
-typedef _SECURITY_ATTRIBUTES SECURITY_ATTRIBUTES;
 typedef _SECURITY_ATTRIBUTES* LPSECURITY_ATTRIBUTES;
 struct _OVERLAPPED {
     ULONG_PTR Internal;
@@ -312,11 +305,9 @@ typedef _WIN32_FIND_DATAW* LPWIN32_FIND_DATAW;
 enum _FILE_INFO_BY_HANDLE_CLASS {
     FileBasicInfo,
     FileStandardInfo,
-    FileRenameInfo = 3,
-    FileDispositionInfo,
+    FileDispositionInfo = 4,
     FileAttributeTagInfo = 9,
     FileIdInfo = 18,
-    FileRenameInfoEx = 22,
 };
 typedef _FILE_INFO_BY_HANDLE_CLASS FILE_INFO_BY_HANDLE_CLASS;
 struct _PROCESS_HEAP_ENTRY {
@@ -476,9 +467,6 @@ extern "C" __declspec(dllimport) BOOL WINAPI GetQueuedCompletionStatus(HANDLE Co
     LPDWORD lpNumberOfBytesTransferred, PULONG_PTR lpCompletionKey, LPOVERLAPPED* lpOverlapped, DWORD dwMilliseconds);
 extern "C" __declspec(dllimport) BOOL WINAPI PostQueuedCompletionStatus(HANDLE CompletionPort,
     DWORD dwNumberOfBytesTransferred, ULONG_PTR dwCompletionKey, LPOVERLAPPED lpOverlapped);
-extern "C" __declspec(dllimport) BOOL WINAPI DeviceIoControl(HANDLE hDevice, DWORD dwIoControlCode, LPVOID lpInBuffer,
-    DWORD nInBufferSize, LPVOID lpOutBuffer, DWORD nOutBufferSize, LPDWORD lpBytesReturned,
-    LPOVERLAPPED lpOverlapped);
 extern "C" __declspec(dllimport) BOOL WINAPI CancelIoEx(HANDLE hFile, LPOVERLAPPED lpOverlapped);
 extern "C" __declspec(dllimport) BOOL WINAPI CancelSynchronousIo(HANDLE hThread);
 
@@ -537,7 +525,6 @@ extern "C" __declspec(dllimport) void WINAPI GetSystemInfo(LPSYSTEM_INFO lpSyste
 extern "C" __declspec(dllimport) void WINAPI GetSystemTimeAsFileTime(LPFILETIME lpSystemTimeAsFileTime);
 extern "C" __declspec(dllimport) DWORD WINAPI GetTickCount();
 extern "C" __declspec(dllimport) ULONGLONG WINAPI GetTickCount64();
-extern "C" __declspec(dllimport) UINT WINAPI GetSystemDirectoryW(LPWSTR lpBuffer, UINT uSize);
 extern "C" __declspec(dllimport) UINT WINAPI GetWindowsDirectoryW(LPWSTR lpBuffer, UINT uSize);
 extern "C" __declspec(dllimport) void WINAPI GetNativeSystemInfo(LPSYSTEM_INFO lpSystemInfo);
 extern "C" __declspec(dllimport) void WINAPI GetSystemTimePreciseAsFileTime(LPFILETIME lpSystemTimeAsFileTime);
@@ -603,7 +590,6 @@ extern "C" __declspec(dllimport) int WINAPI lstrcmpW(LPCWSTR lpString1, LPCWSTR 
 extern "C" __declspec(dllimport) int WINAPI lstrlenA(LPCSTR lpString);
 extern "C" __declspec(dllimport) BOOL WINAPI CopyFileW(LPCWSTR lpExistingFileName, LPCWSTR lpNewFileName,
     BOOL bFailIfExists);
-extern "C" __declspec(dllimport) BOOL WINAPI MoveFileW(LPCWSTR lpExistingFileName, LPCWSTR lpNewFileName);
 extern "C" __declspec(dllimport) BOOL WINAPI MoveFileExW(LPCWSTR lpExistingFileName, LPCWSTR lpNewFileName,
     DWORD dwFlags);
 extern "C" __declspec(dllimport) BOOL WINAPI CreateHardLinkW(LPCWSTR lpFileName, LPCWSTR lpExistingFileName,

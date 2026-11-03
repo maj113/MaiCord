@@ -53,7 +53,6 @@ struct D3D11EffectOwner {
     ID3D11RenderTargetView* target_view;
     ID3D11ShaderResourceView* target_srv;
     D3D11EffectTiming timing[kD3D11EffectTimingFrames];
-    D3D11EffectTiming* timing_frame;
     u32 timing_cursor;
     u32 target_width, target_height; // allocated
     u32 used_width, used_height;     // rendered (the viewport)

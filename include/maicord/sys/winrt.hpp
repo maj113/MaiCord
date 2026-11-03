@@ -44,23 +44,8 @@ MAICORD_SYS_TYPES_END
 
 // <roapi.h>
 extern "C" __declspec(dllimport) HRESULT WINAPI RoInitialize(RO_INIT_TYPE initType);
-extern "C" __declspec(dllimport) void WINAPI RoUninitialize();
 extern "C" __declspec(dllimport) HRESULT WINAPI RoGetActivationFactory(HSTRING activatableClassId, const IID& iid,
     void** factory);
 
 // <winstring.h>
 extern "C" HRESULT WINAPI WindowsDeleteString(HSTRING string);
-
-// Inline definitions; the SDK's own with MAICORD_SDK_INCLUDES.
-#if !defined(MAICORD_SDK_INCLUDES)
-__inline HRESULT Initialize(  RO_INIT_TYPE initType
-             = RO_INIT_SINGLETHREADED
-            )
-        {
-            return RoInitialize(initType);
-        }
-__inline void Uninitialize()
-        {
-            RoUninitialize();
-        }
-#endif

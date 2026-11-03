@@ -67,7 +67,6 @@
 #define VK_F9 0x78
 #define VK_F10 0x79
 #define VK_F12 0x7B
-#define VK_F13 0x7C
 #define VK_F24 0x87
 #define VK_NUMLOCK 0x90
 #define VK_SCROLL 0x91

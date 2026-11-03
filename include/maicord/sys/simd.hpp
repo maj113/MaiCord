@@ -152,15 +152,6 @@ MAICORD_SIMD_RUNTIME(128) void _mm_storeu_ps(float* __p, __m128 __a) {
     struct __storeu_ps { __m128_u __v; } __attribute__((__packed__, __may_alias__));
     ((struct __storeu_ps*)__p)->__v = __a;
 }
-MAICORD_SIMD_RUNTIME(128) void _mm_store_ss(float* __p, __m128 __a) {
-    struct __store_ss { float __u; } __attribute__((__packed__, __may_alias__));
-    ((struct __store_ss*)__p)->__u = __a[0];
-}
-MAICORD_SIMD_RUNTIME(128) void _mm_storel_pi(__m64* __p, __m128 __a) {
-    typedef float __v2sf __attribute__((__vector_size__(8)));
-    struct __storel_pi { __v2sf __u; } __attribute__((__packed__, __may_alias__));
-    ((struct __storel_pi*)__p)->__u = __builtin_shufflevector(__a, __a, 0, 1);
-}
 
 // Element access and conversion.
 MAICORD_SIMD(128) float _mm_cvtss_f32(__m128 __a) { return __a[0]; }
@@ -168,7 +159,6 @@ MAICORD_SIMD(128) double _mm_cvtsd_f64(__m128d __a) { return __a[0]; }
 MAICORD_SIMD(128) int _mm_cvtsi128_si32(__m128i __a) { return ((__v4si)__a)[0]; }
 MAICORD_SIMD(128) long long _mm_cvtsi128_si64(__m128i __a) { return __a[0]; }
 MAICORD_SIMD(128) int _mm_cvtss_si32(__m128 __a) { return __builtin_ia32_cvtss2si((__v4sf)__a); }
-MAICORD_SIMD(128) __m128i _mm_cvtps_epi32(__m128 __a) { return (__m128i)__builtin_ia32_cvtps2dq((__v4sf)__a); }
 MAICORD_SIMD(128) __m128 _mm_cvtepi32_ps(__m128i __a) { return (__m128)__builtin_convertvector((__v4si)__a, __v4sf); }
 MAICORD_SIMD(128) __m128 _mm_castsi128_ps(__m128i __a) { return (__m128)__a; }
 MAICORD_SIMD(128) __m128i _mm_castps_si128(__m128 __a) { return (__m128i)__a; }
