@@ -317,9 +317,8 @@ void execute(const StoreCommand& c) noexcept {
         open_folder_command();
         break;
     case StoreCommandKind::open_source: {
-        // Arg 3 ("View .hlsl" of a candidate): the package card's source is shown by the installer.
         const u32 at = open_item();
-        if (c.arg != 3 && at < m.count && m.items[at].source.bytes)
+        if (at < m.count && m.items[at].source.bytes)
             application_link_open(m.items[at].source, true);
         break;
     }

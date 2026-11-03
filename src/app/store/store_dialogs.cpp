@@ -254,8 +254,6 @@ void build_link(Ctx& c) noexcept {
     }
     if (l.has_effect)
         fact(c, "Effect", l.effect_installed ? join(c.b, l.effect_slug, utf8_literal(" (installed)")) : l.effect_slug);
-    if (l.kind == CatalogKind::effect)
-        fact(c, "Source", utf8_literal("View .hlsl"), store_action(StoreAct::dialog_source));
     if (l.replaces)
         fact(c, "Replaces", utf8_literal("the one you installed before"));
     c.b.close();

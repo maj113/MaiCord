@@ -60,7 +60,7 @@ struct PackageCard {
     char name[kClientThemeNameMaximumBytes + 1];
     u32 bytes;
     bool replaces; // an unreviewed item with this slug is already installed
-    // Effects: the package (credit, knobs, uses, SOURCE for "View .hlsl", PREVIEW png). Borrowed from the session.
+    // Effects: the package (credit, knobs, uses, PREVIEW png). Borrowed from the session.
     const McfxPackage* effect;
     // Themes.
     u32 swatches[4];       // 0xRRGGBB: background, surface, text, accent

@@ -345,8 +345,6 @@ StoreCommand store_page_act(const StoreModel& m, StorePageState* st, u32 action,
             return cmd(StoreCommandKind::link_cancel, 0, 1);
         }
         return cmd(StoreCommandKind::link_open_file);
-    case StoreAct::dialog_source:
-        return cmd(StoreCommandKind::open_source, 0, 3);
     case StoreAct::dialog_confirm:
         if (m.consent.open) {
             const bool enable = m.consent.update || st->dialog_check;

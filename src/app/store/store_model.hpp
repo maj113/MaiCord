@@ -197,7 +197,6 @@ enum class StoreAct : u8 {
     dialog_skip,
     dialog_open_file,
     dialog_close,
-    dialog_source,
     dev_load,
     dev_reload,
     updates_expand,
