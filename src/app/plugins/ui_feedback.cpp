@@ -114,8 +114,9 @@ mc_status banner_clear(PluginBinding& binding, u64 tag) noexcept {
 
 mc_status modal_open(PluginBinding& binding, const mc_modal& modal, u64 tag) noexcept {
     if (!gesture(binding)) return MC_E_GESTURE;
-    const u32 known = MC_MODAL_DANGER | MC_MODAL_ACCEPT_FOCUSED | MC_MODAL_MULTILINE;
+    const u32 known = MC_MODAL_DANGER | MC_MODAL_ACCEPT_FOCUSED | MC_MODAL_MULTILINE | MC_MODAL_READ_ONLY | MC_MODAL_INFO;
     const bool input = modal.has_input == 1, select = modal.select_label.bytes != 0;
+    const bool read_only = (modal.flags & MC_MODAL_READ_ONLY) != 0, info = (modal.flags & MC_MODAL_INFO) != 0;
     if ((modal.flags & ~known) || modal.has_input > 1 || modal.toggle_initial > 1 ||
         !text_ok(modal.title, 1, kModalTitleBytes) || !body_ok(modal.body, kModalBodyBytes) ||
         !text_ok(modal.accept, 0, kModalButtonBytes) || !text_ok(modal.cancel, 0, kModalButtonBytes) ||
@@ -127,6 +128,11 @@ mc_status modal_open(PluginBinding& binding, const mc_modal& modal, u64 tag) noe
     if ((input && modal.toggle_label.bytes) || (!input && (select || modal.input_label.bytes || modal.input_initial.bytes ||
                                                            modal.input_hint.bytes || modal.input_max_chars)) ||
         (modal.flags & MC_MODAL_MULTILINE && !input))
+        return MC_E_INVALID;
+    // Read-only text is a form's text shown, not edited; an information dialog has its accept button only and
+    // nothing to answer.
+    if ((read_only && (!input || !modal.input_initial.bytes || modal.input_hint.bytes || modal.input_max_chars || select)) ||
+        (info && (modal.cancel.bytes || modal.toggle_label.bytes || (modal.flags & MC_MODAL_DANGER) || (input && !read_only))))
         return MC_E_INVALID;
     if (select) {
         if (!modal.select_items || !modal.select_count || modal.select_count > MC_MODAL_SELECT_MAX ||
@@ -143,10 +149,12 @@ mc_status modal_open(PluginBinding& binding, const mc_modal& modal, u64 tag) noe
     Modal& m = g_modal;
     m = {};
     PluginModalRequest& request = m.request;
-    request.kind = input ? (select ? PluginModalKind::input_select : PluginModalKind::input)
-                         : (modal.toggle_label.bytes ? PluginModalKind::toggle : PluginModalKind::confirm);
+    request.kind = read_only ? PluginModalKind::text
+                   : input   ? (select ? PluginModalKind::input_select : PluginModalKind::input)
+                             : (modal.toggle_label.bytes ? PluginModalKind::toggle : PluginModalKind::confirm);
     request.danger = (modal.flags & MC_MODAL_DANGER) != 0;
     request.multiline = (modal.flags & MC_MODAL_MULTILINE) != 0;
+    request.single = info;
     request.owner_id = binding.owner_id;
     request.title = keep(m.title, modal.title);
     request.context = keep(m.body, modal.body);

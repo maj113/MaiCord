@@ -116,7 +116,7 @@ bool project(ApplicationTextForm* form) noexcept {
     if (request.confirmation_only) {
         TextFormContent content{request.title,
                                 request.context,
-                                {},
+                                request.label,
                                 form->status,
                                 cancel,
                                 form->progress_accept.bytes ? form->progress_accept : request.accept,
@@ -134,6 +134,8 @@ bool project(ApplicationTextForm* form) noexcept {
                                 request.danger};
         content.option = request.option;
         content.option_checked = form->option_checked;
+        content.detail = request.detail;
+        content.single_action = request.single_action;
         return text_form_update(&form->scene, content, application_viewport_dips(), form->measure);
     }
     // Only ordinary fields may lend their stable model bytes to presentation.
@@ -429,7 +431,9 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
         (!request.select_options.data && request.select_options.count) ||
         request.choice_editor > request.choices.count ||
         (request.select_options.count && request.select_selected >= request.select_options.count) ||
-        ((request.check || request.swatch) && request.confirmation_only) || (request.swatch && !request.check))
+        ((request.check || request.swatch) && request.confirmation_only) || (request.swatch && !request.check) ||
+        ((request.detail.bytes || request.single_action) && !request.confirmation_only) ||
+        request.detail.bytes > kApplicationTextFormDetailBytes || !utf8_validate(request.detail).valid)
         return false;
     const Utf8View labels[] = {request.title,  request.context, request.label,       request.accept,
                                request.cancel, request.option,  request.placeholder, request.rejected};
@@ -501,6 +505,8 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
         form->options[i] = copy_label(request.select_options[i]);
     form->request.choices = {form->choices, request.choices.count};
     form->request.select_options = {form->options, request.select_options.count};
+    copy_bytes(form->detail, request.detail.data, request.detail.bytes);
+    form->request.detail = {form->detail, request.detail.bytes};
     form->choice_selected = ~0u;
     form->select_selected = request.select_selected;
     bool initialized = true;

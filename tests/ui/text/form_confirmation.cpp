@@ -21,9 +21,10 @@ void test_text_form_confirmation(void (*check)(bool,const char*) noexcept) noexc
     content.status=utf8_literal("This action needs your confirmation.");content.cancel=utf8_literal("Cancel");content.accept=utf8_literal("Remove");
     content.can_accept=true;content.focus_visible=true;content.confirmation_only=true;
     const UiRect viewport{0,0,320,400};
-    check(text_form_update(&scene,content,viewport,&cache)&&scene.active&&scene.widgets.count==kTextFormElements-3-kTextFormChoiceElements&&!text_form_node(scene,TextFormElement::option)&&
+    check(text_form_update(&scene,content,viewport,&cache)&&scene.active&&scene.widgets.count==kTextFormElements-4-kTextFormChoiceElements&&!text_form_node(scene,TextFormElement::option)&&
         !text_form_node(scene,TextFormElement::edit)&&!text_form_node(scene,TextFormElement::label)&&
-        text_form_focused(scene)==TextFormElement::cancel,"confirmation_has_no_edit_or_label_and_initial_cancel_focus");
+        !text_form_node(scene,TextFormElement::detail)&&text_form_focused(scene)==TextFormElement::cancel,
+        "confirmation_has_no_edit_or_label_and_initial_cancel_focus");
     if(!scene.active){text_form_release(&scene);return;}
     UiLayoutDiagnostic diagnostics[32]{};
     check(ui_layout_engine_validate(scene.widgets.layout,{diagnostics,32}).clean()&&
@@ -73,7 +74,7 @@ void test_text_form_confirmation(void (*check)(bool,const char*) noexcept) noexc
     // The "Leaving Discord" option row: a checkbox square left of a wrapped
     // label, focusable before the buttons, and painted checked on demand.
     TextFormContent option=content;option.option=utf8_literal("Trust example.com links from now on");
-    check(text_form_update(&scene,option,viewport,&cache)&&scene.widgets.count==kTextFormElements-2-kTextFormChoiceElements&&
+    check(text_form_update(&scene,option,viewport,&cache)&&scene.widgets.count==kTextFormElements-3-kTextFormChoiceElements&&
         text_form_node(scene,TextFormElement::option)&&text_form_focused(scene)==TextFormElement::cancel,
         "confirmation_option_row_builds_and_keeps_cancel_focus");
     const auto* row=text_form_node(scene,TextFormElement::option);const UiRect box=text_form_option_box(scene);
@@ -101,7 +102,47 @@ void test_text_form_confirmation(void (*check)(bool,const char*) noexcept) noexc
         paint_stream_release(&option_paint);}
     check(painted[1]==painted[0]+2,"confirmation_checked_option_adds_the_check_mark");
     check(text_form_update(&scene,content,viewport,&cache)&&!text_form_node(scene,TextFormElement::option)&&
-        scene.widgets.count==kTextFormElements-3-kTextFormChoiceElements,"confirmation_option_row_is_removed_with_its_label");
+        scene.widgets.count==kTextFormElements-4-kTextFormChoiceElements,"confirmation_option_row_is_removed_with_its_label");
+    // An information dialog: read-only text under its label and one button. The text is static: no editor,
+    // caret, field border or background, it never takes focus, and Close is the only tab stop.
+    TextFormContent info{};info.title=utf8_literal("Permissions");info.context=utf8_literal("Someone in Somewhere");
+    info.label=utf8_literal("Granted");info.detail=utf8_literal("Administrator: every permission, in every channel");
+    info.accept=utf8_literal("Close");info.can_accept=true;info.caret_visible=true;info.focus_visible=true;
+    info.confirmation_only=true;info.single_action=true;
+    check(text_form_update(&scene,info,viewport,&cache)&&scene.widgets.count==kTextFormElements-3-kTextFormChoiceElements&&
+        text_form_node(scene,TextFormElement::label)&&text_form_node(scene,TextFormElement::detail)&&
+        !text_form_node(scene,TextFormElement::edit)&&!text_form_node(scene,TextFormElement::cancel)&&
+        text_form_node(scene,TextFormElement::accept)&&text_form_focused(scene)==TextFormElement::accept,
+        "info_dialog_has_read_only_text_and_one_focused_button");
+    const auto detail=scene.elements[static_cast<u32>(TextFormElement::detail)];
+    const auto* detail_widget=ui_widget_manager_resolve(scene.widgets,detail);
+    const auto* detail_node=text_form_node(scene,TextFormElement::detail);
+    check(detail_widget&&detail_node&&detail_widget->kind==UiWidgetKind::text&&
+        !ui_widget_manager_input_enabled(scene.widgets,detail)&&!text_form_focus(&scene,TextFormElement::detail)&&
+        !text_form_focus(&scene,TextFormElement::edit)&&!text_form_focus(&scene,TextFormElement::cancel)&&
+        text_form_focused(scene)==TextFormElement::accept&&text_form_move_focus(&scene,false)&&
+        text_form_focused(scene)==TextFormElement::accept&&text_form_move_focus(&scene,true)&&
+        text_form_focused(scene)==TextFormElement::accept,
+        "info_dialog_text_never_takes_focus_and_close_is_the_only_tab_stop");
+    u32 info_painted[2]{};bool detail_drawn=false;
+    for(u32 bare=0;bare<2;++bare){TextFormContent shown=info;if(bare){shown.label={};shown.detail={};}
+        PaintStream info_paint{};UiTextCommand info_commands[16]{};UiTextCommandStream info_text{};
+        UiTextOutput info_output{&info_text,nullptr};
+        check(text_form_update(&scene,shown,viewport,&cache)&&paint_stream_reset(&info_paint,viewport.right,viewport.bottom)&&
+            text_form_paint(scene,{},kDefaultTheme,&info_paint)&&info_paint.rejected==0&&
+            ui_text_command_stream_initialize(&info_text,{info_commands,16})&&
+            text_form_text_output(scene,{},kDefaultTheme,&info_output),"info_dialog_paints_and_projects_text");
+        info_painted[bare]=info_paint.count;
+        for(u32 i=0;!bare&&detail_node&&i<info_text.count;++i)detail_drawn=detail_drawn||
+            (info_commands[i].text.bytes==info.detail.bytes&&bytes_equal(info_commands[i].text.data,info.detail.data,info.detail.bytes)&&
+             info_commands[i].rectangle.left==detail_node->content_rectangle.left);
+        paint_stream_release(&info_paint);}
+    check(detail_drawn,"info_dialog_read_only_text_renders_as_text");
+    check(info_painted[0]==info_painted[1],"info_dialog_read_only_text_adds_no_field_border_background_or_caret");
+    TextFormContent editor_detail=info;editor_detail.confirmation_only=false;editor_detail.single_action=false;
+    editor_detail.cancel=utf8_literal("Cancel");TextFormContent no_cancel=info;no_cancel.single_action=false;
+    check(!text_form_update(&scene,editor_detail,viewport,&cache)&&!text_form_update(&scene,no_cancel,viewport,&cache),
+        "read_only_text_needs_a_confirmation_and_two_buttons_need_a_cancel_label");
     text_form_release(&scene);check(!scene.storage.arena.base&&!scene.active,"confirmation_release_frees_native_scene");
 }
 }

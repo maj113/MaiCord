@@ -26,10 +26,11 @@
  *
  * VERSIONING
  *   The host supports exactly one ABI. Within ABI 6 the mc_api table and
- *   the structs the host writes only grow by appending; each addition bumps
- *   MC_API_LEVEL. A plugin declares the api_level it needs and a host with a
- *   lower level refuses to load it, so a plugin may use every field and
- *   function of its level. MC_API_HAS tests for newer optional entries. The
+ *   the structs the host writes only grow by appending; each addition (an
+ *   entry, or a flag an older host refuses) bumps MC_API_LEVEL. A plugin
+ *   declares the api_level it needs and a host with a lower level refuses to
+ *   load it, so a plugin may use every field, flag and function of its level.
+ *   MC_API_HAS tests for newer optional entries. The
  *   descriptor and the structs it points to are frozen; new capabilities
  *   append descriptor fields, read up to descriptor.size.
  *
@@ -53,7 +54,7 @@ extern "C" {
 #endif
 
 #define MC_ABI 6u
-#define MC_API_LEVEL 2u /* highest mc_api level this header describes */
+#define MC_API_LEVEL 3u /* highest mc_api level this header describes */
 #define MC_CALL __stdcall
 #define MC_EXPORT __declspec(dllexport)
 #define MC_DESCRIPTOR_SYMBOL maicord_plugin_v6
@@ -543,7 +544,10 @@ typedef struct mc_card_button {
     uint32_t reserved;
 } mc_card_button;
 
-/* A rich block: message accessories and local messages. */
+/* A block below a message (local messages included), drawn as an embed: tone is
+   the accent bar, title the embed title, text its description, caption its
+   footer, and the buttons link-style actions after the footer text. The
+   thumbnail is not shown. */
 typedef struct mc_card {
     mc_str title;     /* at most MC_CARD_TITLE_MAX; a card needs a title or text */
     mc_str text;      /* plain text with line feeds, at most MC_CARD_TEXT_MAX */
@@ -552,7 +556,7 @@ typedef struct mc_card {
     mc_str thumbnail; /* optional https image on Discord's CDN or a declared, approved network host */
     mc_card_button buttons[MC_CARD_BUTTONS];
     uint32_t button_count;
-    uint32_t tone; /* accent bar */
+    uint32_t tone; /* accent bar; 0 = the theme's embed accent */
 } mc_card;
 
 enum { MC_VIS_NORMAL = 0, MC_VIS_COLLAPSED = 1, MC_VIS_HIDDEN = 2 };
@@ -830,10 +834,18 @@ typedef struct mc_banner {
 enum { MC_BANNER_ACTION = 1, MC_BANNER_DISMISSED = 2 };
 
 /* A host dialog: a confirmation, optionally with one toggle, or a form with
-   one text input, optionally with one dropdown. */
+   one text input, optionally with one dropdown. Level 3 adds read-only text
+   and information dialogs with a single button. */
 #define MC_MODAL_DANGER 1u         /* the accept button is destructive */
 #define MC_MODAL_ACCEPT_FOCUSED 2u /* accept has the initial focus */
 #define MC_MODAL_MULTILINE 4u      /* the input takes several lines */
+/* Level 3. With has_input: input_initial (1..2000 bytes) is shown as read-only text under
+   input_label, wrapping, with no field, caret or editing; MULTILINE is implied. No hint,
+   input_max_chars or dropdown; the completion carries no text. */
+#define MC_MODAL_READ_ONLY 8u
+/* Level 3. An information dialog: one button, accept (empty = "Close"); cancel stays
+   empty and there is no toggle. Escape or a click outside closes it too (not accepted). */
+#define MC_MODAL_INFO 16u
 #define MC_MODAL_SELECT_MAX 16u
 
 typedef struct mc_modal {
@@ -841,7 +853,7 @@ typedef struct mc_modal {
     uint32_t has_input; /* 1: a form with a text input */
     mc_str title;       /* 1..64 bytes */
     mc_str body;        /* 0..512 bytes */
-    mc_str accept;      /* 0..32 bytes; empty = "OK" */
+    mc_str accept;      /* 0..32 bytes; empty = "OK" ("Close" with MC_MODAL_INFO) */
     mc_str cancel;      /* 0..32 bytes; empty = "Cancel" */
     mc_str input_label;
     mc_str input_initial;
@@ -1039,7 +1051,8 @@ typedef struct mc_descriptor {
 #define MC_STORE_KEYS_MAX 256u
 #define MC_STORE_TOTAL_MAX (1u << 20) /* bytes of keys and values */
 
-/* Immutable; append-only within ABI 6. Level 1 is everything up to keep_restore; level 2 follows. */
+/* Immutable; append-only within ABI 6. Level 1 is everything up to keep_restore; level 2 follows.
+   Level 3 adds no entries: modal() accepts MC_MODAL_READ_ONLY and MC_MODAL_INFO. */
 struct mc_api {
     uint32_t size; /* bytes of this table the host provides */
     uint32_t level;
@@ -1097,7 +1110,8 @@ struct mc_api {
     /* MC_E_NOT_FOUND unless tag is the current banner's. */
     mc_status(MC_CALL* banner_clear)(mc_ctx* ctx, uint64_t tag);
     /* Gesture; MC_E_BUSY while any modal is open. The result arrives as
-       MC_COMPLETION_MODAL, with a gesture when accepted. */
+       MC_COMPLETION_MODAL, with a gesture when accepted. MC_E_INVALID for flags
+       or combinations the host's level doesn't offer. */
     mc_status(MC_CALL* modal)(mc_ctx* ctx, const mc_modal* modal, uint64_t tag);
     /* Gesture; http or https, at most MC_HTTP_URL_MAX; the host confirms external links. */
     mc_status(MC_CALL* open_url)(mc_ctx* ctx, mc_str url);

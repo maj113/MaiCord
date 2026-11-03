@@ -39,6 +39,8 @@ Utf8View label(const TextFormContent& content, TextFormElement element) noexcept
         return content.context;
     case TextFormElement::label:
         return content.label;
+    case TextFormElement::detail:
+        return content.detail;
     case TextFormElement::status:
         return content.status;
     case TextFormElement::option:
@@ -72,9 +74,13 @@ bool present(const TextFormContent& content, TextFormElement element) noexcept {
         return content.select_expanded && at < content.select_options.count;
     switch (element) {
     case TextFormElement::label:
-        return !content.confirmation_only && content.label.bytes;
+        return content.label.bytes && (!content.confirmation_only || content.detail.bytes);
+    case TextFormElement::detail:
+        return content.confirmation_only && content.detail.bytes;
     case TextFormElement::edit:
         return !content.confirmation_only;
+    case TextFormElement::cancel:
+        return !content.single_action;
     case TextFormElement::option:
         return content.option.bytes != 0;
     case TextFormElement::choices_label:
@@ -169,7 +175,7 @@ bool build(TextFormScene* scene) noexcept {
     if (!ui_widget_manager_set_measure_callback(&scene->widgets, measure_label, scene))
         return false;
     static constexpr char names[] =
-        "TextForm\0Panel\0Title\0Context\0Choices\0Choice1\0Choice2\0Choice3\0Choice4\0Label\0Edit\0SelectLabel\0"
+        "TextForm\0Panel\0Title\0Context\0Choices\0Choice1\0Choice2\0Choice3\0Choice4\0Label\0Detail\0Edit\0SelectLabel\0"
         "Select\0Option1\0Option2\0Option3\0Option4\0Option5\0Option6\0Option7\0Option8\0Status\0Option\0Actions\0"
         "Cancel\0Accept\0";
     static_assert(name_list_count(names) == kTextFormElements);
@@ -329,7 +335,8 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, cons
                       UiTextMeasureCache* measure) noexcept {
     if (!measure || !measure->backend || !ui_rect_valid(viewport) ||
         ui_rect_width(viewport) < 96 || ui_rect_height(viewport) < 64 || !content.title.bytes ||
-        (!content.confirmation_only && !content.label.bytes && !content.choices.count) || !content.cancel.bytes ||
+        (!content.confirmation_only && !content.label.bytes && !content.choices.count) ||
+        (!content.single_action && !content.cancel.bytes) || (content.detail.bytes && !content.confirmation_only) ||
         !content.accept.bytes || content.choices.count > kTextFormChoices ||
         (!content.choices.data && content.choices.count) || content.select_options.count > kTextFormSelectOptions ||
         (!content.select_options.data && content.select_options.count) ||
@@ -348,7 +355,7 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, cons
     signature = hash64_mix(signature, content.swatch);
     for (u32 i = 0; i < kTextFormElements; ++i) {
         if (i == index(TextFormElement::edit) ||
-            (content.confirmation_only && i == index(TextFormElement::label)))
+            (i == index(TextFormElement::label) && !present(content, TextFormElement::label)))
             continue;
         const auto text = label(content, static_cast<TextFormElement>(i));
         if (!utf8_validate(text).valid)
@@ -409,10 +416,9 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, cons
         ui_widget_manager_resolve(&scene->widgets, scene->elements[index(TextFormElement::accept)]);
     accept->flags =
         content.can_accept ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable : ui_widget_none;
-    auto* cancel =
-        ui_widget_manager_resolve(&scene->widgets, scene->elements[index(TextFormElement::cancel)]);
-    cancel->flags =
-        content.can_cancel ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable : ui_widget_none;
+    if (auto* cancel = ui_widget_manager_resolve(&scene->widgets, scene->elements[index(TextFormElement::cancel)]))
+        cancel->flags =
+            content.can_cancel ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable : ui_widget_none;
     const bool collapsed = editor_collapsed(content);
     if (!content.confirmation_only) {
         auto* edit =
@@ -457,6 +463,8 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, cons
         UiTextMeasureValue labels[2]{};
         float button_height = metrics.control_height + 4;
         for (u32 i = 0; i < 2; ++i) {
+            if (!(scene->built & (1u << index(buttons[i]))))
+                continue;
             if (!measure_text(scene, buttons[i], {kMaximumUiCoordinate, kMaximumUiCoordinate}, &labels[i]))
                 return false;
             button_height = maximum(button_height, labels[i].size.height + 16);
@@ -464,6 +472,8 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, cons
         for (u32 i = 0; i < 2; ++i) {
             const auto element = buttons[i];
             auto* button = ui_widget_manager_layout_node(&scene->widgets, scene->elements[index(element)]);
+            if (!button)
+                continue;
             button->spec.style.minimum_size.width =
                 minimum(maximum(80.0f, labels[i].size.width + 32), button_width);
             button->spec.style.maximum_size.width = button_width;
@@ -485,7 +495,7 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, cons
             return text_form_focus(scene, TextFormElement::edit);
         if (content.choices.count && content.editable)
             return text_form_focus(scene, TextFormElement::choice_0);
-        if (content.can_cancel)
+        if (content.can_cancel && !content.single_action)
             return text_form_focus(scene, TextFormElement::cancel);
         if (content.can_accept)
             return text_form_focus(scene, TextFormElement::accept);

@@ -24,6 +24,7 @@ typedef struct state_block {
     uint64_t completion_tag;
     char completion_text[64];
     int32_t toast_status, toast_flags_status;
+    int32_t info_status, info_bad_cancel, info_bad_edit, info_bad_danger, read_only_bad_hint, read_only_bad_confirm;
 } state_block;
 
 static void copy_str(char* out, uint32_t capacity, uint32_t* bytes, mc_str text) {
@@ -255,8 +256,10 @@ static mc_status MC_CALL run_form(mc_ctx* ctx, mc_command_call* call) {
     finish(call, MC_REPLY_NONE, 0, 0);
     return MC_OK;
 }
-/* bad_modal: a toggle together with an input is not offered. */
-static mc_status MC_CALL run_bad_modal(mc_ctx* ctx, mc_command_call* call) {
+/* info: refuses the combinations not offered (a toggle with an input, an information dialog with Cancel, a
+   destructive button or an editable input, read-only text with a hint or without a form), then shows an
+   information dialog with read-only text. */
+static mc_status MC_CALL run_info(mc_ctx* ctx, mc_command_call* call) {
     state_block* s = (state_block*)ctx->state;
     mc_modal modal = {0};
     begin(ctx, call);
@@ -264,6 +267,32 @@ static mc_status MC_CALL run_bad_modal(mc_ctx* ctx, mc_command_call* call) {
     modal.has_input = 1;
     modal.toggle_label = (mc_str)MC_S("Nope");
     s->bad_status = ctx->api->modal(ctx, &modal, 701);
+    modal.has_input = 0;
+    modal.toggle_label = (mc_str){0};
+    modal.title = (mc_str)MC_S("Permissions");
+    modal.flags = MC_MODAL_INFO;
+    modal.cancel = (mc_str)MC_S("Cancel");
+    s->info_bad_cancel = ctx->api->modal(ctx, &modal, 801);
+    modal.cancel = (mc_str){0};
+    modal.flags = MC_MODAL_INFO | MC_MODAL_DANGER;
+    s->info_bad_danger = ctx->api->modal(ctx, &modal, 801);
+    modal.flags = MC_MODAL_INFO;
+    modal.has_input = 1;
+    modal.input_initial = (mc_str)MC_S("typed");
+    s->info_bad_edit = ctx->api->modal(ctx, &modal, 801);
+    modal.flags = MC_MODAL_READ_ONLY;
+    modal.input_hint = (mc_str)MC_S("a hint");
+    s->read_only_bad_hint = ctx->api->modal(ctx, &modal, 801);
+    modal.input_hint = (mc_str){0};
+    modal.has_input = 0; /* read-only text needs a form: nothing else is wrong here */
+    modal.input_initial = (mc_str){0};
+    s->read_only_bad_confirm = ctx->api->modal(ctx, &modal, 801);
+    modal.flags = MC_MODAL_INFO | MC_MODAL_READ_ONLY | MC_MODAL_MULTILINE;
+    modal.has_input = 1;
+    modal.body = (mc_str)MC_S("Someone in Somewhere");
+    modal.input_label = (mc_str)MC_S("Granted");
+    modal.input_initial = (mc_str)MC_S("Text: Send Messages\nVoice: Connect");
+    s->info_status = ctx->api->modal(ctx, &modal, 801);
     finish(call, MC_REPLY_NONE, 0, 0);
     return MC_OK;
 }
@@ -333,7 +362,7 @@ static const mc_command_def commands[] = {
     {MC_S("banner-clear"), MC_S("Removes the banner"), 0, 0, 0, run_banner_clear},
     {MC_S("confirm"), MC_S("Asks to confirm"), 0, 0, 0, run_confirm},
     {MC_S("form"), MC_S("Asks for a name"), 0, 0, 0, run_form},
-    {MC_S("bad-modal"), MC_S("Asks for too much"), 0, 0, 0, run_bad_modal},
+    {MC_S("info"), MC_S("Refuses bad modals, then shows read-only text"), 0, 0, 0, run_info},
     {MC_S("link"), MC_S("Opens a link"), text_args, 1, 0, run_link},
     {MC_S("copy"), MC_S("Copies text"), text_args, 1, 0, run_copy},
     {MC_S("goto"), MC_S("Opens a channel and a profile"), goto_args, 2, 0, run_goto},
@@ -374,7 +403,7 @@ static const mc_hook hooks[] = {
 MC_EXPORT const mc_descriptor MC_DESCRIPTOR_SYMBOL = {
     .size = sizeof(mc_descriptor),
     .abi = MC_ABI,
-    .api_level = 1,
+    .api_level = MC_API_LEVEL,
     .owner_id = OWNER,
     .name = MC_S("UI fixture"),
     .version = MC_S("1.0.0"),

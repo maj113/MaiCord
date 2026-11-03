@@ -21,6 +21,9 @@ enum class TextFormElement : u8 {
     choice_2,
     choice_3,
     label,
+    // Confirmations: read-only text under the label. Static wrapping text,
+    // never focused or edited; it scrolls with the panel.
+    detail,
     edit,
     // An optional dropdown below the editor; its options list while open.
     select_label,
@@ -86,6 +89,11 @@ struct TextFormContent {
     bool error = false;
     bool swatch = false;
     u32 swatch_rgba = 0;
+    // Confirmations: read-only text shown under `label` (see detail above).
+    Utf8View detail;
+    // One footer button: Accept is the only action and Cancel is absent
+    // (`cancel` may be empty); can_cancel still lets Escape dismiss.
+    bool single_action = false;
 };
 
 struct UiResolvedThemeStyles;

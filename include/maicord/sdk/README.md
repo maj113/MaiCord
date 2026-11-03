@@ -360,6 +360,24 @@ pull hook. The host reads a decoration after the hook returns, so
 `Decoration` copies the text you give it: building it from a local `Text<N>`
 is fine (a C plugin must keep such text in static or state memory).
 
+A card renders as an embed below the message, the same as the embeds
+messages carry: an accent bar down its whole left edge (`tone`, else the
+theme's embed accent), the embed surface and corners, and the embed's spacing,
+narrowing to its widest line up to the embed width. Its fields map onto the
+embed's parts:
+
+| `mc_card` | Embed part |
+|---|---|
+| `title` | the title; a link to `link` when set |
+| `text` | the description, as plain text (no Markdown) |
+| `caption` | the footer |
+| `buttons` | link-style actions after the footer text, `Caption • Hide • Copy`, in the link colour, or the button's `tone` when set. Embeds have no buttons; the footer's actions are the closest part |
+| `thumbnail` | not shown |
+
+Hiding a card (a decoration without it, from `invalidate_message` or
+`push_message`) gives its space back: the message row returns to its height
+without the card.
+
 ```cpp
 static void on_node(Ctx& ctx, const NodeAction& action) {
     if (action.tag) ctx.invalidate_message(action.tag);   // the tag was the message id above
@@ -436,9 +454,9 @@ buttons, `button` (`ButtonEvent`).
 | `settings()`, `set_setting(id, value)`, `state<T>()` | |
 | `http.get<F>(url, tag, headers)`, `http.post<F>(url, body, tag, headers)` | F: `void (Ctx&, const HttpResult&, u64 tag)`; 30 per minute, 4 in flight, 1 MiB answers |
 | `banner<F>(Banner)`, `banner(Banner)`, `clear_banner()` | F: `void (Ctx&, const BannerResult&, u64)` |
-| `modal<F>(Modal, tag)` | a confirmation or a small form; F: `void (Ctx&, const ModalResult&, u64)`. For long read-only text use a form with `MC_MODAL_MULTILINE` and `input_initial` (up to 2,000 bytes): the box scrolls and can be selected |
+| `modal<F>(Modal, tag)`, `modal(Modal)` | a confirmation, a small form, or (level 3) an information dialog; F: `void (Ctx&, const ModalResult&, u64)`, and `modal(Modal)` needs no handler. Text to read is never an editable field: `MC_MODAL_READ_ONLY` with `has_input` shows `input_initial` (up to 2,000 bytes) under `input_label` as plain wrapping text, and `MC_MODAL_INFO` leaves one button, `accept` (empty: "Close") |
 | `open_url(url)`, `copy(text)`, `open_channel(id)`, `open_profile(user, guild)` | gestures |
-| `local_message(text, channel)`, `remove_local_message(channel, id)` | only you see it |
+| `local_message(text, channel)`, `remove_local_message(channel, id)` | only you see it. It shows as an ephemeral message: your text as Markdown, then the footer with an eye, "Only you can see this • Dismiss message"; Dismiss removes it as `remove_local_message` does. The footer already says it isn't sent, so no card needs to |
 | `composer.text/insert/replace/focus/reply/clear_reply/edit` | `composer` permission |
 | `send`, `edit_message`, `react`, `delete_message`, `mark_read`, `set_activity` | gestures, or `automated_actions`; `set_activity(nullptr)` is never limited, and the host clears your activity when the plugin stops |
 | `timer(id, ms, repeat)`, `cancel_timer(id)` | 16 timers, at least 100 ms |
@@ -460,6 +478,17 @@ MC_BUTTON(read_it, surface::header, "Mark read", "lucide/check") {
     m.title = Str("Mark this channel read?");
     m.accept = Str("Mark read");
     ctx.modal<confirmed>(m, button.channel());
+}
+
+// An information dialog (level 3): read-only text and one Close button.
+MC_MENU(about, menu::guild, "About this server") {
+    Modal m{};
+    m.flags = MC_MODAL_INFO | MC_MODAL_READ_ONLY;
+    m.has_input = 1;
+    m.title = Str("About");
+    m.input_label = Str("Channels");
+    m.input_initial = Str("general\nannouncements\nvoice");
+    ctx.modal(m);
 }
 
 // A banner with a button; opened is void (Ctx&, const BannerResult&, u64 tag).
@@ -569,8 +598,17 @@ uses `http`, `modal` or `banner` needs its own `MC_HOOK_COMPLETION` hook.
 ## Versioning
 
 The host supports exactly one ABI. Within ABI 6, `mc_api` and the structs the
-host writes only grow by appending; each release that adds entries bumps
-`MC_API_LEVEL`. A plugin's `api_level` is the level it needs; an older host
+host writes only grow by appending; each release that adds entries, or flags
+an older host would refuse, bumps `MC_API_LEVEL`. A plugin's `api_level` is the level it needs; an older host
 refuses it. `MC_API_HAS(ctx, field)` tests for newer optional entries. The
 catalog hides builds whose level is above the user's MaiCord, and when the ABI
 changes its CI rebuilds every listed plugin.
+
+| Level | Hosts | Adds |
+|---|---|---|
+| 1 | 0.6.0 and later | everything up to `keep_restore` |
+| 2 | 0.6.0 and later | the clock and UTC offset, voice channels, shared group DMs, the open channel and its loaded messages, server counts |
+| 3 | after 0.6.1 | `MC_MODAL_READ_ONLY` and `MC_MODAL_INFO`; no new entries, and an older host refuses the flags |
+
+A plugin that needs nothing newer sets `.api_level` to the lowest level that
+has what it uses, so it stays installable on older MaiCord.

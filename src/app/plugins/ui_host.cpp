@@ -63,7 +63,8 @@ bool open_modal(const PluginModalRequest& modal) noexcept {
     ApplicationTextFormRequest request{};
     request.title = modal.title;
     request.context = modal.context;
-    request.accept = modal.accept;
+    request.accept = modal.accept.bytes ? modal.accept : modal.single ? utf8_literal("Close") : utf8_literal("OK");
+    request.single_action = modal.single;
     request.cancel = modal.cancel;
     request.danger = modal.danger;
     request.owner = {g_app.plugin_account_scope_serial, modal.owner_id, g_serial};
@@ -73,6 +74,14 @@ bool open_modal(const PluginModalRequest& modal) noexcept {
     case PluginModalKind::confirm:
         request.confirmation_only = true;
         request.accept_focused = true;
+        request.save = save_text;
+        break;
+    case PluginModalKind::text:
+        // Read-only text: a confirmation that shows it, with no editor, caret or text store.
+        request.confirmation_only = true;
+        request.accept_focused = true;
+        request.label = modal.input_label;
+        request.detail = modal.input_initial;
         request.save = save_text;
         break;
     case PluginModalKind::toggle:

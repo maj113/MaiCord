@@ -46,6 +46,7 @@ struct FixtureState {
     u64 completion_tag;
     char completion_text[64];
     i32 toast_status, toast_flags_status;
+    i32 info_status, info_bad_cancel, info_bad_edit, info_bad_danger, read_only_bad_hint, read_only_bad_confirm;
 };
 
 Utf8View view(const char* text) noexcept {
@@ -471,8 +472,26 @@ void test_modals(PluginBinding* binding) noexcept {
     plugin_modal_resolve(true, view("again"), false, 9);
     check(state.completion_select == 0, "a dropdown index outside the items falls back to the first");
 
-    run_json("bad-modal", "[]");
-    check(state.bad_status == MC_E_INVALID && !plugin_modal_current(), "a toggle together with an input is refused");
+    run_json("info", "[]");
+    check(state.bad_status == MC_E_INVALID, "a toggle together with an input is refused");
+    check(state.info_bad_cancel == MC_E_INVALID && state.info_bad_danger == MC_E_INVALID &&
+              state.info_bad_edit == MC_E_INVALID && state.read_only_bad_hint == MC_E_INVALID &&
+              state.read_only_bad_confirm == MC_E_INVALID,
+          "an information dialog refuses a Cancel label, a destructive button and an editable input; read-only "
+          "text refuses a hint and needs a form");
+    check(state.info_status == MC_OK && plugin_modal_current() && host_state.modal.kind == PluginModalKind::text &&
+              host_state.modal.single && !host_state.modal.danger && same(view(host_state.title), "Permissions") &&
+              same(view(host_state.context), "Someone in Somewhere") && same(view(host_state.input_label), "Granted") &&
+              same(view(host_state.input_initial), "Text: Send Messages\nVoice: Connect") && host_state.accept[0] == 0 &&
+              host_state.cancel[0] == 0 && host_state.hint[0] == 0,
+          "an information dialog with read-only text reaches the application as one-button text, not an input");
+    check(plugin_modal_resolve(true, view("typed"), true, 2) && state.completion_tag == 801 &&
+              state.completion_result == 1 && state.completion_text_bytes == 0 && state.completion_toggle == 0 &&
+              state.completion_select == 0,
+          "closing an information dialog reports no text, toggle or choice");
+    run_json("info", "[]");
+    check(plugin_modal_resolve(false, {}, false, 0) && state.completion_result == 0 && !plugin_modal_current(),
+          "dismissing an information dialog reports it was not accepted");
 
     host_state.accept_modal = false;
     run_json("confirm", "[]");

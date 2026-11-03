@@ -123,12 +123,14 @@ enum class PluginModalKind : u8 {
     toggle,       // a confirmation with one checkbox row
     input,        // a text field
     input_select, // a text field and a dropdown
+    text,         // read-only text: input_initial under input_label, nothing typed
 };
 inline constexpr u32 kPluginModalSelectItems = 16;
 // A copy of what the plugin asked for; views stay valid until the modal is resolved.
 struct PluginModalRequest {
     PluginModalKind kind;
     bool danger, multiline;
+    bool single; // one button, accept: an information dialog
     u64 owner_id;
     Utf8View title, context, accept, cancel;
     Utf8View input_label, input_initial, input_hint;

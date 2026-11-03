@@ -6,6 +6,7 @@
 
 namespace maicord::app_detail {
 inline constexpr u32 kApplicationTextFormBytes = 4096;
+inline constexpr u32 kApplicationTextFormDetailBytes = 2048;
 struct ApplicationTextForm {
     TextFormScene scene;
     TextFormSurface surface;
@@ -44,5 +45,6 @@ struct ApplicationTextForm {
     u8 accepted_bytes;
     char accepted[64];
     char labels[2048];
+    char detail[kApplicationTextFormDetailBytes];
 };
 } // namespace maicord::app_detail

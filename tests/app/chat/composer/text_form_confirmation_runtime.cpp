@@ -456,6 +456,57 @@ void run() noexcept {
           "confirmation: deliberate Retry accepts empty semantic callback and closes without editor "
           "resources");
     tail(VK_RETURN);
+    // An information dialog: read-only text under its label and Accept alone. The text gets no editor,
+    // caret, native text store or focus; Escape dismisses it without accepting.
+    auto info = request();
+    info.label = utf8_literal("Granted");
+    info.detail = utf8_literal("Administrator: every permission, in every channel");
+    info.accept = utf8_literal("Close");
+    info.single_action = true;
+    const u32 info_saves = seen.saves, info_editor = seen.editor_calls, info_store = seen.store_calls,
+              info_measurements = seen.measurements;
+    const auto untouched = [&]() noexcept {
+        return seen.editor_calls == info_editor && seen.store_calls == info_store &&
+               seen.measurements == info_measurements;
+    };
+    auto editor_info = info;
+    editor_info.confirmation_only = false;
+    check(!application_text_form_open(editor_info) && !g_app.text_form && untouched(),
+          "info dialog: read-only text and a single button belong to confirmations only");
+    check(application_text_form_open(info) && g_app.text_form &&
+              text_form_node(g_app.text_form->scene, TextFormElement::label) &&
+              text_form_node(g_app.text_form->scene, TextFormElement::detail) &&
+              !text_form_node(g_app.text_form->scene, TextFormElement::edit) &&
+              !text_form_node(g_app.text_form->scene, TextFormElement::cancel) &&
+              text_form_focused(g_app.text_form->scene) == TextFormElement::accept &&
+              utf8_equal(g_app.text_form->scene.content.detail, info.detail) &&
+              g_app.text_form->scene.content.detail.data == g_app.text_form->detail &&
+              !g_app.text_form->edit.storage.data && !g_app.text_form->store.implementation &&
+              !g_app.text_form->caret_visible && !application_text_form_next_wake() && untouched(),
+          "info dialog: read-only text opens with one focused Close and no editor, caret, text store or wake");
+    if (g_app.text_form) {
+        const auto* detail = text_form_node(g_app.text_form->scene, TextFormElement::detail);
+        LRESULT result = 0;
+        const LPARAM point =
+            detail ? MAKELPARAM(static_cast<short>((detail->rectangle.left + detail->rectangle.right) * .5f),
+                                static_cast<short>((detail->rectangle.top + detail->rectangle.bottom) * .5f))
+                   : 0;
+        check(detail && application_text_form_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point, &result) &&
+                  application_text_form_window_message(WM_LBUTTONUP, 0, point, &result) && g_app.text_form &&
+                  application_text_form_input(UiInputKind::character, 'x', false) &&
+                  application_text_form_input(UiInputKind::key_down, VK_TAB, false) && g_app.text_form &&
+                  text_form_focused(g_app.text_form->scene) == TextFormElement::accept &&
+                  !g_app.text_form->caret_visible && seen.saves == info_saves && untouched(),
+              "info dialog: clicking or typing on the read-only text edits nothing and Tab stays on Close");
+    }
+    check(application_text_form_input(UiInputKind::key_down, VK_ESCAPE, false) && !g_app.text_form &&
+              seen.saves == info_saves,
+          "info dialog: Escape dismisses it without accepting");
+    tail(VK_ESCAPE);
+    check(application_text_form_open(info) && application_text_form_input(UiInputKind::key_down, VK_RETURN, false) &&
+              !g_app.text_form && seen.saves == info_saves + 1 && untouched(),
+          "info dialog: Enter presses its only button");
+    tail(VK_RETURN);
     check(application_text_form_open(request()), "confirmation: pointer-button fixture reopens");
     if (g_app.text_form) {
         const auto* node = text_form_node(g_app.text_form->scene, TextFormElement::accept);
@@ -466,13 +517,13 @@ void run() noexcept {
                  : 0;
         check(node && application_text_form_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point, &result) &&
                   application_text_form_window_message(WM_LBUTTONUP, 0, point, &result) &&
-                  !g_app.text_form && seen.saves == 3,
+                  !g_app.text_form && seen.saves == 4,
               "confirmation: owned retained Accept button activates through actual mouse down/up "
               "controller path");
     }
     check(application_text_form_open(request()), "confirmation: owner-invalidation fixture reopens");
     seen.owner_valid = false;
-    check(application_text_form_synchronize() && !g_app.text_form && seen.saves == 3,
+    check(application_text_form_synchronize() && !g_app.text_form && seen.saves == 4,
           "confirmation: stale semantic owner dismisses without invoking acceptance");
     seen.owner_valid = true;
     seen.fail_build = true;

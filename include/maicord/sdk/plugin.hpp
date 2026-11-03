@@ -1174,6 +1174,10 @@ class Ctx {
         mc_ctx* ctx = raw_;
         return detail::start_pending<ModalResult, F>(tag, [&](u64 key) { return ctx->api->modal(ctx, &m, key); });
     }
+    // In a gesture: a modal whose answer needs no handler, such as an information dialog (MC_MODAL_INFO).
+    mc_status modal(const Modal& m) const {
+        return raw_->api->modal(raw_, &m, 0);
+    }
     mc_status open_url(Str url) const {
         return raw_->api->open_url(raw_, url);
     }

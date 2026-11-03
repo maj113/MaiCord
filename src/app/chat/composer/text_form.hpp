@@ -79,6 +79,12 @@ struct ApplicationTextFormRequest {
     TextFormCheck check;
     Utf8View rejected;
     bool swatch;
+    // Confirmations only: read-only text under `label` (static and wrapping,
+    // never editable or focused), up to kApplicationTextFormDetailBytes.
+    Utf8View detail;
+    // Confirmations only: Accept is the only button; Escape and a click
+    // outside still dismiss the form.
+    bool single_action;
 };
 // Check for colour editors: #RGB or #RRGGBB, with or without the '#'.
 inline bool application_text_form_color_check(TextFormOwnerKey, Utf8View text, u32* swatch_rgba) noexcept {
