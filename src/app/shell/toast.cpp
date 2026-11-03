@@ -21,9 +21,6 @@ ToastHost g_host{};
 bool animate() noexcept {
     return !g_app.renderer.live_resize && g_app.window && application_window_shown();
 }
-bool reduced_motion() noexcept {
-    return g_app.preferences.reduced_motion || g_app.renderer.reduced_motion;
-}
 bool bind(UiRect viewport) noexcept {
     if (!g_host.ready) {
         if (g_host.failed)
@@ -62,7 +59,7 @@ void application_toast_synchronize(u64 now_ms) noexcept {
     const u32 revision = toasts.revision;
     const UiToastEnvironment environment{&application_theme(),
                                          g_app.account_ui ? &g_app.account_ui->text_measure_cache : nullptr,
-                                         viewport, animate(), reduced_motion()};
+                                         viewport, animate(), application_reduced_motion()};
     const bool changed = ui_toast_update(&toasts, now_ms, environment);
     g_app.renderer.toast_scene = &toasts;
     renderer_set_toast_opacity(&g_app.renderer, toasts.progress);
