@@ -705,9 +705,17 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
             message_composer_scene_attachment_view(*renderer->message_composer_scene, true), theme,
             &renderer->paint_stream))
         return layout_step_failed(__LINE__);
-    if (messages_visible && d3d11_renderer_video_scene_visible(*renderer) &&
-        !renderer->video_scene_search_result &&
+    // Inline controls of a timeline message paint with its media overlays, so
+    // the timeline overlays that follow (unread banner, call view, panels,
+    // popups) cover them as they cover the message text.
+    if (messages_visible && d3d11_renderer_timeline_video_visible(*renderer) &&
         !ui_video_scene_paint(*renderer->video_scene, theme, &renderer->paint_stream))
+        return layout_step_failed(__LINE__);
+    if (messages_visible && d3d11_renderer_timeline_audio_visible(*renderer) &&
+        !ui_audio_scene_paint(*renderer->audio_scene, theme, &renderer->paint_stream))
+        return layout_step_failed(__LINE__);
+    if (messages_visible && d3d11_renderer_timeline_poll_visible(*renderer) &&
+        !ui_poll_scene_paint(*renderer->poll_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
     // Link chip server icons are the timeline's last media range: they draw
     // after the message text, above a hovered chip's accent pill.
@@ -815,6 +823,7 @@ bool build_settings_page(D3D11Renderer* renderer, const Theme& theme) noexcept {
     renderer->menu_paint_first_batch = 0;
     renderer->menu_media_first_batch = 0;
     renderer->overlay_paint_first_batch = 0;
+    renderer->unread_banner_paint_end_batch = 0;
     renderer->edit_overlay_paint_first_batch = 0;
     renderer->form_paint_first_batch = 0;
     UiSettingsPaintRanges ranges{};

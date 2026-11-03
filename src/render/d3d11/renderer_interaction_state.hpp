@@ -444,6 +444,21 @@ inline u64 d3d11_renderer_poll_voters_text_revision(const D3D11Renderer& rendere
                ? ui_poll_voters_scene_text_revision(*renderer.poll_voters_scene)
                : 0;
 }
+// Inline controls of a timeline message are message content: their paint
+// joins the timeline media overlays and their text leads the overlay text, so
+// the unread banner, call view, panels and popups drawn later cover them like
+// message text. Search, pins and forward copies stay with their own surface.
+inline bool d3d11_renderer_timeline_video_visible(const D3D11Renderer& renderer) noexcept {
+    return d3d11_renderer_video_scene_visible(renderer) && !renderer.video_scene_search_result;
+}
+inline bool d3d11_renderer_timeline_audio_visible(const D3D11Renderer& renderer) noexcept {
+    return d3d11_renderer_audio_scene_visible(renderer) &&
+           renderer.audio_scene->surface == UiAudioSourceSurface::timeline;
+}
+inline bool d3d11_renderer_timeline_poll_visible(const D3D11Renderer& renderer) noexcept {
+    return d3d11_renderer_poll_scene_visible(renderer) &&
+           renderer.poll_scene->surface == UiPollSourceSurface::timeline;
+}
 __declspec(noinline) inline u32 d3d11_renderer_interaction_text_active_mask(const D3D11Renderer& renderer) noexcept {
     if (renderer_settings_page_visible(renderer))
         return (d3d11_renderer_forum_form_active(renderer) ? d3d11_interaction_text_forum_form : 0) |

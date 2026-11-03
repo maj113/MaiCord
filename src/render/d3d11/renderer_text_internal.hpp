@@ -43,6 +43,9 @@ struct TextOverlayBoundaries {
         theme_editor_end, profile_start, profile_end;
     u32 audio_start{}, audio_end{};
     u32 poll_start{}, poll_end{};
+    // Ends of the timeline-owned interaction text that leads the stream and
+    // of the unread banner's labels that follow it.
+    u32 timeline_end{}, banner_end{};
     // Profile editor overlays on a settings page (~0u: none this frame).
     u32 settings_preview_start{~0u}, settings_preview_end{~0u}, settings_dialog_start{~0u}, settings_dialog_end{~0u};
     // The toast's text closes the stream (~0u: none this frame).
@@ -50,7 +53,7 @@ struct TextOverlayBoundaries {
     u32 search_rich_start{}, search_rich_end{};
 };
 constexpr u32 kComparedOverlayBoundaryBytes = offsetof(TextOverlayBoundaries, search_rich_start);
-static_assert(kComparedOverlayBoundaryBytes == 23 * sizeof(u32) &&
+static_assert(kComparedOverlayBoundaryBytes == 25 * sizeof(u32) &&
               sizeof(TextOverlayBoundaries) == kComparedOverlayBoundaryBytes + 2 * sizeof(u32));
 
 // Where a boundary publishes: the renderer's text batch at that ordinal. The
@@ -60,6 +63,8 @@ struct OverlayBatchBoundary {
     u32 boundary, batch;
 };
 inline constexpr OverlayBatchBoundary kOverlayBatchBoundaries[]{
+    {offsetof(TextOverlayBoundaries, timeline_end), offsetof(D3D11Renderer, timeline_text_end_batch)},
+    {offsetof(TextOverlayBoundaries, banner_end), offsetof(D3D11Renderer, unread_banner_text_end_batch)},
     {offsetof(TextOverlayBoundaries, friends_end), offsetof(D3D11Renderer, friends_requests_text_end_batch)},
     {offsetof(TextOverlayBoundaries, media_picker_start), offsetof(D3D11Renderer, media_picker_text_first_batch)},
     {offsetof(TextOverlayBoundaries, media_picker_end), offsetof(D3D11Renderer, media_picker_text_end_batch)},

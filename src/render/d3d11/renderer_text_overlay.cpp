@@ -369,17 +369,41 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
             return false;
         return project_toast_text(renderer, theme, &output, boundaries);
     }
+    // Timeline inline controls lead the stream and end at timeline_end: they
+    // draw with the message text, under every overlay that follows.
+    const bool timeline_audio = d3d11_renderer_timeline_audio_visible(*renderer);
+    const bool timeline_poll = d3d11_renderer_timeline_poll_visible(*renderer);
+    if (d3d11_renderer_timeline_video_visible(*renderer) &&
+        (!renderer->message_scene ||
+         !ui_video_scene_text_output(*renderer->video_scene, theme, &output,
+                                     {&renderer->message_scene->widgets, renderer->message_scene->root})))
+        return false;
+    if (timeline_audio) {
+        boundaries->audio_start = emitter->count;
+        if (!ui_audio_scene_text_output(*renderer->audio_scene, &output))
+            return false;
+        boundaries->audio_end = emitter->count;
+    }
+    if (timeline_poll) {
+        boundaries->poll_start = emitter->count;
+        if (!ui_poll_scene_text_output(*renderer->poll_scene, &output))
+            return false;
+        boundaries->poll_end = emitter->count;
+    }
+    boundaries->timeline_end = emitter->count;
+    // The unread banner (never beside a call) ends at banner_end, before any
+    // panel that may draw over the timeline.
+    if (d3d11_renderer_unread_banner_visible(*renderer) &&
+        !ui_unread_banner_text_output(*renderer->unread_banner_scene, theme, &output))
+        return false;
+    boundaries->banner_end = emitter->count;
     // The call view leads the side-panel text range, above the base content.
     if (d3d11_renderer_call_visible(*renderer) &&
         !ui_call_scene_text_output(*renderer->call_scene, theme, &output))
         return false;
-    if (d3d11_renderer_unread_banner_visible(*renderer) &&
-        !ui_unread_banner_text_output(*renderer->unread_banner_scene, theme, &output))
-        return false;
-    if (d3d11_renderer_video_scene_visible(*renderer)) {
-        const auto* video_owner = renderer->video_scene_search_result && renderer->search_scene
-                                      ? ui_search_scene_message_scene(*renderer->search_scene)
-                                      : renderer->message_scene;
+    if (d3d11_renderer_video_scene_visible(*renderer) && renderer->video_scene_search_result) {
+        const auto* video_owner = renderer->search_scene ? ui_search_scene_message_scene(*renderer->search_scene)
+                                                         : nullptr;
         if (!video_owner || !ui_video_scene_text_output(*renderer->video_scene, theme, &output,
                                                         {&video_owner->widgets, video_owner->root}))
             return false;
@@ -433,19 +457,24 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
                                                   &renderer->media_picker_edit_geometry, &popup_edit))
             return false;
     }
-    boundaries->audio_start = emitter->count;
-    if (d3d11_renderer_audio_scene_visible(*renderer) &&
-        !ui_audio_scene_text_output(*renderer->audio_scene, &output))
-        return false;
-    boundaries->audio_end = emitter->count;
-    boundaries->poll_start = emitter->count;
-    if (d3d11_renderer_poll_scene_visible(*renderer) &&
-        !ui_poll_scene_text_output(*renderer->poll_scene, &output))
-        return false;
+    if (!timeline_audio) {
+        boundaries->audio_start = emitter->count;
+        if (d3d11_renderer_audio_scene_visible(*renderer) &&
+            !ui_audio_scene_text_output(*renderer->audio_scene, &output))
+            return false;
+        boundaries->audio_end = emitter->count;
+    }
+    if (!timeline_poll) {
+        boundaries->poll_start = emitter->count;
+        if (d3d11_renderer_poll_scene_visible(*renderer) &&
+            !ui_poll_scene_text_output(*renderer->poll_scene, &output))
+            return false;
+    }
     if (d3d11_renderer_poll_voters_visible(*renderer) &&
         !ui_poll_voters_scene_text_output(*renderer->poll_voters_scene, &output))
         return false;
-    boundaries->poll_end = emitter->count;
+    if (!timeline_poll)
+        boundaries->poll_end = emitter->count;
     if (d3d11_renderer_inbox_visible(*renderer) &&
         !ui_inbox_scene_text_output(*renderer->inbox_scene, theme, &output))
         return false;

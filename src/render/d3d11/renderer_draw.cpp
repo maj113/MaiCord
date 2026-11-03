@@ -1162,10 +1162,21 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     const u32 chip_media_first = minimum(renderer->chip_media_first_batch, requests_media_first);
     const u32 chip_media_end =
         maximum(chip_media_first, minimum(renderer->chip_media_end_batch, requests_media_first));
+    // Timeline inline controls (video, audio, poll) are message content: their
+    // glyphs follow the message text, before any timeline overlay paints.
+    const u32 timeline_text_end =
+        maximum(base_text_end, minimum(renderer->timeline_text_end_batch, visible_text_end));
     const u32 requests_text_end =
         friends_requests_active
-            ? maximum(base_text_end, minimum(renderer->friends_requests_text_end_batch, visible_text_end))
-            : base_text_end;
+            ? maximum(timeline_text_end, minimum(renderer->friends_requests_text_end_batch, visible_text_end))
+            : timeline_text_end;
+    // The unread banner's paint and labels close the timeline overlays before
+    // the panels drawn over the timeline (pinned messages, search, requests).
+    // Without such a panel the banner already draws last of this range.
+    const u32 banner_paint_end =
+        maximum(base_paint_end, minimum(renderer->unread_banner_paint_end_batch, requests_foreground));
+    const u32 banner_text_end =
+        maximum(timeline_text_end, minimum(renderer->unread_banner_text_end_batch, requests_text_end));
     const u32 edit_overlay =
         renderer->login_visible || !renderer->content_text
             ? base_paint_end
@@ -1466,13 +1477,16 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     } else if (!paint(0, media_overlay_begin) || !media(0, chip_media_first, upload_media) ||
                !media(chip_media_end, requests_media_first, false) ||
                !paint(media_overlay_begin, edit_overlay) || !inline_media(RendererInlineMediaLayer::base) ||
-               !text(0, base_text_end, true) || !media(chip_media_first, chip_media_end, false) ||
+               !text(0, base_text_end, true) || !text(base_text_end, timeline_text_end, base_text_end == 0) ||
+               !media(chip_media_first, chip_media_end, false) ||
                !paint(edit_overlay, base_paint_end) ||
-               !paint(base_paint_end, requests_foreground) ||
+               !paint(base_paint_end, banner_paint_end) ||
+               !text(timeline_text_end, banner_text_end, timeline_text_end == 0) ||
+               !paint(banner_paint_end, requests_foreground) ||
                !media(requests_media_first, requests_media_end, false) ||
                !paint(requests_foreground, requests_paint_end) ||
                !inline_media(RendererInlineMediaLayer::search) ||
-               !text(base_text_end, requests_text_end, base_text_end == 0) ||
+               !text(banner_text_end, requests_text_end, banner_text_end == 0) ||
                !paint(requests_paint_end, gallery_paint_first) ||
                !media(requests_media_end, gallery_media_first, false) ||
                !text(requests_text_end, gallery_text_first, requests_text_end == 0) ||

@@ -529,6 +529,14 @@ struct D3D11Renderer {
     u32 overlay_paint_first_batch;
     u32 edit_overlay_paint_first_batch;
     u32 overlay_text_first_batch;
+    // Timeline-owned interaction text (inline video, audio and poll controls)
+    // leads the overlay text and ends here: it draws with the message text,
+    // under the timeline overlays (unread banner, call view, panels, popups).
+    u32 timeline_text_end_batch;
+    // The unread banner closes the timeline overlays: its paint and glyphs end
+    // here, so panels drawn over the timeline (pinned messages, search, friend
+    // requests) cover its labels as well as its card.
+    u32 unread_banner_paint_end_batch, unread_banner_text_end_batch;
     u32 friends_requests_foreground_first_batch, friends_requests_paint_end_batch;
     u32 friends_requests_media_first_batch, friends_requests_media_end_batch;
     // Link chip server icons: the timeline's last media batches, drawn after
@@ -671,7 +679,7 @@ struct D3D11Renderer {
     u64 adapter_key;
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
-static_assert(sizeof(D3D11Renderer) == 121504);
+static_assert(sizeof(D3D11Renderer) == 121512);
 
 // Starts hardware device and draw-pipeline creation on a worker at process
 // entry; the next renderer_initialize adopts them. Main thread only.

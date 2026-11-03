@@ -941,7 +941,8 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
     renderer->form_text_first_batch = ~0u;
     renderer->menu_text_first_batch = ~0u;
     renderer->toast_text_first_batch = ~0u;
-    renderer->friends_requests_text_end_batch = storage->batch_count;
+    renderer->timeline_text_end_batch = renderer->unread_banner_text_end_batch =
+        renderer->friends_requests_text_end_batch = storage->batch_count;
     renderer->media_picker_text_first_batch = renderer->media_picker_text_end_batch = storage->batch_count;
     reset_motion_text_ranges(renderer, storage->batch_count);
     raster.overlay = true;

@@ -6,6 +6,9 @@
 #include "maicord/media/core/presentation_policy.hpp"
 #include "maicord/ui/chat/messages/text_presentation.hpp"
 #include "../../src/render/d3d11/renderer_interaction_state.hpp"
+#include "../../src/render/d3d11/renderer_draw.hpp"
+#include "probe_capture.hpp"
+#include "maicord/ui/chat/unread_banner_scene.hpp"
 #include "maicord/media/core/asset.hpp"
 
 namespace maicord {
@@ -353,6 +356,125 @@ bool prefix_cursors_equal(const RendererTextPrefix& a, const RendererTextPrefix&
            a.batches == b.batches && a.semantics == b.semantics && a.hits == b.hits &&
            a.effects == b.effects && a.animated == b.animated;
 }
+// The owner-reported leak: an unavailable video's "Playback unavailable" label
+// scrolled under the older-messages bar drew over the bar. Timeline inline
+// controls belong to the message layer, so the bar covers them exactly as it
+// covers message text: the bar's interior is unchanged by the video beneath.
+bool status_under_older_messages_bar(D3D11Renderer& renderer, UiVideoPlaybackState state,
+                                     bool (*capture)(const wchar_t*) noexcept) noexcept {
+    const auto& messages = *renderer.message_scene;
+    const UiRect viewport = messages.viewport;
+    UiUnreadBannerScene banner{};
+    UiVideoScene scene{};
+    struct Restore {
+        D3D11Renderer& renderer;
+        const UiVideoScene* video;
+        const UiUnreadBannerScene* banner;
+        ~Restore() noexcept {
+            renderer.video_scene = video;
+            renderer.unread_banner_scene = banner;
+        }
+    } restore{renderer, renderer.video_scene, renderer.unread_banner_scene};
+    u32 stage = 1;
+    const auto fail = [&stage]() noexcept {
+        log_u64(LogLevel::error, "probe", "video_status_under_bar_failure_stage", stage);
+        return false;
+    };
+    // Only the jump pill: "You're viewing older messages" and "Jump to present".
+    ui_unread_banner_update(&banner, {1, 0, 0, false, false, true}, {}, viewport, {&messages.widgets, messages.root},
+                            1000, false);
+    const UiRect pill = banner.pill;
+    if (!ui_unread_banner_visible(banner) || !ui_rect_has_area(pill))
+        return fail();
+    state.error = true;
+    state.playing = state.buffering = false;
+    ++state.revision;
+    UiVideoSceneStyle style{};
+    style.fade_ms = 0;
+    const auto& status = scene.projection.controls[5];
+    const auto project = [&](float top) noexcept {
+        if (!ui_video_scene_project(&scene, state, {pill.left, top, pill.right, top + 180}, viewport, {}, style,
+                                    kDefaultTheme))
+            return false;
+        ui_video_scene_tick(&scene, 0, true);
+        return true;
+    };
+    // Move the player so its status label sits on the pill's centre line.
+    stage = 2;
+    const float probe_top = viewport.top + 160;
+    if (!project(probe_top))
+        return fail();
+    const float label_offset = (status.bounds.top + status.bounds.bottom) * .5f - probe_top;
+    stage = 3;
+    if (!project((pill.top + pill.bottom) * .5f - label_offset))
+        return fail();
+    stage = 30;
+    if (status.hidden || ui_video_scene_label(scene, UiVideoControl::status).bytes == 0)
+        return fail();
+    stage = 31;
+    if (scene.controls_transition.value != 1 || !ui_rect_has_area(ui_rect_intersection(status.bounds, pill)))
+        return fail();
+    renderer.unread_banner_scene = &banner;
+    renderer.video_scene = &scene;
+    stage = 4;
+    if (!renderer_rebuild_content_text(&renderer, kDefaultTheme) || !probe_present(&renderer, kDefaultTheme) ||
+        !d3d11_renderer_unread_banner_visible(renderer) || !d3d11_renderer_timeline_video_visible(renderer))
+        return fail();
+    // Glyphs over the bar's interior are message-layer glyphs drawn before its
+    // card, or its own labels; the video's label must be among the former.
+    const UiRect inside{pill.left + banner.style.pill_radius, pill.top + 2, pill.right - banner.style.pill_radius,
+                        pill.bottom - 2};
+    const auto& text = *renderer.content_text;
+    u32 covered = 0;
+    stage = 5;
+    for (u32 b = 0; b < text.batch_count; ++b) {
+        const auto& batch = text.batches[b];
+        for (u32 q = batch.first_quad; q < batch.first_quad + batch.quad_count && q < text.quad_count; ++q) {
+            const auto& quad = text.quads[q];
+            if (!ui_rect_has_area(ui_rect_intersection(inside, {quad.left, quad.top, quad.right, quad.bottom})))
+                continue;
+            const bool message_layer = b < renderer.timeline_text_end_batch;
+            if (!message_layer && b >= renderer.unread_banner_text_end_batch)
+                return fail();
+            covered += message_layer && b >= renderer.overlay_text_first_batch;
+        }
+    }
+    if (!covered || renderer.unread_banner_paint_end_batch < renderer.overlay_paint_first_batch)
+        return fail();
+    stage = 6;
+    ProbeTargetReadback under, alone;
+    if (!d3d11_renderer_draw_stream(&renderer, kDefaultTheme, true, true, nullptr, 10000) ||
+        probe_target_readback(renderer, &under) || (capture && !capture(L"video-status-under-older-messages-bar.bmp")))
+        return fail();
+    renderer.video_scene = nullptr;
+    stage = 7;
+    if (!renderer_rebuild_content_text(&renderer, kDefaultTheme) || !probe_present(&renderer, kDefaultTheme) ||
+        !d3d11_renderer_draw_stream(&renderer, kDefaultTheme, true, true, nullptr, 10000) ||
+        probe_target_readback(renderer, &alone) || under.width != alone.width || under.height != alone.height)
+        return fail();
+    const float scale = renderer.dpi / 96.f;
+    const u32 left = static_cast<u32>(maximum(0.f, inside.left * scale) + .99f);
+    const u32 top = static_cast<u32>(maximum(0.f, inside.top * scale) + .99f);
+    const u32 right = minimum(under.width, static_cast<u32>(maximum(0.f, inside.right * scale)));
+    const u32 bottom = minimum(under.height, static_cast<u32>(maximum(0.f, inside.bottom * scale)));
+    u32 leaked = 0;
+    for (u32 y = top; y < bottom; ++y)
+        for (u32 x = left; x < right; ++x) {
+            const auto* a = static_cast<const u8*>(under.mapped.pData) + y * under.mapped.RowPitch + x * 4;
+            const auto* b = static_cast<const u8*>(alone.mapped.pData) + y * alone.mapped.RowPitch + x * 4;
+            u32 difference = 0;
+            for (u32 channel = 0; channel < 3; ++channel)
+                difference += a[channel] > b[channel] ? a[channel] - b[channel] : b[channel] - a[channel];
+            leaked += difference > 24;
+        }
+    log_u64(LogLevel::info, "probe", "video_status_glyphs_under_bar", covered);
+    log_u64(LogLevel::info, "probe", "video_status_pixels_over_bar", leaked);
+    stage = 8;
+    if (left >= right || top >= bottom || leaked)
+        return fail();
+    log_write(LogLevel::info, "probe", "video_status_under_older_messages_bar_passed");
+    return true;
+}
 } // namespace
 bool video_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) noexcept) noexcept {
     if (renderer.login_visible || !renderer.message_scene || !renderer.content_text) {
@@ -652,6 +774,10 @@ bool video_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t
                     pc.bottom == clip.bottom;
         }
         paint_stream_release(&poster);
+    }
+    if (valid) {
+        stage = __LINE__;
+        valid = status_under_older_messages_bar(renderer, state, capture);
     }
     if (valid) {
         stage = __LINE__;
