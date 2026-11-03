@@ -575,7 +575,7 @@ bool append_embed_block(BuildContext* context, const Utf8View& source, UiTextFlo
         return true;
     if (!markdown) {
         return append_embed_plain_line(context, source, flow, left_inset, right_inset, color, owner,
-                                       measurement_index, base_style, link, link_source, 16.0f,
+                                       measurement_index, base_style, link, link_source, kMessageEmbedLineMinimum,
                                        identify_rich_source(*context, source), base_size);
     }
     MessageTextPresentation* const presentation = context->presentation;

@@ -188,7 +188,7 @@ float widest_framed(const MessageTextPresentation* presentation, u32 first, floa
 bool append_embed_plain_line(BuildContext* context, const Utf8View& text, UiTextFlowLayout* flow,
                              float left_inset, float right_inset, const Color& color,
                              const UiWidgetReference& owner, u16 measurement_index, u32 flags,
-                             const Utf8View& link, u16 link_source, float minimum_height = 16.0f,
+                             const Utf8View& link, u16 link_source, float minimum_height = kMessageEmbedLineMinimum,
                              u16 source_id = 0, u8 size = text_size_inherit) noexcept;
 bool append_embed_block(BuildContext* context, const Utf8View& source, UiTextFlowLayout* flow, float left_inset,
                         float right_inset, const Color& color, const UiWidgetReference& owner,

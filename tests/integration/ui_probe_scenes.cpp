@@ -2096,6 +2096,22 @@ bool probe_friends_scene() noexcept {
         !probe_present(&g_probe.renderer, kDefaultTheme) ||
         !probe_capture_frame(L"friends-confirmation-cancel.bmp"))
         return false;
+    // A plugin information dialog (MC_MODAL_INFO | MC_MODAL_READ_ONLY): read-only text, one Close button.
+    TextFormContent info{};
+    info.title = utf8_literal("Permissions");
+    info.context = utf8_literal("Sam in MaiCord Lounge");
+    info.label = utf8_literal("Granted");
+    info.detail = utf8_literal("View Channels\nManage Channels\nCreate Invite\nChange Nickname\nSend Messages\n"
+                               "Embed Links\nAttach Files\nAdd Reactions\nRead Message History\nConnect\nSpeak\n\n"
+                               "In general (+ adds, - removes)\n+ Manage Messages\n- Attach Files");
+    info.accept = utf8_literal("Close");
+    info.can_accept = info.focus_visible = info.confirmation_only = info.single_action = true;
+    if (!text_form_update(&form, info, viewport, &g_probe.text_measure_cache) ||
+        text_form_focused(form) != TextFormElement::accept || text_form_node(form, TextFormElement::cancel) ||
+        text_form_node(form, TextFormElement::edit) || !text_form_node(form, TextFormElement::detail) ||
+        !renderer_rebuild_content_text(&g_probe.renderer, kDefaultTheme) || surface.layout.active ||
+        !probe_present(&g_probe.renderer, kDefaultTheme) || !probe_capture_frame(L"plugin-info-dialog.bmp"))
+        return false;
     renderer_bind_text_form(&g_probe.renderer, restore.previous_form);
     text_form_surface_release(&surface);
     text_form_release(&form);
@@ -3991,6 +4007,8 @@ bool probe_message_display() noexcept {
 namespace plugin_surface_probe {
 constexpr u64 kOwner = 0x50524F4245000001ull;
 u64 g_messages[4];
+// Whether message 0 shows its accessories and card: the probe shows and hides them like a plugin answering again.
+bool g_card = true;
 
 u32 length(const char* text) noexcept {
     u32 bytes = 0;
@@ -4063,6 +4081,9 @@ bool render_query(u64 message_id, u32, UiPluginRenderDecoration* out) noexcept {
         out->name_tone = kUiPluginToneRole;
         out->badge_count = 1;
         out->badges[0] = {kOwner, 0, text("tag"), {}, {}, static_cast<u16>(UiIcon::puzzle), 2, 1};
+        // Hidden, the message keeps only its name additions: nothing else is left under it.
+        if (!g_card)
+            return true;
         out->accessory_count = 2;
         out->accessories[0] = {kOwner, 0, text("Accessory label"), {}, {}, kUiPluginRenderNoIcon, kUiPluginRenderLabel, 0};
         out->accessories[1] = {kOwner, 11, text("Accessory button"), {}, {}, kUiPluginRenderNoIcon, kUiPluginRenderButton, 0};
@@ -4096,7 +4117,9 @@ bool render_query(u64 message_id, u32, UiPluginRenderDecoration* out) noexcept {
 // Every plugin surface the scenes draw, driven by fixed queries (the runtime's own behaviour is covered by
 // MaiCordPluginSurfaceTests): server list tiles, toolbar button states, row and rail badges, the hover bar's
 // per-message buttons, and message decorations: name affixes, badges, accessories, a card, a collapsed message,
-// replaced content.
+// replaced content. The card then hides the way a plugin hides it (a new verdict revision, no geometry reset) and
+// its row returns to the exact extent it had before the card showed. Last, the first message is shown as an
+// ephemeral message, the presentation of a plugin's local message, footer included.
 bool probe_plugin_surfaces() noexcept {
     using namespace plugin_surface_probe;
     auto& scene = g_probe.message_scene;
@@ -4106,6 +4129,23 @@ bool probe_plugin_surfaces() noexcept {
         if (record && !scene.rows[i].forwarded_snapshot) g_messages[found++] = record->id;
     }
     if (found < 4) return false;
+    const auto row_of = [&](u64 id) noexcept -> const MessageSceneRowWidget* {
+        for (u32 i = 0; i < scene.count; ++i)
+            if (!scene.rows[i].forwarded_snapshot && scene.rows[i].message_id == id) return &scene.rows[i];
+        return nullptr;
+    };
+    const auto units_of = [&](u64 id) noexcept {
+        const auto* row = row_of(id);
+        return row ? ui_variable_list_item_units(*scene.timeline->list, row->source_index) : 0u;
+    };
+    const auto has_text = [&](u64 id, Utf8View part) noexcept {
+        for (u32 i = 0; i < g_probe.message_text.command_count; ++i) {
+            const MessageTextCommand& command = g_probe.message_text.commands[i];
+            for (u32 at = 0; command.message_id == id && at + part.bytes <= command.text.bytes; ++at)
+                if (bytes_equal(command.text.data + at, part.data, part.bytes)) return true;
+        }
+        return false;
+    };
     const auto saved_render = g_ui_plugin_render_query;
     const auto saved_slot = g_ui_plugin_slot_query;
     const u32 saved_surfaces = g_ui_plugin_slot_surfaces;
@@ -4115,19 +4155,22 @@ bool probe_plugin_surfaces() noexcept {
     g_ui_plugin_slot_query = slot_query;
     g_ui_plugin_slot_surfaces = ~0u;
     scene.plugin_decorations = true;
+    g_card = false;
     g_ui_plugin_render_revision = saved_revision + 1;
     message_scene_invalidate_geometry(&scene);
     const auto& rail = g_probe.guild_rail_scene;
     bool valid = synchronize_probe_shell_layout() && rebuild_probe_content_text() &&
                  probe_present(&g_probe.renderer, kDefaultTheme);
-    valid = valid && rail.plugin_top == 2 && rail.plugin_bottom == 1 && probe_capture_frame(L"plugin-surfaces.bmp");
+    const u32 bare = units_of(g_messages[0]);
+    g_card = true;
+    g_ui_plugin_render_revision = saved_revision + 2;
+    valid = valid && rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme);
+    const u32 shown = units_of(g_messages[0]);
+    valid = valid && bare && shown > bare && rail.plugin_top == 2 && rail.plugin_bottom == 1 &&
+            probe_capture_frame(L"plugin-surfaces.bmp");
     // The hover bar lists the message's plugin buttons after its own.
-    const auto* row = &scene.rows[0];
-    for (u32 i = 0; valid && i < scene.count; ++i)
-        if (const auto* record = message_store_resolve(g_probe.message_view.store, scene.rows[i].message);
-            record && record->id == g_messages[0])
-            row = &scene.rows[i];
-    const auto* record = message_store_resolve(g_probe.message_view.store, row->message);
+    const auto* row = row_of(g_messages[0]);
+    const auto* record = row ? message_store_resolve(g_probe.message_view.store, row->message) : nullptr;
     valid = valid && record &&
             message_action_bar_open(&g_probe.message_action_bar, scene, {record->id, row->widget, row->source_index}, *record).ok() &&
             renderer_bind_message_action_bar(&g_probe.renderer, &g_probe.message_action_bar) &&
@@ -4135,14 +4178,58 @@ bool probe_plugin_surfaces() noexcept {
             probe_present(&g_probe.renderer, kDefaultTheme) && probe_capture_frame(L"plugin-surfaces-hover-bar.bmp");
     message_action_bar_close(&g_probe.message_action_bar);
     renderer_bind_message_action_bar(&g_probe.renderer, nullptr);
+    // Hide: the card's space goes with it.
+    g_card = false;
+    g_ui_plugin_render_revision = saved_revision + 3;
+    valid = valid && rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
+            probe_capture_frame(L"plugin-card-hidden.bmp");
+    const u32 hidden = units_of(g_messages[0]);
+    if (hidden != bare) {
+        log_u64(LogLevel::error, "probe", "plugin_card_hidden_units", hidden);
+        log_u64(LogLevel::error, "probe", "plugin_card_bare_units", bare);
+    }
+    g_card = true;
     g_ui_plugin_render_query = saved_render;
     g_ui_plugin_slot_query = saved_slot;
     g_ui_plugin_slot_surfaces = saved_surfaces;
     scene.plugin_decorations = saved_decorations;
-    g_ui_plugin_render_revision = saved_revision + 2;
+    g_ui_plugin_render_revision = saved_revision + 4;
     message_scene_invalidate_geometry(&scene);
     const bool restored = synchronize_probe_shell_layout() && rebuild_probe_content_text() &&
                           probe_present(&g_probe.renderer, kDefaultTheme) && rail.plugin_top == 0 && rail.plugin_bottom == 0;
+    // The ephemeral presentation every local message uses: the row plus its "Only you can see this" footer, gone
+    // again (and its space with it) once the message is no longer ephemeral.
+    constexpr u32 kEphemeral = 1u << 6;
+    auto* ephemeral = const_cast<MessageRecord*>(record);
+    const u32 plain = units_of(g_messages[0]);
+    bool footer = false;
+    // The footer leads with the eye: a chip icon cell on its first character.
+    const auto has_eye = [&](u64 id) noexcept {
+        for (u32 i = 0; i < g_probe.message_text.command_count; ++i) {
+            const MessageTextCommand& command = g_probe.message_text.commands[i];
+            for (u32 s = 0; command.message_id == id && s < command.semantics.count; ++s)
+                if (command.semantics[s].kind == MessageMarkdownSemanticKind::chip_icon &&
+                    command.semantics[s].target == static_cast<u64>(MessageMarkdownChipIcon::ephemeral) &&
+                    command.semantics[s].byte_offset == 0)
+                    return true;
+        }
+        return false;
+    };
+    if (ephemeral && restored) {
+        ephemeral->flags |= kEphemeral;
+        g_ui_plugin_render_revision = saved_revision + 5;
+        message_scene_invalidate_geometry(&scene);
+        footer = rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
+                 has_text(g_messages[0], utf8_literal("Only you can see this")) &&
+                 has_text(g_messages[0], utf8_literal("Dismiss message")) && has_eye(g_messages[0]) &&
+                 units_of(g_messages[0]) > plain && probe_capture_frame(L"plugin-local-message.bmp");
+        ephemeral->flags &= ~kEphemeral;
+        g_ui_plugin_render_revision = saved_revision + 6;
+        message_scene_invalidate_geometry(&scene);
+        footer = rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) && footer &&
+                 units_of(g_messages[0]) == plain;
+    }
+    valid = valid && hidden == bare && footer;
     if (valid && restored) log_write(LogLevel::info, "probe", "plugin_surfaces_passed");
     else log_write(LogLevel::error, "probe", "plugin_surfaces_failed");
     return valid && restored;

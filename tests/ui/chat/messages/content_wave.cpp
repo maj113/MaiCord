@@ -1110,6 +1110,210 @@ void test_plugin_decorations(Check check) noexcept {
     message_scene_release(&f.scene);
 }
 
+// A card that shows, changes and hides through new verdict revisions alone (no geometry reset, as a plugin's
+// invalidate does): its row grows by the card and returns to its exact undecorated height. A plugin's local
+// message is an ephemeral message: dismissing it takes the row and its height out of the timeline.
+void test_plugin_card_collapse(Check check) noexcept {
+    auto& f = scene_fixture;
+    f = {};
+    render_users = {};
+    bool ok = message_store_initialize(&f.store, {f.record, kRows}, {f.order, kRows}, {f.text, sizeof(f.text)}) &&
+              message_rich_store_initialize(&f.rich, {f.rich_record, kRows}, {f.rich_order, kRows},
+                                            {f.rich_text, sizeof(f.rich_text)});
+    MessageInput card{};
+    card.id = 31ull << 22;
+    card.channel_id = 7;
+    card.author_id = 11;
+    card.timestamp_ms = 1'500'000'000'000ull;
+    card.content = utf8_literal("hi");
+    ok = ok && message_store_upsert(&f.store, card).ok() &&
+         ui_variable_list_initialize(&f.list, {f.heights, kRows}, {f.fenwick, kRows}, 1, ui_extent_units(57)) &&
+         message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(57), ui_extent_units(2000), false) &&
+         message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
+         message_scene_initialize_owned(&f.scene, &f.timeline, kRows, kRows, {f.widget, kWidgets}, {f.node, kWidgets}) &&
+         message_text_presentation_initialize(&f.presentation, {f.commands, 256}, {f.utf8, sizeof(f.utf8)},
+                                              {f.styles, 512}, {f.semantics, 64}, {f.measurements, kRows},
+                                              {f.spoilers, 2}, {f.byte_styles, 4096}) &&
+         ui_text_measure_cache_initialize(&f.cache, {f.cache_records, 256}, measure, nullptr);
+    for (auto& decoration : g_render_decorations)
+        decoration = {};
+    for (auto& id : g_render_ids)
+        id = 0;
+    g_render_ids[0] = card.id;
+    g_ui_plugin_render_query = render_query;
+    g_ui_plugin_render_revision = 1;
+    f.scene.plugin_decorations = true;
+    ChatStateStore state{};
+    NavigationView navigation{};
+    const auto converge = [&]() noexcept {
+        const MessageTextCoordinatorRequest request{&f.scene, &f.presentation, &f.cache, &state, nullptr,
+                                                    &navigation, &kDefaultTheme, finish, nullptr, 1, 1};
+        return message_scene_update(&f.scene, {0, 0, 700, 2000}).ok() &&
+               message_text_coordinator_converge(request).ok();
+    };
+    ok = ok && converge();
+    const u32 bare = ui_variable_list_item_units(f.list, 0);
+    auto& decoration = g_render_decorations[0];
+    decoration.has_card = true;
+    decoration.card.owner_id = 0x55;
+    decoration.card.text = utf8_literal("Hallo");
+    decoration.card.caption = utf8_literal("Translated");
+    decoration.card.buttons[0] = {77, utf8_literal("Hide"), 0};
+    decoration.card.button_count = 1;
+    ++g_ui_plugin_render_revision;
+    ok = ok && converge();
+    const u32 shown = ui_variable_list_item_units(f.list, 0);
+    check(ok && bare && shown > bare && find_command(f, card.id, utf8_literal("Hallo")),
+          "plugin_card_show_grows_its_row");
+    // A longer answer wraps to more lines: the row follows the card's new height.
+    decoration.card.text = utf8_literal("A translation long enough to wrap onto several lines of the card's text column, "
+                                        "so its row must grow past the one-line card it replaced.");
+    ++g_ui_plugin_render_revision;
+    ok = ok && converge();
+    const u32 updated = ui_variable_list_item_units(f.list, 0);
+    check(ok && updated > shown, "plugin_card_update_remeasures_its_row");
+    decoration = {};
+    ++g_ui_plugin_render_revision;
+    ok = ok && converge();
+    const auto* row = message_scene_find_row(f.scene, 0);
+    check(ok && row && ui_variable_list_item_units(f.list, 0) == bare && row->rich_layout.notice == 0.0f &&
+              row->rich_item_layout.plugin_card_height == 0.0f && !find_command(f, card.id, utf8_literal("Hallo")),
+          "plugin_card_hide_restores_the_undecorated_height");
+    // A plugin's local message: the open channel's ephemeral local notice from the local system user.
+    auto local = message_send_rejection_notice_input(7, utf8_literal("**preview** of a draft"),
+                                                     1'500'000'001'000ull, 0x1C0002u);
+    local.author_id = 1;
+    ok = ok && message_timeline_insert_local(&f.timeline, local).ok() && converge();
+    const u64 with_local = f.list.total_units;
+    const u32 local_units = ui_variable_list_item_units(f.list, 1);
+    const auto* footer = find_command(f, local.id, utf8_literal("Only you can see this"));
+    const auto* dismiss = find_command(f, local.id, utf8_literal("Dismiss message"));
+    check(ok && f.list.count == 2 && footer && dismiss && dismiss->semantics.count == 1 &&
+              dismiss->semantics[0].kind == MessageMarkdownSemanticKind::message_link &&
+              dismiss->semantics[0].target == local.id && footer->semantics.count == 1 &&
+              footer->semantics[0].kind == MessageMarkdownSemanticKind::chip_icon &&
+              footer->semantics[0].target == static_cast<u64>(MessageMarkdownChipIcon::ephemeral) &&
+              footer->semantics[0].byte_offset == 0 &&
+              test_contains(footer->text, utf8_literal("Only you can see this \xE2\x80\xA2 ")),
+          "plugin_local_message_has_the_ephemeral_footer");
+    // Dismiss message removes the local message (content_input.cpp), and its height goes with it.
+    ok = ok && message_timeline_remove_local(&f.timeline, local.id).ok() && converge();
+    check(ok && f.list.count == 1 && f.list.total_units == with_local - local_units &&
+              ui_variable_list_item_units(f.list, 0) == bare && !find_command(f, local.id, utf8_literal("preview")),
+          "plugin_local_message_dismiss_removes_it_and_its_height");
+    g_ui_plugin_render_query = nullptr;
+    g_ui_plugin_render_revision = 0;
+    message_scene_release(&f.scene);
+}
+
+// A plugin card is laid out and painted as the equivalent real embed: title, text and caption as an embed's
+// title, description and footer give the same card height and width, and the accent strip runs down the
+// card's whole height in an embed's default accent.
+void test_plugin_card_embed_geometry(Check check) noexcept {
+    auto& f = scene_fixture;
+    f = {};
+    render_users = {};
+    bool ok = message_store_initialize(&f.store, {f.record, kRows}, {f.order, kRows}, {f.text, sizeof(f.text)}) &&
+              message_rich_store_initialize(&f.rich, {f.rich_record, kRows}, {f.rich_order, kRows},
+                                            {f.rich_text, sizeof(f.rich_text)});
+    MessageInput embedded{};
+    embedded.id = 41ull << 22;
+    embedded.channel_id = 7;
+    embedded.author_id = 11;
+    embedded.timestamp_ms = 1'500'000'000'000ull;
+    embedded.content = utf8_literal("hi");
+    MessageInput carded = embedded;
+    carded.id += 1;
+    carded.author_id = 9;
+    carded.timestamp_ms += 1;
+    ok = ok && message_store_upsert(&f.store, embedded).ok() && message_store_upsert(&f.store, carded).ok();
+    const auto stored = message_store_find(f.store, embedded.id);
+    const MessageRecord* embedded_record = stored.ok() ? message_store_resolve(f.store, stored.handle) : nullptr;
+    GatewayMessageEmbed embed{};
+    embed.type = GatewayMessageEmbedType::rich;
+    embed.title = utf8_literal("Translation");
+    embed.has_title = true;
+    embed.description = utf8_literal("Hello, how are you today?");
+    embed.footer_text = utf8_literal("Translated");
+    GatewayMessageEvent event{};
+    event.id = embedded.id;
+    event.fields = gateway_message_field_embeds;
+    event.embeds = ConstSlice<GatewayMessageEmbed>{&embed, 1};
+    ok = ok && embedded_record &&
+         message_rich_store_apply(&f.rich, embedded.id, embedded_record->revision, event).ok() &&
+         ui_variable_list_initialize(&f.list, {f.heights, kRows}, {f.fenwick, kRows}, 2, ui_extent_units(57)) &&
+         message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(57), ui_extent_units(2000), false) &&
+         message_timeline_bind_rich_store(&f.timeline, &f.rich) &&
+         message_scene_initialize_owned(&f.scene, &f.timeline, kRows, kRows, {f.widget, kWidgets}, {f.node, kWidgets}) &&
+         message_text_presentation_initialize(&f.presentation, {f.commands, 256}, {f.utf8, sizeof(f.utf8)},
+                                              {f.styles, 512}, {f.semantics, 64}, {f.measurements, kRows},
+                                              {f.spoilers, 2}, {f.byte_styles, 4096}) &&
+         ui_text_measure_cache_initialize(&f.cache, {f.cache_records, 256}, measure, nullptr);
+    for (auto& decoration : g_render_decorations)
+        decoration = {};
+    for (auto& id : g_render_ids)
+        id = 0;
+    g_render_ids[0] = carded.id;
+    auto& decoration = g_render_decorations[0];
+    decoration.has_card = true;
+    decoration.card.owner_id = 0x55;
+    decoration.card.title = embed.title;
+    decoration.card.text = embed.description;
+    decoration.card.caption = embed.footer_text;
+    g_ui_plugin_render_query = render_query;
+    g_ui_plugin_render_revision = 1;
+    f.scene.plugin_decorations = true;
+    ChatStateStore state{};
+    NavigationView navigation{};
+    const MessageTextCoordinatorRequest request{&f.scene, &f.presentation, &f.cache, &state, nullptr,
+                                                &navigation, &kDefaultTheme, finish, nullptr, 1, 1};
+    ok = ok && message_scene_update(&f.scene, {0, 0, 700, 2000}).ok() &&
+         message_text_coordinator_converge(request).ok();
+    const auto* embed_row = message_scene_find_row(f.scene, 0);
+    const auto* card_row = message_scene_find_row(f.scene, 1);
+    const float embed_height = embed_row ? embed_row->rich_item_layout.heights[kMessageSceneEmbedItemOffset] -
+                                               kMessageEmbedItemGap
+                                         : 0.0f;
+    const float card_height = card_row ? card_row->rich_item_layout.plugin_card_height : 0.0f;
+    const float card_width = card_row ? card_row->rich_item_layout.plugin_card_width : 0.0f;
+    check(ok && embed_row && card_row && embed_height > 0.0f && card_height == embed_height &&
+              card_width > 0.0f && card_width < kMessageEmbedMaximumWidth &&
+              card_width == embed_row->rich_item_layout.embed_widths[0] &&
+              card_row->rich_layout.notice == card_height + kMessageEmbedItemGap,
+          "plugin_card_lays_out_as_the_equivalent_embed");
+    const auto* title = find_command(f, carded.id, utf8_literal("Translation"));
+    const auto* footer = find_command(f, carded.id, utf8_literal("Translated"));
+    check(title && footer && title->styles.count == 1 && title->styles[0].size == text_size_md &&
+              footer->styles.count == 1 && footer->styles[0].size == text_size_xs &&
+              (footer->styles[0].flags & text_style_subtext),
+          "plugin_card_parts_take_the_embed_part_type");
+    PaintStream paint{};
+    MessageMediaCommand media_storage[64];
+    MessageMediaCommandStream media{};
+    MessagePresentationResult painted{};
+    ok = ok && paint_stream_initialize(&paint) && paint_stream_reset(&paint, 800, 2000) &&
+         message_media_command_stream_initialize(&media, {media_storage, 64}) &&
+         message_presentation_build(f.scene, kDefaultTheme, &paint, &media, &painted);
+    const UiLayoutNode* notice = card_row ? message_scene_layout_node(f.scene, card_row->notice) : nullptr;
+    const float card_top = notice ? notice->content_rectangle.top + card_row->rich_item_layout.plugin_card_top : 0.0f;
+    const PaintQuad* strips[2]{};
+    u32 strip_count = 0;
+    for (u32 i = 0; ok && i < paint.count; ++i)
+        if (paint.quads[i].border_width == kPaintEdgeStripMode && strip_count < 2)
+            strips[strip_count++] = &paint.quads[i];
+    // The embed's strip comes first (rows paint in order), then the card's.
+    check(ok && notice && strip_count == 2 && strips[1]->top == card_top &&
+              strips[1]->bottom == card_top + card_height && strips[1]->reserved_x == card_width &&
+              strips[0]->bottom - strips[0]->top == strips[1]->bottom - strips[1]->top &&
+              strips[0]->reserved_x == strips[1]->reserved_x && strips[0]->radius == strips[1]->radius &&
+              bytes_equal(&strips[0]->fill, &strips[1]->fill, sizeof(Color)),
+          "plugin_card_accent_strip_spans_the_card_like_an_embed");
+    paint_stream_release(&paint);
+    g_ui_plugin_render_query = nullptr;
+    g_ui_plugin_render_revision = 0;
+    message_scene_release(&f.scene);
+}
+
 // Compact display: a timestamp column sized by the clock shape, the name on
 // every row, timestamps on a group start and, for the rest, on hover only.
 const MessageTextCommand* command_of(const SceneFixture& f, u64 message_id, UiWidgetHandle owner) noexcept {
@@ -1243,6 +1447,8 @@ void test_message_content_wave(Check check) noexcept {
     test_invite_cache(check);
     test_presentation(check);
     test_plugin_decorations(check);
+    test_plugin_card_collapse(check);
+    test_plugin_card_embed_geometry(check);
     test_compact_display(check);
 }
 

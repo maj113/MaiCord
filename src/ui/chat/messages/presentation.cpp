@@ -102,8 +102,15 @@ bool push_outline_tint(PaintStream* paint, const UiRect& rectangle, const Theme&
                              ui_theme_color_alpha({outline.red, outline.green, outline.blue, 1}, alpha));
 }
 
-// A plugin card's panel and accent bar, placed where the text pass put the card (the notice container's
-// top plus the offset it recorded) and as tall as it measured.
+// An embed's chrome: the card material and the accent strip down its whole leading edge, following its corners.
+bool push_embed_card(PaintStream* paint, const UiRect& card, const Theme& theme, const Color& accent) noexcept {
+    const float radius = theme.scale.radius_sm;
+    return push_card(paint, card, theme, radius, UiBackgroundTier::low) &&
+           paint_stream_push_edge_strip(paint, card, kMessageEmbedAccentWidth, accent, radius);
+}
+
+// A plugin card is painted as an embed, where the text pass put it (the notice container's top plus the offset it
+// recorded) and as tall and wide as it measured; the card's tone is the accent, else an embed's default accent.
 bool append_plugin_card(const MessageScene& scene, const MessageSceneRowWidget& row, const MessageRecord& record,
                         const Theme& theme, const UiRect& row_clip, PaintStream* paint) noexcept {
     const float height = row.rich_item_layout.plugin_card_height;
@@ -117,16 +124,15 @@ bool append_plugin_card(const MessageScene& scene, const MessageSceneRowWidget& 
         return false;
     const UiRect region = notice->content_rectangle;
     const float top = region.top + row.rich_item_layout.plugin_card_top;
-    const UiRect card{region.left, top, region.left + minimum(ui_rect_width(region), kMessagePluginCardMaximumWidth),
+    const float width = row.rich_item_layout.plugin_card_width;
+    const UiRect card{region.left, top,
+                      minimum(region.right, region.left + (width > 0.0f ? width : kMessageEmbedMaximumWidth)),
                       top + height};
     if (!ui_rect_intersects(card, row_clip))
         return true;
-    const UiRect bar{card.left, card.top + 6.0f, card.left + kMessagePluginCardBar, card.bottom - 6.0f};
-    return push_card(paint, card, theme, 8.0f, UiBackgroundTier::low) &&
-           paint_stream_push_rounded(paint, bar,
-                                     decoration->card.tone ? ui_icon_role_color(theme, ui_plugin_slot_role(decoration->card.tone))
-                                                           : ui_background_line_color(theme),
-                                     kMessagePluginCardBar * 0.5f);
+    const u8 tone = decoration->card.tone;
+    return push_embed_card(paint, card, theme,
+                           tone ? ui_icon_role_color(theme, ui_plugin_slot_role(tone)) : theme.interactive);
 }
 
 // Invite card chrome and the server icon (fetched by URL like profile art).
@@ -543,17 +549,13 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                           minimum(item_layout->rectangle.right,
                                   left + (measured_width > 0 ? measured_width : kMessageEmbedMaximumWidth)),
                           bottom};
-        const float card_radius = theme.scale.radius_sm;
         const MessageRichEmbed& embed = rich->embeds[index];
         // Embed colors are RGB payload data, not a request for the theme accent.
         // Explicit black (color = 0) is distinct from an absent color.
         const Color accent_color = embed.has_color ? color_from_rgb24(embed.color) : theme.interactive;
         const bool media_only = message_rich_embed_media_only(rich->embeds[index]);
-        if (!media_only && (!push_card(paint, card, theme, card_radius, UiBackgroundTier::low) ||
-                            !paint_stream_push_edge_strip(paint, card, kMessageEmbedAccentWidth, accent_color,
-                                                          card_radius))) {
+        if (!media_only && !push_embed_card(paint, card, theme, accent_color))
             return false;
-        }
         MessageRichEmbedMediaSelection selected{};
         float thumb_width = 0, thumb_height = 0;
         if (record &&

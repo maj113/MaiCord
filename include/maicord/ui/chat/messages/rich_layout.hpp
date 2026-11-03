@@ -23,10 +23,6 @@ inline constexpr u32 kMessageRichItemMaximum = kMessageRichInviteItemOffset + kM
 inline constexpr float kMessageInviteCardHeight = 106.0f;
 inline constexpr float kMessageInviteCardMaximumWidth = 432.0f;
 inline constexpr float kMessageInviteCardGap = 8.0f;
-// A plugin card (a decoration's card under the message): at most this wide, text inset past a 4-DIP accent bar.
-inline constexpr float kMessagePluginCardMaximumWidth = 432.0f;
-inline constexpr float kMessagePluginCardBar = 4.0f;
-inline constexpr float kMessagePluginCardInset = 14.0f;
 inline constexpr float kDefaultMessageRichBlockGapDips = 8.0f;
 // Thread starter card below the reactions: name line and a metadata line.
 inline constexpr float kMessageThreadCardGapDips = 6.0f;
@@ -108,9 +104,9 @@ struct MessageRichItemLayout {
     // Measured width of the reply preview line (avatar gap excluded); paint
     // puts the trailing attachment/sticker/command/voice icon after it.
     float reply_width;
-    // A plugin card at the start of the notice container: where it starts (below a truncation notice) and how
-    // tall it is, 0 for none. The text pass measures it and paint draws its panel.
-    float plugin_card_top, plugin_card_height;
+    // A plugin card at the start of the notice container, laid out and painted as an embed: where it starts (below
+    // a truncation notice), how tall and how wide it is, 0 for none. The text pass measures it and paint draws it.
+    float plugin_card_top, plugin_card_height, plugin_card_width;
 };
 
 // Reply preview: the text starts after the 16-DIP avatar and
@@ -148,6 +144,9 @@ inline constexpr float kMessageEmbedFooterIcon = 20.0f;
 inline constexpr float kMessageEmbedIconGap = 8.0f;
 // The item rectangle includes this gap below the card.
 inline constexpr float kMessageEmbedItemGap = 6.0f;
+// A plain text line is at least this tall (one line until it is measured); a measured card is at least this wide.
+inline constexpr float kMessageEmbedLineMinimum = 16.0f;
+inline constexpr float kMessageEmbedMinimumWidth = 64.0f;
 // Space above the first block's 8-DIP margin.
 constexpr float message_rich_embed_top_inset(bool components) noexcept {
     return components ? kMessageEmbedContainerInset - kMessageEmbedBlockGap : kMessageEmbedTopInset;

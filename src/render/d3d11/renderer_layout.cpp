@@ -83,6 +83,7 @@ UiIcon chip_ui_icon(MessageMarkdownChipIcon icon) noexcept {
     case MessageMarkdownChipIcon::forward: return UiIcon::forwarded;
     case MessageMarkdownChipIcon::pending_dots: return UiIcon::ellipsis;
     case MessageMarkdownChipIcon::failed: return UiIcon::circle_x;
+    case MessageMarkdownChipIcon::ephemeral: return UiIcon::eye;
     default: return UiIcon::channel;
     }
 }
@@ -128,6 +129,7 @@ bool paint_chip_icons(D3D11Renderer* renderer, const Theme& theme, bool search) 
         const Color color = icon == MessageMarkdownChipIcon::forward || icon == MessageMarkdownChipIcon::pending_dots
                                 ? plain
                             : icon == MessageMarkdownChipIcon::failed ? ui_foreground_color(theme, theme.tokens.text.danger)
+                            : icon == MessageMarkdownChipIcon::ephemeral ? ui_foreground_color(theme, theme.text_secondary)
                             : (semantic.reserved & kMessageMarkdownChipHovered) ? theme.tokens.emphasis.text
                                                                                  : normal;
         if (icon == MessageMarkdownChipIcon::pending_dots) {
@@ -977,6 +979,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         renderer->profile_foreground_first_batch = base;
         renderer->menu_paint_first_batch = base;
         renderer->overlay_paint_first_batch = base;
+        renderer->unread_banner_paint_end_batch = base;
         renderer->edit_overlay_paint_first_batch = base;
         renderer->form_paint_first_batch = base;
         renderer->forum_paint_end_batch = base;
@@ -1438,6 +1441,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     if (d3d11_renderer_unread_banner_visible(*renderer) &&
         !ui_unread_banner_paint(*renderer->unread_banner_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
+    // Its labels draw here (renderer_draw), under the panels that follow.
+    renderer->unread_banner_paint_end_batch = paint_stream_seal(&renderer->paint_stream);
     const u32 pins_paint_first = renderer->paint_stream.count;
     if (d3d11_renderer_pinned_messages_visible(*renderer) &&
         !ui_pinned_messages_scene_paint(*renderer->pinned_messages_scene, theme, &renderer->paint_stream))
@@ -1691,10 +1696,12 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                                             &renderer->media_picker_edit_geometry, &popup_edit, renderer->dpi))
             return layout_step_failed(__LINE__);
     }
-    if (d3d11_renderer_audio_scene_visible(*renderer) &&
+    // Search, pins and forward copies of inline controls ride their surface;
+    // timeline ones painted with the message media (build_timeline_media).
+    if (d3d11_renderer_audio_scene_visible(*renderer) && !d3d11_renderer_timeline_audio_visible(*renderer) &&
         !ui_audio_scene_paint(*renderer->audio_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
-    if (d3d11_renderer_poll_scene_visible(*renderer) &&
+    if (d3d11_renderer_poll_scene_visible(*renderer) && !d3d11_renderer_timeline_poll_visible(*renderer) &&
         !ui_poll_scene_paint(*renderer->poll_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
     if (d3d11_renderer_poll_voters_visible(*renderer) &&

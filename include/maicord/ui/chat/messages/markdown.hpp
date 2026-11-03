@@ -65,6 +65,8 @@ enum class MessageMarkdownChipIcon : u8 {
     // failed or unanswered (critical colour).
     pending_dots,
     failed,
+    // The ephemeral footer's leading eye, in the footer's muted colour.
+    ephemeral,
     count,
 };
 

@@ -204,10 +204,11 @@ bool append_obscure_label(MessageTextPresentation* presentation, MessageMediaObs
 }
 
 namespace {
-// Message annotations below the content: the ephemeral footer ("Only
-// you can see this · Dismiss message") and the failed-interaction notice.
-// They extend the notice item, after any truncation notice. Plugin decoration
-// accessories (labels, buttons, links) follow as one wrapping row.
+// Message annotations below the content: a plugin card (an embed), the
+// failed-interaction notice and the ephemeral footer (an eye, "Only you can
+// see this \u2022 Dismiss message"). They extend the notice item, after any
+// truncation notice. Plugin decoration accessories (labels, buttons, links)
+// follow as one wrapping row.
 constexpr float kAnnotationLineHeight = 20.0f;
 bool append_plugin_accessories(MessageTextPresentation* presentation, const UiPluginRenderDecoration& decoration,
                                const UiRect& region, const UiRect& row_clip, const UiWidgetReference& owner,
@@ -271,29 +272,36 @@ bool append_plugin_accessories(MessageTextPresentation* presentation, const UiPl
     return true;
 }
 
-// A plugin card at the head of the notice container: an accent bar (painted from the card's height), then the
-// title, the wrapped text, the caption and up to two buttons, left-aligned in a column at most 432 DIPs wide.
-// The text's height is the previous pass's measurement, like every wrapped block; the pass after a change
-// settles it. *top moves past the card; *height receives the card's own height.
-constexpr float kCardTitleLine = 22.0f, kCardCaptionLine = 18.0f, kCardButtonLine = 26.0f, kCardTextLine = 20.0f,
-                kCardTextMaximum = 100.0f, kCardPadding = 10.0f, kCardButtonGap = 16.0f, kCardGapAfter = 4.0f;
+// A plugin card is an embed (rich_layout.hpp's embed geometry; presentation.cpp paints the same chrome): the title
+// is its title (a link when the card has one), the text its description and the caption its footer, which the
+// buttons follow as link-style actions, " \u2022 " apart. Every part measures against the embed's widest text column,
+// so no measurement depends on the card's own width; the card then narrows to its widest line as an embed does.
+// *top moves past the card and the embed item gap; *height and *width receive the card's own extent.
 bool append_plugin_card(MessageTextPresentation* presentation, const UiPluginRenderCard& card, const UiRect& region,
                         const UiRect& row_clip, const UiWidgetReference& owner, const Theme& theme,
-                        const MessageRecord& record, u16 measurement_index, float* top, float* height) noexcept {
-    const float width = minimum(ui_rect_width(region), kMessagePluginCardMaximumWidth);
-    const float left = region.left + kMessagePluginCardInset;
-    const float inner = maximum(1.0f, width - kMessagePluginCardInset - kCardPadding);
+                        const MessageRecord& record, u16 measurement_index, float* top, float* height,
+                        float* width) noexcept {
+    constexpr float insets = kMessageEmbedContentInset + kMessageEmbedEndInset;
+    const float widest = minimum(ui_rect_width(region), kMessageEmbedMaximumWidth);
+    const float column = maximum(1.0f, widest - insets);
+    const float left = region.left + kMessageEmbedContentInset;
+    const UiRect clip =
+        ui_rect_intersection(row_clip, {region.left, row_clip.top, region.left + widest, row_clip.bottom});
+    const Color muted = ui_background_muted_text_color(theme);
     const float begin = *top;
-    float y = begin + kCardPadding;
-    const auto append = [&](Utf8View text, u32 style, u64 target, UiRect rectangle, Color color, u8 slot, bool wrap,
-                            MessageTextCommand** placed) noexcept {
-        if (!text.bytes) return true;
-        if ((style && presentation->style_count >= presentation->styles.count) ||
+    float y = begin + kMessageEmbedTopInset, natural = 0.0f;
+    bool measured = true;
+    // One part at (x, y), as wide as the text column; null when the row has no room for text.
+    const auto append = [&](Utf8View text, u32 style, u8 size, u64 target, float x, const Color& color, u8 slot,
+                            bool wrap, MessageTextCommand** placed) noexcept {
+        *placed = nullptr;
+        if (!text.bytes || !ui_rect_has_area(clip))
+            return true;
+        if (presentation->style_count >= presentation->styles.count ||
             (target && presentation->semantic_count >= presentation->semantics.count))
             return fail(presentation, MessageTextPresentationError::capacity);
-        // Plain text carries no span: a span without a flag is not a style.
-        TextStyleSpan* span = style ? presentation->styles.data + presentation->style_count++ : nullptr;
-        if (span) *span = {0, text.bytes, style};
+        TextStyleSpan* span = presentation->styles.data + presentation->style_count++;
+        *span = {0, text.bytes, style, size};
         ConstSlice<MessageMarkdownSemantic> semantics{};
         if (target) {
             MessageMarkdownSemantic* semantic = presentation->semantics.data + presentation->semantic_count++;
@@ -301,65 +309,81 @@ bool append_plugin_card(MessageTextPresentation* presentation, const UiPluginRen
                          MessageMarkdownSemanticKind::link, 0};
             semantics = {semantic, 1};
         }
-        const UiRect clip = ui_rect_intersection(row_clip, rectangle);
         const u32 before = presentation->command_count;
-        if (!ui_rect_has_area(clip)) return true;
-        if (!append_command(presentation, text, {span, span ? 1u : 0u}, semantics, owner, rectangle, clip, color, &record,
-                            measurement_index,
+        if (!append_command(presentation, text, {span, 1}, semantics, owner, line_rectangle(x, y, column), clip, color,
+                            &record, measurement_index,
                             {.kind = MessageTextMeasurementKind::notice,
                              .themed = (style & text_style_link) != 0,
-                             .vertical = wrap ? UiTextAlignment::start : UiTextAlignment::center,
                              .wrapping = wrap ? TextWrapping::wrap : TextWrapping::no_wrap,
                              .slot = slot,
                              .overflow = wrap ? TextOverflow::clip : TextOverflow::ellipsis,
                              .source_id = kUiPluginRenderGeneratedSource}))
             return false;
         *placed = &presentation->commands[before];
+        measured = measured && (*placed)->measured_height > 0.0f;
         return true;
+    };
+    // A block below the embed's margin: its measured height (one line until measured) and its width.
+    const auto block = [&](const MessageTextCommand* placed) noexcept {
+        y += maximum(placed ? placed->measured_height : 0.0f, kMessageEmbedLineMinimum);
+        natural = maximum(natural, (placed ? placed->measured_width : 0.0f) + insets);
     };
     MessageTextCommand* command = nullptr;
     if (card.title.bytes) {
         const bool link = card.link.bytes != 0;
-        if (!append(card.title, link ? text_style_bold | text_style_link : text_style_bold,
-                    link ? kUiPluginRenderCardLinkTarget : 0, {left, y, left + inner, y + kCardTitleLine},
-                    link ? theme.tokens.text.link : theme.text_primary, 16, false, &command))
+        y += kMessageEmbedBlockGap;
+        if (!append(card.title, link ? text_style_bold | text_style_link : text_style_bold, text_size_md,
+                    link ? kUiPluginRenderCardLinkTarget : 0, left, link ? theme.tokens.text.link : theme.text_primary,
+                    16, true, &command))
             return false;
-        y += kCardTitleLine;
+        block(command);
     }
     if (card.text.bytes) {
-        command = nullptr;
-        // Clipped to kCardTextMaximum even when the shaped text is taller; an unmeasured block assumes one line.
-        if (!append(card.text, 0, 0, {left, y, left + inner, y + 4'096.0f}, theme.text_primary, 17, true, &command))
+        y += kMessageEmbedBlockGap;
+        if (!append(card.text, text_style_none, text_size_sm, 0, left, theme.text_primary, 17, true, &command))
             return false;
-        const float measured = command ? command->measured_height : 0.0f;
-        const float block = minimum(maximum(measured, kCardTextLine), kCardTextMaximum);
-        if (command) command->clip.bottom = minimum(command->clip.bottom, y + block);
-        y += block;
+        block(command);
     }
-    if (card.caption.bytes) {
-        if (!append(card.caption, text_style_subtext, 0, {left, y, left + inner, y + kCardCaptionLine},
-                    ui_background_muted_text_color(theme), 18, false, &command))
-            return false;
-        y += kCardCaptionLine;
-    }
-    if (card.button_count) {
-        float x = left;
-        y += 4.0f;
-        for (u32 i = 0; i < card.button_count && i < kUiPluginRenderCardButtons; ++i) {
-            const UiPluginRenderCardButton& button = card.buttons[i];
-            command = nullptr;
-            if (!append(button.label, text_style_bold, kUiPluginRenderCardTarget + i,
-                        {x, y, x + maximum(1.0f, left + inner - x), y + kCardButtonLine},
-                        ui_icon_role_color(theme, ui_plugin_slot_role(button.tone ? button.tone : 1)),
-                        static_cast<u8>(19 + i), false, &command))
+    // The footer row: the caption, then each button after a separator, wrapping before a part that would cross the
+    // column's end (each part's width is the previous pass's measurement).
+    const u32 buttons = minimum(card.button_count, kUiPluginRenderCardButtons);
+    if (card.caption.bytes || buttons) {
+        y += kMessageEmbedBlockGap;
+        float x = left, line = 0.0f;
+        const auto part = [&](Utf8View text, u32 style, u64 target, const Color& color, u8 slot) noexcept {
+            if (!append(text, style, text_size_xs, target, x, color, slot, false, &command))
                 return false;
-            x += (command ? command->measured_width : 0.0f) + kCardButtonGap;
+            const float part_width = command ? command->measured_width : 0.0f;
+            if (command && x > left && x + part_width > left + column) {
+                y += maximum(line, kMessageEmbedLineMinimum);
+                x = left;
+                line = 0.0f;
+                command->rectangle = line_rectangle(x, y, column);
+            }
+            x += part_width;
+            line = maximum(line, command ? command->measured_height : 0.0f);
+            natural = maximum(natural, x - region.left + kMessageEmbedEndInset);
+            return true;
+        };
+        if (!part(card.caption, text_style_subtext, 0, muted, 18))
+            return false;
+        for (u32 i = 0; i < buttons; ++i) {
+            const UiPluginRenderCardButton& button = card.buttons[i];
+            const u8 slot = static_cast<u8>(19 + 2 * i);
+            const Color color =
+                button.tone ? ui_icon_role_color(theme, ui_plugin_slot_role(button.tone)) : theme.tokens.text.link;
+            if ((x > left && !part(utf8_literal(" \xE2\x80\xA2 "), text_style_subtext, 0, muted, slot)) ||
+                !part(button.label, text_style_subtext | text_style_link, kUiPluginRenderCardTarget + i, color,
+                      static_cast<u8>(slot + 1)))
+                return false;
         }
-        y += kCardButtonLine;
+        y += maximum(line, kMessageEmbedLineMinimum);
     }
-    y += kCardPadding;
+    y += kMessageEmbedBottomInset;
     *height = y - begin;
-    *top = y + kCardGapAfter;
+    // Unmeasured text keeps the widest card until the pass that measures it, as an embed does.
+    *width = measured ? minimum(widest, maximum(kMessageEmbedMinimumWidth, natural)) : widest;
+    *top = y + kMessageEmbedItemGap;
     return true;
 }
 } // namespace
@@ -379,8 +403,13 @@ bool append_annotations(MessageTextPresentation* presentation, const MessageScen
                         const MessageSceneRowWidget& row, const MessageRecord& record, const Theme& theme,
                         const UiRect& row_clip, u16 measurement_index, bool forwarded, float offset,
                         const UiPluginRenderDecoration* decoration) noexcept {
-    // The card's height is measured below; it is 0 again whenever nothing paints a card.
-    presentation->measurements[measurement_index].rich_item_layout.plugin_card_height = 0.0f;
+    // The notice item is measured again from what this pass shows. Nothing shown leaves only the truncation notice
+    // (offset): an annotation that went away (a card hidden, an ephemeral message no longer) takes its space along,
+    // instead of the row keeping the height its previous pass measured.
+    auto& measured = presentation->measurements[measurement_index];
+    measured.rich_item_layout.plugin_card_top = 0.0f;
+    measured.rich_item_layout.plugin_card_height = 0.0f;
+    measured.rich_item_layout.plugin_card_width = 0.0f;
     if (forwarded)
         return true;
     // A failure on a control shows under its action row instead.
@@ -389,8 +418,11 @@ bool append_annotations(MessageTextPresentation* presentation, const MessageScen
     const bool ephemeral = (record.flags & kMessageFlagEphemeral) != 0;
     const bool accessories = decoration && decoration->accessory_count;
     const bool card = decoration && decoration->has_card;
-    if (!failed && !ephemeral && !accessories && !card)
+    if (!failed && !ephemeral && !accessories && !card) {
+        measured.rich_item_layout.heights[kMessageSceneNoticeItemOffset] = offset;
+        measured.rich_layout.notice = offset;
         return true;
+    }
     const UiLayoutNode* notice = message_scene_layout_node(scene, row.notice);
     if (!notice)
         return fail(presentation, MessageTextPresentationError::layout);
@@ -398,13 +430,11 @@ bool append_annotations(MessageTextPresentation* presentation, const MessageScen
     float top = region.top + offset;
     const UiWidgetReference owner{&scene.widgets, row.notice};
     if (card) {
-        float card_height = 0.0f;
-        if (!append_plugin_card(presentation, decoration->card, region, row_clip, owner, theme, record,
-                                measurement_index, &top, &card_height))
-            return false;
-        auto& items = presentation->measurements[measurement_index].rich_item_layout;
+        auto& items = measured.rich_item_layout;
         items.plugin_card_top = offset;
-        items.plugin_card_height = card_height;
+        if (!append_plugin_card(presentation, decoration->card, region, row_clip, owner, theme, record,
+                                measurement_index, &top, &items.plugin_card_height, &items.plugin_card_width))
+            return false;
     }
     if (failed) {
         const UiRect line{region.left, top, maximum(region.left + 1.0f, region.right), top + kAnnotationLineHeight};
@@ -416,19 +446,24 @@ bool append_annotations(MessageTextPresentation* presentation, const MessageScen
         top += kAnnotationLineHeight;
     }
     if (ephemeral) {
-        // Two measured commands: the muted notice, then the dismiss link placed
-        // after its shaped width ("Only you can see this · Dismiss message").
-        const auto notice_text = utf8_literal("Only you can see this \xC2\xB7 ");
+        // Two measured commands: the muted notice after its eye icon, then the dismiss link placed after the
+        // notice's shaped width ("Only you can see this \u2022 Dismiss message"). The icon cell is an EM SPACE, a
+        // 4-DIP gap and a joiner, as the status icons and link chips have.
+        const auto notice_text =
+            utf8_literal("\xE2\x80\x83\xE2\x80\x85\xE2\x80\x8DOnly you can see this \xE2\x80\xA2 ");
         const auto dismiss_text = utf8_literal("Dismiss message");
         if (presentation->style_count + 2 > presentation->styles.count ||
-            presentation->semantic_count >= presentation->semantics.count)
+            presentation->semantic_count + 2 > presentation->semantics.count)
             return fail(presentation, MessageTextPresentationError::capacity);
         const UiRect line{region.left, top, maximum(region.left + 1.0f, region.right), top + kAnnotationLineHeight};
         if (ui_rect_has_area(ui_rect_intersection(line, row_clip))) {
             // The footer is set in the small muted type.
             TextStyleSpan* small = presentation->styles.data + presentation->style_count++;
             *small = {0, notice_text.bytes, text_style_subtext};
-            if (!append_command(presentation, notice_text, {small, 1}, kNoSemantics, owner, line, row_clip,
+            MessageMarkdownSemantic* eye = presentation->semantics.data + presentation->semantic_count++;
+            *eye = {static_cast<u64>(MessageMarkdownChipIcon::ephemeral), 0, 3, 0, 0,
+                    MessageMarkdownSemanticKind::chip_icon, 0};
+            if (!append_command(presentation, notice_text, {small, 1}, {eye, 1}, owner, line, row_clip,
                                 ui_background_muted_text_color(theme), &record,
                                 measurement_index, kLookNotice))
                 return false;
@@ -451,7 +486,6 @@ bool append_annotations(MessageTextPresentation* presentation, const MessageScen
     if (accessories && !append_plugin_accessories(presentation, *decoration, region, row_clip, owner, theme, record,
                                                   measurement_index, &top))
         return false;
-    auto& measured = presentation->measurements[measurement_index];
     measured.rich_item_layout.heights[kMessageSceneNoticeItemOffset] = top - region.top;
     measured.rich_layout.notice = measured.rich_item_layout.heights[kMessageSceneNoticeItemOffset];
     return true;
@@ -1098,7 +1132,8 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
             natural_width = maximum(natural_width, media_width + (media_only ? 0 : text_insets) +
                                                        (gallery.count ? thumbnail_inset : 0.0f));
             if (measured && retained_width <= 0)
-                measured_items.embed_widths[index] = minimum(maximum_width, maximum(64.f, natural_width));
+                measured_items.embed_widths[index] =
+                    minimum(maximum_width, maximum(kMessageEmbedMinimumWidth, natural_width));
             if (!finish_flow(
                     presentation, flow,
                     &presentation->measurements[measurement_index].rich_item_layout.heights[slot])) {
